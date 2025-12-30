@@ -59,5 +59,6 @@ pub fn main() !void {
     }
 
     var interpreter = Interpreter.init(allocator, &parser);
+    defer interpreter.deinit();
     _ = interpreter.eval(ast);
 }

@@ -25,3 +25,10 @@ test "Value.integer() handles negative integers" {
     try std.testing.expect(int_value.frozen == true);
     try std.testing.expect(int_value.data.integer == -123);
 }
+
+test "Value.symbol() creates frozen symbol" {
+    const test_symbol = "hello";
+    const sym_value = Value.symbol(test_symbol);
+    try std.testing.expect(sym_value.frozen == true);
+    try std.testing.expectEqualSlices(u8, sym_value.data.symbol, test_symbol);
+}

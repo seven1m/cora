@@ -79,3 +79,58 @@ test "Interpreter evaluates puts with integer" {
 
     try std.testing.expectEqualSlices(u8, string_writer.getOutput(), "42\n");
 }
+
+test "Interpreter evaluates puts with symbol" {
+    const allocator = std.testing.allocator;
+
+    var string_writer = StringWriter.init(allocator);
+    defer string_writer.deinit();
+
+    const ruby_code = "puts :world";
+
+    var parser: prism.pm_parser_t = undefined;
+    prism.pm_parser_init(&parser, ruby_code.ptr, ruby_code.len, null);
+    defer prism.pm_parser_free(&parser);
+
+    const ast = prism.pm_parse(&parser);
+    if (ast == null) {
+        return;
+    }
+    defer prism.pm_node_destroy(null, ast);
+
+    var interpreter = Interpreter.initWithWriter(allocator, &parser, createOutputWriter(&string_writer));
+    _ = interpreter.eval(ast);
+    defer interpreter.deinit();
+
+    try std.testing.expectEqualSlices(u8, string_writer.getOutput(), "world\n");
+}
+
+test "Symbols are interned" {
+    const allocator = std.testing.allocator;
+
+    var parser: prism.pm_parser_t = undefined;
+    prism.pm_parser_init(&parser, ":foo; :foo", 10, null);
+    defer prism.pm_parser_free(&parser);
+
+    const ast = prism.pm_parse(&parser);
+    if (ast == null) {
+        return;
+    }
+    defer prism.pm_node_destroy(null, ast);
+
+    var interpreter = Interpreter.init(allocator, &parser);
+    defer interpreter.deinit();
+
+    const program = @as(*prism.pm_program_node_t, @ptrCast(ast));
+    const statements = @as(*prism.pm_statements_node_t, @ptrCast(program.statements));
+
+    const value1 = interpreter.eval(statements.body.nodes[0]);
+    const ptr1 = value1.data.symbol.ptr;
+
+    const value2 = interpreter.eval(statements.body.nodes[1]);
+    const ptr2 = value2.data.symbol.ptr;
+
+    try std.testing.expect(ptr1 == ptr2);
+    try std.testing.expectEqualSlices(u8, value1.data.symbol, "foo");
+    try std.testing.expectEqualSlices(u8, value2.data.symbol, "foo");
+}

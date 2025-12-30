@@ -32,6 +32,7 @@ pub const Interpreter = struct {
     allocator: std.mem.Allocator,
     parser: *prism.pm_parser_t,
     output_writer: OutputWriter,
+    symbols: std.StringHashMap(void),
 
     pub fn init(allocator: std.mem.Allocator, parser: *prism.pm_parser_t) @This() {
         return initWithWriter(allocator, parser, defaultOutputWriter());
@@ -42,7 +43,16 @@ pub const Interpreter = struct {
             .allocator = allocator,
             .parser = parser,
             .output_writer = output_writer,
+            .symbols = std.StringHashMap(void).init(allocator),
         };
+    }
+
+    pub fn deinit(self: *Interpreter) void {
+        var it = self.symbols.keyIterator();
+        while (it.next()) |key_ptr| {
+            self.allocator.free(key_ptr.*);
+        }
+        self.symbols.deinit();
     }
 
     pub fn eval(self: *Interpreter, node: *prism.pm_node_t) Value {
@@ -80,6 +90,19 @@ pub const Interpreter = struct {
                 result = -result;
             }
             return Value.integer(result);
+        }
+
+        if (node_type == prism.PM_SYMBOL_NODE) {
+            const symbol_node = @as(*prism.pm_symbol_node_t, @ptrCast(node));
+            const symbol_str = symbol_node.unescaped.source[0..symbol_node.unescaped.length];
+
+            if (self.symbols.getEntry(symbol_str)) |entry| {
+                return Value.symbol(entry.key_ptr.*);
+            }
+
+            const interned = self.allocator.dupe(u8, symbol_str) catch "";
+            self.symbols.put(interned, {}) catch {};
+            return Value.symbol(interned);
         }
 
         if (node_type == prism.PM_CALL_NODE) {
@@ -123,6 +146,10 @@ pub const Interpreter = struct {
                     var buffer: [64]u8 = undefined;
                     const int_str = std.fmt.bufPrint(&buffer, "{d}", .{int}) catch "";
                     self.output_writer.write(int_str);
+                    self.output_writer.write("\n");
+                },
+                .symbol => |sym| {
+                    self.output_writer.write(sym);
                     self.output_writer.write("\n");
                 },
                 .nil => {

@@ -4,6 +4,7 @@ pub const Value = struct {
         string: []const u8,
         integer: i64,
         nil: void,
+        symbol: []const u8,
     },
 
     pub fn nil() Value {
@@ -16,5 +17,9 @@ pub const Value = struct {
 
     pub fn integer(value: i64) Value {
         return Value{ .frozen = true, .data = .{ .integer = value } };
+    }
+
+    pub fn symbol(str: []const u8) Value {
+        return Value{ .frozen = true, .data = .{ .symbol = str } };
     }
 };
