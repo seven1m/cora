@@ -27,7 +27,7 @@ pub fn main() !void {
     }
 
     if (ruby_code == null) {
-        std.debug.print("Usage: vm -e <ruby code>\n", .{});
+        std.debug.print("Usage: clara -e <ruby code>\n", .{});
         return;
     }
 
