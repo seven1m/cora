@@ -1,0 +1,59 @@
+const std = @import("std");
+
+fn buildPrism(b: *std.Build) *std.Build.Step {
+    const prism_build_step = b.step("prism", "Build Prism library");
+
+    const libprism_path = "zig-out/prism/build/libprism.a";
+
+    const libprism_exists = std.fs.cwd().statFile(libprism_path) != std.fs.File.OpenError.FileNotFound;
+
+    if (!libprism_exists) {
+        const copy_step = b.addSystemCommand(&.{ "sh", "-c", "mkdir -p zig-out/prism && cp -r ext/prism/* zig-out/prism/" });
+        prism_build_step.dependOn(&copy_step.step);
+
+        const templates_step = b.addSystemCommand(&.{ "sh", "-c", "cd zig-out/prism && PRISM_FFI_BACKEND=true rake templates" });
+        templates_step.step.dependOn(&copy_step.step);
+        prism_build_step.dependOn(&templates_step.step);
+
+        const make_step = b.addSystemCommand(&.{ "make", "-C", "zig-out/prism", "static" });
+        make_step.step.dependOn(&templates_step.step);
+        prism_build_step.dependOn(&make_step.step);
+    }
+
+    return prism_build_step;
+}
+
+pub fn build(b: *std.Build) void {
+    const target = b.standardTargetOptions(.{});
+    const optimize = b.standardOptimizeOption(.{});
+
+    const prism_build_step = buildPrism(b);
+
+    const exe = b.addExecutable(.{
+        .name = "vm",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+
+    exe.step.dependOn(prism_build_step);
+
+    exe.addObjectFile(b.path("zig-out/prism/build/libprism.a"));
+    exe.addIncludePath(b.path("zig-out/prism/include"));
+
+    exe.linkLibC();
+
+    b.installArtifact(exe);
+
+    const run_cmd = b.addRunArtifact(exe);
+    run_cmd.step.dependOn(b.getInstallStep());
+
+    if (b.args) |args| {
+        run_cmd.addArgs(args);
+    }
+
+    const run_step = b.step("run", "Run the VM");
+    run_step.dependOn(&run_cmd.step);
+}
