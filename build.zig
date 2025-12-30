@@ -56,4 +56,22 @@ pub fn build(b: *std.Build) void {
 
     const run_step = b.step("run", "Run the VM");
     run_step.dependOn(&run_cmd.step);
+
+    const test_exe = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/main_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+
+    test_exe.addObjectFile(b.path("zig-out/prism/build/libprism.a"));
+    test_exe.addIncludePath(b.path("zig-out/prism/include"));
+    test_exe.linkLibC();
+
+    const test_run = b.addRunArtifact(test_exe);
+    test_run.step.dependOn(prism_build_step);
+
+    const test_step = b.step("test", "Run tests");
+    test_step.dependOn(&test_run.step);
 }
