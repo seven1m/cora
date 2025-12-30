@@ -55,3 +55,27 @@ test "Interpreter evaluates puts with string" {
 
     try std.testing.expectEqualSlices(u8, string_writer.getOutput(), "Hello, World!\n");
 }
+
+test "Interpreter evaluates puts with integer" {
+    const allocator = std.testing.allocator;
+
+    var string_writer = StringWriter.init(allocator);
+    defer string_writer.deinit();
+
+    const ruby_code = "puts 42";
+
+    var parser: prism.pm_parser_t = undefined;
+    prism.pm_parser_init(&parser, ruby_code.ptr, ruby_code.len, null);
+    defer prism.pm_parser_free(&parser);
+
+    const ast = prism.pm_parse(&parser);
+    if (ast == null) {
+        return;
+    }
+    defer prism.pm_node_destroy(null, ast);
+
+    var interpreter = Interpreter.initWithWriter(allocator, &parser, createOutputWriter(&string_writer));
+    _ = interpreter.eval(ast);
+
+    try std.testing.expectEqualSlices(u8, string_writer.getOutput(), "42\n");
+}

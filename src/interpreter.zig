@@ -72,6 +72,16 @@ pub const Interpreter = struct {
             return Value.frozenString(str.source[0..str.length]);
         }
 
+        if (node_type == prism.PM_INTEGER_NODE) {
+            const int_node = @as(*prism.pm_integer_node_t, @ptrCast(node));
+            const int_value = int_node.value;
+            var result: i64 = @intCast(int_value.value);
+            if (int_value.negative) {
+                result = -result;
+            }
+            return Value.integer(result);
+        }
+
         if (node_type == prism.PM_CALL_NODE) {
             return self.evalCall(@ptrCast(node));
         }
@@ -107,6 +117,12 @@ pub const Interpreter = struct {
             switch (arg_value.data) {
                 .string => |str| {
                     self.output_writer.write(str);
+                    self.output_writer.write("\n");
+                },
+                .integer => |int| {
+                    var buffer: [64]u8 = undefined;
+                    const int_str = std.fmt.bufPrint(&buffer, "{d}", .{int}) catch "";
+                    self.output_writer.write(int_str);
                     self.output_writer.write("\n");
                 },
                 .nil => {

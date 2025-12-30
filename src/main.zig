@@ -12,6 +12,7 @@ pub fn main() !void {
     defer std.process.argsFree(allocator, args);
 
     var ruby_code: ?[]const u8 = null;
+    var print_ast = false;
 
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
@@ -23,11 +24,13 @@ pub fn main() !void {
                 std.debug.print("Error: -e requires an argument\n", .{});
                 return;
             }
+        } else if (std.mem.eql(u8, args[i], "--ast")) {
+            print_ast = true;
         }
     }
 
     if (ruby_code == null) {
-        std.debug.print("Usage: clara -e <ruby code>\n", .{});
+        std.debug.print("Usage: clara [--ast] -e <ruby code>\n", .{});
         return;
     }
 
@@ -42,6 +45,18 @@ pub fn main() !void {
         return;
     }
     defer prism.pm_node_destroy(null, ast);
+
+    if (print_ast) {
+        var buffer: prism.pm_buffer_t = undefined;
+        _ = prism.pm_buffer_init(&buffer);
+        defer prism.pm_buffer_free(&buffer);
+
+        prism.pm_prettyprint(&buffer, &parser, ast);
+
+        const output = buffer.value[0..buffer.length];
+        std.debug.print("{s}\n", .{output});
+        return;
+    }
 
     var interpreter = Interpreter.init(allocator, &parser);
     _ = interpreter.eval(ast);
