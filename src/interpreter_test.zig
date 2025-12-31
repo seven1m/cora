@@ -131,6 +131,31 @@ test "Symbols are interned" {
     const ptr2 = value2.data.symbol.ptr;
 
     try std.testing.expect(ptr1 == ptr2);
-    try std.testing.expectEqualSlices(u8, value1.data.symbol, "foo");
-    try std.testing.expectEqualSlices(u8, value2.data.symbol, "foo");
+    try std.testing.expectEqualSlices(u8, "foo", value1.data.symbol);
+    try std.testing.expectEqualSlices(u8, "foo", value2.data.symbol);
+}
+
+test "Constants can be set and read" {
+    const allocator = std.testing.allocator;
+
+    var string_writer = StringWriter.init(allocator);
+    defer string_writer.deinit();
+
+    const ruby_code = "FOO = 42; puts FOO";
+
+    var parser: prism.pm_parser_t = undefined;
+    prism.pm_parser_init(&parser, ruby_code.ptr, ruby_code.len, null);
+    defer prism.pm_parser_free(&parser);
+
+    const ast = prism.pm_parse(&parser);
+    if (ast == null) {
+        return;
+    }
+    defer prism.pm_node_destroy(null, ast);
+
+    var interpreter = Interpreter.initWithWriter(allocator, &parser, createOutputWriter(&string_writer));
+    _ = interpreter.eval(ast);
+    defer interpreter.deinit();
+
+    try std.testing.expectEqualSlices(u8, "42\n", string_writer.getOutput());
 }

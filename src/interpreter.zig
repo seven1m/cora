@@ -33,6 +33,7 @@ pub const Interpreter = struct {
     parser: *prism.pm_parser_t,
     output_writer: OutputWriter,
     symbols: std.StringHashMap(void),
+    constants: std.StringHashMap(Value),
 
     pub fn init(allocator: std.mem.Allocator, parser: *prism.pm_parser_t) @This() {
         return initWithWriter(allocator, parser, defaultOutputWriter());
@@ -44,6 +45,7 @@ pub const Interpreter = struct {
             .parser = parser,
             .output_writer = output_writer,
             .symbols = std.StringHashMap(void).init(allocator),
+            .constants = std.StringHashMap(Value).init(allocator),
         };
     }
 
@@ -53,6 +55,12 @@ pub const Interpreter = struct {
             self.allocator.free(key_ptr.*);
         }
         self.symbols.deinit();
+
+        var const_it = self.constants.keyIterator();
+        while (const_it.next()) |key_ptr| {
+            self.allocator.free(key_ptr.*);
+        }
+        self.constants.deinit();
     }
 
     pub fn eval(self: *Interpreter, node: *prism.pm_node_t) Value {
@@ -105,11 +113,37 @@ pub const Interpreter = struct {
             return Value.symbol(interned);
         }
 
+        if (node_type == prism.PM_CONSTANT_READ_NODE) {
+            const const_read_node = @as(*prism.pm_constant_read_node_t, @ptrCast(node));
+            const constant = prism.pm_constant_pool_id_to_constant(&self.parser.constant_pool, const_read_node.name);
+            if (constant == null) {
+                return Value.nil();
+            }
+            const name = constant.*.start[0..constant.*.length];
+            if (self.constants.get(name)) |value| {
+                return value;
+            }
+            return Value.nil();
+        }
+
+        if (node_type == prism.PM_CONSTANT_WRITE_NODE) {
+            const const_write_node = @as(*prism.pm_constant_write_node_t, @ptrCast(node));
+            const constant = prism.pm_constant_pool_id_to_constant(&self.parser.constant_pool, const_write_node.name);
+            if (constant == null) {
+                return Value.nil();
+            }
+            const name = constant.*.start[0..constant.*.length];
+            const interned = self.allocator.dupe(u8, name) catch "";
+            const value = self.eval(const_write_node.value);
+            self.constants.put(interned, value) catch {};
+            return value;
+        }
+
         if (node_type == prism.PM_CALL_NODE) {
             return self.evalCall(@ptrCast(node));
         }
 
-        return Value.nil();
+        std.debug.panic("node_type {d} unhandled", .{node_type});
     }
 
     fn evalCall(self: *Interpreter, call_node: *prism.pm_call_node_t) Value {
