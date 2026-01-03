@@ -13,6 +13,7 @@ Clara is a Ruby interpreter written in Zig that uses the Prism parser (Ruby's of
 
 ### Core Files
 
+- `src/prism.zig` - Zig wrapper around Prism C library (Parser struct, typed Node union)
 - `src/main.zig` - Entry point, handles CLI args (`-e` for code, `--ast` for AST output)
 - `src/value.zig` - Value type definition (discriminated union with variants: string, integer, nil, symbol)
 - `src/interpreter.zig` - Main interpreter with eval() method and helper functions
@@ -44,7 +45,18 @@ Value holds all Ruby values we support. Check out value.zig.
 
 ### Handling Prism Nodes
 
-Node types are accessed via `prism.PM_*_NODE` constants (e.g., `prism.PM_SYMBOL_NODE`).
+The `prism.Node` is a tagged union with variants for each node type (`.string`, `.integer`, `.symbol`, `.call`, etc.). Use switch statements to dispatch:
+
+```zig
+switch (node) {
+    .string => |string_node| { ... },
+    .integer => |int_node| { ... },
+    .symbol => |symbol_node| { ... },
+    // etc.
+}
+```
+
+Access node properties via the typed pointer (e.g., `string_node.unescaped`, `call_node.name`).
 
 ## Memory Management
 
@@ -89,14 +101,19 @@ Use `StringWriter` to capture output:
 var string_writer = StringWriter.init(allocator);
 defer string_writer.deinit();
 
+var parser = try prism.Parser.init(allocator, ruby_code);
+defer parser.deinit();
+
 var interpreter = Interpreter.initWithWriter(allocator, &parser, createOutputWriter(&string_writer));
 defer interpreter.deinit();
 
-_ = interpreter.eval(ast);
+if (parser.root()) |root_node| {
+    _ = interpreter.eval(root_node);
+}
 try std.testing.expectEqualSlices(u8, string_writer.getOutput(), "expected\n");
 ```
 
-**Always defer the interpreter and string_writer deinit.**
+**Always defer parser, interpreter, and string_writer deinit.**
 
 ## Build Commands
 

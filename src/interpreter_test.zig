@@ -1,5 +1,5 @@
 const std = @import("std");
-const prism = @import("main.zig").prism;
+const prism = @import("prism.zig");
 const Interpreter = @import("interpreter.zig").Interpreter;
 const OutputWriter = @import("interpreter.zig").OutputWriter;
 const Value = @import("value.zig").Value;
@@ -39,57 +39,74 @@ fn evalAndCheckOutput(ruby_code: []const u8, expected: []const u8) !void {
     var string_writer = StringWriter.init(allocator);
     defer string_writer.deinit();
 
-    var parser: prism.pm_parser_t = undefined;
-    prism.pm_parser_init(&parser, ruby_code.ptr, ruby_code.len, null);
-    defer prism.pm_parser_free(&parser);
-
-    const ast = prism.pm_parse(&parser) orelse return;
-    defer prism.pm_node_destroy(null, ast);
+    var parser = try prism.Parser.init(allocator, ruby_code);
+    defer parser.deinit();
 
     var interpreter = Interpreter.initWithWriter(allocator, &parser, createOutputWriter(&string_writer));
     defer interpreter.deinit();
-    _ = interpreter.eval(ast);
+
+    if (parser.root()) |root_node| {
+        _ = interpreter.eval(root_node);
+    }
 
     try std.testing.expectEqualSlices(u8, expected, string_writer.getOutput());
 }
 
 const EvalStatementsContext = struct {
     values: []Value,
+    allocator: std.mem.Allocator,
+    full_allocation: []Value,
     interpreter: Interpreter,
-    parser: prism.pm_parser_t,
-    ast: *prism.pm_node_t,
+    parser: prism.Parser,
 
     fn deinit(self: *EvalStatementsContext) void {
         self.interpreter.deinit();
-        prism.pm_node_destroy(null, self.ast);
-        prism.pm_parser_free(&self.parser);
+        self.parser.deinit();
+        self.allocator.free(self.full_allocation);
     }
 };
 
 fn evalStatements(allocator: std.mem.Allocator, ruby_code: []const u8) !EvalStatementsContext {
-    var parser: prism.pm_parser_t = undefined;
-    prism.pm_parser_init(&parser, ruby_code.ptr, ruby_code.len, null);
-
-    const ast = prism.pm_parse(&parser) orelse {
-        prism.pm_parser_free(&parser);
-        return error.ParseFailed;
-    };
+    var parser = try prism.Parser.init(allocator, ruby_code);
 
     var interpreter = Interpreter.init(allocator, &parser);
 
-    const program = @as(*prism.pm_program_node_t, @ptrCast(ast));
-    const statements = @as(*prism.pm_statements_node_t, @ptrCast(program.statements));
+    var full_results = try allocator.alloc(Value, 10); // Preallocate, adjust as needed
+    var count: usize = 0;
 
-    var results = try allocator.alloc(Value, statements.body.size);
-    for (0..statements.body.size) |i| {
-        results[i] = interpreter.eval(statements.body.nodes[i]);
+    if (parser.root()) |root_node| {
+        // Handle program node to get statements
+        switch (root_node) {
+            .program => |program| {
+                if (program.statements != null) {
+                    if (parser.asNode(@ptrCast(program.statements))) |stmt_node| {
+                        switch (stmt_node) {
+                            .statements => |statements| {
+                                for (0..statements.body.size) |i| {
+                                    if (parser.asNode(statements.body.nodes[i])) |stmt| {
+                                        full_results[count] = interpreter.eval(stmt);
+                                        count += 1;
+                                    }
+                                }
+                            },
+                            else => {
+                                full_results[0] = interpreter.eval(stmt_node);
+                                count = 1;
+                            },
+                        }
+                    }
+                }
+            },
+            else => {},
+        }
     }
 
     return .{
-        .values = results,
+        .values = full_results[0..count],
+        .allocator = allocator,
+        .full_allocation = full_results,
         .interpreter = interpreter,
         .parser = parser,
-        .ast = ast,
     };
 }
 
@@ -109,7 +126,6 @@ test "Symbols are interned" {
     const allocator = std.testing.allocator;
     var context = try evalStatements(allocator, ":foo; :foo");
     defer context.deinit();
-    defer allocator.free(context.values);
 
     try std.testing.expect(context.values[0].data.symbol.ptr == context.values[1].data.symbol.ptr);
     try std.testing.expectEqualSlices(u8, "foo", context.values[0].data.symbol);

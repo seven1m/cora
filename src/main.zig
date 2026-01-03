@@ -1,5 +1,5 @@
 const std = @import("std");
-pub const prism = @cImport(@cInclude("prism.h"));
+const prism = @import("prism.zig");
 pub const Value = @import("value.zig").Value;
 const Interpreter = @import("interpreter.zig").Interpreter;
 
@@ -35,30 +35,23 @@ pub fn main() !void {
     }
 
     const code = ruby_code.?;
-    var parser: prism.pm_parser_t = undefined;
-    prism.pm_parser_init(&parser, code.ptr, code.len, null);
-    defer prism.pm_parser_free(&parser);
-
-    const ast = prism.pm_parse(&parser);
-    if (ast == null) {
+    var parser = prism.Parser.init(allocator, code) catch {
         std.debug.print("Parse error\n", .{});
         return;
-    }
-    defer prism.pm_node_destroy(null, ast);
+    };
+    defer parser.deinit();
 
     if (print_ast) {
-        var buffer: prism.pm_buffer_t = undefined;
-        _ = prism.pm_buffer_init(&buffer);
-        defer prism.pm_buffer_free(&buffer);
-
-        prism.pm_prettyprint(&buffer, &parser, ast);
-
-        const output = buffer.value[0..buffer.length];
+        const output = try parser.prettyPrint(allocator);
+        defer allocator.free(output);
         std.debug.print("{s}\n", .{output});
         return;
     }
 
     var interpreter = Interpreter.init(allocator, &parser);
     defer interpreter.deinit();
-    _ = interpreter.eval(ast);
+
+    if (parser.root()) |root_node| {
+        _ = interpreter.eval(root_node);
+    }
 }

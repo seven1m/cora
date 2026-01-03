@@ -1,6 +1,6 @@
 const std = @import("std");
 const Value = @import("value.zig").Value;
-const prism = @import("main.zig").prism;
+const prism = @import("prism.zig");
 
 pub const OutputWriter = struct {
     ptr: *anyopaque,
@@ -30,16 +30,16 @@ pub fn defaultOutputWriter() OutputWriter {
 
 pub const Interpreter = struct {
     allocator: std.mem.Allocator,
-    parser: *prism.pm_parser_t,
+    parser: *prism.Parser,
     output_writer: OutputWriter,
     symbols: std.StringHashMap(void),
     constants: std.StringHashMap(Value),
 
-    pub fn init(allocator: std.mem.Allocator, parser: *prism.pm_parser_t) @This() {
+    pub fn init(allocator: std.mem.Allocator, parser: *prism.Parser) @This() {
         return initWithWriter(allocator, parser, defaultOutputWriter());
     }
 
-    pub fn initWithWriter(allocator: std.mem.Allocator, parser: *prism.pm_parser_t, output_writer: OutputWriter) @This() {
+    pub fn initWithWriter(allocator: std.mem.Allocator, parser: *prism.Parser, output_writer: OutputWriter) @This() {
         return .{
             .allocator = allocator,
             .parser = parser,
@@ -63,96 +63,87 @@ pub const Interpreter = struct {
         self.constants.deinit();
     }
 
-    pub fn eval(self: *Interpreter, node: *prism.pm_node_t) Value {
-        const node_type = node.type;
-
-        if (node_type == prism.PM_PROGRAM_NODE) {
-            const program = @as(*prism.pm_program_node_t, @ptrCast(node));
-            if (program.statements != null) {
-                return self.eval(@ptrCast(program.statements));
-            }
-            return Value.nil();
-        }
-
-        if (node_type == prism.PM_STATEMENTS_NODE) {
-            const statements = @as(*prism.pm_statements_node_t, @ptrCast(node));
-            var result: Value = Value.nil();
-            var i: usize = 0;
-            while (i < statements.body.size) : (i += 1) {
-                result = self.eval(statements.body.nodes[i]);
-            }
-            return result;
-        }
-
-        if (node_type == prism.PM_STRING_NODE) {
-            const string_node = @as(*prism.pm_string_node_t, @ptrCast(node));
-            const str = string_node.unescaped;
-            return Value.frozenString(str.source[0..str.length]);
-        }
-
-        if (node_type == prism.PM_INTEGER_NODE) {
-            const int_node = @as(*prism.pm_integer_node_t, @ptrCast(node));
-            const int_value = int_node.value;
-            var result: i64 = @intCast(int_value.value);
-            if (int_value.negative) {
-                result = -result;
-            }
-            return Value.integer(result);
-        }
-
-        if (node_type == prism.PM_SYMBOL_NODE) {
-            const symbol_node = @as(*prism.pm_symbol_node_t, @ptrCast(node));
-            const symbol_str = symbol_node.unescaped.source[0..symbol_node.unescaped.length];
-
-            if (self.symbols.getEntry(symbol_str)) |entry| {
-                return Value.symbol(entry.key_ptr.*);
-            }
-
-            const interned = self.allocator.dupe(u8, symbol_str) catch "";
-            self.symbols.put(interned, {}) catch {};
-            return Value.symbol(interned);
-        }
-
-        if (node_type == prism.PM_CONSTANT_READ_NODE) {
-            const const_read_node = @as(*prism.pm_constant_read_node_t, @ptrCast(node));
-            const constant = prism.pm_constant_pool_id_to_constant(&self.parser.constant_pool, const_read_node.name);
-            if (constant == null) {
+    pub fn eval(self: *Interpreter, node: prism.Node) Value {
+        switch (node) {
+            .program => |program| {
+                if (program.statements != null) {
+                    if (self.parser.asNode(@ptrCast(program.statements))) |stmt_node| {
+                        return self.eval(stmt_node);
+                    }
+                }
                 return Value.nil();
-            }
-            const name = constant.*.start[0..constant.*.length];
-            if (self.constants.get(name)) |value| {
-                return value;
-            }
-            return Value.nil();
-        }
+            },
 
-        if (node_type == prism.PM_CONSTANT_WRITE_NODE) {
-            const const_write_node = @as(*prism.pm_constant_write_node_t, @ptrCast(node));
-            const constant = prism.pm_constant_pool_id_to_constant(&self.parser.constant_pool, const_write_node.name);
-            if (constant == null) {
+            .statements => |statements| {
+                var result: Value = Value.nil();
+                var i: usize = 0;
+                while (i < statements.body.size) : (i += 1) {
+                    if (self.parser.asNode(statements.body.nodes[i])) |stmt_node| {
+                        result = self.eval(stmt_node);
+                    }
+                }
+                return result;
+            },
+
+            .string => |string_node| {
+                const str = string_node.unescaped;
+                return Value.frozenString(str.source[0..str.length]);
+            },
+
+            .integer => |int_node| {
+                const int_value = int_node.value;
+                var result: i64 = @intCast(int_value.value);
+                if (int_value.negative) {
+                    result = -result;
+                }
+                return Value.integer(result);
+            },
+
+            .symbol => |symbol_node| {
+                const symbol_str = symbol_node.unescaped.source[0..symbol_node.unescaped.length];
+
+                if (self.symbols.getEntry(symbol_str)) |entry| {
+                    return Value.symbol(entry.key_ptr.*);
+                }
+
+                const interned = self.allocator.dupe(u8, symbol_str) catch "";
+                self.symbols.put(interned, {}) catch {};
+                return Value.symbol(interned);
+            },
+
+            .constant_read => |const_read_node| {
+                const name = self.parser.getConstantName(const_read_node.name) orelse {
+                    return Value.nil();
+                };
+                if (self.constants.get(name)) |value| {
+                    return value;
+                }
                 return Value.nil();
-            }
-            const name = constant.*.start[0..constant.*.length];
-            const interned = self.allocator.dupe(u8, name) catch "";
-            const value = self.eval(const_write_node.value);
-            self.constants.put(interned, value) catch {};
-            return value;
-        }
+            },
 
-        if (node_type == prism.PM_CALL_NODE) {
-            return self.evalCall(@ptrCast(node));
-        }
+            .constant_write => |const_write_node| {
+                const name = self.parser.getConstantName(const_write_node.name) orelse {
+                    return Value.nil();
+                };
+                const interned = self.allocator.dupe(u8, name) catch "";
+                if (self.parser.asNode(const_write_node.value)) |val_node| {
+                    const value = self.eval(val_node);
+                    self.constants.put(interned, value) catch {};
+                    return value;
+                }
+                return Value.nil();
+            },
 
-        std.debug.panic("node_type {d} unhandled", .{node_type});
+            .call => |call_node| {
+                return self.evalCall(call_node);
+            },
+        }
     }
 
-    fn evalCall(self: *Interpreter, call_node: *prism.pm_call_node_t) Value {
-        const constant = prism.pm_constant_pool_id_to_constant(&self.parser.constant_pool, call_node.name);
-        if (constant == null) {
+    fn evalCall(self: *Interpreter, call_node: *prism.CallNode) Value {
+        const method_name = self.parser.getConstantName(call_node.name) orelse {
             return Value.nil();
-        }
-
-        const method_name = constant.*.start[0..constant.*.length];
+        };
 
         if (std.mem.eql(u8, method_name, "puts")) {
             return self.evalPuts(call_node);
@@ -161,34 +152,36 @@ pub const Interpreter = struct {
         return Value.nil();
     }
 
-    fn evalPuts(self: *Interpreter, call_node: *prism.pm_call_node_t) Value {
+    fn evalPuts(self: *Interpreter, call_node: *prism.CallNode) Value {
         if (call_node.arguments == null) {
             self.output_writer.write("\n");
             return Value.nil();
         }
 
-        const args = @as(*prism.pm_arguments_node_t, @ptrCast(call_node.arguments));
+        const args = @as(*prism.ArgumentsNode, @ptrCast(call_node.arguments));
         var i: usize = 0;
         while (i < args.arguments.size) : (i += 1) {
-            const arg_value = self.eval(args.arguments.nodes[i]);
-            switch (arg_value.data) {
-                .string => |str| {
-                    self.output_writer.write(str);
-                    self.output_writer.write("\n");
-                },
-                .integer => |int| {
-                    var buffer: [64]u8 = undefined;
-                    const int_str = std.fmt.bufPrint(&buffer, "{d}", .{int}) catch "";
-                    self.output_writer.write(int_str);
-                    self.output_writer.write("\n");
-                },
-                .symbol => |sym| {
-                    self.output_writer.write(sym);
-                    self.output_writer.write("\n");
-                },
-                .nil => {
-                    self.output_writer.write("\n");
-                },
+            if (self.parser.asNode(args.arguments.nodes[i])) |arg_node| {
+                const arg_value = self.eval(arg_node);
+                switch (arg_value.data) {
+                    .string => |str| {
+                        self.output_writer.write(str);
+                        self.output_writer.write("\n");
+                    },
+                    .integer => |int| {
+                        var buffer: [64]u8 = undefined;
+                        const int_str = std.fmt.bufPrint(&buffer, "{d}", .{int}) catch "";
+                        self.output_writer.write(int_str);
+                        self.output_writer.write("\n");
+                    },
+                    .symbol => |sym| {
+                        self.output_writer.write(sym);
+                        self.output_writer.write("\n");
+                    },
+                    .nil => {
+                        self.output_writer.write("\n");
+                    },
+                }
             }
         }
 
