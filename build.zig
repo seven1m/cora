@@ -76,7 +76,8 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&test_run.step);
 
     const watch_cmd = b.addSystemCommand(&.{
-        "sh",                                                                      "-c",
+        "sh",
+        "-c",
         "find . -name '*.zig' -print | entr -c -s 'zig build test --summary all'",
     });
     const watch_step = b.step("watch", "Watch source files and rebuild/test on changes (requires entr)");
