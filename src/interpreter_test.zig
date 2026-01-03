@@ -124,12 +124,16 @@ test "Interpreter evaluates puts with symbol" {
 
 test "Symbols are interned" {
     const allocator = std.testing.allocator;
-    var context = try evalStatements(allocator, ":foo; :foo");
+    var context = try evalStatements(allocator, ":foo; :bar; :foo");
     defer context.deinit();
 
-    try std.testing.expect(context.values[0].data.symbol.ptr == context.values[1].data.symbol.ptr);
-    try std.testing.expectEqualSlices(u8, "foo", context.values[0].data.symbol);
-    try std.testing.expectEqualSlices(u8, "foo", context.values[1].data.symbol);
+    const foo1 = context.values[0];
+    const bar = context.values[1];
+    const foo2 = context.values[2];
+
+    try std.testing.expectEqual(foo1.data.symbol.ptr, foo2.data.symbol.ptr);
+    try std.testing.expect(foo1.data.symbol.ptr != bar.data.symbol.ptr);
+    try std.testing.expectEqualSlices(u8, "foo", foo1.data.symbol);
 }
 
 test "Constants can be set and read" {
