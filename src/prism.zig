@@ -51,13 +51,13 @@ pub const Parser = struct {
     }
 
     /// Get the root AST node, type-checked
-    pub fn root(self: *Parser) ?Node {
-        const ast = self.ast orelse return null;
+    pub fn root(self: *Parser) !Node {
+        const ast = self.ast orelse return error.RootNodeMissing;
         return self.asNode(ast);
     }
 
     /// Convert a raw C node pointer to a typed Node
-    pub fn asNode(self: *Parser, raw: *c.pm_node_t) ?Node {
+    pub fn asNode(self: *Parser, raw: *c.pm_node_t) !Node {
         _ = self; // parser is needed for potential future use
 
         const node_type = raw.type;
@@ -94,7 +94,7 @@ pub const Parser = struct {
             return Node{ .call = @ptrCast(raw) };
         }
 
-        return null;
+        return error.UnhandledNode;
     }
 
     /// Get constant name from constant pool

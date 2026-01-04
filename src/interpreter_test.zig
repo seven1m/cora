@@ -45,9 +45,8 @@ fn evalAndCheckOutput(ruby_code: []const u8, expected: []const u8) !void {
     var interpreter = Interpreter.initWithWriter(allocator, &parser, createOutputWriter(&string_writer));
     defer interpreter.deinit();
 
-    if (parser.root()) |root_node| {
-        _ = interpreter.eval(root_node);
-    }
+    const root_node = try parser.root();
+    _ = interpreter.eval(root_node);
 
     try std.testing.expectEqualSlices(u8, expected, string_writer.getOutput());
 }
@@ -74,31 +73,27 @@ fn evalStatements(allocator: std.mem.Allocator, ruby_code: []const u8) !EvalStat
     var full_results = try allocator.alloc(Value, 10); // Preallocate, adjust as needed
     var count: usize = 0;
 
-    if (parser.root()) |root_node| {
-        // Handle program node to get statements
-        switch (root_node) {
-            .program => |program| {
-                if (program.statements != null) {
-                    if (parser.asNode(@ptrCast(program.statements))) |stmt_node| {
-                        switch (stmt_node) {
-                            .statements => |statements| {
-                                for (0..statements.body.size) |i| {
-                                    if (parser.asNode(statements.body.nodes[i])) |stmt| {
-                                        full_results[count] = interpreter.eval(stmt);
-                                        count += 1;
-                                    }
-                                }
-                            },
-                            else => {
-                                full_results[0] = interpreter.eval(stmt_node);
-                                count = 1;
-                            },
+    const root_node = try parser.root();
+    switch (root_node) {
+        .program => |program| {
+            if (program.statements != null) {
+                const stmt_node = try parser.asNode(@ptrCast(program.statements));
+                switch (stmt_node) {
+                    .statements => |statements| {
+                        for (0..statements.body.size) |i| {
+                            const stmt = try parser.asNode(statements.body.nodes[i]);
+                            full_results[count] = interpreter.eval(stmt);
+                            count += 1;
                         }
-                    }
+                    },
+                    else => {
+                        full_results[0] = interpreter.eval(stmt_node);
+                        count = 1;
+                    },
                 }
-            },
-            else => {},
-        }
+            }
+        },
+        else => {},
     }
 
     return .{
@@ -139,3 +134,7 @@ test "Symbols are interned" {
 test "Constants can be set and read" {
     try evalAndCheckOutput("FOO = 42; puts FOO", "42\n");
 }
+
+// test "modules can be defined" {
+//     try evalAndCheckOutput("module Foo; end; puts Foo", "Foo");
+// }

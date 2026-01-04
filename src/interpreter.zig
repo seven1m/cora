@@ -50,26 +50,35 @@ pub const Interpreter = struct {
     }
 
     pub fn deinit(self: *Interpreter) void {
-        var it = self.symbols.keyIterator();
-        while (it.next()) |key_ptr| {
-            self.allocator.free(key_ptr.*);
-        }
+        // var it = self.symbols.keyIterator();
+        // while (it.next()) |key_ptr| {
+        //     self.allocator.free(key_ptr.*);
+        // }
         self.symbols.deinit();
 
-        var const_it = self.constants.keyIterator();
-        while (const_it.next()) |key_ptr| {
-            self.allocator.free(key_ptr.*);
-        }
+        // var const_it = self.constants.keyIterator();
+        // while (const_it.next()) |key_ptr| {
+        //     self.allocator.free(key_ptr.*);
+        // }
         self.constants.deinit();
+    }
+
+    /// Intern a symbol: look it up by name and return it, or create a new one.
+    /// The name slice should come from long-lived memory (e.g. AST) and won't be duplicated.
+    pub fn intern(self: *Interpreter, name: []const u8) Value {
+        if (self.symbols.getEntry(name)) |entry| {
+            return Value.symbol(entry.key_ptr.*);
+        }
+        self.symbols.put(name, {}) catch {};
+        return Value.symbol(name);
     }
 
     pub fn eval(self: *Interpreter, node: prism.Node) Value {
         switch (node) {
             .program => |program| {
                 if (program.statements != null) {
-                    if (self.parser.asNode(@ptrCast(program.statements))) |stmt_node| {
-                        return self.eval(stmt_node);
-                    }
+                    const stmt_node = self.parser.asNode(@ptrCast(program.statements)) catch unreachable;
+                    return self.eval(stmt_node);
                 }
                 return Value.nil();
             },
@@ -78,9 +87,8 @@ pub const Interpreter = struct {
                 var result: Value = Value.nil();
                 var i: usize = 0;
                 while (i < statements.body.size) : (i += 1) {
-                    if (self.parser.asNode(statements.body.nodes[i])) |stmt_node| {
-                        result = self.eval(stmt_node);
-                    }
+                    const stmt_node = self.parser.asNode(statements.body.nodes[i]) catch unreachable;
+                    result = self.eval(stmt_node);
                 }
                 return result;
             },
@@ -101,14 +109,7 @@ pub const Interpreter = struct {
 
             .symbol => |symbol_node| {
                 const symbol_str = symbol_node.unescaped.source[0..symbol_node.unescaped.length];
-
-                if (self.symbols.getEntry(symbol_str)) |entry| {
-                    return Value.symbol(entry.key_ptr.*);
-                }
-
-                const interned = self.allocator.dupe(u8, symbol_str) catch "";
-                self.symbols.put(interned, {}) catch {};
-                return Value.symbol(interned);
+                return self.intern(symbol_str);
             },
 
             .constant_read => |const_read_node| {
@@ -125,13 +126,10 @@ pub const Interpreter = struct {
                 const name = self.parser.getConstantName(const_write_node.name) orelse {
                     return Value.nil();
                 };
-                const interned = self.allocator.dupe(u8, name) catch "";
-                if (self.parser.asNode(const_write_node.value)) |val_node| {
-                    const value = self.eval(val_node);
-                    self.constants.put(interned, value) catch {};
-                    return value;
-                }
-                return Value.nil();
+                const val_node = self.parser.asNode(const_write_node.value) catch unreachable;
+                const value = self.eval(val_node);
+                self.constants.put(name, value) catch {};
+                return value;
             },
 
             .call => |call_node| {
@@ -161,27 +159,26 @@ pub const Interpreter = struct {
         const args = @as(*prism.ArgumentsNode, @ptrCast(call_node.arguments));
         var i: usize = 0;
         while (i < args.arguments.size) : (i += 1) {
-            if (self.parser.asNode(args.arguments.nodes[i])) |arg_node| {
-                const arg_value = self.eval(arg_node);
-                switch (arg_value.data) {
-                    .string => |str| {
-                        self.output_writer.write(str);
-                        self.output_writer.write("\n");
-                    },
-                    .integer => |int| {
-                        var buffer: [64]u8 = undefined;
-                        const int_str = std.fmt.bufPrint(&buffer, "{d}", .{int}) catch "";
-                        self.output_writer.write(int_str);
-                        self.output_writer.write("\n");
-                    },
-                    .symbol => |sym| {
-                        self.output_writer.write(sym);
-                        self.output_writer.write("\n");
-                    },
-                    .nil => {
-                        self.output_writer.write("\n");
-                    },
-                }
+            const arg_node = self.parser.asNode(args.arguments.nodes[i]) catch unreachable;
+            const arg_value = self.eval(arg_node);
+            switch (arg_value.data) {
+                .string => |str| {
+                    self.output_writer.write(str);
+                    self.output_writer.write("\n");
+                },
+                .integer => |int| {
+                    var buffer: [64]u8 = undefined;
+                    const int_str = std.fmt.bufPrint(&buffer, "{d}", .{int}) catch "";
+                    self.output_writer.write(int_str);
+                    self.output_writer.write("\n");
+                },
+                .symbol => |sym| {
+                    self.output_writer.write(sym);
+                    self.output_writer.write("\n");
+                },
+                .nil => {
+                    self.output_writer.write("\n");
+                },
             }
         }
 
