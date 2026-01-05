@@ -13,7 +13,8 @@ pub const Node = union(enum) {
     symbol: *c.pm_symbol_node_t,
     constant_read: *c.pm_constant_read_node_t,
     constant_write: *c.pm_constant_write_node_t,
-    call: *CallNode,
+    call: *c.pm_call_node_t,
+    module: *c.pm_module_node,
 };
 
 /// Parser wraps Prism's parser and AST lifecycle
@@ -92,6 +93,10 @@ pub const Parser = struct {
 
         if (node_type == c.PM_CALL_NODE) {
             return Node{ .call = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_MODULE_NODE) {
+            return Node{ .module = @ptrCast(raw) };
         }
 
         return error.UnhandledNode;

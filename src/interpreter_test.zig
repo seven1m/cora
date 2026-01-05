@@ -135,6 +135,6 @@ test "Constants can be set and read" {
     try evalAndCheckOutput("FOO = 42; puts FOO", "42\n");
 }
 
-// test "modules can be defined" {
-//     try evalAndCheckOutput("module Foo; end; puts Foo", "Foo");
-// }
+test "modules can be defined" {
+    try evalAndCheckOutput("module Foo; end; puts Foo", "Foo\n");
+}

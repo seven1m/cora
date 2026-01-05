@@ -135,6 +135,15 @@ pub const Interpreter = struct {
             .call => |call_node| {
                 return self.evalCall(call_node);
             },
+
+            .module => |module_node| {
+                const name = self.parser.getConstantName(module_node.name) orelse {
+                    return Value.nil();
+                };
+                const module = Value.module(name);
+                self.constants.put(name, module) catch {};
+                return module;
+            },
         }
     }
 
@@ -174,6 +183,10 @@ pub const Interpreter = struct {
                 },
                 .symbol => |sym| {
                     self.output_writer.write(sym);
+                    self.output_writer.write("\n");
+                },
+                .module => |mod| {
+                    self.output_writer.write(mod.name);
                     self.output_writer.write("\n");
                 },
                 .nil => {
