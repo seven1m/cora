@@ -34,7 +34,7 @@ pub const Parser = struct {
     allocator: std.mem.Allocator,
     source: []const u8,
     internal: c.pm_parser_t,
-    ast: ?*RawNode,
+    ast: *ProgramNode,
 
     /// Initialize parser with source code
     pub fn init(allocator: std.mem.Allocator, source: []const u8) !Parser {
@@ -51,22 +51,19 @@ pub const Parser = struct {
             .allocator = allocator,
             .source = source,
             .internal = parser,
-            .ast = ast,
+            .ast = @ptrCast(ast),
         };
     }
 
     /// Free parser and AST
     pub fn deinit(self: *Parser) void {
-        if (self.ast) |ast| {
-            c.pm_node_destroy(null, ast);
-        }
+        c.pm_node_destroy(null, @ptrCast(self.ast));
         c.pm_parser_free(&self.internal);
     }
 
     /// Get the root AST node, type-checked
     pub fn root(self: *Parser) !Node {
-        const ast = self.ast orelse return error.RootNodeMissing;
-        return self.asNode(ast);
+        return self.asNode(@ptrCast(self.ast));
     }
 
     /// Show Prism node in human-readable form
@@ -142,8 +139,7 @@ pub const Parser = struct {
         _ = c.pm_buffer_init(&buffer);
         defer c.pm_buffer_free(&buffer);
 
-        const ast = self.ast orelse return "";
-        c.pm_prettyprint(&buffer, &self.internal, ast);
+        c.pm_prettyprint(&buffer, &self.internal, @ptrCast(self.ast));
 
         const output = buffer.value[0..buffer.length];
         return allocator.dupe(u8, output);
