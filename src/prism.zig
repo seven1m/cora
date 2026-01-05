@@ -59,10 +59,19 @@ pub const Parser = struct {
         return self.asNode(ast);
     }
 
+    /// Show Prism node in human-readable form
+    pub fn prettyPrintNode(self: *Parser, node: *c.pm_node_t) void {
+        var buffer: c.pm_buffer_t = undefined;
+        _ = c.pm_buffer_init(&buffer);
+        defer c.pm_buffer_free(&buffer);
+
+        c.pm_prettyprint(&buffer, &self.internal, node);
+        const output = buffer.value[0..buffer.length];
+        std.debug.print("{s}", .{output});
+    }
+
     /// Convert a raw C node pointer to a typed Node
     pub fn asNode(self: *Parser, raw: *c.pm_node_t) !Node {
-        _ = self; // parser is needed for potential future use
-
         const node_type = raw.type;
 
         if (node_type == c.PM_PROGRAM_NODE) {
@@ -105,6 +114,7 @@ pub const Parser = struct {
             return Node{ .def = @ptrCast(raw) };
         }
 
+        self.prettyPrintNode(raw);
         return error.UnhandledNode;
     }
 
