@@ -2,21 +2,31 @@ const std = @import("std");
 
 const c = @cImport(@cInclude("prism.h"));
 
-pub const CallNode = c.pm_call_node_t;
+pub const RawNode = c.pm_node_t;
+
 pub const ArgumentsNode = c.pm_arguments_node_t;
+pub const CallNode = c.pm_call_node_t;
+pub const ConstantReadNode = c.pm_constant_read_node_t;
+pub const ConstantWriteNode = c.pm_constant_write_node_t;
 pub const DefNode = c.pm_def_node_t;
+pub const IntegerNode = c.pm_integer_node_t;
+pub const ModuleNode = c.pm_module_node;
+pub const ProgramNode = c.pm_program_node_t;
+pub const StatementsNode = c.pm_statements_node_t;
+pub const StringNode = c.pm_string_node_t;
+pub const SymbolNode = c.pm_symbol_node_t;
 
 pub const Node = union(enum) {
-    program: *c.pm_program_node_t,
-    statements: *c.pm_statements_node_t,
-    string: *c.pm_string_node_t,
-    integer: *c.pm_integer_node_t,
-    symbol: *c.pm_symbol_node_t,
-    constant_read: *c.pm_constant_read_node_t,
-    constant_write: *c.pm_constant_write_node_t,
-    call: *c.pm_call_node_t,
-    module: *c.pm_module_node,
-    def: *c.pm_def_node_t,
+    call: *CallNode,
+    constant_read: *ConstantReadNode,
+    constant_write: *ConstantWriteNode,
+    def: *DefNode,
+    integer: *IntegerNode,
+    module: *ModuleNode,
+    program: *ProgramNode,
+    statements: *StatementsNode,
+    string: *StringNode,
+    symbol: *SymbolNode,
 };
 
 /// Parser wraps Prism's parser and AST lifecycle
@@ -24,7 +34,7 @@ pub const Parser = struct {
     allocator: std.mem.Allocator,
     source: []const u8,
     internal: c.pm_parser_t,
-    ast: ?*c.pm_node_t,
+    ast: ?*RawNode,
 
     /// Initialize parser with source code
     pub fn init(allocator: std.mem.Allocator, source: []const u8) !Parser {
@@ -60,7 +70,7 @@ pub const Parser = struct {
     }
 
     /// Show Prism node in human-readable form
-    pub fn prettyPrintNode(self: *Parser, node: *c.pm_node_t) void {
+    pub fn prettyPrintNode(self: *Parser, node: *RawNode) void {
         var buffer: c.pm_buffer_t = undefined;
         _ = c.pm_buffer_init(&buffer);
         defer c.pm_buffer_free(&buffer);
@@ -71,7 +81,7 @@ pub const Parser = struct {
     }
 
     /// Convert a raw C node pointer to a typed Node
-    pub fn asNode(self: *Parser, raw: *c.pm_node_t) !Node {
+    pub fn asNode(self: *Parser, raw: *RawNode) !Node {
         const node_type = raw.type;
 
         if (node_type == c.PM_PROGRAM_NODE) {
