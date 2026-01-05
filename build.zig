@@ -65,12 +65,14 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
+    test_exe.step.dependOn(prism_build_step);
     test_exe.addObjectFile(b.path("zig-out/prism/build/libprism.a"));
     test_exe.addIncludePath(b.path("zig-out/prism/include"));
     test_exe.linkLibC();
 
     const test_run = b.addRunArtifact(test_exe);
     test_run.step.dependOn(prism_build_step);
+    test_run.step.dependOn(b.getInstallStep());
 
     const test_step = b.step("test", "Run tests");
     test_step.dependOn(&test_run.step);
