@@ -102,11 +102,10 @@ pub const Parser = struct {
         return error.UnhandledNode;
     }
 
-    /// Get constant name from constant pool
-    pub fn getConstantName(self: *Parser, const_id: c.pm_constant_id_t) ?[]const u8 {
+    pub fn getConstantName(self: *Parser, const_id: c.pm_constant_id_t) ![]const u8 {
         const constant = c.pm_constant_pool_id_to_constant(&self.internal.constant_pool, const_id);
         if (constant == null) {
-            return null;
+            return error.ConstantNotFound;
         }
         return constant.*.start[0..constant.*.length];
     }

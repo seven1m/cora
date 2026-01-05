@@ -69,7 +69,7 @@ pub const Interpreter = struct {
         if (self.symbols.getEntry(name)) |entry| {
             return Value.symbol(entry.key_ptr.*);
         }
-        self.symbols.put(name, {}) catch {};
+        self.symbols.put(name, {}) catch unreachable;
         return Value.symbol(name);
     }
 
@@ -113,9 +113,7 @@ pub const Interpreter = struct {
             },
 
             .constant_read => |const_read_node| {
-                const name = self.parser.getConstantName(const_read_node.name) orelse {
-                    return Value.nil();
-                };
+                const name = self.parser.getConstantName(const_read_node.name) catch unreachable;
                 if (self.constants.get(name)) |value| {
                     return value;
                 }
@@ -123,12 +121,10 @@ pub const Interpreter = struct {
             },
 
             .constant_write => |const_write_node| {
-                const name = self.parser.getConstantName(const_write_node.name) orelse {
-                    return Value.nil();
-                };
+                const name = self.parser.getConstantName(const_write_node.name) catch unreachable;
                 const val_node = self.parser.asNode(const_write_node.value) catch unreachable;
                 const value = self.eval(val_node);
-                self.constants.put(name, value) catch {};
+                self.constants.put(name, value) catch unreachable;
                 return value;
             },
 
@@ -137,20 +133,16 @@ pub const Interpreter = struct {
             },
 
             .module => |module_node| {
-                const name = self.parser.getConstantName(module_node.name) orelse {
-                    return Value.nil();
-                };
+                const name = self.parser.getConstantName(module_node.name) catch unreachable;
                 const module = Value.module(name);
-                self.constants.put(name, module) catch {};
+                self.constants.put(name, module) catch unreachable;
                 return module;
             },
         }
     }
 
     fn evalCall(self: *Interpreter, call_node: *prism.CallNode) Value {
-        const method_name = self.parser.getConstantName(call_node.name) orelse {
-            return Value.nil();
-        };
+        const method_name = self.parser.getConstantName(call_node.name) catch unreachable;
 
         if (std.mem.eql(u8, method_name, "puts")) {
             return self.evalPuts(call_node);
@@ -177,7 +169,7 @@ pub const Interpreter = struct {
                 },
                 .integer => |int| {
                     var buffer: [64]u8 = undefined;
-                    const int_str = std.fmt.bufPrint(&buffer, "{d}", .{int}) catch "";
+                    const int_str = std.fmt.bufPrint(&buffer, "{d}", .{int}) catch unreachable;
                     self.output_writer.write(int_str);
                     self.output_writer.write("\n");
                 },

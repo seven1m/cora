@@ -51,7 +51,6 @@ pub fn main() !void {
     var interpreter = Interpreter.init(allocator, &parser);
     defer interpreter.deinit();
 
-    if (parser.root()) |root_node| {
-        _ = interpreter.eval(root_node);
-    }
+    const root_node = parser.root() catch unreachable;
+    _ = interpreter.eval(root_node);
 }
