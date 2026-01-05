@@ -4,7 +4,10 @@ pub const Value = @import("value.zig").Value;
 const Interpreter = @import("interpreter.zig").Interpreter;
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = if (std.debug.runtime_safety)
+        std.heap.DebugAllocator(.{}){}
+    else
+        std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
