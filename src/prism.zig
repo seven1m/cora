@@ -4,6 +4,7 @@ const c = @cImport(@cInclude("prism.h"));
 
 pub const CallNode = c.pm_call_node_t;
 pub const ArgumentsNode = c.pm_arguments_node_t;
+pub const DefNode = c.pm_def_node_t;
 
 pub const Node = union(enum) {
     program: *c.pm_program_node_t,
@@ -15,6 +16,7 @@ pub const Node = union(enum) {
     constant_write: *c.pm_constant_write_node_t,
     call: *c.pm_call_node_t,
     module: *c.pm_module_node,
+    def: *c.pm_def_node_t,
 };
 
 /// Parser wraps Prism's parser and AST lifecycle
@@ -97,6 +99,10 @@ pub const Parser = struct {
 
         if (node_type == c.PM_MODULE_NODE) {
             return Node{ .module = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_DEF_NODE) {
+            return Node{ .def = @ptrCast(raw) };
         }
 
         return error.UnhandledNode;

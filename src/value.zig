@@ -1,5 +1,9 @@
+const std = @import("std");
+const prism = @import("prism.zig");
+
 pub const ModuleValue = struct {
     name: []const u8,
+    methods: std.StringHashMap(*prism.DefNode),
 };
 
 pub const Value = struct {
@@ -9,7 +13,7 @@ pub const Value = struct {
         integer: i64,
         nil: void,
         symbol: []const u8,
-        module: ModuleValue,
+        module: *ModuleValue,
     },
 
     pub fn nil() Value {
@@ -28,7 +32,12 @@ pub const Value = struct {
         return .{ .frozen = true, .data = .{ .symbol = str } };
     }
 
-    pub fn module(name: []const u8) Value {
-        return .{ .frozen = false, .data = .{ .module = .{ .name = name } } };
+    pub fn module(allocator: std.mem.Allocator, name: []const u8) Value {
+        const module_value = allocator.create(ModuleValue) catch unreachable;
+        module_value.* = .{
+            .name = name,
+            .methods = std.StringHashMap(*prism.DefNode).init(allocator),
+        };
+        return .{ .frozen = false, .data = .{ .module = module_value } };
     }
 };

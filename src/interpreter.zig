@@ -35,17 +35,25 @@ pub const Interpreter = struct {
     symbols: std.StringHashMap(void),
     constants: std.StringHashMap(Value),
 
+    const object_name = "Object";
+
     pub fn init(allocator: std.mem.Allocator, parser: *prism.Parser) @This() {
         return initWithWriter(allocator, parser, defaultOutputWriter());
     }
 
     pub fn initWithWriter(allocator: std.mem.Allocator, parser: *prism.Parser, output_writer: OutputWriter) @This() {
+        const symbols = std.StringHashMap(void).init(allocator);
+        var constants = std.StringHashMap(Value).init(allocator);
+
+        const Object = Value.module(allocator, object_name); // a module for now, until we get classes
+        constants.put(object_name, Object) catch unreachable;
+
         return .{
             .allocator = allocator,
             .parser = parser,
             .output_writer = output_writer,
-            .symbols = std.StringHashMap(void).init(allocator),
-            .constants = std.StringHashMap(Value).init(allocator),
+            .symbols = symbols,
+            .constants = constants,
         };
     }
 
@@ -60,6 +68,13 @@ pub const Interpreter = struct {
         // while (const_it.next()) |key_ptr| {
         //     self.allocator.free(key_ptr.*);
         // }
+        var const_it = self.constants.valueIterator();
+        while (const_it.next()) |value_ptr| {
+            if (value_ptr.data == .module) {
+                value_ptr.data.module.methods.deinit();
+                self.allocator.destroy(value_ptr.data.module);
+            }
+        }
         self.constants.deinit();
     }
 
@@ -134,9 +149,16 @@ pub const Interpreter = struct {
 
             .module => |module_node| {
                 const name = self.parser.getConstantName(module_node.name) catch unreachable;
-                const module = Value.module(name);
+                const module = Value.module(self.allocator, name);
                 self.constants.put(name, module) catch unreachable;
                 return module;
+            },
+
+            .def => |def_node| {
+                const method_name = self.parser.getConstantName(def_node.name) catch unreachable;
+                const object_value = self.constants.get(object_name) orelse return Value.nil();
+                object_value.data.module.methods.put(method_name, def_node) catch unreachable;
+                return self.intern(method_name);
             },
         }
     }
@@ -146,6 +168,16 @@ pub const Interpreter = struct {
 
         if (std.mem.eql(u8, method_name, "puts")) {
             return self.evalPuts(call_node);
+        }
+
+        // Check if this is a user-defined method
+        const object_value = self.constants.get(object_name) orelse return Value.nil();
+        if (object_value.data.module.methods.get(method_name)) |def_node| {
+            // Execute the method body
+            if (def_node.body) |body_ptr| {
+                const body_node = self.parser.asNode(body_ptr) catch unreachable;
+                return self.eval(body_node);
+            }
         }
 
         return Value.nil();

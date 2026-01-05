@@ -138,3 +138,7 @@ test "Constants can be set and read" {
 test "modules can be defined" {
     try evalAndCheckOutput("module Foo; end; puts Foo", "Foo\n");
 }
+
+test "methods can be defined and called" {
+    try evalAndCheckOutput("puts def foo; 'foo called'; end; puts foo", "foo\nfoo called\n");
+}
