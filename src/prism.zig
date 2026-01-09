@@ -6,29 +6,35 @@ pub const RawNode = c.pm_node_t;
 
 pub const ArgumentsNode = c.pm_arguments_node_t;
 pub const CallNode = c.pm_call_node_t;
+pub const ClassNode = c.pm_class_node_t;
 pub const ConstantReadNode = c.pm_constant_read_node_t;
 pub const ConstantWriteNode = c.pm_constant_write_node_t;
 pub const DefNode = c.pm_def_node_t;
 pub const IntegerNode = c.pm_integer_node_t;
 pub const LocalVariableReadNode = c.pm_local_variable_read_node_t;
+pub const LocalVariableWriteNode = c.pm_local_variable_write_node_t;
 pub const ModuleNode = c.pm_module_node;
 pub const ParametersNode = c.pm_parameters_node_t;
 pub const ProgramNode = c.pm_program_node_t;
 pub const RequiredParameterNode = c.pm_required_parameter_node_t;
+pub const SelfNode = c.pm_self_node_t;
 pub const StatementsNode = c.pm_statements_node_t;
 pub const StringNode = c.pm_string_node_t;
 pub const SymbolNode = c.pm_symbol_node_t;
 
 pub const Node = union(enum) {
     call: *CallNode,
+    class: *ClassNode,
     constant_read: *ConstantReadNode,
     constant_write: *ConstantWriteNode,
     def: *DefNode,
     integer: *IntegerNode,
     local_variable_read: *LocalVariableReadNode,
+    local_variable_write: *LocalVariableWriteNode,
     module: *ModuleNode,
     program: *ProgramNode,
     required_parameter: *RequiredParameterNode,
+    self: *SelfNode,
     statements: *StatementsNode,
     string: *StringNode,
     symbol: *SymbolNode,
@@ -130,8 +136,20 @@ pub const Parser = struct {
             return Node{ .local_variable_read = @ptrCast(raw) };
         }
 
+        if (node_type == c.PM_LOCAL_VARIABLE_WRITE_NODE) {
+            return Node{ .local_variable_write = @ptrCast(raw) };
+        }
+
         if (node_type == c.PM_REQUIRED_PARAMETER_NODE) {
             return Node{ .required_parameter = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_CLASS_NODE) {
+            return Node{ .class = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_SELF_NODE) {
+            return Node{ .self = @ptrCast(raw) };
         }
 
         self.prettyPrintNode(raw);

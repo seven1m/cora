@@ -6,6 +6,16 @@ pub const ModuleValue = struct {
     methods: std.StringHashMap(*prism.DefNode),
 };
 
+pub const ClassValue = struct {
+    name: []const u8,
+    superclass: ?*ClassValue,
+    methods: std.StringHashMap(*prism.DefNode),
+};
+
+pub const InstanceValue = struct {
+    class: *ClassValue,
+};
+
 pub const Value = struct {
     frozen: bool,
     data: union(enum) {
@@ -14,6 +24,8 @@ pub const Value = struct {
         nil: void,
         symbol: []const u8,
         module: *ModuleValue,
+        class: *ClassValue,
+        instance: *InstanceValue,
     },
 
     pub fn nil() Value {
@@ -39,5 +51,23 @@ pub const Value = struct {
             .methods = std.StringHashMap(*prism.DefNode).init(allocator),
         };
         return .{ .frozen = false, .data = .{ .module = module_value } };
+    }
+
+    pub fn class(allocator: std.mem.Allocator, name: []const u8, superclass: ?*ClassValue) Value {
+        const class_value = allocator.create(ClassValue) catch unreachable;
+        class_value.* = .{
+            .name = name,
+            .superclass = superclass,
+            .methods = std.StringHashMap(*prism.DefNode).init(allocator),
+        };
+        return .{ .frozen = false, .data = .{ .class = class_value } };
+    }
+
+    pub fn instance(allocator: std.mem.Allocator, class_value: *ClassValue) Value {
+        const instance_value = allocator.create(InstanceValue) catch unreachable;
+        instance_value.* = .{
+            .class = class_value,
+        };
+        return .{ .frozen = false, .data = .{ .instance = instance_value } };
     }
 };

@@ -1,5 +1,7 @@
 const std = @import("std");
 const Value = @import("value.zig").Value;
+const ClassValue = @import("value.zig").ClassValue;
+const InstanceValue = @import("value.zig").InstanceValue;
 const prism = @import("prism.zig");
 
 pub const OutputWriter = struct {
@@ -28,13 +30,29 @@ pub fn defaultOutputWriter() OutputWriter {
     }.write);
 }
 
+pub const CallFrame = struct {
+    self: Value,
+    locals: std.StringHashMap(Value),
+
+    fn init(allocator: std.mem.Allocator, self_value: Value) CallFrame {
+        return .{
+            .self = self_value,
+            .locals = std.StringHashMap(Value).init(allocator),
+        };
+    }
+
+    fn deinit(self: *CallFrame) void {
+        self.locals.deinit();
+    }
+};
+
 pub const Interpreter = struct {
     allocator: std.mem.Allocator,
     parser: *prism.Parser,
     output_writer: OutputWriter,
     symbols: std.StringHashMap(void),
     constants: std.StringHashMap(Value),
-    locals: std.StringHashMap(Value),
+    call_stack: std.ArrayList(CallFrame),
 
     const object_name = "Object";
 
@@ -45,10 +63,12 @@ pub const Interpreter = struct {
     pub fn initWithWriter(allocator: std.mem.Allocator, parser: *prism.Parser, output_writer: OutputWriter) @This() {
         const symbols = std.StringHashMap(void).init(allocator);
         var constants = std.StringHashMap(Value).init(allocator);
-        const locals = std.StringHashMap(Value).init(allocator);
+        var call_stack = std.ArrayList(CallFrame).initCapacity(allocator, 16) catch unreachable;
 
-        const Object = Value.module(allocator, object_name); // a module for now, until we get classes
+        const Object = Value.class(allocator, object_name, null);
         constants.put(object_name, Object) catch unreachable;
+
+        call_stack.append(allocator, CallFrame.init(allocator, Object)) catch unreachable;
 
         return .{
             .allocator = allocator,
@@ -56,7 +76,7 @@ pub const Interpreter = struct {
             .output_writer = output_writer,
             .symbols = symbols,
             .constants = constants,
-            .locals = locals,
+            .call_stack = call_stack,
         };
     }
 
@@ -67,19 +87,38 @@ pub const Interpreter = struct {
         // }
         self.symbols.deinit();
 
+        while (self.call_stack.items.len > 0) {
+            if (self.call_stack.pop()) |cf| {
+                var call_frame = cf;
+                call_frame.deinit();
+            }
+        }
+        self.call_stack.deinit(self.allocator);
+
         // var const_it = self.constants.keyIterator();
         // while (const_it.next()) |key_ptr| {
         //     self.allocator.free(key_ptr.*);
         // }
         var const_it = self.constants.valueIterator();
         while (const_it.next()) |value_ptr| {
-            if (value_ptr.data == .module) {
-                value_ptr.data.module.methods.deinit();
-                self.allocator.destroy(value_ptr.data.module);
+            switch (value_ptr.data) {
+                .module => {
+                    value_ptr.data.module.methods.deinit();
+                    self.allocator.destroy(value_ptr.data.module);
+                },
+                .class => {
+                    value_ptr.data.class.methods.deinit();
+                    self.allocator.destroy(value_ptr.data.class);
+                },
+                else => {},
             }
         }
         self.constants.deinit();
-        self.locals.deinit();
+    }
+
+    /// Get the current call frame
+    fn frame(self: *Interpreter) *CallFrame {
+        return &self.call_stack.items[self.call_stack.items.len - 1];
     }
 
     /// Intern a symbol: look it up by name and return it, or create a new one.
@@ -158,19 +197,81 @@ pub const Interpreter = struct {
                 return module;
             },
 
+            .class => |class_node| {
+                const name = self.parser.getConstantName(class_node.name) catch unreachable;
+
+                var superclass: ?*ClassValue = null;
+                if (class_node.superclass) |superclass_ptr| {
+                    const superclass_node = self.parser.asNode(superclass_ptr) catch unreachable;
+                    const superclass_value = self.eval(superclass_node);
+                    if (superclass_value.data == .class) {
+                        superclass = superclass_value.data.class;
+                    }
+                } else {
+                    // Default to Object if no superclass specified
+                    if (!std.mem.eql(u8, name, object_name)) {
+                        const object_value = self.constants.get(object_name);
+                        if (object_value) |ov| {
+                            if (ov.data == .class) {
+                                superclass = ov.data.class;
+                            }
+                        }
+                    }
+                }
+
+                const class_value = Value.class(self.allocator, name, superclass);
+                self.constants.put(name, class_value) catch unreachable;
+
+                if (class_node.body) |body_ptr| {
+                    self.call_stack.append(self.allocator, CallFrame.init(self.allocator, class_value)) catch unreachable;
+                    defer {
+                        if (self.call_stack.items.len > 0) {
+                            if (self.call_stack.pop()) |cf| {
+                                var call_frame = cf;
+                                call_frame.deinit();
+                            }
+                        }
+                    }
+
+                    const body_node = self.parser.asNode(body_ptr) catch unreachable;
+                    _ = self.eval(body_node);
+                }
+
+                return class_value;
+            },
+
+            .self => {
+                return self.frame().self;
+            },
+
             .def => |def_node| {
                 const method_name = self.parser.getConstantName(def_node.name) catch unreachable;
-                const object_value = self.constants.get(object_name) orelse return Value.nil();
-                object_value.data.module.methods.put(method_name, def_node) catch unreachable;
+                const current_self = self.frame().self;
+
+                if (current_self.data == .class) {
+                    current_self.data.class.methods.put(method_name, def_node) catch unreachable;
+                } else {
+                    // Top-level method on Object
+                    const object_value = self.constants.get(object_name) orelse return Value.nil();
+                    object_value.data.class.methods.put(method_name, def_node) catch unreachable;
+                }
                 return self.intern(method_name);
             },
 
             .local_variable_read => |var_node| {
                 const var_name = self.parser.getLocalVariableName(var_node.name) catch unreachable;
-                if (self.locals.get(var_name)) |value| {
+                if (self.frame().locals.get(var_name)) |value| {
                     return value;
                 }
                 return Value.nil();
+            },
+
+            .local_variable_write => |var_node| {
+                const var_name = self.parser.getLocalVariableName(var_node.name) catch unreachable;
+                const value_node = self.parser.asNode(var_node.value) catch unreachable;
+                const value = self.eval(value_node);
+                self.frame().locals.put(var_name, value) catch unreachable;
+                return value;
             },
 
             .required_parameter => {
@@ -180,11 +281,80 @@ pub const Interpreter = struct {
         }
     }
 
+    /// Look up a method in a class, walking the inheritance chain
+    fn lookupMethod(_: *Interpreter, class: *const ClassValue, method_name: []const u8) ?*prism.DefNode {
+        var current: ?*const ClassValue = class;
+        while (current) |cls| {
+            if (cls.methods.get(method_name)) |def_node| {
+                return def_node;
+            }
+            current = cls.superclass;
+        }
+        return null;
+    }
+
+    /// Call a user-defined method with the given receiver
+    fn callMethod(self: *Interpreter, receiver: Value, def_node: *prism.DefNode, call_node: *prism.CallNode) Value {
+        // Push frame with receiver as self
+        self.call_stack.append(self.allocator, CallFrame.init(self.allocator, receiver)) catch unreachable;
+        defer {
+            if (self.call_stack.items.len > 0) {
+                if (self.call_stack.pop()) |cf| {
+                    var call_frame = cf;
+                    call_frame.deinit();
+                }
+            }
+        }
+
+        // Bind parameters to arguments
+        if (def_node.parameters != null and call_node.arguments != null) {
+            const params = @as(*prism.ParametersNode, @ptrCast(def_node.parameters));
+            const args = @as(*prism.ArgumentsNode, @ptrCast(call_node.arguments));
+
+            var param_idx: usize = 0;
+            while (param_idx < params.requireds.size and param_idx < args.arguments.size) : (param_idx += 1) {
+                const param_node = self.parser.asNode(params.requireds.nodes[param_idx]) catch unreachable;
+                const arg_node = self.parser.asNode(args.arguments.nodes[param_idx]) catch unreachable;
+                const arg_value = self.eval(arg_node);
+
+                if (param_node == .required_parameter) {
+                    const param_name = self.parser.getLocalVariableName(param_node.required_parameter.name) catch unreachable;
+                    self.frame().locals.put(param_name, arg_value) catch unreachable;
+                }
+            }
+        }
+
+        // Evaluate method body
+        if (def_node.body) |body_ptr| {
+            const body_node = self.parser.asNode(body_ptr) catch unreachable;
+            return self.eval(body_node);
+        }
+        return Value.nil();
+    }
+
     fn evalCall(self: *Interpreter, call_node: *prism.CallNode) Value {
         const method_name = self.parser.getConstantName(call_node.name) catch unreachable;
 
         if (std.mem.eql(u8, method_name, "puts")) {
             return self.evalPuts(call_node);
+        }
+
+        // Handle Class.new
+        if (call_node.receiver != null and std.mem.eql(u8, method_name, "new")) {
+            const receiver_node = self.parser.asNode(@ptrCast(call_node.receiver.?)) catch unreachable;
+            const receiver_value = self.eval(receiver_node);
+
+            if (receiver_value.data == .class) {
+                const class_ptr = receiver_value.data.class;
+                const instance_value = Value.instance(self.allocator, class_ptr);
+
+                // Look for initialize method and call it
+                if (self.lookupMethod(class_ptr, "initialize")) |init_def| {
+                    _ = self.callMethod(instance_value, init_def, call_node);
+                }
+
+                return instance_value;
+            }
         }
 
         // FIXME: built-in binary functions... we'll move these later.
@@ -207,32 +377,22 @@ pub const Interpreter = struct {
             }
         }
 
-        const object_value = self.constants.get(object_name) orelse return Value.nil();
-        if (object_value.data.module.methods.get(method_name)) |def_node| {
-            self.locals.clearRetainingCapacity();
-            defer self.locals.clearRetainingCapacity();
+        // Handle instance method dispatch
+        if (call_node.receiver != null) {
+            const receiver_node = self.parser.asNode(@ptrCast(call_node.receiver.?)) catch unreachable;
+            const receiver_value = self.eval(receiver_node);
 
-            if (def_node.parameters != null and call_node.arguments != null) {
-                const params = @as(*prism.ParametersNode, @ptrCast(def_node.parameters));
-                const args = @as(*prism.ArgumentsNode, @ptrCast(call_node.arguments));
-
-                var param_idx: usize = 0;
-                while (param_idx < params.requireds.size and param_idx < args.arguments.size) : (param_idx += 1) {
-                    const param_node = self.parser.asNode(params.requireds.nodes[param_idx]) catch unreachable;
-                    const arg_node = self.parser.asNode(args.arguments.nodes[param_idx]) catch unreachable;
-                    const arg_value = self.eval(arg_node);
-
-                    if (param_node == .required_parameter) {
-                        const param_name = self.parser.getLocalVariableName(param_node.required_parameter.name) catch unreachable;
-                        self.locals.put(param_name, arg_value) catch unreachable;
-                    }
+            if (receiver_value.data == .instance) {
+                const instance_ptr = receiver_value.data.instance;
+                if (self.lookupMethod(instance_ptr.class, method_name)) |def_node| {
+                    return self.callMethod(receiver_value, def_node, call_node);
                 }
             }
+        }
 
-            if (def_node.body) |body_ptr| {
-                const body_node = self.parser.asNode(body_ptr) catch unreachable;
-                return self.eval(body_node);
-            }
+        const object_value = self.constants.get(object_name) orelse return Value.nil();
+        if (object_value.data.class.methods.get(method_name)) |def_node| {
+            return self.callMethod(self.frame().self, def_node, call_node);
         }
 
         return Value.nil();
@@ -267,6 +427,20 @@ pub const Interpreter = struct {
                 .module => |mod| {
                     self.output_writer.write(mod.name);
                     self.output_writer.write("\n");
+                },
+                .class => |cls| {
+                    self.output_writer.write(cls.name);
+                    self.output_writer.write("\n");
+                },
+                .instance => |inst| {
+                    self.output_writer.write("#<");
+                    self.output_writer.write(inst.class.name);
+                    self.output_writer.write(":0x");
+                    var buffer: [32]u8 = undefined;
+                    const addr = @intFromPtr(inst);
+                    const hex_str = std.fmt.bufPrint(&buffer, "{x}", .{addr}) catch unreachable;
+                    self.output_writer.write(hex_str);
+                    self.output_writer.write(">\n");
                 },
                 .nil => {
                     self.output_writer.write("\n");
