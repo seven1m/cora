@@ -10,8 +10,11 @@ pub const ConstantReadNode = c.pm_constant_read_node_t;
 pub const ConstantWriteNode = c.pm_constant_write_node_t;
 pub const DefNode = c.pm_def_node_t;
 pub const IntegerNode = c.pm_integer_node_t;
+pub const LocalVariableReadNode = c.pm_local_variable_read_node_t;
 pub const ModuleNode = c.pm_module_node;
+pub const ParametersNode = c.pm_parameters_node_t;
 pub const ProgramNode = c.pm_program_node_t;
+pub const RequiredParameterNode = c.pm_required_parameter_node_t;
 pub const StatementsNode = c.pm_statements_node_t;
 pub const StringNode = c.pm_string_node_t;
 pub const SymbolNode = c.pm_symbol_node_t;
@@ -22,8 +25,10 @@ pub const Node = union(enum) {
     constant_write: *ConstantWriteNode,
     def: *DefNode,
     integer: *IntegerNode,
+    local_variable_read: *LocalVariableReadNode,
     module: *ModuleNode,
     program: *ProgramNode,
+    required_parameter: *RequiredParameterNode,
     statements: *StatementsNode,
     string: *StringNode,
     symbol: *SymbolNode,
@@ -121,6 +126,14 @@ pub const Parser = struct {
             return Node{ .def = @ptrCast(raw) };
         }
 
+        if (node_type == c.PM_LOCAL_VARIABLE_READ_NODE) {
+            return Node{ .local_variable_read = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_REQUIRED_PARAMETER_NODE) {
+            return Node{ .required_parameter = @ptrCast(raw) };
+        }
+
         self.prettyPrintNode(raw);
         return error.UnhandledNode;
     }
@@ -131,6 +144,10 @@ pub const Parser = struct {
             return error.ConstantNotFound;
         }
         return constant.*.start[0..constant.*.length];
+    }
+
+    pub fn getLocalVariableName(self: *Parser, const_id: c.pm_constant_id_t) ![]const u8 {
+        return self.getConstantName(const_id);
     }
 
     /// Pretty-print AST for debugging

@@ -141,4 +141,5 @@ test "modules can be defined" {
 
 test "methods can be defined and called" {
     try evalAndCheckOutput("puts def foo; 'foo called'; end; puts foo", "foo\nfoo called\n");
+    try evalAndCheckOutput("def increment(x); x + 1; end; puts increment(41)", "42\n");
 }

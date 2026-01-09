@@ -34,6 +34,7 @@ pub const Interpreter = struct {
     output_writer: OutputWriter,
     symbols: std.StringHashMap(void),
     constants: std.StringHashMap(Value),
+    locals: std.StringHashMap(Value),
 
     const object_name = "Object";
 
@@ -44,6 +45,7 @@ pub const Interpreter = struct {
     pub fn initWithWriter(allocator: std.mem.Allocator, parser: *prism.Parser, output_writer: OutputWriter) @This() {
         const symbols = std.StringHashMap(void).init(allocator);
         var constants = std.StringHashMap(Value).init(allocator);
+        const locals = std.StringHashMap(Value).init(allocator);
 
         const Object = Value.module(allocator, object_name); // a module for now, until we get classes
         constants.put(object_name, Object) catch unreachable;
@@ -54,6 +56,7 @@ pub const Interpreter = struct {
             .output_writer = output_writer,
             .symbols = symbols,
             .constants = constants,
+            .locals = locals,
         };
     }
 
@@ -76,6 +79,7 @@ pub const Interpreter = struct {
             }
         }
         self.constants.deinit();
+        self.locals.deinit();
     }
 
     /// Intern a symbol: look it up by name and return it, or create a new one.
@@ -160,6 +164,19 @@ pub const Interpreter = struct {
                 object_value.data.module.methods.put(method_name, def_node) catch unreachable;
                 return self.intern(method_name);
             },
+
+            .local_variable_read => |var_node| {
+                const var_name = self.parser.getLocalVariableName(var_node.name) catch unreachable;
+                if (self.locals.get(var_name)) |value| {
+                    return value;
+                }
+                return Value.nil();
+            },
+
+            .required_parameter => {
+                // This is just here to satisfy Zig. We shouldn't land here.
+                unreachable;
+            },
         }
     }
 
@@ -170,10 +187,48 @@ pub const Interpreter = struct {
             return self.evalPuts(call_node);
         }
 
-        // Check if this is a user-defined method
+        // FIXME: built-in binary functions... we'll move these later.
+        if (call_node.receiver != null) {
+            if (std.mem.eql(u8, method_name, "+")) {
+                const receiver_node = self.parser.asNode(@ptrCast(call_node.receiver.?)) catch unreachable;
+                const receiver_value = self.eval(receiver_node);
+
+                if (call_node.arguments != null) {
+                    const args = @as(*prism.ArgumentsNode, @ptrCast(call_node.arguments));
+                    if (args.arguments.size > 0) {
+                        const arg_node = self.parser.asNode(args.arguments.nodes[0]) catch unreachable;
+                        const arg_value = self.eval(arg_node);
+
+                        if (receiver_value.data == .integer and arg_value.data == .integer) {
+                            return Value.integer(receiver_value.data.integer + arg_value.data.integer);
+                        }
+                    }
+                }
+            }
+        }
+
         const object_value = self.constants.get(object_name) orelse return Value.nil();
         if (object_value.data.module.methods.get(method_name)) |def_node| {
-            // Execute the method body
+            self.locals.clearRetainingCapacity();
+            defer self.locals.clearRetainingCapacity();
+
+            if (def_node.parameters != null and call_node.arguments != null) {
+                const params = @as(*prism.ParametersNode, @ptrCast(def_node.parameters));
+                const args = @as(*prism.ArgumentsNode, @ptrCast(call_node.arguments));
+
+                var param_idx: usize = 0;
+                while (param_idx < params.requireds.size and param_idx < args.arguments.size) : (param_idx += 1) {
+                    const param_node = self.parser.asNode(params.requireds.nodes[param_idx]) catch unreachable;
+                    const arg_node = self.parser.asNode(args.arguments.nodes[param_idx]) catch unreachable;
+                    const arg_value = self.eval(arg_node);
+
+                    if (param_node == .required_parameter) {
+                        const param_name = self.parser.getLocalVariableName(param_node.required_parameter.name) catch unreachable;
+                        self.locals.put(param_name, arg_value) catch unreachable;
+                    }
+                }
+            }
+
             if (def_node.body) |body_ptr| {
                 const body_node = self.parser.asNode(body_ptr) catch unreachable;
                 return self.eval(body_node);
