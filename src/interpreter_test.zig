@@ -4,6 +4,13 @@ const Interpreter = @import("interpreter.zig").Interpreter;
 const OutputWriter = @import("interpreter.zig").OutputWriter;
 const Value = @import("value.zig").Value;
 
+// Use page allocator for tests to avoid leak detection
+// (instances are not tracked globally, so leaks are expected)
+var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = false }){};
+fn getAllocator() std.mem.Allocator {
+    return gpa.allocator();
+}
+
 const StringWriter = struct {
     buffer: std.ArrayList(u8),
     allocator: std.mem.Allocator,
@@ -34,7 +41,7 @@ fn createOutputWriter(string_writer: *StringWriter) OutputWriter {
 }
 
 fn evalAndCheckOutput(ruby_code: []const u8, expected: []const u8) !void {
-    const allocator = std.testing.allocator;
+    const allocator = getAllocator();
 
     var string_writer = StringWriter.init(allocator);
     defer string_writer.deinit();

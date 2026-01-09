@@ -1,7 +1,7 @@
 const std = @import("std");
 
 test "binary: simple puts" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = false }){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
