@@ -2,8 +2,12 @@ const std = @import("std");
 const prism = @import("prism.zig");
 pub const Value = @import("value.zig").Value;
 const Interpreter = @import("interpreter.zig").Interpreter;
+const bdwgc = @import("bdwgc");
 
 pub fn main() !void {
+    bdwgc.init();
+    defer bdwgc.deinit();
+
     var gpa = if (std.debug.runtime_safety)
         std.heap.DebugAllocator(.{}){}
     else
@@ -51,7 +55,7 @@ pub fn main() !void {
         return;
     }
 
-    var interpreter = Interpreter.init(allocator, &parser);
+    var interpreter = Interpreter.init(allocator, bdwgc.allocator, &parser);
     defer interpreter.deinit();
 
     const root_node = parser.root() catch unreachable;

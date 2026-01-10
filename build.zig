@@ -45,6 +45,12 @@ pub fn build(b: *std.Build) void {
 
     exe.linkLibC();
 
+    const bdwgc = b.dependency("bdwgc_zig", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    exe.root_module.addImport("bdwgc", bdwgc.module("bdwgc"));
+
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);
@@ -69,6 +75,8 @@ pub fn build(b: *std.Build) void {
     test_exe.addObjectFile(b.path("zig-out/prism/build/libprism.a"));
     test_exe.addIncludePath(b.path("zig-out/prism/include"));
     test_exe.linkLibC();
+
+    test_exe.root_module.addImport("bdwgc", bdwgc.module("bdwgc"));
 
     const test_run = b.addRunArtifact(test_exe);
     test_run.step.dependOn(prism_build_step);

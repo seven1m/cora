@@ -3,10 +3,9 @@ const prism = @import("prism.zig");
 const Interpreter = @import("interpreter.zig").Interpreter;
 const OutputWriter = @import("interpreter.zig").OutputWriter;
 const Value = @import("value.zig").Value;
+const bdwgc = @import("bdwgc");
 
-// Use page allocator for tests to avoid leak detection
-// (instances are not tracked globally, so leaks are expected)
-var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = false }){};
+var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 fn getAllocator() std.mem.Allocator {
     return gpa.allocator();
 }
@@ -41,6 +40,7 @@ fn createOutputWriter(string_writer: *StringWriter) OutputWriter {
 }
 
 fn evalAndCheckOutput(ruby_code: []const u8, expected: []const u8) !void {
+    bdwgc.init();
     const allocator = getAllocator();
 
     var string_writer = StringWriter.init(allocator);
@@ -49,7 +49,7 @@ fn evalAndCheckOutput(ruby_code: []const u8, expected: []const u8) !void {
     var parser = try prism.Parser.init(allocator, ruby_code);
     defer parser.deinit();
 
-    var interpreter = Interpreter.initWithWriter(allocator, &parser, createOutputWriter(&string_writer));
+    var interpreter = Interpreter.initWithWriter(allocator, bdwgc.allocator, &parser, createOutputWriter(&string_writer));
     defer interpreter.deinit();
 
     const root_node = try parser.root();
@@ -73,9 +73,10 @@ const EvalStatementsContext = struct {
 };
 
 fn evalStatements(allocator: std.mem.Allocator, ruby_code: []const u8) !EvalStatementsContext {
+    bdwgc.init();
     var parser = try prism.Parser.init(allocator, ruby_code);
 
-    var interpreter = Interpreter.init(allocator, &parser);
+    var interpreter = Interpreter.init(allocator, bdwgc.allocator, &parser);
 
     var full_results = try allocator.alloc(Value, 10); // Preallocate, adjust as needed
     var count: usize = 0;

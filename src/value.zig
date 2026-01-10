@@ -1,5 +1,6 @@
 const std = @import("std");
 const prism = @import("prism.zig");
+const bdwgc = @import("bdwgc");
 
 pub const ModuleValue = struct {
     name: []const u8,
@@ -44,27 +45,27 @@ pub const Value = struct {
         return .{ .frozen = true, .data = .{ .symbol = str } };
     }
 
-    pub fn module(allocator: std.mem.Allocator, name: []const u8) Value {
-        const module_value = allocator.create(ModuleValue) catch unreachable;
+    pub fn module(gc_allocator: std.mem.Allocator, name: []const u8) Value {
+        const module_value = gc_allocator.create(ModuleValue) catch unreachable;
         module_value.* = .{
             .name = name,
-            .methods = std.StringHashMap(*prism.DefNode).init(allocator),
+            .methods = std.StringHashMap(*prism.DefNode).init(gc_allocator),
         };
         return .{ .frozen = false, .data = .{ .module = module_value } };
     }
 
-    pub fn class(allocator: std.mem.Allocator, name: []const u8, superclass: ?*ClassValue) Value {
-        const class_value = allocator.create(ClassValue) catch unreachable;
+    pub fn class(gc_allocator: std.mem.Allocator, name: []const u8, superclass: ?*ClassValue) Value {
+        const class_value = gc_allocator.create(ClassValue) catch unreachable;
         class_value.* = .{
             .name = name,
             .superclass = superclass,
-            .methods = std.StringHashMap(*prism.DefNode).init(allocator),
+            .methods = std.StringHashMap(*prism.DefNode).init(gc_allocator),
         };
         return .{ .frozen = false, .data = .{ .class = class_value } };
     }
 
-    pub fn instance(allocator: std.mem.Allocator, class_value: *ClassValue) Value {
-        const instance_value = allocator.create(InstanceValue) catch unreachable;
+    pub fn instance(gc_allocator: std.mem.Allocator, class_value: *ClassValue) Value {
+        const instance_value = gc_allocator.create(InstanceValue) catch unreachable;
         instance_value.* = .{
             .class = class_value,
         };

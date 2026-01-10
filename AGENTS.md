@@ -6,13 +6,14 @@ Clara is a Ruby interpreter written in Zig using the Prism parser for AST genera
 
 **Key Files:**
 - `src/prism.zig` - Prism C library wrapper with typed Node union
-- `src/main.zig` - CLI entry point
+- `src/main.zig` - CLI entry point, initializes GC
 - `src/value.zig` - Value types and factory methods
 - `src/interpreter.zig` - AST evaluation logic with eval() method
 
 **Value Types:** String, Integer, Nil, Symbol (interned), Module, Class, Instance
 
 **Interpreter State:**
+- `allocator: Allocator` - Infrastructure allocator for HashMaps, call stack, constants, symbols
 - `call_stack: ArrayList(CallFrame)` - Stack of execution frames with self and locals
 - `constants: StringHashMap(Value)` - All classes, modules, constants
 - `symbols: StringHashMap(void)` - Interned symbol names
@@ -38,11 +39,41 @@ Clara is a Ruby interpreter written in Zig using the Prism parser for AST genera
 
 **New Method:** Add check in evalCall(), implement logic, test with output verification
 
-## Memory
+## Memory Management
 
-- Always `defer interpreter.deinit()` after creation
-- Modules and classes need method HashMap cleanup
-- Instances not explicitly tracked (use arena/GC for production)
+**Memory Management:**
+- `bdwgc.allocator` (Boehm-Demers-Weiser GC): Manages all Ruby heap objects
+  - ClassValue, ModuleValue, InstanceValue objects
+  - Methods HashMaps (for consistent lifetime with objects)
+  - Automatically collects unreachable objects
+  - Conservative GC scans stack and heap for pointers
+  - NO manual free() calls needed
+
+- `std.heap.GeneralPurposeAllocator`: Manages interpreter infrastructure
+  - Constants HashMap, symbols, call stack, etc.
+  - Manually cleaned up in Interpreter.deinit()
+  - Leak detection enabled in tests
+
+**Object Lifecycle:**
+- Classes/Modules stored in `constants` HashMap (infrastructure allocator)
+- ClassValue/ModuleValue/InstanceValue objects → allocated with GC allocator → GC manages cleanup
+- Methods HashMaps → allocated with GC allocator → `.deinit()` called in Interpreter.deinit()
+- Instances no longer leak - automatically managed by GC
+
+**How to create Ruby objects:**
+```zig
+// All Ruby objects use GC allocator internally (allocation is hidden)
+const obj = Value.instance(class_ptr);
+const cls = Value.class(name, superclass);
+const mod = Value.module(name);
+```
+
+Allocator selection is an internal implementation detail. `value.zig` imports `bdwgc` and uses `bdwgc.allocator` for all GC-managed objects and their method HashMaps. When adding new value types (like GC-managed strings), `value.zig` can transparently use different allocators (e.g., `bdwgc.allocator_atomic` for pointer-free data) without affecting the API.
+
+**When objects are freed:**
+- GC-managed objects are freed during GC collection cycles
+- Infrastructure objects are freed when `interpreter.deinit()` is called
+- No need to explicitly free GC objects - the collector handles it automatically
 
 ## Implemented Ruby Features
 

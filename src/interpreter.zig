@@ -48,6 +48,7 @@ pub const CallFrame = struct {
 
 pub const Interpreter = struct {
     allocator: std.mem.Allocator,
+    gc_allocator: std.mem.Allocator,
     parser: *prism.Parser,
     output_writer: OutputWriter,
     symbols: std.StringHashMap(void),
@@ -56,22 +57,23 @@ pub const Interpreter = struct {
 
     const object_name = "Object";
 
-    pub fn init(allocator: std.mem.Allocator, parser: *prism.Parser) @This() {
-        return initWithWriter(allocator, parser, defaultOutputWriter());
+    pub fn init(allocator: std.mem.Allocator, gc_allocator: std.mem.Allocator, parser: *prism.Parser) @This() {
+        return initWithWriter(allocator, gc_allocator, parser, defaultOutputWriter());
     }
 
-    pub fn initWithWriter(allocator: std.mem.Allocator, parser: *prism.Parser, output_writer: OutputWriter) @This() {
+    pub fn initWithWriter(allocator: std.mem.Allocator, gc_allocator: std.mem.Allocator, parser: *prism.Parser, output_writer: OutputWriter) @This() {
         const symbols = std.StringHashMap(void).init(allocator);
         var constants = std.StringHashMap(Value).init(allocator);
         var call_stack = std.ArrayList(CallFrame).initCapacity(allocator, 16) catch unreachable;
 
-        const Object = Value.class(allocator, object_name, null);
+        const Object = Value.class(gc_allocator, object_name, null);
         constants.put(object_name, Object) catch unreachable;
 
         call_stack.append(allocator, CallFrame.init(allocator, Object)) catch unreachable;
 
         return .{
             .allocator = allocator,
+            .gc_allocator = gc_allocator,
             .parser = parser,
             .output_writer = output_writer,
             .symbols = symbols,
@@ -81,10 +83,6 @@ pub const Interpreter = struct {
     }
 
     pub fn deinit(self: *Interpreter) void {
-        // var it = self.symbols.keyIterator();
-        // while (it.next()) |key_ptr| {
-        //     self.allocator.free(key_ptr.*);
-        // }
         self.symbols.deinit();
 
         while (self.call_stack.items.len > 0) {
@@ -95,20 +93,14 @@ pub const Interpreter = struct {
         }
         self.call_stack.deinit(self.allocator);
 
-        // var const_it = self.constants.keyIterator();
-        // while (const_it.next()) |key_ptr| {
-        //     self.allocator.free(key_ptr.*);
-        // }
         var const_it = self.constants.valueIterator();
         while (const_it.next()) |value_ptr| {
             switch (value_ptr.data) {
                 .module => {
                     value_ptr.data.module.methods.deinit();
-                    self.allocator.destroy(value_ptr.data.module);
                 },
                 .class => {
                     value_ptr.data.class.methods.deinit();
-                    self.allocator.destroy(value_ptr.data.class);
                 },
                 else => {},
             }
@@ -192,7 +184,7 @@ pub const Interpreter = struct {
 
             .module => |module_node| {
                 const name = self.parser.getConstantName(module_node.name) catch unreachable;
-                const module = Value.module(self.allocator, name);
+                const module = Value.module(self.gc_allocator, name);
                 self.constants.put(name, module) catch unreachable;
                 return module;
             },
@@ -219,7 +211,7 @@ pub const Interpreter = struct {
                     }
                 }
 
-                const class_value = Value.class(self.allocator, name, superclass);
+                const class_value = Value.class(self.gc_allocator, name, superclass);
                 self.constants.put(name, class_value) catch unreachable;
 
                 if (class_node.body) |body_ptr| {
@@ -346,7 +338,7 @@ pub const Interpreter = struct {
 
             if (receiver_value.data == .class) {
                 const class_ptr = receiver_value.data.class;
-                const instance_value = Value.instance(self.allocator, class_ptr);
+                const instance_value = Value.instance(self.gc_allocator, class_ptr);
 
                 // Look for initialize method and call it
                 if (self.lookupMethod(class_ptr, "initialize")) |init_def| {
