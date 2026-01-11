@@ -10,10 +10,14 @@ pub const ClassNode = c.pm_class_node_t;
 pub const ConstantReadNode = c.pm_constant_read_node_t;
 pub const ConstantWriteNode = c.pm_constant_write_node_t;
 pub const DefNode = c.pm_def_node_t;
+pub const ElseNode = c.pm_else_node_t;
+pub const FalseNode = c.pm_false_node_t;
+pub const IfNode = c.pm_if_node_t;
 pub const IntegerNode = c.pm_integer_node_t;
 pub const LocalVariableReadNode = c.pm_local_variable_read_node_t;
 pub const LocalVariableWriteNode = c.pm_local_variable_write_node_t;
 pub const ModuleNode = c.pm_module_node;
+pub const NilNode = c.pm_nil_node_t;
 pub const ParametersNode = c.pm_parameters_node_t;
 pub const ProgramNode = c.pm_program_node_t;
 pub const RequiredParameterNode = c.pm_required_parameter_node_t;
@@ -21,6 +25,7 @@ pub const SelfNode = c.pm_self_node_t;
 pub const StatementsNode = c.pm_statements_node_t;
 pub const StringNode = c.pm_string_node_t;
 pub const SymbolNode = c.pm_symbol_node_t;
+pub const TrueNode = c.pm_true_node_t;
 
 pub const Node = union(enum) {
     call: *CallNode,
@@ -28,16 +33,21 @@ pub const Node = union(enum) {
     constant_read: *ConstantReadNode,
     constant_write: *ConstantWriteNode,
     def: *DefNode,
+    else_node: *ElseNode,
+    false_node: *FalseNode,
+    if_node: *IfNode,
     integer: *IntegerNode,
     local_variable_read: *LocalVariableReadNode,
     local_variable_write: *LocalVariableWriteNode,
     module: *ModuleNode,
+    nil_node: *NilNode,
     program: *ProgramNode,
     required_parameter: *RequiredParameterNode,
     self: *SelfNode,
     statements: *StatementsNode,
     string: *StringNode,
     symbol: *SymbolNode,
+    true_node: *TrueNode,
 };
 
 /// Parser wraps Prism's parser and AST lifecycle
@@ -150,6 +160,26 @@ pub const Parser = struct {
 
         if (node_type == c.PM_SELF_NODE) {
             return Node{ .self = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_IF_NODE) {
+            return Node{ .if_node = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_ELSE_NODE) {
+            return Node{ .else_node = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_TRUE_NODE) {
+            return Node{ .true_node = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_FALSE_NODE) {
+            return Node{ .false_node = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_NIL_NODE) {
+            return Node{ .nil_node = @ptrCast(raw) };
         }
 
         self.prettyPrintNode(raw);

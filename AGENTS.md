@@ -10,7 +10,7 @@ Clara is a Ruby interpreter written in Zig using the Prism parser for AST genera
 - `src/value.zig` - Value types and factory methods
 - `src/interpreter.zig` - AST evaluation logic with eval() method
 
-**Value Types:** String, Integer, Nil, Symbol (interned), Module, Class, Instance
+**Value Types:** String, Integer, Boolean, Nil, Symbol (interned), Module, Class, Instance
 
 **Interpreter State:**
 - `allocator: Allocator` - Infrastructure allocator for HashMaps, call stack, constants, symbols
@@ -77,7 +77,9 @@ Allocator selection is an internal implementation detail. `value.zig` imports `b
 
 ## Implemented Ruby Features
 
-**Basics:** String/Integer/Nil literals, Symbols (interned), Constants, Local variables
+**Basics:** String/Integer/Boolean/Nil literals, Symbols (interned), Constants, Local variables
+
+**Control Flow:** if/else/end statements, truthy/falsy evaluation (only nil and false are falsy)
 
 **Methods:** `puts`, user-defined methods with arguments, method calls with receivers
 

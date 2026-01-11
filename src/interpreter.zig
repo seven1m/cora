@@ -270,6 +270,51 @@ pub const Interpreter = struct {
                 // This is just here to satisfy Zig. We shouldn't land here.
                 unreachable;
             },
+
+            .if_node => |if_node| {
+                const predicate_node = self.parser.asNode(if_node.predicate) catch unreachable;
+                const predicate_value = self.eval(predicate_node);
+
+                const is_truthy = switch (predicate_value.data) {
+                    .nil => false,
+                    .boolean => predicate_value.data.boolean,
+                    else => true,
+                };
+
+                if (is_truthy) {
+                    if (if_node.statements) |statements_ptr| {
+                        const statements_node = self.parser.asNode(@ptrCast(statements_ptr)) catch unreachable;
+                        return self.eval(statements_node);
+                    }
+                    return Value.nil();
+                } else {
+                    if (if_node.subsequent) |subsequent_ptr| {
+                        const subsequent_node = self.parser.asNode(@ptrCast(subsequent_ptr)) catch unreachable;
+                        return self.eval(subsequent_node);
+                    }
+                    return Value.nil();
+                }
+            },
+
+            .else_node => |else_node| {
+                if (else_node.statements) |statements_ptr| {
+                    const statements_node = self.parser.asNode(@ptrCast(statements_ptr)) catch unreachable;
+                    return self.eval(statements_node);
+                }
+                return Value.nil();
+            },
+
+            .true_node => {
+                return Value.boolean(true);
+            },
+
+            .false_node => {
+                return Value.boolean(false);
+            },
+
+            .nil_node => {
+                return Value.nil();
+            },
         }
     }
 
@@ -414,6 +459,14 @@ pub const Interpreter = struct {
                 },
                 .symbol => |sym| {
                     self.output_writer.write(sym);
+                    self.output_writer.write("\n");
+                },
+                .boolean => |b| {
+                    if (b) {
+                        self.output_writer.write("true");
+                    } else {
+                        self.output_writer.write("false");
+                    }
                     self.output_writer.write("\n");
                 },
                 .module => |mod| {

@@ -157,3 +157,12 @@ test "classes can be defined" {
     try evalAndCheckOutput("class Foo; def foo; 'foo'; end; end; foo = Foo.new; puts foo.foo", "foo\n");
     try evalAndCheckOutput("class Foo; def foo; 'foo'; end; end; class Bar < Foo; end; bar = Bar.new; puts bar.foo", "foo\n");
 }
+
+test "if" {
+    try evalAndCheckOutput("if true; puts 'yes'; else; puts 'no'; end", "yes\n");
+    try evalAndCheckOutput("if false; puts 'yes'; else; puts 'no'; end", "no\n");
+    try evalAndCheckOutput("if true; puts 'yes'; end", "yes\n");
+    try evalAndCheckOutput("if 1; puts 'yes'; end", "yes\n");
+    try evalAndCheckOutput("if 0; puts 'yes'; end", "yes\n");
+    try evalAndCheckOutput("if nil; puts 'yes'; else; puts 'no'; end", "no\n");
+}

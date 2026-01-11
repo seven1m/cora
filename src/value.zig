@@ -23,6 +23,7 @@ pub const Value = struct {
         string: []const u8,
         integer: i64,
         nil: void,
+        boolean: bool,
         symbol: []const u8,
         module: *ModuleValue,
         class: *ClassValue,
@@ -31,6 +32,10 @@ pub const Value = struct {
 
     pub fn nil() Value {
         return .{ .frozen = true, .data = .nil };
+    }
+
+    pub fn boolean(value: bool) Value {
+        return .{ .frozen = true, .data = .{ .boolean = value } };
     }
 
     pub fn frozenString(str: []const u8) Value {
