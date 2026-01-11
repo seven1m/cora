@@ -19,6 +19,7 @@ pub fn main() !void {
     defer std.process.argsFree(allocator, args);
 
     var ruby_code: ?[]const u8 = null;
+    var filename: ?[]const u8 = null;
     var print_ast = false;
 
     var i: usize = 1;
@@ -33,15 +34,42 @@ pub fn main() !void {
             }
         } else if (std.mem.eql(u8, args[i], "--ast")) {
             print_ast = true;
+        } else if (!std.mem.startsWith(u8, args[i], "-")) {
+            filename = args[i];
         }
     }
 
-    if (ruby_code == null) {
-        std.debug.print("Usage: clara [--ast] -e <ruby code>\n", .{});
+    if (ruby_code == null and filename == null) {
+        std.debug.print("Usage: clara [--ast] (-e <ruby code> | <filename>)\n", .{});
         return;
     }
 
-    const code = ruby_code.?;
+    var code_buffer: ?[]u8 = null;
+    defer if (code_buffer) |buf| allocator.free(buf);
+
+    const code = if (ruby_code) |code|
+        code
+    else if (filename) |file|
+        blk: {
+            const file_handle = std.fs.cwd().openFile(file, .{}) catch |err| {
+                std.debug.print("Error: Could not open file '{s}': {}\n", .{ file, err });
+                return;
+            };
+            defer file_handle.close();
+
+            const file_size = try file_handle.getEndPos();
+            code_buffer = try allocator.alloc(u8, file_size);
+            const bytes_read = try file_handle.readAll(code_buffer.?);
+
+            if (bytes_read != file_size) {
+                std.debug.print("Error: Could not read entire file\n", .{});
+                return;
+            }
+
+            break :blk code_buffer.?;
+        }
+    else
+        unreachable;
     var parser = prism.Parser.init(allocator, code) catch {
         std.debug.print("Parse error\n", .{});
         return;
