@@ -113,15 +113,9 @@ fn evalStatements(allocator: std.mem.Allocator, ruby_code: []const u8) !EvalStat
     };
 }
 
-test "Interpreter evaluates puts with string" {
+test "Interpreter evaluates puts" {
     try evalAndCheckOutput("puts \"Hello, World!\"", "Hello, World!\n");
-}
-
-test "Interpreter evaluates puts with integer" {
     try evalAndCheckOutput("puts 42", "42\n");
-}
-
-test "Interpreter evaluates puts with symbol" {
     try evalAndCheckOutput("puts :world", "world\n");
 }
 
@@ -143,26 +137,31 @@ test "Constants can be set and read" {
     try evalAndCheckOutput("FOO = 42; puts FOO", "42\n");
 }
 
-test "modules can be defined" {
+test "modules" {
     try evalAndCheckOutput("module Foo; end; puts Foo", "Foo\n");
-}
-
-test "methods can be defined and called" {
     try evalAndCheckOutput("puts def foo; 'foo called'; end; puts foo", "foo\nfoo called\n");
     try evalAndCheckOutput("def increment(x); x + 1; end; puts increment(41)", "42\n");
 }
 
-test "classes can be defined" {
+test "classes" {
     try evalAndCheckOutput("class Foo; end; puts Foo", "Foo\n");
     try evalAndCheckOutput("class Foo; def foo; 'foo'; end; end; foo = Foo.new; puts foo.foo", "foo\n");
     try evalAndCheckOutput("class Foo; def foo; 'foo'; end; end; class Bar < Foo; end; bar = Bar.new; puts bar.foo", "foo\n");
 }
 
 test "if" {
-    try evalAndCheckOutput("if true; puts 'yes'; else; puts 'no'; end", "yes\n");
-    try evalAndCheckOutput("if false; puts 'yes'; else; puts 'no'; end", "no\n");
-    try evalAndCheckOutput("if true; puts 'yes'; end", "yes\n");
-    try evalAndCheckOutput("if 1; puts 'yes'; end", "yes\n");
-    try evalAndCheckOutput("if 0; puts 'yes'; end", "yes\n");
-    try evalAndCheckOutput("if nil; puts 'yes'; else; puts 'no'; end", "no\n");
+    try evalAndCheckOutput("if true; puts 'true'; else; puts 'not true'; end", "true\n");
+    try evalAndCheckOutput("if false; puts 'false'; else; puts 'not false'; end", "not false\n");
+    try evalAndCheckOutput("if true; puts 'true'; end", "true\n");
+    try evalAndCheckOutput("if 1; puts '1'; end", "1\n");
+    try evalAndCheckOutput("if 0; puts '0'; end", "0\n");
+    try evalAndCheckOutput("if nil; puts 'nil'; else; puts 'not nil'; end", "not nil\n");
+    try evalAndCheckOutput("if false; puts 'false'; elsif 1; puts '1'; else; puts 'other'; end;", "1\n");
+}
+
+test "math operators" {
+    try evalAndCheckOutput("puts 10 + 3", "13\n");
+    try evalAndCheckOutput("puts 10 - 3", "7\n");
+    try evalAndCheckOutput("puts 5 == 5", "true\n");
+    try evalAndCheckOutput("puts 6 == 7", "false\n");
 }

@@ -332,6 +332,19 @@ pub const Interpreter = struct {
 
     /// Call a user-defined method with the given receiver
     fn callMethod(self: *Interpreter, receiver: Value, def_node: *prism.DefNode, call_node: *prism.CallNode) Value {
+        var arg_values = std.ArrayList(Value).initCapacity(self.allocator, 8) catch unreachable;
+        defer arg_values.deinit(self.allocator);
+
+        if (call_node.arguments != null) {
+            const args = @as(*prism.ArgumentsNode, @ptrCast(call_node.arguments));
+            var arg_idx: usize = 0;
+            while (arg_idx < args.arguments.size) : (arg_idx += 1) {
+                const arg_node = self.parser.asNode(args.arguments.nodes[arg_idx]) catch unreachable;
+                const arg_value = self.eval(arg_node);
+                arg_values.appendAssumeCapacity(arg_value);
+            }
+        }
+
         // Push frame with receiver as self
         self.call_stack.append(self.allocator, CallFrame.init(self.allocator, receiver)) catch unreachable;
         defer {
@@ -344,15 +357,13 @@ pub const Interpreter = struct {
         }
 
         // Bind parameters to arguments
-        if (def_node.parameters != null and call_node.arguments != null) {
+        if (def_node.parameters != null and arg_values.items.len > 0) {
             const params = @as(*prism.ParametersNode, @ptrCast(def_node.parameters));
-            const args = @as(*prism.ArgumentsNode, @ptrCast(call_node.arguments));
 
             var param_idx: usize = 0;
-            while (param_idx < params.requireds.size and param_idx < args.arguments.size) : (param_idx += 1) {
+            while (param_idx < params.requireds.size and param_idx < arg_values.items.len) : (param_idx += 1) {
                 const param_node = self.parser.asNode(params.requireds.nodes[param_idx]) catch unreachable;
-                const arg_node = self.parser.asNode(args.arguments.nodes[param_idx]) catch unreachable;
-                const arg_value = self.eval(arg_node);
+                const arg_value = arg_values.items[param_idx];
 
                 if (param_node == .required_parameter) {
                     const param_name = self.parser.getLocalVariableName(param_node.required_parameter.name) catch unreachable;
@@ -408,6 +419,40 @@ pub const Interpreter = struct {
 
                         if (receiver_value.data == .integer and arg_value.data == .integer) {
                             return Value.integer(receiver_value.data.integer + arg_value.data.integer);
+                        }
+                    }
+                }
+            }
+
+            if (std.mem.eql(u8, method_name, "-")) {
+                const receiver_node = self.parser.asNode(@ptrCast(call_node.receiver.?)) catch unreachable;
+                const receiver_value = self.eval(receiver_node);
+
+                if (call_node.arguments != null) {
+                    const args = @as(*prism.ArgumentsNode, @ptrCast(call_node.arguments));
+                    if (args.arguments.size > 0) {
+                        const arg_node = self.parser.asNode(args.arguments.nodes[0]) catch unreachable;
+                        const arg_value = self.eval(arg_node);
+
+                        if (receiver_value.data == .integer and arg_value.data == .integer) {
+                            return Value.integer(receiver_value.data.integer - arg_value.data.integer);
+                        }
+                    }
+                }
+            }
+
+            if (std.mem.eql(u8, method_name, "==")) {
+                const receiver_node = self.parser.asNode(@ptrCast(call_node.receiver.?)) catch unreachable;
+                const receiver_value = self.eval(receiver_node);
+
+                if (call_node.arguments != null) {
+                    const args = @as(*prism.ArgumentsNode, @ptrCast(call_node.arguments));
+                    if (args.arguments.size > 0) {
+                        const arg_node = self.parser.asNode(args.arguments.nodes[0]) catch unreachable;
+                        const arg_value = self.eval(arg_node);
+
+                        if (receiver_value.data == .integer and arg_value.data == .integer) {
+                            return Value.boolean(receiver_value.data.integer == arg_value.data.integer);
                         }
                     }
                 }
