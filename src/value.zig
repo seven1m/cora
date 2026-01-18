@@ -1,16 +1,17 @@
 const std = @import("std");
 const prism = @import("prism.zig");
 const bdwgc = @import("bdwgc");
+const Chunk = @import("chunk.zig").Chunk;
 
 pub const ModuleValue = struct {
     name: []const u8,
-    methods: std.StringHashMap(*prism.DefNode),
+    methods: std.StringHashMap(*Chunk),
 };
 
 pub const ClassValue = struct {
     name: []const u8,
     superclass: ?*ClassValue,
-    methods: std.StringHashMap(*prism.DefNode),
+    methods: std.StringHashMap(*Chunk),
 };
 
 pub const InstanceValue = struct {
@@ -54,7 +55,7 @@ pub const Value = struct {
         const module_value = gc_allocator.create(ModuleValue) catch unreachable;
         module_value.* = .{
             .name = name,
-            .methods = std.StringHashMap(*prism.DefNode).init(gc_allocator),
+            .methods = std.StringHashMap(*Chunk).init(gc_allocator),
         };
         return .{ .frozen = false, .data = .{ .module = module_value } };
     }
@@ -64,7 +65,7 @@ pub const Value = struct {
         class_value.* = .{
             .name = name,
             .superclass = superclass,
-            .methods = std.StringHashMap(*prism.DefNode).init(gc_allocator),
+            .methods = std.StringHashMap(*Chunk).init(gc_allocator),
         };
         return .{ .frozen = false, .data = .{ .class = class_value } };
     }
@@ -75,5 +76,18 @@ pub const Value = struct {
             .class = class_value,
         };
         return .{ .frozen = false, .data = .{ .instance = instance_value } };
+    }
+
+    pub fn format(self: Value, writer: *std.Io.Writer) !void {
+        switch (self.data) {
+            .integer => |i| try writer.print("{d}", .{i}),
+            .string => |s| try writer.print("\"{s}\"", .{s}),
+            .symbol => |s| try writer.print(":{s}", .{s}),
+            .boolean => |b| try writer.print("{s}", .{if (b) "true" else "false"}),
+            .nil => try writer.print("nil", .{}),
+            .module => |m| try writer.print("<Module {s}>", .{m.name}),
+            .class => |c| try writer.print("<Class {s}>", .{c.name}),
+            .instance => |i| try writer.print("<{s} instance>", .{i.class.name}),
+        }
     }
 };

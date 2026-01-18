@@ -88,14 +88,14 @@ pub const Parser = struct {
     }
 
     /// Show Prism node in human-readable form
-    pub fn prettyPrintNode(self: *Parser, node: *RawNode) void {
+    pub fn prettyPrintNode(self: *Parser, node: *RawNode, writer: *std.Io.Writer) !void {
         var buffer: c.pm_buffer_t = undefined;
         _ = c.pm_buffer_init(&buffer);
         defer c.pm_buffer_free(&buffer);
 
         c.pm_prettyprint(&buffer, &self.internal, node);
         const output = buffer.value[0..buffer.length];
-        std.debug.print("{s}", .{output});
+        try writer.print("{s}", .{output});
     }
 
     /// Convert a raw C node pointer to a typed Node
@@ -182,7 +182,10 @@ pub const Parser = struct {
             return Node{ .nil_node = @ptrCast(raw) };
         }
 
-        self.prettyPrintNode(raw);
+        var stdout_buffer: [8192]u8 = undefined;
+        var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+        const stdout = &stdout_writer.interface;
+        try self.prettyPrintNode(raw, stdout);
         return error.UnhandledNode;
     }
 
