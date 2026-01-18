@@ -322,13 +322,12 @@ pub const Compiler = struct {
     }
 
     fn compileMethod(self: *Compiler, def_node: *prism.DefNode, line: u32) anyerror!void {
-        // Get the method name and allocate a copy
+        // Get the method name (borrowed from Prism AST)
         const method_name_slice = try self.parser.getConstantName(def_node.name);
-        const method_name = try self.allocator.dupe(u8, method_name_slice);
 
         // Allocate chunk on heap
         const method_chunk_ptr = try self.allocator.create(chunk.Chunk);
-        method_chunk_ptr.* = chunk.Chunk.init(self.allocator, method_name);
+        method_chunk_ptr.* = chunk.Chunk.init(self.allocator, method_name_slice);
 
         // Save the current chunk and switch to the method chunk
         const saved_chunk = self.current_chunk;
@@ -373,12 +372,11 @@ pub const Compiler = struct {
         try self.method_chunks.put(chunk_id, method_chunk_ptr);
 
         // Emit DEF_METHOD bytecode with method name and chunk ID
-        const name_idx = try self.current_chunk.addConstant(value.Value.frozenString(method_name));
+        const name_idx = try self.current_chunk.addConstant(value.Value.frozenString(method_name_slice));
         try self.current_chunk.emitOpU16U8(.DEF_METHOD, @intCast(name_idx), @intCast(chunk_id), line);
 
         // Return a symbol of the method name
-        const symbol_str = try self.gc_allocator.dupe(u8, method_name);
-        const symbol_val = value.Value.symbol(symbol_str);
+        const symbol_val = value.Value.symbol(method_name_slice);
         const symbol_idx = try self.current_chunk.addConstant(symbol_val);
         try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(symbol_idx), line);
     }

@@ -17,12 +17,11 @@ fn evalCode(ruby_code: []const u8) !Value {
     const allocator = getAllocator();
 
     var parser = try prism.Parser.init(allocator, ruby_code);
-    defer parser.deinit();
 
     var program = try compiler.Compiler.compile(allocator, bdwgc.allocator, &parser);
     defer program.deinit();
 
-    var virtual_machine = vm.VM.init(allocator, bdwgc.allocator, &program);
+    var virtual_machine = vm.VM.init(allocator, bdwgc.allocator, parser, &program);
     defer virtual_machine.deinit();
 
     return try virtual_machine.run();

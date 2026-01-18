@@ -3,6 +3,7 @@ const bytecode = @import("bytecode.zig");
 const chunk = @import("chunk.zig");
 const compiler = @import("compiler.zig");
 const value = @import("value.zig");
+const prism = @import("prism.zig");
 
 pub const CallFrame = struct {
     chunk: *chunk.Chunk,
@@ -16,6 +17,8 @@ pub const VM = struct {
     allocator: std.mem.Allocator,
     gc_allocator: std.mem.Allocator,
 
+    parser: prism.Parser,
+
     stack: std.ArrayList(value.Value),
     frames: std.ArrayList(CallFrame),
 
@@ -24,10 +27,11 @@ pub const VM = struct {
 
     program: *compiler.CompiledProgram,
 
-    pub fn init(allocator: std.mem.Allocator, gc_allocator: std.mem.Allocator, program: *compiler.CompiledProgram) VM {
+    pub fn init(allocator: std.mem.Allocator, gc_allocator: std.mem.Allocator, parser: prism.Parser, program: *compiler.CompiledProgram) VM {
         var vm = VM{
             .allocator = allocator,
             .gc_allocator = gc_allocator,
+            .parser = parser,
             .stack = std.ArrayList(value.Value).initCapacity(allocator, 256) catch unreachable,
             .frames = std.ArrayList(CallFrame).initCapacity(allocator, 16) catch unreachable,
             .constants = std.StringHashMap(value.Value).init(allocator),
@@ -52,6 +56,7 @@ pub const VM = struct {
     }
 
     pub fn deinit(self: *VM) void {
+        self.parser.deinit();
         self.stack.deinit(self.allocator);
         // Deinit any remaining frames (shouldn't be any after normal execution)
         for (self.frames.items) |*frame| {
