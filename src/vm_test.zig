@@ -111,14 +111,14 @@ test "Class instantiation" {
     try std.testing.expectEqualSlices(u8, "foo", result.data.string);
 }
 
-// TODO: Implement class inheritance
-// test "Class inheritance" {
-//     const result = try evalCode("class Foo; def foo; 'foo'; end; end; class Bar < Foo; end; bar = Bar.new; puts bar.foo");
-//     try std.testing.expect(result.data == .nil);
-// }
+test "Class inheritance" {
+    const result = try evalCode("class Foo; def foo; 'foo'; end; end; class Bar < Foo; end; bar = Bar.new; bar.foo");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "foo", result.data.string);
+}
 
-// TODO: Implement method arguments
-// test "Method calls with arguments" {
-//     const result = try evalCode("def increment(x); x + 1; end; puts increment(41)");
-//     try std.testing.expect(result.data == .nil);
-// }
+test "Method calls with arguments" {
+    const result = try evalCode("def increment(x); x + 1; end; increment(41)");
+    try std.testing.expect(result.data == .integer);
+    try std.testing.expectEqual(42, result.data.integer);
+}
