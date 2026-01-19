@@ -20,6 +20,7 @@ pub const CompiledProgram = struct {
         }
         self.method_chunks.deinit();
     }
+
 };
 
 const Local = struct {
@@ -101,21 +102,21 @@ pub const Compiler = struct {
                 if (int_node.value.negative) {
                     int_val = -int_val;
                 }
-                const idx = try self.current_chunk.addConstant(value.Value.integer(int_val));
+                const idx = try self.current_chunk.addConstant(.{ .integer = int_val });
                 try self.current_chunk.emitOpU16(.PUSH_INT, @intCast(idx), line);
             },
 
             .string => |string_node| {
                 const str_val = string_node.unescaped;
                 const str_slice = str_val.source[0..str_val.length];
-                const idx = try self.current_chunk.addConstant(value.Value.frozenString(str_slice));
+                const idx = try self.current_chunk.addConstant(.{ .string = str_slice });
                 try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(idx), line);
             },
 
             .symbol => |symbol_node| {
                 const symbol_val = symbol_node.unescaped;
                 const symbol_slice = symbol_val.source[0..symbol_val.length];
-                const idx = try self.current_chunk.addConstant(value.Value.symbol(symbol_slice));
+                const idx = try self.current_chunk.addConstant(.{ .symbol = symbol_slice });
                 try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(idx), line);
             },
 
@@ -164,7 +165,7 @@ pub const Compiler = struct {
 
             .constant_read => |const_read| {
                 const const_name = try self.parser.getConstantName(const_read.name);
-                const idx = try self.current_chunk.addConstant(value.Value.frozenString(const_name));
+                const idx = try self.current_chunk.addConstant(.{ .string = const_name });
                 try self.current_chunk.emitOpU16(.GET_CONST, @intCast(idx), line);
             },
 
@@ -173,7 +174,7 @@ pub const Compiler = struct {
                 const value_node = try self.parser.asNode(@ptrCast(const_write.value));
                 try self.compileNode(value_node, line);
 
-                const idx = try self.current_chunk.addConstant(value.Value.frozenString(const_name));
+                const idx = try self.current_chunk.addConstant(.{ .string = const_name });
                 try self.current_chunk.emitOpU16(.SET_CONST, @intCast(idx), line);
             },
 
@@ -214,8 +215,7 @@ pub const Compiler = struct {
                     try self.current_chunk.emitOp(.EQ, line);
                 } else {
                     // User-defined method - store method name as a string constant
-                    const method_name_val = value.Value.frozenString(method_name);
-                    const method_idx = try self.current_chunk.addConstant(method_name_val);
+                    const method_idx = try self.current_chunk.addConstant(.{ .string = method_name });
                     try self.current_chunk.emitOpU16U8(.CALL, @intCast(method_idx), argc, line);
                 }
             },
@@ -295,7 +295,7 @@ pub const Compiler = struct {
         const module_name = try self.parser.getConstantName(module_node.name);
 
         // Add the module name as a constant
-        const idx = try self.current_chunk.addConstant(value.Value.frozenString(module_name));
+        const idx = try self.current_chunk.addConstant(.{ .string = module_name });
 
         // Emit DEF_MODULE instruction
         try self.current_chunk.emitOpU16(.DEF_MODULE, @intCast(idx), line);
@@ -306,7 +306,7 @@ pub const Compiler = struct {
         const class_name = try self.parser.getConstantName(class_node.name);
 
         // Add the class name as a constant
-        const idx = try self.current_chunk.addConstant(value.Value.frozenString(class_name));
+        const idx = try self.current_chunk.addConstant(.{ .string = class_name });
 
         // Emit DEF_CLASS instruction
         try self.current_chunk.emitOpU16(.DEF_CLASS, @intCast(idx), line);
@@ -322,7 +322,7 @@ pub const Compiler = struct {
     }
 
     fn compileMethod(self: *Compiler, def_node: *prism.DefNode, line: u32) anyerror!void {
-        // Get the method name (borrowed from Prism AST)
+        // Get the method name (will be interned later by VM)
         const method_name_slice = try self.parser.getConstantName(def_node.name);
 
         // Allocate chunk on heap
@@ -372,12 +372,11 @@ pub const Compiler = struct {
         try self.method_chunks.put(chunk_id, method_chunk_ptr);
 
         // Emit DEF_METHOD bytecode with method name and chunk ID
-        const name_idx = try self.current_chunk.addConstant(value.Value.frozenString(method_name_slice));
+        const name_idx = try self.current_chunk.addConstant(.{ .string = method_name_slice });
         try self.current_chunk.emitOpU16U8(.DEF_METHOD, @intCast(name_idx), @intCast(chunk_id), line);
 
         // Return a symbol of the method name
-        const symbol_val = value.Value.symbol(method_name_slice);
-        const symbol_idx = try self.current_chunk.addConstant(symbol_val);
+        const symbol_idx = try self.current_chunk.addConstant(.{ .symbol = method_name_slice });
         try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(symbol_idx), line);
     }
 

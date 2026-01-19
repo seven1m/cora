@@ -16,14 +16,15 @@ fn evalCode(ruby_code: []const u8) !Value {
 
     const allocator = getAllocator();
 
-    var parser = try prism.Parser.init(allocator, ruby_code);
+    const parser = try prism.Parser.init(allocator, ruby_code);
 
-    var program = try compiler.Compiler.compile(allocator, bdwgc.allocator, &parser);
-    defer program.deinit();
-
-    var virtual_machine = vm.VM.init(allocator, bdwgc.allocator, parser, &program);
+    var virtual_machine = vm.VM.initEmpty(allocator, bdwgc.allocator, parser);
     defer virtual_machine.deinit();
 
+    var program = try compiler.Compiler.compile(allocator, bdwgc.allocator, &virtual_machine.parser);
+    defer program.deinit();
+
+    try virtual_machine.prepare(&program);
     return try virtual_machine.run();
 }
 

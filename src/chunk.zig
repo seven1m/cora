@@ -1,10 +1,15 @@
 const std = @import("std");
 const bytecode = @import("bytecode.zig");
-const value = @import("value.zig");
+
+pub const Constant = union(enum) {
+    integer: i64,
+    string: []const u8,
+    symbol: []const u8,
+};
 
 pub const Chunk = struct {
     code: std.ArrayList(u8),
-    constants: std.ArrayList(value.Value),
+    constants: std.ArrayList(Constant),
     constant_names: std.StringHashMap(u32), // Name -> constant index
     line_info: std.ArrayList(u32),
     allocator: std.mem.Allocator,
@@ -13,7 +18,7 @@ pub const Chunk = struct {
     pub fn init(allocator: std.mem.Allocator, name: []const u8) Chunk {
         return Chunk{
             .code = std.ArrayList(u8).initCapacity(allocator, 256) catch unreachable,
-            .constants = std.ArrayList(value.Value).initCapacity(allocator, 16) catch unreachable,
+            .constants = std.ArrayList(Constant).initCapacity(allocator, 16) catch unreachable,
             .constant_names = std.StringHashMap(u32).init(allocator),
             .line_info = std.ArrayList(u32).initCapacity(allocator, 256) catch unreachable,
             .allocator = allocator,
@@ -29,13 +34,13 @@ pub const Chunk = struct {
     }
 
     /// Add a constant to the constant pool, return its index
-    pub fn addConstant(self: *Chunk, const_val: value.Value) !u32 {
+    pub fn addConstant(self: *Chunk, const_val: Constant) !u32 {
         try self.constants.append(self.allocator, const_val);
         return @intCast(self.constants.items.len - 1);
     }
 
     /// Add a named constant (class, module, etc.)
-    pub fn addNamedConstant(self: *Chunk, name: []const u8, const_val: value.Value) !u32 {
+    pub fn addNamedConstant(self: *Chunk, name: []const u8, const_val: Constant) !u32 {
         const idx = try self.addConstant(const_val);
         try self.constant_names.put(name, idx);
         return idx;
@@ -149,7 +154,12 @@ pub const Chunk = struct {
                 const idx = bytecode.readU16(self.code.items, next_ip);
                 try writer.print("{s} {d}", .{ bytecode.opcodeName(op), idx });
                 if (idx < self.constants.items.len) {
-                    try writer.print(" ({f})", .{self.constants.items[idx]});
+                    const constant = self.constants.items[idx];
+                    switch (constant) {
+                        .integer => |i| try writer.print(" ({d})", .{i}),
+                        .string => |s| try writer.print(" (\"{s}\")", .{s}),
+                        .symbol => |s| try writer.print(" (:{s})", .{s}),
+                    }
                 }
                 try writer.print("\n", .{});
                 next_ip += 2;

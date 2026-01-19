@@ -23,35 +23,61 @@ pub const VM = struct {
     frames: std.ArrayList(CallFrame),
 
     constants: std.StringHashMap(value.Value),
-    symbols: std.StringHashMap(void),
+    symbols: std.StringHashMap(value.Value),
 
     program: *compiler.CompiledProgram,
 
-    pub fn init(allocator: std.mem.Allocator, gc_allocator: std.mem.Allocator, parser: prism.Parser, program: *compiler.CompiledProgram) VM {
-        var vm = VM{
+    pub fn intern(self: *VM, str: []const u8) !value.Value {
+        // Check if already interned
+        if (self.symbols.get(str)) |symbol_val| {
+            return symbol_val; // Return the cached symbol Value
+        }
+
+        // Allocate a new string with the gc_allocator
+        const allocated_str = try self.gc_allocator.dupe(u8, str);
+
+        // Create a symbol Value and store it
+        const symbol_val = value.Value.symbol(allocated_str);
+        try self.symbols.put(allocated_str, symbol_val);
+
+        return symbol_val;
+    }
+
+    pub fn initEmpty(allocator: std.mem.Allocator, gc_allocator: std.mem.Allocator, parser: prism.Parser) VM {
+        return VM{
             .allocator = allocator,
             .gc_allocator = gc_allocator,
             .parser = parser,
             .stack = std.ArrayList(value.Value).initCapacity(allocator, 256) catch unreachable,
             .frames = std.ArrayList(CallFrame).initCapacity(allocator, 16) catch unreachable,
             .constants = std.StringHashMap(value.Value).init(allocator),
-            .symbols = std.StringHashMap(void).init(allocator),
-            .program = program,
+            .symbols = std.StringHashMap(value.Value).init(allocator),
+            .program = undefined,
         };
+    }
 
-        // Create the Object class
-        const object_class_val = value.Value.class(gc_allocator, "Object", null);
-        vm.constants.put("Object", object_class_val) catch unreachable;
+    pub fn prepare(self: *VM, program: *compiler.CompiledProgram) !void {
+        self.program = program;
 
-        // Transfer top-level method chunks from program to Object.methods
-        // The chunk name is the method name
+        // Create Object class with interned name
+        const object_name_val = try self.intern("Object");
+        const object_name_str = object_name_val.data.symbol;
+        const object_class_val = value.Value.class(self.gc_allocator, object_name_str, null);
+        try self.constants.put(object_name_str, object_class_val);
+
+        // Transfer method chunks to Object class
         const object_class_ptr = object_class_val.data.class;
         var iter = program.method_chunks.iterator();
         while (iter.next()) |entry| {
             const chunk_ptr = entry.value_ptr.*;
-            object_class_ptr.methods.put(chunk_ptr.name, chunk_ptr) catch unreachable;
+            // chunk_ptr.name is an AST-borrowed slice
+            try object_class_ptr.methods.put(chunk_ptr.name, chunk_ptr);
         }
+    }
 
+    pub fn init(allocator: std.mem.Allocator, gc_allocator: std.mem.Allocator, parser: prism.Parser, program: *compiler.CompiledProgram) VM {
+        var vm = initEmpty(allocator, gc_allocator, parser);
+        vm.prepare(program) catch unreachable;
         return vm;
     }
 
@@ -86,6 +112,14 @@ pub const VM = struct {
 
     fn currentChunk(self: *VM) *chunk.Chunk {
         return self.currentFrame().chunk;
+    }
+
+    fn constantToValue(constant: chunk.Constant) value.Value {
+        return switch (constant) {
+            .integer => |i| value.Value.integer(i),
+            .string => |s| value.Value.frozenString(s),
+            .symbol => |s| value.Value.symbol(s),
+        };
     }
 
     fn push(self: *VM, val: value.Value) !void {
@@ -163,13 +197,15 @@ pub const VM = struct {
 
             .PUSH_INT => {
                 const idx = self.readU16();
-                const val = self.currentChunk().constants.items[idx];
+                const constant = self.currentChunk().constants.items[idx];
+                const val = constantToValue(constant);
                 try self.push(val);
             },
 
             .PUSH_CONST => {
                 const idx = self.readU16();
-                const val = self.currentChunk().constants.items[idx];
+                const constant = self.currentChunk().constants.items[idx];
+                const val = constantToValue(constant);
                 try self.push(val);
             },
 
@@ -196,9 +232,9 @@ pub const VM = struct {
 
             .GET_CONST => {
                 const idx = self.readU16();
-                const const_name = self.currentChunk().constants.items[idx];
-                if (const_name.data == .string) {
-                    if (self.constants.get(const_name.data.string)) |const_val| {
+                const constant = self.currentChunk().constants.items[idx];
+                if (constant == .string) {
+                    if (self.constants.get(constant.string)) |const_val| {
                         try self.push(const_val);
                     } else {
                         try self.push(value.Value.nil());
@@ -211,9 +247,9 @@ pub const VM = struct {
             .SET_CONST => {
                 const idx = self.readU16();
                 const val = self.pop();
-                const const_name = self.currentChunk().constants.items[idx];
-                if (const_name.data == .string) {
-                    try self.constants.put(const_name.data.string, val);
+                const constant = self.currentChunk().constants.items[idx];
+                if (constant == .string) {
+                    try self.constants.put(constant.string, val);
                 }
                 try self.push(val);
             },
@@ -328,10 +364,10 @@ pub const VM = struct {
 
             .DEF_MODULE => {
                 const name_idx = self.readU16();
-                const name_val = self.currentChunk().constants.items[name_idx];
-                if (name_val.data == .string) {
-                    const module_val = value.Value.module(self.gc_allocator, name_val.data.string);
-                    try self.constants.put(name_val.data.string, module_val);
+                const constant = self.currentChunk().constants.items[name_idx];
+                if (constant == .string) {
+                    const module_val = value.Value.module(self.gc_allocator, constant.string);
+                    try self.constants.put(constant.string, module_val);
                     try self.push(module_val);
                 } else {
                     return error.InvalidModuleName;
@@ -340,10 +376,10 @@ pub const VM = struct {
 
             .DEF_CLASS => {
                 const name_idx = self.readU16();
-                const name_val = self.currentChunk().constants.items[name_idx];
-                if (name_val.data == .string) {
-                    const class_val = value.Value.class(self.gc_allocator, name_val.data.string, null);
-                    try self.constants.put(name_val.data.string, class_val);
+                const constant = self.currentChunk().constants.items[name_idx];
+                if (constant == .string) {
+                    const class_val = value.Value.class(self.gc_allocator, constant.string, null);
+                    try self.constants.put(constant.string, class_val);
                     try self.push(class_val);
                 } else {
                     return error.InvalidClassName;
@@ -354,12 +390,12 @@ pub const VM = struct {
                 const name_idx = self.readU16();
                 const chunk_idx = self.readByte();
 
-                const name_val = self.currentChunk().constants.items[name_idx];
-                if (name_val.data != .string) {
+                const constant = self.currentChunk().constants.items[name_idx];
+                if (constant != .string) {
                     return error.InvalidMethodName;
                 }
 
-                const method_name = name_val.data.string;
+                const method_name = constant.string;
 
                 // Look up the chunk by ID
                 if (self.program.method_chunks.get(chunk_idx)) |chunk_ptr| {
@@ -430,12 +466,12 @@ pub const VM = struct {
             return error.InvalidMethodIndex;
         }
 
-        const method_name_val = self.currentChunk().constants.items[method_idx];
-        if (method_name_val.data != .string) {
+        const constant = self.currentChunk().constants.items[method_idx];
+        if (constant != .string) {
             return error.InvalidMethodName;
         }
 
-        const method_name = method_name_val.data.string;
+        const method_name = constant.string;
         var method_chunk_ptr: ?*chunk.Chunk = null;
 
         // Try to find method in receiver's class first

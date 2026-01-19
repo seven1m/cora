@@ -84,11 +84,14 @@ pub fn main() !void {
         return;
     }
 
-    var program = try compiler.Compiler.compile(allocator, bdwgc.allocator, &parser);
+    // Two-phase initialization: Create VM first (empty), then compile, then finalize
+    var virtual_machine = vm.VM.initEmpty(allocator, bdwgc.allocator, parser);
+    defer virtual_machine.deinit();
+
+    var program = try compiler.Compiler.compile(allocator, bdwgc.allocator, &virtual_machine.parser);
     defer program.deinit();
 
     if (dump_bytecode) {
-        defer parser.deinit();
         // Print bytecode disassembly to stdout
         var stdout_buffer: [8192]u8 = undefined;
         var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
@@ -108,8 +111,6 @@ pub fn main() !void {
         return;
     }
 
-    var virtual_machine = vm.VM.init(allocator, bdwgc.allocator, parser, &program);
-    defer virtual_machine.deinit();
-
+    try virtual_machine.prepare(&program);
     _ = try virtual_machine.run();
 }
