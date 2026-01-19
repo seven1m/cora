@@ -30,7 +30,6 @@ const Local = struct {
 
 pub const Compiler = struct {
     allocator: std.mem.Allocator,
-    gc_allocator: std.mem.Allocator,
     parser: *prism.Parser,
 
     current_chunk: *chunk.Chunk,
@@ -40,10 +39,9 @@ pub const Compiler = struct {
     method_chunks: std.AutoHashMap(u16, *chunk.Chunk),
     method_counter: u16 = 0,
 
-    pub fn init(allocator: std.mem.Allocator, gc_allocator: std.mem.Allocator, parser: *prism.Parser) Compiler {
+    pub fn init(allocator: std.mem.Allocator, parser: *prism.Parser) Compiler {
         return Compiler{
             .allocator = allocator,
-            .gc_allocator = gc_allocator,
             .parser = parser,
             .current_chunk = undefined,
             .locals = std.ArrayList(Local).initCapacity(allocator, 32) catch unreachable,
@@ -56,8 +54,8 @@ pub const Compiler = struct {
         // self.method_chunks is transferred to CompiledProgram.
     }
 
-    pub fn compile(allocator: std.mem.Allocator, gc_allocator: std.mem.Allocator, parser: *prism.Parser) !CompiledProgram {
-        var compiler = Compiler.init(allocator, gc_allocator, parser);
+    pub fn compile(allocator: std.mem.Allocator, parser: *prism.Parser) !CompiledProgram {
+        var compiler = Compiler.init(allocator, parser);
         defer compiler.deinit();
 
         var main_chunk = chunk.Chunk.init(allocator, "main");

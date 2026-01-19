@@ -84,11 +84,7 @@ pub fn main() !void {
         return;
     }
 
-    // Two-phase initialization: Create VM first (empty), then compile, then finalize
-    var virtual_machine = vm.VM.initEmpty(allocator, bdwgc.allocator, parser);
-    defer virtual_machine.deinit();
-
-    var program = try compiler.Compiler.compile(allocator, bdwgc.allocator, &virtual_machine.parser);
+    var program = try compiler.Compiler.compile(allocator, &parser);
     defer program.deinit();
 
     if (dump_bytecode) {
@@ -111,6 +107,8 @@ pub fn main() !void {
         return;
     }
 
-    try virtual_machine.prepare(&program);
+    var virtual_machine = vm.VM.init(allocator, bdwgc.allocator, parser, &program);
+    defer virtual_machine.deinit();
+
     _ = try virtual_machine.run();
 }

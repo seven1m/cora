@@ -21,7 +21,7 @@ fn evalCode(ruby_code: []const u8) !Value {
     var virtual_machine = vm.VM.initEmpty(allocator, bdwgc.allocator, parser);
     defer virtual_machine.deinit();
 
-    var program = try compiler.Compiler.compile(allocator, bdwgc.allocator, &virtual_machine.parser);
+    var program = try compiler.Compiler.compile(allocator, &virtual_machine.parser);
     defer program.deinit();
 
     try virtual_machine.prepare(&program);
@@ -121,4 +121,26 @@ test "Method calls with arguments" {
     const result = try evalCode("def increment(x); x + 1; end; increment(41)");
     try std.testing.expect(result.data == .integer);
     try std.testing.expectEqual(42, result.data.integer);
+}
+
+test "Symbol interning - same address for identical symbols" {
+    bdwgc.init();
+    defer bdwgc.deinit();
+
+    const allocator = getAllocator();
+    const parser = try prism.Parser.init(allocator, "");
+
+    var virtual_machine = vm.VM.initEmpty(allocator, bdwgc.allocator, parser);
+    defer virtual_machine.deinit();
+
+    // Intern the same symbol twice
+    const symbol1 = try virtual_machine.intern("foo");
+    const symbol2 = try virtual_machine.intern("foo");
+
+    // Both should be symbol Values
+    try std.testing.expect(symbol1.data == .symbol);
+    try std.testing.expect(symbol2.data == .symbol);
+
+    // Both should have the same string pointer (memory address)
+    try std.testing.expectEqual(@intFromPtr(symbol1.data.symbol.ptr), @intFromPtr(symbol2.data.symbol.ptr));
 }
