@@ -10,7 +10,8 @@ pub const CallFrame = struct {
     ip: usize,
     stack_base: usize,
     self_value: value.Value,
-    locals: std.ArrayList(value.Value),
+    locals: [32]value.Value = undefined,
+    locals_len: u8 = 0,
 };
 
 pub const VM = struct {
@@ -84,10 +85,6 @@ pub const VM = struct {
     pub fn deinit(self: *VM) void {
         self.parser.deinit();
         self.stack.deinit(self.allocator);
-        // Deinit any remaining frames (shouldn't be any after normal execution)
-        for (self.frames.items) |*frame| {
-            frame.locals.deinit(self.allocator);
-        }
         self.frames.deinit(self.allocator);
         self.constants.deinit();
         self.symbols.deinit();
@@ -161,14 +158,11 @@ pub const VM = struct {
             .ip = 0,
             .stack_base = self.stack.items.len,
             .self_value = self_value,
-            .locals = std.ArrayList(value.Value).initCapacity(self.allocator, 32) catch unreachable,
         });
     }
 
     fn popFrame(self: *VM) !void {
         if (self.frames.items.len > 0) {
-            var frame = self.frames.items[self.frames.items.len - 1];
-            frame.locals.deinit(self.allocator);
             _ = self.frames.pop();
         }
     }
@@ -212,7 +206,7 @@ pub const VM = struct {
             .GET_LOCAL => {
                 const local_idx = self.readByte();
                 const frame2 = self.currentFrame();
-                const val = frame2.locals.items[local_idx];
+                const val = frame2.locals[local_idx];
                 try self.push(val);
             },
 
@@ -221,12 +215,10 @@ pub const VM = struct {
                 const val = self.pop();
                 var frame2 = self.currentFrame();
 
-                // Expand locals array if needed
-                while (frame2.locals.items.len <= local_idx) {
-                    try frame2.locals.append(self.allocator, value.Value.nil());
+                frame2.locals[local_idx] = val;
+                if (local_idx >= frame2.locals_len) {
+                    frame2.locals_len = local_idx + 1;
                 }
-                frame2.locals.items[local_idx] = val;
-
                 try self.push(val);
             },
 
@@ -494,10 +486,11 @@ pub const VM = struct {
             try self.pushFrame(chunk_ptr, receiver);
 
             // Copy arguments to locals
-            const frame = self.currentFrame();
+            var frame = self.currentFrame();
             var i: usize = 0;
             while (i < argc) : (i += 1) {
-                try frame.locals.append(self.allocator, args[i]);
+                frame.locals[i] = args[i];
+                frame.locals_len += 1;
             }
         } else {
             std.debug.print("Error: undefined method '{s}'\n", .{method_name});
