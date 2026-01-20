@@ -3,13 +3,17 @@ const prism = @import("prism.zig");
 const bdwgc = @import("bdwgc");
 const Chunk = @import("chunk.zig").Chunk;
 
-pub const ModuleValue = struct {
+pub const SymbolValue = struct {
     name: []const u8,
+};
+
+pub const ModuleValue = struct {
+    name: *SymbolValue,
     methods: std.StringHashMap(*Chunk),
 };
 
 pub const ClassValue = struct {
-    name: []const u8,
+    name: *SymbolValue,
     superclass: ?*ClassValue,
     methods: std.StringHashMap(*Chunk),
 };
@@ -25,7 +29,7 @@ pub const Value = struct {
         integer: i64,
         nil: void,
         boolean: bool,
-        symbol: []const u8,
+        symbol: *SymbolValue,
         module: *ModuleValue,
         class: *ClassValue,
         instance: *InstanceValue,
@@ -47,11 +51,13 @@ pub const Value = struct {
         return .{ .frozen = true, .data = .{ .integer = value } };
     }
 
-    pub fn symbol(str: []const u8) Value {
-        return .{ .frozen = true, .data = .{ .symbol = str } };
+    pub fn symbol(gc_allocator: std.mem.Allocator, str: []const u8) Value {
+        const symbol_value = gc_allocator.create(SymbolValue) catch unreachable;
+        symbol_value.name = str;
+        return .{ .frozen = true, .data = .{ .symbol = symbol_value } };
     }
 
-    pub fn module(gc_allocator: std.mem.Allocator, name: []const u8) Value {
+    pub fn module(gc_allocator: std.mem.Allocator, name: *SymbolValue) Value {
         const module_value = gc_allocator.create(ModuleValue) catch unreachable;
         module_value.* = .{
             .name = name,
@@ -60,7 +66,7 @@ pub const Value = struct {
         return .{ .frozen = false, .data = .{ .module = module_value } };
     }
 
-    pub fn class(gc_allocator: std.mem.Allocator, name: []const u8, superclass: ?*ClassValue) Value {
+    pub fn class(gc_allocator: std.mem.Allocator, name: *SymbolValue, superclass: ?*ClassValue) Value {
         const class_value = gc_allocator.create(ClassValue) catch unreachable;
         class_value.* = .{
             .name = name,
@@ -85,9 +91,9 @@ pub const Value = struct {
             .symbol => |s| try writer.print(":{s}", .{s}),
             .boolean => |b| try writer.print("{s}", .{if (b) "true" else "false"}),
             .nil => try writer.print("nil", .{}),
-            .module => |m| try writer.print("<Module {s}>", .{m.name}),
-            .class => |c| try writer.print("<Class {s}>", .{c.name}),
-            .instance => |i| try writer.print("<{s} instance>", .{i.class.name}),
+            .module => |m| try writer.print("<Module {s}>", .{m.name.name}),
+            .class => |c| try writer.print("<Class {s}>", .{c.name.name}),
+            .instance => |i| try writer.print("<{s} instance>", .{i.class.name.name}),
         }
     }
 };

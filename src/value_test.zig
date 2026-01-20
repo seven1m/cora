@@ -1,5 +1,6 @@
 const std = @import("std");
 const Value = @import("value.zig").Value;
+const bdwgc = @import("bdwgc");
 
 test "Value.nil() is frozen" {
     const nil_value = Value.nil();
@@ -27,8 +28,10 @@ test "Value.integer() handles negative integers" {
 }
 
 test "Value.symbol() creates frozen symbol" {
+    bdwgc.init();
+    defer bdwgc.deinit();
     const test_symbol = "hello";
-    const sym_value = Value.symbol(test_symbol);
+    const sym_value = Value.symbol(bdwgc.allocator, test_symbol);
     try std.testing.expect(sym_value.frozen);
-    try std.testing.expectEqualSlices(u8, test_symbol, sym_value.data.symbol);
+    try std.testing.expectEqualSlices(u8, test_symbol, sym_value.data.symbol.name);
 }

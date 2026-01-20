@@ -34,12 +34,9 @@ pub const VM = struct {
             return symbol_val; // Return the cached symbol Value
         }
 
-        // Allocate a new string with the gc_allocator
-        const allocated_str = try self.gc_allocator.dupe(u8, str);
-
         // Create a symbol Value and store it
-        const symbol_val = value.Value.symbol(allocated_str);
-        try self.symbols.put(allocated_str, symbol_val);
+        const symbol_val = value.Value.symbol(self.gc_allocator, str);
+        try self.symbols.put(str, symbol_val);
 
         return symbol_val;
     }
@@ -62,9 +59,9 @@ pub const VM = struct {
 
         // Create Object class with interned name
         const object_name_val = try self.intern("Object");
-        const object_name_str = object_name_val.data.symbol;
-        const object_class_val = value.Value.class(self.gc_allocator, object_name_str, null);
-        try self.constants.put(object_name_str, object_class_val);
+        const object_name_sym = object_name_val.data.symbol;
+        const object_class_val = value.Value.class(self.gc_allocator, object_name_sym, null);
+        try self.constants.put(object_name_sym.name, object_class_val);
 
         // Transfer method chunks to Object class
         const object_class_ptr = object_class_val.data.class;
@@ -111,11 +108,11 @@ pub const VM = struct {
         return self.currentFrame().chunk;
     }
 
-    fn constantToValue(constant: chunk.Constant) value.Value {
+    fn constantToValue(self: *VM, constant: chunk.Constant) !value.Value {
         return switch (constant) {
             .integer => |i| value.Value.integer(i),
             .string => |s| value.Value.frozenString(s),
-            .symbol => |s| value.Value.symbol(s),
+            .symbol => |s| try self.intern(s),
         };
     }
 
@@ -192,14 +189,14 @@ pub const VM = struct {
             .PUSH_INT => {
                 const idx = self.readU16();
                 const constant = self.currentChunk().constants.items[idx];
-                const val = constantToValue(constant);
+                const val = try self.constantToValue(constant);
                 try self.push(val);
             },
 
             .PUSH_CONST => {
                 const idx = self.readU16();
                 const constant = self.currentChunk().constants.items[idx];
-                const val = constantToValue(constant);
+                const val = try self.constantToValue(constant);
                 try self.push(val);
             },
 
@@ -358,7 +355,8 @@ pub const VM = struct {
                 const name_idx = self.readU16();
                 const constant = self.currentChunk().constants.items[name_idx];
                 if (constant == .string) {
-                    const module_val = value.Value.module(self.gc_allocator, constant.string);
+                    const name_sym = try self.intern(constant.string);
+                    const module_val = value.Value.module(self.gc_allocator, name_sym.data.symbol);
                     try self.constants.put(constant.string, module_val);
                     try self.push(module_val);
                 } else {
@@ -370,7 +368,8 @@ pub const VM = struct {
                 const name_idx = self.readU16();
                 const constant = self.currentChunk().constants.items[name_idx];
                 if (constant == .string) {
-                    const class_val = value.Value.class(self.gc_allocator, constant.string, null);
+                    const name_sym = try self.intern(constant.string);
+                    const class_val = value.Value.class(self.gc_allocator, name_sym.data.symbol, null);
                     try self.constants.put(constant.string, class_val);
                     try self.push(class_val);
                 } else {
@@ -446,7 +445,7 @@ pub const VM = struct {
                 else => false,
             },
             .symbol => switch (b.data) {
-                .symbol => std.mem.eql(u8, a.data.symbol, b.data.symbol),
+                .symbol => a.data.symbol == b.data.symbol,
                 else => false,
             },
             else => false,
@@ -533,7 +532,7 @@ pub const VM = struct {
                 std.debug.print("{s}\n", .{val.data.string});
             },
             .symbol => {
-                std.debug.print(":{s}\n", .{val.data.symbol});
+                std.debug.print(":{s}\n", .{val.data.symbol.name});
             },
             .boolean => {
                 if (val.data.boolean) {
@@ -546,13 +545,13 @@ pub const VM = struct {
                 std.debug.print("\n", .{});
             },
             .module => |m| {
-                std.debug.print("{s}\n", .{m.name});
+                std.debug.print("{s}\n", .{m.name.name});
             },
             .class => |c| {
-                std.debug.print("{s}\n", .{c.name});
+                std.debug.print("{s}\n", .{c.name.name});
             },
             .instance => |i| {
-                std.debug.print("<{s} instance>\n", .{i.class.name});
+                std.debug.print("<{s} instance>\n", .{i.class.name.name});
             },
         }
     }
