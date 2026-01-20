@@ -23,7 +23,9 @@ pub const InstanceValue = struct {
 };
 
 pub const Value = struct {
-    frozen: bool,
+    const FROZEN_FLAG = 0x1;
+
+    flags: u32,
     data: union(enum) {
         string: []const u8,
         integer: i64,
@@ -35,26 +37,34 @@ pub const Value = struct {
         instance: *InstanceValue,
     },
 
+    pub fn isFrozen(self: Value) bool {
+        return (self.flags & FROZEN_FLAG) != 0;
+    }
+
+    pub fn freeze(self: *Value) void {
+        self.flags |= FROZEN_FLAG;
+    }
+
     pub fn nil() Value {
-        return .{ .frozen = true, .data = .nil };
+        return .{ .flags = FROZEN_FLAG, .data = .nil };
     }
 
     pub fn boolean(value: bool) Value {
-        return .{ .frozen = true, .data = .{ .boolean = value } };
+        return .{ .flags = FROZEN_FLAG, .data = .{ .boolean = value } };
     }
 
     pub fn frozenString(str: []const u8) Value {
-        return .{ .frozen = true, .data = .{ .string = str } };
+        return .{ .flags = FROZEN_FLAG, .data = .{ .string = str } };
     }
 
     pub fn integer(value: i64) Value {
-        return .{ .frozen = true, .data = .{ .integer = value } };
+        return .{ .flags = FROZEN_FLAG, .data = .{ .integer = value } };
     }
 
     pub fn symbol(gc_allocator: std.mem.Allocator, str: []const u8) Value {
         const symbol_value = gc_allocator.create(SymbolValue) catch unreachable;
         symbol_value.name = str;
-        return .{ .frozen = true, .data = .{ .symbol = symbol_value } };
+        return .{ .flags = FROZEN_FLAG, .data = .{ .symbol = symbol_value } };
     }
 
     pub fn module(gc_allocator: std.mem.Allocator, name: *SymbolValue) Value {
@@ -63,7 +73,7 @@ pub const Value = struct {
             .name = name,
             .methods = std.StringHashMap(*Chunk).init(gc_allocator),
         };
-        return .{ .frozen = false, .data = .{ .module = module_value } };
+        return .{ .flags = 0, .data = .{ .module = module_value } };
     }
 
     pub fn class(gc_allocator: std.mem.Allocator, name: *SymbolValue, superclass: ?*ClassValue) Value {
@@ -73,7 +83,7 @@ pub const Value = struct {
             .superclass = superclass,
             .methods = std.StringHashMap(*Chunk).init(gc_allocator),
         };
-        return .{ .frozen = false, .data = .{ .class = class_value } };
+        return .{ .flags = 0, .data = .{ .class = class_value } };
     }
 
     pub fn instance(gc_allocator: std.mem.Allocator, class_value: *ClassValue) Value {
@@ -81,7 +91,7 @@ pub const Value = struct {
         instance_value.* = .{
             .class = class_value,
         };
-        return .{ .frozen = false, .data = .{ .instance = instance_value } };
+        return .{ .flags = 0, .data = .{ .instance = instance_value } };
     }
 
     pub fn format(self: Value, writer: *std.Io.Writer) !void {
