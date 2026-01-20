@@ -1,5 +1,5 @@
 .{
-    .name = .clara,
+    .name = .cora,
     .version = "0.1.0",
     .dependencies = .{
         .bdwgc_zig = .{
@@ -8,5 +8,5 @@
         },
     },
     .paths = .{""},
-    .fingerprint = 0x7e9599692f1cbfb,
+    .fingerprint = 0x6ce041564dec8ed6,
 }

@@ -5,7 +5,7 @@ test "binary: simple puts" {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var child = std.process.Child.init(&.{ "zig-out/bin/clara", "-e", "puts 1" }, allocator);
+    var child = std.process.Child.init(&.{ "zig-out/bin/cora", "-e", "puts 1" }, allocator);
 
     child.stdout_behavior = .Pipe;
     child.stderr_behavior = .Pipe;

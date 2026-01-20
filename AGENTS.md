@@ -1,6 +1,6 @@
-# Clara Interpreter - Agent Context Guide
+# Cora Interpreter - Agent Context Guide
 
-Clara is a Ruby interpreter written in Zig using the Prism parser for AST generation. It uses a **two-stage compilation model**: Prism AST → Bytecode → VM execution.
+Cora is a Ruby interpreter written in Zig using the Prism parser for AST generation. It uses a **two-stage compilation model**: Prism AST → Bytecode → VM execution.
 
 ## Core Architecture
 

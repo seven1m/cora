@@ -44,7 +44,7 @@ pub fn main() !void {
     }
 
     if (ruby_code == null and filename == null) {
-        std.debug.print("Usage: clara [--ast] [--dump-bytecode] (-e <ruby code> | <filename>)\n", .{});
+        std.debug.print("Usage: cora [--ast] [--dump-bytecode] (-e <ruby code> | <filename>)\n", .{});
         return;
     }
 
