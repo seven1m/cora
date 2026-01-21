@@ -64,14 +64,15 @@ pub const VM = struct {
         const object_class_val = value.Value.class(self.gc_allocator, object_name_sym, null);
         const object_class_ptr = object_class_val.data.class;
         self.object_class = object_class_ptr;
-        try object_class_ptr.constants.put(object_name_sym.name, object_class_val);
+        try object_class_ptr.constants.put(object_name_sym, object_class_val);
 
         // Transfer method chunks to Object class
         var iter = program.method_chunks.iterator();
         while (iter.next()) |entry| {
             const chunk_ptr = entry.value_ptr.*;
             // chunk_ptr.name is an AST-borrowed slice
-            try object_class_ptr.methods.put(chunk_ptr.name, chunk_ptr);
+            const name_sym = (try self.intern(chunk_ptr.name)).data.symbol;
+            try object_class_ptr.methods.put(name_sym, chunk_ptr);
         }
     }
 
@@ -223,8 +224,10 @@ pub const VM = struct {
             .GET_CONST => {
                 const idx = self.readU16();
                 const constant = self.currentChunk().constants.items[idx];
+                // TODO: this should be a symbol I think
                 if (constant == .string) {
-                    if (self.object_class.constants.get(constant.string)) |const_val| {
+                    const name_sym = (try self.intern(constant.string)).data.symbol;
+                    if (self.object_class.constants.get(name_sym)) |const_val| {
                         try self.push(const_val);
                     } else {
                         try self.push(value.Value.nil());
@@ -238,8 +241,10 @@ pub const VM = struct {
                 const idx = self.readU16();
                 const val = self.pop();
                 const constant = self.currentChunk().constants.items[idx];
+                // TODO: this should be a symbol I think
                 if (constant == .string) {
-                    try self.object_class.constants.put(constant.string, val);
+                    const name_sym = (try self.intern(constant.string)).data.symbol;
+                    try self.object_class.constants.put(name_sym, val);
                 }
                 try self.push(val);
             },
@@ -356,9 +361,9 @@ pub const VM = struct {
                 const name_idx = self.readU16();
                 const constant = self.currentChunk().constants.items[name_idx];
                 if (constant == .string) {
-                    const name_sym = try self.intern(constant.string);
-                    const module_val = value.Value.module(self.gc_allocator, name_sym.data.symbol);
-                    try self.object_class.constants.put(constant.string, module_val);
+                    const name_sym = (try self.intern(constant.string)).data.symbol;
+                    const module_val = value.Value.module(self.gc_allocator, name_sym);
+                    try self.object_class.constants.put(name_sym, module_val);
                     try self.push(module_val);
                 } else {
                     return error.InvalidModuleName;
@@ -369,9 +374,9 @@ pub const VM = struct {
                 const name_idx = self.readU16();
                 const constant = self.currentChunk().constants.items[name_idx];
                 if (constant == .string) {
-                    const name_sym = try self.intern(constant.string);
-                    const class_val = value.Value.class(self.gc_allocator, name_sym.data.symbol, null);
-                    try self.object_class.constants.put(constant.string, class_val);
+                    const name_sym = (try self.intern(constant.string)).data.symbol;
+                    const class_val = value.Value.class(self.gc_allocator, name_sym, null);
+                    try self.object_class.constants.put(name_sym, class_val);
                     try self.push(class_val);
                 } else {
                     return error.InvalidClassName;
@@ -388,6 +393,7 @@ pub const VM = struct {
                 }
 
                 const method_name = constant.string;
+                const method_name_sym = (try self.intern(method_name)).data.symbol;
 
                 // Look up the chunk by ID
                 if (self.program.method_chunks.get(chunk_idx)) |chunk_ptr| {
@@ -397,14 +403,14 @@ pub const VM = struct {
 
                     if (current_self.data == .class) {
                         // Adding method to a class
-                        try current_self.data.class.methods.put(method_name, chunk_ptr);
+                        try current_self.data.class.methods.put(method_name_sym, chunk_ptr);
                     } else if (current_self.data == .module) {
                         // Adding method to a module
-                        try current_self.data.module.methods.put(method_name, chunk_ptr);
+                        try current_self.data.module.methods.put(method_name_sym, chunk_ptr);
                     } else {
                         // Top-level: add to Object (look it up from constants)
                         // TODO: we need `main` to clean this up a bit
-                        try self.object_class.methods.put(method_name, chunk_ptr);
+                        try self.object_class.methods.put(method_name_sym, chunk_ptr);
                     }
                 } else {
                     std.debug.print("Error: undefined method chunk {d}\n", .{chunk_idx});
@@ -455,18 +461,20 @@ pub const VM = struct {
             return error.InvalidMethodName;
         }
 
+        // TODO: method name should be a symbol
         const method_name = constant.string;
+        const method_name_sym = (try self.intern(method_name)).data.symbol;
         var method_chunk_ptr: ?*chunk.Chunk = null;
 
         // Try to find method in receiver's class first
         if (receiver.data == .instance) {
             const instance = receiver.data.instance;
-            method_chunk_ptr = instance.class.methods.get(method_name);
+            method_chunk_ptr = instance.class.methods.get(method_name_sym);
         }
 
         // Fallback to Object class for top-level methods
         if (method_chunk_ptr == null) {
-            method_chunk_ptr = self.object_class.methods.get(method_name);
+            method_chunk_ptr = self.object_class.methods.get(method_name_sym);
         }
 
         if (method_chunk_ptr) |chunk_ptr| {

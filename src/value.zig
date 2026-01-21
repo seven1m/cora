@@ -9,15 +9,15 @@ pub const SymbolValue = struct {
 
 pub const ModuleValue = struct {
     name: *SymbolValue,
-    methods: std.StringHashMap(*Chunk),
-    constants: std.StringHashMap(Value),
+    methods: std.AutoHashMap(*SymbolValue, *Chunk),
+    constants: std.AutoHashMap(*SymbolValue, Value),
 };
 
 pub const ClassValue = struct {
     name: *SymbolValue,
     superclass: ?*ClassValue,
-    methods: std.StringHashMap(*Chunk),
-    constants: std.StringHashMap(Value),
+    methods: std.AutoHashMap(*SymbolValue, *Chunk),
+    constants: std.AutoHashMap(*SymbolValue, Value),
 };
 
 pub const InstanceValue = struct {
@@ -73,8 +73,8 @@ pub const Value = struct {
         const module_value = gc_allocator.create(ModuleValue) catch unreachable;
         module_value.* = .{
             .name = name,
-            .methods = std.StringHashMap(*Chunk).init(gc_allocator),
-            .constants = std.StringHashMap(Value).init(gc_allocator),
+            .methods = std.AutoHashMap(*SymbolValue, *Chunk).init(gc_allocator),
+            .constants = std.AutoHashMap(*SymbolValue, Value).init(gc_allocator),
         };
         return .{ .flags = 0, .data = .{ .module = module_value } };
     }
@@ -84,8 +84,8 @@ pub const Value = struct {
         class_value.* = .{
             .name = name,
             .superclass = superclass,
-            .methods = std.StringHashMap(*Chunk).init(gc_allocator),
-            .constants = std.StringHashMap(Value).init(gc_allocator),
+            .methods = std.AutoHashMap(*SymbolValue, *Chunk).init(gc_allocator),
+            .constants = std.AutoHashMap(*SymbolValue, Value).init(gc_allocator),
         };
         return .{ .flags = 0, .data = .{ .class = class_value } };
     }
