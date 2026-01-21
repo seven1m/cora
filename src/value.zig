@@ -14,10 +14,8 @@ pub const ModuleValue = struct {
 };
 
 pub const ClassValue = struct {
-    name: *SymbolValue,
+    module: ModuleValue,
     superclass: ?*ClassValue,
-    methods: std.AutoHashMap(*SymbolValue, *Chunk),
-    constants: std.AutoHashMap(*SymbolValue, Value),
 };
 
 pub const InstanceValue = struct {
@@ -82,10 +80,12 @@ pub const Value = struct {
     pub fn class(gc_allocator: std.mem.Allocator, name: *SymbolValue, superclass: ?*ClassValue) Value {
         const class_value = gc_allocator.create(ClassValue) catch unreachable;
         class_value.* = .{
-            .name = name,
             .superclass = superclass,
-            .methods = std.AutoHashMap(*SymbolValue, *Chunk).init(gc_allocator),
-            .constants = std.AutoHashMap(*SymbolValue, Value).init(gc_allocator),
+            .module = .{
+                .name = name,
+                .methods = std.AutoHashMap(*SymbolValue, *Chunk).init(gc_allocator),
+                .constants = std.AutoHashMap(*SymbolValue, Value).init(gc_allocator),
+            },
         };
         return .{ .flags = 0, .data = .{ .class = class_value } };
     }

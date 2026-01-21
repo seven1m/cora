@@ -92,7 +92,7 @@ test "Modules" {
 test "Classes" {
     const result = try evalCode("class Foo; end;");
     try std.testing.expect(result.data == .class);
-    try std.testing.expectEqualSlices(u8, "Foo", result.data.class.name.name);
+    try std.testing.expectEqualSlices(u8, "Foo", result.data.class.module.name.name);
 }
 
 test "Top-level methods" {
