@@ -10,12 +10,14 @@ pub const SymbolValue = struct {
 pub const ModuleValue = struct {
     name: *SymbolValue,
     methods: std.StringHashMap(*Chunk),
+    constants: std.StringHashMap(Value),
 };
 
 pub const ClassValue = struct {
     name: *SymbolValue,
     superclass: ?*ClassValue,
     methods: std.StringHashMap(*Chunk),
+    constants: std.StringHashMap(Value),
 };
 
 pub const InstanceValue = struct {
@@ -72,6 +74,7 @@ pub const Value = struct {
         module_value.* = .{
             .name = name,
             .methods = std.StringHashMap(*Chunk).init(gc_allocator),
+            .constants = std.StringHashMap(Value).init(gc_allocator),
         };
         return .{ .flags = 0, .data = .{ .module = module_value } };
     }
@@ -82,6 +85,7 @@ pub const Value = struct {
             .name = name,
             .superclass = superclass,
             .methods = std.StringHashMap(*Chunk).init(gc_allocator),
+            .constants = std.StringHashMap(Value).init(gc_allocator),
         };
         return .{ .flags = 0, .data = .{ .class = class_value } };
     }
