@@ -104,6 +104,8 @@ pub fn main() !void {
             try stdout.print("\n", .{});
         }
 
+        try stdout.flush();
+
         return;
     }
 

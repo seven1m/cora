@@ -14,6 +14,7 @@ pub const Chunk = struct {
     line_info: std.ArrayList(u32),
     allocator: std.mem.Allocator,
     name: []const u8,
+    chunk_id: ?u8 = null,
 
     pub fn init(allocator: std.mem.Allocator, name: []const u8) Chunk {
         return Chunk{
@@ -23,6 +24,7 @@ pub const Chunk = struct {
             .line_info = std.ArrayList(u32).initCapacity(allocator, 256) catch unreachable,
             .allocator = allocator,
             .name = name,
+            .chunk_id = null,
         };
     }
 
@@ -119,7 +121,26 @@ pub const Chunk = struct {
 
     /// Print disassembly of this chunk
     pub fn disassemble(self: *Chunk, writer: *std.Io.Writer) !void {
-        try writer.print("== {s} ==\n", .{self.name});
+        if (self.chunk_id) |id| {
+            try writer.print("== {s} == (chunk {d})\n", .{ self.name, id });
+        } else {
+            try writer.print("== {s} ==\n", .{self.name});
+        }
+
+        // Print constants
+        if (self.constants.items.len > 0) {
+            try writer.print("constants: ", .{});
+            for (self.constants.items, 0..) |constant, i| {
+                if (i > 0) try writer.print(" ", .{});
+                try writer.print("{d}=", .{i});
+                switch (constant) {
+                    .integer => |int_val| try writer.print("{d}", .{int_val}),
+                    .string => |str| try writer.print("\"{s}\"", .{str}),
+                    .symbol => |sym| try writer.print(":{s}", .{sym}),
+                }
+            }
+            try writer.print("\n-----------\n", .{});
+        }
 
         var ip: usize = 0;
         var instr_idx: usize = 0;
@@ -186,15 +207,29 @@ pub const Chunk = struct {
 
             .DEF_CLASS => {
                 const name_idx = bytecode.readU16(self.code.items, next_ip);
-                const has_super = bytecode.readU8(self.code.items, next_ip + 2);
-                try writer.print("DEF_CLASS {d}, {d}\n", .{ name_idx, has_super });
+                const body_chunk_id = bytecode.readU8(self.code.items, next_ip + 2);
+                try writer.print("DEF_CLASS {d}", .{name_idx});
+                if (name_idx < self.constants.items.len) {
+                    const constant = self.constants.items[name_idx];
+                    if (constant == .string) {
+                        try writer.print(" (\"{s}\")", .{constant.string});
+                    }
+                }
+                try writer.print(" {d} (chunk {d})\n", .{ body_chunk_id, body_chunk_id });
                 next_ip += 3;
             },
 
             .DEF_METHOD => {
                 const name_idx = bytecode.readU16(self.code.items, next_ip);
                 const chunk_idx = bytecode.readU8(self.code.items, next_ip + 2);
-                try writer.print("DEF_METHOD {d}, {d}\n", .{ name_idx, chunk_idx });
+                try writer.print("DEF_METHOD {d}", .{name_idx});
+                if (name_idx < self.constants.items.len) {
+                    const constant = self.constants.items[name_idx];
+                    if (constant == .symbol) {
+                        try writer.print(" (:{s})", .{constant.symbol});
+                    }
+                }
+                try writer.print(" {d} (chunk {d})\n", .{ chunk_idx, chunk_idx });
                 next_ip += 3;
             },
         }

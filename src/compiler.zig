@@ -36,7 +36,7 @@ pub const Compiler = struct {
     scope_depth: usize = 0,
 
     method_chunks: std.AutoHashMap(u16, *chunk.Chunk),
-    method_counter: u16 = 0,
+    chunk_counter: u16 = 0,
 
     pub fn init(allocator: std.mem.Allocator, parser: *prism.Parser) Compiler {
         return Compiler{
@@ -323,8 +323,9 @@ pub const Compiler = struct {
             try self.current_chunk.emitOp(.RETURN, line);
 
             // Store the chunk and get its ID
-            body_chunk_id = @intCast(self.method_counter);
-            self.method_counter += 1;
+            body_chunk_id = @intCast(self.chunk_counter);
+            body_chunk_ptr.chunk_id = body_chunk_id;
+            self.chunk_counter += 1;
             try self.method_chunks.put(body_chunk_id, body_chunk_ptr);
 
             // Restore the original chunk
@@ -379,8 +380,11 @@ pub const Compiler = struct {
         self.locals.items.len = saved_locals_len;
 
         // Assign unique ID to this method chunk
-        const chunk_id = self.method_counter;
-        self.method_counter += 1;
+        const chunk_id = self.chunk_counter;
+        self.chunk_counter += 1;
+
+        // Store the chunk ID on the chunk itself
+        method_chunk_ptr.chunk_id = @intCast(chunk_id);
 
         // Store by ID
         try self.method_chunks.put(chunk_id, method_chunk_ptr);
