@@ -386,12 +386,11 @@ pub const Compiler = struct {
         try self.method_chunks.put(chunk_id, method_chunk_ptr);
 
         // Emit DEF_METHOD bytecode with method name and chunk ID
-        const name_idx = try self.current_chunk.addConstant(.{ .string = method_name_slice });
+        const name_idx = try self.current_chunk.addConstant(.{ .symbol = method_name_slice });
         try self.current_chunk.emitOpU16U8(.DEF_METHOD, @intCast(name_idx), @intCast(chunk_id), line);
 
         // Return a symbol of the method name
-        const symbol_idx = try self.current_chunk.addConstant(.{ .symbol = method_name_slice });
-        try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(symbol_idx), line);
+        try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(name_idx), line);
     }
 
     fn addLocal(self: *Compiler, name: []const u8) !void {

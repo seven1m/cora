@@ -395,11 +395,11 @@ pub const VM = struct {
                 const chunk_idx = self.readByte();
 
                 const constant = self.currentChunk().constants.items[name_idx];
-                if (constant != .string) {
+                if (constant != .symbol) {
                     return error.InvalidMethodName;
                 }
 
-                const method_name = constant.string;
+                const method_name = constant.symbol;
                 const method_name_sym = (try self.intern(method_name)).data.symbol;
 
                 // Look up the chunk by ID
