@@ -146,7 +146,7 @@ pub const Chunk = struct {
         var next_ip = ip + 1;
 
         switch (op) {
-            .PUSH_NIL, .PUSH_TRUE, .PUSH_FALSE, .ADD, .SUB, .EQ, .PUSH_SELF, .POP, .RETURN, .HALT => {
+            .PUSH_NIL, .PUSH_TRUE, .PUSH_FALSE, .PUSH_SELF, .POP, .RETURN, .HALT => {
                 try writer.print("{s}\n", .{bytecode.opcodeName(op)});
             },
 
@@ -182,13 +182,6 @@ pub const Chunk = struct {
                 const argc = bytecode.readU8(self.code.items, next_ip + 2);
                 try writer.print("CALL {d}, {d}\n", .{ method_idx, argc });
                 next_ip += 3;
-            },
-
-            .CALL_BUILTIN => {
-                const builtin = bytecode.readU8(self.code.items, next_ip);
-                const argc = bytecode.readU8(self.code.items, next_ip + 1);
-                try writer.print("CALL_BUILTIN {d}, {d}\n", .{ builtin, argc });
-                next_ip += 2;
             },
 
             .DEF_CLASS => {

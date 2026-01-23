@@ -14,33 +14,26 @@ pub const OpCode = enum(u8) {
     GET_CONST = 7, // Operand: u16 (constant name index)
     SET_CONST = 8, // Operand: u16 (constant name index)
 
-    // Arithmetic and comparison
-    ADD = 9,
-    SUB = 10,
-    EQ = 11,
-
     // Control flow
-    JUMP = 12, // Operand: i16 (offset)
-    JUMP_IF_FALSE = 13, // Operand: i16 (offset)
-    POP = 14,
+    JUMP = 9, // Operand: i16 (offset)
+    JUMP_IF_FALSE = 10, // Operand: i16 (offset)
+    POP = 11,
 
     // Method calls
-    CALL = 15, // Operands: u16 (method name index), u8 (argc)
-    CALL_BUILTIN = 16, // Operands: u8 (builtin id), u8 (argc)
-    RETURN = 17,
+    CALL = 12, // Operands: u16 (method name index), u8 (argc)
+    RETURN = 13,
 
     // OOP
-    DEF_MODULE = 18, // Operand: u16 (name index)
-    DEF_CLASS = 19, // Operands: u16 (name index), u8 (has_super)
-    DEF_METHOD = 20, // Operands: u16 (name index), u8 (chunk index)
-    PUSH_SELF = 21,
+    DEF_MODULE = 14, // Operand: u16 (name index)
+    DEF_CLASS = 15, // Operands: u16 (name index), u8 (has_super)
+    DEF_METHOD = 16, // Operands: u16 (name index), u8 (chunk index)
+    PUSH_SELF = 17,
 
     // Special
-    HALT = 22,
+    HALT = 18,
 };
 
 pub const BuiltinId = enum(u8) {
-    PUTS = 0,
     NEW = 1,
 };
 
@@ -56,14 +49,10 @@ pub fn opcodeName(op: OpCode) []const u8 {
         .GET_CONST => "GET_CONST",
         .SET_CONST => "SET_CONST",
         .PUSH_SELF => "PUSH_SELF",
-        .ADD => "ADD",
-        .SUB => "SUB",
-        .EQ => "EQ",
         .JUMP => "JUMP",
         .JUMP_IF_FALSE => "JUMP_IF_FALSE",
         .POP => "POP",
         .CALL => "CALL",
-        .CALL_BUILTIN => "CALL_BUILTIN",
         .RETURN => "RETURN",
         .DEF_MODULE => "DEF_MODULE",
         .DEF_CLASS => "DEF_CLASS",
@@ -105,7 +94,7 @@ pub const Instruction = struct {
             .PUSH_INT, .PUSH_CONST, .GET_CONST, .SET_CONST, .CALL, .DEF_MODULE, .DEF_CLASS, .DEF_METHOD => {
                 try writer.print(" {d}", .{self.bx});
             },
-            .GET_LOCAL, .SET_LOCAL, .CALL_BUILTIN => {
+            .GET_LOCAL, .SET_LOCAL => {
                 try writer.print(" {d}", .{self.a});
             },
             .JUMP, .JUMP_IF_FALSE => {

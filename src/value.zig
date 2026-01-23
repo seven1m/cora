@@ -3,13 +3,24 @@ const prism = @import("prism.zig");
 const bdwgc = @import("bdwgc");
 const Chunk = @import("chunk.zig").Chunk;
 
+pub const RuntimeError = error{
+    WrongReceiverType,
+    WrongArgumentCount,
+    WrongArgumentType,
+};
+
+pub const Method = union(enum) {
+    chunk: *Chunk,
+    builtin: *const fn (std.mem.Allocator, Value, []Value) RuntimeError!Value,
+};
+
 pub const SymbolValue = struct {
     name: []const u8,
 };
 
 pub const ModuleValue = struct {
     name: *SymbolValue,
-    methods: std.AutoHashMap(*SymbolValue, *Chunk),
+    methods: std.AutoHashMap(*SymbolValue, Method),
     constants: std.AutoHashMap(*SymbolValue, Value),
 };
 
@@ -71,7 +82,7 @@ pub const Value = struct {
         const module_value = gc_allocator.create(ModuleValue) catch unreachable;
         module_value.* = .{
             .name = name,
-            .methods = std.AutoHashMap(*SymbolValue, *Chunk).init(gc_allocator),
+            .methods = std.AutoHashMap(*SymbolValue, Method).init(gc_allocator),
             .constants = std.AutoHashMap(*SymbolValue, Value).init(gc_allocator),
         };
         return .{ .flags = 0, .data = .{ .module = module_value } };
@@ -83,7 +94,7 @@ pub const Value = struct {
             .superclass = superclass,
             .module = .{
                 .name = name,
-                .methods = std.AutoHashMap(*SymbolValue, *Chunk).init(gc_allocator),
+                .methods = std.AutoHashMap(*SymbolValue, Method).init(gc_allocator),
                 .constants = std.AutoHashMap(*SymbolValue, Value).init(gc_allocator),
             },
         };

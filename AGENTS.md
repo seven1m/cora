@@ -26,9 +26,10 @@ Cora is a Ruby interpreter written in Zig using the Prism parser for AST generat
 - `parser: Parser` - Parser instance (stores AST; lifetime = VM lifetime)
 - `stack: ArrayList(Value)` - Execution stack for bytecode interpreter
 - `frames: ArrayList(CallFrame)` - Call frames with execution state
-- `constants: StringHashMap(Value)` - Top-level constants, classes, modules
 - `symbols: StringHashMap(Value)` - Interned symbols (key: string, value: symbol Value)
 - `program: CompiledProgram` - Compiled bytecode (main chunk + method chunks)
+- `object_class: *ClassValue` - Root Object class (holds top-level methods)
+- `integer_class: *ClassValue` - Integer class (holds Integer methods like +, -, ==)
 
 ## Key Concepts
 
@@ -48,14 +49,18 @@ pub const Constant = union(enum) {
 ```
 Constants are NOT allocated—strings/symbols are borrowed from the Parser AST. The Parser lives as long as the VM, so pointers are valid for VM lifetime.
 
-**OpCodes** (major ones):
-- `PUSH_INT`, `PUSH_CONST` - Push constant from pool onto stack
-- `GET_LOCAL`, `SET_LOCAL` - Access local variables
-- `CALL`, `CALL_BUILTIN` - Method calls
-- `DEF_CLASS`, `DEF_MODULE`, `DEF_METHOD` - Define OOP structures
-- `JUMP`, `JUMP_IF_FALSE` - Control flow
-- `ADD`, `SUB`, `EQ` - Arithmetic/comparison
-- `RETURN`, `HALT` - Return from function, halt VM
+**OpCodes** (0-18, sequential):
+- `PUSH_NIL` (0), `PUSH_TRUE` (1), `PUSH_FALSE` (2) - Push literal values
+- `PUSH_INT` (3), `PUSH_CONST` (4) - Push constants from pool
+- `GET_LOCAL` (5), `SET_LOCAL` (6) - Access local variables
+- `GET_CONST` (7), `SET_CONST` (8) - Access top-level constants
+- `JUMP` (9), `JUMP_IF_FALSE` (10), `POP` (11) - Control flow
+- `CALL` (12), `RETURN` (13) - Method calls and returns
+- `DEF_MODULE` (14), `DEF_CLASS` (15), `DEF_METHOD` (16) - Define OOP structures
+- `PUSH_SELF` (17) - Push current self value
+- `HALT` (18) - Halt VM
+
+Note: Arithmetic operators (+, -, ==) are now method calls, not opcodes. They dispatch to builtin methods registered on Integer class.
 
 **CallFrames:** Fixed-size locals (32 slots) stored on stack as part of CallFrame:
 ```zig
@@ -72,7 +77,14 @@ This avoids allocating an ArrayList per function call (major performance win for
 
 **Symbol Interning:** `VM.intern(str)` creates a GC-allocated canonical string and stores it in `symbols` map. Same string always returns same symbol Value with same memory address.
 
-**Method Storage:** Methods are Chunk pointers stored in class/module `.methods` HashMap. Method lookup walks inheritance chain from receiver's class up to Object.
+**Method Union:**
+```zig
+pub const Method = union(enum) {
+    chunk: *Chunk,                                              // User-defined method
+    builtin: *const fn (Allocator, Value, []Value) RuntimeError!Value,  // Built-in Zig function
+};
+```
+Methods are stored in class/module `.methods` HashMap with SymbolValue keys. Method lookup walks inheritance chain from receiver's class up to Object.
 
 ## Adding Features
 
@@ -90,9 +102,14 @@ This avoids allocating an ArrayList per function call (major performance win for
 5. Test with manual execution
 
 **New Builtin Method:**
-1. Add variant to `BuiltinId` enum in `bytecode.zig`
-2. Add case in `compiler.zig` (check method name, emit CALL_BUILTIN)
-3. Handle in `vm.zig` (callBuiltin() switch)
+1. Write a Zig function with signature: `fn(Allocator, Value, []Value) RuntimeError!Value`
+2. Register it in `VM.prepare()` on the appropriate class:
+   ```zig
+   const method_sym = (try self.intern("method_name")).data.symbol;
+   try target_class.module.methods.put(method_sym, .{ .builtin = &builtinFunctionName });
+   ```
+3. The compiler emits regular `CALL` opcodes for all methods (no special-casing needed)
+4. At runtime, method lookup finds the builtin in the Method union and calls it
 
 ## Memory Management
 
@@ -143,7 +160,9 @@ const inst = Value.instance(gc_allocator, class_ptr);
 - Truthy/falsy evaluation (only nil and false are falsy)
 
 **Methods:**
-- Built-in methods: `puts`, `new`
+- Built-in methods: `puts` (Object), `new` (Object)
+- Arithmetic methods: `+`, `-` (Integer)
+- Comparison methods: `==` (Integer)
 - User-defined methods with parameters
 - Method calls with receivers
 - `self` keyword
@@ -156,8 +175,9 @@ const inst = Value.instance(gc_allocator, class_ptr);
 - Method definitions in class/module/top-level context
 
 **Arithmetic & Comparison:**
-- Binary operators: `+`, `-`, `==`
-- Integer arithmetic
+- Binary operators: `+`, `-`, `==` (implemented as builtin methods on Integer)
+- Integer arithmetic with proper type checking
+- Error handling for type mismatches
 
 ## Performance Optimizations
 

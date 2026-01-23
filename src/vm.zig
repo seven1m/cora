@@ -5,12 +5,16 @@ const compiler = @import("compiler.zig");
 const value = @import("value.zig");
 const prism = @import("prism.zig");
 
+const Value = value.Value;
+const Method = value.Method;
+const RuntimeError = value.RuntimeError;
+
 pub const CallFrame = struct {
     chunk: *chunk.Chunk,
     ip: usize,
     stack_base: usize,
-    self_value: value.Value,
-    locals: [32]value.Value = undefined,
+    self_value: Value,
+    locals: [32]Value = undefined,
     locals_len: u8 = 0,
 };
 
@@ -20,23 +24,24 @@ pub const VM = struct {
 
     parser: prism.Parser,
 
-    stack: std.ArrayList(value.Value),
+    stack: std.ArrayList(Value),
     frames: std.ArrayList(CallFrame),
 
-    symbols: std.StringHashMap(value.Value),
+    symbols: std.StringHashMap(Value),
 
     program: *compiler.CompiledProgram,
 
     object_class: *value.ClassValue,
+    integer_class: *value.ClassValue,
 
-    pub fn intern(self: *VM, str: []const u8) !value.Value {
+    pub fn intern(self: *VM, str: []const u8) !Value {
         // Check if already interned
         if (self.symbols.get(str)) |symbol_val| {
             return symbol_val; // Return the cached symbol Value
         }
 
         // Create a symbol Value and store it
-        const symbol_val = value.Value.symbol(self.gc_allocator, str);
+        const symbol_val = Value.symbol(self.gc_allocator, str);
         try self.symbols.put(str, symbol_val);
 
         return symbol_val;
@@ -47,24 +52,32 @@ pub const VM = struct {
             .allocator = allocator,
             .gc_allocator = gc_allocator,
             .parser = parser,
-            .stack = std.ArrayList(value.Value).initCapacity(allocator, 256) catch unreachable,
+            .stack = std.ArrayList(Value).initCapacity(allocator, 256) catch unreachable,
             .frames = std.ArrayList(CallFrame).initCapacity(allocator, 16) catch unreachable,
-            .symbols = std.StringHashMap(value.Value).init(allocator),
+            .symbols = std.StringHashMap(Value).init(allocator),
             .program = undefined,
             .object_class = undefined,
+            .integer_class = undefined,
         };
     }
 
     pub fn prepare(self: *VM, program: *compiler.CompiledProgram) !void {
         self.program = program;
 
-        // Create Object class with interned name
+        // Create Object class
         const object_name_val = try self.intern("Object");
         const object_name_sym = object_name_val.data.symbol;
-        const object_class_val = value.Value.class(self.gc_allocator, object_name_sym, null);
+        const object_class_val = Value.class(self.gc_allocator, object_name_sym, null);
         const object_class_ptr = object_class_val.data.class;
         self.object_class = object_class_ptr;
         try object_class_ptr.module.constants.put(object_name_sym, object_class_val);
+
+        // Register Object builtins
+        const puts_sym = (try self.intern("puts")).data.symbol;
+        try object_class_ptr.module.methods.put(puts_sym, .{ .builtin = &builtinObjectPuts });
+
+        const new_sym = (try self.intern("new")).data.symbol;
+        try object_class_ptr.module.methods.put(new_sym, .{ .builtin = &builtinObjectNew });
 
         // Transfer method chunks to Object class
         var iter = program.method_chunks.iterator();
@@ -72,8 +85,26 @@ pub const VM = struct {
             const chunk_ptr = entry.value_ptr.*;
             // chunk_ptr.name is an AST-borrowed slice
             const name_sym = (try self.intern(chunk_ptr.name)).data.symbol;
-            try object_class_ptr.module.methods.put(name_sym, chunk_ptr);
+            try object_class_ptr.module.methods.put(name_sym, .{ .chunk = chunk_ptr });
         }
+
+        // Create Integer class
+        const integer_name_val = try self.intern("Integer");
+        const integer_name_sym = integer_name_val.data.symbol;
+        const integer_class_val = Value.class(self.gc_allocator, integer_name_sym, object_class_ptr);
+        const integer_class_ptr = integer_class_val.data.class;
+        self.integer_class = integer_class_ptr;
+        try object_class_ptr.module.constants.put(integer_name_sym, integer_class_val);
+
+        // Register Integer builtins
+        const plus_sym = (try self.intern("+")).data.symbol;
+        try integer_class_ptr.module.methods.put(plus_sym, .{ .builtin = &builtinIntegerPlus });
+
+        const minus_sym = (try self.intern("-")).data.symbol;
+        try integer_class_ptr.module.methods.put(minus_sym, .{ .builtin = &builtinIntegerMinus });
+
+        const equal_sym = (try self.intern("==")).data.symbol;
+        try integer_class_ptr.module.methods.put(equal_sym, .{ .builtin = &builtinIntegerEqual });
     }
 
     pub fn init(allocator: std.mem.Allocator, gc_allocator: std.mem.Allocator, parser: prism.Parser, program: *compiler.CompiledProgram) VM {
@@ -89,8 +120,8 @@ pub const VM = struct {
         self.symbols.deinit();
     }
 
-    pub fn run(self: *VM) !value.Value {
-        try self.pushFrame(&self.program.main_chunk, value.Value.nil());
+    pub fn run(self: *VM) !Value {
+        try self.pushFrame(&self.program.main_chunk, Value.nil());
 
         while (self.frames.items.len > 0) {
             try self.executeInstruction();
@@ -99,7 +130,7 @@ pub const VM = struct {
         if (self.stack.pop()) |val| {
             return val;
         }
-        return value.Value.nil();
+        return Value.nil();
     }
 
     fn currentFrame(self: *VM) *CallFrame {
@@ -110,23 +141,23 @@ pub const VM = struct {
         return self.currentFrame().chunk;
     }
 
-    fn constantToValue(self: *VM, constant: chunk.Constant) !value.Value {
+    fn constantToValue(self: *VM, constant: chunk.Constant) !Value {
         return switch (constant) {
-            .integer => |i| value.Value.integer(i),
-            .string => |s| value.Value.frozenString(s),
+            .integer => |i| Value.integer(i),
+            .string => |s| Value.frozenString(s),
             .symbol => |s| try self.intern(s),
         };
     }
 
-    fn push(self: *VM, val: value.Value) !void {
+    fn push(self: *VM, val: Value) !void {
         try self.stack.append(self.allocator, val);
     }
 
-    fn pop(self: *VM) value.Value {
-        return self.stack.pop() orelse value.Value.nil();
+    fn pop(self: *VM) Value {
+        return self.stack.pop() orelse Value.nil();
     }
 
-    fn peek(self: *VM, distance: usize) value.Value {
+    fn peek(self: *VM, distance: usize) Value {
         return self.stack.items[self.stack.items.len - 1 - distance];
     }
 
@@ -151,7 +182,7 @@ pub const VM = struct {
         return val;
     }
 
-    fn pushFrame(self: *VM, ch: *chunk.Chunk, self_value: value.Value) !void {
+    fn pushFrame(self: *VM, ch: *chunk.Chunk, self_value: Value) !void {
         try self.frames.append(self.allocator, CallFrame{
             .chunk = ch,
             .ip = 0,
@@ -177,15 +208,15 @@ pub const VM = struct {
 
         switch (op) {
             .PUSH_NIL => {
-                try self.push(value.Value.nil());
+                try self.push(Value.nil());
             },
 
             .PUSH_TRUE => {
-                try self.push(value.Value.boolean(true));
+                try self.push(Value.boolean(true));
             },
 
             .PUSH_FALSE => {
-                try self.push(value.Value.boolean(false));
+                try self.push(Value.boolean(false));
             },
 
             .PUSH_INT => {
@@ -230,10 +261,10 @@ pub const VM = struct {
                     if (self.object_class.module.constants.get(name_sym)) |const_val| {
                         try self.push(const_val);
                     } else {
-                        try self.push(value.Value.nil());
+                        try self.push(Value.nil());
                     }
                 } else {
-                    try self.push(value.Value.nil());
+                    try self.push(Value.nil());
                 }
             },
 
@@ -252,38 +283,6 @@ pub const VM = struct {
             .PUSH_SELF => {
                 const frame2 = self.currentFrame();
                 try self.push(frame2.self_value);
-            },
-
-            .ADD => {
-                const b = self.pop();
-                const a = self.pop();
-
-                if (a.data == .integer and b.data == .integer) {
-                    const result = a.data.integer + b.data.integer;
-                    try self.push(value.Value.integer(result));
-                } else {
-                    return error.TypeError;
-                }
-            },
-
-            .SUB => {
-                const b = self.pop();
-                const a = self.pop();
-
-                if (a.data == .integer and b.data == .integer) {
-                    const result = a.data.integer - b.data.integer;
-                    try self.push(value.Value.integer(result));
-                } else {
-                    return error.TypeError;
-                }
-            },
-
-            .EQ => {
-                const b = self.pop();
-                const a = self.pop();
-
-                const equal = self.valuesEqual(a, b);
-                try self.push(value.Value.boolean(equal));
             },
 
             .JUMP => {
@@ -317,7 +316,7 @@ pub const VM = struct {
                 const argc = self.readByte();
 
                 // Pop arguments
-                var args: [256]value.Value = undefined;
+                var args: [256]Value = undefined;
                 var i: usize = 0;
                 while (i < argc) : (i += 1) {
                     args[argc - 1 - i] = self.pop();
@@ -327,23 +326,6 @@ pub const VM = struct {
                 const receiver = self.pop();
 
                 try self.callMethod(method_idx, receiver, &args, argc);
-            },
-
-            .CALL_BUILTIN => {
-                const builtin_id = self.readByte();
-                const argc = self.readByte();
-
-                // Pop arguments
-                var args: [256]value.Value = undefined;
-                var i: usize = 0;
-                while (i < argc) : (i += 1) {
-                    args[argc - 1 - i] = self.pop();
-                }
-
-                // Pop receiver (for method calls)
-                const receiver = self.pop();
-
-                try self.callBuiltin(@as(bytecode.BuiltinId, @enumFromInt(builtin_id)), receiver, &args, argc);
             },
 
             .RETURN => {
@@ -362,7 +344,7 @@ pub const VM = struct {
                 const constant = self.currentChunk().constants.items[name_idx];
                 if (constant == .string) {
                     const name_sym = (try self.intern(constant.string)).data.symbol;
-                    const module_val = value.Value.module(self.gc_allocator, name_sym);
+                    const module_val = Value.module(self.gc_allocator, name_sym);
                     try self.object_class.module.constants.put(name_sym, module_val);
                     try self.push(module_val);
                 } else {
@@ -375,7 +357,7 @@ pub const VM = struct {
                 const constant = self.currentChunk().constants.items[name_idx];
                 if (constant == .string) {
                     const name_sym = (try self.intern(constant.string)).data.symbol;
-                    const class_val = value.Value.class(self.gc_allocator, name_sym, null);
+                    const class_val = Value.class(self.gc_allocator, name_sym, null);
                     try self.object_class.module.constants.put(name_sym, class_val);
                     try self.push(class_val);
                 } else {
@@ -403,14 +385,14 @@ pub const VM = struct {
 
                     if (current_self.data == .class) {
                         // Adding method to a class
-                        try current_self.data.class.module.methods.put(method_name_sym, chunk_ptr);
+                        try current_self.data.class.module.methods.put(method_name_sym, .{ .chunk = chunk_ptr });
                     } else if (current_self.data == .module) {
                         // Adding method to a module
-                        try current_self.data.module.methods.put(method_name_sym, chunk_ptr);
+                        try current_self.data.module.methods.put(method_name_sym, .{ .chunk = chunk_ptr });
                     } else {
                         // Top-level: add to Object (look it up from constants)
                         // TODO: we need `main` to clean this up a bit
-                        try self.object_class.module.methods.put(method_name_sym, chunk_ptr);
+                        try self.object_class.module.methods.put(method_name_sym, .{ .chunk = chunk_ptr });
                     }
                 } else {
                     std.debug.print("Error: undefined method chunk {d}\n", .{chunk_idx});
@@ -424,34 +406,7 @@ pub const VM = struct {
         }
     }
 
-    fn valuesEqual(self: *VM, a: value.Value, b: value.Value) bool {
-        _ = self;
-        return switch (a.data) {
-            .integer => switch (b.data) {
-                .integer => a.data.integer == b.data.integer,
-                else => false,
-            },
-            .boolean => switch (b.data) {
-                .boolean => a.data.boolean == b.data.boolean,
-                else => false,
-            },
-            .nil => switch (b.data) {
-                .nil => true,
-                else => false,
-            },
-            .string => switch (b.data) {
-                .string => std.mem.eql(u8, a.data.string, b.data.string),
-                else => false,
-            },
-            .symbol => switch (b.data) {
-                .symbol => a.data.symbol == b.data.symbol,
-                else => false,
-            },
-            else => false,
-        };
-    }
-
-    fn callMethod(self: *VM, method_idx: u16, receiver: value.Value, args: *[256]value.Value, argc: usize) !void {
+    fn callMethod(self: *VM, method_idx: u16, receiver: Value, args: *[256]Value, argc: usize) !void {
         if (method_idx >= self.currentChunk().constants.items.len) {
             return error.InvalidMethodIndex;
         }
@@ -464,63 +419,101 @@ pub const VM = struct {
         // TODO: method name should be a symbol
         const method_name = constant.string;
         const method_name_sym = (try self.intern(method_name)).data.symbol;
-        var method_chunk_ptr: ?*chunk.Chunk = null;
+        var method: ?Method = null;
 
         // Try to find method in receiver's class first
         if (receiver.data == .instance) {
             const instance = receiver.data.instance;
-            method_chunk_ptr = instance.class.module.methods.get(method_name_sym);
+            method = instance.class.module.methods.get(method_name_sym);
+        } else if (receiver.data == .integer) {
+            // Look up method on Integer class
+            method = self.integer_class.module.methods.get(method_name_sym);
         }
 
         // Fallback to Object class for top-level methods
-        if (method_chunk_ptr == null) {
-            method_chunk_ptr = self.object_class.module.methods.get(method_name_sym);
+        if (method == null) {
+            method = self.object_class.module.methods.get(method_name_sym);
         }
 
-        if (method_chunk_ptr) |chunk_ptr| {
-            // Push frame with receiver as self_value
-            try self.pushFrame(chunk_ptr, receiver);
-
-            // Copy arguments to locals
-            var frame = self.currentFrame();
-            var i: usize = 0;
-            while (i < argc) : (i += 1) {
-                frame.locals[i] = args[i];
-                frame.locals_len += 1;
-            }
-        } else {
+        if (method == null) {
             std.debug.print("Error: undefined method '{s}'\n", .{method_name});
             return error.UndefinedMethod;
         }
-    }
 
-    fn callBuiltin(self: *VM, builtin_id: bytecode.BuiltinId, receiver: value.Value, args: *[256]value.Value, argc: usize) !void {
-        switch (builtin_id) {
-            .PUTS => {
-                if (argc > 0) {
-                    try self.printValue(args[0]);
-                } else {
-                    std.debug.print("\n", .{});
-                }
-                try self.push(value.Value.nil());
-            },
+        if (method) |m| {
+            switch (m) {
+                .chunk => |chunk_ptr| {
+                    // Push frame with receiver as self_value
+                    try self.pushFrame(chunk_ptr, receiver);
 
-            .NEW => {
-                // receiver should be a class
-                if (receiver.data == .class) {
-                    const class_ptr = receiver.data.class;
-                    const instance = value.Value.instance(self.gc_allocator, class_ptr);
-                    try self.push(instance);
-                } else {
-                    std.debug.print("Error: cannot call new on non-class value\n", .{});
-                    return error.TypeError;
-                }
-            },
+                    // Copy arguments to locals
+                    var frame = self.currentFrame();
+                    var i: usize = 0;
+                    while (i < argc) : (i += 1) {
+                        frame.locals[i] = args[i];
+                        frame.locals_len += 1;
+                    }
+                },
+                .builtin => |fun_ptr| {
+                    const args_slice = args[0..argc];
+                    const result = try fun_ptr(self.gc_allocator, receiver, args_slice);
+                    try self.push(result);
+                },
+            }
         }
     }
 
-    fn printValue(self: *VM, val: value.Value) !void {
-        _ = self;
+    fn builtinObjectNew(allocator: std.mem.Allocator, receiver: Value, args: []Value) RuntimeError!Value {
+        if (args.len != 0) return error.WrongArgumentCount;
+
+        // receiver should be a class
+        if (receiver.data == .class) {
+            const class_ptr = receiver.data.class;
+            const instance = Value.instance(allocator, class_ptr);
+            return instance;
+        } else {
+            return error.WrongReceiverType;
+        }
+    }
+
+    fn builtinObjectPuts(_: std.mem.Allocator, _: Value, args: []Value) RuntimeError!Value {
+        if (args.len != 1) return error.WrongArgumentCount;
+
+        for (args) |arg| {
+            try printValue(arg);
+        }
+        std.debug.print("\n", .{});
+        return Value.nil();
+    }
+
+    fn builtinIntegerPlus(_: std.mem.Allocator, receiver: Value, args: []Value) RuntimeError!Value {
+        if (receiver.data != .integer) return error.WrongReceiverType;
+        if (args.len != 1) return error.WrongArgumentCount;
+        if (args[0].data != .integer) return error.WrongArgumentType;
+
+        const result = receiver.data.integer + args[0].data.integer;
+        return Value.integer(result);
+    }
+
+    fn builtinIntegerMinus(_: std.mem.Allocator, receiver: Value, args: []Value) RuntimeError!Value {
+        if (receiver.data != .integer) return error.WrongReceiverType;
+        if (args.len != 1) return error.WrongArgumentCount;
+        if (args[0].data != .integer) return error.WrongArgumentType;
+
+        const result = receiver.data.integer - args[0].data.integer;
+        return Value.integer(result);
+    }
+
+    fn builtinIntegerEqual(_: std.mem.Allocator, receiver: Value, args: []Value) RuntimeError!Value {
+        if (receiver.data != .integer) return error.WrongReceiverType;
+        if (args.len != 1) return error.WrongArgumentCount;
+        if (args[0].data != .integer) return error.WrongArgumentType;
+
+        const result = receiver.data.integer == args[0].data.integer;
+        return Value.boolean(result);
+    }
+
+    fn printValue(val: Value) !void {
         switch (val.data) {
             .integer => {
                 std.debug.print("{d}\n", .{val.data.integer});

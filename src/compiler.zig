@@ -20,7 +20,6 @@ pub const CompiledProgram = struct {
         }
         self.method_chunks.deinit();
     }
-
 };
 
 const Local = struct {
@@ -199,23 +198,10 @@ pub const Compiler = struct {
                     }
                 }
 
-                // Check if this is a builtin method
+                // Store method name and emit CALL
                 const method_name = try self.parser.getConstantName(call_node.name);
-                if (std.mem.eql(u8, method_name, "puts")) {
-                    try self.current_chunk.emitOpU8U8(.CALL_BUILTIN, @intFromEnum(bytecode.BuiltinId.PUTS), argc, line);
-                } else if (std.mem.eql(u8, method_name, "new")) {
-                    try self.current_chunk.emitOpU8U8(.CALL_BUILTIN, @intFromEnum(bytecode.BuiltinId.NEW), argc, line);
-                } else if (std.mem.eql(u8, method_name, "+") and argc == 1) {
-                    try self.current_chunk.emitOp(.ADD, line);
-                } else if (std.mem.eql(u8, method_name, "-") and argc == 1) {
-                    try self.current_chunk.emitOp(.SUB, line);
-                } else if (std.mem.eql(u8, method_name, "==") and argc == 1) {
-                    try self.current_chunk.emitOp(.EQ, line);
-                } else {
-                    // User-defined method - store method name as a string constant
-                    const method_idx = try self.current_chunk.addConstant(.{ .string = method_name });
-                    try self.current_chunk.emitOpU16U8(.CALL, @intCast(method_idx), argc, line);
-                }
+                const method_idx = try self.current_chunk.addConstant(.{ .string = method_name });
+                try self.current_chunk.emitOpU16U8(.CALL, @intCast(method_idx), argc, line);
             },
 
             .if_node => |if_node| {
