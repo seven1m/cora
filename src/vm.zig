@@ -354,12 +354,25 @@ pub const VM = struct {
 
             .DEF_CLASS => {
                 const name_idx = self.readU16();
+                const body_chunk_id = self.readByte();
                 const constant = self.currentChunk().constants.items[name_idx];
                 if (constant == .string) {
                     const name_sym = (try self.intern(constant.string)).data.symbol;
                     const class_val = Value.class(self.gc_allocator, name_sym, null);
                     try self.object_class.module.constants.put(name_sym, class_val);
-                    try self.push(class_val);
+
+                    // Execute class body if it exists
+                    if (body_chunk_id != 0) {
+                        if (self.program.method_chunks.get(body_chunk_id)) |body_chunk_ptr| {
+                            // Call the body chunk with the class as self
+                            // The body chunk will return the class, which will be left on the stack
+                            try self.pushFrame(body_chunk_ptr, class_val);
+                        } else {
+                            return error.UndefinedChunk;
+                        }
+                    } else {
+                        try self.push(class_val);
+                    }
                 } else {
                     return error.InvalidClassName;
                 }

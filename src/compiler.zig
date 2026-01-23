@@ -292,17 +292,38 @@ pub const Compiler = struct {
         // Add the class name as a constant
         const idx = try self.current_chunk.addConstant(.{ .string = class_name });
 
-        // Emit DEF_CLASS instruction
-        try self.current_chunk.emitOpU16(.DEF_CLASS, @intCast(idx), line);
-
-        // Compile class body (method definitions, etc.)
-        // The body executes with self = the class (set by DEF_CLASS)
+        // Create a separate chunk for the class body
+        var body_chunk_id: u8 = 0;
         if (class_node.body) |body_ptr| {
+            // Allocate chunk on heap
+            const body_chunk_ptr = try self.allocator.create(chunk.Chunk);
+            body_chunk_ptr.* = chunk.Chunk.init(self.allocator, class_name);
+
+            // Save the current chunk and switch to the body chunk
+            const saved_chunk = self.current_chunk;
+            self.current_chunk = body_chunk_ptr;
+
+            // Compile the class body (method definitions, etc.)
             const body_node = try self.parser.asNode(@ptrCast(body_ptr));
             try self.compileNode(body_node, line);
-            // Pop the body result - we don't need it on the stack
+
+            // Pop the last statement's result (we don't need it)
             try self.current_chunk.emitOp(.POP, line);
+            // Return self (the class) as the result
+            try self.current_chunk.emitOp(.PUSH_SELF, line);
+            try self.current_chunk.emitOp(.RETURN, line);
+
+            // Store the chunk and get its ID
+            body_chunk_id = @intCast(self.method_counter);
+            self.method_counter += 1;
+            try self.method_chunks.put(body_chunk_id, body_chunk_ptr);
+
+            // Restore the original chunk
+            self.current_chunk = saved_chunk;
         }
+
+        // Emit DEF_CLASS instruction with the body chunk ID
+        try self.current_chunk.emitOpU16U8(.DEF_CLASS, @intCast(idx), body_chunk_id, line);
     }
 
     fn compileMethod(self: *Compiler, def_node: *prism.DefNode, line: u32) anyerror!void {

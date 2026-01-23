@@ -25,7 +25,7 @@ pub const OpCode = enum(u8) {
 
     // OOP
     DEF_MODULE = 14, // Operand: u16 (name index)
-    DEF_CLASS = 15, // Operands: u16 (name index), u8 (has_super)
+    DEF_CLASS = 15, // Operands: u16 (name index), u8 (body chunk id)
     DEF_METHOD = 16, // Operands: u16 (name index), u8 (chunk index)
     PUSH_SELF = 17,
 
