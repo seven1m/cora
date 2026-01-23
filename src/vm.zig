@@ -6,6 +6,7 @@ const value = @import("value.zig");
 const prism = @import("prism.zig");
 
 const Value = value.Value;
+const ClassValue = value.ClassValue;
 const Method = value.Method;
 const RuntimeError = value.RuntimeError;
 
@@ -355,10 +356,21 @@ pub const VM = struct {
             .DEF_CLASS => {
                 const name_idx = self.readU16();
                 const body_chunk_id = self.readByte();
+
+                // Pop superclass (or nil)
+                const superclass_val = self.pop();
+
+                var superclass: ?*value.ClassValue = null;
+                if (superclass_val.data == .class) {
+                    superclass = superclass_val.data.class;
+                } else if (superclass_val.data != .nil) {
+                    return error.InvalidSuperclass;
+                }
+
                 const constant = self.currentChunk().constants.items[name_idx];
                 if (constant == .string) {
                     const name_sym = (try self.intern(constant.string)).data.symbol;
-                    const class_val = Value.class(self.gc_allocator, name_sym, null);
+                    const class_val = Value.class(self.gc_allocator, name_sym, superclass);
                     try self.object_class.module.constants.put(name_sym, class_val);
 
                     // Execute class body if it exists
@@ -432,21 +444,9 @@ pub const VM = struct {
         // TODO: method name should be a symbol
         const method_name = constant.string;
         const method_name_sym = (try self.intern(method_name)).data.symbol;
-        var method: ?Method = null;
 
-        // Try to find method in receiver's class first
-        if (receiver.data == .instance) {
-            const instance = receiver.data.instance;
-            method = instance.class.module.methods.get(method_name_sym);
-        } else if (receiver.data == .integer) {
-            // Look up method on Integer class
-            method = self.integer_class.module.methods.get(method_name_sym);
-        }
-
-        // Fallback to Object class for top-level methods
-        if (method == null) {
-            method = self.object_class.module.methods.get(method_name_sym);
-        }
+        const class = self.getClass(receiver);
+        const method = self.lookupMethod(class, method_name_sym);
 
         if (method == null) {
             std.debug.print("Error: undefined method '{s}'\n", .{method_name});
@@ -474,6 +474,25 @@ pub const VM = struct {
                 },
             }
         }
+    }
+
+    fn getClass(self: *VM, val: Value) *ClassValue {
+        switch (val.data) {
+            .instance => |i| return i.class,
+            .integer => return self.integer_class,
+            else => return self.object_class,
+        }
+    }
+
+    fn lookupMethod(_: *VM, class: *ClassValue, method_name: *value.SymbolValue) ?Method {
+        var current_class: ?*ClassValue = class;
+        while (current_class) |c| {
+            if (c.module.methods.get(method_name)) |method| {
+                return method;
+            }
+            current_class = c.superclass;
+        }
+        return null;
     }
 
     fn builtinObjectNew(allocator: std.mem.Allocator, receiver: Value, args: []Value) RuntimeError!Value {

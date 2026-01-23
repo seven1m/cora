@@ -292,6 +292,15 @@ pub const Compiler = struct {
         // Add the class name as a constant
         const idx = try self.current_chunk.addConstant(.{ .string = class_name });
 
+        // If there's a superclass, compile code to look it up
+        if (class_node.superclass) |superclass_ptr| {
+            const superclass_node = try self.parser.asNode(@ptrCast(superclass_ptr));
+            try self.compileNode(superclass_node, line);
+        } else {
+            // No superclass, push nil
+            try self.current_chunk.emitOp(.PUSH_NIL, line);
+        }
+
         // Create a separate chunk for the class body
         var body_chunk_id: u8 = 0;
         if (class_node.body) |body_ptr| {

@@ -7,6 +7,13 @@ pub const RuntimeError = error{
     WrongReceiverType,
     WrongArgumentCount,
     WrongArgumentType,
+    InvalidClassName,
+    InvalidMethodIndex,
+    InvalidMethodName,
+    InvalidModuleName,
+    InvalidSuperclass,
+    UndefinedChunk,
+    UndefinedMethod,
 };
 
 pub const Method = union(enum) {
