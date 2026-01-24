@@ -1,7 +1,7 @@
 const std = @import("std");
 const prism = @import("prism.zig");
 const compiler = @import("compiler.zig");
-const vm = @import("vm.zig");
+const VM = @import("vm.zig").VM;
 const Value = @import("value.zig").Value;
 const bdwgc = @import("bdwgc");
 
@@ -18,14 +18,14 @@ fn evalCode(ruby_code: []const u8) !Value {
 
     const parser = try prism.Parser.init(allocator, ruby_code);
 
-    var virtual_machine = vm.VM.initEmpty(allocator, bdwgc.allocator, parser);
-    defer virtual_machine.deinit();
+    var vm = VM.initEmpty(allocator, bdwgc.allocator, parser);
+    defer vm.deinit();
 
-    var program = try compiler.Compiler.compile(allocator, &virtual_machine.parser);
+    var program = try compiler.Compiler.compile(allocator, &vm.parser);
     defer program.deinit();
 
-    try virtual_machine.prepare(&program);
-    return try virtual_machine.run();
+    try vm.prepare(&program);
+    return try vm.run();
 }
 
 test "Basic integer arithmetic" {
@@ -130,13 +130,37 @@ test "Symbol interning - same address for identical symbols" {
     const allocator = getAllocator();
     const parser = try prism.Parser.init(allocator, "");
 
-    var virtual_machine = vm.VM.initEmpty(allocator, bdwgc.allocator, parser);
-    defer virtual_machine.deinit();
+    var vm = VM.initEmpty(allocator, bdwgc.allocator, parser);
+    defer vm.deinit();
 
-    const symbol1 = try virtual_machine.intern("foo");
-    const symbol2 = try virtual_machine.intern("foo");
-    const symbol3 = try virtual_machine.intern("bar");
+    const symbol1 = try vm.intern("foo");
+    const symbol2 = try vm.intern("foo");
+    const symbol3 = try vm.intern("bar");
 
-    try std.testing.expectEqual(@intFromPtr(symbol1.data.symbol), @intFromPtr(symbol2.data.symbol));
-    try std.testing.expect(@intFromPtr(symbol1.data.symbol) != @intFromPtr(symbol3.data.symbol));
+    try std.testing.expectEqual(@intFromPtr(symbol1), @intFromPtr(symbol2));
+    try std.testing.expect(@intFromPtr(symbol1) != @intFromPtr(symbol3));
+}
+
+test "Class hierarchy is set up correctly" {
+    bdwgc.init();
+    defer bdwgc.deinit();
+
+    const allocator = getAllocator();
+    const parser = try prism.Parser.init(allocator, "");
+
+    var vm = VM.initEmpty(allocator, bdwgc.allocator, parser);
+    defer vm.deinit();
+
+    var program = try compiler.Compiler.compile(allocator, &vm.parser);
+    defer program.deinit();
+
+    try vm.prepare(&program);
+
+    try std.testing.expect(vm.basic_object_class.superclass == null);
+    try std.testing.expect(vm.object_class.superclass == vm.basic_object_class);
+    try std.testing.expect(vm.module_class.superclass == vm.object_class);
+    try std.testing.expect(vm.class_class.superclass == vm.module_class);
+    try std.testing.expect(vm.numeric_class.superclass == vm.object_class);
+    try std.testing.expect(vm.integer_class.superclass == vm.numeric_class);
+    try std.testing.expect(vm.symbol_class.superclass == vm.object_class);
 }

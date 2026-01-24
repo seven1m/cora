@@ -6,7 +6,9 @@ const value = @import("value.zig");
 const prism = @import("prism.zig");
 
 const Value = value.Value;
+const Object = value.Object;
 const ClassObject = value.ClassObject;
+const SymbolObject = value.SymbolObject;
 const Method = value.Method;
 const RuntimeError = value.RuntimeError;
 
@@ -28,25 +30,17 @@ pub const VM = struct {
     stack: std.ArrayList(Value),
     frames: std.ArrayList(CallFrame),
 
-    symbols: std.StringHashMap(Value),
+    symbols: std.StringHashMap(*SymbolObject),
 
     program: *compiler.CompiledProgram,
 
-    object_class: *value.ClassObject,
+    basic_object_class: *value.ClassObject,
+    class_class: *value.ClassObject,
     integer_class: *value.ClassObject,
-
-    pub fn intern(self: *VM, str: []const u8) !Value {
-        // Check if already interned
-        if (self.symbols.get(str)) |symbol_val| {
-            return symbol_val; // Return the cached symbol Value
-        }
-
-        // Create a symbol Value and store it
-        const symbol_val = Value.symbol(self.gc_allocator, str);
-        try self.symbols.put(str, symbol_val);
-
-        return symbol_val;
-    }
+    module_class: *value.ClassObject,
+    numeric_class: *value.ClassObject,
+    object_class: *value.ClassObject,
+    symbol_class: *value.ClassObject,
 
     pub fn initEmpty(allocator: std.mem.Allocator, gc_allocator: std.mem.Allocator, parser: prism.Parser) VM {
         return VM{
@@ -55,57 +49,89 @@ pub const VM = struct {
             .parser = parser,
             .stack = std.ArrayList(Value).initCapacity(allocator, 256) catch unreachable,
             .frames = std.ArrayList(CallFrame).initCapacity(allocator, 16) catch unreachable,
-            .symbols = std.StringHashMap(Value).init(allocator),
+            .symbols = std.StringHashMap(*SymbolObject).init(allocator),
             .program = undefined,
-            .object_class = undefined,
+            .basic_object_class = undefined,
+            .class_class = undefined,
             .integer_class = undefined,
+            .module_class = undefined,
+            .numeric_class = undefined,
+            .object_class = undefined,
+            .symbol_class = undefined,
         };
     }
 
     pub fn prepare(self: *VM, program: *compiler.CompiledProgram) !void {
         self.program = program;
 
-        // Create Object class
-        const object_name_val = try self.intern("Object");
-        const object_name_sym = object_name_val.data.symbol;
-        const object_class_val = Value.class(self.gc_allocator, object_name_sym, null);
-        const object_class_ptr = object_class_val.data.class;
-        self.object_class = object_class_ptr;
-        try object_class_ptr.module.constants.put(object_name_sym, object_class_val);
+        // --- Stage 1: Create Class and BasicObject ---
+        const class_name_sym = try self.intern("Class");
+        const class_class_val = self.newClass(class_name_sym, null);
+        self.class_class = class_class_val.data.class;
+        self.class_class.module.object.class = self.class_class;
 
-        // Register Object builtins
-        const puts_sym = (try self.intern("puts")).data.symbol;
-        try object_class_ptr.module.methods.put(puts_sym, .{ .builtin = &builtinObjectPuts });
+        const basic_object_name_sym = try self.intern("BasicObject");
+        const basic_object_class_val = self.newClass(basic_object_name_sym, null);
+        self.basic_object_class = basic_object_class_val.data.class;
 
-        const new_sym = (try self.intern("new")).data.symbol;
-        try object_class_ptr.module.methods.put(new_sym, .{ .builtin = &builtinObjectNew });
+        // --- Stage 2: Create classes that inherit from BasicObject or Object ---
+        const object_name_sym = try self.intern("Object");
+        const object_class_val = self.newClass(object_name_sym, self.basic_object_class);
+        self.object_class = object_class_val.data.class;
+
+        const module_name_sym = try self.intern("Module");
+        const module_class_val = self.newClass(module_name_sym, self.object_class);
+        self.module_class = module_class_val.data.class;
+
+        const numeric_name_sym = try self.intern("Numeric");
+        const numeric_class_val = self.newClass(numeric_name_sym, self.object_class);
+        self.numeric_class = numeric_class_val.data.class;
+
+        const integer_name_sym = try self.intern("Integer");
+        const integer_class_val = self.newClass(integer_name_sym, self.numeric_class);
+        self.integer_class = integer_class_val.data.class;
+
+        const symbol_name_sym = try self.intern("Symbol");
+        const symbol_class_val = self.newClass(symbol_name_sym, self.object_class);
+        self.symbol_class = symbol_class_val.data.class;
+
+        // --- Stage 3: Set Class's superclass to Module ---
+        self.class_class.superclass = self.module_class;
+
+        // --- Stage 4: Register constants in Object ---
+        try self.object_class.module.constants.put(class_name_sym, class_class_val);
+        try self.object_class.module.constants.put(basic_object_name_sym, basic_object_class_val);
+        try self.object_class.module.constants.put(object_name_sym, object_class_val);
+        try self.object_class.module.constants.put(module_name_sym, module_class_val);
+        try self.object_class.module.constants.put(numeric_name_sym, numeric_class_val);
+        try self.object_class.module.constants.put(integer_name_sym, integer_class_val);
+        try self.object_class.module.constants.put(symbol_name_sym, symbol_class_val);
+
+        // --- Stage 5: Register built-in methods ---
+        // Register Object built-in methods
+        const puts_sym = try self.intern("puts");
+        try self.object_class.module.methods.put(puts_sym, .{ .builtin = &builtinObjectPuts });
+
+        const new_sym = try self.intern("new");
+        try self.object_class.module.methods.put(new_sym, .{ .builtin = &builtinObjectNew });
 
         // Transfer method chunks to Object class
         var iter = program.method_chunks.iterator();
         while (iter.next()) |entry| {
             const chunk_ptr = entry.value_ptr.*;
-            // chunk_ptr.name is an AST-borrowed slice
-            const name_sym = (try self.intern(chunk_ptr.name)).data.symbol;
-            try object_class_ptr.module.methods.put(name_sym, .{ .chunk = chunk_ptr });
+            const name_sym = try self.intern(chunk_ptr.name);
+            try self.object_class.module.methods.put(name_sym, .{ .chunk = chunk_ptr });
         }
 
-        // Create Integer class
-        const integer_name_val = try self.intern("Integer");
-        const integer_name_sym = integer_name_val.data.symbol;
-        const integer_class_val = Value.class(self.gc_allocator, integer_name_sym, object_class_ptr);
-        const integer_class_ptr = integer_class_val.data.class;
-        self.integer_class = integer_class_ptr;
-        try object_class_ptr.module.constants.put(integer_name_sym, integer_class_val);
-
         // Register Integer builtins
-        const plus_sym = (try self.intern("+")).data.symbol;
-        try integer_class_ptr.module.methods.put(plus_sym, .{ .builtin = &builtinIntegerPlus });
+        const plus_sym = try self.intern("+");
+        try self.integer_class.module.methods.put(plus_sym, .{ .builtin = &builtinIntegerPlus });
 
-        const minus_sym = (try self.intern("-")).data.symbol;
-        try integer_class_ptr.module.methods.put(minus_sym, .{ .builtin = &builtinIntegerMinus });
+        const minus_sym = try self.intern("-");
+        try self.integer_class.module.methods.put(minus_sym, .{ .builtin = &builtinIntegerMinus });
 
-        const equal_sym = (try self.intern("==")).data.symbol;
-        try integer_class_ptr.module.methods.put(equal_sym, .{ .builtin = &builtinIntegerEqual });
+        const equal_sym = try self.intern("==");
+        try self.integer_class.module.methods.put(equal_sym, .{ .builtin = &builtinIntegerEqual });
     }
 
     pub fn init(allocator: std.mem.Allocator, gc_allocator: std.mem.Allocator, parser: prism.Parser, program: *compiler.CompiledProgram) VM {
@@ -146,7 +172,7 @@ pub const VM = struct {
         return switch (constant) {
             .integer => |i| Value.integer(i),
             .string => |s| Value.frozenString(s),
-            .symbol => |s| try self.intern(s),
+            .symbol => |s| Value{ .data = .{ .symbol = (try self.intern(s)) } },
         };
     }
 
@@ -258,7 +284,7 @@ pub const VM = struct {
                 const constant = self.currentChunk().constants.items[idx];
                 // TODO: this should be a symbol I think
                 if (constant == .string) {
-                    const name_sym = (try self.intern(constant.string)).data.symbol;
+                    const name_sym = try self.intern(constant.string);
                     if (self.object_class.module.constants.get(name_sym)) |const_val| {
                         try self.push(const_val);
                     } else {
@@ -275,7 +301,7 @@ pub const VM = struct {
                 const constant = self.currentChunk().constants.items[idx];
                 // TODO: this should be a symbol I think
                 if (constant == .string) {
-                    const name_sym = (try self.intern(constant.string)).data.symbol;
+                    const name_sym = try self.intern(constant.string);
                     try self.object_class.module.constants.put(name_sym, val);
                 }
                 try self.push(val);
@@ -344,8 +370,8 @@ pub const VM = struct {
                 const name_idx = self.readU16();
                 const constant = self.currentChunk().constants.items[name_idx];
                 if (constant == .string) {
-                    const name_sym = (try self.intern(constant.string)).data.symbol;
-                    const module_val = Value.module(self.gc_allocator, name_sym);
+                    const name_sym = try self.intern(constant.string);
+                    const module_val = self.newModule(name_sym);
                     try self.object_class.module.constants.put(name_sym, module_val);
                     try self.push(module_val);
                 } else {
@@ -369,8 +395,8 @@ pub const VM = struct {
 
                 const constant = self.currentChunk().constants.items[name_idx];
                 if (constant == .string) {
-                    const name_sym = (try self.intern(constant.string)).data.symbol;
-                    const class_val = Value.class(self.gc_allocator, name_sym, superclass);
+                    const name_sym = try self.intern(constant.string);
+                    const class_val = self.newClass(name_sym, superclass);
                     try self.object_class.module.constants.put(name_sym, class_val);
 
                     // Execute class body if it exists
@@ -400,7 +426,7 @@ pub const VM = struct {
                 }
 
                 const method_name = constant.symbol;
-                const method_name_sym = (try self.intern(method_name)).data.symbol;
+                const method_name_sym = try self.intern(method_name);
 
                 // Look up the chunk by ID
                 if (self.program.method_chunks.get(chunk_idx)) |chunk_ptr| {
@@ -443,7 +469,7 @@ pub const VM = struct {
 
         // TODO: method name should be a symbol
         const method_name = constant.string;
-        const method_name_sym = (try self.intern(method_name)).data.symbol;
+        const method_name_sym = try self.intern(method_name);
 
         const class = self.getClass(receiver);
         const method = self.lookupMethod(class, method_name_sym);
@@ -469,7 +495,7 @@ pub const VM = struct {
                 },
                 .builtin => |fun_ptr| {
                     const args_slice = args[0..argc];
-                    const result = try fun_ptr(self.gc_allocator, receiver, args_slice);
+                    const result = try fun_ptr(self, receiver, args_slice);
                     try self.push(result);
                 },
             }
@@ -495,20 +521,75 @@ pub const VM = struct {
         return null;
     }
 
-    fn builtinObjectNew(allocator: std.mem.Allocator, receiver: Value, args: []Value) RuntimeError!Value {
+    pub fn intern(self: *VM, str: []const u8) !*SymbolObject {
+        // Check if already interned
+        if (self.symbols.get(str)) |symbol_obj| {
+            return symbol_obj;
+        }
+
+        // Create a symbol and store it
+        const symbol_obj = self.allocator.create(SymbolObject) catch unreachable;
+        symbol_obj.* = .{
+            .object = .{ .flags = Object.FROZEN_FLAG, .class = self.symbol_class },
+            .name = str,
+        };
+        try self.symbols.put(str, symbol_obj);
+
+        return symbol_obj;
+    }
+
+    // ==== Object creation ====
+
+    pub fn newModule(self: *VM, name: *SymbolObject) Value {
+        const module_obj = self.gc_allocator.create(value.ModuleObject) catch unreachable;
+        module_obj.* = .{
+            .object = .{ .flags = 0, .class = self.module_class },
+            .name = name,
+            .methods = std.AutoHashMap(*SymbolObject, Method).init(self.gc_allocator),
+            .constants = std.AutoHashMap(*SymbolObject, Value).init(self.gc_allocator),
+        };
+        return .{ .data = .{ .module = module_obj } };
+    }
+
+    pub fn newClass(self: *VM, name: *SymbolObject, superclass: ?*ClassObject) Value {
+        const class_obj = self.gc_allocator.create(ClassObject) catch unreachable;
+        class_obj.* = .{
+            .superclass = superclass,
+            .module = .{
+                .object = .{ .flags = 0, .class = self.class_class },
+                .name = name,
+                .methods = std.AutoHashMap(*SymbolObject, Method).init(self.gc_allocator),
+                .constants = std.AutoHashMap(*SymbolObject, Value).init(self.gc_allocator),
+            },
+        };
+        return .{ .data = .{ .class = class_obj } };
+    }
+
+    pub fn newInstance(self: *VM, class_obj: *ClassObject) Value {
+        const obj = self.gc_allocator.create(Object) catch unreachable;
+        obj.* = .{
+            .flags = 0,
+            .class = class_obj,
+        };
+        return .{ .data = .{ .instance = obj } };
+    }
+
+    // ==== Built-in methods ====
+
+    fn builtinObjectNew(self: *VM, receiver: Value, args: []Value) RuntimeError!Value {
         if (args.len != 0) return error.WrongArgumentCount;
 
         // receiver should be a class
         if (receiver.data == .class) {
             const class_ptr = receiver.data.class;
-            const instance = Value.instance(allocator, class_ptr);
+            const instance = self.newInstance(class_ptr);
             return instance;
         } else {
             return error.WrongReceiverType;
         }
     }
-
-    fn builtinObjectPuts(_: std.mem.Allocator, _: Value, args: []Value) RuntimeError!Value {
+    
+    fn builtinObjectPuts(_: *VM, _: Value, args: []Value) RuntimeError!Value {
         if (args.len != 1) return error.WrongArgumentCount;
 
         for (args) |arg| {
@@ -518,7 +599,7 @@ pub const VM = struct {
         return Value.nil();
     }
 
-    fn builtinIntegerPlus(_: std.mem.Allocator, receiver: Value, args: []Value) RuntimeError!Value {
+    fn builtinIntegerPlus(_: *VM, receiver: Value, args: []Value) RuntimeError!Value {
         if (receiver.data != .integer) return error.WrongReceiverType;
         if (args.len != 1) return error.WrongArgumentCount;
         if (args[0].data != .integer) return error.WrongArgumentType;
@@ -527,7 +608,7 @@ pub const VM = struct {
         return Value.integer(result);
     }
 
-    fn builtinIntegerMinus(_: std.mem.Allocator, receiver: Value, args: []Value) RuntimeError!Value {
+    fn builtinIntegerMinus(_: *VM, receiver: Value, args: []Value) RuntimeError!Value {
         if (receiver.data != .integer) return error.WrongReceiverType;
         if (args.len != 1) return error.WrongArgumentCount;
         if (args[0].data != .integer) return error.WrongArgumentType;
@@ -536,7 +617,7 @@ pub const VM = struct {
         return Value.integer(result);
     }
 
-    fn builtinIntegerEqual(_: std.mem.Allocator, receiver: Value, args: []Value) RuntimeError!Value {
+    fn builtinIntegerEqual(_: *VM, receiver: Value, args: []Value) RuntimeError!Value {
         if (receiver.data != .integer) return error.WrongReceiverType;
         if (args.len != 1) return error.WrongArgumentCount;
         if (args[0].data != .integer) return error.WrongArgumentType;

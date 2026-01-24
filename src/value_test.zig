@@ -26,12 +26,3 @@ test "Value.integer() handles negative integers" {
     try std.testing.expect(int_value.isFrozen());
     try std.testing.expectEqual(-123, int_value.data.integer);
 }
-
-test "Value.symbol() creates frozen symbol" {
-    bdwgc.init();
-    defer bdwgc.deinit();
-    const test_symbol = "hello";
-    const sym_value = Value.symbol(bdwgc.allocator, test_symbol);
-    try std.testing.expect(sym_value.isFrozen());
-    try std.testing.expectEqualSlices(u8, test_symbol, sym_value.data.symbol.name);
-}

@@ -18,7 +18,7 @@ Cora is a Ruby interpreter written in Zig using the Prism parser for AST generat
 - `src/vm.zig` - Stack-based bytecode interpreter
 - `src/value.zig` - Runtime value types and factory methods
 
-**Value Types:** String, Integer, Boolean, Nil, Symbol (interned), Module, Class, Instance
+**Value Types:** String, Integer, Boolean, Nil, Symbol (interned), Module, Class, Instance, BasicObject, Numeric
 
 **VM State:**
 - `allocator: Allocator` - Infrastructure allocator for HashMaps, call stack, constants
@@ -30,6 +30,9 @@ Cora is a Ruby interpreter written in Zig using the Prism parser for AST generat
 - `program: CompiledProgram` - Compiled bytecode (main chunk + method chunks)
 - `object_class: *ClassValue` - Root Object class (holds top-level methods)
 - `integer_class: *ClassValue` - Integer class (holds Integer methods like +, -, ==)
+- `basic_object_class: *ClassValue` - Root of the inheritance hierarchy
+- `numeric_class: *ClassValue` - Numeric class (superclass for Integer)
+- `symbol_class: *ClassValue` - Symbol class
 
 ## Key Concepts
 
@@ -81,7 +84,7 @@ This avoids allocating an ArrayList per function call (major performance win for
 ```zig
 pub const Method = union(enum) {
     chunk: *Chunk,                                              // User-defined method
-    builtin: *const fn (Allocator, Value, []Value) RuntimeError!Value,  // Built-in Zig function
+    builtin: *const fn (*@import("vm.zig").VM, Value, []Value) RuntimeError!Value,  // Built-in Zig function
 };
 ```
 Methods are stored in class/module `.methods` HashMap with SymbolValue keys. Method lookup walks inheritance chain from receiver's class up to Object.
@@ -102,7 +105,7 @@ Methods are stored in class/module `.methods` HashMap with SymbolValue keys. Met
 5. Test with manual execution
 
 **New Builtin Method:**
-1. Write a Zig function with signature: `fn(Allocator, Value, []Value) RuntimeError!Value`
+1. Write a Zig function with signature: `fn(*@import("vm.zig").VM, Value, []Value) RuntimeError!Value`
 2. Register it in `VM.prepare()` on the appropriate class:
    ```zig
    const method_sym = (try self.intern("method_name")).data.symbol;
@@ -137,9 +140,9 @@ Methods are stored in class/module `.methods` HashMap with SymbolValue keys. Met
 **How to Create Ruby Objects:**
 ```zig
 // All GC-managed objects - allocation is transparent
-const cls = Value.class(gc_allocator, name, superclass);
-const mod = Value.module(gc_allocator, name);
-const inst = Value.instance(gc_allocator, class_ptr);
+const cls = self.newClass(name, superclass);
+const mod = self.newModule(name);
+const inst = self.newInstance(class_ptr);
 ```
 
 **When Objects Are Freed:**
@@ -169,7 +172,7 @@ const inst = Value.instance(gc_allocator, class_ptr);
 
 **OOP:**
 - Modules and Classes
-- Inheritance (defaults to Object)
+- Inheritance (Object inherits from BasicObject)
 - `ClassName.new` instantiation
 - Instance method calls
 - Method definitions in class/module/top-level context

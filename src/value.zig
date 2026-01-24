@@ -2,6 +2,7 @@ const std = @import("std");
 const prism = @import("prism.zig");
 const bdwgc = @import("bdwgc");
 const Chunk = @import("chunk.zig").Chunk;
+const VM = @import("vm.zig").VM;
 
 pub const RuntimeError = error{
     WrongReceiverType,
@@ -18,11 +19,11 @@ pub const RuntimeError = error{
 
 pub const Method = union(enum) {
     chunk: *Chunk,
-    builtin: *const fn (std.mem.Allocator, Value, []Value) RuntimeError!Value,
+    builtin: *const fn (*VM, Value, []Value) RuntimeError!Value,
 };
 
 pub const Object = struct {
-    const FROZEN_FLAG = 0x1;
+    pub const FROZEN_FLAG = 0x1;
 
     flags: u32,
     class: ?*ClassObject,
@@ -94,49 +95,6 @@ pub const Value = struct {
 
     pub fn integer(value: i64) Value {
         return .{ .data = .{ .integer = value } };
-    }
-
-    pub fn symbol(gc_allocator: std.mem.Allocator, str: []const u8) Value {
-        const symbol_obj = gc_allocator.create(SymbolObject) catch unreachable;
-        symbol_obj.* = .{
-            .object = .{ .flags = Object.FROZEN_FLAG, .class = null },
-            .name = str,
-        };
-        return .{ .data = .{ .symbol = symbol_obj } };
-    }
-
-    pub fn module(gc_allocator: std.mem.Allocator, name: *SymbolObject) Value {
-        const module_obj = gc_allocator.create(ModuleObject) catch unreachable;
-        module_obj.* = .{
-            .object = .{ .flags = 0, .class = null },
-            .name = name,
-            .methods = std.AutoHashMap(*SymbolObject, Method).init(gc_allocator),
-            .constants = std.AutoHashMap(*SymbolObject, Value).init(gc_allocator),
-        };
-        return .{ .data = .{ .module = module_obj } };
-    }
-
-    pub fn class(gc_allocator: std.mem.Allocator, name: *SymbolObject, superclass: ?*ClassObject) Value {
-        const class_obj = gc_allocator.create(ClassObject) catch unreachable;
-        class_obj.* = .{
-            .superclass = superclass,
-            .module = .{
-                .object = .{ .flags = 0, .class = null },
-                .name = name,
-                .methods = std.AutoHashMap(*SymbolObject, Method).init(gc_allocator),
-                .constants = std.AutoHashMap(*SymbolObject, Value).init(gc_allocator),
-            },
-        };
-        return .{ .data = .{ .class = class_obj } };
-    }
-
-    pub fn instance(gc_allocator: std.mem.Allocator, class_obj: *ClassObject) Value {
-        const obj = gc_allocator.create(Object) catch unreachable;
-        obj.* = .{
-            .flags = 0,
-            .class = class_obj,
-        };
-        return .{ .data = .{ .instance = obj } };
     }
 
     pub fn format(self: Value, writer: *std.Io.Writer) !void {
