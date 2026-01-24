@@ -112,9 +112,12 @@ test "Class instantiation" {
 }
 
 test "Class inheritance" {
-    const result = try evalCode("class Foo; def foo; 'foo'; end; end; class Bar < Foo; end; bar = Bar.new; bar.foo");
+    var result = try evalCode("class Foo; def foo; 'foo'; end; end; class Bar < Foo; end; bar = Bar.new; bar.foo");
     try std.testing.expect(result.data == .string);
     try std.testing.expectEqualSlices(u8, "foo", result.data.string);
+
+    result = try evalCode("class Foo; def foo; 'foo'; end; end; class Bar < Foo; def foo; 'bar'; end; end; bar = Bar.new; bar.foo");
+    try std.testing.expectEqualSlices(u8, "bar", result.data.string);
 }
 
 test "Method calls with arguments" {
