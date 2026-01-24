@@ -63,65 +63,132 @@ test "Nil value" {
     try std.testing.expect(result.data == .nil);
 }
 
-test "If statement - true condition" {
-    const result = try evalCode("if true; 42; else; 0; end");
+test "If expression" {
+    var result = try evalCode(
+        \\if true
+        \\  42
+        \\else
+        \\  0
+        \\end
+    );
     try std.testing.expectEqual(@as(i64, 42), result.data.integer);
-}
 
-test "If statement - false condition" {
-    const result = try evalCode("if false; 42; else; 0; end");
+    result = try evalCode(
+        \\if false
+        \\  42
+        \\else
+        \\  0
+        \\end
+    );
     try std.testing.expectEqual(@as(i64, 0), result.data.integer);
-}
 
-test "If statement - no else" {
-    const result = try evalCode("if true; 42; end");
+    result = try evalCode(
+        \\if true
+        \\  42
+        \\end
+    );
     try std.testing.expectEqual(@as(i64, 42), result.data.integer);
+
+    result = try evalCode(
+        \\if false
+        \\  42
+        \\end
+    );
+    try std.testing.expect(result.data == .nil);
 }
 
 test "Constants can be set and read" {
-    const result = try evalCode("FOO = 42; FOO");
+    const result = try evalCode(
+        \\FOO = 42
+        \\FOO
+    );
     try std.testing.expectEqual(@as(i64, 42), result.data.integer);
 }
 
 test "Modules" {
-    const result = try evalCode("module Foo; end;");
+    const result = try evalCode(
+        \\module Foo
+        \\end
+    );
     try std.testing.expect(result.data == .module);
     try std.testing.expectEqualSlices(u8, "Foo", result.data.module.name.name);
 }
 
 test "Classes" {
-    const result = try evalCode("class Foo; end;");
+    const result = try evalCode(
+        \\class Foo
+        \\end
+    );
     try std.testing.expect(result.data == .class);
     try std.testing.expectEqualSlices(u8, "Foo", result.data.class.module.name.name);
 }
 
 test "Top-level methods" {
-    var result = try evalCode("def foo; 'foo'; end");
+    var result = try evalCode(
+        \\def foo
+        \\  'foo'
+        \\end
+    );
     try std.testing.expect(result.data == .symbol);
     try std.testing.expectEqualSlices(u8, "foo", result.data.symbol.name);
 
-    result = try evalCode("def foo; 'foo'; end; foo");
+    result = try evalCode(
+        \\def foo
+        \\  'foo'
+        \\end
+        \\foo
+    );
     try std.testing.expect(result.data == .string);
     try std.testing.expectEqualSlices(u8, "foo", result.data.string);
 }
 
 test "Class instantiation" {
-    const result = try evalCode("class Foo; def foo; 'foo'; end; end; foo = Foo.new; foo.foo");
+    const result = try evalCode(
+        \\class Foo
+        \\  def foo
+        \\    'foo'
+        \\  end
+        \\end
+        \\foo = Foo.new
+        \\foo.foo
+    );
     try std.testing.expect(result.data == .string);
     try std.testing.expectEqualSlices(u8, "foo", result.data.string);
 }
 
 test "Class inheritance" {
-    var result = try evalCode("class Foo; def foo; 'foo'; end; end; class Bar < Foo; end; bar = Bar.new; bar.foo");
+    var result = try evalCode(
+        \\class Foo
+        \\  def foo = 'foo'
+        \\end
+        \\class Bar < Foo
+        \\end
+        \\bar = Bar.new
+        \\bar.foo
+    );
     try std.testing.expect(result.data == .string);
     try std.testing.expectEqualSlices(u8, "foo", result.data.string);
 
-    result = try evalCode("class Foo; def foo; 'foo'; end; end; class Bar < Foo; def foo; 'bar'; end; end; bar = Bar.new; bar.foo");
+    result = try evalCode(
+        \\class Foo
+        \\  def foo = 'foo'
+        \\end
+        \\class Bar < Foo
+        \\  def foo = 'bar'
+        \\end
+        \\bar = Bar.new
+        \\bar.foo
+    );
     try std.testing.expectEqualSlices(u8, "bar", result.data.string);
 }
 
 test "Method calls with arguments" {
-    const result = try evalCode("def increment(x); x + 1; end; increment(41)");
+    const result = try evalCode(
+        \\def increment(x)
+        \\  x + 1
+        \\end
+        \\increment(41)
+    );
     try std.testing.expect(result.data == .integer);
     try std.testing.expectEqual(42, result.data.integer);
 }
