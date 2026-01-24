@@ -6,7 +6,7 @@ const value = @import("value.zig");
 const prism = @import("prism.zig");
 
 const Value = value.Value;
-const ClassValue = value.ClassValue;
+const ClassObject = value.ClassObject;
 const Method = value.Method;
 const RuntimeError = value.RuntimeError;
 
@@ -32,8 +32,8 @@ pub const VM = struct {
 
     program: *compiler.CompiledProgram,
 
-    object_class: *value.ClassValue,
-    integer_class: *value.ClassValue,
+    object_class: *value.ClassObject,
+    integer_class: *value.ClassObject,
 
     pub fn intern(self: *VM, str: []const u8) !Value {
         // Check if already interned
@@ -360,7 +360,7 @@ pub const VM = struct {
                 // Pop superclass (or nil)
                 const superclass_val = self.pop();
 
-                var superclass: ?*value.ClassValue = null;
+                var superclass: ?*value.ClassObject = null;
                 if (superclass_val.data == .class) {
                     superclass = superclass_val.data.class;
                 } else if (superclass_val.data != .nil) {
@@ -476,16 +476,16 @@ pub const VM = struct {
         }
     }
 
-    fn getClass(self: *VM, val: Value) *ClassValue {
+    fn getClass(self: *VM, val: Value) *ClassObject {
         switch (val.data) {
-            .instance => |i| return i.class,
+            .instance => |i| return i.class.?,
             .integer => return self.integer_class,
             else => return self.object_class,
         }
     }
 
-    fn lookupMethod(_: *VM, class: *ClassValue, method_name: *value.SymbolValue) ?Method {
-        var current_class: ?*ClassValue = class;
+    fn lookupMethod(_: *VM, class: *ClassObject, method_name: *value.SymbolObject) ?Method {
+        var current_class: ?*ClassObject = class;
         while (current_class) |c| {
             if (c.module.methods.get(method_name)) |method| {
                 return method;
@@ -573,7 +573,7 @@ pub const VM = struct {
                 std.debug.print("{s}\n", .{c.module.name.name});
             },
             .instance => |i| {
-                std.debug.print("<{s} instance>\n", .{i.class.module.name.name});
+                std.debug.print("<{s} instance>\n", .{i.class.?.module.name.name});
             },
         }
     }
