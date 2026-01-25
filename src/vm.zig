@@ -528,7 +528,7 @@ pub const VM = struct {
         }
 
         // Create a symbol and store it
-        const symbol_obj = self.allocator.create(SymbolObject) catch unreachable;
+        const symbol_obj = self.gc_allocator.create(SymbolObject) catch unreachable;
         symbol_obj.* = .{
             .object = .{ .flags = Object.FROZEN_FLAG, .class = self.symbol_class },
             .name = str,
