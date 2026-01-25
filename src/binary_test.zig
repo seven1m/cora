@@ -21,5 +21,5 @@ test "binary: simple puts" {
     const term = try child.wait();
 
     try std.testing.expect(term == .Exited and term.Exited == 0);
-    try std.testing.expect(std.mem.indexOf(u8, stderr, "1") != null);
+    try std.testing.expectEqualSlices(u8, "1\n", stdout);
 }

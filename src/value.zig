@@ -15,6 +15,7 @@ pub const RuntimeError = error{
     InvalidSuperclass,
     UndefinedChunk,
     UndefinedMethod,
+    RuntimeError,
 };
 
 pub const Method = union(enum) {

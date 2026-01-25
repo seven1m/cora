@@ -588,14 +588,20 @@ pub const VM = struct {
             return error.WrongReceiverType;
         }
     }
-    
+
     fn builtinObjectPuts(_: *VM, _: Value, args: []Value) RuntimeError!Value {
         if (args.len != 1) return error.WrongArgumentCount;
 
+        var stdout_buffer: [8192]u8 = undefined;
+        var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+        const stdout = &stdout_writer.interface;
+
         for (args) |arg| {
-            try printValue(arg);
+            printValue(stdout, arg) catch return RuntimeError.RuntimeError;
         }
-        std.debug.print("\n", .{});
+
+        stdout.flush() catch return RuntimeError.RuntimeError;
+
         return Value.nil();
     }
 
@@ -626,35 +632,35 @@ pub const VM = struct {
         return Value.boolean(result);
     }
 
-    fn printValue(val: Value) !void {
+    fn printValue(writer: *std.Io.Writer, val: Value) !void {
         switch (val.data) {
             .integer => {
-                std.debug.print("{d}\n", .{val.data.integer});
+                try writer.print("{d}\n", .{val.data.integer});
             },
             .string => {
-                std.debug.print("{s}\n", .{val.data.string});
+                try writer.print("{s}\n", .{val.data.string});
             },
             .symbol => {
-                std.debug.print(":{s}\n", .{val.data.symbol.name});
+                try writer.print(":{s}\n", .{val.data.symbol.name});
             },
             .boolean => {
                 if (val.data.boolean) {
-                    std.debug.print("true\n", .{});
+                    try writer.print("true\n", .{});
                 } else {
-                    std.debug.print("false\n", .{});
+                    try writer.print("false\n", .{});
                 }
             },
             .nil => {
-                std.debug.print("\n", .{});
+                try writer.print("\n", .{});
             },
             .module => |m| {
-                std.debug.print("{s}\n", .{m.name.name});
+                try writer.print("{s}\n", .{m.name.name});
             },
             .class => |c| {
-                std.debug.print("{s}\n", .{c.module.name.name});
+                try writer.print("{s}\n", .{c.module.name.name});
             },
             .instance => |i| {
-                std.debug.print("<{s} instance>\n", .{i.class.?.module.name.name});
+                try writer.print("<{s} instance>\n", .{i.class.?.module.name.name});
             },
         }
     }
