@@ -189,3 +189,11 @@ const inst = self.newInstance(class_ptr);
 **Constant Pool Borrowing:** Chunk constants borrow strings from Parser AST rather than allocating. Zero allocation for compile-time constants.
 
 **Symbol Caching:** Interned symbols cached in HashMap, same string always returns same symbol Value.
+
+## Testing & Debugging
+
+**Running Tests:**
+```bash
+# Run tests with summary
+zig build test --summary all
+```

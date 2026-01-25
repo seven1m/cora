@@ -41,6 +41,7 @@ pub const VM = struct {
     numeric_class: *value.ClassObject,
     object_class: *value.ClassObject,
     symbol_class: *value.ClassObject,
+    kernel_module: *value.ModuleObject,
 
     pub fn initEmpty(allocator: std.mem.Allocator, gc_allocator: std.mem.Allocator, parser: prism.Parser) VM {
         return VM{
@@ -58,6 +59,7 @@ pub const VM = struct {
             .numeric_class = undefined,
             .object_class = undefined,
             .symbol_class = undefined,
+            .kernel_module = undefined,
         };
     }
 
@@ -95,6 +97,10 @@ pub const VM = struct {
         const symbol_class_val = self.newClass(symbol_name_sym, self.object_class);
         self.symbol_class = symbol_class_val.data.class;
 
+        const kernel_name_sym = try self.intern("Kernel");
+        const kernel_module_val = self.newModule(kernel_name_sym);
+        self.kernel_module = kernel_module_val.data.module;
+
         // --- Stage 3: Set Class's superclass to Module ---
         self.class_class.superclass = self.module_class;
 
@@ -106,14 +112,21 @@ pub const VM = struct {
         try self.object_class.module.constants.put(numeric_name_sym, numeric_class_val);
         try self.object_class.module.constants.put(integer_name_sym, integer_class_val);
         try self.object_class.module.constants.put(symbol_name_sym, symbol_class_val);
+        try self.object_class.module.constants.put(kernel_name_sym, kernel_module_val);
 
         // --- Stage 5: Register built-in methods ---
-        // Register Object built-in methods
+        // Register Kernel built-in methods
         const puts_sym = try self.intern("puts");
-        try self.object_class.module.methods.put(puts_sym, .{ .builtin = &builtinObjectPuts });
+        try self.kernel_module.methods.put(puts_sym, .{ .builtin = &builtinObjectPuts });
 
+        // Register Object built-in methods
         const new_sym = try self.intern("new");
         try self.object_class.module.methods.put(new_sym, .{ .builtin = &builtinObjectNew });
+
+        const include_sym = try self.intern("include");
+        try self.object_class.module.methods.put(include_sym, .{ .builtin = &builtinModuleInclude });
+
+        try self.includeModule(self.object_class, self.kernel_module);
 
         // Transfer method chunks to Object class
         var iter = program.method_chunks.iterator();
@@ -368,12 +381,26 @@ pub const VM = struct {
 
             .DEF_MODULE => {
                 const name_idx = self.readU16();
+                const body_chunk_id = self.readByte();
+
                 const constant = self.currentChunk().constants.items[name_idx];
                 if (constant == .string) {
                     const name_sym = try self.intern(constant.string);
                     const module_val = self.newModule(name_sym);
                     try self.object_class.module.constants.put(name_sym, module_val);
-                    try self.push(module_val);
+
+                    // Execute module body if it exists
+                    if (body_chunk_id != 0) {
+                        if (self.program.method_chunks.get(body_chunk_id)) |body_chunk_ptr| {
+                            // Call the body chunk with the module as self
+                            // The body chunk will return the module, which will be left on the stack
+                            try self.pushFrame(body_chunk_ptr, module_val);
+                        } else {
+                            return error.UndefinedChunk;
+                        }
+                    } else {
+                        try self.push(module_val);
+                    }
                 } else {
                     return error.InvalidModuleName;
                 }
@@ -516,6 +543,16 @@ pub const VM = struct {
             if (c.module.methods.get(method_name)) |method| {
                 return method;
             }
+
+            var i = c.included_modules.items.len;
+            while (i > 0) {
+                i -= 1;
+                const module = c.included_modules.items[i];
+                if (module.methods.get(method_name)) |method| {
+                    return method;
+                }
+            }
+
             current_class = c.superclass;
         }
         return null;
@@ -561,6 +598,7 @@ pub const VM = struct {
                 .methods = std.AutoHashMap(*SymbolObject, Method).init(self.gc_allocator),
                 .constants = std.AutoHashMap(*SymbolObject, Value).init(self.gc_allocator),
             },
+            .included_modules = std.ArrayList(*value.ModuleObject).initCapacity(self.gc_allocator, 1) catch unreachable,
         };
         return .{ .data = .{ .class = class_obj } };
     }
@@ -572,6 +610,10 @@ pub const VM = struct {
             .class = class_obj,
         };
         return .{ .data = .{ .instance = obj } };
+    }
+
+    pub fn includeModule(self: *VM, class: *value.ClassObject, module: *value.ModuleObject) !void {
+        try class.included_modules.append(self.gc_allocator, module);
     }
 
     // ==== Built-in methods ====
@@ -630,6 +672,21 @@ pub const VM = struct {
 
         const result = receiver.data.integer == args[0].data.integer;
         return Value.boolean(result);
+    }
+
+    fn builtinModuleInclude(self: *VM, receiver: Value, args: []Value) RuntimeError!Value {
+        if (args.len != 1) return error.WrongArgumentCount;
+        if (args[0].data != .module) return error.WrongArgumentType;
+
+        // receiver must be a class
+        if (receiver.data != .class) return error.WrongReceiverType;
+
+        const class = receiver.data.class;
+        const module = args[0].data.module;
+
+        self.includeModule(class, module) catch return error.RuntimeError;
+
+        return receiver;
     }
 
     fn printValue(writer: *std.Io.Writer, val: Value) !void {

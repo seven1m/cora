@@ -45,6 +45,7 @@ pub const ModuleObject = struct {
 pub const ClassObject = struct {
     module: ModuleObject,
     superclass: ?*ClassObject,
+    included_modules: std.ArrayList(*ModuleObject),
 };
 
 pub const Value = struct {

@@ -171,7 +171,7 @@ pub const Chunk = struct {
                 try writer.print("{s}\n", .{bytecode.opcodeName(op)});
             },
 
-            .PUSH_INT, .PUSH_CONST, .GET_CONST, .SET_CONST, .DEF_MODULE => {
+            .PUSH_INT, .PUSH_CONST, .GET_CONST, .SET_CONST => {
                 const idx = bytecode.readU16(self.code.items, next_ip);
                 try writer.print("{s} {d}", .{ bytecode.opcodeName(op), idx });
                 if (idx < self.constants.items.len) {
@@ -184,6 +184,20 @@ pub const Chunk = struct {
                 }
                 try writer.print("\n", .{});
                 next_ip += 2;
+            },
+
+            .DEF_MODULE => {
+                const idx = bytecode.readU16(self.code.items, next_ip);
+                const chunk_id = bytecode.readU8(self.code.items, next_ip + 2);
+                try writer.print("{s} {d} {d}", .{ bytecode.opcodeName(op), idx, chunk_id });
+                if (idx < self.constants.items.len) {
+                    const constant = self.constants.items[idx];
+                    if (constant == .string) {
+                        try writer.print(" (\"{s}\")", .{constant.string});
+                    }
+                }
+                try writer.print("\n", .{});
+                next_ip += 3;
             },
 
             .GET_LOCAL, .SET_LOCAL => {
@@ -232,6 +246,8 @@ pub const Chunk = struct {
                 try writer.print(" {d} (chunk {d})\n", .{ chunk_idx, chunk_idx });
                 next_ip += 3;
             },
+
+
         }
 
         return next_ip;

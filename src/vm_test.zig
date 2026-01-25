@@ -182,6 +182,24 @@ test "Class inheritance" {
     try std.testing.expectEqualSlices(u8, "bar", result.data.string);
 }
 
+test "Module inclusion" {
+    const result = try evalCode(
+        \\module Foo
+        \\  def foo
+        \\    'foo'
+        \\  end
+        \\end
+        \\
+        \\class Bar
+        \\  include Foo
+        \\end
+        \\
+        \\bar = Bar.new
+        \\bar.foo
+    );
+    try std.testing.expectEqualSlices(u8, "foo", result.data.string);
+}
+
 test "Method calls with arguments" {
     const result = try evalCode(
         \\def increment(x)
