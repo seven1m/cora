@@ -126,6 +126,9 @@ pub const VM = struct {
         const include_sym = try self.intern("include");
         try self.object_class.module.methods.put(include_sym, .{ .builtin = &builtinModuleInclude });
 
+        const prepend_sym = try self.intern("prepend");
+        try self.object_class.module.methods.put(prepend_sym, .{ .builtin = &builtinModulePrepend });
+
         try self.includeModule(self.object_class, self.kernel_module);
 
         // Transfer method chunks to Object class
@@ -540,11 +543,23 @@ pub const VM = struct {
     fn lookupMethod(_: *VM, class: *ClassObject, method_name: *value.SymbolObject) ?Method {
         var current_class: ?*ClassObject = class;
         while (current_class) |c| {
+            // 1. Check prepended modules first (in reverse order - most recently prepended at highest index is checked first)
+            var i = c.prepended_modules.items.len;
+            while (i > 0) {
+                i -= 1;
+                const module = c.prepended_modules.items[i];
+                if (module.methods.get(method_name)) |method| {
+                    return method;
+                }
+            }
+
+            // 2. Check class's own methods
             if (c.module.methods.get(method_name)) |method| {
                 return method;
             }
 
-            var i = c.included_modules.items.len;
+            // 3. Check included modules (in reverse order - most recently included at highest index is checked first)
+            i = c.included_modules.items.len;
             while (i > 0) {
                 i -= 1;
                 const module = c.included_modules.items[i];
@@ -598,6 +613,7 @@ pub const VM = struct {
                 .methods = std.AutoHashMap(*SymbolObject, Method).init(self.gc_allocator),
                 .constants = std.AutoHashMap(*SymbolObject, Value).init(self.gc_allocator),
             },
+            .prepended_modules = std.ArrayList(*value.ModuleObject).initCapacity(self.gc_allocator, 1) catch unreachable,
             .included_modules = std.ArrayList(*value.ModuleObject).initCapacity(self.gc_allocator, 1) catch unreachable,
         };
         return .{ .data = .{ .class = class_obj } };
@@ -614,6 +630,10 @@ pub const VM = struct {
 
     pub fn includeModule(self: *VM, class: *value.ClassObject, module: *value.ModuleObject) !void {
         try class.included_modules.append(self.gc_allocator, module);
+    }
+
+    pub fn prependModule(self: *VM, class: *value.ClassObject, module: *value.ModuleObject) !void {
+        try class.prepended_modules.append(self.gc_allocator, module);
     }
 
     // ==== Built-in methods ====
@@ -685,6 +705,21 @@ pub const VM = struct {
         const module = args[0].data.module;
 
         self.includeModule(class, module) catch return error.RuntimeError;
+
+        return receiver;
+    }
+
+    fn builtinModulePrepend(self: *VM, receiver: Value, args: []Value) RuntimeError!Value {
+        if (args.len != 1) return error.WrongArgumentCount;
+        if (args[0].data != .module) return error.WrongArgumentType;
+
+        // receiver must be a class
+        if (receiver.data != .class) return error.WrongReceiverType;
+
+        const class = receiver.data.class;
+        const module = args[0].data.module;
+
+        self.prependModule(class, module) catch return error.RuntimeError;
 
         return receiver;
     }

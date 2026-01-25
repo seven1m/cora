@@ -182,22 +182,76 @@ test "Class inheritance" {
     try std.testing.expectEqualSlices(u8, "bar", result.data.string);
 }
 
-test "Module inclusion" {
-    const result = try evalCode(
+test "Module include" {
+    var result = try evalCode(
         \\module Foo
-        \\  def foo
+        \\  def call
         \\    'foo'
+        \\  end
+        \\end
+        \\
+        \\module Baz
+        \\  def call
+        \\    'baz'
         \\  end
         \\end
         \\
         \\class Bar
         \\  include Foo
+        \\  include Baz
         \\end
         \\
         \\bar = Bar.new
-        \\bar.foo
+        \\bar.call
+    );
+    try std.testing.expectEqualSlices(u8, "baz", result.data.string);
+
+    result = try evalCode(
+        \\module Foo
+        \\  def call
+        \\    'nope'
+        \\  end
+        \\end
+        \\
+        \\class Bar
+        \\  include Foo
+        \\  def call
+        \\    'foo'
+        \\  end
+        \\end
+        \\
+        \\bar = Bar.new
+        \\bar.call
     );
     try std.testing.expectEqualSlices(u8, "foo", result.data.string);
+}
+
+test "Module prepend" {
+    const result = try evalCode(
+        \\module Before
+        \\  def call
+        \\    'before'
+        \\  end
+        \\end
+        \\
+        \\module Before2
+        \\  def call
+        \\    'before 2'
+        \\  end
+        \\end
+        \\
+        \\class Foo
+        \\  prepend Before
+        \\  prepend Before2
+        \\  def call
+        \\    'foo'
+        \\  end
+        \\end
+        \\
+        \\Foo.new.call
+    );
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "before 2", result.data.string);
 }
 
 test "Method calls with arguments" {
