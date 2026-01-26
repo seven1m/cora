@@ -27,8 +27,8 @@ pub const VM = struct {
 
     parser: prism.Parser,
 
-    stack: std.ArrayList(Value),
-    frames: std.ArrayList(CallFrame),
+    stack: std.ArrayList(Value) = .empty,
+    frames: std.ArrayList(CallFrame) = .empty,
 
     symbols: std.StringHashMap(*SymbolObject),
 
@@ -48,8 +48,6 @@ pub const VM = struct {
             .allocator = allocator,
             .gc_allocator = gc_allocator,
             .parser = parser,
-            .stack = std.ArrayList(Value).initCapacity(allocator, 256) catch unreachable,
-            .frames = std.ArrayList(CallFrame).initCapacity(allocator, 16) catch unreachable,
             .symbols = std.StringHashMap(*SymbolObject).init(allocator),
             .program = undefined,
             .basic_object_class = undefined,
@@ -613,8 +611,6 @@ pub const VM = struct {
                 .methods = std.AutoHashMap(*SymbolObject, Method).init(self.gc_allocator),
                 .constants = std.AutoHashMap(*SymbolObject, Value).init(self.gc_allocator),
             },
-            .prepended_modules = std.ArrayList(*value.ModuleObject).initCapacity(self.gc_allocator, 1) catch unreachable,
-            .included_modules = std.ArrayList(*value.ModuleObject).initCapacity(self.gc_allocator, 1) catch unreachable,
         };
         return .{ .data = .{ .class = class_obj } };
     }

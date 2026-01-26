@@ -45,8 +45,8 @@ pub const ModuleObject = struct {
 pub const ClassObject = struct {
     module: ModuleObject,
     superclass: ?*ClassObject,
-    prepended_modules: std.ArrayList(*ModuleObject),
-    included_modules: std.ArrayList(*ModuleObject),
+    prepended_modules: std.ArrayList(*ModuleObject) = .empty,
+    included_modules: std.ArrayList(*ModuleObject) = .empty,
 };
 
 pub const Value = struct {

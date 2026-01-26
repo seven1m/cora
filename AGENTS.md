@@ -197,3 +197,11 @@ const inst = self.newInstance(class_ptr);
 # Run tests with summary
 zig build test --summary all
 ```
+
+## Idiomatic Zig
+
+- Use "unmanaged" ArrayList, like this:
+  ```zig
+  field: ArrayList(*Value) = .empty
+  ```
+  (No initialization needed because the allocator is passed to append, insert, etc.)

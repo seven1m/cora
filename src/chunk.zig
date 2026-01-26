@@ -8,20 +8,17 @@ pub const Constant = union(enum) {
 };
 
 pub const Chunk = struct {
-    code: std.ArrayList(u8),
-    constants: std.ArrayList(Constant),
+    code: std.ArrayList(u8) = .empty,
+    constants: std.ArrayList(Constant) = .empty,
     constant_names: std.StringHashMap(u32), // Name -> constant index
-    line_info: std.ArrayList(u32),
+    line_info: std.ArrayList(u32) = .empty,
     allocator: std.mem.Allocator,
     name: []const u8,
     chunk_id: ?u8 = null,
 
     pub fn init(allocator: std.mem.Allocator, name: []const u8) Chunk {
         return Chunk{
-            .code = std.ArrayList(u8).initCapacity(allocator, 256) catch unreachable,
-            .constants = std.ArrayList(Constant).initCapacity(allocator, 16) catch unreachable,
             .constant_names = std.StringHashMap(u32).init(allocator),
-            .line_info = std.ArrayList(u32).initCapacity(allocator, 256) catch unreachable,
             .allocator = allocator,
             .name = name,
             .chunk_id = null,

@@ -32,7 +32,7 @@ pub const Compiler = struct {
     parser: *prism.Parser,
 
     current_chunk: *chunk.Chunk,
-    locals: std.ArrayList(Local),
+    locals: std.ArrayList(Local) = .empty,
     scope_depth: usize = 0,
 
     method_chunks: std.AutoHashMap(u16, *chunk.Chunk),
@@ -43,7 +43,6 @@ pub const Compiler = struct {
             .allocator = allocator,
             .parser = parser,
             .current_chunk = undefined,
-            .locals = std.ArrayList(Local).initCapacity(allocator, 32) catch unreachable,
             .method_chunks = std.AutoHashMap(u16, *chunk.Chunk).init(allocator),
         };
     }
