@@ -200,6 +200,7 @@ pub const VM = struct {
         try self.nil_class.module.methods.put(to_s_sym_specialized, .{ .builtin = &builtinNilClassToS });
         try self.true_class.module.methods.put(to_s_sym_specialized, .{ .builtin = &builtinTrueClassToS });
         try self.false_class.module.methods.put(to_s_sym_specialized, .{ .builtin = &builtinFalseClassToS });
+        try self.array_class.module.methods.put(to_s_sym_specialized, .{ .builtin = &builtinArrayToS });
     }
 
     pub fn setupOutput(self: *VM) void {
@@ -917,23 +918,44 @@ pub const VM = struct {
         if (receiver.data != .nil) return error.WrongReceiverType;
         if (args.len != 0) return error.WrongArgumentCount;
 
-        const str = self.gc_allocator.dupe(u8, "") catch return error.RuntimeError;
-        return self.newString(str, false);
+        return self.newString("", false);
     }
 
     fn builtinTrueClassToS(self: *VM, receiver: Value, args: []Value) RuntimeError!Value {
         if (receiver.data != .boolean or !receiver.data.boolean) return error.WrongReceiverType;
         if (args.len != 0) return error.WrongArgumentCount;
 
-        const str = self.gc_allocator.dupe(u8, "true") catch return error.RuntimeError;
-        return self.newString(str, false);
+        return self.newString("true", false);
     }
 
     fn builtinFalseClassToS(self: *VM, receiver: Value, args: []Value) RuntimeError!Value {
         if (receiver.data != .boolean or receiver.data.boolean) return error.WrongReceiverType;
         if (args.len != 0) return error.WrongArgumentCount;
 
-        const str = self.gc_allocator.dupe(u8, "false") catch return error.RuntimeError;
+        return self.newString("false", false);
+    }
+
+    fn builtinArrayToS(self: *VM, receiver: Value, args: []Value) RuntimeError!Value {
+        if (receiver.data != .array) return error.WrongReceiverType;
+        if (args.len != 0) return error.WrongArgumentCount;
+
+        const array = receiver.data.array;
+        var buf: std.ArrayList(u8) = .empty;
+        defer buf.deinit(self.allocator);
+        const writer = buf.writer(self.allocator);
+
+        writer.writeAll("[") catch return error.RuntimeError;
+        for (array.elements.items, 0..) |elem, idx| {
+            if (idx > 0) writer.writeAll(", ") catch return error.RuntimeError;
+
+            const elem_str = try self.callMethodByName(elem, "to_s", &[_]Value{});
+            if (elem_str.data != .string) return error.RuntimeError;
+            writer.writeAll(elem_str.data.string.str) catch return error.RuntimeError;
+        }
+        writer.writeAll("]") catch return error.RuntimeError;
+
+        const str = buf.toOwnedSlice(self.allocator) catch return error.RuntimeError;
+        defer self.allocator.free(str);
         return self.newString(str, false);
     }
 
