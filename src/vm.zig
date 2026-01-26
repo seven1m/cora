@@ -177,13 +177,6 @@ pub const VM = struct {
 
         try self.includeModule(self.object_class, self.kernel_module);
 
-        // Transfer method chunks to Object class
-        var iter = program.method_chunks.iterator();
-        while (iter.next()) |entry| {
-            const chunk_ptr = entry.value_ptr.*;
-            const name_sym = try self.intern(chunk_ptr.name);
-            try self.object_class.module.methods.put(name_sym, .{ .chunk = chunk_ptr });
-        }
 
         // Register Integer builtins
         const plus_sym = try self.intern("+");
