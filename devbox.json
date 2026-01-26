@@ -1,9 +1,11 @@
 {
-  "$schema":  "https://raw.githubusercontent.com/jetify-com/devbox/0.16.0/.schema/devbox.schema.json",
-  "packages": ["zig@latest"],
+  "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/0.16.0/.schema/devbox.schema.json",
+  "packages": [
+    "zig@latest",
+    "ruby@3.4"
+  ],
   "shell": {
-    "init_hook": [
-    ],
+    "init_hook": [],
     "scripts": {
       "build": [
         "zig build"
