@@ -61,7 +61,7 @@ fn evalCodeWithOutput(ruby_code: []const u8, stdout_buf: []u8, stderr_buf: []u8)
 
     const parser = try prism.Parser.init(allocator, ruby_code);
 
-    var vm = VM.initEmpty(allocator, bdwgc.allocator, parser);
+    var vm = VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic, parser);
     defer vm.deinit();
 
     var program = try compiler.Compiler.compile(allocator, &vm.parser);
@@ -332,7 +332,7 @@ test "Symbol interning - same address for identical symbols" {
     const allocator = getAllocator();
     const parser = try prism.Parser.init(allocator, "");
 
-    var vm = VM.initEmpty(allocator, bdwgc.allocator, parser);
+    var vm = VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic, parser);
     defer vm.deinit();
 
     const symbol1 = try vm.intern("foo");
@@ -350,7 +350,7 @@ test "Class hierarchy is set up correctly" {
     const allocator = getAllocator();
     const parser = try prism.Parser.init(allocator, "");
 
-    var vm = VM.initEmpty(allocator, bdwgc.allocator, parser);
+    var vm = VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic, parser);
     defer vm.deinit();
 
     var program = try compiler.Compiler.compile(allocator, &vm.parser);

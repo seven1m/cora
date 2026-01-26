@@ -25,6 +25,7 @@ pub const CallFrame = struct {
 pub const VM = struct {
     allocator: std.mem.Allocator,
     gc_allocator: std.mem.Allocator,
+    gc_allocator_atomic: std.mem.Allocator,
 
     parser: prism.Parser,
 
@@ -59,10 +60,11 @@ pub const VM = struct {
     stdout: ?*std.Io.Writer = null,
     stderr: ?*std.Io.Writer = null,
 
-    pub fn initEmpty(allocator: std.mem.Allocator, gc_allocator: std.mem.Allocator, parser: prism.Parser) VM {
+    pub fn initEmpty(allocator: std.mem.Allocator, gc_allocator: std.mem.Allocator, gc_allocator_atomic: std.mem.Allocator, parser: prism.Parser) VM {
         return VM{
             .allocator = allocator,
             .gc_allocator = gc_allocator,
+            .gc_allocator_atomic = gc_allocator_atomic,
             .parser = parser,
             .symbols = std.StringHashMap(*SymbolObject).init(allocator),
             .program = undefined,
@@ -210,8 +212,8 @@ pub const VM = struct {
         self.stderr = &self.stderr_writer.?.interface;
     }
 
-    pub fn init(allocator: std.mem.Allocator, gc_allocator: std.mem.Allocator, parser: prism.Parser, program: *compiler.CompiledProgram) VM {
-        var vm = initEmpty(allocator, gc_allocator, parser);
+    pub fn init(allocator: std.mem.Allocator, gc_allocator: std.mem.Allocator, gc_allocator_atomic: std.mem.Allocator, parser: prism.Parser, program: *compiler.CompiledProgram) VM {
+        var vm = initEmpty(allocator, gc_allocator, gc_allocator_atomic, parser);
         vm.prepare(program) catch unreachable;
         vm.setupOutput();
         return vm;
@@ -760,12 +762,16 @@ pub const VM = struct {
 
     pub fn newString(self: *VM, str: []const u8, frozen: bool) Value {
         var copy = str;
-        if (!frozen)
-            copy = self.gc_allocator.dupe(u8, str) catch unreachable;
+        var flags: u32 = 0;
+        if (frozen) {
+            flags = Object.FROZEN_FLAG;
+        } else {
+            copy = self.gc_allocator_atomic.dupe(u8, str) catch unreachable;
+        }
 
         const string_obj = self.gc_allocator.create(StringObject) catch unreachable;
         string_obj.* = .{
-            .object = .{ .flags = if (frozen) Object.FROZEN_FLAG else 0, .class = self.string_class },
+            .object = .{ .flags = flags, .class = self.string_class },
             .str = copy,
         };
         return .{ .data = .{ .string = string_obj } };
