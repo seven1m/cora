@@ -230,6 +230,20 @@ pub const Compiler = struct {
                 }
             },
 
+            .array => |array_node| {
+                // Compile array elements in reverse order
+                // (so they're in correct order when popped from stack)
+                const element_count: u8 = @intCast(array_node.elements.size);
+                var i: i32 = @intCast(array_node.elements.size);
+                while (i > 0) : (i -= 1) {
+                    const elem = array_node.elements.nodes[@intCast(i - 1)];
+                    const elem_node = try self.parser.asNode(elem);
+                    try self.compileNode(elem_node, line);
+                }
+                // Emit PUSH_ARRAY with element count
+                try self.current_chunk.emitOpU8(.PUSH_ARRAY, element_count, line);
+            },
+
             else => {
                 std.debug.print("Error: unsupported node type\n", .{});
                 return error.UnsupportedNode;

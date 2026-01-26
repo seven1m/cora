@@ -41,6 +41,7 @@ pub const VM = struct {
     numeric_class: *value.ClassObject,
     object_class: *value.ClassObject,
     symbol_class: *value.ClassObject,
+    array_class: *value.ClassObject,
     kernel_module: *value.ModuleObject,
 
     pub fn initEmpty(allocator: std.mem.Allocator, gc_allocator: std.mem.Allocator, parser: prism.Parser) VM {
@@ -57,6 +58,7 @@ pub const VM = struct {
             .numeric_class = undefined,
             .object_class = undefined,
             .symbol_class = undefined,
+            .array_class = undefined,
             .kernel_module = undefined,
         };
     }
@@ -95,6 +97,10 @@ pub const VM = struct {
         const symbol_class_val = self.newClass(symbol_name_sym, self.object_class);
         self.symbol_class = symbol_class_val.data.class;
 
+        const array_name_sym = try self.intern("Array");
+        const array_class_val = self.newClass(array_name_sym, self.object_class);
+        self.array_class = array_class_val.data.class;
+
         const kernel_name_sym = try self.intern("Kernel");
         const kernel_module_val = self.newModule(kernel_name_sym);
         self.kernel_module = kernel_module_val.data.module;
@@ -110,6 +116,7 @@ pub const VM = struct {
         try self.object_class.module.constants.put(numeric_name_sym, numeric_class_val);
         try self.object_class.module.constants.put(integer_name_sym, integer_class_val);
         try self.object_class.module.constants.put(symbol_name_sym, symbol_class_val);
+        try self.object_class.module.constants.put(array_name_sym, array_class_val);
         try self.object_class.module.constants.put(kernel_name_sym, kernel_module_val);
 
         // --- Stage 5: Register built-in methods ---
@@ -146,6 +153,10 @@ pub const VM = struct {
 
         const equal_sym = try self.intern("==");
         try self.integer_class.module.methods.put(equal_sym, .{ .builtin = &builtinIntegerEqual });
+
+        // Register Array builtins
+        const push_sym = try self.intern("<<");
+        try self.array_class.module.methods.put(push_sym, .{ .builtin = &builtinArrayPush });
     }
 
     pub fn init(allocator: std.mem.Allocator, gc_allocator: std.mem.Allocator, parser: prism.Parser, program: *compiler.CompiledProgram) VM {
@@ -479,6 +490,24 @@ pub const VM = struct {
                 }
             },
 
+            .PUSH_ARRAY => {
+                const element_count = self.readByte();
+
+                const array_obj = self.gc_allocator.create(value.ArrayObject) catch unreachable;
+                array_obj.* = .{
+                    .object = .{ .flags = 0, .class = self.array_class },
+                    .elements = .empty,
+                };
+
+                var i: usize = 0;
+                while (i < element_count) : (i += 1) {
+                    const elem = self.pop();
+                    array_obj.elements.append(self.gc_allocator, elem) catch unreachable;
+                }
+
+                try self.push(.{ .data = .{ .array = array_obj } });
+            },
+
             .HALT => {
                 try self.popFrame();
             },
@@ -534,6 +563,7 @@ pub const VM = struct {
         switch (val.data) {
             .instance => |i| return i.class.?,
             .integer => return self.integer_class,
+            .array => return self.array_class,
             else => return self.object_class,
         }
     }
@@ -720,6 +750,16 @@ pub const VM = struct {
         return receiver;
     }
 
+    fn builtinArrayPush(self: *VM, receiver: Value, args: []Value) RuntimeError!Value {
+        if (receiver.data != .array) return error.WrongReceiverType;
+        if (args.len != 1) return error.WrongArgumentCount;
+
+        const array = receiver.data.array;
+        array.elements.append(self.gc_allocator, args[0]) catch return error.RuntimeError;
+
+        return receiver;
+    }
+
     fn printValue(writer: *std.Io.Writer, val: Value) !void {
         switch (val.data) {
             .integer => {
@@ -749,6 +789,14 @@ pub const VM = struct {
             },
             .instance => |i| {
                 try writer.print("<{s} instance>\n", .{i.class.?.module.name.name});
+            },
+            .array => |a| {
+                try writer.print("[", .{});
+                for (a.elements.items, 0..) |elem, idx| {
+                    if (idx > 0) try writer.print(", ", .{});
+                    try printValue(writer, elem);
+                }
+                try writer.print("]\n", .{});
             },
         }
     }

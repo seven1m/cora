@@ -49,6 +49,11 @@ pub const ClassObject = struct {
     included_modules: std.ArrayList(*ModuleObject) = .empty,
 };
 
+pub const ArrayObject = struct {
+    object: Object,
+    elements: std.ArrayList(Value) = .empty,
+};
+
 pub const Value = struct {
     data: union(enum) {
         string: []const u8,
@@ -59,6 +64,7 @@ pub const Value = struct {
         module: *ModuleObject,
         class: *ClassObject,
         instance: *Object,
+        array: *ArrayObject,
     },
 
     pub fn isFrozen(self: Value) bool {
@@ -70,6 +76,7 @@ pub const Value = struct {
             .module => |m| (m.object.flags & Object.FROZEN_FLAG) != 0,
             .class => |c| (c.module.object.flags & Object.FROZEN_FLAG) != 0,
             .instance => |i| (i.flags & Object.FROZEN_FLAG) != 0,
+            .array => |a| (a.object.flags & Object.FROZEN_FLAG) != 0,
         };
     }
 
@@ -79,6 +86,7 @@ pub const Value = struct {
             .module => |m| m.object.flags |= Object.FROZEN_FLAG,
             .class => |c| c.object.flags |= Object.FROZEN_FLAG,
             .instance => |i| i.flags |= Object.FROZEN_FLAG,
+            .array => |a| a.object.flags |= Object.FROZEN_FLAG,
             // Primitives are already frozen, do nothing
             else => {},
         }
@@ -110,6 +118,14 @@ pub const Value = struct {
             .module => |m| try writer.print("<Module {s}>", .{m.name.name}),
             .class => |c| try writer.print("<Class {s}>", .{c.module.name.name}),
             .instance => |i| try writer.print("<{s} instance>", .{i.class.?.module.name.name}),
+            .array => |a| {
+                try writer.print("[", .{});
+                for (a.elements.items, 0..) |elem, idx| {
+                    if (idx > 0) try writer.print(", ", .{});
+                    try elem.format(writer);
+                }
+                try writer.print("]", .{});
+            },
         }
     }
 };

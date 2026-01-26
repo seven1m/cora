@@ -29,8 +29,11 @@ pub const OpCode = enum(u8) {
     DEF_METHOD = 16, // Operands: u16 (name index), u8 (chunk index)
     PUSH_SELF = 17,
 
+    // Collections
+    PUSH_ARRAY = 18, // Operand: u8 (element count)
+
     // Special
-    HALT = 18,
+    HALT = 19,
 };
 
 pub const BuiltinId = enum(u8) {
@@ -57,6 +60,7 @@ pub fn opcodeName(op: OpCode) []const u8 {
         .DEF_MODULE => "DEF_MODULE",
         .DEF_CLASS => "DEF_CLASS",
         .DEF_METHOD => "DEF_METHOD",
+        .PUSH_ARRAY => "PUSH_ARRAY",
         .HALT => "HALT",
     };
 }
@@ -94,7 +98,7 @@ pub const Instruction = struct {
             .PUSH_INT, .PUSH_CONST, .GET_CONST, .SET_CONST, .CALL, .DEF_MODULE, .DEF_CLASS, .DEF_METHOD => {
                 try writer.print(" {d}", .{self.bx});
             },
-            .GET_LOCAL, .SET_LOCAL => {
+            .GET_LOCAL, .SET_LOCAL, .PUSH_ARRAY => {
                 try writer.print(" {d}", .{self.a});
             },
             .JUMP, .JUMP_IF_FALSE => {

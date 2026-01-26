@@ -18,7 +18,7 @@ Cora is a Ruby interpreter written in Zig using the Prism parser for AST generat
 - `src/vm.zig` - Stack-based bytecode interpreter
 - `src/value.zig` - Runtime value types and factory methods
 
-**Value Types:** String, Integer, Boolean, Nil, Symbol (interned), Module, Class, Instance, BasicObject, Numeric
+**Value Types:** String, Integer, Boolean, Nil, Symbol (interned), Module, Class, Instance, BasicObject, Numeric, Array
 
 **VM State:**
 - `allocator: Allocator` - Infrastructure allocator for HashMaps, call stack, constants
@@ -33,6 +33,7 @@ Cora is a Ruby interpreter written in Zig using the Prism parser for AST generat
 - `basic_object_class: *ClassValue` - Root of the inheritance hierarchy
 - `numeric_class: *ClassValue` - Numeric class (superclass for Integer)
 - `symbol_class: *ClassValue` - Symbol class
+- `array_class: *ClassValue` - Array class
 
 ## Key Concepts
 
@@ -40,7 +41,10 @@ Cora is a Ruby interpreter written in Zig using the Prism parser for AST generat
 - `code: ArrayList(u8)` - Bytecode instructions
 - `constants: ArrayList(Constant)` - Compile-time constants (integer, string, symbol)
 - `line_info: ArrayList(u32)` - Line numbers for debugging
-- `name: []const u8` - Chunk name (e.g., "main", "foo")
+- `name: []const u8` - Chunk name (e.g., "main", "foo", module/class name)
+- `chunk_id: u8` - Unique ID for method/module chunks
+
+Module and class bodies are compiled into separate chunks. The main chunk references these via chunk IDs in `DEF_MODULE`, `DEF_CLASS`, and `DEF_METHOD` instructions.
 
 **Constant Type** (compile-time, not runtime):
 ```zig
@@ -52,7 +56,7 @@ pub const Constant = union(enum) {
 ```
 Constants are NOT allocated—strings/symbols are borrowed from the Parser AST. The Parser lives as long as the VM, so pointers are valid for VM lifetime.
 
-**OpCodes** (0-18, sequential):
+**OpCodes** (0-19, sequential):
 - `PUSH_NIL` (0), `PUSH_TRUE` (1), `PUSH_FALSE` (2) - Push literal values
 - `PUSH_INT` (3), `PUSH_CONST` (4) - Push constants from pool
 - `GET_LOCAL` (5), `SET_LOCAL` (6) - Access local variables
@@ -61,7 +65,8 @@ Constants are NOT allocated—strings/symbols are borrowed from the Parser AST. 
 - `CALL` (12), `RETURN` (13) - Method calls and returns
 - `DEF_MODULE` (14), `DEF_CLASS` (15), `DEF_METHOD` (16) - Define OOP structures
 - `PUSH_SELF` (17) - Push current self value
-- `HALT` (18) - Halt VM
+- `PUSH_ARRAY` (18) - Create array (operand: element count)
+- `HALT` (19) - Halt VM
 
 Note: Arithmetic operators (+, -, ==) are now method calls, not opcodes. They dispatch to builtin methods registered on Integer class.
 
@@ -78,7 +83,26 @@ pub const CallFrame = struct {
 ```
 This avoids allocating an ArrayList per function call (major performance win for recursive functions).
 
-**Symbol Interning:** `VM.intern(str)` creates a GC-allocated canonical string and stores it in `symbols` map. Same string always returns same symbol Value with same memory address.
+**Symbol Interning:** `VM.intern(str)` creates a GC-allocated SymbolObject with a canonical string and stores it in `symbols` map. Same string always returns same symbol Value with same memory address. Symbols are frozen objects managed by the GC allocator.
+
+**Class Structure:**
+```zig
+pub const ClassObject = struct {
+    module: ModuleObject,  // Classes have module-like method storage
+    superclass: ?*ClassObject,
+    prepended_modules: std.ArrayList(*ModuleObject),  // Methods checked before class methods
+    included_modules: std.ArrayList(*ModuleObject),   // Methods checked after class methods
+};
+```
+
+**Array Type:**
+```zig
+pub const ArrayObject = struct {
+    object: Object,
+    elements: std.ArrayList(Value) = .empty,
+};
+```
+Arrays hold collections of Values. Each array is a GC-managed heap object with a frozen flag.
 
 **Method Union:**
 ```zig
@@ -87,7 +111,7 @@ pub const Method = union(enum) {
     builtin: *const fn (*@import("vm.zig").VM, Value, []Value) RuntimeError!Value,  // Built-in Zig function
 };
 ```
-Methods are stored in class/module `.methods` HashMap with SymbolValue keys. Method lookup walks inheritance chain from receiver's class up to Object.
+Methods are stored in class/module `.methods` HashMap with SymbolValue keys. Method lookup walks inheritance chain from receiver's class, checking prepended modules → class methods → included modules → superclass (in that order).
 
 ## Adding Features
 
@@ -173,9 +197,16 @@ const inst = self.newInstance(class_ptr);
 **OOP:**
 - Modules and Classes
 - Inheritance (Object inherits from BasicObject)
+- Module inclusion: `include` adds module methods to class (methods searched after class's own methods)
+- Module prepending: `prepend` adds module methods to class (methods searched before class's own methods)
 - `ClassName.new` instantiation
 - Instance method calls
 - Method definitions in class/module/top-level context
+- Module bodies are compiled to separate bytecode chunks
+
+**Collections:**
+- Arrays: `[1, 2, 3]` array literals
+- Array creation with `PUSH_ARRAY` opcode (pops N elements from stack, creates array)
 
 **Arithmetic & Comparison:**
 - Binary operators: `+`, `-`, `==` (implemented as builtin methods on Integer)

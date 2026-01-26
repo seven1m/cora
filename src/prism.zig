@@ -5,6 +5,7 @@ const c = @cImport(@cInclude("prism.h"));
 pub const RawNode = c.pm_node_t;
 
 pub const ArgumentsNode = c.pm_arguments_node_t;
+pub const ArrayNode = c.pm_array_node_t;
 pub const CallNode = c.pm_call_node_t;
 pub const ClassNode = c.pm_class_node_t;
 pub const ConstantReadNode = c.pm_constant_read_node_t;
@@ -28,6 +29,7 @@ pub const SymbolNode = c.pm_symbol_node_t;
 pub const TrueNode = c.pm_true_node_t;
 
 pub const Node = union(enum) {
+    array: *ArrayNode,
     call: *CallNode,
     class: *ClassNode,
     constant_read: *ConstantReadNode,
@@ -180,6 +182,10 @@ pub const Parser = struct {
 
         if (node_type == c.PM_NIL_NODE) {
             return Node{ .nil_node = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_ARRAY_NODE) {
+            return Node{ .array = @ptrCast(raw) };
         }
 
         var stdout_buffer: [8192]u8 = undefined;
