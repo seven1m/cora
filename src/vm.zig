@@ -46,6 +46,16 @@ pub const VM = struct {
     array_class: *value.ClassObject,
     kernel_module: *value.ModuleObject,
 
+    // Buffered writers for production
+    stdout_buffer: [4096]u8 = undefined,
+    stderr_buffer: [4096]u8 = undefined,
+    stdout_writer: ?std.fs.File.Writer = null,
+    stderr_writer: ?std.fs.File.Writer = null,
+
+    // Type-erased writers (tests can override these)
+    stdout: ?*std.Io.Writer = null,
+    stderr: ?*std.Io.Writer = null,
+
     pub fn initEmpty(allocator: std.mem.Allocator, gc_allocator: std.mem.Allocator, parser: prism.Parser) VM {
         return VM{
             .allocator = allocator,
@@ -166,9 +176,17 @@ pub const VM = struct {
         try self.array_class.module.methods.put(push_sym, .{ .builtin = &builtinArrayPush });
     }
 
+    pub fn setupOutput(self: *VM) void {
+        self.stdout_writer = std.fs.File.stdout().writer(&self.stdout_buffer);
+        self.stderr_writer = std.fs.File.stderr().writer(&self.stderr_buffer);
+        self.stdout = &self.stdout_writer.?.interface;
+        self.stderr = &self.stderr_writer.?.interface;
+    }
+
     pub fn init(allocator: std.mem.Allocator, gc_allocator: std.mem.Allocator, parser: prism.Parser, program: *compiler.CompiledProgram) VM {
         var vm = initEmpty(allocator, gc_allocator, parser);
         vm.prepare(program) catch unreachable;
+        vm.setupOutput();
         return vm;
     }
 
@@ -697,18 +715,24 @@ pub const VM = struct {
         }
     }
 
-    fn builtinObjectPuts(_: *VM, _: Value, args: []Value) RuntimeError!Value {
-        if (args.len != 1) return error.WrongArgumentCount;
+    fn builtinObjectPuts(self: *VM, _: Value, args: []Value) RuntimeError!Value {
+        const stdout = self.stdout orelse return RuntimeError.RuntimeError;
 
-        var stdout_buffer: [8192]u8 = undefined;
-        var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
-        const stdout = &stdout_writer.interface;
-
-        for (args) |arg| {
-            printValue(stdout, arg) catch return RuntimeError.RuntimeError;
+        if (args.len == 0) {
+            printValue(stdout, Value.nil()) catch return RuntimeError.RuntimeError;
+            return Value.nil();
         }
 
-        stdout.flush() catch return RuntimeError.RuntimeError;
+        for (args) |arg| {
+            if (arg.data == .array) {
+                for (arg.data.array.elements.items) |elem| {
+                    printValue(stdout, elem) catch return RuntimeError.RuntimeError;
+                }
+            } else {
+                printValue(stdout, arg) catch return RuntimeError.RuntimeError;
+            }
+        }
+        self.stdout.?.flush() catch unreachable;
 
         return Value.nil();
     }
@@ -778,6 +802,19 @@ pub const VM = struct {
         array.elements.append(self.gc_allocator, args[0]) catch return error.RuntimeError;
 
         return receiver;
+    }
+
+    fn builtinIntegerToS(self: *VM, receiver: Value, args: []Value) RuntimeError!Value {
+        if (receiver.data != .integer) return error.WrongReceiverType;
+        if (args.len != 0) return error.WrongArgumentCount;
+
+        var buf: std.Io.Writer.Allocating = try .initCapacity(self.allocator, 64);
+        defer buf.deinit();
+
+        const writer = &buf.writer;
+        writer.print("{d}\n", .{receiver.data.integer}) catch return error.RuntimeError;
+
+        return self.newString(buf.written(), false);
     }
 
     fn printValue(writer: *std.Io.Writer, val: Value) !void {

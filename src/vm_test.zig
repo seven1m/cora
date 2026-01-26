@@ -10,7 +10,50 @@ fn getAllocator() std.mem.Allocator {
     return gpa.allocator();
 }
 
+const TestWriter = struct {
+    fbs: *std.io.FixedBufferStream([]u8),
+    interface: std.Io.Writer,
+
+    const vtable: std.Io.Writer.VTable = .{
+        .drain = drain,
+        .sendFile = std.Io.Writer.unimplementedSendFile,
+    };
+
+    pub fn init(fbs: *std.io.FixedBufferStream([]u8)) TestWriter {
+        return .{
+            .fbs = fbs,
+            .interface = .{
+                .vtable = &vtable,
+                .buffer = &.{}, // unbuffered - writes go directly to fbs
+            },
+        };
+    }
+
+    fn drain(io_w: *std.Io.Writer, data: []const []const u8, _: usize) std.Io.Writer.Error!usize {
+        const w: *TestWriter = @alignCast(@fieldParentPtr("interface", io_w));
+        var total: usize = 0;
+        for (data) |slice| {
+            w.fbs.writer().writeAll(slice) catch return error.WriteFailed;
+            total += slice.len;
+        }
+        return total;
+    }
+};
+
 fn evalCode(ruby_code: []const u8) !Value {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+    const result = try evalCodeWithOutput(ruby_code, &stdout_buf, &stderr_buf);
+    return result.value;
+}
+
+const EvalResult = struct {
+    value: Value,
+    stdout: []const u8,
+    stderr: []const u8,
+};
+
+fn evalCodeWithOutput(ruby_code: []const u8, stdout_buf: []u8, stderr_buf: []u8) !EvalResult {
     bdwgc.init();
     defer bdwgc.deinit();
 
@@ -25,7 +68,24 @@ fn evalCode(ruby_code: []const u8) !Value {
     defer program.deinit();
 
     try vm.prepare(&program);
-    return try vm.run();
+
+    // Set up stdout capture
+    var stdout_fbs = std.io.fixedBufferStream(stdout_buf);
+    var stdout_writer = TestWriter.init(&stdout_fbs);
+    vm.stdout = &stdout_writer.interface;
+
+    // Set up stderr capture
+    var stderr_fbs = std.io.fixedBufferStream(stderr_buf);
+    var stderr_writer = TestWriter.init(&stderr_fbs);
+    vm.stderr = &stderr_writer.interface;
+
+    const result = try vm.run();
+
+    return .{
+        .value = result,
+        .stdout = stdout_fbs.getWritten(),
+        .stderr = stderr_fbs.getWritten(),
+    };
 }
 
 test "Basic integer arithmetic" {
@@ -369,4 +429,17 @@ test "Nested arrays" {
     try std.testing.expectEqual(@as(usize, 2), second_array.data.array.elements.items.len);
     try std.testing.expectEqual(@as(i64, 3), second_array.data.array.elements.items[0].data.integer);
     try std.testing.expectEqual(@as(i64, 4), second_array.data.array.elements.items[1].data.integer);
+}
+
+test "puts" {
+    var stdout_buf: [1024]u8 = undefined;
+    var stderr_buf: [1024]u8 = undefined;
+
+    var result = try evalCodeWithOutput("puts [1, 2, 3], [4, 5, 6]", &stdout_buf, &stderr_buf);
+    try std.testing.expectEqualStrings("1\n2\n3\n4\n5\n6\n", result.stdout);
+    try std.testing.expectEqualStrings("", result.stderr);
+
+    result = try evalCodeWithOutput("puts", &stdout_buf, &stderr_buf);
+    try std.testing.expectEqualStrings("\n", result.stdout);
+    try std.testing.expectEqualStrings("", result.stderr);
 }
