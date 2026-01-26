@@ -44,6 +44,9 @@ pub const VM = struct {
     string_class: *value.ClassObject,
     symbol_class: *value.ClassObject,
     array_class: *value.ClassObject,
+    nil_class: *value.ClassObject,
+    true_class: *value.ClassObject,
+    false_class: *value.ClassObject,
     kernel_module: *value.ModuleObject,
 
     // Buffered writers for production
@@ -72,6 +75,9 @@ pub const VM = struct {
             .string_class = undefined,
             .symbol_class = undefined,
             .array_class = undefined,
+            .nil_class = undefined,
+            .true_class = undefined,
+            .false_class = undefined,
             .kernel_module = undefined,
         };
     }
@@ -118,6 +124,18 @@ pub const VM = struct {
         const array_class_val = self.newClass(array_name_sym, self.object_class);
         self.array_class = array_class_val.data.class;
 
+        const nil_class_name_sym = try self.intern("NilClass");
+        const nil_class_val = self.newClass(nil_class_name_sym, self.object_class);
+        self.nil_class = nil_class_val.data.class;
+
+        const true_class_name_sym = try self.intern("TrueClass");
+        const true_class_val = self.newClass(true_class_name_sym, self.object_class);
+        self.true_class = true_class_val.data.class;
+
+        const false_class_name_sym = try self.intern("FalseClass");
+        const false_class_val = self.newClass(false_class_name_sym, self.object_class);
+        self.false_class = false_class_val.data.class;
+
         const kernel_name_sym = try self.intern("Kernel");
         const kernel_module_val = self.newModule(kernel_name_sym);
         self.kernel_module = kernel_module_val.data.module;
@@ -134,12 +152,18 @@ pub const VM = struct {
         try self.object_class.module.constants.put(integer_name_sym, integer_class_val);
         try self.object_class.module.constants.put(symbol_name_sym, symbol_class_val);
         try self.object_class.module.constants.put(array_name_sym, array_class_val);
+        try self.object_class.module.constants.put(nil_class_name_sym, nil_class_val);
+        try self.object_class.module.constants.put(true_class_name_sym, true_class_val);
+        try self.object_class.module.constants.put(false_class_name_sym, false_class_val);
         try self.object_class.module.constants.put(kernel_name_sym, kernel_module_val);
 
         // --- Stage 5: Register built-in methods ---
         // Register Kernel built-in methods
         const puts_sym = try self.intern("puts");
         try self.kernel_module.methods.put(puts_sym, .{ .builtin = &builtinObjectPuts });
+
+        const to_s_sym = try self.intern("to_s");
+        try self.kernel_module.methods.put(to_s_sym, .{ .builtin = &builtinKernelToS });
 
         // Register Object built-in methods
         const new_sym = try self.intern("new");
@@ -174,6 +198,15 @@ pub const VM = struct {
         // Register Array builtins
         const push_sym = try self.intern("<<");
         try self.array_class.module.methods.put(push_sym, .{ .builtin = &builtinArrayPush });
+
+        // Register specialized to_s methods (override Kernel#to_s)
+        const to_s_sym_specialized = try self.intern("to_s");
+        try self.integer_class.module.methods.put(to_s_sym_specialized, .{ .builtin = &builtinIntegerToS });
+        try self.string_class.module.methods.put(to_s_sym_specialized, .{ .builtin = &builtinStringToS });
+        try self.symbol_class.module.methods.put(to_s_sym_specialized, .{ .builtin = &builtinSymbolToS });
+        try self.nil_class.module.methods.put(to_s_sym_specialized, .{ .builtin = &builtinNilClassToS });
+        try self.true_class.module.methods.put(to_s_sym_specialized, .{ .builtin = &builtinTrueClassToS });
+        try self.false_class.module.methods.put(to_s_sym_specialized, .{ .builtin = &builtinFalseClassToS });
     }
 
     pub fn setupOutput(self: *VM) void {
@@ -539,6 +572,50 @@ pub const VM = struct {
         }
     }
 
+    /// Call a method by name string (not from bytecode constant pool)
+    /// Used internally by builtins like puts to invoke other methods
+    fn callMethodByName(self: *VM, receiver: Value, method_name: []const u8, args: []Value) RuntimeError!Value {
+        const method_name_sym = self.intern(method_name) catch return error.RuntimeError;
+        const class = self.getClass(receiver);
+        const method = self.lookupMethod(class, method_name_sym);
+
+        if (method == null) {
+            std.debug.print("Error: undefined method '{s}'\n", .{method_name});
+            return error.UndefinedMethod;
+        }
+
+        if (method) |m| {
+            switch (m) {
+                .chunk => |chunk_ptr| {
+                    // Save current execution state
+                    const saved_frame_count = self.frames.items.len;
+
+                    // Push frame with receiver as self_value
+                    self.pushFrame(chunk_ptr, receiver) catch return error.RuntimeError;
+
+                    // Copy arguments to locals
+                    var frame = self.currentFrame();
+                    for (args, 0..) |arg, i| {
+                        frame.locals[i] = arg;
+                        frame.locals_len += 1;
+                    }
+
+                    // Execute until we return to saved frame count
+                    while (self.frames.items.len > saved_frame_count) {
+                        self.executeInstruction() catch return error.RuntimeError;
+                    }
+
+                    // Result is on top of stack
+                    return self.pop();
+                },
+                .builtin => |fun_ptr| {
+                    return try fun_ptr(self, receiver, args);
+                },
+            }
+        }
+        unreachable;
+    }
+
     fn callMethod(self: *VM, method_idx: u16, receiver: Value, args: *[256]Value, argc: usize) !void {
         if (method_idx >= self.currentChunk().constants.items.len) {
             return error.InvalidMethodIndex;
@@ -586,10 +663,18 @@ pub const VM = struct {
 
     fn getClass(self: *VM, val: Value) *ClassObject {
         switch (val.data) {
+            // Types with Object headers - use the class field from the header
             .instance => |i| return i.class.?,
+            .string => |s| return s.object.class.?,
+            .symbol => |s| return s.object.class.?,
+            .array => |a| return a.object.class.?,
+            .module => |m| return m.object.class.?,
+            .class => |c| return c.module.object.class.?,
+
+            // Primitives without Object headers - hardcode the class
             .integer => return self.integer_class,
-            .array => return self.array_class,
-            else => return self.object_class,
+            .nil => return self.nil_class,
+            .boolean => |b| if (b) return self.true_class else return self.false_class,
         }
     }
 
@@ -719,17 +804,25 @@ pub const VM = struct {
         const stdout = self.stdout orelse return RuntimeError.RuntimeError;
 
         if (args.len == 0) {
-            printValue(stdout, Value.nil()) catch return RuntimeError.RuntimeError;
+            // puts with no args prints empty line
+            stdout.print("\n", .{}) catch return RuntimeError.RuntimeError;
+            self.stdout.?.flush() catch unreachable;
             return Value.nil();
         }
 
         for (args) |arg| {
             if (arg.data == .array) {
+                // Special case: flatten arrays, call to_s on each element
                 for (arg.data.array.elements.items) |elem| {
-                    printValue(stdout, elem) catch return RuntimeError.RuntimeError;
+                    const str_val = try self.callMethodByName(elem, "to_s", &[_]Value{});
+                    if (str_val.data != .string) return error.RuntimeError;
+                    stdout.print("{s}\n", .{str_val.data.string.str}) catch return RuntimeError.RuntimeError;
                 }
             } else {
-                printValue(stdout, arg) catch return RuntimeError.RuntimeError;
+                // Normal case: call to_s on the argument
+                const str_val = try self.callMethodByName(arg, "to_s", &[_]Value{});
+                if (str_val.data != .string) return error.RuntimeError;
+                stdout.print("{s}\n", .{str_val.data.string.str}) catch return RuntimeError.RuntimeError;
             }
         }
         self.stdout.?.flush() catch unreachable;
@@ -808,53 +901,65 @@ pub const VM = struct {
         if (receiver.data != .integer) return error.WrongReceiverType;
         if (args.len != 0) return error.WrongArgumentCount;
 
-        var buf: std.Io.Writer.Allocating = try .initCapacity(self.allocator, 64);
-        defer buf.deinit();
-
-        const writer = &buf.writer;
-        writer.print("{d}\n", .{receiver.data.integer}) catch return error.RuntimeError;
-
-        return self.newString(buf.written(), false);
+        const str = std.fmt.allocPrint(self.gc_allocator, "{d}", .{receiver.data.integer}) catch return error.RuntimeError;
+        return self.newString(str, false);
     }
 
-    fn printValue(writer: *std.Io.Writer, val: Value) !void {
-        switch (val.data) {
-            .integer => {
-                try writer.print("{d}\n", .{val.data.integer});
-            },
-            .string => {
-                try writer.print("{s}\n", .{val.data.string.str});
-            },
-            .symbol => {
-                try writer.print(":{s}\n", .{val.data.symbol.name});
-            },
-            .boolean => {
-                if (val.data.boolean) {
-                    try writer.print("true\n", .{});
-                } else {
-                    try writer.print("false\n", .{});
-                }
-            },
-            .nil => {
-                try writer.print("\n", .{});
-            },
-            .module => |m| {
-                try writer.print("{s}\n", .{m.name.name});
-            },
-            .class => |c| {
-                try writer.print("{s}\n", .{c.module.name.name});
-            },
-            .instance => |i| {
-                try writer.print("<{s} instance>\n", .{i.class.?.module.name.name});
-            },
-            .array => |a| {
-                try writer.print("[", .{});
-                for (a.elements.items, 0..) |elem, idx| {
-                    if (idx > 0) try writer.print(", ", .{});
-                    try printValue(writer, elem);
-                }
-                try writer.print("]\n", .{});
-            },
-        }
+    fn builtinStringToS(_: *VM, receiver: Value, args: []Value) RuntimeError!Value {
+        if (receiver.data != .string) return error.WrongReceiverType;
+        if (args.len != 0) return error.WrongArgumentCount;
+
+        return receiver; // String#to_s returns self
+    }
+
+    fn builtinSymbolToS(self: *VM, receiver: Value, args: []Value) RuntimeError!Value {
+        if (receiver.data != .symbol) return error.WrongReceiverType;
+        if (args.len != 0) return error.WrongArgumentCount;
+
+        const str = std.fmt.allocPrint(self.gc_allocator, "{s}", .{receiver.data.symbol.name}) catch return error.RuntimeError;
+        return self.newString(str, false);
+    }
+
+    fn builtinNilClassToS(self: *VM, receiver: Value, args: []Value) RuntimeError!Value {
+        if (receiver.data != .nil) return error.WrongReceiverType;
+        if (args.len != 0) return error.WrongArgumentCount;
+
+        const str = self.gc_allocator.dupe(u8, "") catch return error.RuntimeError;
+        return self.newString(str, false);
+    }
+
+    fn builtinTrueClassToS(self: *VM, receiver: Value, args: []Value) RuntimeError!Value {
+        if (receiver.data != .boolean or !receiver.data.boolean) return error.WrongReceiverType;
+        if (args.len != 0) return error.WrongArgumentCount;
+
+        const str = self.gc_allocator.dupe(u8, "true") catch return error.RuntimeError;
+        return self.newString(str, false);
+    }
+
+    fn builtinFalseClassToS(self: *VM, receiver: Value, args: []Value) RuntimeError!Value {
+        if (receiver.data != .boolean or receiver.data.boolean) return error.WrongReceiverType;
+        if (args.len != 0) return error.WrongArgumentCount;
+
+        const str = self.gc_allocator.dupe(u8, "false") catch return error.RuntimeError;
+        return self.newString(str, false);
+    }
+
+    fn builtinKernelToS(self: *VM, receiver: Value, _: []Value) RuntimeError!Value {
+        const class = self.getClass(receiver);
+        const class_name = class.module.name.name;
+
+        const object_id = switch (receiver.data) {
+            .instance => |i| @intFromPtr(i),
+            .string => |s| @intFromPtr(s),
+            .symbol => |s| @intFromPtr(s),
+            .array => |a| @intFromPtr(a),
+            .module => |m| @intFromPtr(m),
+            .class => |c| @intFromPtr(c),
+            // Primitives get a fake object ID for now
+            .integer, .boolean, .nil => 0x0000000000000001,
+        };
+
+        const str = std.fmt.allocPrint(self.gc_allocator, "#<{s}:0x{x}>", .{ class_name, object_id }) catch return error.RuntimeError;
+        return self.newString(str, false);
     }
 };

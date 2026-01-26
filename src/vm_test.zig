@@ -365,6 +365,9 @@ test "Class hierarchy is set up correctly" {
     try std.testing.expect(vm.numeric_class.superclass == vm.object_class);
     try std.testing.expect(vm.integer_class.superclass == vm.numeric_class);
     try std.testing.expect(vm.symbol_class.superclass == vm.object_class);
+    try std.testing.expect(vm.nil_class.superclass == vm.object_class);
+    try std.testing.expect(vm.true_class.superclass == vm.object_class);
+    try std.testing.expect(vm.false_class.superclass == vm.object_class);
 }
 
 test "Empty array" {
@@ -442,4 +445,40 @@ test "puts" {
     result = try evalCodeWithOutput("puts", &stdout_buf, &stderr_buf);
     try std.testing.expectEqualStrings("\n", result.stdout);
     try std.testing.expectEqualStrings("", result.stderr);
+}
+
+test "Integer#to_s" {
+    const result = try evalCode("42.to_s");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "42", result.data.string.str);
+}
+
+test "String#to_s" {
+    const result = try evalCode("'hello'.to_s");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "hello", result.data.string.str);
+}
+
+test "Symbol#to_s" {
+    const result = try evalCode(":foo.to_s");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "foo", result.data.string.str);
+}
+
+test "NilClass#to_s" {
+    const result = try evalCode("nil.to_s");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "", result.data.string.str);
+}
+
+test "TrueClass#to_s" {
+    const result = try evalCode("true.to_s");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "true", result.data.string.str);
+}
+
+test "FalseClass#to_s" {
+    const result = try evalCode("false.to_s");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "false", result.data.string.str);
 }
