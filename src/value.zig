@@ -35,6 +35,11 @@ pub const SymbolObject = struct {
     name: []const u8,
 };
 
+pub const StringObject = struct {
+    object: Object,
+    str: []const u8,
+};
+
 pub const ModuleObject = struct {
     object: Object,
     name: *SymbolObject,
@@ -56,15 +61,15 @@ pub const ArrayObject = struct {
 
 pub const Value = struct {
     data: union(enum) {
-        string: []const u8,
-        integer: i64,
-        nil: void,
+        array: *ArrayObject,
         boolean: bool,
-        symbol: *SymbolObject,
-        module: *ModuleObject,
         class: *ClassObject,
         instance: *Object,
-        array: *ArrayObject,
+        integer: i64,
+        module: *ModuleObject,
+        nil: void,
+        string: *StringObject,
+        symbol: *SymbolObject,
     },
 
     pub fn isFrozen(self: Value) bool {
@@ -98,10 +103,6 @@ pub const Value = struct {
 
     pub fn boolean(value: bool) Value {
         return .{ .data = .{ .boolean = value } };
-    }
-
-    pub fn frozenString(str: []const u8) Value {
-        return .{ .data = .{ .string = str } };
     }
 
     pub fn integer(value: i64) Value {

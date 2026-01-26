@@ -139,7 +139,7 @@ test "Top-level methods" {
         \\foo
     );
     try std.testing.expect(result.data == .string);
-    try std.testing.expectEqualSlices(u8, "foo", result.data.string);
+    try std.testing.expectEqualSlices(u8, "foo", result.data.string.str);
 }
 
 test "Class instantiation" {
@@ -153,7 +153,7 @@ test "Class instantiation" {
         \\foo.foo
     );
     try std.testing.expect(result.data == .string);
-    try std.testing.expectEqualSlices(u8, "foo", result.data.string);
+    try std.testing.expectEqualSlices(u8, "foo", result.data.string.str);
 }
 
 test "Class inheritance" {
@@ -167,7 +167,7 @@ test "Class inheritance" {
         \\bar.foo
     );
     try std.testing.expect(result.data == .string);
-    try std.testing.expectEqualSlices(u8, "foo", result.data.string);
+    try std.testing.expectEqualSlices(u8, "foo", result.data.string.str);
 
     result = try evalCode(
         \\class Foo
@@ -179,7 +179,7 @@ test "Class inheritance" {
         \\bar = Bar.new
         \\bar.foo
     );
-    try std.testing.expectEqualSlices(u8, "bar", result.data.string);
+    try std.testing.expectEqualSlices(u8, "bar", result.data.string.str);
 }
 
 test "Module include" {
@@ -204,7 +204,7 @@ test "Module include" {
         \\bar = Bar.new
         \\bar.call
     );
-    try std.testing.expectEqualSlices(u8, "baz", result.data.string);
+    try std.testing.expectEqualSlices(u8, "baz", result.data.string.str);
 
     result = try evalCode(
         \\module Foo
@@ -223,7 +223,7 @@ test "Module include" {
         \\bar = Bar.new
         \\bar.call
     );
-    try std.testing.expectEqualSlices(u8, "foo", result.data.string);
+    try std.testing.expectEqualSlices(u8, "foo", result.data.string.str);
 }
 
 test "Module prepend" {
@@ -251,7 +251,7 @@ test "Module prepend" {
         \\Foo.new.call
     );
     try std.testing.expect(result.data == .string);
-    try std.testing.expectEqualSlices(u8, "before 2", result.data.string);
+    try std.testing.expectEqualSlices(u8, "before 2", result.data.string.str);
 }
 
 test "Method calls with arguments" {

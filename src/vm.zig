@@ -8,6 +8,7 @@ const prism = @import("prism.zig");
 const Value = value.Value;
 const Object = value.Object;
 const ClassObject = value.ClassObject;
+const StringObject = value.StringObject;
 const SymbolObject = value.SymbolObject;
 const Method = value.Method;
 const RuntimeError = value.RuntimeError;
@@ -40,6 +41,7 @@ pub const VM = struct {
     module_class: *value.ClassObject,
     numeric_class: *value.ClassObject,
     object_class: *value.ClassObject,
+    string_class: *value.ClassObject,
     symbol_class: *value.ClassObject,
     array_class: *value.ClassObject,
     kernel_module: *value.ModuleObject,
@@ -57,6 +59,7 @@ pub const VM = struct {
             .module_class = undefined,
             .numeric_class = undefined,
             .object_class = undefined,
+            .string_class = undefined,
             .symbol_class = undefined,
             .array_class = undefined,
             .kernel_module = undefined,
@@ -92,6 +95,10 @@ pub const VM = struct {
         const integer_name_sym = try self.intern("Integer");
         const integer_class_val = self.newClass(integer_name_sym, self.numeric_class);
         self.integer_class = integer_class_val.data.class;
+
+        const string_name_sym = try self.intern("String");
+        const string_class_val = self.newClass(string_name_sym, self.object_class);
+        self.string_class = string_class_val.data.class;
 
         const symbol_name_sym = try self.intern("Symbol");
         const symbol_class_val = self.newClass(symbol_name_sym, self.object_class);
@@ -196,7 +203,7 @@ pub const VM = struct {
     fn constantToValue(self: *VM, constant: chunk.Constant) !Value {
         return switch (constant) {
             .integer => |i| Value.integer(i),
-            .string => |s| Value.frozenString(s),
+            .string => |s| self.newString(s, true),
             .symbol => |s| Value{ .data = .{ .symbol = (try self.intern(s)) } },
         };
     }
@@ -654,6 +661,19 @@ pub const VM = struct {
         return .{ .data = .{ .instance = obj } };
     }
 
+    pub fn newString(self: *VM, str: []const u8, frozen: bool) Value {
+        var copy = str;
+        if (!frozen)
+            copy = self.gc_allocator.dupe(u8, str) catch unreachable;
+
+        const string_obj = self.gc_allocator.create(StringObject) catch unreachable;
+        string_obj.* = .{
+            .object = .{ .flags = if (frozen) Object.FROZEN_FLAG else 0, .class = self.string_class },
+            .str = copy,
+        };
+        return .{ .data = .{ .string = string_obj } };
+    }
+
     pub fn includeModule(self: *VM, class: *value.ClassObject, module: *value.ModuleObject) !void {
         try class.included_modules.append(self.gc_allocator, module);
     }
@@ -766,7 +786,7 @@ pub const VM = struct {
                 try writer.print("{d}\n", .{val.data.integer});
             },
             .string => {
-                try writer.print("{s}\n", .{val.data.string});
+                try writer.print("{s}\n", .{val.data.string.str});
             },
             .symbol => {
                 try writer.print(":{s}\n", .{val.data.symbol.name});
