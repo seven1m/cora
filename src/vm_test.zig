@@ -488,3 +488,148 @@ test "Array#to_s" {
     try std.testing.expect(result.data == .string);
     try std.testing.expectEqualSlices(u8, "[1, 2, 3]", result.data.string.str);
 }
+
+test "Integer#inspect" {
+    const result = try evalCode("42.inspect");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "42", result.data.string.str);
+}
+
+test "String#inspect basic" {
+    const result = try evalCode("\"hello\".inspect");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "\"hello\"", result.data.string.str);
+}
+
+test "String#inspect with quotes" {
+    const result = try evalCode("\"say \\\"hi\\\"\".inspect");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "\"say \\\"hi\\\"\"", result.data.string.str);
+}
+
+test "String#inspect with newline" {
+    const result = try evalCode("\"hello\\nworld\".inspect");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "\"hello\\nworld\"", result.data.string.str);
+}
+
+test "String#inspect with tab" {
+    const result = try evalCode("\"hello\\tworld\".inspect");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "\"hello\\tworld\"", result.data.string.str);
+}
+
+test "String#inspect with backslash" {
+    const result = try evalCode("\"path\\\\to\\\\file\".inspect");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "\"path\\\\to\\\\file\"", result.data.string.str);
+}
+
+test "String#inspect empty string" {
+    const result = try evalCode("\"\".inspect");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "\"\"", result.data.string.str);
+}
+
+test "Symbol#inspect" {
+    const result = try evalCode(":foo.inspect");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, ":foo", result.data.string.str);
+}
+
+test "NilClass#inspect" {
+    const result = try evalCode("nil.inspect");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "nil", result.data.string.str);
+}
+
+test "TrueClass#inspect" {
+    const result = try evalCode("true.inspect");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "true", result.data.string.str);
+}
+
+test "FalseClass#inspect" {
+    const result = try evalCode("false.inspect");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "false", result.data.string.str);
+}
+
+test "Array#inspect with integers" {
+    const result = try evalCode("[1, 2, 3].inspect");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "[1, 2, 3]", result.data.string.str);
+}
+
+test "Array#inspect with strings" {
+    const result = try evalCode("[\"a\", \"b\"].inspect");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "[\"a\", \"b\"]", result.data.string.str);
+}
+
+test "Array#inspect mixed types" {
+    const result = try evalCode("[1, \"hi\", :foo, nil].inspect");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "[1, \"hi\", :foo, nil]", result.data.string.str);
+}
+
+test "Array#inspect empty" {
+    const result = try evalCode("[].inspect");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "[]", result.data.string.str);
+}
+
+test "Array#inspect nested" {
+    const result = try evalCode("[[1, 2], [3, 4]].inspect");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "[[1, 2], [3, 4]]", result.data.string.str);
+}
+
+test "p with no arguments" {
+    var stdout_buf: [1024]u8 = undefined;
+    var stderr_buf: [1024]u8 = undefined;
+
+    const result = try evalCodeWithOutput("p", &stdout_buf, &stderr_buf);
+    try std.testing.expect(result.value.data == .nil);
+    try std.testing.expectEqualStrings("\n", result.stdout);
+}
+
+test "p with single integer" {
+    var stdout_buf: [1024]u8 = undefined;
+    var stderr_buf: [1024]u8 = undefined;
+
+    const result = try evalCodeWithOutput("p 42", &stdout_buf, &stderr_buf);
+    try std.testing.expect(result.value.data == .integer);
+    try std.testing.expectEqual(@as(i64, 42), result.value.data.integer);
+    try std.testing.expectEqualStrings("42\n", result.stdout);
+}
+
+test "p with single string" {
+    var stdout_buf: [1024]u8 = undefined;
+    var stderr_buf: [1024]u8 = undefined;
+
+    const result = try evalCodeWithOutput("p \"hello\"", &stdout_buf, &stderr_buf);
+    try std.testing.expect(result.value.data == .string);
+    try std.testing.expectEqualSlices(u8, "hello", result.value.data.string.str);
+    try std.testing.expectEqualStrings("\"hello\"\n", result.stdout);
+}
+
+test "p with multiple integers" {
+    var stdout_buf: [1024]u8 = undefined;
+    var stderr_buf: [1024]u8 = undefined;
+
+    const result = try evalCodeWithOutput("p 1, 2, 3", &stdout_buf, &stderr_buf);
+    try std.testing.expect(result.value.data == .array);
+    try std.testing.expectEqual(@as(usize, 3), result.value.data.array.elements.items.len);
+    try std.testing.expectEqualStrings("1\n2\n3\n", result.stdout);
+}
+
+test "p with mixed types" {
+    var stdout_buf: [1024]u8 = undefined;
+    var stderr_buf: [1024]u8 = undefined;
+
+    const result = try evalCodeWithOutput("p 42, \"hello\", :foo", &stdout_buf, &stderr_buf);
+    try std.testing.expect(result.value.data == .array);
+    try std.testing.expectEqual(@as(usize, 3), result.value.data.array.elements.items.len);
+    try std.testing.expectEqualStrings("42\n\"hello\"\n:foo\n", result.stdout);
+}

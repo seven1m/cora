@@ -162,7 +162,7 @@ pub const VM = struct {
         // --- Stage 5: Register built-in methods ---
         // Register Kernel built-in methods
         const puts_sym = try self.intern("puts");
-        try self.kernel_module.methods.put(puts_sym, .{ .builtin = &builtinObjectPuts });
+        try self.kernel_module.methods.put(puts_sym, .{ .builtin = &builtinKernelPuts });
 
         const to_s_sym = try self.intern("to_s");
         try self.kernel_module.methods.put(to_s_sym, .{ .builtin = &builtinKernelToS });
@@ -194,7 +194,7 @@ pub const VM = struct {
         const push_sym = try self.intern("<<");
         try self.array_class.module.methods.put(push_sym, .{ .builtin = &builtinArrayPush });
 
-        // Register specialized to_s methods (override Kernel#to_s)
+        // Register to_s methods
         const to_s_sym_specialized = try self.intern("to_s");
         try self.integer_class.module.methods.put(to_s_sym_specialized, .{ .builtin = &builtinIntegerToS });
         try self.string_class.module.methods.put(to_s_sym_specialized, .{ .builtin = &builtinStringToS });
@@ -203,6 +203,21 @@ pub const VM = struct {
         try self.true_class.module.methods.put(to_s_sym_specialized, .{ .builtin = &builtinTrueClassToS });
         try self.false_class.module.methods.put(to_s_sym_specialized, .{ .builtin = &builtinFalseClassToS });
         try self.array_class.module.methods.put(to_s_sym_specialized, .{ .builtin = &builtinArrayToS });
+
+        // Register inspect methods
+        const inspect_sym = try self.intern("inspect");
+        try self.kernel_module.methods.put(inspect_sym, .{ .builtin = &builtinKernelInspect });
+        try self.integer_class.module.methods.put(inspect_sym, .{ .builtin = &builtinIntegerInspect });
+        try self.string_class.module.methods.put(inspect_sym, .{ .builtin = &builtinStringInspect });
+        try self.symbol_class.module.methods.put(inspect_sym, .{ .builtin = &builtinSymbolInspect });
+        try self.nil_class.module.methods.put(inspect_sym, .{ .builtin = &builtinNilClassInspect });
+        try self.true_class.module.methods.put(inspect_sym, .{ .builtin = &builtinTrueClassInspect });
+        try self.false_class.module.methods.put(inspect_sym, .{ .builtin = &builtinFalseClassInspect });
+        try self.array_class.module.methods.put(inspect_sym, .{ .builtin = &builtinArrayInspect });
+
+        // Register p method
+        const p_sym = try self.intern("p");
+        try self.kernel_module.methods.put(p_sym, .{ .builtin = &builtinKernelP });
     }
 
     pub fn setupOutput(self: *VM) void {
@@ -569,7 +584,6 @@ pub const VM = struct {
     }
 
     /// Call a method by name string (not from bytecode constant pool)
-    /// Used internally by builtins like puts to invoke other methods
     fn callMethodByName(self: *VM, receiver: Value, method_name: []const u8, args: []Value) RuntimeError!Value {
         const method_name_sym = self.intern(method_name) catch return error.RuntimeError;
         const class = self.getClass(receiver);
@@ -800,13 +814,11 @@ pub const VM = struct {
         }
     }
 
-    fn builtinObjectPuts(self: *VM, _: Value, args: []Value) RuntimeError!Value {
-        const stdout = self.stdout orelse return RuntimeError.RuntimeError;
-
+    fn builtinKernelPuts(self: *VM, _: Value, args: []Value) RuntimeError!Value {
         if (args.len == 0) {
             // puts with no args prints empty line
-            stdout.print("\n", .{}) catch return RuntimeError.RuntimeError;
-            self.stdout.?.flush() catch unreachable;
+            self.stdout.?.print("\n", .{}) catch return RuntimeError.RuntimeError;
+            _ = self.stdout.?.flush() catch {};
             return Value.nil();
         }
 
@@ -816,16 +828,16 @@ pub const VM = struct {
                 for (arg.data.array.elements.items) |elem| {
                     const str_val = try self.callMethodByName(elem, "to_s", &[_]Value{});
                     if (str_val.data != .string) return error.RuntimeError;
-                    stdout.print("{s}\n", .{str_val.data.string.str}) catch return RuntimeError.RuntimeError;
+                    self.stdout.?.print("{s}\n", .{str_val.data.string.str}) catch return RuntimeError.RuntimeError;
                 }
             } else {
                 // Normal case: call to_s on the argument
                 const str_val = try self.callMethodByName(arg, "to_s", &[_]Value{});
                 if (str_val.data != .string) return error.RuntimeError;
-                stdout.print("{s}\n", .{str_val.data.string.str}) catch return RuntimeError.RuntimeError;
+                self.stdout.?.print("{s}\n", .{str_val.data.string.str}) catch return RuntimeError.RuntimeError;
             }
         }
-        self.stdout.?.flush() catch unreachable;
+        _ = self.stdout.?.flush() catch {};
 
         return Value.nil();
     }
@@ -947,7 +959,6 @@ pub const VM = struct {
 
         const array = receiver.data.array;
         var buf: std.ArrayList(u8) = .empty;
-        defer buf.deinit(self.allocator);
         const writer = buf.writer(self.allocator);
 
         writer.writeAll("[") catch return error.RuntimeError;
@@ -982,5 +993,133 @@ pub const VM = struct {
 
         const str = std.fmt.allocPrint(self.gc_allocator, "#<{s}:0x{x}>", .{ class_name, object_id }) catch return error.RuntimeError;
         return self.newString(str, false);
+    }
+
+    // ===== inspect methods =====
+
+    fn builtinIntegerInspect(self: *VM, receiver: Value, args: []Value) RuntimeError!Value {
+        return self.builtinIntegerToS(receiver, args);
+    }
+
+    fn builtinStringInspect(self: *VM, receiver: Value, args: []Value) RuntimeError!Value {
+        if (receiver.data != .string) return error.WrongReceiverType;
+        if (args.len != 0) return error.WrongArgumentCount;
+
+        const input = receiver.data.string.str;
+        var buf: std.ArrayList(u8) = .empty;
+        const writer = buf.writer(self.allocator);
+
+        writer.writeAll("\"") catch return error.RuntimeError;
+        for (input) |c| {
+            switch (c) {
+                '"' => writer.writeAll("\\\"") catch return error.RuntimeError,
+                '\\' => writer.writeAll("\\\\") catch return error.RuntimeError,
+                '\n' => writer.writeAll("\\n") catch return error.RuntimeError,
+                '\t' => writer.writeAll("\\t") catch return error.RuntimeError,
+                '\r' => writer.writeAll("\\r") catch return error.RuntimeError,
+                '\x08' => writer.writeAll("\\b") catch return error.RuntimeError, // backspace
+                '\x0c' => writer.writeAll("\\f") catch return error.RuntimeError, // form feed
+                '\x0b' => writer.writeAll("\\v") catch return error.RuntimeError, // vertical tab
+                '\x00' => writer.writeAll("\\0") catch return error.RuntimeError, // null
+                else => {
+                    if (c < 32 or c > 126) {
+                        std.fmt.format(writer, "\\x{x:0>2}", .{c}) catch return error.RuntimeError;
+                    } else {
+                        writer.writeByte(c) catch return error.RuntimeError;
+                    }
+                },
+            }
+        }
+        writer.writeAll("\"") catch return error.RuntimeError;
+
+        const str = buf.toOwnedSlice(self.allocator) catch return error.RuntimeError;
+        defer self.allocator.free(str);
+        return self.newString(str, false);
+    }
+
+    fn builtinSymbolInspect(self: *VM, receiver: Value, args: []Value) RuntimeError!Value {
+        if (receiver.data != .symbol) return error.WrongReceiverType;
+        if (args.len != 0) return error.WrongArgumentCount;
+
+        const str = std.fmt.allocPrint(self.gc_allocator, ":{s}", .{receiver.data.symbol.name}) catch return error.RuntimeError;
+        return self.newString(str, false);
+    }
+
+    fn builtinNilClassInspect(self: *VM, receiver: Value, args: []Value) RuntimeError!Value {
+        if (receiver.data != .nil) return error.WrongReceiverType;
+        if (args.len != 0) return error.WrongArgumentCount;
+
+        return self.newString("nil", false);
+    }
+
+    fn builtinTrueClassInspect(self: *VM, receiver: Value, args: []Value) RuntimeError!Value {
+        return self.builtinTrueClassToS(receiver, args);
+    }
+
+    fn builtinFalseClassInspect(self: *VM, receiver: Value, args: []Value) RuntimeError!Value {
+        return self.builtinFalseClassToS(receiver, args);
+    }
+
+    fn builtinArrayInspect(self: *VM, receiver: Value, args: []Value) RuntimeError!Value {
+        if (receiver.data != .array) return error.WrongReceiverType;
+        if (args.len != 0) return error.WrongArgumentCount;
+
+        const array = receiver.data.array;
+        var buf: std.ArrayList(u8) = .empty;
+        const writer = buf.writer(self.allocator);
+
+        writer.writeAll("[") catch return error.RuntimeError;
+        for (array.elements.items, 0..) |elem, idx| {
+            if (idx > 0) writer.writeAll(", ") catch return error.RuntimeError;
+
+            const elem_inspected = try self.callMethodByName(elem, "inspect", &[_]Value{});
+            if (elem_inspected.data != .string) return error.RuntimeError;
+            writer.writeAll(elem_inspected.data.string.str) catch return error.RuntimeError;
+        }
+        writer.writeAll("]") catch return error.RuntimeError;
+
+        const str = buf.toOwnedSlice(self.allocator) catch return error.RuntimeError;
+        defer self.allocator.free(str);
+        return self.newString(str, false);
+    }
+
+    fn builtinKernelInspect(self: *VM, receiver: Value, args: []Value) RuntimeError!Value {
+        return self.builtinKernelToS(receiver, args);
+    }
+
+    fn builtinKernelP(self: *VM, _: Value, args: []Value) RuntimeError!Value {
+        if (args.len == 0) {
+            self.stdout.?.print("\n", .{}) catch return error.RuntimeError;
+            _ = self.stdout.?.flush() catch {};
+            return Value.nil();
+        }
+
+        for (args, 0..) |arg, idx| {
+            const inspected = try self.callMethodByName(arg, "inspect", &[_]Value{});
+            if (inspected.data != .string) return error.RuntimeError;
+
+            if (idx > 0) {
+                self.stdout.?.print("\n", .{}) catch return error.RuntimeError;
+            }
+            self.stdout.?.print("{s}", .{inspected.data.string.str}) catch return error.RuntimeError;
+        }
+        self.stdout.?.print("\n", .{}) catch return error.RuntimeError;
+        _ = self.stdout.?.flush() catch {};
+
+        if (args.len == 1) {
+            return args[0];
+        } else {
+            const array_obj = self.gc_allocator.create(value.ArrayObject) catch return error.RuntimeError;
+            array_obj.* = .{
+                .object = .{ .flags = 0, .class = self.array_class },
+                .elements = .empty,
+            };
+
+            for (args) |arg| {
+                array_obj.elements.append(self.gc_allocator, arg) catch return error.RuntimeError;
+            }
+
+            return .{ .data = .{ .array = array_obj } };
+        }
     }
 };
