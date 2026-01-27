@@ -179,7 +179,6 @@ pub const VM = struct {
 
         try self.includeModule(self.object_class, self.kernel_module);
 
-
         // Register Integer builtins
         const plus_sym = try self.intern("+");
         try self.integer_class.module.methods.put(plus_sym, .{ .builtin = &builtinIntegerPlus });
@@ -221,16 +220,20 @@ pub const VM = struct {
     }
 
     pub fn setupOutput(self: *VM) void {
-        self.stdout_writer = std.fs.File.stdout().writer(&self.stdout_buffer);
-        self.stderr_writer = std.fs.File.stderr().writer(&self.stderr_buffer);
-        self.stdout = &self.stdout_writer.?.interface;
-        self.stderr = &self.stderr_writer.?.interface;
+        if (self.stdout == null) {
+            self.stdout_writer = std.fs.File.stdout().writer(&self.stdout_buffer);
+            self.stdout = &self.stdout_writer.?.interface;
+        }
+
+        if (self.stderr == null) {
+            self.stderr_writer = std.fs.File.stderr().writer(&self.stderr_buffer);
+            self.stderr = &self.stderr_writer.?.interface;
+        }
     }
 
     pub fn init(allocator: std.mem.Allocator, gc_allocator: std.mem.Allocator, gc_allocator_atomic: std.mem.Allocator, parser: prism.Parser, program: *compiler.CompiledProgram) VM {
         var vm = initEmpty(allocator, gc_allocator, gc_allocator_atomic, parser);
         vm.prepare(program) catch unreachable;
-        vm.setupOutput();
         return vm;
     }
 
@@ -242,6 +245,8 @@ pub const VM = struct {
     }
 
     pub fn run(self: *VM) !Value {
+        self.setupOutput();
+
         try self.pushFrame(&self.program.main_chunk, Value.nil());
 
         while (self.frames.items.len > 0) {
