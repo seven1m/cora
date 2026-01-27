@@ -18,11 +18,12 @@ Cora is a Ruby interpreter written in Zig using the Prism parser for AST generat
 - `src/vm.zig` - Stack-based bytecode interpreter
 - `src/value.zig` - Runtime value types and factory methods
 
-**Value Types:** String, Integer, Boolean, Nil, Symbol (interned), Module, Class, Instance, BasicObject, Numeric, Array
+**Heap-allocated Value Types:** Object, SymbolObject, StringObject, ModuleObject, ClassObject, ArrayObject.
 
 **VM State:**
 - `allocator: Allocator` - Infrastructure allocator for HashMaps, call stack, constants
 - `gc_allocator: Allocator` - GC allocator (Boehm-Demers-Weiser) for Ruby objects
+- `gc_allocator_atomic: Allocator` - Atomic GC allocator for thread-safe allocations (string duplication)
 - `parser: Parser` - Parser instance (stores AST; lifetime = VM lifetime)
 - `stack: ArrayList(Value)` - Execution stack for bytecode interpreter
 - `frames: ArrayList(CallFrame)` - Call frames with execution state
@@ -34,6 +35,16 @@ Cora is a Ruby interpreter written in Zig using the Prism parser for AST generat
 - `numeric_class: *ClassValue` - Numeric class (superclass for Integer)
 - `symbol_class: *ClassValue` - Symbol class
 - `array_class: *ClassValue` - Array class
+- `nil_class: *ClassValue` - Nil class
+- `true_class: *ClassValue` - TrueClass class
+- `false_class: *ClassValue` - FalseClass class
+- `kernel_module: *ModuleValue` - Kernel module for built-in methods (puts, to_s, inspect, p)
+- `stdout: ?*Io.Writer` - Type-erased stdout writer (configurable for tests)
+- `stderr: ?*Io.Writer` - Type-erased stderr writer (configurable for tests)
+- `stdout_buffer: [4096]u8` - Buffer for stdout (production)
+- `stderr_buffer: [4096]u8` - Buffer for stderr (production)
+- `stdout_writer: ?File.Writer` - Buffered stdout writer (production)
+- `stderr_writer: ?File.Writer` - Buffered stderr writer (production)
 
 ## Key Concepts
 
@@ -154,6 +165,11 @@ Methods are stored in class/module `.methods` HashMap with SymbolValue keys. Met
    - Conservative GC scans stack and heap for pointers
    - NO manual free() calls needed for GC-allocated objects
 
+3. **Atomic GC Allocator** (`gc_allocator_atomic: Boehm-Demers-Weiser`)
+   - GC allocator for "atomic" objects (objects that don't contain internal pointers to other heap memory)
+   - Used for string duplication and other primitive allocations
+   - Conservative GC can more efficiently manage these since they don't need pointer scanning
+
 **Pointer Lifetimes:**
 
 - **Parser Strings:** Borrowed from Parser AST, valid for VM lifetime
@@ -187,7 +203,7 @@ const inst = self.newInstance(class_ptr);
 - Truthy/falsy evaluation (only nil and false are falsy)
 
 **Methods:**
-- Built-in methods: `puts` (Object), `new` (Object)
+- Built-in methods: `puts` (Kernel), `new` (Object), `to_s` (Kernel, Integer, String, Symbol, NilClass, TrueClass, FalseClass, Array), `inspect` (Kernel, Integer, String, Symbol, NilClass, TrueClass, FalseClass, Array), `p` (Kernel - prints inspect output)
 - Arithmetic methods: `+`, `-` (Integer)
 - Comparison methods: `==` (Integer)
 - User-defined methods with parameters
@@ -197,6 +213,8 @@ const inst = self.newInstance(class_ptr);
 **OOP:**
 - Modules and Classes
 - Inheritance (Object inherits from BasicObject)
+- Kernel module for built-in methods
+- NilClass, TrueClass, FalseClass for nil/true/false values
 - Module inclusion: `include` adds module methods to class (methods searched after class's own methods)
 - Module prepending: `prepend` adds module methods to class (methods searched before class's own methods)
 - `ClassName.new` instantiation
