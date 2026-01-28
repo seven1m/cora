@@ -112,5 +112,15 @@ pub fn main() !void {
     var virtual_machine = vm.VM.init(allocator, bdwgc.allocator, bdwgc.allocator_atomic, parser, &program);
     defer virtual_machine.deinit();
 
-    _ = try virtual_machine.run();
+    const result = virtual_machine.run();
+    if (result) |_| {
+        // Success - program executed without unhandled exceptions
+    } else |err| switch (err) {
+        error.RuntimeError => {
+            // Unhandled Ruby exception - print it
+            virtual_machine.printUnhandledException();
+            std.process.exit(1);
+        },
+        else => return err, // Other errors propagate
+    }
 }

@@ -6,6 +6,7 @@ pub const RawNode = c.pm_node_t;
 
 pub const ArgumentsNode = c.pm_arguments_node_t;
 pub const ArrayNode = c.pm_array_node_t;
+pub const BeginNode = c.pm_begin_node_t;
 pub const BlockNode = c.pm_block_node_t;
 pub const BlockParametersNode = c.pm_block_parameters_node_t;
 pub const CallNode = c.pm_call_node_t;
@@ -18,22 +19,26 @@ pub const ElseNode = c.pm_else_node_t;
 pub const FalseNode = c.pm_false_node_t;
 pub const IfNode = c.pm_if_node_t;
 pub const IntegerNode = c.pm_integer_node_t;
-pub const YieldNode = c.pm_yield_node_t;
 pub const LocalVariableReadNode = c.pm_local_variable_read_node_t;
+pub const LocalVariableTargetNode = c.pm_local_variable_target_node_t;
 pub const LocalVariableWriteNode = c.pm_local_variable_write_node_t;
 pub const ModuleNode = c.pm_module_node;
 pub const NilNode = c.pm_nil_node_t;
 pub const ParametersNode = c.pm_parameters_node_t;
 pub const ProgramNode = c.pm_program_node_t;
 pub const RequiredParameterNode = c.pm_required_parameter_node_t;
+pub const RescueNode = c.pm_rescue_node_t;
+pub const RescueModifierNode = c.pm_rescue_modifier_node_t;
 pub const SelfNode = c.pm_self_node_t;
 pub const StatementsNode = c.pm_statements_node_t;
 pub const StringNode = c.pm_string_node_t;
 pub const SymbolNode = c.pm_symbol_node_t;
 pub const TrueNode = c.pm_true_node_t;
+pub const YieldNode = c.pm_yield_node_t;
 
 pub const Node = union(enum) {
     array: *ArrayNode,
+    begin: *BeginNode,
     block: *BlockNode,
     block_parameters: *BlockParametersNode,
     call: *CallNode,
@@ -47,11 +52,14 @@ pub const Node = union(enum) {
     if_node: *IfNode,
     integer: *IntegerNode,
     local_variable_read: *LocalVariableReadNode,
+    local_variable_target: *LocalVariableTargetNode,
     local_variable_write: *LocalVariableWriteNode,
     module: *ModuleNode,
     nil_node: *NilNode,
     program: *ProgramNode,
     required_parameter: *RequiredParameterNode,
+    rescue: *RescueNode,
+    rescue_modifier: *RescueModifierNode,
     self: *SelfNode,
     statements: *StatementsNode,
     string: *StringNode,
@@ -160,6 +168,10 @@ pub const Parser = struct {
             return Node{ .local_variable_read = @ptrCast(raw) };
         }
 
+        if (node_type == c.PM_LOCAL_VARIABLE_TARGET_NODE) {
+            return Node{ .local_variable_target = @ptrCast(raw) };
+        }
+
         if (node_type == c.PM_LOCAL_VARIABLE_WRITE_NODE) {
             return Node{ .local_variable_write = @ptrCast(raw) };
         }
@@ -204,12 +216,24 @@ pub const Parser = struct {
             return Node{ .array = @ptrCast(raw) };
         }
 
+        if (node_type == c.PM_BEGIN_NODE) {
+            return Node{ .begin = @ptrCast(raw) };
+        }
+
         if (node_type == c.PM_BLOCK_NODE) {
             return Node{ .block = @ptrCast(raw) };
         }
 
         if (node_type == c.PM_BLOCK_PARAMETERS_NODE) {
             return Node{ .block_parameters = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_RESCUE_NODE) {
+            return Node{ .rescue = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_RESCUE_MODIFIER_NODE) {
+            return Node{ .rescue_modifier = @ptrCast(raw) };
         }
 
         var stdout_buffer: [8192]u8 = undefined;

@@ -782,12 +782,26 @@ pub const VM = struct {
 
                 // Check for block and push frame
                 const blk = frame.block_chunk orelse {
-                    return error.NoBlockGiven;
+                    const exc = try self.createException(
+                        self.argument_error_class,
+                        "no block given",
+                    );
+                    self.pending_exception = exc;
+                    try self.unwindStack();
+                    return;
                 };
 
                 // Check arity
                 if (blk.arity != argc) {
-                    return error.WrongArgumentCount;
+                    const msg = std.fmt.allocPrint(
+                        self.gc_allocator,
+                        "wrong number of block arguments (given {d}, expected {d})",
+                        .{ argc, blk.arity },
+                    ) catch unreachable;
+                    const exc = try self.createException(self.argument_error_class, msg);
+                    self.pending_exception = exc;
+                    try self.unwindStack();
+                    return;
                 }
 
                 // Push frame with block's chunk
@@ -864,13 +878,32 @@ pub const VM = struct {
                 }
             },
 
-            .TRY_BEGIN, .TRY_END, .CATCH_START, .CATCH_END, .ENSURE_START, .ENSURE_END, .RETRY => {
-                // These opcodes don't do anything during normal execution
-                // They're just markers for the exception handler table
-                // (TRY_BEGIN has a u16 operand that we need to skip)
-                if (op == .TRY_BEGIN) {
-                    _ = self.readU16();
+            .TRY_BEGIN => {
+                // Skip the handler index operand
+                _ = self.readU16();
+            },
+
+            .TRY_END, .CATCH_END, .ENSURE_START, .ENSURE_END, .RETRY => {
+                // These opcodes are just markers, no action needed during normal execution
+            },
+
+            .CATCH_START => {
+                // Read variable index
+                const var_idx = self.readByte();
+
+                // Store exception in local variable if binding exists
+                if (var_idx != 255) {
+                    if (self.pending_exception) |exc| {
+                        var catch_frame = self.currentFrame();
+                        catch_frame.locals[var_idx] = .{ .data = .{ .exception = exc } };
+                        if (var_idx >= catch_frame.locals_len) {
+                            catch_frame.locals_len = var_idx + 1;
+                        }
+                    }
                 }
+
+                // Clear pending exception - it's now caught
+                self.pending_exception = null;
             },
         }
     }
@@ -936,8 +969,17 @@ pub const VM = struct {
         const method = self.lookupMethod(class, method_name_sym);
 
         if (method == null) {
-            std.debug.print("Error: undefined method '{s}'\n", .{method_name});
-            return error.UndefinedMethod;
+            // Method not found - create NoMethodError exception
+            const class_name = class.module.name.name;
+            const msg = std.fmt.allocPrint(
+                self.gc_allocator,
+                "undefined method '{s}' for {s}",
+                .{ method_name, class_name },
+            ) catch unreachable;
+            const exc = try self.createException(self.no_method_error_class, msg);
+            self.pending_exception = exc;
+            try self.unwindStack();
+            return; // Never reached if no handler found
         }
 
         if (method) |m| {
@@ -956,7 +998,14 @@ pub const VM = struct {
                 },
                 .builtin => |fun_ptr| {
                     const args_slice = args[0..argc];
-                    const result = try fun_ptr(self, receiver, args_slice, block_chunk);
+                    const result = fun_ptr(self, receiver, args_slice, block_chunk) catch |err| {
+                        // Check if exception was raised
+                        if (self.pending_exception != null) {
+                            try self.unwindStack();
+                            return; // Never reached if no handler found
+                        }
+                        return err;
+                    };
                     try self.push(result);
                 },
             }
@@ -1095,7 +1144,16 @@ pub const VM = struct {
     // ==== Built-in methods ====
 
     fn builtinObjectNew(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
-        if (args.len != 0) return error.WrongArgumentCount;
+        if (args.len != 0) {
+            const msg = std.fmt.allocPrint(
+                self.gc_allocator,
+                "wrong number of arguments (given {d}, expected 0)",
+                .{args.len},
+            ) catch unreachable;
+            const exc = try self.createException(self.argument_error_class, msg);
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
 
         // receiver should be a class
         if (receiver.data == .class) {
@@ -1103,7 +1161,12 @@ pub const VM = struct {
             const instance = self.newInstance(class_ptr);
             return instance;
         } else {
-            return error.WrongReceiverType;
+            const exc = try self.createException(
+                self.type_error_class,
+                "receiver is not a Class",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
         }
     }
 
@@ -1188,39 +1251,138 @@ pub const VM = struct {
         return Value.nil();
     }
 
-    fn builtinIntegerPlus(_: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
-        if (receiver.data != .integer) return error.WrongReceiverType;
-        if (args.len != 1) return error.WrongArgumentCount;
-        if (args[0].data != .integer) return error.WrongArgumentType;
+    fn builtinIntegerPlus(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+        if (receiver.data != .integer) {
+            const exc = try self.createException(
+                self.type_error_class,
+                "receiver is not an Integer",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        if (args.len != 1) {
+            const msg = std.fmt.allocPrint(
+                self.gc_allocator,
+                "wrong number of arguments (given {d}, expected 1)",
+                .{args.len},
+            ) catch unreachable;
+            const exc = try self.createException(self.argument_error_class, msg);
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        if (args[0].data != .integer) {
+            const exc = try self.createException(
+                self.type_error_class,
+                "argument is not an Integer",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
 
         const result = receiver.data.integer + args[0].data.integer;
         return Value.integer(result);
     }
 
-    fn builtinIntegerMinus(_: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
-        if (receiver.data != .integer) return error.WrongReceiverType;
-        if (args.len != 1) return error.WrongArgumentCount;
-        if (args[0].data != .integer) return error.WrongArgumentType;
+    fn builtinIntegerMinus(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+        if (receiver.data != .integer) {
+            const exc = try self.createException(
+                self.type_error_class,
+                "receiver is not an Integer",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        if (args.len != 1) {
+            const msg = std.fmt.allocPrint(
+                self.gc_allocator,
+                "wrong number of arguments (given {d}, expected 1)",
+                .{args.len},
+            ) catch unreachable;
+            const exc = try self.createException(self.argument_error_class, msg);
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        if (args[0].data != .integer) {
+            const exc = try self.createException(
+                self.type_error_class,
+                "argument is not an Integer",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
 
         const result = receiver.data.integer - args[0].data.integer;
         return Value.integer(result);
     }
 
-    fn builtinIntegerEqual(_: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
-        if (receiver.data != .integer) return error.WrongReceiverType;
-        if (args.len != 1) return error.WrongArgumentCount;
-        if (args[0].data != .integer) return error.WrongArgumentType;
+    fn builtinIntegerEqual(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+        if (receiver.data != .integer) {
+            const exc = try self.createException(
+                self.type_error_class,
+                "receiver is not an Integer",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        if (args.len != 1) {
+            const msg = std.fmt.allocPrint(
+                self.gc_allocator,
+                "wrong number of arguments (given {d}, expected 1)",
+                .{args.len},
+            ) catch unreachable;
+            const exc = try self.createException(self.argument_error_class, msg);
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        if (args[0].data != .integer) {
+            const exc = try self.createException(
+                self.type_error_class,
+                "argument is not an Integer",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
 
         const result = receiver.data.integer == args[0].data.integer;
         return Value.boolean(result);
     }
 
     fn builtinModuleInclude(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
-        if (args.len != 1) return error.WrongArgumentCount;
-        if (args[0].data != .module) return error.WrongArgumentType;
+        if (args.len != 1) {
+            const msg = std.fmt.allocPrint(
+                self.gc_allocator,
+                "wrong number of arguments (given {d}, expected 1)",
+                .{args.len},
+            ) catch unreachable;
+            const exc = try self.createException(self.argument_error_class, msg);
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        if (args[0].data != .module) {
+            const exc = try self.createException(
+                self.type_error_class,
+                "argument is not a Module",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
 
         // receiver must be a class
-        if (receiver.data != .class) return error.WrongReceiverType;
+        if (receiver.data != .class) {
+            const exc = try self.createException(
+                self.type_error_class,
+                "receiver is not a Class",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
 
         const class = receiver.data.class;
         const module = args[0].data.module;
@@ -1231,11 +1393,35 @@ pub const VM = struct {
     }
 
     fn builtinModulePrepend(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
-        if (args.len != 1) return error.WrongArgumentCount;
-        if (args[0].data != .module) return error.WrongArgumentType;
+        if (args.len != 1) {
+            const msg = std.fmt.allocPrint(
+                self.gc_allocator,
+                "wrong number of arguments (given {d}, expected 1)",
+                .{args.len},
+            ) catch unreachable;
+            const exc = try self.createException(self.argument_error_class, msg);
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        if (args[0].data != .module) {
+            const exc = try self.createException(
+                self.type_error_class,
+                "argument is not a Module",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
 
         // receiver must be a class
-        if (receiver.data != .class) return error.WrongReceiverType;
+        if (receiver.data != .class) {
+            const exc = try self.createException(
+                self.type_error_class,
+                "receiver is not a Class",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
 
         const class = receiver.data.class;
         const module = args[0].data.module;
@@ -1246,8 +1432,25 @@ pub const VM = struct {
     }
 
     fn builtinArrayPush(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
-        if (receiver.data != .array) return error.WrongReceiverType;
-        if (args.len != 1) return error.WrongArgumentCount;
+        if (receiver.data != .array) {
+            const exc = try self.createException(
+                self.type_error_class,
+                "receiver is not an Array",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        if (args.len != 1) {
+            const msg = std.fmt.allocPrint(
+                self.gc_allocator,
+                "wrong number of arguments (given {d}, expected 1)",
+                .{args.len},
+            ) catch unreachable;
+            const exc = try self.createException(self.argument_error_class, msg);
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
 
         const array = receiver.data.array;
         array.elements.append(self.gc_allocator, args[0]) catch return error.RuntimeError;
@@ -1256,52 +1459,171 @@ pub const VM = struct {
     }
 
     fn builtinIntegerToS(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
-        if (receiver.data != .integer) return error.WrongReceiverType;
-        if (args.len != 0) return error.WrongArgumentCount;
+        if (receiver.data != .integer) {
+            const exc = try self.createException(
+                self.type_error_class,
+                "receiver is not an Integer",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        if (args.len != 0) {
+            const msg = std.fmt.allocPrint(
+                self.gc_allocator,
+                "wrong number of arguments (given {d}, expected 0)",
+                .{args.len},
+            ) catch unreachable;
+            const exc = try self.createException(self.argument_error_class, msg);
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
 
         const str = std.fmt.allocPrint(self.gc_allocator, "{d}", .{receiver.data.integer}) catch return error.RuntimeError;
         return self.newString(str, false);
     }
 
-    fn builtinStringToS(_: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
-        if (receiver.data != .string) return error.WrongReceiverType;
-        if (args.len != 0) return error.WrongArgumentCount;
+    fn builtinStringToS(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+        if (receiver.data != .string) {
+            const exc = try self.createException(
+                self.type_error_class,
+                "receiver is not a String",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        if (args.len != 0) {
+            const msg = std.fmt.allocPrint(
+                self.gc_allocator,
+                "wrong number of arguments (given {d}, expected 0)",
+                .{args.len},
+            ) catch unreachable;
+            const exc = try self.createException(self.argument_error_class, msg);
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
 
         return receiver; // String#to_s returns self
     }
 
     fn builtinSymbolToS(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
-        if (receiver.data != .symbol) return error.WrongReceiverType;
-        if (args.len != 0) return error.WrongArgumentCount;
+        if (receiver.data != .symbol) {
+            const exc = try self.createException(
+                self.type_error_class,
+                "receiver is not a Symbol",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        if (args.len != 0) {
+            const msg = std.fmt.allocPrint(
+                self.gc_allocator,
+                "wrong number of arguments (given {d}, expected 0)",
+                .{args.len},
+            ) catch unreachable;
+            const exc = try self.createException(self.argument_error_class, msg);
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
 
         const str = std.fmt.allocPrint(self.gc_allocator, "{s}", .{receiver.data.symbol.name}) catch return error.RuntimeError;
         return self.newString(str, false);
     }
 
     fn builtinNilClassToS(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
-        if (receiver.data != .nil) return error.WrongReceiverType;
-        if (args.len != 0) return error.WrongArgumentCount;
+        if (receiver.data != .nil) {
+            const exc = try self.createException(
+                self.type_error_class,
+                "receiver is not nil",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        if (args.len != 0) {
+            const msg = std.fmt.allocPrint(
+                self.gc_allocator,
+                "wrong number of arguments (given {d}, expected 0)",
+                .{args.len},
+            ) catch unreachable;
+            const exc = try self.createException(self.argument_error_class, msg);
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
 
         return self.newString("", false);
     }
 
     fn builtinTrueClassToS(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
-        if (receiver.data != .boolean or !receiver.data.boolean) return error.WrongReceiverType;
-        if (args.len != 0) return error.WrongArgumentCount;
+        if (receiver.data != .boolean or !receiver.data.boolean) {
+            const exc = try self.createException(
+                self.type_error_class,
+                "receiver is not true",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        if (args.len != 0) {
+            const msg = std.fmt.allocPrint(
+                self.gc_allocator,
+                "wrong number of arguments (given {d}, expected 0)",
+                .{args.len},
+            ) catch unreachable;
+            const exc = try self.createException(self.argument_error_class, msg);
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
 
         return self.newString("true", false);
     }
 
     fn builtinFalseClassToS(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
-        if (receiver.data != .boolean or receiver.data.boolean) return error.WrongReceiverType;
-        if (args.len != 0) return error.WrongArgumentCount;
+        if (receiver.data != .boolean or receiver.data.boolean) {
+            const exc = try self.createException(
+                self.type_error_class,
+                "receiver is not false",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        if (args.len != 0) {
+            const msg = std.fmt.allocPrint(
+                self.gc_allocator,
+                "wrong number of arguments (given {d}, expected 0)",
+                .{args.len},
+            ) catch unreachable;
+            const exc = try self.createException(self.argument_error_class, msg);
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
 
         return self.newString("false", false);
     }
 
     fn builtinArrayToS(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
-        if (receiver.data != .array) return error.WrongReceiverType;
-        if (args.len != 0) return error.WrongArgumentCount;
+        if (receiver.data != .array) {
+            const exc = try self.createException(
+                self.type_error_class,
+                "receiver is not an Array",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        if (args.len != 0) {
+            const msg = std.fmt.allocPrint(
+                self.gc_allocator,
+                "wrong number of arguments (given {d}, expected 0)",
+                .{args.len},
+            ) catch unreachable;
+            const exc = try self.createException(self.argument_error_class, msg);
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
 
         const array = receiver.data.array;
         var buf: std.ArrayList(u8) = .empty;
@@ -1349,8 +1671,25 @@ pub const VM = struct {
     }
 
     fn builtinStringInspect(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
-        if (receiver.data != .string) return error.WrongReceiverType;
-        if (args.len != 0) return error.WrongArgumentCount;
+        if (receiver.data != .string) {
+            const exc = try self.createException(
+                self.type_error_class,
+                "receiver is not a String",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        if (args.len != 0) {
+            const msg = std.fmt.allocPrint(
+                self.gc_allocator,
+                "wrong number of arguments (given {d}, expected 0)",
+                .{args.len},
+            ) catch unreachable;
+            const exc = try self.createException(self.argument_error_class, msg);
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
 
         const input = receiver.data.string.str;
         var buf: std.ArrayList(u8) = .empty;
@@ -1385,16 +1724,50 @@ pub const VM = struct {
     }
 
     fn builtinSymbolInspect(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
-        if (receiver.data != .symbol) return error.WrongReceiverType;
-        if (args.len != 0) return error.WrongArgumentCount;
+        if (receiver.data != .symbol) {
+            const exc = try self.createException(
+                self.type_error_class,
+                "receiver is not a Symbol",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        if (args.len != 0) {
+            const msg = std.fmt.allocPrint(
+                self.gc_allocator,
+                "wrong number of arguments (given {d}, expected 0)",
+                .{args.len},
+            ) catch unreachable;
+            const exc = try self.createException(self.argument_error_class, msg);
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
 
         const str = std.fmt.allocPrint(self.gc_allocator, ":{s}", .{receiver.data.symbol.name}) catch return error.RuntimeError;
         return self.newString(str, false);
     }
 
     fn builtinNilClassInspect(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
-        if (receiver.data != .nil) return error.WrongReceiverType;
-        if (args.len != 0) return error.WrongArgumentCount;
+        if (receiver.data != .nil) {
+            const exc = try self.createException(
+                self.type_error_class,
+                "receiver is not nil",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        if (args.len != 0) {
+            const msg = std.fmt.allocPrint(
+                self.gc_allocator,
+                "wrong number of arguments (given {d}, expected 0)",
+                .{args.len},
+            ) catch unreachable;
+            const exc = try self.createException(self.argument_error_class, msg);
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
 
         return self.newString("nil", false);
     }
@@ -1408,8 +1781,25 @@ pub const VM = struct {
     }
 
     fn builtinArrayInspect(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
-        if (receiver.data != .array) return error.WrongReceiverType;
-        if (args.len != 0) return error.WrongArgumentCount;
+        if (receiver.data != .array) {
+            const exc = try self.createException(
+                self.type_error_class,
+                "receiver is not an Array",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        if (args.len != 0) {
+            const msg = std.fmt.allocPrint(
+                self.gc_allocator,
+                "wrong number of arguments (given {d}, expected 0)",
+                .{args.len},
+            ) catch unreachable;
+            const exc = try self.createException(self.argument_error_class, msg);
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
 
         const array = receiver.data.array;
         var buf: std.ArrayList(u8) = .empty;
@@ -1551,6 +1941,7 @@ pub const VM = struct {
 
             // Look for an exception handler in this frame
             if (try self.findExceptionHandler(frame)) |handler_info| {
+
                 // Found a matching handler
                 if (handler_info.rescue_idx) |rescue_idx| {
                     // Jump to rescue clause
@@ -1576,8 +1967,9 @@ pub const VM = struct {
             }
         }
 
-        // If we get here, no handler was found - print unhandled exception
-        try self.printUnhandledException();
+        // If we get here, no handler was found - return error
+        // Caller (main.zig) will print the unhandled exception
+        return error.RuntimeError;
     }
 
     /// Find an exception handler in the current frame
@@ -1589,6 +1981,7 @@ pub const VM = struct {
 
         // Search the exception handler table
         for (frame.chunk.exception_handlers.items) |*handler| {
+
             // Check if IP is in the protected region
             if (ip >= handler.try_start_ip and ip < handler.try_end_ip) {
                 // Search for a matching rescue handler
@@ -1601,10 +1994,22 @@ pub const VM = struct {
                         }
                     } else {
                         // Check each specified exception type
-                        for (rescue.exception_types.items) |_| {
-                            // TODO: resolve the constant to get the class
-                            // For now, we'll just match StandardError
-                            if (self.matchesException(self.pending_exception.?, self.standard_error_class)) {
+                        for (rescue.exception_types.items) |const_idx| {
+                            // Resolve the constant to get the exception class name
+                            const constant = frame.chunk.constants.items[const_idx];
+                            if (constant != .string) continue;
+
+                            const class_name = constant.string;
+
+                            // Look up the class by name in Object's constants
+                            const class_name_sym = self.intern(class_name) catch continue;
+                            const class_val = self.object_class.module.constants.get(class_name_sym) orelse continue;
+
+                            if (class_val.data != .class) continue;
+                            const exception_class = class_val.data.class;
+
+                            // Check if the current exception matches this class
+                            if (self.matchesException(self.pending_exception.?, exception_class)) {
                                 return .{ .handler = handler, .rescue_idx = idx };
                             }
                         }
@@ -1635,8 +2040,8 @@ pub const VM = struct {
         return false;
     }
 
-    /// Print an unhandled exception and exit
-    fn printUnhandledException(self: *VM) RuntimeError!void {
+    /// Print an unhandled exception
+    pub fn printUnhandledException(self: *VM) void {
         if (self.pending_exception) |exc| {
             const writer = self.stderr.?;
 
@@ -1657,7 +2062,5 @@ pub const VM = struct {
             }
             _ = writer.flush() catch {};
         }
-
-        return error.RuntimeError;
     }
 };

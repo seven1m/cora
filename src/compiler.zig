@@ -292,6 +292,15 @@ pub const Compiler = struct {
                 _ = try self.compileBlock(block_node, line);
             },
 
+            .begin => |begin_node| {
+                try self.compileBeginNode(begin_node, line);
+            },
+
+            .rescue, .rescue_modifier => {
+                std.debug.print("Error: rescue node should be handled by begin node\n", .{});
+                return error.UnsupportedNode;
+            },
+
             else => {
                 std.debug.print("Error: unsupported node type\n", .{});
                 return error.UnsupportedNode;
@@ -574,5 +583,146 @@ pub const Compiler = struct {
             }
         }
         return null;
+    }
+
+    fn compileBeginNode(self: *Compiler, begin_node: *prism.BeginNode, line: u32) !void {
+        // Create exception handler entry
+        const handler_idx = self.current_chunk.exception_handlers.items.len;
+
+        // Emit TRY_BEGIN with handler index
+        try self.current_chunk.emitOpU16(.TRY_BEGIN, @intCast(handler_idx), line);
+
+        const try_start_ip = self.current_chunk.code.items.len;
+
+        // Compile the protected statements
+        if (begin_node.statements) |statements_ptr| {
+            const statements = try self.parser.asNode(@ptrCast(statements_ptr));
+            try self.compileNode(statements, line);
+        } else {
+            // Empty begin block pushes nil
+            try self.current_chunk.emitOp(.PUSH_NIL, line);
+        }
+
+        // Emit TRY_END to mark normal completion
+        try self.current_chunk.emitOp(.TRY_END, line);
+        const try_end_ip = self.current_chunk.code.items.len;
+
+        // Jump over rescue clauses on normal completion
+        const jump_over_rescue = try self.current_chunk.emitJump(.JUMP, line);
+
+        // Compile rescue clauses
+        var rescue_handlers: std.ArrayList(chunk.RescueHandler) = .empty;
+        var rescue_end_jumps: std.ArrayList(usize) = .empty;
+        defer rescue_end_jumps.deinit(self.allocator);
+
+        var rescue_ptr = begin_node.rescue_clause;
+        while (rescue_ptr != null) {
+            const rescue_node = @as(*prism.RescueNode, @ptrCast(rescue_ptr));
+
+            const catch_ip = self.current_chunk.code.items.len;
+
+            // Collect exception types (if any)
+            var exception_types: std.ArrayList(u16) = .empty;
+
+            // Check if there are exception types specified
+            if (rescue_node.exceptions.size > 0) {
+                var i: usize = 0;
+                while (i < rescue_node.exceptions.size) : (i += 1) {
+                    const exc_node_raw = rescue_node.exceptions.nodes[i];
+                    const exc_node = try self.parser.asNode(exc_node_raw);
+
+                    // For now, we store the constant index for the exception class name
+                    // The VM will resolve it at runtime
+                    switch (exc_node) {
+                        .constant_read => |const_read| {
+                            const name = try self.parser.getConstantName(const_read.name);
+                            const idx = try self.current_chunk.addConstant(.{ .string = name });
+                            try exception_types.append(self.allocator, @intCast(idx));
+                        },
+                        else => {
+                            std.debug.print("Error: unsupported exception type node\n", .{});
+                            return error.UnsupportedNode;
+                        },
+                    }
+                }
+            }
+            // If no exception types, it's a bare rescue (catches StandardError)
+
+            // Handle variable binding (rescue => e)
+            var var_idx: u8 = 255; // 255 means no binding
+            if (rescue_node.reference) |reference_ptr| {
+                const reference = try self.parser.asNode(@ptrCast(reference_ptr));
+                switch (reference) {
+                    .local_variable_target => |var_target| {
+                        const var_name = try self.parser.getLocalVariableName(var_target.name);
+                        // Add to locals
+                        try self.addLocal(var_name);
+                        var_idx = @intCast(self.locals.items.len - 1);
+                    },
+                    .local_variable_write => |var_write| {
+                        const var_name = try self.parser.getLocalVariableName(var_write.name);
+                        // Add to locals
+                        try self.addLocal(var_name);
+                        var_idx = @intCast(self.locals.items.len - 1);
+                    },
+                    else => {
+                        std.debug.print("Error: unsupported rescue reference node\n", .{});
+                        return error.UnsupportedNode;
+                    },
+                }
+            }
+
+            // Emit CATCH_START with variable index
+            try self.current_chunk.emitOpU8(.CATCH_START, var_idx, line);
+
+            // Compile rescue body
+            if (rescue_node.statements) |statements_ptr| {
+                const statements = try self.parser.asNode(@ptrCast(statements_ptr));
+                try self.compileNode(statements, line);
+            } else {
+                // Empty rescue body pushes nil
+                try self.current_chunk.emitOp(.PUSH_NIL, line);
+            }
+
+            // Emit CATCH_END
+            try self.current_chunk.emitOp(.CATCH_END, line);
+            const catch_end_ip = self.current_chunk.code.items.len;
+
+            // Jump over remaining rescue clauses after executing this one
+            const jump_to_end = try self.current_chunk.emitJump(.JUMP, line);
+            try rescue_end_jumps.append(self.allocator, jump_to_end);
+
+            // Store rescue handler info
+            try rescue_handlers.append(self.allocator, .{
+                .exception_types = exception_types,
+                .catch_ip = catch_ip,
+                .catch_end_ip = catch_end_ip,
+                .var_idx = if (var_idx == 255) null else var_idx,
+            });
+
+            // Move to next rescue clause
+            rescue_ptr = rescue_node.subsequent;
+        }
+
+        // Patch the jump over rescue clauses (from normal completion)
+        try self.current_chunk.patchJump(jump_over_rescue);
+
+        // Patch all rescue clause end jumps to jump here
+        for (rescue_end_jumps.items) |jump_pos| {
+            try self.current_chunk.patchJump(jump_pos);
+        }
+
+        // TODO: Handle else clause (runs only if no exception)
+        // TODO: Handle ensure clause (always runs)
+
+        // Create the exception handler entry
+        try self.current_chunk.exception_handlers.append(self.allocator, .{
+            .try_start_ip = try_start_ip,
+            .try_end_ip = try_end_ip,
+            .rescue_handlers = rescue_handlers,
+            .else_ip = null, // TODO
+            .ensure_ip = null, // TODO
+            .ensure_end_ip = null, // TODO
+        });
     }
 };
