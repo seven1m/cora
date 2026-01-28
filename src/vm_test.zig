@@ -670,3 +670,45 @@ test "Block with no parameters" {
     try std.testing.expect(result.data == .integer);
     try std.testing.expectEqual(@as(i64, 42), result.data.integer);
 }
+
+test "Lexical scope: nested module constants" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+    const result = try evalCodeWithOutput(
+        \\X = 999
+        \\module A
+        \\  X = 42
+        \\  puts X
+        \\end
+        \\puts X
+        , &stdout_buf, &stderr_buf
+    );
+    try std.testing.expectEqualSlices(u8, "42\n999\n", result.stdout);
+}
+
+test "Lexical scope: class with method finding outer constant" {
+    const result = try evalCode(
+        \\Y = 999
+        \\class C
+        \\  Y = 42
+        \\  def get_y
+        \\    Y
+        \\  end
+        \\end
+        \\C.new.get_y
+    );
+    try std.testing.expectEqual(@as(i64, 42), result.data.integer);
+}
+
+test "Lexical scope: top-level fallback" {
+    const result = try evalCode(
+        \\X = 100
+        \\class A
+        \\  def get_x
+        \\    X
+        \\  end
+        \\end
+        \\A.new.get_x
+    );
+    try std.testing.expectEqual(@as(i64, 100), result.data.integer);
+}

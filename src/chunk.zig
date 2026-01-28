@@ -1,6 +1,8 @@
 const std = @import("std");
 const bytecode = @import("bytecode.zig");
 
+const LexicalScope = @import("value.zig").LexicalScope;
+
 pub const Constant = union(enum) {
     integer: i64,
     string: []const u8,
@@ -16,6 +18,7 @@ pub const Chunk = struct {
     name: []const u8,
     chunk_id: ?u8 = null,
     arity: u8 = 0, // For block chunks: number of parameters
+    lexical_scope: ?*LexicalScope = null,
 
     pub fn init(allocator: std.mem.Allocator, name: []const u8) Chunk {
         return Chunk{

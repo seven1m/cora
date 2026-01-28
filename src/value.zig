@@ -41,6 +41,11 @@ pub const StringObject = struct {
     str: []const u8,
 };
 
+pub const LexicalScope = struct {
+    scope_module: *ModuleObject,
+    parent: ?*LexicalScope,
+};
+
 pub const ModuleObject = struct {
     object: Object,
     name: *SymbolObject,

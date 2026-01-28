@@ -8,6 +8,7 @@ const prism = @import("prism.zig");
 const Value = value.Value;
 const Object = value.Object;
 const ClassObject = value.ClassObject;
+const LexicalScope = value.LexicalScope;
 const StringObject = value.StringObject;
 const SymbolObject = value.SymbolObject;
 const Method = value.Method;
@@ -22,6 +23,7 @@ pub const CallFrame = struct {
     locals: [32]Value = undefined,
     locals_len: u8 = 0,
     block_chunk: ?*Chunk = null,
+    lexical_scope: ?*LexicalScope = null,
 };
 
 pub const VM = struct {
@@ -37,6 +39,8 @@ pub const VM = struct {
     symbols: std.StringHashMap(*SymbolObject),
 
     program: *compiler.CompiledProgram,
+
+    current_lexical_scope: ?*LexicalScope = null,
 
     basic_object_class: *value.ClassObject,
     class_class: *value.ClassObject,
@@ -219,6 +223,29 @@ pub const VM = struct {
         // Register p method
         const p_sym = try self.intern("p");
         try self.kernel_module.methods.put(p_sym, .{ .builtin = &builtinKernelP });
+
+        // --- Stage 6: Initialize top-level lexical scope ---
+        self.current_lexical_scope = try self.createLexicalScope(&self.object_class.module, null);
+    }
+
+    pub fn createLexicalScope(self: *VM, scope_module: *value.ModuleObject, parent: ?*LexicalScope) !*LexicalScope {
+        const scope = self.gc_allocator.create(LexicalScope) catch unreachable;
+        scope.* = .{
+            .scope_module = scope_module,
+            .parent = parent,
+        };
+        return scope;
+    }
+
+    fn findConstantInLexicalScope(_: *VM, scope: *LexicalScope, name: *value.SymbolObject) !?Value {
+        var current_scope: ?*LexicalScope = scope;
+        while (current_scope) |s| {
+            if (s.scope_module.constants.get(name)) |val| {
+                return val;
+            }
+            current_scope = s.parent;
+        }
+        return null;
     }
 
     pub fn setupOutput(self: *VM) void {
@@ -317,12 +344,24 @@ pub const VM = struct {
             .stack_base = self.stack.items.len,
             .self_value = self_value,
             .block_chunk = block_chunk,
+            .lexical_scope = ch.lexical_scope,
         });
+
+        // Update current_lexical_scope to the frame's scope
+        if (ch.lexical_scope) |scope| {
+            self.current_lexical_scope = scope;
+        }
     }
 
     fn popFrame(self: *VM) !void {
         if (self.frames.items.len > 0) {
             _ = self.frames.pop();
+
+            // Restore current_lexical_scope to the previous frame's scope
+            if (self.frames.items.len > 0) {
+                const prev_frame = &self.frames.items[self.frames.items.len - 1];
+                self.current_lexical_scope = prev_frame.lexical_scope;
+            }
         }
     }
 
@@ -387,6 +426,17 @@ pub const VM = struct {
                 // TODO: this should be a symbol I think
                 if (constant == .string) {
                     const name_sym = try self.intern(constant.string);
+
+                    // Walk lexical scope chain first
+                    const const_frame = self.currentFrame();
+                    if (const_frame.lexical_scope) |scope| {
+                        if (try self.findConstantInLexicalScope(scope, name_sym)) |val| {
+                            try self.push(val);
+                            return;
+                        }
+                    }
+
+                    // Fallback: top-level Object constants
                     if (self.object_class.module.constants.get(name_sym)) |const_val| {
                         try self.push(const_val);
                     } else {
@@ -404,7 +454,14 @@ pub const VM = struct {
                 // TODO: this should be a symbol I think
                 if (constant == .string) {
                     const name_sym = try self.intern(constant.string);
-                    try self.object_class.module.constants.put(name_sym, val);
+
+                    // Set in current lexical scope's module (or Object if no scope)
+                    const const_frame = self.currentFrame();
+                    if (const_frame.lexical_scope) |scope| {
+                        try scope.scope_module.constants.put(name_sym, val);
+                    } else {
+                        try self.object_class.module.constants.put(name_sym, val);
+                    }
                 }
                 try self.push(val);
             },
@@ -458,7 +515,13 @@ pub const VM = struct {
                 // Look up block chunk if ID != 0
                 var block_chunk: ?*Chunk = null;
                 if (block_chunk_id != 0) {
-                    block_chunk = self.program.method_chunks.get(block_chunk_id) orelse return error.UndefinedChunk;
+                    if (self.program.method_chunks.get(block_chunk_id)) |bc| {
+                        block_chunk = bc;
+                        // Capture current lexical scope for the block
+                        bc.lexical_scope = self.current_lexical_scope;
+                    } else {
+                        return error.UndefinedChunk;
+                    }
                 }
 
                 try self.callMethod(method_idx, receiver, &args, argc, block_chunk);
@@ -483,13 +546,23 @@ pub const VM = struct {
                 if (constant == .string) {
                     const name_sym = try self.intern(constant.string);
                     const module_val = self.newModule(name_sym);
-                    try self.object_class.module.constants.put(name_sym, module_val);
+
+                    // Store constant in current lexical scope (or Object if no scope)
+                    const mod_frame = self.currentFrame();
+                    if (mod_frame.lexical_scope) |scope| {
+                        try scope.scope_module.constants.put(name_sym, module_val);
+                    } else {
+                        try self.object_class.module.constants.put(name_sym, module_val);
+                    }
 
                     // Execute module body if it exists
                     if (body_chunk_id != 0) {
                         if (self.program.method_chunks.get(body_chunk_id)) |body_chunk_ptr| {
+                            // Create new lexical scope for this module
+                            body_chunk_ptr.lexical_scope = try self.createLexicalScope(module_val.data.module, self.current_lexical_scope);
+
                             // Call the body chunk with the module as self
-                            // The body chunk will return the module, which will be left on the stack
+                            // pushFrame will update current_lexical_scope
                             try self.pushFrame(body_chunk_ptr, module_val, null);
                         } else {
                             return error.UndefinedChunk;
@@ -520,13 +593,23 @@ pub const VM = struct {
                 if (constant == .string) {
                     const name_sym = try self.intern(constant.string);
                     const class_val = self.newClass(name_sym, superclass);
-                    try self.object_class.module.constants.put(name_sym, class_val);
+
+                    // Store constant in current lexical scope (or Object if no scope)
+                    const class_frame = self.currentFrame();
+                    if (class_frame.lexical_scope) |scope| {
+                        try scope.scope_module.constants.put(name_sym, class_val);
+                    } else {
+                        try self.object_class.module.constants.put(name_sym, class_val);
+                    }
 
                     // Execute class body if it exists
                     if (body_chunk_id != 0) {
                         if (self.program.method_chunks.get(body_chunk_id)) |body_chunk_ptr| {
+                            // Create new lexical scope for this class
+                            body_chunk_ptr.lexical_scope = try self.createLexicalScope(&class_val.data.class.module, self.current_lexical_scope);
+
                             // Call the body chunk with the class as self
-                            // The body chunk will return the class, which will be left on the stack
+                            // pushFrame will update current_lexical_scope
                             try self.pushFrame(body_chunk_ptr, class_val, null);
                         } else {
                             return error.UndefinedChunk;
@@ -553,6 +636,9 @@ pub const VM = struct {
 
                 // Look up the chunk by ID
                 if (self.program.method_chunks.get(chunk_idx)) |chunk_ptr| {
+                    // Capture the current lexical scope for this method
+                    chunk_ptr.lexical_scope = self.current_lexical_scope;
+
                     // Get current self from the frame
                     const method_frame = self.currentFrame();
                     const current_self = method_frame.self_value;
