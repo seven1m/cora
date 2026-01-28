@@ -65,11 +65,19 @@ pub const ArrayObject = struct {
     elements: std.ArrayList(Value) = .empty,
 };
 
+pub const ExceptionObject = struct {
+    object: Object,
+    message: *StringObject,
+    backtrace: ?*ArrayObject,
+    cause: ?*ExceptionObject,
+};
+
 pub const Value = struct {
     data: union(enum) {
         array: *ArrayObject,
         boolean: bool,
         class: *ClassObject,
+        exception: *ExceptionObject,
         instance: *Object,
         integer: i64,
         module: *ModuleObject,
@@ -88,6 +96,7 @@ pub const Value = struct {
             .class => |c| (c.module.object.flags & Object.FROZEN_FLAG) != 0,
             .instance => |i| (i.flags & Object.FROZEN_FLAG) != 0,
             .array => |a| (a.object.flags & Object.FROZEN_FLAG) != 0,
+            .exception => |e| (e.object.flags & Object.FROZEN_FLAG) != 0,
         };
     }
 
@@ -98,6 +107,7 @@ pub const Value = struct {
             .class => |c| c.object.flags |= Object.FROZEN_FLAG,
             .instance => |i| i.flags |= Object.FROZEN_FLAG,
             .array => |a| a.object.flags |= Object.FROZEN_FLAG,
+            .exception => |e| e.object.flags |= Object.FROZEN_FLAG,
             // Primitives are already frozen, do nothing
             else => {},
         }
@@ -133,6 +143,7 @@ pub const Value = struct {
                 }
                 try writer.print("]", .{});
             },
+            .exception => |e| try writer.print("#<{s}: {s}>", .{ e.object.class.?.module.name.name, e.message.str }),
         }
     }
 };

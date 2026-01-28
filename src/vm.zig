@@ -56,6 +56,22 @@ pub const VM = struct {
     false_class: *value.ClassObject,
     kernel_module: *value.ModuleObject,
 
+    // Exception classes
+    exception_class: *value.ClassObject,
+    standard_error_class: *value.ClassObject,
+    runtime_error_class: *value.ClassObject,
+    argument_error_class: *value.ClassObject,
+    type_error_class: *value.ClassObject,
+    zero_division_error_class: *value.ClassObject,
+    no_method_error_class: *value.ClassObject,
+
+    // Exception handling state
+    pending_exception: ?*value.ExceptionObject = null,
+    retry_point: ?struct {
+        frame_idx: usize,
+        ip: usize,
+    } = null,
+
     // Buffered writers for production
     stdout_buffer: [4096]u8 = undefined,
     stderr_buffer: [4096]u8 = undefined,
@@ -87,6 +103,13 @@ pub const VM = struct {
             .true_class = undefined,
             .false_class = undefined,
             .kernel_module = undefined,
+            .exception_class = undefined,
+            .standard_error_class = undefined,
+            .runtime_error_class = undefined,
+            .argument_error_class = undefined,
+            .type_error_class = undefined,
+            .zero_division_error_class = undefined,
+            .no_method_error_class = undefined,
         };
     }
 
@@ -148,6 +171,35 @@ pub const VM = struct {
         const kernel_module_val = self.newModule(kernel_name_sym);
         self.kernel_module = kernel_module_val.data.module;
 
+        // Exception class hierarchy
+        const exception_name_sym = try self.intern("Exception");
+        const exception_class_val = self.newClass(exception_name_sym, self.object_class);
+        self.exception_class = exception_class_val.data.class;
+
+        const standard_error_name_sym = try self.intern("StandardError");
+        const standard_error_class_val = self.newClass(standard_error_name_sym, self.exception_class);
+        self.standard_error_class = standard_error_class_val.data.class;
+
+        const runtime_error_name_sym = try self.intern("RuntimeError");
+        const runtime_error_class_val = self.newClass(runtime_error_name_sym, self.standard_error_class);
+        self.runtime_error_class = runtime_error_class_val.data.class;
+
+        const argument_error_name_sym = try self.intern("ArgumentError");
+        const argument_error_class_val = self.newClass(argument_error_name_sym, self.standard_error_class);
+        self.argument_error_class = argument_error_class_val.data.class;
+
+        const type_error_name_sym = try self.intern("TypeError");
+        const type_error_class_val = self.newClass(type_error_name_sym, self.standard_error_class);
+        self.type_error_class = type_error_class_val.data.class;
+
+        const zero_division_error_name_sym = try self.intern("ZeroDivisionError");
+        const zero_division_error_class_val = self.newClass(zero_division_error_name_sym, self.standard_error_class);
+        self.zero_division_error_class = zero_division_error_class_val.data.class;
+
+        const no_method_error_name_sym = try self.intern("NoMethodError");
+        const no_method_error_class_val = self.newClass(no_method_error_name_sym, self.standard_error_class);
+        self.no_method_error_class = no_method_error_class_val.data.class;
+
         // --- Stage 3: Set Class's superclass to Module ---
         self.class_class.superclass = self.module_class;
 
@@ -164,6 +216,13 @@ pub const VM = struct {
         try self.object_class.module.constants.put(true_class_name_sym, true_class_val);
         try self.object_class.module.constants.put(false_class_name_sym, false_class_val);
         try self.object_class.module.constants.put(kernel_name_sym, kernel_module_val);
+        try self.object_class.module.constants.put(exception_name_sym, exception_class_val);
+        try self.object_class.module.constants.put(standard_error_name_sym, standard_error_class_val);
+        try self.object_class.module.constants.put(runtime_error_name_sym, runtime_error_class_val);
+        try self.object_class.module.constants.put(argument_error_name_sym, argument_error_class_val);
+        try self.object_class.module.constants.put(type_error_name_sym, type_error_class_val);
+        try self.object_class.module.constants.put(zero_division_error_name_sym, zero_division_error_class_val);
+        try self.object_class.module.constants.put(no_method_error_name_sym, no_method_error_class_val);
 
         // --- Stage 5: Register built-in methods ---
         // Register Kernel built-in methods
@@ -223,6 +282,10 @@ pub const VM = struct {
         // Register p method
         const p_sym = try self.intern("p");
         try self.kernel_module.methods.put(p_sym, .{ .builtin = &builtinKernelP });
+
+        // Register raise method
+        const raise_sym = try self.intern("raise");
+        try self.kernel_module.methods.put(raise_sym, .{ .builtin = &builtinKernelRaise });
 
         // --- Stage 6: Initialize top-level lexical scope ---
         self.current_lexical_scope = try self.createLexicalScope(&self.object_class.module, null);
@@ -743,6 +806,72 @@ pub const VM = struct {
                     try self.executeInstruction();
                 }
             },
+
+            .RAISE => {
+                const argc = self.readByte();
+
+                if (argc == 0) {
+                    // Re-raise current exception
+                    if (self.pending_exception) |exc| {
+                        try self.raise(.{ .data = .{ .exception = exc } });
+                    } else {
+                        // No exception to re-raise
+                        return error.RuntimeError;
+                    }
+                } else if (argc == 1) {
+                    // Single argument: exception instance or class
+                    const arg = self.pop();
+
+                    switch (arg.data) {
+                        .exception => {
+                            // Already an exception, raise it
+                            try self.raise(arg);
+                        },
+                        .class => |cls| {
+                            // Exception class with empty message
+                            const exc = try self.createException(cls, "");
+                            try self.raise(.{ .data = .{ .exception = exc } });
+                        },
+                        .string => |str| {
+                            // String message - create RuntimeError
+                            const exc = try self.createException(self.runtime_error_class, str.str);
+                            try self.raise(.{ .data = .{ .exception = exc } });
+                        },
+                        else => {
+                            // Invalid argument type
+                            return error.WrongArgumentType;
+                        },
+                    }
+                } else if (argc == 2) {
+                    // Two arguments: class and message
+                    const message = self.pop();
+                    const class_arg = self.pop();
+
+                    if (class_arg.data != .class) {
+                        return error.WrongArgumentType;
+                    }
+
+                    const msg_str = if (message.data == .string)
+                        message.data.string.str
+                    else
+                        "";
+
+                    const exc = try self.createException(class_arg.data.class, msg_str);
+                    try self.raise(.{ .data = .{ .exception = exc } });
+                } else {
+                    // Invalid number of arguments
+                    return error.WrongArgumentCount;
+                }
+            },
+
+            .TRY_BEGIN, .TRY_END, .CATCH_START, .CATCH_END, .ENSURE_START, .ENSURE_END, .RETRY => {
+                // These opcodes don't do anything during normal execution
+                // They're just markers for the exception handler table
+                // (TRY_BEGIN has a u16 operand that we need to skip)
+                if (op == .TRY_BEGIN) {
+                    _ = self.readU16();
+                }
+            },
         }
     }
 
@@ -841,6 +970,7 @@ pub const VM = struct {
             .string => |s| return s.object.class.?,
             .symbol => |s| return s.object.class.?,
             .array => |a| return a.object.class.?,
+            .exception => |e| return e.object.class.?,
             .module => |m| return m.object.class.?,
             .class => |c| return c.module.object.class.?,
 
@@ -1005,6 +1135,59 @@ pub const VM = struct {
         return Value.nil();
     }
 
+    fn builtinKernelRaise(self: *VM, _: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+        if (args.len == 0) {
+            // Re-raise current exception
+            if (self.pending_exception) |exc| {
+                try self.raise(.{ .data = .{ .exception = exc } });
+            } else {
+                // No exception to re-raise - raise RuntimeError
+                const exc = try self.createException(self.runtime_error_class, "No exception to re-raise");
+                try self.raise(.{ .data = .{ .exception = exc } });
+            }
+        } else if (args.len == 1) {
+            const arg = args[0];
+            switch (arg.data) {
+                .exception => {
+                    // Already an exception, raise it
+                    try self.raise(arg);
+                },
+                .class => |cls| {
+                    // Exception class with empty message
+                    const exc = try self.createException(cls, "");
+                    try self.raise(.{ .data = .{ .exception = exc } });
+                },
+                .string => |str| {
+                    // String message - create RuntimeError
+                    const exc = try self.createException(self.runtime_error_class, str.str);
+                    try self.raise(.{ .data = .{ .exception = exc } });
+                },
+                else => {
+                    return error.WrongArgumentType;
+                },
+            }
+        } else if (args.len == 2) {
+            const class_arg = args[0];
+            const message = args[1];
+
+            if (class_arg.data != .class) {
+                return error.WrongArgumentType;
+            }
+
+            const msg_str = if (message.data == .string)
+                message.data.string.str
+            else
+                "";
+
+            const exc = try self.createException(class_arg.data.class, msg_str);
+            try self.raise(.{ .data = .{ .exception = exc } });
+        } else {
+            return error.WrongArgumentCount;
+        }
+
+        return Value.nil();
+    }
+
     fn builtinIntegerPlus(_: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
         if (receiver.data != .integer) return error.WrongReceiverType;
         if (args.len != 1) return error.WrongArgumentCount;
@@ -1148,6 +1331,7 @@ pub const VM = struct {
             .string => |s| @intFromPtr(s),
             .symbol => |s| @intFromPtr(s),
             .array => |a| @intFromPtr(a),
+            .exception => |e| @intFromPtr(e),
             .module => |m| @intFromPtr(m),
             .class => |c| @intFromPtr(c),
             // Primitives get a fake object ID for now
@@ -1284,5 +1468,196 @@ pub const VM = struct {
 
             return .{ .data = .{ .array = array_obj } };
         }
+    }
+
+    // ===== Exception Handling Methods =====
+
+    /// Create a new exception object
+    fn createException(self: *VM, class: *ClassObject, message: []const u8) RuntimeError!*value.ExceptionObject {
+        const exc = self.gc_allocator.create(value.ExceptionObject) catch unreachable;
+        const msg_str = self.newString(message, false);
+        const backtrace = self.captureBacktrace() catch return error.RuntimeError;
+
+        exc.* = .{
+            .object = .{
+                .flags = 0,
+                .class = class,
+            },
+            .message = msg_str.data.string,
+            .backtrace = backtrace,
+            .cause = self.pending_exception,
+        };
+
+        return exc;
+    }
+
+    /// Capture the current call stack as a backtrace
+    fn captureBacktrace(self: *VM) RuntimeError!?*value.ArrayObject {
+        const array_obj = self.gc_allocator.create(value.ArrayObject) catch unreachable;
+        array_obj.* = .{
+            .object = .{
+                .flags = 0,
+                .class = self.array_class,
+            },
+            .elements = .empty,
+        };
+
+        // Walk the call frames and build backtrace strings
+        var i = self.frames.items.len;
+        while (i > 0) {
+            i -= 1;
+            const frame = &self.frames.items[i];
+
+            // Get line number for current IP
+            const line = if (frame.ip > 0 and frame.ip - 1 < frame.chunk.line_info.items.len)
+                frame.chunk.line_info.items[frame.ip - 1]
+            else
+                0;
+
+            // Format: "chunk_name:line"
+            const backtrace_str = std.fmt.allocPrint(
+                self.gc_allocator,
+                "{s}:{d}",
+                .{ frame.chunk.name, line },
+            ) catch return error.RuntimeError;
+
+            const str_val = self.newString(backtrace_str, false);
+            array_obj.elements.append(self.gc_allocator, str_val) catch return error.RuntimeError;
+        }
+
+        return array_obj;
+    }
+
+    /// Raise an exception and start unwinding
+    fn raise(self: *VM, exception_val: Value) RuntimeError!void {
+        const exc = switch (exception_val.data) {
+            .exception => |e| e,
+            else => {
+                // Not an exception object - this is an internal error
+                std.debug.print("Internal error: raise() called with non-exception value\n", .{});
+                return error.RuntimeError;
+            },
+        };
+
+        self.pending_exception = exc;
+        try self.unwindStack();
+    }
+
+    /// Unwind the call stack looking for exception handlers
+    fn unwindStack(self: *VM) RuntimeError!void {
+        while (self.frames.items.len > 0) {
+            const frame_idx = self.frames.items.len - 1;
+            const frame = &self.frames.items[frame_idx];
+
+            // Look for an exception handler in this frame
+            if (try self.findExceptionHandler(frame)) |handler_info| {
+                // Found a matching handler
+                if (handler_info.rescue_idx) |rescue_idx| {
+                    // Jump to rescue clause
+                    const rescue_handler = &handler_info.handler.rescue_handlers.items[rescue_idx];
+                    frame.ip = rescue_handler.catch_ip;
+                    return; // Stop unwinding
+                } else if (handler_info.handler.ensure_ip) |ensure_ip| {
+                    // No matching rescue, but there's an ensure block
+                    frame.ip = ensure_ip;
+                    return; // Execute ensure, then continue unwinding
+                }
+            }
+
+            // No handler in this frame, pop it and continue
+            _ = self.frames.pop();
+
+            // Restore stack to frame base
+            if (self.frames.items.len > 0) {
+                const prev_frame = &self.frames.items[self.frames.items.len - 1];
+                self.stack.shrinkRetainingCapacity(prev_frame.stack_base);
+            } else {
+                self.stack.shrinkRetainingCapacity(0);
+            }
+        }
+
+        // If we get here, no handler was found - print unhandled exception
+        try self.printUnhandledException();
+    }
+
+    /// Find an exception handler in the current frame
+    fn findExceptionHandler(self: *VM, frame: *CallFrame) !?struct {
+        handler: *chunk.ExceptionHandler,
+        rescue_idx: ?usize,
+    } {
+        const ip = frame.ip;
+
+        // Search the exception handler table
+        for (frame.chunk.exception_handlers.items) |*handler| {
+            // Check if IP is in the protected region
+            if (ip >= handler.try_start_ip and ip < handler.try_end_ip) {
+                // Search for a matching rescue handler
+                for (handler.rescue_handlers.items, 0..) |*rescue, idx| {
+                    // Check if exception matches any of the rescue types
+                    if (rescue.exception_types.items.len == 0) {
+                        // Bare rescue catches StandardError
+                        if (self.matchesException(self.pending_exception.?, self.standard_error_class)) {
+                            return .{ .handler = handler, .rescue_idx = idx };
+                        }
+                    } else {
+                        // Check each specified exception type
+                        for (rescue.exception_types.items) |_| {
+                            // TODO: resolve the constant to get the class
+                            // For now, we'll just match StandardError
+                            if (self.matchesException(self.pending_exception.?, self.standard_error_class)) {
+                                return .{ .handler = handler, .rescue_idx = idx };
+                            }
+                        }
+                    }
+                }
+
+                // No matching rescue, but might have ensure
+                if (handler.ensure_ip != null) {
+                    return .{ .handler = handler, .rescue_idx = null };
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /// Check if an exception matches a given exception class (walk inheritance chain)
+    fn matchesException(_: *VM, exception: *value.ExceptionObject, type_class: *ClassObject) bool {
+        var current_class: ?*ClassObject = exception.object.class;
+
+        while (current_class) |class| {
+            if (class == type_class) {
+                return true;
+            }
+            current_class = class.superclass;
+        }
+
+        return false;
+    }
+
+    /// Print an unhandled exception and exit
+    fn printUnhandledException(self: *VM) RuntimeError!void {
+        if (self.pending_exception) |exc| {
+            const writer = self.stderr.?;
+
+            // Print exception class and message
+            writer.print("Unhandled exception: {s}: {s}\n", .{
+                exc.object.class.?.module.name.name,
+                exc.message.str,
+            }) catch {};
+
+            // Print backtrace if available
+            if (exc.backtrace) |bt| {
+                writer.print("Backtrace:\n", .{}) catch {};
+                for (bt.elements.items) |line| {
+                    if (line.data == .string) {
+                        writer.print("  {s}\n", .{line.data.string.str}) catch {};
+                    }
+                }
+            }
+            _ = writer.flush() catch {};
+        }
+
+        return error.RuntimeError;
     }
 };

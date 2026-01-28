@@ -9,6 +9,22 @@ pub const Constant = union(enum) {
     symbol: []const u8,
 };
 
+pub const RescueHandler = struct {
+    exception_types: std.ArrayList(u16) = .empty, // Constant pool indices for exception classes
+    catch_ip: usize, // IP to jump to for this rescue
+    catch_end_ip: usize, // End of rescue clause
+    var_idx: ?u8, // Local var index for exception binding (=> e)
+};
+
+pub const ExceptionHandler = struct {
+    try_start_ip: usize, // Start of protected region
+    try_end_ip: usize, // End of protected region
+    rescue_handlers: std.ArrayList(RescueHandler) = .empty,
+    else_ip: ?usize, // Else clause IP (runs if no exception)
+    ensure_ip: ?usize, // Ensure clause IP (always runs)
+    ensure_end_ip: ?usize, // End of ensure block
+};
+
 pub const Chunk = struct {
     code: std.ArrayList(u8) = .empty,
     constants: std.ArrayList(Constant) = .empty,
@@ -19,6 +35,7 @@ pub const Chunk = struct {
     chunk_id: ?u8 = null,
     arity: u8 = 0, // For block chunks: number of parameters
     lexical_scope: ?*LexicalScope = null,
+    exception_handlers: std.ArrayList(ExceptionHandler) = .empty,
 
     pub fn init(allocator: std.mem.Allocator, name: []const u8) Chunk {
         return Chunk{
@@ -38,6 +55,15 @@ pub const Chunk = struct {
         self.constants.deinit(self.allocator);
         self.constant_names.deinit();
         self.line_info.deinit(self.allocator);
+
+        // Free exception handler tables
+        for (self.exception_handlers.items) |*handler| {
+            for (handler.rescue_handlers.items) |*rescue| {
+                rescue.exception_types.deinit(self.allocator);
+            }
+            handler.rescue_handlers.deinit(self.allocator);
+        }
+        self.exception_handlers.deinit(self.allocator);
     }
 
     /// Add a constant to the constant pool, return its index
@@ -182,7 +208,7 @@ pub const Chunk = struct {
         var next_ip = ip + 1;
 
         switch (op) {
-            .PUSH_NIL, .PUSH_TRUE, .PUSH_FALSE, .PUSH_SELF, .POP, .RETURN, .HALT => {
+            .PUSH_NIL, .PUSH_TRUE, .PUSH_FALSE, .PUSH_SELF, .POP, .RETURN, .HALT, .TRY_END, .CATCH_END, .ENSURE_START, .ENSURE_END, .RETRY => {
                 try writer.print("{s}\n", .{bytecode.opcodeName(op)});
             },
 
@@ -215,10 +241,16 @@ pub const Chunk = struct {
                 next_ip += 3;
             },
 
-            .GET_LOCAL, .SET_LOCAL, .PUSH_ARRAY => {
+            .GET_LOCAL, .SET_LOCAL, .PUSH_ARRAY, .RAISE, .CATCH_START => {
                 const idx = bytecode.readU8(self.code.items, next_ip);
                 try writer.print("{s} {d}\n", .{ bytecode.opcodeName(op), idx });
                 next_ip += 1;
+            },
+
+            .TRY_BEGIN => {
+                const handler_idx = bytecode.readU16(self.code.items, next_ip);
+                try writer.print("{s} {d}\n", .{ bytecode.opcodeName(op), handler_idx });
+                next_ip += 2;
             },
 
             .JUMP, .JUMP_IF_FALSE => {

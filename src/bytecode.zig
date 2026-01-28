@@ -40,6 +40,16 @@ pub const OpCode = enum(u8) {
 
     // Constant path resolution
     GET_CONST_PATH = 21, // Operand: u16 (constant name index) - pops module/class, looks up constant
+
+    // Exception handling
+    RAISE = 22, // Operand: u8 (argc) - 0=re-raise, 1=exception instance or class, 2=class+message
+    TRY_BEGIN = 23, // Operand: u16 (handler_idx) - points to exception_handlers table entry
+    TRY_END = 24, // No operands - marks end of protected region (normal completion)
+    CATCH_START = 25, // Operand: u8 (var_idx) - store exception in local var (255 = no binding)
+    CATCH_END = 26, // No operands - marks exit from rescue clause
+    ENSURE_START = 27, // No operands - marks entry to ensure block
+    ENSURE_END = 28, // No operands - marks exit from ensure block
+    RETRY = 29, // No operands - jump back to beginning of current begin block
 };
 
 pub const BuiltinId = enum(u8) {
@@ -70,6 +80,14 @@ pub fn opcodeName(op: OpCode) []const u8 {
         .HALT => "HALT",
         .YIELD => "YIELD",
         .GET_CONST_PATH => "GET_CONST_PATH",
+        .RAISE => "RAISE",
+        .TRY_BEGIN => "TRY_BEGIN",
+        .TRY_END => "TRY_END",
+        .CATCH_START => "CATCH_START",
+        .CATCH_END => "CATCH_END",
+        .ENSURE_START => "ENSURE_START",
+        .ENSURE_END => "ENSURE_END",
+        .RETRY => "RETRY",
     };
 }
 

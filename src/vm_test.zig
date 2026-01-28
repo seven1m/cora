@@ -744,3 +744,99 @@ test "Constant path: class constant" {
     );
     try std.testing.expectEqual(@as(i64, 123), result.data.integer);
 }
+
+// ===== Exception Handling Tests =====
+
+test "Raise with string message creates RuntimeError" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+
+    const eval_result = evalCodeWithOutput("raise \"something went wrong\"", &stdout_buf, &stderr_buf);
+
+    // Should get RuntimeError
+    try std.testing.expectError(error.RuntimeError, eval_result);
+
+    // Check stderr contains exception info
+    const stderr_output = std.mem.trim(u8, stderr_buf[0..], &std.ascii.whitespace);
+    try std.testing.expect(std.mem.indexOf(u8, stderr_output, "RuntimeError") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stderr_output, "something went wrong") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stderr_output, "Backtrace:") != null);
+}
+
+test "Raise with exception class and message" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+
+    const eval_result = evalCodeWithOutput(
+        "raise ArgumentError, \"expected 2 arguments\"",
+        &stdout_buf,
+        &stderr_buf,
+    );
+
+    try std.testing.expectError(error.RuntimeError, eval_result);
+
+    const stderr_output = std.mem.trim(u8, stderr_buf[0..], &std.ascii.whitespace);
+    try std.testing.expect(std.mem.indexOf(u8, stderr_output, "ArgumentError") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stderr_output, "expected 2 arguments") != null);
+}
+
+test "Nested method calls show full backtrace" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+
+    const eval_result = evalCodeWithOutput(
+        \\def bar
+        \\  raise "deep error"
+        \\end
+        \\
+        \\def foo
+        \\  bar
+        \\end
+        \\
+        \\foo
+    , &stdout_buf, &stderr_buf);
+
+    try std.testing.expectError(error.RuntimeError, eval_result);
+
+    const stderr_output = std.mem.trim(u8, stderr_buf[0..], &std.ascii.whitespace);
+    try std.testing.expect(std.mem.indexOf(u8, stderr_output, "deep error") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stderr_output, "Backtrace:") != null);
+    // Both methods should appear in backtrace
+    try std.testing.expect(std.mem.indexOf(u8, stderr_output, "bar") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stderr_output, "foo") != null);
+}
+
+test "Code before raise executes normally" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+
+    const eval_result = evalCodeWithOutput(
+        \\puts "before raise"
+        \\raise "error"
+        \\puts "after raise"
+    , &stdout_buf, &stderr_buf);
+
+    try std.testing.expectError(error.RuntimeError, eval_result);
+
+    const stdout_output = std.mem.trim(u8, stdout_buf[0..], &std.ascii.whitespace);
+    // Code before raise should execute
+    try std.testing.expect(std.mem.indexOf(u8, stdout_output, "before raise") != null);
+    // Code after raise should NOT execute
+    try std.testing.expect(std.mem.indexOf(u8, stdout_output, "after raise") == null);
+}
+
+test "Raise with empty message" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+
+    const eval_result = evalCodeWithOutput(
+        "raise ArgumentError",
+        &stdout_buf,
+        &stderr_buf,
+    );
+
+    try std.testing.expectError(error.RuntimeError, eval_result);
+
+    const stderr_output = std.mem.trim(u8, stderr_buf[0..], &std.ascii.whitespace);
+    try std.testing.expect(std.mem.indexOf(u8, stderr_output, "ArgumentError") != null);
+}
