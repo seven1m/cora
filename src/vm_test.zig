@@ -712,3 +712,35 @@ test "Lexical scope: top-level fallback" {
     );
     try std.testing.expectEqual(@as(i64, 100), result.data.integer);
 }
+
+test "Constant path: simple module constant" {
+    const result = try evalCode(
+        \\module A
+        \\  X = 42
+        \\end
+        \\A::X
+    );
+    try std.testing.expectEqual(@as(i64, 42), result.data.integer);
+}
+
+test "Constant path: nested modules" {
+    const result = try evalCode(
+        \\module A
+        \\  module B
+        \\    Y = 99
+        \\  end
+        \\end
+        \\A::B::Y
+    );
+    try std.testing.expectEqual(@as(i64, 99), result.data.integer);
+}
+
+test "Constant path: class constant" {
+    const result = try evalCode(
+        \\class C
+        \\  Z = 123
+        \\end
+        \\C::Z
+    );
+    try std.testing.expectEqual(@as(i64, 123), result.data.integer);
+}

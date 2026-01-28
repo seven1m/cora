@@ -186,7 +186,7 @@ pub const Chunk = struct {
                 try writer.print("{s}\n", .{bytecode.opcodeName(op)});
             },
 
-            .PUSH_INT, .PUSH_CONST, .GET_CONST, .SET_CONST => {
+            .PUSH_INT, .PUSH_CONST, .GET_CONST, .SET_CONST, .GET_CONST_PATH => {
                 const idx = bytecode.readU16(self.code.items, next_ip);
                 try writer.print("{s} {d}", .{ bytecode.opcodeName(op), idx });
                 if (idx < self.constants.items.len) {

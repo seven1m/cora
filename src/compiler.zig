@@ -167,6 +167,22 @@ pub const Compiler = struct {
                 try self.current_chunk.emitOpU16(.GET_CONST, @intCast(idx), line);
             },
 
+            .constant_path => |const_path| {
+                // Compile the parent (module/class) - this pushes it onto the stack
+                if (const_path.parent) |parent| {
+                    const parent_node = try self.parser.asNode(@ptrCast(parent));
+                    try self.compileNode(parent_node, line);
+                } else {
+                    // No parent means ::X (top-level constant), not yet implemented
+                    return error.TopLevelConstantPath;
+                }
+
+                // Get the constant name to look up
+                const const_name = try self.parser.getConstantName(const_path.name);
+                const idx = try self.current_chunk.addConstant(.{ .string = const_name });
+                try self.current_chunk.emitOpU16(.GET_CONST_PATH, @intCast(idx), line);
+            },
+
             .constant_write => |const_write| {
                 const const_name = try self.parser.getConstantName(const_write.name);
                 const value_node = try self.parser.asNode(@ptrCast(const_write.value));

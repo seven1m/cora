@@ -466,6 +466,31 @@ pub const VM = struct {
                 try self.push(val);
             },
 
+            .GET_CONST_PATH => {
+                const idx = self.readU16();
+                const constant = self.currentChunk().constants.items[idx];
+                const parent_val = self.pop();
+
+                if (constant == .string) {
+                    const name_sym = try self.intern(constant.string);
+
+                    // Look up constant in the parent module/class
+                    const result = switch (parent_val.data) {
+                        .module => |m| m.constants.get(name_sym),
+                        .class => |c| c.module.constants.get(name_sym),
+                        else => null,
+                    };
+
+                    if (result) |const_val| {
+                        try self.push(const_val);
+                    } else {
+                        try self.push(Value.nil());
+                    }
+                } else {
+                    try self.push(Value.nil());
+                }
+            },
+
             .PUSH_SELF => {
                 const frame2 = self.currentFrame();
                 try self.push(frame2.self_value);

@@ -37,6 +37,9 @@ pub const OpCode = enum(u8) {
 
     // Blocks
     YIELD = 20, // Operand: u8 (argc)
+
+    // Constant path resolution
+    GET_CONST_PATH = 21, // Operand: u16 (constant name index) - pops module/class, looks up constant
 };
 
 pub const BuiltinId = enum(u8) {
@@ -66,6 +69,7 @@ pub fn opcodeName(op: OpCode) []const u8 {
         .PUSH_ARRAY => "PUSH_ARRAY",
         .HALT => "HALT",
         .YIELD => "YIELD",
+        .GET_CONST_PATH => "GET_CONST_PATH",
     };
 }
 
@@ -99,7 +103,7 @@ pub const Instruction = struct {
         try writer.print("{s}", .{opcodeName(self.op)});
 
         switch (self.op) {
-            .PUSH_INT, .PUSH_CONST, .GET_CONST, .SET_CONST, .DEF_MODULE, .DEF_CLASS, .DEF_METHOD => {
+            .PUSH_INT, .PUSH_CONST, .GET_CONST, .SET_CONST, .GET_CONST_PATH, .DEF_MODULE, .DEF_CLASS, .DEF_METHOD => {
                 try writer.print(" {d}", .{self.bx});
             },
             .CALL => {

@@ -10,6 +10,7 @@ pub const BlockNode = c.pm_block_node_t;
 pub const BlockParametersNode = c.pm_block_parameters_node_t;
 pub const CallNode = c.pm_call_node_t;
 pub const ClassNode = c.pm_class_node_t;
+pub const ConstantPathNode = c.pm_constant_path_node_t;
 pub const ConstantReadNode = c.pm_constant_read_node_t;
 pub const ConstantWriteNode = c.pm_constant_write_node_t;
 pub const DefNode = c.pm_def_node_t;
@@ -37,6 +38,7 @@ pub const Node = union(enum) {
     block_parameters: *BlockParametersNode,
     call: *CallNode,
     class: *ClassNode,
+    constant_path: *ConstantPathNode,
     constant_read: *ConstantReadNode,
     constant_write: *ConstantWriteNode,
     def: *DefNode,
@@ -136,6 +138,10 @@ pub const Parser = struct {
 
         if (node_type == c.PM_CONSTANT_WRITE_NODE) {
             return Node{ .constant_write = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_CONSTANT_PATH_NODE) {
+            return Node{ .constant_path = @ptrCast(raw) };
         }
 
         if (node_type == c.PM_CALL_NODE) {
