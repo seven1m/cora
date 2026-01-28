@@ -15,12 +15,13 @@ pub const RuntimeError = error{
     InvalidSuperclass,
     UndefinedChunk,
     UndefinedMethod,
+    NoBlockGiven,
     RuntimeError,
 };
 
 pub const Method = union(enum) {
     chunk: *Chunk,
-    builtin: *const fn (*VM, Value, []Value) RuntimeError!Value,
+    builtin: *const fn (*VM, Value, []Value, ?*Chunk) RuntimeError!Value,
 };
 
 pub const Object = struct {

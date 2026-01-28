@@ -633,3 +633,40 @@ test "p with mixed types" {
     try std.testing.expectEqual(@as(usize, 3), result.value.data.array.elements.items.len);
     try std.testing.expectEqualStrings("42\n\"hello\"\n:foo\n", result.stdout);
 }
+
+test "Method with block and yield" {
+    const result = try evalCode(
+        \\def twice
+        \\  yield 1
+        \\  yield 2
+        \\end
+        \\
+        \\twice { |x| x + 10 }
+    );
+    try std.testing.expect(result.data == .integer);
+    try std.testing.expectEqual(@as(i64, 12), result.data.integer);
+}
+
+test "Block with multiple parameters" {
+    const result = try evalCode(
+        \\def add_them
+        \\  yield 5, 7
+        \\end
+        \\
+        \\add_them { |a, b| a + b }
+    );
+    try std.testing.expect(result.data == .integer);
+    try std.testing.expectEqual(@as(i64, 12), result.data.integer);
+}
+
+test "Block with no parameters" {
+    const result = try evalCode(
+        \\def call_block
+        \\  yield
+        \\end
+        \\
+        \\call_block { 42 }
+    );
+    try std.testing.expect(result.data == .integer);
+    try std.testing.expectEqual(@as(i64, 42), result.data.integer);
+}

@@ -20,7 +20,7 @@ pub const OpCode = enum(u8) {
     POP = 11,
 
     // Method calls
-    CALL = 12, // Operands: u16 (method name index), u8 (argc)
+    CALL = 12, // Operands: u16 (method name index), u8 (argc), u8 (block chunk id)
     RETURN = 13,
 
     // OOP
@@ -34,6 +34,9 @@ pub const OpCode = enum(u8) {
 
     // Special
     HALT = 19,
+
+    // Blocks
+    YIELD = 20, // Operand: u8 (argc)
 };
 
 pub const BuiltinId = enum(u8) {
@@ -62,6 +65,7 @@ pub fn opcodeName(op: OpCode) []const u8 {
         .DEF_METHOD => "DEF_METHOD",
         .PUSH_ARRAY => "PUSH_ARRAY",
         .HALT => "HALT",
+        .YIELD => "YIELD",
     };
 }
 
@@ -95,8 +99,11 @@ pub const Instruction = struct {
         try writer.print("{s}", .{opcodeName(self.op)});
 
         switch (self.op) {
-            .PUSH_INT, .PUSH_CONST, .GET_CONST, .SET_CONST, .CALL, .DEF_MODULE, .DEF_CLASS, .DEF_METHOD => {
+            .PUSH_INT, .PUSH_CONST, .GET_CONST, .SET_CONST, .DEF_MODULE, .DEF_CLASS, .DEF_METHOD => {
                 try writer.print(" {d}", .{self.bx});
+            },
+            .CALL => {
+                try writer.print(" {d} {d} {d}", .{ self.bx, self.a, self.b });
             },
             .GET_LOCAL, .SET_LOCAL, .PUSH_ARRAY => {
                 try writer.print(" {d}", .{self.a});
@@ -104,6 +111,9 @@ pub const Instruction = struct {
             .JUMP, .JUMP_IF_FALSE => {
                 const offset: i16 = @bitCast(self.bx);
                 try writer.print(" {}", .{offset});
+            },
+            .YIELD => {
+                try writer.print(" {d}", .{self.a});
             },
             else => {},
         }

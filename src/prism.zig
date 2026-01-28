@@ -6,6 +6,8 @@ pub const RawNode = c.pm_node_t;
 
 pub const ArgumentsNode = c.pm_arguments_node_t;
 pub const ArrayNode = c.pm_array_node_t;
+pub const BlockNode = c.pm_block_node_t;
+pub const BlockParametersNode = c.pm_block_parameters_node_t;
 pub const CallNode = c.pm_call_node_t;
 pub const ClassNode = c.pm_class_node_t;
 pub const ConstantReadNode = c.pm_constant_read_node_t;
@@ -15,6 +17,7 @@ pub const ElseNode = c.pm_else_node_t;
 pub const FalseNode = c.pm_false_node_t;
 pub const IfNode = c.pm_if_node_t;
 pub const IntegerNode = c.pm_integer_node_t;
+pub const YieldNode = c.pm_yield_node_t;
 pub const LocalVariableReadNode = c.pm_local_variable_read_node_t;
 pub const LocalVariableWriteNode = c.pm_local_variable_write_node_t;
 pub const ModuleNode = c.pm_module_node;
@@ -30,6 +33,8 @@ pub const TrueNode = c.pm_true_node_t;
 
 pub const Node = union(enum) {
     array: *ArrayNode,
+    block: *BlockNode,
+    block_parameters: *BlockParametersNode,
     call: *CallNode,
     class: *ClassNode,
     constant_read: *ConstantReadNode,
@@ -50,6 +55,7 @@ pub const Node = union(enum) {
     string: *StringNode,
     symbol: *SymbolNode,
     true_node: *TrueNode,
+    yield: *YieldNode,
 };
 
 /// Parser wraps Prism's parser and AST lifecycle
@@ -184,8 +190,20 @@ pub const Parser = struct {
             return Node{ .nil_node = @ptrCast(raw) };
         }
 
+        if (node_type == c.PM_YIELD_NODE) {
+            return Node{ .yield = @ptrCast(raw) };
+        }
+
         if (node_type == c.PM_ARRAY_NODE) {
             return Node{ .array = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_BLOCK_NODE) {
+            return Node{ .block = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_BLOCK_PARAMETERS_NODE) {
+            return Node{ .block_parameters = @ptrCast(raw) };
         }
 
         var stdout_buffer: [8192]u8 = undefined;

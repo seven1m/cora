@@ -15,13 +15,18 @@ pub const Chunk = struct {
     allocator: std.mem.Allocator,
     name: []const u8,
     chunk_id: ?u8 = null,
+    arity: u8 = 0, // For block chunks: number of parameters
 
     pub fn init(allocator: std.mem.Allocator, name: []const u8) Chunk {
         return Chunk{
+            .code = .empty,
+            .constants = .empty,
             .constant_names = std.StringHashMap(u32).init(allocator),
+            .line_info = .empty,
             .allocator = allocator,
             .name = name,
             .chunk_id = null,
+            .arity = 0,
         };
     }
 
@@ -94,6 +99,16 @@ pub const Chunk = struct {
         try self.code.append(self.allocator, @intCast(a & 0xFF));
         try self.code.append(self.allocator, @intCast((a >> 8) & 0xFF));
         try self.code.append(self.allocator, b);
+        try self.line_info.append(self.allocator, line);
+    }
+
+    /// Emit opcode with u16 and two u8 operands
+    pub fn emitOpU16U8U8(self: *Chunk, op: bytecode.OpCode, a: u16, b: u8, c: u8, line: u32) !void {
+        try self.code.append(self.allocator, @intFromEnum(op));
+        try self.code.append(self.allocator, @intCast(a & 0xFF));
+        try self.code.append(self.allocator, @intCast((a >> 8) & 0xFF));
+        try self.code.append(self.allocator, b);
+        try self.code.append(self.allocator, c);
         try self.line_info.append(self.allocator, line);
     }
 
@@ -212,8 +227,9 @@ pub const Chunk = struct {
             .CALL => {
                 const method_idx = bytecode.readU16(self.code.items, next_ip);
                 const argc = bytecode.readU8(self.code.items, next_ip + 2);
-                try writer.print("CALL {d}, {d}\n", .{ method_idx, argc });
-                next_ip += 3;
+                const block_id = bytecode.readU8(self.code.items, next_ip + 3);
+                try writer.print("CALL {d}, {d}, {d}\n", .{ method_idx, argc, block_id });
+                next_ip += 4;
             },
 
             .DEF_CLASS => {
@@ -244,7 +260,11 @@ pub const Chunk = struct {
                 next_ip += 3;
             },
 
-
+            .YIELD => {
+                const argc = bytecode.readU8(self.code.items, next_ip);
+                try writer.print("YIELD {d}\n", .{argc});
+                next_ip += 1;
+            },
         }
 
         return next_ip;

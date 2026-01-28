@@ -12,14 +12,16 @@ const StringObject = value.StringObject;
 const SymbolObject = value.SymbolObject;
 const Method = value.Method;
 const RuntimeError = value.RuntimeError;
+const Chunk = chunk.Chunk;
 
 pub const CallFrame = struct {
-    chunk: *chunk.Chunk,
+    chunk: *Chunk,
     ip: usize,
     stack_base: usize,
     self_value: Value,
     locals: [32]Value = undefined,
     locals_len: u8 = 0,
+    block_chunk: ?*Chunk = null,
 };
 
 pub const VM = struct {
@@ -247,7 +249,7 @@ pub const VM = struct {
     pub fn run(self: *VM) !Value {
         self.setupOutput();
 
-        try self.pushFrame(&self.program.main_chunk, Value.nil());
+        try self.pushFrame(&self.program.main_chunk, Value.nil(), null);
 
         while (self.frames.items.len > 0) {
             try self.executeInstruction();
@@ -263,7 +265,7 @@ pub const VM = struct {
         return &self.frames.items[self.frames.items.len - 1];
     }
 
-    fn currentChunk(self: *VM) *chunk.Chunk {
+    fn currentChunk(self: *VM) *Chunk {
         return self.currentFrame().chunk;
     }
 
@@ -308,12 +310,13 @@ pub const VM = struct {
         return val;
     }
 
-    fn pushFrame(self: *VM, ch: *chunk.Chunk, self_value: Value) !void {
+    fn pushFrame(self: *VM, ch: *Chunk, self_value: Value, block_chunk: ?*Chunk) !void {
         try self.frames.append(self.allocator, CallFrame{
             .chunk = ch,
             .ip = 0,
             .stack_base = self.stack.items.len,
             .self_value = self_value,
+            .block_chunk = block_chunk,
         });
     }
 
@@ -440,6 +443,7 @@ pub const VM = struct {
             .CALL => {
                 const method_idx = self.readU16();
                 const argc = self.readByte();
+                const block_chunk_id = self.readByte();
 
                 // Pop arguments
                 var args: [256]Value = undefined;
@@ -451,7 +455,13 @@ pub const VM = struct {
                 // Pop receiver
                 const receiver = self.pop();
 
-                try self.callMethod(method_idx, receiver, &args, argc);
+                // Look up block chunk if ID != 0
+                var block_chunk: ?*Chunk = null;
+                if (block_chunk_id != 0) {
+                    block_chunk = self.program.method_chunks.get(block_chunk_id) orelse return error.UndefinedChunk;
+                }
+
+                try self.callMethod(method_idx, receiver, &args, argc, block_chunk);
             },
 
             .RETURN => {
@@ -480,7 +490,7 @@ pub const VM = struct {
                         if (self.program.method_chunks.get(body_chunk_id)) |body_chunk_ptr| {
                             // Call the body chunk with the module as self
                             // The body chunk will return the module, which will be left on the stack
-                            try self.pushFrame(body_chunk_ptr, module_val);
+                            try self.pushFrame(body_chunk_ptr, module_val, null);
                         } else {
                             return error.UndefinedChunk;
                         }
@@ -517,7 +527,7 @@ pub const VM = struct {
                         if (self.program.method_chunks.get(body_chunk_id)) |body_chunk_ptr| {
                             // Call the body chunk with the class as self
                             // The body chunk will return the class, which will be left on the stack
-                            try self.pushFrame(body_chunk_ptr, class_val);
+                            try self.pushFrame(body_chunk_ptr, class_val, null);
                         } else {
                             return error.UndefinedChunk;
                         }
@@ -585,11 +595,48 @@ pub const VM = struct {
             .HALT => {
                 try self.popFrame();
             },
+
+            .YIELD => {
+                const argc = self.readByte();
+
+                // Pop arguments
+                var yield_args: [256]Value = undefined;
+                var i: usize = 0;
+                while (i < argc) : (i += 1) {
+                    yield_args[argc - 1 - i] = self.pop();
+                }
+
+                // Check for block and push frame
+                const blk = frame.block_chunk orelse {
+                    return error.NoBlockGiven;
+                };
+
+                // Check arity
+                if (blk.arity != argc) {
+                    return error.WrongArgumentCount;
+                }
+
+                // Push frame with block's chunk
+                try self.pushFrame(blk, frame.self_value, frame.block_chunk);
+
+                // Copy yield arguments to locals
+                var block_frame = self.currentFrame();
+                for (yield_args[0..argc], 0..) |arg, idx| {
+                    block_frame.locals[idx] = arg;
+                    block_frame.locals_len = @as(u8, @intCast(idx + 1));
+                }
+
+                // Execute until block returns
+                const saved_frame_count = self.frames.items.len - 1;
+                while (self.frames.items.len > saved_frame_count) {
+                    try self.executeInstruction();
+                }
+            },
         }
     }
 
     /// Call a method by name string (not from bytecode constant pool)
-    fn callMethodByName(self: *VM, receiver: Value, method_name: []const u8, args: []Value) RuntimeError!Value {
+    fn callMethodByName(self: *VM, receiver: Value, method_name: []const u8, args: []Value, block_chunk: ?*Chunk) RuntimeError!Value {
         const method_name_sym = self.intern(method_name) catch return error.RuntimeError;
         const class = self.getClass(receiver);
         const method = self.lookupMethod(class, method_name_sym);
@@ -606,7 +653,7 @@ pub const VM = struct {
                     const saved_frame_count = self.frames.items.len;
 
                     // Push frame with receiver as self_value
-                    self.pushFrame(chunk_ptr, receiver) catch return error.RuntimeError;
+                    self.pushFrame(chunk_ptr, receiver, block_chunk) catch return error.RuntimeError;
 
                     // Copy arguments to locals
                     var frame = self.currentFrame();
@@ -624,14 +671,14 @@ pub const VM = struct {
                     return self.pop();
                 },
                 .builtin => |fun_ptr| {
-                    return try fun_ptr(self, receiver, args);
+                    return try fun_ptr(self, receiver, args, block_chunk);
                 },
             }
         }
         unreachable;
     }
 
-    fn callMethod(self: *VM, method_idx: u16, receiver: Value, args: *[256]Value, argc: usize) !void {
+    fn callMethod(self: *VM, method_idx: u16, receiver: Value, args: *[256]Value, argc: usize, block_chunk: ?*Chunk) !void {
         if (method_idx >= self.currentChunk().constants.items.len) {
             return error.InvalidMethodIndex;
         }
@@ -657,7 +704,7 @@ pub const VM = struct {
             switch (m) {
                 .chunk => |chunk_ptr| {
                     // Push frame with receiver as self_value
-                    try self.pushFrame(chunk_ptr, receiver);
+                    try self.pushFrame(chunk_ptr, receiver, block_chunk);
 
                     // Copy arguments to locals
                     var frame = self.currentFrame();
@@ -669,7 +716,7 @@ pub const VM = struct {
                 },
                 .builtin => |fun_ptr| {
                     const args_slice = args[0..argc];
-                    const result = try fun_ptr(self, receiver, args_slice);
+                    const result = try fun_ptr(self, receiver, args_slice, block_chunk);
                     try self.push(result);
                 },
             }
@@ -806,7 +853,7 @@ pub const VM = struct {
 
     // ==== Built-in methods ====
 
-    fn builtinObjectNew(self: *VM, receiver: Value, args: []Value) RuntimeError!Value {
+    fn builtinObjectNew(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
         if (args.len != 0) return error.WrongArgumentCount;
 
         // receiver should be a class
@@ -819,7 +866,7 @@ pub const VM = struct {
         }
     }
 
-    fn builtinKernelPuts(self: *VM, _: Value, args: []Value) RuntimeError!Value {
+    fn builtinKernelPuts(self: *VM, _: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
         if (args.len == 0) {
             // puts with no args prints empty line
             self.stdout.?.print("\n", .{}) catch return RuntimeError.RuntimeError;
@@ -831,13 +878,13 @@ pub const VM = struct {
             if (arg.data == .array) {
                 // Special case: flatten arrays, call to_s on each element
                 for (arg.data.array.elements.items) |elem| {
-                    const str_val = try self.callMethodByName(elem, "to_s", &[_]Value{});
+                    const str_val = try self.callMethodByName(elem, "to_s", &[_]Value{}, null);
                     if (str_val.data != .string) return error.RuntimeError;
                     self.stdout.?.print("{s}\n", .{str_val.data.string.str}) catch return RuntimeError.RuntimeError;
                 }
             } else {
                 // Normal case: call to_s on the argument
-                const str_val = try self.callMethodByName(arg, "to_s", &[_]Value{});
+                const str_val = try self.callMethodByName(arg, "to_s", &[_]Value{}, null);
                 if (str_val.data != .string) return error.RuntimeError;
                 self.stdout.?.print("{s}\n", .{str_val.data.string.str}) catch return RuntimeError.RuntimeError;
             }
@@ -847,7 +894,7 @@ pub const VM = struct {
         return Value.nil();
     }
 
-    fn builtinIntegerPlus(_: *VM, receiver: Value, args: []Value) RuntimeError!Value {
+    fn builtinIntegerPlus(_: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
         if (receiver.data != .integer) return error.WrongReceiverType;
         if (args.len != 1) return error.WrongArgumentCount;
         if (args[0].data != .integer) return error.WrongArgumentType;
@@ -856,7 +903,7 @@ pub const VM = struct {
         return Value.integer(result);
     }
 
-    fn builtinIntegerMinus(_: *VM, receiver: Value, args: []Value) RuntimeError!Value {
+    fn builtinIntegerMinus(_: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
         if (receiver.data != .integer) return error.WrongReceiverType;
         if (args.len != 1) return error.WrongArgumentCount;
         if (args[0].data != .integer) return error.WrongArgumentType;
@@ -865,7 +912,7 @@ pub const VM = struct {
         return Value.integer(result);
     }
 
-    fn builtinIntegerEqual(_: *VM, receiver: Value, args: []Value) RuntimeError!Value {
+    fn builtinIntegerEqual(_: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
         if (receiver.data != .integer) return error.WrongReceiverType;
         if (args.len != 1) return error.WrongArgumentCount;
         if (args[0].data != .integer) return error.WrongArgumentType;
@@ -874,7 +921,7 @@ pub const VM = struct {
         return Value.boolean(result);
     }
 
-    fn builtinModuleInclude(self: *VM, receiver: Value, args: []Value) RuntimeError!Value {
+    fn builtinModuleInclude(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
         if (args.len != 1) return error.WrongArgumentCount;
         if (args[0].data != .module) return error.WrongArgumentType;
 
@@ -889,7 +936,7 @@ pub const VM = struct {
         return receiver;
     }
 
-    fn builtinModulePrepend(self: *VM, receiver: Value, args: []Value) RuntimeError!Value {
+    fn builtinModulePrepend(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
         if (args.len != 1) return error.WrongArgumentCount;
         if (args[0].data != .module) return error.WrongArgumentType;
 
@@ -904,7 +951,7 @@ pub const VM = struct {
         return receiver;
     }
 
-    fn builtinArrayPush(self: *VM, receiver: Value, args: []Value) RuntimeError!Value {
+    fn builtinArrayPush(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
         if (receiver.data != .array) return error.WrongReceiverType;
         if (args.len != 1) return error.WrongArgumentCount;
 
@@ -914,7 +961,7 @@ pub const VM = struct {
         return receiver;
     }
 
-    fn builtinIntegerToS(self: *VM, receiver: Value, args: []Value) RuntimeError!Value {
+    fn builtinIntegerToS(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
         if (receiver.data != .integer) return error.WrongReceiverType;
         if (args.len != 0) return error.WrongArgumentCount;
 
@@ -922,14 +969,14 @@ pub const VM = struct {
         return self.newString(str, false);
     }
 
-    fn builtinStringToS(_: *VM, receiver: Value, args: []Value) RuntimeError!Value {
+    fn builtinStringToS(_: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
         if (receiver.data != .string) return error.WrongReceiverType;
         if (args.len != 0) return error.WrongArgumentCount;
 
         return receiver; // String#to_s returns self
     }
 
-    fn builtinSymbolToS(self: *VM, receiver: Value, args: []Value) RuntimeError!Value {
+    fn builtinSymbolToS(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
         if (receiver.data != .symbol) return error.WrongReceiverType;
         if (args.len != 0) return error.WrongArgumentCount;
 
@@ -937,28 +984,28 @@ pub const VM = struct {
         return self.newString(str, false);
     }
 
-    fn builtinNilClassToS(self: *VM, receiver: Value, args: []Value) RuntimeError!Value {
+    fn builtinNilClassToS(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
         if (receiver.data != .nil) return error.WrongReceiverType;
         if (args.len != 0) return error.WrongArgumentCount;
 
         return self.newString("", false);
     }
 
-    fn builtinTrueClassToS(self: *VM, receiver: Value, args: []Value) RuntimeError!Value {
+    fn builtinTrueClassToS(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
         if (receiver.data != .boolean or !receiver.data.boolean) return error.WrongReceiverType;
         if (args.len != 0) return error.WrongArgumentCount;
 
         return self.newString("true", false);
     }
 
-    fn builtinFalseClassToS(self: *VM, receiver: Value, args: []Value) RuntimeError!Value {
+    fn builtinFalseClassToS(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
         if (receiver.data != .boolean or receiver.data.boolean) return error.WrongReceiverType;
         if (args.len != 0) return error.WrongArgumentCount;
 
         return self.newString("false", false);
     }
 
-    fn builtinArrayToS(self: *VM, receiver: Value, args: []Value) RuntimeError!Value {
+    fn builtinArrayToS(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
         if (receiver.data != .array) return error.WrongReceiverType;
         if (args.len != 0) return error.WrongArgumentCount;
 
@@ -970,7 +1017,7 @@ pub const VM = struct {
         for (array.elements.items, 0..) |elem, idx| {
             if (idx > 0) writer.writeAll(", ") catch return error.RuntimeError;
 
-            const elem_str = try self.callMethodByName(elem, "to_s", &[_]Value{});
+            const elem_str = try self.callMethodByName(elem, "to_s", &[_]Value{}, null);
             if (elem_str.data != .string) return error.RuntimeError;
             writer.writeAll(elem_str.data.string.str) catch return error.RuntimeError;
         }
@@ -981,7 +1028,7 @@ pub const VM = struct {
         return self.newString(str, false);
     }
 
-    fn builtinKernelToS(self: *VM, receiver: Value, _: []Value) RuntimeError!Value {
+    fn builtinKernelToS(self: *VM, receiver: Value, _: []Value, _: ?*Chunk) RuntimeError!Value {
         const class = self.getClass(receiver);
         const class_name = class.module.name.name;
 
@@ -1002,11 +1049,11 @@ pub const VM = struct {
 
     // ===== inspect methods =====
 
-    fn builtinIntegerInspect(self: *VM, receiver: Value, args: []Value) RuntimeError!Value {
-        return self.builtinIntegerToS(receiver, args);
+    fn builtinIntegerInspect(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+        return self.builtinIntegerToS(receiver, args, null);
     }
 
-    fn builtinStringInspect(self: *VM, receiver: Value, args: []Value) RuntimeError!Value {
+    fn builtinStringInspect(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
         if (receiver.data != .string) return error.WrongReceiverType;
         if (args.len != 0) return error.WrongArgumentCount;
 
@@ -1042,7 +1089,7 @@ pub const VM = struct {
         return self.newString(str, false);
     }
 
-    fn builtinSymbolInspect(self: *VM, receiver: Value, args: []Value) RuntimeError!Value {
+    fn builtinSymbolInspect(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
         if (receiver.data != .symbol) return error.WrongReceiverType;
         if (args.len != 0) return error.WrongArgumentCount;
 
@@ -1050,22 +1097,22 @@ pub const VM = struct {
         return self.newString(str, false);
     }
 
-    fn builtinNilClassInspect(self: *VM, receiver: Value, args: []Value) RuntimeError!Value {
+    fn builtinNilClassInspect(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
         if (receiver.data != .nil) return error.WrongReceiverType;
         if (args.len != 0) return error.WrongArgumentCount;
 
         return self.newString("nil", false);
     }
 
-    fn builtinTrueClassInspect(self: *VM, receiver: Value, args: []Value) RuntimeError!Value {
-        return self.builtinTrueClassToS(receiver, args);
+    fn builtinTrueClassInspect(self: *VM, receiver: Value, args: []Value, block_chunk: ?*Chunk) RuntimeError!Value {
+        return self.builtinTrueClassToS(receiver, args, block_chunk);
     }
 
-    fn builtinFalseClassInspect(self: *VM, receiver: Value, args: []Value) RuntimeError!Value {
-        return self.builtinFalseClassToS(receiver, args);
+    fn builtinFalseClassInspect(self: *VM, receiver: Value, args: []Value, block_chunk: ?*Chunk) RuntimeError!Value {
+        return self.builtinFalseClassToS(receiver, args, block_chunk);
     }
 
-    fn builtinArrayInspect(self: *VM, receiver: Value, args: []Value) RuntimeError!Value {
+    fn builtinArrayInspect(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
         if (receiver.data != .array) return error.WrongReceiverType;
         if (args.len != 0) return error.WrongArgumentCount;
 
@@ -1077,7 +1124,7 @@ pub const VM = struct {
         for (array.elements.items, 0..) |elem, idx| {
             if (idx > 0) writer.writeAll(", ") catch return error.RuntimeError;
 
-            const elem_inspected = try self.callMethodByName(elem, "inspect", &[_]Value{});
+            const elem_inspected = try self.callMethodByName(elem, "inspect", &[_]Value{}, null);
             if (elem_inspected.data != .string) return error.RuntimeError;
             writer.writeAll(elem_inspected.data.string.str) catch return error.RuntimeError;
         }
@@ -1088,11 +1135,11 @@ pub const VM = struct {
         return self.newString(str, false);
     }
 
-    fn builtinKernelInspect(self: *VM, receiver: Value, args: []Value) RuntimeError!Value {
-        return self.builtinKernelToS(receiver, args);
+    fn builtinKernelInspect(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+        return self.builtinKernelToS(receiver, args, null);
     }
 
-    fn builtinKernelP(self: *VM, _: Value, args: []Value) RuntimeError!Value {
+    fn builtinKernelP(self: *VM, _: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
         if (args.len == 0) {
             self.stdout.?.print("\n", .{}) catch return error.RuntimeError;
             _ = self.stdout.?.flush() catch {};
@@ -1100,7 +1147,7 @@ pub const VM = struct {
         }
 
         for (args, 0..) |arg, idx| {
-            const inspected = try self.callMethodByName(arg, "inspect", &[_]Value{});
+            const inspected = try self.callMethodByName(arg, "inspect", &[_]Value{}, null);
             if (inspected.data != .string) return error.RuntimeError;
 
             if (idx > 0) {

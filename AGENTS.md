@@ -52,10 +52,11 @@ Cora is a Ruby interpreter written in Zig using the Prism parser for AST generat
 - `code: ArrayList(u8)` - Bytecode instructions
 - `constants: ArrayList(Constant)` - Compile-time constants (integer, string, symbol)
 - `line_info: ArrayList(u32)` - Line numbers for debugging
-- `name: []const u8` - Chunk name (e.g., "main", "foo", module/class name)
-- `chunk_id: u8` - Unique ID for method/module chunks
+- `name: []const u8` - Chunk name (e.g., "main", "foo", module/class name, "block")
+- `chunk_id: u8` - Unique ID for method/module/block chunks
+- `arity: u8` - Number of parameters (for blocks and methods)
 
-Module and class bodies are compiled into separate chunks. The main chunk references these via chunk IDs in `DEF_MODULE`, `DEF_CLASS`, and `DEF_METHOD` instructions.
+Module bodies, class bodies, methods, and blocks are all compiled into separate chunks. The main chunk references these via chunk IDs in `DEF_MODULE`, `DEF_CLASS`, `DEF_METHOD` instructions, and the `CALL` instruction's block_chunk_id operand.
 
 **Constant Type** (compile-time, not runtime):
 ```zig
@@ -67,7 +68,7 @@ pub const Constant = union(enum) {
 ```
 Constants are NOT allocated—strings/symbols are borrowed from the Parser AST. The Parser lives as long as the VM, so pointers are valid for VM lifetime.
 
-**OpCodes** (0-19, sequential):
+**OpCodes** (0-20, sequential):
 - `PUSH_NIL` (0), `PUSH_TRUE` (1), `PUSH_FALSE` (2) - Push literal values
 - `PUSH_INT` (3), `PUSH_CONST` (4) - Push constants from pool
 - `GET_LOCAL` (5), `SET_LOCAL` (6) - Access local variables
@@ -78,8 +79,15 @@ Constants are NOT allocated—strings/symbols are borrowed from the Parser AST. 
 - `PUSH_SELF` (17) - Push current self value
 - `PUSH_ARRAY` (18) - Create array (operand: element count)
 - `HALT` (19) - Halt VM
+- `YIELD` (20) - Call the block passed to the current method (operand: argument count)
 
 Note: Arithmetic operators (+, -, ==) are now method calls, not opcodes. They dispatch to builtin methods registered on Integer class.
+
+**CALL Instruction Format:**
+The `CALL` opcode (12) has the following operands:
+- method_idx (U16) - Index into constant pool for method name
+- argc (U8) - Number of arguments
+- block_chunk_id (U8) - Chunk ID of the block (0 if no block)
 
 **CallFrames:** Fixed-size locals (32 slots) stored on stack as part of CallFrame:
 ```zig
@@ -90,9 +98,10 @@ pub const CallFrame = struct {
     self_value: Value,
     locals: [32]Value,    // Fixed-size array (no allocation)
     locals_len: u8,       // Number of initialized locals
+    block_chunk: ?*Chunk, // Block passed to this method (null if no block)
 };
 ```
-This avoids allocating an ArrayList per function call (major performance win for recursive functions).
+This avoids allocating an ArrayList per function call (major performance win for recursive functions). The `block_chunk` field stores the block that was passed to this method, allowing `yield` to execute it.
 
 **Symbol Interning:** `VM.intern(str)` creates a GC-allocated SymbolObject with a canonical string and stores it in `symbols` map. Same string always returns same symbol Value with same memory address. Symbols are frozen objects managed by the GC allocator.
 
@@ -123,6 +132,18 @@ pub const Method = union(enum) {
 };
 ```
 Methods are stored in class/module `.methods` HashMap with SymbolValue keys. Method lookup walks inheritance chain from receiver's class, checking prepended modules → class methods → included modules → superclass (in that order).
+
+**Blocks and Yield:**
+
+Blocks are compiled into separate bytecode chunks, similar to methods. When a method is called with a block:
+
+
+**Block Chunk Structure:**
+Block chunks have:
+- `arity: u8` - Number of parameters the block accepts
+- `name: []const u8` - Usually "block"
+- `chunk_id: u8` - Unique ID used to reference the block
+- Local variables for block parameters
 
 ## Adding Features
 
@@ -209,6 +230,12 @@ const inst = self.newInstance(class_ptr);
 - User-defined methods with parameters
 - Method calls with receivers
 - `self` keyword
+- **Blocks and yield:**
+  - Blocks can be passed to methods: `foo { |x| x + 1 }`
+  - Blocks with 0, 1, or multiple parameters
+  - `yield` calls the block with arguments
+  - Multiple yields per method supported
+  - Arity checking (block parameter count must match yield argument count)
 
 **OOP:**
 - Modules and Classes

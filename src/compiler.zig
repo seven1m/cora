@@ -4,10 +4,12 @@ const chunk = @import("chunk.zig");
 const prism = @import("prism.zig");
 const value = @import("value.zig");
 
+const Chunk = chunk.Chunk;
+
 pub const CompiledProgram = struct {
     allocator: std.mem.Allocator,
-    main_chunk: chunk.Chunk,
-    method_chunks: std.AutoHashMap(u16, *chunk.Chunk),
+    main_chunk: Chunk,
+    method_chunks: std.AutoHashMap(u16, *Chunk),
 
     pub fn deinit(self: *CompiledProgram) void {
         self.main_chunk.deinit();
@@ -31,11 +33,11 @@ pub const Compiler = struct {
     allocator: std.mem.Allocator,
     parser: *prism.Parser,
 
-    current_chunk: *chunk.Chunk,
+    current_chunk: *Chunk,
     locals: std.ArrayList(Local) = .empty,
     scope_depth: usize = 0,
 
-    method_chunks: std.AutoHashMap(u16, *chunk.Chunk),
+    method_chunks: std.AutoHashMap(u16, *Chunk),
     chunk_counter: u16 = 1,
 
     pub fn init(allocator: std.mem.Allocator, parser: *prism.Parser) Compiler {
@@ -43,7 +45,7 @@ pub const Compiler = struct {
             .allocator = allocator,
             .parser = parser,
             .current_chunk = undefined,
-            .method_chunks = std.AutoHashMap(u16, *chunk.Chunk).init(allocator),
+            .method_chunks = std.AutoHashMap(u16, *Chunk).init(allocator),
         };
     }
 
@@ -56,7 +58,7 @@ pub const Compiler = struct {
         var compiler = Compiler.init(allocator, parser);
         defer compiler.deinit();
 
-        var main_chunk = chunk.Chunk.init(allocator, "main");
+        var main_chunk = Chunk.init(allocator, "main");
         compiler.current_chunk = &main_chunk;
 
         const root = try parser.root();
@@ -197,10 +199,19 @@ pub const Compiler = struct {
                     }
                 }
 
-                // Store method name and emit CALL
+                // Check if there's a block attached to the call
+                var block_chunk_id: u8 = 0;
+                if (call_node.block) |block_ptr| {
+                    const block_node = try self.parser.asNode(@ptrCast(block_ptr));
+                    if (block_node == .block) {
+                        block_chunk_id = try self.compileBlock(block_node.block, line);
+                    }
+                }
+
+                // Store method name and emit CALL with block chunk ID
                 const method_name = try self.parser.getConstantName(call_node.name);
                 const method_idx = try self.current_chunk.addConstant(.{ .string = method_name });
-                try self.current_chunk.emitOpU16U8(.CALL, @intCast(method_idx), argc, line);
+                try self.current_chunk.emitOpU16U8U8(.CALL, @intCast(method_idx), argc, block_chunk_id, line);
             },
 
             .if_node => |if_node| {
@@ -242,6 +253,27 @@ pub const Compiler = struct {
                 }
                 // Emit PUSH_ARRAY with element count
                 try self.current_chunk.emitOpU8(.PUSH_ARRAY, element_count, line);
+            },
+
+            .yield => |yield_node| {
+                // Compile yield arguments
+                var argc: u8 = 0;
+                if (yield_node.arguments) |args_ptr| {
+                    const args = @as(*prism.ArgumentsNode, @ptrCast(args_ptr));
+                    var i: usize = 0;
+                    while (i < args.arguments.size) : (i += 1) {
+                        const arg = args.arguments.nodes[i];
+                        const arg_node = try self.parser.asNode(arg);
+                        try self.compileNode(arg_node, line);
+                        argc += 1;
+                    }
+                }
+                // Emit YIELD with argument count
+                try self.current_chunk.emitOpU8(.YIELD, argc, line);
+            },
+
+            .block => |block_node| {
+                _ = try self.compileBlock(block_node, line);
             },
 
             else => {
@@ -298,8 +330,8 @@ pub const Compiler = struct {
         var body_chunk_id: u8 = 0;
         if (module_node.body) |body_ptr| {
             // Allocate chunk on heap
-            const body_chunk_ptr = try self.allocator.create(chunk.Chunk);
-            body_chunk_ptr.* = chunk.Chunk.init(self.allocator, module_name);
+            const body_chunk_ptr = try self.allocator.create(Chunk);
+            body_chunk_ptr.* = Chunk.init(self.allocator, module_name);
 
             // Save the current chunk and switch to the body chunk
             const saved_chunk = self.current_chunk;
@@ -349,8 +381,8 @@ pub const Compiler = struct {
         var body_chunk_id: u8 = 0;
         if (class_node.body) |body_ptr| {
             // Allocate chunk on heap
-            const body_chunk_ptr = try self.allocator.create(chunk.Chunk);
-            body_chunk_ptr.* = chunk.Chunk.init(self.allocator, class_name);
+            const body_chunk_ptr = try self.allocator.create(Chunk);
+            body_chunk_ptr.* = Chunk.init(self.allocator, class_name);
 
             // Save the current chunk and switch to the body chunk
             const saved_chunk = self.current_chunk;
@@ -386,8 +418,8 @@ pub const Compiler = struct {
         const method_name_slice = try self.parser.getConstantName(def_node.name);
 
         // Allocate chunk on heap
-        const method_chunk_ptr = try self.allocator.create(chunk.Chunk);
-        method_chunk_ptr.* = chunk.Chunk.init(self.allocator, method_name_slice);
+        const method_chunk_ptr = try self.allocator.create(Chunk);
+        method_chunk_ptr.* = Chunk.init(self.allocator, method_name_slice);
 
         // Save the current chunk and switch to the method chunk
         const saved_chunk = self.current_chunk;
@@ -440,6 +472,74 @@ pub const Compiler = struct {
 
         // Return a symbol of the method name
         try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(name_idx), line);
+    }
+
+    fn compileBlock(self: *Compiler, block_node: *prism.BlockNode, line: u32) !u8 {
+        // Allocate chunk on heap for the block
+        const block_chunk_ptr = try self.allocator.create(Chunk);
+        block_chunk_ptr.* = Chunk.init(self.allocator, "block");
+
+        // Save the current chunk and switch to the block chunk
+        const saved_chunk = self.current_chunk;
+        const saved_locals_len = self.locals.items.len;
+        self.current_chunk = block_chunk_ptr;
+
+        // Process block parameters (if any)
+        var param_count: u8 = 0;
+        if (block_node.parameters) |params_ptr| {
+            // Block parameters are wrapped in BlockParametersNode
+            const params_node = try self.parser.asNode(@ptrCast(params_ptr));
+            if (params_node == .block_parameters) {
+                const block_params = params_node.block_parameters;
+                if (block_params.parameters) |actual_params_ptr| {
+                    const params = @as(*prism.ParametersNode, @ptrCast(actual_params_ptr));
+                    if (params.requireds.size > 0) {
+                        if (params.requireds.size > 255) {
+                            return error.TooManyParameters;
+                        }
+                        param_count = @as(u8, @intCast(params.requireds.size));
+                        var i: usize = 0;
+                        while (i < params.requireds.size) : (i += 1) {
+                            const param_node = params.requireds.nodes[i];
+                            const param = @as(*prism.RequiredParameterNode, @ptrCast(param_node));
+                            const param_name = try self.parser.getLocalVariableName(param.name);
+                            try self.addLocal(param_name);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Set arity on the chunk
+        block_chunk_ptr.arity = param_count;
+
+        // Compile the block body
+        if (block_node.body) |body_ptr| {
+            const body_node = try self.parser.asNode(@ptrCast(body_ptr));
+            try self.compileNode(body_node, line);
+        } else {
+            // If no body, push nil
+            try self.current_chunk.emitOp(.PUSH_NIL, line);
+        }
+
+        // Emit return instruction
+        try self.current_chunk.emitOp(.RETURN, line);
+
+        // Restore the previous chunk
+        self.current_chunk = saved_chunk;
+        self.locals.items.len = saved_locals_len;
+
+        // Assign unique ID to this block chunk
+        const chunk_id = self.chunk_counter;
+        self.chunk_counter += 1;
+
+        // Store the chunk ID on the chunk itself
+        block_chunk_ptr.chunk_id = @intCast(chunk_id);
+
+        // Store by ID
+        try self.method_chunks.put(chunk_id, block_chunk_ptr);
+
+        return @intCast(chunk_id);
     }
 
     fn addLocal(self: *Compiler, name: []const u8) !void {
