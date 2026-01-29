@@ -1368,3 +1368,29 @@ test "Retry with ensure clause" {
     // Ensure should run only once (after successful completion)
     try std.testing.expectEqualSlices(u8, "cleanup\n", result.stdout);
 }
+
+test "Rescue modifier - no exception returns main value" {
+    const result = try evalCode("42 rescue 99");
+    try std.testing.expectEqual(@as(i64, 42), result.data.integer);
+}
+
+test "Rescue modifier - exception returns rescue value" {
+    const result = try evalCode(
+        \\def fail
+        \\  raise "error"
+        \\end
+        \\fail rescue 100
+    );
+    try std.testing.expectEqual(@as(i64, 100), result.data.integer);
+}
+
+test "Rescue modifier - in assignment" {
+    const result = try evalCode(
+        \\def risky
+        \\  raise "danger"
+        \\end
+        \\x = risky rescue 50
+        \\x
+    );
+    try std.testing.expectEqual(@as(i64, 50), result.data.integer);
+}

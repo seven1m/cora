@@ -301,7 +301,11 @@ pub const Compiler = struct {
                 try self.current_chunk.emitOp(.RETRY, line);
             },
 
-            .rescue, .rescue_modifier => {
+            .rescue_modifier => |rescue_modifier_node| {
+                try self.compileRescueModifierNode(rescue_modifier_node, line);
+            },
+
+            .rescue => {
                 std.debug.print("Error: rescue node should be handled by begin node\n", .{});
                 return error.UnsupportedNode;
             },
@@ -768,6 +772,76 @@ pub const Compiler = struct {
             .else_ip = else_ip,
             .ensure_ip = ensure_ip,
             .ensure_end_ip = ensure_end_ip,
+        });
+    }
+
+    fn compileRescueModifierNode(self: *Compiler, rescue_modifier_node: *prism.RescueModifierNode, line: u32) !void {
+        // Rescue modifier is syntactic sugar for:
+        // begin
+        //   expression
+        // rescue StandardError
+        //   rescue_expression
+        // end
+
+        // Create exception handler entry
+        const handler_idx = self.current_chunk.exception_handlers.items.len;
+
+        // Emit TRY_BEGIN with handler index
+        try self.current_chunk.emitOpU16(.TRY_BEGIN, @intCast(handler_idx), line);
+
+        const try_start_ip = self.current_chunk.code.items.len;
+
+        // Compile the main expression
+        const expression = try self.parser.asNode(@ptrCast(rescue_modifier_node.expression));
+        try self.compileNode(expression, line);
+
+        // Emit TRY_END to mark normal completion
+        try self.current_chunk.emitOp(.TRY_END, line);
+        const try_end_ip = self.current_chunk.code.items.len;
+
+        // Jump over rescue clause on normal completion
+        const jump_over_rescue = try self.current_chunk.emitJump(.JUMP, line);
+
+        // Compile rescue clause (catches StandardError by default)
+        const catch_ip = self.current_chunk.code.items.len;
+
+        // No specific exception types means bare rescue (StandardError)
+        const exception_types: std.ArrayList(u16) = .empty;
+
+        // No variable binding for rescue modifier
+        const var_idx: u8 = 255; // 255 means no binding
+
+        // Emit CATCH_START with no variable binding
+        try self.current_chunk.emitOpU8(.CATCH_START, var_idx, line);
+
+        // Compile the rescue expression (fallback value)
+        const rescue_expression = try self.parser.asNode(@ptrCast(rescue_modifier_node.rescue_expression));
+        try self.compileNode(rescue_expression, line);
+
+        // Emit CATCH_END
+        try self.current_chunk.emitOp(.CATCH_END, line);
+        const catch_end_ip = self.current_chunk.code.items.len;
+
+        // Patch the jump over rescue clause (from normal completion)
+        try self.current_chunk.patchJump(jump_over_rescue);
+
+        // Create the rescue handler
+        var rescue_handlers: std.ArrayList(chunk.RescueHandler) = .empty;
+        try rescue_handlers.append(self.allocator, .{
+            .exception_types = exception_types,
+            .catch_ip = catch_ip,
+            .catch_end_ip = catch_end_ip,
+            .var_idx = null,
+        });
+
+        // Create the exception handler entry (no else or ensure for rescue modifier)
+        try self.current_chunk.exception_handlers.append(self.allocator, .{
+            .try_start_ip = try_start_ip,
+            .try_end_ip = try_end_ip,
+            .rescue_handlers = rescue_handlers,
+            .else_ip = null,
+            .ensure_ip = null,
+            .ensure_end_ip = null,
         });
     }
 };
