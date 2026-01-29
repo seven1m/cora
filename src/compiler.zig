@@ -296,6 +296,11 @@ pub const Compiler = struct {
                 try self.compileBeginNode(begin_node, line);
             },
 
+            .retry => {
+                // Emit RETRY opcode to jump back to the beginning of the begin block
+                try self.current_chunk.emitOp(.RETRY, line);
+            },
+
             .rescue, .rescue_modifier => {
                 std.debug.print("Error: rescue node should be handled by begin node\n", .{});
                 return error.UnsupportedNode;

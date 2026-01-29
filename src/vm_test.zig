@@ -43,7 +43,8 @@ const TestWriter = struct {
 fn evalCode(ruby_code: []const u8) !Value {
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;
-    const result = try evalCodeWithOutput(ruby_code, &stdout_buf, &stderr_buf);
+    const result = evalCodeWithOutput(ruby_code, &stdout_buf, &stderr_buf);
+    if (result.err) |err| return err;
     return result.value;
 }
 
@@ -51,23 +52,45 @@ const EvalResult = struct {
     value: Value,
     stdout: []const u8,
     stderr: []const u8,
+    err: ?anyerror,
 };
 
-fn evalCodeWithOutput(ruby_code: []const u8, stdout_buf: []u8, stderr_buf: []u8) !EvalResult {
+fn evalCodeWithOutput(ruby_code: []const u8, stdout_buf: []u8, stderr_buf: []u8) EvalResult {
     bdwgc.init();
     defer bdwgc.deinit();
 
     const allocator = getAllocator();
 
-    const parser = try prism.Parser.init(allocator, ruby_code);
+    const parser = prism.Parser.init(allocator, ruby_code) catch |err| {
+        return .{
+            .value = Value.nil(),
+            .stdout = "",
+            .stderr = "",
+            .err = err,
+        };
+    };
 
     var vm = VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic, parser);
     defer vm.deinit();
 
-    var program = try compiler.Compiler.compile(allocator, &vm.parser);
+    var program = compiler.Compiler.compile(allocator, &vm.parser) catch |err| {
+        return .{
+            .value = Value.nil(),
+            .stdout = "",
+            .stderr = "",
+            .err = err,
+        };
+    };
     defer program.deinit();
 
-    try vm.prepare(&program);
+    vm.prepare(&program) catch |err| {
+        return .{
+            .value = Value.nil(),
+            .stdout = "",
+            .stderr = "",
+            .err = err,
+        };
+    };
 
     // Set up stdout capture
     var stdout_fbs = std.io.fixedBufferStream(stdout_buf);
@@ -84,13 +107,19 @@ fn evalCodeWithOutput(ruby_code: []const u8, stdout_buf: []u8, stderr_buf: []u8)
         if (err == error.RuntimeError) {
             vm.printUnhandledException();
         }
-        return err;
+        return .{
+            .value = Value.nil(),
+            .stdout = stdout_fbs.getWritten(),
+            .stderr = stderr_fbs.getWritten(),
+            .err = err,
+        };
     };
 
     return .{
         .value = result,
         .stdout = stdout_fbs.getWritten(),
         .stderr = stderr_fbs.getWritten(),
+        .err = null,
     };
 }
 
@@ -444,11 +473,11 @@ test "puts" {
     var stdout_buf: [1024]u8 = undefined;
     var stderr_buf: [1024]u8 = undefined;
 
-    var result = try evalCodeWithOutput("puts [1, 2, 3], [4, 5, 6]", &stdout_buf, &stderr_buf);
+    var result = evalCodeWithOutput("puts [1, 2, 3], [4, 5, 6]", &stdout_buf, &stderr_buf);
     try std.testing.expectEqualStrings("1\n2\n3\n4\n5\n6\n", result.stdout);
     try std.testing.expectEqualStrings("", result.stderr);
 
-    result = try evalCodeWithOutput("puts", &stdout_buf, &stderr_buf);
+    result = evalCodeWithOutput("puts", &stdout_buf, &stderr_buf);
     try std.testing.expectEqualStrings("\n", result.stdout);
     try std.testing.expectEqualStrings("", result.stderr);
 }
@@ -595,7 +624,7 @@ test "p with no arguments" {
     var stdout_buf: [1024]u8 = undefined;
     var stderr_buf: [1024]u8 = undefined;
 
-    const result = try evalCodeWithOutput("p", &stdout_buf, &stderr_buf);
+    const result = evalCodeWithOutput("p", &stdout_buf, &stderr_buf);
     try std.testing.expect(result.value.data == .nil);
     try std.testing.expectEqualStrings("\n", result.stdout);
 }
@@ -604,7 +633,7 @@ test "p with single integer" {
     var stdout_buf: [1024]u8 = undefined;
     var stderr_buf: [1024]u8 = undefined;
 
-    const result = try evalCodeWithOutput("p 42", &stdout_buf, &stderr_buf);
+    const result = evalCodeWithOutput("p 42", &stdout_buf, &stderr_buf);
     try std.testing.expect(result.value.data == .integer);
     try std.testing.expectEqual(@as(i64, 42), result.value.data.integer);
     try std.testing.expectEqualStrings("42\n", result.stdout);
@@ -614,7 +643,7 @@ test "p with single string" {
     var stdout_buf: [1024]u8 = undefined;
     var stderr_buf: [1024]u8 = undefined;
 
-    const result = try evalCodeWithOutput("p \"hello\"", &stdout_buf, &stderr_buf);
+    const result = evalCodeWithOutput("p \"hello\"", &stdout_buf, &stderr_buf);
     try std.testing.expect(result.value.data == .string);
     try std.testing.expectEqualSlices(u8, "hello", result.value.data.string.str);
     try std.testing.expectEqualStrings("\"hello\"\n", result.stdout);
@@ -624,7 +653,7 @@ test "p with multiple integers" {
     var stdout_buf: [1024]u8 = undefined;
     var stderr_buf: [1024]u8 = undefined;
 
-    const result = try evalCodeWithOutput("p 1, 2, 3", &stdout_buf, &stderr_buf);
+    const result = evalCodeWithOutput("p 1, 2, 3", &stdout_buf, &stderr_buf);
     try std.testing.expect(result.value.data == .array);
     try std.testing.expectEqual(@as(usize, 3), result.value.data.array.elements.items.len);
     try std.testing.expectEqualStrings("1\n2\n3\n", result.stdout);
@@ -634,7 +663,7 @@ test "p with mixed types" {
     var stdout_buf: [1024]u8 = undefined;
     var stderr_buf: [1024]u8 = undefined;
 
-    const result = try evalCodeWithOutput("p 42, \"hello\", :foo", &stdout_buf, &stderr_buf);
+    const result = evalCodeWithOutput("p 42, \"hello\", :foo", &stdout_buf, &stderr_buf);
     try std.testing.expect(result.value.data == .array);
     try std.testing.expectEqual(@as(usize, 3), result.value.data.array.elements.items.len);
     try std.testing.expectEqualStrings("42\n\"hello\"\n:foo\n", result.stdout);
@@ -680,7 +709,7 @@ test "Block with no parameters" {
 test "Lexical scope: nested module constants" {
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;
-    const result = try evalCodeWithOutput(
+    const result = evalCodeWithOutput(
         \\X = 999
         \\module A
         \\  X = 42
@@ -756,40 +785,38 @@ test "Raise with string message creates RuntimeError" {
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;
 
-    const eval_result = evalCodeWithOutput("raise \"something went wrong\"", &stdout_buf, &stderr_buf);
+    const result = evalCodeWithOutput("raise \"something went wrong\"", &stdout_buf, &stderr_buf);
 
     // Should get RuntimeError
-    try std.testing.expectError(error.RuntimeError, eval_result);
+    try std.testing.expectEqual(error.RuntimeError, result.err.?);
 
     // Check stderr contains exception info
-    const stderr_output = std.mem.trim(u8, stderr_buf[0..], &std.ascii.whitespace);
-    try std.testing.expect(std.mem.indexOf(u8, stderr_output, "RuntimeError") != null);
-    try std.testing.expect(std.mem.indexOf(u8, stderr_output, "something went wrong") != null);
-    try std.testing.expect(std.mem.indexOf(u8, stderr_output, "Backtrace:") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "RuntimeError") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "something went wrong") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "Backtrace:") != null);
 }
 
 test "Raise with exception class and message" {
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;
 
-    const eval_result = evalCodeWithOutput(
+    const result = evalCodeWithOutput(
         "raise ArgumentError, \"expected 2 arguments\"",
         &stdout_buf,
         &stderr_buf,
     );
 
-    try std.testing.expectError(error.RuntimeError, eval_result);
+    try std.testing.expectEqual(error.RuntimeError, result.err.?);
 
-    const stderr_output = std.mem.trim(u8, stderr_buf[0..], &std.ascii.whitespace);
-    try std.testing.expect(std.mem.indexOf(u8, stderr_output, "ArgumentError") != null);
-    try std.testing.expect(std.mem.indexOf(u8, stderr_output, "expected 2 arguments") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "ArgumentError") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "expected 2 arguments") != null);
 }
 
 test "Nested method calls show full backtrace" {
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;
 
-    const eval_result = evalCodeWithOutput(
+    const result = evalCodeWithOutput(
         \\def bar
         \\  raise "deep error"
         \\end
@@ -801,56 +828,51 @@ test "Nested method calls show full backtrace" {
         \\foo
     , &stdout_buf, &stderr_buf);
 
-    try std.testing.expectError(error.RuntimeError, eval_result);
+    try std.testing.expectEqual(error.RuntimeError, result.err.?);
 
-    const stderr_output = std.mem.trim(u8, stderr_buf[0..], &std.ascii.whitespace);
-    try std.testing.expect(std.mem.indexOf(u8, stderr_output, "deep error") != null);
-    try std.testing.expect(std.mem.indexOf(u8, stderr_output, "Backtrace:") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "deep error") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "Backtrace:") != null);
     // Both methods should appear in backtrace
-    try std.testing.expect(std.mem.indexOf(u8, stderr_output, "bar") != null);
-    try std.testing.expect(std.mem.indexOf(u8, stderr_output, "foo") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "bar") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "foo") != null);
 }
 
 test "Code before raise executes normally" {
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;
 
-    const eval_result = evalCodeWithOutput(
+    const result = evalCodeWithOutput(
         \\puts "before raise"
         \\raise "error"
         \\puts "after raise"
     , &stdout_buf, &stderr_buf);
 
-    try std.testing.expectError(error.RuntimeError, eval_result);
+    try std.testing.expectEqual(error.RuntimeError, result.err.?);
 
-    const stdout_output = std.mem.trim(u8, stdout_buf[0..], &std.ascii.whitespace);
-    // Code before raise should execute
-    try std.testing.expect(std.mem.indexOf(u8, stdout_output, "before raise") != null);
-    // Code after raise should NOT execute
-    try std.testing.expect(std.mem.indexOf(u8, stdout_output, "after raise") == null);
+    // Code before raise should execute, code after should NOT
+    try std.testing.expectEqualSlices(u8, "before raise\n", result.stdout);
 }
 
 test "Raise with empty message" {
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;
 
-    const eval_result = evalCodeWithOutput(
+    const result = evalCodeWithOutput(
         "raise ArgumentError",
         &stdout_buf,
         &stderr_buf,
     );
 
-    try std.testing.expectError(error.RuntimeError, eval_result);
+    try std.testing.expectEqual(error.RuntimeError, result.err.?);
 
-    const stderr_output = std.mem.trim(u8, stderr_buf[0..], &std.ascii.whitespace);
-    try std.testing.expect(std.mem.indexOf(u8, stderr_output, "ArgumentError") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "ArgumentError") != null);
 }
 
 test "Begin/rescue catches exception" {
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;
 
-    const result = try evalCodeWithOutput(
+    const result = evalCodeWithOutput(
         \\begin
         \\  raise "error"
         \\rescue
@@ -859,10 +881,10 @@ test "Begin/rescue catches exception" {
     , &stdout_buf, &stderr_buf);
 
     // Rescue should catch the exception, so no error is raised
+    try std.testing.expect(result.err == null);
     try std.testing.expect(result.value.data == .nil);
 
-    const stdout_output = std.mem.trim(u8, stdout_buf[0..], &std.ascii.whitespace);
-    try std.testing.expect(std.mem.indexOf(u8, stdout_output, "caught") != null);
+    try std.testing.expectEqualSlices(u8, "caught\n", result.stdout);
 }
 
 test "Begin/rescue returns value from rescue" {
@@ -904,30 +926,29 @@ test "NoMethodError raised for undefined method" {
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;
 
-    const eval_result = evalCodeWithOutput(
+    const result = evalCodeWithOutput(
         \\class Foo
         \\end
         \\Foo.new.bar
     , &stdout_buf, &stderr_buf);
 
-    try std.testing.expectError(error.RuntimeError, eval_result);
+    try std.testing.expectEqual(error.RuntimeError, result.err.?);
 
-    const stderr_output = std.mem.trim(u8, stderr_buf[0..], &std.ascii.whitespace);
-    try std.testing.expect(std.mem.indexOf(u8, stderr_output, "NoMethodError") != null);
-    try std.testing.expect(std.mem.indexOf(u8, stderr_output, "bar") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "NoMethodError") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "bar") != null);
 }
 
 test "TypeError raised for wrong receiver type" {
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;
 
-    const eval_result = evalCodeWithOutput(
+    const result = evalCodeWithOutput(
         "true + 1",
         &stdout_buf,
         &stderr_buf,
     );
 
-    try std.testing.expectError(error.RuntimeError, eval_result);
+    try std.testing.expectEqual(error.RuntimeError, result.err.?);
     // Note: Exception is raised, but message content checking depends on implementation
 }
 
@@ -958,35 +979,33 @@ test "ArgumentError raised for no block given" {
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;
 
-    const eval_result = evalCodeWithOutput(
+    const result = evalCodeWithOutput(
         \\def foo
         \\  yield 1
         \\end
         \\foo
     , &stdout_buf, &stderr_buf);
 
-    try std.testing.expectError(error.RuntimeError, eval_result);
+    try std.testing.expectEqual(error.RuntimeError, result.err.?);
 
-    const stderr_output = std.mem.trim(u8, stderr_buf[0..], &std.ascii.whitespace);
-    try std.testing.expect(std.mem.indexOf(u8, stderr_output, "ArgumentError") != null);
-    try std.testing.expect(std.mem.indexOf(u8, stderr_output, "no block given") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "ArgumentError") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "no block given") != null);
 }
 
 test "ArgumentError raised for wrong block arity" {
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;
 
-    const eval_result = evalCodeWithOutput(
+    const result = evalCodeWithOutput(
         \\def foo
         \\  yield 1
         \\end
         \\foo { |a, b| a + b }
     , &stdout_buf, &stderr_buf);
 
-    try std.testing.expectError(error.RuntimeError, eval_result);
+    try std.testing.expectEqual(error.RuntimeError, result.err.?);
 
-    const stderr_output = std.mem.trim(u8, stderr_buf[0..], &std.ascii.whitespace);
-    try std.testing.expect(std.mem.indexOf(u8, stderr_output, "ArgumentError") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "ArgumentError") != null);
 }
 
 test "Nested begin/rescue" {
@@ -1008,7 +1027,7 @@ test "Re-raise in rescue clause" {
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;
 
-    const result = try evalCodeWithOutput(
+    const result = evalCodeWithOutput(
         \\begin
         \\  begin
         \\    raise "original"
@@ -1021,15 +1040,16 @@ test "Re-raise in rescue clause" {
     , &stdout_buf, &stderr_buf);
 
     // Outer rescue catches the re-raised exception
+    try std.testing.expect(result.err == null);
     try std.testing.expect(result.value.data == .nil);
-    try std.testing.expect(std.mem.indexOf(u8, stdout_buf[0..], "final") != null);
+    try std.testing.expectEqualSlices(u8, "final\n", result.stdout);
 }
 
 test "Exception with backtrace shows call stack" {
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;
 
-    const eval_result = evalCodeWithOutput(
+    const result = evalCodeWithOutput(
         \\def inner
         \\  raise "deep error"
         \\end
@@ -1042,13 +1062,12 @@ test "Exception with backtrace shows call stack" {
         \\outer
     , &stdout_buf, &stderr_buf);
 
-    try std.testing.expectError(error.RuntimeError, eval_result);
+    try std.testing.expectEqual(error.RuntimeError, result.err.?);
 
-    const stderr_output = std.mem.trim(u8, stderr_buf[0..], &std.ascii.whitespace);
-    try std.testing.expect(std.mem.indexOf(u8, stderr_output, "Backtrace:") != null);
-    try std.testing.expect(std.mem.indexOf(u8, stderr_output, "inner") != null);
-    try std.testing.expect(std.mem.indexOf(u8, stderr_output, "middle") != null);
-    try std.testing.expect(std.mem.indexOf(u8, stderr_output, "outer") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "Backtrace:") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "inner") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "middle") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "outer") != null);
 }
 
 test "Exception class hierarchy - StandardError caught by bare rescue" {
@@ -1212,7 +1231,7 @@ test "Ensure clause runs on normal completion" {
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;
 
-    const eval_result = evalCodeWithOutput(
+    const result = evalCodeWithOutput(
         \\result = begin
         \\  42
         \\ensure
@@ -1221,18 +1240,17 @@ test "Ensure clause runs on normal completion" {
         \\result
     , &stdout_buf, &stderr_buf);
 
-    const result = try eval_result;
+    try std.testing.expect(result.err == null);
     try std.testing.expectEqual(@as(i64, 42), result.value.data.integer);
 
-    const stdout_output = std.mem.trim(u8, stdout_buf[0..], &std.ascii.whitespace);
-    try std.testing.expect(std.mem.indexOf(u8, stdout_output, "cleanup") != null);
+    try std.testing.expectEqualSlices(u8, "cleanup\n", result.stdout);
 }
 
 test "Ensure clause runs after rescue" {
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;
 
-    const eval_result = evalCodeWithOutput(
+    const result = evalCodeWithOutput(
         \\result = begin
         \\  raise "error"
         \\rescue
@@ -1243,18 +1261,17 @@ test "Ensure clause runs after rescue" {
         \\result
     , &stdout_buf, &stderr_buf);
 
-    const result = try eval_result;
+    try std.testing.expect(result.err == null);
     try std.testing.expectEqual(@as(i64, 100), result.value.data.integer);
 
-    const stdout_output = std.mem.trim(u8, stdout_buf[0..], &std.ascii.whitespace);
-    try std.testing.expect(std.mem.indexOf(u8, stdout_output, "cleanup") != null);
+    try std.testing.expectEqualSlices(u8, "cleanup\n", result.stdout);
 }
 
 test "Ensure clause runs during unwinding" {
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;
 
-    const eval_result = evalCodeWithOutput(
+    const result = evalCodeWithOutput(
         \\begin
         \\  raise "error"
         \\ensure
@@ -1262,10 +1279,9 @@ test "Ensure clause runs during unwinding" {
         \\end
     , &stdout_buf, &stderr_buf);
 
-    try std.testing.expectError(error.RuntimeError, eval_result);
+    try std.testing.expectEqual(error.RuntimeError, result.err.?);
 
-    const stdout_output = std.mem.trim(u8, stdout_buf[0..], &std.ascii.whitespace);
-    try std.testing.expect(std.mem.indexOf(u8, stdout_output, "cleanup during unwind") != null);
+    try std.testing.expectEqualSlices(u8, "cleanup during unwind\n", result.stdout);
 }
 
 test "Ensure return value is ignored" {
@@ -1279,7 +1295,7 @@ test "Ensure return value is ignored" {
     try std.testing.expectEqual(@as(i64, 42), result.data.integer);
 }
 
-test "All clauses together - normal completion" {
+test "All begin clauses together - normal completion" {
     const result = try evalCode(
         \\begin
         \\  10
@@ -1294,7 +1310,7 @@ test "All clauses together - normal completion" {
     try std.testing.expectEqual(@as(i64, 30), result.data.integer);
 }
 
-test "All clauses together - with exception" {
+test "All begin clauses together - with exception" {
     const result = try evalCode(
         \\begin
         \\  raise "error"
@@ -1307,4 +1323,48 @@ test "All clauses together - with exception" {
         \\end
     );
     try std.testing.expectEqual(@as(i64, 50), result.data.integer);
+}
+
+test "Retry basic - retry until counter reaches target" {
+    const result = try evalCode(
+        \\count = 0
+        \\begin
+        \\  count = count + 1
+        \\  if count == 3
+        \\    10
+        \\  else
+        \\    raise "error"
+        \\  end
+        \\rescue
+        \\  retry
+        \\end
+    );
+    try std.testing.expectEqual(@as(i64, 10), result.data.integer);
+}
+
+test "Retry with ensure clause" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+
+    const result = evalCodeWithOutput(
+        \\count = 0
+        \\begin
+        \\  count = count + 1
+        \\  if count == 2
+        \\    42
+        \\  else
+        \\    raise "retry"
+        \\  end
+        \\rescue
+        \\  retry
+        \\ensure
+        \\  puts "cleanup"
+        \\end
+    , &stdout_buf, &stderr_buf);
+
+    try std.testing.expect(result.err == null);
+    try std.testing.expectEqual(@as(i64, 42), result.value.data.integer);
+
+    // Ensure should run only once (after successful completion)
+    try std.testing.expectEqualSlices(u8, "cleanup\n", result.stdout);
 }

@@ -881,10 +881,39 @@ pub const VM = struct {
             .TRY_BEGIN => {
                 // Skip the handler index operand
                 _ = self.readU16();
+
+                // Save retry point (current frame and IP after TRY_BEGIN)
+                // This allows 'retry' to jump back to the beginning of the begin block
+                self.retry_point = .{
+                    .frame_idx = self.frames.items.len - 1,
+                    .ip = self.currentFrame().ip,
+                };
             },
 
-            .TRY_END, .CATCH_END, .RETRY, .ENSURE_START => {
+            .TRY_END, .CATCH_END, .ENSURE_START => {
                 // These opcodes are just markers, no action needed during normal execution
+            },
+
+            .RETRY => {
+                // Jump back to the beginning of the current begin block
+                if (self.retry_point) |retry_pt| {
+                    // Verify we're in the same frame
+                    const current_frame_idx = self.frames.items.len - 1;
+                    if (retry_pt.frame_idx == current_frame_idx) {
+                        // Clear pending exception (if any) - we're starting fresh
+                        self.pending_exception = null;
+
+                        // Jump back to the saved retry point
+                        var current_frame = self.currentFrame();
+                        current_frame.ip = retry_pt.ip;
+                    } else {
+                        // Retry called from wrong frame - this shouldn't happen with proper compilation
+                        return error.RuntimeError;
+                    }
+                } else {
+                    // No retry point set - retry called outside of rescue block
+                    return error.RuntimeError;
+                }
             },
 
             .ENSURE_END => {
