@@ -883,8 +883,19 @@ pub const VM = struct {
                 _ = self.readU16();
             },
 
-            .TRY_END, .CATCH_END, .ENSURE_START, .ENSURE_END, .RETRY => {
+            .TRY_END, .CATCH_END, .RETRY, .ENSURE_START => {
                 // These opcodes are just markers, no action needed during normal execution
+            },
+
+            .ENSURE_END => {
+                // Pop the ensure block's return value (it's ignored)
+                _ = self.pop();
+
+                // If there's a pending exception, re-raise it after ensure block
+                if (self.pending_exception != null) {
+                    try self.unwindStack();
+                }
+                // Otherwise, ensure block completed normally
             },
 
             .CATCH_START => {

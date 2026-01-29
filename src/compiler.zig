@@ -707,22 +707,62 @@ pub const Compiler = struct {
         // Patch the jump over rescue clauses (from normal completion)
         try self.current_chunk.patchJump(jump_over_rescue);
 
-        // Patch all rescue clause end jumps to jump here
+        // Else clause (only runs if no exception was raised)
+        var else_ip: ?usize = null;
+        if (begin_node.else_clause) |else_ptr| {
+            else_ip = self.current_chunk.code.items.len;
+            const else_node = try self.parser.asNode(@ptrCast(else_ptr));
+
+            // Compile else body
+            if (else_node == .else_node) {
+                if (else_node.else_node.statements) |statements_ptr| {
+                    const statements = try self.parser.asNode(@ptrCast(statements_ptr));
+                    try self.compileNode(statements, line);
+                } else {
+                    try self.current_chunk.emitOp(.PUSH_NIL, line);
+                }
+            }
+        }
+
+        // Patch all rescue clause end jumps to skip the else clause
         for (rescue_end_jumps.items) |jump_pos| {
             try self.current_chunk.patchJump(jump_pos);
         }
 
-        // TODO: Handle else clause (runs only if no exception)
-        // TODO: Handle ensure clause (always runs)
+        // Ensure clause (always runs)
+        var ensure_ip: ?usize = null;
+        var ensure_end_ip: ?usize = null;
+        if (begin_node.ensure_clause) |ensure_ptr| {
+            ensure_ip = self.current_chunk.code.items.len;
+
+            // Emit ENSURE_START
+            try self.current_chunk.emitOp(.ENSURE_START, line);
+
+            const ensure_node = try self.parser.asNode(@ptrCast(ensure_ptr));
+
+            // Compile ensure body
+            if (ensure_node == .ensure) {
+                if (ensure_node.ensure.statements) |statements_ptr| {
+                    const statements = try self.parser.asNode(@ptrCast(statements_ptr));
+                    try self.compileNode(statements, line);
+                } else {
+                    try self.current_chunk.emitOp(.PUSH_NIL, line);
+                }
+            }
+
+            // Emit ENSURE_END
+            try self.current_chunk.emitOp(.ENSURE_END, line);
+            ensure_end_ip = self.current_chunk.code.items.len;
+        }
 
         // Create the exception handler entry
         try self.current_chunk.exception_handlers.append(self.allocator, .{
             .try_start_ip = try_start_ip,
             .try_end_ip = try_end_ip,
             .rescue_handlers = rescue_handlers,
-            .else_ip = null, // TODO
-            .ensure_ip = null, // TODO
-            .ensure_end_ip = null, // TODO
+            .else_ip = else_ip,
+            .ensure_ip = ensure_ip,
+            .ensure_end_ip = ensure_end_ip,
         });
     }
 };

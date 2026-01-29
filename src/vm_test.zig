@@ -887,55 +887,6 @@ test "Begin/rescue with no exception executes protected code" {
     try std.testing.expectEqual(@as(i64, 15), result.data.integer);
 }
 
-// NOTE: Exception type matching not fully implemented yet - compiler stores constant indices
-// but VM doesn't resolve them to class objects. For now, all rescue clauses match.
-// TODO: Implement constant resolution in findExceptionHandler()
-
-// test "Multiple rescue clauses - first matching" {
-//     const result = try evalCode(
-//         \\begin
-//         \\  raise ArgumentError, "wrong"
-//         \\rescue TypeError
-//         \\  1
-//         \\rescue ArgumentError
-//         \\  2
-//         \\rescue
-//         \\  3
-//         \\end
-//     );
-//     try std.testing.expectEqual(@as(i64, 2), result.data.integer);
-// }
-
-// test "Multiple rescue clauses - fallback to bare rescue" {
-//     const result = try evalCode(
-//         \\begin
-//         \\  raise "some error"
-//         \\rescue TypeError
-//         \\  1
-//         \\rescue ArgumentError
-//         \\  2
-//         \\rescue
-//         \\  3
-//         \\end
-//     );
-//     try std.testing.expectEqual(@as(i64, 3), result.data.integer);
-// }
-
-// NOTE: Exception.message accessor not implemented yet. The ExceptionObject stores the message
-// but there's no Ruby method to access it yet.
-// TODO: Add message accessor method to Exception class
-
-// test "Rescue with variable binding" {
-//     const result = try evalCode(
-//         \\begin
-//         \\  raise RuntimeError, "my message"
-//         \\rescue => e
-//         \\  e.message
-//         \\end
-//     );
-//     try std.testing.expect(result.data == .string);
-//     try std.testing.expectEqualSlices(u8, "my message", result.data.string.str);
-// }
 
 test "Rescue with variable binding - capture exception" {
     const result = try evalCode(
@@ -1229,4 +1180,131 @@ test "Normal execution skips rescue clause" {
         \\end
     );
     try std.testing.expectEqual(@as(i64, 15), result.data.integer);
+}
+
+test "Else clause runs on normal completion" {
+    const result = try evalCode(
+        \\begin
+        \\  10
+        \\rescue
+        \\  20
+        \\else
+        \\  30
+        \\end
+    );
+    try std.testing.expectEqual(@as(i64, 30), result.data.integer);
+}
+
+test "Else clause does not run when exception is rescued" {
+    const result = try evalCode(
+        \\begin
+        \\  raise "error"
+        \\rescue
+        \\  40
+        \\else
+        \\  50
+        \\end
+    );
+    try std.testing.expectEqual(@as(i64, 40), result.data.integer);
+}
+
+test "Ensure clause runs on normal completion" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+
+    const eval_result = evalCodeWithOutput(
+        \\result = begin
+        \\  42
+        \\ensure
+        \\  puts "cleanup"
+        \\end
+        \\result
+    , &stdout_buf, &stderr_buf);
+
+    const result = try eval_result;
+    try std.testing.expectEqual(@as(i64, 42), result.value.data.integer);
+
+    const stdout_output = std.mem.trim(u8, stdout_buf[0..], &std.ascii.whitespace);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_output, "cleanup") != null);
+}
+
+test "Ensure clause runs after rescue" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+
+    const eval_result = evalCodeWithOutput(
+        \\result = begin
+        \\  raise "error"
+        \\rescue
+        \\  100
+        \\ensure
+        \\  puts "cleanup"
+        \\end
+        \\result
+    , &stdout_buf, &stderr_buf);
+
+    const result = try eval_result;
+    try std.testing.expectEqual(@as(i64, 100), result.value.data.integer);
+
+    const stdout_output = std.mem.trim(u8, stdout_buf[0..], &std.ascii.whitespace);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_output, "cleanup") != null);
+}
+
+test "Ensure clause runs during unwinding" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+
+    const eval_result = evalCodeWithOutput(
+        \\begin
+        \\  raise "error"
+        \\ensure
+        \\  puts "cleanup during unwind"
+        \\end
+    , &stdout_buf, &stderr_buf);
+
+    try std.testing.expectError(error.RuntimeError, eval_result);
+
+    const stdout_output = std.mem.trim(u8, stdout_buf[0..], &std.ascii.whitespace);
+    try std.testing.expect(std.mem.indexOf(u8, stdout_output, "cleanup during unwind") != null);
+}
+
+test "Ensure return value is ignored" {
+    const result = try evalCode(
+        \\begin
+        \\  42
+        \\ensure
+        \\  999
+        \\end
+    );
+    try std.testing.expectEqual(@as(i64, 42), result.data.integer);
+}
+
+test "All clauses together - normal completion" {
+    const result = try evalCode(
+        \\begin
+        \\  10
+        \\rescue
+        \\  20
+        \\else
+        \\  30
+        \\ensure
+        \\  40
+        \\end
+    );
+    try std.testing.expectEqual(@as(i64, 30), result.data.integer);
+}
+
+test "All clauses together - with exception" {
+    const result = try evalCode(
+        \\begin
+        \\  raise "error"
+        \\rescue
+        \\  50
+        \\else
+        \\  60
+        \\ensure
+        \\  70
+        \\end
+    );
+    try std.testing.expectEqual(@as(i64, 50), result.data.integer);
 }
