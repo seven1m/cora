@@ -1,0 +1,53 @@
+const value_test = @import("test/value_test.zig");
+const prism_test = @import("test/prism_test.zig");
+const binary_test = @import("test/binary_test.zig");
+
+const core_array_test = @import("test/core/array_test.zig");
+const core_class_test = @import("test/core/class_test.zig");
+const core_exception_test = @import("test/core/exception_test.zig");
+const core_false_test = @import("test/core/false_test.zig");
+const core_integer_test = @import("test/core/integer_test.zig");
+const core_kernel_test = @import("test/core/kernel_test.zig");
+const core_module_test = @import("test/core/module_test.zig");
+const core_nil_test = @import("test/core/nil_test.zig");
+const core_string_test = @import("test/core/string_test.zig");
+const core_symbol_test = @import("test/core/symbol_test.zig");
+const core_true_test = @import("test/core/true_test.zig");
+
+const language_backtrace_test = @import("test/language/backtrace_test.zig");
+const language_block_test = @import("test/language/block_test.zig");
+const language_constant_test = @import("test/language/constant_test.zig");
+const language_ensure_test = @import("test/language/ensure_test.zig");
+const language_if_test = @import("test/language/if_test.zig");
+const language_method_test = @import("test/language/method_test.zig");
+const language_raise_test = @import("test/language/raise_test.zig");
+const language_rescue_else_test = @import("test/language/rescue_else_test.zig");
+const language_rescue_test = @import("test/language/rescue_test.zig");
+const language_retry_test = @import("test/language/retry_test.zig");
+
+comptime {
+    _ = value_test;
+    _ = prism_test;
+    _ = binary_test;
+    _ = core_class_test;
+    _ = core_array_test;
+    _ = core_exception_test;
+    _ = core_false_test;
+    _ = core_integer_test;
+    _ = core_kernel_test;
+    _ = core_module_test;
+    _ = core_nil_test;
+    _ = core_string_test;
+    _ = core_symbol_test;
+    _ = core_true_test;
+    _ = language_backtrace_test;
+    _ = language_block_test;
+    _ = language_constant_test;
+    _ = language_ensure_test;
+    _ = language_if_test;
+    _ = language_method_test;
+    _ = language_raise_test;
+    _ = language_rescue_else_test;
+    _ = language_rescue_test;
+    _ = language_retry_test;
+}
