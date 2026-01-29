@@ -909,6 +909,17 @@ test "Begin/rescue with no exception executes protected code" {
     try std.testing.expectEqual(@as(i64, 15), result.data.integer);
 }
 
+test "Exception#message returns message string" {
+    const result = try evalCode(
+        \\begin
+        \\  raise RuntimeError, "my message"
+        \\rescue => e
+        \\  e.message
+        \\end
+    );
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "my message", result.data.string.str);
+}
 
 test "Rescue with variable binding - capture exception" {
     const result = try evalCode(

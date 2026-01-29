@@ -287,6 +287,10 @@ pub const VM = struct {
         const raise_sym = try self.intern("raise");
         try self.kernel_module.methods.put(raise_sym, .{ .builtin = &builtinKernelRaise });
 
+        // Register Exception#message method
+        const message_sym = try self.intern("message");
+        try self.exception_class.module.methods.put(message_sym, .{ .builtin = &builtinExceptionMessage });
+
         // --- Stage 6: Initialize top-level lexical scope ---
         self.current_lexical_scope = try self.createLexicalScope(&self.object_class.module, null);
     }
@@ -1919,6 +1923,31 @@ pub const VM = struct {
         };
 
         return exc;
+    }
+
+    fn builtinExceptionMessage(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+        if (receiver.data != .exception) {
+            const exc = try self.createException(
+                self.type_error_class,
+                "receiver is not an Exception",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        if (args.len != 0) {
+            const msg = std.fmt.allocPrint(
+                self.gc_allocator,
+                "wrong number of arguments (given {d}, expected 0)",
+                .{args.len},
+            ) catch unreachable;
+            const exc = try self.createException(self.argument_error_class, msg);
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        const exc = receiver.data.exception;
+        return .{ .data = .{ .string = exc.message } };
     }
 
     /// Capture the current call stack as a backtrace
