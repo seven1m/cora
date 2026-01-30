@@ -8,31 +8,7 @@ This document tracks language features needed to run ruby/spec tests instead of 
 
 ## Critical Path to ruby/spec Support
 
-### Phase 1: Core Data Structures (Required for ANY spec file)
-
-#### 1. Hash Literals ⭐ **CRITICAL**
-**Status:** Not implemented
-**Prism Support:** ✅ `PM_HASH_NODE`
-**Blocker Level:** 🔴 Critical - Hashes are pervasive in Ruby code
-
-**Syntax needed:**
-```ruby
-{x: 9}                    # Symbol key syntax
-{"a" => 10}               # String key with hash rocket
-{a: 1, "b" => 2}          # Mixed syntax
-{}                        # Empty hash
-```
-
-**Implementation tasks:**
-- [ ] Add `hash: *HashNode` to `Node` union in `src/prism.zig`
-- [ ] Add `HashObject` to `Value.data` union in `src/value.zig`
-- [ ] Implement `HashObject` structure with key-value storage (likely using HashMap)
-- [ ] Add hash compilation in `src/compiler.zig`
-- [ ] Add `PUSH_HASH` opcode to `src/bytecode.zig`
-- [ ] Implement hash VM execution in `src/vm.zig`
-- [ ] Add builtin hash methods: `[]`, `[]=`, `keys`, `values`, `each`, etc.
-
-#### 2. Proc and Lambda ⭐ **CRITICAL**
+#### Proc and Lambda ⭐ **CRITICAL**
 **Status:** Not implemented (blocks exist, but not as first-class objects)
 **Prism Support:** ✅ `PM_LAMBDA_NODE`
 **Blocker Level:** 🔴 Critical - Testing frameworks rely on Proc objects
@@ -56,7 +32,7 @@ Proc.new { |x| x + 1 }    # Proc constructor
 - [ ] Handle proc vs lambda semantics (return behavior, arity checking)
 - [ ] Implement `proc { }` and `Proc.new` global methods
 
-#### 3. Module/Require System ⭐ **CRITICAL**
+#### Module/Require System ⭐ **CRITICAL**
 **Status:** Not implemented
 **Prism Support:** ✅ (require is just a method call, but needs VM support)
 **Blocker Level:** 🔴 Critical - Can't load spec framework or fixtures
@@ -76,9 +52,7 @@ require_relative 'fixtures/block'
 - [ ] Handle circular dependencies
 - [ ] Integrate with existing file parser/compiler pipeline
 
-### Phase 2: Advanced Block Parameters
-
-#### 4. Splat/Rest Parameters ⭐ **HIGH PRIORITY**
+#### Splat/Rest Parameters ⭐ **HIGH PRIORITY**
 **Status:** Not implemented
 **Prism Support:** ✅ `PM_REST_PARAMETER_NODE`
 **Blocker Level:** 🟡 High - Common in Ruby APIs
@@ -99,7 +73,7 @@ def foo(*args); end        # Method rest args
 - [ ] Implement argument splatting in CALL/YIELD opcodes
 - [ ] Handle array destructuring into rest args
 
-#### 5. Optional/Default Parameters ⭐ **HIGH PRIORITY**
+#### Optional/Default Parameters ⭐ **HIGH PRIORITY**
 **Status:** Not implemented
 **Prism Support:** ✅ `PM_OPTIONAL_PARAMETER_NODE`
 **Blocker Level:** 🟡 High - Common pattern
@@ -118,7 +92,7 @@ def foo(a=5, b=10); end    # Method optional params
 - [ ] Handle argument assignment with defaults in VM
 - [ ] Support complex pre/optional/post combinations
 
-#### 6. Keyword Arguments ⭐ **MEDIUM PRIORITY**
+#### Keyword Arguments ⭐ **MEDIUM PRIORITY**
 **Status:** Not implemented
 **Prism Support:** ✅ `PM_OPTIONAL_KEYWORD_PARAMETER_NODE`, `PM_REQUIRED_KEYWORD_PARAMETER_NODE`, `PM_KEYWORD_REST_PARAMETER_NODE`
 **Blocker Level:** 🟠 Medium - Increasingly common in modern Ruby
@@ -139,7 +113,7 @@ def foo(**nil); end              # Disallow keywords
 - [ ] Handle `**nil` (no keywords allowed)
 - [ ] Implement keyword argument validation
 
-#### 7. Block-local Variables
+#### Block-local Variables
 **Status:** Not implemented
 **Prism Support:** ✅ (part of block parameters)
 **Blocker Level:** 🟠 Medium - Used in careful scoping
@@ -156,7 +130,7 @@ def foo(**nil); end              # Disallow keywords
 - [ ] Prevent outer scope shadowing
 - [ ] Ensure block-local vars don't leak to outer scope
 
-#### 8. Nested Parameter Destructuring
+#### Nested Parameter Destructuring
 **Status:** Not implemented
 **Prism Support:** ✅ (Prism parses this)
 **Blocker Level:** 🟢 Low - Less common, but spec uses it
@@ -174,7 +148,7 @@ def foo(**nil); end              # Disallow keywords
 - [ ] Call `#to_ary` for destructuring coercion
 - [ ] Handle nil/missing values in destructuring
 
-#### 9. Anonymous Block Forwarding
+#### Anonymous Block Forwarding
 **Status:** Not implemented
 **Prism Support:** ✅ `PM_BLOCK_PARAMETER_NODE`
 **Blocker Level:** 🟢 Low - Modern Ruby feature
@@ -189,9 +163,7 @@ def foo(&); bar(&); end         # Forward block without name
 - [ ] Forward anonymous block to other methods
 - [ ] Track anonymous block in CallFrame
 
-### Phase 3: Metaprogramming & Introspection
-
-#### 10. eval ⭐ **MEDIUM PRIORITY**
+#### eval ⭐ **MEDIUM PRIORITY**
 **Status:** Not implemented
 **Blocker Level:** 🟠 Medium - Many specs test syntax errors with eval
 
@@ -210,7 +182,7 @@ eval "proc { |x| x }"
 
 **Note:** Can work around in individual specs by rewriting tests.
 
-#### 11. defined? keyword
+#### defined? keyword
 **Status:** Not implemented
 **Prism Support:** ✅ `PM_DEFINED_NODE`
 **Blocker Level:** 🟢 Low - Used for existence checks
@@ -228,9 +200,7 @@ defined?(ClassName)
 - [ ] Return string describing type or nil
 - [ ] Check locals, methods, constants
 
-### Phase 4: Additional Language Features
-
-#### 12. String Interpolation
+#### String Interpolation
 **Status:** Unknown
 **Prism Support:** ✅ `PM_INTERPOLATED_STRING_NODE`
 **Blocker Level:** 🟡 High - Very common
@@ -241,7 +211,7 @@ defined?(ClassName)
 "Sum: #{1 + 2}"
 ```
 
-#### 13. Regular Expressions
+#### Regular Expressions
 **Status:** Not implemented
 **Prism Support:** ✅ `PM_REGULAR_EXPRESSION_NODE`
 **Blocker Level:** 🟠 Medium - Common in tests
@@ -253,7 +223,7 @@ defined?(ClassName)
 =~ operator
 ```
 
-#### 14. Heredocs
+#### Heredocs
 **Status:** Not implemented
 **Prism Support:** ✅
 **Blocker Level:** 🟢 Low - Can work around
@@ -266,7 +236,7 @@ defined?(ClassName)
 EOF
 ```
 
-#### 15. Numbered Parameters
+#### Numbered Parameters
 **Status:** Not implemented
 **Prism Support:** ✅ `PM_NUMBERED_PARAMETERS_NODE`
 **Blocker Level:** 🟢 Low - Modern convenience feature
@@ -276,8 +246,8 @@ EOF
 [1, 2, 3].map { _1 * 2 }
 ```
 
-#### 16. Reflection Methods
-**Status:** Likely not implemented
+#### Reflection Methods
+**Status:** Not implemented
 **Blocker Level:** 🟠 Medium - Common in testing
 
 **Methods needed:**
@@ -286,62 +256,3 @@ respond_to?(:method_name)
 method_missing
 respond_to_missing?
 ```
-
-## Recommended Implementation Order
-
-### Milestone 1: Basic ruby/spec Support
-1. Hash literals (required everywhere)
-2. Proc/Lambda (testing framework dependency)
-3. Splat parameters (common in specs)
-4. Optional parameters (common pattern)
-5. Module/require system (load spec files)
-
-**Goal:** Load and run simple spec files with basic assertions.
-
-### Milestone 2: Full Block Semantics
-6. Keyword arguments
-7. Block-local variables
-8. Nested destructuring
-9. Anonymous block forwarding
-
-**Goal:** Pass ruby/spec language/block_spec.rb.
-
-### Milestone 3: Metaprogramming
-10. String interpolation
-11. eval
-12. defined?
-13. Reflection methods (respond_to?, method_missing)
-
-**Goal:** Support advanced testing patterns and error checking.
-
-### Milestone 4: Nice-to-Have
-14. Regular expressions
-15. Heredocs
-16. Numbered parameters
-
-**Goal:** Full modern Ruby compatibility.
-
-## Testing Strategy
-
-1. **Keep existing Zig tests** - They're valuable for bootstrapping
-2. **Add ruby/spec incrementally** - Start with simple specs
-3. **Create bridge tests** - Small Ruby files that exercise new features
-4. **Target one spec file at a time** - E.g., start with `block_spec.rb`
-
-## Notes
-
-- Prism parser already supports ALL these features
-- Main work is in Cora's compiler and VM
-- Some features (like Hash) require new runtime objects
-- Others (like splat) are mainly compiler/VM changes
-- Module system may need the most design work
-
-## Progress Tracking
-
-- [ ] Phase 1 complete (Core Data Structures)
-- [ ] Phase 2 complete (Advanced Block Parameters)
-- [ ] Phase 3 complete (Metaprogramming)
-- [ ] Phase 4 complete (Additional Features)
-- [ ] First ruby/spec file passing
-- [ ] 10 ruby/spec files passing
-- [ ] Full language/* specs passing
