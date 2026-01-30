@@ -1,6 +1,6 @@
 # Cora Interpreter - Agent Context Guide
 
-Cora is a Ruby interpreter written in Zig using the Prism parser for AST generation. It uses a **two-stage compilation model**: Prism AST → Bytecode → VM execution.
+Cora is a Ruby interpreter written in Zig using the Prism parser. It uses a **two-stage compilation model**: Prism AST → Bytecode → VM execution.
 
 ## Core Architecture
 
@@ -10,274 +10,84 @@ Cora is a Ruby interpreter written in Zig using the Prism parser for AST generat
 3. **VM Execution:** `VM.run()` interprets bytecode with stack-based VM
 
 **Key Files:**
-- `src/main.zig` - CLI entry point, orchestrates parse → compile → execute
-- `src/prism.zig` - Prism C library wrapper with typed Node union
+- `src/main.zig` - CLI entry point
+- `src/prism.zig` - Prism C library wrapper with typed Node union (note that prism generated sources are in `zig-out/prism` - C and header files for you to examine)
 - `src/compiler.zig` - Converts Prism AST to bytecode chunks
-- `src/chunk.zig` - Bytecode chunks (code, constants, line info)
-- `src/bytecode.zig` - OpCode definitions (PUSH_INT, CALL, RETURN, etc.) and built-ins
+- `src/chunk.zig` - Bytecode chunks (code, constants, line info, exception handlers)
+- `src/bytecode.zig` - OpCode definitions
 - `src/vm.zig` - Stack-based bytecode interpreter
 - `src/value.zig` - Runtime value types and factory methods
 
-**Heap-allocated Value Types:** Object, SymbolObject, StringObject, ModuleObject, ClassObject, ArrayObject.
-
-**VM State:**
-- `allocator: Allocator` - Infrastructure allocator for HashMaps, call stack, constants
-- `gc_allocator: Allocator` - GC allocator (Boehm-Demers-Weiser) for Ruby objects
-- `gc_allocator_atomic: Allocator` - Atomic GC allocator for thread-safe allocations (string duplication)
-- `parser: Parser` - Parser instance (stores AST; lifetime = VM lifetime)
-- `stack: ArrayList(Value)` - Execution stack for bytecode interpreter
-- `frames: ArrayList(CallFrame)` - Call frames with execution state
-- `symbols: StringHashMap(Value)` - Interned symbols (key: string, value: symbol Value)
-- `program: CompiledProgram` - Compiled bytecode (main chunk + method chunks)
-- `object_class: *ClassValue` - Root Object class (holds top-level methods)
-- `integer_class: *ClassValue` - Integer class (holds Integer methods like +, -, ==)
-- `basic_object_class: *ClassValue` - Root of the inheritance hierarchy
-- `numeric_class: *ClassValue` - Numeric class (superclass for Integer)
-- `symbol_class: *ClassValue` - Symbol class
-- `array_class: *ClassValue` - Array class
-- `nil_class: *ClassValue` - Nil class
-- `true_class: *ClassValue` - TrueClass class
-- `false_class: *ClassValue` - FalseClass class
-- `kernel_module: *ModuleValue` - Kernel module for built-in methods (puts, to_s, inspect, p)
-- `stdout: ?*Io.Writer` - Type-erased stdout writer (configurable for tests)
-- `stderr: ?*Io.Writer` - Type-erased stderr writer (configurable for tests)
-- `stdout_buffer: [4096]u8` - Buffer for stdout (production)
-- `stderr_buffer: [4096]u8` - Buffer for stderr (production)
-- `stdout_writer: ?File.Writer` - Buffered stdout writer (production)
-- `stderr_writer: ?File.Writer` - Buffered stderr writer (production)
-
 ## Key Concepts
 
-**Bytecode Chunks:** Each chunk contains:
-- `code: ArrayList(u8)` - Bytecode instructions
-- `constants: ArrayList(Constant)` - Compile-time constants (integer, string, symbol)
-- `line_info: ArrayList(u32)` - Line numbers for debugging
-- `name: []const u8` - Chunk name (e.g., "main", "foo", module/class name, "block")
-- `chunk_id: u8` - Unique ID for method/module/block chunks
-- `arity: u8` - Number of parameters (for blocks and methods)
+**Bytecode Chunks:** Each chunk contains code, constants, line info, name, chunk_id, arity, exception_handlers table, and lexical_scope. Module bodies, class bodies, methods, and blocks are all compiled into separate chunks.
 
-Module bodies, class bodies, methods, and blocks are all compiled into separate chunks. The main chunk references these via chunk IDs in `DEF_MODULE`, `DEF_CLASS`, `DEF_METHOD` instructions, and the `CALL` instruction's block_chunk_id operand.
+**Constants:** Compile-time constants (integer, string, symbol). Strings/symbols are borrowed from Parser AST (no allocation).
 
-**Constant Type** (compile-time, not runtime):
-```zig
-pub const Constant = union(enum) {
-    integer: i64,
-    string: []const u8,   // Borrowed from Parser AST
-    symbol: []const u8,   // Borrowed from Parser AST
-};
-```
-Constants are NOT allocated—strings/symbols are borrowed from the Parser AST. The Parser lives as long as the VM, so pointers are valid for VM lifetime.
+**OpCodes:** Defined in `bytecode.zig` enum. Include literals, variable access, control flow, method calls, OOP definitions, blocks, constant path resolution (GET_CONST_PATH), exception handling (RAISE, TRY_BEGIN, TRY_END, CATCH_START, CATCH_END, ENSURE_START, ENSURE_END, RETRY). Arithmetic operators are method calls, not opcodes.
 
-**OpCodes** (0-20, sequential):
-- `PUSH_NIL` (0), `PUSH_TRUE` (1), `PUSH_FALSE` (2) - Push literal values
-- `PUSH_INT` (3), `PUSH_CONST` (4) - Push constants from pool
-- `GET_LOCAL` (5), `SET_LOCAL` (6) - Access local variables
-- `GET_CONST` (7), `SET_CONST` (8) - Access top-level constants
-- `JUMP` (9), `JUMP_IF_FALSE` (10), `POP` (11) - Control flow
-- `CALL` (12), `RETURN` (13) - Method calls and returns
-- `DEF_MODULE` (14), `DEF_CLASS` (15), `DEF_METHOD` (16) - Define OOP structures
-- `PUSH_SELF` (17) - Push current self value
-- `PUSH_ARRAY` (18) - Create array (operand: element count)
-- `HALT` (19) - Halt VM
-- `YIELD` (20) - Call the block passed to the current method (operand: argument count)
+**CALL Instruction:** Operands are method_idx (U16), argc (U8), block_chunk_id (U8).
 
-Note: Arithmetic operators (+, -, ==) are now method calls, not opcodes. They dispatch to builtin methods registered on Integer class.
+**CallFrames:** Fixed-size locals array (32 slots), chunk, ip, stack_base, self_value, block_chunk, lexical_scope. Uses fixed-size array for performance.
 
-**CALL Instruction Format:**
-The `CALL` opcode (12) has the following operands:
-- method_idx (U16) - Index into constant pool for method name
-- argc (U8) - Number of arguments
-- block_chunk_id (U8) - Chunk ID of the block (0 if no block)
+**Symbol Interning:** `VM.intern(str)` creates GC-allocated SymbolObject with canonical string, cached in HashMap. Same string always returns same symbol with same memory address.
 
-**CallFrames:** Fixed-size locals (32 slots) stored on stack as part of CallFrame:
-```zig
-pub const CallFrame = struct {
-    chunk: *Chunk,
-    ip: usize,
-    stack_base: usize,
-    self_value: Value,
-    locals: [32]Value,    // Fixed-size array (no allocation)
-    locals_len: u8,       // Number of initialized locals
-    block_chunk: ?*Chunk, // Block passed to this method (null if no block)
-};
-```
-This avoids allocating an ArrayList per function call (major performance win for recursive functions). The `block_chunk` field stores the block that was passed to this method, allowing `yield` to execute it.
+**Classes/Modules:** Classes have module-like method storage, superclass, prepended/included module lists. Method lookup walks: prepended → class methods → included → superclass.
 
-**Symbol Interning:** `VM.intern(str)` creates a GC-allocated SymbolObject with a canonical string and stores it in `symbols` map. Same string always returns same symbol Value with same memory address. Symbols are frozen objects managed by the GC allocator.
+**Value Types:** Primitives (integer, boolean, nil), heap-allocated (Object, SymbolObject, StringObject, ModuleObject, ClassObject, ArrayObject, ExceptionObject).
 
-**Class Structure:**
-```zig
-pub const ClassObject = struct {
-    module: ModuleObject,  // Classes have module-like method storage
-    superclass: ?*ClassObject,
-    prepended_modules: std.ArrayList(*ModuleObject),  // Methods checked before class methods
-    included_modules: std.ArrayList(*ModuleObject),   // Methods checked after class methods
-};
-```
+**Blocks:** Compiled into separate bytecode chunks with arity and parameters. YIELD executes the block passed to current method.
 
-**Array Type:**
-```zig
-pub const ArrayObject = struct {
-    object: Object,
-    elements: std.ArrayList(Value) = .empty,
-};
-```
-Arrays hold collections of Values. Each array is a GC-managed heap object with a frozen flag.
+**Lexical Scopes:** Chain tracking module/class context for constant lookup.
 
-**Method Union:**
-```zig
-pub const Method = union(enum) {
-    chunk: *Chunk,                                              // User-defined method
-    builtin: *const fn (*@import("vm.zig").VM, Value, []Value) RuntimeError!Value,  // Built-in Zig function
-};
-```
-Methods are stored in class/module `.methods` HashMap with SymbolValue keys. Method lookup walks inheritance chain from receiver's class, checking prepended modules → class methods → included modules → superclass (in that order).
-
-**Blocks and Yield:**
-
-Blocks are compiled into separate bytecode chunks, similar to methods. When a method is called with a block:
-
-
-**Block Chunk Structure:**
-Block chunks have:
-- `arity: u8` - Number of parameters the block accepts
-- `name: []const u8` - Usually "block"
-- `chunk_id: u8` - Unique ID used to reference the block
-- Local variables for block parameters
-
-## Adding Features
-
-**New OpCode:**
-1. Add variant to `OpCode` enum in `bytecode.zig`
-2. Add case to `opcodeName()` function
-3. Emit the opcode in `compiler.zig` (in appropriate compileNode() case)
-4. Handle the opcode in `vm.zig` (in executeInstruction() switch)
-
-**New Value Type:**
-1. Add variant to `Value.data` union in `value.zig`
-2. Add factory method (e.g., `pub fn myType(...) Value`)
-3. Update `constantToValue()` in `vm.zig` if needed
-4. Add case in `printValue()` for output
-5. Test with manual execution
-
-**New Builtin Method:**
-1. Write a Zig function with signature: `fn(*@import("vm.zig").VM, Value, []Value) RuntimeError!Value`
-2. Register it in `VM.prepare()` on the appropriate class:
-   ```zig
-   const method_sym = (try self.intern("method_name")).data.symbol;
-   try target_class.module.methods.put(method_sym, .{ .builtin = &builtinFunctionName });
-   ```
-3. The compiler emits regular `CALL` opcodes for all methods (no special-casing needed)
-4. At runtime, method lookup finds the builtin in the Method union and calls it
+**Exception Handling:** 
+- Exception classes: Exception, StandardError, RuntimeError, ArgumentError, TypeError, ZeroDivisionError, NoMethodError
+- Each chunk has exception_handlers table with RescueHandler entries (exception types, catch_ip, var_idx)
+- ExceptionHandler contains protected region, rescue handlers, else/ensure IPs
+- VM tracks pending_exception and retry_point
 
 ## Memory Management
 
-**Two Allocators:**
+**Infrastructure Allocator:** Manages HashMaps, call stack, bytecode chunks. Manually cleaned up.
 
-1. **Infrastructure Allocator** (`allocator: GeneralPurposeAllocator`)
-   - Manages interpreter internals: constants HashMap, symbols HashMap, call stack, bytecode chunks
-   - Manually cleaned up in `VM.deinit()`
-   - Leak detection enabled in tests
+**GC Allocator (Boehm-Demers-Weiser):** Manages all Ruby heap objects (ClassValue, ModuleValue, InstanceValue, method HashMaps). Conservative GC scans stack/heap. NO manual free().
 
-2. **GC Allocator** (`gc_allocator: Boehm-Demers-Weiser`)
-   - Manages all Ruby heap objects: ClassValue, ModuleValue, InstanceValue
-   - Manages method HashMaps (created with gc_allocator, owned by classes/modules)
-   - Automatically collects unreachable objects
-   - Conservative GC scans stack and heap for pointers
-   - NO manual free() calls needed for GC-allocated objects
-
-3. **Atomic GC Allocator** (`gc_allocator_atomic: Boehm-Demers-Weiser`)
-   - GC allocator for "atomic" objects (objects that don't contain internal pointers to other heap memory)
-   - Used for string duplication and other primitive allocations
-   - Conservative GC can more efficiently manage these since they don't need pointer scanning
+**Atomic GC Allocator:** For "atomic" objects without internal pointers (string duplication).
 
 **Pointer Lifetimes:**
+- Parser strings: Borrowed from AST, valid for VM lifetime
+- Constant pool strings: Borrowed from AST (no allocation)
+- GC objects: Freed by GC automatically
 
-- **Parser Strings:** Borrowed from Parser AST, valid for VM lifetime
-- **Interned Strings:** GC-allocated by `VM.intern()`, stored in `symbols` HashMap
-- **Constant Pool Strings:** Borrowed from Parser AST (no allocation needed)
-- **GC Objects:** Allocated with `gc_allocator`, freed by GC automatically
+## Adding Features
 
-**How to Create Ruby Objects:**
-```zig
-// All GC-managed objects - allocation is transparent
-const cls = self.newClass(name, superclass);
-const mod = self.newModule(name);
-const inst = self.newInstance(class_ptr);
-```
+**New OpCode:** Add to `OpCode` enum, `opcodeName()`, emit in compiler, handle in VM executeInstruction().
 
-**When Objects Are Freed:**
-- GC-managed objects: During GC collection cycles
-- Infrastructure objects: When `VM.deinit()` is called
-- Chunks are freed by `CompiledProgram.deinit()`
+**New Value Type:** Add to `Value.data` union, factory method, update `printValue()`.
 
-## Implemented Ruby Features
-
-**Literals & Basics:**
-- String/Integer/Boolean/Nil literals
-- Symbols (interned, same symbol has same memory address)
-- Constants (module/class/top-level)
-- Local variables
-
-**Control Flow:**
-- if/else/elsif/end statements
-- Truthy/falsy evaluation (only nil and false are falsy)
-
-**Methods:**
-- Built-in methods: `puts` (Kernel), `new` (Object), `to_s` (Kernel, Integer, String, Symbol, NilClass, TrueClass, FalseClass, Array), `inspect` (Kernel, Integer, String, Symbol, NilClass, TrueClass, FalseClass, Array), `p` (Kernel - prints inspect output)
-- Arithmetic methods: `+`, `-` (Integer)
-- Comparison methods: `==` (Integer)
-- User-defined methods with parameters
-- Method calls with receivers
-- `self` keyword
-- **Blocks and yield:**
-  - Blocks can be passed to methods: `foo { |x| x + 1 }`
-  - Blocks with 0, 1, or multiple parameters
-  - `yield` calls the block with arguments
-  - Multiple yields per method supported
-  - Arity checking (block parameter count must match yield argument count)
-
-**OOP:**
-- Modules and Classes
-- Inheritance (Object inherits from BasicObject)
-- Kernel module for built-in methods
-- NilClass, TrueClass, FalseClass for nil/true/false values
-- Module inclusion: `include` adds module methods to class (methods searched after class's own methods)
-- Module prepending: `prepend` adds module methods to class (methods searched before class's own methods)
-- `ClassName.new` instantiation
-- Instance method calls
-- Method definitions in class/module/top-level context
-- Module bodies are compiled to separate bytecode chunks
-
-**Collections:**
-- Arrays: `[1, 2, 3]` array literals
-- Array creation with `PUSH_ARRAY` opcode (pops N elements from stack, creates array)
-
-**Arithmetic & Comparison:**
-- Binary operators: `+`, `-`, `==` (implemented as builtin methods on Integer)
-- Integer arithmetic with proper type checking
-- Error handling for type mismatches
-
-## Performance Optimizations
-
-**Fixed-Size Locals:** CallFrames use `[32]Value` array instead of ArrayList. This eliminates ~240K allocations for `fib(25)`, resulting in **8.7x speedup** (11.8s → 1.36s).
-
-**Constant Pool Borrowing:** Chunk constants borrow strings from Parser AST rather than allocating. Zero allocation for compile-time constants.
-
-**Symbol Caching:** Interned symbols cached in HashMap, same string always returns same symbol Value.
+**New Builtin Method:** Write function, register in `VM.prepare()` on appropriate class using `.{ .builtin = &function }`.
 
 ## Testing & Debugging
 
-**Running Tests:**
 ```bash
-# Run tests with summary
 zig build test --summary all
 ```
 
+Tests are in `src/test/language/*.zig`.
+
+**Running the CLI:**
+
+```bash
+zig build run -- [flags] [filename]
+# or
+zig-out/bin/cora [flags] [filename]
+```
+
+**CLI Flags:**
+- `-e` - Run with a code string
+- `--ast` - Dump Prism AST to see node structure
+- `--dump-bytecode` - Show compiled bytecode (opcodes, constants, chunks)
+
 ## Idiomatic Zig
 
-- Use "unmanaged" ArrayList, like this:
-  ```zig
-  field: ArrayList(*Value) = .empty
-  ```
-  (No initialization needed because the allocator is passed to append, insert, etc.)
+Use "unmanaged" ArrayList: `field: ArrayList(*Value) = .empty` (allocator passed to append/insert).
