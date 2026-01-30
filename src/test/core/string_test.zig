@@ -45,3 +45,41 @@ test "String#to_s" {
     try std.testing.expect(result.data == .string);
     try std.testing.expectEqualSlices(u8, "hello", result.data.string.str);
 }
+
+test "String#+ concatenates two strings" {
+    const result = try evalCode("\"Hello, \" + \"world!\"");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "Hello, world!", result.data.string.str);
+}
+
+test "String#+ concatenates multiple strings" {
+    const result = try evalCode("\"a\" + \"b\" + \"c\"");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "abc", result.data.string.str);
+}
+
+test "String#+ TypeError for non-string receiver" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+
+    const result = evalCodeWithOutput(
+        "1 + \"hello\"",
+        &stdout_buf,
+        &stderr_buf,
+    );
+
+    try std.testing.expectEqual(error.RuntimeError, result.err.?);
+}
+
+test "String#+ TypeError for non-string argument" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+
+    const result = evalCodeWithOutput(
+        "\"hello\" + 1",
+        &stdout_buf,
+        &stderr_buf,
+    );
+
+    try std.testing.expectEqual(error.RuntimeError, result.err.?);
+}

@@ -273,6 +273,10 @@ pub const VM = struct {
         const push_sym = try self.intern("<<");
         try self.array_class.module.methods.put(push_sym, .{ .builtin = &builtinArrayPush });
 
+        // Register String builtins
+        const string_plus_sym = try self.intern("+");
+        try self.string_class.module.methods.put(string_plus_sym, .{ .builtin = &builtinStringPlus });
+
         // Register to_s methods
         const to_s_sym_specialized = try self.intern("to_s");
         try self.integer_class.module.methods.put(to_s_sym_specialized, .{ .builtin = &builtinIntegerToS });
@@ -1846,6 +1850,46 @@ pub const VM = struct {
         }
 
         return receiver; // String#to_s returns self
+    }
+
+    fn builtinStringPlus(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+        if (receiver.data != .string) {
+            const exc = try self.createException(
+                self.type_error_class,
+                "receiver is not a String",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        if (args.len != 1) {
+            const msg = std.fmt.allocPrint(
+                self.gc_allocator,
+                "wrong number of arguments (given {d}, expected 1)",
+                .{args.len},
+            ) catch unreachable;
+            const exc = try self.createException(self.argument_error_class, msg);
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        const other_str = args[0];
+        if (other_str.data != .string) {
+            const exc = try self.createException(
+                self.type_error_class,
+                "argument is not a String",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        const combined_str = std.fmt.allocPrint(
+            self.gc_allocator,
+            "{s}{s}",
+            .{ receiver.data.string.str, other_str.data.string.str },
+        ) catch return error.RuntimeError;
+
+        return self.newString(combined_str, false);
     }
 
     fn builtinSymbolToS(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
