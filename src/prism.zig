@@ -39,6 +39,7 @@ pub const TrueNode = c.pm_true_node_t;
 pub const YieldNode = c.pm_yield_node_t;
 pub const WhileNode = c.pm_while_node_t;
 pub const UntilNode = c.pm_until_node_t;
+pub const BreakNode = c.pm_break_node_t;
 
 pub const Node = union(enum) {
     array: *ArrayNode,
@@ -74,6 +75,7 @@ pub const Node = union(enum) {
     yield: *YieldNode,
     while_node: *WhileNode,
     until_node: *UntilNode,
+    break_node: *BreakNode,
 };
 
 /// Parser wraps Prism's parser and AST lifecycle
@@ -258,6 +260,10 @@ pub const Parser = struct {
 
         if (node_type == c.PM_UNTIL_NODE) {
             return Node{ .until_node = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_BREAK_NODE) {
+            return Node{ .break_node = @ptrCast(raw) };
         }
 
         var stdout_buffer: [8192]u8 = undefined;

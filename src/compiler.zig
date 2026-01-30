@@ -29,6 +29,11 @@ const Local = struct {
     depth: usize,
 };
 
+const LoopContext = struct {
+    loop_type: enum { while_loop, until_loop, block },
+    break_jumps: std.ArrayList(usize),
+};
+
 pub const Compiler = struct {
     allocator: std.mem.Allocator,
     parser: *prism.Parser,
@@ -39,6 +44,7 @@ pub const Compiler = struct {
 
     method_chunks: std.AutoHashMap(u16, *Chunk),
     chunk_counter: u16 = 1,
+    loop_stack: std.ArrayList(LoopContext) = .empty,
 
     pub fn init(allocator: std.mem.Allocator, parser: *prism.Parser) Compiler {
         return Compiler{
@@ -51,6 +57,10 @@ pub const Compiler = struct {
 
     pub fn deinit(self: *Compiler) void {
         self.locals.deinit(self.allocator);
+        for (self.loop_stack.items) |*ctx| {
+            ctx.break_jumps.deinit(self.allocator);
+        }
+        self.loop_stack.deinit(self.allocator);
         // self.method_chunks is transferred to CompiledProgram.
     }
 
@@ -316,6 +326,10 @@ pub const Compiler = struct {
 
             .until_node => |until_node| {
                 try self.compileUntilStatement(until_node, line);
+            },
+
+            .break_node => |break_node| {
+                try self.compileBreakStatement(break_node, line);
             },
 
             else => {
@@ -852,7 +866,39 @@ pub const Compiler = struct {
         });
     }
 
+    fn compileBreakStatement(self: *Compiler, break_node: *prism.BreakNode, line: u32) !void {
+        if (self.loop_stack.items.len == 0) {
+            return error.BreakOutsideLoop;
+        }
+
+        const current_loop = &self.loop_stack.items[self.loop_stack.items.len - 1];
+
+        if (break_node.arguments) |args_ptr| {
+            const args = @as(*prism.ArgumentsNode, @ptrCast(args_ptr));
+            if (args.arguments.size > 0) {
+                const arg_node = try self.parser.asNode(args.arguments.nodes[0]);
+                try self.compileNode(arg_node, line);
+            } else {
+                try self.current_chunk.emitOp(.PUSH_NIL, line);
+            }
+        } else {
+            try self.current_chunk.emitOp(.PUSH_NIL, line);
+        }
+
+        const break_jump_pos = try self.current_chunk.emitJump(.JUMP, line);
+        try current_loop.break_jumps.append(self.allocator, break_jump_pos);
+    }
+
     fn compileWhileStatement(self: *Compiler, while_node: *prism.WhileNode, line: u32) anyerror!void {
+        const loop_idx = self.loop_stack.items.len;
+        try self.loop_stack.append(self.allocator, .{ .loop_type = .while_loop, .break_jumps = .empty });
+
+        defer {
+            var ctx = &self.loop_stack.items[loop_idx];
+            ctx.break_jumps.deinit(self.allocator);
+            _ = self.loop_stack.pop();
+        }
+
         // Mark loop start position for backward jump
         const loop_start_ip = self.current_chunk.code.items.len;
 
@@ -880,11 +926,26 @@ pub const Compiler = struct {
         // 6. Patch forward jump to here (after loop exits)
         try self.current_chunk.patchJump(jump_to_end);
 
-        // 7. While always returns nil
+        // Normal exit: push nil
         try self.current_chunk.emitOp(.PUSH_NIL, line);
+
+        // Patch all break jumps to here (after nil push)
+        const current_loop_ctx = &self.loop_stack.items[self.loop_stack.items.len - 1];
+        for (current_loop_ctx.break_jumps.items) |break_pos| {
+            try self.current_chunk.patchJump(break_pos);
+        }
     }
 
     fn compileUntilStatement(self: *Compiler, until_node: *prism.UntilNode, line: u32) anyerror!void {
+        const loop_idx = self.loop_stack.items.len;
+        try self.loop_stack.append(self.allocator, .{ .loop_type = .until_loop, .break_jumps = .empty });
+
+        defer {
+            var ctx = &self.loop_stack.items[loop_idx];
+            ctx.break_jumps.deinit(self.allocator);
+            _ = self.loop_stack.pop();
+        }
+
         // Mark loop start position for backward jump
         const loop_start_ip = self.current_chunk.code.items.len;
 
@@ -912,7 +973,13 @@ pub const Compiler = struct {
         // 6. Patch forward jump to here (after loop exits)
         try self.current_chunk.patchJump(jump_to_end);
 
-        // 7. Until always returns nil
+        // Normal exit: push nil
         try self.current_chunk.emitOp(.PUSH_NIL, line);
+
+        // Patch all break jumps to here (after nil push)
+        const current_loop_ctx = &self.loop_stack.items[self.loop_stack.items.len - 1];
+        for (current_loop_ctx.break_jumps.items) |break_pos| {
+            try self.current_chunk.patchJump(break_pos);
+        }
     }
 };

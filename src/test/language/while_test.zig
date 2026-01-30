@@ -39,3 +39,51 @@ test "while loop - modifier form" {
     );
     try std.testing.expectEqual(@as(i64, 4), result.data.integer);
 }
+
+test "while loop - break without value" {
+    const result = try evalCode(
+        \\i = 0
+        \\while true
+        \\  i = i + 1
+        \\  break if i == 3
+        \\end
+    );
+    try std.testing.expect(result.data == .nil);
+}
+
+test "while loop - break with value" {
+    const result = try evalCode(
+        \\i = 0
+        \\while true
+        \\  i = i + 1
+        \\  break 42 if i == 3
+        \\end
+    );
+    try std.testing.expectEqual(@as(i64, 42), result.data.integer);
+}
+
+test "while loop - break in nested loop" {
+    const result = try evalCode(
+        \\outer = 0
+        \\while outer == 0
+        \\  outer = outer + 1
+        \\  inner = 0
+        \\  while inner == 0
+        \\    inner = inner + 1
+        \\    break 99 if inner == 2
+        \\  end
+        \\end
+        \\outer
+    );
+    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+}
+
+test "while loop - break returns expression value" {
+    const result = try evalCode(
+        \\x = 10
+        \\while true
+        \\  break x + 5
+        \\end
+    );
+    try std.testing.expectEqual(@as(i64, 15), result.data.integer);
+}
