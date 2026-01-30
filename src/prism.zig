@@ -26,6 +26,7 @@ pub const LocalVariableWriteNode = c.pm_local_variable_write_node_t;
 pub const ModuleNode = c.pm_module_node;
 pub const NilNode = c.pm_nil_node_t;
 pub const ParametersNode = c.pm_parameters_node_t;
+pub const ParenthesesNode = c.pm_parentheses_node_t;
 pub const ProgramNode = c.pm_program_node_t;
 pub const RequiredParameterNode = c.pm_required_parameter_node_t;
 pub const RescueNode = c.pm_rescue_node_t;
@@ -62,6 +63,7 @@ pub const Node = union(enum) {
     local_variable_write: *LocalVariableWriteNode,
     module: *ModuleNode,
     nil_node: *NilNode,
+    parentheses: *ParenthesesNode,
     program: *ProgramNode,
     required_parameter: *RequiredParameterNode,
     rescue: *RescueNode,
@@ -220,6 +222,10 @@ pub const Parser = struct {
 
         if (node_type == c.PM_NIL_NODE) {
             return Node{ .nil_node = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_PARENTHESES_NODE) {
+            return Node{ .parentheses = @ptrCast(raw) };
         }
 
         if (node_type == c.PM_YIELD_NODE) {

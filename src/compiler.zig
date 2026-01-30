@@ -144,6 +144,15 @@ pub const Compiler = struct {
                 try self.current_chunk.emitOp(.PUSH_SELF, line);
             },
 
+            .parentheses => |paren_node| {
+                if (paren_node.body != null) {
+                    const body = try self.parser.asNode(@ptrCast(paren_node.body));
+                    try self.compileNode(body, line);
+                } else {
+                    try self.current_chunk.emitOp(.PUSH_NIL, line);
+                }
+            },
+
             .local_variable_read => |var_read| {
                 const var_name = try self.parser.getLocalVariableName(var_read.name);
                 const local_idx = self.findLocal(var_name);
