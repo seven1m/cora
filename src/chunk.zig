@@ -253,7 +253,7 @@ pub const Chunk = struct {
                 next_ip += 2;
             },
 
-            .JUMP, .JUMP_IF_FALSE => {
+            .JUMP, .JUMP_IF_FALSE, .JUMP_IF_TRUE => {
                 const offset = bytecode.readI16(self.code.items, next_ip);
                 try writer.print("{s} {d}\n", .{ bytecode.opcodeName(op), offset });
                 next_ip += 2;

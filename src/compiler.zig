@@ -314,6 +314,10 @@ pub const Compiler = struct {
                 try self.compileWhileStatement(while_node, line);
             },
 
+            .until_node => |until_node| {
+                try self.compileUntilStatement(until_node, line);
+            },
+
             else => {
                 std.debug.print("Error: unsupported node type\n", .{});
                 return error.UnsupportedNode;
@@ -435,7 +439,6 @@ pub const Compiler = struct {
             // Return self (the class) as the result
             try self.current_chunk.emitOp(.PUSH_SELF, line);
             try self.current_chunk.emitOp(.RETURN, line);
-
 
             // Store the chunk and get its ID
             body_chunk_id = @intCast(self.chunk_counter);
@@ -878,6 +881,38 @@ pub const Compiler = struct {
         try self.current_chunk.patchJump(jump_to_end);
 
         // 7. While always returns nil
+        try self.current_chunk.emitOp(.PUSH_NIL, line);
+    }
+
+    fn compileUntilStatement(self: *Compiler, until_node: *prism.UntilNode, line: u32) anyerror!void {
+        // Mark loop start position for backward jump
+        const loop_start_ip = self.current_chunk.code.items.len;
+
+        // 1. Compile condition expression
+        const condition = try self.parser.asNode(@ptrCast(until_node.predicate));
+        try self.compileNode(condition, line);
+
+        // 2. Jump to end if condition is TRUE
+        const jump_to_end = try self.current_chunk.emitJump(.JUMP_IF_TRUE, line);
+
+        // 3. Compile loop body
+        if (until_node.statements) |statements_ptr| {
+            const body = try self.parser.asNode(@ptrCast(statements_ptr));
+            try self.compileNode(body, line);
+            // 4. Discard body result to prevent stack growth
+            try self.current_chunk.emitOp(.POP, line);
+        }
+
+        // 5. Jump back to loop start (backward jump)
+        const jump_back_pos = self.current_chunk.code.items.len;
+        const offset: i16 = @intCast(@as(i32, @intCast(loop_start_ip)) -
+            @as(i32, @intCast(jump_back_pos)) - 3);
+        try self.current_chunk.emitOpI16(.JUMP, offset, line);
+
+        // 6. Patch forward jump to here (after loop exits)
+        try self.current_chunk.patchJump(jump_to_end);
+
+        // 7. Until always returns nil
         try self.current_chunk.emitOp(.PUSH_NIL, line);
     }
 };

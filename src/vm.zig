@@ -585,6 +585,22 @@ pub const VM = struct {
                 }
             },
 
+            .JUMP_IF_TRUE => {
+                const offset = self.readI16();
+                const cond = self.pop();
+
+                const is_truthy = switch (cond.data) {
+                    .nil => false,
+                    .boolean => cond.data.boolean,
+                    else => true,
+                };
+
+                if (is_truthy) {
+                    var frame2 = self.currentFrame();
+                    frame2.ip = @intCast(@as(i32, @intCast(frame2.ip)) + offset);
+                }
+            },
+
             .POP => {
                 _ = self.pop();
             },

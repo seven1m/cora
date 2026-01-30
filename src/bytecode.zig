@@ -17,6 +17,7 @@ pub const OpCode = enum(u8) {
     // Control flow
     JUMP = 9, // Operand: i16 (offset)
     JUMP_IF_FALSE = 10, // Operand: i16 (offset)
+    JUMP_IF_TRUE = 30, // Operand: i16 (offset)
     POP = 11,
 
     // Method calls
@@ -70,6 +71,7 @@ pub fn opcodeName(op: OpCode) []const u8 {
         .PUSH_SELF => "PUSH_SELF",
         .JUMP => "JUMP",
         .JUMP_IF_FALSE => "JUMP_IF_FALSE",
+        .JUMP_IF_TRUE => "JUMP_IF_TRUE",
         .POP => "POP",
         .CALL => "CALL",
         .RETURN => "RETURN",
@@ -130,7 +132,7 @@ pub const Instruction = struct {
             .GET_LOCAL, .SET_LOCAL, .PUSH_ARRAY => {
                 try writer.print(" {d}", .{self.a});
             },
-            .JUMP, .JUMP_IF_FALSE => {
+            .JUMP, .JUMP_IF_FALSE, .JUMP_IF_TRUE => {
                 const offset: i16 = @bitCast(self.bx);
                 try writer.print(" {}", .{offset});
             },
