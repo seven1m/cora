@@ -290,6 +290,9 @@ pub const VM = struct {
         const push_sym = try self.intern("<<");
         try self.array_class.module.methods.put(push_sym, .{ .builtin = &builtinArrayPush });
 
+        const array_each_sym = try self.intern("each");
+        try self.array_class.module.methods.put(array_each_sym, .{ .builtin = &builtinArrayEach });
+
         // Register Hash builtins
         const bracket_sym = try self.intern("[]");
         try self.hash_class.module.methods.put(bracket_sym, .{ .builtin = &builtinHashBracket });
@@ -2017,6 +2020,43 @@ pub const VM = struct {
 
         const array = receiver.data.array;
         array.elements.append(self.gc_allocator, args[0]) catch return error.RuntimeError;
+
+        return receiver;
+    }
+
+    fn builtinArrayEach(self: *VM, receiver: Value, args: []Value, block: ?*Chunk) RuntimeError!Value {
+        if (receiver.data != .array) {
+            const exc = try self.createException(
+                self.type_error_class,
+                "receiver is not an Array",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+        if (args.len != 0) {
+            const msg = std.fmt.allocPrint(
+                self.gc_allocator,
+                "wrong number of arguments (given {d}, expected 0)",
+                .{args.len},
+            ) catch unreachable;
+            const exc = try self.createException(self.argument_error_class, msg);
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        const blk = try self.requireBlock(block);
+        const array_obj = receiver.data.array;
+
+        // Iterate over array elements
+        for (array_obj.elements.items) |element| {
+            const yield_args = [_]Value{element};
+            const result = try self.yieldToBlock(blk, receiver, &yield_args);
+
+            // If break occurred, return immediately
+            if (result.break_occurred) {
+                return receiver;
+            }
+        }
 
         return receiver;
     }
