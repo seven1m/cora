@@ -257,6 +257,18 @@ pub const VM = struct {
         const equal_sym = try self.intern("==");
         try self.integer_class.module.methods.put(equal_sym, .{ .builtin = &builtinIntegerEqual });
 
+        const less_than_sym = try self.intern("<");
+        try self.integer_class.module.methods.put(less_than_sym, .{ .builtin = &builtinIntegerLessThan });
+
+        const less_than_or_equal_sym = try self.intern("<=");
+        try self.integer_class.module.methods.put(less_than_or_equal_sym, .{ .builtin = &builtinIntegerLessThanOrEqual });
+
+        const greater_than_sym = try self.intern(">");
+        try self.integer_class.module.methods.put(greater_than_sym, .{ .builtin = &builtinIntegerGreaterThan });
+
+        const greater_than_or_equal_sym = try self.intern(">=");
+        try self.integer_class.module.methods.put(greater_than_or_equal_sym, .{ .builtin = &builtinIntegerGreaterThanOrEqual });
+
         // Register Array builtins
         const push_sym = try self.intern("<<");
         try self.array_class.module.methods.put(push_sym, .{ .builtin = &builtinArrayPush });
@@ -1431,6 +1443,142 @@ pub const VM = struct {
         }
 
         const result = receiver.data.integer == args[0].data.integer;
+        return Value.boolean(result);
+    }
+
+    fn builtinIntegerLessThan(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+        if (receiver.data != .integer) {
+            const exc = try self.createException(
+                self.type_error_class,
+                "receiver is not an Integer",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        if (args.len != 1) {
+            const msg = std.fmt.allocPrint(
+                self.gc_allocator,
+                "wrong number of arguments (given {d}, expected 1)",
+                .{args.len},
+            ) catch unreachable;
+            const exc = try self.createException(self.argument_error_class, msg);
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        if (args[0].data != .integer) {
+            const exc = try self.createException(
+                self.type_error_class,
+                "argument is not an Integer",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        const result = receiver.data.integer < args[0].data.integer;
+        return Value.boolean(result);
+    }
+
+    fn builtinIntegerLessThanOrEqual(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+        if (receiver.data != .integer) {
+            const exc = try self.createException(
+                self.type_error_class,
+                "receiver is not an Integer",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        if (args.len != 1) {
+            const msg = std.fmt.allocPrint(
+                self.gc_allocator,
+                "wrong number of arguments (given {d}, expected 1)",
+                .{args.len},
+            ) catch unreachable;
+            const exc = try self.createException(self.argument_error_class, msg);
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        if (args[0].data != .integer) {
+            const exc = try self.createException(
+                self.type_error_class,
+                "argument is not an Integer",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        const result = receiver.data.integer <= args[0].data.integer;
+        return Value.boolean(result);
+    }
+
+    fn builtinIntegerGreaterThan(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+        if (receiver.data != .integer) {
+            const exc = try self.createException(
+                self.type_error_class,
+                "receiver is not an Integer",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        if (args.len != 1) {
+            const msg = std.fmt.allocPrint(
+                self.gc_allocator,
+                "wrong number of arguments (given {d}, expected 1)",
+                .{args.len},
+            ) catch unreachable;
+            const exc = try self.createException(self.argument_error_class, msg);
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        if (args[0].data != .integer) {
+            const exc = try self.createException(
+                self.type_error_class,
+                "argument is not an Integer",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        const result = receiver.data.integer > args[0].data.integer;
+        return Value.boolean(result);
+    }
+
+    fn builtinIntegerGreaterThanOrEqual(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+        if (receiver.data != .integer) {
+            const exc = try self.createException(
+                self.type_error_class,
+                "receiver is not an Integer",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        if (args.len != 1) {
+            const msg = std.fmt.allocPrint(
+                self.gc_allocator,
+                "wrong number of arguments (given {d}, expected 1)",
+                .{args.len},
+            ) catch unreachable;
+            const exc = try self.createException(self.argument_error_class, msg);
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        if (args[0].data != .integer) {
+            const exc = try self.createException(
+                self.type_error_class,
+                "argument is not an Integer",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        const result = receiver.data.integer >= args[0].data.integer;
         return Value.boolean(result);
     }
 
