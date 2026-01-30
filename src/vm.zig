@@ -16,8 +16,6 @@ const RuntimeError = value.RuntimeError;
 const Chunk = chunk.Chunk;
 
 pub const Environment = struct {
-    object: Object,
-
     // Back pointer to outer environment (forms a chain for closures)
     parent: ?*Environment,
 
@@ -27,6 +25,10 @@ pub const Environment = struct {
     // Variable storage - fixed size array for speed (like Ruby's CallFrame locals)
     variables: [32]Value = undefined,
     variables_len: u8 = 0,
+
+    // If non-null, this is a forwarding pointer to the heap-allocated version
+    // Used when a stack-allocated environment is promoted to the heap
+    heap_forwarding_ptr: ?*Environment = null,
 };
 
 pub const CallFrame = struct {
@@ -48,6 +50,10 @@ pub const VM = struct {
 
     stack: std.ArrayList(Value) = .empty,
     frames: std.ArrayList(CallFrame) = .empty,
+
+    // Environment stack for optimistic allocation
+    env_stack: std.ArrayList(Environment) = .empty,
+    env_stack_indices: std.ArrayList(usize) = .empty,
 
     symbols: std.StringHashMap(*SymbolObject),
 
@@ -133,6 +139,11 @@ pub const VM = struct {
 
     pub fn prepare(self: *VM, program: *compiler.CompiledProgram) !void {
         self.program = program;
+
+        // Pre-allocate env_stack to prevent reallocations that would invalidate pointers
+        // This is max call stack depth, not total calls - we reclaim on popFrame
+        try self.env_stack.ensureTotalCapacity(self.allocator, 512);
+        try self.env_stack_indices.ensureTotalCapacity(self.allocator, 512);
 
         // --- Stage 1: Create Class and BasicObject ---
         const class_name_sym = try self.intern("Class");
@@ -369,24 +380,33 @@ pub const VM = struct {
     }
 
     // Create new stack-allocated environment
+    // Dereference environment pointer, following forwarding pointer if needed
+    fn derefEnvironment(env: *Environment) *Environment {
+        // If this is a forwarding pointer, return the heap environment
+        if (env.heap_forwarding_ptr) |heap_env| {
+            return heap_env;
+        }
+        // Otherwise, return the environment itself (either stack or heap)
+        return env;
+    }
+
     fn createStackEnvironment(self: *VM, parent: ?*Environment, lexical_scope: ?*LexicalScope) !*Environment {
-        const env = self.gc_allocator.create(Environment) catch unreachable;
-        env.* = .{
-            .object = .{ .flags = 0, .class = self.object_class, .singleton_class = null },
+        const index = self.env_stack.items.len;
+        try self.env_stack.append(self.allocator, .{
             .parent = parent,
             .lexical_scope = lexical_scope,
             .variables = undefined,
             .variables_len = 0,
-        };
-        return env;
+        });
+        return &self.env_stack.items[index];
     }
 
     // Get variable by walking environment chain
     fn getVariableAtDepth(ep: *Environment, depth: usize, idx: usize) ?Value {
-        var current_ep = ep;
+        var current_ep = derefEnvironment(ep);
         var i: usize = 0;
         while (i < depth) : (i += 1) {
-            current_ep = current_ep.parent orelse return null;
+            current_ep = derefEnvironment(current_ep.parent orelse return null);
         }
         if (idx < current_ep.variables_len) {
             return current_ep.variables[idx];
@@ -395,10 +415,10 @@ pub const VM = struct {
     }
 
     fn setVariableAtDepth(ep: *Environment, depth: usize, idx: usize, val: Value) !void {
-        var current_ep = ep;
+        var current_ep = derefEnvironment(ep);
         var i: usize = 0;
         while (i < depth) : (i += 1) {
-            current_ep = current_ep.parent orelse return;
+            current_ep = derefEnvironment(current_ep.parent orelse return);
         }
         if (idx < 32) { // Fixed size limit
             current_ep.variables[idx] = val;
@@ -407,6 +427,65 @@ pub const VM = struct {
             }
         } else {
             return error.TooManyLocals;
+        }
+    }
+
+    fn promoteEnvironmentToHeap(self: *VM, stack_env: *Environment) !*Environment {
+        // 1. Idempotent check - if already on heap or promoted
+        if (stack_env.heap_forwarding_ptr) |heap_env| {
+            if (heap_env == stack_env) {
+                // Points to itself - already a heap environment
+                return stack_env;
+            } else {
+                // Points to different address - this is a forwarding pointer
+                return heap_env;
+            }
+        }
+
+        // 2. Recursively promote parent chain
+        var heap_parent: ?*Environment = null;
+        if (stack_env.parent) |parent| {
+            // Promote parent if it's a stack environment
+            heap_parent = try self.promoteEnvironmentToHeap(parent);
+        }
+
+        // 3. Allocate heap copy
+        const heap_env = try self.gc_allocator.create(Environment);
+        heap_env.* = stack_env.*;
+        heap_env.parent = heap_parent;
+        heap_env.heap_forwarding_ptr = heap_env; // Points to itself to mark as heap-allocated
+
+        // 4. Update all references
+        try self.updateEnvironmentReferences(stack_env, heap_env);
+
+        // 5. Convert stack slot to forwarding pointer
+        stack_env.heap_forwarding_ptr = heap_env;
+
+        return heap_env;
+    }
+
+    fn updateEnvironmentReferences(self: *VM, old_env: *Environment, new_env: *Environment) !void {
+        // Update CallFrame references
+        for (self.frames.items) |*frame| {
+            if (frame.ep == old_env) {
+                frame.ep = new_env;
+            }
+            if (frame.block_defining_ep) |bdep| {
+                if (bdep == old_env) {
+                    frame.block_defining_ep = new_env;
+                }
+            }
+        }
+
+        // Update Environment.parent chains in stack
+        for (self.env_stack.items) |*env| {
+            // Skip forwarding pointers (already promoted)
+            if (env.heap_forwarding_ptr != null) continue;
+            if (env.parent) |parent| {
+                if (parent == old_env) {
+                    env.parent = new_env;
+                }
+            }
         }
     }
 
@@ -443,6 +522,8 @@ pub const VM = struct {
         self.parser.deinit();
         self.stack.deinit(self.allocator);
         self.frames.deinit(self.allocator);
+        self.env_stack.deinit(self.allocator);
+        self.env_stack_indices.deinit(self.allocator);
         self.symbols.deinit();
     }
 
@@ -518,8 +599,10 @@ pub const VM = struct {
             null;
 
         // Create environment for this frame
-        // TODO: allocate on stack at first and promote to heap later
         const env = try self.createStackEnvironment(parent_env, ch.lexical_scope orelse self.current_lexical_scope);
+
+        // Record env_stack slot for this frame
+        try self.env_stack_indices.append(self.allocator, self.env_stack.items.len - 1);
 
         try self.frames.append(self.allocator, CallFrame{
             .chunk = ch,
@@ -540,11 +623,18 @@ pub const VM = struct {
     fn popFrame(self: *VM) !void {
         if (self.frames.items.len > 0) {
             _ = self.frames.pop();
+            _ = self.env_stack_indices.pop();
+
+            const expected_len = self.env_stack_indices.items.len;
+            if (self.env_stack.items.len > expected_len) {
+                self.env_stack.items.len = expected_len;
+            }
 
             // Restore current_lexical_scope to the previous frame's scope
             if (self.frames.items.len > 0) {
                 const prev_frame = &self.frames.items[self.frames.items.len - 1];
-                self.current_lexical_scope = prev_frame.ep.lexical_scope;
+                const prev_ep = derefEnvironment(prev_frame.ep);
+                self.current_lexical_scope = prev_ep.lexical_scope;
             }
         }
     }
@@ -750,8 +840,10 @@ pub const VM = struct {
                         block_chunk = bc;
                         // Capture current lexical scope for the block
                         bc.lexical_scope = self.current_lexical_scope;
-                        // Capture current environment for closures
-                        block_defining_ep = frame.ep;
+
+                        // ESCAPE DETECTION: Block is capturing environment
+                        // Promote stack environments to heap; heap environments are already safe
+                        block_defining_ep = try self.promoteEnvironmentToHeap(frame.ep);
                     } else {
                         return error.UndefinedChunk;
                     }
@@ -1011,8 +1103,14 @@ pub const VM = struct {
 
                 // Push frame with block's chunk, using block_defining_ep as parent for closure support
                 // We need to manually create the environment with the right parent
+                // Dereference block_defining_ep in case it's a forwarding pointer
+                const real_defining_ep = if (frame.block_defining_ep) |bdep| derefEnvironment(bdep) else null;
+
                 // Create environment with block_defining_ep as parent (lexical scoping)
-                const block_env = try self.createStackEnvironment(frame.block_defining_ep, blk.lexical_scope orelse self.current_lexical_scope);
+                const block_env = try self.createStackEnvironment(real_defining_ep, blk.lexical_scope orelse self.current_lexical_scope);
+
+                // Track env_stack index for this frame (like pushFrame does)
+                try self.env_stack_indices.append(self.allocator, self.env_stack.items.len - 1);
 
                 try self.frames.append(self.allocator, CallFrame{
                     .chunk = blk,

@@ -36,7 +36,9 @@ Cora is a Ruby interpreter written in Zig using the Prism parser. It uses a **tw
 
 **Value Types:** Primitives (integer, boolean, nil), heap-allocated (Object, SymbolObject, StringObject, ModuleObject, ClassObject, ArrayObject, HashObject, ExceptionObject).
 
-**Blocks:** Compiled into separate bytecode chunks with arity and parameters. YIELD executes the block passed to current method.
+**Blocks:** Compiled into separate bytecode chunks with arity and parameters. YIELD executes the block passed to current method. Blocks capture variables from enclosing scopes (closures) via environment parent chain. CallFrames track `block_defining_ep` for lexical scoping.
+
+**Environments:** Store local variables with parent pointer forming chain for closures. Optimistically stack-allocated, promoted to heap when captured.
 
 **Lexical Scopes:** Chain tracking module/class context for constant lookup.
 
@@ -58,6 +60,8 @@ Cora is a Ruby interpreter written in Zig using the Prism parser. It uses a **tw
 - Parser strings: Borrowed from AST, valid for VM lifetime
 - Constant pool strings: Borrowed from AST (no allocation)
 - GC objects: Freed by GC automatically
+
+**Environment Promotion:** Stack environments are promoted to heap (via GC allocator) when captured by closures, using forwarding pointers to update all references.
 
 ## Adding Features
 
