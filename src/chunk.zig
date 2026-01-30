@@ -247,6 +247,13 @@ pub const Chunk = struct {
                 next_ip += 1;
             },
 
+            .GET_LOCAL_DEEP, .SET_LOCAL_DEEP => {
+                const local_idx = bytecode.readU8(self.code.items, next_ip);
+                const depth = bytecode.readU8(self.code.items, next_ip + 1);
+                try writer.print("{s} {d} {d}\n", .{ bytecode.opcodeName(op), local_idx, depth });
+                next_ip += 2;
+            },
+
             .TRY_BEGIN => {
                 const handler_idx = bytecode.readU16(self.code.items, next_ip);
                 try writer.print("{s} {d}\n", .{ bytecode.opcodeName(op), handler_idx });

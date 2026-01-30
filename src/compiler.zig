@@ -27,6 +27,7 @@ pub const CompiledProgram = struct {
 const Local = struct {
     name: []const u8,
     depth: usize,
+    is_captured: bool,
 };
 
 const LoopContext = struct {
@@ -41,6 +42,9 @@ pub const Compiler = struct {
     current_chunk: *Chunk,
     locals: std.ArrayList(Local) = .empty,
     scope_depth: usize = 0,
+
+    // Track all locals in current scope chain (for closure compilation)
+    all_locals: std.ArrayList(std.ArrayList(Local)) = .empty,
 
     method_chunks: std.AutoHashMap(u16, *Chunk),
     chunk_counter: u16 = 1,
@@ -61,6 +65,10 @@ pub const Compiler = struct {
             ctx.break_jumps.deinit(self.allocator);
         }
         self.loop_stack.deinit(self.allocator);
+        for (self.all_locals.items) |*scope| {
+            scope.deinit(self.allocator);
+        }
+        self.all_locals.deinit(self.allocator);
         // self.method_chunks is transferred to CompiledProgram.
     }
 
@@ -155,9 +163,12 @@ pub const Compiler = struct {
 
             .local_variable_read => |var_read| {
                 const var_name = try self.parser.getLocalVariableName(var_read.name);
-                const local_idx = self.findLocal(var_name);
-                if (local_idx) |idx| {
+                // Try to find in current scope first
+                if (self.findLocal(var_name)) |idx| {
                     try self.current_chunk.emitOpU8(.GET_LOCAL, idx, line);
+                } else if (self.findLocalWithDepth(var_name)) |info| {
+                    // Found in parent scope - emit deep access
+                    try self.current_chunk.emitOpU8U8(.GET_LOCAL_DEEP, @intCast(info.idx), @intCast(info.depth), line);
                 } else {
                     std.debug.print("Error: undefined local variable '{s}'\n", .{var_name});
                     return error.UndefinedVariable;
@@ -169,9 +180,12 @@ pub const Compiler = struct {
                 const value_node = try self.parser.asNode(@ptrCast(var_write.value));
                 try self.compileNode(value_node, line);
 
-                const local_idx = self.findLocal(var_name);
-                if (local_idx) |idx| {
+                // Try to find in current scope first
+                if (self.findLocal(var_name)) |idx| {
                     try self.current_chunk.emitOpU8(.SET_LOCAL, idx, line);
+                } else if (self.findLocalWithDepth(var_name)) |info| {
+                    // Found in parent scope - emit deep access
+                    try self.current_chunk.emitOpU8U8(.SET_LOCAL_DEEP, @intCast(info.idx), @intCast(info.depth), line);
                 } else {
                     // Create new local variable
                     try self.addLocal(var_name);
@@ -592,8 +606,14 @@ pub const Compiler = struct {
 
         // Save the current chunk and switch to the block chunk
         const saved_chunk = self.current_chunk;
-        const saved_locals_len = self.locals.items.len;
         self.current_chunk = block_chunk_ptr;
+
+        // Push current locals onto all_locals stack (for closure lookups)
+        try self.all_locals.append(self.allocator, self.locals);
+
+        // Create new locals array for this block
+        const saved_locals = self.locals;
+        self.locals = .empty;
 
         // Push block context onto loop stack for break detection
         const loop_idx = self.loop_stack.items.len;
@@ -650,9 +670,13 @@ pub const Compiler = struct {
         // Emit return instruction
         try self.current_chunk.emitOp(.RETURN, line);
 
-        // Restore the previous chunk
+        // Pop the all_locals stack
+        _ = self.all_locals.pop();
+
+        // Restore the previous chunk and locals
         self.current_chunk = saved_chunk;
-        self.locals.items.len = saved_locals_len;
+        self.locals.deinit(self.allocator); // Clean up block's locals
+        self.locals = saved_locals; // Restore parent's locals
 
         // Assign unique ID to this block chunk
         const chunk_id = self.chunk_counter;
@@ -671,6 +695,7 @@ pub const Compiler = struct {
         try self.locals.append(self.allocator, Local{
             .name = name,
             .depth = self.scope_depth,
+            .is_captured = false,
         });
     }
 
@@ -680,6 +705,23 @@ pub const Compiler = struct {
             i -= 1;
             if (std.mem.eql(u8, self.locals.items[i].name, name)) {
                 return @intCast(i);
+            }
+        }
+        return null;
+    }
+
+    fn findLocalWithDepth(self: *Compiler, name: []const u8) ?struct { idx: usize, depth: usize } {
+        var scope_idx = self.all_locals.items.len;
+        while (scope_idx > 0) : (scope_idx -= 1) {
+            const scope_locals = &self.all_locals.items[scope_idx - 1];
+            var local_idx = scope_locals.items.len;
+            while (local_idx > 0) : (local_idx -= 1) {
+                if (std.mem.eql(u8, scope_locals.items[local_idx - 1].name, name)) {
+                    return .{
+                        .idx = local_idx - 1,
+                        .depth = self.all_locals.items.len - scope_idx + 1,
+                    };
+                }
             }
         }
         return null;
@@ -1002,7 +1044,7 @@ pub const Compiler = struct {
         // 5. Jump back to loop start (backward jump)
         const jump_back_pos = self.current_chunk.code.items.len;
         const offset: i16 = @intCast(@as(i32, @intCast(loop_start_ip)) -
-                                     @as(i32, @intCast(jump_back_pos)) - 3);
+            @as(i32, @intCast(jump_back_pos)) - 3);
         try self.current_chunk.emitOpI16(.JUMP, offset, line);
 
         // 6. Patch forward jump to here (after loop exits)

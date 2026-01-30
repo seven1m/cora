@@ -2,58 +2,60 @@ const std = @import("std");
 
 pub const OpCode = enum(u8) {
     // Literals
-    PUSH_NIL = 0,
-    PUSH_TRUE = 1,
-    PUSH_FALSE = 2,
-    PUSH_INT = 3, // Operand: u16 (constant pool index)
-    PUSH_CONST = 4, // Operand: u16 (constant pool index)
+    PUSH_NIL, // No operands
+    PUSH_TRUE, // No operands
+    PUSH_FALSE, // No operands
+    PUSH_INT, // Operand: u16 (constant pool index)
+    PUSH_CONST, // Operand: u16 (constant pool index)
 
     // Variables and Constants
-    GET_LOCAL = 5, // Operand: u8 (local index)
-    SET_LOCAL = 6, // Operand: u8 (local index)
-    GET_CONST = 7, // Operand: u16 (constant name index)
-    SET_CONST = 8, // Operand: u16 (constant name index)
+    GET_LOCAL, // Operand: u8 (local index)
+    GET_LOCAL_DEEP, // Operands: u8 (local index), u8 (depth)
+    SET_LOCAL, // Operand: u8 (local index)
+    SET_LOCAL_DEEP, // Operands: u8 (local index), u8 (depth)
+    GET_CONST, // Operand: u16 (constant name index)
+    SET_CONST, // Operand: u16 (constant name index)
 
     // Control flow
-    JUMP = 9, // Operand: i16 (offset)
-    JUMP_IF_FALSE = 10, // Operand: i16 (offset)
-    JUMP_IF_TRUE = 11, // Operand: i16 (offset)
-    POP = 12,
+    JUMP, // Operand: i16 (offset)
+    JUMP_IF_FALSE, // Operand: i16 (offset)
+    JUMP_IF_TRUE, // Operand: i16 (offset)
+    POP, // No operands
 
     // Method calls
-    CALL = 13, // Operands: u16 (method name index), u8 (argc), u8 (block chunk id)
-    RETURN = 14,
+    CALL, // Operands: u16 (method name index), u8 (argc), u8 (block chunk id)
+    RETURN, // No operands
 
     // OOP
-    DEF_MODULE = 15, // Operand: u16 (name index)
-    DEF_CLASS = 16, // Operands: u16 (name index), u8 (body chunk id)
-    DEF_METHOD = 17, // Operands: u16 (name index), u8 (chunk index)
-    DEF_SINGLETON_METHOD = 18, // Operands: u16 (name index), u8 (chunk index) - receiver on stack
-    PUSH_SELF = 19,
+    DEF_MODULE, // Operand: u16 (name index)
+    DEF_CLASS, // Operands: u16 (name index), u8 (body chunk id)
+    DEF_METHOD, // Operands: u16 (name index), u8 (chunk index)
+    DEF_SINGLETON_METHOD, // Operands: u16 (name index), u8 (chunk index) - receiver on stack
+    PUSH_SELF, // No operands
 
     // Collections
-    PUSH_ARRAY = 20, // Operand: u8 (element count)
-    PUSH_HASH = 21, // Operand: u8 (pair count)
+    PUSH_ARRAY, // Operand: u8 (element count)
+    PUSH_HASH, // Operand: u8 (pair count)
 
     // Special
-    HALT = 22,
+    HALT, // No operands
 
     // Blocks
-    YIELD = 23, // Operand: u8 (argc)
+    YIELD, // Operand: u8 (argc)
 
     // Constant path resolution
-    GET_CONST_PATH = 24, // Operand: u16 (constant name index) - pops module/class, looks up constant
+    GET_CONST_PATH, // Operand: u16 (constant name index) - pops module/class, looks up constant
 
     // Exception handling
-    RAISE = 25, // Operand: u8 (argc) - 0=re-raise, 1=exception instance or class, 2=class+message
-    TRY_BEGIN = 26, // Operand: u16 (handler_idx) - points to exception_handlers table entry
-    TRY_END = 27, // No operands - marks end of protected region (normal completion)
-    CATCH_START = 28, // Operand: u8 (var_idx) - store exception in local var (255 = no binding)
-    CATCH_END = 29, // No operands - marks exit from rescue clause
-    ENSURE_START = 30, // No operands - marks entry to ensure block
-    ENSURE_END = 31, // No operands - marks exit from ensure block
-    RETRY = 32, // No operands - jump back to beginning of current begin block
-    BREAK = 33, // No operands - used for breaking from blocks
+    RAISE, // Operand: u8 (argc) - 0=re-raise, 1=exception instance or class, 2=class+message
+    TRY_BEGIN, // Operand: u16 (handler_idx) - points to exception_handlers table entry
+    TRY_END, // No operands - marks end of protected region (normal completion)
+    CATCH_START, // Operand: u8 (var_idx) - store exception in local var (255 = no binding)
+    CATCH_END, // No operands - marks exit from rescue clause
+    ENSURE_START, // No operands - marks entry to ensure block
+    ENSURE_END, // No operands - marks exit from ensure block
+    RETRY, // No operands - jump back to beginning of current begin block
+    BREAK, // No operands - used for breaking from blocks
 };
 
 pub const BuiltinId = enum(u8) {
@@ -68,7 +70,9 @@ pub fn opcodeName(op: OpCode) []const u8 {
         .PUSH_INT => "PUSH_INT",
         .PUSH_CONST => "PUSH_CONST",
         .GET_LOCAL => "GET_LOCAL",
+        .GET_LOCAL_DEEP => "GET_LOCAL_DEEP",
         .SET_LOCAL => "SET_LOCAL",
+        .SET_LOCAL_DEEP => "SET_LOCAL_DEEP",
         .GET_CONST => "GET_CONST",
         .SET_CONST => "SET_CONST",
         .PUSH_SELF => "PUSH_SELF",
@@ -137,6 +141,9 @@ pub const Instruction = struct {
             },
             .GET_LOCAL, .SET_LOCAL, .PUSH_ARRAY, .PUSH_HASH => {
                 try writer.print(" {d}", .{self.a});
+            },
+            .GET_LOCAL_DEEP, .SET_LOCAL_DEEP => {
+                try writer.print(" {d} {d}", .{self.a, self.b});
             },
             .JUMP, .JUMP_IF_FALSE, .JUMP_IF_TRUE => {
                 const offset: i16 = @bitCast(self.bx);

@@ -15,15 +15,28 @@ const Method = value.Method;
 const RuntimeError = value.RuntimeError;
 const Chunk = chunk.Chunk;
 
+pub const Environment = struct {
+    object: Object,
+
+    // Back pointer to outer environment (forms a chain for closures)
+    parent: ?*Environment,
+
+    // Lexical scope for constant lookup
+    lexical_scope: ?*LexicalScope,
+
+    // Variable storage - fixed size array for speed (like Ruby's CallFrame locals)
+    variables: [32]Value = undefined,
+    variables_len: u8 = 0,
+};
+
 pub const CallFrame = struct {
     chunk: *Chunk,
     ip: usize,
     stack_base: usize,
     self_value: Value,
-    locals: [32]Value = undefined,
-    locals_len: u8 = 0,
+    ep: *Environment,
     block_chunk: ?*Chunk = null,
-    lexical_scope: ?*LexicalScope = null,
+    block_defining_ep: ?*Environment = null, // Environment where block was defined (for closures)
 };
 
 pub const VM = struct {
@@ -352,6 +365,48 @@ pub const VM = struct {
         return scope;
     }
 
+    // Create new stack-allocated environment
+    fn createStackEnvironment(self: *VM, parent: ?*Environment, lexical_scope: ?*LexicalScope) !*Environment {
+        const env = self.gc_allocator.create(Environment) catch unreachable;
+        env.* = .{
+            .object = .{ .flags = 0, .class = self.object_class, .singleton_class = null },
+            .parent = parent,
+            .lexical_scope = lexical_scope,
+            .variables = undefined,
+            .variables_len = 0,
+        };
+        return env;
+    }
+
+    // Get variable by walking environment chain
+    fn getVariableAtDepth(ep: *Environment, depth: usize, idx: usize) ?Value {
+        var current_ep = ep;
+        var i: usize = 0;
+        while (i < depth) : (i += 1) {
+            current_ep = current_ep.parent orelse return null;
+        }
+        if (idx < current_ep.variables_len) {
+            return current_ep.variables[idx];
+        }
+        return null;
+    }
+
+    fn setVariableAtDepth(ep: *Environment, depth: usize, idx: usize, val: Value) !void {
+        var current_ep = ep;
+        var i: usize = 0;
+        while (i < depth) : (i += 1) {
+            current_ep = current_ep.parent orelse return;
+        }
+        if (idx < 32) { // Fixed size limit
+            current_ep.variables[idx] = val;
+            if (idx >= current_ep.variables_len) {
+                current_ep.variables_len = @intCast(idx + 1);
+            }
+        } else {
+            return error.TooManyLocals;
+        }
+    }
+
     fn findConstantInLexicalScope(_: *VM, scope: *LexicalScope, name: *value.SymbolObject) !?Value {
         var current_scope: ?*LexicalScope = scope;
         while (current_scope) |s| {
@@ -391,7 +446,7 @@ pub const VM = struct {
     pub fn run(self: *VM) !Value {
         self.setupOutput();
 
-        try self.pushFrame(&self.program.main_chunk, Value.nil(), null);
+        try self.pushFrame(&self.program.main_chunk, Value.nil(), null, null);
 
         while (self.frames.items.len > 0) {
             try self.executeInstruction();
@@ -452,14 +507,25 @@ pub const VM = struct {
         return val;
     }
 
-    fn pushFrame(self: *VM, ch: *Chunk, self_value: Value, block_chunk: ?*Chunk) !void {
+    fn pushFrame(self: *VM, ch: *Chunk, self_value: Value, block_chunk: ?*Chunk, block_defining_ep: ?*Environment) !void {
+        // Get parent environment (current frame's ep, if any)
+        const parent_env = if (self.frames.items.len > 0)
+            self.frames.items[self.frames.items.len - 1].ep
+        else
+            null;
+
+        // Create environment for this frame
+        // TODO: allocate on stack at first and promote to heap later
+        const env = try self.createStackEnvironment(parent_env, ch.lexical_scope orelse self.current_lexical_scope);
+
         try self.frames.append(self.allocator, CallFrame{
             .chunk = ch,
             .ip = 0,
             .stack_base = self.stack.items.len,
             .self_value = self_value,
+            .ep = env,
             .block_chunk = block_chunk,
-            .lexical_scope = ch.lexical_scope,
+            .block_defining_ep = block_defining_ep,
         });
 
         // Update current_lexical_scope to the frame's scope
@@ -475,7 +541,7 @@ pub const VM = struct {
             // Restore current_lexical_scope to the previous frame's scope
             if (self.frames.items.len > 0) {
                 const prev_frame = &self.frames.items[self.frames.items.len - 1];
-                self.current_lexical_scope = prev_frame.lexical_scope;
+                self.current_lexical_scope = prev_frame.ep.lexical_scope;
             }
         }
     }
@@ -518,18 +584,31 @@ pub const VM = struct {
 
             .GET_LOCAL => {
                 const local_idx = self.readByte();
-                const val = frame.locals[local_idx];
+                // Phase 1: Always depth 0 (no closures yet)
+                const val = getVariableAtDepth(frame.ep, 0, local_idx) orelse Value.nil();
                 try self.push(val);
             },
 
             .SET_LOCAL => {
                 const local_idx = self.readByte();
                 const val = self.pop();
+                // Phase 1: Always depth 0
+                try setVariableAtDepth(frame.ep, 0, local_idx, val);
+                try self.push(val);
+            },
 
-                frame.locals[local_idx] = val;
-                if (local_idx >= frame.locals_len) {
-                    frame.locals_len = local_idx + 1;
-                }
+            .GET_LOCAL_DEEP => {
+                const local_idx = self.readByte();
+                const depth = self.readByte();
+                const val = getVariableAtDepth(frame.ep, depth, local_idx) orelse Value.nil();
+                try self.push(val);
+            },
+
+            .SET_LOCAL_DEEP => {
+                const local_idx = self.readByte();
+                const depth = self.readByte();
+                const val = self.pop();
+                try setVariableAtDepth(frame.ep, depth, local_idx, val);
                 try self.push(val);
             },
 
@@ -541,7 +620,7 @@ pub const VM = struct {
                     const name_sym = try self.intern(constant.string);
 
                     // Walk lexical scope chain first
-                    if (frame.lexical_scope) |scope| {
+                    if (frame.ep.lexical_scope) |scope| {
                         if (try self.findConstantInLexicalScope(scope, name_sym)) |val| {
                             try self.push(val);
                             return;
@@ -568,7 +647,7 @@ pub const VM = struct {
                     const name_sym = try self.intern(constant.string);
 
                     // Set in current lexical scope's module (or Object if no scope)
-                    if (frame.lexical_scope) |scope| {
+                    if (frame.ep.lexical_scope) |scope| {
                         try scope.scope_module.constants.put(name_sym, val);
                     } else {
                         try self.object_class.module.constants.put(name_sym, val);
@@ -662,17 +741,20 @@ pub const VM = struct {
 
                 // Look up block chunk if ID != 0
                 var block_chunk: ?*Chunk = null;
+                var block_defining_ep: ?*Environment = null;
                 if (block_chunk_id != 0) {
                     if (self.program.method_chunks.get(block_chunk_id)) |bc| {
                         block_chunk = bc;
                         // Capture current lexical scope for the block
                         bc.lexical_scope = self.current_lexical_scope;
+                        // Capture current environment for closures
+                        block_defining_ep = frame.ep;
                     } else {
                         return error.UndefinedChunk;
                     }
                 }
 
-                try self.callMethod(method_idx, receiver, &args, argc, block_chunk);
+                try self.callMethod(method_idx, receiver, &args, argc, block_chunk, block_defining_ep);
             },
 
             .RETURN => {
@@ -696,7 +778,7 @@ pub const VM = struct {
                     const module_val = self.newModule(name_sym);
 
                     // Store constant in current lexical scope (or Object if no scope)
-                    if (frame.lexical_scope) |scope| {
+                    if (frame.ep.lexical_scope) |scope| {
                         try scope.scope_module.constants.put(name_sym, module_val);
                     } else {
                         try self.object_class.module.constants.put(name_sym, module_val);
@@ -710,7 +792,7 @@ pub const VM = struct {
 
                             // Call the body chunk with the module as self
                             // pushFrame will update current_lexical_scope
-                            try self.pushFrame(body_chunk_ptr, module_val, null);
+                            try self.pushFrame(body_chunk_ptr, module_val, null, null);
                         } else {
                             return error.UndefinedChunk;
                         }
@@ -742,7 +824,7 @@ pub const VM = struct {
                     const class_val = self.newClass(name_sym, superclass);
 
                     // Store constant in current lexical scope (or Object if no scope)
-                    if (frame.lexical_scope) |scope| {
+                    if (frame.ep.lexical_scope) |scope| {
                         try scope.scope_module.constants.put(name_sym, class_val);
                     } else {
                         try self.object_class.module.constants.put(name_sym, class_val);
@@ -756,7 +838,7 @@ pub const VM = struct {
 
                             // Call the body chunk with the class as self
                             // pushFrame will update current_lexical_scope
-                            try self.pushFrame(body_chunk_ptr, class_val, null);
+                            try self.pushFrame(body_chunk_ptr, class_val, null, null);
                         } else {
                             return error.UndefinedChunk;
                         }
@@ -924,14 +1006,31 @@ pub const VM = struct {
                     return;
                 }
 
-                // Push frame with block's chunk
-                try self.pushFrame(blk, frame.self_value, frame.block_chunk);
+                // Push frame with block's chunk, using block_defining_ep as parent for closure support
+                // We need to manually create the environment with the right parent
+                // Create environment with block_defining_ep as parent (lexical scoping)
+                const block_env = try self.createStackEnvironment(frame.block_defining_ep, blk.lexical_scope orelse self.current_lexical_scope);
 
-                // Copy yield arguments to locals
+                try self.frames.append(self.allocator, CallFrame{
+                    .chunk = blk,
+                    .ip = 0,
+                    .stack_base = self.stack.items.len,
+                    .self_value = frame.self_value,
+                    .ep = block_env,
+                    .block_chunk = frame.block_chunk,
+                    .block_defining_ep = null,
+                });
+
+                // Update current_lexical_scope to the block's scope
+                if (blk.lexical_scope) |scope| {
+                    self.current_lexical_scope = scope;
+                }
+
+                // Copy yield arguments to block's environment
                 var block_frame = self.currentFrame();
                 for (yield_args[0..argc], 0..) |arg, idx| {
-                    block_frame.locals[idx] = arg;
-                    block_frame.locals_len = @as(u8, @intCast(idx + 1));
+                    block_frame.ep.variables[idx] = arg;
+                    block_frame.ep.variables_len = @as(u8, @intCast(idx + 1));
                 }
 
                 // Execute until block returns
@@ -1071,9 +1170,9 @@ pub const VM = struct {
                 // Store exception in local variable if binding exists
                 if (var_idx != 255) {
                     if (self.pending_exception) |exc| {
-                        frame.locals[var_idx] = .{ .data = .{ .exception = exc } };
-                        if (var_idx >= frame.locals_len) {
-                            frame.locals_len = var_idx + 1;
+                        frame.ep.variables[var_idx] = .{ .data = .{ .exception = exc } };
+                        if (var_idx >= frame.ep.variables_len) {
+                            frame.ep.variables_len = @as(u8, @intCast(var_idx + 1));
                         }
                     }
                 }
@@ -1102,13 +1201,13 @@ pub const VM = struct {
                     const saved_frame_count = self.frames.items.len;
 
                     // Push frame with receiver as self_value
-                    self.pushFrame(chunk_ptr, receiver, block_chunk) catch return error.RuntimeError;
+                    self.pushFrame(chunk_ptr, receiver, block_chunk, null) catch return error.RuntimeError;
 
-                    // Copy arguments to locals
+                    // Copy arguments to environment
                     var frame = self.currentFrame();
                     for (args, 0..) |arg, i| {
-                        frame.locals[i] = arg;
-                        frame.locals_len += 1;
+                        frame.ep.variables[i] = arg;
+                        frame.ep.variables_len = @as(u8, @intCast(i + 1));
                     }
 
                     // Execute until we return to saved frame count
@@ -1137,19 +1236,19 @@ pub const VM = struct {
     /// Returns the block's result value and whether a break occurred
     fn yieldToBlock(self: *VM, block: *Chunk, receiver: Value, yield_args: []const Value) RuntimeError!YieldResult {
         // Push block frame (no nested block for builtin-called blocks)
-        self.pushFrame(block, receiver, null) catch |err| {
+        self.pushFrame(block, receiver, null, null) catch |err| {
             const exc = try self.createException(self.runtime_error_class, @errorName(err));
             self.pending_exception = exc;
             return error.RuntimeError;
         };
 
-        // Copy arguments to locals
+        // Copy arguments to environment
         var block_frame = self.currentFrame();
         for (yield_args, 0..) |arg, i| {
-            if (i >= 32) break; // CallFrame has max 32 locals
-            block_frame.locals[i] = arg;
+            if (i >= 32) break; // Environment has max 32 variables
+            block_frame.ep.variables[i] = arg;
         }
-        block_frame.locals_len = @intCast(yield_args.len);
+        block_frame.ep.variables_len = @as(u8, @intCast(yield_args.len));
 
         // Execute until block returns
         self.break_occurred = false;
@@ -1192,7 +1291,7 @@ pub const VM = struct {
         };
     }
 
-    fn callMethod(self: *VM, method_idx: u16, receiver: Value, args: *[256]Value, argc: usize, block_chunk: ?*Chunk) !void {
+    fn callMethod(self: *VM, method_idx: u16, receiver: Value, args: *[256]Value, argc: usize, block_chunk: ?*Chunk, block_defining_ep: ?*Environment) !void {
         if (method_idx >= self.currentChunk().constants.items.len) {
             return error.InvalidMethodIndex;
         }
@@ -1239,14 +1338,14 @@ pub const VM = struct {
             switch (m) {
                 .chunk => |chunk_ptr| {
                     // Push frame with receiver as self_value
-                    try self.pushFrame(chunk_ptr, receiver, block_chunk);
+                    try self.pushFrame(chunk_ptr, receiver, block_chunk, block_defining_ep);
 
                     // Copy arguments to locals
                     var frame = self.currentFrame();
                     var i: usize = 0;
                     while (i < argc) : (i += 1) {
-                        frame.locals[i] = args[i];
-                        frame.locals_len += 1;
+                        frame.ep.variables[i] = args[i];
+                        frame.ep.variables_len = @as(u8, @intCast(i + 1));
                     }
                 },
                 .builtin => |fun_ptr| {
