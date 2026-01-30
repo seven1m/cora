@@ -518,19 +518,17 @@ pub const VM = struct {
 
             .GET_LOCAL => {
                 const local_idx = self.readByte();
-                const frame2 = self.currentFrame();
-                const val = frame2.locals[local_idx];
+                const val = frame.locals[local_idx];
                 try self.push(val);
             },
 
             .SET_LOCAL => {
                 const local_idx = self.readByte();
                 const val = self.pop();
-                var frame2 = self.currentFrame();
 
-                frame2.locals[local_idx] = val;
-                if (local_idx >= frame2.locals_len) {
-                    frame2.locals_len = local_idx + 1;
+                frame.locals[local_idx] = val;
+                if (local_idx >= frame.locals_len) {
+                    frame.locals_len = local_idx + 1;
                 }
                 try self.push(val);
             },
@@ -543,8 +541,7 @@ pub const VM = struct {
                     const name_sym = try self.intern(constant.string);
 
                     // Walk lexical scope chain first
-                    const const_frame = self.currentFrame();
-                    if (const_frame.lexical_scope) |scope| {
+                    if (frame.lexical_scope) |scope| {
                         if (try self.findConstantInLexicalScope(scope, name_sym)) |val| {
                             try self.push(val);
                             return;
@@ -571,8 +568,7 @@ pub const VM = struct {
                     const name_sym = try self.intern(constant.string);
 
                     // Set in current lexical scope's module (or Object if no scope)
-                    const const_frame = self.currentFrame();
-                    if (const_frame.lexical_scope) |scope| {
+                    if (frame.lexical_scope) |scope| {
                         try scope.scope_module.constants.put(name_sym, val);
                     } else {
                         try self.object_class.module.constants.put(name_sym, val);
@@ -607,14 +603,12 @@ pub const VM = struct {
             },
 
             .PUSH_SELF => {
-                const frame2 = self.currentFrame();
-                try self.push(frame2.self_value);
+                try self.push(frame.self_value);
             },
 
             .JUMP => {
                 const offset = self.readI16();
-                var frame2 = self.currentFrame();
-                frame2.ip = @intCast(@as(i32, @intCast(frame2.ip)) + offset);
+                frame.ip = @intCast(@as(i32, @intCast(frame.ip)) + offset);
             },
 
             .JUMP_IF_FALSE => {
@@ -628,8 +622,7 @@ pub const VM = struct {
                 };
 
                 if (is_falsy) {
-                    var frame2 = self.currentFrame();
-                    frame2.ip = @intCast(@as(i32, @intCast(frame2.ip)) + offset);
+                    frame.ip = @intCast(@as(i32, @intCast(frame.ip)) + offset);
                 }
             },
 
@@ -644,8 +637,7 @@ pub const VM = struct {
                 };
 
                 if (is_truthy) {
-                    var frame2 = self.currentFrame();
-                    frame2.ip = @intCast(@as(i32, @intCast(frame2.ip)) + offset);
+                    frame.ip = @intCast(@as(i32, @intCast(frame.ip)) + offset);
                 }
             },
 
@@ -704,8 +696,7 @@ pub const VM = struct {
                     const module_val = self.newModule(name_sym);
 
                     // Store constant in current lexical scope (or Object if no scope)
-                    const mod_frame = self.currentFrame();
-                    if (mod_frame.lexical_scope) |scope| {
+                    if (frame.lexical_scope) |scope| {
                         try scope.scope_module.constants.put(name_sym, module_val);
                     } else {
                         try self.object_class.module.constants.put(name_sym, module_val);
@@ -751,8 +742,7 @@ pub const VM = struct {
                     const class_val = self.newClass(name_sym, superclass);
 
                     // Store constant in current lexical scope (or Object if no scope)
-                    const class_frame = self.currentFrame();
-                    if (class_frame.lexical_scope) |scope| {
+                    if (frame.lexical_scope) |scope| {
                         try scope.scope_module.constants.put(name_sym, class_val);
                     } else {
                         try self.object_class.module.constants.put(name_sym, class_val);
@@ -796,8 +786,7 @@ pub const VM = struct {
                     chunk_ptr.lexical_scope = self.current_lexical_scope;
 
                     // Get current self from the frame
-                    const method_frame = self.currentFrame();
-                    const current_self = method_frame.self_value;
+                    const current_self = frame.self_value;
 
                     if (current_self.data == .class) {
                         // Adding method to a class
@@ -1053,8 +1042,7 @@ pub const VM = struct {
                         self.pending_exception = null;
 
                         // Jump back to the saved retry point
-                        var current_frame = self.currentFrame();
-                        current_frame.ip = retry_pt.ip;
+                        frame.ip = retry_pt.ip;
                     } else {
                         // Retry called from wrong frame - this shouldn't happen with proper compilation
                         return error.RuntimeError;
@@ -1083,10 +1071,9 @@ pub const VM = struct {
                 // Store exception in local variable if binding exists
                 if (var_idx != 255) {
                     if (self.pending_exception) |exc| {
-                        var catch_frame = self.currentFrame();
-                        catch_frame.locals[var_idx] = .{ .data = .{ .exception = exc } };
-                        if (var_idx >= catch_frame.locals_len) {
-                            catch_frame.locals_len = var_idx + 1;
+                        frame.locals[var_idx] = .{ .data = .{ .exception = exc } };
+                        if (var_idx >= frame.locals_len) {
+                            frame.locals_len = var_idx + 1;
                         }
                     }
                 }
