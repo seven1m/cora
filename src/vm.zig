@@ -783,12 +783,40 @@ pub const VM = struct {
                 }
             },
 
+            .DEF_SINGLETON_METHOD => {
+                const name_idx = self.readU16();
+                const chunk_idx = self.readByte();
+
+                const constant = self.currentChunk().constants.items[name_idx];
+                if (constant != .symbol) {
+                    return error.InvalidMethodName;
+                }
+
+                const method_name = constant.symbol;
+                const method_name_sym = try self.intern(method_name);
+
+                if (self.program.method_chunks.get(chunk_idx)) |chunk_ptr| {
+                    chunk_ptr.lexical_scope = self.current_lexical_scope;
+
+                    // Pop the receiver from stack (compiled by compileMethod)
+                    const receiver = self.pop();
+
+                    // Get or create singleton class for the receiver
+                    const singleton_class = try self.getOrCreateSingletonClass(receiver);
+
+                    // Store method on singleton class
+                    try singleton_class.module.methods.put(method_name_sym, .{ .chunk = chunk_ptr });
+                } else {
+                    return error.UndefinedChunk;
+                }
+            },
+
             .PUSH_ARRAY => {
                 const element_count = self.readByte();
 
                 const array_obj = self.gc_allocator.create(value.ArrayObject) catch unreachable;
                 array_obj.* = .{
-                    .object = .{ .flags = 0, .class = self.array_class },
+                    .object = .{ .flags = 0, .class = self.array_class, .singleton_class = null },
                     .elements = .empty,
                 };
 
@@ -1058,11 +1086,23 @@ pub const VM = struct {
         const method_name = constant.string;
         const method_name_sym = try self.intern(method_name);
 
-        const class = self.getClass(receiver);
-        const method = self.lookupMethod(class, method_name_sym);
+        var method: ?Method = null;
+
+        // First, check singleton class (create if needed)
+        if (receiver.getObjectPointer() != null) {
+            const singleton_class = try self.getOrCreateSingletonClass(receiver);
+            method = self.lookupMethod(singleton_class, method_name_sym);
+        }
+
+        // If not found in singleton class, check regular class
+        if (method == null) {
+            const class = self.getClass(receiver);
+            method = self.lookupMethod(class, method_name_sym);
+        }
 
         if (method == null) {
             // Method not found - create NoMethodError exception
+            const class = self.getClass(receiver);
             const class_name = class.module.name.name;
             const msg = std.fmt.allocPrint(
                 self.gc_allocator,
@@ -1123,6 +1163,19 @@ pub const VM = struct {
         }
     }
 
+    fn getObjectPointer(_: *VM, obj_val: value.Value) ?*value.Object {
+        return switch (obj_val.data) {
+            .class => |c| &c.module.object,
+            .module => |m| &m.object,
+            .instance => |i| i,
+            .string => |s| &s.object,
+            .symbol => |s| &s.object,
+            .array => |a| &a.object,
+            .exception => |e| &e.object,
+            .integer, .nil, .boolean => null,
+        };
+    }
+
     fn lookupMethod(_: *VM, class: *ClassObject, method_name: *value.SymbolObject) ?Method {
         var current_class: ?*ClassObject = class;
         while (current_class) |c| {
@@ -1156,6 +1209,64 @@ pub const VM = struct {
         return null;
     }
 
+    fn getOrCreateSingletonClass(self: *VM, obj_val: value.Value) !*ClassObject {
+        // Return existing singleton class if already created
+        if (obj_val.getSingletonClass()) |singleton| {
+            return singleton;
+        }
+
+        // Get the object pointer (returns null for primitives)
+        const obj_ptr = obj_val.getObjectPointer() orelse return error.CannotDefineSingletonMethod;
+
+        // Create singleton class name: "#<Class:#<hex_address>>"
+        const singleton_name = try std.fmt.allocPrint(
+            self.gc_allocator,
+            "#<Class:#{x}>",
+            .{@intFromPtr(obj_ptr)},
+        );
+        const singleton_name_sym = try self.intern(singleton_name);
+
+        // Determine singleton's superclass
+        const singleton_superclass: *ClassObject = switch (obj_val.data) {
+            .class => |c| blk: {
+                // For classes: singleton's superclass is parent class's singleton
+                if (c.superclass) |super| {
+                    break :blk try self.getOrCreateSingletonClass(.{ .data = .{ .class = super } });
+                } else {
+                    break :blk self.class_class; // Root class singletons inherit from Class
+                }
+            },
+            .instance => |i| i.class.?, // Instance singleton inherits from instance's class
+            .module => self.module_class,
+            .string => self.string_class,
+            .symbol => self.symbol_class,
+            .array => self.array_class,
+            .exception => self.exception_class,
+            else => unreachable,
+        };
+
+        // Create the singleton ClassObject
+        const singleton_class = self.gc_allocator.create(ClassObject) catch unreachable;
+        singleton_class.* = .{
+            .superclass = singleton_superclass,
+            .module = .{
+                .object = .{
+                    .flags = 0,
+                    .class = self.class_class,
+                    .singleton_class = null,
+                },
+                .name = singleton_name_sym,
+                .methods = std.AutoHashMap(*value.SymbolObject, value.Method).init(self.gc_allocator),
+                .constants = std.AutoHashMap(*value.SymbolObject, value.Value).init(self.gc_allocator),
+            },
+        };
+
+        // Link back to object
+        obj_ptr.singleton_class = singleton_class;
+
+        return singleton_class;
+    }
+
     pub fn intern(self: *VM, str: []const u8) !*SymbolObject {
         // Check if already interned
         if (self.symbols.get(str)) |symbol_obj| {
@@ -1165,7 +1276,7 @@ pub const VM = struct {
         // Create a symbol and store it
         const symbol_obj = self.gc_allocator.create(SymbolObject) catch unreachable;
         symbol_obj.* = .{
-            .object = .{ .flags = Object.FROZEN_FLAG, .class = self.symbol_class },
+            .object = .{ .flags = Object.FROZEN_FLAG, .class = self.symbol_class, .singleton_class = null },
             .name = str,
         };
         try self.symbols.put(str, symbol_obj);
@@ -1178,7 +1289,7 @@ pub const VM = struct {
     pub fn newModule(self: *VM, name: *SymbolObject) Value {
         const module_obj = self.gc_allocator.create(value.ModuleObject) catch unreachable;
         module_obj.* = .{
-            .object = .{ .flags = 0, .class = self.module_class },
+            .object = .{ .flags = 0, .class = self.module_class, .singleton_class = null },
             .name = name,
             .methods = std.AutoHashMap(*SymbolObject, Method).init(self.gc_allocator),
             .constants = std.AutoHashMap(*SymbolObject, Value).init(self.gc_allocator),
@@ -1191,7 +1302,7 @@ pub const VM = struct {
         class_obj.* = .{
             .superclass = superclass,
             .module = .{
-                .object = .{ .flags = 0, .class = self.class_class },
+                .object = .{ .flags = 0, .class = self.class_class, .singleton_class = null },
                 .name = name,
                 .methods = std.AutoHashMap(*SymbolObject, Method).init(self.gc_allocator),
                 .constants = std.AutoHashMap(*SymbolObject, Value).init(self.gc_allocator),
@@ -1205,6 +1316,7 @@ pub const VM = struct {
         obj.* = .{
             .flags = 0,
             .class = class_obj,
+            .singleton_class = null,
         };
         return .{ .data = .{ .instance = obj } };
     }
@@ -1220,7 +1332,7 @@ pub const VM = struct {
 
         const string_obj = self.gc_allocator.create(StringObject) catch unreachable;
         string_obj.* = .{
-            .object = .{ .flags = flags, .class = self.string_class },
+            .object = .{ .flags = flags, .class = self.string_class, .singleton_class = null },
             .str = copy,
         };
         return .{ .data = .{ .string = string_obj } };
@@ -2077,7 +2189,7 @@ pub const VM = struct {
         } else {
             const array_obj = self.gc_allocator.create(value.ArrayObject) catch return error.RuntimeError;
             array_obj.* = .{
-                .object = .{ .flags = 0, .class = self.array_class },
+                .object = .{ .flags = 0, .class = self.array_class, .singleton_class = null },
                 .elements = .empty,
             };
 
@@ -2101,6 +2213,7 @@ pub const VM = struct {
             .object = .{
                 .flags = 0,
                 .class = class,
+                .singleton_class = null,
             },
             .message = msg_str.data.string,
             .backtrace = backtrace,
@@ -2142,6 +2255,7 @@ pub const VM = struct {
             .object = .{
                 .flags = 0,
                 .class = self.array_class,
+                .singleton_class = null,
             },
             .elements = .empty,
         };

@@ -481,6 +481,16 @@ pub const Compiler = struct {
         // Get the method name (will be interned later by VM)
         const method_name_slice = try self.parser.getConstantName(def_node.name);
 
+        // Check if this is a singleton method (has a receiver)
+        const is_singleton_method = def_node.receiver != null;
+
+        // If there's a receiver, compile it to leave the receiver object on the stack
+        if (def_node.receiver) |receiver_ptr| {
+            const receiver_node = try self.parser.asNode(@ptrCast(receiver_ptr));
+            try self.compileNode(receiver_node, line);
+            // Stack now has: [..., receiver_object]
+        }
+
         // Allocate chunk on heap
         const method_chunk_ptr = try self.allocator.create(Chunk);
         method_chunk_ptr.* = Chunk.init(self.allocator, method_name_slice);
@@ -530,9 +540,15 @@ pub const Compiler = struct {
         // Store by ID
         try self.method_chunks.put(chunk_id, method_chunk_ptr);
 
-        // Emit DEF_METHOD bytecode with method name and chunk ID
+        // Emit DEF_METHOD or DEF_SINGLETON_METHOD bytecode with method name and chunk ID
         const name_idx = try self.current_chunk.addConstant(.{ .symbol = method_name_slice });
-        try self.current_chunk.emitOpU16U8(.DEF_METHOD, @intCast(name_idx), @intCast(chunk_id), line);
+        if (is_singleton_method) {
+            // DEF_SINGLETON_METHOD expects receiver on stack, pops it
+            try self.current_chunk.emitOpU16U8(.DEF_SINGLETON_METHOD, @intCast(name_idx), @intCast(chunk_id), line);
+        } else {
+            // DEF_METHOD uses current self from frame
+            try self.current_chunk.emitOpU16U8(.DEF_METHOD, @intCast(name_idx), @intCast(chunk_id), line);
+        }
 
         // Return a symbol of the method name
         try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(name_idx), line);

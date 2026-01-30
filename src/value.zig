@@ -29,6 +29,7 @@ pub const Object = struct {
 
     flags: u32,
     class: ?*ClassObject,
+    singleton_class: ?*ClassObject,
 };
 
 pub const SymbolObject = struct {
@@ -111,6 +112,27 @@ pub const Value = struct {
             // Primitives are already frozen, do nothing
             else => {},
         }
+    }
+
+    pub fn getObjectPointer(self: Value) ?*Object {
+        return switch (self.data) {
+            .class => |c| &c.module.object,
+            .module => |m| &m.object,
+            .instance => |i| i,
+            .string => |s| &s.object,
+            .symbol => |s| &s.object,
+            .array => |a| &a.object,
+            .exception => |e| &e.object,
+            .integer, .nil, .boolean => null,
+        };
+    }
+
+    pub fn getSingletonClass(self: Value) ?*ClassObject {
+        const obj_ptr = self.getObjectPointer();
+        if (obj_ptr) |obj| {
+            return obj.singleton_class;
+        }
+        return null;
     }
 
     pub fn nil() Value {

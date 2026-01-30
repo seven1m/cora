@@ -295,6 +295,20 @@ pub const Chunk = struct {
                 next_ip += 3;
             },
 
+            .DEF_SINGLETON_METHOD => {
+                const name_idx = bytecode.readU16(self.code.items, next_ip);
+                const chunk_idx = bytecode.readU8(self.code.items, next_ip + 2);
+                try writer.print("DEF_SINGLETON_METHOD {d}", .{name_idx});
+                if (name_idx < self.constants.items.len) {
+                    const constant = self.constants.items[name_idx];
+                    if (constant == .symbol) {
+                        try writer.print(" (:{s})", .{constant.symbol});
+                    }
+                }
+                try writer.print(" {d} (chunk {d})\n", .{ chunk_idx, chunk_idx });
+                next_ip += 3;
+            },
+
             .YIELD => {
                 const argc = bytecode.readU8(self.code.items, next_ip);
                 try writer.print("YIELD {d}\n", .{argc});
