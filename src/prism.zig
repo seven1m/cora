@@ -37,6 +37,7 @@ pub const StringNode = c.pm_string_node_t;
 pub const SymbolNode = c.pm_symbol_node_t;
 pub const TrueNode = c.pm_true_node_t;
 pub const YieldNode = c.pm_yield_node_t;
+pub const WhileNode = c.pm_while_node_t;
 
 pub const Node = union(enum) {
     array: *ArrayNode,
@@ -70,6 +71,7 @@ pub const Node = union(enum) {
     symbol: *SymbolNode,
     true_node: *TrueNode,
     yield: *YieldNode,
+    while_node: *WhileNode,
 };
 
 /// Parser wraps Prism's parser and AST lifecycle
@@ -246,6 +248,10 @@ pub const Parser = struct {
 
         if (node_type == c.PM_RETRY_NODE) {
             return Node{ .retry = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_WHILE_NODE) {
+            return Node{ .while_node = @ptrCast(raw) };
         }
 
         var stdout_buffer: [8192]u8 = undefined;

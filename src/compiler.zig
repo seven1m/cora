@@ -310,6 +310,10 @@ pub const Compiler = struct {
                 return error.UnsupportedNode;
             },
 
+            .while_node => |while_node| {
+                try self.compileWhileStatement(while_node, line);
+            },
+
             else => {
                 std.debug.print("Error: unsupported node type\n", .{});
                 return error.UnsupportedNode;
@@ -843,5 +847,37 @@ pub const Compiler = struct {
             .ensure_ip = null,
             .ensure_end_ip = null,
         });
+    }
+
+    fn compileWhileStatement(self: *Compiler, while_node: *prism.WhileNode, line: u32) anyerror!void {
+        // Mark loop start position for backward jump
+        const loop_start_ip = self.current_chunk.code.items.len;
+
+        // 1. Compile condition expression
+        const condition = try self.parser.asNode(@ptrCast(while_node.predicate));
+        try self.compileNode(condition, line);
+
+        // 2. Jump to end if condition is false (JUMP_IF_FALSE pops the condition)
+        const jump_to_end = try self.current_chunk.emitJump(.JUMP_IF_FALSE, line);
+
+        // 3. Compile loop body
+        if (while_node.statements) |statements_ptr| {
+            const body = try self.parser.asNode(@ptrCast(statements_ptr));
+            try self.compileNode(body, line);
+            // 4. Discard body result to prevent stack growth
+            try self.current_chunk.emitOp(.POP, line);
+        }
+
+        // 5. Jump back to loop start (backward jump)
+        const jump_back_pos = self.current_chunk.code.items.len;
+        const offset: i16 = @intCast(@as(i32, @intCast(loop_start_ip)) -
+                                     @as(i32, @intCast(jump_back_pos)) - 3);
+        try self.current_chunk.emitOpI16(.JUMP, offset, line);
+
+        // 6. Patch forward jump to here (after loop exits)
+        try self.current_chunk.patchJump(jump_to_end);
+
+        // 7. While always returns nil
+        try self.current_chunk.emitOp(.PUSH_NIL, line);
     }
 };

@@ -24,6 +24,7 @@ const language_raise_test = @import("test/language/raise_test.zig");
 const language_rescue_else_test = @import("test/language/rescue_else_test.zig");
 const language_rescue_test = @import("test/language/rescue_test.zig");
 const language_retry_test = @import("test/language/retry_test.zig");
+const language_while_test = @import("test/language/while_test.zig");
 
 comptime {
     _ = value_test;
@@ -50,4 +51,5 @@ comptime {
     _ = language_rescue_else_test;
     _ = language_rescue_test;
     _ = language_retry_test;
+    _ = language_while_test;
 }
