@@ -16,6 +16,7 @@ const core_true_test = @import("test/core/true_test.zig");
 
 const language_backtrace_test = @import("test/language/backtrace_test.zig");
 const language_block_test = @import("test/language/block_test.zig");
+const language_block_break_test = @import("test/language/block_break_test.zig");
 const language_constant_test = @import("test/language/constant_test.zig");
 const language_ensure_test = @import("test/language/ensure_test.zig");
 const language_if_test = @import("test/language/if_test.zig");
@@ -44,6 +45,7 @@ comptime {
     _ = core_true_test;
     _ = language_backtrace_test;
     _ = language_block_test;
+    _ = language_block_break_test;
     _ = language_constant_test;
     _ = language_ensure_test;
     _ = language_if_test;

@@ -72,6 +72,9 @@ pub const VM = struct {
         ip: usize,
     } = null,
 
+    // Block break state
+    break_occurred: bool = false,
+
     // Buffered writers for production
     stdout_buffer: [4096]u8 = undefined,
     stderr_buffer: [4096]u8 = undefined,
@@ -835,10 +838,28 @@ pub const VM = struct {
                 }
 
                 // Execute until block returns
+                self.break_occurred = false;
                 const saved_frame_count = self.frames.items.len - 1;
                 while (self.frames.items.len > saved_frame_count) {
                     try self.executeInstruction();
                 }
+
+                // Check if break occurred in block
+                if (self.break_occurred) {
+                    self.break_occurred = false;
+                    // Break value is already on stack from BREAK opcode
+                    // Break causes the yielding method to return early with the break value
+                    try self.popFrame();
+                } else {
+                    // Normal return - value is on stack from RETURN
+                }
+            },
+
+            .BREAK => {
+                // Break value is already on stack (pushed by compileBreakStatement)
+                self.break_occurred = true;
+                // Return from block frame like RETURN does
+                try self.popFrame();
             },
 
             .RAISE => {

@@ -539,6 +539,20 @@ pub const Compiler = struct {
         const saved_locals_len = self.locals.items.len;
         self.current_chunk = block_chunk_ptr;
 
+        // Push block context onto loop stack for break detection
+        const loop_idx = self.loop_stack.items.len;
+        try self.loop_stack.append(self.allocator, .{
+            .loop_type = .block,
+            .break_jumps = .empty,
+        });
+
+        defer {
+            // Pop loop context when done compiling block
+            var ctx = &self.loop_stack.items[loop_idx];
+            ctx.break_jumps.deinit(self.allocator);
+            _ = self.loop_stack.pop();
+        }
+
         // Process block parameters (if any)
         var param_count: u8 = 0;
         if (block_node.parameters) |params_ptr| {
@@ -873,6 +887,7 @@ pub const Compiler = struct {
 
         const current_loop = &self.loop_stack.items[self.loop_stack.items.len - 1];
 
+        // Compile break argument (value to return)
         if (break_node.arguments) |args_ptr| {
             const args = @as(*prism.ArgumentsNode, @ptrCast(args_ptr));
             if (args.arguments.size > 0) {
@@ -885,8 +900,19 @@ pub const Compiler = struct {
             try self.current_chunk.emitOp(.PUSH_NIL, line);
         }
 
-        const break_jump_pos = try self.current_chunk.emitJump(.JUMP, line);
-        try current_loop.break_jumps.append(self.allocator, break_jump_pos);
+        // Different behavior for blocks vs loops
+        switch (current_loop.loop_type) {
+            .block => {
+                // For blocks: emit BREAK opcode (sets flag and returns)
+                try self.current_chunk.emitOp(.BREAK, line);
+            },
+            .while_loop, .until_loop => {
+                // For loops: emit JUMP forward
+                // Note: break value is already on stack from above
+                const break_jump_pos = try self.current_chunk.emitJump(.JUMP, line);
+                try current_loop.break_jumps.append(self.allocator, break_jump_pos);
+            },
+        }
     }
 
     fn compileWhileStatement(self: *Compiler, while_node: *prism.WhileNode, line: u32) anyerror!void {

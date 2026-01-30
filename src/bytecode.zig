@@ -51,6 +51,7 @@ pub const OpCode = enum(u8) {
     ENSURE_START = 27, // No operands - marks entry to ensure block
     ENSURE_END = 28, // No operands - marks exit from ensure block
     RETRY = 29, // No operands - jump back to beginning of current begin block
+    BREAK = 31, // No operands - used for breaking from blocks
 };
 
 pub const BuiltinId = enum(u8) {
@@ -90,6 +91,7 @@ pub fn opcodeName(op: OpCode) []const u8 {
         .ENSURE_START => "ENSURE_START",
         .ENSURE_END => "ENSURE_END",
         .RETRY => "RETRY",
+        .BREAK => "BREAK",
     };
 }
 
