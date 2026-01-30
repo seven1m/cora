@@ -241,7 +241,7 @@ pub const Chunk = struct {
                 next_ip += 3;
             },
 
-            .GET_LOCAL, .SET_LOCAL, .PUSH_ARRAY, .RAISE, .CATCH_START => {
+            .GET_LOCAL, .SET_LOCAL, .PUSH_ARRAY, .PUSH_HASH, .RAISE, .CATCH_START => {
                 const idx = bytecode.readU8(self.code.items, next_ip);
                 try writer.print("{s} {d}\n", .{ bytecode.opcodeName(op), idx });
                 next_ip += 1;

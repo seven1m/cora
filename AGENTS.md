@@ -34,7 +34,7 @@ Cora is a Ruby interpreter written in Zig using the Prism parser. It uses a **tw
 
 **Classes/Modules:** Classes have module-like method storage, superclass, prepended/included module lists. Method lookup walks: prepended → class methods → included → superclass.
 
-**Value Types:** Primitives (integer, boolean, nil), heap-allocated (Object, SymbolObject, StringObject, ModuleObject, ClassObject, ArrayObject, ExceptionObject).
+**Value Types:** Primitives (integer, boolean, nil), heap-allocated (Object, SymbolObject, StringObject, ModuleObject, ClassObject, ArrayObject, HashObject, ExceptionObject).
 
 **Blocks:** Compiled into separate bytecode chunks with arity and parameters. YIELD executes the block passed to current method.
 

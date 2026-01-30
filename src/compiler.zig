@@ -290,6 +290,37 @@ pub const Compiler = struct {
                 try self.current_chunk.emitOpU8(.PUSH_ARRAY, element_count, line);
             },
 
+            .hash => |hash_node| {
+                const pair_count: u8 = @intCast(hash_node.elements.size);
+
+                if (pair_count > 255) {
+                    return error.TooManyHashPairs;
+                }
+
+                // Compile key-value pairs in reverse order
+                var i: i32 = @intCast(hash_node.elements.size);
+                while (i > 0) : (i -= 1) {
+                    const assoc_raw = hash_node.elements.nodes[@intCast(i - 1)];
+                    const assoc_node = try self.parser.asNode(assoc_raw);
+
+                    // Each element should be an AssocNode
+                    if (assoc_node != .assoc) {
+                        return error.ExpectedAssocNode;
+                    }
+
+                    // Compile value first
+                    const value_node = try self.parser.asNode(@ptrCast(assoc_node.assoc.value));
+                    try self.compileNode(value_node, line);
+
+                    // Compile key second
+                    const key_node = try self.parser.asNode(@ptrCast(assoc_node.assoc.key));
+                    try self.compileNode(key_node, line);
+                }
+
+                // Emit PUSH_HASH with pair count
+                try self.current_chunk.emitOpU8(.PUSH_HASH, pair_count, line);
+            },
+
             .yield => |yield_node| {
                 // Compile yield arguments
                 var argc: u8 = 0;

@@ -33,26 +33,27 @@ pub const OpCode = enum(u8) {
 
     // Collections
     PUSH_ARRAY = 20, // Operand: u8 (element count)
+    PUSH_HASH = 21, // Operand: u8 (pair count)
 
     // Special
-    HALT = 21,
+    HALT = 22,
 
     // Blocks
-    YIELD = 22, // Operand: u8 (argc)
+    YIELD = 23, // Operand: u8 (argc)
 
     // Constant path resolution
-    GET_CONST_PATH = 23, // Operand: u16 (constant name index) - pops module/class, looks up constant
+    GET_CONST_PATH = 24, // Operand: u16 (constant name index) - pops module/class, looks up constant
 
     // Exception handling
-    RAISE = 24, // Operand: u8 (argc) - 0=re-raise, 1=exception instance or class, 2=class+message
-    TRY_BEGIN = 25, // Operand: u16 (handler_idx) - points to exception_handlers table entry
-    TRY_END = 26, // No operands - marks end of protected region (normal completion)
-    CATCH_START = 27, // Operand: u8 (var_idx) - store exception in local var (255 = no binding)
-    CATCH_END = 28, // No operands - marks exit from rescue clause
-    ENSURE_START = 29, // No operands - marks entry to ensure block
-    ENSURE_END = 30, // No operands - marks exit from ensure block
-    RETRY = 31, // No operands - jump back to beginning of current begin block
-    BREAK = 32, // No operands - used for breaking from blocks
+    RAISE = 25, // Operand: u8 (argc) - 0=re-raise, 1=exception instance or class, 2=class+message
+    TRY_BEGIN = 26, // Operand: u16 (handler_idx) - points to exception_handlers table entry
+    TRY_END = 27, // No operands - marks end of protected region (normal completion)
+    CATCH_START = 28, // Operand: u8 (var_idx) - store exception in local var (255 = no binding)
+    CATCH_END = 29, // No operands - marks exit from rescue clause
+    ENSURE_START = 30, // No operands - marks entry to ensure block
+    ENSURE_END = 31, // No operands - marks exit from ensure block
+    RETRY = 32, // No operands - jump back to beginning of current begin block
+    BREAK = 33, // No operands - used for breaking from blocks
 };
 
 pub const BuiltinId = enum(u8) {
@@ -81,6 +82,7 @@ pub fn opcodeName(op: OpCode) []const u8 {
         .DEF_CLASS => "DEF_CLASS",
         .DEF_METHOD => "DEF_METHOD",
         .PUSH_ARRAY => "PUSH_ARRAY",
+        .PUSH_HASH => "PUSH_HASH",
         .HALT => "HALT",
         .DEF_SINGLETON_METHOD => "DEF_SINGLETON_METHOD",
         .YIELD => "YIELD",
@@ -133,7 +135,7 @@ pub const Instruction = struct {
             .CALL => {
                 try writer.print(" {d} {d} {d}", .{ self.bx, self.a, self.b });
             },
-            .GET_LOCAL, .SET_LOCAL, .PUSH_ARRAY => {
+            .GET_LOCAL, .SET_LOCAL, .PUSH_ARRAY, .PUSH_HASH => {
                 try writer.print(" {d}", .{self.a});
             },
             .JUMP, .JUMP_IF_FALSE, .JUMP_IF_TRUE => {

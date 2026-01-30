@@ -51,6 +51,7 @@ pub const VM = struct {
     string_class: *value.ClassObject,
     symbol_class: *value.ClassObject,
     array_class: *value.ClassObject,
+    hash_class: *value.ClassObject,
     nil_class: *value.ClassObject,
     true_class: *value.ClassObject,
     false_class: *value.ClassObject,
@@ -102,6 +103,7 @@ pub const VM = struct {
             .string_class = undefined,
             .symbol_class = undefined,
             .array_class = undefined,
+            .hash_class = undefined,
             .nil_class = undefined,
             .true_class = undefined,
             .false_class = undefined,
@@ -157,6 +159,10 @@ pub const VM = struct {
         const array_name_sym = try self.intern("Array");
         const array_class_val = self.newClass(array_name_sym, self.object_class);
         self.array_class = array_class_val.data.class;
+
+        const hash_name_sym = try self.intern("Hash");
+        const hash_class_val = self.newClass(hash_name_sym, self.object_class);
+        self.hash_class = hash_class_val.data.class;
 
         const nil_class_name_sym = try self.intern("NilClass");
         const nil_class_val = self.newClass(nil_class_name_sym, self.object_class);
@@ -215,6 +221,7 @@ pub const VM = struct {
         try self.object_class.module.constants.put(integer_name_sym, integer_class_val);
         try self.object_class.module.constants.put(symbol_name_sym, symbol_class_val);
         try self.object_class.module.constants.put(array_name_sym, array_class_val);
+        try self.object_class.module.constants.put(hash_name_sym, hash_class_val);
         try self.object_class.module.constants.put(nil_class_name_sym, nil_class_val);
         try self.object_class.module.constants.put(true_class_name_sym, true_class_val);
         try self.object_class.module.constants.put(false_class_name_sym, false_class_val);
@@ -231,9 +238,6 @@ pub const VM = struct {
         // Register Kernel built-in methods
         const puts_sym = try self.intern("puts");
         try self.kernel_module.methods.put(puts_sym, .{ .builtin = &builtinKernelPuts });
-
-        const to_s_sym = try self.intern("to_s");
-        try self.kernel_module.methods.put(to_s_sym, .{ .builtin = &builtinKernelToS });
 
         // Register Object built-in methods
         const new_sym = try self.intern("new");
@@ -273,19 +277,43 @@ pub const VM = struct {
         const push_sym = try self.intern("<<");
         try self.array_class.module.methods.put(push_sym, .{ .builtin = &builtinArrayPush });
 
+        // Register Hash builtins
+        const bracket_sym = try self.intern("[]");
+        try self.hash_class.module.methods.put(bracket_sym, .{ .builtin = &builtinHashBracket });
+
+        const bracket_set_sym = try self.intern("[]=");
+        try self.hash_class.module.methods.put(bracket_set_sym, .{ .builtin = &builtinHashBracketSet });
+
+        const keys_sym = try self.intern("keys");
+        try self.hash_class.module.methods.put(keys_sym, .{ .builtin = &builtinHashKeys });
+
+        const values_sym = try self.intern("values");
+        try self.hash_class.module.methods.put(values_sym, .{ .builtin = &builtinHashValues });
+
+        const size_sym = try self.intern("size");
+        try self.hash_class.module.methods.put(size_sym, .{ .builtin = &builtinHashSize });
+
+        const length_sym = try self.intern("length");
+        try self.hash_class.module.methods.put(length_sym, .{ .builtin = &builtinHashSize });
+
+        const each_sym = try self.intern("each");
+        try self.hash_class.module.methods.put(each_sym, .{ .builtin = &builtinHashEach });
+
         // Register String builtins
         const string_plus_sym = try self.intern("+");
         try self.string_class.module.methods.put(string_plus_sym, .{ .builtin = &builtinStringPlus });
 
         // Register to_s methods
-        const to_s_sym_specialized = try self.intern("to_s");
-        try self.integer_class.module.methods.put(to_s_sym_specialized, .{ .builtin = &builtinIntegerToS });
-        try self.string_class.module.methods.put(to_s_sym_specialized, .{ .builtin = &builtinStringToS });
-        try self.symbol_class.module.methods.put(to_s_sym_specialized, .{ .builtin = &builtinSymbolToS });
-        try self.nil_class.module.methods.put(to_s_sym_specialized, .{ .builtin = &builtinNilClassToS });
-        try self.true_class.module.methods.put(to_s_sym_specialized, .{ .builtin = &builtinTrueClassToS });
-        try self.false_class.module.methods.put(to_s_sym_specialized, .{ .builtin = &builtinFalseClassToS });
-        try self.array_class.module.methods.put(to_s_sym_specialized, .{ .builtin = &builtinArrayToS });
+        const to_s_sym = try self.intern("to_s");
+        try self.integer_class.module.methods.put(to_s_sym, .{ .builtin = &builtinIntegerToS });
+        try self.string_class.module.methods.put(to_s_sym, .{ .builtin = &builtinStringToS });
+        try self.symbol_class.module.methods.put(to_s_sym, .{ .builtin = &builtinSymbolToS });
+        try self.nil_class.module.methods.put(to_s_sym, .{ .builtin = &builtinNilClassToS });
+        try self.true_class.module.methods.put(to_s_sym, .{ .builtin = &builtinTrueClassToS });
+        try self.false_class.module.methods.put(to_s_sym, .{ .builtin = &builtinFalseClassToS });
+        try self.array_class.module.methods.put(to_s_sym, .{ .builtin = &builtinArrayToS });
+        try self.hash_class.module.methods.put(to_s_sym, .{ .builtin = &builtinHashToS });
+        try self.kernel_module.methods.put(to_s_sym, .{ .builtin = &builtinKernelToS });
 
         // Register inspect methods
         const inspect_sym = try self.intern("inspect");
@@ -297,6 +325,7 @@ pub const VM = struct {
         try self.true_class.module.methods.put(inspect_sym, .{ .builtin = &builtinTrueClassInspect });
         try self.false_class.module.methods.put(inspect_sym, .{ .builtin = &builtinFalseClassInspect });
         try self.array_class.module.methods.put(inspect_sym, .{ .builtin = &builtinArrayInspect });
+        try self.hash_class.module.methods.put(inspect_sym, .{ .builtin = &builtinHashInspect });
 
         // Register p method
         const p_sym = try self.intern("p");
@@ -833,6 +862,41 @@ pub const VM = struct {
                 try self.push(.{ .data = .{ .array = array_obj } });
             },
 
+            .PUSH_HASH => {
+                const pair_count = self.readByte();
+
+                const hash_obj = self.gc_allocator.create(value.HashObject) catch unreachable;
+                hash_obj.* = .{
+                    .object = .{ .flags = 0, .class = self.hash_class, .singleton_class = null },
+                    .map = std.AutoHashMap(u64, usize).init(self.gc_allocator),
+                    .entries = .empty,
+                };
+
+                var i: usize = 0;
+                while (i < pair_count) : (i += 1) {
+                    const key = self.pop();
+                    const val = self.pop();
+
+                    const key_hash = key.hash();
+
+                    if (hash_obj.map.get(key_hash)) |existing_idx| {
+                        if (hash_obj.entries.items[existing_idx].key.eql(key)) {
+                            hash_obj.entries.items[existing_idx].value = val;
+                            continue;
+                        }
+                    }
+
+                    const new_idx = hash_obj.entries.items.len;
+                    hash_obj.entries.append(self.gc_allocator, .{
+                        .key = key,
+                        .value = val,
+                    }) catch unreachable;
+                    hash_obj.map.put(key_hash, new_idx) catch unreachable;
+                }
+
+                try self.push(.{ .data = .{ .hash = hash_obj } });
+            },
+
             .HALT => {
                 try self.popFrame();
             },
@@ -1076,6 +1140,71 @@ pub const VM = struct {
         unreachable;
     }
 
+    /// Result from yielding to a block
+    const YieldResult = struct {
+        value: Value,
+        break_occurred: bool,
+    };
+
+    /// Yield to a block with arguments, handling break and exceptions
+    /// Returns the block's result value and whether a break occurred
+    fn yieldToBlock(self: *VM, block: *Chunk, receiver: Value, yield_args: []const Value) RuntimeError!YieldResult {
+        // Push block frame (no nested block for builtin-called blocks)
+        self.pushFrame(block, receiver, null) catch |err| {
+            const exc = try self.createException(self.runtime_error_class, @errorName(err));
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        };
+
+        // Copy arguments to locals
+        var block_frame = self.currentFrame();
+        for (yield_args, 0..) |arg, i| {
+            if (i >= 32) break; // CallFrame has max 32 locals
+            block_frame.locals[i] = arg;
+        }
+        block_frame.locals_len = @intCast(yield_args.len);
+
+        // Execute until block returns
+        self.break_occurred = false;
+        const saved_frame_count = self.frames.items.len - 1;
+        while (self.frames.items.len > saved_frame_count) {
+            self.executeInstruction() catch |exec_err| {
+                // Check if exception was already set
+                if (self.pending_exception != null) {
+                    return error.RuntimeError;
+                }
+                const exc = try self.createException(self.runtime_error_class, @errorName(exec_err));
+                self.pending_exception = exc;
+                return error.RuntimeError;
+            };
+        }
+
+        // Handle break or normal return
+        const break_occurred = self.break_occurred;
+        if (break_occurred) {
+            self.break_occurred = false;
+            // Break value is on stack from BREAK opcode
+            _ = try self.popFrame();
+        }
+
+        // Get result from stack (top of stack is at distance 0)
+        const result = if (self.stack.items.len > 0) self.peek(0) else Value.nil();
+
+        return YieldResult{
+            .value = result,
+            .break_occurred = break_occurred,
+        };
+    }
+
+    /// Ensure a block was given, or raise an error
+    fn requireBlock(self: *VM, block: ?*Chunk) RuntimeError!*Chunk {
+        return block orelse {
+            const exc = try self.createException(self.argument_error_class, "no block given");
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        };
+    }
+
     fn callMethod(self: *VM, method_idx: u16, receiver: Value, args: *[256]Value, argc: usize, block_chunk: ?*Chunk) !void {
         if (method_idx >= self.currentChunk().constants.items.len) {
             return error.InvalidMethodIndex;
@@ -1156,6 +1285,7 @@ pub const VM = struct {
             .string => |s| return s.object.class.?,
             .symbol => |s| return s.object.class.?,
             .array => |a| return a.object.class.?,
+            .hash => |h| return h.object.class.?,
             .exception => |e| return e.object.class.?,
             .module => |m| return m.object.class.?,
             .class => |c| return c.module.object.class.?,
@@ -1175,6 +1305,7 @@ pub const VM = struct {
             .string => |s| &s.object,
             .symbol => |s| &s.object,
             .array => |a| &a.object,
+            .hash => |h| &h.object,
             .exception => |e| &e.object,
             .integer, .nil, .boolean => null,
         };
@@ -1245,6 +1376,7 @@ pub const VM = struct {
             .string => self.string_class,
             .symbol => self.symbol_class,
             .array => self.array_class,
+            .hash => self.hash_class,
             .exception => self.exception_class,
             else => unreachable,
         };
@@ -2038,6 +2170,7 @@ pub const VM = struct {
             .string => |s| @intFromPtr(s),
             .symbol => |s| @intFromPtr(s),
             .array => |a| @intFromPtr(a),
+            .hash => |h| @intFromPtr(h),
             .exception => |e| @intFromPtr(e),
             .module => |m| @intFromPtr(m),
             .class => |c| @intFromPtr(c),
@@ -2292,7 +2425,293 @@ pub const VM = struct {
         return .{ .data = .{ .string = exc.message } };
     }
 
-    /// Capture the current call stack as a backtrace
+    fn builtinHashBracket(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+        if (receiver.data != .hash) {
+            const exc = try self.createException(
+                self.type_error_class,
+                "receiver is not a Hash",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+        if (args.len != 1) {
+            const msg = std.fmt.allocPrint(
+                self.gc_allocator,
+                "wrong number of arguments (given {d}, expected 1)",
+                .{args.len},
+            ) catch unreachable;
+            const exc = try self.createException(self.argument_error_class, msg);
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        const hash_obj = receiver.data.hash;
+        const key = args[0];
+        const key_hash = key.hash();
+
+        if (hash_obj.map.get(key_hash)) |idx| {
+            if (hash_obj.entries.items[idx].key.eql(key)) {
+                return hash_obj.entries.items[idx].value;
+            }
+        }
+
+        return Value.nil();
+    }
+
+    fn builtinHashBracketSet(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+        if (receiver.data != .hash) {
+            const exc = try self.createException(
+                self.type_error_class,
+                "receiver is not a Hash",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+        if (args.len != 2) {
+            const msg = std.fmt.allocPrint(
+                self.gc_allocator,
+                "wrong number of arguments (given {d}, expected 2)",
+                .{args.len},
+            ) catch unreachable;
+            const exc = try self.createException(self.argument_error_class, msg);
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+        if (receiver.isFrozen()) {
+            const exc = try self.createException(self.runtime_error_class, "can't modify frozen Hash");
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        const hash_obj = receiver.data.hash;
+        const key = args[0];
+        const new_value = args[1];
+        const key_hash = key.hash();
+
+        if (hash_obj.map.get(key_hash)) |idx| {
+            if (hash_obj.entries.items[idx].key.eql(key)) {
+                hash_obj.entries.items[idx].value = new_value;
+                return new_value;
+            }
+        }
+
+        const new_idx = hash_obj.entries.items.len;
+        hash_obj.entries.append(self.gc_allocator, .{ .key = key, .value = new_value }) catch unreachable;
+        hash_obj.map.put(key_hash, new_idx) catch unreachable;
+
+        return new_value;
+    }
+
+    fn builtinHashKeys(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+        if (receiver.data != .hash) {
+            const exc = try self.createException(
+                self.type_error_class,
+                "receiver is not a Hash",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+        if (args.len != 0) {
+            const msg = std.fmt.allocPrint(
+                self.gc_allocator,
+                "wrong number of arguments (given {d}, expected 0)",
+                .{args.len},
+            ) catch unreachable;
+            const exc = try self.createException(self.argument_error_class, msg);
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        const hash_obj = receiver.data.hash;
+        const array_obj = self.gc_allocator.create(value.ArrayObject) catch unreachable;
+        array_obj.* = .{
+            .object = .{ .flags = 0, .class = self.array_class, .singleton_class = null },
+            .elements = .empty,
+        };
+
+        for (hash_obj.entries.items) |entry| {
+            array_obj.elements.append(self.gc_allocator, entry.key) catch unreachable;
+        }
+
+        return .{ .data = .{ .array = array_obj } };
+    }
+
+    fn builtinHashValues(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+        if (receiver.data != .hash) {
+            const exc = try self.createException(
+                self.type_error_class,
+                "receiver is not a Hash",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+        if (args.len != 0) {
+            const msg = std.fmt.allocPrint(
+                self.gc_allocator,
+                "wrong number of arguments (given {d}, expected 0)",
+                .{args.len},
+            ) catch unreachable;
+            const exc = try self.createException(self.argument_error_class, msg);
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        const hash_obj = receiver.data.hash;
+        const array_obj = self.gc_allocator.create(value.ArrayObject) catch unreachable;
+        array_obj.* = .{
+            .object = .{ .flags = 0, .class = self.array_class, .singleton_class = null },
+            .elements = .empty,
+        };
+
+        for (hash_obj.entries.items) |entry| {
+            array_obj.elements.append(self.gc_allocator, entry.value) catch unreachable;
+        }
+
+        return .{ .data = .{ .array = array_obj } };
+    }
+
+    fn builtinHashSize(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+        if (receiver.data != .hash) {
+            const exc = try self.createException(
+                self.type_error_class,
+                "receiver is not a Hash",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+        if (args.len != 0) {
+            const msg = std.fmt.allocPrint(
+                self.gc_allocator,
+                "wrong number of arguments (given {d}, expected 0)",
+                .{args.len},
+            ) catch unreachable;
+            const exc = try self.createException(self.argument_error_class, msg);
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        return Value.integer(@intCast(receiver.data.hash.entries.items.len));
+    }
+
+    fn builtinHashEach(self: *VM, receiver: Value, args: []Value, block: ?*Chunk) RuntimeError!Value {
+        if (receiver.data != .hash) {
+            const exc = try self.createException(
+                self.type_error_class,
+                "receiver is not a Hash",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+        if (args.len != 0) {
+            const msg = std.fmt.allocPrint(
+                self.gc_allocator,
+                "wrong number of arguments (given {d}, expected 0)",
+                .{args.len},
+            ) catch unreachable;
+            const exc = try self.createException(self.argument_error_class, msg);
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        const blk = try self.requireBlock(block);
+        const hash_obj = receiver.data.hash;
+
+        // Iterate in insertion order
+        for (hash_obj.entries.items) |entry| {
+            const yield_args = [_]Value{ entry.key, entry.value };
+            const result = try self.yieldToBlock(blk, receiver, &yield_args);
+
+            // If break occurred, return immediately
+            if (result.break_occurred) {
+                return receiver;
+            }
+        }
+
+        return receiver;
+    }
+
+    fn builtinHashToS(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+        if (receiver.data != .hash) {
+            const exc = try self.createException(
+                self.type_error_class,
+                "receiver is not a Hash",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        if (args.len != 0) {
+            const msg = std.fmt.allocPrint(
+                self.gc_allocator,
+                "wrong number of arguments (given {d}, expected 0)",
+                .{args.len},
+            ) catch unreachable;
+            const exc = try self.createException(self.argument_error_class, msg);
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        const hash_obj = receiver.data.hash;
+        var buf: std.ArrayList(u8) = .empty;
+        defer buf.deinit(self.gc_allocator);
+        const writer = buf.writer(self.gc_allocator);
+
+        writer.writeAll("{") catch return error.RuntimeError;
+        for (hash_obj.entries.items, 0..) |entry, idx| {
+            if (idx > 0) {
+                writer.writeAll(", ") catch return error.RuntimeError;
+            }
+
+            // Check if key is a symbol - use shorthand syntax
+            if (entry.key.data == .symbol) {
+                // Write symbol name without the : prefix
+                const sym = entry.key.data.symbol;
+                writer.writeAll(sym.name) catch return error.RuntimeError;
+                writer.writeAll(": ") catch return error.RuntimeError;
+            } else {
+                // Call inspect on non-symbol keys
+                const key_val = try self.callMethodByName(entry.key, "inspect", &.{}, null);
+                if (key_val.data != .string) return error.RuntimeError;
+                writer.writeAll(key_val.data.string.str) catch return error.RuntimeError;
+                writer.writeAll(" => ") catch return error.RuntimeError;
+            }
+
+            // Call inspect on value
+            const value_val = try self.callMethodByName(entry.value, "inspect", &.{}, null);
+            if (value_val.data != .string) return error.RuntimeError;
+            writer.writeAll(value_val.data.string.str) catch return error.RuntimeError;
+        }
+        writer.writeAll("}") catch return error.RuntimeError;
+
+        const final_str = buf.toOwnedSlice(self.gc_allocator) catch return error.RuntimeError;
+        return self.newString(final_str, false);
+    }
+
+    fn builtinHashInspect(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+        if (receiver.data != .hash) {
+            const exc = try self.createException(
+                self.type_error_class,
+                "receiver is not a Hash",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        if (args.len != 0) {
+            const msg = std.fmt.allocPrint(
+                self.gc_allocator,
+                "wrong number of arguments (given {d}, expected 0)",
+                .{args.len},
+            ) catch unreachable;
+            const exc = try self.createException(self.argument_error_class, msg);
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        return try self.builtinHashToS(receiver, args, null);
+    }
+
+    /// Capture current call stack as a backtrace
     fn captureBacktrace(self: *VM) RuntimeError!?*value.ArrayObject {
         const array_obj = self.gc_allocator.create(value.ArrayObject) catch unreachable;
         array_obj.* = .{
