@@ -20,11 +20,11 @@ Cora is a Ruby interpreter written in Zig using the Prism parser. It uses a **tw
 
 ## Key Concepts
 
-**Bytecode Chunks:** Each chunk contains code, constants, line info, name, chunk_id, arity, exception_handlers table, and lexical_scope. Module bodies, class bodies, methods, and blocks are all compiled into separate chunks.
+**Bytecode Chunks:** Each chunk contains code, constants, line info, name, chunk_id, arity, is_lambda flag, exception_handlers table, and lexical_scope. Module bodies, class bodies, methods, blocks, procs, and lambdas are all compiled into separate chunks.
 
 **Constants:** Compile-time constants (integer, string, symbol). Strings/symbols are borrowed from Parser AST (no allocation).
 
-**OpCodes:** Defined in `bytecode.zig` enum. Include literals, variable access, control flow, method calls, OOP definitions, blocks, constant path resolution (GET_CONST_PATH), exception handling (RAISE, TRY_BEGIN, TRY_END, CATCH_START, CATCH_END, ENSURE_START, ENSURE_END, RETRY). Arithmetic operators are method calls, not opcodes.
+**OpCodes:** Defined in `bytecode.zig` enum. Include literals, variable access, control flow, method calls, OOP definitions, blocks/procs/lambdas (YIELD, PUSH_LAMBDA, BREAK), constant path resolution (GET_CONST_PATH), exception handling (RAISE, TRY_BEGIN, TRY_END, CATCH_START, CATCH_END, ENSURE_START, ENSURE_END, RETRY). RETURN opcode has operand distinguishing implicit (0) vs explicit (1) returns for lambda semantics. Arithmetic operators are method calls, not opcodes.
 
 **CALL Instruction:** Operands are method_idx (U16), argc (U8), block_chunk_id (U8).
 
@@ -34,9 +34,15 @@ Cora is a Ruby interpreter written in Zig using the Prism parser. It uses a **tw
 
 **Classes/Modules:** Classes have module-like method storage, superclass, prepended/included module lists. Method lookup walks: prepended → class methods → included → superclass.
 
-**Value Types:** Primitives (integer, boolean, nil), heap-allocated (Object, SymbolObject, StringObject, ModuleObject, ClassObject, ArrayObject, HashObject, ExceptionObject).
+**Value Types:** Primitives (integer, boolean, nil), heap-allocated (Object, SymbolObject, StringObject, ModuleObject, ClassObject, ArrayObject, HashObject, ExceptionObject, ProcObject).
 
-**Blocks:** Compiled into separate bytecode chunks with arity and parameters. YIELD executes the block passed to current method. Blocks capture variables from enclosing scopes (closures) via environment parent chain. CallFrames track `block_defining_ep` for lexical scoping.
+**Blocks, Procs, and Lambdas:** All compiled into separate bytecode chunks with arity and parameters. Chunks have is_lambda flag distinguishing lambda from proc/block semantics. YIELD executes the block passed to current method. PUSH_LAMBDA creates a ProcObject wrapping a Block (chunk + defining_ep). Blocks capture variables from enclosing scopes (closures) via environment parent chain. When blocks escape to Proc objects, environments are promoted from stack to heap. CallFrames track `block_defining_ep` for lexical scoping.
+
+**Proc vs Lambda Semantics:**
+- Lambdas enforce strict arity checking; procs are lenient (fill missing args with nil, ignore extras)
+- Lambda return returns from the lambda itself; proc/block return returns from enclosing method
+- `Proc#lambda?` returns true for lambdas, false for procs
+- Stabby lambda syntax (`-> { }`) and `lambda { }` create lambdas; `proc { }` and `Proc.new { }` create procs
 
 **Environments:** Store local variables with parent pointer forming chain for closures. Optimistically stack-allocated, promoted to heap when captured.
 
@@ -68,6 +74,13 @@ Cora is a Ruby interpreter written in Zig using the Prism parser. It uses a **tw
 **New OpCode:** Add to `OpCode` enum, `opcodeName()`, emit in compiler, handle in VM executeInstruction().
 
 **New Value Type:** Add to `Value.data` union, factory method, update `printValue()`.
+
+**Builtin Methods:** Core methods are registered in `VM.prepare()` on class/module objects using `.{ .builtin = &function }`. Examples include:
+- Kernel: `puts`, `print`, `p`, `raise`, `proc`, `lambda`
+- Array: `push`, `<<`, `[]`, `[]=`, `length`, `each`
+- Hash: `[]`, `[]=`, `keys`, `each`
+- String: `+`, `length`, `upcase`, `downcase`
+- Proc: `new`, `call`, `lambda?`
 
 **New Builtin Method:** Write function, register in `VM.prepare()` on appropriate class using `.{ .builtin = &function }`.
 

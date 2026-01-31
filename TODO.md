@@ -8,35 +8,6 @@ This document tracks language features needed to run ruby/spec tests instead of 
 
 ## Critical Path to ruby/spec Support
 
-#### Proc and Lambda ⭐ **CRITICAL**
-**Status:** Partially implemented - Proc.new works, but lambda and `proc { }` literals not yet
-**Prism Support:** ✅ `PM_LAMBDA_NODE`
-**Blocker Level:** 🔴 Critical - Testing frameworks rely on Proc objects
-
-**Implemented:**
-- ✅ `ProcObject` wraps a Block struct (chunk + defining_ep)
-- ✅ `Proc.new { }` constructor
-- ✅ `Proc#call` builtin method
-- ✅ `proc { }` Kernel method
-- ✅ Closure capture via Block.defining_ep
-- ✅ Environment promotion when block escapes to Proc
-
-**Syntax needed:**
-```ruby
--> { |x| x + 1 }          # Lambda literal (stabby lambda)
--> (x) { x + 1 }          # Lambda with parens
-lambda { |x| x + 1 }      # Lambda method call
-proc { |x| x + 1 }        # ✅ Implemented
-Proc.new { |x| x + 1 }    # ✅ Implemented
-```
-
-**Remaining implementation tasks:**
-- [ ] Add `lambda: *LambdaNode` to `Node` union in `src/prism.zig`
-- [ ] Compile lambda literals to chunks
-- [ ] Handle proc vs lambda semantics (return behavior, arity checking)
-- [ ] Implement `lambda { }` global method
-- [ ] Add lambda literal syntax support
-
 #### Module/Require System ⭐ **CRITICAL**
 **Status:** Not implemented
 **Prism Support:** ✅ (require is just a method call, but needs VM support)
