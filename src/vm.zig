@@ -306,6 +306,9 @@ pub const VM = struct {
         const minus_sym = try self.intern("-");
         try self.integer_class.module.methods.put(minus_sym, .{ .builtin = &builtinIntegerMinus });
 
+        const multiply_sym = try self.intern("*");
+        try self.integer_class.module.methods.put(multiply_sym, .{ .builtin = &builtinIntegerMultiply });
+
         const equal_sym = try self.intern("==");
         try self.integer_class.module.methods.put(equal_sym, .{ .builtin = &builtinIntegerEqual });
 
@@ -2131,6 +2134,40 @@ pub const VM = struct {
         }
 
         const result = receiver.data.integer - args[0].data.integer;
+        return Value.integer(result);
+    }
+
+    fn builtinIntegerMultiply(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
+        if (receiver.data != .integer) {
+            const exc = try self.createException(
+                self.type_error_class,
+                "receiver is not an Integer",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        if (args.len != 1) {
+            const msg = std.fmt.allocPrint(
+                self.gc_allocator,
+                "wrong number of arguments (given {d}, expected 1)",
+                .{args.len},
+            ) catch unreachable;
+            const exc = try self.createException(self.argument_error_class, msg);
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        if (args[0].data != .integer) {
+            const exc = try self.createException(
+                self.type_error_class,
+                "argument is not an Integer",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        const result = receiver.data.integer * args[0].data.integer;
         return Value.integer(result);
     }
 

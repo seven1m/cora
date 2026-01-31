@@ -14,6 +14,11 @@ test "Subtraction" {
     try std.testing.expectEqual(@as(i64, 7), result.data.integer);
 }
 
+test "Multiplication" {
+    const result = try evalCode("6 * 7");
+    try std.testing.expectEqual(@as(i64, 42), result.data.integer);
+}
+
 test "Equality comparison - true" {
     const result = try evalCode("5 == 5");
     try std.testing.expectEqual(true, result.data.boolean);
