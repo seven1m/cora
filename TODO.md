@@ -9,28 +9,33 @@ This document tracks language features needed to run ruby/spec tests instead of 
 ## Critical Path to ruby/spec Support
 
 #### Proc and Lambda ⭐ **CRITICAL**
-**Status:** Not implemented (blocks exist, but not as first-class objects)
+**Status:** Partially implemented - Proc.new works, but lambda and `proc { }` literals not yet
 **Prism Support:** ✅ `PM_LAMBDA_NODE`
 **Blocker Level:** 🔴 Critical - Testing frameworks rely on Proc objects
+
+**Implemented:**
+- ✅ `ProcObject` wraps a Block struct (chunk + defining_ep)
+- ✅ `Proc.new { }` constructor
+- ✅ `Proc#call` builtin method
+- ✅ `proc { }` Kernel method
+- ✅ Closure capture via Block.defining_ep
+- ✅ Environment promotion when block escapes to Proc
 
 **Syntax needed:**
 ```ruby
 -> { |x| x + 1 }          # Lambda literal (stabby lambda)
 -> (x) { x + 1 }          # Lambda with parens
 lambda { |x| x + 1 }      # Lambda method call
-proc { |x| x + 1 }        # Proc literal
-Proc.new { |x| x + 1 }    # Proc constructor
+proc { |x| x + 1 }        # ✅ Implemented
+Proc.new { |x| x + 1 }    # ✅ Implemented
 ```
 
-**Implementation tasks:**
+**Remaining implementation tasks:**
 - [ ] Add `lambda: *LambdaNode` to `Node` union in `src/prism.zig`
-- [ ] Add `ProcObject` to `Value.data` union
-- [ ] Design ProcObject structure (chunk reference, captured locals, binding)
-- [ ] Compile lambda/proc literals to chunks with closure capture
-- [ ] Add `PUSH_PROC` / `PUSH_LAMBDA` opcodes
-- [ ] Implement `Proc#call` builtin method
+- [ ] Compile lambda literals to chunks
 - [ ] Handle proc vs lambda semantics (return behavior, arity checking)
-- [ ] Implement `proc { }` and `Proc.new` global methods
+- [ ] Implement `lambda { }` global method
+- [ ] Add lambda literal syntax support
 
 #### Module/Require System ⭐ **CRITICAL**
 **Status:** Not implemented

@@ -278,6 +278,9 @@ pub const VM = struct {
         const puts_sym = try self.intern("puts");
         try self.kernel_module.methods.put(puts_sym, .{ .builtin = &builtinKernelPuts });
 
+        const proc_sym = try self.intern("proc");
+        try self.kernel_module.methods.put(proc_sym, .{ .builtin = &builtinKernelProc });
+
         // Register Object built-in methods
         const new_sym = try self.intern("new");
         try self.object_class.module.methods.put(new_sym, .{ .builtin = &builtinObjectNew });
@@ -1850,6 +1853,30 @@ pub const VM = struct {
         _ = self.stdout.?.flush() catch {};
 
         return Value.nil();
+    }
+
+    fn builtinKernelProc(self: *VM, _: Value, args: []Value, block: ?Block) RuntimeError!Value {
+        if (args.len != 0) {
+            const msg = std.fmt.allocPrint(
+                self.gc_allocator,
+                "wrong number of arguments (given {d}, expected 0)",
+                .{args.len},
+            ) catch unreachable;
+            const exc = try self.createException(self.argument_error_class, msg);
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        const blk = block orelse {
+            const exc = try self.createException(
+                self.argument_error_class,
+                "tried to create Proc object without a block",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        };
+
+        return self.newProc(blk);
     }
 
     fn builtinKernelRaise(self: *VM, _: Value, args: []Value, _: ?Block) RuntimeError!Value {

@@ -45,3 +45,15 @@ test "Proc closure: modifying captured variable in proc affects outer scope" {
     try std.testing.expect(result.data == .integer);
     try std.testing.expectEqual(@as(i64, 10), result.data.integer);
 }
+
+test "Kernel#proc creates a Proc" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+
+    const result = evalCodeWithOutput(
+        \\pr = proc { |x| p x }
+        \\pr.call(99)
+    , &stdout_buf, &stderr_buf);
+
+    try std.testing.expectEqualSlices(u8, "99\n", result.stdout);
+}
