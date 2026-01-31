@@ -79,6 +79,7 @@ pub const VM = struct {
     symbol_class: *value.ClassObject,
     array_class: *value.ClassObject,
     hash_class: *value.ClassObject,
+    proc_class: *value.ClassObject,
     nil_class: *value.ClassObject,
     true_class: *value.ClassObject,
     false_class: *value.ClassObject,
@@ -131,6 +132,7 @@ pub const VM = struct {
             .symbol_class = undefined,
             .array_class = undefined,
             .hash_class = undefined,
+            .proc_class = undefined,
             .nil_class = undefined,
             .true_class = undefined,
             .false_class = undefined,
@@ -196,6 +198,10 @@ pub const VM = struct {
         const hash_class_val = self.newClass(hash_name_sym, self.object_class);
         self.hash_class = hash_class_val.data.class;
 
+        const proc_name_sym = try self.intern("Proc");
+        const proc_class_val = self.newClass(proc_name_sym, self.object_class);
+        self.proc_class = proc_class_val.data.class;
+
         const nil_class_name_sym = try self.intern("NilClass");
         const nil_class_val = self.newClass(nil_class_name_sym, self.object_class);
         self.nil_class = nil_class_val.data.class;
@@ -254,6 +260,7 @@ pub const VM = struct {
         try self.object_class.module.constants.put(symbol_name_sym, symbol_class_val);
         try self.object_class.module.constants.put(array_name_sym, array_class_val);
         try self.object_class.module.constants.put(hash_name_sym, hash_class_val);
+        try self.object_class.module.constants.put(proc_name_sym, proc_class_val);
         try self.object_class.module.constants.put(nil_class_name_sym, nil_class_val);
         try self.object_class.module.constants.put(true_class_name_sym, true_class_val);
         try self.object_class.module.constants.put(false_class_name_sym, false_class_val);
@@ -333,6 +340,14 @@ pub const VM = struct {
 
         const each_sym = try self.intern("each");
         try self.hash_class.module.methods.put(each_sym, .{ .builtin = &builtinHashEach });
+
+        // Register Proc builtins
+        const proc_new_sym = try self.intern("new");
+        const proc_singleton = try self.getOrCreateSingletonClass(proc_class_val);
+        try proc_singleton.module.methods.put(proc_new_sym, .{ .builtin = &builtinProcNew });
+
+        const call_sym = try self.intern("call");
+        try self.proc_class.module.methods.put(call_sym, .{ .builtin = &builtinProcCall });
 
         // Register String builtins
         const string_plus_sym = try self.intern("+");
@@ -1515,6 +1530,7 @@ pub const VM = struct {
             .exception => |e| return e.object.class.?,
             .module => |m| return m.object.class.?,
             .class => |c| return c.module.object.class.?,
+            .proc => |p| return p.object.class.?,
 
             // Primitives without Object headers - hardcode the class
             .integer => return self.integer_class,
@@ -1533,6 +1549,7 @@ pub const VM = struct {
             .array => |a| &a.object,
             .hash => |h| &h.object,
             .exception => |e| &e.object,
+            .proc => |p| &p.object,
             .integer, .nil, .boolean => null,
         };
     }
@@ -1604,6 +1621,7 @@ pub const VM = struct {
             .array => self.array_class,
             .hash => self.hash_class,
             .exception => self.exception_class,
+            .proc => self.proc_class,
             else => unreachable,
         };
 
@@ -1700,6 +1718,20 @@ pub const VM = struct {
         return .{ .data = .{ .string = string_obj } };
     }
 
+    pub fn newProc(self: *VM, block: Block) Value {
+        const heap_ep = self.promoteEnvironmentToHeap(block.defining_ep) catch unreachable;
+
+        const proc_obj = self.gc_allocator.create(value.ProcObject) catch unreachable;
+        proc_obj.* = .{
+            .object = .{ .flags = 0, .class = self.proc_class, .singleton_class = null },
+            .block = .{
+                .chunk = block.chunk,
+                .defining_ep = heap_ep,
+            },
+        };
+        return .{ .data = .{ .proc = proc_obj } };
+    }
+
     pub fn includeModule(self: *VM, class: *value.ClassObject, module: *value.ModuleObject) !void {
         try class.included_modules.append(self.gc_allocator, module);
     }
@@ -1735,6 +1767,61 @@ pub const VM = struct {
             self.pending_exception = exc;
             return error.RuntimeError;
         }
+    }
+
+    fn builtinProcNew(self: *VM, _: Value, args: []Value, block: ?Block) RuntimeError!Value {
+        if (args.len != 0) {
+            const msg = std.fmt.allocPrint(
+                self.gc_allocator,
+                "wrong number of arguments (given {d}, expected 0)",
+                .{args.len},
+            ) catch unreachable;
+            const exc = try self.createException(self.argument_error_class, msg);
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        const blk = block orelse {
+            const exc = try self.createException(
+                self.argument_error_class,
+                "tried to create Proc object without a block",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        };
+
+        return self.newProc(blk);
+    }
+
+    fn builtinProcCall(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
+        const proc_obj = receiver.data.proc;
+
+        const real_defining_ep = derefEnvironment(proc_obj.block.defining_ep);
+
+        const proc_env = self.createStackEnvironment(real_defining_ep, proc_obj.block.chunk.lexical_scope orelse self.current_lexical_scope) catch return error.RuntimeError;
+
+        self.env_stack_indices.append(self.allocator, self.env_stack.items.len - 1) catch return error.RuntimeError;
+
+        var i: usize = 0;
+        while (i < args.len and i < proc_obj.block.chunk.arity) : (i += 1) {
+            proc_env.variables[i] = args[i];
+            proc_env.variables_len = @as(u8, @intCast(i + 1));
+        }
+
+        if (proc_obj.block.chunk.lexical_scope) |scope| {
+            self.current_lexical_scope = scope;
+        }
+
+        self.frames.append(self.allocator, CallFrame{
+            .chunk = proc_obj.block.chunk,
+            .ip = 0,
+            .stack_base = self.stack.items.len,
+            .self_value = receiver,
+            .ep = proc_env,
+            .block = null,
+        }) catch return error.RuntimeError;
+
+        return Value.nil();
     }
 
     fn builtinKernelPuts(self: *VM, _: Value, args: []Value, _: ?Block) RuntimeError!Value {
@@ -2437,6 +2524,7 @@ pub const VM = struct {
             .exception => |e| @intFromPtr(e),
             .module => |m| @intFromPtr(m),
             .class => |c| @intFromPtr(c),
+            .proc => |p| @intFromPtr(p),
             // Primitives get a fake object ID for now
             .integer, .boolean, .nil => 0x0000000000000001,
         };

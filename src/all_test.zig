@@ -23,6 +23,7 @@ const language_ensure_test = @import("test/language/ensure_test.zig");
 const language_hash_test = @import("test/language/hash_test.zig");
 const language_if_test = @import("test/language/if_test.zig");
 const language_method_test = @import("test/language/method_test.zig");
+const language_proc_test = @import("test/language/proc_test.zig");
 const language_raise_test = @import("test/language/raise_test.zig");
 const language_rescue_else_test = @import("test/language/rescue_else_test.zig");
 const language_rescue_test = @import("test/language/rescue_test.zig");
@@ -54,6 +55,7 @@ comptime {
     _ = language_hash_test;
     _ = language_if_test;
     _ = language_method_test;
+    _ = language_proc_test;
     _ = language_raise_test;
     _ = language_rescue_else_test;
     _ = language_rescue_test;

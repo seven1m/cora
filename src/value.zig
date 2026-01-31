@@ -80,6 +80,13 @@ pub const ExceptionObject = struct {
     cause: ?*ExceptionObject,
 };
 
+pub const Block = @import("vm.zig").Block;
+
+pub const ProcObject = struct {
+    object: Object,
+    block: Block,
+};
+
 pub const Value = struct {
     data: union(enum) {
         array: *ArrayObject,
@@ -91,6 +98,7 @@ pub const Value = struct {
         integer: i64,
         module: *ModuleObject,
         nil: void,
+        proc: *ProcObject,
         string: *StringObject,
         symbol: *SymbolObject,
     },
@@ -107,6 +115,7 @@ pub const Value = struct {
             .array => |a| (a.object.flags & Object.FROZEN_FLAG) != 0,
             .exception => |e| (e.object.flags & Object.FROZEN_FLAG) != 0,
             .hash => |h| (h.object.flags & Object.FROZEN_FLAG) != 0,
+            .proc => |p| (p.object.flags & Object.FROZEN_FLAG) != 0,
         };
     }
 
@@ -119,6 +128,7 @@ pub const Value = struct {
             .array => |a| a.object.flags |= Object.FROZEN_FLAG,
             .exception => |e| e.object.flags |= Object.FROZEN_FLAG,
             .hash => |h| h.object.flags |= Object.FROZEN_FLAG,
+            .proc => |p| p.object.flags |= Object.FROZEN_FLAG,
             // Primitives are already frozen, do nothing
             else => {},
         }
@@ -134,6 +144,7 @@ pub const Value = struct {
             .array => |a| &a.object,
             .exception => |e| &e.object,
             .hash => |h| &h.object,
+            .proc => |p| &p.object,
             .integer, .nil, .boolean => null,
         };
     }
@@ -187,6 +198,7 @@ pub const Value = struct {
                 }
                 try writer.print("}", .{});
             },
+            .proc => |p| try writer.print("#<Proc:0x{x}>", .{@intFromPtr(p)}),
         }
     }
 
