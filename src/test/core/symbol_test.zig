@@ -13,7 +13,7 @@ test "Symbol interning - same address for identical symbols" {
     defer bdwgc.deinit();
 
     const allocator = getAllocator();
-    const parser = try prism.Parser.init(allocator, "");
+    const parser = try prism.Parser.init(allocator, "", null);
 
     var vm = VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic, parser);
     defer vm.deinit();

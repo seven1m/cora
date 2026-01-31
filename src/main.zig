@@ -23,6 +23,7 @@ pub fn main() !void {
     var filename: ?[]const u8 = null;
     var print_ast = false;
     var dump_bytecode = false;
+    var source_file: ?[]const u8 = null;
 
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
@@ -54,6 +55,7 @@ pub fn main() !void {
     const code = if (ruby_code) |code|
         code
     else if (filename) |file| blk: {
+        source_file = file;
         const file_handle = std.fs.cwd().openFile(file, .{}) catch |err| {
             std.debug.print("Error: Could not open file '{s}': {}\n", .{ file, err });
             return;
@@ -71,7 +73,7 @@ pub fn main() !void {
 
         break :blk code_buffer.?;
     } else unreachable;
-    var parser = prism.Parser.init(allocator, code) catch {
+    var parser = prism.Parser.init(allocator, code, source_file) catch {
         std.debug.print("Parse error\n", .{});
         return;
     };
@@ -84,7 +86,7 @@ pub fn main() !void {
         return;
     }
 
-    var program = try compiler.Compiler.compile(allocator, &parser);
+    var program = try compiler.Compiler.compile(allocator, &parser, 1);
     defer program.deinit();
 
     if (dump_bytecode) {

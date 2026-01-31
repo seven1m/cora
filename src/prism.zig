@@ -102,9 +102,10 @@ pub const Parser = struct {
     source: []const u8,
     internal: c.pm_parser_t,
     ast: *ProgramNode,
+    source_file: ?[]const u8 = null,
 
     /// Initialize parser with source code
-    pub fn init(allocator: std.mem.Allocator, source: []const u8) !Parser {
+    pub fn init(allocator: std.mem.Allocator, source: []const u8, source_file: ?[]const u8) !Parser {
         var parser: c.pm_parser_t = undefined;
         c.pm_parser_init(&parser, source.ptr, source.len, null);
 
@@ -119,6 +120,7 @@ pub const Parser = struct {
             .source = source,
             .internal = parser,
             .ast = @ptrCast(ast),
+            .source_file = source_file,
         };
     }
 

@@ -10,6 +10,7 @@ pub const CompiledProgram = struct {
     allocator: std.mem.Allocator,
     main_chunk: Chunk,
     method_chunks: std.AutoHashMap(u16, *Chunk),
+    next_chunk_id: u16,
 
     pub fn deinit(self: *CompiledProgram) void {
         self.main_chunk.deinit();
@@ -50,12 +51,13 @@ pub const Compiler = struct {
     chunk_counter: u16 = 1,
     loop_stack: std.ArrayList(LoopContext) = .empty,
 
-    pub fn init(allocator: std.mem.Allocator, parser: *prism.Parser) Compiler {
+    pub fn init(allocator: std.mem.Allocator, parser: *prism.Parser, starting_chunk_id: u16) Compiler {
         return Compiler{
             .allocator = allocator,
             .parser = parser,
             .current_chunk = undefined,
             .method_chunks = std.AutoHashMap(u16, *Chunk).init(allocator),
+            .chunk_counter = starting_chunk_id,
         };
     }
 
@@ -72,11 +74,12 @@ pub const Compiler = struct {
         // self.method_chunks is transferred to CompiledProgram.
     }
 
-    pub fn compile(allocator: std.mem.Allocator, parser: *prism.Parser) !CompiledProgram {
-        var compiler = Compiler.init(allocator, parser);
+    pub fn compile(allocator: std.mem.Allocator, parser: *prism.Parser, starting_chunk_id: u16) !CompiledProgram {
+        var compiler = Compiler.init(allocator, parser, starting_chunk_id);
         defer compiler.deinit();
 
         var main_chunk = Chunk.init(allocator, "main");
+        main_chunk.source_file = parser.source_file;
         compiler.current_chunk = &main_chunk;
 
         const root = try parser.root();
@@ -87,6 +90,7 @@ pub const Compiler = struct {
             .allocator = allocator,
             .main_chunk = main_chunk,
             .method_chunks = compiler.method_chunks,
+            .next_chunk_id = compiler.chunk_counter,
         };
     }
 
@@ -500,6 +504,7 @@ pub const Compiler = struct {
             // Allocate chunk on heap
             const body_chunk_ptr = try self.allocator.create(Chunk);
             body_chunk_ptr.* = Chunk.init(self.allocator, module_name);
+            body_chunk_ptr.source_file = self.parser.source_file;
 
             // Save the current chunk and switch to the body chunk
             const saved_chunk = self.current_chunk;
@@ -551,6 +556,7 @@ pub const Compiler = struct {
             // Allocate chunk on heap
             const body_chunk_ptr = try self.allocator.create(Chunk);
             body_chunk_ptr.* = Chunk.init(self.allocator, class_name);
+            body_chunk_ptr.source_file = self.parser.source_file;
 
             // Save the current chunk and switch to the body chunk
             const saved_chunk = self.current_chunk;
@@ -597,6 +603,7 @@ pub const Compiler = struct {
         // Allocate chunk on heap
         const method_chunk_ptr = try self.allocator.create(Chunk);
         method_chunk_ptr.* = Chunk.init(self.allocator, method_name_slice);
+        method_chunk_ptr.source_file = self.parser.source_file;
 
         // Save the current chunk and switch to the method chunk
         const saved_chunk = self.current_chunk;
@@ -661,6 +668,7 @@ pub const Compiler = struct {
         // Allocate chunk on heap for the block
         const block_chunk_ptr = try self.allocator.create(Chunk);
         block_chunk_ptr.* = Chunk.init(self.allocator, "block");
+        block_chunk_ptr.source_file = self.parser.source_file;
 
         // Save the current chunk and switch to the block chunk
         const saved_chunk = self.current_chunk;
@@ -754,6 +762,7 @@ pub const Compiler = struct {
         const lambda_chunk_ptr = try self.allocator.create(Chunk);
         lambda_chunk_ptr.* = Chunk.init(self.allocator, "lambda");
         lambda_chunk_ptr.is_lambda = true; // Mark as lambda
+        lambda_chunk_ptr.source_file = self.parser.source_file;
 
         // Save the current chunk and switch to the lambda chunk
         const saved_chunk = self.current_chunk;

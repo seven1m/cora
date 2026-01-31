@@ -37,6 +37,7 @@ pub const Chunk = struct {
     is_lambda: bool = false, // Distinguishes lambda from proc
     lexical_scope: ?*LexicalScope = null,
     exception_handlers: std.ArrayList(ExceptionHandler) = .empty,
+    source_file: ?[]const u8 = null,
 
     pub fn init(allocator: std.mem.Allocator, name: []const u8) Chunk {
         return Chunk{

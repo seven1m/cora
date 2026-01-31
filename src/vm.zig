@@ -95,6 +95,7 @@ pub const VM = struct {
     type_error_class: *value.ClassObject,
     zero_division_error_class: *value.ClassObject,
     no_method_error_class: *value.ClassObject,
+    load_error_class: *value.ClassObject,
 
     // Exception handling state
     pending_exception: ?*value.ExceptionObject = null,
@@ -105,6 +106,13 @@ pub const VM = struct {
 
     // Block break state
     break_occurred: bool = false,
+
+    // File loading infrastructure
+    loaded_files: std.StringHashMap(void) = std.StringHashMap(void).init(std.heap.page_allocator),
+    all_parsers: std.ArrayList(prism.Parser) = .empty,
+    load_path: std.ArrayList([]const u8) = .empty,
+    current_loading_file: ?[]const u8 = null,
+    next_chunk_id: u16 = 1,
 
     // Buffered writers for production
     stdout_buffer: [4096]u8 = undefined,
@@ -147,6 +155,7 @@ pub const VM = struct {
             .type_error_class = undefined,
             .zero_division_error_class = undefined,
             .no_method_error_class = undefined,
+            .load_error_class = undefined,
         };
     }
 
@@ -157,6 +166,18 @@ pub const VM = struct {
         // This is max call stack depth, not total calls - we reclaim on popFrame
         try self.env_stack.ensureTotalCapacity(self.allocator, 512);
         try self.env_stack_indices.ensureTotalCapacity(self.allocator, 512);
+
+        // Initialize file loading infrastructure
+        self.loaded_files = std.StringHashMap(void).init(self.allocator);
+        self.load_path = .empty;
+        try self.load_path.append(self.allocator, try self.allocator.dupe(u8, "."));
+        self.next_chunk_id = program.next_chunk_id;
+
+        if (self.parser.source_file) |main_file| {
+            const abs_path = try self.resolveAbsolutePath(main_file);
+            try self.loaded_files.put(abs_path, {});
+            self.current_loading_file = abs_path;
+        }
 
         // --- Stage 1: Create Class and BasicObject ---
         const class_name_sym = try self.intern("Class");
@@ -250,6 +271,10 @@ pub const VM = struct {
         const no_method_error_class_val = self.newClass(no_method_error_name_sym, self.standard_error_class);
         self.no_method_error_class = no_method_error_class_val.data.class;
 
+        const load_error_name_sym = try self.intern("LoadError");
+        const load_error_class_val = self.newClass(load_error_name_sym, self.standard_error_class);
+        self.load_error_class = load_error_class_val.data.class;
+
         // --- Stage 3: Set Class's superclass to Module ---
         self.class_class.superclass = self.module_class;
 
@@ -275,6 +300,7 @@ pub const VM = struct {
         try self.object_class.module.constants.put(type_error_name_sym, type_error_class_val);
         try self.object_class.module.constants.put(zero_division_error_name_sym, zero_division_error_class_val);
         try self.object_class.module.constants.put(no_method_error_name_sym, no_method_error_class_val);
+        try self.object_class.module.constants.put(load_error_name_sym, load_error_class_val);
 
         // --- Stage 5: Register built-in methods ---
         // Register Kernel built-in methods
@@ -286,6 +312,15 @@ pub const VM = struct {
 
         const lambda_sym = try self.intern("lambda");
         try self.kernel_module.methods.put(lambda_sym, .{ .builtin = &builtinKernelLambda });
+
+        const require_sym = try self.intern("require");
+        try self.kernel_module.methods.put(require_sym, .{ .builtin = &builtinKernelRequire });
+
+        const require_relative_sym = try self.intern("require_relative");
+        try self.kernel_module.methods.put(require_relative_sym, .{ .builtin = &builtinKernelRequireRelative });
+
+        const load_sym = try self.intern("load");
+        try self.kernel_module.methods.put(load_sym, .{ .builtin = &builtinKernelLoad });
 
         // Register Object built-in methods
         const new_sym = try self.intern("new");
@@ -558,6 +593,18 @@ pub const VM = struct {
 
     pub fn deinit(self: *VM) void {
         self.parser.deinit();
+
+        for (self.all_parsers.items) |*p| {
+            p.deinit();
+        }
+        self.all_parsers.deinit(self.allocator);
+
+        self.loaded_files.deinit();
+        for (self.load_path.items) |path| {
+            self.allocator.free(path);
+        }
+        self.load_path.deinit(self.allocator);
+
         self.stack.deinit(self.allocator);
         self.frames.deinit(self.allocator);
         self.env_stack.deinit(self.allocator);
@@ -1985,6 +2032,283 @@ pub const VM = struct {
         return self.pop();
     }
 
+    // File loading helper methods
+
+    fn resolveAbsolutePath(self: *VM, path: []const u8) ![]const u8 {
+        var path_buffer: [4096]u8 = undefined;
+        const absolute = std.fs.cwd().realpath(path, &path_buffer) catch |err| {
+            if (std.fs.path.isAbsolute(path)) {
+                return try self.allocator.dupe(u8, path);
+            }
+            return err;
+        };
+        return try self.allocator.dupe(u8, absolute);
+    }
+
+    fn fileExists(_: *VM, path: []const u8) bool {
+        const file = std.fs.cwd().openFile(path, .{}) catch return false;
+        file.close();
+        return true;
+    }
+
+    fn searchLoadPath(self: *VM, feature: []const u8) !?[]const u8 {
+        if (std.fs.path.isAbsolute(feature)) {
+            if (self.fileExists(feature)) {
+                return try self.resolveAbsolutePath(feature);
+            }
+            return null;
+        }
+
+        for (self.load_path.items) |dir| {
+            const full_path = try std.fs.path.join(self.allocator, &[_][]const u8{ dir, feature });
+            defer self.allocator.free(full_path);
+
+            if (self.fileExists(full_path)) {
+                return try self.resolveAbsolutePath(full_path);
+            }
+        }
+
+        const with_rb = try std.fmt.allocPrint(self.allocator, "{s}.rb", .{feature});
+        defer self.allocator.free(with_rb);
+
+        for (self.load_path.items) |dir| {
+            const full_path = try std.fs.path.join(self.allocator, &[_][]const u8{ dir, with_rb });
+            defer self.allocator.free(full_path);
+
+            if (self.fileExists(full_path)) {
+                return try self.resolveAbsolutePath(full_path);
+            }
+        }
+
+        return null;
+    }
+
+    fn loadFile(self: *VM, absolute_path: []const u8) !void {
+        const file_handle = try std.fs.cwd().openFile(absolute_path, .{});
+        defer file_handle.close();
+
+        const file_size = try file_handle.getEndPos();
+        const code_buffer = try self.allocator.alloc(u8, file_size);
+
+        const bytes_read = try file_handle.readAll(code_buffer);
+        if (bytes_read != file_size) return error.ReadError;
+
+        var parser = try prism.Parser.init(self.allocator, code_buffer, absolute_path);
+        try self.all_parsers.append(self.allocator, parser);
+
+        var program = try compiler.Compiler.compile(self.allocator, &parser, self.next_chunk_id);
+
+        self.next_chunk_id = program.next_chunk_id;
+
+        // Transfer ownership of method chunks to main program
+        var iter = program.method_chunks.iterator();
+        while (iter.next()) |entry| {
+            try self.program.method_chunks.put(entry.key_ptr.*, entry.value_ptr.*);
+        }
+
+        const prev_file = self.current_loading_file;
+        self.current_loading_file = absolute_path;
+        defer self.current_loading_file = prev_file;
+
+        try self.executeChunk(&program.main_chunk);
+
+        // Clean up: free the main chunk and the HashMap itself, but not the method chunks
+        // (they were transferred to self.program.method_chunks)
+        program.main_chunk.deinit();
+        program.method_chunks.deinit();
+    }
+
+    fn executeChunk(self: *VM, target_chunk: *Chunk) !void {
+        const env = try self.createStackEnvironment(null, null);
+        const frame = CallFrame{
+            .chunk = target_chunk,
+            .ip = 0,
+            .stack_base = self.stack.items.len,
+            .self_value = Value.nil(),
+            .ep = env,
+            .block = null,
+            .frame_type = .method,
+        };
+
+        try self.frames.append(self.allocator, frame);
+
+        // Execute instructions until this frame completes
+        const target_frame_depth = self.frames.items.len;
+        while (self.frames.items.len >= target_frame_depth) {
+            try self.executeInstruction();
+        }
+    }
+
+    fn builtinKernelRequire(self: *VM, _: Value, args: []Value, _: ?Block) RuntimeError!Value {
+        if (args.len != 1) {
+            const msg = std.fmt.allocPrint(self.allocator, "wrong number of arguments (given {d}, expected 1)", .{args.len}) catch return error.RuntimeError;
+            const exc = self.createException(self.argument_error_class, msg) catch return error.RuntimeError;
+            self.pending_exception = exc;
+            try self.unwindStack();
+            return error.RuntimeError;
+        }
+        if (args[0].data != .string) {
+            const msg = std.fmt.allocPrint(self.allocator, "no implicit conversion into String", .{}) catch return error.RuntimeError;
+            const exc = self.createException(self.type_error_class, msg) catch return error.RuntimeError;
+            self.pending_exception = exc;
+            try self.unwindStack();
+            return error.RuntimeError;
+        }
+
+        const feature = args[0].data.string.str;
+
+        const absolute_path = self.searchLoadPath(feature) catch {
+            const msg = std.fmt.allocPrint(self.allocator, "cannot load such file -- {s}", .{feature}) catch return error.RuntimeError;
+            const exc = self.createException(self.load_error_class, msg) catch return error.RuntimeError;
+            self.pending_exception = exc;
+            try self.unwindStack();
+            return error.RuntimeError;
+        } orelse {
+            const msg = std.fmt.allocPrint(self.allocator, "cannot load such file -- {s}", .{feature}) catch return error.RuntimeError;
+            const exc = self.createException(self.load_error_class, msg) catch return error.RuntimeError;
+            self.pending_exception = exc;
+            try self.unwindStack();
+            return error.RuntimeError;
+        };
+
+        if (self.loaded_files.contains(absolute_path)) {
+            return Value.boolean(false);
+        }
+
+        self.loaded_files.put(absolute_path, {}) catch return error.RuntimeError;
+
+        self.loadFile(absolute_path) catch {
+            _ = self.loaded_files.remove(absolute_path);
+            return error.RuntimeError;
+        };
+
+        return Value.boolean(true);
+    }
+
+    fn builtinKernelRequireRelative(self: *VM, _: Value, args: []Value, _: ?Block) RuntimeError!Value {
+        if (args.len != 1) {
+            const msg = std.fmt.allocPrint(self.allocator, "wrong number of arguments (given {d}, expected 1)", .{args.len}) catch return error.RuntimeError;
+            const exc = self.createException(self.argument_error_class, msg) catch return error.RuntimeError;
+            self.pending_exception = exc;
+            try self.unwindStack();
+            return error.RuntimeError;
+        }
+        if (args[0].data != .string) {
+            const msg = std.fmt.allocPrint(self.allocator, "no implicit conversion into String", .{}) catch return error.RuntimeError;
+            const exc = self.createException(self.type_error_class, msg) catch return error.RuntimeError;
+            self.pending_exception = exc;
+            try self.unwindStack();
+            return error.RuntimeError;
+        }
+
+        const relative_path = args[0].data.string.str;
+
+        const current_file = self.current_loading_file orelse {
+            const exc = self.createException(self.load_error_class, "cannot infer basepath") catch return error.RuntimeError;
+            self.pending_exception = exc;
+            try self.unwindStack();
+            return error.RuntimeError;
+        };
+
+        const current_dir = std.fs.path.dirname(current_file) orelse ".";
+        const full_path = std.fs.path.join(self.allocator, &[_][]const u8{ current_dir, relative_path }) catch return error.RuntimeError;
+        defer self.allocator.free(full_path);
+
+        var absolute_path: ?[]const u8 = null;
+        if (self.fileExists(full_path)) {
+            absolute_path = self.resolveAbsolutePath(full_path) catch return error.RuntimeError;
+        } else {
+            const with_rb = std.fmt.allocPrint(self.allocator, "{s}.rb", .{full_path}) catch return error.RuntimeError;
+            defer self.allocator.free(with_rb);
+            if (self.fileExists(with_rb)) {
+                absolute_path = self.resolveAbsolutePath(with_rb) catch return error.RuntimeError;
+            }
+        }
+
+        if (absolute_path == null) {
+            const msg = std.fmt.allocPrint(self.allocator, "cannot load such file -- {s}", .{relative_path}) catch return error.RuntimeError;
+            const exc = self.createException(self.load_error_class, msg) catch return error.RuntimeError;
+            self.pending_exception = exc;
+            try self.unwindStack();
+            return error.RuntimeError;
+        }
+
+        const resolved_path = absolute_path.?;
+
+        if (self.loaded_files.contains(resolved_path)) {
+            return Value.boolean(false);
+        }
+
+        self.loaded_files.put(resolved_path, {}) catch return error.RuntimeError;
+        self.loadFile(resolved_path) catch {
+            _ = self.loaded_files.remove(resolved_path);
+            return error.RuntimeError;
+        };
+
+        return Value.boolean(true);
+    }
+
+    fn builtinKernelLoad(self: *VM, _: Value, args: []Value, _: ?Block) RuntimeError!Value {
+        if (args.len != 1) {
+            const msg = std.fmt.allocPrint(self.allocator, "wrong number of arguments (given {d}, expected 1)", .{args.len}) catch return error.RuntimeError;
+            const exc = self.createException(self.argument_error_class, msg) catch return error.RuntimeError;
+            self.pending_exception = exc;
+            try self.unwindStack();
+            return error.RuntimeError;
+        }
+        if (args[0].data != .string) {
+            const msg = std.fmt.allocPrint(self.allocator, "no implicit conversion into String", .{}) catch return error.RuntimeError;
+            const exc = self.createException(self.type_error_class, msg) catch return error.RuntimeError;
+            self.pending_exception = exc;
+            try self.unwindStack();
+            return error.RuntimeError;
+        }
+
+        const filename = args[0].data.string.str;
+
+        var absolute_path: ?[]const u8 = null;
+
+        if (std.fs.path.isAbsolute(filename)) {
+            if (self.fileExists(filename)) {
+                absolute_path = self.resolveAbsolutePath(filename) catch return error.RuntimeError;
+            }
+        } else {
+            if (self.current_loading_file) |current_file| {
+                const current_dir = std.fs.path.dirname(current_file) orelse ".";
+                const full_path = std.fs.path.join(self.allocator, &[_][]const u8{ current_dir, filename }) catch return error.RuntimeError;
+                defer self.allocator.free(full_path);
+
+                if (self.fileExists(full_path)) {
+                    absolute_path = self.resolveAbsolutePath(full_path) catch return error.RuntimeError;
+                }
+            }
+
+            if (absolute_path == null and self.fileExists(filename)) {
+                absolute_path = self.resolveAbsolutePath(filename) catch return error.RuntimeError;
+            }
+        }
+
+        if (absolute_path == null) {
+            const with_rb = std.fmt.allocPrint(self.allocator, "{s}.rb", .{filename}) catch return error.RuntimeError;
+            defer self.allocator.free(with_rb);
+
+            if (self.fileExists(with_rb)) {
+                absolute_path = self.resolveAbsolutePath(with_rb) catch return error.RuntimeError;
+            }
+        }
+
+        if (absolute_path == null) {
+            const msg = std.fmt.allocPrint(self.allocator, "cannot load such file -- {s}", .{filename}) catch return error.RuntimeError;
+            const exc = self.createException(self.load_error_class, msg) catch return error.RuntimeError;
+            self.pending_exception = exc;
+            try self.unwindStack();
+            return error.RuntimeError;
+        }
+
+        self.loadFile(absolute_path.?) catch return error.RuntimeError;
+
+        return Value.boolean(true);
+    }
     fn builtinProcIsLambda(_: *VM, receiver: Value, _: []Value, _: ?Block) RuntimeError!Value {
         return Value.boolean(receiver.data.proc.block.chunk.is_lambda);
     }
