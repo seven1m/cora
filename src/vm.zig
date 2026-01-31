@@ -761,6 +761,26 @@ pub const VM = struct {
                 try self.globals.put(var_name, global_val);
             },
 
+            .GET_IVAR => {
+                const name_idx = self.readU16();
+                const name_val = self.currentChunk().constants.items[name_idx];
+                const var_name = name_val.symbol;
+                const self_val = frame.self_value;
+
+                const ivar_val = try self.getInstanceVariable(self_val, var_name);
+                try self.push(ivar_val);
+            },
+
+            .SET_IVAR => {
+                const name_idx = self.readU16();
+                const name_val = self.currentChunk().constants.items[name_idx];
+                const var_name = name_val.symbol;
+                const ivar_val = self.peek(0);
+                const self_val = frame.self_value;
+
+                try self.setInstanceVariable(self_val, var_name, ivar_val);
+            },
+
             .GET_CONST => {
                 const idx = self.readU16();
                 const constant = self.currentChunk().constants.items[idx];
@@ -1102,7 +1122,7 @@ pub const VM = struct {
 
                 const array_obj = self.gc_allocator.create(value.ArrayObject) catch unreachable;
                 array_obj.* = .{
-                    .object = .{ .flags = 0, .class = self.array_class, .singleton_class = null },
+                    .object = .{ .flags = 0, .class = self.array_class, .singleton_class = null, .instance_variables = null },
                     .elements = .empty,
                 };
 
@@ -1120,7 +1140,7 @@ pub const VM = struct {
 
                 const hash_obj = self.gc_allocator.create(value.HashObject) catch unreachable;
                 hash_obj.* = .{
-                    .object = .{ .flags = 0, .class = self.hash_class, .singleton_class = null },
+                    .object = .{ .flags = 0, .class = self.hash_class, .singleton_class = null, .instance_variables = null },
                     .map = std.AutoHashMap(u64, usize).init(self.gc_allocator),
                     .entries = .empty,
                 };
@@ -1712,6 +1732,7 @@ pub const VM = struct {
                     .flags = 0,
                     .class = self.class_class,
                     .singleton_class = null,
+                    .instance_variables = null,
                 },
                 .name = singleton_name_sym,
                 .methods = std.AutoHashMap(*value.SymbolObject, Method).init(self.gc_allocator),
@@ -1734,7 +1755,7 @@ pub const VM = struct {
         // Create a symbol and store it
         const symbol_obj = self.gc_allocator.create(SymbolObject) catch unreachable;
         symbol_obj.* = .{
-            .object = .{ .flags = Object.FROZEN_FLAG, .class = self.symbol_class, .singleton_class = null },
+            .object = .{ .flags = Object.FROZEN_FLAG, .class = self.symbol_class, .singleton_class = null, .instance_variables = null },
             .name = str,
         };
         try self.symbols.put(str, symbol_obj);
@@ -1747,7 +1768,7 @@ pub const VM = struct {
     pub fn newModule(self: *VM, name: *SymbolObject) Value {
         const module_obj = self.gc_allocator.create(value.ModuleObject) catch unreachable;
         module_obj.* = .{
-            .object = .{ .flags = 0, .class = self.module_class, .singleton_class = null },
+            .object = .{ .flags = 0, .class = self.module_class, .singleton_class = null, .instance_variables = null },
             .name = name,
             .methods = std.AutoHashMap(*SymbolObject, Method).init(self.gc_allocator),
             .constants = std.AutoHashMap(*SymbolObject, Value).init(self.gc_allocator),
@@ -1760,7 +1781,7 @@ pub const VM = struct {
         class_obj.* = .{
             .superclass = superclass,
             .module = .{
-                .object = .{ .flags = 0, .class = self.class_class, .singleton_class = null },
+                .object = .{ .flags = 0, .class = self.class_class, .singleton_class = null, .instance_variables = null },
                 .name = name,
                 .methods = std.AutoHashMap(*SymbolObject, Method).init(self.gc_allocator),
                 .constants = std.AutoHashMap(*SymbolObject, Value).init(self.gc_allocator),
@@ -1775,8 +1796,39 @@ pub const VM = struct {
             .flags = 0,
             .class = class_obj,
             .singleton_class = null,
+            .instance_variables = null,
         };
         return .{ .data = .{ .instance = obj } };
+    }
+
+    fn getInstanceVariable(self: *VM, receiver: Value, name: []const u8) !Value {
+        const obj_ptr = receiver.getObjectPointer() orelse {
+            return Value.nil();
+        };
+
+        if (obj_ptr.instance_variables) |*ivars| {
+            const name_sym = try self.intern(name);
+            if (ivars.get(name_sym)) |val| {
+                return val;
+            }
+        }
+
+        return Value.nil();
+    }
+
+    fn setInstanceVariable(self: *VM, receiver: Value, name: []const u8, val: Value) !void {
+        const obj_ptr = receiver.getObjectPointer() orelse {
+            const exc = try self.createException(self.type_error_class, "can't define singleton method for literals");
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        };
+
+        if (obj_ptr.instance_variables == null) {
+            obj_ptr.instance_variables = std.AutoHashMap(*SymbolObject, Value).init(self.gc_allocator);
+        }
+
+        const name_sym = try self.intern(name);
+        try obj_ptr.instance_variables.?.put(name_sym, val);
     }
 
     pub fn newString(self: *VM, str: []const u8, frozen: bool) Value {
@@ -1790,7 +1842,7 @@ pub const VM = struct {
 
         const string_obj = self.gc_allocator.create(StringObject) catch unreachable;
         string_obj.* = .{
-            .object = .{ .flags = flags, .class = self.string_class, .singleton_class = null },
+            .object = .{ .flags = flags, .class = self.string_class, .singleton_class = null, .instance_variables = null },
             .str = copy,
         };
         return .{ .data = .{ .string = string_obj } };
@@ -1801,7 +1853,7 @@ pub const VM = struct {
 
         const proc_obj = self.gc_allocator.create(value.ProcObject) catch unreachable;
         proc_obj.* = .{
-            .object = .{ .flags = 0, .class = self.proc_class, .singleton_class = null },
+            .object = .{ .flags = 0, .class = self.proc_class, .singleton_class = null, .instance_variables = null },
             .block = .{
                 .chunk = block.chunk,
                 .defining_ep = heap_ep,
@@ -2915,7 +2967,7 @@ pub const VM = struct {
         } else {
             const array_obj = self.gc_allocator.create(value.ArrayObject) catch return error.RuntimeError;
             array_obj.* = .{
-                .object = .{ .flags = 0, .class = self.array_class, .singleton_class = null },
+                .object = .{ .flags = 0, .class = self.array_class, .singleton_class = null, .instance_variables = null },
                 .elements = .empty,
             };
 
@@ -2940,6 +2992,7 @@ pub const VM = struct {
                 .flags = 0,
                 .class = class,
                 .singleton_class = null,
+                .instance_variables = null,
             },
             .message = msg_str.data.string,
             .backtrace = backtrace,
@@ -3074,7 +3127,7 @@ pub const VM = struct {
         const hash_obj = receiver.data.hash;
         const array_obj = self.gc_allocator.create(value.ArrayObject) catch unreachable;
         array_obj.* = .{
-            .object = .{ .flags = 0, .class = self.array_class, .singleton_class = null },
+            .object = .{ .flags = 0, .class = self.array_class, .singleton_class = null, .instance_variables = null },
             .elements = .empty,
         };
 
@@ -3108,7 +3161,7 @@ pub const VM = struct {
         const hash_obj = receiver.data.hash;
         const array_obj = self.gc_allocator.create(value.ArrayObject) catch unreachable;
         array_obj.* = .{
-            .object = .{ .flags = 0, .class = self.array_class, .singleton_class = null },
+            .object = .{ .flags = 0, .class = self.array_class, .singleton_class = null, .instance_variables = null },
             .elements = .empty,
         };
 
@@ -3268,6 +3321,7 @@ pub const VM = struct {
                 .flags = 0,
                 .class = self.array_class,
                 .singleton_class = null,
+                .instance_variables = null,
             },
             .elements = .empty,
         };
