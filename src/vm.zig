@@ -11,9 +11,13 @@ const ClassObject = value.ClassObject;
 const LexicalScope = value.LexicalScope;
 const StringObject = value.StringObject;
 const SymbolObject = value.SymbolObject;
-const Method = value.Method;
 const RuntimeError = value.RuntimeError;
 const Chunk = chunk.Chunk;
+
+pub const Method = union(enum) {
+    chunk: *Chunk,
+    builtin: *const fn (*VM, Value, []Value, ?Block) RuntimeError!Value,
+};
 
 pub const Environment = struct {
     // Back pointer to outer environment (forms a chain for closures)
@@ -31,14 +35,18 @@ pub const Environment = struct {
     heap_forwarding_ptr: ?*Environment = null,
 };
 
+pub const Block = struct {
+    chunk: *Chunk,
+    defining_ep: *Environment,
+};
+
 pub const CallFrame = struct {
     chunk: *Chunk,
     ip: usize,
     stack_base: usize,
     self_value: Value,
     ep: *Environment,
-    block_chunk: ?*Chunk = null,
-    block_defining_ep: ?*Environment = null, // Environment where block was defined (for closures)
+    block: ?Block = null,
 };
 
 pub const VM = struct {
@@ -470,9 +478,9 @@ pub const VM = struct {
             if (frame.ep == old_env) {
                 frame.ep = new_env;
             }
-            if (frame.block_defining_ep) |bdep| {
-                if (bdep == old_env) {
-                    frame.block_defining_ep = new_env;
+            if (frame.block) |*blk| {
+                if (blk.defining_ep == old_env) {
+                    blk.defining_ep = new_env;
                 }
             }
         }
@@ -530,7 +538,7 @@ pub const VM = struct {
     pub fn run(self: *VM) !Value {
         self.setupOutput();
 
-        try self.pushFrame(&self.program.main_chunk, Value.nil(), null, null);
+        try self.pushFrame(&self.program.main_chunk, Value.nil(), null);
 
         while (self.frames.items.len > 0) {
             try self.executeInstruction();
@@ -591,7 +599,7 @@ pub const VM = struct {
         return val;
     }
 
-    fn pushFrame(self: *VM, ch: *Chunk, self_value: Value, block_chunk: ?*Chunk, block_defining_ep: ?*Environment) !void {
+    fn pushFrame(self: *VM, ch: *Chunk, self_value: Value, block: ?Block) !void {
         // Get parent environment (current frame's ep, if any)
         const parent_env = if (self.frames.items.len > 0)
             self.frames.items[self.frames.items.len - 1].ep
@@ -610,8 +618,7 @@ pub const VM = struct {
             .stack_base = self.stack.items.len,
             .self_value = self_value,
             .ep = env,
-            .block_chunk = block_chunk,
-            .block_defining_ep = block_defining_ep,
+            .block = block,
         });
 
         // Update current_lexical_scope to the frame's scope
@@ -833,23 +840,25 @@ pub const VM = struct {
                 const receiver = self.pop();
 
                 // Look up block chunk if ID != 0
-                var block_chunk: ?*Chunk = null;
-                var block_defining_ep: ?*Environment = null;
+                var block: ?Block = null;
                 if (block_chunk_id != 0) {
                     if (self.program.method_chunks.get(block_chunk_id)) |bc| {
-                        block_chunk = bc;
                         // Capture current lexical scope for the block
                         bc.lexical_scope = self.current_lexical_scope;
 
                         // ESCAPE DETECTION: Block is capturing environment
                         // Promote stack environments to heap; heap environments are already safe
-                        block_defining_ep = try self.promoteEnvironmentToHeap(frame.ep);
+                        const defining_ep = try self.promoteEnvironmentToHeap(frame.ep);
+                        block = Block{
+                            .chunk = bc,
+                            .defining_ep = defining_ep,
+                        };
                     } else {
                         return error.UndefinedChunk;
                     }
                 }
 
-                try self.callMethod(method_idx, receiver, &args, argc, block_chunk, block_defining_ep);
+                try self.callMethod(method_idx, receiver, &args, argc, block);
             },
 
             .RETURN => {
@@ -887,7 +896,7 @@ pub const VM = struct {
 
                             // Call the body chunk with the module as self
                             // pushFrame will update current_lexical_scope
-                            try self.pushFrame(body_chunk_ptr, module_val, null, null);
+                            try self.pushFrame(body_chunk_ptr, module_val, null);
                         } else {
                             return error.UndefinedChunk;
                         }
@@ -933,7 +942,7 @@ pub const VM = struct {
 
                             // Call the body chunk with the class as self
                             // pushFrame will update current_lexical_scope
-                            try self.pushFrame(body_chunk_ptr, class_val, null, null);
+                            try self.pushFrame(body_chunk_ptr, class_val, null);
                         } else {
                             return error.UndefinedChunk;
                         }
@@ -1078,7 +1087,7 @@ pub const VM = struct {
                 }
 
                 // Check for block and push frame
-                const blk = frame.block_chunk orelse {
+                const block = frame.block orelse {
                     const exc = try self.createException(
                         self.argument_error_class,
                         "no block given",
@@ -1087,6 +1096,8 @@ pub const VM = struct {
                     try self.unwindStack();
                     return;
                 };
+
+                const blk = block.chunk;
 
                 // Check arity
                 if (blk.arity != argc) {
@@ -1104,7 +1115,7 @@ pub const VM = struct {
                 // Push frame with block's chunk, using block_defining_ep as parent for closure support
                 // We need to manually create the environment with the right parent
                 // Dereference block_defining_ep in case it's a forwarding pointer
-                const real_defining_ep = if (frame.block_defining_ep) |bdep| derefEnvironment(bdep) else null;
+                const real_defining_ep = derefEnvironment(block.defining_ep);
 
                 // Create environment with block_defining_ep as parent (lexical scoping)
                 const block_env = try self.createStackEnvironment(real_defining_ep, blk.lexical_scope orelse self.current_lexical_scope);
@@ -1118,8 +1129,7 @@ pub const VM = struct {
                     .stack_base = self.stack.items.len,
                     .self_value = frame.self_value,
                     .ep = block_env,
-                    .block_chunk = frame.block_chunk,
-                    .block_defining_ep = null,
+                    .block = null,
                 });
 
                 // Update current_lexical_scope to the block's scope
@@ -1285,7 +1295,7 @@ pub const VM = struct {
     }
 
     /// Call a method by name string (not from bytecode constant pool)
-    fn callMethodByName(self: *VM, receiver: Value, method_name: []const u8, args: []Value, block_chunk: ?*Chunk) RuntimeError!Value {
+    fn callMethodByName(self: *VM, receiver: Value, method_name: []const u8, args: []Value, block: ?Block) RuntimeError!Value {
         const method_name_sym = self.intern(method_name) catch return error.RuntimeError;
         const class = self.getClass(receiver);
         const method = self.lookupMethod(class, method_name_sym);
@@ -1302,7 +1312,7 @@ pub const VM = struct {
                     const saved_frame_count = self.frames.items.len;
 
                     // Push frame with receiver as self_value
-                    self.pushFrame(chunk_ptr, receiver, block_chunk, null) catch return error.RuntimeError;
+                    self.pushFrame(chunk_ptr, receiver, block) catch return error.RuntimeError;
 
                     // Copy arguments to environment
                     var frame = self.currentFrame();
@@ -1320,7 +1330,7 @@ pub const VM = struct {
                     return self.pop();
                 },
                 .builtin => |fun_ptr| {
-                    return try fun_ptr(self, receiver, args, block_chunk);
+                    return try fun_ptr(self, receiver, args, block);
                 },
             }
         }
@@ -1335,13 +1345,42 @@ pub const VM = struct {
 
     /// Yield to a block with arguments, handling break and exceptions
     /// Returns the block's result value and whether a break occurred
-    fn yieldToBlock(self: *VM, block: *Chunk, receiver: Value, yield_args: []const Value) RuntimeError!YieldResult {
-        // Push block frame (no nested block for builtin-called blocks)
-        self.pushFrame(block, receiver, null, null) catch |err| {
-            const exc = try self.createException(self.runtime_error_class, @errorName(err));
+    fn yieldToBlock(self: *VM, block: Block, receiver: Value, yield_args: []const Value) RuntimeError!YieldResult {
+        // Dereference defining_ep in case it's a forwarding pointer
+        const real_defining_ep = derefEnvironment(block.defining_ep);
+
+        // Create environment with block's defining_ep as parent (lexical scoping)
+        const block_env = self.createStackEnvironment(real_defining_ep, block.chunk.lexical_scope orelse self.current_lexical_scope) catch {
+            const exc = try self.createException(self.runtime_error_class, "failed to create environment");
             self.pending_exception = exc;
             return error.RuntimeError;
         };
+
+        // Track env_stack index for this frame
+        self.env_stack_indices.append(self.allocator, self.env_stack.items.len - 1) catch {
+            const exc = try self.createException(self.runtime_error_class, "failed to allocate env stack index");
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        };
+
+        // Push block frame (no nested block for builtin-called blocks)
+        self.frames.append(self.allocator, CallFrame{
+            .chunk = block.chunk,
+            .ip = 0,
+            .stack_base = self.stack.items.len,
+            .self_value = receiver,
+            .ep = block_env,
+            .block = null,
+        }) catch {
+            const exc = try self.createException(self.runtime_error_class, "failed to allocate frame");
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        };
+
+        // Update current_lexical_scope to the block's scope
+        if (block.chunk.lexical_scope) |scope| {
+            self.current_lexical_scope = scope;
+        }
 
         // Copy arguments to environment
         var block_frame = self.currentFrame();
@@ -1384,7 +1423,7 @@ pub const VM = struct {
     }
 
     /// Ensure a block was given, or raise an error
-    fn requireBlock(self: *VM, block: ?*Chunk) RuntimeError!*Chunk {
+    fn requireBlock(self: *VM, block: ?Block) RuntimeError!Block {
         return block orelse {
             const exc = try self.createException(self.argument_error_class, "no block given");
             self.pending_exception = exc;
@@ -1392,7 +1431,7 @@ pub const VM = struct {
         };
     }
 
-    fn callMethod(self: *VM, method_idx: u16, receiver: Value, args: *[256]Value, argc: usize, block_chunk: ?*Chunk, block_defining_ep: ?*Environment) !void {
+    fn callMethod(self: *VM, method_idx: u16, receiver: Value, args: *[256]Value, argc: usize, block: ?Block) !void {
         if (method_idx >= self.currentChunk().constants.items.len) {
             return error.InvalidMethodIndex;
         }
@@ -1439,7 +1478,7 @@ pub const VM = struct {
             switch (m) {
                 .chunk => |chunk_ptr| {
                     // Push frame with receiver as self_value
-                    try self.pushFrame(chunk_ptr, receiver, block_chunk, block_defining_ep);
+                    try self.pushFrame(chunk_ptr, receiver, block);
 
                     // Copy arguments to locals
                     var frame = self.currentFrame();
@@ -1451,7 +1490,7 @@ pub const VM = struct {
                 },
                 .builtin => |fun_ptr| {
                     const args_slice = args[0..argc];
-                    const result = fun_ptr(self, receiver, args_slice, block_chunk) catch |err| {
+                    const result = fun_ptr(self, receiver, args_slice, block) catch |err| {
                         // Check if exception was raised
                         if (self.pending_exception != null) {
                             try self.unwindStack();
@@ -1579,7 +1618,7 @@ pub const VM = struct {
                     .singleton_class = null,
                 },
                 .name = singleton_name_sym,
-                .methods = std.AutoHashMap(*value.SymbolObject, value.Method).init(self.gc_allocator),
+                .methods = std.AutoHashMap(*value.SymbolObject, Method).init(self.gc_allocator),
                 .constants = std.AutoHashMap(*value.SymbolObject, value.Value).init(self.gc_allocator),
             },
         };
@@ -1671,7 +1710,7 @@ pub const VM = struct {
 
     // ==== Built-in methods ====
 
-    fn builtinObjectNew(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+    fn builtinObjectNew(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
         if (args.len != 0) {
             const msg = std.fmt.allocPrint(
                 self.gc_allocator,
@@ -1698,7 +1737,7 @@ pub const VM = struct {
         }
     }
 
-    fn builtinKernelPuts(self: *VM, _: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+    fn builtinKernelPuts(self: *VM, _: Value, args: []Value, _: ?Block) RuntimeError!Value {
         if (args.len == 0) {
             // puts with no args prints empty line
             self.stdout.?.print("\n", .{}) catch return RuntimeError.RuntimeError;
@@ -1726,7 +1765,7 @@ pub const VM = struct {
         return Value.nil();
     }
 
-    fn builtinKernelRaise(self: *VM, _: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+    fn builtinKernelRaise(self: *VM, _: Value, args: []Value, _: ?Block) RuntimeError!Value {
         if (args.len == 0) {
             // Re-raise current exception
             if (self.pending_exception) |exc| {
@@ -1779,7 +1818,7 @@ pub const VM = struct {
         return Value.nil();
     }
 
-    fn builtinIntegerPlus(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+    fn builtinIntegerPlus(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
         if (receiver.data != .integer) {
             const exc = try self.createException(
                 self.type_error_class,
@@ -1813,7 +1852,7 @@ pub const VM = struct {
         return Value.integer(result);
     }
 
-    fn builtinIntegerMinus(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+    fn builtinIntegerMinus(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
         if (receiver.data != .integer) {
             const exc = try self.createException(
                 self.type_error_class,
@@ -1847,7 +1886,7 @@ pub const VM = struct {
         return Value.integer(result);
     }
 
-    fn builtinIntegerEqual(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+    fn builtinIntegerEqual(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
         if (receiver.data != .integer) {
             const exc = try self.createException(
                 self.type_error_class,
@@ -1881,7 +1920,7 @@ pub const VM = struct {
         return Value.boolean(result);
     }
 
-    fn builtinIntegerLessThan(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+    fn builtinIntegerLessThan(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
         if (receiver.data != .integer) {
             const exc = try self.createException(
                 self.type_error_class,
@@ -1915,7 +1954,7 @@ pub const VM = struct {
         return Value.boolean(result);
     }
 
-    fn builtinIntegerLessThanOrEqual(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+    fn builtinIntegerLessThanOrEqual(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
         if (receiver.data != .integer) {
             const exc = try self.createException(
                 self.type_error_class,
@@ -1949,7 +1988,7 @@ pub const VM = struct {
         return Value.boolean(result);
     }
 
-    fn builtinIntegerGreaterThan(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+    fn builtinIntegerGreaterThan(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
         if (receiver.data != .integer) {
             const exc = try self.createException(
                 self.type_error_class,
@@ -1983,7 +2022,7 @@ pub const VM = struct {
         return Value.boolean(result);
     }
 
-    fn builtinIntegerGreaterThanOrEqual(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+    fn builtinIntegerGreaterThanOrEqual(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
         if (receiver.data != .integer) {
             const exc = try self.createException(
                 self.type_error_class,
@@ -2017,7 +2056,7 @@ pub const VM = struct {
         return Value.boolean(result);
     }
 
-    fn builtinModuleInclude(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+    fn builtinModuleInclude(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
         if (args.len != 1) {
             const msg = std.fmt.allocPrint(
                 self.gc_allocator,
@@ -2056,7 +2095,7 @@ pub const VM = struct {
         return receiver;
     }
 
-    fn builtinModulePrepend(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+    fn builtinModulePrepend(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
         if (args.len != 1) {
             const msg = std.fmt.allocPrint(
                 self.gc_allocator,
@@ -2095,7 +2134,7 @@ pub const VM = struct {
         return receiver;
     }
 
-    fn builtinArrayPush(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+    fn builtinArrayPush(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
         if (receiver.data != .array) {
             const exc = try self.createException(
                 self.type_error_class,
@@ -2122,7 +2161,7 @@ pub const VM = struct {
         return receiver;
     }
 
-    fn builtinArrayEach(self: *VM, receiver: Value, args: []Value, block: ?*Chunk) RuntimeError!Value {
+    fn builtinArrayEach(self: *VM, receiver: Value, args: []Value, block: ?Block) RuntimeError!Value {
         if (receiver.data != .array) {
             const exc = try self.createException(
                 self.type_error_class,
@@ -2159,7 +2198,7 @@ pub const VM = struct {
         return receiver;
     }
 
-    fn builtinIntegerToS(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+    fn builtinIntegerToS(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
         if (receiver.data != .integer) {
             const exc = try self.createException(
                 self.type_error_class,
@@ -2184,7 +2223,7 @@ pub const VM = struct {
         return self.newString(str, false);
     }
 
-    fn builtinStringToS(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+    fn builtinStringToS(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
         if (receiver.data != .string) {
             const exc = try self.createException(
                 self.type_error_class,
@@ -2208,7 +2247,7 @@ pub const VM = struct {
         return receiver; // String#to_s returns self
     }
 
-    fn builtinStringPlus(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+    fn builtinStringPlus(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
         if (receiver.data != .string) {
             const exc = try self.createException(
                 self.type_error_class,
@@ -2248,7 +2287,7 @@ pub const VM = struct {
         return self.newString(combined_str, false);
     }
 
-    fn builtinSymbolToS(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+    fn builtinSymbolToS(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
         if (receiver.data != .symbol) {
             const exc = try self.createException(
                 self.type_error_class,
@@ -2273,7 +2312,7 @@ pub const VM = struct {
         return self.newString(str, false);
     }
 
-    fn builtinNilClassToS(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+    fn builtinNilClassToS(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
         if (receiver.data != .nil) {
             const exc = try self.createException(
                 self.type_error_class,
@@ -2297,7 +2336,7 @@ pub const VM = struct {
         return self.newString("", false);
     }
 
-    fn builtinTrueClassToS(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+    fn builtinTrueClassToS(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
         if (receiver.data != .boolean or !receiver.data.boolean) {
             const exc = try self.createException(
                 self.type_error_class,
@@ -2321,7 +2360,7 @@ pub const VM = struct {
         return self.newString("true", false);
     }
 
-    fn builtinFalseClassToS(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+    fn builtinFalseClassToS(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
         if (receiver.data != .boolean or receiver.data.boolean) {
             const exc = try self.createException(
                 self.type_error_class,
@@ -2345,7 +2384,7 @@ pub const VM = struct {
         return self.newString("false", false);
     }
 
-    fn builtinArrayToS(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+    fn builtinArrayToS(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
         if (receiver.data != .array) {
             const exc = try self.createException(
                 self.type_error_class,
@@ -2385,7 +2424,7 @@ pub const VM = struct {
         return self.newString(str, false);
     }
 
-    fn builtinKernelToS(self: *VM, receiver: Value, _: []Value, _: ?*Chunk) RuntimeError!Value {
+    fn builtinKernelToS(self: *VM, receiver: Value, _: []Value, _: ?Block) RuntimeError!Value {
         const class = self.getClass(receiver);
         const class_name = class.module.name.name;
 
@@ -2408,11 +2447,11 @@ pub const VM = struct {
 
     // ===== inspect methods =====
 
-    fn builtinIntegerInspect(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+    fn builtinIntegerInspect(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
         return self.builtinIntegerToS(receiver, args, null);
     }
 
-    fn builtinStringInspect(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+    fn builtinStringInspect(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
         if (receiver.data != .string) {
             const exc = try self.createException(
                 self.type_error_class,
@@ -2465,7 +2504,7 @@ pub const VM = struct {
         return self.newString(str, false);
     }
 
-    fn builtinSymbolInspect(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+    fn builtinSymbolInspect(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
         if (receiver.data != .symbol) {
             const exc = try self.createException(
                 self.type_error_class,
@@ -2490,7 +2529,7 @@ pub const VM = struct {
         return self.newString(str, false);
     }
 
-    fn builtinNilClassInspect(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+    fn builtinNilClassInspect(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
         if (receiver.data != .nil) {
             const exc = try self.createException(
                 self.type_error_class,
@@ -2514,15 +2553,15 @@ pub const VM = struct {
         return self.newString("nil", false);
     }
 
-    fn builtinTrueClassInspect(self: *VM, receiver: Value, args: []Value, block_chunk: ?*Chunk) RuntimeError!Value {
-        return self.builtinTrueClassToS(receiver, args, block_chunk);
+    fn builtinTrueClassInspect(self: *VM, receiver: Value, args: []Value, block: ?Block) RuntimeError!Value {
+        return self.builtinTrueClassToS(receiver, args, block);
     }
 
-    fn builtinFalseClassInspect(self: *VM, receiver: Value, args: []Value, block_chunk: ?*Chunk) RuntimeError!Value {
-        return self.builtinFalseClassToS(receiver, args, block_chunk);
+    fn builtinFalseClassInspect(self: *VM, receiver: Value, args: []Value, block: ?Block) RuntimeError!Value {
+        return self.builtinFalseClassToS(receiver, args, block);
     }
 
-    fn builtinArrayInspect(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+    fn builtinArrayInspect(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
         if (receiver.data != .array) {
             const exc = try self.createException(
                 self.type_error_class,
@@ -2562,11 +2601,11 @@ pub const VM = struct {
         return self.newString(str, false);
     }
 
-    fn builtinKernelInspect(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+    fn builtinKernelInspect(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
         return self.builtinKernelToS(receiver, args, null);
     }
 
-    fn builtinKernelP(self: *VM, _: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+    fn builtinKernelP(self: *VM, _: Value, args: []Value, _: ?Block) RuntimeError!Value {
         if (args.len == 0) {
             self.stdout.?.print("\n", .{}) catch return error.RuntimeError;
             _ = self.stdout.?.flush() catch {};
@@ -2624,7 +2663,7 @@ pub const VM = struct {
         return exc;
     }
 
-    fn builtinExceptionMessage(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+    fn builtinExceptionMessage(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
         if (receiver.data != .exception) {
             const exc = try self.createException(
                 self.type_error_class,
@@ -2649,7 +2688,7 @@ pub const VM = struct {
         return .{ .data = .{ .string = exc.message } };
     }
 
-    fn builtinHashBracket(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+    fn builtinHashBracket(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
         if (receiver.data != .hash) {
             const exc = try self.createException(
                 self.type_error_class,
@@ -2682,7 +2721,7 @@ pub const VM = struct {
         return Value.nil();
     }
 
-    fn builtinHashBracketSet(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+    fn builtinHashBracketSet(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
         if (receiver.data != .hash) {
             const exc = try self.createException(
                 self.type_error_class,
@@ -2726,7 +2765,7 @@ pub const VM = struct {
         return new_value;
     }
 
-    fn builtinHashKeys(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+    fn builtinHashKeys(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
         if (receiver.data != .hash) {
             const exc = try self.createException(
                 self.type_error_class,
@@ -2760,7 +2799,7 @@ pub const VM = struct {
         return .{ .data = .{ .array = array_obj } };
     }
 
-    fn builtinHashValues(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+    fn builtinHashValues(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
         if (receiver.data != .hash) {
             const exc = try self.createException(
                 self.type_error_class,
@@ -2794,7 +2833,7 @@ pub const VM = struct {
         return .{ .data = .{ .array = array_obj } };
     }
 
-    fn builtinHashSize(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+    fn builtinHashSize(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
         if (receiver.data != .hash) {
             const exc = try self.createException(
                 self.type_error_class,
@@ -2817,7 +2856,7 @@ pub const VM = struct {
         return Value.integer(@intCast(receiver.data.hash.entries.items.len));
     }
 
-    fn builtinHashEach(self: *VM, receiver: Value, args: []Value, block: ?*Chunk) RuntimeError!Value {
+    fn builtinHashEach(self: *VM, receiver: Value, args: []Value, block: ?Block) RuntimeError!Value {
         if (receiver.data != .hash) {
             const exc = try self.createException(
                 self.type_error_class,
@@ -2854,7 +2893,7 @@ pub const VM = struct {
         return receiver;
     }
 
-    fn builtinHashToS(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+    fn builtinHashToS(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
         if (receiver.data != .hash) {
             const exc = try self.createException(
                 self.type_error_class,
@@ -2911,7 +2950,7 @@ pub const VM = struct {
         return self.newString(final_str, false);
     }
 
-    fn builtinHashInspect(self: *VM, receiver: Value, args: []Value, _: ?*Chunk) RuntimeError!Value {
+    fn builtinHashInspect(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
         if (receiver.data != .hash) {
             const exc = try self.createException(
                 self.type_error_class,

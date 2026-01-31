@@ -3,6 +3,7 @@ const prism = @import("prism.zig");
 const bdwgc = @import("bdwgc");
 const Chunk = @import("chunk.zig").Chunk;
 const VM = @import("vm.zig").VM;
+const Method = @import("vm.zig").Method;
 
 pub const RuntimeError = error{
     WrongReceiverType,
@@ -17,11 +18,6 @@ pub const RuntimeError = error{
     UndefinedMethod,
     NoBlockGiven,
     RuntimeError,
-};
-
-pub const Method = union(enum) {
-    chunk: *Chunk,
-    builtin: *const fn (*VM, Value, []Value, ?*Chunk) RuntimeError!Value,
 };
 
 pub const Object = struct {

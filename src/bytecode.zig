@@ -143,7 +143,7 @@ pub const Instruction = struct {
                 try writer.print(" {d}", .{self.a});
             },
             .GET_LOCAL_DEEP, .SET_LOCAL_DEEP => {
-                try writer.print(" {d} {d}", .{self.a, self.b});
+                try writer.print(" {d} {d}", .{ self.a, self.b });
             },
             .JUMP, .JUMP_IF_FALSE, .JUMP_IF_TRUE => {
                 const offset: i16 = @bitCast(self.bx);
