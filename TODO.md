@@ -8,26 +8,6 @@ This document tracks language features needed to run ruby/spec tests instead of 
 
 ## Critical Path to ruby/spec Support
 
-#### Module/Require System ⭐ **CRITICAL**
-**Status:** Not implemented
-**Prism Support:** ✅ (require is just a method call, but needs VM support)
-**Blocker Level:** 🔴 Critical - Can't load spec framework or fixtures
-
-**Syntax needed:**
-```ruby
-require 'foo'
-require_relative '../spec_helper'
-require_relative 'fixtures/block'
-```
-
-**Implementation tasks:**
-- [ ] Design module load path system
-- [ ] Implement `require` builtin method
-- [ ] Implement `require_relative` builtin method
-- [ ] Add loaded file tracking (prevent double-loads)
-- [ ] Handle circular dependencies
-- [ ] Integrate with existing file parser/compiler pipeline
-
 #### Splat/Rest Parameters ⭐ **HIGH PRIORITY**
 **Status:** Not implemented
 **Prism Support:** ✅ `PM_REST_PARAMETER_NODE`
