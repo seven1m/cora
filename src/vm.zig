@@ -47,6 +47,7 @@ pub const CallFrame = struct {
     self_value: Value,
     ep: *Environment,
     block: ?Block = null,
+    frame_type: enum { method, lambda, proc } = .method,
 };
 
 pub const VM = struct {
@@ -281,6 +282,9 @@ pub const VM = struct {
         const proc_sym = try self.intern("proc");
         try self.kernel_module.methods.put(proc_sym, .{ .builtin = &builtinKernelProc });
 
+        const lambda_sym = try self.intern("lambda");
+        try self.kernel_module.methods.put(lambda_sym, .{ .builtin = &builtinKernelLambda });
+
         // Register Object built-in methods
         const new_sym = try self.intern("new");
         try self.object_class.module.methods.put(new_sym, .{ .builtin = &builtinObjectNew });
@@ -351,6 +355,9 @@ pub const VM = struct {
 
         const call_sym = try self.intern("call");
         try self.proc_class.module.methods.put(call_sym, .{ .builtin = &builtinProcCall });
+
+        const lambda_query_sym = try self.intern("lambda?");
+        try self.proc_class.module.methods.put(lambda_query_sym, .{ .builtin = &builtinProcIsLambda });
 
         // Register String builtins
         const string_plus_sym = try self.intern("+");
@@ -880,13 +887,42 @@ pub const VM = struct {
             },
 
             .RETURN => {
+                const is_explicit = self.readByte();
                 const result = self.pop();
-                try self.popFrame();
+                const current_frame = self.currentFrame();
 
-                if (self.frames.items.len > 0) {
-                    try self.push(result);
+                // Explicit returns in procs have special non-local return behavior
+                if (is_explicit == 1 and current_frame.frame_type == .proc) {
+                    // Proc explicit return: walk back to enclosing method and exit it
+                    try self.popFrame(); // Pop proc frame
+
+                    // Find first method frame and exit it (but not if it's the only frame left,
+                    // which would be the main/top-level frame when proc is called via .call)
+                    var found_method = false;
+                    if (self.frames.items.len > 1) {
+                        while (self.frames.items.len > 0) {
+                            const frame_type = self.frames.items[self.frames.items.len - 1].frame_type;
+                            if (frame_type == .method) {
+                                try self.popFrame(); // Exit the method
+                                found_method = true;
+                                break;
+                            }
+                            try self.popFrame(); // Skip intermediate frames
+                        }
+                    }
+
+                    // Push result if there are frames left or if we didn't find/pop a method
+                    if (self.frames.items.len > 0 or !found_method) {
+                        try self.push(result);
+                    }
                 } else {
-                    try self.push(result);
+                    // Normal return: exit current frame only (for methods, lambdas, implicit returns)
+                    try self.popFrame();
+                    if (self.frames.items.len > 0) {
+                        try self.push(result);
+                    } else {
+                        try self.push(result);
+                    }
                 }
             },
 
@@ -1178,6 +1214,21 @@ pub const VM = struct {
                 } else {
                     // Normal return - value is on stack from RETURN
                 }
+            },
+
+            .PUSH_LAMBDA => {
+                const chunk_id = self.readByte();
+                const lambda_chunk = self.program.method_chunks.get(@intCast(chunk_id)) orelse unreachable;
+
+                // Create a block with the lambda chunk and current environment
+                const block = Block{
+                    .chunk = lambda_chunk,
+                    .defining_ep = frame.ep,
+                };
+
+                // Create a Proc value from the block
+                const proc_val = self.newProc(block);
+                try self.push(proc_val);
             },
 
             .BREAK => {
@@ -1805,10 +1856,33 @@ pub const VM = struct {
 
         self.env_stack_indices.append(self.allocator, self.env_stack.items.len - 1) catch return error.RuntimeError;
 
+        // Strict arity checking for lambdas
+        if (proc_obj.block.chunk.is_lambda) {
+            if (args.len != proc_obj.block.chunk.arity) {
+                const msg = std.fmt.allocPrint(
+                    self.gc_allocator,
+                    "wrong number of arguments (given {d}, expected {d})",
+                    .{ args.len, proc_obj.block.chunk.arity },
+                ) catch unreachable;
+                const exc = try self.createException(self.argument_error_class, msg);
+                self.pending_exception = exc;
+                return error.RuntimeError;
+            }
+        }
+
+        // Copy provided arguments
         var i: usize = 0;
         while (i < args.len and i < proc_obj.block.chunk.arity) : (i += 1) {
             proc_env.variables[i] = args[i];
             proc_env.variables_len = @as(u8, @intCast(i + 1));
+        }
+
+        // Fill missing arguments with nil for procs (lenient arity)
+        if (!proc_obj.block.chunk.is_lambda) {
+            while (i < proc_obj.block.chunk.arity) : (i += 1) {
+                proc_env.variables[i] = Value.nil();
+                proc_env.variables_len = @as(u8, @intCast(i + 1));
+            }
         }
 
         if (proc_obj.block.chunk.lexical_scope) |scope| {
@@ -1822,9 +1896,21 @@ pub const VM = struct {
             .self_value = receiver,
             .ep = proc_env,
             .block = null,
+            .frame_type = if (proc_obj.block.chunk.is_lambda) .lambda else .proc,
         }) catch return error.RuntimeError;
 
-        return Value.nil();
+        // Execute the proc/lambda until it returns
+        const saved_frame_count = self.frames.items.len - 1;
+        while (self.frames.items.len > saved_frame_count) {
+            self.executeInstruction() catch return error.RuntimeError;
+        }
+
+        // The return value is already on the stack from the RETURN instruction
+        return self.pop();
+    }
+
+    fn builtinProcIsLambda(_: *VM, receiver: Value, _: []Value, _: ?Block) RuntimeError!Value {
+        return Value.boolean(receiver.data.proc.block.chunk.is_lambda);
     }
 
     fn builtinKernelPuts(self: *VM, _: Value, args: []Value, _: ?Block) RuntimeError!Value {
@@ -1875,6 +1961,33 @@ pub const VM = struct {
             self.pending_exception = exc;
             return error.RuntimeError;
         };
+
+        return self.newProc(blk);
+    }
+
+    fn builtinKernelLambda(self: *VM, _: Value, args: []Value, block: ?Block) RuntimeError!Value {
+        if (args.len != 0) {
+            const msg = std.fmt.allocPrint(
+                self.gc_allocator,
+                "wrong number of arguments (given {d}, expected 0)",
+                .{args.len},
+            ) catch unreachable;
+            const exc = try self.createException(self.argument_error_class, msg);
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        var blk = block orelse {
+            const exc = try self.createException(
+                self.argument_error_class,
+                "tried to create Lambda without a block",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        };
+
+        // Mark the chunk as a lambda
+        blk.chunk.is_lambda = true;
 
         return self.newProc(blk);
     }

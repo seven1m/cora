@@ -34,6 +34,7 @@ pub const Chunk = struct {
     name: []const u8,
     chunk_id: ?u8 = null,
     arity: u8 = 0, // For block chunks: number of parameters
+    is_lambda: bool = false, // Distinguishes lambda from proc
     lexical_scope: ?*LexicalScope = null,
     exception_handlers: std.ArrayList(ExceptionHandler) = .empty,
 
@@ -208,7 +209,7 @@ pub const Chunk = struct {
         var next_ip = ip + 1;
 
         switch (op) {
-            .PUSH_NIL, .PUSH_TRUE, .PUSH_FALSE, .PUSH_SELF, .POP, .RETURN, .HALT, .TRY_END, .CATCH_END, .ENSURE_START, .ENSURE_END, .RETRY, .BREAK => {
+            .PUSH_NIL, .PUSH_TRUE, .PUSH_FALSE, .PUSH_SELF, .POP, .HALT, .TRY_END, .CATCH_END, .ENSURE_START, .ENSURE_END, .RETRY, .BREAK => {
                 try writer.print("{s}\n", .{bytecode.opcodeName(op)});
             },
 
@@ -319,6 +320,18 @@ pub const Chunk = struct {
             .YIELD => {
                 const argc = bytecode.readU8(self.code.items, next_ip);
                 try writer.print("YIELD {d}\n", .{argc});
+                next_ip += 1;
+            },
+
+            .PUSH_LAMBDA => {
+                const chunk_id = bytecode.readU8(self.code.items, next_ip);
+                try writer.print("PUSH_LAMBDA {d}\n", .{chunk_id});
+                next_ip += 1;
+            },
+
+            .RETURN => {
+                const is_explicit = bytecode.readU8(self.code.items, next_ip);
+                try writer.print("RETURN {s}\n", .{if (is_explicit == 1) "explicit" else "implicit"});
                 next_ip += 1;
             },
         }

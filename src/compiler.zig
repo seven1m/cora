@@ -356,6 +356,11 @@ pub const Compiler = struct {
                 _ = try self.compileBlock(block_node, line);
             },
 
+            .lambda => |lambda_node| {
+                const chunk_id = try self.compileLambda(lambda_node, line);
+                try self.current_chunk.emitOpU8(.PUSH_LAMBDA, chunk_id, line);
+            },
+
             .begin => |begin_node| {
                 try self.compileBeginNode(begin_node, line);
             },
@@ -363,6 +368,27 @@ pub const Compiler = struct {
             .retry => {
                 // Emit RETRY opcode to jump back to the beginning of the begin block
                 try self.current_chunk.emitOp(.RETRY, line);
+            },
+
+            .return_node => |return_node| {
+                // Compile return value if present
+                if (return_node.arguments) |args_ptr| {
+                    const args_node = @as(*prism.ArgumentsNode, @ptrCast(args_ptr));
+                    if (args_node.arguments.size > 0) {
+                        // Compile the first argument as the return value
+                        const arg = args_node.arguments.nodes[0];
+                        const arg_node = try self.parser.asNode(arg);
+                        try self.compileNode(arg_node, line);
+                    } else {
+                        // No arguments, return nil
+                        try self.current_chunk.emitOp(.PUSH_NIL, line);
+                    }
+                } else {
+                    // No arguments, return nil
+                    try self.current_chunk.emitOp(.PUSH_NIL, line);
+                }
+                // Emit RETURN opcode (explicit return)
+                try self.current_chunk.emitOpU8(.RETURN, 1, line);
             },
 
             .rescue_modifier => |rescue_modifier_node| {
@@ -455,7 +481,7 @@ pub const Compiler = struct {
             try self.current_chunk.emitOp(.POP, line);
             // Return self (the module) as the result
             try self.current_chunk.emitOp(.PUSH_SELF, line);
-            try self.current_chunk.emitOp(.RETURN, line);
+            try self.current_chunk.emitOpU8(.RETURN, 0, line);
 
             // Store the chunk and get its ID
             body_chunk_id = @intCast(self.chunk_counter);
@@ -506,7 +532,7 @@ pub const Compiler = struct {
             try self.current_chunk.emitOp(.POP, line);
             // Return self (the class) as the result
             try self.current_chunk.emitOp(.PUSH_SELF, line);
-            try self.current_chunk.emitOp(.RETURN, line);
+            try self.current_chunk.emitOpU8(.RETURN, 0, line);
 
             // Store the chunk and get its ID
             body_chunk_id = @intCast(self.chunk_counter);
@@ -569,7 +595,7 @@ pub const Compiler = struct {
         }
 
         // Emit return instruction
-        try self.current_chunk.emitOp(.RETURN, line);
+        try self.current_chunk.emitOpU8(.RETURN, 0, line);
 
         // Restore the previous chunk
         self.current_chunk = saved_chunk;
@@ -668,7 +694,7 @@ pub const Compiler = struct {
         }
 
         // Emit return instruction
-        try self.current_chunk.emitOp(.RETURN, line);
+        try self.current_chunk.emitOpU8(.RETURN, 0, line);
 
         // Pop the all_locals stack
         _ = self.all_locals.pop();
@@ -687,6 +713,100 @@ pub const Compiler = struct {
 
         // Store by ID
         try self.method_chunks.put(chunk_id, block_chunk_ptr);
+
+        return @intCast(chunk_id);
+    }
+
+    fn compileLambda(self: *Compiler, lambda_node: *prism.LambdaNode, line: u32) !u8 {
+        // Allocate chunk on heap for the lambda
+        const lambda_chunk_ptr = try self.allocator.create(Chunk);
+        lambda_chunk_ptr.* = Chunk.init(self.allocator, "lambda");
+        lambda_chunk_ptr.is_lambda = true; // Mark as lambda
+
+        // Save the current chunk and switch to the lambda chunk
+        const saved_chunk = self.current_chunk;
+        self.current_chunk = lambda_chunk_ptr;
+
+        // Push current locals onto all_locals stack (for closure lookups)
+        try self.all_locals.append(self.allocator, self.locals);
+
+        // Create new locals array for this lambda
+        const saved_locals = self.locals;
+        self.locals = .empty;
+
+        // Push block context onto loop stack for break detection
+        const loop_idx = self.loop_stack.items.len;
+        try self.loop_stack.append(self.allocator, .{
+            .loop_type = .block,
+            .break_jumps = .empty,
+        });
+
+        defer {
+            // Pop loop context when done compiling lambda
+            var ctx = &self.loop_stack.items[loop_idx];
+            ctx.break_jumps.deinit(self.allocator);
+            _ = self.loop_stack.pop();
+        }
+
+        // Process lambda parameters (if any)
+        var param_count: u8 = 0;
+        if (lambda_node.parameters) |params_ptr| {
+            const params_node = try self.parser.asNode(@ptrCast(params_ptr));
+
+            // Lambda parameters can be either BlockParametersNode or ParametersNode
+            if (params_node == .block_parameters) {
+                const block_params = params_node.block_parameters;
+                if (block_params.parameters) |actual_params_ptr| {
+                    const params = @as(*prism.ParametersNode, @ptrCast(actual_params_ptr));
+                    if (params.requireds.size > 0) {
+                        if (params.requireds.size > 255) {
+                            return error.TooManyParameters;
+                        }
+                        param_count = @as(u8, @intCast(params.requireds.size));
+                        var i: usize = 0;
+                        while (i < params.requireds.size) : (i += 1) {
+                            const param_node = params.requireds.nodes[i];
+                            const param = @as(*prism.RequiredParameterNode, @ptrCast(param_node));
+                            const param_name = try self.parser.getLocalVariableName(param.name);
+                            try self.addLocal(param_name);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Set arity on the chunk
+        lambda_chunk_ptr.arity = param_count;
+
+        // Compile the lambda body
+        if (lambda_node.body) |body_ptr| {
+            const body_node = try self.parser.asNode(@ptrCast(body_ptr));
+            try self.compileNode(body_node, line);
+        } else {
+            // If no body, push nil
+            try self.current_chunk.emitOp(.PUSH_NIL, line);
+        }
+
+        // Emit return instruction
+        try self.current_chunk.emitOpU8(.RETURN, 0, line);
+
+        // Pop the all_locals stack
+        _ = self.all_locals.pop();
+
+        // Restore the previous chunk and locals
+        self.current_chunk = saved_chunk;
+        self.locals.deinit(self.allocator); // Clean up lambda's locals
+        self.locals = saved_locals; // Restore parent's locals
+
+        // Assign unique ID to this lambda chunk
+        const chunk_id = self.chunk_counter;
+        self.chunk_counter += 1;
+
+        // Store the chunk ID on the chunk itself
+        lambda_chunk_ptr.chunk_id = @intCast(chunk_id);
+
+        // Store by ID
+        try self.method_chunks.put(chunk_id, lambda_chunk_ptr);
 
         return @intCast(chunk_id);
     }

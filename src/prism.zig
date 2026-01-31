@@ -32,6 +32,7 @@ pub const RequiredParameterNode = c.pm_required_parameter_node_t;
 pub const RescueNode = c.pm_rescue_node_t;
 pub const RescueModifierNode = c.pm_rescue_modifier_node_t;
 pub const RetryNode = c.pm_retry_node_t;
+pub const ReturnNode = c.pm_return_node_t;
 pub const SelfNode = c.pm_self_node_t;
 pub const StatementsNode = c.pm_statements_node_t;
 pub const StringNode = c.pm_string_node_t;
@@ -43,6 +44,7 @@ pub const UntilNode = c.pm_until_node_t;
 pub const BreakNode = c.pm_break_node_t;
 pub const HashNode = c.pm_hash_node_t;
 pub const AssocNode = c.pm_assoc_node_t;
+pub const LambdaNode = c.pm_lambda_node_t;
 
 pub const Node = union(enum) {
     array: *ArrayNode,
@@ -71,6 +73,7 @@ pub const Node = union(enum) {
     rescue: *RescueNode,
     rescue_modifier: *RescueModifierNode,
     retry: *RetryNode,
+    return_node: *ReturnNode,
     self: *SelfNode,
     statements: *StatementsNode,
     string: *StringNode,
@@ -82,6 +85,7 @@ pub const Node = union(enum) {
     break_node: *BreakNode,
     hash: *HashNode,
     assoc: *AssocNode,
+    lambda: *LambdaNode,
 };
 
 /// Parser wraps Prism's parser and AST lifecycle
@@ -264,6 +268,10 @@ pub const Parser = struct {
             return Node{ .retry = @ptrCast(raw) };
         }
 
+        if (node_type == c.PM_RETURN_NODE) {
+            return Node{ .return_node = @ptrCast(raw) };
+        }
+
         if (node_type == c.PM_WHILE_NODE) {
             return Node{ .while_node = @ptrCast(raw) };
         }
@@ -282,6 +290,10 @@ pub const Parser = struct {
 
         if (node_type == c.PM_ASSOC_NODE) {
             return Node{ .assoc = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_LAMBDA_NODE) {
+            return Node{ .lambda = @ptrCast(raw) };
         }
 
         var stdout_buffer: [8192]u8 = undefined;

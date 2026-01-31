@@ -24,7 +24,7 @@ pub const OpCode = enum(u8) {
 
     // Method calls
     CALL, // Operands: u16 (method name index), u8 (argc), u8 (block chunk id)
-    RETURN, // No operands
+    RETURN, // Operand: u8 (0=implicit, 1=explicit)
 
     // OOP
     DEF_MODULE, // Operand: u16 (name index)
@@ -42,6 +42,7 @@ pub const OpCode = enum(u8) {
 
     // Blocks
     YIELD, // Operand: u8 (argc)
+    PUSH_LAMBDA, // Operand: u8 (chunk_id)
 
     // Constant path resolution
     GET_CONST_PATH, // Operand: u16 (constant name index) - pops module/class, looks up constant
@@ -90,6 +91,7 @@ pub fn opcodeName(op: OpCode) []const u8 {
         .HALT => "HALT",
         .DEF_SINGLETON_METHOD => "DEF_SINGLETON_METHOD",
         .YIELD => "YIELD",
+        .PUSH_LAMBDA => "PUSH_LAMBDA",
         .GET_CONST_PATH => "GET_CONST_PATH",
         .RAISE => "RAISE",
         .TRY_BEGIN => "TRY_BEGIN",
@@ -149,7 +151,7 @@ pub const Instruction = struct {
                 const offset: i16 = @bitCast(self.bx);
                 try writer.print(" {}", .{offset});
             },
-            .YIELD => {
+            .YIELD, .PUSH_LAMBDA, .RETURN => {
                 try writer.print(" {d}", .{self.a});
             },
             else => {},
