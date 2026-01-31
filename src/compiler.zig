@@ -412,6 +412,22 @@ pub const Compiler = struct {
                 try self.compileBreakStatement(break_node, line);
             },
 
+            .global_variable_read => |var_read| {
+                const var_name = try self.parser.getConstantName(@intCast(var_read.name));
+                const name_idx = try self.current_chunk.addConstant(.{ .symbol = var_name });
+                try self.current_chunk.emitOpU16(.GET_GLOBAL, @intCast(name_idx), line);
+            },
+
+            .global_variable_write => |var_write| {
+                const var_name = try self.parser.getConstantName(@intCast(var_write.name));
+                const value_node = try self.parser.asNode(@ptrCast(var_write.value));
+
+                try self.compileNode(value_node, line);
+
+                const name_idx = try self.current_chunk.addConstant(.{ .symbol = var_name });
+                try self.current_chunk.emitOpU16(.SET_GLOBAL, @intCast(name_idx), line);
+            },
+
             else => {
                 std.debug.print("Error: unsupported node type\n", .{});
                 return error.UnsupportedNode;

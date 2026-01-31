@@ -65,6 +65,7 @@ pub const VM = struct {
     env_stack_indices: std.ArrayList(usize) = .empty,
 
     symbols: std.StringHashMap(*SymbolObject),
+    globals: std.StringHashMap(Value),
 
     program: *compiler.CompiledProgram,
 
@@ -122,6 +123,7 @@ pub const VM = struct {
             .gc_allocator_atomic = gc_allocator_atomic,
             .parser = parser,
             .symbols = std.StringHashMap(*SymbolObject).init(allocator),
+            .globals = std.StringHashMap(Value).init(allocator),
             .program = undefined,
             .basic_object_class = undefined,
             .class_class = undefined,
@@ -558,6 +560,7 @@ pub const VM = struct {
         self.env_stack.deinit(self.allocator);
         self.env_stack_indices.deinit(self.allocator);
         self.symbols.deinit();
+        self.globals.deinit();
     }
 
     pub fn run(self: *VM) !Value {
@@ -735,6 +738,24 @@ pub const VM = struct {
                 const val = self.pop();
                 try setVariableAtDepth(frame.ep, depth, local_idx, val);
                 try self.push(val);
+            },
+
+            .GET_GLOBAL => {
+                const name_idx = self.readU16();
+                const name_val = self.currentChunk().constants.items[name_idx];
+                const var_name = name_val.symbol;
+
+                const global_val = self.globals.get(var_name) orelse Value.nil();
+                try self.push(global_val);
+            },
+
+            .SET_GLOBAL => {
+                const name_idx = self.readU16();
+                const name_val = self.currentChunk().constants.items[name_idx];
+                const var_name = name_val.symbol;
+                const global_val = self.peek(0);
+
+                try self.globals.put(var_name, global_val);
             },
 
             .GET_CONST => {

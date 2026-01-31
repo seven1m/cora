@@ -45,6 +45,8 @@ pub const BreakNode = c.pm_break_node_t;
 pub const HashNode = c.pm_hash_node_t;
 pub const AssocNode = c.pm_assoc_node_t;
 pub const LambdaNode = c.pm_lambda_node_t;
+pub const GlobalVariableReadNode = c.pm_global_variable_read_node_t;
+pub const GlobalVariableWriteNode = c.pm_global_variable_write_node_t;
 
 pub const Node = union(enum) {
     array: *ArrayNode,
@@ -86,6 +88,8 @@ pub const Node = union(enum) {
     hash: *HashNode,
     assoc: *AssocNode,
     lambda: *LambdaNode,
+    global_variable_read: *GlobalVariableReadNode,
+    global_variable_write: *GlobalVariableWriteNode,
 };
 
 /// Parser wraps Prism's parser and AST lifecycle
@@ -294,6 +298,14 @@ pub const Parser = struct {
 
         if (node_type == c.PM_LAMBDA_NODE) {
             return Node{ .lambda = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_GLOBAL_VARIABLE_READ_NODE) {
+            return Node{ .global_variable_read = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_GLOBAL_VARIABLE_WRITE_NODE) {
+            return Node{ .global_variable_write = @ptrCast(raw) };
         }
 
         var stdout_buffer: [8192]u8 = undefined;

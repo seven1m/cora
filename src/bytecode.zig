@@ -13,6 +13,8 @@ pub const OpCode = enum(u8) {
     GET_LOCAL_DEEP, // Operands: u8 (local index), u8 (depth)
     SET_LOCAL, // Operand: u8 (local index)
     SET_LOCAL_DEEP, // Operands: u8 (local index), u8 (depth)
+    GET_GLOBAL, // Operand: u16 (constant pool index of variable name)
+    SET_GLOBAL, // Operand: u16 (constant pool index of variable name)
     GET_CONST, // Operand: u16 (constant name index)
     SET_CONST, // Operand: u16 (constant name index)
 
@@ -74,6 +76,8 @@ pub fn opcodeName(op: OpCode) []const u8 {
         .GET_LOCAL_DEEP => "GET_LOCAL_DEEP",
         .SET_LOCAL => "SET_LOCAL",
         .SET_LOCAL_DEEP => "SET_LOCAL_DEEP",
+        .GET_GLOBAL => "GET_GLOBAL",
+        .SET_GLOBAL => "SET_GLOBAL",
         .GET_CONST => "GET_CONST",
         .SET_CONST => "SET_CONST",
         .PUSH_SELF => "PUSH_SELF",
@@ -135,7 +139,7 @@ pub const Instruction = struct {
         try writer.print("{s}", .{opcodeName(self.op)});
 
         switch (self.op) {
-            .PUSH_INT, .PUSH_CONST, .GET_CONST, .SET_CONST, .GET_CONST_PATH, .DEF_MODULE, .DEF_CLASS, .DEF_METHOD => {
+            .PUSH_INT, .PUSH_CONST, .GET_CONST, .SET_CONST, .GET_CONST_PATH, .DEF_MODULE, .DEF_CLASS, .DEF_METHOD, .GET_GLOBAL, .SET_GLOBAL => {
                 try writer.print(" {d}", .{self.bx});
             },
             .CALL => {
