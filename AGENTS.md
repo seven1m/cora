@@ -90,7 +90,7 @@ Cora is a Ruby interpreter written in Zig using the Prism parser. It uses a **tw
 zig build test --summary all
 ```
 
-Tests are in `src/test/language/*.zig`.
+Tests are in `src/test/language/*.zig`. When adding new test files, remember to add them to `src/all_test.zig`.
 
 **Running the CLI:**
 
