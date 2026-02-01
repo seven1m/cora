@@ -20,7 +20,7 @@ Cora is a Ruby interpreter written in Zig using the Prism parser. It uses a **tw
 
 ## Key Concepts
 
-**Bytecode Chunks:** Each chunk contains code, constants, line info, name, chunk_id, arity, is_lambda flag, exception_handlers table, and lexical_scope. Module bodies, class bodies, methods, blocks, procs, and lambdas are all compiled into separate chunks.
+**Bytecode Chunks:** Each chunk contains code, constants, constant_names (HashMap for named constants), line info, name, chunk_id, arity, is_lambda flag, optional_params (list of OptionalParam entries with param_index and default_chunk_id), rest_param_index (slot for *rest parameter), post_required_count (required params after rest), exception_handlers table, lexical_scope, and source_file. Module bodies, class bodies, methods, blocks, procs, and lambdas are all compiled into separate chunks.
 
 **Constants:** Compile-time constants (integer, string, symbol). Strings/symbols are borrowed from Parser AST (no allocation).
 
@@ -28,7 +28,7 @@ Cora is a Ruby interpreter written in Zig using the Prism parser. It uses a **tw
 
 **CALL Instruction:** Operands are method_idx (U16), argc (U8), block_chunk_id (U8).
 
-**CallFrames:** Fixed-size locals array (32 slots), chunk, ip, stack_base, self_value, block_chunk, lexical_scope. Uses fixed-size array for performance.
+**CallFrames:** chunk, ip, stack_base, self_value, ep (Environment pointer), block (optional Block), frame_type (method/lambda/proc). Local variables are stored in the Environment (which has a fixed-size 32-slot variables array), not directly in CallFrame.
 
 **Symbol Interning:** `VM.intern(str)` creates GC-allocated SymbolObject with canonical string, cached in HashMap. Same string always returns same symbol with same memory address.
 
@@ -36,7 +36,7 @@ Cora is a Ruby interpreter written in Zig using the Prism parser. It uses a **tw
 
 **Value Types:** Primitives (integer, boolean, nil), heap-allocated (Object, SymbolObject, StringObject, ModuleObject, ClassObject, ArrayObject, HashObject, ExceptionObject, ProcObject).
 
-**Blocks, Procs, and Lambdas:** All compiled into separate bytecode chunks with arity and parameters. Chunks have is_lambda flag distinguishing lambda from proc/block semantics. YIELD executes the block passed to current method. PUSH_LAMBDA creates a ProcObject wrapping a Block (chunk + defining_ep). Blocks capture variables from enclosing scopes (closures) via environment parent chain. When blocks escape to Proc objects, environments are promoted from stack to heap. CallFrames track `block_defining_ep` for lexical scoping.
+**Blocks, Procs, and Lambdas:** All compiled into separate bytecode chunks with arity and parameters. Chunks have is_lambda flag distinguishing lambda from proc/block semantics. YIELD executes the block passed to current method. PUSH_LAMBDA creates a ProcObject wrapping a Block (chunk + defining_ep). Block struct contains chunk and defining_ep (the environment where the block was defined). Blocks capture variables from enclosing scopes (closures) via environment parent chain. When blocks escape to Proc objects, environments are promoted from stack to heap. CallFrames track `ep` (current environment) and optionally a `block` (if one was passed).
 
 **Proc vs Lambda Semantics:**
 - Lambdas enforce strict arity checking; procs are lenient (fill missing args with nil, ignore extras)
@@ -44,14 +44,15 @@ Cora is a Ruby interpreter written in Zig using the Prism parser. It uses a **tw
 - `Proc#lambda?` returns true for lambdas, false for procs
 - Stabby lambda syntax (`-> { }`) and `lambda { }` create lambdas; `proc { }` and `Proc.new { }` create procs
 
-**Environments:** Store local variables with parent pointer forming chain for closures. Optimistically stack-allocated, promoted to heap when captured.
+**Environments:** Store local variables in fixed-size array (32 slots) with parent pointer forming chain for closures, plus lexical_scope pointer for constant lookup. Optimistically stack-allocated, promoted to heap when captured. Fields: parent (?*Environment), lexical_scope (?*LexicalScope), variables ([32]Value), variables_len (u8).
 
 **Lexical Scopes:** Chain tracking module/class context for constant lookup.
 
-**Exception Handling:** 
+**Exception Handling:**
 - Exception classes: Exception, StandardError, RuntimeError, ArgumentError, TypeError, ZeroDivisionError, NoMethodError
-- Each chunk has exception_handlers table with RescueHandler entries (exception types, catch_ip, var_idx)
-- ExceptionHandler contains protected region, rescue handlers, else/ensure IPs
+- Each chunk has exception_handlers table with ExceptionHandler entries
+- ExceptionHandler contains: try_start_ip, try_end_ip, rescue_handlers (list), else_ip (optional), ensure_ip (optional), ensure_end_ip (optional)
+- RescueHandler entries contain: exception_types (list of constant pool indices), catch_ip, catch_end_ip, var_idx (optional local slot for exception binding)
 - VM tracks pending_exception and retry_point
 
 ## Memory Management
@@ -73,14 +74,19 @@ Cora is a Ruby interpreter written in Zig using the Prism parser. It uses a **tw
 
 **New OpCode:** Add to `OpCode` enum, `opcodeName()`, emit in compiler, handle in VM executeInstruction().
 
-**New Value Type:** Add to `Value.data` union, factory method, update `printValue()`.
+**New Value Type:** Add to `Value.data` union, factory method, update `Value.format()` for display.
 
 **Builtin Methods:** Core methods are registered in `VM.prepare()` on class/module objects using `.{ .builtin = &function }`. Examples include:
-- Kernel: `puts`, `print`, `p`, `raise`, `proc`, `lambda`
-- Array: `push`, `<<`, `[]`, `[]=`, `length`, `each`
-- Hash: `[]`, `[]=`, `keys`, `each`
-- String: `+`, `length`, `upcase`, `downcase`
+- Kernel: `puts`, `p`, `raise`, `proc`, `lambda`, `require`, `require_relative`, `load`, `to_s`, `inspect`
+- Object: `new`
+- Module: `include`, `prepend`
+- Integer: `+`, `-`, `*`, `==`, `<`, `<=`, `>`, `>=`, `to_s`, `inspect`
+- Array: `push`, `length`, `each`, `to_s`, `inspect`
+- Hash: `[]`, `[]=`, `keys`, `values`, `each`, `size`, `to_s`, `inspect`
+- String: `+`, `to_s`, `inspect`
 - Proc: `new`, `call`, `lambda?`
+- Exception: `message`
+- TrueClass, FalseClass, NilClass: `to_s`, `inspect`
 
 **New Builtin Method:** Write function, register in `VM.prepare()` on appropriate class using `.{ .builtin = &function }`.
 
