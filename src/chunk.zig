@@ -25,6 +25,11 @@ pub const ExceptionHandler = struct {
     ensure_end_ip: ?usize, // End of ensure block
 };
 
+pub const OptionalParam = struct {
+    param_index: u8, // Local slot for this parameter
+    default_chunk_id: u8, // Chunk ID containing default expression
+};
+
 pub const Chunk = struct {
     code: std.ArrayList(u8) = .empty,
     constants: std.ArrayList(Constant) = .empty,
@@ -35,6 +40,7 @@ pub const Chunk = struct {
     chunk_id: ?u8 = null,
     arity: u8 = 0, // For block chunks: number of pre-rest required parameters
     is_lambda: bool = false, // Distinguishes lambda from proc
+    optional_params: std.ArrayList(OptionalParam) = .empty, // Optional parameters with defaults
     rest_param_index: ?u8 = null, // Slot where rest array is stored
     post_required_count: u8 = 0, // Required params after rest
     lexical_scope: ?*LexicalScope = null,
@@ -59,6 +65,7 @@ pub const Chunk = struct {
         self.constants.deinit(self.allocator);
         self.constant_names.deinit();
         self.line_info.deinit(self.allocator);
+        self.optional_params.deinit(self.allocator);
 
         // Free exception handler tables
         for (self.exception_handlers.items) |*handler| {
@@ -177,6 +184,15 @@ pub const Chunk = struct {
             try writer.print("  arity: {d}, rest param at slot {d}, post-required: {d}\n", .{ self.arity, rest_idx, self.post_required_count });
         } else if (self.arity > 0) {
             try writer.print("  arity: {d}\n", .{self.arity});
+        }
+
+        if (self.optional_params.items.len > 0) {
+            try writer.print("  optional params: ", .{});
+            for (self.optional_params.items, 0..) |opt, i| {
+                if (i > 0) try writer.print(", ", .{});
+                try writer.print("slot {d} (chunk {d})", .{ opt.param_index, opt.default_chunk_id });
+            }
+            try writer.print("\n", .{});
         }
 
         // Print constants

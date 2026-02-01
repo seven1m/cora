@@ -586,6 +586,72 @@ pub const Compiler = struct {
         try self.current_chunk.emitOpU16U8(.DEF_CLASS, @intCast(idx), body_chunk_id, line);
     }
 
+    /// Process optional parameters and compile their default expressions
+    fn processOptionalParameters(
+        self: *Compiler,
+        params: *prism.ParametersNode,
+        target_chunk: *Chunk,
+        line: u32,
+    ) !void {
+        if (params.optionals.size > 0) {
+            if (params.optionals.size > 255) {
+                return error.TooManyParameters;
+            }
+
+            var i: usize = 0;
+            while (i < params.optionals.size) : (i += 1) {
+                const opt_node_ptr = params.optionals.nodes[i];
+                const opt_node = try self.parser.asNode(@ptrCast(opt_node_ptr));
+
+                if (opt_node != .optional_parameter) {
+                    return error.UnexpectedNode;
+                }
+
+                const opt_param = opt_node.optional_parameter;
+
+                // Add parameter to locals
+                const param_name = try self.parser.getLocalVariableName(opt_param.name);
+                try self.addLocal(param_name);
+                const param_idx = @as(u8, @intCast(self.locals.items.len - 1));
+
+                // Compile default expression into a mini-chunk
+                const default_chunk_ptr = try self.allocator.create(chunk.Chunk);
+                default_chunk_ptr.* = chunk.Chunk.init(self.allocator, "default");
+                default_chunk_ptr.source_file = self.parser.source_file;
+
+                // Save current chunk and compile default expression
+                const saved_chunk_for_default = self.current_chunk;
+                const saved_locals_for_default = self.locals.items.len;
+                self.current_chunk = default_chunk_ptr;
+
+                // Compile the default value expression
+                const value_node = try self.parser.asNode(@ptrCast(opt_param.value));
+                try self.compileNode(value_node, line);
+
+                // Default chunks implicitly return their value
+                try self.current_chunk.emitOpU8(.RETURN, 0, line);
+
+                // Restore chunk and locals
+                self.current_chunk = saved_chunk_for_default;
+                self.locals.items.len = saved_locals_for_default;
+
+                // Assign chunk ID
+                const default_chunk_id = self.chunk_counter;
+                self.chunk_counter += 1;
+                default_chunk_ptr.chunk_id = @intCast(default_chunk_id);
+
+                // Store chunk
+                try self.method_chunks.put(default_chunk_id, default_chunk_ptr);
+
+                // Record optional param metadata
+                try target_chunk.optional_params.append(self.allocator, .{
+                    .param_index = param_idx,
+                    .default_chunk_id = @intCast(default_chunk_id),
+                });
+            }
+        }
+    }
+
     fn compileMethod(self: *Compiler, def_node: *prism.DefNode, line: u32) anyerror!void {
         // Get the method name (will be interned later by VM)
         const method_name_slice = try self.parser.getConstantName(def_node.name);
@@ -630,7 +696,10 @@ pub const Compiler = struct {
                 }
             }
 
-            // 2. Process rest parameter
+            // 2. Process optional parameters
+            try self.processOptionalParameters(params, method_chunk_ptr, line);
+
+            // 3. Process rest parameter
             if (params.rest) |rest_ptr| {
                 const rest_node = try self.parser.asNode(@ptrCast(rest_ptr));
                 if (rest_node == .rest_parameter) {
@@ -649,7 +718,7 @@ pub const Compiler = struct {
                 }
             }
 
-            // 3. Process post-rest required parameters
+            // 4. Process post-rest required parameters
             if (params.posts.size > 0) {
                 if (params.posts.size > 255) {
                     return error.TooManyParameters;
@@ -766,7 +835,10 @@ pub const Compiler = struct {
                         }
                     }
 
-                    // 2. Process rest parameter
+                    // 2. Process optional parameters
+                    try self.processOptionalParameters(params, block_chunk_ptr, line);
+
+                    // 3. Process rest parameter
                     if (params.rest) |rest_ptr| {
                         const rest_node = try self.parser.asNode(@ptrCast(rest_ptr));
                         if (rest_node == .rest_parameter) {
@@ -785,7 +857,7 @@ pub const Compiler = struct {
                         }
                     }
 
-                    // 3. Process post-rest required parameters
+                    // 4. Process post-rest required parameters
                     if (params.posts.size > 0) {
                         if (params.posts.size > 255) {
                             return error.TooManyParameters;
@@ -899,7 +971,10 @@ pub const Compiler = struct {
                         }
                     }
 
-                    // 2. Process rest parameter
+                    // 2. Process optional parameters
+                    try self.processOptionalParameters(params, lambda_chunk_ptr, line);
+
+                    // 3. Process rest parameter
                     if (params.rest) |rest_ptr| {
                         const rest_node = try self.parser.asNode(@ptrCast(rest_ptr));
                         if (rest_node == .rest_parameter) {
@@ -918,7 +993,7 @@ pub const Compiler = struct {
                         }
                     }
 
-                    // 3. Process post-rest required parameters
+                    // 4. Process post-rest required parameters
                     if (params.posts.size > 0) {
                         if (params.posts.size > 255) {
                             return error.TooManyParameters;

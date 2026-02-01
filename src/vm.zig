@@ -623,10 +623,7 @@ pub const VM = struct {
             try self.executeInstruction();
         }
 
-        if (self.stack.pop()) |val| {
-            return val;
-        }
-        return Value.nil();
+        return self.pop();
     }
 
     fn currentFrame(self: *VM) *CallFrame {
@@ -763,7 +760,6 @@ pub const VM = struct {
 
             .GET_LOCAL => {
                 const local_idx = self.readByte();
-                // Phase 1: Always depth 0 (no closures yet)
                 const val = getVariableAtDepth(frame.ep, 0, local_idx) orelse Value.nil();
                 try self.push(val);
             },
@@ -771,7 +767,6 @@ pub const VM = struct {
             .SET_LOCAL => {
                 const local_idx = self.readByte();
                 const val = self.pop();
-                // Phase 1: Always depth 0
                 try setVariableAtDepth(frame.ep, 0, local_idx, val);
                 try self.push(val);
             },
@@ -3301,6 +3296,49 @@ pub const VM = struct {
 
     const ArityMode = enum { strict, lenient };
 
+    /// Execute a default parameter expression chunk and return its value
+    fn executeDefaultExpression(
+        self: *VM,
+        default_chunk: *const Chunk,
+        env: *Environment,
+    ) RuntimeError!Value {
+        const saved_stack_len = self.stack.items.len;
+
+        // Push frame for default expression (use current env directly)
+        const default_frame = CallFrame{
+            .chunk = @constCast(default_chunk),
+            .ip = 0,
+            .stack_base = self.stack.items.len,
+            .self_value = self.currentFrame().self_value,
+            .ep = env, // Use current environment directly
+            .frame_type = .method,
+            .block = null,
+        };
+
+        self.frames.append(self.allocator, default_frame) catch unreachable;
+
+        // Execute instructions until this frame completes
+        const target_frame_depth = self.frames.items.len;
+        while (self.frames.items.len >= target_frame_depth) {
+            self.executeInstruction() catch |err| {
+                // If error occurred, unwind and propagate
+                if (err == error.RuntimeError) {
+                    return error.RuntimeError;
+                } else {
+                    return error.RuntimeError;
+                }
+            };
+        }
+
+        // Pop result from stack (default chunk returns a value)
+        const default_value = if (self.stack.items.len > saved_stack_len)
+            self.pop()
+        else
+            Value.nil();
+
+        return default_value;
+    }
+
     fn copyArgumentsWithRestParam(
         self: *VM,
         target_chunk: *const Chunk,
@@ -3308,10 +3346,20 @@ pub const VM = struct {
         args: []const Value,
         mode: ArityMode,
     ) RuntimeError!void {
-        const min_args = target_chunk.arity + target_chunk.post_required_count;
+        const optional_count = target_chunk.optional_params.items.len;
+        const min_required = target_chunk.arity + target_chunk.post_required_count;
+        const max_without_rest = target_chunk.arity + optional_count + target_chunk.post_required_count;
 
-        if (target_chunk.rest_param_index) |rest_idx| {
-            if (mode == .strict and args.len < min_args) {
+        // Calculate min/max args based on whether rest param exists
+        const min_args = min_required;
+        const max_args = if (target_chunk.rest_param_index != null)
+            std.math.maxInt(usize)
+        else
+            max_without_rest;
+
+        // Arity checking
+        if (mode == .strict) {
+            if (args.len < min_args) {
                 const msg = std.fmt.allocPrint(
                     self.gc_allocator,
                     "wrong number of arguments (given {d}, expected {d}+)",
@@ -3321,66 +3369,106 @@ pub const VM = struct {
                 self.pending_exception = exc;
                 return error.RuntimeError;
             }
-
-            var i: usize = 0;
-            while (i < target_chunk.arity) : (i += 1) {
-                if (i < args.len) {
-                    env.variables[i] = args[i];
-                } else if (mode == .lenient) {
-                    env.variables[i] = Value.nil();
-                }
-            }
-
-            const available_for_rest = if (args.len > target_chunk.arity) args.len - target_chunk.arity else 0;
-            const needed_for_post = target_chunk.post_required_count;
-            const rest_count = if (available_for_rest > needed_for_post)
-                available_for_rest - needed_for_post
-            else
-                0;
-
-            const rest_array = try self.createArray();
-            var j: usize = 0;
-            while (j < rest_count) : (j += 1) {
-                rest_array.elements.append(self.gc_allocator, args[target_chunk.arity + j]) catch unreachable;
-            }
-            env.variables[rest_idx] = Value{ .data = .{ .array = rest_array } };
-
-            i = 0;
-            while (i < target_chunk.post_required_count) : (i += 1) {
-                const arg_idx = args.len - target_chunk.post_required_count + i;
-                if (arg_idx < args.len and arg_idx >= target_chunk.arity) {
-                    env.variables[rest_idx + 1 + i] = args[arg_idx];
-                } else if (mode == .lenient) {
-                    env.variables[rest_idx + 1 + i] = Value.nil();
-                }
-            }
-
-            env.variables_len = @intCast(rest_idx + 1 + target_chunk.post_required_count);
-        } else {
-            if (args.len != target_chunk.arity and mode == .strict) {
+            if (target_chunk.rest_param_index == null and args.len > max_args) {
                 const msg = std.fmt.allocPrint(
                     self.gc_allocator,
                     "wrong number of arguments (given {d}, expected {d})",
-                    .{ args.len, target_chunk.arity },
+                    .{ args.len, max_args },
                 ) catch unreachable;
                 const exc = try self.createException(self.argument_error_class, msg);
                 self.pending_exception = exc;
                 return error.RuntimeError;
             }
-
-            var i: usize = 0;
-            while (i < args.len and i < target_chunk.arity) : (i += 1) {
-                env.variables[i] = args[i];
-            }
-
-            if (mode == .lenient) {
-                while (i < target_chunk.arity) : (i += 1) {
-                    env.variables[i] = Value.nil();
-                }
-            }
-
-            env.variables_len = @as(u8, @intCast(if (args.len < target_chunk.arity) target_chunk.arity else args.len));
         }
+
+        var arg_idx: usize = 0;
+        var local_idx: usize = 0;
+
+        // 1. Bind pre-optional required parameters
+        var i: usize = 0;
+        while (i < target_chunk.arity) : (i += 1) {
+            if (arg_idx < args.len) {
+                env.variables[local_idx] = args[arg_idx];
+                arg_idx += 1;
+            } else if (mode == .lenient) {
+                env.variables[local_idx] = Value.nil();
+            }
+            local_idx += 1;
+        }
+        // Update variables_len so defaults can access earlier parameters
+        env.variables_len = @intCast(local_idx);
+
+        // 2. Handle optional parameters
+        if (optional_count > 0) {
+            // Determine how many optionals get arguments vs defaults
+            // We need to reserve args for post-required params
+            const args_remaining = if (arg_idx < args.len) args.len - arg_idx else 0;
+            const args_available_for_optionals = if (args_remaining > target_chunk.post_required_count)
+                args_remaining - target_chunk.post_required_count
+            else
+                0;
+
+            const optionals_from_args = if (args_available_for_optionals > optional_count)
+                optional_count
+            else
+                args_available_for_optionals;
+
+            // Bind optionals that receive arguments
+            i = 0;
+            while (i < optionals_from_args) : (i += 1) {
+                env.variables[local_idx] = args[arg_idx];
+                arg_idx += 1;
+                local_idx += 1;
+                env.variables_len = @intCast(local_idx); // Update so later defaults can see earlier optionals
+            }
+
+            // Evaluate defaults for remaining optionals
+            while (i < optional_count) : (i += 1) {
+                const opt_info = target_chunk.optional_params.items[i];
+                const default_chunk = self.program.method_chunks.get(opt_info.default_chunk_id) orelse {
+                    return error.RuntimeError;
+                };
+
+                // Execute default expression chunk and bind the result
+                const default_value = try self.executeDefaultExpression(default_chunk, env);
+                env.variables[local_idx] = default_value;
+                local_idx += 1;
+                env.variables_len = @intCast(local_idx); // Update so later defaults can see earlier optionals
+            }
+        }
+
+        // 3. Handle rest parameter
+        if (target_chunk.rest_param_index) |rest_idx| {
+            // Calculate how many args go into rest array
+            const args_remaining_after_optionals = if (arg_idx < args.len) args.len - arg_idx else 0;
+            const available_for_rest = if (args_remaining_after_optionals > target_chunk.post_required_count)
+                args_remaining_after_optionals - target_chunk.post_required_count
+            else
+                0;
+
+            const rest_array = try self.createArray();
+            var j: usize = 0;
+            while (j < available_for_rest) : (j += 1) {
+                rest_array.elements.append(self.gc_allocator, args[arg_idx]) catch unreachable;
+                arg_idx += 1;
+            }
+            env.variables[rest_idx] = Value{ .data = .{ .array = rest_array } };
+            local_idx = rest_idx + 1;
+        }
+
+        // 4. Bind post-required parameters
+        i = 0;
+        while (i < target_chunk.post_required_count) : (i += 1) {
+            const post_arg_idx = args.len - target_chunk.post_required_count + i;
+            if (post_arg_idx < args.len and post_arg_idx >= arg_idx) {
+                env.variables[local_idx] = args[post_arg_idx];
+            } else if (mode == .lenient) {
+                env.variables[local_idx] = Value.nil();
+            }
+            local_idx += 1;
+        }
+
+        env.variables_len = @as(u8, @intCast(local_idx));
     }
 
     fn createException(self: *VM, class: *ClassObject, message: []const u8) RuntimeError!*value.ExceptionObject {
