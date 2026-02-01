@@ -600,6 +600,10 @@ pub const VM = struct {
         }
         self.all_parsers.deinit(self.allocator);
 
+        var key_iter = self.loaded_files.keyIterator();
+        while (key_iter.next()) |key| {
+            self.allocator.free(key.*);
+        }
         self.loaded_files.deinit();
         for (self.load_path.items) |path| {
             self.allocator.free(path);
