@@ -384,6 +384,7 @@ pub const VM = struct {
 
         const length_sym = try self.intern("length");
         try self.hash_class.module.methods.put(length_sym, .{ .builtin = &builtinHashSize });
+        try self.array_class.module.methods.put(length_sym, .{ .builtin = &builtinArrayLength });
 
         const each_sym = try self.intern("each");
         try self.hash_class.module.methods.put(each_sym, .{ .builtin = &builtinHashEach });
@@ -1244,19 +1245,6 @@ pub const VM = struct {
 
                 const blk = block.chunk;
 
-                // Check arity
-                if (blk.arity != argc) {
-                    const msg = std.fmt.allocPrint(
-                        self.gc_allocator,
-                        "wrong number of block arguments (given {d}, expected {d})",
-                        .{ argc, blk.arity },
-                    ) catch unreachable;
-                    const exc = try self.createException(self.argument_error_class, msg);
-                    self.pending_exception = exc;
-                    try self.unwindStack();
-                    return;
-                }
-
                 // Push frame with block's chunk, using block_defining_ep as parent for closure support
                 // We need to manually create the environment with the right parent
                 // Dereference block_defining_ep in case it's a forwarding pointer
@@ -1282,12 +1270,9 @@ pub const VM = struct {
                     self.current_lexical_scope = scope;
                 }
 
-                // Copy yield arguments to block's environment
-                var block_frame = self.currentFrame();
-                for (yield_args[0..argc], 0..) |arg, idx| {
-                    block_frame.ep.variables[idx] = arg;
-                    block_frame.ep.variables_len = @as(u8, @intCast(idx + 1));
-                }
+                // Copy arguments with rest parameter handling
+                const block_frame = self.currentFrame();
+                try self.copyArgumentsWithRestParam(blk, block_frame.ep, yield_args[0..argc], .strict);
 
                 // Execute until block returns
                 self.break_occurred = false;
@@ -1542,13 +1527,9 @@ pub const VM = struct {
             self.current_lexical_scope = scope;
         }
 
-        // Copy arguments to environment
-        var block_frame = self.currentFrame();
-        for (yield_args, 0..) |arg, i| {
-            if (i >= 32) break; // Environment has max 32 variables
-            block_frame.ep.variables[i] = arg;
-        }
-        block_frame.ep.variables_len = @as(u8, @intCast(yield_args.len));
+        // Copy arguments with rest parameter handling
+        const block_frame = self.currentFrame();
+        try self.copyArgumentsWithRestParam(block.chunk, block_frame.ep, yield_args, .strict);
 
         // Execute until block returns
         self.break_occurred = false;
@@ -1640,13 +1621,9 @@ pub const VM = struct {
                     // Push frame with receiver as self_value
                     try self.pushFrame(chunk_ptr, receiver, block);
 
-                    // Copy arguments to locals
-                    var frame = self.currentFrame();
-                    var i: usize = 0;
-                    while (i < argc) : (i += 1) {
-                        frame.ep.variables[i] = args[i];
-                        frame.ep.variables_len = @as(u8, @intCast(i + 1));
-                    }
+                    // Copy arguments with rest parameter handling
+                    const frame = self.currentFrame();
+                    try self.copyArgumentsWithRestParam(chunk_ptr, frame.ep, args[0..argc], .strict);
                 },
                 .builtin => |fun_ptr| {
                     const args_slice = args[0..argc];
@@ -1979,34 +1956,11 @@ pub const VM = struct {
 
         self.env_stack_indices.append(self.allocator, self.env_stack.items.len - 1) catch return error.RuntimeError;
 
-        // Strict arity checking for lambdas
-        if (proc_obj.block.chunk.is_lambda) {
-            if (args.len != proc_obj.block.chunk.arity) {
-                const msg = std.fmt.allocPrint(
-                    self.gc_allocator,
-                    "wrong number of arguments (given {d}, expected {d})",
-                    .{ args.len, proc_obj.block.chunk.arity },
-                ) catch unreachable;
-                const exc = try self.createException(self.argument_error_class, msg);
-                self.pending_exception = exc;
-                return error.RuntimeError;
-            }
-        }
+        const proc_chunk = proc_obj.block.chunk;
+        const mode: ArityMode = if (proc_chunk.is_lambda) .strict else .lenient;
 
-        // Copy provided arguments
-        var i: usize = 0;
-        while (i < args.len and i < proc_obj.block.chunk.arity) : (i += 1) {
-            proc_env.variables[i] = args[i];
-            proc_env.variables_len = @as(u8, @intCast(i + 1));
-        }
-
-        // Fill missing arguments with nil for procs (lenient arity)
-        if (!proc_obj.block.chunk.is_lambda) {
-            while (i < proc_obj.block.chunk.arity) : (i += 1) {
-                proc_env.variables[i] = Value.nil();
-                proc_env.variables_len = @as(u8, @intCast(i + 1));
-            }
-        }
+        // Copy arguments with rest parameter handling
+        try self.copyArgumentsWithRestParam(proc_chunk, proc_env, args, mode);
 
         if (proc_obj.block.chunk.lexical_scope) |scope| {
             self.current_lexical_scope = scope;
@@ -3085,6 +3039,31 @@ pub const VM = struct {
         return self.newString(str, false);
     }
 
+    fn builtinArrayLength(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
+        if (receiver.data != .array) {
+            const exc = try self.createException(
+                self.type_error_class,
+                "receiver is not an Array",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        if (args.len != 0) {
+            const msg = std.fmt.allocPrint(
+                self.gc_allocator,
+                "wrong number of arguments (given {d}, expected 0)",
+                .{args.len},
+            ) catch unreachable;
+            const exc = try self.createException(self.argument_error_class, msg);
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        const array = receiver.data.array;
+        return Value{ .data = .{ .integer = @intCast(array.elements.items.len) } };
+    }
+
     fn builtinKernelToS(self: *VM, receiver: Value, _: []Value, _: ?Block) RuntimeError!Value {
         const class = self.getClass(receiver);
         const class_name = class.module.name.name;
@@ -3306,6 +3285,104 @@ pub const VM = struct {
     // ===== Exception Handling Methods =====
 
     /// Create a new exception object
+    fn createArray(self: *VM) !*value.ArrayObject {
+        const array_ptr = self.gc_allocator.create(value.ArrayObject) catch unreachable;
+        array_ptr.* = value.ArrayObject{
+            .object = .{
+                .flags = 0,
+                .class = self.array_class,
+                .singleton_class = null,
+                .instance_variables = null,
+            },
+            .elements = .empty,
+        };
+        return array_ptr;
+    }
+
+    const ArityMode = enum { strict, lenient };
+
+    fn copyArgumentsWithRestParam(
+        self: *VM,
+        target_chunk: *const Chunk,
+        env: *Environment,
+        args: []const Value,
+        mode: ArityMode,
+    ) RuntimeError!void {
+        const min_args = target_chunk.arity + target_chunk.post_required_count;
+
+        if (target_chunk.rest_param_index) |rest_idx| {
+            if (mode == .strict and args.len < min_args) {
+                const msg = std.fmt.allocPrint(
+                    self.gc_allocator,
+                    "wrong number of arguments (given {d}, expected {d}+)",
+                    .{ args.len, min_args },
+                ) catch unreachable;
+                const exc = try self.createException(self.argument_error_class, msg);
+                self.pending_exception = exc;
+                return error.RuntimeError;
+            }
+
+            var i: usize = 0;
+            while (i < target_chunk.arity) : (i += 1) {
+                if (i < args.len) {
+                    env.variables[i] = args[i];
+                } else if (mode == .lenient) {
+                    env.variables[i] = Value.nil();
+                }
+            }
+
+            const available_for_rest = if (args.len > target_chunk.arity) args.len - target_chunk.arity else 0;
+            const needed_for_post = target_chunk.post_required_count;
+            const rest_count = if (available_for_rest > needed_for_post)
+                available_for_rest - needed_for_post
+            else
+                0;
+
+            const rest_array = try self.createArray();
+            var j: usize = 0;
+            while (j < rest_count) : (j += 1) {
+                rest_array.elements.append(self.gc_allocator, args[target_chunk.arity + j]) catch unreachable;
+            }
+            env.variables[rest_idx] = Value{ .data = .{ .array = rest_array } };
+
+            i = 0;
+            while (i < target_chunk.post_required_count) : (i += 1) {
+                const arg_idx = args.len - target_chunk.post_required_count + i;
+                if (arg_idx < args.len and arg_idx >= target_chunk.arity) {
+                    env.variables[rest_idx + 1 + i] = args[arg_idx];
+                } else if (mode == .lenient) {
+                    env.variables[rest_idx + 1 + i] = Value.nil();
+                }
+            }
+
+            env.variables_len = @intCast(rest_idx + 1 + target_chunk.post_required_count);
+        } else {
+            if (args.len != target_chunk.arity and mode == .strict) {
+                const msg = std.fmt.allocPrint(
+                    self.gc_allocator,
+                    "wrong number of arguments (given {d}, expected {d})",
+                    .{ args.len, target_chunk.arity },
+                ) catch unreachable;
+                const exc = try self.createException(self.argument_error_class, msg);
+                self.pending_exception = exc;
+                return error.RuntimeError;
+            }
+
+            var i: usize = 0;
+            while (i < args.len and i < target_chunk.arity) : (i += 1) {
+                env.variables[i] = args[i];
+            }
+
+            if (mode == .lenient) {
+                while (i < target_chunk.arity) : (i += 1) {
+                    env.variables[i] = Value.nil();
+                }
+            }
+
+            env.variables_len = @as(u8, @intCast(if (args.len < target_chunk.arity) target_chunk.arity else args.len));
+        }
+    }
+
     fn createException(self: *VM, class: *ClassObject, message: []const u8) RuntimeError!*value.ExceptionObject {
         const exc = self.gc_allocator.create(value.ExceptionObject) catch unreachable;
         const msg_str = self.newString(message, false);

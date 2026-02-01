@@ -611,8 +611,14 @@ pub const Compiler = struct {
         self.current_chunk = method_chunk_ptr;
 
         // Process parameters (if any)
+        var param_count: u8 = 0; // Pre-rest required count
+        var rest_param_idx: ?u8 = null;
+        var post_count: u8 = 0;
+
         if (def_node.parameters) |params_ptr| {
             const params = @as(*prism.ParametersNode, @ptrCast(params_ptr));
+
+            // 1. Process pre-rest required parameters
             if (params.requireds.size > 0) {
                 var i: usize = 0;
                 while (i < params.requireds.size) : (i += 1) {
@@ -620,9 +626,49 @@ pub const Compiler = struct {
                     const param = @as(*prism.RequiredParameterNode, @ptrCast(param_node));
                     const param_name = try self.parser.getLocalVariableName(param.name);
                     try self.addLocal(param_name);
+                    param_count += 1;
+                }
+            }
+
+            // 2. Process rest parameter
+            if (params.rest) |rest_ptr| {
+                const rest_node = try self.parser.asNode(@ptrCast(rest_ptr));
+                if (rest_node == .rest_parameter) {
+                    const rest_param = rest_node.rest_parameter;
+
+                    // Rest parameter can have a name or be anonymous (*)
+                    if (rest_param.name != 0) {
+                        const rest_name = try self.parser.getLocalVariableName(rest_param.name);
+                        try self.addLocal(rest_name);
+                    } else {
+                        // Anonymous rest: still need a slot, use placeholder
+                        try self.addLocal("*");
+                    }
+
+                    rest_param_idx = @intCast(self.locals.items.len - 1);
+                }
+            }
+
+            // 3. Process post-rest required parameters
+            if (params.posts.size > 0) {
+                if (params.posts.size > 255) {
+                    return error.TooManyParameters;
+                }
+                post_count = @as(u8, @intCast(params.posts.size));
+                var i: usize = 0;
+                while (i < params.posts.size) : (i += 1) {
+                    const param_node = params.posts.nodes[i];
+                    const param = @as(*prism.RequiredParameterNode, @ptrCast(param_node));
+                    const param_name = try self.parser.getLocalVariableName(param.name);
+                    try self.addLocal(param_name);
                 }
             }
         }
+
+        // Store parameter metadata on chunk
+        method_chunk_ptr.arity = param_count;
+        method_chunk_ptr.rest_param_index = rest_param_idx;
+        method_chunk_ptr.post_required_count = post_count;
 
         // Compile the method body
         if (def_node.body) |body_ptr| {
@@ -696,7 +742,10 @@ pub const Compiler = struct {
         }
 
         // Process block parameters (if any)
-        var param_count: u8 = 0;
+        var param_count: u8 = 0; // Pre-rest required count
+        var rest_param_idx: ?u8 = null;
+        var post_count: u8 = 0;
+
         if (block_node.parameters) |params_ptr| {
             // Block parameters are wrapped in BlockParametersNode
             const params_node = try self.parser.asNode(@ptrCast(params_ptr));
@@ -704,14 +753,47 @@ pub const Compiler = struct {
                 const block_params = params_node.block_parameters;
                 if (block_params.parameters) |actual_params_ptr| {
                     const params = @as(*prism.ParametersNode, @ptrCast(actual_params_ptr));
+
+                    // 1. Process pre-rest required parameters
                     if (params.requireds.size > 0) {
-                        if (params.requireds.size > 255) {
-                            return error.TooManyParameters;
-                        }
-                        param_count = @as(u8, @intCast(params.requireds.size));
                         var i: usize = 0;
                         while (i < params.requireds.size) : (i += 1) {
                             const param_node = params.requireds.nodes[i];
+                            const param = @as(*prism.RequiredParameterNode, @ptrCast(param_node));
+                            const param_name = try self.parser.getLocalVariableName(param.name);
+                            try self.addLocal(param_name);
+                            param_count += 1;
+                        }
+                    }
+
+                    // 2. Process rest parameter
+                    if (params.rest) |rest_ptr| {
+                        const rest_node = try self.parser.asNode(@ptrCast(rest_ptr));
+                        if (rest_node == .rest_parameter) {
+                            const rest_param = rest_node.rest_parameter;
+
+                            // Rest parameter can have a name or be anonymous (*)
+                            if (rest_param.name != 0) {
+                                const rest_name = try self.parser.getLocalVariableName(rest_param.name);
+                                try self.addLocal(rest_name);
+                            } else {
+                                // Anonymous rest: still need a slot, use placeholder
+                                try self.addLocal("*");
+                            }
+
+                            rest_param_idx = @intCast(self.locals.items.len - 1);
+                        }
+                    }
+
+                    // 3. Process post-rest required parameters
+                    if (params.posts.size > 0) {
+                        if (params.posts.size > 255) {
+                            return error.TooManyParameters;
+                        }
+                        post_count = @as(u8, @intCast(params.posts.size));
+                        var i: usize = 0;
+                        while (i < params.posts.size) : (i += 1) {
+                            const param_node = params.posts.nodes[i];
                             const param = @as(*prism.RequiredParameterNode, @ptrCast(param_node));
                             const param_name = try self.parser.getLocalVariableName(param.name);
                             try self.addLocal(param_name);
@@ -721,8 +803,10 @@ pub const Compiler = struct {
             }
         }
 
-        // Set arity on the chunk
+        // Store parameter metadata on chunk
         block_chunk_ptr.arity = param_count;
+        block_chunk_ptr.rest_param_index = rest_param_idx;
+        block_chunk_ptr.post_required_count = post_count;
 
         // Compile the block body
         if (block_node.body) |body_ptr| {
@@ -790,7 +874,10 @@ pub const Compiler = struct {
         }
 
         // Process lambda parameters (if any)
-        var param_count: u8 = 0;
+        var param_count: u8 = 0; // Pre-rest required count
+        var rest_param_idx: ?u8 = null;
+        var post_count: u8 = 0;
+
         if (lambda_node.parameters) |params_ptr| {
             const params_node = try self.parser.asNode(@ptrCast(params_ptr));
 
@@ -799,14 +886,47 @@ pub const Compiler = struct {
                 const block_params = params_node.block_parameters;
                 if (block_params.parameters) |actual_params_ptr| {
                     const params = @as(*prism.ParametersNode, @ptrCast(actual_params_ptr));
+
+                    // 1. Process pre-rest required parameters
                     if (params.requireds.size > 0) {
-                        if (params.requireds.size > 255) {
-                            return error.TooManyParameters;
-                        }
-                        param_count = @as(u8, @intCast(params.requireds.size));
                         var i: usize = 0;
                         while (i < params.requireds.size) : (i += 1) {
                             const param_node = params.requireds.nodes[i];
+                            const param = @as(*prism.RequiredParameterNode, @ptrCast(param_node));
+                            const param_name = try self.parser.getLocalVariableName(param.name);
+                            try self.addLocal(param_name);
+                            param_count += 1;
+                        }
+                    }
+
+                    // 2. Process rest parameter
+                    if (params.rest) |rest_ptr| {
+                        const rest_node = try self.parser.asNode(@ptrCast(rest_ptr));
+                        if (rest_node == .rest_parameter) {
+                            const rest_param = rest_node.rest_parameter;
+
+                            // Rest parameter can have a name or be anonymous (*)
+                            if (rest_param.name != 0) {
+                                const rest_name = try self.parser.getLocalVariableName(rest_param.name);
+                                try self.addLocal(rest_name);
+                            } else {
+                                // Anonymous rest: still need a slot, use placeholder
+                                try self.addLocal("*");
+                            }
+
+                            rest_param_idx = @intCast(self.locals.items.len - 1);
+                        }
+                    }
+
+                    // 3. Process post-rest required parameters
+                    if (params.posts.size > 0) {
+                        if (params.posts.size > 255) {
+                            return error.TooManyParameters;
+                        }
+                        post_count = @as(u8, @intCast(params.posts.size));
+                        var i: usize = 0;
+                        while (i < params.posts.size) : (i += 1) {
+                            const param_node = params.posts.nodes[i];
                             const param = @as(*prism.RequiredParameterNode, @ptrCast(param_node));
                             const param_name = try self.parser.getLocalVariableName(param.name);
                             try self.addLocal(param_name);
@@ -816,8 +936,10 @@ pub const Compiler = struct {
             }
         }
 
-        // Set arity on the chunk
+        // Store parameter metadata on chunk
         lambda_chunk_ptr.arity = param_count;
+        lambda_chunk_ptr.rest_param_index = rest_param_idx;
+        lambda_chunk_ptr.post_required_count = post_count;
 
         // Compile the lambda body
         if (lambda_node.body) |body_ptr| {

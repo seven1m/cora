@@ -29,6 +29,7 @@ pub const ParametersNode = c.pm_parameters_node_t;
 pub const ParenthesesNode = c.pm_parentheses_node_t;
 pub const ProgramNode = c.pm_program_node_t;
 pub const RequiredParameterNode = c.pm_required_parameter_node_t;
+pub const RestParameterNode = c.pm_rest_parameter_node_t;
 pub const RescueNode = c.pm_rescue_node_t;
 pub const RescueModifierNode = c.pm_rescue_modifier_node_t;
 pub const RetryNode = c.pm_retry_node_t;
@@ -74,6 +75,7 @@ pub const Node = union(enum) {
     parentheses: *ParenthesesNode,
     program: *ProgramNode,
     required_parameter: *RequiredParameterNode,
+    rest_parameter: *RestParameterNode,
     rescue: *RescueNode,
     rescue_modifier: *RescueModifierNode,
     retry: *RetryNode,
@@ -320,6 +322,10 @@ pub const Parser = struct {
 
         if (node_type == c.PM_INSTANCE_VARIABLE_WRITE_NODE) {
             return Node{ .instance_variable_write = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_REST_PARAMETER_NODE) {
+            return Node{ .rest_parameter = @ptrCast(raw) };
         }
 
         var stdout_buffer: [8192]u8 = undefined;

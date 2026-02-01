@@ -33,8 +33,10 @@ pub const Chunk = struct {
     allocator: std.mem.Allocator,
     name: []const u8,
     chunk_id: ?u8 = null,
-    arity: u8 = 0, // For block chunks: number of parameters
+    arity: u8 = 0, // For block chunks: number of pre-rest required parameters
     is_lambda: bool = false, // Distinguishes lambda from proc
+    rest_param_index: ?u8 = null, // Slot where rest array is stored
+    post_required_count: u8 = 0, // Required params after rest
     lexical_scope: ?*LexicalScope = null,
     exception_handlers: std.ArrayList(ExceptionHandler) = .empty,
     source_file: ?[]const u8 = null,
@@ -168,6 +170,13 @@ pub const Chunk = struct {
             try writer.print("== {s} == (chunk {d})\n", .{ self.name, id });
         } else {
             try writer.print("== {s} ==\n", .{self.name});
+        }
+
+        // Print parameter info
+        if (self.rest_param_index) |rest_idx| {
+            try writer.print("  arity: {d}, rest param at slot {d}, post-required: {d}\n", .{ self.arity, rest_idx, self.post_required_count });
+        } else if (self.arity > 0) {
+            try writer.print("  arity: {d}\n", .{self.arity});
         }
 
         // Print constants
