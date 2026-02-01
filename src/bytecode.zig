@@ -31,7 +31,7 @@ pub const OpCode = enum(u8) {
     RETURN, // Operand: u8 (0=implicit, 1=explicit)
 
     // OOP
-    DEF_MODULE, // Operand: u16 (name index)
+    DEF_MODULE, // Operands: u16 (name index), u8 (body chunk id)
     DEF_CLASS, // Operands: u16 (name index), u8 (body chunk id)
     DEF_METHOD, // Operands: u16 (name index), u8 (chunk index)
     DEF_SINGLETON_METHOD, // Operands: u16 (name index), u8 (chunk index) - receiver on stack
