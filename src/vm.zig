@@ -1749,6 +1749,29 @@ pub const VM = struct {
                             }
                         }
                     }
+
+                    // Bind block parameter if present
+                    if (method_chunk.block_param_index) |block_idx| {
+                        // Re-get frame pointer (newProc may cause reallocation)
+                        const current_frame = &self.frames.items[self.frames.items.len - 1];
+
+                        if (current_frame.block) |blk| {
+                            // Convert Block to ProcObject
+                            const proc_val = self.newProc(blk);
+                            // Re-get frame pointer again after newProc
+                            const f = &self.frames.items[self.frames.items.len - 1];
+                            f.ep.variables[block_idx] = proc_val;
+                        } else {
+                            // No block passed - store nil
+                            current_frame.ep.variables[block_idx] = Value.nil();
+                        }
+
+                        // Ensure variables_len covers block parameter slot
+                        const f = &self.frames.items[self.frames.items.len - 1];
+                        if (block_idx >= f.ep.variables_len) {
+                            f.ep.variables_len = block_idx + 1;
+                        }
+                    }
                 },
                 .builtin => |fun_ptr| {
                     var final_args: []Value = undefined;

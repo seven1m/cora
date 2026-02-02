@@ -66,6 +66,7 @@ pub const Chunk = struct {
     keyword_rest_index: ?u8 = null,  // Slot for **kwargs hash
     no_keywords: bool = false,        // True if **nil specified
     keyword_metadata: std.ArrayList(KeywordMetadata) = .empty,
+    block_param_index: ?u8 = null,    // Local slot for &block parameter
 
     pub fn init(allocator: std.mem.Allocator, name: []const u8) Chunk {
         return Chunk{
@@ -264,6 +265,10 @@ pub const Chunk = struct {
 
         if (self.no_keywords) {
             try writer.print("  no keywords (**nil)\n", .{});
+        }
+
+        if (self.block_param_index) |block_idx| {
+            try writer.print("  block param at slot {d}\n", .{block_idx});
         }
 
         // Print constants

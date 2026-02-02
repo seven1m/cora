@@ -759,6 +759,20 @@ pub const Compiler = struct {
         // 5. Process keyword parameters
         try self.processKeywordParameters(target_chunk, params, line);
 
+        // 6. Process block parameter
+        if (params.block) |block_ptr| {
+            const block_node = try self.parser.asNode(@ptrCast(block_ptr));
+            if (block_node == .block_parameter) {
+                const block_param = block_node.block_parameter;
+                const block_name = try self.parser.getLocalVariableName(block_param.name);
+                try self.addLocal(block_name);
+                const block_idx = @as(u8, @intCast(self.locals.items.len - 1));
+                target_chunk.block_param_index = block_idx;
+            } else {
+                unreachable;
+            }
+        }
+
         return .{
             .param_count = param_count,
             .rest_param_idx = rest_param_idx,

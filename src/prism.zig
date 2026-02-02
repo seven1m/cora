@@ -9,6 +9,7 @@ pub const ArrayNode = c.pm_array_node_t;
 pub const BeginNode = c.pm_begin_node_t;
 pub const BlockNode = c.pm_block_node_t;
 pub const BlockParametersNode = c.pm_block_parameters_node_t;
+pub const BlockParameterNode = c.pm_block_parameter_node_t;
 pub const CallNode = c.pm_call_node_t;
 pub const ClassNode = c.pm_class_node_t;
 pub const ConstantPathNode = c.pm_constant_path_node_t;
@@ -62,6 +63,7 @@ pub const Node = union(enum) {
     begin: *BeginNode,
     block: *BlockNode,
     block_parameters: *BlockParametersNode,
+    block_parameter: *BlockParameterNode,
     call: *CallNode,
     class: *ClassNode,
     constant_path: *ConstantPathNode,
@@ -278,6 +280,10 @@ pub const Parser = struct {
 
         if (node_type == c.PM_BLOCK_PARAMETERS_NODE) {
             return Node{ .block_parameters = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_BLOCK_PARAMETER_NODE) {
+            return Node{ .block_parameter = @ptrCast(raw) };
         }
 
         if (node_type == c.PM_RESCUE_NODE) {
