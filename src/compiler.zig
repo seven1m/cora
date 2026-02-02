@@ -239,16 +239,42 @@ pub const Compiler = struct {
                     try self.current_chunk.emitOp(.PUSH_SELF, line);
                 }
 
-                // Compile arguments
+                // Compile arguments, detecting keywords
                 var argc: u8 = 0;
+                var kwargc: u8 = 0;
+                var kw_names: std.ArrayList(u16) = .empty;
+                defer kw_names.deinit(self.allocator);
+
                 if (call_node.arguments != null) {
                     const args = @as(*prism.ArgumentsNode, @ptrCast(call_node.arguments.?));
                     var i: usize = 0;
+
                     while (i < args.arguments.size) : (i += 1) {
                         const arg = args.arguments.nodes[i];
                         const arg_node = try self.parser.asNode(arg);
-                        try self.compileNode(arg_node, line);
-                        argc += 1;
+
+                        if (arg_node == .keyword_hash) {
+                            const kw_hash = arg_node.keyword_hash;
+                            var j: usize = 0;
+                            while (j < kw_hash.elements.size) : (j += 1) {
+                                const elem = try self.parser.asNode(kw_hash.elements.nodes[j]);
+                                const assoc = elem.assoc;
+                                const key_node = try self.parser.asNode(@ptrCast(assoc.key));
+                                const symbol_val = key_node.symbol.unescaped;
+                                const symbol_name = symbol_val.source[0..symbol_val.length];
+                                const symbol_idx = try self.current_chunk.addConstant(.{ .symbol = symbol_name });
+                                try kw_names.append(self.allocator, @intCast(symbol_idx));
+
+                                // Compile value onto stack
+                                const value_node = try self.parser.asNode(@ptrCast(assoc.value));
+                                try self.compileNode(value_node, line);
+                                kwargc += 1;
+                            }
+                        } else {
+                            // Regular positional argument
+                            try self.compileNode(arg_node, line);
+                            argc += 1;
+                        }
                     }
                 }
 
@@ -261,10 +287,22 @@ pub const Compiler = struct {
                     }
                 }
 
-                // Store method name and emit CALL with block chunk ID
+                // Emit appropriate instruction
                 const method_name = try self.parser.getConstantName(call_node.name);
                 const method_idx = try self.current_chunk.addConstant(.{ .string = method_name });
-                try self.current_chunk.emitOpU16U8U8(.CALL, @intCast(method_idx), argc, block_chunk_id, line);
+
+                if (kwargc > 0) {
+                    // Create keyword metadata
+                    var kw_meta = chunk.KeywordMetadata{ .names = .empty };
+                    try kw_meta.names.appendSlice(self.allocator, kw_names.items);
+                    try self.current_chunk.keyword_metadata.append(self.allocator, kw_meta);
+                    const kw_metadata_idx = self.current_chunk.keyword_metadata.items.len - 1;
+
+                    try self.current_chunk.emitCallKw(@intCast(method_idx), argc, kwargc, @intCast(kw_metadata_idx), block_chunk_id, line);
+                } else {
+                    // Regular CALL (existing code)
+                    try self.current_chunk.emitOpU16U8U8(.CALL, @intCast(method_idx), argc, block_chunk_id, line);
+                }
             },
 
             .if_node => |if_node| {
@@ -652,6 +690,159 @@ pub const Compiler = struct {
         }
     }
 
+    const ParameterCounts = struct {
+        param_count: u8,
+        rest_param_idx: ?u8,
+        post_count: u8,
+    };
+
+    /// Process all parameters for a chunk (required, optional, rest, post-rest, keywords)
+    fn processAllParameters(
+        self: *Compiler,
+        params: *prism.ParametersNode,
+        target_chunk: *Chunk,
+        line: u32,
+    ) !ParameterCounts {
+        var param_count: u8 = 0;
+        var rest_param_idx: ?u8 = null;
+        var post_count: u8 = 0;
+
+        // 1. Process pre-rest required parameters
+        if (params.requireds.size > 0) {
+            var i: usize = 0;
+            while (i < params.requireds.size) : (i += 1) {
+                const param_node = params.requireds.nodes[i];
+                const param = @as(*prism.RequiredParameterNode, @ptrCast(param_node));
+                const param_name = try self.parser.getLocalVariableName(param.name);
+                try self.addLocal(param_name);
+                param_count += 1;
+            }
+        }
+
+        // 2. Process optional parameters
+        try self.processOptionalParameters(params, target_chunk, line);
+
+        // 3. Process rest parameter
+        if (params.rest) |rest_ptr| {
+            const rest_node = try self.parser.asNode(@ptrCast(rest_ptr));
+            if (rest_node == .rest_parameter) {
+                const rest_param = rest_node.rest_parameter;
+
+                // Rest parameter can have a name or be anonymous (*)
+                if (rest_param.name != 0) {
+                    const rest_name = try self.parser.getLocalVariableName(rest_param.name);
+                    try self.addLocal(rest_name);
+                } else {
+                    // Anonymous rest: still need a slot, use placeholder
+                    try self.addLocal("*");
+                }
+
+                rest_param_idx = @intCast(self.locals.items.len - 1);
+            }
+        }
+
+        // 4. Process post-rest required parameters
+        if (params.posts.size > 0) {
+            if (params.posts.size > 255) {
+                return error.TooManyParameters;
+            }
+            post_count = @as(u8, @intCast(params.posts.size));
+            var i: usize = 0;
+            while (i < params.posts.size) : (i += 1) {
+                const param_node = params.posts.nodes[i];
+                const param = @as(*prism.RequiredParameterNode, @ptrCast(param_node));
+                const param_name = try self.parser.getLocalVariableName(param.name);
+                try self.addLocal(param_name);
+            }
+        }
+
+        // 5. Process keyword parameters
+        try self.processKeywordParameters(target_chunk, params, line);
+
+        return .{
+            .param_count = param_count,
+            .rest_param_idx = rest_param_idx,
+            .post_count = post_count,
+        };
+    }
+
+    /// Process keyword parameters (required, optional, keyword rest) for a chunk
+    fn processKeywordParameters(
+        self: *Compiler,
+        target_chunk: *Chunk,
+        params: *prism.ParametersNode,
+        line: u32,
+    ) !void {
+        // Process keyword parameters
+        if (params.keywords.size > 0) {
+            var i: usize = 0;
+            while (i < params.keywords.size) : (i += 1) {
+                const kw_node_ptr = params.keywords.nodes[i];
+                const kw_node = try self.parser.asNode(@ptrCast(kw_node_ptr));
+
+                if (kw_node == .required_keyword_parameter) {
+                    const kw_param = kw_node.required_keyword_parameter;
+                    const param_name = try self.parser.getLocalVariableName(kw_param.name);
+                    try self.addLocal(param_name);
+                    const slot = @as(u8, @intCast(self.locals.items.len - 1));
+                    const name_idx = try target_chunk.addConstant(.{ .symbol = param_name });
+                    try target_chunk.required_keywords.append(self.allocator, .{
+                        .name_idx = @intCast(name_idx),
+                        .param_slot = slot,
+                    });
+                } else if (kw_node == .optional_keyword_parameter) {
+                    const kw_param = kw_node.optional_keyword_parameter;
+                    const param_name = try self.parser.getLocalVariableName(kw_param.name);
+                    try self.addLocal(param_name);
+                    const slot = @as(u8, @intCast(self.locals.items.len - 1));
+
+                    // Compile default expression into separate chunk
+                    const default_chunk_ptr = try self.allocator.create(Chunk);
+                    default_chunk_ptr.* = Chunk.init(self.allocator, "keyword_default");
+                    default_chunk_ptr.source_file = self.parser.source_file;
+                    const saved_chunk_kw = self.current_chunk;
+                    self.current_chunk = default_chunk_ptr;
+
+                    const default_expr = try self.parser.asNode(@ptrCast(kw_param.value));
+                    try self.compileNode(default_expr, line);
+                    try self.current_chunk.emitOpU8(.RETURN, 0, line);
+
+                    self.current_chunk = saved_chunk_kw;
+
+                    const default_chunk_id = self.chunk_counter;
+                    self.chunk_counter += 1;
+                    default_chunk_ptr.chunk_id = @intCast(default_chunk_id);
+                    try self.method_chunks.put(default_chunk_id, default_chunk_ptr);
+
+                    const name_idx = try target_chunk.addConstant(.{ .symbol = param_name });
+                    try target_chunk.optional_keywords.append(self.allocator, .{
+                        .name_idx = @intCast(name_idx),
+                        .param_slot = slot,
+                        .default_chunk_id = @intCast(default_chunk_id),
+                    });
+                }
+            }
+        }
+
+        // Process keyword rest parameter
+        if (params.keyword_rest) |kw_rest_ptr| {
+            const kw_rest_node = try self.parser.asNode(@ptrCast(kw_rest_ptr));
+
+            if (kw_rest_node == .keyword_rest_parameter) {
+                const kw_rest = kw_rest_node.keyword_rest_parameter;
+                if (kw_rest.name != 0) {
+                    const rest_name = try self.parser.getLocalVariableName(kw_rest.name);
+                    try self.addLocal(rest_name);
+                } else {
+                    try self.addLocal("**");
+                }
+                target_chunk.keyword_rest_index = @intCast(self.locals.items.len - 1);
+            } else if (kw_rest_node == .no_keywords_parameter) {
+                target_chunk.no_keywords = true;
+            }
+        }
+    }
+
     fn compileMethod(self: *Compiler, def_node: *prism.DefNode, line: u32) anyerror!void {
         // Get the method name (will be interned later by VM)
         const method_name_slice = try self.parser.getConstantName(def_node.name);
@@ -677,61 +868,16 @@ pub const Compiler = struct {
         self.current_chunk = method_chunk_ptr;
 
         // Process parameters (if any)
-        var param_count: u8 = 0; // Pre-rest required count
+        var param_count: u8 = 0;
         var rest_param_idx: ?u8 = null;
         var post_count: u8 = 0;
 
         if (def_node.parameters) |params_ptr| {
             const params = @as(*prism.ParametersNode, @ptrCast(params_ptr));
-
-            // 1. Process pre-rest required parameters
-            if (params.requireds.size > 0) {
-                var i: usize = 0;
-                while (i < params.requireds.size) : (i += 1) {
-                    const param_node = params.requireds.nodes[i];
-                    const param = @as(*prism.RequiredParameterNode, @ptrCast(param_node));
-                    const param_name = try self.parser.getLocalVariableName(param.name);
-                    try self.addLocal(param_name);
-                    param_count += 1;
-                }
-            }
-
-            // 2. Process optional parameters
-            try self.processOptionalParameters(params, method_chunk_ptr, line);
-
-            // 3. Process rest parameter
-            if (params.rest) |rest_ptr| {
-                const rest_node = try self.parser.asNode(@ptrCast(rest_ptr));
-                if (rest_node == .rest_parameter) {
-                    const rest_param = rest_node.rest_parameter;
-
-                    // Rest parameter can have a name or be anonymous (*)
-                    if (rest_param.name != 0) {
-                        const rest_name = try self.parser.getLocalVariableName(rest_param.name);
-                        try self.addLocal(rest_name);
-                    } else {
-                        // Anonymous rest: still need a slot, use placeholder
-                        try self.addLocal("*");
-                    }
-
-                    rest_param_idx = @intCast(self.locals.items.len - 1);
-                }
-            }
-
-            // 4. Process post-rest required parameters
-            if (params.posts.size > 0) {
-                if (params.posts.size > 255) {
-                    return error.TooManyParameters;
-                }
-                post_count = @as(u8, @intCast(params.posts.size));
-                var i: usize = 0;
-                while (i < params.posts.size) : (i += 1) {
-                    const param_node = params.posts.nodes[i];
-                    const param = @as(*prism.RequiredParameterNode, @ptrCast(param_node));
-                    const param_name = try self.parser.getLocalVariableName(param.name);
-                    try self.addLocal(param_name);
-                }
-            }
+            const counts = try self.processAllParameters(params, method_chunk_ptr, line);
+            param_count = counts.param_count;
+            rest_param_idx = counts.rest_param_idx;
+            post_count = counts.post_count;
         }
 
         // Store parameter metadata on chunk
@@ -822,55 +968,10 @@ pub const Compiler = struct {
                 const block_params = params_node.block_parameters;
                 if (block_params.parameters) |actual_params_ptr| {
                     const params = @as(*prism.ParametersNode, @ptrCast(actual_params_ptr));
-
-                    // 1. Process pre-rest required parameters
-                    if (params.requireds.size > 0) {
-                        var i: usize = 0;
-                        while (i < params.requireds.size) : (i += 1) {
-                            const param_node = params.requireds.nodes[i];
-                            const param = @as(*prism.RequiredParameterNode, @ptrCast(param_node));
-                            const param_name = try self.parser.getLocalVariableName(param.name);
-                            try self.addLocal(param_name);
-                            param_count += 1;
-                        }
-                    }
-
-                    // 2. Process optional parameters
-                    try self.processOptionalParameters(params, block_chunk_ptr, line);
-
-                    // 3. Process rest parameter
-                    if (params.rest) |rest_ptr| {
-                        const rest_node = try self.parser.asNode(@ptrCast(rest_ptr));
-                        if (rest_node == .rest_parameter) {
-                            const rest_param = rest_node.rest_parameter;
-
-                            // Rest parameter can have a name or be anonymous (*)
-                            if (rest_param.name != 0) {
-                                const rest_name = try self.parser.getLocalVariableName(rest_param.name);
-                                try self.addLocal(rest_name);
-                            } else {
-                                // Anonymous rest: still need a slot, use placeholder
-                                try self.addLocal("*");
-                            }
-
-                            rest_param_idx = @intCast(self.locals.items.len - 1);
-                        }
-                    }
-
-                    // 4. Process post-rest required parameters
-                    if (params.posts.size > 0) {
-                        if (params.posts.size > 255) {
-                            return error.TooManyParameters;
-                        }
-                        post_count = @as(u8, @intCast(params.posts.size));
-                        var i: usize = 0;
-                        while (i < params.posts.size) : (i += 1) {
-                            const param_node = params.posts.nodes[i];
-                            const param = @as(*prism.RequiredParameterNode, @ptrCast(param_node));
-                            const param_name = try self.parser.getLocalVariableName(param.name);
-                            try self.addLocal(param_name);
-                        }
-                    }
+                    const counts = try self.processAllParameters(params, block_chunk_ptr, line);
+                    param_count = counts.param_count;
+                    rest_param_idx = counts.rest_param_idx;
+                    post_count = counts.post_count;
                 }
             }
         }
@@ -958,55 +1059,10 @@ pub const Compiler = struct {
                 const block_params = params_node.block_parameters;
                 if (block_params.parameters) |actual_params_ptr| {
                     const params = @as(*prism.ParametersNode, @ptrCast(actual_params_ptr));
-
-                    // 1. Process pre-rest required parameters
-                    if (params.requireds.size > 0) {
-                        var i: usize = 0;
-                        while (i < params.requireds.size) : (i += 1) {
-                            const param_node = params.requireds.nodes[i];
-                            const param = @as(*prism.RequiredParameterNode, @ptrCast(param_node));
-                            const param_name = try self.parser.getLocalVariableName(param.name);
-                            try self.addLocal(param_name);
-                            param_count += 1;
-                        }
-                    }
-
-                    // 2. Process optional parameters
-                    try self.processOptionalParameters(params, lambda_chunk_ptr, line);
-
-                    // 3. Process rest parameter
-                    if (params.rest) |rest_ptr| {
-                        const rest_node = try self.parser.asNode(@ptrCast(rest_ptr));
-                        if (rest_node == .rest_parameter) {
-                            const rest_param = rest_node.rest_parameter;
-
-                            // Rest parameter can have a name or be anonymous (*)
-                            if (rest_param.name != 0) {
-                                const rest_name = try self.parser.getLocalVariableName(rest_param.name);
-                                try self.addLocal(rest_name);
-                            } else {
-                                // Anonymous rest: still need a slot, use placeholder
-                                try self.addLocal("*");
-                            }
-
-                            rest_param_idx = @intCast(self.locals.items.len - 1);
-                        }
-                    }
-
-                    // 4. Process post-rest required parameters
-                    if (params.posts.size > 0) {
-                        if (params.posts.size > 255) {
-                            return error.TooManyParameters;
-                        }
-                        post_count = @as(u8, @intCast(params.posts.size));
-                        var i: usize = 0;
-                        while (i < params.posts.size) : (i += 1) {
-                            const param_node = params.posts.nodes[i];
-                            const param = @as(*prism.RequiredParameterNode, @ptrCast(param_node));
-                            const param_name = try self.parser.getLocalVariableName(param.name);
-                            try self.addLocal(param_name);
-                        }
-                    }
+                    const counts = try self.processAllParameters(params, lambda_chunk_ptr, line);
+                    param_count = counts.param_count;
+                    rest_param_idx = counts.rest_param_idx;
+                    post_count = counts.post_count;
                 }
             }
         }

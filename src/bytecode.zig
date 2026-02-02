@@ -28,6 +28,7 @@ pub const OpCode = enum(u8) {
 
     // Method calls
     CALL, // Operands: u16 (method name index), u8 (argc), u8 (block chunk id)
+    CALL_KW, // Operands: u16 method_idx, u8 argc, u8 kwargc, u16 kw_metadata_idx, u8 block_chunk_id
     RETURN, // Operand: u8 (0=implicit, 1=explicit)
 
     // OOP
@@ -90,6 +91,7 @@ pub fn opcodeName(op: OpCode) []const u8 {
         .JUMP_IF_TRUE => "JUMP_IF_TRUE",
         .POP => "POP",
         .CALL => "CALL",
+        .CALL_KW => "CALL_KW",
         .RETURN => "RETURN",
         .DEF_MODULE => "DEF_MODULE",
         .DEF_CLASS => "DEF_CLASS",

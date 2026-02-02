@@ -31,6 +31,11 @@ pub const ProgramNode = c.pm_program_node_t;
 pub const RequiredParameterNode = c.pm_required_parameter_node_t;
 pub const OptionalParameterNode = c.pm_optional_parameter_node_t;
 pub const RestParameterNode = c.pm_rest_parameter_node_t;
+pub const RequiredKeywordParameterNode = c.pm_required_keyword_parameter_node_t;
+pub const OptionalKeywordParameterNode = c.pm_optional_keyword_parameter_node_t;
+pub const KeywordRestParameterNode = c.pm_keyword_rest_parameter_node_t;
+pub const NoKeywordsParameterNode = c.pm_no_keywords_parameter_node_t;
+pub const KeywordHashNode = c.pm_keyword_hash_node_t;
 pub const RescueNode = c.pm_rescue_node_t;
 pub const RescueModifierNode = c.pm_rescue_modifier_node_t;
 pub const RetryNode = c.pm_retry_node_t;
@@ -78,6 +83,11 @@ pub const Node = union(enum) {
     required_parameter: *RequiredParameterNode,
     optional_parameter: *OptionalParameterNode,
     rest_parameter: *RestParameterNode,
+    required_keyword_parameter: *RequiredKeywordParameterNode,
+    optional_keyword_parameter: *OptionalKeywordParameterNode,
+    keyword_rest_parameter: *KeywordRestParameterNode,
+    no_keywords_parameter: *NoKeywordsParameterNode,
+    keyword_hash: *KeywordHashNode,
     rescue: *RescueNode,
     rescue_modifier: *RescueModifierNode,
     retry: *RetryNode,
@@ -332,6 +342,26 @@ pub const Parser = struct {
 
         if (node_type == c.PM_REST_PARAMETER_NODE) {
             return Node{ .rest_parameter = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_REQUIRED_KEYWORD_PARAMETER_NODE) {
+            return Node{ .required_keyword_parameter = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_OPTIONAL_KEYWORD_PARAMETER_NODE) {
+            return Node{ .optional_keyword_parameter = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_KEYWORD_REST_PARAMETER_NODE) {
+            return Node{ .keyword_rest_parameter = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_NO_KEYWORDS_PARAMETER_NODE) {
+            return Node{ .no_keywords_parameter = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_KEYWORD_HASH_NODE) {
+            return Node{ .keyword_hash = @ptrCast(raw) };
         }
 
         var stdout_buffer: [8192]u8 = undefined;

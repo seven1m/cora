@@ -1,0 +1,115 @@
+const std = @import("std");
+const test_helper = @import("../test_helper.zig");
+
+const evalCode = test_helper.evalCode;
+const evalCodeWithOutput = test_helper.evalCodeWithOutput;
+
+test "Required keyword argument" {
+    const result = try evalCode("def foo(x:); x * 2; end\nfoo(x: 21)");
+    try std.testing.expectEqual(42, result.data.integer);
+}
+
+test "Required keyword missing raises error" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+    const result = evalCodeWithOutput("def foo(x:); x; end\nfoo()", &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.RuntimeError, result.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "missing") != null and
+        std.mem.indexOf(u8, result.stderr, "keyword") != null);
+}
+
+test "Optional keyword with default" {
+    const result = try evalCode("def bar(y: 100); y; end\nbar()");
+    try std.testing.expectEqual(100, result.data.integer);
+}
+
+test "Optional keyword overridden" {
+    const result = try evalCode("def bar(y: 100); y; end\nbar(y: 5)");
+    try std.testing.expectEqual(5, result.data.integer);
+}
+
+test "Mixed positional and keyword args" {
+    const result = try evalCode(
+        \\def qux(a, b:, c: 3); [a, b, c]; end
+        \\qux(10, b: 20)
+    );
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(3, result.data.array.elements.items.len);
+    try std.testing.expectEqual(10, result.data.array.elements.items[0].data.integer);
+    try std.testing.expectEqual(20, result.data.array.elements.items[1].data.integer);
+    try std.testing.expectEqual(3, result.data.array.elements.items[2].data.integer);
+}
+
+test "Keyword rest collects extra keywords" {
+    const result = try evalCode(
+        \\def baz(**opts); opts; end
+        \\baz(a: 1, b: 2)
+    );
+    try std.testing.expect(result.data == .hash);
+    try std.testing.expectEqual(2, result.data.hash.entries.items.len);
+}
+
+test "No keywords parameter rejects keywords" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+    const result = evalCodeWithOutput(
+        \\def bar(**nil); 42; end
+        \\bar(x: 1)
+    , &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.RuntimeError, result.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "does not accept keyword") != null);
+}
+
+test "Unknown keyword without rest raises error" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+    const result = evalCodeWithOutput(
+        \\def foo(a:); a; end
+        \\foo(a: 1, b: 2)
+    , &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.RuntimeError, result.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "unknown keyword") != null);
+}
+
+test "Keywords matched by name not position" {
+    const result = try evalCode(
+        \\def foo(a:, b:); [a, b]; end
+        \\foo(b: 2, a: 1)
+    );
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(1, result.data.array.elements.items[0].data.integer);
+    try std.testing.expectEqual(2, result.data.array.elements.items[1].data.integer);
+}
+
+test "Keyword with positional arguments" {
+    const result = try evalCode(
+        \\def foo(x, y:); x + y; end
+        \\foo(10, y: 32)
+    );
+    try std.testing.expectEqual(42, result.data.integer);
+}
+
+test "Multiple optional keywords" {
+    const result = try evalCode(
+        \\def foo(a: 1, b: 2, c: 3); a + b + c; end
+        \\foo(b: 10)
+    );
+    try std.testing.expectEqual(14, result.data.integer);
+}
+
+test "Empty keyword rest hash" {
+    const result = try evalCode(
+        \\def foo(a:, **opts); opts; end
+        \\foo(a: 1)
+    );
+    try std.testing.expect(result.data == .hash);
+    try std.testing.expectEqual(0, result.data.hash.entries.items.len);
+}
+
+test "Multiple optional keywords called with no arguments" {
+    const result = try evalCode(
+        \\def foo(a: 10, b: 20, c: 30); a + b + c; end
+        \\foo()
+    );
+    try std.testing.expectEqual(60, result.data.integer);
+}

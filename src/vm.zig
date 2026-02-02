@@ -974,7 +974,55 @@ pub const VM = struct {
                     }
                 }
 
-                try self.callMethod(method_idx, receiver, &args, argc, block);
+                try self.callMethod(method_idx, receiver, &args, argc, null, 0, null, block);
+            },
+
+            .CALL_KW => {
+                const method_idx = self.readU16();
+                const argc = self.readByte();
+                const kwargc = self.readByte();
+                const kw_metadata_idx = self.readU16();
+                const block_chunk_id = self.readByte();
+
+                // Pop keyword values
+                var kw_values: [256]Value = undefined;
+                var i: usize = kwargc;
+                while (i > 0) {
+                    i -= 1;
+                    kw_values[i] = self.pop();
+                }
+
+                // Pop positional args
+                var args: [256]Value = undefined;
+                i = argc;
+                while (i > 0) {
+                    i -= 1;
+                    args[i] = self.pop();
+                }
+
+                // Pop receiver
+                const receiver = self.pop();
+
+                // Get keyword metadata
+                const kw_metadata = frame.chunk.keyword_metadata.items[kw_metadata_idx];
+
+                // Get block if present
+                var block: ?Block = null;
+                if (block_chunk_id != 0) {
+                    if (self.program.method_chunks.get(block_chunk_id)) |bc| {
+                        bc.lexical_scope = self.current_lexical_scope;
+                        const defining_ep = try self.promoteEnvironmentToHeap(frame.ep);
+                        block = Block{
+                            .chunk = bc,
+                            .defining_ep = defining_ep,
+                        };
+                    } else {
+                        return error.UndefinedChunk;
+                    }
+                }
+
+                // Call method with keywords
+                try self.callMethod(method_idx, receiver, &args, argc, &kw_values, kwargc, kw_metadata, block);
             },
 
             .RETURN => {
@@ -1438,11 +1486,29 @@ pub const VM = struct {
         }
     }
 
+    /// Find a method on a receiver, checking singleton class first, then regular class
+    fn findMethod(self: *VM, receiver: Value, method_name_sym: *SymbolObject) ?Method {
+        var method: ?Method = null;
+
+        // First, check singleton class
+        if (receiver.getObjectPointer() != null) {
+            const singleton_class = self.getOrCreateSingletonClass(receiver) catch return null;
+            method = self.lookupMethod(singleton_class, method_name_sym);
+        }
+
+        // If not found in singleton class, check regular class
+        if (method == null) {
+            const class = self.getClass(receiver);
+            method = self.lookupMethod(class, method_name_sym);
+        }
+
+        return method;
+    }
+
     /// Call a method by name string (not from bytecode constant pool)
     fn callMethodByName(self: *VM, receiver: Value, method_name: []const u8, args: []Value, block: ?Block) RuntimeError!Value {
         const method_name_sym = self.intern(method_name) catch return error.RuntimeError;
-        const class = self.getClass(receiver);
-        const method = self.lookupMethod(class, method_name_sym);
+        const method = self.findMethod(receiver, method_name_sym);
 
         if (method == null) {
             std.debug.print("Error: undefined method '{s}'\n", .{method_name});
@@ -1571,7 +1637,17 @@ pub const VM = struct {
         };
     }
 
-    fn callMethod(self: *VM, method_idx: u16, receiver: Value, args: *[256]Value, argc: usize, block: ?Block) !void {
+    fn callMethod(
+        self: *VM,
+        method_idx: u16,
+        receiver: Value,
+        args: *[256]Value,
+        argc: usize,
+        kw_values: ?*[256]Value,
+        kwargc: usize,
+        kw_metadata: ?chunk.KeywordMetadata,
+        block: ?Block,
+    ) !void {
         if (method_idx >= self.currentChunk().constants.items.len) {
             return error.InvalidMethodIndex;
         }
@@ -1581,26 +1657,12 @@ pub const VM = struct {
             return error.InvalidMethodName;
         }
 
-        // TODO: method name should be a symbol
         const method_name = constant.string;
         const method_name_sym = try self.intern(method_name);
 
-        var method: ?Method = null;
-
-        // First, check singleton class (create if needed)
-        if (receiver.getObjectPointer() != null) {
-            const singleton_class = try self.getOrCreateSingletonClass(receiver);
-            method = self.lookupMethod(singleton_class, method_name_sym);
-        }
-
-        // If not found in singleton class, check regular class
-        if (method == null) {
-            const class = self.getClass(receiver);
-            method = self.lookupMethod(class, method_name_sym);
-        }
+        const method = self.findMethod(receiver, method_name_sym);
 
         if (method == null) {
-            // Method not found - create NoMethodError exception
             const class = self.getClass(receiver);
             const class_name = class.module.name.name;
             const msg = std.fmt.allocPrint(
@@ -1611,26 +1673,98 @@ pub const VM = struct {
             const exc = try self.createException(self.no_method_error_class, msg);
             self.pending_exception = exc;
             try self.unwindStack();
-            return; // Never reached if no handler found
+            return;
         }
 
         if (method) |m| {
             switch (m) {
-                .chunk => |chunk_ptr| {
-                    // Push frame with receiver as self_value
-                    try self.pushFrame(chunk_ptr, receiver, block);
+                .chunk => |method_chunk| {
+                    const has_keywords = kwargc > 0;
 
-                    // Copy arguments with rest parameter handling
+                    // Check for **nil
+                    if (method_chunk.no_keywords and has_keywords) {
+                        const exc = try self.createException(self.argument_error_class, "this method does not accept keyword arguments");
+                        self.pending_exception = exc;
+                        try self.unwindStack();
+                        return;
+                    }
+
+                    // Check if method requires keywords but none were provided
+                    if (!has_keywords and method_chunk.required_keywords.items.len > 0) {
+                        const msg = "missing required keyword arguments";
+                        const exc = try self.createException(self.argument_error_class, msg);
+                        self.pending_exception = exc;
+                        try self.unwindStack();
+                        return;
+                    }
+
+                    // Get caller's chunk BEFORE pushing new frame (needed for keyword metadata)
+                    const caller_chunk = if (has_keywords) self.currentFrame().chunk else null;
+
+                    // Push frame with receiver as self_value
+                    try self.pushFrame(method_chunk, receiver, block);
+
+                    // Copy positional arguments with rest parameter handling
                     const frame = self.currentFrame();
-                    try self.copyArgumentsWithRestParam(chunk_ptr, frame.ep, args[0..argc], .strict);
+                    try self.copyArgumentsWithRestParam(method_chunk, frame.ep, args[0..argc], .strict);
+
+                    if (has_keywords) {
+                        // Bind keyword arguments
+                        try self.bindKeywordArguments(method_chunk, frame.ep, kw_values.?[0..kwargc], kw_metadata.?, caller_chunk.?);
+                    } else {
+                        // Bind optional keywords with defaults and keyword rest (when no keywords provided)
+                        if (method_chunk.optional_keywords.items.len > 0 or method_chunk.keyword_rest_index != null) {
+                            // FIRST: Update variables length to cover all keyword slots
+                            var max_slot: u8 = frame.ep.variables_len;
+                            for (method_chunk.optional_keywords.items) |opt_kw| {
+                                if (opt_kw.param_slot >= max_slot) max_slot = opt_kw.param_slot + 1;
+                            }
+                            if (method_chunk.keyword_rest_index) |rest_idx| {
+                                if (rest_idx >= max_slot) max_slot = rest_idx + 1;
+                            }
+                            frame.ep.variables_len = max_slot;
+
+                            // THEN: Bind optional keywords with their defaults
+                            for (method_chunk.optional_keywords.items) |opt_kw| {
+                                const default_chunk = self.program.method_chunks.get(opt_kw.default_chunk_id).?;
+                                // Re-get frame pointer at start of each iteration
+                                const current_ep = self.currentFrame().ep;
+                                const default_value = try self.executeDefaultExpression(default_chunk, current_ep);
+                                // Re-get frame pointer after executeDefaultExpression
+                                const f = &self.frames.items[self.frames.items.len - 1];
+                                f.ep.variables[opt_kw.param_slot] = default_value;
+                            }
+
+                            // THEN: Set up keyword rest with empty hash
+                            if (method_chunk.keyword_rest_index) |rest_idx| {
+                                const kw_hash = self.gc_allocator.create(value.HashObject) catch unreachable;
+                                kw_hash.* = .{
+                                    .object = .{ .flags = 0, .class = self.hash_class, .singleton_class = null, .instance_variables = null },
+                                    .map = std.AutoHashMap(u64, usize).init(self.gc_allocator),
+                                    .entries = .empty,
+                                };
+                                // Re-get frame pointer
+                                const f = &self.frames.items[self.frames.items.len - 1];
+                                f.ep.variables[rest_idx] = Value{ .data = .{ .hash = kw_hash } };
+                            }
+                        }
+                    }
                 },
                 .builtin => |fun_ptr| {
-                    const args_slice = args[0..argc];
-                    const result = fun_ptr(self, receiver, args_slice, block) catch |err| {
-                        // Check if exception was raised
+                    var final_args: []Value = undefined;
+                    if (kwargc > 0) {
+                        // For builtin methods with keywords, convert keywords to hash
+                        const kw_hash = try self.createHashFromKeywords(kw_values.?[0..kwargc], kw_metadata.?);
+                        args[argc] = kw_hash;
+                        final_args = args[0..(argc + 1)];
+                    } else {
+                        final_args = args[0..argc];
+                    }
+
+                    const result = fun_ptr(self, receiver, final_args, block) catch |err| {
                         if (self.pending_exception != null) {
                             try self.unwindStack();
-                            return; // Never reached if no handler found
+                            return;
                         }
                         return err;
                     };
@@ -3066,6 +3200,168 @@ pub const VM = struct {
         }
 
         env.variables_len = @as(u8, @intCast(local_idx));
+    }
+
+    fn bindKeywordArguments(
+        self: *VM,
+        target_chunk: *const Chunk,
+        env: *Environment,
+        kw_values: []Value,
+        kw_metadata: chunk.KeywordMetadata,
+        caller_chunk: *const Chunk,
+    ) !void {
+        // Track which provided keywords have been matched
+        var matched = try self.allocator.alloc(bool, kw_values.len);
+        defer self.allocator.free(matched);
+        @memset(matched, false);
+
+        // 1. Bind required keywords
+        for (target_chunk.required_keywords.items) |req_kw| {
+            const req_name = target_chunk.constants.items[req_kw.name_idx].symbol;
+            const req_symbol = try self.intern(req_name);
+
+            // Linear scan through provided keywords
+            var found = false;
+            for (kw_values, 0..) |_, i| {
+                const provided_name = caller_chunk.constants.items[kw_metadata.names.items[i]].symbol;
+                const provided_symbol = try self.intern(provided_name);
+
+                // O(1) pointer equality check after interning
+                if (req_symbol == provided_symbol) {
+                    env.variables[req_kw.param_slot] = kw_values[i];
+                    matched[i] = true;
+                    found = true;
+                    break;
+                }
+            }
+
+            if (!found) {
+                const msg = std.fmt.allocPrint(
+                    self.gc_allocator,
+                    "missing keyword: {s}",
+                    .{req_name},
+                ) catch unreachable;
+                const exc = try self.createException(self.argument_error_class, msg);
+                self.pending_exception = exc;
+                return error.RuntimeError;
+            }
+        }
+
+        // 2. Bind optional keywords
+        for (target_chunk.optional_keywords.items) |opt_kw| {
+            const opt_name = target_chunk.constants.items[opt_kw.name_idx].symbol;
+            const opt_symbol = try self.intern(opt_name);
+
+            var found = false;
+            for (kw_values, 0..) |_, i| {
+                const provided_name = caller_chunk.constants.items[kw_metadata.names.items[i]].symbol;
+                const provided_symbol = try self.intern(provided_name);
+
+                if (opt_symbol == provided_symbol) {
+                    env.variables[opt_kw.param_slot] = kw_values[i];
+                    matched[i] = true;
+                    found = true;
+                    break;
+                }
+            }
+
+            if (!found) {
+                // Execute default expression
+                const default_chunk = self.program.method_chunks.get(opt_kw.default_chunk_id).?;
+                const default_value = try self.executeDefaultExpression(default_chunk, env);
+                env.variables[opt_kw.param_slot] = default_value;
+            }
+        }
+
+        // 3. Handle unmatched keywords
+        if (target_chunk.keyword_rest_index) |rest_idx| {
+            // ONLY create hash when **kwargs is present
+            const kw_hash = self.gc_allocator.create(value.HashObject) catch unreachable;
+            kw_hash.* = .{
+                .object = .{ .flags = 0, .class = self.hash_class, .singleton_class = null, .instance_variables = null },
+                .map = std.AutoHashMap(u64, usize).init(self.gc_allocator),
+                .entries = .empty,
+            };
+
+            // Collect unmatched keywords
+            for (kw_values, 0..) |kw_value, i| {
+                if (!matched[i]) {
+                    const key_name = caller_chunk.constants.items[kw_metadata.names.items[i]].symbol;
+                    const key_symbol = try self.intern(key_name);
+                    const key = Value{ .data = .{ .symbol = key_symbol } };
+                    const key_hash = key.hash();
+
+                    const new_idx = kw_hash.entries.items.len;
+                    kw_hash.entries.append(self.gc_allocator, .{
+                        .key = key,
+                        .value = kw_value,
+                    }) catch unreachable;
+                    kw_hash.map.put(key_hash, new_idx) catch unreachable;
+                }
+            }
+
+            env.variables[rest_idx] = Value{ .data = .{ .hash = kw_hash } };
+        } else {
+            // No keyword rest - check for unmatched keywords
+            for (matched, 0..) |is_matched, i| {
+                if (!is_matched) {
+                    const unknown_name = caller_chunk.constants.items[kw_metadata.names.items[i]].symbol;
+                    const msg = std.fmt.allocPrint(
+                        self.gc_allocator,
+                        "unknown keyword: {s}",
+                        .{unknown_name},
+                    ) catch unreachable;
+                    const exc = try self.createException(self.argument_error_class, msg);
+                    self.pending_exception = exc;
+                    return error.RuntimeError;
+                }
+            }
+        }
+
+        // Update variables length to include keyword parameters
+        var max_slot: u8 = 0;
+        for (target_chunk.required_keywords.items) |req_kw| {
+            if (req_kw.param_slot >= max_slot) max_slot = req_kw.param_slot + 1;
+        }
+        for (target_chunk.optional_keywords.items) |opt_kw| {
+            if (opt_kw.param_slot >= max_slot) max_slot = opt_kw.param_slot + 1;
+        }
+        if (target_chunk.keyword_rest_index) |rest_idx| {
+            if (rest_idx >= max_slot) max_slot = rest_idx + 1;
+        }
+        if (max_slot > env.variables_len) {
+            env.variables_len = max_slot;
+        }
+    }
+
+    fn createHashFromKeywords(
+        self: *VM,
+        kw_values: []Value,
+        kw_metadata: chunk.KeywordMetadata,
+    ) !Value {
+        const current_chunk = self.currentChunk();
+        const kw_hash = self.gc_allocator.create(value.HashObject) catch unreachable;
+        kw_hash.* = .{
+            .object = .{ .flags = 0, .class = self.hash_class, .singleton_class = null, .instance_variables = null },
+            .map = std.AutoHashMap(u64, usize).init(self.gc_allocator),
+            .entries = .empty,
+        };
+
+        for (kw_values, 0..) |kw_value, i| {
+            const key_name = current_chunk.constants.items[kw_metadata.names.items[i]].symbol;
+            const key_symbol = try self.intern(key_name);
+            const key = Value{ .data = .{ .symbol = key_symbol } };
+            const key_hash = key.hash();
+
+            const new_idx = kw_hash.entries.items.len;
+            kw_hash.entries.append(self.gc_allocator, .{
+                .key = key,
+                .value = kw_value,
+            }) catch unreachable;
+            kw_hash.map.put(key_hash, new_idx) catch unreachable;
+        }
+
+        return Value{ .data = .{ .hash = kw_hash } };
     }
 
     fn createException(self: *VM, class: *ClassObject, message: []const u8) RuntimeError!*value.ExceptionObject {

@@ -1,23 +1,5 @@
 # Cora Ruby Interpreter - TODO for ruby/spec Compatibility
 
-## Keyword Arguments
-
-**Syntax needed:**
-```ruby
-def foo(a:, b: 10); end          # Required + optional kwargs
-def foo(**kwargs); end           # Keyword rest
-{ |a, b:, c: 5, **rest| }       # All combined
-def foo(**nil); end              # Disallow keywords
-```
-
-**Implementation tasks:**
-- [ ] Add keyword parameter nodes to Node union
-- [ ] Modify CALL opcode to handle keyword arguments
-- [ ] Implement keyword argument extraction from hash
-- [ ] Add keyword rest parameter collection
-- [ ] Handle `**nil` (no keywords allowed)
-- [ ] Implement keyword argument validation
-
 ## Nested Parameter Destructuring
 
 **Syntax needed:**

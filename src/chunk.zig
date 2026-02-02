@@ -30,6 +30,21 @@ pub const OptionalParam = struct {
     default_chunk_id: u8, // Chunk ID containing default expression
 };
 
+pub const KeywordMetadata = struct {
+    names: std.ArrayList(u16) = .empty, // Symbol indices in constant pool
+};
+
+pub const RequiredKeyword = struct {
+    name_idx: u16,    // Constant pool index (symbol)
+    param_slot: u8,   // Local variable slot
+};
+
+pub const OptionalKeyword = struct {
+    name_idx: u16,        // Constant pool index (symbol)
+    param_slot: u8,       // Local variable slot
+    default_chunk_id: u8, // Chunk with default expression
+};
+
 pub const Chunk = struct {
     code: std.ArrayList(u8) = .empty,
     constants: std.ArrayList(Constant) = .empty,
@@ -46,6 +61,11 @@ pub const Chunk = struct {
     lexical_scope: ?*LexicalScope = null,
     exception_handlers: std.ArrayList(ExceptionHandler) = .empty,
     source_file: ?[]const u8 = null,
+    required_keywords: std.ArrayList(RequiredKeyword) = .empty,
+    optional_keywords: std.ArrayList(OptionalKeyword) = .empty,
+    keyword_rest_index: ?u8 = null,  // Slot for **kwargs hash
+    no_keywords: bool = false,        // True if **nil specified
+    keyword_metadata: std.ArrayList(KeywordMetadata) = .empty,
 
     pub fn init(allocator: std.mem.Allocator, name: []const u8) Chunk {
         return Chunk{
@@ -75,6 +95,14 @@ pub const Chunk = struct {
             handler.rescue_handlers.deinit(self.allocator);
         }
         self.exception_handlers.deinit(self.allocator);
+
+        // Free keyword structures
+        self.required_keywords.deinit(self.allocator);
+        self.optional_keywords.deinit(self.allocator);
+        for (self.keyword_metadata.items) |*kw_meta| {
+            kw_meta.names.deinit(self.allocator);
+        }
+        self.keyword_metadata.deinit(self.allocator);
     }
 
     /// Add a constant to the constant pool, return its index
@@ -152,6 +180,20 @@ pub const Chunk = struct {
         try self.line_info.append(self.allocator, line);
     }
 
+    /// Emit CALL_KW instruction with keyword arguments
+    pub fn emitCallKw(self: *Chunk, method_idx: u16, argc: u8, kwargc: u8,
+                      kw_metadata_idx: u16, block_chunk_id: u8, line: u32) !void {
+        try self.code.append(self.allocator, @intFromEnum(bytecode.OpCode.CALL_KW));
+        try self.code.append(self.allocator, @intCast(method_idx & 0xFF));
+        try self.code.append(self.allocator, @intCast((method_idx >> 8) & 0xFF));
+        try self.code.append(self.allocator, argc);
+        try self.code.append(self.allocator, kwargc);
+        try self.code.append(self.allocator, @intCast(kw_metadata_idx & 0xFF));
+        try self.code.append(self.allocator, @intCast((kw_metadata_idx >> 8) & 0xFF));
+        try self.code.append(self.allocator, block_chunk_id);
+        try self.line_info.append(self.allocator, line);
+    }
+
     /// Emit a jump instruction and return the position to patch
     pub fn emitJump(self: *Chunk, op: bytecode.OpCode, line: u32) !usize {
         const pos = self.code.items.len;
@@ -193,6 +235,35 @@ pub const Chunk = struct {
                 try writer.print("slot {d} (chunk {d})", .{ opt.param_index, opt.default_chunk_id });
             }
             try writer.print("\n", .{});
+        }
+
+        // Print keyword parameter info
+        if (self.required_keywords.items.len > 0) {
+            try writer.print("  required keywords: ", .{});
+            for (self.required_keywords.items, 0..) |req_kw, i| {
+                if (i > 0) try writer.print(", ", .{});
+                const kw_name = self.constants.items[req_kw.name_idx].symbol;
+                try writer.print("{s} (slot {d})", .{ kw_name, req_kw.param_slot });
+            }
+            try writer.print("\n", .{});
+        }
+
+        if (self.optional_keywords.items.len > 0) {
+            try writer.print("  optional keywords: ", .{});
+            for (self.optional_keywords.items, 0..) |opt_kw, i| {
+                if (i > 0) try writer.print(", ", .{});
+                const kw_name = self.constants.items[opt_kw.name_idx].symbol;
+                try writer.print("{s} (slot {d}, chunk {d})", .{ kw_name, opt_kw.param_slot, opt_kw.default_chunk_id });
+            }
+            try writer.print("\n", .{});
+        }
+
+        if (self.keyword_rest_index) |rest_idx| {
+            try writer.print("  keyword rest at slot {d}\n", .{rest_idx});
+        }
+
+        if (self.no_keywords) {
+            try writer.print("  no keywords (**nil)\n", .{});
         }
 
         // Print constants
@@ -299,6 +370,32 @@ pub const Chunk = struct {
                 const block_id = bytecode.readU8(self.code.items, next_ip + 3);
                 try writer.print("CALL {d}, {d}, {d}\n", .{ method_idx, argc, block_id });
                 next_ip += 4;
+            },
+
+            .CALL_KW => {
+                const method_idx = bytecode.readU16(self.code.items, next_ip);
+                const argc = bytecode.readU8(self.code.items, next_ip + 2);
+                const kwargc = bytecode.readU8(self.code.items, next_ip + 3);
+                const kw_metadata_idx = bytecode.readU16(self.code.items, next_ip + 4);
+                const block_id = bytecode.readU8(self.code.items, next_ip + 6);
+
+                try writer.print("CALL_KW {d}, {d}, {d}, {d}, {d}", .{ method_idx, argc, kwargc, kw_metadata_idx, block_id });
+
+                // Show keyword names if metadata is available
+                if (kw_metadata_idx < self.keyword_metadata.items.len) {
+                    const kw_meta = self.keyword_metadata.items[kw_metadata_idx];
+                    try writer.print(" (keywords: ", .{});
+                    for (kw_meta.names.items, 0..) |name_idx, i| {
+                        if (i > 0) try writer.print(", ", .{});
+                        if (name_idx < self.constants.items.len) {
+                            const kw_name = self.constants.items[name_idx].symbol;
+                            try writer.print("{s}", .{kw_name});
+                        }
+                    }
+                    try writer.print(")", .{});
+                }
+                try writer.print("\n", .{});
+                next_ip += 7;
             },
 
             .DEF_CLASS => {
