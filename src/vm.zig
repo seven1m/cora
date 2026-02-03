@@ -366,8 +366,10 @@ pub const VM = struct {
         const array_each_sym = try self.intern("each");
         try self.array_class.module.methods.put(array_each_sym, .{ .builtin = &builtinArrayEach });
 
-        // Register Hash builtins
         const bracket_sym = try self.intern("[]");
+        try self.array_class.module.methods.put(bracket_sym, .{ .builtin = &builtinArrayBracket });
+
+        // Register Hash builtins
         try self.hash_class.module.methods.put(bracket_sym, .{ .builtin = &builtinHashBracket });
 
         const bracket_set_sym = try self.intern("[]=");
@@ -2734,6 +2736,26 @@ pub const VM = struct {
         array.elements.append(self.gc_allocator, args[0]) catch return error.RuntimeError;
 
         return receiver;
+    }
+
+    fn builtinArrayBracket(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
+        try self.requireSingleArg(args, .integer, "Integer");
+        const array = receiver.data.array;
+        const index = args[0].data.integer;
+        const len: i64 = @intCast(array.elements.items.len);
+
+        // Handle negative indices (count from end)
+        var actual_index: i64 = index;
+        if (index < 0) {
+            actual_index = len + index;
+        }
+
+        // Return nil for out of bounds
+        if (actual_index < 0 or actual_index >= len) {
+            return Value.nil();
+        }
+
+        return array.elements.items[@intCast(actual_index)];
     }
 
     fn builtinArrayEach(self: *VM, receiver: Value, args: []Value, block: ?Block) RuntimeError!Value {
