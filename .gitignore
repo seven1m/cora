@@ -1,5 +1,8 @@
 .zig-cache
 zig-out
 
+# I'm playing around with local per-project customization of OpenCode, but I'm not ready to commit this.
+opencode.json
+
 # ignore ext/prism just so my editor's fuzzy finder doesn't search in it
 ext/prism
