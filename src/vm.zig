@@ -1132,7 +1132,7 @@ pub const VM = struct {
                 // Pop superclass (or nil)
                 const superclass_val = self.pop();
 
-                var superclass: ?*value.ClassObject = null;
+                var superclass: *value.ClassObject = self.object_class;
                 if (superclass_val.data == .class) {
                     superclass = superclass_val.data.class;
                 } else if (superclass_val.data != .nil) {
