@@ -114,3 +114,12 @@ zig-out/bin/cora [flags] [filename]
 ## Idiomatic Zig
 
 Use "unmanaged" ArrayList: `field: ArrayList(*Value) = .empty` (allocator passed to append/insert).
+
+## Ruby Specs
+
+We have tests in both `*_test.zig` files and in `*_spec.rb` files.
+
+The zig tests are for bootstrapping language features or for edge cases not expressed in ruby spec files.
+
+The spec files come from [ruby/spec](https://github.com/ruby/spec), which is a community-maintained repository of specs describing Ruby. When implementing one of these specs, we'll copy it over and try to get it passing. Specs in `src/test/spec`
+should automatically be run. Look in `../ruby_spec` for the files before going to the web.

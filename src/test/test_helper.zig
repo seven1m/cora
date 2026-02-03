@@ -56,12 +56,53 @@ pub const EvalResult = struct {
 };
 
 pub fn evalCodeWithOutput(ruby_code: []const u8, stdout_buf: []u8, stderr_buf: []u8) EvalResult {
+    return evalCodeWithOutputAndPath(ruby_code, stdout_buf, stderr_buf, null);
+}
+
+pub fn evalFile(path: []const u8, stdout_buf: []u8, stderr_buf: []u8) EvalResult {
+    const allocator = getAllocator();
+
+    // Get absolute path for require_relative resolution
+    const abs_path = std.fs.cwd().realpathAlloc(allocator, path) catch {
+        return .{
+            .value = Value.nil(),
+            .stdout = "",
+            .stderr = "",
+            .err = error.FileNotFound,
+        };
+    };
+
+    // Read file contents
+    const file = std.fs.cwd().openFile(path, .{}) catch {
+        return .{
+            .value = Value.nil(),
+            .stdout = "",
+            .stderr = "",
+            .err = error.FileNotFound,
+        };
+    };
+    defer file.close();
+
+    const ruby_code = file.readToEndAlloc(allocator, 1024 * 1024) catch {
+        return .{
+            .value = Value.nil(),
+            .stdout = "",
+            .stderr = "",
+            .err = error.FileNotFound,
+        };
+    };
+    defer allocator.free(ruby_code);
+
+    return evalCodeWithOutputAndPath(ruby_code, stdout_buf, stderr_buf, abs_path);
+}
+
+pub fn evalCodeWithOutputAndPath(ruby_code: []const u8, stdout_buf: []u8, stderr_buf: []u8, source_path: ?[]const u8) EvalResult {
     bdwgc.init();
     defer bdwgc.deinit();
 
     const allocator = getAllocator();
 
-    const parser = prism.Parser.init(allocator, ruby_code, null) catch |err| {
+    const parser = prism.Parser.init(allocator, ruby_code, source_path) catch |err| {
         return .{
             .value = Value.nil(),
             .stdout = "",

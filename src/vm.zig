@@ -403,6 +403,10 @@ pub const VM = struct {
         // Register String builtins
         const string_plus_sym = try self.intern("+");
         try self.string_class.module.methods.put(string_plus_sym, .{ .builtin = &builtinStringPlus });
+        const string_equal_sym = try self.intern("==");
+        try self.string_class.module.methods.put(string_equal_sym, .{ .builtin = &builtinStringEqual });
+        const string_not_equal_sym = try self.intern("!=");
+        try self.string_class.module.methods.put(string_not_equal_sym, .{ .builtin = &builtinStringNotEqual });
 
         // Register to_s methods
         const to_s_sym = try self.intern("to_s");
@@ -1136,13 +1140,35 @@ pub const VM = struct {
                 const constant = self.currentChunk().constants.items[name_idx];
                 if (constant == .string) {
                     const name_sym = try self.intern(constant.string);
-                    const class_val = self.newClass(name_sym, superclass);
 
-                    // Store constant in current lexical scope (or Object if no scope)
+                    // Check if class already exists (for reopening)
+                    var existing_class: ?Value = null;
                     if (frame.ep.lexical_scope) |scope| {
-                        try scope.scope_module.constants.put(name_sym, class_val);
+                        existing_class = try self.findConstantInLexicalScope(scope, name_sym);
+                    }
+                    if (existing_class == null) {
+                        existing_class = self.object_class.module.constants.get(name_sym);
+                    }
+
+                    var class_val: Value = undefined;
+                    if (existing_class) |ec| {
+                        if (ec.data == .class) {
+                            // Reopen existing class
+                            class_val = ec;
+                        } else {
+                            // Name exists but isn't a class - error
+                            return error.InvalidClassName;
+                        }
                     } else {
-                        try self.object_class.module.constants.put(name_sym, class_val);
+                        // Create new class
+                        class_val = self.newClass(name_sym, superclass);
+
+                        // Store constant in current lexical scope (or Object if no scope)
+                        if (frame.ep.lexical_scope) |scope| {
+                            try scope.scope_module.constants.put(name_sym, class_val);
+                        } else {
+                            try self.object_class.module.constants.put(name_sym, class_val);
+                        }
                     }
 
                     // Execute class body if it exists
@@ -2124,8 +2150,27 @@ pub const VM = struct {
 
     // ==== Built-in methods ====
 
-    fn builtinObjectNew(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
-        if (args.len != 0) {
+    fn builtinObjectNew(self: *VM, receiver: Value, args: []Value, block: ?Block) RuntimeError!Value {
+        // receiver should be a class
+        if (receiver.data != .class) {
+            const exc = try self.createException(
+                self.type_error_class,
+                "receiver is not a Class",
+            );
+            self.pending_exception = exc;
+            return error.RuntimeError;
+        }
+
+        const class_ptr = receiver.data.class;
+        const instance = self.newInstance(class_ptr);
+
+        // Call initialize if it exists
+        const init_sym = self.intern("initialize") catch return error.RuntimeError;
+        if (self.findMethod(instance, init_sym)) |_| {
+            // Use callMethodByName which handles dispatch properly
+            _ = try self.callMethodByName(instance, "initialize", args, block);
+        } else if (args.len != 0) {
+            // No initialize method but arguments were passed
             const msg = std.fmt.allocPrint(
                 self.gc_allocator,
                 "wrong number of arguments (given {d}, expected 0)",
@@ -2136,19 +2181,7 @@ pub const VM = struct {
             return error.RuntimeError;
         }
 
-        // receiver should be a class
-        if (receiver.data == .class) {
-            const class_ptr = receiver.data.class;
-            const instance = self.newInstance(class_ptr);
-            return instance;
-        } else {
-            const exc = try self.createException(
-                self.type_error_class,
-                "receiver is not a Class",
-            );
-            self.pending_exception = exc;
-            return error.RuntimeError;
-        }
+        return instance;
     }
 
     fn builtinProcNew(self: *VM, _: Value, args: []Value, block: ?Block) RuntimeError!Value {
@@ -2743,6 +2776,28 @@ pub const VM = struct {
         ) catch return error.RuntimeError;
 
         return self.newString(combined_str, false);
+    }
+
+    fn builtinStringEqual(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
+        try self.requireArgCount(args, 1);
+        const other = args[0];
+        // String == only returns true if other is also a String with same content
+        if (other.data != .string) {
+            return Value.boolean(false);
+        }
+        const result = std.mem.eql(u8, receiver.data.string.str, other.data.string.str);
+        return Value.boolean(result);
+    }
+
+    fn builtinStringNotEqual(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
+        try self.requireArgCount(args, 1);
+        const other = args[0];
+        // String != returns true if other is not a String or has different content
+        if (other.data != .string) {
+            return Value.boolean(true);
+        }
+        const result = !std.mem.eql(u8, receiver.data.string.str, other.data.string.str);
+        return Value.boolean(result);
     }
 
     fn builtinSymbolToS(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
