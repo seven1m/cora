@@ -3,6 +3,15 @@ const bytecode = @import("bytecode.zig");
 
 const LexicalScope = @import("value.zig").LexicalScope;
 
+pub const ChunkId = u16;
+
+/// Special marker value indicating that a block argument is on the stack
+/// (passed via `&variable` syntax) rather than being a compiled chunk.
+pub const BLOCK_ARG_ON_STACK: ChunkId = std.math.maxInt(ChunkId);
+
+/// Maximum valid chunk ID (one less than the marker value).
+pub const MAX_CHUNK_ID: ChunkId = BLOCK_ARG_ON_STACK - 1;
+
 pub const Constant = union(enum) {
     integer: i64,
     string: []const u8,
@@ -27,7 +36,7 @@ pub const ExceptionHandler = struct {
 
 pub const OptionalParam = struct {
     param_index: u8, // Local slot for this parameter
-    default_chunk_id: u8, // Chunk ID containing default expression
+    default_chunk_id: ChunkId, // Chunk ID containing default expression
 };
 
 pub const KeywordMetadata = struct {
@@ -35,14 +44,14 @@ pub const KeywordMetadata = struct {
 };
 
 pub const RequiredKeyword = struct {
-    name_idx: u16,    // Constant pool index (symbol)
-    param_slot: u8,   // Local variable slot
+    name_idx: u16, // Constant pool index (symbol)
+    param_slot: u8, // Local variable slot
 };
 
 pub const OptionalKeyword = struct {
-    name_idx: u16,        // Constant pool index (symbol)
-    param_slot: u8,       // Local variable slot
-    default_chunk_id: u8, // Chunk with default expression
+    name_idx: u16, // Constant pool index (symbol)
+    param_slot: u8, // Local variable slot
+    default_chunk_id: ChunkId, // Chunk with default expression
 };
 
 pub const Chunk = struct {
@@ -52,7 +61,7 @@ pub const Chunk = struct {
     line_info: std.ArrayList(u32) = .empty,
     allocator: std.mem.Allocator,
     name: []const u8,
-    chunk_id: ?u8 = null,
+    chunk_id: ?ChunkId = null,
     arity: u8 = 0, // For block chunks: number of pre-rest required parameters
     is_lambda: bool = false, // Distinguishes lambda from proc
     optional_params: std.ArrayList(OptionalParam) = .empty, // Optional parameters with defaults
@@ -63,10 +72,10 @@ pub const Chunk = struct {
     source_file: ?[]const u8 = null,
     required_keywords: std.ArrayList(RequiredKeyword) = .empty,
     optional_keywords: std.ArrayList(OptionalKeyword) = .empty,
-    keyword_rest_index: ?u8 = null,  // Slot for **kwargs hash
-    no_keywords: bool = false,        // True if **nil specified
+    keyword_rest_index: ?u8 = null, // Slot for **kwargs hash
+    no_keywords: bool = false, // True if **nil specified
     keyword_metadata: std.ArrayList(KeywordMetadata) = .empty,
-    block_param_index: ?u8 = null,    // Local slot for &block parameter
+    block_param_index: ?u8 = null, // Local slot for &block parameter
 
     pub fn init(allocator: std.mem.Allocator, name: []const u8) Chunk {
         return Chunk{
@@ -181,9 +190,29 @@ pub const Chunk = struct {
         try self.line_info.append(self.allocator, line);
     }
 
+    /// Emit opcode with u16, u8, and u16 operands
+    pub fn emitOpU16U8U16(self: *Chunk, op: bytecode.OpCode, a: u16, b: u8, c: u16, line: u32) !void {
+        try self.code.append(self.allocator, @intFromEnum(op));
+        try self.code.append(self.allocator, @intCast(a & 0xFF));
+        try self.code.append(self.allocator, @intCast((a >> 8) & 0xFF));
+        try self.code.append(self.allocator, b);
+        try self.code.append(self.allocator, @intCast(c & 0xFF));
+        try self.code.append(self.allocator, @intCast((c >> 8) & 0xFF));
+        try self.line_info.append(self.allocator, line);
+    }
+
+    /// Emit opcode with two u16 operands
+    pub fn emitOpU16U16(self: *Chunk, op: bytecode.OpCode, a: u16, b: u16, line: u32) !void {
+        try self.code.append(self.allocator, @intFromEnum(op));
+        try self.code.append(self.allocator, @intCast(a & 0xFF));
+        try self.code.append(self.allocator, @intCast((a >> 8) & 0xFF));
+        try self.code.append(self.allocator, @intCast(b & 0xFF));
+        try self.code.append(self.allocator, @intCast((b >> 8) & 0xFF));
+        try self.line_info.append(self.allocator, line);
+    }
+
     /// Emit CALL_KW instruction with keyword arguments
-    pub fn emitCallKw(self: *Chunk, method_idx: u16, argc: u8, kwargc: u8,
-                      kw_metadata_idx: u16, block_chunk_id: u8, line: u32) !void {
+    pub fn emitCallKw(self: *Chunk, method_idx: u16, argc: u8, kwargc: u8, kw_metadata_idx: u16, block_chunk_id: u16, line: u32) !void {
         try self.code.append(self.allocator, @intFromEnum(bytecode.OpCode.CALL_KW));
         try self.code.append(self.allocator, @intCast(method_idx & 0xFF));
         try self.code.append(self.allocator, @intCast((method_idx >> 8) & 0xFF));
@@ -191,7 +220,8 @@ pub const Chunk = struct {
         try self.code.append(self.allocator, kwargc);
         try self.code.append(self.allocator, @intCast(kw_metadata_idx & 0xFF));
         try self.code.append(self.allocator, @intCast((kw_metadata_idx >> 8) & 0xFF));
-        try self.code.append(self.allocator, block_chunk_id);
+        try self.code.append(self.allocator, @intCast(block_chunk_id & 0xFF));
+        try self.code.append(self.allocator, @intCast((block_chunk_id >> 8) & 0xFF));
         try self.line_info.append(self.allocator, line);
     }
 
@@ -372,9 +402,9 @@ pub const Chunk = struct {
             .CALL => {
                 const method_idx = bytecode.readU16(self.code.items, next_ip);
                 const argc = bytecode.readU8(self.code.items, next_ip + 2);
-                const block_id = bytecode.readU8(self.code.items, next_ip + 3);
+                const block_id = bytecode.readU16(self.code.items, next_ip + 3);
                 try writer.print("CALL {d}, {d}, {d}\n", .{ method_idx, argc, block_id });
-                next_ip += 4;
+                next_ip += 5;
             },
 
             .CALL_KW => {
@@ -382,7 +412,7 @@ pub const Chunk = struct {
                 const argc = bytecode.readU8(self.code.items, next_ip + 2);
                 const kwargc = bytecode.readU8(self.code.items, next_ip + 3);
                 const kw_metadata_idx = bytecode.readU16(self.code.items, next_ip + 4);
-                const block_id = bytecode.readU8(self.code.items, next_ip + 6);
+                const block_id = bytecode.readU16(self.code.items, next_ip + 6);
 
                 try writer.print("CALL_KW {d}, {d}, {d}, {d}, {d}", .{ method_idx, argc, kwargc, kw_metadata_idx, block_id });
 
@@ -400,7 +430,7 @@ pub const Chunk = struct {
                     try writer.print(")", .{});
                 }
                 try writer.print("\n", .{});
-                next_ip += 7;
+                next_ip += 8;
             },
 
             .DEF_CLASS => {
@@ -452,9 +482,9 @@ pub const Chunk = struct {
             },
 
             .PUSH_LAMBDA => {
-                const chunk_id = bytecode.readU8(self.code.items, next_ip);
+                const chunk_id = bytecode.readU16(self.code.items, next_ip);
                 try writer.print("PUSH_LAMBDA {d}\n", .{chunk_id});
-                next_ip += 1;
+                next_ip += 2;
             },
 
             .RETURN => {

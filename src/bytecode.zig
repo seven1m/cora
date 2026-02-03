@@ -27,15 +27,15 @@ pub const OpCode = enum(u8) {
     POP, // No operands
 
     // Method calls
-    CALL, // Operands: u16 (method name index), u8 (argc), u8 (block chunk id)
-    CALL_KW, // Operands: u16 method_idx, u8 argc, u8 kwargc, u16 kw_metadata_idx, u8 block_chunk_id
+    CALL, // Operands: u16 (method name index), u8 (argc), u16 (block chunk id)
+    CALL_KW, // Operands: u16 method_idx, u8 argc, u8 kwargc, u16 kw_metadata_idx, u16 block_chunk_id
     RETURN, // Operand: u8 (0=implicit, 1=explicit)
 
     // OOP
-    DEF_MODULE, // Operands: u16 (name index), u8 (body chunk id)
-    DEF_CLASS, // Operands: u16 (name index), u8 (body chunk id)
-    DEF_METHOD, // Operands: u16 (name index), u8 (chunk index)
-    DEF_SINGLETON_METHOD, // Operands: u16 (name index), u8 (chunk index) - receiver on stack
+    DEF_MODULE, // Operands: u16 (name index), u16 (body chunk id)
+    DEF_CLASS, // Operands: u16 (name index), u16 (body chunk id)
+    DEF_METHOD, // Operands: u16 (name index), u16 (chunk index)
+    DEF_SINGLETON_METHOD, // Operands: u16 (name index), u16 (chunk index) - receiver on stack
     PUSH_SELF, // No operands
 
     // Collections
@@ -47,7 +47,7 @@ pub const OpCode = enum(u8) {
 
     // Blocks
     YIELD, // Operand: u8 (argc)
-    PUSH_LAMBDA, // Operand: u8 (chunk_id)
+    PUSH_LAMBDA, // Operand: u16 (chunk_id)
 
     // Constant path resolution
     GET_CONST_PATH, // Operand: u16 (constant name index) - pops module/class, looks up constant
@@ -149,7 +149,7 @@ pub const Instruction = struct {
                 try writer.print(" {d}", .{self.bx});
             },
             .CALL => {
-                try writer.print(" {d} {d} {d}", .{ self.bx, self.a, self.b });
+                try writer.print(" {d} {d} {d}", .{ self.bx, self.a, self.ax });
             },
             .GET_LOCAL, .SET_LOCAL, .PUSH_ARRAY, .PUSH_HASH => {
                 try writer.print(" {d}", .{self.a});
@@ -161,8 +161,11 @@ pub const Instruction = struct {
                 const offset: i16 = @bitCast(self.bx);
                 try writer.print(" {}", .{offset});
             },
-            .YIELD, .PUSH_LAMBDA, .RETURN => {
+            .YIELD, .RETURN => {
                 try writer.print(" {d}", .{self.a});
+            },
+            .PUSH_LAMBDA => {
+                try writer.print(" {d}", .{self.ax});
             },
             else => {},
         }

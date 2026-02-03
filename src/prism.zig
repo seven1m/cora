@@ -57,6 +57,7 @@ pub const GlobalVariableReadNode = c.pm_global_variable_read_node_t;
 pub const GlobalVariableWriteNode = c.pm_global_variable_write_node_t;
 pub const InstanceVariableReadNode = c.pm_instance_variable_read_node_t;
 pub const InstanceVariableWriteNode = c.pm_instance_variable_write_node_t;
+pub const BlockArgumentNode = c.pm_block_argument_node_t;
 
 pub const Node = union(enum) {
     array: *ArrayNode,
@@ -110,6 +111,7 @@ pub const Node = union(enum) {
     global_variable_write: *GlobalVariableWriteNode,
     instance_variable_read: *InstanceVariableReadNode,
     instance_variable_write: *InstanceVariableWriteNode,
+    block_argument: *BlockArgumentNode,
 };
 
 /// Parser wraps Prism's parser and AST lifecycle
@@ -340,6 +342,10 @@ pub const Parser = struct {
 
         if (node_type == c.PM_INSTANCE_VARIABLE_WRITE_NODE) {
             return Node{ .instance_variable_write = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_BLOCK_ARGUMENT_NODE) {
+            return Node{ .block_argument = @ptrCast(raw) };
         }
 
         if (node_type == c.PM_OPTIONAL_PARAMETER_NODE) {

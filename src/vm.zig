@@ -679,6 +679,46 @@ pub const VM = struct {
         return val;
     }
 
+    /// Resolve a block from its chunk ID. Handles three cases:
+    /// - BLOCK_ARG_ON_STACK: pops Proc from stack, extracts Block
+    /// - Literal block (1..MAX_CHUNK_ID): looks up chunk, creates Block
+    /// - No block (0): returns null
+    /// Returns error.HandledException if a type error occurred (caller should return).
+    fn resolveBlock(self: *VM, block_chunk_id: chunk.ChunkId, frame: *CallFrame) !?Block {
+        if (block_chunk_id == chunk.BLOCK_ARG_ON_STACK) {
+            // Block argument: Proc is on top of stack
+            const proc_val = self.pop();
+
+            if (proc_val.data == .proc) {
+                return proc_val.data.proc.block;
+            } else if (proc_val.data == .nil) {
+                return null;
+            } else {
+                // Type error: not a Proc or nil
+                const exc = try self.createException(
+                    self.type_error_class,
+                    "wrong argument type (expected Proc)",
+                );
+                self.pending_exception = exc;
+                try self.unwindStack();
+                return error.HandledException;
+            }
+        } else if (block_chunk_id != 0) {
+            // Literal block: look up chunk
+            if (self.program.method_chunks.get(block_chunk_id)) |bc| {
+                bc.lexical_scope = self.current_lexical_scope;
+                const defining_ep = try self.promoteEnvironmentToHeap(frame.ep);
+                return Block{
+                    .chunk = bc,
+                    .defining_ep = defining_ep,
+                };
+            } else {
+                return error.UndefinedChunk;
+            }
+        }
+        return null;
+    }
+
     fn pushFrame(self: *VM, ch: *Chunk, self_value: Value, block: ?Block) !void {
         // Get parent environment (current frame's ep, if any)
         const parent_env = if (self.frames.items.len > 0)
@@ -943,7 +983,13 @@ pub const VM = struct {
             .CALL => {
                 const method_idx = self.readU16();
                 const argc = self.readByte();
-                const block_chunk_id = self.readByte();
+                const block_chunk_id = self.readU16();
+
+                // Resolve block first (may pop from stack for &variable syntax)
+                const block = self.resolveBlock(block_chunk_id, frame) catch |err| switch (err) {
+                    error.HandledException => return,
+                    else => return err,
+                };
 
                 // Pop arguments
                 var args: [256]Value = undefined;
@@ -955,25 +1001,6 @@ pub const VM = struct {
                 // Pop receiver
                 const receiver = self.pop();
 
-                // Look up block chunk if ID != 0
-                var block: ?Block = null;
-                if (block_chunk_id != 0) {
-                    if (self.program.method_chunks.get(block_chunk_id)) |bc| {
-                        // Capture current lexical scope for the block
-                        bc.lexical_scope = self.current_lexical_scope;
-
-                        // ESCAPE DETECTION: Block is capturing environment
-                        // Promote stack environments to heap; heap environments are already safe
-                        const defining_ep = try self.promoteEnvironmentToHeap(frame.ep);
-                        block = Block{
-                            .chunk = bc,
-                            .defining_ep = defining_ep,
-                        };
-                    } else {
-                        return error.UndefinedChunk;
-                    }
-                }
-
                 try self.callMethod(method_idx, receiver, &args, argc, null, 0, null, block);
             },
 
@@ -982,7 +1009,13 @@ pub const VM = struct {
                 const argc = self.readByte();
                 const kwargc = self.readByte();
                 const kw_metadata_idx = self.readU16();
-                const block_chunk_id = self.readByte();
+                const block_chunk_id = self.readU16();
+
+                // Resolve block first (may pop from stack for &variable syntax)
+                const block = self.resolveBlock(block_chunk_id, frame) catch |err| switch (err) {
+                    error.HandledException => return,
+                    else => return err,
+                };
 
                 // Pop keyword values
                 var kw_values: [256]Value = undefined;
@@ -1005,21 +1038,6 @@ pub const VM = struct {
 
                 // Get keyword metadata
                 const kw_metadata = frame.chunk.keyword_metadata.items[kw_metadata_idx];
-
-                // Get block if present
-                var block: ?Block = null;
-                if (block_chunk_id != 0) {
-                    if (self.program.method_chunks.get(block_chunk_id)) |bc| {
-                        bc.lexical_scope = self.current_lexical_scope;
-                        const defining_ep = try self.promoteEnvironmentToHeap(frame.ep);
-                        block = Block{
-                            .chunk = bc,
-                            .defining_ep = defining_ep,
-                        };
-                    } else {
-                        return error.UndefinedChunk;
-                    }
-                }
 
                 // Call method with keywords
                 try self.callMethod(method_idx, receiver, &args, argc, &kw_values, kwargc, kw_metadata, block);
@@ -1067,7 +1085,7 @@ pub const VM = struct {
 
             .DEF_MODULE => {
                 const name_idx = self.readU16();
-                const body_chunk_id = self.readByte();
+                const body_chunk_id = self.readU16();
 
                 const constant = self.currentChunk().constants.items[name_idx];
                 if (constant == .string) {
@@ -1103,7 +1121,7 @@ pub const VM = struct {
 
             .DEF_CLASS => {
                 const name_idx = self.readU16();
-                const body_chunk_id = self.readByte();
+                const body_chunk_id = self.readU16();
 
                 // Pop superclass (or nil)
                 const superclass_val = self.pop();
@@ -1340,8 +1358,8 @@ pub const VM = struct {
             },
 
             .PUSH_LAMBDA => {
-                const chunk_id = self.readByte();
-                const lambda_chunk = self.program.method_chunks.get(@intCast(chunk_id)) orelse unreachable;
+                const chunk_id = self.readU16();
+                const lambda_chunk = self.program.method_chunks.get(chunk_id) orelse unreachable;
 
                 // Create a block with the lambda chunk and current environment
                 const block = Block{
