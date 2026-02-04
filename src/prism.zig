@@ -58,6 +58,8 @@ pub const GlobalVariableWriteNode = c.pm_global_variable_write_node_t;
 pub const InstanceVariableReadNode = c.pm_instance_variable_read_node_t;
 pub const InstanceVariableWriteNode = c.pm_instance_variable_write_node_t;
 pub const BlockArgumentNode = c.pm_block_argument_node_t;
+pub const EmbeddedStatementsNode = c.pm_embedded_statements_node_t;
+pub const InterpolatedStringNode = c.pm_interpolated_string_node_t;
 
 pub const Node = union(enum) {
     array: *ArrayNode,
@@ -112,6 +114,8 @@ pub const Node = union(enum) {
     instance_variable_read: *InstanceVariableReadNode,
     instance_variable_write: *InstanceVariableWriteNode,
     block_argument: *BlockArgumentNode,
+    embedded_statements: *EmbeddedStatementsNode,
+    interpolated_string: *InterpolatedStringNode,
 };
 
 /// Parser wraps Prism's parser and AST lifecycle
@@ -346,6 +350,14 @@ pub const Parser = struct {
 
         if (node_type == c.PM_BLOCK_ARGUMENT_NODE) {
             return Node{ .block_argument = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_EMBEDDED_STATEMENTS_NODE) {
+            return Node{ .embedded_statements = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_INTERPOLATED_STRING_NODE) {
+            return Node{ .interpolated_string = @ptrCast(raw) };
         }
 
         if (node_type == c.PM_OPTIONAL_PARAMETER_NODE) {

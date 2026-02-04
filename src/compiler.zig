@@ -150,6 +150,50 @@ pub const Compiler = struct {
                 try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(idx), line);
             },
 
+            .interpolated_string => |interp_node| {
+                const part_count: u8 = @intCast(interp_node.parts.size);
+
+                if (part_count > 255) {
+                    return error.TooManyInterpolationParts;
+                }
+
+                if (part_count == 0) {
+                    const idx = try self.current_chunk.addConstant(.{ .string = "" });
+                    try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(idx), line);
+                    return;
+                }
+
+                var i: i32 = @intCast(interp_node.parts.size);
+                while (i > 0) : (i -= 1) {
+                    const part = interp_node.parts.nodes[@intCast(i - 1)];
+                    const part_node = try self.parser.asNode(part);
+
+                    switch (part_node) {
+                        .string => |string_node| {
+                            const str_val = string_node.unescaped;
+                            const str_slice = str_val.source[0..str_val.length];
+                            const idx = try self.current_chunk.addConstant(.{ .string = str_slice });
+                            try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(idx), line);
+                        },
+                        .embedded_statements => |embed_node| {
+                            if (embed_node.statements) |stmts_raw| {
+                                const stmts = try self.parser.asNode(@ptrCast(stmts_raw));
+                                try self.compileNode(stmts, line);
+                            } else {
+                                const idx = try self.current_chunk.addConstant(.{ .string = "" });
+                                try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(idx), line);
+                            }
+                        },
+                        else => {
+                            std.debug.print("Error: unexpected node type in interpolated string\n", .{});
+                            return error.UnsupportedNode;
+                        },
+                    }
+                }
+
+                try self.current_chunk.emitOpU8(.INTERPOLATE_STRING, part_count, line);
+            },
+
             .true_node => {
                 try self.current_chunk.emitOp(.PUSH_TRUE, line);
             },
@@ -504,7 +548,7 @@ pub const Compiler = struct {
             },
 
             else => {
-                std.debug.print("Error: unsupported node type\n", .{});
+                std.debug.print("Error: unsupported node type: {}\n", .{node});
                 return error.UnsupportedNode;
             },
         }

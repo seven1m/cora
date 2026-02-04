@@ -1311,6 +1311,26 @@ pub const VM = struct {
                 try self.push(.{ .data = .{ .hash = hash_obj } });
             },
 
+            .INTERPOLATE_STRING => {
+                const part_count = self.readByte();
+
+                var buf: std.ArrayList(u8) = .empty;
+                defer buf.deinit(self.allocator);
+                const writer = buf.writer(self.allocator);
+
+                var i: usize = 0;
+                while (i < part_count) : (i += 1) {
+                    const val = self.pop();
+                    const str_val = try self.callMethodByName(val, "to_s", &[_]Value{}, null);
+                    if (str_val.data != .string) return error.RuntimeError;
+                    try writer.writeAll(str_val.data.string.str);
+                }
+
+                const final_str = buf.toOwnedSlice(self.allocator) catch return error.RuntimeError;
+                defer self.allocator.free(final_str);
+                try self.push(self.newString(final_str, false));
+            },
+
             .HALT => {
                 try self.popFrame();
             },
@@ -3629,8 +3649,8 @@ pub const VM = struct {
         try self.requireArgCount(args, 0);
         const hash_obj = receiver.data.hash;
         var buf: std.ArrayList(u8) = .empty;
-        defer buf.deinit(self.gc_allocator);
-        const writer = buf.writer(self.gc_allocator);
+        defer buf.deinit(self.allocator);
+        const writer = buf.writer(self.allocator);
 
         writer.writeAll("{") catch return error.RuntimeError;
         for (hash_obj.entries.items, 0..) |entry, idx| {
@@ -3659,7 +3679,8 @@ pub const VM = struct {
         }
         writer.writeAll("}") catch return error.RuntimeError;
 
-        const final_str = buf.toOwnedSlice(self.gc_allocator) catch return error.RuntimeError;
+        const final_str = buf.toOwnedSlice(self.allocator) catch return error.RuntimeError;
+        defer self.allocator.free(final_str);
         return self.newString(final_str, false);
     }
 

@@ -41,6 +41,7 @@ pub const OpCode = enum(u8) {
     // Collections
     PUSH_ARRAY, // Operand: u8 (element count)
     PUSH_HASH, // Operand: u8 (pair count)
+    INTERPOLATE_STRING, // Operand: u8 (part count)
 
     // Special
     HALT, // No operands
@@ -98,6 +99,7 @@ pub fn opcodeName(op: OpCode) []const u8 {
         .DEF_METHOD => "DEF_METHOD",
         .PUSH_ARRAY => "PUSH_ARRAY",
         .PUSH_HASH => "PUSH_HASH",
+        .INTERPOLATE_STRING => "INTERPOLATE_STRING",
         .HALT => "HALT",
         .DEF_SINGLETON_METHOD => "DEF_SINGLETON_METHOD",
         .YIELD => "YIELD",
@@ -151,7 +153,7 @@ pub const Instruction = struct {
             .CALL => {
                 try writer.print(" {d} {d} {d}", .{ self.bx, self.a, self.ax });
             },
-            .GET_LOCAL, .SET_LOCAL, .PUSH_ARRAY, .PUSH_HASH => {
+            .GET_LOCAL, .SET_LOCAL, .PUSH_ARRAY, .PUSH_HASH, .INTERPOLATE_STRING => {
                 try writer.print(" {d}", .{self.a});
             },
             .GET_LOCAL_DEEP, .SET_LOCAL_DEEP => {

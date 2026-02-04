@@ -35,6 +35,7 @@ const language_rest_parameter_test = @import("test/language/rest_parameter_test.
 const language_optional_parameter_test = @import("test/language/optional_parameter_test.zig");
 const language_keyword_parameter_test = @import("test/language/keyword_parameter_test.zig");
 const language_retry_test = @import("test/language/retry_test.zig");
+const language_string_interpolation_test = @import("test/language/string_interpolation_test.zig");
 const language_while_test = @import("test/language/while_test.zig");
 const language_until_test = @import("test/language/until_test.zig");
 const spec_test = @import("test/spec_test.zig");
@@ -75,6 +76,7 @@ comptime {
     _ = language_optional_parameter_test;
     _ = language_keyword_parameter_test;
     _ = language_retry_test;
+    _ = language_string_interpolation_test;
     _ = language_while_test;
     _ = language_until_test;
     _ = spec_test;
