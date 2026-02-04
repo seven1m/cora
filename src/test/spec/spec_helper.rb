@@ -27,7 +27,7 @@ class SpecExpectation
     if @actual == expected
       :noop
     else
-      raise SpecFailedException, "Expected: " + expected.inspect + "\nActual: " + @actual.inspect
+      raise SpecFailedException, "Expected: #{expected.inspect}\nActual: #{@actual.inspect}"
     end
   end
 end
@@ -40,13 +40,13 @@ end
 
 def report_results
   if $__failures.length > 0
-    puts 'FAILURES (' + $__failures.length.to_s + '):'
+    puts "FAILURES (#{$__failures.length}):"
     puts
     $__failures.each do |details|
-      puts details[0] + ': ' + details[1]
+      puts "#{details[0]}: #{details[1]}"
       puts details[2]
     end
   else
-    puts "OK: " + $__passes.to_s + " passed"
+    puts "OK: #{$__passes} passed"
   end
 end
