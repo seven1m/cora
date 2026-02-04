@@ -91,7 +91,7 @@ test "Calling undefined class method raises NoMethodError" {
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;
 
-    const result = try evalCodeWithOutput(
+    const result = evalCodeWithOutput(
         \\class Foo
         \\end
         \\Foo.undefined_method
@@ -106,7 +106,7 @@ test "Calling undefined singleton method on instance raises NoMethodError" {
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;
 
-    const result = try evalCodeWithOutput(
+    const result = evalCodeWithOutput(
         \\foo = Object.new
         \\foo.undefined_singleton_method
     , &stdout_buf, &stderr_buf);
