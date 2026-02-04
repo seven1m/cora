@@ -4,6 +4,7 @@ const binary_test = @import("test/binary_test.zig");
 
 const core_array_test = @import("test/core/array_test.zig");
 const core_class_test = @import("test/core/class_test.zig");
+const core_encoding_test = @import("test/core/encoding_test.zig");
 const core_exception_test = @import("test/core/exception_test.zig");
 const core_false_test = @import("test/core/false_test.zig");
 const core_integer_test = @import("test/core/integer_test.zig");
@@ -47,6 +48,7 @@ comptime {
     _ = binary_test;
     _ = core_class_test;
     _ = core_array_test;
+    _ = core_encoding_test;
     _ = core_exception_test;
     _ = core_false_test;
     _ = core_integer_test;

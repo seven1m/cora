@@ -5,6 +5,10 @@ const Chunk = @import("chunk.zig").Chunk;
 const VM = @import("vm.zig").VM;
 const Method = @import("vm.zig").Method;
 
+const encoding = @import("encoding.zig");
+const Encoding = encoding.Encoding;
+const ValidityState = encoding.ValidityState;
+
 pub const RuntimeError = error{
     WrongReceiverType,
     WrongArgumentCount,
@@ -37,6 +41,13 @@ pub const SymbolObject = struct {
 pub const StringObject = struct {
     object: Object,
     str: []const u8,
+    encoding: Encoding = .{ .utf8 = .{} },
+    validity: ValidityState = .unknown,
+};
+
+pub const EncodingObject = struct {
+    object: Object,
+    encoding: Encoding,
 };
 
 pub const LexicalScope = struct {
@@ -93,6 +104,7 @@ pub const Value = struct {
         array: *ArrayObject,
         boolean: bool,
         class: *ClassObject,
+        encoding: *EncodingObject,
         exception: *ExceptionObject,
         hash: *HashObject,
         instance: *Object,
@@ -108,6 +120,8 @@ pub const Value = struct {
         return switch (self.data) {
             // Primitives are always frozen
             .integer, .string, .nil, .boolean => true,
+            // Encoding objects are always frozen (singletons)
+            .encoding => true,
             // Objects check their flags
             .symbol => |s| (s.object.flags & Object.FROZEN_FLAG) != 0,
             .module => |m| (m.object.flags & Object.FROZEN_FLAG) != 0,
@@ -138,6 +152,7 @@ pub const Value = struct {
     pub fn getObjectPointer(self: Value) ?*Object {
         return switch (self.data) {
             .class => |c| &c.module.object,
+            .encoding => |e| &e.object,
             .module => |m| &m.object,
             .instance => |i| i,
             .string => |s| &s.object,
@@ -179,6 +194,7 @@ pub const Value = struct {
             .nil => try writer.print("nil", .{}),
             .module => |m| try writer.print("<Module {s}>", .{m.name.name}),
             .class => |c| try writer.print("<Class {s}>", .{c.module.name.name}),
+            .encoding => |e| try writer.print("#<Encoding:{s}>", .{e.encoding.name()}),
             .instance => |i| try writer.print("<{s} instance>", .{i.class.?.module.name.name}),
             .array => |a| {
                 try writer.print("[", .{});

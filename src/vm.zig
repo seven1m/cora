@@ -2,6 +2,7 @@ const std = @import("std");
 const bytecode = @import("bytecode.zig");
 const chunk = @import("chunk.zig");
 const compiler = @import("compiler.zig");
+const enc = @import("encoding.zig");
 const value = @import("value.zig");
 const prism = @import("prism.zig");
 
@@ -97,6 +98,12 @@ pub const VM = struct {
     no_method_error_class: *value.ClassObject,
     load_error_class: *value.ClassObject,
 
+    // Encoding infrastructure
+    encoding_class: *value.ClassObject,
+    encoding_utf8: *value.EncodingObject,
+    encoding_ascii_8bit: *value.EncodingObject,
+    encoding_us_ascii: *value.EncodingObject,
+
     // Exception handling state
     pending_exception: ?*value.ExceptionObject = null,
     retry_point: ?struct {
@@ -156,6 +163,10 @@ pub const VM = struct {
             .zero_division_error_class = undefined,
             .no_method_error_class = undefined,
             .load_error_class = undefined,
+            .encoding_class = undefined,
+            .encoding_utf8 = undefined,
+            .encoding_ascii_8bit = undefined,
+            .encoding_us_ascii = undefined,
         };
     }
 
@@ -275,6 +286,16 @@ pub const VM = struct {
         const load_error_class_val = self.newClass(load_error_name_sym, self.standard_error_class);
         self.load_error_class = load_error_class_val.data.class;
 
+        // Encoding class and singleton encoding objects
+        const encoding_name_sym = try self.intern("Encoding");
+        const encoding_class_val = self.newClass(encoding_name_sym, self.object_class);
+        self.encoding_class = encoding_class_val.data.class;
+
+        // Create singleton encoding objects
+        self.encoding_utf8 = try self.createEncodingObject(.{ .utf8 = .{} });
+        self.encoding_ascii_8bit = try self.createEncodingObject(.{ .ascii_8bit = .{} });
+        self.encoding_us_ascii = try self.createEncodingObject(.{ .us_ascii = .{} });
+
         // --- Stage 3: Set Class's superclass to Module ---
         self.class_class.superclass = self.module_class;
 
@@ -301,6 +322,22 @@ pub const VM = struct {
         try self.object_class.module.constants.put(zero_division_error_name_sym, zero_division_error_class_val);
         try self.object_class.module.constants.put(no_method_error_name_sym, no_method_error_class_val);
         try self.object_class.module.constants.put(load_error_name_sym, load_error_class_val);
+        try self.object_class.module.constants.put(encoding_name_sym, encoding_class_val);
+
+        // Register encoding constants on Encoding class
+        const utf8_const_sym = try self.intern("UTF_8");
+        const ascii_8bit_const_sym = try self.intern("ASCII_8BIT");
+        const binary_const_sym = try self.intern("BINARY");
+        const us_ascii_const_sym = try self.intern("US_ASCII");
+
+        const utf8_val = Value{ .data = .{ .encoding = self.encoding_utf8 } };
+        const ascii_8bit_val = Value{ .data = .{ .encoding = self.encoding_ascii_8bit } };
+        const us_ascii_val = Value{ .data = .{ .encoding = self.encoding_us_ascii } };
+
+        try self.encoding_class.module.constants.put(utf8_const_sym, utf8_val);
+        try self.encoding_class.module.constants.put(ascii_8bit_const_sym, ascii_8bit_val);
+        try self.encoding_class.module.constants.put(binary_const_sym, ascii_8bit_val); // BINARY is alias for ASCII_8BIT
+        try self.encoding_class.module.constants.put(us_ascii_const_sym, us_ascii_val);
 
         // --- Stage 5: Register built-in methods ---
         // Register Kernel built-in methods
@@ -410,6 +447,18 @@ pub const VM = struct {
         const string_not_equal_sym = try self.intern("!=");
         try self.string_class.module.methods.put(string_not_equal_sym, .{ .builtin = &builtinStringNotEqual });
 
+        // Register String encoding methods
+        const string_encoding_sym = try self.intern("encoding");
+        try self.string_class.module.methods.put(string_encoding_sym, .{ .builtin = &builtinStringEncoding });
+        const string_force_encoding_sym = try self.intern("force_encoding");
+        try self.string_class.module.methods.put(string_force_encoding_sym, .{ .builtin = &builtinStringForceEncoding });
+        const string_valid_encoding_sym = try self.intern("valid_encoding?");
+        try self.string_class.module.methods.put(string_valid_encoding_sym, .{ .builtin = &builtinStringValidEncoding });
+        const string_ascii_only_sym = try self.intern("ascii_only?");
+        try self.string_class.module.methods.put(string_ascii_only_sym, .{ .builtin = &builtinStringAsciiOnly });
+        const string_b_sym = try self.intern("b");
+        try self.string_class.module.methods.put(string_b_sym, .{ .builtin = &builtinStringB });
+
         // Register to_s methods
         const to_s_sym = try self.intern("to_s");
         try self.integer_class.module.methods.put(to_s_sym, .{ .builtin = &builtinIntegerToS });
@@ -445,6 +494,20 @@ pub const VM = struct {
         // Register Exception#message method
         const message_sym = try self.intern("message");
         try self.exception_class.module.methods.put(message_sym, .{ .builtin = &builtinExceptionMessage });
+
+        // Register Encoding methods
+        const name_sym = try self.intern("name");
+        try self.encoding_class.module.methods.put(name_sym, .{ .builtin = &builtinEncodingName });
+        try self.encoding_class.module.methods.put(to_s_sym, .{ .builtin = &builtinEncodingName });
+        try self.encoding_class.module.methods.put(inspect_sym, .{ .builtin = &builtinEncodingInspect });
+
+        const ascii_compatible_sym = try self.intern("ascii_compatible?");
+        try self.encoding_class.module.methods.put(ascii_compatible_sym, .{ .builtin = &builtinEncodingAsciiCompatible });
+
+        // Register Encoding.find class method
+        const find_sym = try self.intern("find");
+        const encoding_singleton = try self.getOrCreateSingletonClass(encoding_class_val);
+        try encoding_singleton.module.methods.put(find_sym, .{ .builtin = &builtinEncodingFind });
 
         // --- Stage 6: Initialize top-level lexical scope ---
         self.current_lexical_scope = try self.createLexicalScope(&self.object_class.module, null);
@@ -1872,6 +1935,7 @@ pub const VM = struct {
             .array => |a| return a.object.class.?,
             .hash => |h| return h.object.class.?,
             .exception => |e| return e.object.class.?,
+            .encoding => |e| return e.object.class.?,
             .module => |m| return m.object.class.?,
             .class => |c| return c.module.object.class.?,
             .proc => |p| return p.object.class.?,
@@ -1886,6 +1950,7 @@ pub const VM = struct {
     fn getObjectPointer(_: *VM, obj_val: value.Value) ?*value.Object {
         return switch (obj_val.data) {
             .class => |c| &c.module.object,
+            .encoding => |e| &e.object,
             .module => |m| &m.object,
             .instance => |i| i,
             .string => |s| &s.object,
@@ -1965,8 +2030,9 @@ pub const VM = struct {
             .array => self.array_class,
             .hash => self.hash_class,
             .exception => self.exception_class,
+            .encoding => self.encoding_class,
             .proc => self.proc_class,
-            else => unreachable,
+            .integer, .boolean, .nil => unreachable, // Primitives can't have singleton classes
         };
 
         // Create the singleton ClassObject
@@ -2078,6 +2144,10 @@ pub const VM = struct {
     }
 
     pub fn newString(self: *VM, str: []const u8, frozen: bool) Value {
+        return self.newStringWithEncoding(str, frozen, .{ .utf8 = .{} });
+    }
+
+    pub fn newStringWithEncoding(self: *VM, str: []const u8, frozen: bool, encoding: enc.Encoding) Value {
         var copy = str;
         var flags: u32 = 0;
         if (frozen) {
@@ -2090,8 +2160,23 @@ pub const VM = struct {
         string_obj.* = .{
             .object = .{ .flags = flags, .class = self.string_class, .singleton_class = null, .instance_variables = null },
             .str = copy,
+            .encoding = encoding,
         };
         return .{ .data = .{ .string = string_obj } };
+    }
+
+    fn createEncodingObject(self: *VM, encoding: enc.Encoding) !*value.EncodingObject {
+        const encoding_obj = try self.gc_allocator.create(value.EncodingObject);
+        encoding_obj.* = .{
+            .object = .{
+                .flags = Object.FROZEN_FLAG, // Encoding objects are frozen singletons
+                .class = self.encoding_class,
+                .singleton_class = null,
+                .instance_variables = null,
+            },
+            .encoding = encoding,
+        };
+        return encoding_obj;
     }
 
     pub fn newProc(self: *VM, block: Block) Value {
@@ -2842,6 +2927,70 @@ pub const VM = struct {
         return Value.boolean(result);
     }
 
+    fn builtinStringEncoding(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
+        try self.requireArgCount(args, 0);
+        if (receiver.data != .string) {
+            return self.raiseExceptionFmt(self.type_error_class, "receiver is not a String", .{});
+        }
+        const string_obj = receiver.data.string;
+        // Return the appropriate encoding singleton
+        return switch (string_obj.encoding) {
+            .utf8 => Value{ .data = .{ .encoding = self.encoding_utf8 } },
+            .ascii_8bit => Value{ .data = .{ .encoding = self.encoding_ascii_8bit } },
+            .us_ascii => Value{ .data = .{ .encoding = self.encoding_us_ascii } },
+        };
+    }
+
+    fn builtinStringForceEncoding(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
+        try self.requireArgCount(args, 1);
+        if (receiver.data != .string) {
+            return self.raiseExceptionFmt(self.type_error_class, "receiver is not a String", .{});
+        }
+
+        // Get the new encoding from argument
+        const new_encoding: enc.Encoding = switch (args[0].data) {
+            .encoding => |e| e.encoding,
+            .string, .symbol => blk: {
+                // Use Encoding.find logic - works for both strings and symbols
+                const result = try self.builtinEncodingFind(receiver, args, null);
+                break :blk result.data.encoding.encoding;
+            },
+            else => return self.raiseExceptionFmt(self.type_error_class, "wrong argument type {s} (expected Encoding, String, or Symbol)", .{@tagName(args[0].data)}),
+        };
+
+        // Create a new string with the same bytes but different encoding
+        const string_obj = receiver.data.string;
+        return self.newStringWithEncoding(string_obj.str, false, new_encoding);
+    }
+
+    fn builtinStringValidEncoding(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
+        try self.requireArgCount(args, 0);
+        if (receiver.data != .string) {
+            return self.raiseExceptionFmt(self.type_error_class, "receiver is not a String", .{});
+        }
+        const string_obj = receiver.data.string;
+        return Value.boolean(string_obj.encoding.isValid(string_obj.str));
+    }
+
+    fn builtinStringAsciiOnly(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
+        try self.requireArgCount(args, 0);
+        if (receiver.data != .string) {
+            return self.raiseExceptionFmt(self.type_error_class, "receiver is not a String", .{});
+        }
+        const string_obj = receiver.data.string;
+        return Value.boolean(enc.isAsciiOnly(string_obj.str));
+    }
+
+    fn builtinStringB(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
+        try self.requireArgCount(args, 0);
+        if (receiver.data != .string) {
+            return self.raiseExceptionFmt(self.type_error_class, "receiver is not a String", .{});
+        }
+        const string_obj = receiver.data.string;
+        // Return a new string with ASCII-8BIT encoding
+        return self.newStringWithEncoding(string_obj.str, false, .{ .ascii_8bit = .{} });
+    }
+
     fn builtinSymbolToS(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
         if (receiver.data != .symbol) {
             const exc = try self.createException(
@@ -2977,6 +3126,7 @@ pub const VM = struct {
             .array => |a| @intFromPtr(a),
             .hash => |h| @intFromPtr(h),
             .exception => |e| @intFromPtr(e),
+            .encoding => |e| @intFromPtr(e),
             .module => |m| @intFromPtr(m),
             .class => |c| @intFromPtr(c),
             .proc => |p| @intFromPtr(p),
@@ -3545,6 +3695,73 @@ pub const VM = struct {
 
         const exc = receiver.data.exception;
         return .{ .data = .{ .string = exc.message } };
+    }
+
+    fn builtinEncodingName(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
+        try self.requireArgCount(args, 0);
+        if (receiver.data != .encoding) {
+            return self.raiseExceptionFmt(self.type_error_class, "receiver is not an Encoding", .{});
+        }
+        const encoding_obj = receiver.data.encoding;
+        return self.newString(encoding_obj.encoding.name(), true);
+    }
+
+    fn builtinEncodingInspect(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
+        try self.requireArgCount(args, 0);
+        if (receiver.data != .encoding) {
+            return self.raiseExceptionFmt(self.type_error_class, "receiver is not an Encoding", .{});
+        }
+        const encoding_obj = receiver.data.encoding;
+        const str = std.fmt.allocPrint(self.gc_allocator, "#<Encoding:{s}>", .{encoding_obj.encoding.name()}) catch return error.RuntimeError;
+        return self.newString(str, false);
+    }
+
+    fn builtinEncodingAsciiCompatible(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {
+        try self.requireArgCount(args, 0);
+        if (receiver.data != .encoding) {
+            return self.raiseExceptionFmt(self.type_error_class, "receiver is not an Encoding", .{});
+        }
+        const encoding_obj = receiver.data.encoding;
+        return Value.boolean(encoding_obj.encoding.isAsciiCompatible());
+    }
+
+    fn builtinEncodingFind(self: *VM, _: Value, args: []Value, _: ?Block) RuntimeError!Value {
+        try self.requireArgCount(args, 1);
+        const arg = args[0];
+
+        // Get encoding name from argument
+        const name_str = switch (arg.data) {
+            .string => |s| s.str,
+            .symbol => |s| s.name,
+            else => return self.raiseExceptionFmt(self.type_error_class, "wrong argument type {s} (expected String or Symbol)", .{@tagName(arg.data)}),
+        };
+
+        // Normalize: uppercase and replace - with _
+        var normalized: [32]u8 = undefined;
+        var len: usize = 0;
+        for (name_str) |c| {
+            if (len >= normalized.len) break;
+            if (c == '-') {
+                normalized[len] = '_';
+            } else if (c >= 'a' and c <= 'z') {
+                normalized[len] = c - 32; // uppercase
+            } else {
+                normalized[len] = c;
+            }
+            len += 1;
+        }
+        const lookup = normalized[0..len];
+
+        // Match encoding name
+        if (std.mem.eql(u8, lookup, "UTF_8") or std.mem.eql(u8, lookup, "UTF8")) {
+            return Value{ .data = .{ .encoding = self.encoding_utf8 } };
+        } else if (std.mem.eql(u8, lookup, "ASCII_8BIT") or std.mem.eql(u8, lookup, "BINARY")) {
+            return Value{ .data = .{ .encoding = self.encoding_ascii_8bit } };
+        } else if (std.mem.eql(u8, lookup, "US_ASCII") or std.mem.eql(u8, lookup, "ASCII")) {
+            return Value{ .data = .{ .encoding = self.encoding_us_ascii } };
+        }
+
+        return self.raiseExceptionFmt(self.argument_error_class, "unknown encoding name - {s}", .{name_str});
     }
 
     fn builtinHashBracket(self: *VM, receiver: Value, args: []Value, _: ?Block) RuntimeError!Value {

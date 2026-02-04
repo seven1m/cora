@@ -1,0 +1,163 @@
+const std = @import("std");
+const test_helper = @import("../test_helper.zig");
+
+const evalCode = test_helper.evalCode;
+const evalCodeWithOutput = test_helper.evalCodeWithOutput;
+
+test "Encoding::UTF_8 exists" {
+    const result = try evalCode("Encoding::UTF_8");
+    try std.testing.expect(result.data == .encoding);
+}
+
+test "Encoding::ASCII_8BIT exists" {
+    const result = try evalCode("Encoding::ASCII_8BIT");
+    try std.testing.expect(result.data == .encoding);
+}
+
+test "Encoding::US_ASCII exists" {
+    const result = try evalCode("Encoding::US_ASCII");
+    try std.testing.expect(result.data == .encoding);
+}
+
+test "Encoding::BINARY is alias for ASCII_8BIT" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+
+    const result = evalCodeWithOutput(
+        "puts Encoding::BINARY.name\nputs Encoding::ASCII_8BIT.name",
+        &stdout_buf,
+        &stderr_buf,
+    );
+
+    try std.testing.expectEqual(@as(?anyerror, null), result.err);
+    try std.testing.expectEqualSlices(u8, "ASCII-8BIT\nASCII-8BIT\n", result.stdout);
+}
+
+test "Encoding#name returns encoding name" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+
+    const result = evalCodeWithOutput(
+        "puts Encoding::UTF_8.name",
+        &stdout_buf,
+        &stderr_buf,
+    );
+
+    try std.testing.expectEqual(@as(?anyerror, null), result.err);
+    try std.testing.expectEqualSlices(u8, "UTF-8\n", result.stdout);
+}
+
+test "Encoding#to_s returns encoding name" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+
+    const result = evalCodeWithOutput(
+        "puts Encoding::UTF_8.to_s",
+        &stdout_buf,
+        &stderr_buf,
+    );
+
+    try std.testing.expectEqual(@as(?anyerror, null), result.err);
+    try std.testing.expectEqualSlices(u8, "UTF-8\n", result.stdout);
+}
+
+test "Encoding#inspect returns #<Encoding:name>" {
+    const result = try evalCode("Encoding::UTF_8.inspect");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "#<Encoding:UTF-8>", result.data.string.str);
+}
+
+test "Encoding#ascii_compatible? returns true for UTF-8" {
+    const result = try evalCode("Encoding::UTF_8.ascii_compatible?");
+    try std.testing.expect(result.data == .boolean);
+    try std.testing.expect(result.data.boolean == true);
+}
+
+test "Encoding#ascii_compatible? returns true for ASCII-8BIT" {
+    const result = try evalCode("Encoding::ASCII_8BIT.ascii_compatible?");
+    try std.testing.expect(result.data == .boolean);
+    try std.testing.expect(result.data.boolean == true);
+}
+
+test "Encoding#ascii_compatible? returns true for US-ASCII" {
+    const result = try evalCode("Encoding::US_ASCII.ascii_compatible?");
+    try std.testing.expect(result.data == .boolean);
+    try std.testing.expect(result.data.boolean == true);
+}
+
+test "Encoding.find with string argument" {
+    const result = try evalCode("Encoding.find('UTF-8').name");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "UTF-8", result.data.string.str);
+}
+
+test "Encoding.find normalizes name" {
+    const result = try evalCode("Encoding.find('utf-8').name");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "UTF-8", result.data.string.str);
+}
+
+test "Encoding.find with symbol argument" {
+    const result = try evalCode("Encoding.find(:binary).name");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "ASCII-8BIT", result.data.string.str);
+}
+
+test "String#encoding returns UTF-8 by default" {
+    const result = try evalCode("'hello'.encoding.name");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "UTF-8", result.data.string.str);
+}
+
+test "String#encoding returns encoding object" {
+    const result = try evalCode("'hello'.encoding");
+    try std.testing.expect(result.data == .encoding);
+}
+
+test "String#force_encoding changes encoding" {
+    const result = try evalCode("'hello'.force_encoding('ASCII-8BIT').encoding.name");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "ASCII-8BIT", result.data.string.str);
+}
+
+test "String#force_encoding accepts encoding object" {
+    const result = try evalCode("'hello'.force_encoding(Encoding::US_ASCII).encoding.name");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "US-ASCII", result.data.string.str);
+}
+
+test "String#force_encoding accepts symbol" {
+    const result = try evalCode("'hello'.force_encoding(:binary).encoding.name");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "ASCII-8BIT", result.data.string.str);
+}
+
+test "String#valid_encoding? returns true for valid UTF-8" {
+    const result = try evalCode("'hello'.valid_encoding?");
+    try std.testing.expect(result.data == .boolean);
+    try std.testing.expect(result.data.boolean == true);
+}
+
+test "String#valid_encoding? returns true for ASCII-8BIT (always valid)" {
+    const result = try evalCode("'hello'.force_encoding('ASCII-8BIT').valid_encoding?");
+    try std.testing.expect(result.data == .boolean);
+    try std.testing.expect(result.data.boolean == true);
+}
+
+test "String#ascii_only? returns true for ASCII string" {
+    const result = try evalCode("'hello'.ascii_only?");
+    try std.testing.expect(result.data == .boolean);
+    try std.testing.expect(result.data.boolean == true);
+}
+
+test "String#b returns binary copy" {
+    const result = try evalCode("'hello'.b.encoding.name");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "ASCII-8BIT", result.data.string.str);
+}
+
+test "String#b preserves content" {
+    const result = try evalCode("'hello'.b");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "hello", result.data.string.str);
+}
