@@ -28,7 +28,7 @@ test "ArgumentError raised for no block given" {
         \\foo
     , &stdout_buf, &stderr_buf);
 
-    try std.testing.expectEqual(error.RuntimeError, result.err.?);
+    try std.testing.expectEqual(error.Unwind, result.err.?);
 
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, "ArgumentError") != null);
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, "no block given") != null);
@@ -45,7 +45,7 @@ test "ArgumentError raised for wrong block arity" {
         \\foo { |a, b| a + b }
     , &stdout_buf, &stderr_buf);
 
-    try std.testing.expectEqual(error.RuntimeError, result.err.?);
+    try std.testing.expectEqual(error.Unwind, result.err.?);
 
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, "ArgumentError") != null);
 }

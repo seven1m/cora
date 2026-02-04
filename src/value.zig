@@ -9,21 +9,6 @@ const encoding = @import("encoding.zig");
 const Encoding = encoding.Encoding;
 const ValidityState = encoding.ValidityState;
 
-pub const RuntimeError = error{
-    WrongReceiverType,
-    WrongArgumentCount,
-    WrongArgumentType,
-    InvalidClassName,
-    InvalidMethodIndex,
-    InvalidMethodName,
-    InvalidModuleName,
-    InvalidSuperclass,
-    UndefinedChunk,
-    UndefinedMethod,
-    NoBlockGiven,
-    RuntimeError,
-};
-
 pub const Object = struct {
     pub const FROZEN_FLAG = 0x1;
 

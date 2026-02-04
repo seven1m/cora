@@ -68,7 +68,7 @@ test "String#+ TypeError for non-string receiver" {
         &stderr_buf,
     );
 
-    try std.testing.expectEqual(error.RuntimeError, result.err.?);
+    try std.testing.expectEqual(error.Unwind, result.err.?);
 }
 
 test "String#+ TypeError for non-string argument" {
@@ -81,5 +81,5 @@ test "String#+ TypeError for non-string argument" {
         &stderr_buf,
     );
 
-    try std.testing.expectEqual(error.RuntimeError, result.err.?);
+    try std.testing.expectEqual(error.Unwind, result.err.?);
 }

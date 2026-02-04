@@ -145,7 +145,7 @@ pub fn evalCodeWithOutputAndPath(ruby_code: []const u8, stdout_buf: []u8, stderr
 
     const result = vm.run() catch |err| {
         // If there was an error, print the exception to stderr
-        if (err == error.RuntimeError) {
+        if (err == error.Unwind) {
             vm.printUnhandledException();
         }
         return .{

@@ -119,7 +119,7 @@ pub fn main() !void {
     if (result) |_| {
         // Success - program executed without unhandled exceptions
     } else |err| switch (err) {
-        error.RuntimeError => {
+        error.Unwind => {
             // Unhandled Ruby exception - print it
             virtual_machine.printUnhandledException();
             std.process.exit(1);

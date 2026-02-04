@@ -21,7 +21,7 @@ test "Exception with backtrace shows call stack" {
         \\outer
     , &stdout_buf, &stderr_buf);
 
-    try std.testing.expectEqual(error.RuntimeError, result.err.?);
+    try std.testing.expectEqual(error.Unwind, result.err.?);
 
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, "Backtrace:") != null);
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, "inner") != null);
@@ -45,7 +45,7 @@ test "Nested method calls show full backtrace" {
         \\foo
     , &stdout_buf, &stderr_buf);
 
-    try std.testing.expectEqual(error.RuntimeError, result.err.?);
+    try std.testing.expectEqual(error.Unwind, result.err.?);
 
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, "deep error") != null);
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, "Backtrace:") != null);

@@ -31,11 +31,11 @@ test "lambda: strict arity - exact match succeeds" {
 }
 
 test "lambda: strict arity - too few arguments raises ArgumentError" {
-    try std.testing.expectError(error.RuntimeError, evalCode("l = lambda { |x, y| x + y }; l.call(3)"));
+    try std.testing.expectError(error.Unwind, evalCode("l = lambda { |x, y| x + y }; l.call(3)"));
 }
 
 test "lambda: strict arity - too many arguments raises ArgumentError" {
-    try std.testing.expectError(error.RuntimeError, evalCode("l = lambda { |x, y| x + y }; l.call(3, 5, 7)"));
+    try std.testing.expectError(error.Unwind, evalCode("l = lambda { |x, y| x + y }; l.call(3, 5, 7)"));
 }
 
 test "proc: lenient arity - too few arguments fills with nil" {
@@ -126,7 +126,7 @@ test "lambda: zero parameters" {
 }
 
 test "lambda: zero parameters with arguments raises error" {
-    try std.testing.expectError(error.RuntimeError, evalCode("l = lambda { 42 }; l.call(1)"));
+    try std.testing.expectError(error.Unwind, evalCode("l = lambda { 42 }; l.call(1)"));
 }
 
 test "lambda: can be assigned to variable" {

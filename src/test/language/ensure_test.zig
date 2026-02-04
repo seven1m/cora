@@ -56,7 +56,7 @@ test "Ensure clause runs during unwinding" {
         \\end
     , &stdout_buf, &stderr_buf);
 
-    try std.testing.expectEqual(error.RuntimeError, result.err.?);
+    try std.testing.expectEqual(error.Unwind, result.err.?);
 
     try std.testing.expectEqualSlices(u8, "cleanup during unwind\n", result.stdout);
 }

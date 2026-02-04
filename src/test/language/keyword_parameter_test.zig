@@ -13,7 +13,7 @@ test "Required keyword missing raises error" {
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;
     const result = evalCodeWithOutput("def foo(x:); x; end\nfoo()", &stdout_buf, &stderr_buf);
-    try std.testing.expectEqual(error.RuntimeError, result.err.?);
+    try std.testing.expectEqual(error.Unwind, result.err.?);
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, "missing") != null and
         std.mem.indexOf(u8, result.stderr, "keyword") != null);
 }
@@ -56,7 +56,7 @@ test "No keywords parameter rejects keywords" {
         \\def bar(**nil); 42; end
         \\bar(x: 1)
     , &stdout_buf, &stderr_buf);
-    try std.testing.expectEqual(error.RuntimeError, result.err.?);
+    try std.testing.expectEqual(error.Unwind, result.err.?);
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, "does not accept keyword") != null);
 }
 
@@ -67,7 +67,7 @@ test "Unknown keyword without rest raises error" {
         \\def foo(a:); a; end
         \\foo(a: 1, b: 2)
     , &stdout_buf, &stderr_buf);
-    try std.testing.expectEqual(error.RuntimeError, result.err.?);
+    try std.testing.expectEqual(error.Unwind, result.err.?);
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, "unknown keyword") != null);
 }
 

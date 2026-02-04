@@ -36,7 +36,7 @@ test "Code before raise executes normally" {
         \\puts "after raise"
     , &stdout_buf, &stderr_buf);
 
-    try std.testing.expectEqual(error.RuntimeError, result.err.?);
+    try std.testing.expectEqual(error.Unwind, result.err.?);
 
     // Code before raise should execute, code after should NOT
     try std.testing.expectEqualSlices(u8, "before raise\n", result.stdout);
@@ -52,7 +52,7 @@ test "Raise with empty message" {
         &stderr_buf,
     );
 
-    try std.testing.expectEqual(error.RuntimeError, result.err.?);
+    try std.testing.expectEqual(error.Unwind, result.err.?);
 
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, "ArgumentError") != null);
 }
@@ -64,7 +64,7 @@ test "Raise with string message creates RuntimeError" {
     const result = evalCodeWithOutput("raise \"something went wrong\"", &stdout_buf, &stderr_buf);
 
     // Should get RuntimeError
-    try std.testing.expectEqual(error.RuntimeError, result.err.?);
+    try std.testing.expectEqual(error.Unwind, result.err.?);
 
     // Check stderr contains exception info
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, "RuntimeError") != null);
@@ -82,7 +82,7 @@ test "Raise with exception class and message" {
         &stderr_buf,
     );
 
-    try std.testing.expectEqual(error.RuntimeError, result.err.?);
+    try std.testing.expectEqual(error.Unwind, result.err.?);
 
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, "ArgumentError") != null);
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, "expected 2 arguments") != null);
