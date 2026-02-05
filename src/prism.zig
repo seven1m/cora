@@ -398,6 +398,7 @@ pub const Parser = struct {
         var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
         const stdout = &stdout_writer.interface;
         try self.prettyPrintNode(raw, stdout);
+        try stdout.flush();
         return error.UnhandledNode;
     }
 
