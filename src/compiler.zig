@@ -92,6 +92,17 @@ pub const Compiler = struct {
         main_chunk.source_file = parser.source_file;
         compiler.current_chunk = &main_chunk;
 
+        // On error, clean up chunks that were allocated during compilation
+        errdefer {
+            main_chunk.deinit();
+            var iter = compiler.method_chunks.iterator();
+            while (iter.next()) |entry| {
+                entry.value_ptr.*.deinit();
+                allocator.destroy(entry.value_ptr.*);
+            }
+            compiler.method_chunks.deinit();
+        }
+
         const root = try parser.root();
         try compiler.compileNode(root, 0);
         try compiler.current_chunk.emitOp(.HALT, 0);
@@ -640,10 +651,13 @@ pub const Compiler = struct {
         // Create a separate chunk for the module body
         var body_chunk_id: u16 = 0;
         if (module_node.body) |body_ptr| {
-            // Allocate chunk on heap
+            // Allocate chunk on heap and track it immediately (before compilation can fail)
             const body_chunk_ptr = try self.allocator.create(Chunk);
             body_chunk_ptr.* = Chunk.init(self.allocator, module_name);
             body_chunk_ptr.source_file = self.parser.source_file;
+            body_chunk_id = try self.nextChunkId();
+            body_chunk_ptr.chunk_id = body_chunk_id;
+            try self.method_chunks.put(body_chunk_id, body_chunk_ptr);
 
             // Save the current chunk and switch to the body chunk
             const saved_chunk = self.current_chunk;
@@ -658,11 +672,6 @@ pub const Compiler = struct {
             // Return self (the module) as the result
             try self.current_chunk.emitOp(.PUSH_SELF, line);
             try self.current_chunk.emitOpU8(.RETURN, 0, line);
-
-            // Store the chunk and get its ID
-            body_chunk_id = try self.nextChunkId();
-            body_chunk_ptr.chunk_id = body_chunk_id;
-            try self.method_chunks.put(body_chunk_id, body_chunk_ptr);
 
             // Restore the original chunk
             self.current_chunk = saved_chunk;
@@ -691,10 +700,13 @@ pub const Compiler = struct {
         // Create a separate chunk for the class body
         var body_chunk_id: u16 = 0;
         if (class_node.body) |body_ptr| {
-            // Allocate chunk on heap
+            // Allocate chunk on heap and track it immediately (before compilation can fail)
             const body_chunk_ptr = try self.allocator.create(Chunk);
             body_chunk_ptr.* = Chunk.init(self.allocator, class_name);
             body_chunk_ptr.source_file = self.parser.source_file;
+            body_chunk_id = try self.nextChunkId();
+            body_chunk_ptr.chunk_id = body_chunk_id;
+            try self.method_chunks.put(body_chunk_id, body_chunk_ptr);
 
             // Save the current chunk and switch to the body chunk
             const saved_chunk = self.current_chunk;
@@ -709,11 +721,6 @@ pub const Compiler = struct {
             // Return self (the class) as the result
             try self.current_chunk.emitOp(.PUSH_SELF, line);
             try self.current_chunk.emitOpU8(.RETURN, 0, line);
-
-            // Store the chunk and get its ID
-            body_chunk_id = try self.nextChunkId();
-            body_chunk_ptr.chunk_id = body_chunk_id;
-            try self.method_chunks.put(body_chunk_id, body_chunk_ptr);
 
             // Restore the original chunk
             self.current_chunk = saved_chunk;
@@ -751,10 +758,13 @@ pub const Compiler = struct {
                 try self.addLocal(param_name);
                 const param_idx = @as(u8, @intCast(self.locals.items.len - 1));
 
-                // Compile default expression into a mini-chunk
+                // Compile default expression into a mini-chunk (track immediately before compilation)
                 const default_chunk_ptr = try self.allocator.create(chunk.Chunk);
                 default_chunk_ptr.* = chunk.Chunk.init(self.allocator, "default");
                 default_chunk_ptr.source_file = self.parser.source_file;
+                const default_chunk_id = try self.nextChunkId();
+                default_chunk_ptr.chunk_id = default_chunk_id;
+                try self.method_chunks.put(default_chunk_id, default_chunk_ptr);
 
                 // Save current chunk and compile default expression
                 const saved_chunk_for_default = self.current_chunk;
@@ -771,13 +781,6 @@ pub const Compiler = struct {
                 // Restore chunk and locals
                 self.current_chunk = saved_chunk_for_default;
                 self.locals.items.len = saved_locals_for_default;
-
-                // Assign chunk ID
-                const default_chunk_id = try self.nextChunkId();
-                default_chunk_ptr.chunk_id = default_chunk_id;
-
-                // Store chunk
-                try self.method_chunks.put(default_chunk_id, default_chunk_ptr);
 
                 // Record optional param metadata
                 try target_chunk.optional_params.append(self.allocator, .{
@@ -908,10 +911,14 @@ pub const Compiler = struct {
                     try self.addLocal(param_name);
                     const slot = @as(u8, @intCast(self.locals.items.len - 1));
 
-                    // Compile default expression into separate chunk
+                    // Compile default expression into separate chunk (track immediately before compilation)
                     const default_chunk_ptr = try self.allocator.create(Chunk);
                     default_chunk_ptr.* = Chunk.init(self.allocator, "keyword_default");
                     default_chunk_ptr.source_file = self.parser.source_file;
+                    const default_chunk_id = try self.nextChunkId();
+                    default_chunk_ptr.chunk_id = default_chunk_id;
+                    try self.method_chunks.put(default_chunk_id, default_chunk_ptr);
+
                     const saved_chunk_kw = self.current_chunk;
                     self.current_chunk = default_chunk_ptr;
 
@@ -920,10 +927,6 @@ pub const Compiler = struct {
                     try self.current_chunk.emitOpU8(.RETURN, 0, line);
 
                     self.current_chunk = saved_chunk_kw;
-
-                    const default_chunk_id = try self.nextChunkId();
-                    default_chunk_ptr.chunk_id = default_chunk_id;
-                    try self.method_chunks.put(default_chunk_id, default_chunk_ptr);
 
                     const name_idx = try target_chunk.addConstant(.{ .symbol = param_name });
                     try target_chunk.optional_keywords.append(self.allocator, .{
@@ -968,10 +971,13 @@ pub const Compiler = struct {
             // Stack now has: [..., receiver_object]
         }
 
-        // Allocate chunk on heap
+        // Allocate chunk on heap and track it immediately (before compilation can fail)
         const method_chunk_ptr = try self.allocator.create(Chunk);
         method_chunk_ptr.* = Chunk.init(self.allocator, method_name_slice);
         method_chunk_ptr.source_file = self.parser.source_file;
+        const chunk_id = try self.nextChunkId();
+        method_chunk_ptr.chunk_id = chunk_id;
+        try self.method_chunks.put(chunk_id, method_chunk_ptr);
 
         // Save the current chunk and switch to the method chunk
         const saved_chunk = self.current_chunk;
@@ -1012,15 +1018,6 @@ pub const Compiler = struct {
         self.current_chunk = saved_chunk;
         self.locals.items.len = saved_locals_len;
 
-        // Assign unique ID to this method chunk
-        const chunk_id = try self.nextChunkId();
-
-        // Store the chunk ID on the chunk itself
-        method_chunk_ptr.chunk_id = chunk_id;
-
-        // Store by ID
-        try self.method_chunks.put(chunk_id, method_chunk_ptr);
-
         // Emit DEF_METHOD or DEF_SINGLETON_METHOD bytecode with method name and chunk ID
         const name_idx = try self.current_chunk.addConstant(.{ .symbol = method_name_slice });
         if (is_singleton_method) {
@@ -1036,10 +1033,13 @@ pub const Compiler = struct {
     }
 
     fn compileBlock(self: *Compiler, block_node: *prism.BlockNode, line: u32) !u16 {
-        // Allocate chunk on heap for the block
+        // Allocate chunk on heap and track it immediately (before compilation can fail)
         const block_chunk_ptr = try self.allocator.create(Chunk);
         block_chunk_ptr.* = Chunk.init(self.allocator, "block");
         block_chunk_ptr.source_file = self.parser.source_file;
+        const chunk_id = try self.nextChunkId();
+        block_chunk_ptr.chunk_id = chunk_id;
+        try self.method_chunks.put(chunk_id, block_chunk_ptr);
 
         // Save the current chunk and switch to the block chunk
         const saved_chunk = self.current_chunk;
@@ -1111,24 +1111,18 @@ pub const Compiler = struct {
         self.locals.deinit(self.allocator); // Clean up block's locals
         self.locals = saved_locals; // Restore parent's locals
 
-        // Assign unique ID to this block chunk
-        const chunk_id = try self.nextChunkId();
-
-        // Store the chunk ID on the chunk itself
-        block_chunk_ptr.chunk_id = chunk_id;
-
-        // Store by ID
-        try self.method_chunks.put(chunk_id, block_chunk_ptr);
-
         return @intCast(chunk_id);
     }
 
     fn compileLambda(self: *Compiler, lambda_node: *prism.LambdaNode, line: u32) !u16 {
-        // Allocate chunk on heap for the lambda
+        // Allocate chunk on heap and track it immediately (before compilation can fail)
         const lambda_chunk_ptr = try self.allocator.create(Chunk);
         lambda_chunk_ptr.* = Chunk.init(self.allocator, "lambda");
         lambda_chunk_ptr.is_lambda = true; // Mark as lambda
         lambda_chunk_ptr.source_file = self.parser.source_file;
+        const chunk_id = try self.nextChunkId();
+        lambda_chunk_ptr.chunk_id = chunk_id;
+        try self.method_chunks.put(chunk_id, lambda_chunk_ptr);
 
         // Save the current chunk and switch to the lambda chunk
         const saved_chunk = self.current_chunk;
@@ -1200,15 +1194,6 @@ pub const Compiler = struct {
         self.current_chunk = saved_chunk;
         self.locals.deinit(self.allocator); // Clean up lambda's locals
         self.locals = saved_locals; // Restore parent's locals
-
-        // Assign unique ID to this lambda chunk
-        const chunk_id = try self.nextChunkId();
-
-        // Store the chunk ID on the chunk itself
-        lambda_chunk_ptr.chunk_id = chunk_id;
-
-        // Store by ID
-        try self.method_chunks.put(chunk_id, lambda_chunk_ptr);
 
         return @intCast(chunk_id);
     }

@@ -2415,6 +2415,11 @@ pub const VM = struct {
         try self.all_parsers.append(self.allocator, parser);
 
         var program = try compiler.Compiler.compile(self.allocator, &parser, self.next_chunk_id);
+        // Ensure cleanup of the loaded program's chunks on error
+        defer {
+            program.main_chunk.deinit();
+            program.method_chunks.deinit();
+        }
 
         self.next_chunk_id = program.next_chunk_id;
 
@@ -2430,10 +2435,8 @@ pub const VM = struct {
 
         try self.executeChunk(&program.main_chunk);
 
-        // Clean up: free the main chunk and the HashMap itself, but not the method chunks
-        // (they were transferred to self.program.method_chunks)
-        program.main_chunk.deinit();
-        program.method_chunks.deinit();
+        // Note: method chunks were transferred to self.program.method_chunks,
+        // defer above will deinit main_chunk and the (now-empty) HashMap
     }
 
     fn executeChunk(self: *VM, target_chunk: *Chunk) !void {
