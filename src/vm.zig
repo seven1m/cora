@@ -2406,7 +2406,7 @@ pub const VM = struct {
         defer file_handle.close();
 
         const file_size = try file_handle.getEndPos();
-        const code_buffer = try self.allocator.alloc(u8, file_size);
+        const code_buffer = try self.gc_allocator_atomic.alloc(u8, file_size);
 
         const bytes_read = try file_handle.readAll(code_buffer);
         if (bytes_read != file_size) return error.ReadError;
