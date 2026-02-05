@@ -48,6 +48,7 @@ pub const SymbolNode = c.pm_symbol_node_t;
 pub const TrueNode = c.pm_true_node_t;
 pub const YieldNode = c.pm_yield_node_t;
 pub const WhileNode = c.pm_while_node_t;
+pub const UnlessNode = c.pm_unless_node_t;
 pub const UntilNode = c.pm_until_node_t;
 pub const BreakNode = c.pm_break_node_t;
 pub const HashNode = c.pm_hash_node_t;
@@ -104,6 +105,7 @@ pub const Node = union(enum) {
     true_node: *TrueNode,
     yield: *YieldNode,
     while_node: *WhileNode,
+    unless_node: *UnlessNode,
     until_node: *UntilNode,
     break_node: *BreakNode,
     hash: *HashNode,
@@ -242,6 +244,10 @@ pub const Parser = struct {
 
         if (node_type == c.PM_IF_NODE) {
             return Node{ .if_node = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_UNLESS_NODE) {
+            return Node{ .unless_node = @ptrCast(raw) };
         }
 
         if (node_type == c.PM_ELSE_NODE) {

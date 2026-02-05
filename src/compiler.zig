@@ -370,6 +370,10 @@ pub const Compiler = struct {
                 try self.compileIfStatement(if_node, line);
             },
 
+            .unless_node => |unless_node| {
+                try self.compileUnlessStatement(unless_node, line);
+            },
+
             .module => |module_node| {
                 try self.compileModule(module_node, line);
             },
@@ -583,6 +587,42 @@ pub const Compiler = struct {
             try self.compileNode(subsequent_node, line);
         } else {
             // No else branch - when condition is false, evaluate to nil
+            try self.current_chunk.emitOp(.PUSH_NIL, line);
+        }
+
+        // Patch the end jump
+        try self.current_chunk.patchJump(jump_end);
+    }
+
+    fn compileUnlessStatement(self: *Compiler, unless_node: *prism.UnlessNode, line: u32) anyerror!void {
+        // Compile condition
+        const condition = try self.parser.asNode(@ptrCast(unless_node.predicate));
+        try self.compileNode(condition, line);
+
+        // Jump if true (to the else/false case) - inverted from if_node
+        const jump_true = try self.current_chunk.emitJump(.JUMP_IF_TRUE, line);
+
+        // Compile then branch (executed when condition is false)
+        if (unless_node.statements != null) {
+            const then_branch = try self.parser.asNode(@ptrCast(unless_node.statements));
+            try self.compileNode(then_branch, line);
+        } else {
+            // If no then-branch, push nil
+            try self.current_chunk.emitOp(.PUSH_NIL, line);
+        }
+
+        // Jump to end (skip the else case)
+        const jump_end = try self.current_chunk.emitJump(.JUMP, line);
+
+        // Patch the true jump to here (this is where the else branch starts)
+        try self.current_chunk.patchJump(jump_true);
+
+        // Compile else clause, or push nil when condition is true
+        if (unless_node.else_clause) |else_ptr| {
+            const else_node = try self.parser.asNode(@ptrCast(else_ptr));
+            try self.compileNode(else_node, line);
+        } else {
+            // No else branch - when condition is true, evaluate to nil
             try self.current_chunk.emitOp(.PUSH_NIL, line);
         }
 
