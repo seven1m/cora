@@ -5,6 +5,7 @@ const compiler = @import("compiler.zig");
 const enc = @import("encoding.zig");
 const value = @import("value.zig");
 const prism = @import("prism.zig");
+const builtins = @import("builtins/builtins.zig");
 
 const Value = value.Value;
 const Object = value.Object;
@@ -14,7 +15,7 @@ const StringObject = value.StringObject;
 const SymbolObject = value.SymbolObject;
 const Chunk = chunk.Chunk;
 
-const VMError = error{
+pub const VMError = error{
     Unwind, // Triggers stack unwind - actual error info is in pending_exception
 };
 
@@ -344,196 +345,9 @@ pub const VM = struct {
         try self.encoding_class.module.constants.put(us_ascii_const_sym, us_ascii_val);
 
         // --- Stage 5: Register built-in methods ---
-        // Register Kernel built-in methods
-        const puts_sym = try self.intern("puts");
-        try self.kernel_module.methods.put(puts_sym, .{ .builtin = &builtinKernelPuts });
-
-        const proc_sym = try self.intern("proc");
-        try self.kernel_module.methods.put(proc_sym, .{ .builtin = &builtinKernelProc });
-
-        const lambda_sym = try self.intern("lambda");
-        try self.kernel_module.methods.put(lambda_sym, .{ .builtin = &builtinKernelLambda });
-
-        const require_sym = try self.intern("require");
-        try self.kernel_module.methods.put(require_sym, .{ .builtin = &builtinKernelRequire });
-
-        const require_relative_sym = try self.intern("require_relative");
-        try self.kernel_module.methods.put(require_relative_sym, .{ .builtin = &builtinKernelRequireRelative });
-
-        const load_sym = try self.intern("load");
-        try self.kernel_module.methods.put(load_sym, .{ .builtin = &builtinKernelLoad });
-
-        const instance_variable_get_sym = try self.intern("instance_variable_get");
-        try self.kernel_module.methods.put(instance_variable_get_sym, .{ .builtin = &builtinKernelInstanceVariableGet });
-
-        const instance_variable_set_sym = try self.intern("instance_variable_set");
-        try self.kernel_module.methods.put(instance_variable_set_sym, .{ .builtin = &builtinKernelInstanceVariableSet });
-
-        // Register Object built-in methods
-        const new_sym = try self.intern("new");
-        try self.object_class.module.methods.put(new_sym, .{ .builtin = &builtinObjectNew });
-
-        const include_sym = try self.intern("include");
-        try self.object_class.module.methods.put(include_sym, .{ .builtin = &builtinModuleInclude });
-
-        const prepend_sym = try self.intern("prepend");
-        try self.object_class.module.methods.put(prepend_sym, .{ .builtin = &builtinModulePrepend });
-
-        const define_method_sym = try self.intern("define_method");
-        try self.module_class.module.methods.put(define_method_sym, .{ .builtin = &builtinModuleDefineMethod });
-
-        const attr_reader_sym = try self.intern("attr_reader");
-        try self.module_class.module.methods.put(attr_reader_sym, .{ .builtin = &builtinModuleAttrReader });
-
-        const attr_writer_sym = try self.intern("attr_writer");
-        try self.module_class.module.methods.put(attr_writer_sym, .{ .builtin = &builtinModuleAttrWriter });
-
-        const attr_accessor_sym = try self.intern("attr_accessor");
-        try self.module_class.module.methods.put(attr_accessor_sym, .{ .builtin = &builtinModuleAttrAccessor });
+        try builtins.registerAll(self);
 
         try self.includeModule(self.object_class, self.kernel_module);
-
-        // Register Integer builtins
-        const plus_sym = try self.intern("+");
-        try self.integer_class.module.methods.put(plus_sym, .{ .builtin = &builtinIntegerPlus });
-
-        const minus_sym = try self.intern("-");
-        try self.integer_class.module.methods.put(minus_sym, .{ .builtin = &builtinIntegerMinus });
-
-        const multiply_sym = try self.intern("*");
-        try self.integer_class.module.methods.put(multiply_sym, .{ .builtin = &builtinIntegerMultiply });
-
-        const equal_sym = try self.intern("==");
-        try self.integer_class.module.methods.put(equal_sym, .{ .builtin = &builtinIntegerEqual });
-
-        const less_than_sym = try self.intern("<");
-        try self.integer_class.module.methods.put(less_than_sym, .{ .builtin = &builtinIntegerLessThan });
-
-        const less_than_or_equal_sym = try self.intern("<=");
-        try self.integer_class.module.methods.put(less_than_or_equal_sym, .{ .builtin = &builtinIntegerLessThanOrEqual });
-
-        const greater_than_sym = try self.intern(">");
-        try self.integer_class.module.methods.put(greater_than_sym, .{ .builtin = &builtinIntegerGreaterThan });
-
-        const greater_than_or_equal_sym = try self.intern(">=");
-        try self.integer_class.module.methods.put(greater_than_or_equal_sym, .{ .builtin = &builtinIntegerGreaterThanOrEqual });
-
-        // Register Array builtins
-        const push_sym = try self.intern("<<");
-        try self.array_class.module.methods.put(push_sym, .{ .builtin = &builtinArrayPush });
-
-        const array_each_sym = try self.intern("each");
-        try self.array_class.module.methods.put(array_each_sym, .{ .builtin = &builtinArrayEach });
-
-        const bracket_sym = try self.intern("[]");
-        try self.array_class.module.methods.put(bracket_sym, .{ .builtin = &builtinArrayBracket });
-
-        // Register Hash builtins
-        try self.hash_class.module.methods.put(bracket_sym, .{ .builtin = &builtinHashBracket });
-
-        const bracket_set_sym = try self.intern("[]=");
-        try self.hash_class.module.methods.put(bracket_set_sym, .{ .builtin = &builtinHashBracketSet });
-
-        const keys_sym = try self.intern("keys");
-        try self.hash_class.module.methods.put(keys_sym, .{ .builtin = &builtinHashKeys });
-
-        const values_sym = try self.intern("values");
-        try self.hash_class.module.methods.put(values_sym, .{ .builtin = &builtinHashValues });
-
-        const size_sym = try self.intern("size");
-        try self.hash_class.module.methods.put(size_sym, .{ .builtin = &builtinHashSize });
-
-        const length_sym = try self.intern("length");
-        try self.hash_class.module.methods.put(length_sym, .{ .builtin = &builtinHashSize });
-        try self.array_class.module.methods.put(length_sym, .{ .builtin = &builtinArrayLength });
-
-        const each_sym = try self.intern("each");
-        try self.hash_class.module.methods.put(each_sym, .{ .builtin = &builtinHashEach });
-
-        // Register Proc builtins
-        const proc_new_sym = try self.intern("new");
-        const proc_singleton = try self.getOrCreateSingletonClass(proc_class_val);
-        try proc_singleton.module.methods.put(proc_new_sym, .{ .builtin = &builtinProcNew });
-
-        const call_sym = try self.intern("call");
-        try self.proc_class.module.methods.put(call_sym, .{ .builtin = &builtinProcCall });
-
-        const lambda_query_sym = try self.intern("lambda?");
-        try self.proc_class.module.methods.put(lambda_query_sym, .{ .builtin = &builtinProcIsLambda });
-
-        // Register String builtins
-        const string_plus_sym = try self.intern("+");
-        try self.string_class.module.methods.put(string_plus_sym, .{ .builtin = &builtinStringPlus });
-        const string_equal_sym = try self.intern("==");
-        try self.string_class.module.methods.put(string_equal_sym, .{ .builtin = &builtinStringEqual });
-        const string_not_equal_sym = try self.intern("!=");
-        try self.string_class.module.methods.put(string_not_equal_sym, .{ .builtin = &builtinStringNotEqual });
-
-        // Register String encoding methods
-        const string_encoding_sym = try self.intern("encoding");
-        try self.string_class.module.methods.put(string_encoding_sym, .{ .builtin = &builtinStringEncoding });
-        const string_force_encoding_sym = try self.intern("force_encoding");
-        try self.string_class.module.methods.put(string_force_encoding_sym, .{ .builtin = &builtinStringForceEncoding });
-        const string_valid_encoding_sym = try self.intern("valid_encoding?");
-        try self.string_class.module.methods.put(string_valid_encoding_sym, .{ .builtin = &builtinStringValidEncoding });
-        const string_ascii_only_sym = try self.intern("ascii_only?");
-        try self.string_class.module.methods.put(string_ascii_only_sym, .{ .builtin = &builtinStringAsciiOnly });
-        const string_b_sym = try self.intern("b");
-        try self.string_class.module.methods.put(string_b_sym, .{ .builtin = &builtinStringB });
-
-        // Register to_s methods
-        const to_s_sym = try self.intern("to_s");
-        try self.integer_class.module.methods.put(to_s_sym, .{ .builtin = &builtinIntegerToS });
-        try self.string_class.module.methods.put(to_s_sym, .{ .builtin = &builtinStringToS });
-        try self.symbol_class.module.methods.put(to_s_sym, .{ .builtin = &builtinSymbolToS });
-        try self.nil_class.module.methods.put(to_s_sym, .{ .builtin = &builtinNilClassToS });
-        try self.true_class.module.methods.put(to_s_sym, .{ .builtin = &builtinTrueClassToS });
-        try self.false_class.module.methods.put(to_s_sym, .{ .builtin = &builtinFalseClassToS });
-        try self.array_class.module.methods.put(to_s_sym, .{ .builtin = &builtinArrayToS });
-        try self.hash_class.module.methods.put(to_s_sym, .{ .builtin = &builtinHashToS });
-        try self.kernel_module.methods.put(to_s_sym, .{ .builtin = &builtinKernelToS });
-
-        // Register inspect methods
-        const inspect_sym = try self.intern("inspect");
-        try self.kernel_module.methods.put(inspect_sym, .{ .builtin = &builtinKernelInspect });
-        try self.integer_class.module.methods.put(inspect_sym, .{ .builtin = &builtinIntegerInspect });
-        try self.string_class.module.methods.put(inspect_sym, .{ .builtin = &builtinStringInspect });
-        try self.symbol_class.module.methods.put(inspect_sym, .{ .builtin = &builtinSymbolInspect });
-        try self.nil_class.module.methods.put(inspect_sym, .{ .builtin = &builtinNilClassInspect });
-        try self.true_class.module.methods.put(inspect_sym, .{ .builtin = &builtinTrueClassInspect });
-        try self.false_class.module.methods.put(inspect_sym, .{ .builtin = &builtinFalseClassInspect });
-        try self.array_class.module.methods.put(inspect_sym, .{ .builtin = &builtinArrayInspect });
-        try self.hash_class.module.methods.put(inspect_sym, .{ .builtin = &builtinHashInspect });
-
-        // Register p method
-        const p_sym = try self.intern("p");
-        try self.kernel_module.methods.put(p_sym, .{ .builtin = &builtinKernelP });
-
-        // Register raise method
-        const raise_sym = try self.intern("raise");
-        try self.kernel_module.methods.put(raise_sym, .{ .builtin = &builtinKernelRaise });
-        const is_a_sym = try self.intern("is_a?");
-        try self.kernel_module.methods.put(is_a_sym, .{ .builtin = &builtinKernelIsA });
-        const block_given_sym = try self.intern("block_given?");
-        try self.kernel_module.methods.put(block_given_sym, .{ .builtin = &builtinKernelBlockGiven });
-
-        // Register Exception#message method
-        const message_sym = try self.intern("message");
-        try self.exception_class.module.methods.put(message_sym, .{ .builtin = &builtinExceptionMessage });
-
-        // Register Encoding methods
-        const name_sym = try self.intern("name");
-        try self.encoding_class.module.methods.put(name_sym, .{ .builtin = &builtinEncodingName });
-        try self.encoding_class.module.methods.put(to_s_sym, .{ .builtin = &builtinEncodingName });
-        try self.encoding_class.module.methods.put(inspect_sym, .{ .builtin = &builtinEncodingInspect });
-
-        const ascii_compatible_sym = try self.intern("ascii_compatible?");
-        try self.encoding_class.module.methods.put(ascii_compatible_sym, .{ .builtin = &builtinEncodingAsciiCompatible });
-
-        // Register Encoding.find class method
-        const find_sym = try self.intern("find");
-        const encoding_singleton = try self.getOrCreateSingletonClass(encoding_class_val);
-        try encoding_singleton.module.methods.put(find_sym, .{ .builtin = &builtinEncodingFind });
 
         // --- Stage 6: Initialize top-level lexical scope ---
         self.current_lexical_scope = try self.createLexicalScope(.{ .data = .{ .class = self.object_class } }, null);
@@ -561,7 +375,7 @@ pub const VM = struct {
 
     // Create new stack-allocated environment
     // Dereference environment pointer, following forwarding pointer if needed
-    fn derefEnvironment(env: *Environment) *Environment {
+    pub fn derefEnvironment(env: *Environment) *Environment {
         // If this is a forwarding pointer, return the heap environment
         if (env.heap_forwarding_ptr) |heap_env| {
             return heap_env;
@@ -570,7 +384,7 @@ pub const VM = struct {
         return env;
     }
 
-    fn createStackEnvironment(self: *VM, parent: ?*Environment, lexical_scope: ?*LexicalScope) !*Environment {
+    pub fn createStackEnvironment(self: *VM, parent: ?*Environment, lexical_scope: ?*LexicalScope) !*Environment {
         const index = self.env_stack.items.len;
         try self.env_stack.append(self.allocator, .{
             .parent = parent,
@@ -736,7 +550,7 @@ pub const VM = struct {
         return self.pop();
     }
 
-    fn currentFrame(self: *VM) *CallFrame {
+    pub fn currentFrame(self: *VM) *CallFrame {
         return &self.frames.items[self.frames.items.len - 1];
     }
 
@@ -756,7 +570,7 @@ pub const VM = struct {
         try self.stack.append(self.allocator, val);
     }
 
-    fn pop(self: *VM) Value {
+    pub fn pop(self: *VM) Value {
         return self.stack.pop() orelse Value.nil();
     }
 
@@ -871,7 +685,7 @@ pub const VM = struct {
         }
     }
 
-    fn executeInstruction(self: *VM) !void {
+    pub fn executeInstruction(self: *VM) !void {
         const frame = self.currentFrame();
         if (frame.ip >= frame.chunk.code.items.len) {
             try self.popFrame();
@@ -1679,7 +1493,7 @@ pub const VM = struct {
     }
 
     /// Find a method on a receiver, checking singleton class first, then regular class
-    fn findMethod(self: *VM, receiver: Value, method_name_sym: *SymbolObject) ?Method {
+    pub fn findMethod(self: *VM, receiver: Value, method_name_sym: *SymbolObject) ?Method {
         var method: ?Method = null;
 
         // First, check singleton class
@@ -1698,7 +1512,7 @@ pub const VM = struct {
     }
 
     /// Call a method by name string (not from bytecode constant pool)
-    fn callMethodByName(self: *VM, receiver: Value, method_name: []const u8, args: []Value, block: ?Block) VMError!Value {
+    pub fn callMethodByName(self: *VM, receiver: Value, method_name: []const u8, args: []Value, block: ?Block) VMError!Value {
         const method_name_sym = self.intern(method_name) catch return error.Unwind;
         const method = self.findMethod(receiver, method_name_sym);
 
@@ -1750,7 +1564,7 @@ pub const VM = struct {
 
     /// Yield to a block with arguments, handling break and exceptions
     /// Returns the block's result value and whether a break occurred
-    fn yieldToBlock(self: *VM, block: Block, receiver: Value, yield_args: []const Value) VMError!YieldResult {
+    pub fn yieldToBlock(self: *VM, block: Block, receiver: Value, yield_args: []const Value) VMError!YieldResult {
         // Dereference defining_ep in case it's a forwarding pointer
         const real_defining_ep = derefEnvironment(block.defining_ep);
 
@@ -1853,7 +1667,7 @@ pub const VM = struct {
     }
 
     /// Ensure a block was given, or raise an error
-    fn requireBlock(self: *VM, block: ?Block) VMError!Block {
+    pub fn requireBlock(self: *VM, block: ?Block) VMError!Block {
         return block orelse {
             const exc = try self.createException(self.argument_error_class, "no block given");
             self.pending_exception = exc;
@@ -2031,7 +1845,7 @@ pub const VM = struct {
         }
     }
 
-    fn getClass(self: *VM, val: Value) *ClassObject {
+    pub fn getClass(self: *VM, val: Value) *ClassObject {
         switch (val.data) {
             // Types with Object headers - use the class field from the header
             .instance => |i| return i.class.?,
@@ -2235,7 +2049,7 @@ pub const VM = struct {
         }
     }
 
-    fn getOrCreateSingletonClass(self: *VM, obj_val: value.Value) !*ClassObject {
+    pub fn getOrCreateSingletonClass(self: *VM, obj_val: value.Value) !*ClassObject {
         // Return existing singleton class if already created
         if (obj_val.getSingletonClass()) |singleton| {
             return singleton;
@@ -2352,7 +2166,7 @@ pub const VM = struct {
         return .{ .data = .{ .instance = obj } };
     }
 
-    fn getInstanceVariable(self: *VM, receiver: Value, name: []const u8) !Value {
+    pub fn getInstanceVariable(self: *VM, receiver: Value, name: []const u8) !Value {
         const obj_ptr = receiver.getObjectPointer() orelse {
             return Value.nil();
         };
@@ -2367,7 +2181,7 @@ pub const VM = struct {
         return Value.nil();
     }
 
-    fn setInstanceVariable(self: *VM, receiver: Value, name: []const u8, val: Value) !void {
+    pub fn setInstanceVariable(self: *VM, receiver: Value, name: []const u8, val: Value) !void {
         const obj_ptr = receiver.getObjectPointer() orelse {
             const exc = try self.createException(self.type_error_class, "can't define singleton method for literals");
             self.pending_exception = exc;
@@ -2440,7 +2254,7 @@ pub const VM = struct {
         try class.prepended_modules.append(self.gc_allocator, module);
     }
 
-    fn requireArgCount(self: *VM, args: []Value, expected: usize) VMError!void {
+    pub fn requireArgCount(self: *VM, args: []Value, expected: usize) VMError!void {
         if (args.len != expected) {
             const msg = std.fmt.allocPrint(
                 self.gc_allocator,
@@ -2455,7 +2269,7 @@ pub const VM = struct {
 
     const AccessorKind = enum { reader, writer };
 
-    fn createAccessorChunk(self: *VM, base_name: []const u8, kind: AccessorKind) VMError!*Chunk {
+    pub fn createAccessorChunk(self: *VM, base_name: []const u8, kind: AccessorKind) VMError!*Chunk {
         if (self.next_chunk_id > chunk.MAX_CHUNK_ID) {
             const exc = try self.createException(self.runtime_error_class, "too many method chunks");
             self.pending_exception = exc;
@@ -2495,7 +2309,7 @@ pub const VM = struct {
         return chunk_ptr;
     }
 
-    fn requireArgType(
+    pub fn requireArgType(
         self: *VM,
         args: []Value,
         index: usize,
@@ -2514,7 +2328,7 @@ pub const VM = struct {
         }
     }
 
-    fn requireSingleArg(
+    pub fn requireSingleArg(
         self: *VM,
         args: []Value,
         comptime arg_tag: std.meta.Tag(@TypeOf(@as(value.Value, undefined).data)),
@@ -2524,7 +2338,7 @@ pub const VM = struct {
         try self.requireArgType(args, 0, arg_tag, type_name);
     }
 
-    fn raiseExceptionFmt(
+    pub fn raiseExceptionFmt(
         self: *VM,
         exception_class: *value.ClassObject,
         comptime fmt: []const u8,
@@ -2536,108 +2350,9 @@ pub const VM = struct {
         return error.Unwind;
     }
 
-    // ==== Built-in methods ====
-
-    fn builtinObjectNew(self: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
-        // receiver should be a class
-        if (receiver.data != .class) {
-            const exc = try self.createException(
-                self.type_error_class,
-                "receiver is not a Class",
-            );
-            self.pending_exception = exc;
-            return error.Unwind;
-        }
-
-        const class_ptr = receiver.data.class;
-        const instance = self.newInstance(class_ptr);
-
-        // Call initialize if it exists
-        const init_sym = self.intern("initialize") catch return error.Unwind;
-        if (self.findMethod(instance, init_sym)) |_| {
-            // Use callMethodByName which handles dispatch properly
-            _ = try self.callMethodByName(instance, "initialize", args, block);
-        } else if (args.len != 0) {
-            // No initialize method but arguments were passed
-            const msg = std.fmt.allocPrint(
-                self.gc_allocator,
-                "wrong number of arguments (given {d}, expected 0)",
-                .{args.len},
-            ) catch unreachable;
-            const exc = try self.createException(self.argument_error_class, msg);
-            self.pending_exception = exc;
-            return error.Unwind;
-        }
-
-        return instance;
-    }
-
-    fn builtinProcNew(self: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
-        if (args.len != 0) {
-            const msg = std.fmt.allocPrint(
-                self.gc_allocator,
-                "wrong number of arguments (given {d}, expected 0)",
-                .{args.len},
-            ) catch unreachable;
-            const exc = try self.createException(self.argument_error_class, msg);
-            self.pending_exception = exc;
-            return error.Unwind;
-        }
-
-        const blk = block orelse {
-            const exc = try self.createException(
-                self.argument_error_class,
-                "tried to create Proc object without a block",
-            );
-            self.pending_exception = exc;
-            return error.Unwind;
-        };
-
-        return self.newProc(blk);
-    }
-
-    fn builtinProcCall(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        const proc_obj = receiver.data.proc;
-
-        const real_defining_ep = derefEnvironment(proc_obj.block.defining_ep);
-
-        const proc_env = self.createStackEnvironment(real_defining_ep, proc_obj.block.chunk.lexical_scope orelse self.current_lexical_scope) catch return error.Unwind;
-
-        self.env_stack_indices.append(self.allocator, self.env_stack.items.len - 1) catch return error.Unwind;
-
-        const proc_chunk = proc_obj.block.chunk;
-        const mode: ArityMode = if (proc_chunk.is_lambda) .strict else .lenient;
-
-        // Copy arguments with rest parameter handling
-        try self.copyArgumentsWithRestParam(proc_chunk, proc_env, args, mode);
-
-        if (proc_obj.block.chunk.lexical_scope) |scope| {
-            self.current_lexical_scope = scope;
-        }
-
-        self.frames.append(self.allocator, CallFrame{
-            .chunk = proc_obj.block.chunk,
-            .ip = 0,
-            .stack_base = self.stack.items.len,
-            .self_value = receiver,
-            .ep = proc_env,
-            .block = null,
-            .frame_type = if (proc_obj.block.chunk.is_lambda) .lambda else .proc,
-        }) catch return error.Unwind;
-
-        // Execute the proc/lambda until it returns
-        const saved_frame_count = self.frames.items.len - 1;
-        while (self.frames.items.len > saved_frame_count) {
-            self.executeInstruction() catch return error.Unwind;
-        }
-
-        // The return value is already on the stack from the RETURN instruction
-        return self.pop();
-    }
-
     // File loading helper methods
 
-    fn resolveAbsolutePath(self: *VM, path: []const u8) ![]const u8 {
+    pub fn resolveAbsolutePath(self: *VM, path: []const u8) ![]const u8 {
         var path_buffer: [4096]u8 = undefined;
         const absolute = std.fs.cwd().realpath(path, &path_buffer) catch |err| {
             if (std.fs.path.isAbsolute(path)) {
@@ -2648,13 +2363,13 @@ pub const VM = struct {
         return try self.allocator.dupe(u8, absolute);
     }
 
-    fn fileExists(_: *VM, path: []const u8) bool {
+    pub fn fileExists(_: *VM, path: []const u8) bool {
         const file = std.fs.cwd().openFile(path, .{}) catch return false;
         file.close();
         return true;
     }
 
-    fn searchLoadPath(self: *VM, feature: []const u8) !?[]const u8 {
+    pub fn searchLoadPath(self: *VM, feature: []const u8) !?[]const u8 {
         if (std.fs.path.isAbsolute(feature)) {
             if (self.fileExists(feature)) {
                 return try self.resolveAbsolutePath(feature);
@@ -2686,7 +2401,7 @@ pub const VM = struct {
         return null;
     }
 
-    fn loadFile(self: *VM, absolute_path: []const u8) !void {
+    pub fn loadFile(self: *VM, absolute_path: []const u8) !void {
         const file_handle = try std.fs.cwd().openFile(absolute_path, .{});
         defer file_handle.close();
 
@@ -2745,1120 +2460,10 @@ pub const VM = struct {
         }
     }
 
-    fn builtinKernelRequire(self: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
-        if (args.len != 1) {
-            const msg = std.fmt.allocPrint(self.allocator, "wrong number of arguments (given {d}, expected 1)", .{args.len}) catch return error.Unwind;
-            const exc = self.createException(self.argument_error_class, msg) catch return error.Unwind;
-            self.pending_exception = exc;
-            try self.unwindStack();
-            return error.Unwind;
-        }
-        if (args[0].data != .string) {
-            const msg = std.fmt.allocPrint(self.allocator, "no implicit conversion into String", .{}) catch return error.Unwind;
-            const exc = self.createException(self.type_error_class, msg) catch return error.Unwind;
-            self.pending_exception = exc;
-            try self.unwindStack();
-            return error.Unwind;
-        }
-
-        const feature = args[0].data.string.str;
-
-        const absolute_path = self.searchLoadPath(feature) catch {
-            const msg = std.fmt.allocPrint(self.allocator, "cannot load such file -- {s}", .{feature}) catch return error.Unwind;
-            const exc = self.createException(self.load_error_class, msg) catch return error.Unwind;
-            self.pending_exception = exc;
-            try self.unwindStack();
-            return error.Unwind;
-        } orelse {
-            const msg = std.fmt.allocPrint(self.allocator, "cannot load such file -- {s}", .{feature}) catch return error.Unwind;
-            const exc = self.createException(self.load_error_class, msg) catch return error.Unwind;
-            self.pending_exception = exc;
-            try self.unwindStack();
-            return error.Unwind;
-        };
-
-        if (self.loaded_files.contains(absolute_path)) {
-            return Value.boolean(false);
-        }
-
-        self.loaded_files.put(absolute_path, {}) catch return error.Unwind;
-
-        self.loadFile(absolute_path) catch {
-            _ = self.loaded_files.remove(absolute_path);
-            return error.Unwind;
-        };
-
-        return Value.boolean(true);
-    }
-
-    fn builtinKernelRequireRelative(self: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
-        if (args.len != 1) {
-            const msg = std.fmt.allocPrint(self.allocator, "wrong number of arguments (given {d}, expected 1)", .{args.len}) catch return error.Unwind;
-            const exc = self.createException(self.argument_error_class, msg) catch return error.Unwind;
-            self.pending_exception = exc;
-            try self.unwindStack();
-            return error.Unwind;
-        }
-        if (args[0].data != .string) {
-            const msg = std.fmt.allocPrint(self.allocator, "no implicit conversion into String", .{}) catch return error.Unwind;
-            const exc = self.createException(self.type_error_class, msg) catch return error.Unwind;
-            self.pending_exception = exc;
-            try self.unwindStack();
-            return error.Unwind;
-        }
-
-        const relative_path = args[0].data.string.str;
-
-        const current_file = self.current_loading_file orelse {
-            const exc = self.createException(self.load_error_class, "cannot infer basepath") catch return error.Unwind;
-            self.pending_exception = exc;
-            try self.unwindStack();
-            return error.Unwind;
-        };
-
-        const current_dir = std.fs.path.dirname(current_file) orelse ".";
-        const full_path = std.fs.path.join(self.allocator, &[_][]const u8{ current_dir, relative_path }) catch return error.Unwind;
-        defer self.allocator.free(full_path);
-
-        var absolute_path: ?[]const u8 = null;
-        if (self.fileExists(full_path)) {
-            absolute_path = self.resolveAbsolutePath(full_path) catch return error.Unwind;
-        } else {
-            const with_rb = std.fmt.allocPrint(self.allocator, "{s}.rb", .{full_path}) catch return error.Unwind;
-            defer self.allocator.free(with_rb);
-            if (self.fileExists(with_rb)) {
-                absolute_path = self.resolveAbsolutePath(with_rb) catch return error.Unwind;
-            }
-        }
-
-        if (absolute_path == null) {
-            const msg = std.fmt.allocPrint(self.allocator, "cannot load such file -- {s}", .{relative_path}) catch return error.Unwind;
-            const exc = self.createException(self.load_error_class, msg) catch return error.Unwind;
-            self.pending_exception = exc;
-            try self.unwindStack();
-            return error.Unwind;
-        }
-
-        const resolved_path = absolute_path.?;
-
-        if (self.loaded_files.contains(resolved_path)) {
-            return Value.boolean(false);
-        }
-
-        self.loaded_files.put(resolved_path, {}) catch return error.Unwind;
-        self.loadFile(resolved_path) catch {
-            _ = self.loaded_files.remove(resolved_path);
-            return error.Unwind;
-        };
-
-        return Value.boolean(true);
-    }
-
-    fn builtinKernelLoad(self: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
-        if (args.len != 1) {
-            const msg = std.fmt.allocPrint(self.allocator, "wrong number of arguments (given {d}, expected 1)", .{args.len}) catch return error.Unwind;
-            const exc = self.createException(self.argument_error_class, msg) catch return error.Unwind;
-            self.pending_exception = exc;
-            try self.unwindStack();
-            return error.Unwind;
-        }
-        if (args[0].data != .string) {
-            const msg = std.fmt.allocPrint(self.allocator, "no implicit conversion into String", .{}) catch return error.Unwind;
-            const exc = self.createException(self.type_error_class, msg) catch return error.Unwind;
-            self.pending_exception = exc;
-            try self.unwindStack();
-            return error.Unwind;
-        }
-
-        const filename = args[0].data.string.str;
-
-        var absolute_path: ?[]const u8 = null;
-
-        if (std.fs.path.isAbsolute(filename)) {
-            if (self.fileExists(filename)) {
-                absolute_path = self.resolveAbsolutePath(filename) catch return error.Unwind;
-            }
-        } else {
-            if (self.current_loading_file) |current_file| {
-                const current_dir = std.fs.path.dirname(current_file) orelse ".";
-                const full_path = std.fs.path.join(self.allocator, &[_][]const u8{ current_dir, filename }) catch return error.Unwind;
-                defer self.allocator.free(full_path);
-
-                if (self.fileExists(full_path)) {
-                    absolute_path = self.resolveAbsolutePath(full_path) catch return error.Unwind;
-                }
-            }
-
-            if (absolute_path == null and self.fileExists(filename)) {
-                absolute_path = self.resolveAbsolutePath(filename) catch return error.Unwind;
-            }
-        }
-
-        if (absolute_path == null) {
-            const with_rb = std.fmt.allocPrint(self.allocator, "{s}.rb", .{filename}) catch return error.Unwind;
-            defer self.allocator.free(with_rb);
-
-            if (self.fileExists(with_rb)) {
-                absolute_path = self.resolveAbsolutePath(with_rb) catch return error.Unwind;
-            }
-        }
-
-        if (absolute_path == null) {
-            const msg = std.fmt.allocPrint(self.allocator, "cannot load such file -- {s}", .{filename}) catch return error.Unwind;
-            const exc = self.createException(self.load_error_class, msg) catch return error.Unwind;
-            self.pending_exception = exc;
-            try self.unwindStack();
-            return error.Unwind;
-        }
-
-        self.loadFile(absolute_path.?) catch return error.Unwind;
-
-        return Value.boolean(true);
-    }
-    fn builtinProcIsLambda(_: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
-        return Value.boolean(receiver.data.proc.block.chunk.is_lambda);
-    }
-
-    fn builtinKernelPuts(self: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
-        if (args.len == 0) {
-            // puts with no args prints empty line
-            self.stdout.?.print("\n", .{}) catch return VMError.Unwind;
-            _ = self.stdout.?.flush() catch {};
-            return Value.nil();
-        }
-
-        for (args) |arg| {
-            if (arg.data == .array) {
-                // Special case: flatten arrays, call to_s on each element
-                for (arg.data.array.elements.items) |elem| {
-                    const str_val = try self.callMethodByName(elem, "to_s", &[_]Value{}, null);
-                    if (str_val.data != .string) return error.Unwind;
-                    self.stdout.?.print("{s}\n", .{str_val.data.string.str}) catch return VMError.Unwind;
-                }
-            } else {
-                // Normal case: call to_s on the argument
-                const str_val = try self.callMethodByName(arg, "to_s", &[_]Value{}, null);
-                if (str_val.data != .string) return error.Unwind;
-                self.stdout.?.print("{s}\n", .{str_val.data.string.str}) catch return VMError.Unwind;
-            }
-        }
-        _ = self.stdout.?.flush() catch {};
-
-        return Value.nil();
-    }
-
-    fn builtinKernelProc(self: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
-        if (args.len != 0) {
-            const msg = std.fmt.allocPrint(
-                self.gc_allocator,
-                "wrong number of arguments (given {d}, expected 0)",
-                .{args.len},
-            ) catch unreachable;
-            const exc = try self.createException(self.argument_error_class, msg);
-            self.pending_exception = exc;
-            return error.Unwind;
-        }
-
-        const blk = block orelse {
-            const exc = try self.createException(
-                self.argument_error_class,
-                "tried to create Proc object without a block",
-            );
-            self.pending_exception = exc;
-            return error.Unwind;
-        };
-
-        return self.newProc(blk);
-    }
-
-    fn builtinKernelLambda(self: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
-        if (args.len != 0) {
-            const msg = std.fmt.allocPrint(
-                self.gc_allocator,
-                "wrong number of arguments (given {d}, expected 0)",
-                .{args.len},
-            ) catch unreachable;
-            const exc = try self.createException(self.argument_error_class, msg);
-            self.pending_exception = exc;
-            return error.Unwind;
-        }
-
-        var blk = block orelse {
-            const exc = try self.createException(
-                self.argument_error_class,
-                "tried to create Lambda without a block",
-            );
-            self.pending_exception = exc;
-            return error.Unwind;
-        };
-
-        // Mark the chunk as a lambda
-        blk.chunk.is_lambda = true;
-
-        return self.newProc(blk);
-    }
-
-    fn builtinKernelRaise(self: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
-        if (args.len == 0) {
-            // Re-raise current exception
-            if (self.pending_exception) |exc| {
-                try self.raise(.{ .data = .{ .exception = exc } });
-            } else {
-                // No exception to re-raise - raise RuntimeError
-                const exc = try self.createException(self.runtime_error_class, "No exception to re-raise");
-                try self.raise(.{ .data = .{ .exception = exc } });
-            }
-        } else if (args.len == 1) {
-            const arg = args[0];
-            switch (arg.data) {
-                .exception => {
-                    // Already an exception, raise it
-                    try self.raise(arg);
-                },
-                .class => |cls| {
-                    // Exception class with empty message
-                    const exc = try self.createException(cls, "");
-                    try self.raise(.{ .data = .{ .exception = exc } });
-                },
-                .string => |str| {
-                    // String message - create RuntimeError
-                    const exc = try self.createException(self.runtime_error_class, str.str);
-                    try self.raise(.{ .data = .{ .exception = exc } });
-                },
-                else => {
-                    return error.Unwind;
-                },
-            }
-        } else if (args.len == 2) {
-            const class_arg = args[0];
-            const message = args[1];
-
-            if (class_arg.data != .class) {
-                return error.Unwind;
-            }
-
-            const msg_str = if (message.data == .string)
-                message.data.string.str
-            else
-                "";
-
-            const exc = try self.createException(class_arg.data.class, msg_str);
-            try self.raise(.{ .data = .{ .exception = exc } });
-        } else {
-            return error.Unwind;
-        }
-
-        return Value.nil();
-    }
-
-    fn builtinKernelIsA(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        try self.requireArgCount(args, 1);
-        const arg = args[0];
-
-        switch (arg.data) {
-            .class => |cls| {
-                var current: ?*ClassObject = self.getClass(receiver);
-                while (current) |c| {
-                    if (c == cls) return Value.boolean(true);
-                    current = c.superclass;
-                }
-                return Value.boolean(false);
-            },
-            .module => |mod| {
-                var current: ?*ClassObject = self.getClass(receiver);
-                while (current) |c| {
-                    if (&c.module == mod) return Value.boolean(true);
-                    for (c.prepended_modules.items) |m| {
-                        if (m == mod) return Value.boolean(true);
-                    }
-                    for (c.included_modules.items) |m| {
-                        if (m == mod) return Value.boolean(true);
-                    }
-                    current = c.superclass;
-                }
-                return Value.boolean(false);
-            },
-            else => return self.raiseExceptionFmt(self.type_error_class, "class or module required", .{}),
-        }
-    }
-
-    fn builtinKernelBlockGiven(self: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
-        try self.requireArgCount(args, 0);
-        const frame = self.currentFrame();
-        return Value.boolean(frame.block != null);
-    }
-
-    fn builtinKernelInstanceVariableGet(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        if (args.len != 1) {
-            const exc = try self.createException(self.argument_error_class, "wrong number of arguments (given 0, expected 1)");
-            self.pending_exception = exc;
-            return error.Unwind;
-        }
-
-        const name_arg = args[0];
-        var name_str: []const u8 = undefined;
-
-        switch (name_arg.data) {
-            .symbol => |sym| {
-                name_str = sym.name;
-            },
-            .string => |str| {
-                name_str = str.str;
-            },
-            else => {
-                const exc = try self.createException(self.type_error_class, "not a symbol nor a string");
-                self.pending_exception = exc;
-                return error.Unwind;
-            },
-        }
-
-        if (name_str.len <= 1 or name_str[0] != '@') {
-            const msg = std.fmt.allocPrint(self.allocator, "'{s}' is not allowed as an instance variable name", .{name_str}) catch unreachable;
-            defer self.allocator.free(msg);
-            const exc = try self.createException(self.argument_error_class, msg);
-            self.pending_exception = exc;
-            return error.Unwind;
-        }
-
-        return self.getInstanceVariable(receiver, name_str) catch unreachable;
-    }
-
-    fn builtinKernelInstanceVariableSet(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        if (args.len != 2) {
-            const exc = try self.createException(self.argument_error_class, "wrong number of arguments (given 0, expected 2)");
-            self.pending_exception = exc;
-            return error.Unwind;
-        }
-
-        const name_arg = args[0];
-        var name_str: []const u8 = undefined;
-
-        switch (name_arg.data) {
-            .symbol => |sym| {
-                name_str = sym.name;
-            },
-            .string => |str| {
-                name_str = str.str;
-            },
-            else => {
-                const exc = try self.createException(self.type_error_class, "not a symbol nor a string");
-                self.pending_exception = exc;
-                return error.Unwind;
-            },
-        }
-
-        if (name_str.len <= 1 or name_str[0] != '@') {
-            const msg = std.fmt.allocPrint(self.allocator, "'{s}' is not allowed as an instance variable name", .{name_str}) catch unreachable;
-            defer self.allocator.free(msg);
-            const exc = try self.createException(self.argument_error_class, msg);
-            self.pending_exception = exc;
-            return error.Unwind;
-        }
-
-        self.setInstanceVariable(receiver, name_str, args[1]) catch unreachable;
-        return args[1];
-    }
-
-    fn builtinIntegerPlus(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        try self.requireSingleArg(args, .integer, "Integer");
-        const result = receiver.data.integer + args[0].data.integer;
-        return Value.integer(result);
-    }
-
-    fn builtinIntegerMinus(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        try self.requireSingleArg(args, .integer, "Integer");
-        const result = receiver.data.integer - args[0].data.integer;
-        return Value.integer(result);
-    }
-
-    fn builtinIntegerMultiply(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        try self.requireSingleArg(args, .integer, "Integer");
-        const result = receiver.data.integer * args[0].data.integer;
-        return Value.integer(result);
-    }
-
-    fn builtinIntegerEqual(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        try self.requireSingleArg(args, .integer, "Integer");
-        const result = receiver.data.integer == args[0].data.integer;
-        return Value.boolean(result);
-    }
-
-    fn builtinIntegerLessThan(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        try self.requireSingleArg(args, .integer, "Integer");
-        const result = receiver.data.integer < args[0].data.integer;
-        return Value.boolean(result);
-    }
-
-    fn builtinIntegerLessThanOrEqual(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        try self.requireSingleArg(args, .integer, "Integer");
-        const result = receiver.data.integer <= args[0].data.integer;
-        return Value.boolean(result);
-    }
-
-    fn builtinIntegerGreaterThan(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        try self.requireSingleArg(args, .integer, "Integer");
-        const result = receiver.data.integer > args[0].data.integer;
-        return Value.boolean(result);
-    }
-
-    fn builtinIntegerGreaterThanOrEqual(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        try self.requireSingleArg(args, .integer, "Integer");
-        const result = receiver.data.integer >= args[0].data.integer;
-        return Value.boolean(result);
-    }
-
-    fn builtinModuleInclude(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        try self.requireSingleArg(args, .module, "Module");
-        const class = receiver.data.class;
-        const module = args[0].data.module;
-
-        self.includeModule(class, module) catch return error.Unwind;
-
-        return receiver;
-    }
-
-    fn builtinModulePrepend(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        try self.requireSingleArg(args, .module, "Module");
-        const class = receiver.data.class;
-        const module = args[0].data.module;
-
-        self.prependModule(class, module) catch return error.Unwind;
-
-        return receiver;
-    }
-
-    fn builtinModuleDefineMethod(self: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
-        try self.requireArgCount(args, 1);
-        const blk = try self.requireBlock(block);
-
-        const name_arg = args[0];
-        var name_str: []const u8 = undefined;
-        switch (name_arg.data) {
-            .symbol => |sym| name_str = sym.name,
-            .string => |str| name_str = str.str,
-            else => {
-                const exc = try self.createException(self.type_error_class, "not a symbol nor a string");
-                self.pending_exception = exc;
-                return error.Unwind;
-            },
-        }
-
-        const name_sym = self.intern(name_str) catch unreachable;
-        const proc_val = self.newProc(blk);
-
-        if (receiver.data == .class) {
-            receiver.data.class.module.methods.put(name_sym, .{ .proc = proc_val.data.proc }) catch unreachable;
-        } else if (receiver.data == .module) {
-            receiver.data.module.methods.put(name_sym, .{ .proc = proc_val.data.proc }) catch unreachable;
-        } else {
-            const exc = try self.createException(self.type_error_class, "receiver is not a Module");
-            self.pending_exception = exc;
-            return error.Unwind;
-        }
-
-        return Value{ .data = .{ .symbol = name_sym } };
-    }
-
-    fn builtinModuleAttrReader(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        if (args.len == 0) {
-            const exc = try self.createException(self.argument_error_class, "wrong number of arguments (given 0, expected 1)");
-            self.pending_exception = exc;
-            return error.Unwind;
-        }
-
-        var methods: *std.AutoHashMap(*SymbolObject, Method) = undefined;
-        if (receiver.data == .class) {
-            methods = &receiver.data.class.module.methods;
-        } else if (receiver.data == .module) {
-            methods = &receiver.data.module.methods;
-        } else {
-            const exc = try self.createException(self.type_error_class, "receiver is not a Module");
-            self.pending_exception = exc;
-            return error.Unwind;
-        }
-
-        const result_array = try self.createArray();
-
-        for (args) |arg| {
-            var name_str: []const u8 = undefined;
-            switch (arg.data) {
-                .symbol => |sym| name_str = sym.name,
-                .string => |str| name_str = str.str,
-                else => {
-                    const exc = try self.createException(self.type_error_class, "not a symbol nor a string");
-                    self.pending_exception = exc;
-                    return error.Unwind;
-                },
-            }
-
-            const method_sym = self.intern(name_str) catch unreachable;
-            const chunk_ptr = try self.createAccessorChunk(name_str, .reader);
-            methods.put(method_sym, .{ .chunk = chunk_ptr }) catch unreachable;
-
-            result_array.elements.append(self.gc_allocator, Value{ .data = .{ .symbol = method_sym } }) catch unreachable;
-        }
-
-        return Value{ .data = .{ .array = result_array } };
-    }
-
-    fn builtinModuleAttrWriter(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        if (args.len == 0) {
-            const exc = try self.createException(self.argument_error_class, "wrong number of arguments (given 0, expected 1)");
-            self.pending_exception = exc;
-            return error.Unwind;
-        }
-
-        var methods: *std.AutoHashMap(*SymbolObject, Method) = undefined;
-        if (receiver.data == .class) {
-            methods = &receiver.data.class.module.methods;
-        } else if (receiver.data == .module) {
-            methods = &receiver.data.module.methods;
-        } else {
-            const exc = try self.createException(self.type_error_class, "receiver is not a Module");
-            self.pending_exception = exc;
-            return error.Unwind;
-        }
-
-        const result_array = try self.createArray();
-
-        for (args) |arg| {
-            var name_str: []const u8 = undefined;
-            switch (arg.data) {
-                .symbol => |sym| name_str = sym.name,
-                .string => |str| name_str = str.str,
-                else => {
-                    const exc = try self.createException(self.type_error_class, "not a symbol nor a string");
-                    self.pending_exception = exc;
-                    return error.Unwind;
-                },
-            }
-
-            const writer_name = std.fmt.allocPrint(self.program.allocator, "{s}=", .{name_str}) catch unreachable;
-            const method_sym = self.intern(writer_name) catch unreachable;
-            const chunk_ptr = try self.createAccessorChunk(name_str, .writer);
-            methods.put(method_sym, .{ .chunk = chunk_ptr }) catch unreachable;
-
-            result_array.elements.append(self.gc_allocator, Value{ .data = .{ .symbol = method_sym } }) catch unreachable;
-        }
-
-        return Value{ .data = .{ .array = result_array } };
-    }
-
-    fn builtinModuleAttrAccessor(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        if (args.len == 0) {
-            const exc = try self.createException(self.argument_error_class, "wrong number of arguments (given 0, expected 1)");
-            self.pending_exception = exc;
-            return error.Unwind;
-        }
-
-        var methods: *std.AutoHashMap(*SymbolObject, Method) = undefined;
-        if (receiver.data == .class) {
-            methods = &receiver.data.class.module.methods;
-        } else if (receiver.data == .module) {
-            methods = &receiver.data.module.methods;
-        } else {
-            const exc = try self.createException(self.type_error_class, "receiver is not a Module");
-            self.pending_exception = exc;
-            return error.Unwind;
-        }
-
-        const result_array = try self.createArray();
-
-        for (args) |arg| {
-            var name_str: []const u8 = undefined;
-            switch (arg.data) {
-                .symbol => |sym| name_str = sym.name,
-                .string => |str| name_str = str.str,
-                else => {
-                    const exc = try self.createException(self.type_error_class, "not a symbol nor a string");
-                    self.pending_exception = exc;
-                    return error.Unwind;
-                },
-            }
-
-            const writer_name = std.fmt.allocPrint(self.program.allocator, "{s}=", .{name_str}) catch unreachable;
-
-            const reader_sym = self.intern(name_str) catch unreachable;
-            const writer_sym = self.intern(writer_name) catch unreachable;
-
-            const reader_chunk = try self.createAccessorChunk(name_str, .reader);
-            const writer_chunk = try self.createAccessorChunk(name_str, .writer);
-
-            methods.put(reader_sym, .{ .chunk = reader_chunk }) catch unreachable;
-            methods.put(writer_sym, .{ .chunk = writer_chunk }) catch unreachable;
-
-            result_array.elements.append(self.gc_allocator, Value{ .data = .{ .symbol = reader_sym } }) catch unreachable;
-            result_array.elements.append(self.gc_allocator, Value{ .data = .{ .symbol = writer_sym } }) catch unreachable;
-        }
-
-        return Value{ .data = .{ .array = result_array } };
-    }
-
-    fn builtinArrayPush(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        try self.requireArgCount(args, 1);
-        const array = receiver.data.array;
-        array.elements.append(self.gc_allocator, args[0]) catch return error.Unwind;
-
-        return receiver;
-    }
-
-    fn builtinArrayBracket(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        try self.requireSingleArg(args, .integer, "Integer");
-        const array = receiver.data.array;
-        const index = args[0].data.integer;
-        const len: i64 = @intCast(array.elements.items.len);
-
-        // Handle negative indices (count from end)
-        var actual_index: i64 = index;
-        if (index < 0) {
-            actual_index = len + index;
-        }
-
-        // Return nil for out of bounds
-        if (actual_index < 0 or actual_index >= len) {
-            return Value.nil();
-        }
-
-        return array.elements.items[@intCast(actual_index)];
-    }
-
-    fn builtinArrayEach(self: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
-        try self.requireArgCount(args, 0);
-        const blk = try self.requireBlock(block);
-        const array_obj = receiver.data.array;
-
-        // Iterate over array elements
-        for (array_obj.elements.items) |element| {
-            const yield_args = [_]Value{element};
-            const result = try self.yieldToBlock(blk, receiver, &yield_args);
-
-            // If break occurred, return immediately
-            if (result.break_occurred) {
-                return receiver;
-            }
-        }
-
-        return receiver;
-    }
-
-    fn builtinIntegerToS(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        try self.requireArgCount(args, 0);
-        const str = std.fmt.allocPrint(self.gc_allocator, "{d}", .{receiver.data.integer}) catch return error.Unwind;
-        return self.newString(str, false);
-    }
-
-    fn builtinStringToS(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        try self.requireArgCount(args, 0);
-        return receiver; // String#to_s returns self
-    }
-
-    fn builtinStringPlus(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        try self.requireSingleArg(args, .string, "String");
-        const other_str = args[0].data.string;
-        const combined_str = std.fmt.allocPrint(
-            self.gc_allocator,
-            "{s}{s}",
-            .{ receiver.data.string.str, other_str.str },
-        ) catch return error.Unwind;
-
-        return self.newString(combined_str, false);
-    }
-
-    fn builtinStringEqual(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        try self.requireArgCount(args, 1);
-        const other = args[0];
-        // String == only returns true if other is also a String with same content
-        if (other.data != .string) {
-            return Value.boolean(false);
-        }
-        const result = std.mem.eql(u8, receiver.data.string.str, other.data.string.str);
-        return Value.boolean(result);
-    }
-
-    fn builtinStringNotEqual(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        try self.requireArgCount(args, 1);
-        const other = args[0];
-        // String != returns true if other is not a String or has different content
-        if (other.data != .string) {
-            return Value.boolean(true);
-        }
-        const result = !std.mem.eql(u8, receiver.data.string.str, other.data.string.str);
-        return Value.boolean(result);
-    }
-
-    fn builtinStringEncoding(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        try self.requireArgCount(args, 0);
-        if (receiver.data != .string) {
-            return self.raiseExceptionFmt(self.type_error_class, "receiver is not a String", .{});
-        }
-        const string_obj = receiver.data.string;
-        // Return the appropriate encoding singleton
-        return switch (string_obj.encoding) {
-            .utf8 => Value{ .data = .{ .encoding = self.encoding_utf8 } },
-            .ascii_8bit => Value{ .data = .{ .encoding = self.encoding_ascii_8bit } },
-            .us_ascii => Value{ .data = .{ .encoding = self.encoding_us_ascii } },
-        };
-    }
-
-    fn builtinStringForceEncoding(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        try self.requireArgCount(args, 1);
-        if (receiver.data != .string) {
-            return self.raiseExceptionFmt(self.type_error_class, "receiver is not a String", .{});
-        }
-
-        // Get the new encoding from argument
-        const new_encoding: enc.Encoding = switch (args[0].data) {
-            .encoding => |e| e.encoding,
-            .string, .symbol => blk: {
-                // Use Encoding.find logic - works for both strings and symbols
-                const result = try self.builtinEncodingFind(receiver, args, null);
-                break :blk result.data.encoding.encoding;
-            },
-            else => return self.raiseExceptionFmt(self.type_error_class, "wrong argument type {s} (expected Encoding, String, or Symbol)", .{@tagName(args[0].data)}),
-        };
-
-        // Create a new string with the same bytes but different encoding
-        const string_obj = receiver.data.string;
-        return self.newStringWithEncoding(string_obj.str, false, new_encoding);
-    }
-
-    fn builtinStringValidEncoding(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        try self.requireArgCount(args, 0);
-        if (receiver.data != .string) {
-            return self.raiseExceptionFmt(self.type_error_class, "receiver is not a String", .{});
-        }
-        const string_obj = receiver.data.string;
-        return Value.boolean(string_obj.encoding.isValid(string_obj.str));
-    }
-
-    fn builtinStringAsciiOnly(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        try self.requireArgCount(args, 0);
-        if (receiver.data != .string) {
-            return self.raiseExceptionFmt(self.type_error_class, "receiver is not a String", .{});
-        }
-        const string_obj = receiver.data.string;
-        return Value.boolean(enc.isAsciiOnly(string_obj.str));
-    }
-
-    fn builtinStringB(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        try self.requireArgCount(args, 0);
-        if (receiver.data != .string) {
-            return self.raiseExceptionFmt(self.type_error_class, "receiver is not a String", .{});
-        }
-        const string_obj = receiver.data.string;
-        // Return a new string with ASCII-8BIT encoding
-        return self.newStringWithEncoding(string_obj.str, false, .{ .ascii_8bit = .{} });
-    }
-
-    fn builtinSymbolToS(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        if (receiver.data != .symbol) {
-            const exc = try self.createException(
-                self.type_error_class,
-                "receiver is not a Symbol",
-            );
-            self.pending_exception = exc;
-            return error.Unwind;
-        }
-
-        if (args.len != 0) {
-            const msg = std.fmt.allocPrint(
-                self.gc_allocator,
-                "wrong number of arguments (given {d}, expected 0)",
-                .{args.len},
-            ) catch unreachable;
-            const exc = try self.createException(self.argument_error_class, msg);
-            self.pending_exception = exc;
-            return error.Unwind;
-        }
-
-        const str = std.fmt.allocPrint(self.gc_allocator, "{s}", .{receiver.data.symbol.name}) catch return error.Unwind;
-        return self.newString(str, false);
-    }
-
-    fn builtinNilClassToS(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        if (receiver.data != .nil) {
-            const exc = try self.createException(
-                self.type_error_class,
-                "receiver is not nil",
-            );
-            self.pending_exception = exc;
-            return error.Unwind;
-        }
-
-        if (args.len != 0) {
-            const msg = std.fmt.allocPrint(
-                self.gc_allocator,
-                "wrong number of arguments (given {d}, expected 0)",
-                .{args.len},
-            ) catch unreachable;
-            const exc = try self.createException(self.argument_error_class, msg);
-            self.pending_exception = exc;
-            return error.Unwind;
-        }
-
-        return self.newString("", false);
-    }
-
-    fn builtinTrueClassToS(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        if (receiver.data != .boolean or !receiver.data.boolean) {
-            const exc = try self.createException(
-                self.type_error_class,
-                "receiver is not true",
-            );
-            self.pending_exception = exc;
-            return error.Unwind;
-        }
-
-        if (args.len != 0) {
-            const msg = std.fmt.allocPrint(
-                self.gc_allocator,
-                "wrong number of arguments (given {d}, expected 0)",
-                .{args.len},
-            ) catch unreachable;
-            const exc = try self.createException(self.argument_error_class, msg);
-            self.pending_exception = exc;
-            return error.Unwind;
-        }
-
-        return self.newString("true", false);
-    }
-
-    fn builtinFalseClassToS(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        if (receiver.data != .boolean or receiver.data.boolean) {
-            const exc = try self.createException(
-                self.type_error_class,
-                "receiver is not false",
-            );
-            self.pending_exception = exc;
-            return error.Unwind;
-        }
-
-        if (args.len != 0) {
-            const msg = std.fmt.allocPrint(
-                self.gc_allocator,
-                "wrong number of arguments (given {d}, expected 0)",
-                .{args.len},
-            ) catch unreachable;
-            const exc = try self.createException(self.argument_error_class, msg);
-            self.pending_exception = exc;
-            return error.Unwind;
-        }
-
-        return self.newString("false", false);
-    }
-
-    fn builtinArrayToS(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        try self.requireArgCount(args, 0);
-        const array = receiver.data.array;
-        var buf: std.ArrayList(u8) = .empty;
-        const writer = buf.writer(self.allocator);
-
-        writer.writeAll("[") catch return error.Unwind;
-        for (array.elements.items, 0..) |elem, idx| {
-            if (idx > 0) writer.writeAll(", ") catch return error.Unwind;
-
-            const elem_str = try self.callMethodByName(elem, "to_s", &[_]Value{}, null);
-            if (elem_str.data != .string) return error.Unwind;
-            writer.writeAll(elem_str.data.string.str) catch return error.Unwind;
-        }
-        writer.writeAll("]") catch return error.Unwind;
-
-        const str = buf.toOwnedSlice(self.allocator) catch return error.Unwind;
-        defer self.allocator.free(str);
-        return self.newString(str, false);
-    }
-
-    fn builtinArrayLength(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        try self.requireArgCount(args, 0);
-        const array = receiver.data.array;
-        return Value{ .data = .{ .integer = @intCast(array.elements.items.len) } };
-    }
-
-    fn builtinKernelToS(self: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
-        const class = self.getClass(receiver);
-        const class_name = class.module.name.name;
-
-        const object_id = switch (receiver.data) {
-            .instance => |i| @intFromPtr(i),
-            .string => |s| @intFromPtr(s),
-            .symbol => |s| @intFromPtr(s),
-            .array => |a| @intFromPtr(a),
-            .hash => |h| @intFromPtr(h),
-            .exception => |e| @intFromPtr(e),
-            .encoding => |e| @intFromPtr(e),
-            .module => |m| @intFromPtr(m),
-            .class => |c| @intFromPtr(c),
-            .proc => |p| @intFromPtr(p),
-            // Primitives get a fake object ID for now
-            .integer, .boolean, .nil => 0x0000000000000001,
-        };
-
-        const str = std.fmt.allocPrint(self.gc_allocator, "#<{s}:0x{x}>", .{ class_name, object_id }) catch return error.Unwind;
-        return self.newString(str, false);
-    }
-
-    // ===== inspect methods =====
-
-    fn builtinIntegerInspect(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        return self.builtinIntegerToS(receiver, args, null);
-    }
-
-    fn builtinStringInspect(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        try self.requireArgCount(args, 0);
-        const input = receiver.data.string.str;
-        var buf: std.ArrayList(u8) = .empty;
-        const writer = buf.writer(self.allocator);
-
-        writer.writeAll("\"") catch return error.Unwind;
-        for (input) |c| {
-            switch (c) {
-                '"' => writer.writeAll("\\\"") catch return error.Unwind,
-                '\\' => writer.writeAll("\\\\") catch return error.Unwind,
-                '\n' => writer.writeAll("\\n") catch return error.Unwind,
-                '\t' => writer.writeAll("\\t") catch return error.Unwind,
-                '\r' => writer.writeAll("\\r") catch return error.Unwind,
-                '\x08' => writer.writeAll("\\b") catch return error.Unwind, // backspace
-                '\x0c' => writer.writeAll("\\f") catch return error.Unwind, // form feed
-                '\x0b' => writer.writeAll("\\v") catch return error.Unwind, // vertical tab
-                '\x00' => writer.writeAll("\\0") catch return error.Unwind, // null
-                else => {
-                    if (c < 32 or c > 126) {
-                        std.fmt.format(writer, "\\x{x:0>2}", .{c}) catch return error.Unwind;
-                    } else {
-                        writer.writeByte(c) catch return error.Unwind;
-                    }
-                },
-            }
-        }
-        writer.writeAll("\"") catch return error.Unwind;
-
-        const str = buf.toOwnedSlice(self.allocator) catch return error.Unwind;
-        defer self.allocator.free(str);
-        return self.newString(str, false);
-    }
-
-    fn builtinSymbolInspect(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        if (receiver.data != .symbol) {
-            const exc = try self.createException(
-                self.type_error_class,
-                "receiver is not a Symbol",
-            );
-            self.pending_exception = exc;
-            return error.Unwind;
-        }
-
-        if (args.len != 0) {
-            const msg = std.fmt.allocPrint(
-                self.gc_allocator,
-                "wrong number of arguments (given {d}, expected 0)",
-                .{args.len},
-            ) catch unreachable;
-            const exc = try self.createException(self.argument_error_class, msg);
-            self.pending_exception = exc;
-            return error.Unwind;
-        }
-
-        const str = std.fmt.allocPrint(self.gc_allocator, ":{s}", .{receiver.data.symbol.name}) catch return error.Unwind;
-        return self.newString(str, false);
-    }
-
-    fn builtinNilClassInspect(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        if (receiver.data != .nil) {
-            const exc = try self.createException(
-                self.type_error_class,
-                "receiver is not nil",
-            );
-            self.pending_exception = exc;
-            return error.Unwind;
-        }
-
-        if (args.len != 0) {
-            const msg = std.fmt.allocPrint(
-                self.gc_allocator,
-                "wrong number of arguments (given {d}, expected 0)",
-                .{args.len},
-            ) catch unreachable;
-            const exc = try self.createException(self.argument_error_class, msg);
-            self.pending_exception = exc;
-            return error.Unwind;
-        }
-
-        return self.newString("nil", false);
-    }
-
-    fn builtinTrueClassInspect(self: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
-        return self.builtinTrueClassToS(receiver, args, block);
-    }
-
-    fn builtinFalseClassInspect(self: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
-        return self.builtinFalseClassToS(receiver, args, block);
-    }
-
-    fn builtinArrayInspect(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        try self.requireArgCount(args, 0);
-        const array = receiver.data.array;
-        var buf: std.ArrayList(u8) = .empty;
-        const writer = buf.writer(self.allocator);
-
-        writer.writeAll("[") catch return error.Unwind;
-        for (array.elements.items, 0..) |elem, idx| {
-            if (idx > 0) writer.writeAll(", ") catch return error.Unwind;
-
-            const elem_inspected = try self.callMethodByName(elem, "inspect", &[_]Value{}, null);
-            if (elem_inspected.data != .string) return error.Unwind;
-            writer.writeAll(elem_inspected.data.string.str) catch return error.Unwind;
-        }
-        writer.writeAll("]") catch return error.Unwind;
-
-        const str = buf.toOwnedSlice(self.allocator) catch return error.Unwind;
-        defer self.allocator.free(str);
-        return self.newString(str, false);
-    }
-
-    fn builtinKernelInspect(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        return self.builtinKernelToS(receiver, args, null);
-    }
-
-    fn builtinKernelP(self: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
-        if (args.len == 0) {
-            self.stdout.?.print("\n", .{}) catch return error.Unwind;
-            _ = self.stdout.?.flush() catch {};
-            return Value.nil();
-        }
-
-        for (args, 0..) |arg, idx| {
-            const inspected = try self.callMethodByName(arg, "inspect", &[_]Value{}, null);
-            if (inspected.data != .string) return error.Unwind;
-
-            if (idx > 0) {
-                self.stdout.?.print("\n", .{}) catch return error.Unwind;
-            }
-            self.stdout.?.print("{s}", .{inspected.data.string.str}) catch return error.Unwind;
-        }
-        self.stdout.?.print("\n", .{}) catch return error.Unwind;
-        _ = self.stdout.?.flush() catch {};
-
-        if (args.len == 1) {
-            return args[0];
-        } else {
-            const array_obj = self.gc_allocator.create(value.ArrayObject) catch return error.Unwind;
-            array_obj.* = .{
-                .object = .{ .flags = 0, .class = self.array_class, .singleton_class = null, .instance_variables = null },
-                .elements = .empty,
-            };
-
-            for (args) |arg| {
-                array_obj.elements.append(self.gc_allocator, arg) catch return error.Unwind;
-            }
-
-            return .{ .data = .{ .array = array_obj } };
-        }
-    }
-
     // ===== Exception Handling Methods =====
 
     /// Create a new exception object
-    fn createArray(self: *VM) !*value.ArrayObject {
+    pub fn createArray(self: *VM) !*value.ArrayObject {
         const array_ptr = self.gc_allocator.create(value.ArrayObject) catch unreachable;
         array_ptr.* = value.ArrayObject{
             .object = .{
@@ -3872,7 +2477,7 @@ pub const VM = struct {
         return array_ptr;
     }
 
-    const ArityMode = enum { strict, lenient };
+    pub const ArityMode = enum { strict, lenient };
 
     /// Execute a default parameter expression chunk and return its value
     fn executeDefaultExpression(
@@ -3917,7 +2522,7 @@ pub const VM = struct {
         return default_value;
     }
 
-    fn copyArgumentsWithRestParam(
+    pub fn copyArgumentsWithRestParam(
         self: *VM,
         target_chunk: *const Chunk,
         env: *Environment,
@@ -4211,7 +2816,7 @@ pub const VM = struct {
         return Value{ .data = .{ .hash = kw_hash } };
     }
 
-    fn createException(self: *VM, class: *ClassObject, message: []const u8) VMError!*value.ExceptionObject {
+    pub fn createException(self: *VM, class: *ClassObject, message: []const u8) VMError!*value.ExceptionObject {
         const exc = self.gc_allocator.create(value.ExceptionObject) catch unreachable;
         const msg_str = self.newString(message, false);
         const backtrace = self.captureBacktrace() catch return error.Unwind;
@@ -4229,240 +2834,6 @@ pub const VM = struct {
         };
 
         return exc;
-    }
-
-    fn builtinExceptionMessage(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        if (receiver.data != .exception) {
-            const exc = try self.createException(
-                self.type_error_class,
-                "receiver is not an Exception",
-            );
-            self.pending_exception = exc;
-            return error.Unwind;
-        }
-
-        if (args.len != 0) {
-            const msg = std.fmt.allocPrint(
-                self.gc_allocator,
-                "wrong number of arguments (given {d}, expected 0)",
-                .{args.len},
-            ) catch unreachable;
-            const exc = try self.createException(self.argument_error_class, msg);
-            self.pending_exception = exc;
-            return error.Unwind;
-        }
-
-        const exc = receiver.data.exception;
-        return .{ .data = .{ .string = exc.message } };
-    }
-
-    fn builtinEncodingName(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        try self.requireArgCount(args, 0);
-        if (receiver.data != .encoding) {
-            return self.raiseExceptionFmt(self.type_error_class, "receiver is not an Encoding", .{});
-        }
-        const encoding_obj = receiver.data.encoding;
-        return self.newString(encoding_obj.encoding.name(), true);
-    }
-
-    fn builtinEncodingInspect(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        try self.requireArgCount(args, 0);
-        if (receiver.data != .encoding) {
-            return self.raiseExceptionFmt(self.type_error_class, "receiver is not an Encoding", .{});
-        }
-        const encoding_obj = receiver.data.encoding;
-        const str = std.fmt.allocPrint(self.gc_allocator, "#<Encoding:{s}>", .{encoding_obj.encoding.name()}) catch return error.Unwind;
-        return self.newString(str, false);
-    }
-
-    fn builtinEncodingAsciiCompatible(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        try self.requireArgCount(args, 0);
-        if (receiver.data != .encoding) {
-            return self.raiseExceptionFmt(self.type_error_class, "receiver is not an Encoding", .{});
-        }
-        const encoding_obj = receiver.data.encoding;
-        return Value.boolean(encoding_obj.encoding.isAsciiCompatible());
-    }
-
-    fn builtinEncodingFind(self: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
-        try self.requireArgCount(args, 1);
-        const arg = args[0];
-
-        // Get encoding name from argument
-        const name_str = switch (arg.data) {
-            .string => |s| s.str,
-            .symbol => |s| s.name,
-            else => return self.raiseExceptionFmt(self.type_error_class, "wrong argument type {s} (expected String or Symbol)", .{@tagName(arg.data)}),
-        };
-
-        // Normalize: uppercase and replace - with _
-        var normalized: [32]u8 = undefined;
-        var len: usize = 0;
-        for (name_str) |c| {
-            if (len >= normalized.len) break;
-            if (c == '-') {
-                normalized[len] = '_';
-            } else if (c >= 'a' and c <= 'z') {
-                normalized[len] = c - 32; // uppercase
-            } else {
-                normalized[len] = c;
-            }
-            len += 1;
-        }
-        const lookup = normalized[0..len];
-
-        // Match encoding name
-        if (std.mem.eql(u8, lookup, "UTF_8") or std.mem.eql(u8, lookup, "UTF8")) {
-            return Value{ .data = .{ .encoding = self.encoding_utf8 } };
-        } else if (std.mem.eql(u8, lookup, "ASCII_8BIT") or std.mem.eql(u8, lookup, "BINARY")) {
-            return Value{ .data = .{ .encoding = self.encoding_ascii_8bit } };
-        } else if (std.mem.eql(u8, lookup, "US_ASCII") or std.mem.eql(u8, lookup, "ASCII")) {
-            return Value{ .data = .{ .encoding = self.encoding_us_ascii } };
-        }
-
-        return self.raiseExceptionFmt(self.argument_error_class, "unknown encoding name - {s}", .{name_str});
-    }
-
-    fn builtinHashBracket(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        try self.requireArgCount(args, 1);
-        const hash_obj = receiver.data.hash;
-        const key = args[0];
-        const key_hash = key.hash();
-
-        if (hash_obj.map.get(key_hash)) |idx| {
-            if (hash_obj.entries.items[idx].key.eql(key)) {
-                return hash_obj.entries.items[idx].value;
-            }
-        }
-
-        return Value.nil();
-    }
-
-    fn builtinHashBracketSet(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        try self.requireArgCount(args, 2);
-        if (receiver.isFrozen()) {
-            const exc = try self.createException(self.runtime_error_class, "can't modify frozen Hash");
-            self.pending_exception = exc;
-            return error.Unwind;
-        }
-
-        const hash_obj = receiver.data.hash;
-        const key = args[0];
-        const new_value = args[1];
-        const key_hash = key.hash();
-
-        if (hash_obj.map.get(key_hash)) |idx| {
-            if (hash_obj.entries.items[idx].key.eql(key)) {
-                hash_obj.entries.items[idx].value = new_value;
-                return new_value;
-            }
-        }
-
-        const new_idx = hash_obj.entries.items.len;
-        hash_obj.entries.append(self.gc_allocator, .{ .key = key, .value = new_value }) catch unreachable;
-        hash_obj.map.put(key_hash, new_idx) catch unreachable;
-
-        return new_value;
-    }
-
-    fn builtinHashKeys(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        try self.requireArgCount(args, 0);
-        const hash_obj = receiver.data.hash;
-        const array_obj = self.gc_allocator.create(value.ArrayObject) catch unreachable;
-        array_obj.* = .{
-            .object = .{ .flags = 0, .class = self.array_class, .singleton_class = null, .instance_variables = null },
-            .elements = .empty,
-        };
-
-        for (hash_obj.entries.items) |entry| {
-            array_obj.elements.append(self.gc_allocator, entry.key) catch unreachable;
-        }
-
-        return .{ .data = .{ .array = array_obj } };
-    }
-
-    fn builtinHashValues(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        try self.requireArgCount(args, 0);
-        const hash_obj = receiver.data.hash;
-        const array_obj = self.gc_allocator.create(value.ArrayObject) catch unreachable;
-        array_obj.* = .{
-            .object = .{ .flags = 0, .class = self.array_class, .singleton_class = null, .instance_variables = null },
-            .elements = .empty,
-        };
-
-        for (hash_obj.entries.items) |entry| {
-            array_obj.elements.append(self.gc_allocator, entry.value) catch unreachable;
-        }
-
-        return .{ .data = .{ .array = array_obj } };
-    }
-
-    fn builtinHashSize(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        try self.requireArgCount(args, 0);
-        return Value.integer(@intCast(receiver.data.hash.entries.items.len));
-    }
-
-    fn builtinHashEach(self: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
-        try self.requireArgCount(args, 0);
-        const blk = try self.requireBlock(block);
-        const hash_obj = receiver.data.hash;
-
-        // Iterate in insertion order
-        for (hash_obj.entries.items) |entry| {
-            const yield_args = [_]Value{ entry.key, entry.value };
-            const result = try self.yieldToBlock(blk, receiver, &yield_args);
-
-            // If break occurred, return immediately
-            if (result.break_occurred) {
-                return receiver;
-            }
-        }
-
-        return receiver;
-    }
-
-    fn builtinHashToS(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        try self.requireArgCount(args, 0);
-        const hash_obj = receiver.data.hash;
-        var buf: std.ArrayList(u8) = .empty;
-        defer buf.deinit(self.allocator);
-        const writer = buf.writer(self.allocator);
-
-        writer.writeAll("{") catch return error.Unwind;
-        for (hash_obj.entries.items, 0..) |entry, idx| {
-            if (idx > 0) {
-                writer.writeAll(", ") catch return error.Unwind;
-            }
-
-            // Check if key is a symbol - use shorthand syntax
-            if (entry.key.data == .symbol) {
-                // Write symbol name without the : prefix
-                const sym = entry.key.data.symbol;
-                writer.writeAll(sym.name) catch return error.Unwind;
-                writer.writeAll(": ") catch return error.Unwind;
-            } else {
-                // Call inspect on non-symbol keys
-                const key_val = try self.callMethodByName(entry.key, "inspect", &.{}, null);
-                if (key_val.data != .string) return error.Unwind;
-                writer.writeAll(key_val.data.string.str) catch return error.Unwind;
-                writer.writeAll(" => ") catch return error.Unwind;
-            }
-
-            // Call inspect on value
-            const value_val = try self.callMethodByName(entry.value, "inspect", &.{}, null);
-            if (value_val.data != .string) return error.Unwind;
-            writer.writeAll(value_val.data.string.str) catch return error.Unwind;
-        }
-        writer.writeAll("}") catch return error.Unwind;
-
-        const final_str = buf.toOwnedSlice(self.allocator) catch return error.Unwind;
-        defer self.allocator.free(final_str);
-        return self.newString(final_str, false);
-    }
-
-    fn builtinHashInspect(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-        try self.requireArgCount(args, 0);
-        return try self.builtinHashToS(receiver, args, null);
     }
 
     /// Capture current call stack as a backtrace
@@ -4505,7 +2876,7 @@ pub const VM = struct {
     }
 
     /// Raise an exception and start unwinding
-    fn raise(self: *VM, exception_val: Value) VMError!void {
+    pub fn raise(self: *VM, exception_val: Value) VMError!void {
         const exc = switch (exception_val.data) {
             .exception => |e| e,
             else => {
@@ -4520,7 +2891,7 @@ pub const VM = struct {
     }
 
     /// Unwind the call stack looking for exception handlers
-    fn unwindStack(self: *VM) VMError!void {
+    pub fn unwindStack(self: *VM) VMError!void {
         while (self.frames.items.len > 0) {
             const frame_idx = self.frames.items.len - 1;
             const frame = &self.frames.items[frame_idx];
