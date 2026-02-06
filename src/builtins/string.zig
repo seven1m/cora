@@ -46,6 +46,9 @@ pub fn register(vm: *VM) !void {
     const string_bytesize_sym = try vm.intern("bytesize");
     try vm.string_class.module.methods.put(string_bytesize_sym, .{ .builtin = &builtinStringBytesize });
 
+    const string_chars_sym = try vm.intern("chars");
+    try vm.string_class.module.methods.put(string_chars_sym, .{ .builtin = &builtinStringChars });
+
     const to_s_sym = try vm.intern("to_s");
     try vm.string_class.module.methods.put(to_s_sym, .{ .builtin = &builtinStringToS });
 
@@ -182,6 +185,43 @@ pub fn builtinStringDup(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
 pub fn builtinStringBytesize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return Value{ .data = .{ .integer = @intCast(receiver.data.string.str.len) } };
+}
+
+pub fn builtinStringChars(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const string_obj = receiver.data.string;
+    const bytes = string_obj.str;
+    const encoding = string_obj.encoding;
+
+    if (block) |blk| {
+        var i: usize = 0;
+        while (i < bytes.len) {
+            const start = i;
+            const result = encoding.nextChar(bytes, &i);
+            if (result.len == 0) break;
+            const slice = bytes[start .. start + result.len];
+            const char_val = try vm.newStringWithEncoding(slice, false, encoding);
+            const yield_args = [_]Value{char_val};
+            const yield_result = try vm.yieldToBlock(blk, &yield_args);
+            if (yield_result.break_occurred) {
+                return receiver;
+            }
+        }
+        return receiver;
+    }
+
+    const array_obj = try vm.createArray();
+    var i: usize = 0;
+    while (i < bytes.len) {
+        const start = i;
+        const result = encoding.nextChar(bytes, &i);
+        if (result.len == 0) break;
+        const slice = bytes[start .. start + result.len];
+        const char_val = try vm.newStringWithEncoding(slice, false, encoding);
+        array_obj.elements.append(vm.gc_allocator, char_val) catch return error.Fatal;
+    }
+
+    return Value{ .data = .{ .array = array_obj } };
 }
 
 pub fn builtinStringInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

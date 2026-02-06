@@ -1,10 +1,29 @@
 $__failures = []
 $__passes = 0
 $__describe = ""
+$__shared_examples = {}
+$__skipped = []
 
-def describe(desc)
+def describe(desc, shared: false, &block)
+  if shared
+    $__shared_examples[desc] = block
+    return
+  end
+
   $__describe = desc
-  yield
+  block.call
+end
+
+def it_behaves_like(name, *args)
+  shared = $__shared_examples[name]
+  raise "Shared examples not found: #{name}" unless shared
+
+  prev_method = @method
+  @method = args[0] if args.length > 0
+  $__describe = name
+  shared.call
+ensure
+  @method = prev_method
 end
 
 def it(desc)
@@ -14,6 +33,10 @@ def it(desc)
   rescue => e
     $__failures << [$__describe, desc, e.message]
   end
+end
+
+def xit(desc)
+  $__skipped << [$__describe, desc]
 end
 
 class SpecFailedException < StandardError; end
@@ -30,11 +53,44 @@ class SpecExpectation
       raise SpecFailedException, "Expected: #{expected.inspect}\nActual: #{@actual.inspect}"
     end
   end
+
+  def match(matcher)
+    if matcher.matches?(@actual)
+      :noop
+    else
+      raise SpecFailedException, matcher.failure_message(@actual)
+    end
+  end
+end
+
+class EqualMatcher
+  def initialize(expected)
+    @expected = expected
+  end
+
+  def matches?(actual)
+    actual.equal?(@expected)
+  end
+
+  def failure_message(actual)
+    "Expected: #{@expected.inspect}\nActual: #{actual.inspect}"
+  end
+end
+
+def equal(expected)
+  EqualMatcher.new(expected)
 end
 
 class Object
-  def should
-    SpecExpectation.new(self)
+  def should(*args)
+    exp = SpecExpectation.new(self)
+    return exp if args.length == 0
+    matcher = args[0]
+    begin
+      exp.match(matcher)
+    rescue NoMethodError
+      exp.==(matcher)
+    end
   end
 end
 
@@ -46,7 +102,17 @@ def report_results
       puts "#{details[0]}: #{details[1]}"
       puts details[2]
     end
+    if $__skipped.length > 0
+      puts
+      puts "SKIPPED (#{$__skipped.length}):"
+      $__skipped.each do |details|
+        puts "#{details[0]}: #{details[1]}"
+      end
+    end
   else
     puts "OK: #{$__passes} passed"
+    if $__skipped.length > 0
+      puts "SKIPPED: #{$__skipped.length}"
+    end
   end
 end
