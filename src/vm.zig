@@ -382,6 +382,15 @@ pub const VM = struct {
         const define_method_sym = try self.intern("define_method");
         try self.module_class.module.methods.put(define_method_sym, .{ .builtin = &builtinModuleDefineMethod });
 
+        const attr_reader_sym = try self.intern("attr_reader");
+        try self.module_class.module.methods.put(attr_reader_sym, .{ .builtin = &builtinModuleAttrReader });
+
+        const attr_writer_sym = try self.intern("attr_writer");
+        try self.module_class.module.methods.put(attr_writer_sym, .{ .builtin = &builtinModuleAttrWriter });
+
+        const attr_accessor_sym = try self.intern("attr_accessor");
+        try self.module_class.module.methods.put(attr_accessor_sym, .{ .builtin = &builtinModuleAttrAccessor });
+
         try self.includeModule(self.object_class, self.kernel_module);
 
         // Register Integer builtins
@@ -2440,6 +2449,48 @@ pub const VM = struct {
         }
     }
 
+    const AccessorKind = enum { reader, writer };
+
+    fn createAccessorChunk(self: *VM, base_name: []const u8, kind: AccessorKind) VMError!*Chunk {
+        if (self.next_chunk_id > chunk.MAX_CHUNK_ID) {
+            const exc = try self.createException(self.runtime_error_class, "too many method chunks");
+            self.pending_exception = exc;
+            return error.Unwind;
+        }
+
+        const allocator = self.program.allocator;
+        const method_name = if (kind == .reader)
+            allocator.dupe(u8, base_name) catch unreachable
+        else
+            std.fmt.allocPrint(allocator, "{s}=", .{base_name}) catch unreachable;
+        const ivar_name = std.fmt.allocPrint(allocator, "@{s}", .{base_name}) catch unreachable;
+
+        const chunk_ptr = allocator.create(Chunk) catch unreachable;
+        chunk_ptr.* = Chunk.init(allocator, method_name);
+        chunk_ptr.chunk_id = self.next_chunk_id;
+        self.next_chunk_id += 1;
+        chunk_ptr.source_file = self.parser.source_file;
+        chunk_ptr.lexical_scope = self.current_lexical_scope;
+        chunk_ptr.arity = if (kind == .reader) 0 else 1;
+
+        const name_idx = chunk_ptr.addConstant(.{ .symbol = ivar_name }) catch unreachable;
+
+        switch (kind) {
+            .reader => {
+                chunk_ptr.emitOpU16(.GET_IVAR, @intCast(name_idx), 0) catch unreachable;
+                chunk_ptr.emitOpU8(.RETURN, 0, 0) catch unreachable;
+            },
+            .writer => {
+                chunk_ptr.emitOpU8(.GET_LOCAL, 0, 0) catch unreachable;
+                chunk_ptr.emitOpU16(.SET_IVAR, @intCast(name_idx), 0) catch unreachable;
+                chunk_ptr.emitOpU8(.RETURN, 0, 0) catch unreachable;
+            },
+        }
+
+        self.program.method_chunks.put(chunk_ptr.chunk_id.?, chunk_ptr) catch unreachable;
+        return chunk_ptr;
+    }
+
     fn requireArgType(
         self: *VM,
         args: []Value,
@@ -3165,6 +3216,141 @@ pub const VM = struct {
         }
 
         return Value{ .data = .{ .symbol = name_sym } };
+    }
+
+    fn builtinModuleAttrReader(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+        if (args.len == 0) {
+            const exc = try self.createException(self.argument_error_class, "wrong number of arguments (given 0, expected 1)");
+            self.pending_exception = exc;
+            return error.Unwind;
+        }
+
+        var methods: *std.AutoHashMap(*SymbolObject, Method) = undefined;
+        if (receiver.data == .class) {
+            methods = &receiver.data.class.module.methods;
+        } else if (receiver.data == .module) {
+            methods = &receiver.data.module.methods;
+        } else {
+            const exc = try self.createException(self.type_error_class, "receiver is not a Module");
+            self.pending_exception = exc;
+            return error.Unwind;
+        }
+
+        const result_array = try self.createArray();
+
+        for (args) |arg| {
+            var name_str: []const u8 = undefined;
+            switch (arg.data) {
+                .symbol => |sym| name_str = sym.name,
+                .string => |str| name_str = str.str,
+                else => {
+                    const exc = try self.createException(self.type_error_class, "not a symbol nor a string");
+                    self.pending_exception = exc;
+                    return error.Unwind;
+                },
+            }
+
+            const method_sym = self.intern(name_str) catch unreachable;
+            const chunk_ptr = try self.createAccessorChunk(name_str, .reader);
+            methods.put(method_sym, .{ .chunk = chunk_ptr }) catch unreachable;
+
+            result_array.elements.append(self.gc_allocator, Value{ .data = .{ .symbol = method_sym } }) catch unreachable;
+        }
+
+        return Value{ .data = .{ .array = result_array } };
+    }
+
+    fn builtinModuleAttrWriter(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+        if (args.len == 0) {
+            const exc = try self.createException(self.argument_error_class, "wrong number of arguments (given 0, expected 1)");
+            self.pending_exception = exc;
+            return error.Unwind;
+        }
+
+        var methods: *std.AutoHashMap(*SymbolObject, Method) = undefined;
+        if (receiver.data == .class) {
+            methods = &receiver.data.class.module.methods;
+        } else if (receiver.data == .module) {
+            methods = &receiver.data.module.methods;
+        } else {
+            const exc = try self.createException(self.type_error_class, "receiver is not a Module");
+            self.pending_exception = exc;
+            return error.Unwind;
+        }
+
+        const result_array = try self.createArray();
+
+        for (args) |arg| {
+            var name_str: []const u8 = undefined;
+            switch (arg.data) {
+                .symbol => |sym| name_str = sym.name,
+                .string => |str| name_str = str.str,
+                else => {
+                    const exc = try self.createException(self.type_error_class, "not a symbol nor a string");
+                    self.pending_exception = exc;
+                    return error.Unwind;
+                },
+            }
+
+            const writer_name = std.fmt.allocPrint(self.program.allocator, "{s}=", .{name_str}) catch unreachable;
+            const method_sym = self.intern(writer_name) catch unreachable;
+            const chunk_ptr = try self.createAccessorChunk(name_str, .writer);
+            methods.put(method_sym, .{ .chunk = chunk_ptr }) catch unreachable;
+
+            result_array.elements.append(self.gc_allocator, Value{ .data = .{ .symbol = method_sym } }) catch unreachable;
+        }
+
+        return Value{ .data = .{ .array = result_array } };
+    }
+
+    fn builtinModuleAttrAccessor(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+        if (args.len == 0) {
+            const exc = try self.createException(self.argument_error_class, "wrong number of arguments (given 0, expected 1)");
+            self.pending_exception = exc;
+            return error.Unwind;
+        }
+
+        var methods: *std.AutoHashMap(*SymbolObject, Method) = undefined;
+        if (receiver.data == .class) {
+            methods = &receiver.data.class.module.methods;
+        } else if (receiver.data == .module) {
+            methods = &receiver.data.module.methods;
+        } else {
+            const exc = try self.createException(self.type_error_class, "receiver is not a Module");
+            self.pending_exception = exc;
+            return error.Unwind;
+        }
+
+        const result_array = try self.createArray();
+
+        for (args) |arg| {
+            var name_str: []const u8 = undefined;
+            switch (arg.data) {
+                .symbol => |sym| name_str = sym.name,
+                .string => |str| name_str = str.str,
+                else => {
+                    const exc = try self.createException(self.type_error_class, "not a symbol nor a string");
+                    self.pending_exception = exc;
+                    return error.Unwind;
+                },
+            }
+
+            const writer_name = std.fmt.allocPrint(self.program.allocator, "{s}=", .{name_str}) catch unreachable;
+
+            const reader_sym = self.intern(name_str) catch unreachable;
+            const writer_sym = self.intern(writer_name) catch unreachable;
+
+            const reader_chunk = try self.createAccessorChunk(name_str, .reader);
+            const writer_chunk = try self.createAccessorChunk(name_str, .writer);
+
+            methods.put(reader_sym, .{ .chunk = reader_chunk }) catch unreachable;
+            methods.put(writer_sym, .{ .chunk = writer_chunk }) catch unreachable;
+
+            result_array.elements.append(self.gc_allocator, Value{ .data = .{ .symbol = reader_sym } }) catch unreachable;
+            result_array.elements.append(self.gc_allocator, Value{ .data = .{ .symbol = writer_sym } }) catch unreachable;
+        }
+
+        return Value{ .data = .{ .array = result_array } };
     }
 
     fn builtinArrayPush(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

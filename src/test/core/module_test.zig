@@ -118,3 +118,97 @@ test "Module define_method with string name" {
     );
     try std.testing.expectEqual(@as(i64, 8), result.data.integer);
 }
+
+test "Module attr_reader defines getter and returns symbols" {
+    var result = try evalCode(
+        \\class C
+        \\  def self.make
+        \\    attr_reader :a, "b"
+        \\  end
+        \\  def initialize
+        \\    @a = 1
+        \\    @b = 2
+        \\  end
+        \\end
+        \\C.make
+    );
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(@as(usize, 2), result.data.array.elements.items.len);
+    try std.testing.expectEqualSlices(u8, "a", result.data.array.elements.items[0].data.symbol.name);
+    try std.testing.expectEqualSlices(u8, "b", result.data.array.elements.items[1].data.symbol.name);
+
+    result = try evalCode(
+        \\class C
+        \\  attr_reader :a, "b"
+        \\  def initialize
+        \\    @a = 1
+        \\    @b = 2
+        \\  end
+        \\end
+        \\c = C.new
+        \\[c.a, c.b]
+    );
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(@as(i64, 1), result.data.array.elements.items[0].data.integer);
+    try std.testing.expectEqual(@as(i64, 2), result.data.array.elements.items[1].data.integer);
+}
+
+test "Module attr_writer defines setter and returns symbols" {
+    var result = try evalCode(
+        \\class C
+        \\  def self.make
+        \\    attr_writer :a, "b"
+        \\  end
+        \\end
+        \\C.make
+    );
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(@as(usize, 2), result.data.array.elements.items.len);
+    try std.testing.expectEqualSlices(u8, "a=", result.data.array.elements.items[0].data.symbol.name);
+    try std.testing.expectEqualSlices(u8, "b=", result.data.array.elements.items[1].data.symbol.name);
+
+    result = try evalCode(
+        \\class C
+        \\  attr_writer :a, "b"
+        \\  def set
+        \\    self.a = 10
+        \\    self.b = 20
+        \\    [@a, @b]
+        \\  end
+        \\end
+        \\C.new.set
+    );
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(@as(i64, 10), result.data.array.elements.items[0].data.integer);
+    try std.testing.expectEqual(@as(i64, 20), result.data.array.elements.items[1].data.integer);
+}
+
+test "Module attr_accessor defines getter and setter and returns symbols" {
+    var result = try evalCode(
+        \\class C
+        \\  def self.make
+        \\    attr_accessor :a, "b"
+        \\  end
+        \\end
+        \\C.make
+    );
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(@as(usize, 4), result.data.array.elements.items.len);
+    try std.testing.expectEqualSlices(u8, "a", result.data.array.elements.items[0].data.symbol.name);
+    try std.testing.expectEqualSlices(u8, "a=", result.data.array.elements.items[1].data.symbol.name);
+    try std.testing.expectEqualSlices(u8, "b", result.data.array.elements.items[2].data.symbol.name);
+    try std.testing.expectEqualSlices(u8, "b=", result.data.array.elements.items[3].data.symbol.name);
+
+    result = try evalCode(
+        \\class C
+        \\  attr_accessor :a, "b"
+        \\end
+        \\c = C.new
+        \\c.a = 1
+        \\c.b = 2
+        \\[c.a, c.b]
+    );
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(@as(i64, 1), result.data.array.elements.items[0].data.integer);
+    try std.testing.expectEqual(@as(i64, 2), result.data.array.elements.items[1].data.integer);
+}
