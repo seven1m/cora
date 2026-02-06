@@ -29,6 +29,27 @@ test "Proc.call captures variables from defining scope" {
     try std.testing.expectEqualSlices(u8, "10\n", result.stdout);
 }
 
+test "Proc.call uses defining self" {
+    const result = try evalCode(
+        \\obj = Object.new
+        \\def obj.make_proc
+        \\  @foo = 42
+        \\  Proc.new { [@foo, self] }
+        \\end
+        \\pr = obj.make_proc
+        \\res = pr.call
+        \\[res[0], res[1].object_id, obj.object_id]
+    );
+    try std.testing.expect(result.data == .array);
+    const elems = result.data.array.elements.items;
+    try std.testing.expectEqual(@as(usize, 3), elems.len);
+    try std.testing.expect(elems[0].data == .integer);
+    try std.testing.expect(elems[1].data == .integer);
+    try std.testing.expect(elems[2].data == .integer);
+    try std.testing.expectEqual(@as(i64, 42), elems[0].data.integer);
+    try std.testing.expectEqual(elems[1].data.integer, elems[2].data.integer);
+}
+
 test "Proc closure: modifying captured variable in proc affects outer scope" {
     const result = try evalCode(
         \\def test_proc

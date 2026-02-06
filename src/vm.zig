@@ -45,6 +45,7 @@ pub const Environment = struct {
 pub const Block = struct {
     chunk: *Chunk,
     defining_ep: *Environment,
+    defining_self: Value,
 };
 
 pub const CallFrame = struct {
@@ -651,6 +652,7 @@ pub const VM = struct {
                 return Block{
                     .chunk = bc,
                     .defining_ep = defining_ep,
+                    .defining_self = frame.self_value,
                 };
             } else {
                 return error.Fatal;
@@ -1366,6 +1368,7 @@ pub const VM = struct {
                 const block = Block{
                     .chunk = lambda_chunk,
                     .defining_ep = frame.ep,
+                    .defining_self = frame.self_value,
                 };
 
                 // Create a Proc value from the block
@@ -1636,7 +1639,7 @@ pub const VM = struct {
 
     /// Yield to a block with arguments, handling break and exceptions
     /// Returns the block's result value and whether a break occurred
-    pub fn yieldToBlock(self: *VM, block: Block, receiver: Value, yield_args: []const Value) VMError!YieldResult {
+    pub fn yieldToBlock(self: *VM, block: Block, yield_args: []const Value) VMError!YieldResult {
         // Dereference defining_ep in case it's a forwarding pointer
         const real_defining_ep = derefEnvironment(block.defining_ep);
 
@@ -1659,7 +1662,7 @@ pub const VM = struct {
             .chunk = block.chunk,
             .ip = 0,
             .stack_base = self.stack.items.len,
-            .self_value = receiver,
+            .self_value = block.defining_self,
             .ep = block_env,
             .block = null,
         }) catch {
@@ -2317,6 +2320,7 @@ pub const VM = struct {
             .block = .{
                 .chunk = block.chunk,
                 .defining_ep = heap_ep,
+                .defining_self = block.defining_self,
             },
         };
         return .{ .data = .{ .proc = proc_obj } };

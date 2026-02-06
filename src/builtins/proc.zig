@@ -58,7 +58,7 @@ pub fn builtinProcCall(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
         .chunk = proc_obj.block.chunk,
         .ip = 0,
         .stack_base = vm.stack.items.len,
-        .self_value = receiver,
+        .self_value = proc_obj.block.defining_self,
         .ep = proc_env,
         .block = null,
         .frame_type = if (proc_obj.block.chunk.is_lambda) .lambda else .proc,

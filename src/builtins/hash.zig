@@ -123,7 +123,7 @@ pub fn builtinHashEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
     // Iterate in insertion order
     for (hash_obj.entries.items) |entry| {
         const yield_args = [_]Value{ entry.key, entry.value };
-        const result = try vm.yieldToBlock(blk, receiver, &yield_args);
+        const result = try vm.yieldToBlock(blk, &yield_args);
 
         // If break occurred, return immediately
         if (result.break_occurred) {

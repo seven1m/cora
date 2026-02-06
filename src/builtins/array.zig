@@ -69,7 +69,7 @@ pub fn builtinArrayEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
     // Iterate over array elements
     for (array_obj.elements.items) |element| {
         const yield_args = [_]Value{element};
-        const result = try vm.yieldToBlock(blk, receiver, &yield_args);
+        const result = try vm.yieldToBlock(blk, &yield_args);
 
         // If break occurred, return immediately
         if (result.break_occurred) {
@@ -148,7 +148,7 @@ pub fn builtinArrayAll(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
     if (block) |blk| {
         for (array_obj.elements.items) |element| {
             const yield_args = [_]Value{element};
-            const result = try vm.yieldToBlock(blk, receiver, &yield_args);
+            const result = try vm.yieldToBlock(blk, &yield_args);
             if (result.break_occurred) {
                 return result.value;
             }
