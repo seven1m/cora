@@ -21,6 +21,7 @@ const VMError = error{
 pub const Method = union(enum) {
     chunk: *Chunk,
     builtin: *const fn (*VM, Value, []Value, ?Block) VMError!Value,
+    proc: *value.ProcObject,
 };
 
 pub const Environment = struct {
@@ -377,6 +378,9 @@ pub const VM = struct {
 
         const prepend_sym = try self.intern("prepend");
         try self.object_class.module.methods.put(prepend_sym, .{ .builtin = &builtinModulePrepend });
+
+        const define_method_sym = try self.intern("define_method");
+        try self.module_class.module.methods.put(define_method_sym, .{ .builtin = &builtinModuleDefineMethod });
 
         try self.includeModule(self.object_class, self.kernel_module);
 
@@ -1717,6 +1721,9 @@ pub const VM = struct {
                 .builtin => |fun_ptr| {
                     return try fun_ptr(self, receiver, args, block);
                 },
+                .proc => |proc_obj| {
+                    return try self.callProcAsMethod(proc_obj, receiver, args, block);
+                },
             }
         }
         unreachable;
@@ -1801,6 +1808,35 @@ pub const VM = struct {
             .value = result,
             .break_occurred = break_occurred,
         };
+    }
+
+    /// Execute a ProcObject as a method body
+    fn callProcAsMethod(self: *VM, proc_obj: *value.ProcObject, receiver: Value, args: []const Value, block: ?Block) VMError!Value {
+        const real_defining_ep = derefEnvironment(proc_obj.block.defining_ep);
+        const proc_env = self.createStackEnvironment(real_defining_ep, proc_obj.block.chunk.lexical_scope orelse self.current_lexical_scope) catch unreachable;
+
+        self.env_stack_indices.append(self.allocator, self.env_stack.items.len - 1) catch unreachable;
+
+        self.frames.append(self.allocator, CallFrame{
+            .chunk = proc_obj.block.chunk,
+            .ip = 0,
+            .stack_base = self.stack.items.len,
+            .self_value = receiver,
+            .ep = proc_env,
+            .block = block,
+            .frame_type = .method,
+        }) catch unreachable;
+
+        const current_frame = self.currentFrame();
+        try self.copyArgumentsWithRestParam(proc_obj.block.chunk, current_frame.ep, args, .strict);
+
+        // Execute until this frame completes
+        const saved_frame_count = self.frames.items.len - 1;
+        while (self.frames.items.len > saved_frame_count) {
+            self.executeInstruction() catch unreachable;
+        }
+
+        return self.pop();
     }
 
     /// Ensure a block was given, or raise an error
@@ -1966,6 +2002,16 @@ pub const VM = struct {
                         }
                         return err;
                     };
+                    try self.push(result);
+                },
+                .proc => |proc_obj| {
+                    if (kwargc > 0) {
+                        const exc = try self.createException(self.argument_error_class, "this method does not accept keyword arguments");
+                        self.pending_exception = exc;
+                        try self.unwindStack();
+                        return;
+                    }
+                    const result = try self.callProcAsMethod(proc_obj, receiver, args[0..argc], block);
                     try self.push(result);
                 },
             }
@@ -2167,6 +2213,10 @@ pub const VM = struct {
                     }
                     return err;
                 };
+                try self.push(result);
+            },
+            .proc => |proc_obj| {
+                const result = try self.callProcAsMethod(proc_obj, receiver, args, block);
                 try self.push(result);
             },
         }
@@ -3083,6 +3133,38 @@ pub const VM = struct {
         self.prependModule(class, module) catch return error.Unwind;
 
         return receiver;
+    }
+
+    fn builtinModuleDefineMethod(self: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+        try self.requireArgCount(args, 1);
+        const blk = try self.requireBlock(block);
+
+        const name_arg = args[0];
+        var name_str: []const u8 = undefined;
+        switch (name_arg.data) {
+            .symbol => |sym| name_str = sym.name,
+            .string => |str| name_str = str.str,
+            else => {
+                const exc = try self.createException(self.type_error_class, "not a symbol nor a string");
+                self.pending_exception = exc;
+                return error.Unwind;
+            },
+        }
+
+        const name_sym = self.intern(name_str) catch unreachable;
+        const proc_val = self.newProc(blk);
+
+        if (receiver.data == .class) {
+            receiver.data.class.module.methods.put(name_sym, .{ .proc = proc_val.data.proc }) catch unreachable;
+        } else if (receiver.data == .module) {
+            receiver.data.module.methods.put(name_sym, .{ .proc = proc_val.data.proc }) catch unreachable;
+        } else {
+            const exc = try self.createException(self.type_error_class, "receiver is not a Module");
+            self.pending_exception = exc;
+            return error.Unwind;
+        }
+
+        return Value{ .data = .{ .symbol = name_sym } };
     }
 
     fn builtinArrayPush(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

@@ -84,3 +84,37 @@ test "Module prepend" {
     try std.testing.expect(result.data == .string);
     try std.testing.expectEqualSlices(u8, "before 2", result.data.string.str);
 }
+
+test "Module define_method on class" {
+    const result = try evalCode(
+        \\class Foo
+        \\  define_method(:sum) { |a, b| a + b }
+        \\end
+        \\Foo.new.sum(2, 3)
+    );
+    try std.testing.expectEqual(@as(i64, 5), result.data.integer);
+}
+
+test "Module define_method on module include" {
+    const result = try evalCode(
+        \\module M
+        \\  define_method(:hello) { 'hi' }
+        \\end
+        \\class C
+        \\  include M
+        \\end
+        \\C.new.hello
+    );
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "hi", result.data.string.str);
+}
+
+test "Module define_method with string name" {
+    const result = try evalCode(
+        \\class Foo
+        \\  define_method("mul") { |a, b| a * b }
+        \\end
+        \\Foo.new.mul(2, 4)
+    );
+    try std.testing.expectEqual(@as(i64, 8), result.data.integer);
+}
