@@ -82,6 +82,7 @@ pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
     };
 
     if (vm.loaded_files.contains(absolute_path)) {
+        vm.allocator.free(absolute_path);
         return Value.boolean(false);
     }
 
@@ -89,6 +90,7 @@ pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
 
     vm.loadFile(absolute_path) catch |err| {
         _ = vm.loaded_files.remove(absolute_path);
+        vm.allocator.free(absolute_path);
         if (err == error.Unwind and vm.pending_exception != null) return error.Unwind;
         return error.Fatal;
     };
@@ -141,12 +143,14 @@ pub fn builtinKernelRequireRelative(vm: *VM, _: Value, args: []Value, _: ?Block)
     const resolved_path = absolute_path.?;
 
     if (vm.loaded_files.contains(resolved_path)) {
+        vm.allocator.free(resolved_path);
         return Value.boolean(false);
     }
 
     vm.loaded_files.put(resolved_path, {}) catch return error.Fatal;
     vm.loadFile(resolved_path) catch |err| {
         _ = vm.loaded_files.remove(resolved_path);
+        vm.allocator.free(resolved_path);
         if (err == error.Unwind and vm.pending_exception != null) return error.Unwind;
         return error.Fatal;
     };
@@ -205,6 +209,7 @@ pub fn builtinKernelLoad(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
         return error.Unwind;
     }
 
+    vm.loaded_paths.append(vm.allocator, absolute_path.?) catch return error.Fatal;
     vm.loadFile(absolute_path.?) catch |err| {
         if (err == error.Unwind and vm.pending_exception != null) return error.Unwind;
         return error.Fatal;

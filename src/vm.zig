@@ -122,6 +122,7 @@ pub const VM = struct {
 
     // File loading infrastructure
     loaded_files: std.StringHashMap(void) = std.StringHashMap(void).init(std.heap.page_allocator),
+    loaded_paths: std.ArrayList([]const u8) = .empty,
     all_parsers: std.ArrayList(prism.Parser) = .empty,
     load_path: std.ArrayList([]const u8) = .empty,
     current_loading_file: ?[]const u8 = null,
@@ -186,6 +187,7 @@ pub const VM = struct {
 
         // Initialize file loading infrastructure
         self.loaded_files = std.StringHashMap(void).init(self.allocator);
+        self.loaded_paths = .empty;
         self.load_path = .empty;
         const dot = self.allocator.dupe(u8, ".") catch return error.Fatal;
         self.load_path.append(self.allocator, dot) catch return error.Fatal;
@@ -527,6 +529,10 @@ pub const VM = struct {
             self.allocator.free(key.*);
         }
         self.loaded_files.deinit();
+        for (self.loaded_paths.items) |path| {
+            self.allocator.free(path);
+        }
+        self.loaded_paths.deinit(self.allocator);
         for (self.load_path.items) |path| {
             self.allocator.free(path);
         }
