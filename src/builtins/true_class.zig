@@ -12,6 +12,9 @@ pub fn register(vm: *VM) !void {
 
     const inspect_sym = try vm.intern("inspect");
     try vm.true_class.module.methods.put(inspect_sym, .{ .builtin = &builtinTrueClassInspect });
+
+    const equal_sym = try vm.intern("==");
+    try vm.true_class.module.methods.put(equal_sym, .{ .builtin = &builtinTrueClassEqual });
 }
 
 pub fn builtinTrueClassToS(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -22,4 +25,9 @@ pub fn builtinTrueClassToS(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
 
 pub fn builtinTrueClassInspect(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     return builtinTrueClassToS(vm, receiver, args, block);
+}
+
+pub fn builtinTrueClassEqual(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    return Value.boolean(args[0].data == .boolean and args[0].data.boolean == true);
 }

@@ -17,6 +17,9 @@ pub fn register(vm: *VM) !void {
     const bracket_sym = try vm.intern("[]");
     try vm.array_class.module.methods.put(bracket_sym, .{ .builtin = &builtinArrayBracket });
 
+    const equal_sym = try vm.intern("==");
+    try vm.array_class.module.methods.put(equal_sym, .{ .builtin = &builtinArrayEqual });
+
     const length_sym = try vm.intern("length");
     try vm.array_class.module.methods.put(length_sym, .{ .builtin = &builtinArrayLength });
 
@@ -59,6 +62,35 @@ pub fn builtinArrayBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     }
 
     return array.elements.items[@intCast(actual_index)];
+}
+
+pub fn builtinArrayEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const other = args[0];
+    if (other.data != .array) {
+        return Value.boolean(false);
+    }
+
+    const left = receiver.data.array;
+    const right = other.data.array;
+    if (left.elements.items.len != right.elements.items.len) {
+        return Value.boolean(false);
+    }
+
+    for (left.elements.items, 0..) |elem, idx| {
+        const other_elem = right.elements.items[idx];
+        var eq_args = [_]Value{other_elem};
+        const eq_val = try vm.callMethodByName(elem, "==", eq_args[0..], null);
+        if (eq_val.data == .boolean) {
+            if (!eq_val.data.boolean) {
+                return Value.boolean(false);
+            }
+        } else if (eq_val.data == .nil) {
+            return Value.boolean(false);
+        }
+    }
+
+    return Value.boolean(true);
 }
 
 pub fn builtinArrayEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {

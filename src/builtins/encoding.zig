@@ -17,6 +17,9 @@ pub fn register(vm: *VM) !void {
     const inspect_sym = try vm.intern("inspect");
     try vm.encoding_class.module.methods.put(inspect_sym, .{ .builtin = &builtinEncodingInspect });
 
+    const equal_sym = try vm.intern("==");
+    try vm.encoding_class.module.methods.put(equal_sym, .{ .builtin = &builtinEncodingEqual });
+
     const ascii_compatible_sym = try vm.intern("ascii_compatible?");
     try vm.encoding_class.module.methods.put(ascii_compatible_sym, .{ .builtin = &builtinEncodingAsciiCompatible });
 
@@ -43,6 +46,15 @@ pub fn builtinEncodingAsciiCompatible(vm: *VM, receiver: Value, args: []Value, _
     try vm.requireArgCount(args, 0);
     const encoding_obj = receiver.data.encoding;
     return Value.boolean(encoding_obj.encoding.isAsciiCompatible());
+}
+
+pub fn builtinEncodingEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const other = args[0];
+    if (other.data != .encoding) {
+        return Value.boolean(false);
+    }
+    return Value.boolean(receiver.data.encoding.encoding.eql(other.data.encoding.encoding));
 }
 
 pub fn builtinEncodingFind(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
