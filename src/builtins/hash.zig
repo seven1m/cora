@@ -72,8 +72,8 @@ pub fn builtinHashBracketSet(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     }
 
     const new_idx = hash_obj.entries.items.len;
-    hash_obj.entries.append(vm.gc_allocator, .{ .key = key, .value = new_value }) catch unreachable;
-    hash_obj.map.put(key_hash, new_idx) catch unreachable;
+    hash_obj.entries.append(vm.gc_allocator, .{ .key = key, .value = new_value }) catch return error.Fatal;
+    hash_obj.map.put(key_hash, new_idx) catch return error.Fatal;
 
     return new_value;
 }
@@ -81,14 +81,14 @@ pub fn builtinHashBracketSet(vm: *VM, receiver: Value, args: []Value, _: ?Block)
 pub fn builtinHashKeys(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const hash_obj = receiver.data.hash;
-    const array_obj = vm.gc_allocator.create(value.ArrayObject) catch unreachable;
+    const array_obj = vm.gc_allocator.create(value.ArrayObject) catch return error.Fatal;
     array_obj.* = .{
         .object = .{ .flags = 0, .class = vm.array_class, .singleton_class = null, .instance_variables = null },
         .elements = .empty,
     };
 
     for (hash_obj.entries.items) |entry| {
-        array_obj.elements.append(vm.gc_allocator, entry.key) catch unreachable;
+        array_obj.elements.append(vm.gc_allocator, entry.key) catch return error.Fatal;
     }
 
     return .{ .data = .{ .array = array_obj } };
@@ -97,14 +97,14 @@ pub fn builtinHashKeys(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
 pub fn builtinHashValues(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const hash_obj = receiver.data.hash;
-    const array_obj = vm.gc_allocator.create(value.ArrayObject) catch unreachable;
+    const array_obj = vm.gc_allocator.create(value.ArrayObject) catch return error.Fatal;
     array_obj.* = .{
         .object = .{ .flags = 0, .class = vm.array_class, .singleton_class = null, .instance_variables = null },
         .elements = .empty,
     };
 
     for (hash_obj.entries.items) |entry| {
-        array_obj.elements.append(vm.gc_allocator, entry.value) catch unreachable;
+        array_obj.elements.append(vm.gc_allocator, entry.value) catch return error.Fatal;
     }
 
     return .{ .data = .{ .array = array_obj } };
@@ -141,36 +141,44 @@ pub fn builtinHashToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
     defer buf.deinit(vm.allocator);
     const writer = buf.writer(vm.allocator);
 
-    writer.writeAll("{") catch return error.Unwind;
+    writer.writeAll("{") catch return error.Fatal;
     for (hash_obj.entries.items, 0..) |entry, idx| {
         if (idx > 0) {
-            writer.writeAll(", ") catch return error.Unwind;
+            writer.writeAll(", ") catch return error.Fatal;
         }
 
         // Check if key is a symbol - use shorthand syntax
         if (entry.key.data == .symbol) {
             // Write symbol name without the : prefix
             const sym = entry.key.data.symbol;
-            writer.writeAll(sym.name) catch return error.Unwind;
-            writer.writeAll(": ") catch return error.Unwind;
+            writer.writeAll(sym.name) catch return error.Fatal;
+            writer.writeAll(": ") catch return error.Fatal;
         } else {
             // Call inspect on non-symbol keys
             const key_val = try vm.callMethodByName(entry.key, "inspect", &.{}, null);
-            if (key_val.data != .string) return error.Unwind;
-            writer.writeAll(key_val.data.string.str) catch return error.Unwind;
-            writer.writeAll(" => ") catch return error.Unwind;
+            if (key_val.data != .string) {
+                const exc = try vm.createException(vm.type_error_class, "inspect did not return String");
+                vm.pending_exception = exc;
+                return error.Unwind;
+            }
+            writer.writeAll(key_val.data.string.str) catch return error.Fatal;
+            writer.writeAll(" => ") catch return error.Fatal;
         }
 
         // Call inspect on value
         const value_val = try vm.callMethodByName(entry.value, "inspect", &.{}, null);
-        if (value_val.data != .string) return error.Unwind;
-        writer.writeAll(value_val.data.string.str) catch return error.Unwind;
+        if (value_val.data != .string) {
+            const exc = try vm.createException(vm.type_error_class, "inspect did not return String");
+            vm.pending_exception = exc;
+            return error.Unwind;
+        }
+        writer.writeAll(value_val.data.string.str) catch return error.Fatal;
     }
-    writer.writeAll("}") catch return error.Unwind;
+    writer.writeAll("}") catch return error.Fatal;
 
-    const final_str = buf.toOwnedSlice(vm.allocator) catch return error.Unwind;
+    const final_str = buf.toOwnedSlice(vm.allocator) catch return error.Fatal;
     defer vm.allocator.free(final_str);
-    return vm.newString(final_str, false);
+    return try vm.newString(final_str, false);
 }
 
 pub fn builtinHashInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

@@ -30,7 +30,7 @@ pub fn register(vm: *VM) !void {
 pub fn builtinArrayPush(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const array = receiver.data.array;
-    array.elements.append(vm.gc_allocator, args[0]) catch return error.Unwind;
+    array.elements.append(vm.gc_allocator, args[0]) catch return error.Fatal;
 
     return receiver;
 }
@@ -80,19 +80,23 @@ pub fn builtinArrayToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
     var buf: std.ArrayList(u8) = .empty;
     const writer = buf.writer(vm.allocator);
 
-    writer.writeAll("[") catch return error.Unwind;
+    writer.writeAll("[") catch return error.Fatal;
     for (array.elements.items, 0..) |elem, idx| {
-        if (idx > 0) writer.writeAll(", ") catch return error.Unwind;
+        if (idx > 0) writer.writeAll(", ") catch return error.Fatal;
 
         const elem_str = try vm.callMethodByName(elem, "to_s", &[_]Value{}, null);
-        if (elem_str.data != .string) return error.Unwind;
-        writer.writeAll(elem_str.data.string.str) catch return error.Unwind;
+        if (elem_str.data != .string) {
+            const exc = try vm.createException(vm.type_error_class, "to_s did not return String");
+            vm.pending_exception = exc;
+            return error.Unwind;
+        }
+        writer.writeAll(elem_str.data.string.str) catch return error.Fatal;
     }
-    writer.writeAll("]") catch return error.Unwind;
+    writer.writeAll("]") catch return error.Fatal;
 
-    const str = buf.toOwnedSlice(vm.allocator) catch return error.Unwind;
+    const str = buf.toOwnedSlice(vm.allocator) catch return error.Fatal;
     defer vm.allocator.free(str);
-    return vm.newString(str, false);
+    return try vm.newString(str, false);
 }
 
 pub fn builtinArrayLength(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -107,17 +111,21 @@ pub fn builtinArrayInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     var buf: std.ArrayList(u8) = .empty;
     const writer = buf.writer(vm.allocator);
 
-    writer.writeAll("[") catch return error.Unwind;
+    writer.writeAll("[") catch return error.Fatal;
     for (array.elements.items, 0..) |elem, idx| {
-        if (idx > 0) writer.writeAll(", ") catch return error.Unwind;
+        if (idx > 0) writer.writeAll(", ") catch return error.Fatal;
 
         const elem_inspected = try vm.callMethodByName(elem, "inspect", &[_]Value{}, null);
-        if (elem_inspected.data != .string) return error.Unwind;
-        writer.writeAll(elem_inspected.data.string.str) catch return error.Unwind;
+        if (elem_inspected.data != .string) {
+            const exc = try vm.createException(vm.type_error_class, "inspect did not return String");
+            vm.pending_exception = exc;
+            return error.Unwind;
+        }
+        writer.writeAll(elem_inspected.data.string.str) catch return error.Fatal;
     }
-    writer.writeAll("]") catch return error.Unwind;
+    writer.writeAll("]") catch return error.Fatal;
 
-    const str = buf.toOwnedSlice(vm.allocator) catch return error.Unwind;
+    const str = buf.toOwnedSlice(vm.allocator) catch return error.Fatal;
     defer vm.allocator.free(str);
-    return vm.newString(str, false);
+    return try vm.newString(str, false);
 }

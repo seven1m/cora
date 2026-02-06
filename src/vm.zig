@@ -17,6 +17,7 @@ const Chunk = chunk.Chunk;
 
 pub const VMError = error{
     Unwind, // Triggers stack unwind - actual error info is in pending_exception
+    Fatal, // Unrecoverable VM error (e.g., OOM, corrupted bytecode)
 };
 
 pub const Method = union(enum) {
@@ -175,125 +176,126 @@ pub const VM = struct {
         };
     }
 
-    pub fn prepare(self: *VM, program: *compiler.CompiledProgram) !void {
+    pub fn prepare(self: *VM, program: *compiler.CompiledProgram) VMError!void {
         self.program = program;
 
         // Pre-allocate env_stack to prevent reallocations that would invalidate pointers
         // This is max call stack depth, not total calls - we reclaim on popFrame
-        try self.env_stack.ensureTotalCapacity(self.allocator, 512);
-        try self.env_stack_indices.ensureTotalCapacity(self.allocator, 512);
+        self.env_stack.ensureTotalCapacity(self.allocator, 512) catch return error.Fatal;
+        self.env_stack_indices.ensureTotalCapacity(self.allocator, 512) catch return error.Fatal;
 
         // Initialize file loading infrastructure
         self.loaded_files = std.StringHashMap(void).init(self.allocator);
         self.load_path = .empty;
-        try self.load_path.append(self.allocator, try self.allocator.dupe(u8, "."));
+        const dot = self.allocator.dupe(u8, ".") catch return error.Fatal;
+        self.load_path.append(self.allocator, dot) catch return error.Fatal;
         self.next_chunk_id = program.next_chunk_id;
 
         if (self.parser.source_file) |main_file| {
             const abs_path = try self.resolveAbsolutePath(main_file);
-            try self.loaded_files.put(abs_path, {});
+            self.loaded_files.put(abs_path, {}) catch return error.Fatal;
             self.current_loading_file = abs_path;
         }
 
         // --- Stage 1: Create Class and BasicObject ---
         const class_name_sym = try self.intern("Class");
-        const class_class_val = self.newClass(class_name_sym, null);
+        const class_class_val = try self.newClass(class_name_sym, null);
         self.class_class = class_class_val.data.class;
         self.class_class.module.object.class = self.class_class;
 
         const basic_object_name_sym = try self.intern("BasicObject");
-        const basic_object_class_val = self.newClass(basic_object_name_sym, null);
+        const basic_object_class_val = try self.newClass(basic_object_name_sym, null);
         self.basic_object_class = basic_object_class_val.data.class;
 
         // --- Stage 2: Create classes that inherit from BasicObject or Object ---
         const object_name_sym = try self.intern("Object");
-        const object_class_val = self.newClass(object_name_sym, self.basic_object_class);
+        const object_class_val = try self.newClass(object_name_sym, self.basic_object_class);
         self.object_class = object_class_val.data.class;
 
         const module_name_sym = try self.intern("Module");
-        const module_class_val = self.newClass(module_name_sym, self.object_class);
+        const module_class_val = try self.newClass(module_name_sym, self.object_class);
         self.module_class = module_class_val.data.class;
 
         const numeric_name_sym = try self.intern("Numeric");
-        const numeric_class_val = self.newClass(numeric_name_sym, self.object_class);
+        const numeric_class_val = try self.newClass(numeric_name_sym, self.object_class);
         self.numeric_class = numeric_class_val.data.class;
 
         const integer_name_sym = try self.intern("Integer");
-        const integer_class_val = self.newClass(integer_name_sym, self.numeric_class);
+        const integer_class_val = try self.newClass(integer_name_sym, self.numeric_class);
         self.integer_class = integer_class_val.data.class;
 
         const string_name_sym = try self.intern("String");
-        const string_class_val = self.newClass(string_name_sym, self.object_class);
+        const string_class_val = try self.newClass(string_name_sym, self.object_class);
         self.string_class = string_class_val.data.class;
 
         const symbol_name_sym = try self.intern("Symbol");
-        const symbol_class_val = self.newClass(symbol_name_sym, self.object_class);
+        const symbol_class_val = try self.newClass(symbol_name_sym, self.object_class);
         self.symbol_class = symbol_class_val.data.class;
 
         const array_name_sym = try self.intern("Array");
-        const array_class_val = self.newClass(array_name_sym, self.object_class);
+        const array_class_val = try self.newClass(array_name_sym, self.object_class);
         self.array_class = array_class_val.data.class;
 
         const hash_name_sym = try self.intern("Hash");
-        const hash_class_val = self.newClass(hash_name_sym, self.object_class);
+        const hash_class_val = try self.newClass(hash_name_sym, self.object_class);
         self.hash_class = hash_class_val.data.class;
 
         const proc_name_sym = try self.intern("Proc");
-        const proc_class_val = self.newClass(proc_name_sym, self.object_class);
+        const proc_class_val = try self.newClass(proc_name_sym, self.object_class);
         self.proc_class = proc_class_val.data.class;
 
         const nil_class_name_sym = try self.intern("NilClass");
-        const nil_class_val = self.newClass(nil_class_name_sym, self.object_class);
+        const nil_class_val = try self.newClass(nil_class_name_sym, self.object_class);
         self.nil_class = nil_class_val.data.class;
 
         const true_class_name_sym = try self.intern("TrueClass");
-        const true_class_val = self.newClass(true_class_name_sym, self.object_class);
+        const true_class_val = try self.newClass(true_class_name_sym, self.object_class);
         self.true_class = true_class_val.data.class;
 
         const false_class_name_sym = try self.intern("FalseClass");
-        const false_class_val = self.newClass(false_class_name_sym, self.object_class);
+        const false_class_val = try self.newClass(false_class_name_sym, self.object_class);
         self.false_class = false_class_val.data.class;
 
         const kernel_name_sym = try self.intern("Kernel");
-        const kernel_module_val = self.newModule(kernel_name_sym);
+        const kernel_module_val = try self.newModule(kernel_name_sym);
         self.kernel_module = kernel_module_val.data.module;
 
         // Exception class hierarchy
         const exception_name_sym = try self.intern("Exception");
-        const exception_class_val = self.newClass(exception_name_sym, self.object_class);
+        const exception_class_val = try self.newClass(exception_name_sym, self.object_class);
         self.exception_class = exception_class_val.data.class;
 
         const standard_error_name_sym = try self.intern("StandardError");
-        const standard_error_class_val = self.newClass(standard_error_name_sym, self.exception_class);
+        const standard_error_class_val = try self.newClass(standard_error_name_sym, self.exception_class);
         self.standard_error_class = standard_error_class_val.data.class;
 
         const runtime_error_name_sym = try self.intern("RuntimeError");
-        const runtime_error_class_val = self.newClass(runtime_error_name_sym, self.standard_error_class);
+        const runtime_error_class_val = try self.newClass(runtime_error_name_sym, self.standard_error_class);
         self.runtime_error_class = runtime_error_class_val.data.class;
 
         const argument_error_name_sym = try self.intern("ArgumentError");
-        const argument_error_class_val = self.newClass(argument_error_name_sym, self.standard_error_class);
+        const argument_error_class_val = try self.newClass(argument_error_name_sym, self.standard_error_class);
         self.argument_error_class = argument_error_class_val.data.class;
 
         const type_error_name_sym = try self.intern("TypeError");
-        const type_error_class_val = self.newClass(type_error_name_sym, self.standard_error_class);
+        const type_error_class_val = try self.newClass(type_error_name_sym, self.standard_error_class);
         self.type_error_class = type_error_class_val.data.class;
 
         const zero_division_error_name_sym = try self.intern("ZeroDivisionError");
-        const zero_division_error_class_val = self.newClass(zero_division_error_name_sym, self.standard_error_class);
+        const zero_division_error_class_val = try self.newClass(zero_division_error_name_sym, self.standard_error_class);
         self.zero_division_error_class = zero_division_error_class_val.data.class;
 
         const no_method_error_name_sym = try self.intern("NoMethodError");
-        const no_method_error_class_val = self.newClass(no_method_error_name_sym, self.standard_error_class);
+        const no_method_error_class_val = try self.newClass(no_method_error_name_sym, self.standard_error_class);
         self.no_method_error_class = no_method_error_class_val.data.class;
 
         const load_error_name_sym = try self.intern("LoadError");
-        const load_error_class_val = self.newClass(load_error_name_sym, self.standard_error_class);
+        const load_error_class_val = try self.newClass(load_error_name_sym, self.standard_error_class);
         self.load_error_class = load_error_class_val.data.class;
 
         // Encoding class and singleton encoding objects
         const encoding_name_sym = try self.intern("Encoding");
-        const encoding_class_val = self.newClass(encoding_name_sym, self.object_class);
+        const encoding_class_val = try self.newClass(encoding_name_sym, self.object_class);
         self.encoding_class = encoding_class_val.data.class;
 
         // Create singleton encoding objects
@@ -305,29 +307,29 @@ pub const VM = struct {
         self.class_class.superclass = self.module_class;
 
         // --- Stage 4: Register constants in Object ---
-        try self.object_class.module.constants.put(class_name_sym, class_class_val);
-        try self.object_class.module.constants.put(basic_object_name_sym, basic_object_class_val);
-        try self.object_class.module.constants.put(object_name_sym, object_class_val);
-        try self.object_class.module.constants.put(module_name_sym, module_class_val);
-        try self.object_class.module.constants.put(numeric_name_sym, numeric_class_val);
-        try self.object_class.module.constants.put(integer_name_sym, integer_class_val);
-        try self.object_class.module.constants.put(symbol_name_sym, symbol_class_val);
-        try self.object_class.module.constants.put(array_name_sym, array_class_val);
-        try self.object_class.module.constants.put(hash_name_sym, hash_class_val);
-        try self.object_class.module.constants.put(proc_name_sym, proc_class_val);
-        try self.object_class.module.constants.put(nil_class_name_sym, nil_class_val);
-        try self.object_class.module.constants.put(true_class_name_sym, true_class_val);
-        try self.object_class.module.constants.put(false_class_name_sym, false_class_val);
-        try self.object_class.module.constants.put(kernel_name_sym, kernel_module_val);
-        try self.object_class.module.constants.put(exception_name_sym, exception_class_val);
-        try self.object_class.module.constants.put(standard_error_name_sym, standard_error_class_val);
-        try self.object_class.module.constants.put(runtime_error_name_sym, runtime_error_class_val);
-        try self.object_class.module.constants.put(argument_error_name_sym, argument_error_class_val);
-        try self.object_class.module.constants.put(type_error_name_sym, type_error_class_val);
-        try self.object_class.module.constants.put(zero_division_error_name_sym, zero_division_error_class_val);
-        try self.object_class.module.constants.put(no_method_error_name_sym, no_method_error_class_val);
-        try self.object_class.module.constants.put(load_error_name_sym, load_error_class_val);
-        try self.object_class.module.constants.put(encoding_name_sym, encoding_class_val);
+        self.object_class.module.constants.put(class_name_sym, class_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(basic_object_name_sym, basic_object_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(object_name_sym, object_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(module_name_sym, module_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(numeric_name_sym, numeric_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(integer_name_sym, integer_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(symbol_name_sym, symbol_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(array_name_sym, array_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(hash_name_sym, hash_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(proc_name_sym, proc_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(nil_class_name_sym, nil_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(true_class_name_sym, true_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(false_class_name_sym, false_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(kernel_name_sym, kernel_module_val) catch return error.Fatal;
+        self.object_class.module.constants.put(exception_name_sym, exception_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(standard_error_name_sym, standard_error_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(runtime_error_name_sym, runtime_error_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(argument_error_name_sym, argument_error_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(type_error_name_sym, type_error_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(zero_division_error_name_sym, zero_division_error_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(no_method_error_name_sym, no_method_error_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(load_error_name_sym, load_error_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(encoding_name_sym, encoding_class_val) catch return error.Fatal;
 
         // Register encoding constants on Encoding class
         const utf8_const_sym = try self.intern("UTF_8");
@@ -339,13 +341,13 @@ pub const VM = struct {
         const ascii_8bit_val = Value{ .data = .{ .encoding = self.encoding_ascii_8bit } };
         const us_ascii_val = Value{ .data = .{ .encoding = self.encoding_us_ascii } };
 
-        try self.encoding_class.module.constants.put(utf8_const_sym, utf8_val);
-        try self.encoding_class.module.constants.put(ascii_8bit_const_sym, ascii_8bit_val);
-        try self.encoding_class.module.constants.put(binary_const_sym, ascii_8bit_val); // BINARY is alias for ASCII_8BIT
-        try self.encoding_class.module.constants.put(us_ascii_const_sym, us_ascii_val);
+        self.encoding_class.module.constants.put(utf8_const_sym, utf8_val) catch return error.Fatal;
+        self.encoding_class.module.constants.put(ascii_8bit_const_sym, ascii_8bit_val) catch return error.Fatal;
+        self.encoding_class.module.constants.put(binary_const_sym, ascii_8bit_val) catch return error.Fatal; // BINARY is alias for ASCII_8BIT
+        self.encoding_class.module.constants.put(us_ascii_const_sym, us_ascii_val) catch return error.Fatal;
 
         // --- Stage 5: Register built-in methods ---
-        try builtins.registerAll(self);
+        builtins.registerAll(self) catch return error.Fatal;
 
         try self.includeModule(self.object_class, self.kernel_module);
 
@@ -353,8 +355,8 @@ pub const VM = struct {
         self.current_lexical_scope = try self.createLexicalScope(.{ .data = .{ .class = self.object_class } }, null);
     }
 
-    pub fn createLexicalScope(self: *VM, scope_module_val: Value, parent: ?*LexicalScope) !*LexicalScope {
-        const scope = self.gc_allocator.create(LexicalScope) catch unreachable;
+    pub fn createLexicalScope(self: *VM, scope_module_val: Value, parent: ?*LexicalScope) VMError!*LexicalScope {
+        const scope = self.gc_allocator.create(LexicalScope) catch return error.Fatal;
         switch (scope_module_val.data) {
             .class => |cls| {
                 scope.* = .{
@@ -384,14 +386,14 @@ pub const VM = struct {
         return env;
     }
 
-    pub fn createStackEnvironment(self: *VM, parent: ?*Environment, lexical_scope: ?*LexicalScope) !*Environment {
+    pub fn createStackEnvironment(self: *VM, parent: ?*Environment, lexical_scope: ?*LexicalScope) VMError!*Environment {
         const index = self.env_stack.items.len;
-        try self.env_stack.append(self.allocator, .{
+        self.env_stack.append(self.allocator, .{
             .parent = parent,
             .lexical_scope = lexical_scope,
             .variables = undefined,
             .variables_len = 0,
-        });
+        }) catch return error.Fatal;
         return &self.env_stack.items[index];
     }
 
@@ -408,7 +410,7 @@ pub const VM = struct {
         return null;
     }
 
-    fn setVariableAtDepth(ep: *Environment, depth: usize, idx: usize, val: Value) !void {
+    fn setVariableAtDepth(ep: *Environment, depth: usize, idx: usize, val: Value) VMError!void {
         var current_ep = derefEnvironment(ep);
         var i: usize = 0;
         while (i < depth) : (i += 1) {
@@ -420,7 +422,7 @@ pub const VM = struct {
                 current_ep.variables_len = @intCast(idx + 1);
             }
         } else {
-            return error.TooManyLocals;
+            return error.Fatal;
         }
     }
 
@@ -444,7 +446,7 @@ pub const VM = struct {
         }
 
         // 3. Allocate heap copy
-        const heap_env = self.gc_allocator.create(Environment) catch unreachable;
+        const heap_env = self.gc_allocator.create(Environment) catch return error.Fatal;
         heap_env.* = stack_env.*;
         heap_env.parent = heap_parent;
         heap_env.heap_forwarding_ptr = heap_env; // Points to itself to mark as heap-allocated
@@ -458,7 +460,7 @@ pub const VM = struct {
         return heap_env;
     }
 
-    fn updateEnvironmentReferences(self: *VM, old_env: *Environment, new_env: *Environment) !void {
+    fn updateEnvironmentReferences(self: *VM, old_env: *Environment, new_env: *Environment) VMError!void {
         // Update CallFrame references
         for (self.frames.items) |*frame| {
             if (frame.ep == old_env) {
@@ -483,7 +485,7 @@ pub const VM = struct {
         }
     }
 
-    fn findConstantInLexicalScope(_: *VM, scope: *LexicalScope, name: *value.SymbolObject) !?Value {
+    fn findConstantInLexicalScope(_: *VM, scope: *LexicalScope, name: *value.SymbolObject) VMError!?Value {
         var current_scope: ?*LexicalScope = scope;
         while (current_scope) |s| {
             if (s.getModule().constants.get(name)) |val| {
@@ -506,9 +508,9 @@ pub const VM = struct {
         }
     }
 
-    pub fn init(allocator: std.mem.Allocator, gc_allocator: std.mem.Allocator, gc_allocator_atomic: std.mem.Allocator, parser: prism.Parser, program: *compiler.CompiledProgram) VM {
+    pub fn init(allocator: std.mem.Allocator, gc_allocator: std.mem.Allocator, gc_allocator_atomic: std.mem.Allocator, parser: prism.Parser, program: *compiler.CompiledProgram) VMError!VM {
         var vm = initEmpty(allocator, gc_allocator, gc_allocator_atomic, parser);
-        vm.prepare(program) catch unreachable;
+        vm.prepare(program) catch return error.Fatal;
         return vm;
     }
 
@@ -538,7 +540,7 @@ pub const VM = struct {
         self.globals.deinit();
     }
 
-    pub fn run(self: *VM) !Value {
+    pub fn run(self: *VM) VMError!Value {
         self.setupOutput();
 
         try self.pushFrame(&self.program.main_chunk, Value.nil(), null);
@@ -554,20 +556,28 @@ pub const VM = struct {
         return &self.frames.items[self.frames.items.len - 1];
     }
 
+    fn coerceError(self: *VM, err: anyerror) VMError {
+        return switch (err) {
+            error.Unwind => if (self.pending_exception != null) error.Unwind else error.Fatal,
+            error.Fatal => error.Fatal,
+            else => error.Fatal,
+        };
+    }
+
     fn currentChunk(self: *VM) *Chunk {
         return self.currentFrame().chunk;
     }
 
-    fn constantToValue(self: *VM, constant: chunk.Constant) !Value {
+    fn constantToValue(self: *VM, constant: chunk.Constant) VMError!Value {
         return switch (constant) {
             .integer => |i| Value.integer(i),
-            .string => |s| self.newString(s, true),
+            .string => |s| try self.newString(s, true),
             .symbol => |s| Value{ .data = .{ .symbol = (try self.intern(s)) } },
         };
     }
 
-    fn push(self: *VM, val: Value) !void {
-        try self.stack.append(self.allocator, val);
+    fn push(self: *VM, val: Value) VMError!void {
+        self.stack.append(self.allocator, val) catch return error.Fatal;
     }
 
     pub fn pop(self: *VM) Value {
@@ -632,13 +642,13 @@ pub const VM = struct {
                     .defining_ep = defining_ep,
                 };
             } else {
-                return error.Unwind;
+                return error.Fatal;
             }
         }
         return null;
     }
 
-    fn pushFrame(self: *VM, ch: *Chunk, self_value: Value, block: ?Block) !void {
+    fn pushFrame(self: *VM, ch: *Chunk, self_value: Value, block: ?Block) VMError!void {
         // Get parent environment (current frame's ep, if any)
         const parent_env = if (self.frames.items.len > 0)
             self.frames.items[self.frames.items.len - 1].ep
@@ -649,16 +659,16 @@ pub const VM = struct {
         const env = try self.createStackEnvironment(parent_env, ch.lexical_scope orelse self.current_lexical_scope);
 
         // Record env_stack slot for this frame
-        try self.env_stack_indices.append(self.allocator, self.env_stack.items.len - 1);
+        self.env_stack_indices.append(self.allocator, self.env_stack.items.len - 1) catch return error.Fatal;
 
-        try self.frames.append(self.allocator, CallFrame{
+        self.frames.append(self.allocator, CallFrame{
             .chunk = ch,
             .ip = 0,
             .stack_base = self.stack.items.len,
             .self_value = self_value,
             .ep = env,
             .block = block,
-        });
+        }) catch return error.Fatal;
 
         // Update current_lexical_scope to the frame's scope
         if (ch.lexical_scope) |scope| {
@@ -666,7 +676,7 @@ pub const VM = struct {
         }
     }
 
-    fn popFrame(self: *VM) !void {
+    fn popFrame(self: *VM) VMError!void {
         if (self.frames.items.len > 0) {
             _ = self.frames.pop();
             _ = self.env_stack_indices.pop();
@@ -685,7 +695,7 @@ pub const VM = struct {
         }
     }
 
-    pub fn executeInstruction(self: *VM) !void {
+    pub fn executeInstruction(self: *VM) VMError!void {
         const frame = self.currentFrame();
         if (frame.ip >= frame.chunk.code.items.len) {
             try self.popFrame();
@@ -764,7 +774,7 @@ pub const VM = struct {
                 const var_name = name_val.symbol;
                 const global_val = self.peek(0);
 
-                try self.globals.put(var_name, global_val);
+                self.globals.put(var_name, global_val) catch return error.Fatal;
             },
 
             .GET_IVAR => {
@@ -823,9 +833,9 @@ pub const VM = struct {
 
                     // Set in current lexical scope's module (or Object if no scope)
                     if (frame.ep.lexical_scope) |scope| {
-                        try scope.getModule().constants.put(name_sym, val);
+                        scope.getModule().constants.put(name_sym, val) catch return error.Fatal;
                     } else {
-                        try self.object_class.module.constants.put(name_sym, val);
+                        self.object_class.module.constants.put(name_sym, val) catch return error.Fatal;
                     }
                 }
                 try self.push(val);
@@ -1003,13 +1013,13 @@ pub const VM = struct {
                 const constant = self.currentChunk().constants.items[name_idx];
                 if (constant == .string) {
                     const name_sym = try self.intern(constant.string);
-                    const module_val = self.newModule(name_sym);
+                    const module_val = try self.newModule(name_sym);
 
                     // Store constant in current lexical scope (or Object if no scope)
                     if (frame.ep.lexical_scope) |scope| {
-                        try scope.getModule().constants.put(name_sym, module_val);
+                        scope.getModule().constants.put(name_sym, module_val) catch return error.Fatal;
                     } else {
-                        try self.object_class.module.constants.put(name_sym, module_val);
+                        self.object_class.module.constants.put(name_sym, module_val) catch return error.Fatal;
                     }
 
                     // Execute module body if it exists
@@ -1022,13 +1032,13 @@ pub const VM = struct {
                             // pushFrame will update current_lexical_scope
                             try self.pushFrame(body_chunk_ptr, module_val, null);
                         } else {
-                            return error.Unwind;
+                            return error.Fatal;
                         }
                     } else {
                         try self.push(module_val);
                     }
                 } else {
-                    return error.Unwind;
+                    return error.Fatal;
                 }
             },
 
@@ -1043,7 +1053,10 @@ pub const VM = struct {
                 if (superclass_val.data == .class) {
                     superclass = superclass_val.data.class;
                 } else if (superclass_val.data != .nil) {
-                    return error.Unwind;
+                    const exc = try self.createException(self.type_error_class, "superclass must be a Class");
+                    self.pending_exception = exc;
+                    try self.unwindStack();
+                    return;
                 }
 
                 const constant = self.currentChunk().constants.items[name_idx];
@@ -1066,17 +1079,20 @@ pub const VM = struct {
                             class_val = ec;
                         } else {
                             // Name exists but isn't a class - error
-                            return error.Unwind;
+                            const exc = try self.createException(self.type_error_class, "constant is not a class");
+                            self.pending_exception = exc;
+                            try self.unwindStack();
+                            return;
                         }
                     } else {
                         // Create new class
-                        class_val = self.newClass(name_sym, superclass);
+                        class_val = try self.newClass(name_sym, superclass);
 
                         // Store constant in current lexical scope (or Object if no scope)
                         if (frame.ep.lexical_scope) |scope| {
-                            try scope.getModule().constants.put(name_sym, class_val);
+                            scope.getModule().constants.put(name_sym, class_val) catch return error.Fatal;
                         } else {
-                            try self.object_class.module.constants.put(name_sym, class_val);
+                            self.object_class.module.constants.put(name_sym, class_val) catch return error.Fatal;
                         }
                     }
 
@@ -1090,13 +1106,13 @@ pub const VM = struct {
                             // pushFrame will update current_lexical_scope
                             try self.pushFrame(body_chunk_ptr, class_val, null);
                         } else {
-                            return error.Unwind;
+                            return error.Fatal;
                         }
                     } else {
                         try self.push(class_val);
                     }
                 } else {
-                    return error.Unwind;
+                    return error.Fatal;
                 }
             },
 
@@ -1106,7 +1122,7 @@ pub const VM = struct {
 
                 const constant = self.currentChunk().constants.items[name_idx];
                 if (constant != .symbol) {
-                    return error.Unwind;
+                    return error.Fatal;
                 }
 
                 const method_name = constant.symbol;
@@ -1122,18 +1138,18 @@ pub const VM = struct {
 
                     if (current_self.data == .class) {
                         // Adding method to a class
-                        try current_self.data.class.module.methods.put(method_name_sym, .{ .chunk = chunk_ptr });
+                        current_self.data.class.module.methods.put(method_name_sym, .{ .chunk = chunk_ptr }) catch return error.Fatal;
                     } else if (current_self.data == .module) {
                         // Adding method to a module
-                        try current_self.data.module.methods.put(method_name_sym, .{ .chunk = chunk_ptr });
+                        current_self.data.module.methods.put(method_name_sym, .{ .chunk = chunk_ptr }) catch return error.Fatal;
                     } else {
                         // Top-level: add to Object (look it up from constants)
                         // TODO: we need `main` to clean this up a bit
-                        try self.object_class.module.methods.put(method_name_sym, .{ .chunk = chunk_ptr });
+                        self.object_class.module.methods.put(method_name_sym, .{ .chunk = chunk_ptr }) catch return error.Fatal;
                     }
                 } else {
                     std.debug.print("Error: undefined method chunk {d}\n", .{chunk_idx});
-                    return error.Unwind;
+                    return error.Fatal;
                 }
             },
 
@@ -1143,7 +1159,7 @@ pub const VM = struct {
 
                 const constant = self.currentChunk().constants.items[name_idx];
                 if (constant != .symbol) {
-                    return error.Unwind;
+                    return error.Fatal;
                 }
 
                 const method_name = constant.symbol;
@@ -1156,19 +1172,27 @@ pub const VM = struct {
                     const receiver = self.pop();
 
                     // Get or create singleton class for the receiver
-                    const singleton_class = try self.getOrCreateSingletonClass(receiver);
+                    const singleton_class = self.getOrCreateSingletonClass(receiver) catch |err| {
+                        if (err == error.CannotDefineSingletonMethod) {
+                            const exc = try self.createException(self.type_error_class, "can't define singleton method for literals");
+                            self.pending_exception = exc;
+                            try self.unwindStack();
+                            return;
+                        }
+                        return err;
+                    };
 
                     // Store method on singleton class
-                    try singleton_class.module.methods.put(method_name_sym, .{ .chunk = chunk_ptr });
+                    singleton_class.module.methods.put(method_name_sym, .{ .chunk = chunk_ptr }) catch return error.Fatal;
                 } else {
-                    return error.Unwind;
+                    return error.Fatal;
                 }
             },
 
             .PUSH_ARRAY => {
                 const element_count = self.readByte();
 
-                const array_obj = self.gc_allocator.create(value.ArrayObject) catch unreachable;
+                const array_obj = self.gc_allocator.create(value.ArrayObject) catch return error.Fatal;
                 array_obj.* = .{
                     .object = .{ .flags = 0, .class = self.array_class, .singleton_class = null, .instance_variables = null },
                     .elements = .empty,
@@ -1177,7 +1201,7 @@ pub const VM = struct {
                 var i: usize = 0;
                 while (i < element_count) : (i += 1) {
                     const elem = self.pop();
-                    array_obj.elements.append(self.gc_allocator, elem) catch unreachable;
+                    array_obj.elements.append(self.gc_allocator, elem) catch return error.Fatal;
                 }
 
                 try self.push(.{ .data = .{ .array = array_obj } });
@@ -1186,7 +1210,7 @@ pub const VM = struct {
             .PUSH_HASH => {
                 const pair_count = self.readByte();
 
-                const hash_obj = self.gc_allocator.create(value.HashObject) catch unreachable;
+                const hash_obj = self.gc_allocator.create(value.HashObject) catch return error.Fatal;
                 hash_obj.* = .{
                     .object = .{ .flags = 0, .class = self.hash_class, .singleton_class = null, .instance_variables = null },
                     .map = std.AutoHashMap(u64, usize).init(self.gc_allocator),
@@ -1211,8 +1235,8 @@ pub const VM = struct {
                     hash_obj.entries.append(self.gc_allocator, .{
                         .key = key,
                         .value = val,
-                    }) catch unreachable;
-                    hash_obj.map.put(key_hash, new_idx) catch unreachable;
+                    }) catch return error.Fatal;
+                    hash_obj.map.put(key_hash, new_idx) catch return error.Fatal;
                 }
 
                 try self.push(.{ .data = .{ .hash = hash_obj } });
@@ -1228,14 +1252,25 @@ pub const VM = struct {
                 var i: usize = 0;
                 while (i < part_count) : (i += 1) {
                     const val = self.pop();
-                    const str_val = try self.callMethodByName(val, "to_s", &[_]Value{}, null);
-                    if (str_val.data != .string) return error.Unwind;
-                    try writer.writeAll(str_val.data.string.str);
+                    const str_val = self.callMethodByName(val, "to_s", &[_]Value{}, null) catch |err| {
+                        if (err == error.Unwind and self.pending_exception != null) {
+                            try self.unwindStack();
+                            return;
+                        }
+                        return err;
+                    };
+                    if (str_val.data != .string) {
+                        const exc = try self.createException(self.type_error_class, "to_s did not return String");
+                        self.pending_exception = exc;
+                        try self.unwindStack();
+                        return;
+                    }
+                    writer.writeAll(str_val.data.string.str) catch return error.Fatal;
                 }
 
-                const final_str = buf.toOwnedSlice(self.allocator) catch return error.Unwind;
+                const final_str = buf.toOwnedSlice(self.allocator) catch return error.Fatal;
                 defer self.allocator.free(final_str);
-                try self.push(self.newString(final_str, false));
+                try self.push(try self.newString(final_str, false));
             },
 
             .HALT => {
@@ -1274,16 +1309,16 @@ pub const VM = struct {
                 const block_env = try self.createStackEnvironment(real_defining_ep, blk.lexical_scope orelse self.current_lexical_scope);
 
                 // Track env_stack index for this frame (like pushFrame does)
-                try self.env_stack_indices.append(self.allocator, self.env_stack.items.len - 1);
+                self.env_stack_indices.append(self.allocator, self.env_stack.items.len - 1) catch return error.Fatal;
 
-                try self.frames.append(self.allocator, CallFrame{
+                self.frames.append(self.allocator, CallFrame{
                     .chunk = blk,
                     .ip = 0,
                     .stack_base = self.stack.items.len,
                     .self_value = frame.self_value,
                     .ep = block_env,
                     .block = null,
-                });
+                }) catch return error.Fatal;
 
                 // Update current_lexical_scope to the block's scope
                 if (blk.lexical_scope) |scope| {
@@ -1323,7 +1358,7 @@ pub const VM = struct {
                 };
 
                 // Create a Proc value from the block
-                const proc_val = self.newProc(block);
+                const proc_val = try self.newProc(block);
                 try self.push(proc_val);
             },
 
@@ -1343,7 +1378,10 @@ pub const VM = struct {
                         try self.raise(.{ .data = .{ .exception = exc } });
                     } else {
                         // No exception to re-raise
-                        return error.Unwind;
+                        const exc = try self.createException(self.runtime_error_class, "no current exception");
+                        self.pending_exception = exc;
+                        try self.unwindStack();
+                        return;
                     }
                 } else if (argc == 1) {
                     // Single argument: exception instance or class
@@ -1366,7 +1404,10 @@ pub const VM = struct {
                         },
                         else => {
                             // Invalid argument type
-                            return error.Unwind;
+                            const exc = try self.createException(self.type_error_class, "exception class/object expected");
+                            self.pending_exception = exc;
+                            try self.unwindStack();
+                            return;
                         },
                     }
                 } else if (argc == 2) {
@@ -1375,7 +1416,10 @@ pub const VM = struct {
                     const class_arg = self.pop();
 
                     if (class_arg.data != .class) {
-                        return error.Unwind;
+                        const exc = try self.createException(self.type_error_class, "exception class/object expected");
+                        self.pending_exception = exc;
+                        try self.unwindStack();
+                        return;
                     }
 
                     const msg_str = if (message.data == .string)
@@ -1387,7 +1431,10 @@ pub const VM = struct {
                     try self.raise(.{ .data = .{ .exception = exc } });
                 } else {
                     // Invalid number of arguments
-                    return error.Unwind;
+                    const exc = try self.createException(self.argument_error_class, "wrong number of arguments");
+                    self.pending_exception = exc;
+                    try self.unwindStack();
+                    return;
                 }
             },
 
@@ -1420,11 +1467,17 @@ pub const VM = struct {
                         frame.ip = retry_pt.ip;
                     } else {
                         // Retry called from wrong frame - this shouldn't happen with proper compilation
-                        return error.Unwind;
+                        const exc = try self.createException(self.runtime_error_class, "retry called from wrong frame");
+                        self.pending_exception = exc;
+                        try self.unwindStack();
+                        return;
                     }
                 } else {
                     // No retry point set - retry called outside of rescue block
-                    return error.Unwind;
+                    const exc = try self.createException(self.runtime_error_class, "retry called outside of rescue");
+                    self.pending_exception = exc;
+                    try self.unwindStack();
+                    return;
                 }
             },
 
@@ -1493,12 +1546,12 @@ pub const VM = struct {
     }
 
     /// Find a method on a receiver, checking singleton class first, then regular class
-    pub fn findMethod(self: *VM, receiver: Value, method_name_sym: *SymbolObject) ?Method {
+    pub fn findMethod(self: *VM, receiver: Value, method_name_sym: *SymbolObject) VMError!?Method {
         var method: ?Method = null;
 
         // First, check singleton class
         if (receiver.getObjectPointer() != null) {
-            const singleton_class = self.getOrCreateSingletonClass(receiver) catch return null;
+            const singleton_class = self.getOrCreateSingletonClass(receiver) catch return error.Fatal;
             method = self.lookupMethod(singleton_class, method_name_sym);
         }
 
@@ -1513,11 +1566,19 @@ pub const VM = struct {
 
     /// Call a method by name string (not from bytecode constant pool)
     pub fn callMethodByName(self: *VM, receiver: Value, method_name: []const u8, args: []Value, block: ?Block) VMError!Value {
-        const method_name_sym = self.intern(method_name) catch return error.Unwind;
-        const method = self.findMethod(receiver, method_name_sym);
+        const method_name_sym = try self.intern(method_name);
+        const method = try self.findMethod(receiver, method_name_sym);
 
         if (method == null) {
-            std.debug.print("Error: undefined method '{s}'\n", .{method_name});
+            const class = self.getClass(receiver);
+            const class_name = class.module.name.name;
+            const msg = std.fmt.allocPrint(
+                self.gc_allocator,
+                "undefined method '{s}' for {s}",
+                .{ method_name, class_name },
+            ) catch return error.Fatal;
+            const exc = try self.createException(self.no_method_error_class, msg);
+            self.pending_exception = exc;
             return error.Unwind;
         }
 
@@ -1528,7 +1589,7 @@ pub const VM = struct {
                     const saved_frame_count = self.frames.items.len;
 
                     // Push frame with receiver as self_value
-                    self.pushFrame(chunk_ptr, receiver, block) catch return error.Unwind;
+                    self.pushFrame(chunk_ptr, receiver, block) catch return error.Fatal;
 
                     // Copy arguments to environment
                     var frame = self.currentFrame();
@@ -1539,7 +1600,7 @@ pub const VM = struct {
 
                     // Execute until we return to saved frame count
                     while (self.frames.items.len > saved_frame_count) {
-                        self.executeInstruction() catch return error.Unwind;
+                        self.executeInstruction() catch |err| return self.coerceError(err);
                     }
 
                     // Result is on top of stack
@@ -1640,9 +1701,9 @@ pub const VM = struct {
     /// Execute a ProcObject as a method body
     fn callProcAsMethod(self: *VM, proc_obj: *value.ProcObject, receiver: Value, args: []const Value, block: ?Block) VMError!Value {
         const real_defining_ep = derefEnvironment(proc_obj.block.defining_ep);
-        const proc_env = self.createStackEnvironment(real_defining_ep, proc_obj.block.chunk.lexical_scope orelse self.current_lexical_scope) catch unreachable;
+        const proc_env = self.createStackEnvironment(real_defining_ep, proc_obj.block.chunk.lexical_scope orelse self.current_lexical_scope) catch return error.Fatal;
 
-        self.env_stack_indices.append(self.allocator, self.env_stack.items.len - 1) catch unreachable;
+        self.env_stack_indices.append(self.allocator, self.env_stack.items.len - 1) catch return error.Fatal;
 
         self.frames.append(self.allocator, CallFrame{
             .chunk = proc_obj.block.chunk,
@@ -1652,7 +1713,7 @@ pub const VM = struct {
             .ep = proc_env,
             .block = block,
             .frame_type = .method,
-        }) catch unreachable;
+        }) catch return error.Fatal;
 
         const current_frame = self.currentFrame();
         try self.copyArgumentsWithRestParam(proc_obj.block.chunk, current_frame.ep, args, .strict);
@@ -1660,7 +1721,7 @@ pub const VM = struct {
         // Execute until this frame completes
         const saved_frame_count = self.frames.items.len - 1;
         while (self.frames.items.len > saved_frame_count) {
-            self.executeInstruction() catch unreachable;
+            self.executeInstruction() catch |err| return self.coerceError(err);
         }
 
         return self.pop();
@@ -1685,20 +1746,20 @@ pub const VM = struct {
         kwargc: usize,
         kw_metadata: ?chunk.KeywordMetadata,
         block: ?Block,
-    ) !void {
+    ) VMError!void {
         if (method_idx >= self.currentChunk().constants.items.len) {
-            return error.Unwind;
+            return error.Fatal;
         }
 
         const constant = self.currentChunk().constants.items[method_idx];
         if (constant != .string) {
-            return error.Unwind;
+            return error.Fatal;
         }
 
         const method_name = constant.string;
         const method_name_sym = try self.intern(method_name);
 
-        const method = self.findMethod(receiver, method_name_sym);
+        const method = try self.findMethod(receiver, method_name_sym);
 
         if (method == null) {
             const class = self.getClass(receiver);
@@ -1707,7 +1768,7 @@ pub const VM = struct {
                 self.gc_allocator,
                 "undefined method '{s}' for {s}",
                 .{ method_name, class_name },
-            ) catch unreachable;
+            ) catch return error.Fatal;
             const exc = try self.createException(self.no_method_error_class, msg);
             self.pending_exception = exc;
             try self.unwindStack();
@@ -1775,7 +1836,7 @@ pub const VM = struct {
 
                             // THEN: Set up keyword rest with empty hash
                             if (method_chunk.keyword_rest_index) |rest_idx| {
-                                const kw_hash = self.gc_allocator.create(value.HashObject) catch unreachable;
+                                const kw_hash = self.gc_allocator.create(value.HashObject) catch return error.Fatal;
                                 kw_hash.* = .{
                                     .object = .{ .flags = 0, .class = self.hash_class, .singleton_class = null, .instance_variables = null },
                                     .map = std.AutoHashMap(u64, usize).init(self.gc_allocator),
@@ -1795,7 +1856,7 @@ pub const VM = struct {
 
                         if (current_frame.block) |blk| {
                             // Convert Block to ProcObject
-                            const proc_val = self.newProc(blk);
+                            const proc_val = try self.newProc(blk);
                             // Re-get frame pointer again after newProc
                             const f = &self.frames.items[self.frames.items.len - 1];
                             f.ep.variables[block_idx] = proc_val;
@@ -1971,12 +2032,12 @@ pub const VM = struct {
     }
 
     /// Call the superclass method with the given arguments
-    fn callSuper(self: *VM, args: []const Value, block: ?Block) !void {
+    fn callSuper(self: *VM, args: []const Value, block: ?Block) VMError!void {
         const frame = self.currentFrame();
 
         // Get method name from current chunk
         const method_name = frame.chunk.name;
-        const method_name_sym = self.intern(method_name) catch return error.Unwind;
+        const method_name_sym = try self.intern(method_name);
 
         // Get the defining class from the current method's lexical scope
         const defining_class = self.getDefiningClassForSuper(frame.chunk) orelse {
@@ -1992,7 +2053,7 @@ pub const VM = struct {
                 self.gc_allocator,
                 "super: no superclass method '{s}' for {s}",
                 .{ method_name, defining_class.module.name.name },
-            ) catch unreachable;
+            ) catch return error.Fatal;
             const exc = try self.createException(self.no_method_error_class, msg);
             self.pending_exception = exc;
             try self.unwindStack();
@@ -2016,7 +2077,7 @@ pub const VM = struct {
                     const current_frame = &self.frames.items[self.frames.items.len - 1];
 
                     if (current_frame.block) |blk| {
-                        const proc_val = self.newProc(blk);
+                        const proc_val = try self.newProc(blk);
                         const f = &self.frames.items[self.frames.items.len - 1];
                         f.ep.variables[block_idx] = proc_val;
                     } else {
@@ -2049,21 +2110,25 @@ pub const VM = struct {
         }
     }
 
-    pub fn getOrCreateSingletonClass(self: *VM, obj_val: value.Value) !*ClassObject {
+    pub fn getOrCreateSingletonClass(self: *VM, obj_val: value.Value) VMError!*ClassObject {
         // Return existing singleton class if already created
         if (obj_val.getSingletonClass()) |singleton| {
             return singleton;
         }
 
         // Get the object pointer (returns null for primitives)
-        const obj_ptr = obj_val.getObjectPointer() orelse return error.CannotDefineSingletonMethod;
+        const obj_ptr = obj_val.getObjectPointer() orelse {
+            const exc = try self.createException(self.type_error_class, "can't define singleton method for literals");
+            self.pending_exception = exc;
+            return error.Unwind;
+        };
 
         // Create singleton class name: "#<Class:#<hex_address>>"
-        const singleton_name = try std.fmt.allocPrint(
+        const singleton_name = std.fmt.allocPrint(
             self.gc_allocator,
             "#<Class:#{x}>",
             .{@intFromPtr(obj_ptr)},
-        );
+        ) catch return error.Fatal;
         const singleton_name_sym = try self.intern(singleton_name);
 
         // Determine singleton's superclass
@@ -2089,7 +2154,7 @@ pub const VM = struct {
         };
 
         // Create the singleton ClassObject
-        const singleton_class = self.gc_allocator.create(ClassObject) catch unreachable;
+        const singleton_class = self.gc_allocator.create(ClassObject) catch return error.Fatal;
         singleton_class.* = .{
             .superclass = singleton_superclass,
             .module = .{
@@ -2111,27 +2176,27 @@ pub const VM = struct {
         return singleton_class;
     }
 
-    pub fn intern(self: *VM, str: []const u8) !*SymbolObject {
+    pub fn intern(self: *VM, str: []const u8) VMError!*SymbolObject {
         // Check if already interned
         if (self.symbols.get(str)) |symbol_obj| {
             return symbol_obj;
         }
 
         // Create a symbol and store it
-        const symbol_obj = self.gc_allocator.create(SymbolObject) catch unreachable;
+        const symbol_obj = self.gc_allocator.create(SymbolObject) catch return error.Fatal;
         symbol_obj.* = .{
             .object = .{ .flags = Object.FROZEN_FLAG, .class = self.symbol_class, .singleton_class = null, .instance_variables = null },
             .name = str,
         };
-        try self.symbols.put(str, symbol_obj);
+        self.symbols.put(str, symbol_obj) catch return error.Fatal;
 
         return symbol_obj;
     }
 
     // ==== Object creation ====
 
-    pub fn newModule(self: *VM, name: *SymbolObject) Value {
-        const module_obj = self.gc_allocator.create(value.ModuleObject) catch unreachable;
+    pub fn newModule(self: *VM, name: *SymbolObject) VMError!Value {
+        const module_obj = self.gc_allocator.create(value.ModuleObject) catch return error.Fatal;
         module_obj.* = .{
             .object = .{ .flags = 0, .class = self.module_class, .singleton_class = null, .instance_variables = null },
             .name = name,
@@ -2141,8 +2206,8 @@ pub const VM = struct {
         return .{ .data = .{ .module = module_obj } };
     }
 
-    pub fn newClass(self: *VM, name: *SymbolObject, superclass: ?*ClassObject) Value {
-        const class_obj = self.gc_allocator.create(ClassObject) catch unreachable;
+    pub fn newClass(self: *VM, name: *SymbolObject, superclass: ?*ClassObject) VMError!Value {
+        const class_obj = self.gc_allocator.create(ClassObject) catch return error.Fatal;
         class_obj.* = .{
             .superclass = superclass,
             .module = .{
@@ -2155,8 +2220,8 @@ pub const VM = struct {
         return .{ .data = .{ .class = class_obj } };
     }
 
-    pub fn newInstance(self: *VM, class_obj: *ClassObject) Value {
-        const obj = self.gc_allocator.create(Object) catch unreachable;
+    pub fn newInstance(self: *VM, class_obj: *ClassObject) VMError!Value {
+        const obj = self.gc_allocator.create(Object) catch return error.Fatal;
         obj.* = .{
             .flags = 0,
             .class = class_obj,
@@ -2166,7 +2231,7 @@ pub const VM = struct {
         return .{ .data = .{ .instance = obj } };
     }
 
-    pub fn getInstanceVariable(self: *VM, receiver: Value, name: []const u8) !Value {
+    pub fn getInstanceVariable(self: *VM, receiver: Value, name: []const u8) VMError!Value {
         const obj_ptr = receiver.getObjectPointer() orelse {
             return Value.nil();
         };
@@ -2181,7 +2246,7 @@ pub const VM = struct {
         return Value.nil();
     }
 
-    pub fn setInstanceVariable(self: *VM, receiver: Value, name: []const u8, val: Value) !void {
+    pub fn setInstanceVariable(self: *VM, receiver: Value, name: []const u8, val: Value) VMError!void {
         const obj_ptr = receiver.getObjectPointer() orelse {
             const exc = try self.createException(self.type_error_class, "can't define singleton method for literals");
             self.pending_exception = exc;
@@ -2193,23 +2258,23 @@ pub const VM = struct {
         }
 
         const name_sym = try self.intern(name);
-        try obj_ptr.instance_variables.?.put(name_sym, val);
+        obj_ptr.instance_variables.?.put(name_sym, val) catch return error.Fatal;
     }
 
-    pub fn newString(self: *VM, str: []const u8, frozen: bool) Value {
+    pub fn newString(self: *VM, str: []const u8, frozen: bool) VMError!Value {
         return self.newStringWithEncoding(str, frozen, .{ .utf8 = .{} });
     }
 
-    pub fn newStringWithEncoding(self: *VM, str: []const u8, frozen: bool, encoding: enc.Encoding) Value {
+    pub fn newStringWithEncoding(self: *VM, str: []const u8, frozen: bool, encoding: enc.Encoding) VMError!Value {
         var copy = str;
         var flags: u32 = 0;
         if (frozen) {
             flags = Object.FROZEN_FLAG;
         } else {
-            copy = self.gc_allocator_atomic.dupe(u8, str) catch unreachable;
+            copy = self.gc_allocator_atomic.dupe(u8, str) catch return error.Fatal;
         }
 
-        const string_obj = self.gc_allocator.create(StringObject) catch unreachable;
+        const string_obj = self.gc_allocator.create(StringObject) catch return error.Fatal;
         string_obj.* = .{
             .object = .{ .flags = flags, .class = self.string_class, .singleton_class = null, .instance_variables = null },
             .str = copy,
@@ -2218,8 +2283,8 @@ pub const VM = struct {
         return .{ .data = .{ .string = string_obj } };
     }
 
-    fn createEncodingObject(self: *VM, encoding: enc.Encoding) !*value.EncodingObject {
-        const encoding_obj = try self.gc_allocator.create(value.EncodingObject);
+    fn createEncodingObject(self: *VM, encoding: enc.Encoding) VMError!*value.EncodingObject {
+        const encoding_obj = self.gc_allocator.create(value.EncodingObject) catch return error.Fatal;
         encoding_obj.* = .{
             .object = .{
                 .flags = Object.FROZEN_FLAG, // Encoding objects are frozen singletons
@@ -2232,10 +2297,10 @@ pub const VM = struct {
         return encoding_obj;
     }
 
-    pub fn newProc(self: *VM, block: Block) Value {
-        const heap_ep = self.promoteEnvironmentToHeap(block.defining_ep) catch unreachable;
+    pub fn newProc(self: *VM, block: Block) VMError!Value {
+        const heap_ep = self.promoteEnvironmentToHeap(block.defining_ep) catch return error.Fatal;
 
-        const proc_obj = self.gc_allocator.create(value.ProcObject) catch unreachable;
+        const proc_obj = self.gc_allocator.create(value.ProcObject) catch return error.Fatal;
         proc_obj.* = .{
             .object = .{ .flags = 0, .class = self.proc_class, .singleton_class = null, .instance_variables = null },
             .block = .{
@@ -2246,12 +2311,12 @@ pub const VM = struct {
         return .{ .data = .{ .proc = proc_obj } };
     }
 
-    pub fn includeModule(self: *VM, class: *value.ClassObject, module: *value.ModuleObject) !void {
-        try class.included_modules.append(self.gc_allocator, module);
+    pub fn includeModule(self: *VM, class: *value.ClassObject, module: *value.ModuleObject) VMError!void {
+        class.included_modules.append(self.gc_allocator, module) catch return error.Fatal;
     }
 
-    pub fn prependModule(self: *VM, class: *value.ClassObject, module: *value.ModuleObject) !void {
-        try class.prepended_modules.append(self.gc_allocator, module);
+    pub fn prependModule(self: *VM, class: *value.ClassObject, module: *value.ModuleObject) VMError!void {
+        class.prepended_modules.append(self.gc_allocator, module) catch return error.Fatal;
     }
 
     pub fn requireArgCount(self: *VM, args: []Value, expected: usize) VMError!void {
@@ -2260,7 +2325,7 @@ pub const VM = struct {
                 self.gc_allocator,
                 "wrong number of arguments (given {d}, expected {d})",
                 .{ args.len, expected },
-            ) catch unreachable;
+            ) catch return error.Fatal;
             const exc = try self.createException(self.argument_error_class, msg);
             self.pending_exception = exc;
             return error.Unwind;
@@ -2278,12 +2343,12 @@ pub const VM = struct {
 
         const allocator = self.program.allocator;
         const method_name = if (kind == .reader)
-            allocator.dupe(u8, base_name) catch unreachable
+            allocator.dupe(u8, base_name) catch return error.Fatal
         else
-            std.fmt.allocPrint(allocator, "{s}=", .{base_name}) catch unreachable;
-        const ivar_name = std.fmt.allocPrint(allocator, "@{s}", .{base_name}) catch unreachable;
+            std.fmt.allocPrint(allocator, "{s}=", .{base_name}) catch return error.Fatal;
+        const ivar_name = std.fmt.allocPrint(allocator, "@{s}", .{base_name}) catch return error.Fatal;
 
-        const chunk_ptr = allocator.create(Chunk) catch unreachable;
+        const chunk_ptr = allocator.create(Chunk) catch return error.Fatal;
         chunk_ptr.* = Chunk.init(allocator, method_name);
         chunk_ptr.chunk_id = self.next_chunk_id;
         self.next_chunk_id += 1;
@@ -2291,21 +2356,21 @@ pub const VM = struct {
         chunk_ptr.lexical_scope = self.current_lexical_scope;
         chunk_ptr.arity = if (kind == .reader) 0 else 1;
 
-        const name_idx = chunk_ptr.addConstant(.{ .symbol = ivar_name }) catch unreachable;
+        const name_idx = chunk_ptr.addConstant(.{ .symbol = ivar_name }) catch return error.Fatal;
 
         switch (kind) {
             .reader => {
-                chunk_ptr.emitOpU16(.GET_IVAR, @intCast(name_idx), 0) catch unreachable;
-                chunk_ptr.emitOpU8(.RETURN, 0, 0) catch unreachable;
+                chunk_ptr.emitOpU16(.GET_IVAR, @intCast(name_idx), 0) catch return error.Fatal;
+                chunk_ptr.emitOpU8(.RETURN, 0, 0) catch return error.Fatal;
             },
             .writer => {
-                chunk_ptr.emitOpU8(.GET_LOCAL, 0, 0) catch unreachable;
-                chunk_ptr.emitOpU16(.SET_IVAR, @intCast(name_idx), 0) catch unreachable;
-                chunk_ptr.emitOpU8(.RETURN, 0, 0) catch unreachable;
+                chunk_ptr.emitOpU8(.GET_LOCAL, 0, 0) catch return error.Fatal;
+                chunk_ptr.emitOpU16(.SET_IVAR, @intCast(name_idx), 0) catch return error.Fatal;
+                chunk_ptr.emitOpU8(.RETURN, 0, 0) catch return error.Fatal;
             },
         }
 
-        self.program.method_chunks.put(chunk_ptr.chunk_id.?, chunk_ptr) catch unreachable;
+        self.program.method_chunks.put(chunk_ptr.chunk_id.?, chunk_ptr) catch return error.Fatal;
         return chunk_ptr;
     }
 
@@ -2321,7 +2386,7 @@ pub const VM = struct {
                 self.gc_allocator,
                 "argument is not {s} {s}",
                 .{ if (type_name[0] == 'A' or type_name[0] == 'I' or type_name[0] == 'O') "an" else "a", type_name },
-            ) catch unreachable;
+            ) catch return error.Fatal;
             const exc = try self.createException(self.type_error_class, msg);
             self.pending_exception = exc;
             return error.Unwind;
@@ -2344,23 +2409,23 @@ pub const VM = struct {
         comptime fmt: []const u8,
         args: anytype,
     ) VMError {
-        const msg = std.fmt.allocPrint(self.gc_allocator, fmt, args) catch unreachable;
-        const exc = self.createException(exception_class, msg) catch return error.Unwind;
+        const msg = std.fmt.allocPrint(self.gc_allocator, fmt, args) catch return error.Fatal;
+        const exc = self.createException(exception_class, msg) catch return error.Fatal;
         self.pending_exception = exc;
         return error.Unwind;
     }
 
     // File loading helper methods
 
-    pub fn resolveAbsolutePath(self: *VM, path: []const u8) ![]const u8 {
+    pub fn resolveAbsolutePath(self: *VM, path: []const u8) VMError![]const u8 {
         var path_buffer: [4096]u8 = undefined;
-        const absolute = std.fs.cwd().realpath(path, &path_buffer) catch |err| {
+        const absolute = std.fs.cwd().realpath(path, &path_buffer) catch {
             if (std.fs.path.isAbsolute(path)) {
-                return try self.allocator.dupe(u8, path);
+                return self.allocator.dupe(u8, path) catch return error.Fatal;
             }
-            return err;
+            return error.Fatal;
         };
-        return try self.allocator.dupe(u8, absolute);
+        return self.allocator.dupe(u8, absolute) catch return error.Fatal;
     }
 
     pub fn fileExists(_: *VM, path: []const u8) bool {
@@ -2369,7 +2434,7 @@ pub const VM = struct {
         return true;
     }
 
-    pub fn searchLoadPath(self: *VM, feature: []const u8) !?[]const u8 {
+    pub fn searchLoadPath(self: *VM, feature: []const u8) VMError!?[]const u8 {
         if (std.fs.path.isAbsolute(feature)) {
             if (self.fileExists(feature)) {
                 return try self.resolveAbsolutePath(feature);
@@ -2378,7 +2443,7 @@ pub const VM = struct {
         }
 
         for (self.load_path.items) |dir| {
-            const full_path = try std.fs.path.join(self.allocator, &[_][]const u8{ dir, feature });
+            const full_path = std.fs.path.join(self.allocator, &[_][]const u8{ dir, feature }) catch return error.Fatal;
             defer self.allocator.free(full_path);
 
             if (self.fileExists(full_path)) {
@@ -2386,11 +2451,11 @@ pub const VM = struct {
             }
         }
 
-        const with_rb = try std.fmt.allocPrint(self.allocator, "{s}.rb", .{feature});
+        const with_rb = std.fmt.allocPrint(self.allocator, "{s}.rb", .{feature}) catch return error.Fatal;
         defer self.allocator.free(with_rb);
 
         for (self.load_path.items) |dir| {
-            const full_path = try std.fs.path.join(self.allocator, &[_][]const u8{ dir, with_rb });
+            const full_path = std.fs.path.join(self.allocator, &[_][]const u8{ dir, with_rb }) catch return error.Fatal;
             defer self.allocator.free(full_path);
 
             if (self.fileExists(full_path)) {
@@ -2401,20 +2466,20 @@ pub const VM = struct {
         return null;
     }
 
-    pub fn loadFile(self: *VM, absolute_path: []const u8) !void {
-        const file_handle = try std.fs.cwd().openFile(absolute_path, .{});
+    pub fn loadFile(self: *VM, absolute_path: []const u8) VMError!void {
+        const file_handle = std.fs.cwd().openFile(absolute_path, .{}) catch return error.Fatal;
         defer file_handle.close();
 
-        const file_size = try file_handle.getEndPos();
-        const code_buffer = try self.gc_allocator_atomic.alloc(u8, file_size);
+        const file_size = file_handle.getEndPos() catch return error.Fatal;
+        const code_buffer = self.gc_allocator_atomic.alloc(u8, file_size) catch return error.Fatal;
 
-        const bytes_read = try file_handle.readAll(code_buffer);
-        if (bytes_read != file_size) return error.ReadError;
+        const bytes_read = file_handle.readAll(code_buffer) catch return error.Fatal;
+        if (bytes_read != file_size) return error.Fatal;
 
-        var parser = try prism.Parser.init(self.allocator, code_buffer, absolute_path);
-        try self.all_parsers.append(self.allocator, parser);
+        var parser = prism.Parser.init(self.allocator, code_buffer, absolute_path) catch return error.Fatal;
+        self.all_parsers.append(self.allocator, parser) catch return error.Fatal;
 
-        var program = try compiler.Compiler.compile(self.allocator, &parser, self.next_chunk_id);
+        var program = compiler.Compiler.compile(self.allocator, &parser, self.next_chunk_id) catch return error.Fatal;
         // Ensure cleanup of the loaded program's chunks on error
         defer {
             program.main_chunk.deinit();
@@ -2426,7 +2491,7 @@ pub const VM = struct {
         // Transfer ownership of method chunks to main program
         var iter = program.method_chunks.iterator();
         while (iter.next()) |entry| {
-            try self.program.method_chunks.put(entry.key_ptr.*, entry.value_ptr.*);
+            self.program.method_chunks.put(entry.key_ptr.*, entry.value_ptr.*) catch return error.Fatal;
         }
 
         const prev_file = self.current_loading_file;
@@ -2439,7 +2504,7 @@ pub const VM = struct {
         // defer above will deinit main_chunk and the (now-empty) HashMap
     }
 
-    fn executeChunk(self: *VM, target_chunk: *Chunk) !void {
+    fn executeChunk(self: *VM, target_chunk: *Chunk) VMError!void {
         const env = try self.createStackEnvironment(null, null);
         const frame = CallFrame{
             .chunk = target_chunk,
@@ -2451,7 +2516,7 @@ pub const VM = struct {
             .frame_type = .method,
         };
 
-        try self.frames.append(self.allocator, frame);
+        self.frames.append(self.allocator, frame) catch return error.Fatal;
 
         // Execute instructions until this frame completes
         const target_frame_depth = self.frames.items.len;
@@ -2463,8 +2528,8 @@ pub const VM = struct {
     // ===== Exception Handling Methods =====
 
     /// Create a new exception object
-    pub fn createArray(self: *VM) !*value.ArrayObject {
-        const array_ptr = self.gc_allocator.create(value.ArrayObject) catch unreachable;
+    pub fn createArray(self: *VM) VMError!*value.ArrayObject {
+        const array_ptr = self.gc_allocator.create(value.ArrayObject) catch return error.Fatal;
         array_ptr.* = value.ArrayObject{
             .object = .{
                 .flags = 0,
@@ -2498,19 +2563,12 @@ pub const VM = struct {
             .block = null,
         };
 
-        self.frames.append(self.allocator, default_frame) catch unreachable;
+        self.frames.append(self.allocator, default_frame) catch return error.Fatal;
 
         // Execute instructions until this frame completes
         const target_frame_depth = self.frames.items.len;
         while (self.frames.items.len >= target_frame_depth) {
-            self.executeInstruction() catch |err| {
-                // If error occurred, unwind and propagate
-                if (err == error.Unwind) {
-                    return error.Unwind;
-                } else {
-                    return error.Unwind;
-                }
-            };
+            self.executeInstruction() catch |err| return self.coerceError(err);
         }
 
         // Pop result from stack (default chunk returns a value)
@@ -2547,7 +2605,7 @@ pub const VM = struct {
                     self.gc_allocator,
                     "wrong number of arguments (given {d}, expected {d}+)",
                     .{ args.len, min_args },
-                ) catch unreachable;
+                ) catch return error.Fatal;
                 const exc = try self.createException(self.argument_error_class, msg);
                 self.pending_exception = exc;
                 return error.Unwind;
@@ -2557,7 +2615,7 @@ pub const VM = struct {
                     self.gc_allocator,
                     "wrong number of arguments (given {d}, expected {d})",
                     .{ args.len, max_args },
-                ) catch unreachable;
+                ) catch return error.Fatal;
                 const exc = try self.createException(self.argument_error_class, msg);
                 self.pending_exception = exc;
                 return error.Unwind;
@@ -2609,7 +2667,7 @@ pub const VM = struct {
             while (i < optional_count) : (i += 1) {
                 const opt_info = target_chunk.optional_params.items[i];
                 const default_chunk = self.program.method_chunks.get(opt_info.default_chunk_id) orelse {
-                    return error.Unwind;
+                    return error.Fatal;
                 };
 
                 // Execute default expression chunk and bind the result
@@ -2632,7 +2690,7 @@ pub const VM = struct {
             const rest_array = try self.createArray();
             var j: usize = 0;
             while (j < available_for_rest) : (j += 1) {
-                rest_array.elements.append(self.gc_allocator, args[arg_idx]) catch unreachable;
+                rest_array.elements.append(self.gc_allocator, args[arg_idx]) catch return error.Fatal;
                 arg_idx += 1;
             }
             env.variables[rest_idx] = Value{ .data = .{ .array = rest_array } };
@@ -2661,9 +2719,9 @@ pub const VM = struct {
         kw_values: []Value,
         kw_metadata: chunk.KeywordMetadata,
         caller_chunk: *const Chunk,
-    ) !void {
+    ) VMError!void {
         // Track which provided keywords have been matched
-        var matched = try self.allocator.alloc(bool, kw_values.len);
+        var matched = self.allocator.alloc(bool, kw_values.len) catch return error.Fatal;
         defer self.allocator.free(matched);
         @memset(matched, false);
 
@@ -2692,7 +2750,7 @@ pub const VM = struct {
                     self.gc_allocator,
                     "missing keyword: {s}",
                     .{req_name},
-                ) catch unreachable;
+                ) catch return error.Fatal;
                 const exc = try self.createException(self.argument_error_class, msg);
                 self.pending_exception = exc;
                 return error.Unwind;
@@ -2728,7 +2786,7 @@ pub const VM = struct {
         // 3. Handle unmatched keywords
         if (target_chunk.keyword_rest_index) |rest_idx| {
             // ONLY create hash when **kwargs is present
-            const kw_hash = self.gc_allocator.create(value.HashObject) catch unreachable;
+            const kw_hash = self.gc_allocator.create(value.HashObject) catch return error.Fatal;
             kw_hash.* = .{
                 .object = .{ .flags = 0, .class = self.hash_class, .singleton_class = null, .instance_variables = null },
                 .map = std.AutoHashMap(u64, usize).init(self.gc_allocator),
@@ -2747,8 +2805,8 @@ pub const VM = struct {
                     kw_hash.entries.append(self.gc_allocator, .{
                         .key = key,
                         .value = kw_value,
-                    }) catch unreachable;
-                    kw_hash.map.put(key_hash, new_idx) catch unreachable;
+                    }) catch return error.Fatal;
+                    kw_hash.map.put(key_hash, new_idx) catch return error.Fatal;
                 }
             }
 
@@ -2762,7 +2820,7 @@ pub const VM = struct {
                         self.gc_allocator,
                         "unknown keyword: {s}",
                         .{unknown_name},
-                    ) catch unreachable;
+                    ) catch return error.Fatal;
                     const exc = try self.createException(self.argument_error_class, msg);
                     self.pending_exception = exc;
                     return error.Unwind;
@@ -2790,9 +2848,9 @@ pub const VM = struct {
         self: *VM,
         kw_values: []Value,
         kw_metadata: chunk.KeywordMetadata,
-    ) !Value {
+    ) VMError!Value {
         const current_chunk = self.currentChunk();
-        const kw_hash = self.gc_allocator.create(value.HashObject) catch unreachable;
+        const kw_hash = self.gc_allocator.create(value.HashObject) catch return error.Fatal;
         kw_hash.* = .{
             .object = .{ .flags = 0, .class = self.hash_class, .singleton_class = null, .instance_variables = null },
             .map = std.AutoHashMap(u64, usize).init(self.gc_allocator),
@@ -2809,17 +2867,17 @@ pub const VM = struct {
             kw_hash.entries.append(self.gc_allocator, .{
                 .key = key,
                 .value = kw_value,
-            }) catch unreachable;
-            kw_hash.map.put(key_hash, new_idx) catch unreachable;
+            }) catch return error.Fatal;
+            kw_hash.map.put(key_hash, new_idx) catch return error.Fatal;
         }
 
         return Value{ .data = .{ .hash = kw_hash } };
     }
 
     pub fn createException(self: *VM, class: *ClassObject, message: []const u8) VMError!*value.ExceptionObject {
-        const exc = self.gc_allocator.create(value.ExceptionObject) catch unreachable;
-        const msg_str = self.newString(message, false);
-        const backtrace = self.captureBacktrace() catch return error.Unwind;
+        const exc = self.gc_allocator.create(value.ExceptionObject) catch return error.Fatal;
+        const msg_str = try self.newString(message, false);
+        const backtrace = try self.captureBacktrace();
 
         exc.* = .{
             .object = .{
@@ -2838,7 +2896,7 @@ pub const VM = struct {
 
     /// Capture current call stack as a backtrace
     fn captureBacktrace(self: *VM) VMError!?*value.ArrayObject {
-        const array_obj = self.gc_allocator.create(value.ArrayObject) catch unreachable;
+        const array_obj = self.gc_allocator.create(value.ArrayObject) catch return error.Fatal;
         array_obj.* = .{
             .object = .{
                 .flags = 0,
@@ -2866,10 +2924,10 @@ pub const VM = struct {
                 self.gc_allocator,
                 "{s}:{d}",
                 .{ frame.chunk.name, line },
-            ) catch return error.Unwind;
+            ) catch return error.Fatal;
 
-            const str_val = self.newString(backtrace_str, false);
-            array_obj.elements.append(self.gc_allocator, str_val) catch return error.Unwind;
+            const str_val = try self.newString(backtrace_str, false);
+            array_obj.elements.append(self.gc_allocator, str_val) catch return error.Fatal;
         }
 
         return array_obj;
@@ -2882,7 +2940,7 @@ pub const VM = struct {
             else => {
                 // Not an exception object - this is an internal error
                 std.debug.print("Internal error: raise() called with non-exception value\n", .{});
-                return error.Unwind;
+                return error.Fatal;
             },
         };
 
@@ -2930,7 +2988,7 @@ pub const VM = struct {
     }
 
     /// Find an exception handler in the current frame
-    fn findExceptionHandler(self: *VM, frame: *CallFrame) !?struct {
+    fn findExceptionHandler(self: *VM, frame: *CallFrame) VMError!?struct {
         handler: *chunk.ExceptionHandler,
         rescue_idx: ?usize,
     } {
@@ -2959,7 +3017,7 @@ pub const VM = struct {
                             const class_name = constant.string;
 
                             // Look up the class by name in Object's constants
-                            const class_name_sym = self.intern(class_name) catch continue;
+                            const class_name_sym = self.intern(class_name) catch return error.Fatal;
                             const class_val = self.object_class.module.constants.get(class_name_sym) orelse continue;
 
                             if (class_val.data != .class) continue;

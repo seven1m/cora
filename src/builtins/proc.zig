@@ -32,7 +32,7 @@ pub fn builtinProcNew(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!V
         return error.Unwind;
     };
 
-    return vm.newProc(blk);
+    return try vm.newProc(blk);
 }
 
 pub fn builtinProcCall(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -40,9 +40,9 @@ pub fn builtinProcCall(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
 
     const real_defining_ep = VM.derefEnvironment(proc_obj.block.defining_ep);
 
-    const proc_env = vm.createStackEnvironment(real_defining_ep, proc_obj.block.chunk.lexical_scope orelse vm.current_lexical_scope) catch return error.Unwind;
+    const proc_env = vm.createStackEnvironment(real_defining_ep, proc_obj.block.chunk.lexical_scope orelse vm.current_lexical_scope) catch return error.Fatal;
 
-    vm.env_stack_indices.append(vm.allocator, vm.env_stack.items.len - 1) catch return error.Unwind;
+    vm.env_stack_indices.append(vm.allocator, vm.env_stack.items.len - 1) catch return error.Fatal;
 
     const proc_chunk = proc_obj.block.chunk;
     const mode: VM.ArityMode = if (proc_chunk.is_lambda) .strict else .lenient;
@@ -62,12 +62,15 @@ pub fn builtinProcCall(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
         .ep = proc_env,
         .block = null,
         .frame_type = if (proc_obj.block.chunk.is_lambda) .lambda else .proc,
-    }) catch return error.Unwind;
+    }) catch return error.Fatal;
 
     // Execute the proc/lambda until it returns
     const saved_frame_count = vm.frames.items.len - 1;
     while (vm.frames.items.len > saved_frame_count) {
-        vm.executeInstruction() catch return error.Unwind;
+        vm.executeInstruction() catch |err| {
+            if (err == error.Unwind and vm.pending_exception != null) return error.Unwind;
+            return error.Fatal;
+        };
     }
 
     // The return value is already on the stack from the RETURN instruction

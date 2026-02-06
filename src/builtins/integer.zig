@@ -89,8 +89,8 @@ pub fn builtinIntegerGreaterThanOrEqual(vm: *VM, receiver: Value, args: []Value,
 
 pub fn builtinIntegerToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const str = std.fmt.allocPrint(vm.gc_allocator, "{d}", .{receiver.data.integer}) catch return error.Unwind;
-    return vm.newString(str, false);
+    const str = std.fmt.allocPrint(vm.gc_allocator, "{d}", .{receiver.data.integer}) catch return error.Fatal;
+    return try vm.newString(str, false);
 }
 
 pub fn builtinIntegerInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

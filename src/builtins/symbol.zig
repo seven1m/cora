@@ -18,13 +18,13 @@ pub fn register(vm: *VM) !void {
 pub fn builtinSymbolToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
 
-    const str = std.fmt.allocPrint(vm.gc_allocator, "{s}", .{receiver.data.symbol.name}) catch return error.Unwind;
-    return vm.newString(str, false);
+    const str = std.fmt.allocPrint(vm.gc_allocator, "{s}", .{receiver.data.symbol.name}) catch return error.Fatal;
+    return try vm.newString(str, false);
 }
 
 pub fn builtinSymbolInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
 
-    const str = std.fmt.allocPrint(vm.gc_allocator, ":{s}", .{receiver.data.symbol.name}) catch return error.Unwind;
-    return vm.newString(str, false);
+    const str = std.fmt.allocPrint(vm.gc_allocator, ":{s}", .{receiver.data.symbol.name}) catch return error.Fatal;
+    return try vm.newString(str, false);
 }

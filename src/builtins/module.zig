@@ -34,7 +34,7 @@ pub fn builtinModuleInclude(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     const class = receiver.data.class;
     const module = args[0].data.module;
 
-    vm.includeModule(class, module) catch return error.Unwind;
+    vm.includeModule(class, module) catch return error.Fatal;
 
     return receiver;
 }
@@ -44,7 +44,7 @@ pub fn builtinModulePrepend(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     const class = receiver.data.class;
     const module = args[0].data.module;
 
-    vm.prependModule(class, module) catch return error.Unwind;
+    vm.prependModule(class, module) catch return error.Fatal;
 
     return receiver;
 }
@@ -65,13 +65,13 @@ pub fn builtinModuleDefineMethod(vm: *VM, receiver: Value, args: []Value, block:
         },
     }
 
-    const name_sym = vm.intern(name_str) catch unreachable;
-    const proc_val = vm.newProc(blk);
+    const name_sym = try vm.intern(name_str);
+    const proc_val = try vm.newProc(blk);
 
     if (receiver.data == .class) {
-        receiver.data.class.module.methods.put(name_sym, .{ .proc = proc_val.data.proc }) catch unreachable;
+        receiver.data.class.module.methods.put(name_sym, .{ .proc = proc_val.data.proc }) catch return error.Fatal;
     } else if (receiver.data == .module) {
-        receiver.data.module.methods.put(name_sym, .{ .proc = proc_val.data.proc }) catch unreachable;
+        receiver.data.module.methods.put(name_sym, .{ .proc = proc_val.data.proc }) catch return error.Fatal;
     } else {
         const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
         vm.pending_exception = exc;
@@ -113,11 +113,11 @@ pub fn builtinModuleAttrReader(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
             },
         }
 
-        const method_sym = vm.intern(name_str) catch unreachable;
+        const method_sym = try vm.intern(name_str);
         const chunk_ptr = try vm.createAccessorChunk(name_str, .reader);
-        methods.put(method_sym, .{ .chunk = chunk_ptr }) catch unreachable;
+        methods.put(method_sym, .{ .chunk = chunk_ptr }) catch return error.Fatal;
 
-        result_array.elements.append(vm.gc_allocator, Value{ .data = .{ .symbol = method_sym } }) catch unreachable;
+        result_array.elements.append(vm.gc_allocator, Value{ .data = .{ .symbol = method_sym } }) catch return error.Fatal;
     }
 
     return Value{ .data = .{ .array = result_array } };
@@ -155,12 +155,12 @@ pub fn builtinModuleAttrWriter(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
             },
         }
 
-        const writer_name = std.fmt.allocPrint(vm.program.allocator, "{s}=", .{name_str}) catch unreachable;
-        const method_sym = vm.intern(writer_name) catch unreachable;
+        const writer_name = std.fmt.allocPrint(vm.program.allocator, "{s}=", .{name_str}) catch return error.Fatal;
+        const method_sym = try vm.intern(writer_name);
         const chunk_ptr = try vm.createAccessorChunk(name_str, .writer);
-        methods.put(method_sym, .{ .chunk = chunk_ptr }) catch unreachable;
+        methods.put(method_sym, .{ .chunk = chunk_ptr }) catch return error.Fatal;
 
-        result_array.elements.append(vm.gc_allocator, Value{ .data = .{ .symbol = method_sym } }) catch unreachable;
+        result_array.elements.append(vm.gc_allocator, Value{ .data = .{ .symbol = method_sym } }) catch return error.Fatal;
     }
 
     return Value{ .data = .{ .array = result_array } };
@@ -198,19 +198,19 @@ pub fn builtinModuleAttrAccessor(vm: *VM, receiver: Value, args: []Value, _: ?Bl
             },
         }
 
-        const writer_name = std.fmt.allocPrint(vm.program.allocator, "{s}=", .{name_str}) catch unreachable;
+        const writer_name = std.fmt.allocPrint(vm.program.allocator, "{s}=", .{name_str}) catch return error.Fatal;
 
-        const reader_sym = vm.intern(name_str) catch unreachable;
-        const writer_sym = vm.intern(writer_name) catch unreachable;
+        const reader_sym = try vm.intern(name_str);
+        const writer_sym = try vm.intern(writer_name);
 
         const reader_chunk = try vm.createAccessorChunk(name_str, .reader);
         const writer_chunk = try vm.createAccessorChunk(name_str, .writer);
 
-        methods.put(reader_sym, .{ .chunk = reader_chunk }) catch unreachable;
-        methods.put(writer_sym, .{ .chunk = writer_chunk }) catch unreachable;
+        methods.put(reader_sym, .{ .chunk = reader_chunk }) catch return error.Fatal;
+        methods.put(writer_sym, .{ .chunk = writer_chunk }) catch return error.Fatal;
 
-        result_array.elements.append(vm.gc_allocator, Value{ .data = .{ .symbol = reader_sym } }) catch unreachable;
-        result_array.elements.append(vm.gc_allocator, Value{ .data = .{ .symbol = writer_sym } }) catch unreachable;
+        result_array.elements.append(vm.gc_allocator, Value{ .data = .{ .symbol = reader_sym } }) catch return error.Fatal;
+        result_array.elements.append(vm.gc_allocator, Value{ .data = .{ .symbol = writer_sym } }) catch return error.Fatal;
     }
 
     return Value{ .data = .{ .array = result_array } };

@@ -53,9 +53,9 @@ pub fn builtinStringPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
         vm.gc_allocator,
         "{s}{s}",
         .{ receiver.data.string.str, other_str.str },
-    ) catch return error.Unwind;
+    ) catch return error.Fatal;
 
-    return vm.newString(combined_str, false);
+    return try vm.newString(combined_str, false);
 }
 
 pub fn builtinStringEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -106,7 +106,7 @@ pub fn builtinStringForceEncoding(vm: *VM, receiver: Value, args: []Value, _: ?B
 
     // Create a new string with the same bytes but different encoding
     const string_obj = receiver.data.string;
-    return vm.newStringWithEncoding(string_obj.str, false, new_encoding);
+    return try vm.newStringWithEncoding(string_obj.str, false, new_encoding);
 }
 
 pub fn builtinStringValidEncoding(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -125,7 +125,7 @@ pub fn builtinStringB(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
     try vm.requireArgCount(args, 0);
     const string_obj = receiver.data.string;
     // Return a new string with ASCII-8BIT encoding
-    return vm.newStringWithEncoding(string_obj.str, false, .{ .ascii_8bit = .{} });
+    return try vm.newStringWithEncoding(string_obj.str, false, .{ .ascii_8bit = .{} });
 }
 
 pub fn builtinStringInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -134,30 +134,30 @@ pub fn builtinStringInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     var buf: std.ArrayList(u8) = .empty;
     const writer = buf.writer(vm.allocator);
 
-    writer.writeAll("\"") catch return error.Unwind;
+    writer.writeAll("\"") catch return error.Fatal;
     for (input) |c| {
         switch (c) {
-            '"' => writer.writeAll("\\\"") catch return error.Unwind,
-            '\\' => writer.writeAll("\\\\") catch return error.Unwind,
-            '\n' => writer.writeAll("\\n") catch return error.Unwind,
-            '\t' => writer.writeAll("\\t") catch return error.Unwind,
-            '\r' => writer.writeAll("\\r") catch return error.Unwind,
-            '\x08' => writer.writeAll("\\b") catch return error.Unwind, // backspace
-            '\x0c' => writer.writeAll("\\f") catch return error.Unwind, // form feed
-            '\x0b' => writer.writeAll("\\v") catch return error.Unwind, // vertical tab
-            '\x00' => writer.writeAll("\\0") catch return error.Unwind, // null
+            '"' => writer.writeAll("\\\"") catch return error.Fatal,
+            '\\' => writer.writeAll("\\\\") catch return error.Fatal,
+            '\n' => writer.writeAll("\\n") catch return error.Fatal,
+            '\t' => writer.writeAll("\\t") catch return error.Fatal,
+            '\r' => writer.writeAll("\\r") catch return error.Fatal,
+            '\x08' => writer.writeAll("\\b") catch return error.Fatal, // backspace
+            '\x0c' => writer.writeAll("\\f") catch return error.Fatal, // form feed
+            '\x0b' => writer.writeAll("\\v") catch return error.Fatal, // vertical tab
+            '\x00' => writer.writeAll("\\0") catch return error.Fatal, // null
             else => {
                 if (c < 32 or c > 126) {
-                    std.fmt.format(writer, "\\x{x:0>2}", .{c}) catch return error.Unwind;
+                    std.fmt.format(writer, "\\x{x:0>2}", .{c}) catch return error.Fatal;
                 } else {
-                    writer.writeByte(c) catch return error.Unwind;
+                    writer.writeByte(c) catch return error.Fatal;
                 }
             },
         }
     }
-    writer.writeAll("\"") catch return error.Unwind;
+    writer.writeAll("\"") catch return error.Fatal;
 
-    const str = buf.toOwnedSlice(vm.allocator) catch return error.Unwind;
+    const str = buf.toOwnedSlice(vm.allocator) catch return error.Fatal;
     defer vm.allocator.free(str);
-    return vm.newString(str, false);
+    return try vm.newString(str, false);
 }

@@ -112,7 +112,7 @@ pub fn main() !void {
         return;
     }
 
-    var virtual_machine = vm.VM.init(allocator, bdwgc.allocator, bdwgc.allocator_atomic, parser, &program);
+    var virtual_machine = try vm.VM.init(allocator, bdwgc.allocator, bdwgc.allocator_atomic, parser, &program);
     defer virtual_machine.deinit();
 
     const result = virtual_machine.run();

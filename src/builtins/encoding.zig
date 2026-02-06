@@ -29,14 +29,14 @@ pub fn register(vm: *VM) !void {
 pub fn builtinEncodingName(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const encoding_obj = receiver.data.encoding;
-    return vm.newString(encoding_obj.encoding.name(), true);
+    return try vm.newString(encoding_obj.encoding.name(), true);
 }
 
 pub fn builtinEncodingInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const encoding_obj = receiver.data.encoding;
-    const str = std.fmt.allocPrint(vm.gc_allocator, "#<Encoding:{s}>", .{encoding_obj.encoding.name()}) catch return error.Unwind;
-    return vm.newString(str, false);
+    const str = std.fmt.allocPrint(vm.gc_allocator, "#<Encoding:{s}>", .{encoding_obj.encoding.name()}) catch return error.Fatal;
+    return try vm.newString(str, false);
 }
 
 pub fn builtinEncodingAsciiCompatible(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

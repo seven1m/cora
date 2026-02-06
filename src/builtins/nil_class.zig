@@ -17,11 +17,11 @@ pub fn register(vm: *VM) !void {
 pub fn builtinNilClassToS(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
 
-    return vm.newString("", false);
+    return try vm.newString("", false);
 }
 
 pub fn builtinNilClassInspect(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
 
-    return vm.newString("nil", false);
+    return try vm.newString("nil", false);
 }

@@ -55,8 +55,8 @@ pub fn register(vm: *VM) !void {
 pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     if (args[0].data != .string) {
-        const msg = std.fmt.allocPrint(vm.allocator, "no implicit conversion into String", .{}) catch return error.Unwind;
-        const exc = vm.createException(vm.type_error_class, msg) catch return error.Unwind;
+        const msg = std.fmt.allocPrint(vm.allocator, "no implicit conversion into String", .{}) catch return error.Fatal;
+        const exc = vm.createException(vm.type_error_class, msg) catch return error.Fatal;
         vm.pending_exception = exc;
         try vm.unwindStack();
         return error.Unwind;
@@ -65,14 +65,14 @@ pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
     const feature = args[0].data.string.str;
 
     const absolute_path = vm.searchLoadPath(feature) catch {
-        const msg = std.fmt.allocPrint(vm.allocator, "cannot load such file -- {s}", .{feature}) catch return error.Unwind;
-        const exc = vm.createException(vm.load_error_class, msg) catch return error.Unwind;
+        const msg = std.fmt.allocPrint(vm.allocator, "cannot load such file -- {s}", .{feature}) catch return error.Fatal;
+        const exc = vm.createException(vm.load_error_class, msg) catch return error.Fatal;
         vm.pending_exception = exc;
         try vm.unwindStack();
         return error.Unwind;
     } orelse {
-        const msg = std.fmt.allocPrint(vm.allocator, "cannot load such file -- {s}", .{feature}) catch return error.Unwind;
-        const exc = vm.createException(vm.load_error_class, msg) catch return error.Unwind;
+        const msg = std.fmt.allocPrint(vm.allocator, "cannot load such file -- {s}", .{feature}) catch return error.Fatal;
+        const exc = vm.createException(vm.load_error_class, msg) catch return error.Fatal;
         vm.pending_exception = exc;
         try vm.unwindStack();
         return error.Unwind;
@@ -82,11 +82,12 @@ pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
         return Value.boolean(false);
     }
 
-    vm.loaded_files.put(absolute_path, {}) catch return error.Unwind;
+    vm.loaded_files.put(absolute_path, {}) catch return error.Fatal;
 
-    vm.loadFile(absolute_path) catch {
+    vm.loadFile(absolute_path) catch |err| {
         _ = vm.loaded_files.remove(absolute_path);
-        return error.Unwind;
+        if (err == error.Unwind and vm.pending_exception != null) return error.Unwind;
+        return error.Fatal;
     };
 
     return Value.boolean(true);
@@ -95,8 +96,8 @@ pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
 pub fn builtinKernelRequireRelative(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     if (args[0].data != .string) {
-        const msg = std.fmt.allocPrint(vm.allocator, "no implicit conversion into String", .{}) catch return error.Unwind;
-        const exc = vm.createException(vm.type_error_class, msg) catch return error.Unwind;
+        const msg = std.fmt.allocPrint(vm.allocator, "no implicit conversion into String", .{}) catch return error.Fatal;
+        const exc = vm.createException(vm.type_error_class, msg) catch return error.Fatal;
         vm.pending_exception = exc;
         try vm.unwindStack();
         return error.Unwind;
@@ -105,30 +106,30 @@ pub fn builtinKernelRequireRelative(vm: *VM, _: Value, args: []Value, _: ?Block)
     const relative_path = args[0].data.string.str;
 
     const current_file = vm.current_loading_file orelse {
-        const exc = vm.createException(vm.load_error_class, "cannot infer basepath") catch return error.Unwind;
+        const exc = vm.createException(vm.load_error_class, "cannot infer basepath") catch return error.Fatal;
         vm.pending_exception = exc;
         try vm.unwindStack();
         return error.Unwind;
     };
 
     const current_dir = std.fs.path.dirname(current_file) orelse ".";
-    const full_path = std.fs.path.join(vm.allocator, &[_][]const u8{ current_dir, relative_path }) catch return error.Unwind;
+    const full_path = std.fs.path.join(vm.allocator, &[_][]const u8{ current_dir, relative_path }) catch return error.Fatal;
     defer vm.allocator.free(full_path);
 
     var absolute_path: ?[]const u8 = null;
     if (vm.fileExists(full_path)) {
-        absolute_path = vm.resolveAbsolutePath(full_path) catch return error.Unwind;
+        absolute_path = vm.resolveAbsolutePath(full_path) catch return error.Fatal;
     } else {
-        const with_rb = std.fmt.allocPrint(vm.allocator, "{s}.rb", .{full_path}) catch return error.Unwind;
+        const with_rb = std.fmt.allocPrint(vm.allocator, "{s}.rb", .{full_path}) catch return error.Fatal;
         defer vm.allocator.free(with_rb);
         if (vm.fileExists(with_rb)) {
-            absolute_path = vm.resolveAbsolutePath(with_rb) catch return error.Unwind;
+            absolute_path = vm.resolveAbsolutePath(with_rb) catch return error.Fatal;
         }
     }
 
     if (absolute_path == null) {
-        const msg = std.fmt.allocPrint(vm.allocator, "cannot load such file -- {s}", .{relative_path}) catch return error.Unwind;
-        const exc = vm.createException(vm.load_error_class, msg) catch return error.Unwind;
+        const msg = std.fmt.allocPrint(vm.allocator, "cannot load such file -- {s}", .{relative_path}) catch return error.Fatal;
+        const exc = vm.createException(vm.load_error_class, msg) catch return error.Fatal;
         vm.pending_exception = exc;
         try vm.unwindStack();
         return error.Unwind;
@@ -140,10 +141,11 @@ pub fn builtinKernelRequireRelative(vm: *VM, _: Value, args: []Value, _: ?Block)
         return Value.boolean(false);
     }
 
-    vm.loaded_files.put(resolved_path, {}) catch return error.Unwind;
-    vm.loadFile(resolved_path) catch {
+    vm.loaded_files.put(resolved_path, {}) catch return error.Fatal;
+    vm.loadFile(resolved_path) catch |err| {
         _ = vm.loaded_files.remove(resolved_path);
-        return error.Unwind;
+        if (err == error.Unwind and vm.pending_exception != null) return error.Unwind;
+        return error.Fatal;
     };
 
     return Value.boolean(true);
@@ -152,8 +154,8 @@ pub fn builtinKernelRequireRelative(vm: *VM, _: Value, args: []Value, _: ?Block)
 pub fn builtinKernelLoad(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     if (args[0].data != .string) {
-        const msg = std.fmt.allocPrint(vm.allocator, "no implicit conversion into String", .{}) catch return error.Unwind;
-        const exc = vm.createException(vm.type_error_class, msg) catch return error.Unwind;
+        const msg = std.fmt.allocPrint(vm.allocator, "no implicit conversion into String", .{}) catch return error.Fatal;
+        const exc = vm.createException(vm.type_error_class, msg) catch return error.Fatal;
         vm.pending_exception = exc;
         try vm.unwindStack();
         return error.Unwind;
@@ -165,42 +167,45 @@ pub fn builtinKernelLoad(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
 
     if (std.fs.path.isAbsolute(filename)) {
         if (vm.fileExists(filename)) {
-            absolute_path = vm.resolveAbsolutePath(filename) catch return error.Unwind;
+            absolute_path = vm.resolveAbsolutePath(filename) catch return error.Fatal;
         }
     } else {
         if (vm.current_loading_file) |current_file| {
             const current_dir = std.fs.path.dirname(current_file) orelse ".";
-            const full_path = std.fs.path.join(vm.allocator, &[_][]const u8{ current_dir, filename }) catch return error.Unwind;
+            const full_path = std.fs.path.join(vm.allocator, &[_][]const u8{ current_dir, filename }) catch return error.Fatal;
             defer vm.allocator.free(full_path);
 
             if (vm.fileExists(full_path)) {
-                absolute_path = vm.resolveAbsolutePath(full_path) catch return error.Unwind;
+                absolute_path = vm.resolveAbsolutePath(full_path) catch return error.Fatal;
             }
         }
 
         if (absolute_path == null and vm.fileExists(filename)) {
-            absolute_path = vm.resolveAbsolutePath(filename) catch return error.Unwind;
+            absolute_path = vm.resolveAbsolutePath(filename) catch return error.Fatal;
         }
     }
 
     if (absolute_path == null) {
-        const with_rb = std.fmt.allocPrint(vm.allocator, "{s}.rb", .{filename}) catch return error.Unwind;
+        const with_rb = std.fmt.allocPrint(vm.allocator, "{s}.rb", .{filename}) catch return error.Fatal;
         defer vm.allocator.free(with_rb);
 
         if (vm.fileExists(with_rb)) {
-            absolute_path = vm.resolveAbsolutePath(with_rb) catch return error.Unwind;
+            absolute_path = vm.resolveAbsolutePath(with_rb) catch return error.Fatal;
         }
     }
 
     if (absolute_path == null) {
-        const msg = std.fmt.allocPrint(vm.allocator, "cannot load such file -- {s}", .{filename}) catch return error.Unwind;
-        const exc = vm.createException(vm.load_error_class, msg) catch return error.Unwind;
+        const msg = std.fmt.allocPrint(vm.allocator, "cannot load such file -- {s}", .{filename}) catch return error.Fatal;
+        const exc = vm.createException(vm.load_error_class, msg) catch return error.Fatal;
         vm.pending_exception = exc;
         try vm.unwindStack();
         return error.Unwind;
     }
 
-    vm.loadFile(absolute_path.?) catch return error.Unwind;
+    vm.loadFile(absolute_path.?) catch |err| {
+        if (err == error.Unwind and vm.pending_exception != null) return error.Unwind;
+        return error.Fatal;
+    };
 
     return Value.boolean(true);
 }
@@ -208,7 +213,7 @@ pub fn builtinKernelLoad(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
 pub fn builtinKernelPuts(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     if (args.len == 0) {
         // puts with no args prints empty line
-        vm.stdout.?.print("\n", .{}) catch return VMError.Unwind;
+        vm.stdout.?.print("\n", .{}) catch return VMError.Fatal;
         _ = vm.stdout.?.flush() catch {};
         return Value.nil();
     }
@@ -218,14 +223,22 @@ pub fn builtinKernelPuts(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
             // Special case: flatten arrays, call to_s on each element
             for (arg.data.array.elements.items) |elem| {
                 const str_val = try vm.callMethodByName(elem, "to_s", &[_]Value{}, null);
-                if (str_val.data != .string) return error.Unwind;
-                vm.stdout.?.print("{s}\n", .{str_val.data.string.str}) catch return VMError.Unwind;
+                if (str_val.data != .string) {
+                    const exc = try vm.createException(vm.type_error_class, "to_s did not return String");
+                    vm.pending_exception = exc;
+                    return error.Unwind;
+                }
+                vm.stdout.?.print("{s}\n", .{str_val.data.string.str}) catch return VMError.Fatal;
             }
         } else {
             // Normal case: call to_s on the argument
             const str_val = try vm.callMethodByName(arg, "to_s", &[_]Value{}, null);
-            if (str_val.data != .string) return error.Unwind;
-            vm.stdout.?.print("{s}\n", .{str_val.data.string.str}) catch return VMError.Unwind;
+            if (str_val.data != .string) {
+                const exc = try vm.createException(vm.type_error_class, "to_s did not return String");
+                vm.pending_exception = exc;
+                return error.Unwind;
+            }
+            vm.stdout.?.print("{s}\n", .{str_val.data.string.str}) catch return VMError.Fatal;
         }
     }
     _ = vm.stdout.?.flush() catch {};
@@ -245,7 +258,7 @@ pub fn builtinKernelProc(vm: *VM, _: Value, args: []Value, block: ?Block) VMErro
         return error.Unwind;
     };
 
-    return vm.newProc(blk);
+    return try vm.newProc(blk);
 }
 
 pub fn builtinKernelLambda(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
@@ -263,7 +276,7 @@ pub fn builtinKernelLambda(vm: *VM, _: Value, args: []Value, block: ?Block) VMEr
     // Mark the chunk as a lambda
     blk.chunk.is_lambda = true;
 
-    return vm.newProc(blk);
+    return try vm.newProc(blk);
 }
 
 pub fn builtinKernelRaise(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -294,6 +307,8 @@ pub fn builtinKernelRaise(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
                 try vm.raise(.{ .data = .{ .exception = exc } });
             },
             else => {
+                const exc = try vm.createException(vm.type_error_class, "exception class/object expected");
+                vm.pending_exception = exc;
                 return error.Unwind;
             },
         }
@@ -302,6 +317,8 @@ pub fn builtinKernelRaise(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
         const message = args[1];
 
         if (class_arg.data != .class) {
+            const exc = try vm.createException(vm.type_error_class, "exception class/object expected");
+            vm.pending_exception = exc;
             return error.Unwind;
         }
 
@@ -313,6 +330,8 @@ pub fn builtinKernelRaise(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
         const exc = try vm.createException(class_arg.data.class, msg_str);
         try vm.raise(.{ .data = .{ .exception = exc } });
     } else {
+        const exc = try vm.createException(vm.argument_error_class, "wrong number of arguments");
+        vm.pending_exception = exc;
         return error.Unwind;
     }
 
@@ -377,14 +396,14 @@ pub fn builtinKernelInstanceVariableGet(vm: *VM, receiver: Value, args: []Value,
     }
 
     if (name_str.len <= 1 or name_str[0] != '@') {
-        const msg = std.fmt.allocPrint(vm.allocator, "'{s}' is not allowed as an instance variable name", .{name_str}) catch unreachable;
+        const msg = std.fmt.allocPrint(vm.allocator, "'{s}' is not allowed as an instance variable name", .{name_str}) catch return error.Fatal;
         defer vm.allocator.free(msg);
         const exc = try vm.createException(vm.argument_error_class, msg);
         vm.pending_exception = exc;
         return error.Unwind;
     }
 
-    return vm.getInstanceVariable(receiver, name_str) catch unreachable;
+    return vm.getInstanceVariable(receiver, name_str) catch return error.Fatal;
 }
 
 pub fn builtinKernelInstanceVariableSet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -408,14 +427,17 @@ pub fn builtinKernelInstanceVariableSet(vm: *VM, receiver: Value, args: []Value,
     }
 
     if (name_str.len <= 1 or name_str[0] != '@') {
-        const msg = std.fmt.allocPrint(vm.allocator, "'{s}' is not allowed as an instance variable name", .{name_str}) catch unreachable;
+        const msg = std.fmt.allocPrint(vm.allocator, "'{s}' is not allowed as an instance variable name", .{name_str}) catch return error.Fatal;
         defer vm.allocator.free(msg);
         const exc = try vm.createException(vm.argument_error_class, msg);
         vm.pending_exception = exc;
         return error.Unwind;
     }
 
-    vm.setInstanceVariable(receiver, name_str, args[1]) catch unreachable;
+    vm.setInstanceVariable(receiver, name_str, args[1]) catch |err| {
+        if (err == error.Unwind and vm.pending_exception != null) return error.Unwind;
+        return error.Fatal;
+    };
     return args[1];
 }
 
@@ -438,8 +460,8 @@ pub fn builtinKernelToS(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError
         .integer, .boolean, .nil => 0x0000000000000001,
     };
 
-    const str = std.fmt.allocPrint(vm.gc_allocator, "#<{s}:0x{x}>", .{ class_name, object_id }) catch return error.Unwind;
-    return vm.newString(str, false);
+    const str = std.fmt.allocPrint(vm.gc_allocator, "#<{s}:0x{x}>", .{ class_name, object_id }) catch return error.Fatal;
+    return try vm.newString(str, false);
 }
 
 pub fn builtinKernelInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -448,34 +470,38 @@ pub fn builtinKernelInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 
 pub fn builtinKernelP(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     if (args.len == 0) {
-        vm.stdout.?.print("\n", .{}) catch return error.Unwind;
+        vm.stdout.?.print("\n", .{}) catch return error.Fatal;
         _ = vm.stdout.?.flush() catch {};
         return Value.nil();
     }
 
     for (args, 0..) |arg, idx| {
         const inspected = try vm.callMethodByName(arg, "inspect", &[_]Value{}, null);
-        if (inspected.data != .string) return error.Unwind;
+        if (inspected.data != .string) {
+            const exc = try vm.createException(vm.type_error_class, "inspect did not return String");
+            vm.pending_exception = exc;
+            return error.Unwind;
+        }
 
         if (idx > 0) {
-            vm.stdout.?.print("\n", .{}) catch return error.Unwind;
+            vm.stdout.?.print("\n", .{}) catch return error.Fatal;
         }
-        vm.stdout.?.print("{s}", .{inspected.data.string.str}) catch return error.Unwind;
+        vm.stdout.?.print("{s}", .{inspected.data.string.str}) catch return error.Fatal;
     }
-    vm.stdout.?.print("\n", .{}) catch return error.Unwind;
+    vm.stdout.?.print("\n", .{}) catch return error.Fatal;
     _ = vm.stdout.?.flush() catch {};
 
     if (args.len == 1) {
         return args[0];
     } else {
-        const array_obj = vm.gc_allocator.create(value.ArrayObject) catch return error.Unwind;
+        const array_obj = vm.gc_allocator.create(value.ArrayObject) catch return error.Fatal;
         array_obj.* = .{
             .object = .{ .flags = 0, .class = vm.array_class, .singleton_class = null, .instance_variables = null },
             .elements = .empty,
         };
 
         for (args) |arg| {
-            array_obj.elements.append(vm.gc_allocator, arg) catch return error.Unwind;
+            array_obj.elements.append(vm.gc_allocator, arg) catch return error.Fatal;
         }
 
         return .{ .data = .{ .array = array_obj } };
