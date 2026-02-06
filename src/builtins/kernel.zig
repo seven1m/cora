@@ -50,6 +50,9 @@ pub fn register(vm: *VM) !void {
 
     const block_given_sym = try vm.intern("block_given?");
     try vm.kernel_module.methods.put(block_given_sym, .{ .builtin = &builtinKernelBlockGiven });
+
+    const send_sym = try vm.intern("send");
+    try vm.kernel_module.methods.put(send_sym, .{ .builtin = &builtinKernelSend });
 }
 
 pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -373,6 +376,30 @@ pub fn builtinKernelBlockGiven(vm: *VM, _: Value, args: []Value, _: ?Block) VMEr
     try vm.requireArgCount(args, 0);
     const frame = vm.currentFrame();
     return Value.boolean(frame.block != null);
+}
+
+pub fn builtinKernelSend(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    if (args.len == 0) {
+        const exc = try vm.createException(vm.argument_error_class, "wrong number of arguments");
+        vm.pending_exception = exc;
+        return error.Unwind;
+    }
+
+    const name_arg = args[0];
+    var name_str: []const u8 = undefined;
+
+    switch (name_arg.data) {
+        .symbol => |sym| name_str = sym.name,
+        .string => |str| name_str = str.str,
+        else => {
+            const exc = try vm.createException(vm.type_error_class, "not a symbol nor a string");
+            vm.pending_exception = exc;
+            return error.Unwind;
+        },
+    }
+
+    const call_args = args[1..];
+    return vm.callMethodByName(receiver, name_str, call_args, block);
 }
 
 pub fn builtinKernelInstanceVariableGet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
