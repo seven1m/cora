@@ -512,6 +512,8 @@ pub const VM = struct {
         // Register raise method
         const raise_sym = try self.intern("raise");
         try self.kernel_module.methods.put(raise_sym, .{ .builtin = &builtinKernelRaise });
+        const is_a_sym = try self.intern("is_a?");
+        try self.kernel_module.methods.put(is_a_sym, .{ .builtin = &builtinKernelIsA });
 
         // Register Exception#message method
         const message_sym = try self.intern("message");
@@ -3045,6 +3047,37 @@ pub const VM = struct {
         }
 
         return Value.nil();
+    }
+
+    fn builtinKernelIsA(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+        try self.requireArgCount(args, 1);
+        const arg = args[0];
+
+        switch (arg.data) {
+            .class => |cls| {
+                var current: ?*ClassObject = self.getClass(receiver);
+                while (current) |c| {
+                    if (c == cls) return Value.boolean(true);
+                    current = c.superclass;
+                }
+                return Value.boolean(false);
+            },
+            .module => |mod| {
+                var current: ?*ClassObject = self.getClass(receiver);
+                while (current) |c| {
+                    if (&c.module == mod) return Value.boolean(true);
+                    for (c.prepended_modules.items) |m| {
+                        if (m == mod) return Value.boolean(true);
+                    }
+                    for (c.included_modules.items) |m| {
+                        if (m == mod) return Value.boolean(true);
+                    }
+                    current = c.superclass;
+                }
+                return Value.boolean(false);
+            },
+            else => return self.raiseExceptionFmt(self.type_error_class, "class or module required", .{}),
+        }
     }
 
     fn builtinKernelInstanceVariableGet(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
