@@ -93,6 +93,7 @@ pub const VM = struct {
     true_class: *value.ClassObject,
     false_class: *value.ClassObject,
     kernel_module: *value.ModuleObject,
+    main_self: Value,
 
     // Exception classes
     exception_class: *value.ClassObject,
@@ -174,6 +175,7 @@ pub const VM = struct {
             .encoding_utf8 = undefined,
             .encoding_ascii_8bit = undefined,
             .encoding_us_ascii = undefined,
+            .main_self = undefined,
         };
     }
 
@@ -352,6 +354,9 @@ pub const VM = struct {
         builtins.registerAll(self) catch return error.Fatal;
 
         try self.includeModule(self.object_class, self.kernel_module);
+
+        // Create top-level self (Ruby "main" object)
+        self.main_self = try self.newInstance(self.object_class);
 
         // --- Stage 6: Initialize top-level lexical scope ---
         self.current_lexical_scope = try self.createLexicalScope(.{ .data = .{ .class = self.object_class } }, null);
@@ -549,7 +554,7 @@ pub const VM = struct {
     pub fn run(self: *VM) VMError!Value {
         self.setupOutput();
 
-        try self.pushFrame(&self.program.main_chunk, Value.nil(), null);
+        try self.pushFrame(&self.program.main_chunk, self.main_self, null);
 
         while (self.frames.items.len > 0) {
             try self.executeInstruction();
@@ -2516,7 +2521,7 @@ pub const VM = struct {
             .chunk = target_chunk,
             .ip = 0,
             .stack_base = self.stack.items.len,
-            .self_value = Value.nil(),
+            .self_value = self.main_self,
             .ep = env,
             .block = null,
             .frame_type = .method,
