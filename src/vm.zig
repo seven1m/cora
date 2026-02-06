@@ -2196,13 +2196,15 @@ pub const VM = struct {
             return symbol_obj;
         }
 
+        const key = self.gc_allocator_atomic.dupe(u8, str) catch return error.Fatal;
+
         // Create a symbol and store it
         const symbol_obj = self.gc_allocator.create(SymbolObject) catch return error.Fatal;
         symbol_obj.* = .{
             .object = .{ .flags = Object.FROZEN_FLAG, .class = self.symbol_class, .singleton_class = null, .instance_variables = null },
-            .name = str,
+            .name = key,
         };
-        self.symbols.put(str, symbol_obj) catch return error.Fatal;
+        self.symbols.put(key, symbol_obj) catch return error.Fatal;
 
         return symbol_obj;
     }
