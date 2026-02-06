@@ -25,6 +25,12 @@ pub fn register(vm: *VM) !void {
 
     const inspect_sym = try vm.intern("inspect");
     try vm.array_class.module.methods.put(inspect_sym, .{ .builtin = &builtinArrayInspect });
+
+    const to_a_sym = try vm.intern("to_a");
+    try vm.array_class.module.methods.put(to_a_sym, .{ .builtin = &builtinArrayToA });
+
+    const all_sym = try vm.intern("all?");
+    try vm.array_class.module.methods.put(all_sym, .{ .builtin = &builtinArrayAll });
 }
 
 pub fn builtinArrayPush(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -128,4 +134,43 @@ pub fn builtinArrayInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     const str = buf.toOwnedSlice(vm.allocator) catch return error.Fatal;
     defer vm.allocator.free(str);
     return try vm.newString(str, false);
+}
+
+pub fn builtinArrayToA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return receiver;
+}
+
+pub fn builtinArrayAll(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const array_obj = receiver.data.array;
+
+    if (block) |blk| {
+        for (array_obj.elements.items) |element| {
+            const yield_args = [_]Value{element};
+            const result = try vm.yieldToBlock(blk, receiver, &yield_args);
+            if (result.break_occurred) {
+                return result.value;
+            }
+
+            const is_truthy = switch (result.value.data) {
+                .nil => false,
+                .boolean => result.value.data.boolean,
+                else => true,
+            };
+            if (!is_truthy) return Value.boolean(false);
+        }
+        return Value.boolean(true);
+    }
+
+    for (array_obj.elements.items) |element| {
+        const is_truthy = switch (element.data) {
+            .nil => false,
+            .boolean => element.data.boolean,
+            else => true,
+        };
+        if (!is_truthy) return Value.boolean(false);
+    }
+
+    return Value.boolean(true);
 }

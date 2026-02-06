@@ -168,6 +168,17 @@ pub const Value = struct {
         return null;
     }
 
+    pub fn objectId(self: Value) i64 {
+        return if (self.getObjectPointer()) |ptr| blk: {
+            break :blk @intCast(@intFromPtr(ptr));
+        } else switch (self.data) {
+            .integer => |i| (i << 1) | 1,
+            .boolean => |b| if (b) 20 else 0,
+            .nil => 8,
+            else => unreachable,
+        };
+    }
+
     pub fn nil() Value {
         return .{ .data = .nil };
     }

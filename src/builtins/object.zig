@@ -9,6 +9,9 @@ const Value = value.Value;
 pub fn register(vm: *VM) !void {
     const new_sym = try vm.intern("new");
     try vm.object_class.module.methods.put(new_sym, .{ .builtin = &builtinObjectNew });
+
+    const object_id_sym = try vm.intern("object_id");
+    try vm.object_class.module.methods.put(object_id_sym, .{ .builtin = &builtinObjectObjectId });
 }
 
 pub fn builtinObjectNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -26,4 +29,12 @@ pub fn builtinObjectNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
     }
 
     return instance;
+}
+
+pub fn builtinObjectObjectId(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
+    const object_id: i64 = receiver.objectId();
+
+    return Value{ .data = .{ .integer = object_id } };
 }

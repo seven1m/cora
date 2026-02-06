@@ -472,20 +472,7 @@ pub fn builtinKernelToS(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError
     const class = vm.getClass(receiver);
     const class_name = class.module.name.name;
 
-    const object_id = switch (receiver.data) {
-        .instance => |i| @intFromPtr(i),
-        .string => |s| @intFromPtr(s),
-        .symbol => |s| @intFromPtr(s),
-        .array => |a| @intFromPtr(a),
-        .hash => |h| @intFromPtr(h),
-        .exception => |e| @intFromPtr(e),
-        .encoding => |e| @intFromPtr(e),
-        .module => |m| @intFromPtr(m),
-        .class => |c| @intFromPtr(c),
-        .proc => |p| @intFromPtr(p),
-        // Primitives get a fake object ID for now
-        .integer, .boolean, .nil => 0x0000000000000001,
-    };
+    const object_id = receiver.objectId();
 
     const str = std.fmt.allocPrint(vm.gc_allocator, "#<{s}:0x{x}>", .{ class_name, object_id }) catch return error.Fatal;
     return try vm.newString(str, false);

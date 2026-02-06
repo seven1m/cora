@@ -10,6 +10,9 @@ const Block = vm_mod.Block;
 const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
+    const string_uplus_sym = try vm.intern("+@");
+    try vm.string_class.module.methods.put(string_uplus_sym, .{ .builtin = &builtinStringUnaryPlus });
+
     const string_plus_sym = try vm.intern("+");
     try vm.string_class.module.methods.put(string_plus_sym, .{ .builtin = &builtinStringPlus });
 
@@ -21,6 +24,9 @@ pub fn register(vm: *VM) !void {
 
     const string_encoding_sym = try vm.intern("encoding");
     try vm.string_class.module.methods.put(string_encoding_sym, .{ .builtin = &builtinStringEncoding });
+
+    const string_encode_sym = try vm.intern("encode");
+    try vm.string_class.module.methods.put(string_encode_sym, .{ .builtin = &builtinStringEncode });
 
     const string_force_encoding_sym = try vm.intern("force_encoding");
     try vm.string_class.module.methods.put(string_force_encoding_sym, .{ .builtin = &builtinStringForceEncoding });
@@ -34,6 +40,12 @@ pub fn register(vm: *VM) !void {
     const string_b_sym = try vm.intern("b");
     try vm.string_class.module.methods.put(string_b_sym, .{ .builtin = &builtinStringB });
 
+    const string_dup_sym = try vm.intern("dup");
+    try vm.string_class.module.methods.put(string_dup_sym, .{ .builtin = &builtinStringDup });
+
+    const string_bytesize_sym = try vm.intern("bytesize");
+    try vm.string_class.module.methods.put(string_bytesize_sym, .{ .builtin = &builtinStringBytesize });
+
     const to_s_sym = try vm.intern("to_s");
     try vm.string_class.module.methods.put(to_s_sym, .{ .builtin = &builtinStringToS });
 
@@ -44,6 +56,12 @@ pub fn register(vm: *VM) !void {
 pub fn builtinStringToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return receiver; // String#to_s returns vm
+}
+
+pub fn builtinStringUnaryPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const string_obj = receiver.data.string;
+    return try vm.newStringWithEncoding(string_obj.str, false, string_obj.encoding);
 }
 
 pub fn builtinStringPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -91,6 +109,33 @@ pub fn builtinStringEncoding(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     };
 }
 
+pub fn builtinStringEncode(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+
+    const target_encoding: enc.Encoding = switch (args[0].data) {
+        .encoding => |e| e.encoding,
+        .string, .symbol => blk: {
+            const result = try encoding_builtin.builtinEncodingFind(vm, receiver, args, null);
+            break :blk result.data.encoding.encoding;
+        },
+        else => return vm.raiseExceptionFmt(vm.type_error_class, "wrong argument type {s} (expected Encoding, String, or Symbol)", .{@tagName(args[0].data)}),
+    };
+
+    const string_obj = receiver.data.string;
+
+    // Validate bytes for target encoding when needed.
+    const requires_validation = switch (target_encoding) {
+        .ascii_8bit => false,
+        else => true,
+    };
+    if (requires_validation and !target_encoding.isValid(string_obj.str)) {
+        const name = target_encoding.name();
+        return vm.raiseExceptionFmt(vm.argument_error_class, "invalid byte sequence in {s}", .{name});
+    }
+
+    return try vm.newStringWithEncoding(string_obj.str, false, target_encoding);
+}
+
 pub fn builtinStringForceEncoding(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     // Get the new encoding from argument
@@ -126,6 +171,17 @@ pub fn builtinStringB(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
     const string_obj = receiver.data.string;
     // Return a new string with ASCII-8BIT encoding
     return try vm.newStringWithEncoding(string_obj.str, false, .{ .ascii_8bit = .{} });
+}
+
+pub fn builtinStringDup(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const string_obj = receiver.data.string;
+    return try vm.newStringWithEncoding(string_obj.str, false, string_obj.encoding);
+}
+
+pub fn builtinStringBytesize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return Value{ .data = .{ .integer = @intCast(receiver.data.string.str.len) } };
 }
 
 pub fn builtinStringInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
