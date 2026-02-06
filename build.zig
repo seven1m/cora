@@ -100,7 +100,7 @@ pub fn build(b: *std.Build) void {
     const watch_cmd = b.addSystemCommand(&.{
         "sh",
         "-c",
-        "find . \\( -path ./zig-out -o -path ./ext \\) -prune -o \\( -name '*.zig' -o -name '*.rb' \\) -print | entr -c -s 'zig build test --summary all'",
+        "find . \\( -path ./zig-out -o -path ./ext \\) -prune -o \\( -name '*.zig' -o -name '*.rb' \\) -print | entr -c -s 'zig build test'",
     });
     const watch_step = b.step("watch", "Watch source files and rebuild/test on changes (requires entr)");
     watch_step.dependOn(&watch_cmd.step);
