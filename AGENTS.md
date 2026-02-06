@@ -93,7 +93,17 @@ Cora is a Ruby interpreter written in Zig using the Prism parser. It uses a **tw
 ## Testing & Debugging
 
 ```bash
+# pass/fail status -- no ouput. Status 0 means success.
+zig build test
+
+# short summary
 zig build test --summary all
+
+# filter to tests having the word "Proc" (case sensitive)
+zig build test -Dtest-filter="Proc"
+
+# filter by name and print every test description that matched
+zig build test -Dtest-filter="Proc" -Dtest-verbose
 ```
 
 Tests are in `src/test/language/*.zig`. When adding new test files, remember to add them to `src/all_test.zig`.

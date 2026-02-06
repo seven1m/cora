@@ -26,6 +26,9 @@ fn buildPrism(b: *std.Build) *std.Build.Step {
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const test_verbose = b.option(bool, "test-verbose", "Print each test name") orelse false;
+    const options = b.addOptions();
+    options.addOption(bool, "test_verbose", test_verbose);
 
     const prism_build_step = buildPrism(b);
 
@@ -63,12 +66,17 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run the VM");
     run_step.dependOn(&run_cmd.step);
 
+    const test_filter = b.option([]const u8, "test-filter", "Filter tests by name");
+    const test_filters = if (test_filter) |filter| &[_][]const u8{filter} else &.{};
+
     const test_exe = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/all_test.zig"),
             .target = target,
             .optimize = optimize,
         }),
+        .filters = test_filters,
+        .test_runner = .{ .path = b.path("src/test_runner.zig"), .mode = .simple },
     });
 
     test_exe.step.dependOn(prism_build_step);
@@ -77,10 +85,14 @@ pub fn build(b: *std.Build) void {
     test_exe.linkLibC();
 
     test_exe.root_module.addImport("bdwgc", bdwgc.module("bdwgc"));
+    test_exe.root_module.addImport("build_options", options.createModule());
 
     const test_run = b.addRunArtifact(test_exe);
     test_run.step.dependOn(prism_build_step);
     test_run.step.dependOn(b.getInstallStep());
+    if (b.args) |args| {
+        test_run.addArgs(args);
+    }
 
     const test_step = b.step("test", "Run tests");
     test_step.dependOn(&test_run.step);
