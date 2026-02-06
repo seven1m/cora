@@ -513,15 +513,26 @@ pub const VM = struct {
         try encoding_singleton.module.methods.put(find_sym, .{ .builtin = &builtinEncodingFind });
 
         // --- Stage 6: Initialize top-level lexical scope ---
-        self.current_lexical_scope = try self.createLexicalScope(&self.object_class.module, null);
+        self.current_lexical_scope = try self.createLexicalScope(.{ .data = .{ .class = self.object_class } }, null);
     }
 
-    pub fn createLexicalScope(self: *VM, scope_module: *value.ModuleObject, parent: ?*LexicalScope) !*LexicalScope {
+    pub fn createLexicalScope(self: *VM, scope_module_val: Value, parent: ?*LexicalScope) !*LexicalScope {
         const scope = self.gc_allocator.create(LexicalScope) catch unreachable;
-        scope.* = .{
-            .scope_module = scope_module,
-            .parent = parent,
-        };
+        switch (scope_module_val.data) {
+            .class => |cls| {
+                scope.* = .{
+                    .scope_module = .{ .class = cls },
+                    .parent = parent,
+                };
+            },
+            .module => |mod| {
+                scope.* = .{
+                    .scope_module = .{ .module = mod },
+                    .parent = parent,
+                };
+            },
+            else => unreachable,
+        }
         return scope;
     }
 
@@ -638,7 +649,7 @@ pub const VM = struct {
     fn findConstantInLexicalScope(_: *VM, scope: *LexicalScope, name: *value.SymbolObject) !?Value {
         var current_scope: ?*LexicalScope = scope;
         while (current_scope) |s| {
-            if (s.scope_module.constants.get(name)) |val| {
+            if (s.getModule().constants.get(name)) |val| {
                 return val;
             }
             current_scope = s.parent;
@@ -975,7 +986,7 @@ pub const VM = struct {
 
                     // Set in current lexical scope's module (or Object if no scope)
                     if (frame.ep.lexical_scope) |scope| {
-                        try scope.scope_module.constants.put(name_sym, val);
+                        try scope.getModule().constants.put(name_sym, val);
                     } else {
                         try self.object_class.module.constants.put(name_sym, val);
                     }
@@ -1159,7 +1170,7 @@ pub const VM = struct {
 
                     // Store constant in current lexical scope (or Object if no scope)
                     if (frame.ep.lexical_scope) |scope| {
-                        try scope.scope_module.constants.put(name_sym, module_val);
+                        try scope.getModule().constants.put(name_sym, module_val);
                     } else {
                         try self.object_class.module.constants.put(name_sym, module_val);
                     }
@@ -1168,7 +1179,7 @@ pub const VM = struct {
                     if (body_chunk_id != 0) {
                         if (self.program.method_chunks.get(body_chunk_id)) |body_chunk_ptr| {
                             // Create new lexical scope for this module
-                            body_chunk_ptr.lexical_scope = try self.createLexicalScope(module_val.data.module, self.current_lexical_scope);
+                            body_chunk_ptr.lexical_scope = try self.createLexicalScope(module_val, self.current_lexical_scope);
 
                             // Call the body chunk with the module as self
                             // pushFrame will update current_lexical_scope
@@ -1226,7 +1237,7 @@ pub const VM = struct {
 
                         // Store constant in current lexical scope (or Object if no scope)
                         if (frame.ep.lexical_scope) |scope| {
-                            try scope.scope_module.constants.put(name_sym, class_val);
+                            try scope.getModule().constants.put(name_sym, class_val);
                         } else {
                             try self.object_class.module.constants.put(name_sym, class_val);
                         }
@@ -1236,7 +1247,7 @@ pub const VM = struct {
                     if (body_chunk_id != 0) {
                         if (self.program.method_chunks.get(body_chunk_id)) |body_chunk_ptr| {
                             // Create new lexical scope for this class
-                            body_chunk_ptr.lexical_scope = try self.createLexicalScope(&class_val.data.class.module, self.current_lexical_scope);
+                            body_chunk_ptr.lexical_scope = try self.createLexicalScope(class_val, self.current_lexical_scope);
 
                             // Call the body chunk with the class as self
                             // pushFrame will update current_lexical_scope
@@ -1607,6 +1618,39 @@ pub const VM = struct {
 
                 // Clear pending exception - it's now caught
                 self.pending_exception = null;
+            },
+
+            .SUPER => {
+                const argc = self.readByte();
+                const block_chunk_id = self.readU16();
+
+                // Resolve block first (may pop from stack for &variable syntax)
+                const block = try self.resolveBlock(block_chunk_id, frame);
+
+                // Pop arguments
+                var args: [256]Value = undefined;
+                var i: usize = 0;
+                while (i < argc) : (i += 1) {
+                    args[argc - 1 - i] = self.pop();
+                }
+
+                try self.callSuper(args[0..argc], block);
+            },
+
+            .FORWARDING_SUPER => {
+                const block_chunk_id = self.readU16();
+
+                // Resolve block, falling back to frame's block for forwarding
+                var block = try self.resolveBlock(block_chunk_id, frame);
+                if (block == null) {
+                    block = frame.block;
+                }
+
+                // Get forwarding arguments from current method's environment
+                var fwd_buf: [256]Value = undefined;
+                const fwd_args = self.getForwardingArguments(frame, &fwd_buf);
+
+                try self.callSuper(fwd_args, block);
             },
         }
     }
@@ -1990,6 +2034,136 @@ pub const VM = struct {
             current_class = c.superclass;
         }
         return null;
+    }
+
+    /// Get the defining class for super lookup from the current frame's lexical scope
+    fn getDefiningClassForSuper(_: *VM, frame_chunk: *Chunk) ?*ClassObject {
+        const lexical_scope = frame_chunk.lexical_scope orelse return null;
+
+        switch (lexical_scope.scope_module) {
+            .class => |cls| return cls,
+            .module => return null,
+        }
+
+        unreachable;
+    }
+
+    /// Look up a method in the superclass chain starting from defining_class.superclass
+    fn lookupMethodForSuper(self: *VM, defining_class: *ClassObject, method_name: *value.SymbolObject) ?Method {
+        // Start from the superclass, not the defining class itself
+        const start_class = defining_class.superclass orelse return null;
+        return self.lookupMethod(start_class, method_name);
+    }
+
+    /// Copy forwarding arguments into the provided buffer.
+    /// Without rest params, this copies param slots directly from the environment.
+    /// With rest params, the rest array is expanded inline.
+    /// Returns the slice of buf that was filled.
+    fn getForwardingArguments(_: *VM, frame: *CallFrame, buf: *[256]Value) []Value {
+        const ch = frame.chunk;
+        const env = derefEnvironment(frame.ep);
+        const param_count = ch.arity + ch.optional_params.items.len + ch.post_required_count;
+
+        if (ch.rest_param_index == null) {
+            // Common case: copy param slots into buffer
+            @memcpy(buf[0..param_count], env.variables[0..param_count]);
+            return buf[0..param_count];
+        }
+
+        // Rest param case: copy slots, expanding the rest array inline
+        const rest_idx = ch.rest_param_index.?;
+        const total_slots = param_count + 1; // +1 for the rest slot itself
+        var out: usize = 0;
+        for (0..total_slots) |slot| {
+            if (slot == rest_idx) {
+                if (slot < env.variables_len and env.variables[slot].data == .array) {
+                    for (env.variables[slot].data.array.elements.items) |elem| {
+                        buf[out] = elem;
+                        out += 1;
+                    }
+                }
+            } else {
+                buf[out] = if (slot < env.variables_len) env.variables[slot] else Value.nil();
+                out += 1;
+            }
+        }
+
+        return buf[0..out];
+    }
+
+    /// Call the superclass method with the given arguments
+    fn callSuper(self: *VM, args: []const Value, block: ?Block) !void {
+        const frame = self.currentFrame();
+
+        // Get method name from current chunk
+        const method_name = frame.chunk.name;
+        const method_name_sym = self.intern(method_name) catch return error.Unwind;
+
+        // Get the defining class from the current method's lexical scope
+        const defining_class = self.getDefiningClassForSuper(frame.chunk) orelse {
+            const exc = try self.createException(self.no_method_error_class, "super called outside of method");
+            self.pending_exception = exc;
+            try self.unwindStack();
+            return;
+        };
+
+        // Look up method in superclass chain
+        const method = self.lookupMethodForSuper(defining_class, method_name_sym) orelse {
+            const msg = std.fmt.allocPrint(
+                self.gc_allocator,
+                "super: no superclass method '{s}' for {s}",
+                .{ method_name, defining_class.module.name.name },
+            ) catch unreachable;
+            const exc = try self.createException(self.no_method_error_class, msg);
+            self.pending_exception = exc;
+            try self.unwindStack();
+            return;
+        };
+
+        // Call with the same receiver (self)
+        const receiver = frame.self_value;
+
+        switch (method) {
+            .chunk => |method_chunk| {
+                // Push frame with receiver as self_value
+                try self.pushFrame(method_chunk, receiver, block);
+
+                // Copy arguments with rest parameter handling
+                const new_frame = self.currentFrame();
+                try self.copyArgumentsWithRestParam(method_chunk, new_frame.ep, args, .strict);
+
+                // Bind block parameter if present
+                if (method_chunk.block_param_index) |block_idx| {
+                    const current_frame = &self.frames.items[self.frames.items.len - 1];
+
+                    if (current_frame.block) |blk| {
+                        const proc_val = self.newProc(blk);
+                        const f = &self.frames.items[self.frames.items.len - 1];
+                        f.ep.variables[block_idx] = proc_val;
+                    } else {
+                        current_frame.ep.variables[block_idx] = Value.nil();
+                    }
+
+                    const f = &self.frames.items[self.frames.items.len - 1];
+                    if (block_idx >= f.ep.variables_len) {
+                        f.ep.variables_len = block_idx + 1;
+                    }
+                }
+            },
+            .builtin => |fun_ptr| {
+                // For builtin methods, we need a mutable copy
+                var args_copy: [256]Value = undefined;
+                @memcpy(args_copy[0..args.len], args);
+                const result = fun_ptr(self, receiver, args_copy[0..args.len], block) catch |err| {
+                    if (self.pending_exception != null) {
+                        try self.unwindStack();
+                        return;
+                    }
+                    return err;
+                };
+                try self.push(result);
+            },
+        }
     }
 
     fn getOrCreateSingletonClass(self: *VM, obj_val: value.Value) !*ClassObject {

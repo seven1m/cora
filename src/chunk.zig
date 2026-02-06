@@ -211,6 +211,15 @@ pub const Chunk = struct {
         try self.line_info.append(self.allocator, line);
     }
 
+    /// Emit opcode with u8 and u16 operands
+    pub fn emitOpU8U16(self: *Chunk, op: bytecode.OpCode, a: u8, b: u16, line: u32) !void {
+        try self.code.append(self.allocator, @intFromEnum(op));
+        try self.code.append(self.allocator, a);
+        try self.code.append(self.allocator, @intCast(b & 0xFF));
+        try self.code.append(self.allocator, @intCast((b >> 8) & 0xFF));
+        try self.line_info.append(self.allocator, line);
+    }
+
     /// Emit CALL_KW instruction with keyword arguments
     pub fn emitCallKw(self: *Chunk, method_idx: u16, argc: u8, kwargc: u8, kw_metadata_idx: u16, block_chunk_id: u16, line: u32) !void {
         try self.code.append(self.allocator, @intFromEnum(bytecode.OpCode.CALL_KW));
@@ -491,6 +500,19 @@ pub const Chunk = struct {
                 const is_explicit = bytecode.readU8(self.code.items, next_ip);
                 try writer.print("RETURN {s}\n", .{if (is_explicit == 1) "explicit" else "implicit"});
                 next_ip += 1;
+            },
+
+            .SUPER => {
+                const argc = bytecode.readU8(self.code.items, next_ip);
+                const block_id = bytecode.readU16(self.code.items, next_ip + 1);
+                try writer.print("SUPER {d}, {d}\n", .{ argc, block_id });
+                next_ip += 3;
+            },
+
+            .FORWARDING_SUPER => {
+                const block_id = bytecode.readU16(self.code.items, next_ip);
+                try writer.print("FORWARDING_SUPER {d}\n", .{block_id});
+                next_ip += 2;
             },
         }
 

@@ -40,6 +40,7 @@ const language_string_interpolation_test = @import("test/language/string_interpo
 const language_while_test = @import("test/language/while_test.zig");
 const language_until_test = @import("test/language/until_test.zig");
 const language_singleton_test = @import("test/language/singleton_test.zig");
+const language_super_test = @import("test/language/super_test.zig");
 const spec_test = @import("test/spec_test.zig");
 
 comptime {
@@ -83,5 +84,6 @@ comptime {
     _ = language_while_test;
     _ = language_until_test;
     _ = language_singleton_test;
+    _ = language_super_test;
     _ = spec_test;
 }

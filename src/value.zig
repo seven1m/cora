@@ -36,8 +36,18 @@ pub const EncodingObject = struct {
 };
 
 pub const LexicalScope = struct {
-    scope_module: *ModuleObject,
+    scope_module: union(enum) {
+        module: *ModuleObject,
+        class: *ClassObject,
+    },
     parent: ?*LexicalScope,
+
+    pub fn getModule(self: *LexicalScope) *ModuleObject {
+        switch (self.scope_module) {
+            .module => |m| return m,
+            .class => |c| return &c.module,
+        }
+    }
 };
 
 pub const ModuleObject = struct {

@@ -61,6 +61,8 @@ pub const InstanceVariableWriteNode = c.pm_instance_variable_write_node_t;
 pub const BlockArgumentNode = c.pm_block_argument_node_t;
 pub const EmbeddedStatementsNode = c.pm_embedded_statements_node_t;
 pub const InterpolatedStringNode = c.pm_interpolated_string_node_t;
+pub const ForwardingSuperNode = c.pm_forwarding_super_node_t;
+pub const SuperNode = c.pm_super_node_t;
 
 pub const Node = union(enum) {
     array: *ArrayNode,
@@ -118,6 +120,8 @@ pub const Node = union(enum) {
     block_argument: *BlockArgumentNode,
     embedded_statements: *EmbeddedStatementsNode,
     interpolated_string: *InterpolatedStringNode,
+    forwarding_super: *ForwardingSuperNode,
+    super_node: *SuperNode,
 };
 
 /// Parser wraps Prism's parser and AST lifecycle
@@ -392,6 +396,14 @@ pub const Parser = struct {
 
         if (node_type == c.PM_KEYWORD_HASH_NODE) {
             return Node{ .keyword_hash = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_FORWARDING_SUPER_NODE) {
+            return Node{ .forwarding_super = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_SUPER_NODE) {
+            return Node{ .super_node = @ptrCast(raw) };
         }
 
         var stdout_buffer: [8192]u8 = undefined;

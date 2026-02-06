@@ -562,6 +562,54 @@ pub const Compiler = struct {
                 try self.current_chunk.emitOpU16(.SET_IVAR, @intCast(name_idx), line);
             },
 
+            .forwarding_super => |super_node| {
+                // Bare super: forwards all original arguments
+                // Compile optional block
+                var block_chunk_id: chunk.ChunkId = 0;
+                if (super_node.block) |block_ptr| {
+                    const block_node = try self.parser.asNode(@ptrCast(block_ptr));
+                    if (block_node == .block) {
+                        block_chunk_id = try self.compileBlock(block_node.block, line);
+                    } else if (block_node == .block_argument) {
+                        const expr = try self.parser.asNode(@ptrCast(block_node.block_argument.expression));
+                        try self.compileNode(expr, line);
+                        block_chunk_id = chunk.BLOCK_ARG_ON_STACK;
+                    }
+                }
+
+                try self.current_chunk.emitOpU16(.FORWARDING_SUPER, block_chunk_id, line);
+            },
+
+            .super_node => |super_node| {
+                // super() or super(args): explicit arguments
+                var argc: u8 = 0;
+                if (super_node.arguments) |args_ptr| {
+                    const args = @as(*prism.ArgumentsNode, @ptrCast(args_ptr));
+                    var i: usize = 0;
+                    while (i < args.arguments.size) : (i += 1) {
+                        const arg = args.arguments.nodes[i];
+                        const arg_node = try self.parser.asNode(arg);
+                        try self.compileNode(arg_node, line);
+                        argc += 1;
+                    }
+                }
+
+                // Compile optional block
+                var block_chunk_id: chunk.ChunkId = 0;
+                if (super_node.block) |block_ptr| {
+                    const block_node = try self.parser.asNode(@ptrCast(block_ptr));
+                    if (block_node == .block) {
+                        block_chunk_id = try self.compileBlock(block_node.block, line);
+                    } else if (block_node == .block_argument) {
+                        const expr = try self.parser.asNode(@ptrCast(block_node.block_argument.expression));
+                        try self.compileNode(expr, line);
+                        block_chunk_id = chunk.BLOCK_ARG_ON_STACK;
+                    }
+                }
+
+                try self.current_chunk.emitOpU8U16(.SUPER, argc, block_chunk_id, line);
+            },
+
             else => {
                 std.debug.print("Error: unsupported node type: {}\n", .{node});
                 return error.UnsupportedNode;

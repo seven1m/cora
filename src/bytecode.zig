@@ -63,6 +63,10 @@ pub const OpCode = enum(u8) {
     ENSURE_END, // No operands - marks exit from ensure block
     RETRY, // No operands - jump back to beginning of current begin block
     BREAK, // No operands - used for breaking from blocks
+
+    // Super calls
+    SUPER, // Operands: u8 (argc), u16 (block_chunk_id)
+    FORWARDING_SUPER, // Operand: u16 (block_chunk_id)
 };
 
 pub const BuiltinId = enum(u8) {
@@ -114,6 +118,8 @@ pub fn opcodeName(op: OpCode) []const u8 {
         .ENSURE_END => "ENSURE_END",
         .RETRY => "RETRY",
         .BREAK => "BREAK",
+        .SUPER => "SUPER",
+        .FORWARDING_SUPER => "FORWARDING_SUPER",
     };
 }
 
