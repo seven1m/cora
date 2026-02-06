@@ -514,6 +514,8 @@ pub const VM = struct {
         try self.kernel_module.methods.put(raise_sym, .{ .builtin = &builtinKernelRaise });
         const is_a_sym = try self.intern("is_a?");
         try self.kernel_module.methods.put(is_a_sym, .{ .builtin = &builtinKernelIsA });
+        const block_given_sym = try self.intern("block_given?");
+        try self.kernel_module.methods.put(block_given_sym, .{ .builtin = &builtinKernelBlockGiven });
 
         // Register Exception#message method
         const message_sym = try self.intern("message");
@@ -3078,6 +3080,12 @@ pub const VM = struct {
             },
             else => return self.raiseExceptionFmt(self.type_error_class, "class or module required", .{}),
         }
+    }
+
+    fn builtinKernelBlockGiven(self: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+        try self.requireArgCount(args, 0);
+        const frame = self.currentFrame();
+        return Value.boolean(frame.block != null);
     }
 
     fn builtinKernelInstanceVariableGet(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
