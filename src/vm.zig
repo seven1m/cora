@@ -362,6 +362,12 @@ pub const VM = struct {
         const load_sym = try self.intern("load");
         try self.kernel_module.methods.put(load_sym, .{ .builtin = &builtinKernelLoad });
 
+        const instance_variable_get_sym = try self.intern("instance_variable_get");
+        try self.kernel_module.methods.put(instance_variable_get_sym, .{ .builtin = &builtinKernelInstanceVariableGet });
+
+        const instance_variable_set_sym = try self.intern("instance_variable_set");
+        try self.kernel_module.methods.put(instance_variable_set_sym, .{ .builtin = &builtinKernelInstanceVariableSet });
+
         // Register Object built-in methods
         const new_sym = try self.intern("new");
         try self.object_class.module.methods.put(new_sym, .{ .builtin = &builtinObjectNew });
@@ -2938,6 +2944,77 @@ pub const VM = struct {
         }
 
         return Value.nil();
+    }
+
+    fn builtinKernelInstanceVariableGet(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+        if (args.len != 1) {
+            const exc = try self.createException(self.argument_error_class, "wrong number of arguments (given 0, expected 1)");
+            self.pending_exception = exc;
+            return error.Unwind;
+        }
+
+        const name_arg = args[0];
+        var name_str: []const u8 = undefined;
+
+        switch (name_arg.data) {
+            .symbol => |sym| {
+                name_str = sym.name;
+            },
+            .string => |str| {
+                name_str = str.str;
+            },
+            else => {
+                const exc = try self.createException(self.type_error_class, "not a symbol nor a string");
+                self.pending_exception = exc;
+                return error.Unwind;
+            },
+        }
+
+        if (name_str.len <= 1 or name_str[0] != '@') {
+            const msg = std.fmt.allocPrint(self.allocator, "'{s}' is not allowed as an instance variable name", .{name_str}) catch unreachable;
+            defer self.allocator.free(msg);
+            const exc = try self.createException(self.argument_error_class, msg);
+            self.pending_exception = exc;
+            return error.Unwind;
+        }
+
+        return self.getInstanceVariable(receiver, name_str) catch unreachable;
+    }
+
+    fn builtinKernelInstanceVariableSet(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+        if (args.len != 2) {
+            const exc = try self.createException(self.argument_error_class, "wrong number of arguments (given 0, expected 2)");
+            self.pending_exception = exc;
+            return error.Unwind;
+        }
+
+        const name_arg = args[0];
+        var name_str: []const u8 = undefined;
+
+        switch (name_arg.data) {
+            .symbol => |sym| {
+                name_str = sym.name;
+            },
+            .string => |str| {
+                name_str = str.str;
+            },
+            else => {
+                const exc = try self.createException(self.type_error_class, "not a symbol nor a string");
+                self.pending_exception = exc;
+                return error.Unwind;
+            },
+        }
+
+        if (name_str.len <= 1 or name_str[0] != '@') {
+            const msg = std.fmt.allocPrint(self.allocator, "'{s}' is not allowed as an instance variable name", .{name_str}) catch unreachable;
+            defer self.allocator.free(msg);
+            const exc = try self.createException(self.argument_error_class, msg);
+            self.pending_exception = exc;
+            return error.Unwind;
+        }
+
+        self.setInstanceVariable(receiver, name_str, args[1]) catch unreachable;
+        return args[1];
     }
 
     fn builtinIntegerPlus(self: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
