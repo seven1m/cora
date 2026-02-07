@@ -575,14 +575,6 @@ pub const VM = struct {
         return &self.frames.items[self.frames.items.len - 1];
     }
 
-    fn coerceError(self: *VM, err: anyerror) VMError {
-        return switch (err) {
-            error.Unwind => if (self.pending_exception != null) error.Unwind else error.Fatal,
-            error.Fatal => error.Fatal,
-            else => error.Fatal,
-        };
-    }
-
     fn currentChunk(self: *VM) *Chunk {
         return self.currentFrame().chunk;
     }
@@ -960,7 +952,7 @@ pub const VM = struct {
                 // Pop receiver
                 const receiver = self.pop();
 
-                try self.callMethod(method_idx, receiver, &args, argc, null, 0, null, block);
+                try self.callMethodHelperForExecuteInstruction(method_idx, receiver, &args, argc, null, 0, null, block);
             },
 
             .CALL_KW => {
@@ -996,7 +988,7 @@ pub const VM = struct {
                 const kw_metadata = frame.chunk.keyword_metadata.items[kw_metadata_idx];
 
                 // Call method with keywords
-                try self.callMethod(method_idx, receiver, &args, argc, &kw_values, kwargc, kw_metadata, block);
+                try self.callMethodHelperForExecuteInstruction(method_idx, receiver, &args, argc, &kw_values, kwargc, kw_metadata, block);
             },
 
             .RETURN => {
@@ -1634,7 +1626,7 @@ pub const VM = struct {
 
                     // Execute until we return to saved frame count
                     while (self.frames.items.len > saved_frame_count) {
-                        self.executeInstruction() catch |err| return self.coerceError(err);
+                        try self.executeInstruction();
                     }
 
                     // Result is on top of stack
@@ -1755,7 +1747,7 @@ pub const VM = struct {
         // Execute until this frame completes
         const saved_frame_count = self.frames.items.len - 1;
         while (self.frames.items.len > saved_frame_count) {
-            self.executeInstruction() catch |err| return self.coerceError(err);
+            try self.executeInstruction();
         }
 
         return self.pop();
@@ -1770,7 +1762,12 @@ pub const VM = struct {
         };
     }
 
-    fn callMethod(
+    /// Used by executeInstruction to implement both CALL and CALL_KW
+    /// For a Chunk, it sets up the frame and returns.
+    /// For a builtin function pointer, it calls it and pushes the return value onto the stack.
+    /// Don't call this from anywhere else because stack unwinding won't work right.
+    /// (This helper calls self.unwindStack() on error, like executeInstruction does.)
+    fn callMethodHelperForExecuteInstruction(
         self: *VM,
         method_idx: u16,
         receiver: Value,
@@ -2605,7 +2602,7 @@ pub const VM = struct {
         // Execute instructions until this frame completes
         const target_frame_depth = self.frames.items.len;
         while (self.frames.items.len >= target_frame_depth) {
-            self.executeInstruction() catch |err| return self.coerceError(err);
+            try self.executeInstruction();
         }
 
         // Pop result from stack (default chunk returns a value)
