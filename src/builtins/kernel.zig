@@ -61,7 +61,6 @@ pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
         const msg = std.fmt.allocPrint(vm.allocator, "no implicit conversion into String", .{}) catch return error.Fatal;
         const exc = vm.createException(vm.type_error_class, msg) catch return error.Fatal;
         vm.pending_exception = exc;
-        try vm.unwindStack();
         return error.Unwind;
     }
 
@@ -71,13 +70,11 @@ pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
         const msg = std.fmt.allocPrint(vm.allocator, "cannot load such file -- {s}", .{feature}) catch return error.Fatal;
         const exc = vm.createException(vm.load_error_class, msg) catch return error.Fatal;
         vm.pending_exception = exc;
-        try vm.unwindStack();
         return error.Unwind;
     } orelse {
         const msg = std.fmt.allocPrint(vm.allocator, "cannot load such file -- {s}", .{feature}) catch return error.Fatal;
         const exc = vm.createException(vm.load_error_class, msg) catch return error.Fatal;
         vm.pending_exception = exc;
-        try vm.unwindStack();
         return error.Unwind;
     };
 
@@ -104,7 +101,6 @@ pub fn builtinKernelRequireRelative(vm: *VM, _: Value, args: []Value, _: ?Block)
         const msg = std.fmt.allocPrint(vm.allocator, "no implicit conversion into String", .{}) catch return error.Fatal;
         const exc = vm.createException(vm.type_error_class, msg) catch return error.Fatal;
         vm.pending_exception = exc;
-        try vm.unwindStack();
         return error.Unwind;
     }
 
@@ -113,7 +109,6 @@ pub fn builtinKernelRequireRelative(vm: *VM, _: Value, args: []Value, _: ?Block)
     const current_file = vm.current_loading_file orelse {
         const exc = vm.createException(vm.load_error_class, "cannot infer basepath") catch return error.Fatal;
         vm.pending_exception = exc;
-        try vm.unwindStack();
         return error.Unwind;
     };
 
@@ -136,7 +131,6 @@ pub fn builtinKernelRequireRelative(vm: *VM, _: Value, args: []Value, _: ?Block)
         const msg = std.fmt.allocPrint(vm.allocator, "cannot load such file -- {s}", .{relative_path}) catch return error.Fatal;
         const exc = vm.createException(vm.load_error_class, msg) catch return error.Fatal;
         vm.pending_exception = exc;
-        try vm.unwindStack();
         return error.Unwind;
     }
 
@@ -164,7 +158,6 @@ pub fn builtinKernelLoad(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
         const msg = std.fmt.allocPrint(vm.allocator, "no implicit conversion into String", .{}) catch return error.Fatal;
         const exc = vm.createException(vm.type_error_class, msg) catch return error.Fatal;
         vm.pending_exception = exc;
-        try vm.unwindStack();
         return error.Unwind;
     }
 
@@ -205,7 +198,6 @@ pub fn builtinKernelLoad(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
         const msg = std.fmt.allocPrint(vm.allocator, "cannot load such file -- {s}", .{filename}) catch return error.Fatal;
         const exc = vm.createException(vm.load_error_class, msg) catch return error.Fatal;
         vm.pending_exception = exc;
-        try vm.unwindStack();
         return error.Unwind;
     }
 
@@ -291,28 +283,33 @@ pub fn builtinKernelRaise(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
     if (args.len == 0) {
         // Re-raise current exception
         if (vm.pending_exception) |exc| {
-            try vm.raise(.{ .data = .{ .exception = exc } });
+            vm.pending_exception = exc;
+            return error.Unwind;
         } else {
             // No exception to re-raise - raise RuntimeError
             const exc = try vm.createException(vm.runtime_error_class, "No exception to re-raise");
-            try vm.raise(.{ .data = .{ .exception = exc } });
+            vm.pending_exception = exc;
+            return error.Unwind;
         }
     } else if (args.len == 1) {
         const arg = args[0];
         switch (arg.data) {
-            .exception => {
+            .exception => |exc| {
                 // Already an exception, raise it
-                try vm.raise(arg);
+                vm.pending_exception = exc;
+                return error.Unwind;
             },
             .class => |cls| {
                 // Exception class with empty message
                 const exc = try vm.createException(cls, "");
-                try vm.raise(.{ .data = .{ .exception = exc } });
+                vm.pending_exception = exc;
+                return error.Unwind;
             },
             .string => |str| {
                 // String message - create RuntimeError
                 const exc = try vm.createException(vm.runtime_error_class, str.str);
-                try vm.raise(.{ .data = .{ .exception = exc } });
+                vm.pending_exception = exc;
+                return error.Unwind;
             },
             else => {
                 const exc = try vm.createException(vm.type_error_class, "exception class/object expected");
@@ -336,7 +333,8 @@ pub fn builtinKernelRaise(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
             "";
 
         const exc = try vm.createException(class_arg.data.class, msg_str);
-        try vm.raise(.{ .data = .{ .exception = exc } });
+        vm.pending_exception = exc;
+        return error.Unwind;
     } else {
         const exc = try vm.createException(vm.argument_error_class, "wrong number of arguments");
         vm.pending_exception = exc;

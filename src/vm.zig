@@ -1401,7 +1401,8 @@ pub const VM = struct {
                 if (argc == 0) {
                     // Re-raise current exception
                     if (self.pending_exception) |exc| {
-                        try self.raise(.{ .data = .{ .exception = exc } });
+                        self.pending_exception = exc;
+                        try self.unwindStack();
                     } else {
                         // No exception to re-raise
                         const exc = try self.createException(self.runtime_error_class, "no current exception");
@@ -1414,19 +1415,22 @@ pub const VM = struct {
                     const arg = self.pop();
 
                     switch (arg.data) {
-                        .exception => {
+                        .exception => |exc| {
                             // Already an exception, raise it
-                            try self.raise(arg);
+                            self.pending_exception = exc;
+                            try self.unwindStack();
                         },
                         .class => |cls| {
                             // Exception class with empty message
                             const exc = try self.createException(cls, "");
-                            try self.raise(.{ .data = .{ .exception = exc } });
+                            self.pending_exception = exc;
+                            try self.unwindStack();
                         },
                         .string => |str| {
                             // String message - create RuntimeError
                             const exc = try self.createException(self.runtime_error_class, str.str);
-                            try self.raise(.{ .data = .{ .exception = exc } });
+                            self.pending_exception = exc;
+                            try self.unwindStack();
                         },
                         else => {
                             // Invalid argument type
@@ -1454,7 +1458,8 @@ pub const VM = struct {
                         "";
 
                     const exc = try self.createException(class_arg.data.class, msg_str);
-                    try self.raise(.{ .data = .{ .exception = exc } });
+                    self.pending_exception = exc;
+                    try self.unwindStack();
                 } else {
                     // Invalid number of arguments
                     const exc = try self.createException(self.argument_error_class, "wrong number of arguments");
@@ -2965,21 +2970,6 @@ pub const VM = struct {
         }
 
         return array_obj;
-    }
-
-    /// Raise an exception and start unwinding
-    pub fn raise(self: *VM, exception_val: Value) VMError!void {
-        const exc = switch (exception_val.data) {
-            .exception => |e| e,
-            else => {
-                // Not an exception object - this is an internal error
-                std.debug.print("Internal error: raise() called with non-exception value\n", .{});
-                return error.Fatal;
-            },
-        };
-
-        self.pending_exception = exc;
-        try self.unwindStack();
     }
 
     /// Unwind the call stack looking for exception handlers
