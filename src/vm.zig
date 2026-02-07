@@ -1697,11 +1697,7 @@ pub const VM = struct {
             .self_value = block.defining_self,
             .ep = block_env,
             .block = null,
-        }) catch {
-            const exc = try self.createException(self.runtime_error_class, "failed to allocate frame");
-            self.pending_exception = exc;
-            return error.Unwind;
-        };
+        }) catch return error.Fatal;
 
         // Update current_lexical_scope to the block's scope
         if (block.chunk.lexical_scope) |scope| {
@@ -1716,15 +1712,7 @@ pub const VM = struct {
         self.break_occurred = false;
         const saved_frame_count = self.frames.items.len - 1;
         while (self.frames.items.len > saved_frame_count) {
-            self.executeInstruction() catch |exec_err| {
-                // Check if exception was already set
-                if (self.pending_exception != null) {
-                    return error.Unwind;
-                }
-                const exc = try self.createException(self.runtime_error_class, @errorName(exec_err));
-                self.pending_exception = exc;
-                return error.Unwind;
-            };
+            try self.executeInstruction();
         }
 
         // Handle break or normal return
@@ -2388,9 +2376,8 @@ pub const VM = struct {
 
     pub fn createAccessorChunk(self: *VM, base_name: []const u8, kind: AccessorKind) VMError!*Chunk {
         if (self.next_chunk_id > chunk.MAX_CHUNK_ID) {
-            const exc = try self.createException(self.runtime_error_class, "too many method chunks");
-            self.pending_exception = exc;
-            return error.Unwind;
+            std.debug.print("Too many method chunks\n", .{});
+            return error.Fatal;
         }
 
         const allocator = self.program.allocator;
