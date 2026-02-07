@@ -409,6 +409,7 @@ pub const VM = struct {
             .variables = undefined,
             .variables_len = 0,
         }) catch return error.Fatal;
+        self.env_stack_indices.append(self.allocator, self.env_stack.items.len - 1) catch return error.Fatal;
         return &self.env_stack.items[index];
     }
 
@@ -456,6 +457,8 @@ pub const VM = struct {
         // 2. Recursively promote parent chain
         var heap_parent: ?*Environment = null;
         if (stack_env.parent) |parent| {
+            // Guard against accidental self-parenting to avoid infinite recursion
+            if (parent == stack_env) @panic("Something went wrong");
             // Promote parent if it's a stack environment
             heap_parent = try self.promoteEnvironmentToHeap(parent);
         }
@@ -666,11 +669,7 @@ pub const VM = struct {
         else
             null;
 
-        // Create environment for this frame
         const env = try self.createStackEnvironment(parent_env, ch.lexical_scope orelse self.current_lexical_scope);
-
-        // Record env_stack slot for this frame
-        self.env_stack_indices.append(self.allocator, self.env_stack.items.len - 1) catch return error.Fatal;
 
         self.frames.append(self.allocator, CallFrame{
             .chunk = ch,
@@ -1330,11 +1329,7 @@ pub const VM = struct {
                 // Dereference block_defining_ep in case it's a forwarding pointer
                 const real_defining_ep = derefEnvironment(block.defining_ep);
 
-                // Create environment with block_defining_ep as parent (lexical scoping)
                 const block_env = try self.createStackEnvironment(real_defining_ep, blk.lexical_scope orelse self.current_lexical_scope);
-
-                // Track env_stack index for this frame (like pushFrame does)
-                self.env_stack_indices.append(self.allocator, self.env_stack.items.len - 1) catch return error.Fatal;
 
                 self.frames.append(self.allocator, CallFrame{
                     .chunk = blk,
@@ -1660,19 +1655,7 @@ pub const VM = struct {
         // Dereference defining_ep in case it's a forwarding pointer
         const real_defining_ep = derefEnvironment(block.defining_ep);
 
-        // Create environment with block's defining_ep as parent (lexical scoping)
-        const block_env = self.createStackEnvironment(real_defining_ep, block.chunk.lexical_scope orelse self.current_lexical_scope) catch {
-            const exc = try self.createException(self.runtime_error_class, "failed to create environment");
-            self.pending_exception = exc;
-            return error.Unwind;
-        };
-
-        // Track env_stack index for this frame
-        self.env_stack_indices.append(self.allocator, self.env_stack.items.len - 1) catch {
-            const exc = try self.createException(self.runtime_error_class, "failed to allocate env stack index");
-            self.pending_exception = exc;
-            return error.Unwind;
-        };
+        const block_env = self.createStackEnvironment(real_defining_ep, block.chunk.lexical_scope orelse self.current_lexical_scope) catch return error.Fatal;
 
         // Push block frame (no nested block for builtin-called blocks)
         self.frames.append(self.allocator, CallFrame{
@@ -1733,8 +1716,6 @@ pub const VM = struct {
     fn callProcAsMethod(self: *VM, proc_obj: *value.ProcObject, receiver: Value, args: []const Value, block: ?Block) VMError!Value {
         const real_defining_ep = derefEnvironment(proc_obj.block.defining_ep);
         const proc_env = self.createStackEnvironment(real_defining_ep, proc_obj.block.chunk.lexical_scope orelse self.current_lexical_scope) catch return error.Fatal;
-
-        self.env_stack_indices.append(self.allocator, self.env_stack.items.len - 1) catch return error.Fatal;
 
         self.frames.append(self.allocator, CallFrame{
             .chunk = proc_obj.block.chunk,
@@ -2538,14 +2519,12 @@ pub const VM = struct {
         defer self.current_loading_file = prev_file;
 
         try self.executeChunk(&program.main_chunk);
-
-        // Note: method chunks were transferred to self.program.method_chunks,
-        // defer above will deinit main_chunk and the (now-empty) HashMap
     }
 
     fn executeChunk(self: *VM, target_chunk: *Chunk) VMError!void {
-        const env = try self.createStackEnvironment(null, null);
-        const frame = CallFrame{
+        const env = try self.createStackEnvironment(null, target_chunk.lexical_scope orelse self.current_lexical_scope);
+
+        self.frames.append(self.allocator, CallFrame{
             .chunk = target_chunk,
             .ip = 0,
             .stack_base = self.stack.items.len,
@@ -2553,9 +2532,11 @@ pub const VM = struct {
             .ep = env,
             .block = null,
             .frame_type = .method,
-        };
+        }) catch return error.Fatal;
 
-        self.frames.append(self.allocator, frame) catch return error.Fatal;
+        if (target_chunk.lexical_scope) |scope| {
+            self.current_lexical_scope = scope;
+        }
 
         // Execute instructions until this frame completes
         const target_frame_depth = self.frames.items.len;
