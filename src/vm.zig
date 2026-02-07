@@ -70,7 +70,6 @@ pub const VM = struct {
 
     // Environment stack for optimistic allocation
     env_stack: std.ArrayList(Environment) = .empty,
-    env_stack_indices: std.ArrayList(usize) = .empty,
 
     symbols: std.StringHashMap(*SymbolObject),
     globals: std.StringHashMap(Value),
@@ -190,7 +189,6 @@ pub const VM = struct {
         // Pre-allocate env_stack to prevent reallocations that would invalidate pointers
         // This is max call stack depth, not total calls - we reclaim on popFrame
         self.env_stack.ensureTotalCapacity(self.allocator, 512) catch return error.Fatal;
-        self.env_stack_indices.ensureTotalCapacity(self.allocator, 512) catch return error.Fatal;
 
         // Initialize file loading infrastructure
         self.loaded_files = std.StringHashMap(void).init(self.allocator);
@@ -411,7 +409,6 @@ pub const VM = struct {
             .variables = undefined,
             .variables_len = 0,
         }) catch return error.Fatal;
-        self.env_stack_indices.append(self.allocator, self.env_stack.items.len - 1) catch return error.Fatal;
         return &self.env_stack.items[index];
     }
 
@@ -559,7 +556,6 @@ pub const VM = struct {
         self.stack.deinit(self.allocator);
         self.frames.deinit(self.allocator);
         self.env_stack.deinit(self.allocator);
-        self.env_stack_indices.deinit(self.allocator);
         self.symbols.deinit();
         self.globals.deinit();
         self.at_exit_handlers.deinit(self.allocator);
@@ -721,9 +717,8 @@ pub const VM = struct {
     fn popFrame(self: *VM) VMError!void {
         if (self.frames.items.len > 0) {
             _ = self.frames.pop();
-            _ = self.env_stack_indices.pop();
 
-            const expected_len = self.env_stack_indices.items.len;
+            const expected_len = self.frames.items.len;
             if (self.env_stack.items.len > expected_len) {
                 self.env_stack.items.len = expected_len;
             }

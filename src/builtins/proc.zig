@@ -42,8 +42,6 @@ pub fn builtinProcCall(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
 
     const proc_env = vm.createStackEnvironment(real_defining_ep, proc_obj.block.chunk.lexical_scope orelse vm.current_lexical_scope) catch return error.Fatal;
 
-    vm.env_stack_indices.append(vm.allocator, vm.env_stack.items.len - 1) catch return error.Fatal;
-
     const proc_chunk = proc_obj.block.chunk;
     const mode: VM.ArityMode = if (proc_chunk.is_lambda) .strict else .lenient;
 
