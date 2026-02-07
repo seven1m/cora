@@ -3091,9 +3091,8 @@ pub const VM = struct {
 
     /// Print an unhandled exception
     pub fn printUnhandledException(self: *VM) void {
+        const writer = self.stderr.?;
         if (self.pending_exception) |exc| {
-            const writer = self.stderr.?;
-
             // Print exception class and message
             writer.print("Unhandled exception: {s}: {s}\n", .{
                 exc.object.class.?.module.name.name,
@@ -3109,6 +3108,10 @@ pub const VM = struct {
                     }
                 }
             }
+            _ = writer.flush() catch {};
+        } else {
+            // Someone forgot to set pending_exception.
+            writer.print("unknown error\n", .{}) catch {};
             _ = writer.flush() catch {};
         }
     }
