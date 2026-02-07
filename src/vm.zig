@@ -734,10 +734,8 @@ pub const VM = struct {
 
     pub fn executeInstruction(self: *VM) VMError!void {
         const frame = self.currentFrame();
-        if (frame.ip >= frame.chunk.code.items.len) {
-            try self.popFrame();
-            return;
-        }
+        if (frame.ip >= frame.chunk.code.items.len)
+            @panic("Something went wrong");
 
         const op = @as(bytecode.OpCode, @enumFromInt(self.readByte()));
 
