@@ -103,6 +103,7 @@ pub const VM = struct {
     argument_error_class: *value.ClassObject,
     type_error_class: *value.ClassObject,
     zero_division_error_class: *value.ClassObject,
+    name_error_class: *value.ClassObject,
     no_method_error_class: *value.ClassObject,
     load_error_class: *value.ClassObject,
 
@@ -170,6 +171,7 @@ pub const VM = struct {
             .argument_error_class = undefined,
             .type_error_class = undefined,
             .zero_division_error_class = undefined,
+            .name_error_class = undefined,
             .no_method_error_class = undefined,
             .load_error_class = undefined,
             .encoding_class = undefined,
@@ -290,8 +292,12 @@ pub const VM = struct {
         const zero_division_error_class_val = try self.newClass(zero_division_error_name_sym, self.standard_error_class);
         self.zero_division_error_class = zero_division_error_class_val.data.class;
 
+        const name_error_name_sym = try self.intern("NameError");
+        const name_error_class_val = try self.newClass(name_error_name_sym, self.standard_error_class);
+        self.name_error_class = name_error_class_val.data.class;
+
         const no_method_error_name_sym = try self.intern("NoMethodError");
-        const no_method_error_class_val = try self.newClass(no_method_error_name_sym, self.standard_error_class);
+        const no_method_error_class_val = try self.newClass(no_method_error_name_sym, self.name_error_class);
         self.no_method_error_class = no_method_error_class_val.data.class;
 
         const load_error_name_sym = try self.intern("LoadError");
@@ -332,6 +338,7 @@ pub const VM = struct {
         self.object_class.module.constants.put(argument_error_name_sym, argument_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(type_error_name_sym, type_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(zero_division_error_name_sym, zero_division_error_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(name_error_name_sym, name_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(no_method_error_name_sym, no_method_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(load_error_name_sym, load_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(encoding_name_sym, encoding_class_val) catch return error.Fatal;
@@ -641,7 +648,6 @@ pub const VM = struct {
                     "wrong argument type (expected Proc)",
                 );
                 self.pending_exception = exc;
-                try self.unwindStack();
                 return error.Unwind;
             }
         } else if (block_chunk_id != 0) {
@@ -829,7 +835,15 @@ pub const VM = struct {
                     if (self.object_class.module.constants.get(name_sym)) |const_val| {
                         try self.push(const_val);
                     } else {
-                        try self.push(Value.nil());
+                        const msg = std.fmt.allocPrint(
+                            self.gc_allocator,
+                            "uninitialized constant {s}",
+                            .{constant.string},
+                        ) catch return error.Fatal;
+                        const exc = try self.createException(self.name_error_class, msg);
+                        self.pending_exception = exc;
+                        try self.unwindStack();
+                        return;
                     }
                 } else {
                     try self.push(Value.nil());
@@ -862,17 +876,23 @@ pub const VM = struct {
                 if (constant == .string) {
                     const name_sym = try self.intern(constant.string);
 
-                    // Look up constant in the parent module/class
-                    const result = switch (parent_val.data) {
-                        .module => |m| m.constants.get(name_sym),
-                        .class => |c| c.module.constants.get(name_sym),
-                        else => null,
+                    const module = switch (parent_val.data) {
+                        .class => |c| &c.module,
+                        .module => |m| m,
+                        else => unreachable,
                     };
-
-                    if (result) |const_val| {
+                    if (module.constants.get(name_sym)) |const_val| {
                         try self.push(const_val);
                     } else {
-                        try self.push(Value.nil());
+                        const msg = std.fmt.allocPrint(
+                            self.gc_allocator,
+                            "uninitialized constant {s}::{s}",
+                            .{ module.name.name, constant.string },
+                        ) catch return error.Fatal;
+                        const exc = try self.createException(self.name_error_class, msg);
+                        self.pending_exception = exc;
+                        try self.unwindStack();
+                        return;
                     }
                 } else {
                     try self.push(Value.nil());

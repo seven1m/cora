@@ -84,3 +84,18 @@ test "Lexical scope: top-level fallback" {
     );
     try std.testing.expectEqual(@as(i64, 100), result.data.integer);
 }
+
+test "Unknown constant raises NameError" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+
+    const result = evalCodeWithOutput(
+        "UnknownConstant",
+        &stdout_buf,
+        &stderr_buf,
+    );
+
+    try std.testing.expectEqual(@as(?anyerror, error.Unwind), result.err);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "NameError") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "uninitialized constant UnknownConstant") != null);
+}

@@ -1,3 +1,3 @@
-module StringSpecs
-  class MyString < String; end
-end
+# module StringSpecs
+#   class MyString < String; end
+# end
