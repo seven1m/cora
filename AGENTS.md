@@ -58,6 +58,7 @@ Cora is a Ruby interpreter written in Zig using the Prism parser. It uses a **tw
 ## Memory Management
 
 **Infrastructure Allocator:** Manages HashMaps, call stack, bytecode chunks. Manually cleaned up.
+Prefer this allocator for VM-related housekeeping.
 
 **GC Allocator (Boehm-Demers-Weiser):** Manages all Ruby heap objects (ClassValue, ModuleValue, InstanceValue, method HashMaps). Conservative GC scans stack/heap. NO manual free().
 
@@ -76,19 +77,12 @@ Cora is a Ruby interpreter written in Zig using the Prism parser. It uses a **tw
 
 **New Value Type:** Add to `Value.data` union, factory method, update `Value.format()` for display.
 
-**Builtin Methods:** Core methods are registered in `VM.prepare()` on class/module objects using `.{ .builtin = &function }`. Examples include:
-- Kernel: `puts`, `p`, `raise`, `proc`, `lambda`, `require`, `require_relative`, `load`, `to_s`, `inspect`
-- Object: `new`
-- Module: `include`, `prepend`
-- Integer: `+`, `-`, `*`, `==`, `<`, `<=`, `>`, `>=`, `to_s`, `inspect`
-- Array: `push`, `length`, `each`, `to_s`, `inspect`
-- Hash: `[]`, `[]=`, `keys`, `values`, `each`, `size`, `to_s`, `inspect`
-- String: `+`, `to_s`, `inspect`
-- Proc: `new`, `call`, `lambda?`
-- Exception: `message`
-- TrueClass, FalseClass, NilClass: `to_s`, `inspect`
+**Builtin Methods:** Core methods are registered via `src/builtins/builtins.zig` (called from `VM.prepare()`), which delegates to per-class registrars like `src/builtins/integer.zig`. Registration uses `.{ .builtin = &function }`.
 
-**New Builtin Method:** Write function, register in `VM.prepare()` on appropriate class using `.{ .builtin = &function }`.
+**New Builtin Method:**
+1. Add the function in the appropriate `src/builtins/<type>.zig` file (or create a new one).
+2. Register it in that file's `register(vm: *VM)` by inserting `.{ .builtin = &function }` into the class/module method table.
+3. If you added a new builtins file, import it and call its `register(vm)` in `src/builtins/builtins.zig` `registerAll()`.
 
 ## Testing & Debugging
 
