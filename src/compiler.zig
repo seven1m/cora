@@ -144,7 +144,7 @@ pub const Compiler = struct {
                     int_val = -int_val;
                 }
                 const idx = try self.current_chunk.addConstant(.{ .integer = int_val });
-                try self.current_chunk.emitOpU16(.PUSH_INT, @intCast(idx), line);
+                try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(idx), line);
             },
 
             .string => |string_node| {

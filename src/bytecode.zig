@@ -5,7 +5,6 @@ pub const OpCode = enum(u8) {
     PUSH_NIL, // No operands
     PUSH_TRUE, // No operands
     PUSH_FALSE, // No operands
-    PUSH_INT, // Operand: u16 (constant pool index)
     PUSH_CONST, // Operand: u16 (constant pool index)
 
     // Variables and Constants
@@ -78,7 +77,6 @@ pub fn opcodeName(op: OpCode) []const u8 {
         .PUSH_NIL => "PUSH_NIL",
         .PUSH_TRUE => "PUSH_TRUE",
         .PUSH_FALSE => "PUSH_FALSE",
-        .PUSH_INT => "PUSH_INT",
         .PUSH_CONST => "PUSH_CONST",
         .GET_LOCAL => "GET_LOCAL",
         .GET_LOCAL_DEEP => "GET_LOCAL_DEEP",
@@ -153,7 +151,7 @@ pub const Instruction = struct {
         try writer.print("{s}", .{opcodeName(self.op)});
 
         switch (self.op) {
-            .PUSH_INT, .PUSH_CONST, .GET_CONST, .SET_CONST, .GET_CONST_PATH, .DEF_MODULE, .DEF_CLASS, .DEF_METHOD, .GET_GLOBAL, .SET_GLOBAL, .GET_IVAR, .SET_IVAR => {
+            .PUSH_CONST, .GET_CONST, .SET_CONST, .GET_CONST_PATH, .DEF_MODULE, .DEF_CLASS, .DEF_METHOD, .GET_GLOBAL, .SET_GLOBAL, .GET_IVAR, .SET_IVAR => {
                 try writer.print(" {d}", .{self.bx});
             },
             .CALL => {

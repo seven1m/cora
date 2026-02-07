@@ -752,13 +752,6 @@ pub const VM = struct {
                 try self.push(Value.boolean(false));
             },
 
-            .PUSH_INT => {
-                const idx = self.readU16();
-                const constant = self.currentChunk().constants.items[idx];
-                const val = try self.constantToValue(constant);
-                try self.push(val);
-            },
-
             .PUSH_CONST => {
                 const idx = self.readU16();
                 const constant = self.currentChunk().constants.items[idx];
