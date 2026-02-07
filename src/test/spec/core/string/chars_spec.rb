@@ -14,5 +14,3 @@ describe "String#chars" do
     end
   end
 end
-
-report_results

@@ -5,5 +5,3 @@ describe "FalseClass#inspect" do
     false.inspect.should == "false"
   end
 end
-
-report_results

@@ -143,8 +143,12 @@ pub fn evalCodeWithOutputAndPath(ruby_code: []const u8, stdout_buf: []u8, stderr
     var stderr_writer = TestWriter.init(&stderr_fbs);
     vm.stderr = &stderr_writer.interface;
 
-    const result = vm.run() catch |err| {
-        // If there was an error, print the exception to stderr
+    const run_result = vm.run();
+
+    const at_exit_result = vm.runAtExitHandlers();
+    if (at_exit_result) |_| {
+        // at_exit handlers completed
+    } else |err| {
         if (err == error.Unwind) {
             vm.printUnhandledException();
         }
@@ -154,12 +158,24 @@ pub fn evalCodeWithOutputAndPath(ruby_code: []const u8, stdout_buf: []u8, stderr
             .stderr = stderr_fbs.getWritten(),
             .err = err,
         };
-    };
+    }
 
-    return .{
-        .value = result,
-        .stdout = stdout_fbs.getWritten(),
-        .stderr = stderr_fbs.getWritten(),
-        .err = null,
-    };
+    if (run_result) |result| {
+        return .{
+            .value = result,
+            .stdout = stdout_fbs.getWritten(),
+            .stderr = stderr_fbs.getWritten(),
+            .err = null,
+        };
+    } else |err| {
+        if (err == error.Unwind) {
+            vm.printUnhandledException();
+        }
+        return .{
+            .value = Value.nil(),
+            .stdout = stdout_fbs.getWritten(),
+            .stderr = stderr_fbs.getWritten(),
+            .err = err,
+        };
+    }
 }

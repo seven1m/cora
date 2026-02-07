@@ -5,5 +5,3 @@ describe "TrueClass#inspect" do
     true.inspect.should == "true"
   end
 end
-
-report_results

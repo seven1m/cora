@@ -116,6 +116,19 @@ pub fn main() !void {
     defer virtual_machine.deinit();
 
     const result = virtual_machine.run();
+
+    const at_exit_result = virtual_machine.runAtExitHandlers();
+    if (at_exit_result) |_| {
+        // at_exit handlers completed
+    } else |err| switch (err) {
+        error.Unwind => {
+            // Unhandled exception from at_exit handler
+            virtual_machine.printUnhandledException();
+            std.process.exit(1);
+        },
+        else => return err,
+    }
+
     if (result) |_| {
         // Success - program executed without unhandled exceptions
     } else |err| switch (err) {

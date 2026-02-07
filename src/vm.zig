@@ -123,6 +123,8 @@ pub const VM = struct {
     // Block break state
     break_occurred: bool = false,
 
+    at_exit_handlers: std.ArrayList(Value) = .empty,
+
     // File loading infrastructure
     loaded_files: std.StringHashMap(void) = std.StringHashMap(void).init(std.heap.page_allocator),
     loaded_paths: std.ArrayList([]const u8) = .empty,
@@ -560,6 +562,7 @@ pub const VM = struct {
         self.env_stack_indices.deinit(self.allocator);
         self.symbols.deinit();
         self.globals.deinit();
+        self.at_exit_handlers.deinit(self.allocator);
     }
 
     pub fn run(self: *VM) VMError!Value {
@@ -572,6 +575,35 @@ pub const VM = struct {
         }
 
         return self.pop();
+    }
+
+    pub fn runAtExitHandlers(self: *VM) VMError!void {
+        if (self.at_exit_handlers.items.len == 0) return;
+
+        const original_exception = self.pending_exception;
+        var last_exception: ?*value.ExceptionObject = null;
+
+        while (self.at_exit_handlers.items.len > 0) {
+            const handler = self.at_exit_handlers.pop().?;
+            _ = self.callMethodByName(handler, "call", &[_]Value{}, null) catch |err| {
+                switch (err) {
+                    error.Unwind => {
+                        if (self.pending_exception) |exc| {
+                            last_exception = exc;
+                            self.pending_exception = null;
+                        }
+                    },
+                    else => return err,
+                }
+            };
+        }
+
+        if (last_exception) |exc| {
+            self.pending_exception = exc;
+            return error.Unwind;
+        }
+
+        self.pending_exception = original_exception;
     }
 
     pub fn currentFrame(self: *VM) *CallFrame {

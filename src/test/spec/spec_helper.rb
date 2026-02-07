@@ -116,3 +116,5 @@ def report_results
     end
   end
 end
+
+at_exit { report_results }
