@@ -54,10 +54,10 @@ test "ruby/spec" {
         specs.deinit(allocator);
     }
 
-    try collectSpecFiles(allocator, "src/test/spec", &specs);
+    try collectSpecFiles(allocator, "spec", &specs);
 
     if (specs.items.len == 0) {
-        std.debug.print("No spec files found in src/test/spec\n", .{});
+        std.debug.print("No spec files found in spec\n", .{});
         return error.NoSpecsFound;
     }
 

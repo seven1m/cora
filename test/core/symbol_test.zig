@@ -1,6 +1,7 @@
 const std = @import("std");
-const prism = @import("../../prism.zig");
-const VM = @import("../../vm.zig").VM;
+const cora = @import("cora");
+const prism = cora.prism;
+const VM = cora.vm.VM;
 const bdwgc = @import("bdwgc");
 const test_helper = @import("../test_helper.zig");
 

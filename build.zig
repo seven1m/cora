@@ -71,7 +71,7 @@ pub fn build(b: *std.Build) void {
 
     const test_exe = b.addTest(.{
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/all_test.zig"),
+            .root_source_file = b.path("test/all_test.zig"),
             .target = target,
             .optimize = optimize,
         }),
@@ -86,6 +86,14 @@ pub fn build(b: *std.Build) void {
 
     test_exe.root_module.addImport("bdwgc", bdwgc.module("bdwgc"));
     test_exe.root_module.addImport("build_options", options.createModule());
+    const cora_mod = b.createModule(.{
+        .root_source_file = b.path("src/lib.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    cora_mod.addImport("bdwgc", bdwgc.module("bdwgc"));
+    cora_mod.addIncludePath(b.path("zig-out/prism/include"));
+    test_exe.root_module.addImport("cora", cora_mod);
 
     const test_run = b.addRunArtifact(test_exe);
     test_run.step.dependOn(prism_build_step);

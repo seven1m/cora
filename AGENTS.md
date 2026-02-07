@@ -103,7 +103,7 @@ zig build test -Dtest-filter="Proc"
 zig build test -Dtest-filter="Proc" -Dtest-verbose
 ```
 
-Tests are in `src/test/language/*.zig`. When adding new test files, remember to add them to `src/all_test.zig`.
+Tests are in `test/language/*.zig`. When adding new test files, remember to add them to `test/all_test.zig`.
 
 **Running the CLI:**
 
@@ -126,7 +126,6 @@ Use "unmanaged" ArrayList: `field: ArrayList(*Value) = .empty` (allocator passed
 
 We have tests in both `*_test.zig` files and in `*_spec.rb` files.
 
-The zig tests are for bootstrapping language features or for edge cases not expressed in ruby spec files.
+The zig tests (in the `tests/` directory) are for bootstrapping language features and for edge cases not expressed in ruby spec files.
 
-The spec files come from [ruby/spec](https://github.com/ruby/spec), which is a community-maintained repository of specs describing Ruby. When implementing one of these specs, we'll copy it over and try to get it passing. Specs in `src/test/spec`
-should automatically be run. Look in `../ruby_spec` for the files before going to the web.
+The spec files (in the `spec/` directory) come from [ruby/spec](https://github.com/ruby/spec), which is a community-maintained repository of specs describing Ruby. When implementing one of these specs, we'll copy it over and try to get it passing. Look in `../ruby_spec` for the files before going to the web.

@@ -1,8 +1,9 @@
 const std = @import("std");
-const prism = @import("../prism.zig");
-const compiler = @import("../compiler.zig");
-const VM = @import("../vm.zig").VM;
-const Value = @import("../value.zig").Value;
+const cora = @import("cora");
+const prism = cora.prism;
+const compiler = cora.compiler;
+const VM = cora.vm.VM;
+const Value = cora.value.Value;
 const bdwgc = @import("bdwgc");
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};

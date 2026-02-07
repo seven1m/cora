@@ -1,5 +1,5 @@
 const std = @import("std");
-const Parser = @import("../prism.zig").Parser;
+const Parser = @import("cora").prism.Parser;
 
 test "Parser.init provides ProgramNode AST for invalid code" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};

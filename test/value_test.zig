@@ -1,5 +1,5 @@
 const std = @import("std");
-const Value = @import("../value.zig").Value;
+const Value = @import("cora").value.Value;
 const bdwgc = @import("bdwgc");
 
 test "Value.nil() is frozen" {
