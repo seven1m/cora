@@ -2705,10 +2705,11 @@ pub const VM = struct {
                 };
 
                 // Execute default expression chunk and bind the result
+                // (the default may set side-effect locals beyond local_idx via SET_LOCAL)
                 const default_value = try self.executeDefaultExpression(default_chunk, env);
                 env.variables[local_idx] = default_value;
                 local_idx += 1;
-                env.variables_len = @intCast(local_idx); // Update so later defaults can see earlier optionals
+                env.variables_len = @max(@as(u8, @intCast(local_idx)), env.variables_len);
             }
         }
 
@@ -2743,7 +2744,7 @@ pub const VM = struct {
             local_idx += 1;
         }
 
-        env.variables_len = @as(u8, @intCast(local_idx));
+        env.variables_len = @max(@as(u8, @intCast(local_idx)), env.variables_len);
     }
 
     fn bindKeywordArguments(

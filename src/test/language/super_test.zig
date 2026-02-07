@@ -194,3 +194,23 @@ test "super with optional parameters" {
     try std.testing.expect(result.data == .integer);
     try std.testing.expectEqual(15, result.data.integer);
 }
+
+test "bare super forwards correctly with side-effect locals in defaults" {
+    const result = try evalCode(
+        \\class A
+        \\  def foo(a, b)
+        \\    a + b
+        \\  end
+        \\end
+        \\
+        \\class B < A
+        \\  def foo(a=(x=10), b=(y=20))
+        \\    super
+        \\  end
+        \\end
+        \\
+        \\B.new.foo
+    );
+    try std.testing.expect(result.data == .integer);
+    try std.testing.expectEqual(30, result.data.integer);
+}

@@ -159,3 +159,36 @@ test "only optional parameters - one provided" {
     const result = try evalCode("def foo(a=5, b=10); a + b; end; foo(3)");
     try std.testing.expectEqual(@as(i64, 13), result.data.integer);
 }
+
+test "default expression side-effect locals visible in method body" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+
+    const code =
+        \\def bar
+        \\  42
+        \\end
+        \\def foo(a=(x=23), b=bar)
+        \\  p [a, x, b]
+        \\end
+        \\foo
+    ;
+
+    const result = evalCodeWithOutput(code, &stdout_buf, &stderr_buf);
+    try std.testing.expectEqualStrings("[23, 23, 42]\n", result.stdout);
+}
+
+test "default expression side-effect locals are nil when default not used" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+
+    const code =
+        \\def foo(a=(x=23))
+        \\  p [a, x]
+        \\end
+        \\foo(5)
+    ;
+
+    const result = evalCodeWithOutput(code, &stdout_buf, &stderr_buf);
+    try std.testing.expectEqualStrings("[5, nil]\n", result.stdout);
+}

@@ -779,11 +779,12 @@ pub const Compiler = struct {
     }
 
     /// Process optional parameters and compile their default expressions
+    /// Phase 1: Register optional parameter names as locals (no default compilation).
+    /// Default expressions are compiled later by compileOptionalDefaults to keep
+    /// parameter slots contiguous (side-effect locals go after all params).
     fn processOptionalParameters(
         self: *Compiler,
         params: *prism.ParametersNode,
-        target_chunk: *Chunk,
-        line: u32,
     ) !void {
         if (params.optionals.size > 0) {
             if (params.optionals.size > 255) {
@@ -800,42 +801,58 @@ pub const Compiler = struct {
                 }
 
                 const opt_param = opt_node.optional_parameter;
-
-                // Add parameter to locals
                 const param_name = try self.parser.getLocalVariableName(opt_param.name);
                 try self.addLocal(param_name);
-                const param_idx = @as(u8, @intCast(self.locals.items.len - 1));
-
-                // Compile default expression into a mini-chunk (track immediately before compilation)
-                const default_chunk_ptr = try self.allocator.create(chunk.Chunk);
-                default_chunk_ptr.* = chunk.Chunk.init(self.allocator, "default");
-                default_chunk_ptr.source_file = self.parser.source_file;
-                const default_chunk_id = try self.nextChunkId();
-                default_chunk_ptr.chunk_id = default_chunk_id;
-                try self.method_chunks.put(default_chunk_id, default_chunk_ptr);
-
-                // Save current chunk and compile default expression
-                const saved_chunk_for_default = self.current_chunk;
-                const saved_locals_for_default = self.locals.items.len;
-                self.current_chunk = default_chunk_ptr;
-
-                // Compile the default value expression
-                const value_node = try self.parser.asNode(@ptrCast(opt_param.value));
-                try self.compileNode(value_node, line);
-
-                // Default chunks implicitly return their value
-                try self.current_chunk.emitOpU8(.RETURN, 0, line);
-
-                // Restore chunk and locals
-                self.current_chunk = saved_chunk_for_default;
-                self.locals.items.len = saved_locals_for_default;
-
-                // Record optional param metadata
-                try target_chunk.optional_params.append(self.allocator, .{
-                    .param_index = param_idx,
-                    .default_chunk_id = @intCast(default_chunk_id),
-                });
             }
+        }
+    }
+
+    /// Phase 2: Compile default expressions for optional parameters.
+    /// Called after all parameter names are registered so side-effect locals
+    /// (e.g., x in `a=(x=23)`) get slots after all parameters.
+    fn compileOptionalDefaults(
+        self: *Compiler,
+        params: *prism.ParametersNode,
+        target_chunk: *Chunk,
+        optional_start_slot: u8,
+        line: u32,
+    ) !void {
+        if (params.optionals.size == 0) return;
+
+        var i: usize = 0;
+        while (i < params.optionals.size) : (i += 1) {
+            const opt_node_ptr = params.optionals.nodes[i];
+            const opt_node = try self.parser.asNode(@ptrCast(opt_node_ptr));
+            const opt_param = opt_node.optional_parameter;
+
+            const param_idx = optional_start_slot + @as(u8, @intCast(i));
+
+            // Compile default expression into a mini-chunk
+            const default_chunk_ptr = try self.allocator.create(chunk.Chunk);
+            default_chunk_ptr.* = chunk.Chunk.init(self.allocator, "default");
+            default_chunk_ptr.source_file = self.parser.source_file;
+            const default_chunk_id = try self.nextChunkId();
+            default_chunk_ptr.chunk_id = default_chunk_id;
+            try self.method_chunks.put(default_chunk_id, default_chunk_ptr);
+
+            const saved_chunk_for_default = self.current_chunk;
+            self.current_chunk = default_chunk_ptr;
+
+            // Compile the default value expression
+            const value_node = try self.parser.asNode(@ptrCast(opt_param.value));
+            try self.compileNode(value_node, line);
+
+            // Default chunks implicitly return their value
+            try self.current_chunk.emitOpU8(.RETURN, 0, line);
+
+            // Restore chunk (but NOT locals — side-effect locals persist)
+            self.current_chunk = saved_chunk_for_default;
+
+            // Record optional param metadata
+            try target_chunk.optional_params.append(self.allocator, .{
+                .param_index = param_idx,
+                .default_chunk_id = @intCast(default_chunk_id),
+            });
         }
     }
 
@@ -868,8 +885,9 @@ pub const Compiler = struct {
             }
         }
 
-        // 2. Process optional parameters
-        try self.processOptionalParameters(params, target_chunk, line);
+        // 2. Process optional parameters (names only — defaults compiled in step 7)
+        const optional_start_slot = @as(u8, @intCast(self.locals.items.len));
+        try self.processOptionalParameters(params);
 
         // 3. Process rest parameter
         if (params.rest) |rest_ptr| {
@@ -921,6 +939,10 @@ pub const Compiler = struct {
                 unreachable;
             }
         }
+
+        // 7. Compile optional defaults (after all param names are registered,
+        // so side-effect locals get slots after all parameters)
+        try self.compileOptionalDefaults(params, target_chunk, optional_start_slot, line);
 
         return .{
             .param_count = param_count,
