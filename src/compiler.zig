@@ -161,6 +161,19 @@ pub const Compiler = struct {
                 try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(idx), line);
             },
 
+            .regular_expression => |regexp_node| {
+                const pattern = regexp_node.unescaped;
+                const pattern_slice = pattern.source[0..pattern.length];
+                const idx = try self.current_chunk.addConstant(.{ .string = pattern_slice });
+                // Map Prism flags to Onigmo option bits
+                const flags = regexp_node.base.flags;
+                var options: u16 = 0;
+                if ((flags & prism.REGEXP_FLAGS_IGNORE_CASE) != 0) options |= 1; // ONIG_OPTION_IGNORECASE
+                if ((flags & prism.REGEXP_FLAGS_EXTENDED) != 0) options |= 2; // ONIG_OPTION_EXTEND
+                if ((flags & prism.REGEXP_FLAGS_MULTI_LINE) != 0) options |= 4; // ONIG_OPTION_MULTILINE
+                try self.current_chunk.emitOpU16U16(.PUSH_REGEXP, @intCast(idx), options, line);
+            },
+
             .interpolated_string => |interp_node| {
                 const part_count: u8 = @intCast(interp_node.parts.size);
 

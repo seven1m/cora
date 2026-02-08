@@ -1,3 +1,6 @@
 [submodule "ext/prism"]
 	path = ext/prism
 	url = https://github.com/ruby/prism
+[submodule "ext/onigmo"]
+	path = ext/onigmo
+	url = https://github.com/k-takata/Onigmo

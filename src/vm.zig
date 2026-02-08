@@ -3,6 +3,7 @@ const bytecode = @import("bytecode.zig");
 const chunk = @import("chunk.zig");
 const compiler = @import("compiler.zig");
 const enc = @import("encoding.zig");
+const onigmo = @import("onigmo.zig");
 const value = @import("value.zig");
 const prism = @import("prism.zig");
 const builtins = @import("builtins/builtins.zig");
@@ -99,6 +100,7 @@ pub const VM = struct {
     hash_class: *value.ClassObject,
     range_class: *value.ClassObject,
     proc_class: *value.ClassObject,
+    regexp_class: *value.ClassObject,
     nil_class: *value.ClassObject,
     true_class: *value.ClassObject,
     false_class: *value.ClassObject,
@@ -116,6 +118,7 @@ pub const VM = struct {
     no_method_error_class: *value.ClassObject,
     load_error_class: *value.ClassObject,
     range_error_class: *value.ClassObject,
+    regexp_error_class: *value.ClassObject,
 
     // Encoding infrastructure
     encoding_class: *value.ClassObject,
@@ -174,6 +177,7 @@ pub const VM = struct {
             .hash_class = undefined,
             .range_class = undefined,
             .proc_class = undefined,
+            .regexp_class = undefined,
             .nil_class = undefined,
             .true_class = undefined,
             .false_class = undefined,
@@ -188,6 +192,7 @@ pub const VM = struct {
             .no_method_error_class = undefined,
             .load_error_class = undefined,
             .range_error_class = undefined,
+            .regexp_error_class = undefined,
             .encoding_class = undefined,
             .encoding_utf8 = undefined,
             .encoding_ascii_8bit = undefined,
@@ -268,6 +273,10 @@ pub const VM = struct {
         const proc_class_val = try self.newClass(proc_name_sym, self.object_class);
         self.proc_class = proc_class_val.data.class;
 
+        const regexp_name_sym = try self.intern("Regexp");
+        const regexp_class_val = try self.newClass(regexp_name_sym, self.object_class);
+        self.regexp_class = regexp_class_val.data.class;
+
         const nil_class_name_sym = try self.intern("NilClass");
         const nil_class_val = try self.newClass(nil_class_name_sym, self.object_class);
         self.nil_class = nil_class_val.data.class;
@@ -325,6 +334,10 @@ pub const VM = struct {
         const range_error_class_val = try self.newClass(range_error_name_sym, self.standard_error_class);
         self.range_error_class = range_error_class_val.data.class;
 
+        const regexp_error_name_sym = try self.intern("RegexpError");
+        const regexp_error_class_val = try self.newClass(regexp_error_name_sym, self.standard_error_class);
+        self.regexp_error_class = regexp_error_class_val.data.class;
+
         // Encoding class and singleton encoding objects
         const encoding_name_sym = try self.intern("Encoding");
         const encoding_class_val = try self.newClass(encoding_name_sym, self.object_class);
@@ -351,6 +364,7 @@ pub const VM = struct {
         self.object_class.module.constants.put(hash_name_sym, hash_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(range_name_sym, range_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(proc_name_sym, proc_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(regexp_name_sym, regexp_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(nil_class_name_sym, nil_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(true_class_name_sym, true_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(false_class_name_sym, false_class_val) catch return error.Fatal;
@@ -365,6 +379,7 @@ pub const VM = struct {
         self.object_class.module.constants.put(no_method_error_name_sym, no_method_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(load_error_name_sym, load_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(range_error_name_sym, range_error_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(regexp_error_name_sym, regexp_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(encoding_name_sym, encoding_class_val) catch return error.Fatal;
 
         // Register encoding constants on Encoding class
@@ -1382,6 +1397,14 @@ pub const VM = struct {
                 try self.push(proc_val);
             },
 
+            .PUSH_REGEXP => {
+                const pattern_idx = self.readU16();
+                const options = self.readU16();
+                const pattern = self.currentChunk().constants.items[pattern_idx].string;
+                const result = try self.newRegexp(pattern, options);
+                try self.push(result);
+            },
+
             .BREAK => {
                 // Break value is already on stack (pushed by compileBreakStatement)
                 self.break_occurred = true;
@@ -1915,6 +1938,7 @@ pub const VM = struct {
             .class => |c| return c.module.object.class.?,
             .proc => |p| return p.object.class.?,
             .range => |r| return r.object.class.?,
+            .regexp => |r| return r.object.class.?,
 
             // Primitives without Object headers - hardcode the class
             .integer => return self.integer_class,
@@ -1936,6 +1960,7 @@ pub const VM = struct {
             .exception => |e| &e.object,
             .proc => |p| &p.object,
             .range => |r| &r.object,
+            .regexp => |r| &r.object,
             .integer, .nil, .boolean => null,
         };
     }
@@ -2145,6 +2170,7 @@ pub const VM = struct {
             .exception => self.exception_class,
             .encoding => self.encoding_class,
             .proc => self.proc_class,
+            .regexp => self.regexp_class,
             .integer, .boolean, .nil => unreachable, // Primitives can't have singleton classes
         };
 
@@ -2249,6 +2275,41 @@ pub const VM = struct {
             .exclude_end = false,
         };
         return .{ .data = .{ .range = range_obj } };
+    }
+
+    pub fn newRegexp(self: *VM, pattern: []const u8, options: u16) VMError!Value {
+        // Map our option bits to Onigmo options
+        var onig_options: u32 = 0;
+        if ((options & 1) != 0) onig_options |= onigmo.OPTION_IGNORECASE;
+        if ((options & 2) != 0) onig_options |= onigmo.OPTION_EXTEND;
+        if ((options & 4) != 0) onig_options |= onigmo.OPTION_MULTILINE;
+
+        const result = onigmo.compile(pattern.ptr, pattern.ptr + pattern.len, onig_options);
+
+        if (result.err) |err| {
+            return self.raiseExceptionFmt(
+                self.regexp_error_class,
+                "{s}",
+                .{err.message[0..err.len]},
+            );
+        }
+
+        // Duplicate the pattern string so it's owned by GC
+        const pattern_copy = self.gc_allocator_atomic.dupe(u8, pattern) catch return error.Fatal;
+
+        const regexp_obj = self.gc_allocator.create(value.RegexpObject) catch return error.Fatal;
+        regexp_obj.* = .{
+            .object = .{
+                .flags = value.Object.FROZEN_FLAG,
+                .class = self.regexp_class,
+                .singleton_class = null,
+                .instance_variables = null,
+            },
+            .pattern = pattern_copy,
+            .options = options,
+            .regex = result.regex.?,
+        };
+        return .{ .data = .{ .regexp = regexp_obj } };
     }
 
     pub fn newObjectForClass(self: *VM, class_obj: *ClassObject) VMError!Value {

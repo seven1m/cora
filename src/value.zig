@@ -4,6 +4,7 @@ const bdwgc = @import("bdwgc");
 const Chunk = @import("chunk.zig").Chunk;
 const VM = @import("vm.zig").VM;
 const Method = @import("vm.zig").Method;
+const onigmo = @import("onigmo.zig");
 
 const encoding = @import("encoding.zig");
 const Encoding = encoding.Encoding;
@@ -109,6 +110,13 @@ pub const ProcObject = struct {
     block: Block,
 };
 
+pub const RegexpObject = struct {
+    object: Object,
+    pattern: []const u8,
+    options: u16,
+    regex: onigmo.OnigRegex,
+};
+
 pub const Value = struct {
     data: union(enum) {
         array: *ArrayObject,
@@ -123,6 +131,7 @@ pub const Value = struct {
         nil: void,
         proc: *ProcObject,
         range: *RangeObject,
+        regexp: *RegexpObject,
         string: *StringObject,
         symbol: *SymbolObject,
     },
@@ -133,6 +142,8 @@ pub const Value = struct {
             .integer, .nil, .boolean => true,
             // Encoding objects are always frozen (singletons)
             .encoding => true,
+            // Regexp literals are always frozen (like in Ruby)
+            .regexp => true,
             // Objects check their flags
             .string => |s| (s.object.flags & Object.FROZEN_FLAG) != 0,
             .symbol => |s| (s.object.flags & Object.FROZEN_FLAG) != 0,
@@ -177,6 +188,7 @@ pub const Value = struct {
             .hash => |h| &h.object,
             .proc => |p| &p.object,
             .range => |r| &r.object,
+            .regexp => |r| &r.object,
             .integer, .nil, .boolean => null,
         };
     }
@@ -252,6 +264,7 @@ pub const Value = struct {
             },
             .proc => |p| try writer.print("#<Proc:0x{x}>", .{@intFromPtr(p)}),
             .range => |_| try writer.print("#<Range>", .{}),
+            .regexp => |r| try writer.print("/{s}/", .{r.pattern}),
         }
     }
 
@@ -262,6 +275,7 @@ pub const Value = struct {
             .nil => 0,
             .symbol => |s| @intFromPtr(s),
             .string => |s| std.hash.Wyhash.hash(0, s.str),
+            .regexp => |r| std.hash.Wyhash.hash(@as(u64, r.options), r.pattern),
             else => @intFromPtr(self.getObjectPointer() orelse return 0),
         };
     }
@@ -278,6 +292,7 @@ pub const Value = struct {
             .nil => true,
             .symbol => |s| s == other.data.symbol,
             .string => |s| std.mem.eql(u8, s.str, other.data.string.str),
+            .regexp => |r| std.mem.eql(u8, r.pattern, other.data.regexp.pattern) and r.options == other.data.regexp.options,
             else => self.hash() == other.hash(),
         };
     }

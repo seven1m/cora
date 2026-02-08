@@ -66,6 +66,9 @@ pub const OpCode = enum(u8) {
     // Super calls
     SUPER, // Operands: u8 (argc), u16 (block_chunk_id)
     FORWARDING_SUPER, // Operand: u16 (block_chunk_id)
+
+    // Regexp
+    PUSH_REGEXP, // Operands: u16 (pattern constant index), u16 (options)
 };
 
 pub const BuiltinId = enum(u8) {
@@ -118,6 +121,7 @@ pub fn opcodeName(op: OpCode) []const u8 {
         .BREAK => "BREAK",
         .SUPER => "SUPER",
         .FORWARDING_SUPER => "FORWARDING_SUPER",
+        .PUSH_REGEXP => "PUSH_REGEXP",
     };
 }
 
@@ -172,6 +176,9 @@ pub const Instruction = struct {
             },
             .PUSH_LAMBDA => {
                 try writer.print(" {d}", .{self.ax});
+            },
+            .PUSH_REGEXP => {
+                try writer.print(" {d} {d}", .{ self.bx, self.ax });
             },
             else => {},
         }

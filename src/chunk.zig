@@ -514,6 +514,20 @@ pub const Chunk = struct {
                 try writer.print("FORWARDING_SUPER {d}\n", .{block_id});
                 next_ip += 2;
             },
+
+            .PUSH_REGEXP => {
+                const pattern_idx = bytecode.readU16(self.code.items, next_ip);
+                const options = bytecode.readU16(self.code.items, next_ip + 2);
+                try writer.print("PUSH_REGEXP {d} {d}", .{ pattern_idx, options });
+                if (pattern_idx < self.constants.items.len) {
+                    const constant = self.constants.items[pattern_idx];
+                    if (constant == .string) {
+                        try writer.print(" (/{s}/)", .{constant.string});
+                    }
+                }
+                try writer.print("\n", .{});
+                next_ip += 4;
+            },
         }
 
         return next_ip;
