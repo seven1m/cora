@@ -185,23 +185,13 @@ pub fn builtinArrayAll(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
                 return result.value;
             }
 
-            const is_truthy = switch (result.value.data) {
-                .nil => false,
-                .boolean => result.value.data.boolean,
-                else => true,
-            };
-            if (!is_truthy) return Value.boolean(false);
+            if (!result.value.is_truthy()) return Value.boolean(false);
         }
         return Value.boolean(true);
     }
 
     for (array_obj.elements.items) |element| {
-        const is_truthy = switch (element.data) {
-            .nil => false,
-            .boolean => element.data.boolean,
-            else => true,
-        };
-        if (!is_truthy) return Value.boolean(false);
+        if (!element.is_truthy()) return Value.boolean(false);
     }
 
     return Value.boolean(true);

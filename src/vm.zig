@@ -924,13 +924,7 @@ pub const VM = struct {
                 const offset = self.readI16();
                 const cond = self.pop();
 
-                const is_falsy = switch (cond.data) {
-                    .nil => true,
-                    .boolean => !cond.data.boolean,
-                    else => false,
-                };
-
-                if (is_falsy) {
+                if (!cond.is_truthy()) {
                     frame.ip = @intCast(@as(i32, @intCast(frame.ip)) + offset);
                 }
             },
@@ -939,13 +933,7 @@ pub const VM = struct {
                 const offset = self.readI16();
                 const cond = self.pop();
 
-                const is_truthy = switch (cond.data) {
-                    .nil => false,
-                    .boolean => cond.data.boolean,
-                    else => true,
-                };
-
-                if (is_truthy) {
+                if (cond.is_truthy()) {
                     frame.ip = @intCast(@as(i32, @intCast(frame.ip)) + offset);
                 }
             },
