@@ -97,7 +97,7 @@ test "Calling undefined class method raises NoMethodError" {
         \\Foo.undefined_method
     , &stdout_buf, &stderr_buf);
 
-    try std.testing.expectEqual(error.Unwind, result.err.?);
+    try std.testing.expectEqual(error.UnhandledException, result.err.?);
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, "NoMethodError") != null);
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, "undefined_method") != null);
 }
@@ -111,7 +111,7 @@ test "Calling undefined singleton method on instance raises NoMethodError" {
         \\foo.undefined_singleton_method
     , &stdout_buf, &stderr_buf);
 
-    try std.testing.expectEqual(error.Unwind, result.err.?);
+    try std.testing.expectEqual(error.UnhandledException, result.err.?);
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, "NoMethodError") != null);
 }
 

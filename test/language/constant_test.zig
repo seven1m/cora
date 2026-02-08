@@ -95,7 +95,7 @@ test "Unknown constant raises NameError" {
         &stderr_buf,
     );
 
-    try std.testing.expectEqual(@as(?anyerror, error.Unwind), result.err);
+    try std.testing.expectEqual(@as(?anyerror, error.UnhandledException), result.err);
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, "NameError") != null);
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, "uninitialized constant UnknownConstant") != null);
 }

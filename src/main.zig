@@ -121,7 +121,7 @@ pub fn main() !void {
     if (at_exit_result) |_| {
         // at_exit handlers completed
     } else |err| switch (err) {
-        error.Unwind => {
+        error.UnhandledException => {
             // Unhandled exception from at_exit handler
             virtual_machine.printUnhandledException();
             std.process.exit(1);
@@ -132,7 +132,7 @@ pub fn main() !void {
     if (result) |_| {
         // Success - program executed without unhandled exceptions
     } else |err| switch (err) {
-        error.Unwind => {
+        error.UnhandledException => {
             // Unhandled Ruby exception - print it
             virtual_machine.printUnhandledException();
             std.process.exit(1);

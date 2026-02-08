@@ -103,7 +103,7 @@ test "lambda with optional parameter strict arity - provided" {
 
 test "lambda with optional parameter too many args raises error" {
     try std.testing.expectError(
-        error.Unwind,
+        error.UnhandledException,
         evalCode("l = ->(a, b=10) { a + b }; l.call(5, 3, 7)"),
     );
 }

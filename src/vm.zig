@@ -16,8 +16,17 @@ const SymbolObject = value.SymbolObject;
 const Chunk = chunk.Chunk;
 
 pub const VMError = error{
-    Unwind, // Triggers stack unwind - actual error info is in pending_exception
-    Fatal, // Unrecoverable VM error (e.g., OOM, corrupted bytecode)
+    // Unhandled Ruby exception returned by VM.run()
+    // Exception object is in pending_exception.
+    // Caller should probably call printUnhandledException().
+    UnhandledException,
+
+    // Unrecoverable VM error (e.g., OOM, corrupted bytecode)
+    Fatal,
+
+    // Triggers stack unwind internally
+    // This shouldn't escape VM.run().
+    Unwind,
 };
 
 pub const Method = union(enum) {
@@ -563,11 +572,8 @@ pub const VM = struct {
 
     pub fn run(self: *VM) VMError!Value {
         self.setupOutput();
-
         try self.pushFrame(&self.program.main_chunk, self.main_self, null);
-
         try self.executeInstructionsUntilFrameLength(1);
-
         return self.pop();
     }
 
@@ -581,7 +587,7 @@ pub const VM = struct {
             const handler = self.at_exit_handlers.pop().?;
             _ = self.callMethodByName(handler, "call", &[_]Value{}, null) catch |err| {
                 switch (err) {
-                    error.Unwind => {
+                    error.UnhandledException => {
                         if (self.pending_exception) |exc| {
                             last_exception = exc;
                             self.pending_exception = null;
@@ -594,7 +600,7 @@ pub const VM = struct {
 
         if (last_exception) |exc| {
             self.pending_exception = exc;
-            return error.Unwind;
+            return error.UnhandledException;
         }
 
         self.pending_exception = original_exception;
@@ -2960,7 +2966,7 @@ pub const VM = struct {
 
         // If we get here, no handler was found - return error
         // Caller (main.zig) will print the unhandled exception
-        return error.Unwind;
+        return error.UnhandledException;
     }
 
     /// Find an exception handler in the current frame

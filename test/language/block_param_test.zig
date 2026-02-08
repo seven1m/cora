@@ -208,7 +208,7 @@ test "proc flag preserved when passing" {
 }
 
 test "passing invalid type raises TypeError" {
-    try std.testing.expectError(error.Unwind, evalCode(
+    try std.testing.expectError(error.UnhandledException, evalCode(
         \\def bar(&block)
         \\  block.call
         \\end

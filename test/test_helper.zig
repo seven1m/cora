@@ -150,7 +150,7 @@ pub fn evalCodeWithOutputAndPath(ruby_code: []const u8, stdout_buf: []u8, stderr
     if (at_exit_result) |_| {
         // at_exit handlers completed
     } else |err| {
-        if (err == error.Unwind) {
+        if (err == error.UnhandledException) {
             vm.printUnhandledException();
         }
         return .{
@@ -169,7 +169,7 @@ pub fn evalCodeWithOutputAndPath(ruby_code: []const u8, stdout_buf: []u8, stderr
             .err = null,
         };
     } else |err| {
-        if (err == error.Unwind) {
+        if (err == error.UnhandledException) {
             vm.printUnhandledException();
         }
         return .{

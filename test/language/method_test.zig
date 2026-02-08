@@ -44,7 +44,7 @@ test "NoMethodError raised for undefined method" {
         \\Foo.new.bar
     , &stdout_buf, &stderr_buf);
 
-    try std.testing.expectEqual(error.Unwind, result.err.?);
+    try std.testing.expectEqual(error.UnhandledException, result.err.?);
 
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, "NoMethodError") != null);
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, "bar") != null);
@@ -60,6 +60,6 @@ test "TypeError raised for wrong receiver type" {
         &stderr_buf,
     );
 
-    try std.testing.expectEqual(error.Unwind, result.err.?);
+    try std.testing.expectEqual(error.UnhandledException, result.err.?);
     // Note: Exception is raised, but message content checking depends on implementation
 }

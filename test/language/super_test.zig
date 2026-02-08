@@ -145,7 +145,7 @@ test "NoMethodError when no superclass method" {
         \\B.new.foo
     , &stdout_buf, &stderr_buf);
 
-    try std.testing.expectEqual(error.Unwind, result.err.?);
+    try std.testing.expectEqual(error.UnhandledException, result.err.?);
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, "NoMethodError") != null);
 }
 
