@@ -16,7 +16,7 @@ pub fn register(vm: *VM) !void {
 
 pub fn builtinObjectNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     const class_ptr = receiver.data.class;
-    const instance = try vm.newInstance(class_ptr);
+    const instance = try vm.newObjectForClass(class_ptr);
 
     // Call initialize if it exists
     const init_sym = try vm.intern("initialize");

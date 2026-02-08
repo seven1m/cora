@@ -230,6 +230,48 @@ pub const Compiler = struct {
                 }
             },
 
+            .range => |range_node| {
+                // Push Range class onto the stack
+                const range_name_idx = try self.current_chunk.addConstant(.{ .string = "Range" });
+                try self.current_chunk.emitOpU16(.GET_CONST, @intCast(range_name_idx), line);
+
+                // Compile left endpoint (nil for beginless)
+                if (range_node.left != null) {
+                    const left_node = try self.parser.asNode(@ptrCast(range_node.left));
+                    if (left_node == .missing) {
+                        try self.current_chunk.emitOp(.PUSH_NIL, line);
+                    } else {
+                        try self.compileNode(left_node, line);
+                    }
+                } else {
+                    try self.current_chunk.emitOp(.PUSH_NIL, line);
+                }
+
+                // Compile right endpoint (nil for endless)
+                if (range_node.right != null) {
+                    const right_node = try self.parser.asNode(@ptrCast(range_node.right));
+                    if (right_node == .missing) {
+                        try self.current_chunk.emitOp(.PUSH_NIL, line);
+                    } else {
+                        try self.compileNode(right_node, line);
+                    }
+                } else {
+                    try self.current_chunk.emitOp(.PUSH_NIL, line);
+                }
+
+                // Exclude end flag
+                const exclude_end = (range_node.base.flags & prism.RANGE_FLAGS_EXCLUDE_END) != 0;
+                if (exclude_end) {
+                    try self.current_chunk.emitOp(.PUSH_TRUE, line);
+                } else {
+                    try self.current_chunk.emitOp(.PUSH_FALSE, line);
+                }
+
+                // Call Range.new(begin, end, exclude_end)
+                const method_idx = try self.current_chunk.addConstant(.{ .string = "new" });
+                try self.current_chunk.emitOpU16U8U16(.CALL, @intCast(method_idx), 3, 0, line);
+            },
+
             .local_variable_read => |var_read| {
                 const var_name = try self.parser.getLocalVariableName(var_read.name);
                 // Try to find in current scope first

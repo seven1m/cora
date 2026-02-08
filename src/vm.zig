@@ -97,6 +97,7 @@ pub const VM = struct {
     symbol_class: *value.ClassObject,
     array_class: *value.ClassObject,
     hash_class: *value.ClassObject,
+    range_class: *value.ClassObject,
     proc_class: *value.ClassObject,
     nil_class: *value.ClassObject,
     true_class: *value.ClassObject,
@@ -114,6 +115,7 @@ pub const VM = struct {
     name_error_class: *value.ClassObject,
     no_method_error_class: *value.ClassObject,
     load_error_class: *value.ClassObject,
+    range_error_class: *value.ClassObject,
 
     // Encoding infrastructure
     encoding_class: *value.ClassObject,
@@ -170,6 +172,7 @@ pub const VM = struct {
             .symbol_class = undefined,
             .array_class = undefined,
             .hash_class = undefined,
+            .range_class = undefined,
             .proc_class = undefined,
             .nil_class = undefined,
             .true_class = undefined,
@@ -184,6 +187,7 @@ pub const VM = struct {
             .name_error_class = undefined,
             .no_method_error_class = undefined,
             .load_error_class = undefined,
+            .range_error_class = undefined,
             .encoding_class = undefined,
             .encoding_utf8 = undefined,
             .encoding_ascii_8bit = undefined,
@@ -249,12 +253,16 @@ pub const VM = struct {
         self.symbol_class = symbol_class_val.data.class;
 
         const array_name_sym = try self.intern("Array");
-        const array_class_val = try self.newClass(array_name_sym, self.object_class);
+        const array_class_val = try self.newClassWithType(array_name_sym, self.object_class, .array);
         self.array_class = array_class_val.data.class;
 
         const hash_name_sym = try self.intern("Hash");
-        const hash_class_val = try self.newClass(hash_name_sym, self.object_class);
+        const hash_class_val = try self.newClassWithType(hash_name_sym, self.object_class, .hash);
         self.hash_class = hash_class_val.data.class;
+
+        const range_name_sym = try self.intern("Range");
+        const range_class_val = try self.newClassWithType(range_name_sym, self.object_class, .range);
+        self.range_class = range_class_val.data.class;
 
         const proc_name_sym = try self.intern("Proc");
         const proc_class_val = try self.newClass(proc_name_sym, self.object_class);
@@ -313,6 +321,10 @@ pub const VM = struct {
         const load_error_class_val = try self.newClass(load_error_name_sym, self.standard_error_class);
         self.load_error_class = load_error_class_val.data.class;
 
+        const range_error_name_sym = try self.intern("RangeError");
+        const range_error_class_val = try self.newClass(range_error_name_sym, self.standard_error_class);
+        self.range_error_class = range_error_class_val.data.class;
+
         // Encoding class and singleton encoding objects
         const encoding_name_sym = try self.intern("Encoding");
         const encoding_class_val = try self.newClass(encoding_name_sym, self.object_class);
@@ -337,6 +349,7 @@ pub const VM = struct {
         self.object_class.module.constants.put(symbol_name_sym, symbol_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(array_name_sym, array_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(hash_name_sym, hash_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(range_name_sym, range_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(proc_name_sym, proc_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(nil_class_name_sym, nil_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(true_class_name_sym, true_class_val) catch return error.Fatal;
@@ -351,6 +364,7 @@ pub const VM = struct {
         self.object_class.module.constants.put(name_error_name_sym, name_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(no_method_error_name_sym, no_method_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(load_error_name_sym, load_error_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(range_error_name_sym, range_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(encoding_name_sym, encoding_class_val) catch return error.Fatal;
 
         // Register encoding constants on Encoding class
@@ -1215,11 +1229,7 @@ pub const VM = struct {
             .PUSH_ARRAY => {
                 const element_count = self.readByte();
 
-                const array_obj = self.gc_allocator.create(value.ArrayObject) catch return error.Fatal;
-                array_obj.* = .{
-                    .object = .{ .flags = 0, .class = self.array_class, .singleton_class = null, .instance_variables = null },
-                    .elements = .empty,
-                };
+                const array_obj = try self.createArray();
 
                 var i: usize = 0;
                 while (i < element_count) : (i += 1) {
@@ -1233,12 +1243,7 @@ pub const VM = struct {
             .PUSH_HASH => {
                 const pair_count = self.readByte();
 
-                const hash_obj = self.gc_allocator.create(value.HashObject) catch return error.Fatal;
-                hash_obj.* = .{
-                    .object = .{ .flags = 0, .class = self.hash_class, .singleton_class = null, .instance_variables = null },
-                    .map = std.AutoHashMap(u64, usize).init(self.gc_allocator),
-                    .entries = .empty,
-                };
+                const hash_obj = try self.createHash();
 
                 var i: usize = 0;
                 while (i < pair_count) : (i += 1) {
@@ -1909,6 +1914,7 @@ pub const VM = struct {
             .module => |m| return m.object.class.?,
             .class => |c| return c.module.object.class.?,
             .proc => |p| return p.object.class.?,
+            .range => |r| return r.object.class.?,
 
             // Primitives without Object headers - hardcode the class
             .integer => return self.integer_class,
@@ -1929,6 +1935,7 @@ pub const VM = struct {
             .hash => |h| &h.object,
             .exception => |e| &e.object,
             .proc => |p| &p.object,
+            .range => |r| &r.object,
             .integer, .nil, .boolean => null,
         };
     }
@@ -2134,6 +2141,7 @@ pub const VM = struct {
             .symbol => self.symbol_class,
             .array => self.array_class,
             .hash => self.hash_class,
+            .range => self.range_class,
             .exception => self.exception_class,
             .encoding => self.encoding_class,
             .proc => self.proc_class,
@@ -2144,6 +2152,7 @@ pub const VM = struct {
         const singleton_class = self.gc_allocator.create(ClassObject) catch return error.Fatal;
         singleton_class.* = .{
             .superclass = singleton_superclass,
+            .object_type = singleton_superclass.object_type,
             .module = .{
                 .object = .{
                     .flags = 0,
@@ -2196,9 +2205,15 @@ pub const VM = struct {
     }
 
     pub fn newClass(self: *VM, name: *SymbolObject, superclass: ?*ClassObject) VMError!Value {
+        const object_type = if (superclass) |super| super.object_type else .instance;
+        return self.newClassWithType(name, superclass, object_type);
+    }
+
+    pub fn newClassWithType(self: *VM, name: *SymbolObject, superclass: ?*ClassObject, object_type: value.ObjectType) VMError!Value {
         const class_obj = self.gc_allocator.create(ClassObject) catch return error.Fatal;
         class_obj.* = .{
             .superclass = superclass,
+            .object_type = object_type,
             .module = .{
                 .object = .{ .flags = 0, .class = self.class_class, .singleton_class = null, .instance_variables = null },
                 .name = name,
@@ -2218,6 +2233,37 @@ pub const VM = struct {
             .instance_variables = null,
         };
         return .{ .data = .{ .instance = obj } };
+    }
+
+    pub fn newRange(self: *VM, class_obj: *ClassObject) VMError!Value {
+        const range_obj = self.gc_allocator.create(value.RangeObject) catch return error.Fatal;
+        range_obj.* = .{
+            .object = .{
+                .flags = 0,
+                .class = class_obj,
+                .singleton_class = null,
+                .instance_variables = null,
+            },
+            .begin = Value.nil(),
+            .end = Value.nil(),
+            .exclude_end = false,
+        };
+        return .{ .data = .{ .range = range_obj } };
+    }
+
+    pub fn newObjectForClass(self: *VM, class_obj: *ClassObject) VMError!Value {
+        return switch (class_obj.object_type) {
+            .array => blk: {
+                const array_obj = try self.createArray();
+                break :blk Value{ .data = .{ .array = array_obj } };
+            },
+            .hash => blk: {
+                const hash_obj = try self.createHash();
+                break :blk Value{ .data = .{ .hash = hash_obj } };
+            },
+            .range => self.newRange(class_obj),
+            .instance => self.newInstance(class_obj),
+        };
     }
 
     pub fn getInstanceVariable(self: *VM, receiver: Value, name: []const u8) VMError!Value {
@@ -2527,6 +2573,21 @@ pub const VM = struct {
             .elements = .empty,
         };
         return array_ptr;
+    }
+
+    pub fn createHash(self: *VM) VMError!*value.HashObject {
+        const hash_ptr = self.gc_allocator.create(value.HashObject) catch return error.Fatal;
+        hash_ptr.* = value.HashObject{
+            .object = .{
+                .flags = 0,
+                .class = self.hash_class,
+                .singleton_class = null,
+                .instance_variables = null,
+            },
+            .map = std.AutoHashMap(u64, usize).init(self.gc_allocator),
+            .entries = .empty,
+        };
+        return hash_ptr;
     }
 
     pub const ArityMode = enum { strict, lenient };

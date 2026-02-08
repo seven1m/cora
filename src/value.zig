@@ -57,9 +57,17 @@ pub const ModuleObject = struct {
     constants: std.AutoHashMap(*SymbolObject, Value),
 };
 
+pub const ObjectType = enum {
+    instance,
+    array,
+    hash,
+    range,
+};
+
 pub const ClassObject = struct {
     module: ModuleObject,
     superclass: ?*ClassObject,
+    object_type: ObjectType = .instance,
     prepended_modules: std.ArrayList(*ModuleObject) = .empty,
     included_modules: std.ArrayList(*ModuleObject) = .empty,
 };
@@ -78,6 +86,13 @@ pub const HashObject = struct {
     object: Object,
     map: std.AutoHashMap(u64, usize),
     entries: std.ArrayList(HashEntry) = .empty,
+};
+
+pub const RangeObject = struct {
+    object: Object,
+    begin: Value,
+    end: Value,
+    exclude_end: bool,
 };
 
 pub const ExceptionObject = struct {
@@ -107,6 +122,7 @@ pub const Value = struct {
         module: *ModuleObject,
         nil: void,
         proc: *ProcObject,
+        range: *RangeObject,
         string: *StringObject,
         symbol: *SymbolObject,
     },
@@ -127,6 +143,7 @@ pub const Value = struct {
             .exception => |e| (e.object.flags & Object.FROZEN_FLAG) != 0,
             .hash => |h| (h.object.flags & Object.FROZEN_FLAG) != 0,
             .proc => |p| (p.object.flags & Object.FROZEN_FLAG) != 0,
+            .range => |r| (r.object.flags & Object.FROZEN_FLAG) != 0,
         };
     }
 
@@ -141,6 +158,7 @@ pub const Value = struct {
             .exception => |e| e.object.flags |= Object.FROZEN_FLAG,
             .hash => |h| h.object.flags |= Object.FROZEN_FLAG,
             .proc => |p| p.object.flags |= Object.FROZEN_FLAG,
+            .range => |r| r.object.flags |= Object.FROZEN_FLAG,
             // Primitives are already frozen, do nothing
             else => {},
         }
@@ -158,6 +176,7 @@ pub const Value = struct {
             .exception => |e| &e.object,
             .hash => |h| &h.object,
             .proc => |p| &p.object,
+            .range => |r| &r.object,
             .integer, .nil, .boolean => null,
         };
     }
@@ -193,6 +212,14 @@ pub const Value = struct {
         return .{ .data = .{ .integer = value } };
     }
 
+    pub fn is_truthy(self: Value) bool {
+        return switch (self.data) {
+            .nil => false,
+            .boolean => self.data.boolean,
+            else => true,
+        };
+    }
+
     pub fn format(self: Value, writer: *std.Io.Writer) !void {
         switch (self.data) {
             .integer => |i| try writer.print("{d}", .{i}),
@@ -224,6 +251,7 @@ pub const Value = struct {
                 try writer.print("}", .{});
             },
             .proc => |p| try writer.print("#<Proc:0x{x}>", .{@intFromPtr(p)}),
+            .range => |_| try writer.print("#<Range>", .{}),
         }
     }
 

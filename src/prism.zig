@@ -3,6 +3,7 @@ const std = @import("std");
 const c = @cImport(@cInclude("prism.h"));
 
 pub const RawNode = c.pm_node_t;
+pub const RANGE_FLAGS_EXCLUDE_END = c.PM_RANGE_FLAGS_EXCLUDE_END;
 
 pub const ArgumentsNode = c.pm_arguments_node_t;
 pub const ArrayNode = c.pm_array_node_t;
@@ -29,6 +30,7 @@ pub const NilNode = c.pm_nil_node_t;
 pub const ParametersNode = c.pm_parameters_node_t;
 pub const ParenthesesNode = c.pm_parentheses_node_t;
 pub const ProgramNode = c.pm_program_node_t;
+pub const RangeNode = c.pm_range_node_t;
 pub const RequiredParameterNode = c.pm_required_parameter_node_t;
 pub const OptionalParameterNode = c.pm_optional_parameter_node_t;
 pub const RestParameterNode = c.pm_rest_parameter_node_t;
@@ -54,6 +56,7 @@ pub const BreakNode = c.pm_break_node_t;
 pub const HashNode = c.pm_hash_node_t;
 pub const AssocNode = c.pm_assoc_node_t;
 pub const LambdaNode = c.pm_lambda_node_t;
+pub const MissingNode = c.pm_missing_node_t;
 pub const GlobalVariableReadNode = c.pm_global_variable_read_node_t;
 pub const GlobalVariableWriteNode = c.pm_global_variable_write_node_t;
 pub const InstanceVariableReadNode = c.pm_instance_variable_read_node_t;
@@ -88,6 +91,7 @@ pub const Node = union(enum) {
     nil_node: *NilNode,
     parentheses: *ParenthesesNode,
     program: *ProgramNode,
+    range: *RangeNode,
     required_parameter: *RequiredParameterNode,
     optional_parameter: *OptionalParameterNode,
     rest_parameter: *RestParameterNode,
@@ -113,6 +117,7 @@ pub const Node = union(enum) {
     hash: *HashNode,
     assoc: *AssocNode,
     lambda: *LambdaNode,
+    missing: *MissingNode,
     global_variable_read: *GlobalVariableReadNode,
     global_variable_write: *GlobalVariableWriteNode,
     instance_variable_read: *InstanceVariableReadNode,
@@ -180,6 +185,10 @@ pub const Parser = struct {
 
         if (node_type == c.PM_PROGRAM_NODE) {
             return Node{ .program = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_RANGE_NODE) {
+            return Node{ .range = @ptrCast(raw) };
         }
 
         if (node_type == c.PM_STATEMENTS_NODE) {
@@ -340,6 +349,10 @@ pub const Parser = struct {
 
         if (node_type == c.PM_LAMBDA_NODE) {
             return Node{ .lambda = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_MISSING_NODE) {
+            return Node{ .missing = @ptrCast(raw) };
         }
 
         if (node_type == c.PM_GLOBAL_VARIABLE_READ_NODE) {

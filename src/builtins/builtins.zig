@@ -14,6 +14,7 @@ const module_builtin = @import("module.zig");
 const nil_class = @import("nil_class.zig");
 const object = @import("object.zig");
 const proc_builtin = @import("proc.zig");
+const range = @import("range.zig");
 const string = @import("string.zig");
 const symbol = @import("symbol.zig");
 const true_class = @import("true_class.zig");
@@ -27,6 +28,7 @@ pub fn registerAll(vm: *VM) !void {
     try array.register(vm);
     try hash.register(vm);
     try proc_builtin.register(vm);
+    try range.register(vm);
     try string.register(vm);
     try symbol.register(vm);
     try nil_class.register(vm);
