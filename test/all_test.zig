@@ -22,6 +22,7 @@ const language_block_test = @import("language/block_test.zig");
 const language_block_break_test = @import("language/block_break_test.zig");
 const language_block_param_test = @import("language/block_param_test.zig");
 const language_constant_test = @import("language/constant_test.zig");
+const language_fiber_test = @import("language/fiber_test.zig");
 const language_ensure_test = @import("language/ensure_test.zig");
 const language_global_variable_test = @import("language/global_variable_test.zig");
 const language_hash_test = @import("language/hash_test.zig");
@@ -69,6 +70,7 @@ comptime {
     _ = language_block_break_test;
     _ = language_block_param_test;
     _ = language_constant_test;
+    _ = language_fiber_test;
     _ = language_ensure_test;
     _ = language_global_variable_test;
     _ = language_hash_test;

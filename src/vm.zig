@@ -11,6 +11,7 @@ const builtins = @import("builtins/builtins.zig");
 const Value = value.Value;
 const Object = value.Object;
 const ClassObject = value.ClassObject;
+const FiberObject = value.FiberObject;
 const LexicalScope = value.LexicalScope;
 const StringObject = value.StringObject;
 const SymbolObject = value.SymbolObject;
@@ -28,6 +29,9 @@ pub const VMError = error{
     // Triggers stack unwind internally
     // This shouldn't escape VM.run().
     Unwind,
+
+    // Internal control flow for Fiber.yield
+    FiberYield,
 };
 
 pub const Method = union(enum) {
@@ -65,7 +69,7 @@ pub const CallFrame = struct {
     self_value: Value,
     ep: *Environment,
     block: ?Block = null,
-    frame_type: enum { method, lambda, proc } = .method,
+    frame_type: enum { method, lambda, proc, fiber } = .method,
 };
 
 pub const VM = struct {
@@ -100,12 +104,15 @@ pub const VM = struct {
     hash_class: *value.ClassObject,
     range_class: *value.ClassObject,
     proc_class: *value.ClassObject,
+    fiber_class: *value.ClassObject,
     regexp_class: *value.ClassObject,
     nil_class: *value.ClassObject,
     true_class: *value.ClassObject,
     false_class: *value.ClassObject,
     kernel_module: *value.ModuleObject,
     main_self: Value,
+    main_fiber: *value.FiberObject,
+    current_fiber: *value.FiberObject,
 
     // Exception classes
     exception_class: *value.ClassObject,
@@ -116,6 +123,8 @@ pub const VM = struct {
     zero_division_error_class: *value.ClassObject,
     name_error_class: *value.ClassObject,
     no_method_error_class: *value.ClassObject,
+    local_jump_error_class: *value.ClassObject,
+    fiber_error_class: *value.ClassObject,
     load_error_class: *value.ClassObject,
     range_error_class: *value.ClassObject,
     regexp_error_class: *value.ClassObject,
@@ -177,11 +186,14 @@ pub const VM = struct {
             .hash_class = undefined,
             .range_class = undefined,
             .proc_class = undefined,
+            .fiber_class = undefined,
             .regexp_class = undefined,
             .nil_class = undefined,
             .true_class = undefined,
             .false_class = undefined,
             .kernel_module = undefined,
+            .main_fiber = undefined,
+            .current_fiber = undefined,
             .exception_class = undefined,
             .standard_error_class = undefined,
             .runtime_error_class = undefined,
@@ -190,6 +202,8 @@ pub const VM = struct {
             .zero_division_error_class = undefined,
             .name_error_class = undefined,
             .no_method_error_class = undefined,
+            .local_jump_error_class = undefined,
+            .fiber_error_class = undefined,
             .load_error_class = undefined,
             .range_error_class = undefined,
             .regexp_error_class = undefined,
@@ -273,6 +287,10 @@ pub const VM = struct {
         const proc_class_val = try self.newClass(proc_name_sym, self.object_class);
         self.proc_class = proc_class_val.data.class;
 
+        const fiber_name_sym = try self.intern("Fiber");
+        const fiber_class_val = try self.newClassWithType(fiber_name_sym, self.object_class, .fiber);
+        self.fiber_class = fiber_class_val.data.class;
+
         const regexp_name_sym = try self.intern("Regexp");
         const regexp_class_val = try self.newClass(regexp_name_sym, self.object_class);
         self.regexp_class = regexp_class_val.data.class;
@@ -326,6 +344,14 @@ pub const VM = struct {
         const no_method_error_class_val = try self.newClass(no_method_error_name_sym, self.name_error_class);
         self.no_method_error_class = no_method_error_class_val.data.class;
 
+        const local_jump_error_name_sym = try self.intern("LocalJumpError");
+        const local_jump_error_class_val = try self.newClass(local_jump_error_name_sym, self.standard_error_class);
+        self.local_jump_error_class = local_jump_error_class_val.data.class;
+
+        const fiber_error_name_sym = try self.intern("FiberError");
+        const fiber_error_class_val = try self.newClass(fiber_error_name_sym, self.standard_error_class);
+        self.fiber_error_class = fiber_error_class_val.data.class;
+
         const load_error_name_sym = try self.intern("LoadError");
         const load_error_class_val = try self.newClass(load_error_name_sym, self.standard_error_class);
         self.load_error_class = load_error_class_val.data.class;
@@ -364,6 +390,7 @@ pub const VM = struct {
         self.object_class.module.constants.put(hash_name_sym, hash_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(range_name_sym, range_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(proc_name_sym, proc_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(fiber_name_sym, fiber_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(regexp_name_sym, regexp_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(nil_class_name_sym, nil_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(true_class_name_sym, true_class_val) catch return error.Fatal;
@@ -377,6 +404,8 @@ pub const VM = struct {
         self.object_class.module.constants.put(zero_division_error_name_sym, zero_division_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(name_error_name_sym, name_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(no_method_error_name_sym, no_method_error_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(local_jump_error_name_sym, local_jump_error_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(fiber_error_name_sym, fiber_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(load_error_name_sym, load_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(range_error_name_sym, range_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(regexp_error_name_sym, regexp_error_class_val) catch return error.Fatal;
@@ -407,6 +436,29 @@ pub const VM = struct {
 
         // --- Stage 6: Initialize top-level lexical scope ---
         self.current_lexical_scope = try self.createLexicalScope(.{ .data = .{ .class = self.object_class } }, null);
+
+        // --- Stage 7: Initialize main fiber and bind VM state to it ---
+        const main_fiber_obj = self.gc_allocator.create(value.FiberObject) catch return error.Fatal;
+        main_fiber_obj.* = .{
+            .object = .{ .flags = 0, .class = self.fiber_class, .singleton_class = null, .instance_variables = null },
+            .state = .running,
+            .block = null,
+            .stack = .empty,
+            .frames = .empty,
+            .env_stack = .empty,
+            .current_lexical_scope = self.current_lexical_scope,
+            .caller = null,
+            .awaiting_resume_value = false,
+            .yielded_value = Value.nil(),
+            .pending_resume_value = Value.nil(),
+        };
+        self.main_fiber = main_fiber_obj;
+        self.current_fiber = main_fiber_obj;
+        self.stack = self.main_fiber.stack;
+        self.frames = self.main_fiber.frames;
+        self.env_stack = self.main_fiber.env_stack;
+        self.current_lexical_scope = self.main_fiber.current_lexical_scope;
+        self.env_stack.ensureTotalCapacity(self.gc_allocator, 512) catch return error.Fatal;
     }
 
     pub fn createLexicalScope(self: *VM, scope_module_val: Value, parent: ?*LexicalScope) VMError!*LexicalScope {
@@ -766,6 +818,20 @@ pub const VM = struct {
         }
     }
 
+    pub fn saveFiberState(self: *VM, fiber: *FiberObject) void {
+        fiber.stack = self.stack;
+        fiber.frames = self.frames;
+        fiber.env_stack = self.env_stack;
+        fiber.current_lexical_scope = self.current_lexical_scope;
+    }
+
+    pub fn restoreFiberState(self: *VM, fiber: *FiberObject) void {
+        self.stack = fiber.stack;
+        self.frames = fiber.frames;
+        self.env_stack = fiber.env_stack;
+        self.current_lexical_scope = fiber.current_lexical_scope;
+    }
+
     pub fn executeInstruction(self: *VM) VMError!void {
         const frame = self.currentFrame();
         if (frame.ip >= frame.chunk.code.items.len)
@@ -1034,7 +1100,11 @@ pub const VM = struct {
                 const current_frame = self.currentFrame();
 
                 // Explicit returns in procs have special non-local return behavior
-                if (is_explicit == 1 and current_frame.frame_type == .proc) {
+                if (is_explicit == 1 and current_frame.frame_type == .fiber) {
+                    const exc = try self.createException(self.local_jump_error_class, "return from fiber");
+                    self.pending_exception = exc;
+                    return error.Unwind;
+                } else if (is_explicit == 1 and current_frame.frame_type == .proc) {
                     // Proc explicit return: walk back to enclosing method and exit it
                     try self.popFrame(); // Pop proc frame
 
@@ -1596,6 +1666,61 @@ pub const VM = struct {
         }
     }
 
+    pub fn runFiberUntilYieldOrTerminate(self: *VM, fiber: *FiberObject, resume_args: []Value) VMError!Value {
+        if (fiber.state == .created) {
+            const blk = fiber.block orelse return error.Fatal;
+            const real_defining_ep = derefEnvironment(blk.defining_ep);
+            const fiber_env = self.createStackEnvironment(real_defining_ep, blk.chunk.lexical_scope orelse self.current_lexical_scope) catch return error.Fatal;
+
+            self.frames.append(self.gc_allocator, CallFrame{
+                .chunk = blk.chunk,
+                .ip = 0,
+                .stack_base = self.stack.items.len,
+                .self_value = blk.defining_self,
+                .ep = fiber_env,
+                .block = null,
+                .frame_type = .fiber,
+            }) catch return error.Fatal;
+
+            if (blk.chunk.lexical_scope) |scope| {
+                self.current_lexical_scope = scope;
+            }
+
+            const current_frame = self.currentFrame();
+            try self.copyArgumentsWithRestParam(blk.chunk, current_frame.ep, resume_args, .lenient);
+            fiber.state = .running;
+        } else {
+            if (fiber.state == .suspended) {
+                fiber.state = .running;
+            }
+            if (fiber.awaiting_resume_value) {
+            try self.push(fiber.pending_resume_value);
+            fiber.awaiting_resume_value = false;
+            }
+        }
+
+        while (true) {
+            self.executeInstruction() catch |err| switch (err) {
+                error.FiberYield => return fiber.yielded_value,
+                error.Unwind => {
+                    self.unwindStack() catch |unwind_err| switch (unwind_err) {
+                        error.UnhandledException => {
+                            fiber.state = .terminated;
+                            return unwind_err;
+                        },
+                        else => return unwind_err,
+                    };
+                },
+                else => return err,
+            };
+
+            if (self.frames.items.len == 0) {
+                fiber.state = .terminated;
+                return self.pop();
+            }
+        }
+    }
+
     /// Find a method on a receiver, checking singleton class first, then regular class
     pub fn findMethod(self: *VM, receiver: Value, method_name_sym: *SymbolObject) VMError!?Method {
         var method: ?Method = null;
@@ -1937,6 +2062,7 @@ pub const VM = struct {
             .module => |m| return m.object.class.?,
             .class => |c| return c.module.object.class.?,
             .proc => |p| return p.object.class.?,
+            .fiber => |f| return f.object.class.?,
             .range => |r| return r.object.class.?,
             .regexp => |r| return r.object.class.?,
 
@@ -1959,6 +2085,7 @@ pub const VM = struct {
             .hash => |h| &h.object,
             .exception => |e| &e.object,
             .proc => |p| &p.object,
+            .fiber => |f| &f.object,
             .range => |r| &r.object,
             .regexp => |r| &r.object,
             .integer, .nil, .boolean => null,
@@ -2170,6 +2297,7 @@ pub const VM = struct {
             .exception => self.exception_class,
             .encoding => self.encoding_class,
             .proc => self.proc_class,
+            .fiber => self.fiber_class,
             .regexp => self.regexp_class,
             .integer, .boolean, .nil => unreachable, // Primitives can't have singleton classes
         };
@@ -2261,6 +2389,24 @@ pub const VM = struct {
         return .{ .data = .{ .instance = obj } };
     }
 
+    pub fn newFiber(self: *VM, class_obj: *ClassObject, block: ?Block) VMError!Value {
+        const fiber_obj = self.gc_allocator.create(value.FiberObject) catch return error.Fatal;
+        fiber_obj.* = .{
+            .object = .{ .flags = 0, .class = class_obj, .singleton_class = null, .instance_variables = null },
+            .state = .created,
+            .block = block,
+            .stack = .empty,
+            .frames = .empty,
+            .env_stack = .empty,
+            .current_lexical_scope = null,
+            .caller = null,
+            .awaiting_resume_value = false,
+            .yielded_value = Value.nil(),
+            .pending_resume_value = Value.nil(),
+        };
+        return .{ .data = .{ .fiber = fiber_obj } };
+    }
+
     pub fn newRange(self: *VM, class_obj: *ClassObject) VMError!Value {
         const range_obj = self.gc_allocator.create(value.RangeObject) catch return error.Fatal;
         range_obj.* = .{
@@ -2323,6 +2469,7 @@ pub const VM = struct {
                 break :blk Value{ .data = .{ .hash = hash_obj } };
             },
             .range => self.newRange(class_obj),
+            .fiber => try self.newFiber(class_obj, null),
             .instance => self.newInstance(class_obj),
         };
     }

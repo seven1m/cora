@@ -63,6 +63,7 @@ pub const ObjectType = enum {
     array,
     hash,
     range,
+    fiber,
 };
 
 pub const ClassObject = struct {
@@ -110,6 +111,20 @@ pub const ProcObject = struct {
     block: Block,
 };
 
+pub const FiberObject = struct {
+    object: Object,
+    state: enum { created, running, suspended, terminated },
+    block: ?Block,
+    stack: std.ArrayList(Value) = .empty,
+    frames: std.ArrayList(@import("vm.zig").CallFrame) = .empty,
+    env_stack: std.ArrayList(@import("vm.zig").Environment) = .empty,
+    current_lexical_scope: ?*LexicalScope = null,
+    caller: ?*FiberObject = null,
+    awaiting_resume_value: bool = false,
+    yielded_value: Value = Value.nil(),
+    pending_resume_value: Value = Value.nil(),
+};
+
 pub const RegexpObject = struct {
     object: Object,
     pattern: []const u8,
@@ -124,6 +139,7 @@ pub const Value = struct {
         class: *ClassObject,
         encoding: *EncodingObject,
         exception: *ExceptionObject,
+        fiber: *FiberObject,
         hash: *HashObject,
         instance: *Object,
         integer: i64,
@@ -152,6 +168,7 @@ pub const Value = struct {
             .instance => |i| (i.flags & Object.FROZEN_FLAG) != 0,
             .array => |a| (a.object.flags & Object.FROZEN_FLAG) != 0,
             .exception => |e| (e.object.flags & Object.FROZEN_FLAG) != 0,
+            .fiber => |f| (f.object.flags & Object.FROZEN_FLAG) != 0,
             .hash => |h| (h.object.flags & Object.FROZEN_FLAG) != 0,
             .proc => |p| (p.object.flags & Object.FROZEN_FLAG) != 0,
             .range => |r| (r.object.flags & Object.FROZEN_FLAG) != 0,
@@ -167,6 +184,7 @@ pub const Value = struct {
             .instance => |i| i.flags |= Object.FROZEN_FLAG,
             .array => |a| a.object.flags |= Object.FROZEN_FLAG,
             .exception => |e| e.object.flags |= Object.FROZEN_FLAG,
+            .fiber => |f| f.object.flags |= Object.FROZEN_FLAG,
             .hash => |h| h.object.flags |= Object.FROZEN_FLAG,
             .proc => |p| p.object.flags |= Object.FROZEN_FLAG,
             .range => |r| r.object.flags |= Object.FROZEN_FLAG,
@@ -185,6 +203,7 @@ pub const Value = struct {
             .symbol => |s| &s.object,
             .array => |a| &a.object,
             .exception => |e| &e.object,
+            .fiber => |f| &f.object,
             .hash => |h| &h.object,
             .proc => |p| &p.object,
             .range => |r| &r.object,
@@ -263,6 +282,7 @@ pub const Value = struct {
                 try writer.print("}", .{});
             },
             .proc => |p| try writer.print("#<Proc:0x{x}>", .{@intFromPtr(p)}),
+            .fiber => |f| try writer.print("#<Fiber:0x{x}>", .{@intFromPtr(f)}),
             .range => |_| try writer.print("#<Range>", .{}),
             .regexp => |r| try writer.print("/{s}/", .{r.pattern}),
         }
