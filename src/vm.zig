@@ -157,8 +157,8 @@ pub const VM = struct {
             .gc_allocator = gc_allocator,
             .gc_allocator_atomic = gc_allocator_atomic,
             .parser = parser,
-            .symbols = std.StringHashMap(*SymbolObject).init(allocator),
-            .globals = std.StringHashMap(Value).init(allocator),
+            .symbols = std.StringHashMap(*SymbolObject).init(gc_allocator),
+            .globals = std.StringHashMap(Value).init(gc_allocator),
             .program = undefined,
             .basic_object_class = undefined,
             .class_class = undefined,
@@ -197,7 +197,7 @@ pub const VM = struct {
 
         // Pre-allocate env_stack to prevent reallocations that would invalidate pointers
         // This is max call stack depth, not total calls - we reclaim on popFrame
-        self.env_stack.ensureTotalCapacity(self.allocator, 512) catch return error.Fatal;
+        self.env_stack.ensureTotalCapacity(self.gc_allocator, 512) catch return error.Fatal;
 
         // Initialize file loading infrastructure
         self.loaded_files = std.StringHashMap(void).init(self.allocator);
@@ -412,7 +412,7 @@ pub const VM = struct {
 
     pub fn createStackEnvironment(self: *VM, parent: ?*Environment, lexical_scope: ?*LexicalScope) VMError!*Environment {
         const index = self.env_stack.items.len;
-        self.env_stack.append(self.allocator, .{
+        self.env_stack.append(self.gc_allocator, .{
             .parent = parent,
             .lexical_scope = lexical_scope,
             .variables = undefined,
@@ -562,12 +562,12 @@ pub const VM = struct {
         }
         self.load_path.deinit(self.allocator);
 
-        self.stack.deinit(self.allocator);
-        self.frames.deinit(self.allocator);
-        self.env_stack.deinit(self.allocator);
+        self.stack.deinit(self.gc_allocator);
+        self.frames.deinit(self.gc_allocator);
+        self.env_stack.deinit(self.gc_allocator);
         self.symbols.deinit();
         self.globals.deinit();
-        self.at_exit_handlers.deinit(self.allocator);
+        self.at_exit_handlers.deinit(self.gc_allocator);
     }
 
     pub fn run(self: *VM) VMError!Value {
@@ -623,7 +623,7 @@ pub const VM = struct {
     }
 
     fn push(self: *VM, val: Value) VMError!void {
-        self.stack.append(self.allocator, val) catch return error.Fatal;
+        self.stack.append(self.gc_allocator, val) catch return error.Fatal;
     }
 
     pub fn pop(self: *VM) Value {
@@ -703,7 +703,7 @@ pub const VM = struct {
 
         const env = try self.createStackEnvironment(parent_env, ch.lexical_scope orelse self.current_lexical_scope);
 
-        self.frames.append(self.allocator, CallFrame{
+        self.frames.append(self.gc_allocator, CallFrame{
             .chunk = ch,
             .ip = 0,
             .stack_base = self.stack.items.len,
@@ -1338,7 +1338,7 @@ pub const VM = struct {
 
                 const block_env = try self.createStackEnvironment(real_defining_ep, blk.lexical_scope orelse self.current_lexical_scope);
 
-                self.frames.append(self.allocator, CallFrame{
+                self.frames.append(self.gc_allocator, CallFrame{
                     .chunk = blk,
                     .ip = 0,
                     .stack_base = self.stack.items.len,
@@ -1664,7 +1664,7 @@ pub const VM = struct {
         const block_env = self.createStackEnvironment(real_defining_ep, block.chunk.lexical_scope orelse self.current_lexical_scope) catch return error.Fatal;
 
         // Push block frame (no nested block for builtin-called blocks)
-        self.frames.append(self.allocator, CallFrame{
+        self.frames.append(self.gc_allocator, CallFrame{
             .chunk = block.chunk,
             .ip = 0,
             .stack_base = self.stack.items.len,
@@ -1709,7 +1709,7 @@ pub const VM = struct {
         const real_defining_ep = derefEnvironment(proc_obj.block.defining_ep);
         const proc_env = self.createStackEnvironment(real_defining_ep, proc_obj.block.chunk.lexical_scope orelse self.current_lexical_scope) catch return error.Fatal;
 
-        self.frames.append(self.allocator, CallFrame{
+        self.frames.append(self.gc_allocator, CallFrame{
             .chunk = proc_obj.block.chunk,
             .ip = 0,
             .stack_base = self.stack.items.len,
@@ -2504,7 +2504,7 @@ pub const VM = struct {
     fn executeChunk(self: *VM, target_chunk: *Chunk) VMError!void {
         const env = try self.createStackEnvironment(null, target_chunk.lexical_scope orelse self.current_lexical_scope);
 
-        self.frames.append(self.allocator, CallFrame{
+        self.frames.append(self.gc_allocator, CallFrame{
             .chunk = target_chunk,
             .ip = 0,
             .stack_base = self.stack.items.len,
@@ -2561,7 +2561,7 @@ pub const VM = struct {
             .block = null,
         };
 
-        self.frames.append(self.allocator, default_frame) catch return error.Fatal;
+        self.frames.append(self.gc_allocator, default_frame) catch return error.Fatal;
 
         // Execute instructions until this frame completes
         const target_frame_depth = self.frames.items.len;

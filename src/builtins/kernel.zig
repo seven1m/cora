@@ -389,7 +389,7 @@ pub fn builtinKernelAtExit(vm: *VM, _: Value, args: []Value, block: ?Block) VMEr
 
     const blk = try vm.requireBlock(block);
     const proc_val = try vm.newProc(blk);
-    vm.at_exit_handlers.append(vm.allocator, proc_val) catch return error.Fatal;
+    vm.at_exit_handlers.append(vm.gc_allocator, proc_val) catch return error.Fatal;
     return proc_val;
 }
 

@@ -52,7 +52,7 @@ pub fn builtinProcCall(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
         vm.current_lexical_scope = scope;
     }
 
-    vm.frames.append(vm.allocator, CallFrame{
+    vm.frames.append(vm.gc_allocator, CallFrame{
         .chunk = proc_obj.block.chunk,
         .ip = 0,
         .stack_base = vm.stack.items.len,
