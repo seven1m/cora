@@ -333,6 +333,7 @@ pub const VM = struct {
         self.object_class.module.constants.put(module_name_sym, module_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(numeric_name_sym, numeric_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(integer_name_sym, integer_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(string_name_sym, string_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(symbol_name_sym, symbol_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(array_name_sym, array_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(hash_name_sym, hash_class_val) catch return error.Fatal;

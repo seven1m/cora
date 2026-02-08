@@ -114,10 +114,11 @@ pub const Value = struct {
     pub fn isFrozen(self: Value) bool {
         return switch (self.data) {
             // Primitives are always frozen
-            .integer, .string, .nil, .boolean => true,
+            .integer, .nil, .boolean => true,
             // Encoding objects are always frozen (singletons)
             .encoding => true,
             // Objects check their flags
+            .string => |s| (s.object.flags & Object.FROZEN_FLAG) != 0,
             .symbol => |s| (s.object.flags & Object.FROZEN_FLAG) != 0,
             .module => |m| (m.object.flags & Object.FROZEN_FLAG) != 0,
             .class => |c| (c.module.object.flags & Object.FROZEN_FLAG) != 0,
@@ -131,6 +132,7 @@ pub const Value = struct {
 
     pub fn freeze(self: *Value) void {
         switch (self.data) {
+            .string => |s| s.object.flags |= Object.FROZEN_FLAG,
             .symbol => |s| s.object.flags |= Object.FROZEN_FLAG,
             .module => |m| m.object.flags |= Object.FROZEN_FLAG,
             .class => |c| c.object.flags |= Object.FROZEN_FLAG,
