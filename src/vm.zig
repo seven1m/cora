@@ -566,9 +566,7 @@ pub const VM = struct {
 
         try self.pushFrame(&self.program.main_chunk, self.main_self, null);
 
-        while (self.frames.items.len > 0) {
-            try self.executeInstruction();
-        }
+        try self.executeInstructionsUntilFrameLength(1);
 
         return self.pop();
     }
@@ -851,8 +849,7 @@ pub const VM = struct {
                         ) catch return error.Fatal;
                         const exc = try self.createException(self.name_error_class, msg);
                         self.pending_exception = exc;
-                        try self.unwindStack();
-                        return;
+                        return error.Unwind;
                     }
                 } else {
                     try self.push(Value.nil());
@@ -900,8 +897,7 @@ pub const VM = struct {
                         ) catch return error.Fatal;
                         const exc = try self.createException(self.name_error_class, msg);
                         self.pending_exception = exc;
-                        try self.unwindStack();
-                        return;
+                        return error.Unwind;
                     }
                 } else {
                     try self.push(Value.nil());
@@ -1097,8 +1093,7 @@ pub const VM = struct {
                 } else if (superclass_val.data != .nil) {
                     const exc = try self.createException(self.type_error_class, "superclass must be a Class");
                     self.pending_exception = exc;
-                    try self.unwindStack();
-                    return;
+                    return error.Unwind;
                 }
 
                 const constant = self.currentChunk().constants.items[name_idx];
@@ -1123,8 +1118,7 @@ pub const VM = struct {
                             // Name exists but isn't a class - error
                             const exc = try self.createException(self.type_error_class, "constant is not a class");
                             self.pending_exception = exc;
-                            try self.unwindStack();
-                            return;
+                            return error.Unwind;
                         }
                     } else {
                         // Create new class
@@ -1214,15 +1208,7 @@ pub const VM = struct {
                     const receiver = self.pop();
 
                     // Get or create singleton class for the receiver
-                    const singleton_class = self.getOrCreateSingletonClass(receiver) catch |err| {
-                        if (err == error.CannotDefineSingletonMethod) {
-                            const exc = try self.createException(self.type_error_class, "can't define singleton method for literals");
-                            self.pending_exception = exc;
-                            try self.unwindStack();
-                            return;
-                        }
-                        return err;
-                    };
+                    const singleton_class = try self.getOrCreateSingletonClass(receiver);
 
                     // Store method on singleton class
                     singleton_class.module.methods.put(method_name_sym, .{ .chunk = chunk_ptr }) catch return error.Fatal;
@@ -1296,16 +1282,14 @@ pub const VM = struct {
                     const val = self.pop();
                     const str_val = self.callMethodByName(val, "to_s", &[_]Value{}, null) catch |err| {
                         if (err == error.Unwind and self.pending_exception != null) {
-                            try self.unwindStack();
-                            return;
+                            return error.Unwind;
                         }
                         return err;
                     };
                     if (str_val.data != .string) {
                         const exc = try self.createException(self.type_error_class, "to_s did not return String");
                         self.pending_exception = exc;
-                        try self.unwindStack();
-                        return;
+                        return error.Unwind;
                     }
                     writer.writeAll(str_val.data.string.str) catch return error.Fatal;
                 }
@@ -1336,8 +1320,7 @@ pub const VM = struct {
                         "no block given",
                     );
                     self.pending_exception = exc;
-                    try self.unwindStack();
-                    return;
+                    return error.Unwind;
                 };
 
                 const blk = block.chunk;
@@ -1370,9 +1353,7 @@ pub const VM = struct {
                 // Execute until block returns
                 self.break_occurred = false;
                 const saved_frame_count = self.frames.items.len - 1;
-                while (self.frames.items.len > saved_frame_count) {
-                    try self.executeInstruction();
-                }
+                try self.executeInstructionsUntilFrameLength(saved_frame_count + 1);
 
                 // Check if break occurred in block
                 if (self.break_occurred) {
@@ -1415,13 +1396,12 @@ pub const VM = struct {
                     // Re-raise current exception
                     if (self.pending_exception) |exc| {
                         self.pending_exception = exc;
-                        try self.unwindStack();
+                        return error.Unwind;
                     } else {
                         // No exception to re-raise
                         const exc = try self.createException(self.runtime_error_class, "no current exception");
                         self.pending_exception = exc;
-                        try self.unwindStack();
-                        return;
+                        return error.Unwind;
                     }
                 } else if (argc == 1) {
                     // Single argument: exception instance or class
@@ -1431,26 +1411,25 @@ pub const VM = struct {
                         .exception => |exc| {
                             // Already an exception, raise it
                             self.pending_exception = exc;
-                            try self.unwindStack();
+                            return error.Unwind;
                         },
                         .class => |cls| {
                             // Exception class with empty message
                             const exc = try self.createException(cls, "");
                             self.pending_exception = exc;
-                            try self.unwindStack();
+                            return error.Unwind;
                         },
                         .string => |str| {
                             // String message - create RuntimeError
                             const exc = try self.createException(self.runtime_error_class, str.str);
                             self.pending_exception = exc;
-                            try self.unwindStack();
+                            return error.Unwind;
                         },
                         else => {
                             // Invalid argument type
                             const exc = try self.createException(self.type_error_class, "exception class/object expected");
                             self.pending_exception = exc;
-                            try self.unwindStack();
-                            return;
+                            return error.Unwind;
                         },
                     }
                 } else if (argc == 2) {
@@ -1461,8 +1440,7 @@ pub const VM = struct {
                     if (class_arg.data != .class) {
                         const exc = try self.createException(self.type_error_class, "exception class/object expected");
                         self.pending_exception = exc;
-                        try self.unwindStack();
-                        return;
+                        return error.Unwind;
                     }
 
                     const msg_str = if (message.data == .string)
@@ -1472,13 +1450,12 @@ pub const VM = struct {
 
                     const exc = try self.createException(class_arg.data.class, msg_str);
                     self.pending_exception = exc;
-                    try self.unwindStack();
+                    return error.Unwind;
                 } else {
                     // Invalid number of arguments
                     const exc = try self.createException(self.argument_error_class, "wrong number of arguments");
                     self.pending_exception = exc;
-                    try self.unwindStack();
-                    return;
+                    return error.Unwind;
                 }
             },
 
@@ -1513,15 +1490,13 @@ pub const VM = struct {
                         // Retry called from wrong frame - this shouldn't happen with proper compilation
                         const exc = try self.createException(self.runtime_error_class, "retry called from wrong frame");
                         self.pending_exception = exc;
-                        try self.unwindStack();
-                        return;
+                        return error.Unwind;
                     }
                 } else {
                     // No retry point set - retry called outside of rescue block
                     const exc = try self.createException(self.runtime_error_class, "retry called outside of rescue");
                     self.pending_exception = exc;
-                    try self.unwindStack();
-                    return;
+                    return error.Unwind;
                 }
             },
 
@@ -1531,7 +1506,7 @@ pub const VM = struct {
 
                 // If there's a pending exception, re-raise it after ensure block
                 if (self.pending_exception != null) {
-                    try self.unwindStack();
+                    return error.Unwind;
                 }
                 // Otherwise, ensure block completed normally
             },
@@ -1589,6 +1564,15 @@ pub const VM = struct {
         }
     }
 
+    pub fn executeInstructionsUntilFrameLength(self: *VM, target_len: usize) VMError!void {
+        while (self.frames.items.len >= target_len) {
+            self.executeInstruction() catch |err| switch (err) {
+                error.Unwind => try self.unwindStack(),
+                else => return err,
+            };
+        }
+    }
+
     /// Find a method on a receiver, checking singleton class first, then regular class
     pub fn findMethod(self: *VM, receiver: Value, method_name_sym: *SymbolObject) VMError!?Method {
         var method: ?Method = null;
@@ -1643,9 +1627,7 @@ pub const VM = struct {
                     }
 
                     // Execute until we return to saved frame count
-                    while (self.frames.items.len > saved_frame_count) {
-                        try self.executeInstruction();
-                    }
+                    try self.executeInstructionsUntilFrameLength(saved_frame_count + 1);
 
                     // Result is on top of stack
                     return self.pop();
@@ -1697,9 +1679,7 @@ pub const VM = struct {
         // Execute until block returns
         self.break_occurred = false;
         const saved_frame_count = self.frames.items.len - 1;
-        while (self.frames.items.len > saved_frame_count) {
-            try self.executeInstruction();
-        }
+        try self.executeInstructionsUntilFrameLength(saved_frame_count + 1);
 
         // Handle break or normal return
         const break_occurred = self.break_occurred;
@@ -1738,9 +1718,7 @@ pub const VM = struct {
 
         // Execute until this frame completes
         const saved_frame_count = self.frames.items.len - 1;
-        while (self.frames.items.len > saved_frame_count) {
-            try self.executeInstruction();
-        }
+        try self.executeInstructionsUntilFrameLength(saved_frame_count + 1);
 
         return self.pop();
     }
@@ -1758,7 +1736,6 @@ pub const VM = struct {
     /// For a Chunk, it sets up the frame and returns.
     /// For a builtin function pointer, it calls it and pushes the return value onto the stack.
     /// Don't call this from anywhere else because stack unwinding won't work right.
-    /// (This helper calls self.unwindStack() on error, like executeInstruction does.)
     fn callMethodHelperForExecuteInstruction(
         self: *VM,
         method_idx: u16,
@@ -1794,8 +1771,7 @@ pub const VM = struct {
             ) catch return error.Fatal;
             const exc = try self.createException(self.no_method_error_class, msg);
             self.pending_exception = exc;
-            try self.unwindStack();
-            return;
+            return error.Unwind;
         }
 
         if (method) |m| {
@@ -1807,8 +1783,7 @@ pub const VM = struct {
                     if (method_chunk.no_keywords and has_keywords) {
                         const exc = try self.createException(self.argument_error_class, "this method does not accept keyword arguments");
                         self.pending_exception = exc;
-                        try self.unwindStack();
-                        return;
+                        return error.Unwind;
                     }
 
                     // Check if method requires keywords but none were provided
@@ -1816,8 +1791,7 @@ pub const VM = struct {
                         const msg = "missing required keyword arguments";
                         const exc = try self.createException(self.argument_error_class, msg);
                         self.pending_exception = exc;
-                        try self.unwindStack();
-                        return;
+                        return error.Unwind;
                     }
 
                     // Get caller's chunk BEFORE pushing new frame (needed for keyword metadata)
@@ -1908,8 +1882,7 @@ pub const VM = struct {
 
                     const result = fun_ptr(self, receiver, final_args, block) catch |err| {
                         if (self.pending_exception != null) {
-                            try self.unwindStack();
-                            return;
+                            return error.Unwind;
                         }
                         return err;
                     };
@@ -1919,8 +1892,7 @@ pub const VM = struct {
                     if (kwargc > 0) {
                         const exc = try self.createException(self.argument_error_class, "this method does not accept keyword arguments");
                         self.pending_exception = exc;
-                        try self.unwindStack();
-                        return;
+                        return error.Unwind;
                     }
                     const result = try self.callProcAsMethod(proc_obj, receiver, args[0..argc], block);
                     try self.push(result);
@@ -2066,8 +2038,7 @@ pub const VM = struct {
         const defining_class = self.getDefiningClassForSuper(frame.chunk) orelse {
             const exc = try self.createException(self.no_method_error_class, "super called outside of method");
             self.pending_exception = exc;
-            try self.unwindStack();
-            return;
+            return error.Unwind;
         };
 
         // Look up method in superclass chain
@@ -2079,8 +2050,7 @@ pub const VM = struct {
             ) catch return error.Fatal;
             const exc = try self.createException(self.no_method_error_class, msg);
             self.pending_exception = exc;
-            try self.unwindStack();
-            return;
+            return error.Unwind;
         };
 
         // Call with the same receiver (self)
@@ -2119,8 +2089,7 @@ pub const VM = struct {
                 @memcpy(args_copy[0..args.len], args);
                 const result = fun_ptr(self, receiver, args_copy[0..args.len], block) catch |err| {
                     if (self.pending_exception != null) {
-                        try self.unwindStack();
-                        return;
+                        return error.Unwind;
                     }
                     return err;
                 };
@@ -2545,9 +2514,7 @@ pub const VM = struct {
 
         // Execute instructions until this frame completes
         const target_frame_depth = self.frames.items.len;
-        while (self.frames.items.len >= target_frame_depth) {
-            try self.executeInstruction();
-        }
+        try self.executeInstructionsUntilFrameLength(target_frame_depth);
     }
 
     // ===== Exception Handling Methods =====
@@ -2592,9 +2559,7 @@ pub const VM = struct {
 
         // Execute instructions until this frame completes
         const target_frame_depth = self.frames.items.len;
-        while (self.frames.items.len >= target_frame_depth) {
-            try self.executeInstruction();
-        }
+        try self.executeInstructionsUntilFrameLength(target_frame_depth);
 
         // Pop result from stack (default chunk returns a value)
         const default_value = if (self.stack.items.len > saved_stack_len)

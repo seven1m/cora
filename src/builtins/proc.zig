@@ -64,12 +64,7 @@ pub fn builtinProcCall(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
 
     // Execute the proc/lambda until it returns
     const saved_frame_count = vm.frames.items.len - 1;
-    while (vm.frames.items.len > saved_frame_count) {
-        vm.executeInstruction() catch |err| {
-            if (err == error.Unwind and vm.pending_exception != null) return error.Unwind;
-            return error.Fatal;
-        };
-    }
+    try vm.executeInstructionsUntilFrameLength(saved_frame_count + 1);
 
     // The return value is already on the stack from the RETURN instruction
     return vm.pop();
