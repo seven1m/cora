@@ -48,6 +48,12 @@ pub fn register(vm: *VM) !void {
     const is_a_sym = try vm.intern("is_a?");
     try vm.kernel_module.methods.put(is_a_sym, .{ .method = .{ .builtin = &builtinKernelIsA } });
 
+    const instance_of_sym = try vm.intern("instance_of?");
+    try vm.kernel_module.methods.put(instance_of_sym, .{ .method = .{ .builtin = &builtinKernelInstanceOf } });
+
+    const respond_to_sym = try vm.intern("respond_to?");
+    try vm.kernel_module.methods.put(respond_to_sym, .{ .method = .{ .builtin = &builtinKernelRespondTo } });
+
     const block_given_sym = try vm.intern("block_given?");
     try vm.kernel_module.methods.put(block_given_sym, .{ .method = .{ .builtin = &builtinKernelBlockGiven } });
 
@@ -388,6 +394,54 @@ pub fn builtinKernelIsA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
         },
         else => return vm.raiseExceptionFmt(vm.type_error_class, "class or module required", .{}),
     }
+}
+
+pub fn builtinKernelInstanceOf(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const arg = args[0];
+
+    switch (arg.data) {
+        .class => |cls| return Value.boolean(vm.getClass(receiver) == cls),
+        .module => return Value.boolean(false),
+        else => return vm.raiseExceptionFmt(vm.type_error_class, "class or module required", .{}),
+    }
+}
+
+pub fn builtinKernelRespondTo(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    if (args.len < 1 or args.len > 2) {
+        const exc = try vm.createException(vm.argument_error_class, "wrong number of arguments");
+        vm.pending_exception = exc;
+        return error.Unwind;
+    }
+
+    const method_name = args[0];
+    const method_name_str: []const u8 = switch (method_name.data) {
+        .symbol => |sym| sym.name,
+        .string => |str| str.str,
+        else => {
+            const exc = try vm.createException(vm.type_error_class, "not a symbol nor a string");
+            vm.pending_exception = exc;
+            return error.Unwind;
+        },
+    };
+    const method_name_sym = try vm.intern(method_name_str);
+
+    const include_private = if (args.len == 2) args[1].is_truthy() else false;
+
+    if (receiver.getSingletonClass()) |singleton_class| {
+        if (vm.lookupMethod(singleton_class, method_name_sym)) |resolved| {
+            if (include_private) return Value.boolean(true);
+            return Value.boolean(resolved.entry.visibility == .public);
+        }
+    }
+
+    const receiver_class = vm.getClass(receiver);
+    if (vm.lookupMethod(receiver_class, method_name_sym)) |resolved| {
+        if (include_private) return Value.boolean(true);
+        return Value.boolean(resolved.entry.visibility == .public);
+    }
+
+    return Value.boolean(false);
 }
 
 pub fn builtinKernelBlockGiven(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

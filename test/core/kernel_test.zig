@@ -94,3 +94,104 @@ test "Kernel#freeze on Integer is a no-op and remains frozen" {
     try std.testing.expect(result.data == .boolean);
     try std.testing.expectEqual(true, result.data.boolean);
 }
+
+test "Kernel#instance_of? returns true for exact class and false for ancestor/module" {
+    var result = try evalCode("\"\".instance_of?(String)");
+    try std.testing.expect(result.data == .boolean);
+    try std.testing.expectEqual(true, result.data.boolean);
+
+    result = try evalCode(
+        \\class A
+        \\end
+        \\class B < A
+        \\end
+        \\B.new.instance_of?(A)
+    );
+    try std.testing.expect(result.data == .boolean);
+    try std.testing.expectEqual(false, result.data.boolean);
+
+    result = try evalCode(
+        \\module M
+        \\end
+        \\class C
+        \\  include M
+        \\end
+        \\C.new.instance_of?(M)
+    );
+    try std.testing.expect(result.data == .boolean);
+    try std.testing.expectEqual(false, result.data.boolean);
+}
+
+test "Kernel#instance_of? raises TypeError for non class/module argument" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+    var bad = evalCodeWithOutput("Object.new.instance_of?(Object.new)", &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.UnhandledException, bad.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "TypeError") != null);
+
+    bad = evalCodeWithOutput("Object.new.instance_of?(1)", &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.UnhandledException, bad.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "TypeError") != null);
+}
+
+test "Kernel#respond_to? supports symbol/string names and include_private" {
+    var result = try evalCode(
+        \\class K
+        \\  def pub_method
+        \\    1
+        \\  end
+        \\end
+        \\k = K.new
+        \\[k.respond_to?(:pub_method), k.respond_to?("pub_method"), k.respond_to?(:missing_method)]
+    );
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(true, result.data.array.elements.items[0].data.boolean);
+    try std.testing.expectEqual(true, result.data.array.elements.items[1].data.boolean);
+    try std.testing.expectEqual(false, result.data.array.elements.items[2].data.boolean);
+
+    result = try evalCode(
+        \\class K
+        \\  protected
+        \\  def protected_method
+        \\    1
+        \\  end
+        \\  private
+        \\  def private_method
+        \\    2
+        \\  end
+        \\end
+        \\k = K.new
+        \\[
+        \\  k.respond_to?(:protected_method),
+        \\  k.respond_to?(:private_method),
+        \\  k.respond_to?(:protected_method, false),
+        \\  k.respond_to?(:private_method, false),
+        \\  k.respond_to?(:protected_method, true),
+        \\  k.respond_to?(:private_method, true)
+        \\]
+    );
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(false, result.data.array.elements.items[0].data.boolean);
+    try std.testing.expectEqual(false, result.data.array.elements.items[1].data.boolean);
+    try std.testing.expectEqual(false, result.data.array.elements.items[2].data.boolean);
+    try std.testing.expectEqual(false, result.data.array.elements.items[3].data.boolean);
+    try std.testing.expectEqual(true, result.data.array.elements.items[4].data.boolean);
+    try std.testing.expectEqual(true, result.data.array.elements.items[5].data.boolean);
+}
+
+test "Kernel#respond_to? raises for invalid argument types and arity" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+
+    var bad = evalCodeWithOutput("Object.new.respond_to?(Object.new)", &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.UnhandledException, bad.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "TypeError") != null);
+
+    bad = evalCodeWithOutput("Object.new.respond_to?", &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.UnhandledException, bad.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "ArgumentError") != null);
+
+    bad = evalCodeWithOutput("Object.new.respond_to?(:to_s, true, false)", &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.UnhandledException, bad.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "ArgumentError") != null);
+}
