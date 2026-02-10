@@ -304,18 +304,16 @@ pub const Compiler = struct {
                 const value_node = try self.parser.asNode(@ptrCast(var_write.value));
                 try self.compileNode(value_node, line);
 
-                // Try to find in current scope first
-                if (self.findLocal(var_name)) |idx| {
-                    try self.current_chunk.emitOpU8(.SET_LOCAL, idx, line);
-                } else if (self.findLocalWithDepth(var_name)) |info| {
-                    // Found in parent scope - emit deep access
-                    try self.current_chunk.emitOpU8U8(.SET_LOCAL_DEEP, @intCast(info.idx), @intCast(info.depth), line);
-                } else {
-                    // Create new local variable
-                    try self.addLocal(var_name);
-                    const idx = @as(u8, @intCast(self.locals.items.len - 1));
-                    try self.current_chunk.emitOpU8(.SET_LOCAL, idx, line);
-                }
+                const slot = try self.resolveOrCreateLocalSlot(var_name);
+                try self.emitSetLocalSlot(slot, line);
+            },
+
+            .local_variable_and_write => |var_write| {
+                try self.compileLocalAndWrite(var_write, line);
+            },
+
+            .local_variable_or_write => |var_write| {
+                try self.compileLocalOrWrite(var_write, line);
             },
 
             .constant_read => |const_read| {
@@ -347,6 +345,14 @@ pub const Compiler = struct {
 
                 const idx = try self.current_chunk.addConstant(.{ .string = const_name });
                 try self.current_chunk.emitOpU16(.SET_CONST, @intCast(idx), line);
+            },
+
+            .constant_and_write => |const_write| {
+                try self.compileConstantAndWrite(const_write, line);
+            },
+
+            .constant_or_write => |const_write| {
+                try self.compileConstantOrWrite(const_write, line);
             },
 
             .call => |call_node| {
@@ -609,6 +615,14 @@ pub const Compiler = struct {
                 try self.current_chunk.emitOpU16(.SET_GLOBAL, @intCast(name_idx), line);
             },
 
+            .global_variable_and_write => |var_write| {
+                try self.compileGlobalAndWrite(var_write, line);
+            },
+
+            .global_variable_or_write => |var_write| {
+                try self.compileGlobalOrWrite(var_write, line);
+            },
+
             .instance_variable_read => |var_read| {
                 const var_name = try self.parser.getConstantName(@intCast(var_read.name));
                 const name_idx = try self.current_chunk.addConstant(.{ .symbol = var_name });
@@ -623,6 +637,14 @@ pub const Compiler = struct {
 
                 const name_idx = try self.current_chunk.addConstant(.{ .symbol = var_name });
                 try self.current_chunk.emitOpU16(.SET_IVAR, @intCast(name_idx), line);
+            },
+
+            .instance_variable_and_write => |var_write| {
+                try self.compileInstanceVariableAndWrite(var_write, line);
+            },
+
+            .instance_variable_or_write => |var_write| {
+                try self.compileInstanceVariableOrWrite(var_write, line);
             },
 
             .forwarding_super => |super_node| {
@@ -782,6 +804,173 @@ pub const Compiler = struct {
         try self.current_chunk.emitOp(.POP, line);
         const right = try self.parser.asNode(@ptrCast(or_node.right));
         try self.compileNode(right, line);
+
+        try self.current_chunk.patchJump(jump_end);
+    }
+
+    const LocalSlot = struct {
+        idx: u8,
+        depth: u8,
+    };
+
+    fn resolveOrCreateLocalSlot(self: *Compiler, var_name: []const u8) !LocalSlot {
+        if (self.findLocal(var_name)) |idx| {
+            return .{ .idx = idx, .depth = 0 };
+        }
+        if (self.findLocalWithDepth(var_name)) |info| {
+            return .{
+                .idx = @intCast(info.idx),
+                .depth = @intCast(info.depth),
+            };
+        }
+
+        try self.addLocal(var_name);
+        return .{
+            .idx = @intCast(self.locals.items.len - 1),
+            .depth = 0,
+        };
+    }
+
+    fn emitGetLocalSlot(self: *Compiler, slot: LocalSlot, line: u32) !void {
+        if (slot.depth == 0) {
+            try self.current_chunk.emitOpU8(.GET_LOCAL, slot.idx, line);
+        } else {
+            try self.current_chunk.emitOpU8U8(.GET_LOCAL_DEEP, slot.idx, slot.depth, line);
+        }
+    }
+
+    fn emitSetLocalSlot(self: *Compiler, slot: LocalSlot, line: u32) !void {
+        if (slot.depth == 0) {
+            try self.current_chunk.emitOpU8(.SET_LOCAL, slot.idx, line);
+        } else {
+            try self.current_chunk.emitOpU8U8(.SET_LOCAL_DEEP, slot.idx, slot.depth, line);
+        }
+    }
+
+    fn compileLocalAndWrite(self: *Compiler, var_write: *prism.LocalVariableAndWriteNode, line: u32) !void {
+        const var_name = try self.parser.getLocalVariableName(var_write.name);
+        const slot = try self.resolveOrCreateLocalSlot(var_name);
+
+        try self.emitGetLocalSlot(slot, line);
+        try self.current_chunk.emitOp(.DUP, line);
+        const jump_end = try self.current_chunk.emitJump(.JUMP_IF_FALSE, line);
+        try self.current_chunk.emitOp(.POP, line);
+
+        const value_node = try self.parser.asNode(@ptrCast(var_write.value));
+        try self.compileNode(value_node, line);
+        try self.emitSetLocalSlot(slot, line);
+
+        try self.current_chunk.patchJump(jump_end);
+    }
+
+    fn compileLocalOrWrite(self: *Compiler, var_write: *prism.LocalVariableOrWriteNode, line: u32) !void {
+        const var_name = try self.parser.getLocalVariableName(var_write.name);
+        const slot = try self.resolveOrCreateLocalSlot(var_name);
+
+        try self.emitGetLocalSlot(slot, line);
+        try self.current_chunk.emitOp(.DUP, line);
+        const jump_end = try self.current_chunk.emitJump(.JUMP_IF_TRUE, line);
+        try self.current_chunk.emitOp(.POP, line);
+
+        const value_node = try self.parser.asNode(@ptrCast(var_write.value));
+        try self.compileNode(value_node, line);
+        try self.emitSetLocalSlot(slot, line);
+
+        try self.current_chunk.patchJump(jump_end);
+    }
+
+    fn compileGlobalAndWrite(self: *Compiler, var_write: *prism.GlobalVariableAndWriteNode, line: u32) !void {
+        const var_name = try self.parser.getConstantName(@intCast(var_write.name));
+        const name_idx = try self.current_chunk.addConstant(.{ .symbol = var_name });
+
+        try self.current_chunk.emitOpU16(.GET_GLOBAL, @intCast(name_idx), line);
+        try self.current_chunk.emitOp(.DUP, line);
+        const jump_end = try self.current_chunk.emitJump(.JUMP_IF_FALSE, line);
+        try self.current_chunk.emitOp(.POP, line);
+
+        const value_node = try self.parser.asNode(@ptrCast(var_write.value));
+        try self.compileNode(value_node, line);
+        try self.current_chunk.emitOpU16(.SET_GLOBAL, @intCast(name_idx), line);
+
+        try self.current_chunk.patchJump(jump_end);
+    }
+
+    fn compileGlobalOrWrite(self: *Compiler, var_write: *prism.GlobalVariableOrWriteNode, line: u32) !void {
+        const var_name = try self.parser.getConstantName(@intCast(var_write.name));
+        const name_idx = try self.current_chunk.addConstant(.{ .symbol = var_name });
+
+        try self.current_chunk.emitOpU16(.GET_GLOBAL, @intCast(name_idx), line);
+        try self.current_chunk.emitOp(.DUP, line);
+        const jump_end = try self.current_chunk.emitJump(.JUMP_IF_TRUE, line);
+        try self.current_chunk.emitOp(.POP, line);
+
+        const value_node = try self.parser.asNode(@ptrCast(var_write.value));
+        try self.compileNode(value_node, line);
+        try self.current_chunk.emitOpU16(.SET_GLOBAL, @intCast(name_idx), line);
+
+        try self.current_chunk.patchJump(jump_end);
+    }
+
+    fn compileInstanceVariableAndWrite(self: *Compiler, var_write: *prism.InstanceVariableAndWriteNode, line: u32) !void {
+        const var_name = try self.parser.getConstantName(@intCast(var_write.name));
+        const name_idx = try self.current_chunk.addConstant(.{ .symbol = var_name });
+
+        try self.current_chunk.emitOpU16(.GET_IVAR, @intCast(name_idx), line);
+        try self.current_chunk.emitOp(.DUP, line);
+        const jump_end = try self.current_chunk.emitJump(.JUMP_IF_FALSE, line);
+        try self.current_chunk.emitOp(.POP, line);
+
+        const value_node = try self.parser.asNode(@ptrCast(var_write.value));
+        try self.compileNode(value_node, line);
+        try self.current_chunk.emitOpU16(.SET_IVAR, @intCast(name_idx), line);
+
+        try self.current_chunk.patchJump(jump_end);
+    }
+
+    fn compileInstanceVariableOrWrite(self: *Compiler, var_write: *prism.InstanceVariableOrWriteNode, line: u32) !void {
+        const var_name = try self.parser.getConstantName(@intCast(var_write.name));
+        const name_idx = try self.current_chunk.addConstant(.{ .symbol = var_name });
+
+        try self.current_chunk.emitOpU16(.GET_IVAR, @intCast(name_idx), line);
+        try self.current_chunk.emitOp(.DUP, line);
+        const jump_end = try self.current_chunk.emitJump(.JUMP_IF_TRUE, line);
+        try self.current_chunk.emitOp(.POP, line);
+
+        const value_node = try self.parser.asNode(@ptrCast(var_write.value));
+        try self.compileNode(value_node, line);
+        try self.current_chunk.emitOpU16(.SET_IVAR, @intCast(name_idx), line);
+
+        try self.current_chunk.patchJump(jump_end);
+    }
+
+    fn compileConstantAndWrite(self: *Compiler, const_write: *prism.ConstantAndWriteNode, line: u32) !void {
+        const const_name = try self.parser.getConstantName(const_write.name);
+        const const_idx = try self.current_chunk.addConstant(.{ .string = const_name });
+
+        try self.current_chunk.emitOpU16(.GET_CONST, @intCast(const_idx), line);
+        try self.current_chunk.emitOp(.DUP, line);
+        const jump_end = try self.current_chunk.emitJump(.JUMP_IF_FALSE, line);
+        try self.current_chunk.emitOp(.POP, line);
+
+        const value_node = try self.parser.asNode(@ptrCast(const_write.value));
+        try self.compileNode(value_node, line);
+        try self.current_chunk.emitOpU16(.SET_CONST, @intCast(const_idx), line);
+
+        try self.current_chunk.patchJump(jump_end);
+    }
+
+    fn compileConstantOrWrite(self: *Compiler, const_write: *prism.ConstantOrWriteNode, line: u32) !void {
+        const const_name = try self.parser.getConstantName(const_write.name);
+        const const_idx = try self.current_chunk.addConstant(.{ .string = const_name });
+
+        try self.current_chunk.emitOpU16(.GET_CONST_OR_NIL, @intCast(const_idx), line);
+        try self.current_chunk.emitOp(.DUP, line);
+        const jump_end = try self.current_chunk.emitJump(.JUMP_IF_TRUE, line);
+        try self.current_chunk.emitOp(.POP, line);
+
+        const value_node = try self.parser.asNode(@ptrCast(const_write.value));
+        try self.compileNode(value_node, line);
+        try self.current_chunk.emitOpU16(.SET_CONST, @intCast(const_idx), line);
 
         try self.current_chunk.patchJump(jump_end);
     }

@@ -958,6 +958,29 @@ pub const VM = struct {
                 }
             },
 
+            .GET_CONST_OR_NIL => {
+                const idx = self.readU16();
+                const constant = self.currentChunk().constants.items[idx];
+                if (constant == .string) {
+                    const name_sym = try self.intern(constant.string);
+
+                    if (frame.ep.lexical_scope) |scope| {
+                        if (try self.findConstantInLexicalScope(scope, name_sym)) |val| {
+                            try self.push(val);
+                            return;
+                        }
+                    }
+
+                    if (self.object_class.module.constants.get(name_sym)) |const_val| {
+                        try self.push(const_val);
+                    } else {
+                        try self.push(Value.nil());
+                    }
+                } else {
+                    try self.push(Value.nil());
+                }
+            },
+
             .SET_CONST => {
                 const idx = self.readU16();
                 const val = self.pop();

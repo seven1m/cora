@@ -16,6 +16,8 @@ pub const CallNode = c.pm_call_node_t;
 pub const ClassNode = c.pm_class_node_t;
 pub const ConstantPathNode = c.pm_constant_path_node_t;
 pub const ConstantReadNode = c.pm_constant_read_node_t;
+pub const ConstantAndWriteNode = c.pm_constant_and_write_node_t;
+pub const ConstantOrWriteNode = c.pm_constant_or_write_node_t;
 pub const ConstantWriteNode = c.pm_constant_write_node_t;
 pub const DefNode = c.pm_def_node_t;
 pub const ElseNode = c.pm_else_node_t;
@@ -60,9 +62,15 @@ pub const AssocNode = c.pm_assoc_node_t;
 pub const LambdaNode = c.pm_lambda_node_t;
 pub const MissingNode = c.pm_missing_node_t;
 pub const GlobalVariableReadNode = c.pm_global_variable_read_node_t;
+pub const GlobalVariableAndWriteNode = c.pm_global_variable_and_write_node_t;
+pub const GlobalVariableOrWriteNode = c.pm_global_variable_or_write_node_t;
 pub const GlobalVariableWriteNode = c.pm_global_variable_write_node_t;
 pub const InstanceVariableReadNode = c.pm_instance_variable_read_node_t;
+pub const InstanceVariableAndWriteNode = c.pm_instance_variable_and_write_node_t;
+pub const InstanceVariableOrWriteNode = c.pm_instance_variable_or_write_node_t;
 pub const InstanceVariableWriteNode = c.pm_instance_variable_write_node_t;
+pub const LocalVariableAndWriteNode = c.pm_local_variable_and_write_node_t;
+pub const LocalVariableOrWriteNode = c.pm_local_variable_or_write_node_t;
 pub const BlockArgumentNode = c.pm_block_argument_node_t;
 pub const EmbeddedStatementsNode = c.pm_embedded_statements_node_t;
 pub const InterpolatedStringNode = c.pm_interpolated_string_node_t;
@@ -86,6 +94,8 @@ pub const Node = union(enum) {
     class: *ClassNode,
     constant_path: *ConstantPathNode,
     constant_read: *ConstantReadNode,
+    constant_and_write: *ConstantAndWriteNode,
+    constant_or_write: *ConstantOrWriteNode,
     constant_write: *ConstantWriteNode,
     def: *DefNode,
     else_node: *ElseNode,
@@ -95,6 +105,8 @@ pub const Node = union(enum) {
     integer: *IntegerNode,
     local_variable_read: *LocalVariableReadNode,
     local_variable_target: *LocalVariableTargetNode,
+    local_variable_and_write: *LocalVariableAndWriteNode,
+    local_variable_or_write: *LocalVariableOrWriteNode,
     local_variable_write: *LocalVariableWriteNode,
     module: *ModuleNode,
     nil_node: *NilNode,
@@ -129,8 +141,12 @@ pub const Node = union(enum) {
     lambda: *LambdaNode,
     missing: *MissingNode,
     global_variable_read: *GlobalVariableReadNode,
+    global_variable_and_write: *GlobalVariableAndWriteNode,
+    global_variable_or_write: *GlobalVariableOrWriteNode,
     global_variable_write: *GlobalVariableWriteNode,
     instance_variable_read: *InstanceVariableReadNode,
+    instance_variable_and_write: *InstanceVariableAndWriteNode,
+    instance_variable_or_write: *InstanceVariableOrWriteNode,
     instance_variable_write: *InstanceVariableWriteNode,
     block_argument: *BlockArgumentNode,
     embedded_statements: *EmbeddedStatementsNode,
@@ -226,6 +242,12 @@ pub const Parser = struct {
         if (node_type == c.PM_CONSTANT_WRITE_NODE) {
             return Node{ .constant_write = @ptrCast(raw) };
         }
+        if (node_type == c.PM_CONSTANT_AND_WRITE_NODE) {
+            return Node{ .constant_and_write = @ptrCast(raw) };
+        }
+        if (node_type == c.PM_CONSTANT_OR_WRITE_NODE) {
+            return Node{ .constant_or_write = @ptrCast(raw) };
+        }
 
         if (node_type == c.PM_CONSTANT_PATH_NODE) {
             return Node{ .constant_path = @ptrCast(raw) };
@@ -253,6 +275,12 @@ pub const Parser = struct {
 
         if (node_type == c.PM_LOCAL_VARIABLE_WRITE_NODE) {
             return Node{ .local_variable_write = @ptrCast(raw) };
+        }
+        if (node_type == c.PM_LOCAL_VARIABLE_AND_WRITE_NODE) {
+            return Node{ .local_variable_and_write = @ptrCast(raw) };
+        }
+        if (node_type == c.PM_LOCAL_VARIABLE_OR_WRITE_NODE) {
+            return Node{ .local_variable_or_write = @ptrCast(raw) };
         }
 
         if (node_type == c.PM_REQUIRED_PARAMETER_NODE) {
@@ -378,6 +406,12 @@ pub const Parser = struct {
         if (node_type == c.PM_GLOBAL_VARIABLE_WRITE_NODE) {
             return Node{ .global_variable_write = @ptrCast(raw) };
         }
+        if (node_type == c.PM_GLOBAL_VARIABLE_AND_WRITE_NODE) {
+            return Node{ .global_variable_and_write = @ptrCast(raw) };
+        }
+        if (node_type == c.PM_GLOBAL_VARIABLE_OR_WRITE_NODE) {
+            return Node{ .global_variable_or_write = @ptrCast(raw) };
+        }
 
         if (node_type == c.PM_INSTANCE_VARIABLE_READ_NODE) {
             return Node{ .instance_variable_read = @ptrCast(raw) };
@@ -385,6 +419,12 @@ pub const Parser = struct {
 
         if (node_type == c.PM_INSTANCE_VARIABLE_WRITE_NODE) {
             return Node{ .instance_variable_write = @ptrCast(raw) };
+        }
+        if (node_type == c.PM_INSTANCE_VARIABLE_AND_WRITE_NODE) {
+            return Node{ .instance_variable_and_write = @ptrCast(raw) };
+        }
+        if (node_type == c.PM_INSTANCE_VARIABLE_OR_WRITE_NODE) {
+            return Node{ .instance_variable_or_write = @ptrCast(raw) };
         }
 
         if (node_type == c.PM_BLOCK_ARGUMENT_NODE) {

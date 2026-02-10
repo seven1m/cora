@@ -15,6 +15,7 @@ pub const OpCode = enum(u8) {
     GET_GLOBAL, // Operand: u16 (constant pool index of variable name)
     SET_GLOBAL, // Operand: u16 (constant pool index of variable name)
     GET_CONST, // Operand: u16 (constant name index)
+    GET_CONST_OR_NIL, // Operand: u16 (constant name index)
     SET_CONST, // Operand: u16 (constant name index)
     GET_IVAR, // Operand: u16 (constant pool index of variable name)
     SET_IVAR, // Operand: u16 (constant pool index of variable name)
@@ -92,6 +93,7 @@ pub fn opcodeName(op: OpCode) []const u8 {
         .GET_GLOBAL => "GET_GLOBAL",
         .SET_GLOBAL => "SET_GLOBAL",
         .GET_CONST => "GET_CONST",
+        .GET_CONST_OR_NIL => "GET_CONST_OR_NIL",
         .SET_CONST => "SET_CONST",
         .GET_IVAR => "GET_IVAR",
         .SET_IVAR => "SET_IVAR",
@@ -161,7 +163,7 @@ pub const Instruction = struct {
         try writer.print("{s}", .{opcodeName(self.op)});
 
         switch (self.op) {
-            .PUSH_CONST, .GET_CONST, .SET_CONST, .GET_CONST_PATH, .DEF_MODULE, .DEF_CLASS, .DEF_METHOD, .GET_GLOBAL, .SET_GLOBAL, .GET_IVAR, .SET_IVAR => {
+            .PUSH_CONST, .GET_CONST, .GET_CONST_OR_NIL, .SET_CONST, .GET_CONST_PATH, .DEF_MODULE, .DEF_CLASS, .DEF_METHOD, .GET_GLOBAL, .SET_GLOBAL, .GET_IVAR, .SET_IVAR => {
                 try writer.print(" {d}", .{self.bx});
             },
             .CALL => {
