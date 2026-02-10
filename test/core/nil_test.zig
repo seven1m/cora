@@ -20,3 +20,9 @@ test "NilClass#to_s" {
     try std.testing.expect(result.data == .string);
     try std.testing.expectEqualSlices(u8, "", result.data.string.str);
 }
+
+test "NilClass#nil?" {
+    const result = try evalCode("nil.nil?");
+    try std.testing.expect(result.data == .boolean);
+    try std.testing.expectEqual(true, result.data.boolean);
+}

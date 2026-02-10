@@ -59,6 +59,9 @@ pub fn register(vm: *VM) !void {
 
     const send_sym = try vm.intern("send");
     try vm.kernel_module.methods.put(send_sym, .{ .method = .{ .builtin = &builtinKernelSend } });
+
+    const nil_sym = try vm.intern("nil?");
+    try vm.kernel_module.methods.put(nil_sym, .{ .method = .{ .builtin = &builtinKernelNil } });
 }
 
 pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -508,6 +511,11 @@ pub fn builtinKernelToS(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError
 
 pub fn builtinKernelInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     return builtinKernelToS(vm, receiver, args, null);
+}
+
+pub fn builtinKernelNil(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return Value.boolean(false);
 }
 
 pub fn builtinKernelP(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

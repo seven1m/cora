@@ -65,3 +65,9 @@ test "puts" {
     try std.testing.expectEqualStrings("\n", result.stdout);
     try std.testing.expectEqualStrings("", result.stderr);
 }
+
+test "Kernel#nil? returns false for non-nil" {
+    const result = try evalCode("1.nil?");
+    try std.testing.expect(result.data == .boolean);
+    try std.testing.expectEqual(false, result.data.boolean);
+}
