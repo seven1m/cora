@@ -265,13 +265,7 @@ pub fn builtinArrayInclude(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 }
 
 pub fn builtinArrayJoin(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    if (args.len > 1) {
-        return vm.raiseExceptionFmt(
-            vm.argument_error_class,
-            "wrong number of arguments (given {d}, expected 0..1)",
-            .{args.len},
-        );
-    }
+    try vm.requireArgRange(args, 0, 1);
     const sep = if (args.len == 1) try vm.coerceToStr(args[0], "no implicit conversion into String") else "";
 
     const array = receiver.data.array;

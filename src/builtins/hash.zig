@@ -34,6 +34,15 @@ pub fn register(vm: *VM) !void {
 
     const inspect_sym = try vm.intern("inspect");
     try vm.hash_class.module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinHashInspect } });
+
+    const fetch_sym = try vm.intern("fetch");
+    try vm.hash_class.module.methods.put(fetch_sym, .{ .method = .{ .builtin = &builtinHashFetch } });
+
+    const dig_sym = try vm.intern("dig");
+    try vm.hash_class.module.methods.put(dig_sym, .{ .method = .{ .builtin = &builtinHashDig } });
+
+    const select_sym = try vm.intern("select");
+    try vm.hash_class.module.methods.put(select_sym, .{ .method = .{ .builtin = &builtinHashSelect } });
 }
 
 pub fn builtinHashBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -184,4 +193,120 @@ pub fn builtinHashToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
 pub fn builtinHashInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return try builtinHashToS(vm, receiver, args, null);
+}
+
+pub fn builtinHashFetch(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgRange(args, 1, 2);
+
+    if (args.len == 2 and block != null) {
+        return vm.raiseExceptionFmt(
+            vm.argument_error_class,
+            "block supersedes default value argument",
+            .{},
+        );
+    }
+
+    const hash_obj = receiver.data.hash;
+    const key = args[0];
+    const key_hash = key.hash();
+
+    // Try to find the key
+    if (hash_obj.map.get(key_hash)) |idx| {
+        if (hash_obj.entries.items[idx].key.eql(key)) {
+            return hash_obj.entries.items[idx].value;
+        }
+    }
+
+    // Key not found - use default value or block
+    if (block) |blk| {
+        const yield_args = [_]Value{key};
+        const result = try vm.yieldToBlock(blk, &yield_args);
+        return result.value;
+    } else if (args.len == 2) {
+        return args[1];
+    } else {
+        // Raise KeyError - need to format the key
+        const key_str = try vm.callMethodByName(key, "inspect", &.{}, null);
+        if (key_str.data != .string) {
+            return vm.raiseExceptionFmt(
+                vm.type_error_class,
+                "inspect did not return String",
+                .{},
+            );
+        }
+
+        return vm.raiseExceptionFmt(
+            vm.runtime_error_class,
+            "key not found: {s}",
+            .{key_str.data.string.str},
+        );
+    }
+}
+
+pub fn builtinHashDig(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    if (args.len == 0) {
+        return vm.raiseExceptionFmt(
+            vm.argument_error_class,
+            "wrong number of arguments (given 0, expected 1+)",
+            .{},
+        );
+    }
+
+    var current_value = receiver;
+
+    for (args) |key| {
+        // Check if current value is nil
+        if (current_value.data == .nil) {
+            return Value.nil();
+        }
+
+        // Try to call [] on the current value
+        var bracket_args = [_]Value{key};
+        const next_value = vm.callMethodByName(current_value, "[]", &bracket_args, null) catch |err| {
+            if (err == error.Unwind) {
+                // If [] raised an exception (e.g., NoMethodError), return nil instead
+                vm.pending_exception = null;
+                return Value.nil();
+            }
+            return err;
+        };
+
+        current_value = next_value;
+    }
+
+    return current_value;
+}
+
+pub fn builtinHashSelect(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const blk = try vm.requireBlock(block);
+    const hash_obj = receiver.data.hash;
+
+    // Create a new hash for the result
+    const result_hash = try vm.createHash();
+
+    // Iterate through entries
+    for (hash_obj.entries.items) |entry| {
+        const yield_args = [_]Value{ entry.key, entry.value };
+        const result = try vm.yieldToBlock(blk, &yield_args);
+
+        // If break occurred, return immediately
+        if (result.break_occurred) {
+            return .{ .data = .{ .hash = result_hash } };
+        }
+
+        // Check if the block returned a truthy value
+        const is_truthy = (result.value.data != .nil) and
+            !(result.value.data == .boolean and !result.value.data.boolean);
+
+        if (is_truthy) {
+            // Add this entry to the result hash
+            const key_hash = entry.key.hash();
+            const new_idx = result_hash.entries.items.len;
+            result_hash.entries.append(vm.gc_allocator, .{ .key = entry.key, .value = entry.value }) catch return error.Fatal;
+            result_hash.map.put(key_hash, new_idx) catch return error.Fatal;
+        }
+    }
+
+    return .{ .data = .{ .hash = result_hash } };
 }

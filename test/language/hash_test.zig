@@ -137,3 +137,94 @@ test "Hash with boolean key" {
     const result = try evalCode("h = {true => 't', false => 'f'}\nh[true]");
     try std.testing.expectEqualSlices(u8, "t", result.data.string.str);
 }
+
+test "Hash fetch with existing key" {
+    const result = try evalCode("h = {a: 1, b: 2}\nh.fetch(:a)");
+    try std.testing.expectEqual(1, result.data.integer);
+}
+
+test "Hash fetch with default value" {
+    const result = try evalCode("h = {a: 1}\nh.fetch(:b, 99)");
+    try std.testing.expectEqual(99, result.data.integer);
+}
+
+test "Hash fetch with block" {
+    const result = try evalCode("h = {a: 1}\nh.fetch(:b) { |k| k.to_s }");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "b", result.data.string.str);
+}
+
+test "Hash fetch raises error when key not found" {
+    const result = evalCode("h = {a: 1}\nh.fetch(:b)");
+    try std.testing.expectError(error.UnhandledException, result);
+}
+
+test "Hash fetch raises error with both default and block" {
+    const result = evalCode("h = {a: 1}\nh.fetch(:b, 99) { 42 }");
+    try std.testing.expectError(error.UnhandledException, result);
+}
+
+test "Hash dig with single key" {
+    const result = try evalCode("h = {a: 1, b: 2}\nh.dig(:a)");
+    try std.testing.expectEqual(1, result.data.integer);
+}
+
+test "Hash dig with nested hashes" {
+    const result = try evalCode("h = {a: {b: {c: 42}}}\nh.dig(:a, :b, :c)");
+    try std.testing.expectEqual(42, result.data.integer);
+}
+
+test "Hash dig returns nil for missing key" {
+    const result = try evalCode("h = {a: {b: 2}}\nh.dig(:a, :x, :y)");
+    try std.testing.expect(result.data == .nil);
+}
+
+test "Hash dig returns nil when intermediate value is nil" {
+    const result = try evalCode("h = {a: nil}\nh.dig(:a, :b)");
+    try std.testing.expect(result.data == .nil);
+}
+
+test "Hash dig with arrays" {
+    const result = try evalCode("h = {a: [1, 2, 3]}\nh.dig(:a, 1)");
+    try std.testing.expectEqual(2, result.data.integer);
+}
+
+test "Hash select with block" {
+    const result = try evalCode("h = {a: 1, b: 2, c: 3, d: 4}\nh.select { |k, v| v > 2 }");
+    try std.testing.expect(result.data == .hash);
+    try std.testing.expectEqual(2, result.data.hash.entries.items.len);
+
+    // Check that it contains the correct keys by checking symbol names
+    var found_c = false;
+    var found_d = false;
+    for (result.data.hash.entries.items) |entry| {
+        if (entry.key.data == .symbol) {
+            const sym_name = entry.key.data.symbol.name;
+            if (std.mem.eql(u8, sym_name, "c")) found_c = true;
+            if (std.mem.eql(u8, sym_name, "d")) found_d = true;
+        }
+    }
+    try std.testing.expect(found_c);
+    try std.testing.expect(found_d);
+}
+
+test "Hash select preserves insertion order" {
+    const result = try evalCode("h = {d: 4, a: 1, c: 3, b: 2}\nh.select { |k, v| v == 1 || v == 3 }");
+    try std.testing.expect(result.data == .hash);
+    try std.testing.expectEqual(2, result.data.hash.entries.items.len);
+
+    // First entry should be a: 1 (since d comes first but d: 4 doesn't match)
+    const first_key = result.data.hash.entries.items[0].key;
+    try std.testing.expectEqualSlices(u8, "a", first_key.data.symbol.name);
+}
+
+test "Hash select returns empty hash when nothing matches" {
+    const result = try evalCode("h = {a: 1, b: 2}\nh.select { |k, v| v > 10 }");
+    try std.testing.expect(result.data == .hash);
+    try std.testing.expectEqual(0, result.data.hash.entries.items.len);
+}
+
+test "Hash select without block raises error" {
+    const result = evalCode("h = {a: 1}\nh.select");
+    try std.testing.expectError(error.UnhandledException, result);
+}

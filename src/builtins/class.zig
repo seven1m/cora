@@ -20,13 +20,7 @@ pub fn builtinClassNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
         else => return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Class", .{}),
     };
 
-    if (args.len > 1) {
-        return vm.raiseExceptionFmt(
-            vm.argument_error_class,
-            "wrong number of arguments (given {d}, expected 0..1)",
-            .{args.len},
-        );
-    }
+    try vm.requireArgRange(args, 0, 1);
 
     var superclass: *ClassObject = vm.object_class;
     if (args.len == 1) {

@@ -2731,6 +2731,19 @@ pub const VM = struct {
         }
     }
 
+    pub fn requireArgRange(self: *VM, args: []Value, min: usize, max: usize) VMError!void {
+        if (args.len < min or args.len > max) {
+            const msg = std.fmt.allocPrint(
+                self.gc_allocator,
+                "wrong number of arguments (given {d}, expected {d}..{d})",
+                .{ args.len, min, max },
+            ) catch return error.Fatal;
+            const exc = try self.createException(self.argument_error_class, msg);
+            self.pending_exception = exc;
+            return error.Unwind;
+        }
+    }
+
     const AccessorKind = enum { reader, writer };
 
     pub fn createAccessorChunk(self: *VM, base_name: []const u8, kind: AccessorKind) VMError!*Chunk {

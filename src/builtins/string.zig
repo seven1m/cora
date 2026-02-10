@@ -365,13 +365,7 @@ pub fn builtinStringUpcase(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 }
 
 pub fn builtinStringToI(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    if (args.len > 1) {
-        return vm.raiseExceptionFmt(
-            vm.argument_error_class,
-            "wrong number of arguments (given {d}, expected 0..1)",
-            .{args.len},
-        );
-    }
+    try vm.requireArgRange(args, 0, 1);
 
     var base: u8 = 10;
     if (args.len == 1) {
