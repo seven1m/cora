@@ -9,10 +9,10 @@ const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
     const to_s_sym = try vm.intern("to_s");
-    try vm.symbol_class.module.methods.put(to_s_sym, .{ .builtin = &builtinSymbolToS });
+    try vm.symbol_class.module.methods.put(to_s_sym, .{ .method = .{ .builtin = &builtinSymbolToS } });
 
     const inspect_sym = try vm.intern("inspect");
-    try vm.symbol_class.module.methods.put(inspect_sym, .{ .builtin = &builtinSymbolInspect });
+    try vm.symbol_class.module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinSymbolInspect } });
 }
 
 pub fn builtinSymbolToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

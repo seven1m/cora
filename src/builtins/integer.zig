@@ -9,34 +9,34 @@ const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
     const plus_sym = try vm.intern("+");
-    try vm.integer_class.module.methods.put(plus_sym, .{ .builtin = &builtinIntegerPlus });
+    try vm.integer_class.module.methods.put(plus_sym, .{ .method = .{ .builtin = &builtinIntegerPlus } });
 
     const minus_sym = try vm.intern("-");
-    try vm.integer_class.module.methods.put(minus_sym, .{ .builtin = &builtinIntegerMinus });
+    try vm.integer_class.module.methods.put(minus_sym, .{ .method = .{ .builtin = &builtinIntegerMinus } });
 
     const multiply_sym = try vm.intern("*");
-    try vm.integer_class.module.methods.put(multiply_sym, .{ .builtin = &builtinIntegerMultiply });
+    try vm.integer_class.module.methods.put(multiply_sym, .{ .method = .{ .builtin = &builtinIntegerMultiply } });
 
     const equal_sym = try vm.intern("==");
-    try vm.integer_class.module.methods.put(equal_sym, .{ .builtin = &builtinIntegerEqual });
+    try vm.integer_class.module.methods.put(equal_sym, .{ .method = .{ .builtin = &builtinIntegerEqual } });
 
     const less_than_sym = try vm.intern("<");
-    try vm.integer_class.module.methods.put(less_than_sym, .{ .builtin = &builtinIntegerLessThan });
+    try vm.integer_class.module.methods.put(less_than_sym, .{ .method = .{ .builtin = &builtinIntegerLessThan } });
 
     const less_than_or_equal_sym = try vm.intern("<=");
-    try vm.integer_class.module.methods.put(less_than_or_equal_sym, .{ .builtin = &builtinIntegerLessThanOrEqual });
+    try vm.integer_class.module.methods.put(less_than_or_equal_sym, .{ .method = .{ .builtin = &builtinIntegerLessThanOrEqual } });
 
     const greater_than_sym = try vm.intern(">");
-    try vm.integer_class.module.methods.put(greater_than_sym, .{ .builtin = &builtinIntegerGreaterThan });
+    try vm.integer_class.module.methods.put(greater_than_sym, .{ .method = .{ .builtin = &builtinIntegerGreaterThan } });
 
     const greater_than_or_equal_sym = try vm.intern(">=");
-    try vm.integer_class.module.methods.put(greater_than_or_equal_sym, .{ .builtin = &builtinIntegerGreaterThanOrEqual });
+    try vm.integer_class.module.methods.put(greater_than_or_equal_sym, .{ .method = .{ .builtin = &builtinIntegerGreaterThanOrEqual } });
 
     const to_s_sym = try vm.intern("to_s");
-    try vm.integer_class.module.methods.put(to_s_sym, .{ .builtin = &builtinIntegerToS });
+    try vm.integer_class.module.methods.put(to_s_sym, .{ .method = .{ .builtin = &builtinIntegerToS } });
 
     const inspect_sym = try vm.intern("inspect");
-    try vm.integer_class.module.methods.put(inspect_sym, .{ .builtin = &builtinIntegerInspect });
+    try vm.integer_class.module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinIntegerInspect } });
 }
 
 pub fn builtinIntegerPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

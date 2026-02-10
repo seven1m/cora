@@ -10,22 +10,22 @@ const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
     const source_sym = try vm.intern("source");
-    try vm.regexp_class.module.methods.put(source_sym, .{ .builtin = &builtinRegexpSource });
+    try vm.regexp_class.module.methods.put(source_sym, .{ .method = .{ .builtin = &builtinRegexpSource } });
 
     const options_sym = try vm.intern("options");
-    try vm.regexp_class.module.methods.put(options_sym, .{ .builtin = &builtinRegexpOptions });
+    try vm.regexp_class.module.methods.put(options_sym, .{ .method = .{ .builtin = &builtinRegexpOptions } });
 
     const inspect_sym = try vm.intern("inspect");
-    try vm.regexp_class.module.methods.put(inspect_sym, .{ .builtin = &builtinRegexpInspect });
+    try vm.regexp_class.module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinRegexpInspect } });
 
     const to_s_sym = try vm.intern("to_s");
-    try vm.regexp_class.module.methods.put(to_s_sym, .{ .builtin = &builtinRegexpToS });
+    try vm.regexp_class.module.methods.put(to_s_sym, .{ .method = .{ .builtin = &builtinRegexpToS } });
 
     const eq_sym = try vm.intern("==");
-    try vm.regexp_class.module.methods.put(eq_sym, .{ .builtin = &builtinRegexpEq });
+    try vm.regexp_class.module.methods.put(eq_sym, .{ .method = .{ .builtin = &builtinRegexpEq } });
 
     const casefold_sym = try vm.intern("casefold?");
-    try vm.regexp_class.module.methods.put(casefold_sym, .{ .builtin = &builtinRegexpCasefold });
+    try vm.regexp_class.module.methods.put(casefold_sym, .{ .method = .{ .builtin = &builtinRegexpCasefold } });
 }
 
 fn builtinRegexpSource(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

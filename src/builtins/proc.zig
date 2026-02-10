@@ -11,13 +11,13 @@ pub fn register(vm: *VM) !void {
     const proc_new_sym = try vm.intern("new");
     const proc_class_val = Value{ .data = .{ .class = vm.proc_class } };
     const proc_singleton = try vm.getOrCreateSingletonClass(proc_class_val);
-    try proc_singleton.module.methods.put(proc_new_sym, .{ .builtin = &builtinProcNew });
+    try proc_singleton.module.methods.put(proc_new_sym, .{ .method = .{ .builtin = &builtinProcNew } });
 
     const call_sym = try vm.intern("call");
-    try vm.proc_class.module.methods.put(call_sym, .{ .builtin = &builtinProcCall });
+    try vm.proc_class.module.methods.put(call_sym, .{ .method = .{ .builtin = &builtinProcCall } });
 
     const lambda_query_sym = try vm.intern("lambda?");
-    try vm.proc_class.module.methods.put(lambda_query_sym, .{ .builtin = &builtinProcIsLambda });
+    try vm.proc_class.module.methods.put(lambda_query_sym, .{ .method = .{ .builtin = &builtinProcIsLambda } });
 }
 
 pub fn builtinProcNew(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {

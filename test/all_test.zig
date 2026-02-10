@@ -48,6 +48,7 @@ const language_while_test = @import("language/while_test.zig");
 const language_until_test = @import("language/until_test.zig");
 const language_singleton_test = @import("language/singleton_test.zig");
 const language_super_test = @import("language/super_test.zig");
+const language_visibility_test = @import("language/visibility_test.zig");
 const spec_test = @import("spec_test.zig");
 
 comptime {
@@ -99,5 +100,6 @@ comptime {
     _ = language_until_test;
     _ = language_singleton_test;
     _ = language_super_test;
+    _ = language_visibility_test;
     _ = spec_test;
 }

@@ -10,52 +10,52 @@ const ClassObject = value.ClassObject;
 
 pub fn register(vm: *VM) !void {
     const puts_sym = try vm.intern("puts");
-    try vm.kernel_module.methods.put(puts_sym, .{ .builtin = &builtinKernelPuts });
+    try vm.kernel_module.methods.put(puts_sym, .{ .method = .{ .builtin = &builtinKernelPuts } });
 
     const proc_sym = try vm.intern("proc");
-    try vm.kernel_module.methods.put(proc_sym, .{ .builtin = &builtinKernelProc });
+    try vm.kernel_module.methods.put(proc_sym, .{ .method = .{ .builtin = &builtinKernelProc } });
 
     const lambda_sym = try vm.intern("lambda");
-    try vm.kernel_module.methods.put(lambda_sym, .{ .builtin = &builtinKernelLambda });
+    try vm.kernel_module.methods.put(lambda_sym, .{ .method = .{ .builtin = &builtinKernelLambda } });
 
     const require_sym = try vm.intern("require");
-    try vm.kernel_module.methods.put(require_sym, .{ .builtin = &builtinKernelRequire });
+    try vm.kernel_module.methods.put(require_sym, .{ .method = .{ .builtin = &builtinKernelRequire } });
 
     const require_relative_sym = try vm.intern("require_relative");
-    try vm.kernel_module.methods.put(require_relative_sym, .{ .builtin = &builtinKernelRequireRelative });
+    try vm.kernel_module.methods.put(require_relative_sym, .{ .method = .{ .builtin = &builtinKernelRequireRelative } });
 
     const load_sym = try vm.intern("load");
-    try vm.kernel_module.methods.put(load_sym, .{ .builtin = &builtinKernelLoad });
+    try vm.kernel_module.methods.put(load_sym, .{ .method = .{ .builtin = &builtinKernelLoad } });
 
     const instance_variable_get_sym = try vm.intern("instance_variable_get");
-    try vm.kernel_module.methods.put(instance_variable_get_sym, .{ .builtin = &builtinKernelInstanceVariableGet });
+    try vm.kernel_module.methods.put(instance_variable_get_sym, .{ .method = .{ .builtin = &builtinKernelInstanceVariableGet } });
 
     const instance_variable_set_sym = try vm.intern("instance_variable_set");
-    try vm.kernel_module.methods.put(instance_variable_set_sym, .{ .builtin = &builtinKernelInstanceVariableSet });
+    try vm.kernel_module.methods.put(instance_variable_set_sym, .{ .method = .{ .builtin = &builtinKernelInstanceVariableSet } });
 
     const to_s_sym = try vm.intern("to_s");
-    try vm.kernel_module.methods.put(to_s_sym, .{ .builtin = &builtinKernelToS });
+    try vm.kernel_module.methods.put(to_s_sym, .{ .method = .{ .builtin = &builtinKernelToS } });
 
     const inspect_sym = try vm.intern("inspect");
-    try vm.kernel_module.methods.put(inspect_sym, .{ .builtin = &builtinKernelInspect });
+    try vm.kernel_module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinKernelInspect } });
 
     const p_sym = try vm.intern("p");
-    try vm.kernel_module.methods.put(p_sym, .{ .builtin = &builtinKernelP });
+    try vm.kernel_module.methods.put(p_sym, .{ .method = .{ .builtin = &builtinKernelP } });
 
     const raise_sym = try vm.intern("raise");
-    try vm.kernel_module.methods.put(raise_sym, .{ .builtin = &builtinKernelRaise });
+    try vm.kernel_module.methods.put(raise_sym, .{ .method = .{ .builtin = &builtinKernelRaise } });
 
     const is_a_sym = try vm.intern("is_a?");
-    try vm.kernel_module.methods.put(is_a_sym, .{ .builtin = &builtinKernelIsA });
+    try vm.kernel_module.methods.put(is_a_sym, .{ .method = .{ .builtin = &builtinKernelIsA } });
 
     const block_given_sym = try vm.intern("block_given?");
-    try vm.kernel_module.methods.put(block_given_sym, .{ .builtin = &builtinKernelBlockGiven });
+    try vm.kernel_module.methods.put(block_given_sym, .{ .method = .{ .builtin = &builtinKernelBlockGiven } });
 
     const at_exit_sym = try vm.intern("at_exit");
-    try vm.kernel_module.methods.put(at_exit_sym, .{ .builtin = &builtinKernelAtExit });
+    try vm.kernel_module.methods.put(at_exit_sym, .{ .method = .{ .builtin = &builtinKernelAtExit } });
 
     const send_sym = try vm.intern("send");
-    try vm.kernel_module.methods.put(send_sym, .{ .builtin = &builtinKernelSend });
+    try vm.kernel_module.methods.put(send_sym, .{ .method = .{ .builtin = &builtinKernelSend } });
 }
 
 pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

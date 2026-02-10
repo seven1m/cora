@@ -282,7 +282,7 @@ pub const Compiler = struct {
 
                 // Call Range.new(begin, end, exclude_end)
                 const method_idx = try self.current_chunk.addConstant(.{ .string = "new" });
-                try self.current_chunk.emitOpU16U8U16(.CALL, @intCast(method_idx), 3, 0, line);
+                try self.current_chunk.emitCall(@intCast(method_idx), 3, @intFromEnum(bytecode.ReceiverCallStyle.explicit), 0, line);
             },
 
             .local_variable_read => |var_read| {
@@ -364,6 +364,7 @@ pub const Compiler = struct {
                     // Self is implicit receiver
                     try self.current_chunk.emitOp(.PUSH_SELF, line);
                 }
+                const call_style: u8 = @intFromEnum(if (call_node.receiver != null) bytecode.ReceiverCallStyle.explicit else bytecode.ReceiverCallStyle.implicit_self);
 
                 // Compile arguments, detecting keywords
                 var argc: u8 = 0;
@@ -431,10 +432,9 @@ pub const Compiler = struct {
                     try self.current_chunk.keyword_metadata.append(self.allocator, kw_meta);
                     const kw_metadata_idx = self.current_chunk.keyword_metadata.items.len - 1;
 
-                    try self.current_chunk.emitCallKw(@intCast(method_idx), argc, kwargc, @intCast(kw_metadata_idx), block_chunk_id, line);
+                    try self.current_chunk.emitCallKw(@intCast(method_idx), argc, kwargc, call_style, @intCast(kw_metadata_idx), block_chunk_id, line);
                 } else {
-                    // Regular CALL (existing code)
-                    try self.current_chunk.emitOpU16U8U16(.CALL, @intCast(method_idx), argc, block_chunk_id, line);
+                    try self.current_chunk.emitCall(@intCast(method_idx), argc, call_style, block_chunk_id, line);
                 }
             },
 

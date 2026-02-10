@@ -221,12 +221,25 @@ pub const Chunk = struct {
     }
 
     /// Emit CALL_KW instruction with keyword arguments
-    pub fn emitCallKw(self: *Chunk, method_idx: u16, argc: u8, kwargc: u8, kw_metadata_idx: u16, block_chunk_id: u16, line: u32) !void {
+    pub fn emitCall(self: *Chunk, method_idx: u16, argc: u8, call_style: u8, block_chunk_id: u16, line: u32) !void {
+        try self.code.append(self.allocator, @intFromEnum(bytecode.OpCode.CALL));
+        try self.code.append(self.allocator, @intCast(method_idx & 0xFF));
+        try self.code.append(self.allocator, @intCast((method_idx >> 8) & 0xFF));
+        try self.code.append(self.allocator, argc);
+        try self.code.append(self.allocator, call_style);
+        try self.code.append(self.allocator, @intCast(block_chunk_id & 0xFF));
+        try self.code.append(self.allocator, @intCast((block_chunk_id >> 8) & 0xFF));
+        try self.line_info.append(self.allocator, line);
+    }
+
+    /// Emit CALL_KW instruction with keyword arguments
+    pub fn emitCallKw(self: *Chunk, method_idx: u16, argc: u8, kwargc: u8, call_style: u8, kw_metadata_idx: u16, block_chunk_id: u16, line: u32) !void {
         try self.code.append(self.allocator, @intFromEnum(bytecode.OpCode.CALL_KW));
         try self.code.append(self.allocator, @intCast(method_idx & 0xFF));
         try self.code.append(self.allocator, @intCast((method_idx >> 8) & 0xFF));
         try self.code.append(self.allocator, argc);
         try self.code.append(self.allocator, kwargc);
+        try self.code.append(self.allocator, call_style);
         try self.code.append(self.allocator, @intCast(kw_metadata_idx & 0xFF));
         try self.code.append(self.allocator, @intCast((kw_metadata_idx >> 8) & 0xFF));
         try self.code.append(self.allocator, @intCast(block_chunk_id & 0xFF));
@@ -411,19 +424,21 @@ pub const Chunk = struct {
             .CALL => {
                 const method_idx = bytecode.readU16(self.code.items, next_ip);
                 const argc = bytecode.readU8(self.code.items, next_ip + 2);
-                const block_id = bytecode.readU16(self.code.items, next_ip + 3);
-                try writer.print("CALL {d}, {d}, {d}\n", .{ method_idx, argc, block_id });
-                next_ip += 5;
+                const call_style = bytecode.readU8(self.code.items, next_ip + 3);
+                const block_id = bytecode.readU16(self.code.items, next_ip + 4);
+                try writer.print("CALL {d}, {d}, {d}, {d}\n", .{ method_idx, argc, call_style, block_id });
+                next_ip += 6;
             },
 
             .CALL_KW => {
                 const method_idx = bytecode.readU16(self.code.items, next_ip);
                 const argc = bytecode.readU8(self.code.items, next_ip + 2);
                 const kwargc = bytecode.readU8(self.code.items, next_ip + 3);
-                const kw_metadata_idx = bytecode.readU16(self.code.items, next_ip + 4);
-                const block_id = bytecode.readU16(self.code.items, next_ip + 6);
+                const call_style = bytecode.readU8(self.code.items, next_ip + 4);
+                const kw_metadata_idx = bytecode.readU16(self.code.items, next_ip + 5);
+                const block_id = bytecode.readU16(self.code.items, next_ip + 7);
 
-                try writer.print("CALL_KW {d}, {d}, {d}, {d}, {d}", .{ method_idx, argc, kwargc, kw_metadata_idx, block_id });
+                try writer.print("CALL_KW {d}, {d}, {d}, {d}, {d}, {d}", .{ method_idx, argc, kwargc, call_style, kw_metadata_idx, block_id });
 
                 // Show keyword names if metadata is available
                 if (kw_metadata_idx < self.keyword_metadata.items.len) {
@@ -439,7 +454,7 @@ pub const Chunk = struct {
                     try writer.print(")", .{});
                 }
                 try writer.print("\n", .{});
-                next_ip += 8;
+                next_ip += 9;
             },
 
             .DEF_CLASS => {

@@ -9,31 +9,31 @@ const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
     const push_sym = try vm.intern("<<");
-    try vm.array_class.module.methods.put(push_sym, .{ .builtin = &builtinArrayPush });
+    try vm.array_class.module.methods.put(push_sym, .{ .method = .{ .builtin = &builtinArrayPush } });
 
     const each_sym = try vm.intern("each");
-    try vm.array_class.module.methods.put(each_sym, .{ .builtin = &builtinArrayEach });
+    try vm.array_class.module.methods.put(each_sym, .{ .method = .{ .builtin = &builtinArrayEach } });
 
     const bracket_sym = try vm.intern("[]");
-    try vm.array_class.module.methods.put(bracket_sym, .{ .builtin = &builtinArrayBracket });
+    try vm.array_class.module.methods.put(bracket_sym, .{ .method = .{ .builtin = &builtinArrayBracket } });
 
     const equal_sym = try vm.intern("==");
-    try vm.array_class.module.methods.put(equal_sym, .{ .builtin = &builtinArrayEqual });
+    try vm.array_class.module.methods.put(equal_sym, .{ .method = .{ .builtin = &builtinArrayEqual } });
 
     const length_sym = try vm.intern("length");
-    try vm.array_class.module.methods.put(length_sym, .{ .builtin = &builtinArrayLength });
+    try vm.array_class.module.methods.put(length_sym, .{ .method = .{ .builtin = &builtinArrayLength } });
 
     const to_s_sym = try vm.intern("to_s");
-    try vm.array_class.module.methods.put(to_s_sym, .{ .builtin = &builtinArrayToS });
+    try vm.array_class.module.methods.put(to_s_sym, .{ .method = .{ .builtin = &builtinArrayToS } });
 
     const inspect_sym = try vm.intern("inspect");
-    try vm.array_class.module.methods.put(inspect_sym, .{ .builtin = &builtinArrayInspect });
+    try vm.array_class.module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinArrayInspect } });
 
     const to_a_sym = try vm.intern("to_a");
-    try vm.array_class.module.methods.put(to_a_sym, .{ .builtin = &builtinArrayToA });
+    try vm.array_class.module.methods.put(to_a_sym, .{ .method = .{ .builtin = &builtinArrayToA } });
 
     const all_sym = try vm.intern("all?");
-    try vm.array_class.module.methods.put(all_sym, .{ .builtin = &builtinArrayAll });
+    try vm.array_class.module.methods.put(all_sym, .{ .method = .{ .builtin = &builtinArrayAll } });
 }
 
 pub fn builtinArrayPush(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

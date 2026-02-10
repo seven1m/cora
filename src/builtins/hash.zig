@@ -9,31 +9,31 @@ const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
     const bracket_sym = try vm.intern("[]");
-    try vm.hash_class.module.methods.put(bracket_sym, .{ .builtin = &builtinHashBracket });
+    try vm.hash_class.module.methods.put(bracket_sym, .{ .method = .{ .builtin = &builtinHashBracket } });
 
     const bracket_set_sym = try vm.intern("[]=");
-    try vm.hash_class.module.methods.put(bracket_set_sym, .{ .builtin = &builtinHashBracketSet });
+    try vm.hash_class.module.methods.put(bracket_set_sym, .{ .method = .{ .builtin = &builtinHashBracketSet } });
 
     const keys_sym = try vm.intern("keys");
-    try vm.hash_class.module.methods.put(keys_sym, .{ .builtin = &builtinHashKeys });
+    try vm.hash_class.module.methods.put(keys_sym, .{ .method = .{ .builtin = &builtinHashKeys } });
 
     const values_sym = try vm.intern("values");
-    try vm.hash_class.module.methods.put(values_sym, .{ .builtin = &builtinHashValues });
+    try vm.hash_class.module.methods.put(values_sym, .{ .method = .{ .builtin = &builtinHashValues } });
 
     const size_sym = try vm.intern("size");
-    try vm.hash_class.module.methods.put(size_sym, .{ .builtin = &builtinHashSize });
+    try vm.hash_class.module.methods.put(size_sym, .{ .method = .{ .builtin = &builtinHashSize } });
 
     const length_sym = try vm.intern("length");
-    try vm.hash_class.module.methods.put(length_sym, .{ .builtin = &builtinHashSize });
+    try vm.hash_class.module.methods.put(length_sym, .{ .method = .{ .builtin = &builtinHashSize } });
 
     const each_sym = try vm.intern("each");
-    try vm.hash_class.module.methods.put(each_sym, .{ .builtin = &builtinHashEach });
+    try vm.hash_class.module.methods.put(each_sym, .{ .method = .{ .builtin = &builtinHashEach } });
 
     const to_s_sym = try vm.intern("to_s");
-    try vm.hash_class.module.methods.put(to_s_sym, .{ .builtin = &builtinHashToS });
+    try vm.hash_class.module.methods.put(to_s_sym, .{ .method = .{ .builtin = &builtinHashToS } });
 
     const inspect_sym = try vm.intern("inspect");
-    try vm.hash_class.module.methods.put(inspect_sym, .{ .builtin = &builtinHashInspect });
+    try vm.hash_class.module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinHashInspect } });
 }
 
 pub fn builtinHashBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

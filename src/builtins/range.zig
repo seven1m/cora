@@ -9,13 +9,13 @@ const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
     const init_sym = try vm.intern("initialize");
-    try vm.range_class.module.methods.put(init_sym, .{ .builtin = &builtinRangeInitialize });
+    try vm.range_class.module.methods.put(init_sym, .{ .method = .{ .builtin = &builtinRangeInitialize } });
 
     const to_a_sym = try vm.intern("to_a");
-    try vm.range_class.module.methods.put(to_a_sym, .{ .builtin = &builtinRangeToA });
+    try vm.range_class.module.methods.put(to_a_sym, .{ .method = .{ .builtin = &builtinRangeToA } });
 
     const inspect_sym = try vm.intern("inspect");
-    try vm.range_class.module.methods.put(inspect_sym, .{ .builtin = &builtinRangeInspect });
+    try vm.range_class.module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinRangeInspect } });
 }
 
 pub fn builtinRangeInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

@@ -13,6 +13,8 @@ const Object = value.Object;
 const ClassObject = value.ClassObject;
 const FiberObject = value.FiberObject;
 const LexicalScope = value.LexicalScope;
+const MethodEntry = value.MethodEntry;
+const MethodVisibility = value.MethodVisibility;
 const StringObject = value.StringObject;
 const SymbolObject = value.SymbolObject;
 const Chunk = chunk.Chunk;
@@ -38,6 +40,13 @@ pub const Method = union(enum) {
     chunk: *Chunk,
     builtin: *const fn (*VM, Value, []Value, ?Block) VMError!Value,
     proc: *value.ProcObject,
+};
+
+const ReceiverCallStyle = bytecode.ReceiverCallStyle;
+
+pub const ResolvedMethod = struct {
+    owner_class: *ClassObject,
+    entry: MethodEntry,
 };
 
 pub const Environment = struct {
@@ -1068,6 +1077,7 @@ pub const VM = struct {
             .CALL => {
                 const method_idx = self.readU16();
                 const argc = self.readByte();
+                const call_style: ReceiverCallStyle = @enumFromInt(self.readByte());
                 const block_chunk_id = self.readU16();
 
                 // Resolve block first (may pop from stack for &variable syntax)
@@ -1083,13 +1093,14 @@ pub const VM = struct {
                 // Pop receiver
                 const receiver = self.pop();
 
-                try self.callMethodHelperForExecuteInstruction(method_idx, receiver, &args, argc, null, 0, null, block);
+                try self.callMethodHelperForExecuteInstruction(method_idx, call_style, receiver, &args, argc, null, 0, null, block);
             },
 
             .CALL_KW => {
                 const method_idx = self.readU16();
                 const argc = self.readByte();
                 const kwargc = self.readByte();
+                const call_style: ReceiverCallStyle = @enumFromInt(self.readByte());
                 const kw_metadata_idx = self.readU16();
                 const block_chunk_id = self.readU16();
 
@@ -1119,7 +1130,7 @@ pub const VM = struct {
                 const kw_metadata = frame.chunk.keyword_metadata.items[kw_metadata_idx];
 
                 // Call method with keywords
-                try self.callMethodHelperForExecuteInstruction(method_idx, receiver, &args, argc, &kw_values, kwargc, kw_metadata, block);
+                try self.callMethodHelperForExecuteInstruction(method_idx, call_style, receiver, &args, argc, &kw_values, kwargc, kw_metadata, block);
             },
 
             .RETURN => {
@@ -1290,21 +1301,15 @@ pub const VM = struct {
                 if (self.program.method_chunks.get(chunk_idx)) |chunk_ptr| {
                     // Capture the current lexical scope for this method
                     chunk_ptr.lexical_scope = self.current_lexical_scope;
+                    const visibility = self.currentDefaultMethodVisibility();
 
                     // Get current self from the frame
                     const current_self = frame.self_value;
-
-                    if (current_self.data == .class) {
-                        // Adding method to a class
-                        current_self.data.class.module.methods.put(method_name_sym, .{ .chunk = chunk_ptr }) catch return error.Fatal;
-                    } else if (current_self.data == .module) {
-                        // Adding method to a module
-                        current_self.data.module.methods.put(method_name_sym, .{ .chunk = chunk_ptr }) catch return error.Fatal;
-                    } else {
-                        // Top-level: add to Object (look it up from constants)
-                        // TODO: we need `main` to clean this up a bit
-                        self.object_class.module.methods.put(method_name_sym, .{ .chunk = chunk_ptr }) catch return error.Fatal;
-                    }
+                    const methods = current_self.getModuleMethods() orelse &self.object_class.module.methods;
+                    methods.put(method_name_sym, .{
+                        .method = .{ .chunk = chunk_ptr },
+                        .visibility = visibility,
+                    }) catch return error.Fatal;
                 } else {
                     std.debug.print("Error: undefined method chunk {d}\n", .{chunk_idx});
                     return error.Fatal;
@@ -1325,6 +1330,7 @@ pub const VM = struct {
 
                 if (self.program.method_chunks.get(chunk_idx)) |chunk_ptr| {
                     chunk_ptr.lexical_scope = self.current_lexical_scope;
+                    const visibility = self.currentDefaultMethodVisibility();
 
                     // Pop the receiver from stack (compiled by compileMethod)
                     const receiver = self.pop();
@@ -1333,7 +1339,10 @@ pub const VM = struct {
                     const singleton_class = try self.getOrCreateSingletonClass(receiver);
 
                     // Store method on singleton class
-                    singleton_class.module.methods.put(method_name_sym, .{ .chunk = chunk_ptr }) catch return error.Fatal;
+                    singleton_class.module.methods.put(method_name_sym, .{
+                        .method = .{ .chunk = chunk_ptr },
+                        .visibility = visibility,
+                    }) catch return error.Fatal;
                 } else {
                     return error.Fatal;
                 }
@@ -1515,18 +1524,11 @@ pub const VM = struct {
 
                 // Get method table from current self (class/module) or object_class at top-level
                 const current_self = frame.self_value;
-                var methods: *std.AutoHashMap(*value.SymbolObject, Method) = undefined;
-                if (current_self.data == .class) {
-                    methods = &current_self.data.class.module.methods;
-                } else if (current_self.data == .module) {
-                    methods = &current_self.data.module.methods;
-                } else {
-                    methods = &self.object_class.module.methods;
-                }
+                const methods = current_self.getModuleMethods() orelse &self.object_class.module.methods;
 
                 // Look up the old method
-                if (methods.get(old_name_sym)) |method| {
-                    methods.put(new_name_sym, method) catch return error.Fatal;
+                if (methods.get(old_name_sym)) |entry| {
+                    methods.put(new_name_sym, entry) catch return error.Fatal;
                 } else {
                     const msg = std.fmt.allocPrint(
                         self.gc_allocator,
@@ -1788,9 +1790,40 @@ pub const VM = struct {
         }
     }
 
+    fn currentDefaultMethodVisibility(self: *VM) MethodVisibility {
+        if (self.current_lexical_scope) |scope| {
+            return scope.default_method_visibility;
+        }
+        return .public;
+    }
+
+    fn isClassOrSubclassOf(_: *VM, class: *ClassObject, candidate_ancestor: *ClassObject) bool {
+        var current: ?*ClassObject = class;
+        while (current) |c| {
+            if (c == candidate_ancestor) return true;
+            current = c.superclass;
+        }
+        return false;
+    }
+
+    fn isMethodCallable(self: *VM, receiver: Value, resolved: ResolvedMethod, call_style: ReceiverCallStyle) bool {
+        switch (resolved.entry.visibility) {
+            .public => return true,
+            .private => return call_style == .implicit_self,
+            .protected => {
+                if (self.frames.items.len == 0) return false;
+                const caller_self = self.currentFrame().self_value;
+                const caller_class = self.getClass(caller_self);
+                const receiver_class = self.getClass(receiver);
+                return self.isClassOrSubclassOf(caller_class, resolved.owner_class) and
+                    self.isClassOrSubclassOf(receiver_class, resolved.owner_class);
+            },
+        }
+    }
+
     /// Find a method on a receiver, checking singleton class first, then regular class
-    pub fn findMethod(self: *VM, receiver: Value, method_name_sym: *SymbolObject) VMError!?Method {
-        var method: ?Method = null;
+    pub fn findMethod(self: *VM, receiver: Value, method_name_sym: *SymbolObject) VMError!?ResolvedMethod {
+        var method: ?ResolvedMethod = null;
 
         // First, check singleton class
         if (receiver.getObjectPointer() != null) {
@@ -1810,9 +1843,9 @@ pub const VM = struct {
     /// Call a method by name string (not from bytecode constant pool)
     pub fn callMethodByName(self: *VM, receiver: Value, method_name: []const u8, args: []Value, block: ?Block) VMError!Value {
         const method_name_sym = try self.intern(method_name);
-        const method = try self.findMethod(receiver, method_name_sym);
+        const resolved = try self.findMethod(receiver, method_name_sym);
 
-        if (method == null) {
+        if (resolved == null) {
             const class = self.getClass(receiver);
             const class_name = class.module.name.name;
             const msg = std.fmt.allocPrint(
@@ -1825,8 +1858,8 @@ pub const VM = struct {
             return error.Unwind;
         }
 
-        if (method) |m| {
-            switch (m) {
+        if (resolved) |resolved_method| {
+            switch (resolved_method.entry.method) {
                 .chunk => |chunk_ptr| {
                     // Save current execution state
                     const saved_frame_count = self.frames.items.len;
@@ -1954,6 +1987,7 @@ pub const VM = struct {
     fn callMethodHelperForExecuteInstruction(
         self: *VM,
         method_idx: u16,
+        call_style: ReceiverCallStyle,
         receiver: Value,
         args: *[256]Value,
         argc: usize,
@@ -1974,9 +2008,9 @@ pub const VM = struct {
         const method_name = constant.string;
         const method_name_sym = try self.intern(method_name);
 
-        const method = try self.findMethod(receiver, method_name_sym);
+        const resolved = try self.findMethod(receiver, method_name_sym);
 
-        if (method == null) {
+        if (resolved == null) {
             const class = self.getClass(receiver);
             const class_name = class.module.name.name;
             const msg = std.fmt.allocPrint(
@@ -1989,8 +2023,21 @@ pub const VM = struct {
             return error.Unwind;
         }
 
-        if (method) |m| {
-            switch (m) {
+        const method = resolved.?;
+        if (!self.isMethodCallable(receiver, method, call_style)) {
+            const class = self.getClass(receiver);
+            const class_name = class.module.name.name;
+            const msg = std.fmt.allocPrint(
+                self.gc_allocator,
+                "undefined method '{s}' for {s}",
+                .{ method_name, class_name },
+            ) catch return error.Fatal;
+            const exc = try self.createException(self.no_method_error_class, msg);
+            self.pending_exception = exc;
+            return error.Unwind;
+        }
+
+        switch (method.entry.method) {
                 .chunk => |method_chunk| {
                     const has_keywords = kwargc > 0;
 
@@ -2112,7 +2159,6 @@ pub const VM = struct {
                     const result = try self.callProcAsMethod(proc_obj, receiver, args[0..argc], block);
                     try self.push(result);
                 },
-            }
         }
     }
 
@@ -2159,7 +2205,7 @@ pub const VM = struct {
         };
     }
 
-    pub fn lookupMethod(_: *VM, class: *ClassObject, method_name: *value.SymbolObject) ?Method {
+    pub fn lookupMethod(_: *VM, class: *ClassObject, method_name: *value.SymbolObject) ?ResolvedMethod {
         var current_class: ?*ClassObject = class;
         while (current_class) |c| {
             // 1. Check prepended modules first (in reverse order - most recently prepended at highest index is checked first)
@@ -2167,14 +2213,20 @@ pub const VM = struct {
             while (i > 0) {
                 i -= 1;
                 const module = c.prepended_modules.items[i];
-                if (module.methods.get(method_name)) |method| {
-                    return method;
+                if (module.methods.get(method_name)) |entry| {
+                    return .{
+                        .owner_class = c,
+                        .entry = entry,
+                    };
                 }
             }
 
             // 2. Check class's own methods
-            if (c.module.methods.get(method_name)) |method| {
-                return method;
+            if (c.module.methods.get(method_name)) |entry| {
+                return .{
+                    .owner_class = c,
+                    .entry = entry,
+                };
             }
 
             // 3. Check included modules (in reverse order - most recently included at highest index is checked first)
@@ -2182,8 +2234,11 @@ pub const VM = struct {
             while (i > 0) {
                 i -= 1;
                 const module = c.included_modules.items[i];
-                if (module.methods.get(method_name)) |method| {
-                    return method;
+                if (module.methods.get(method_name)) |entry| {
+                    return .{
+                        .owner_class = c,
+                        .entry = entry,
+                    };
                 }
             }
 
@@ -2205,7 +2260,7 @@ pub const VM = struct {
     }
 
     /// Look up a method in the superclass chain starting from defining_class.superclass
-    fn lookupMethodForSuper(self: *VM, defining_class: *ClassObject, method_name: *value.SymbolObject) ?Method {
+    fn lookupMethodForSuper(self: *VM, defining_class: *ClassObject, method_name: *value.SymbolObject) ?ResolvedMethod {
         // Start from the superclass, not the defining class itself
         const start_class = defining_class.superclass orelse return null;
         return self.lookupMethod(start_class, method_name);
@@ -2263,7 +2318,7 @@ pub const VM = struct {
         };
 
         // Look up method in superclass chain
-        const method = self.lookupMethodForSuper(defining_class, method_name_sym) orelse {
+        const resolved = self.lookupMethodForSuper(defining_class, method_name_sym) orelse {
             const msg = std.fmt.allocPrint(
                 self.gc_allocator,
                 "super: no superclass method '{s}' for {s}",
@@ -2277,7 +2332,7 @@ pub const VM = struct {
         // Call with the same receiver (self)
         const receiver = frame.self_value;
 
-        switch (method) {
+        switch (resolved.entry.method) {
             .chunk => |method_chunk| {
                 // Push frame with receiver as self_value
                 try self.pushFrame(method_chunk, receiver, block);
@@ -2382,7 +2437,7 @@ pub const VM = struct {
                     .instance_variables = null,
                 },
                 .name = singleton_name_sym,
-                .methods = std.AutoHashMap(*value.SymbolObject, Method).init(self.gc_allocator),
+                .methods = std.AutoHashMap(*value.SymbolObject, MethodEntry).init(self.gc_allocator),
                 .constants = std.AutoHashMap(*value.SymbolObject, value.Value).init(self.gc_allocator),
             },
         };
@@ -2419,7 +2474,7 @@ pub const VM = struct {
         module_obj.* = .{
             .object = .{ .flags = 0, .class = self.module_class, .singleton_class = null, .instance_variables = null },
             .name = name,
-            .methods = std.AutoHashMap(*SymbolObject, Method).init(self.gc_allocator),
+            .methods = std.AutoHashMap(*SymbolObject, MethodEntry).init(self.gc_allocator),
             .constants = std.AutoHashMap(*SymbolObject, Value).init(self.gc_allocator),
         };
         return .{ .data = .{ .module = module_obj } };
@@ -2438,7 +2493,7 @@ pub const VM = struct {
             .module = .{
                 .object = .{ .flags = 0, .class = self.class_class, .singleton_class = null, .instance_variables = null },
                 .name = name,
-                .methods = std.AutoHashMap(*SymbolObject, Method).init(self.gc_allocator),
+                .methods = std.AutoHashMap(*SymbolObject, MethodEntry).init(self.gc_allocator),
                 .constants = std.AutoHashMap(*SymbolObject, Value).init(self.gc_allocator),
             },
         };

@@ -8,13 +8,13 @@ const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
     const to_s_sym = try vm.intern("to_s");
-    try vm.nil_class.module.methods.put(to_s_sym, .{ .builtin = &builtinNilClassToS });
+    try vm.nil_class.module.methods.put(to_s_sym, .{ .method = .{ .builtin = &builtinNilClassToS } });
 
     const inspect_sym = try vm.intern("inspect");
-    try vm.nil_class.module.methods.put(inspect_sym, .{ .builtin = &builtinNilClassInspect });
+    try vm.nil_class.module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinNilClassInspect } });
 
     const equal_sym = try vm.intern("==");
-    try vm.nil_class.module.methods.put(equal_sym, .{ .builtin = &builtinNilClassEqual });
+    try vm.nil_class.module.methods.put(equal_sym, .{ .method = .{ .builtin = &builtinNilClassEqual } });
 }
 
 pub fn builtinNilClassToS(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

@@ -9,24 +9,24 @@ const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
     const name_sym = try vm.intern("name");
-    try vm.encoding_class.module.methods.put(name_sym, .{ .builtin = &builtinEncodingName });
+    try vm.encoding_class.module.methods.put(name_sym, .{ .method = .{ .builtin = &builtinEncodingName } });
 
     const to_s_sym = try vm.intern("to_s");
-    try vm.encoding_class.module.methods.put(to_s_sym, .{ .builtin = &builtinEncodingName });
+    try vm.encoding_class.module.methods.put(to_s_sym, .{ .method = .{ .builtin = &builtinEncodingName } });
 
     const inspect_sym = try vm.intern("inspect");
-    try vm.encoding_class.module.methods.put(inspect_sym, .{ .builtin = &builtinEncodingInspect });
+    try vm.encoding_class.module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinEncodingInspect } });
 
     const equal_sym = try vm.intern("==");
-    try vm.encoding_class.module.methods.put(equal_sym, .{ .builtin = &builtinEncodingEqual });
+    try vm.encoding_class.module.methods.put(equal_sym, .{ .method = .{ .builtin = &builtinEncodingEqual } });
 
     const ascii_compatible_sym = try vm.intern("ascii_compatible?");
-    try vm.encoding_class.module.methods.put(ascii_compatible_sym, .{ .builtin = &builtinEncodingAsciiCompatible });
+    try vm.encoding_class.module.methods.put(ascii_compatible_sym, .{ .method = .{ .builtin = &builtinEncodingAsciiCompatible } });
 
     const find_sym = try vm.intern("find");
     const encoding_class_val = Value{ .data = .{ .class = vm.encoding_class } };
     const encoding_singleton = try vm.getOrCreateSingletonClass(encoding_class_val);
-    try encoding_singleton.module.methods.put(find_sym, .{ .builtin = &builtinEncodingFind });
+    try encoding_singleton.module.methods.put(find_sym, .{ .method = .{ .builtin = &builtinEncodingFind } });
 }
 
 pub fn builtinEncodingName(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

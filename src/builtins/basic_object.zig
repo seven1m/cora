@@ -8,10 +8,10 @@ const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
     const equal_sym = try vm.intern("equal?");
-    try vm.basic_object_class.module.methods.put(equal_sym, .{ .builtin = &builtinBasicObjectEqual });
+    try vm.basic_object_class.module.methods.put(equal_sym, .{ .method = .{ .builtin = &builtinBasicObjectEqual } });
 
     const not_sym = try vm.intern("!");
-    try vm.basic_object_class.module.methods.put(not_sym, .{ .builtin = &builtinBasicObjectNot });
+    try vm.basic_object_class.module.methods.put(not_sym, .{ .method = .{ .builtin = &builtinBasicObjectNot } });
 }
 
 pub fn builtinBasicObjectEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

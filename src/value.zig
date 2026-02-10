@@ -10,6 +10,12 @@ const encoding = @import("encoding.zig");
 const Encoding = encoding.Encoding;
 const ValidityState = encoding.ValidityState;
 
+pub const MethodVisibility = enum {
+    public,
+    private,
+    protected,
+};
+
 pub const Object = struct {
     pub const FROZEN_FLAG = 0x1;
 
@@ -42,6 +48,7 @@ pub const LexicalScope = struct {
         class: *ClassObject,
     },
     parent: ?*LexicalScope,
+    default_method_visibility: MethodVisibility = .public,
 
     pub fn getModule(self: *LexicalScope) *ModuleObject {
         switch (self.scope_module) {
@@ -54,8 +61,13 @@ pub const LexicalScope = struct {
 pub const ModuleObject = struct {
     object: Object,
     name: *SymbolObject,
-    methods: std.AutoHashMap(*SymbolObject, Method),
+    methods: std.AutoHashMap(*SymbolObject, MethodEntry),
     constants: std.AutoHashMap(*SymbolObject, Value),
+};
+
+pub const MethodEntry = struct {
+    method: Method,
+    visibility: MethodVisibility = .public,
 };
 
 pub const ObjectType = enum {
@@ -218,6 +230,19 @@ pub const Value = struct {
             return obj.singleton_class;
         }
         return null;
+    }
+
+    pub fn getModuleObject(self: Value) ?*ModuleObject {
+        return switch (self.data) {
+            .class => |c| &c.module,
+            .module => |m| m,
+            else => null,
+        };
+    }
+
+    pub fn getModuleMethods(self: Value) ?*std.AutoHashMap(*SymbolObject, MethodEntry) {
+        const module_obj = self.getModuleObject() orelse return null;
+        return &module_obj.methods;
     }
 
     pub fn objectId(self: Value) i64 {

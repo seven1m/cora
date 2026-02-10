@@ -76,6 +76,11 @@ pub const OpCode = enum(u8) {
     ALIAS_METHOD, // Operands: u16 (new_name constant index), u16 (old_name constant index)
 };
 
+pub const ReceiverCallStyle = enum(u8) {
+    explicit = 0,
+    implicit_self = 1,
+};
+
 pub const BuiltinId = enum(u8) {
     NEW = 1,
 };

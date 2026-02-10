@@ -11,49 +11,49 @@ const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
     const string_uplus_sym = try vm.intern("+@");
-    try vm.string_class.module.methods.put(string_uplus_sym, .{ .builtin = &builtinStringUnaryPlus });
+    try vm.string_class.module.methods.put(string_uplus_sym, .{ .method = .{ .builtin = &builtinStringUnaryPlus } });
 
     const string_plus_sym = try vm.intern("+");
-    try vm.string_class.module.methods.put(string_plus_sym, .{ .builtin = &builtinStringPlus });
+    try vm.string_class.module.methods.put(string_plus_sym, .{ .method = .{ .builtin = &builtinStringPlus } });
 
     const string_equal_sym = try vm.intern("==");
-    try vm.string_class.module.methods.put(string_equal_sym, .{ .builtin = &builtinStringEqual });
+    try vm.string_class.module.methods.put(string_equal_sym, .{ .method = .{ .builtin = &builtinStringEqual } });
 
     const string_not_equal_sym = try vm.intern("!=");
-    try vm.string_class.module.methods.put(string_not_equal_sym, .{ .builtin = &builtinStringNotEqual });
+    try vm.string_class.module.methods.put(string_not_equal_sym, .{ .method = .{ .builtin = &builtinStringNotEqual } });
 
     const string_encoding_sym = try vm.intern("encoding");
-    try vm.string_class.module.methods.put(string_encoding_sym, .{ .builtin = &builtinStringEncoding });
+    try vm.string_class.module.methods.put(string_encoding_sym, .{ .method = .{ .builtin = &builtinStringEncoding } });
 
     const string_encode_sym = try vm.intern("encode");
-    try vm.string_class.module.methods.put(string_encode_sym, .{ .builtin = &builtinStringEncode });
+    try vm.string_class.module.methods.put(string_encode_sym, .{ .method = .{ .builtin = &builtinStringEncode } });
 
     const string_force_encoding_sym = try vm.intern("force_encoding");
-    try vm.string_class.module.methods.put(string_force_encoding_sym, .{ .builtin = &builtinStringForceEncoding });
+    try vm.string_class.module.methods.put(string_force_encoding_sym, .{ .method = .{ .builtin = &builtinStringForceEncoding } });
 
     const string_valid_encoding_sym = try vm.intern("valid_encoding?");
-    try vm.string_class.module.methods.put(string_valid_encoding_sym, .{ .builtin = &builtinStringValidEncoding });
+    try vm.string_class.module.methods.put(string_valid_encoding_sym, .{ .method = .{ .builtin = &builtinStringValidEncoding } });
 
     const string_ascii_only_sym = try vm.intern("ascii_only?");
-    try vm.string_class.module.methods.put(string_ascii_only_sym, .{ .builtin = &builtinStringAsciiOnly });
+    try vm.string_class.module.methods.put(string_ascii_only_sym, .{ .method = .{ .builtin = &builtinStringAsciiOnly } });
 
     const string_b_sym = try vm.intern("b");
-    try vm.string_class.module.methods.put(string_b_sym, .{ .builtin = &builtinStringB });
+    try vm.string_class.module.methods.put(string_b_sym, .{ .method = .{ .builtin = &builtinStringB } });
 
     const string_dup_sym = try vm.intern("dup");
-    try vm.string_class.module.methods.put(string_dup_sym, .{ .builtin = &builtinStringDup });
+    try vm.string_class.module.methods.put(string_dup_sym, .{ .method = .{ .builtin = &builtinStringDup } });
 
     const string_bytesize_sym = try vm.intern("bytesize");
-    try vm.string_class.module.methods.put(string_bytesize_sym, .{ .builtin = &builtinStringBytesize });
+    try vm.string_class.module.methods.put(string_bytesize_sym, .{ .method = .{ .builtin = &builtinStringBytesize } });
 
     const string_chars_sym = try vm.intern("chars");
-    try vm.string_class.module.methods.put(string_chars_sym, .{ .builtin = &builtinStringChars });
+    try vm.string_class.module.methods.put(string_chars_sym, .{ .method = .{ .builtin = &builtinStringChars } });
 
     const to_s_sym = try vm.intern("to_s");
-    try vm.string_class.module.methods.put(to_s_sym, .{ .builtin = &builtinStringToS });
+    try vm.string_class.module.methods.put(to_s_sym, .{ .method = .{ .builtin = &builtinStringToS } });
 
     const inspect_sym = try vm.intern("inspect");
-    try vm.string_class.module.methods.put(inspect_sym, .{ .builtin = &builtinStringInspect });
+    try vm.string_class.module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinStringInspect } });
 }
 
 pub fn builtinStringToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

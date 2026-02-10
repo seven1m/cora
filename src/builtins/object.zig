@@ -8,10 +8,10 @@ const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
     const new_sym = try vm.intern("new");
-    try vm.object_class.module.methods.put(new_sym, .{ .builtin = &builtinObjectNew });
+    try vm.object_class.module.methods.put(new_sym, .{ .method = .{ .builtin = &builtinObjectNew } });
 
     const object_id_sym = try vm.intern("object_id");
-    try vm.object_class.module.methods.put(object_id_sym, .{ .builtin = &builtinObjectObjectId });
+    try vm.object_class.module.methods.put(object_id_sym, .{ .method = .{ .builtin = &builtinObjectObjectId } });
 }
 
 pub fn builtinObjectNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {

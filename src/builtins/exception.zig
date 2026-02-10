@@ -8,7 +8,7 @@ const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
     const message_sym = try vm.intern("message");
-    try vm.exception_class.module.methods.put(message_sym, .{ .builtin = &builtinExceptionMessage });
+    try vm.exception_class.module.methods.put(message_sym, .{ .method = .{ .builtin = &builtinExceptionMessage } });
 }
 
 pub fn builtinExceptionMessage(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
