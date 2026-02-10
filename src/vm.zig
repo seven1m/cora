@@ -157,7 +157,7 @@ pub const VM = struct {
     at_exit_handlers: std.ArrayList(Value) = .empty,
 
     // File loading infrastructure
-    loaded_files: std.StringHashMap(void) = std.StringHashMap(void).init(std.heap.page_allocator),
+    loaded_files: std.StringHashMap(void) = undefined,
     loaded_paths: std.ArrayList([]const u8) = .empty,
     all_parsers: std.ArrayList(prism.Parser) = .empty,
     load_path: std.ArrayList([]const u8) = .empty,
@@ -182,6 +182,7 @@ pub const VM = struct {
             .parser = parser,
             .symbols = std.StringHashMap(*SymbolObject).init(gc_allocator),
             .globals = std.StringHashMap(Value).init(gc_allocator),
+            .loaded_files = std.StringHashMap(void).init(gc_allocator),
             .program = undefined,
             .basic_object_class = undefined,
             .class_class = undefined,
@@ -2064,127 +2065,127 @@ pub const VM = struct {
         }
 
         switch (method.entry.method) {
-                .chunk => |method_chunk| {
-                    const has_keywords = kwargc > 0;
+            .chunk => |method_chunk| {
+                const has_keywords = kwargc > 0;
 
-                    // Check for **nil
-                    if (method_chunk.no_keywords and has_keywords) {
-                        const exc = try self.createException(self.argument_error_class, "this method does not accept keyword arguments");
-                        self.pending_exception = exc;
-                        return error.Unwind;
-                    }
+                // Check for **nil
+                if (method_chunk.no_keywords and has_keywords) {
+                    const exc = try self.createException(self.argument_error_class, "this method does not accept keyword arguments");
+                    self.pending_exception = exc;
+                    return error.Unwind;
+                }
 
-                    // Check if method requires keywords but none were provided
-                    if (!has_keywords and method_chunk.required_keywords.items.len > 0) {
-                        const msg = "missing required keyword arguments";
-                        const exc = try self.createException(self.argument_error_class, msg);
-                        self.pending_exception = exc;
-                        return error.Unwind;
-                    }
+                // Check if method requires keywords but none were provided
+                if (!has_keywords and method_chunk.required_keywords.items.len > 0) {
+                    const msg = "missing required keyword arguments";
+                    const exc = try self.createException(self.argument_error_class, msg);
+                    self.pending_exception = exc;
+                    return error.Unwind;
+                }
 
-                    // Get caller's chunk BEFORE pushing new frame (needed for keyword metadata)
-                    const caller_chunk = if (has_keywords) self.currentFrame().chunk else null;
+                // Get caller's chunk BEFORE pushing new frame (needed for keyword metadata)
+                const caller_chunk = if (has_keywords) self.currentFrame().chunk else null;
 
-                    // Push frame with receiver as self_value
-                    try self.pushFrame(method_chunk, receiver, block);
+                // Push frame with receiver as self_value
+                try self.pushFrame(method_chunk, receiver, block);
 
-                    // Copy positional arguments with rest parameter handling
-                    const frame = self.currentFrame();
-                    try self.copyArgumentsWithRestParam(method_chunk, frame.ep, args[0..argc], .strict);
+                // Copy positional arguments with rest parameter handling
+                const frame = self.currentFrame();
+                try self.copyArgumentsWithRestParam(method_chunk, frame.ep, args[0..argc], .strict);
 
-                    if (has_keywords) {
-                        // Bind keyword arguments
-                        try self.bindKeywordArguments(method_chunk, frame.ep, kw_values.?[0..kwargc], kw_metadata.?, caller_chunk.?);
-                    } else {
-                        // Bind optional keywords with defaults and keyword rest (when no keywords provided)
-                        if (method_chunk.optional_keywords.items.len > 0 or method_chunk.keyword_rest_index != null) {
-                            // FIRST: Update variables length to cover all keyword slots
-                            var max_slot: u8 = frame.ep.variables_len;
-                            for (method_chunk.optional_keywords.items) |opt_kw| {
-                                if (opt_kw.param_slot >= max_slot) max_slot = opt_kw.param_slot + 1;
-                            }
-                            if (method_chunk.keyword_rest_index) |rest_idx| {
-                                if (rest_idx >= max_slot) max_slot = rest_idx + 1;
-                            }
-                            frame.ep.variables_len = max_slot;
-
-                            // THEN: Bind optional keywords with their defaults
-                            for (method_chunk.optional_keywords.items) |opt_kw| {
-                                const default_chunk = self.program.method_chunks.get(opt_kw.default_chunk_id).?;
-                                // Re-get frame pointer at start of each iteration
-                                const current_ep = self.currentFrame().ep;
-                                const default_value = try self.executeDefaultExpression(default_chunk, current_ep);
-                                // Re-get frame pointer after executeDefaultExpression
-                                const f = &self.frames.items[self.frames.items.len - 1];
-                                f.ep.variables[opt_kw.param_slot] = default_value;
-                            }
-
-                            // THEN: Set up keyword rest with empty hash
-                            if (method_chunk.keyword_rest_index) |rest_idx| {
-                                const kw_hash = self.gc_allocator.create(value.HashObject) catch return error.Fatal;
-                                kw_hash.* = .{
-                                    .object = .{ .flags = 0, .class = self.hash_class, .singleton_class = null, .instance_variables = null },
-                                    .map = std.AutoHashMap(u64, usize).init(self.gc_allocator),
-                                    .entries = .empty,
-                                };
-                                // Re-get frame pointer
-                                const f = &self.frames.items[self.frames.items.len - 1];
-                                f.ep.variables[rest_idx] = Value{ .data = .{ .hash = kw_hash } };
-                            }
+                if (has_keywords) {
+                    // Bind keyword arguments
+                    try self.bindKeywordArguments(method_chunk, frame.ep, kw_values.?[0..kwargc], kw_metadata.?, caller_chunk.?);
+                } else {
+                    // Bind optional keywords with defaults and keyword rest (when no keywords provided)
+                    if (method_chunk.optional_keywords.items.len > 0 or method_chunk.keyword_rest_index != null) {
+                        // FIRST: Update variables length to cover all keyword slots
+                        var max_slot: u8 = frame.ep.variables_len;
+                        for (method_chunk.optional_keywords.items) |opt_kw| {
+                            if (opt_kw.param_slot >= max_slot) max_slot = opt_kw.param_slot + 1;
                         }
-                    }
+                        if (method_chunk.keyword_rest_index) |rest_idx| {
+                            if (rest_idx >= max_slot) max_slot = rest_idx + 1;
+                        }
+                        frame.ep.variables_len = max_slot;
 
-                    // Bind block parameter if present
-                    if (method_chunk.block_param_index) |block_idx| {
-                        // Re-get frame pointer (newProc may cause reallocation)
-                        const current_frame = &self.frames.items[self.frames.items.len - 1];
-
-                        if (current_frame.block) |blk| {
-                            // Convert Block to ProcObject
-                            const proc_val = try self.newProc(blk);
-                            // Re-get frame pointer again after newProc
+                        // THEN: Bind optional keywords with their defaults
+                        for (method_chunk.optional_keywords.items) |opt_kw| {
+                            const default_chunk = self.program.method_chunks.get(opt_kw.default_chunk_id).?;
+                            // Re-get frame pointer at start of each iteration
+                            const current_ep = self.currentFrame().ep;
+                            const default_value = try self.executeDefaultExpression(default_chunk, current_ep);
+                            // Re-get frame pointer after executeDefaultExpression
                             const f = &self.frames.items[self.frames.items.len - 1];
-                            f.ep.variables[block_idx] = proc_val;
-                        } else {
-                            // No block passed - store nil
-                            current_frame.ep.variables[block_idx] = Value.nil();
+                            f.ep.variables[opt_kw.param_slot] = default_value;
                         }
 
-                        // Ensure variables_len covers block parameter slot
+                        // THEN: Set up keyword rest with empty hash
+                        if (method_chunk.keyword_rest_index) |rest_idx| {
+                            const kw_hash = self.gc_allocator.create(value.HashObject) catch return error.Fatal;
+                            kw_hash.* = .{
+                                .object = .{ .flags = 0, .class = self.hash_class, .singleton_class = null, .instance_variables = null },
+                                .map = std.AutoHashMap(u64, usize).init(self.gc_allocator),
+                                .entries = .empty,
+                            };
+                            // Re-get frame pointer
+                            const f = &self.frames.items[self.frames.items.len - 1];
+                            f.ep.variables[rest_idx] = Value{ .data = .{ .hash = kw_hash } };
+                        }
+                    }
+                }
+
+                // Bind block parameter if present
+                if (method_chunk.block_param_index) |block_idx| {
+                    // Re-get frame pointer (newProc may cause reallocation)
+                    const current_frame = &self.frames.items[self.frames.items.len - 1];
+
+                    if (current_frame.block) |blk| {
+                        // Convert Block to ProcObject
+                        const proc_val = try self.newProc(blk);
+                        // Re-get frame pointer again after newProc
                         const f = &self.frames.items[self.frames.items.len - 1];
-                        if (block_idx >= f.ep.variables_len) {
-                            f.ep.variables_len = block_idx + 1;
-                        }
-                    }
-                },
-                .builtin => |fun_ptr| {
-                    var final_args: []Value = undefined;
-                    if (kwargc > 0) {
-                        // For builtin methods with keywords, convert keywords to hash
-                        const kw_hash = try self.createHashFromKeywords(kw_values.?[0..kwargc], kw_metadata.?);
-                        args[argc] = kw_hash;
-                        final_args = args[0..(argc + 1)];
+                        f.ep.variables[block_idx] = proc_val;
                     } else {
-                        final_args = args[0..argc];
+                        // No block passed - store nil
+                        current_frame.ep.variables[block_idx] = Value.nil();
                     }
 
-                    const result = fun_ptr(self, receiver, final_args, block) catch |err| {
-                        if (self.pending_exception != null) {
-                            return error.Unwind;
-                        }
-                        return err;
-                    };
-                    try self.push(result);
-                },
-                .proc => |proc_obj| {
-                    if (kwargc > 0) {
-                        const exc = try self.createException(self.argument_error_class, "this method does not accept keyword arguments");
-                        self.pending_exception = exc;
+                    // Ensure variables_len covers block parameter slot
+                    const f = &self.frames.items[self.frames.items.len - 1];
+                    if (block_idx >= f.ep.variables_len) {
+                        f.ep.variables_len = block_idx + 1;
+                    }
+                }
+            },
+            .builtin => |fun_ptr| {
+                var final_args: []Value = undefined;
+                if (kwargc > 0) {
+                    // For builtin methods with keywords, convert keywords to hash
+                    const kw_hash = try self.createHashFromKeywords(kw_values.?[0..kwargc], kw_metadata.?);
+                    args[argc] = kw_hash;
+                    final_args = args[0..(argc + 1)];
+                } else {
+                    final_args = args[0..argc];
+                }
+
+                const result = fun_ptr(self, receiver, final_args, block) catch |err| {
+                    if (self.pending_exception != null) {
                         return error.Unwind;
                     }
-                    const result = try self.callProcAsMethod(proc_obj, receiver, args[0..argc], block);
-                    try self.push(result);
-                },
+                    return err;
+                };
+                try self.push(result);
+            },
+            .proc => |proc_obj| {
+                if (kwargc > 0) {
+                    const exc = try self.createException(self.argument_error_class, "this method does not accept keyword arguments");
+                    self.pending_exception = exc;
+                    return error.Unwind;
+                }
+                const result = try self.callProcAsMethod(proc_obj, receiver, args[0..argc], block);
+                try self.push(result);
+            },
         }
     }
 
