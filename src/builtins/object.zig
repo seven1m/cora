@@ -12,6 +12,9 @@ pub fn register(vm: *VM) !void {
 
     const object_id_sym = try vm.intern("object_id");
     try vm.object_class.module.methods.put(object_id_sym, .{ .method = .{ .builtin = &builtinObjectObjectId } });
+
+    const case_equal_sym = try vm.intern("===");
+    try vm.object_class.module.methods.put(case_equal_sym, .{ .method = .{ .builtin = &builtinObjectCaseEqual } });
 }
 
 pub fn builtinObjectNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -37,4 +40,9 @@ pub fn builtinObjectObjectId(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     const object_id: i64 = receiver.objectId();
 
     return Value{ .data = .{ .integer = object_id } };
+}
+
+pub fn builtinObjectCaseEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    return vm.callMethodByName(receiver, "==", args[0..1], null);
 }

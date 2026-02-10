@@ -26,6 +26,9 @@ pub fn register(vm: *VM) !void {
 
     const casefold_sym = try vm.intern("casefold?");
     try vm.regexp_class.module.methods.put(casefold_sym, .{ .method = .{ .builtin = &builtinRegexpCasefold } });
+
+    const case_equal_sym = try vm.intern("===");
+    try vm.regexp_class.module.methods.put(case_equal_sym, .{ .method = .{ .builtin = &builtinRegexpCaseEqual } });
 }
 
 fn builtinRegexpSource(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -114,4 +117,14 @@ fn builtinRegexpEq(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!V
 fn builtinRegexpCasefold(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return Value.boolean((receiver.data.regexp.options & 1) != 0);
+}
+
+fn builtinRegexpCaseEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (args[0].data != .string) {
+        return Value.boolean(false);
+    }
+
+    const text = args[0].data.string.str;
+    return Value.boolean(onigmo.search(receiver.data.regexp.regex, text));
 }

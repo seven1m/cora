@@ -438,6 +438,10 @@ pub const Compiler = struct {
                 }
             },
 
+            .case_node => |case_node| {
+                try self.compileCaseNode(case_node, line);
+            },
+
             .if_node => |if_node| {
                 try self.compileIfStatement(if_node, line);
             },
@@ -776,6 +780,90 @@ pub const Compiler = struct {
 
         // Patch the end jump
         try self.current_chunk.patchJump(jump_end);
+    }
+
+    fn compileWhenBody(self: *Compiler, when_node: *prism.WhenNode, line: u32) !void {
+        if (when_node.statements) |statements_ptr| {
+            const statements = try self.parser.asNode(@ptrCast(statements_ptr));
+            try self.compileNode(statements, line);
+        } else {
+            try self.current_chunk.emitOp(.PUSH_NIL, line);
+        }
+    }
+
+    fn compileCaseNode(self: *Compiler, case_node: *prism.CaseNode, line: u32) !void {
+        const has_predicate = case_node.predicate != null;
+        if (has_predicate) {
+            const predicate_node = try self.parser.asNode(@ptrCast(case_node.predicate.?));
+            // Keep predicate on stack for all when comparisons.
+            try self.compileNode(predicate_node, line);
+        }
+
+        var end_jumps: std.ArrayList(usize) = .empty;
+        defer end_jumps.deinit(self.allocator);
+
+        var i: usize = 0;
+        while (i < case_node.conditions.size) : (i += 1) {
+            const when_raw = case_node.conditions.nodes[i];
+            const when_node = try self.parser.asNode(when_raw);
+            if (when_node != .when_node) {
+                return error.UnsupportedNode;
+            }
+
+            var next_when_jumps: std.ArrayList(usize) = .empty;
+            defer next_when_jumps.deinit(self.allocator);
+
+            var j: usize = 0;
+            while (j < when_node.when_node.conditions.size) : (j += 1) {
+                const condition_raw = when_node.when_node.conditions.nodes[j];
+                const condition_node = try self.parser.asNode(condition_raw);
+
+                if (has_predicate) {
+                    try self.compileNode(condition_node, line);
+                    try self.current_chunk.emitOp(.CASE_MATCH, line);
+                } else {
+                    try self.compileNode(condition_node, line);
+                }
+
+                const jump_on_match = try self.current_chunk.emitJump(.JUMP_IF_TRUE, line);
+                try next_when_jumps.append(self.allocator, jump_on_match);
+            }
+
+            // No condition matched in this clause, proceed to next `when`.
+            const jump_to_next_when = try self.current_chunk.emitJump(.JUMP, line);
+
+            // Condition matched, run this clause body.
+            for (next_when_jumps.items) |jump_on_match| {
+                try self.current_chunk.patchJump(jump_on_match);
+            }
+
+            if (has_predicate) {
+                // Clause matched; discard saved predicate before evaluating branch body.
+                try self.current_chunk.emitOp(.POP, line);
+            }
+            try self.compileWhenBody(when_node.when_node, line);
+            const jump_to_end = try self.current_chunk.emitJump(.JUMP, line);
+            try end_jumps.append(self.allocator, jump_to_end);
+
+            try self.current_chunk.patchJump(jump_to_next_when);
+        }
+
+        if (has_predicate) {
+            // No clause matched; discard saved predicate before else/nil result.
+            try self.current_chunk.emitOp(.POP, line);
+        }
+
+        // No when clause matched.
+        if (case_node.else_clause) |else_ptr| {
+            const else_node = try self.parser.asNode(@ptrCast(else_ptr));
+            try self.compileNode(else_node, line);
+        } else {
+            try self.current_chunk.emitOp(.PUSH_NIL, line);
+        }
+
+        for (end_jumps.items) |jump_to_end| {
+            try self.current_chunk.patchJump(jump_to_end);
+        }
     }
 
     fn compileAndNode(self: *Compiler, and_node: *prism.AndNode, line: u32) anyerror!void {

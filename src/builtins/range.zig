@@ -16,6 +16,9 @@ pub fn register(vm: *VM) !void {
 
     const inspect_sym = try vm.intern("inspect");
     try vm.range_class.module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinRangeInspect } });
+
+    const case_equal_sym = try vm.intern("===");
+    try vm.range_class.module.methods.put(case_equal_sym, .{ .method = .{ .builtin = &builtinRangeCaseEqual } });
 }
 
 pub fn builtinRangeInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -138,4 +141,30 @@ pub fn builtinRangeInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     const str = buf.toOwnedSlice(vm.allocator) catch return error.Fatal;
     defer vm.allocator.free(str);
     return try vm.newString(str, false);
+}
+
+pub fn builtinRangeCaseEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+
+    if (receiver.data != .range) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Range", .{});
+    }
+
+    const range_obj = receiver.data.range;
+    const candidate = args[0];
+
+    if (candidate.data != .integer) return Value.boolean(false);
+    const n = candidate.data.integer;
+
+    if (range_obj.begin.data != .integer or range_obj.end.data != .integer) {
+        return Value.boolean(false);
+    }
+
+    const begin_i = range_obj.begin.data.integer;
+    const end_i = range_obj.end.data.integer;
+
+    if (range_obj.exclude_end) {
+        return Value.boolean(n >= begin_i and n < end_i);
+    }
+    return Value.boolean(n >= begin_i and n <= end_i);
 }

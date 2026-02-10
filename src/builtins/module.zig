@@ -8,6 +8,7 @@ const Block = vm_mod.Block;
 const Value = value.Value;
 const MethodVisibility = value.MethodVisibility;
 const SymbolObject = value.SymbolObject;
+const ClassObject = value.ClassObject;
 
 fn currentDefaultVisibility(vm: *VM) MethodVisibility {
     if (vm.current_lexical_scope) |scope| {
@@ -149,6 +150,40 @@ pub fn register(vm: *VM) !void {
         .method = .{ .builtin = &builtinModuleFunction },
         .visibility = .private,
     });
+
+    const case_equal_sym = try vm.intern("===");
+    try vm.module_class.module.methods.put(case_equal_sym, .{ .method = .{ .builtin = &builtinModuleCaseEqual } });
+}
+
+pub fn builtinModuleCaseEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+
+    const target = args[0];
+    const receiver_module = switch (receiver.data) {
+        .class => |cls| &cls.module,
+        .module => |mod| mod,
+        else => {
+            const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
+            vm.pending_exception = exc;
+            return error.Unwind;
+        },
+    };
+
+    var current: ?*ClassObject = vm.getClass(target);
+    while (current) |c| {
+        if (&c.module == receiver_module) return Value.boolean(true);
+
+        for (c.prepended_modules.items) |m| {
+            if (m == receiver_module) return Value.boolean(true);
+        }
+        for (c.included_modules.items) |m| {
+            if (m == receiver_module) return Value.boolean(true);
+        }
+
+        current = c.superclass;
+    }
+
+    return Value.boolean(false);
 }
 
 pub fn builtinModuleInclude(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

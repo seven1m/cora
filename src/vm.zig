@@ -1074,6 +1074,14 @@ pub const VM = struct {
                 try self.push(top);
             },
 
+            .CASE_MATCH => {
+                const condition = self.pop();
+                const predicate = self.peek(0);
+                var args = [_]Value{predicate};
+                const result = try self.callMethodByName(condition, "===", args[0..], null);
+                try self.push(result);
+            },
+
             .CALL => {
                 const method_idx = self.readU16();
                 const argc = self.readByte();

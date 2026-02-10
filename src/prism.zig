@@ -13,6 +13,7 @@ pub const BlockNode = c.pm_block_node_t;
 pub const BlockParametersNode = c.pm_block_parameters_node_t;
 pub const BlockParameterNode = c.pm_block_parameter_node_t;
 pub const CallNode = c.pm_call_node_t;
+pub const CaseNode = c.pm_case_node_t;
 pub const ClassNode = c.pm_class_node_t;
 pub const ConstantPathNode = c.pm_constant_path_node_t;
 pub const ConstantReadNode = c.pm_constant_read_node_t;
@@ -52,6 +53,7 @@ pub const StatementsNode = c.pm_statements_node_t;
 pub const StringNode = c.pm_string_node_t;
 pub const SymbolNode = c.pm_symbol_node_t;
 pub const TrueNode = c.pm_true_node_t;
+pub const WhenNode = c.pm_when_node_t;
 pub const YieldNode = c.pm_yield_node_t;
 pub const WhileNode = c.pm_while_node_t;
 pub const UnlessNode = c.pm_unless_node_t;
@@ -91,6 +93,7 @@ pub const Node = union(enum) {
     block_parameters: *BlockParametersNode,
     block_parameter: *BlockParameterNode,
     call: *CallNode,
+    case_node: *CaseNode,
     class: *ClassNode,
     constant_path: *ConstantPathNode,
     constant_read: *ConstantReadNode,
@@ -131,6 +134,7 @@ pub const Node = union(enum) {
     string: *StringNode,
     symbol: *SymbolNode,
     true_node: *TrueNode,
+    when_node: *WhenNode,
     yield: *YieldNode,
     while_node: *WhileNode,
     unless_node: *UnlessNode,
@@ -257,6 +261,10 @@ pub const Parser = struct {
             return Node{ .call = @ptrCast(raw) };
         }
 
+        if (node_type == c.PM_CASE_NODE) {
+            return Node{ .case_node = @ptrCast(raw) };
+        }
+
         if (node_type == c.PM_MODULE_NODE) {
             return Node{ .module = @ptrCast(raw) };
         }
@@ -313,6 +321,10 @@ pub const Parser = struct {
 
         if (node_type == c.PM_TRUE_NODE) {
             return Node{ .true_node = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_WHEN_NODE) {
+            return Node{ .when_node = @ptrCast(raw) };
         }
 
         if (node_type == c.PM_FALSE_NODE) {
