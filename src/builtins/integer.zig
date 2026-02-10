@@ -241,59 +241,12 @@ pub fn builtinIntegerChr(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
 
     const cp: u32 = @intCast(codepoint);
     var buf: [4]u8 = undefined;
-    const bytes = switch (target_encoding) {
-        .us_ascii => blk: {
-            if (cp > 0x7F) {
-                return vm.raiseExceptionFmt(vm.range_error_class, "{d} out of char range", .{codepoint});
-            }
-            buf[0] = @intCast(cp);
-            break :blk buf[0..1];
-        },
-        .ascii_8bit => blk: {
-            if (cp > 0xFF) {
-                return vm.raiseExceptionFmt(vm.range_error_class, "{d} out of char range", .{codepoint});
-            }
-            buf[0] = @intCast(cp);
-            break :blk buf[0..1];
-        },
-        .utf8 => blk: {
-            const encoded_len = utf8EncodeCodepoint(cp, &buf) orelse {
-                return vm.raiseExceptionFmt(vm.range_error_class, "{d} out of char range", .{codepoint});
-            };
-            break :blk buf[0..encoded_len];
-        },
+    const encoded_len = target_encoding.fromUnicodeCodepoint(cp, &buf) orelse {
+        return vm.raiseExceptionFmt(vm.range_error_class, "{d} out of char range", .{codepoint});
     };
+    const bytes = buf[0..encoded_len];
 
     return try vm.newStringWithEncoding(bytes, false, target_encoding);
-}
-
-fn utf8EncodeCodepoint(cp: u32, out: *[4]u8) ?usize {
-    if (cp <= 0x7F) {
-        out[0] = @intCast(cp);
-        return 1;
-    }
-    if (cp <= 0x7FF) {
-        out[0] = 0xC0 | @as(u8, @intCast(cp >> 6));
-        out[1] = 0x80 | @as(u8, @intCast(cp & 0x3F));
-        return 2;
-    }
-    if (cp >= 0xD800 and cp <= 0xDFFF) {
-        return null; // UTF-16 surrogate range is invalid in UTF-8
-    }
-    if (cp <= 0xFFFF) {
-        out[0] = 0xE0 | @as(u8, @intCast(cp >> 12));
-        out[1] = 0x80 | @as(u8, @intCast((cp >> 6) & 0x3F));
-        out[2] = 0x80 | @as(u8, @intCast(cp & 0x3F));
-        return 3;
-    }
-    if (cp <= 0x10FFFF) {
-        out[0] = 0xF0 | @as(u8, @intCast(cp >> 18));
-        out[1] = 0x80 | @as(u8, @intCast((cp >> 12) & 0x3F));
-        out[2] = 0x80 | @as(u8, @intCast((cp >> 6) & 0x3F));
-        out[3] = 0x80 | @as(u8, @intCast(cp & 0x3F));
-        return 4;
-    }
-    return null;
 }
 
 fn integerToBaseString(number: i64, base: u8, out: *[65]u8) []const u8 {

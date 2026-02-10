@@ -22,4 +22,15 @@ pub const Ascii8BitEncoding = struct {
     pub fn isSingleByte(_: Ascii8BitEncoding) bool {
         return true;
     }
+
+    pub fn fromUnicodeCodepoint(_: Ascii8BitEncoding, codepoint: u32, out: *[4]u8) ?usize {
+        if (codepoint > 0xFF) return null;
+        out[0] = @intCast(codepoint);
+        return 1;
+    }
+
+    pub fn toUnicodeCodepoint(_: Ascii8BitEncoding, bytes: []const u8) ?u32 {
+        if (bytes.len != 1) return null;
+        return bytes[0];
+    }
 };

@@ -119,4 +119,48 @@ pub const Utf8Encoding = struct {
     pub fn isSingleByte(_: Utf8Encoding) bool {
         return false;
     }
+
+    pub fn fromUnicodeCodepoint(_: Utf8Encoding, codepoint: u32, out: *[4]u8) ?usize {
+        if (codepoint <= 0x7F) {
+            out[0] = @intCast(codepoint);
+            return 1;
+        }
+        if (codepoint <= 0x7FF) {
+            out[0] = 0xC0 | @as(u8, @intCast(codepoint >> 6));
+            out[1] = 0x80 | @as(u8, @intCast(codepoint & 0x3F));
+            return 2;
+        }
+        if (codepoint >= 0xD800 and codepoint <= 0xDFFF) {
+            return null; // UTF-16 surrogate range is invalid in UTF-8
+        }
+        if (codepoint <= 0xFFFF) {
+            out[0] = 0xE0 | @as(u8, @intCast(codepoint >> 12));
+            out[1] = 0x80 | @as(u8, @intCast((codepoint >> 6) & 0x3F));
+            out[2] = 0x80 | @as(u8, @intCast(codepoint & 0x3F));
+            return 3;
+        }
+        if (codepoint <= 0x10FFFF) {
+            out[0] = 0xF0 | @as(u8, @intCast(codepoint >> 18));
+            out[1] = 0x80 | @as(u8, @intCast((codepoint >> 12) & 0x3F));
+            out[2] = 0x80 | @as(u8, @intCast((codepoint >> 6) & 0x3F));
+            out[3] = 0x80 | @as(u8, @intCast(codepoint & 0x3F));
+            return 4;
+        }
+        return null;
+    }
+
+    pub fn toUnicodeCodepoint(_: Utf8Encoding, bytes: []const u8) ?u32 {
+        if (bytes.len == 0 or bytes.len > 4) return null;
+        var i: usize = 0;
+        const parsed = (Utf8Encoding{}).nextChar(bytes, &i);
+        if (!parsed.valid or parsed.len != bytes.len or i != bytes.len) return null;
+
+        return switch (bytes.len) {
+            1 => bytes[0],
+            2 => (@as(u32, bytes[0] & 0x1F) << 6) | @as(u32, bytes[1] & 0x3F),
+            3 => (@as(u32, bytes[0] & 0x0F) << 12) | (@as(u32, bytes[1] & 0x3F) << 6) | @as(u32, bytes[2] & 0x3F),
+            4 => (@as(u32, bytes[0] & 0x07) << 18) | (@as(u32, bytes[1] & 0x3F) << 12) | (@as(u32, bytes[2] & 0x3F) << 6) | @as(u32, bytes[3] & 0x3F),
+            else => null,
+        };
+    }
 };

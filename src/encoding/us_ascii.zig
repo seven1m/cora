@@ -26,4 +26,15 @@ pub const UsAsciiEncoding = struct {
     pub fn isSingleByte(_: UsAsciiEncoding) bool {
         return true;
     }
+
+    pub fn fromUnicodeCodepoint(_: UsAsciiEncoding, codepoint: u32, out: *[4]u8) ?usize {
+        if (codepoint > 0x7F) return null;
+        out[0] = @intCast(codepoint);
+        return 1;
+    }
+
+    pub fn toUnicodeCodepoint(_: UsAsciiEncoding, bytes: []const u8) ?u32 {
+        if (bytes.len != 1 or bytes[0] > 0x7F) return null;
+        return bytes[0];
+    }
 };

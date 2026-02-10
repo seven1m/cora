@@ -16,6 +16,9 @@ pub fn register(vm: *VM) !void {
     const string_plus_sym = try vm.intern("+");
     try vm.string_class.module.methods.put(string_plus_sym, .{ .method = .{ .builtin = &builtinStringPlus } });
 
+    const string_append_sym = try vm.intern("<<");
+    try vm.string_class.module.methods.put(string_append_sym, .{ .method = .{ .builtin = &builtinStringAppend } });
+
     const string_equal_sym = try vm.intern("==");
     try vm.string_class.module.methods.put(string_equal_sym, .{ .method = .{ .builtin = &builtinStringEqual } });
 
@@ -46,8 +49,35 @@ pub fn register(vm: *VM) !void {
     const string_bytesize_sym = try vm.intern("bytesize");
     try vm.string_class.module.methods.put(string_bytesize_sym, .{ .method = .{ .builtin = &builtinStringBytesize } });
 
+    const string_length_sym = try vm.intern("length");
+    try vm.string_class.module.methods.put(string_length_sym, .{ .method = .{ .builtin = &builtinStringLength } });
+
+    const string_size_sym = try vm.intern("size");
+    try vm.string_class.module.methods.put(string_size_sym, .{ .method = .{ .builtin = &builtinStringLength } });
+
+    const string_bracket_sym = try vm.intern("[]");
+    try vm.string_class.module.methods.put(string_bracket_sym, .{ .method = .{ .builtin = &builtinStringBracket } });
+
     const string_chars_sym = try vm.intern("chars");
     try vm.string_class.module.methods.put(string_chars_sym, .{ .method = .{ .builtin = &builtinStringChars } });
+
+    const string_start_with_sym = try vm.intern("start_with?");
+    try vm.string_class.module.methods.put(string_start_with_sym, .{ .method = .{ .builtin = &builtinStringStartWith } });
+
+    const string_end_with_sym = try vm.intern("end_with?");
+    try vm.string_class.module.methods.put(string_end_with_sym, .{ .method = .{ .builtin = &builtinStringEndWith } });
+
+    const string_prepend_sym = try vm.intern("prepend");
+    try vm.string_class.module.methods.put(string_prepend_sym, .{ .method = .{ .builtin = &builtinStringPrepend } });
+
+    const string_upcase_sym = try vm.intern("upcase");
+    try vm.string_class.module.methods.put(string_upcase_sym, .{ .method = .{ .builtin = &builtinStringUpcase } });
+
+    const string_to_i_sym = try vm.intern("to_i");
+    try vm.string_class.module.methods.put(string_to_i_sym, .{ .method = .{ .builtin = &builtinStringToI } });
+
+    const string_to_sym_sym = try vm.intern("to_sym");
+    try vm.string_class.module.methods.put(string_to_sym_sym, .{ .method = .{ .builtin = &builtinStringToSym } });
 
     const to_s_sym = try vm.intern("to_s");
     try vm.string_class.module.methods.put(to_s_sym, .{ .method = .{ .builtin = &builtinStringToS } });
@@ -84,6 +114,27 @@ pub fn builtinStringPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     ) catch return error.Fatal;
 
     return try vm.newString(combined_str, false);
+}
+
+pub fn builtinStringAppend(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const string_obj = receiver.data.string;
+
+    const bytes_to_append: []const u8 = switch (args[0].data) {
+        .integer => |cp| blk: {
+            if (cp < 0) {
+                return vm.raiseExceptionFmt(vm.range_error_class, "{d} out of char range", .{cp});
+            }
+            var buf: [4]u8 = undefined;
+            const encoded = try encodeCodepointForEncoding(vm, cp, string_obj.encoding, &buf);
+            break :blk encoded;
+        },
+        else => try vm.coerceToStr(args[0], "no implicit conversion into String"),
+    };
+
+    const new_bytes = try concatBytes(vm, string_obj.str, bytes_to_append);
+    string_obj.str = new_bytes;
+    return receiver;
 }
 
 pub fn builtinStringEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -191,6 +242,31 @@ pub fn builtinStringBytesize(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     return Value{ .data = .{ .integer = @intCast(receiver.data.string.str.len) } };
 }
 
+pub fn builtinStringLength(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const string_obj = receiver.data.string;
+    return Value.integer(@intCast(string_obj.encoding.charCount(string_obj.str)));
+}
+
+pub fn builtinStringBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const string_obj = receiver.data.string;
+
+    switch (args[0].data) {
+        .integer => |idx| {
+            const slice = string_obj.encoding.charSliceAtIndex(string_obj.str, idx);
+            if (slice == null) return Value.nil();
+            return try vm.newStringWithEncoding(slice.?, false, string_obj.encoding);
+        },
+        .range => |range_obj| {
+            const slice = try charSliceByRange(vm, string_obj.str, string_obj.encoding, range_obj.begin, range_obj.end, range_obj.exclude_end);
+            if (slice == null) return Value.nil();
+            return try vm.newStringWithEncoding(slice.?, false, string_obj.encoding);
+        },
+        else => return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Integer", .{}),
+    }
+}
+
 pub fn builtinStringChars(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const string_obj = receiver.data.string;
@@ -228,6 +304,124 @@ pub fn builtinStringChars(vm: *VM, receiver: Value, args: []Value, block: ?Block
     return Value{ .data = .{ .array = array_obj } };
 }
 
+pub fn builtinStringStartWith(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    if (args.len == 0) return Value.boolean(false);
+    const string_obj = receiver.data.string;
+
+    for (args) |arg| {
+        const prefix = try vm.coerceToStr(arg, "no implicit conversion into String");
+        if (!std.mem.startsWith(u8, string_obj.str, prefix)) continue;
+        if (string_obj.encoding.isCharBoundary(string_obj.str, prefix.len)) {
+            return Value.boolean(true);
+        }
+    }
+
+    return Value.boolean(false);
+}
+
+pub fn builtinStringEndWith(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    if (args.len == 0) return Value.boolean(false);
+    const string_obj = receiver.data.string;
+
+    for (args) |arg| {
+        const suffix = try vm.coerceToStr(arg, "no implicit conversion into String");
+        if (!std.mem.endsWith(u8, string_obj.str, suffix)) continue;
+        const start = string_obj.str.len - suffix.len;
+        if (string_obj.encoding.isCharBoundary(string_obj.str, start)) {
+            return Value.boolean(true);
+        }
+    }
+
+    return Value.boolean(false);
+}
+
+pub fn builtinStringPrepend(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    if (args.len == 0) return receiver;
+    const string_obj = receiver.data.string;
+
+    var result = string_obj.str;
+    var i: usize = args.len;
+    while (i > 0) {
+        i -= 1;
+        const arg = args[i];
+        const part = try vm.coerceToStr(arg, "no implicit conversion into String");
+        result = try concatBytes(vm, part, result);
+    }
+
+    string_obj.str = result;
+    return receiver;
+}
+
+pub fn builtinStringUpcase(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const string_obj = receiver.data.string;
+    const new_bytes = vm.gc_allocator_atomic.dupe(u8, string_obj.str) catch return error.Fatal;
+    for (new_bytes) |*b| {
+        if (b.* >= 'a' and b.* <= 'z') {
+            b.* -= 32;
+        }
+    }
+    return try vm.newStringWithEncoding(new_bytes, false, string_obj.encoding);
+}
+
+pub fn builtinStringToI(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    if (args.len > 1) {
+        return vm.raiseExceptionFmt(
+            vm.argument_error_class,
+            "wrong number of arguments (given {d}, expected 0..1)",
+            .{args.len},
+        );
+    }
+
+    var base: u8 = 10;
+    if (args.len == 1) {
+        try vm.requireArgType(args, 0, .integer, "Integer");
+        const base_int = args[0].data.integer;
+        if (base_int < 2 or base_int > 36) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "invalid radix {d}", .{base_int});
+        }
+        base = @intCast(base_int);
+    }
+
+    const s = receiver.data.string.str;
+    var i: usize = 0;
+    while (i < s.len and std.ascii.isWhitespace(s[i])) : (i += 1) {}
+
+    var negative = false;
+    if (i < s.len and (s[i] == '+' or s[i] == '-')) {
+        negative = s[i] == '-';
+        i += 1;
+    }
+
+    var saw_digit = false;
+    var value_i64: i64 = 0;
+    while (i < s.len) : (i += 1) {
+        const d = digitValue(s[i]) orelse break;
+        if (d >= base) break;
+        saw_digit = true;
+        value_i64 = std.math.mul(i64, value_i64, base) catch {
+            return vm.raiseExceptionFmt(vm.range_error_class, "integer overflow", .{});
+        };
+        value_i64 = std.math.add(i64, value_i64, @as(i64, d)) catch {
+            return vm.raiseExceptionFmt(vm.range_error_class, "integer overflow", .{});
+        };
+    }
+
+    if (!saw_digit) return Value.integer(0);
+    if (negative) {
+        value_i64 = std.math.negate(value_i64) catch {
+            return vm.raiseExceptionFmt(vm.range_error_class, "integer overflow", .{});
+        };
+    }
+    return Value.integer(value_i64);
+}
+
+pub fn builtinStringToSym(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const sym = try vm.intern(receiver.data.string.str);
+    return Value{ .data = .{ .symbol = sym } };
+}
+
 pub fn builtinStringInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const input = receiver.data.string.str;
@@ -260,4 +454,70 @@ pub fn builtinStringInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     const str = buf.toOwnedSlice(vm.allocator) catch return error.Fatal;
     defer vm.allocator.free(str);
     return try vm.newString(str, false);
+}
+
+fn charSliceByRange(
+    vm: *VM,
+    bytes: []const u8,
+    encoding: enc.Encoding,
+    begin_val: Value,
+    end_val: Value,
+    exclude_end: bool,
+) VMError!?[]const u8 {
+    const char_len_i64: i64 = @intCast(encoding.charCount(bytes));
+
+    const begin_i64: i64 = switch (begin_val.data) {
+        .integer => |i| i,
+        .nil => 0,
+        else => return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Integer", .{}),
+    };
+
+    var start_idx = begin_i64;
+    if (start_idx < 0) start_idx += char_len_i64;
+    if (start_idx < 0 or start_idx > char_len_i64) return null;
+
+    var finish_exclusive = switch (end_val.data) {
+        .integer => |i| blk: {
+            var end_i64 = i;
+            if (end_i64 < 0) end_i64 += char_len_i64;
+            break :blk if (exclude_end) end_i64 else end_i64 + 1;
+        },
+        .nil => char_len_i64,
+        else => return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Integer", .{}),
+    };
+
+    if (finish_exclusive < start_idx) {
+        const start_byte = encoding.byteOffsetForCharIndex(bytes, @intCast(start_idx)) orelse bytes.len;
+        return bytes[start_byte..start_byte];
+    }
+
+    if (finish_exclusive < 0) finish_exclusive = 0;
+    if (finish_exclusive > char_len_i64) finish_exclusive = char_len_i64;
+
+    const start_byte = encoding.byteOffsetForCharIndex(bytes, @intCast(start_idx)) orelse bytes.len;
+    const end_byte = encoding.byteOffsetForCharIndex(bytes, @intCast(finish_exclusive)) orelse bytes.len;
+    return bytes[start_byte..end_byte];
+}
+
+fn concatBytes(vm: *VM, left: []const u8, right: []const u8) VMError![]const u8 {
+    const new_len = left.len + right.len;
+    const out = vm.gc_allocator_atomic.alloc(u8, new_len) catch return error.Fatal;
+    @memcpy(out[0..left.len], left);
+    @memcpy(out[left.len..], right);
+    return out;
+}
+
+fn encodeCodepointForEncoding(vm: *VM, cp: i64, encoding: enc.Encoding, out: *[4]u8) VMError![]const u8 {
+    const codepoint: u32 = @intCast(cp);
+    const len = encoding.fromUnicodeCodepoint(codepoint, out) orelse {
+        return vm.raiseExceptionFmt(vm.range_error_class, "{d} out of char range", .{cp});
+    };
+    return out[0..len];
+}
+
+fn digitValue(c: u8) ?u8 {
+    if (c >= '0' and c <= '9') return c - '0';
+    if (c >= 'a' and c <= 'z') return c - 'a' + 10;
+    if (c >= 'A' and c <= 'Z') return c - 'A' + 10;
+    return null;
 }

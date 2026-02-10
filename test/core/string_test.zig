@@ -117,3 +117,103 @@ test "String#+ raises TypeError when to_str returns non-string" {
     try std.testing.expectEqual(error.UnhandledException, result.err.?);
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, "TypeError") != null);
 }
+
+test "String#length and String#size" {
+    var result = try evalCode("'hello'.length");
+    try std.testing.expect(result.data == .integer);
+    try std.testing.expectEqual(@as(i64, 5), result.data.integer);
+
+    result = try evalCode("'hello'.size");
+    try std.testing.expect(result.data == .integer);
+    try std.testing.expectEqual(@as(i64, 5), result.data.integer);
+}
+
+test "String#[] with integer index" {
+    var result = try evalCode("'hello'[0]");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "h", result.data.string.str);
+
+    result = try evalCode("'hello'[-1]");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "o", result.data.string.str);
+
+    result = try evalCode("'hello'[99]");
+    try std.testing.expect(result.data == .nil);
+}
+
+test "String#[] with range slice" {
+    var result = try evalCode("'hello world'[0...5]");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "hello", result.data.string.str);
+
+    result = try evalCode("'hello world'[6..-1]");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "world", result.data.string.str);
+
+    result = try evalCode("'hello'[20..25]");
+    try std.testing.expect(result.data == .nil);
+}
+
+test "String#<< appends string and codepoint" {
+    var result = try evalCode("s = 'ab'; s << 'cd'; s");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "abcd", result.data.string.str);
+
+    result = try evalCode("s = 'A'; s << 66; s");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "AB", result.data.string.str);
+}
+
+test "String#start_with? and #end_with?" {
+    var result = try evalCode("'|abc'.start_with?('|')");
+    try std.testing.expect(result.data == .boolean);
+    try std.testing.expectEqual(true, result.data.boolean);
+
+    result = try evalCode("\"line\\n\".end_with?(\"\\n\")");
+    try std.testing.expect(result.data == .boolean);
+    try std.testing.expectEqual(true, result.data.boolean);
+
+    result = try evalCode("'hello'.start_with?('x')");
+    try std.testing.expect(result.data == .boolean);
+    try std.testing.expectEqual(false, result.data.boolean);
+}
+
+test "String#prepend" {
+    var result = try evalCode("s = 'world'; s.prepend('hello '); s");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "hello world", result.data.string.str);
+
+    result = try evalCode("s = 'world'; s.prepend('he', '', 'llo '); s");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "hello world", result.data.string.str);
+}
+
+test "String#upcase" {
+    var result = try evalCode("'hello'.upcase");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "HELLO", result.data.string.str);
+
+    result = try evalCode("'a1b!'.upcase");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "A1B!", result.data.string.str);
+}
+
+test "String#to_i" {
+    var result = try evalCode("'123abc'.to_i");
+    try std.testing.expect(result.data == .integer);
+    try std.testing.expectEqual(@as(i64, 123), result.data.integer);
+
+    result = try evalCode("'  -10x'.to_i");
+    try std.testing.expect(result.data == .integer);
+    try std.testing.expectEqual(@as(i64, -10), result.data.integer);
+
+    result = try evalCode("'ff'.to_i(16)");
+    try std.testing.expect(result.data == .integer);
+    try std.testing.expectEqual(@as(i64, 255), result.data.integer);
+}
+
+test "String#to_sym" {
+    const result = try evalCode("'hello'.to_sym.to_s");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "hello", result.data.string.str);
+}

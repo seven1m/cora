@@ -49,6 +49,68 @@ pub const Encoding = union(enum) {
         };
     }
 
+    pub fn fromUnicodeCodepoint(self: Encoding, codepoint: u32, out: *[4]u8) ?usize {
+        return switch (self) {
+            inline else => |enc| enc.fromUnicodeCodepoint(codepoint, out),
+        };
+    }
+
+    pub fn toUnicodeCodepoint(self: Encoding, bytes: []const u8) ?u32 {
+        return switch (self) {
+            inline else => |enc| enc.toUnicodeCodepoint(bytes),
+        };
+    }
+
+    pub fn charCount(self: Encoding, bytes: []const u8) usize {
+        var i: usize = 0;
+        var count: usize = 0;
+        while (i < bytes.len) {
+            const r = self.nextChar(bytes, &i);
+            if (r.len == 0) break;
+            count += 1;
+        }
+        return count;
+    }
+
+    pub fn byteOffsetForCharIndex(self: Encoding, bytes: []const u8, char_index: usize) ?usize {
+        var i: usize = 0;
+        var count: usize = 0;
+        while (i < bytes.len and count < char_index) : (count += 1) {
+            const r = self.nextChar(bytes, &i);
+            if (r.len == 0) return null;
+        }
+        if (count == char_index) return i;
+        return null;
+    }
+
+    pub fn isCharBoundary(self: Encoding, bytes: []const u8, offset: usize) bool {
+        if (offset == 0 or offset == bytes.len) return true;
+        if (offset > bytes.len) return false;
+
+        var i: usize = 0;
+        while (i < bytes.len) {
+            if (i == offset) return true;
+            const r = self.nextChar(bytes, &i);
+            if (r.len == 0) break;
+        }
+        return i == offset;
+    }
+
+    pub fn normalizeCharIndex(self: Encoding, bytes: []const u8, idx: i64) ?usize {
+        const len_i64: i64 = @intCast(self.charCount(bytes));
+        var actual = idx;
+        if (actual < 0) actual += len_i64;
+        if (actual < 0 or actual >= len_i64) return null;
+        return @intCast(actual);
+    }
+
+    pub fn charSliceAtIndex(self: Encoding, bytes: []const u8, idx: i64) ?[]const u8 {
+        const char_idx = self.normalizeCharIndex(bytes, idx) orelse return null;
+        const start = self.byteOffsetForCharIndex(bytes, char_idx) orelse return null;
+        const end = self.byteOffsetForCharIndex(bytes, char_idx + 1) orelse bytes.len;
+        return bytes[start..end];
+    }
+
     pub fn eql(self: Encoding, other: Encoding) bool {
         const self_tag = @as(std.meta.Tag(Encoding), self);
         const other_tag = @as(std.meta.Tag(Encoding), other);
