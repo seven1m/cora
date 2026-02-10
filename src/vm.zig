@@ -938,7 +938,6 @@ pub const VM = struct {
             .GET_CONST => {
                 const idx = self.readU16();
                 const constant = self.currentChunk().constants.items[idx];
-                // TODO: this should be a symbol I think
                 if (constant == .string) {
                     const name_sym = try self.intern(constant.string);
 
@@ -995,7 +994,6 @@ pub const VM = struct {
                 const idx = self.readU16();
                 const val = self.pop();
                 const constant = self.currentChunk().constants.items[idx];
-                // TODO: this should be a symbol I think
                 if (constant == .string) {
                     const name_sym = try self.intern(constant.string);
 
