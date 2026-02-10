@@ -103,3 +103,108 @@ test "Array#to_s" {
     try std.testing.expect(result.data == .string);
     try std.testing.expectEqualSlices(u8, "[1, 2, 3]", result.data.string.str);
 }
+
+test "Array#size" {
+    const result = try evalCode("[1, 2, 3].size");
+    try std.testing.expect(result.data == .integer);
+    try std.testing.expectEqual(@as(i64, 3), result.data.integer);
+}
+
+test "Array#map" {
+    const result = try evalCode("[1, 2, 3].map { |x| x * 2 }");
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(@as(usize, 3), result.data.array.elements.items.len);
+    try std.testing.expectEqual(@as(i64, 2), result.data.array.elements.items[0].data.integer);
+    try std.testing.expectEqual(@as(i64, 4), result.data.array.elements.items[1].data.integer);
+    try std.testing.expectEqual(@as(i64, 6), result.data.array.elements.items[2].data.integer);
+}
+
+test "Array#any?" {
+    var result = try evalCode("[nil, false, 1].any?");
+    try std.testing.expect(result.data == .boolean);
+    try std.testing.expectEqual(true, result.data.boolean);
+
+    result = try evalCode("[nil, false].any?");
+    try std.testing.expect(result.data == .boolean);
+    try std.testing.expectEqual(false, result.data.boolean);
+
+    result = try evalCode("[1, 2, 3].any? { |x| x > 2 }");
+    try std.testing.expect(result.data == .boolean);
+    try std.testing.expectEqual(true, result.data.boolean);
+}
+
+test "Array#include?" {
+    var result = try evalCode("[1, 2, 3].include?(2)");
+    try std.testing.expect(result.data == .boolean);
+    try std.testing.expectEqual(true, result.data.boolean);
+
+    result = try evalCode("[1, 2, 3].include?(9)");
+    try std.testing.expect(result.data == .boolean);
+    try std.testing.expectEqual(false, result.data.boolean);
+}
+
+test "Array#join" {
+    var result = try evalCode("[1, 2, 3].join");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "123", result.data.string.str);
+
+    result = try evalCode("[1, 2, 3].join('-')");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "1-2-3", result.data.string.str);
+}
+
+test "Array#first and Array#last" {
+    var result = try evalCode("[1, 2, 3].first");
+    try std.testing.expect(result.data == .integer);
+    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+
+    result = try evalCode("[1, 2, 3].last");
+    try std.testing.expect(result.data == .integer);
+    try std.testing.expectEqual(@as(i64, 3), result.data.integer);
+
+    result = try evalCode("[].first");
+    try std.testing.expect(result.data == .nil);
+
+    result = try evalCode("[].last");
+    try std.testing.expect(result.data == .nil);
+}
+
+test "Array#[]= set and extend" {
+    var result = try evalCode("a = [1, 2, 3]; a[1] = 9; a");
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(@as(i64, 9), result.data.array.elements.items[1].data.integer);
+
+    result = try evalCode("a = [1]; a[3] = 5; a.inspect");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "[1, nil, nil, 5]", result.data.string.str);
+
+    result = try evalCode("a = [1, 2, 3]; a[-1] = 7; a");
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(@as(i64, 7), result.data.array.elements.items[2].data.integer);
+}
+
+test "Array#map! mutates in place" {
+    const result = try evalCode("a = [1, 2, 3]; a.map! { |x| x + 10 }; a");
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(@as(i64, 11), result.data.array.elements.items[0].data.integer);
+    try std.testing.expectEqual(@as(i64, 12), result.data.array.elements.items[1].data.integer);
+    try std.testing.expectEqual(@as(i64, 13), result.data.array.elements.items[2].data.integer);
+}
+
+test "Array#& intersection" {
+    const result = try evalCode("[1, 2, 2, 3] & [2, 3, 4]");
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(@as(usize, 2), result.data.array.elements.items.len);
+    try std.testing.expectEqual(@as(i64, 2), result.data.array.elements.items[0].data.integer);
+    try std.testing.expectEqual(@as(i64, 3), result.data.array.elements.items[1].data.integer);
+}
+
+test "Array#| union" {
+    const result = try evalCode("[1, 2, 2] | [2, 3, 1, 4]");
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(@as(usize, 4), result.data.array.elements.items.len);
+    try std.testing.expectEqual(@as(i64, 1), result.data.array.elements.items[0].data.integer);
+    try std.testing.expectEqual(@as(i64, 2), result.data.array.elements.items[1].data.integer);
+    try std.testing.expectEqual(@as(i64, 3), result.data.array.elements.items[2].data.integer);
+    try std.testing.expectEqual(@as(i64, 4), result.data.array.elements.items[3].data.integer);
+}

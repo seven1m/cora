@@ -17,11 +17,44 @@ pub fn register(vm: *VM) !void {
     const bracket_sym = try vm.intern("[]");
     try vm.array_class.module.methods.put(bracket_sym, .{ .method = .{ .builtin = &builtinArrayBracket } });
 
+    const bracket_set_sym = try vm.intern("[]=");
+    try vm.array_class.module.methods.put(bracket_set_sym, .{ .method = .{ .builtin = &builtinArrayBracketSet } });
+
     const equal_sym = try vm.intern("==");
     try vm.array_class.module.methods.put(equal_sym, .{ .method = .{ .builtin = &builtinArrayEqual } });
 
     const length_sym = try vm.intern("length");
     try vm.array_class.module.methods.put(length_sym, .{ .method = .{ .builtin = &builtinArrayLength } });
+
+    const size_sym = try vm.intern("size");
+    try vm.array_class.module.methods.put(size_sym, .{ .method = .{ .builtin = &builtinArrayLength } });
+
+    const map_sym = try vm.intern("map");
+    try vm.array_class.module.methods.put(map_sym, .{ .method = .{ .builtin = &builtinArrayMap } });
+
+    const map_bang_sym = try vm.intern("map!");
+    try vm.array_class.module.methods.put(map_bang_sym, .{ .method = .{ .builtin = &builtinArrayMapBang } });
+
+    const any_sym = try vm.intern("any?");
+    try vm.array_class.module.methods.put(any_sym, .{ .method = .{ .builtin = &builtinArrayAny } });
+
+    const include_sym = try vm.intern("include?");
+    try vm.array_class.module.methods.put(include_sym, .{ .method = .{ .builtin = &builtinArrayInclude } });
+
+    const join_sym = try vm.intern("join");
+    try vm.array_class.module.methods.put(join_sym, .{ .method = .{ .builtin = &builtinArrayJoin } });
+
+    const first_sym = try vm.intern("first");
+    try vm.array_class.module.methods.put(first_sym, .{ .method = .{ .builtin = &builtinArrayFirst } });
+
+    const last_sym = try vm.intern("last");
+    try vm.array_class.module.methods.put(last_sym, .{ .method = .{ .builtin = &builtinArrayLast } });
+
+    const intersection_sym = try vm.intern("&");
+    try vm.array_class.module.methods.put(intersection_sym, .{ .method = .{ .builtin = &builtinArrayIntersection } });
+
+    const union_sym = try vm.intern("|");
+    try vm.array_class.module.methods.put(union_sym, .{ .method = .{ .builtin = &builtinArrayUnion } });
 
     const to_s_sym = try vm.intern("to_s");
     try vm.array_class.module.methods.put(to_s_sym, .{ .method = .{ .builtin = &builtinArrayToS } });
@@ -64,6 +97,35 @@ pub fn builtinArrayBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     return array.elements.items[@intCast(actual_index)];
 }
 
+pub fn builtinArrayBracketSet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 2);
+    try vm.requireArgType(args, 0, .integer, "Integer");
+
+    const array = receiver.data.array;
+    const index = args[0].data.integer;
+    const len: i64 = @intCast(array.elements.items.len);
+    const value_to_set = args[1];
+
+    var actual_index = index;
+    if (actual_index < 0) {
+        actual_index = len + actual_index;
+        if (actual_index < 0) {
+            return vm.raiseExceptionFmt(vm.range_error_class, "index {d} too small for array", .{index});
+        }
+    }
+
+    if (actual_index < len) {
+        array.elements.items[@intCast(actual_index)] = value_to_set;
+        return value_to_set;
+    }
+
+    while (@as(i64, @intCast(array.elements.items.len)) < actual_index) {
+        array.elements.append(vm.gc_allocator, Value.nil()) catch return error.Fatal;
+    }
+    array.elements.append(vm.gc_allocator, value_to_set) catch return error.Fatal;
+    return value_to_set;
+}
+
 pub fn builtinArrayEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const other = args[0];
@@ -78,14 +140,7 @@ pub fn builtinArrayEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     }
 
     for (left.elements.items, 0..) |elem, idx| {
-        const other_elem = right.elements.items[idx];
-        var eq_args = [_]Value{other_elem};
-        const eq_val = try vm.callMethodByName(elem, "==", eq_args[0..], null);
-        if (eq_val.data == .boolean) {
-            if (!eq_val.data.boolean) {
-                return Value.boolean(false);
-            }
-        } else if (eq_val.data == .nil) {
+        if (!(try vm.valueEquals(elem, right.elements.items[idx]))) {
             return Value.boolean(false);
         }
     }
@@ -143,6 +198,152 @@ pub fn builtinArrayLength(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     return Value{ .data = .{ .integer = @intCast(array.elements.items.len) } };
 }
 
+pub fn builtinArrayMap(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const blk = try vm.requireBlock(block);
+    const source = receiver.data.array;
+    const result = try vm.createArray();
+
+    for (source.elements.items) |element| {
+        const yield_args = [_]Value{element};
+        const yielded = try vm.yieldToBlock(blk, &yield_args);
+        if (yielded.break_occurred) {
+            return yielded.value;
+        }
+        result.elements.append(vm.gc_allocator, yielded.value) catch return error.Fatal;
+    }
+
+    return Value{ .data = .{ .array = result } };
+}
+
+pub fn builtinArrayMapBang(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const blk = try vm.requireBlock(block);
+    const array = receiver.data.array;
+
+    for (array.elements.items, 0..) |element, idx| {
+        const yield_args = [_]Value{element};
+        const yielded = try vm.yieldToBlock(blk, &yield_args);
+        if (yielded.break_occurred) {
+            return yielded.value;
+        }
+        array.elements.items[idx] = yielded.value;
+    }
+
+    return receiver;
+}
+
+pub fn builtinArrayAny(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const array = receiver.data.array;
+
+    if (block) |blk| {
+        for (array.elements.items) |element| {
+            const yield_args = [_]Value{element};
+            const yielded = try vm.yieldToBlock(blk, &yield_args);
+            if (yielded.break_occurred) {
+                return yielded.value;
+            }
+            if (yielded.value.is_truthy()) return Value.boolean(true);
+        }
+        return Value.boolean(false);
+    }
+
+    for (array.elements.items) |element| {
+        if (element.is_truthy()) return Value.boolean(true);
+    }
+    return Value.boolean(false);
+}
+
+pub fn builtinArrayInclude(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const array = receiver.data.array;
+    for (array.elements.items) |element| {
+        if (try vm.valueEquals(element, args[0])) return Value.boolean(true);
+    }
+    return Value.boolean(false);
+}
+
+pub fn builtinArrayJoin(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    if (args.len > 1) {
+        return vm.raiseExceptionFmt(
+            vm.argument_error_class,
+            "wrong number of arguments (given {d}, expected 0..1)",
+            .{args.len},
+        );
+    }
+    const sep = if (args.len == 1) try vm.coerceToStr(args[0], "no implicit conversion into String") else "";
+
+    const array = receiver.data.array;
+    var buf: std.ArrayList(u8) = .empty;
+    const writer = buf.writer(vm.allocator);
+
+    for (array.elements.items, 0..) |elem, idx| {
+        if (idx > 0) writer.writeAll(sep) catch return error.Fatal;
+        const elem_str = try vm.callMethodByName(elem, "to_s", &[_]Value{}, null);
+        if (elem_str.data != .string) {
+            const exc = try vm.createException(vm.type_error_class, "to_s did not return String");
+            vm.pending_exception = exc;
+            return error.Unwind;
+        }
+        writer.writeAll(elem_str.data.string.str) catch return error.Fatal;
+    }
+
+    const str = buf.toOwnedSlice(vm.allocator) catch return error.Fatal;
+    defer vm.allocator.free(str);
+    return try vm.newString(str, false);
+}
+
+pub fn builtinArrayFirst(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const array = receiver.data.array;
+    if (array.elements.items.len == 0) return Value.nil();
+    return array.elements.items[0];
+}
+
+pub fn builtinArrayLast(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const array = receiver.data.array;
+    if (array.elements.items.len == 0) return Value.nil();
+    return array.elements.items[array.elements.items.len - 1];
+}
+
+pub fn builtinArrayIntersection(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireSingleArg(args, .array, "Array");
+    const left = receiver.data.array;
+    const right = args[0].data.array;
+    const result = try vm.createArray();
+
+    for (left.elements.items) |elem| {
+        if (try arrayContainsEquivalent(vm, result.elements.items, elem)) continue;
+        if (try arrayContainsEquivalent(vm, right.elements.items, elem)) {
+            result.elements.append(vm.gc_allocator, elem) catch return error.Fatal;
+        }
+    }
+
+    return Value{ .data = .{ .array = result } };
+}
+
+pub fn builtinArrayUnion(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireSingleArg(args, .array, "Array");
+    const left = receiver.data.array;
+    const right = args[0].data.array;
+    const result = try vm.createArray();
+
+    for (left.elements.items) |elem| {
+        if (!(try arrayContainsEquivalent(vm, result.elements.items, elem))) {
+            result.elements.append(vm.gc_allocator, elem) catch return error.Fatal;
+        }
+    }
+    for (right.elements.items) |elem| {
+        if (!(try arrayContainsEquivalent(vm, result.elements.items, elem))) {
+            result.elements.append(vm.gc_allocator, elem) catch return error.Fatal;
+        }
+    }
+
+    return Value{ .data = .{ .array = result } };
+}
+
 pub fn builtinArrayInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const array = receiver.data.array;
@@ -195,4 +396,11 @@ pub fn builtinArrayAll(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
     }
 
     return Value.boolean(true);
+}
+
+fn arrayContainsEquivalent(vm: *VM, haystack: []Value, needle: Value) VMError!bool {
+    for (haystack) |item| {
+        if (try vm.valueEquals(item, needle)) return true;
+    }
+    return false;
 }

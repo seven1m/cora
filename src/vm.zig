@@ -1998,6 +1998,14 @@ pub const VM = struct {
         };
     }
 
+    /// Ruby-level equality helper using `==`.
+    /// Treats non-boolean/nil return values with Ruby truthiness.
+    pub fn valueEquals(self: *VM, left: Value, right: Value) VMError!bool {
+        var eq_args = [_]Value{right};
+        const result = try self.callMethodByName(left, "==", eq_args[0..], null);
+        return result.is_truthy();
+    }
+
     /// Used by executeInstruction to implement both CALL and CALL_KW
     /// For a Chunk, it sets up the frame and returns.
     /// For a builtin function pointer, it calls it and pushes the return value onto the stack.
