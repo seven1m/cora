@@ -254,3 +254,54 @@ test "Kernel#instance_variable_get coerces name via to_str and invalid names rai
     try std.testing.expectEqual(error.UnhandledException, bad.err.?);
     try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "NameError") != null);
 }
+
+test "Kernel#singleton_class returns singleton class for object" {
+    const result = try evalCode(
+        \\obj = Object.new
+        \\[obj.singleton_class, obj.singleton_class]
+    );
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(@as(usize, 2), result.data.array.elements.items.len);
+    try std.testing.expect(result.data.array.elements.items[0].data == .class);
+    try std.testing.expect(result.data.array.elements.items[1].data == .class);
+    try std.testing.expect(
+        result.data.array.elements.items[0].data.class == result.data.array.elements.items[1].data.class,
+    );
+}
+
+test "Kernel#singleton_class returns NilClass/TrueClass/FalseClass for immediates" {
+    var result = try evalCode("nil.singleton_class");
+    try std.testing.expect(result.data == .class);
+    try std.testing.expectEqualStrings("NilClass", result.data.class.module.name.name);
+
+    result = try evalCode("true.singleton_class");
+    try std.testing.expect(result.data == .class);
+    try std.testing.expectEqualStrings("TrueClass", result.data.class.module.name.name);
+
+    result = try evalCode("false.singleton_class");
+    try std.testing.expect(result.data == .class);
+    try std.testing.expectEqualStrings("FalseClass", result.data.class.module.name.name);
+}
+
+test "Kernel#singleton_class raises TypeError for Integer and Symbol" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+
+    var bad = evalCodeWithOutput("123.singleton_class", &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.UnhandledException, bad.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "TypeError") != null);
+
+    bad = evalCodeWithOutput(":foo.singleton_class", &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.UnhandledException, bad.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "TypeError") != null);
+}
+
+test "Kernel#singleton_class returns frozen singleton class for frozen object" {
+    const result = try evalCode(
+        \\obj = Object.new
+        \\obj.freeze
+        \\obj.singleton_class.frozen?
+    );
+    try std.testing.expect(result.data == .boolean);
+    try std.testing.expectEqual(true, result.data.boolean);
+}

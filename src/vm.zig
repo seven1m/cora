@@ -2399,6 +2399,9 @@ pub const VM = struct {
     pub fn getOrCreateSingletonClass(self: *VM, obj_val: value.Value) VMError!*ClassObject {
         // Return existing singleton class if already created
         if (obj_val.getSingletonClass()) |singleton| {
+            if (obj_val.isFrozen()) {
+                singleton.module.object.flags |= value.Object.FROZEN_FLAG;
+            }
             return singleton;
         }
 
@@ -2462,6 +2465,10 @@ pub const VM = struct {
 
         // Link back to object
         obj_ptr.singleton_class = singleton_class;
+
+        if (obj_val.isFrozen()) {
+            singleton_class.module.object.flags |= value.Object.FROZEN_FLAG;
+        }
 
         return singleton_class;
     }

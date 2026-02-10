@@ -74,6 +74,9 @@ pub fn register(vm: *VM) !void {
 
     const frozen_sym = try vm.intern("frozen?");
     try vm.kernel_module.methods.put(frozen_sym, .{ .method = .{ .builtin = &builtinKernelFrozen } });
+
+    const singleton_class_sym = try vm.intern("singleton_class");
+    try vm.kernel_module.methods.put(singleton_class_sym, .{ .method = .{ .builtin = &builtinKernelSingletonClass } });
 }
 
 pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -495,6 +498,20 @@ pub fn builtinKernelFreeze(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 pub fn builtinKernelFrozen(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return Value.boolean(receiver.isFrozen());
+}
+
+pub fn builtinKernelSingletonClass(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
+    switch (receiver.data) {
+        .nil => return .{ .data = .{ .class = vm.nil_class } },
+        .boolean => |b| return .{ .data = .{ .class = if (b) vm.true_class else vm.false_class } },
+        .integer, .symbol => return vm.raiseExceptionFmt(vm.type_error_class, "can't define singleton", .{}),
+        else => {},
+    }
+
+    const singleton_class = try vm.getOrCreateSingletonClass(receiver);
+    return .{ .data = .{ .class = singleton_class } };
 }
 
 pub fn builtinKernelP(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
