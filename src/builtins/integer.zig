@@ -1,6 +1,8 @@
 const std = @import("std");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
+const enc = @import("../encoding.zig");
+const encoding_builtin = @import("encoding.zig");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -16,6 +18,15 @@ pub fn register(vm: *VM) !void {
 
     const multiply_sym = try vm.intern("*");
     try vm.integer_class.module.methods.put(multiply_sym, .{ .method = .{ .builtin = &builtinIntegerMultiply } });
+
+    const divide_sym = try vm.intern("/");
+    try vm.integer_class.module.methods.put(divide_sym, .{ .method = .{ .builtin = &builtinIntegerDivide } });
+
+    const modulo_sym = try vm.intern("%");
+    try vm.integer_class.module.methods.put(modulo_sym, .{ .method = .{ .builtin = &builtinIntegerModulo } });
+
+    const power_sym = try vm.intern("**");
+    try vm.integer_class.module.methods.put(power_sym, .{ .method = .{ .builtin = &builtinIntegerPower } });
 
     const equal_sym = try vm.intern("==");
     try vm.integer_class.module.methods.put(equal_sym, .{ .method = .{ .builtin = &builtinIntegerEqual } });
@@ -37,6 +48,18 @@ pub fn register(vm: *VM) !void {
 
     const inspect_sym = try vm.intern("inspect");
     try vm.integer_class.module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinIntegerInspect } });
+
+    const abs_sym = try vm.intern("abs");
+    try vm.integer_class.module.methods.put(abs_sym, .{ .method = .{ .builtin = &builtinIntegerAbs } });
+
+    const negative_sym = try vm.intern("negative?");
+    try vm.integer_class.module.methods.put(negative_sym, .{ .method = .{ .builtin = &builtinIntegerNegative } });
+
+    const zero_sym = try vm.intern("zero?");
+    try vm.integer_class.module.methods.put(zero_sym, .{ .method = .{ .builtin = &builtinIntegerZero } });
+
+    const chr_sym = try vm.intern("chr");
+    try vm.integer_class.module.methods.put(chr_sym, .{ .method = .{ .builtin = &builtinIntegerChr } });
 }
 
 pub fn builtinIntegerPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -54,6 +77,63 @@ pub fn builtinIntegerMinus(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 pub fn builtinIntegerMultiply(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireSingleArg(args, .integer, "Integer");
     const result = receiver.data.integer * args[0].data.integer;
+    return Value.integer(result);
+}
+
+pub fn builtinIntegerDivide(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireSingleArg(args, .integer, "Integer");
+    const divisor = args[0].data.integer;
+    if (divisor == 0) {
+        return vm.raiseExceptionFmt(vm.zero_division_error_class, "divided by 0", .{});
+    }
+    const result = std.math.divFloor(i64, receiver.data.integer, divisor) catch {
+        return vm.raiseExceptionFmt(vm.range_error_class, "integer overflow", .{});
+    };
+    return Value.integer(result);
+}
+
+pub fn builtinIntegerModulo(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireSingleArg(args, .integer, "Integer");
+    const divisor = args[0].data.integer;
+    if (divisor == 0) {
+        return vm.raiseExceptionFmt(vm.zero_division_error_class, "divided by 0", .{});
+    }
+    const quotient = std.math.divFloor(i64, receiver.data.integer, divisor) catch {
+        return vm.raiseExceptionFmt(vm.range_error_class, "integer overflow", .{});
+    };
+    const prod = std.math.mul(i64, quotient, divisor) catch {
+        return vm.raiseExceptionFmt(vm.range_error_class, "integer overflow", .{});
+    };
+    const result = std.math.sub(i64, receiver.data.integer, prod) catch {
+        return vm.raiseExceptionFmt(vm.range_error_class, "integer overflow", .{});
+    };
+    return Value.integer(result);
+}
+
+pub fn builtinIntegerPower(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireSingleArg(args, .integer, "Integer");
+    const exponent = args[0].data.integer;
+    if (exponent < 0) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "negative exponent not supported", .{});
+    }
+
+    var result: i64 = 1;
+    var base = receiver.data.integer;
+    var exp: u64 = @intCast(exponent);
+
+    while (exp > 0) : (exp >>= 1) {
+        if ((exp & 1) == 1) {
+            result = std.math.mul(i64, result, base) catch {
+                return vm.raiseExceptionFmt(vm.range_error_class, "integer overflow", .{});
+            };
+        }
+        if (exp > 1) {
+            base = std.math.mul(i64, base, base) catch {
+                return vm.raiseExceptionFmt(vm.range_error_class, "integer overflow", .{});
+            };
+        }
+    }
+
     return Value.integer(result);
 }
 
@@ -88,11 +168,160 @@ pub fn builtinIntegerGreaterThanOrEqual(vm: *VM, receiver: Value, args: []Value,
 }
 
 pub fn builtinIntegerToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 0);
-    const str = std.fmt.allocPrint(vm.gc_allocator, "{d}", .{receiver.data.integer}) catch return error.Fatal;
-    return try vm.newString(str, false);
+    if (args.len > 1) {
+        return vm.raiseExceptionFmt(
+            vm.argument_error_class,
+            "wrong number of arguments (given {d}, expected 0..1)",
+            .{args.len},
+        );
+    }
+
+    var base: u8 = 10;
+    if (args.len == 1) {
+        try vm.requireArgType(args, 0, .integer, "Integer");
+        const base_int = args[0].data.integer;
+        if (base_int < 2 or base_int > 36) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "invalid radix {d}", .{base_int});
+        }
+        base = @intCast(base_int);
+    }
+
+    var buf: [65]u8 = undefined;
+    const str = integerToBaseString(receiver.data.integer, base, &buf);
+    return try vm.newStringWithEncoding(str, false, .{ .us_ascii = .{} });
 }
 
 pub fn builtinIntegerInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     return builtinIntegerToS(vm, receiver, args, null);
+}
+
+pub fn builtinIntegerAbs(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const val = receiver.data.integer;
+    if (val >= 0) return Value.integer(val);
+    const abs_val = std.math.negate(val) catch {
+        return vm.raiseExceptionFmt(vm.range_error_class, "integer overflow", .{});
+    };
+    return Value.integer(abs_val);
+}
+
+pub fn builtinIntegerNegative(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return Value.boolean(receiver.data.integer < 0);
+}
+
+pub fn builtinIntegerZero(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return Value.boolean(receiver.data.integer == 0);
+}
+
+pub fn builtinIntegerChr(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    if (args.len > 1) {
+        return vm.raiseExceptionFmt(
+            vm.argument_error_class,
+            "wrong number of arguments (given {d}, expected 0..1)",
+            .{args.len},
+        );
+    }
+
+    const codepoint = receiver.data.integer;
+    if (codepoint < 0) {
+        return vm.raiseExceptionFmt(vm.range_error_class, "{d} out of char range", .{codepoint});
+    }
+
+    const target_encoding: enc.Encoding = if (args.len == 0)
+        if (codepoint <= 127) .{ .us_ascii = .{} } else .{ .ascii_8bit = .{} }
+    else switch (args[0].data) {
+        .encoding => |e| e.encoding,
+        else => blk: {
+            const result = try encoding_builtin.builtinEncodingFind(vm, receiver, args, null);
+            break :blk result.data.encoding.encoding;
+        },
+    };
+
+    const cp: u32 = @intCast(codepoint);
+    var buf: [4]u8 = undefined;
+    const bytes = switch (target_encoding) {
+        .us_ascii => blk: {
+            if (cp > 0x7F) {
+                return vm.raiseExceptionFmt(vm.range_error_class, "{d} out of char range", .{codepoint});
+            }
+            buf[0] = @intCast(cp);
+            break :blk buf[0..1];
+        },
+        .ascii_8bit => blk: {
+            if (cp > 0xFF) {
+                return vm.raiseExceptionFmt(vm.range_error_class, "{d} out of char range", .{codepoint});
+            }
+            buf[0] = @intCast(cp);
+            break :blk buf[0..1];
+        },
+        .utf8 => blk: {
+            const encoded_len = utf8EncodeCodepoint(cp, &buf) orelse {
+                return vm.raiseExceptionFmt(vm.range_error_class, "{d} out of char range", .{codepoint});
+            };
+            break :blk buf[0..encoded_len];
+        },
+    };
+
+    return try vm.newStringWithEncoding(bytes, false, target_encoding);
+}
+
+fn utf8EncodeCodepoint(cp: u32, out: *[4]u8) ?usize {
+    if (cp <= 0x7F) {
+        out[0] = @intCast(cp);
+        return 1;
+    }
+    if (cp <= 0x7FF) {
+        out[0] = 0xC0 | @as(u8, @intCast(cp >> 6));
+        out[1] = 0x80 | @as(u8, @intCast(cp & 0x3F));
+        return 2;
+    }
+    if (cp >= 0xD800 and cp <= 0xDFFF) {
+        return null; // UTF-16 surrogate range is invalid in UTF-8
+    }
+    if (cp <= 0xFFFF) {
+        out[0] = 0xE0 | @as(u8, @intCast(cp >> 12));
+        out[1] = 0x80 | @as(u8, @intCast((cp >> 6) & 0x3F));
+        out[2] = 0x80 | @as(u8, @intCast(cp & 0x3F));
+        return 3;
+    }
+    if (cp <= 0x10FFFF) {
+        out[0] = 0xF0 | @as(u8, @intCast(cp >> 18));
+        out[1] = 0x80 | @as(u8, @intCast((cp >> 12) & 0x3F));
+        out[2] = 0x80 | @as(u8, @intCast((cp >> 6) & 0x3F));
+        out[3] = 0x80 | @as(u8, @intCast(cp & 0x3F));
+        return 4;
+    }
+    return null;
+}
+
+fn integerToBaseString(number: i64, base: u8, out: *[65]u8) []const u8 {
+    var i: usize = out.len;
+    const digits = "0123456789abcdefghijklmnopqrstuvwxyz";
+
+    const negative = number < 0;
+    var magnitude: u64 = if (negative)
+        (~@as(u64, @bitCast(number))) + 1
+    else
+        @intCast(number);
+
+    if (magnitude == 0) {
+        i -= 1;
+        out[i] = '0';
+    } else {
+        while (magnitude > 0) {
+            const digit: usize = @intCast(magnitude % base);
+            i -= 1;
+            out[i] = digits[digit];
+            magnitude /= base;
+        }
+    }
+
+    if (negative) {
+        i -= 1;
+        out[i] = '-';
+    }
+
+    return out[i..];
 }
