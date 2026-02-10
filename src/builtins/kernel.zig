@@ -78,14 +78,7 @@ pub fn register(vm: *VM) !void {
 
 pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    if (args[0].data != .string) {
-        const msg = std.fmt.allocPrint(vm.allocator, "no implicit conversion into String", .{}) catch return error.Fatal;
-        const exc = vm.createException(vm.type_error_class, msg) catch return error.Fatal;
-        vm.pending_exception = exc;
-        return error.Unwind;
-    }
-
-    const feature = args[0].data.string.str;
+    const feature = try vm.coerceToPath(args[0], "no implicit conversion into String");
 
     const absolute_path = vm.searchLoadPath(feature) catch {
         const msg = std.fmt.allocPrint(vm.allocator, "cannot load such file -- {s}", .{feature}) catch return error.Fatal;
@@ -118,14 +111,7 @@ pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
 
 pub fn builtinKernelRequireRelative(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    if (args[0].data != .string) {
-        const msg = std.fmt.allocPrint(vm.allocator, "no implicit conversion into String", .{}) catch return error.Fatal;
-        const exc = vm.createException(vm.type_error_class, msg) catch return error.Fatal;
-        vm.pending_exception = exc;
-        return error.Unwind;
-    }
-
-    const relative_path = args[0].data.string.str;
+    const relative_path = try vm.coerceToPath(args[0], "no implicit conversion into String");
 
     const current_file = vm.current_loading_file orelse {
         const exc = vm.createException(vm.load_error_class, "cannot infer basepath") catch return error.Fatal;
@@ -175,14 +161,7 @@ pub fn builtinKernelRequireRelative(vm: *VM, _: Value, args: []Value, _: ?Block)
 
 pub fn builtinKernelLoad(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    if (args[0].data != .string) {
-        const msg = std.fmt.allocPrint(vm.allocator, "no implicit conversion into String", .{}) catch return error.Fatal;
-        const exc = vm.createException(vm.type_error_class, msg) catch return error.Fatal;
-        vm.pending_exception = exc;
-        return error.Unwind;
-    }
-
-    const filename = args[0].data.string.str;
+    const filename = try vm.coerceToPath(args[0], "no implicit conversion into String");
 
     var absolute_path: ?[]const u8 = null;
 
@@ -414,17 +393,7 @@ pub fn builtinKernelRespondTo(vm: *VM, receiver: Value, args: []Value, _: ?Block
         return error.Unwind;
     }
 
-    const method_name = args[0];
-    const method_name_str: []const u8 = switch (method_name.data) {
-        .symbol => |sym| sym.name,
-        .string => |str| str.str,
-        else => {
-            const exc = try vm.createException(vm.type_error_class, "not a symbol nor a string");
-            vm.pending_exception = exc;
-            return error.Unwind;
-        },
-    };
-    const method_name_sym = try vm.intern(method_name_str);
+    const method_name_sym = try vm.coerceToMethodNameSymbol(args[0]);
 
     const include_private = if (args.len == 2) args[1].is_truthy() else false;
 
@@ -476,82 +445,20 @@ pub fn builtinKernelSend(vm: *VM, receiver: Value, args: []Value, block: ?Block)
         return error.Unwind;
     }
 
-    const name_arg = args[0];
-    var name_str: []const u8 = undefined;
-
-    switch (name_arg.data) {
-        .symbol => |sym| name_str = sym.name,
-        .string => |str| name_str = str.str,
-        else => {
-            const exc = try vm.createException(vm.type_error_class, "not a symbol nor a string");
-            vm.pending_exception = exc;
-            return error.Unwind;
-        },
-    }
-
+    const name_str = try vm.coerceToMethodNameString(args[0]);
     const call_args = args[1..];
     return vm.callMethodByName(receiver, name_str, call_args, block);
 }
 
 pub fn builtinKernelInstanceVariableGet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-
-    const name_arg = args[0];
-    var name_str: []const u8 = undefined;
-
-    switch (name_arg.data) {
-        .symbol => |sym| {
-            name_str = sym.name;
-        },
-        .string => |str| {
-            name_str = str.str;
-        },
-        else => {
-            const exc = try vm.createException(vm.type_error_class, "not a symbol nor a string");
-            vm.pending_exception = exc;
-            return error.Unwind;
-        },
-    }
-
-    if (name_str.len <= 1 or name_str[0] != '@') {
-        const msg = std.fmt.allocPrint(vm.allocator, "'{s}' is not allowed as an instance variable name", .{name_str}) catch return error.Fatal;
-        defer vm.allocator.free(msg);
-        const exc = try vm.createException(vm.argument_error_class, msg);
-        vm.pending_exception = exc;
-        return error.Unwind;
-    }
-
+    const name_str = try vm.coerceToIvarName(args[0]);
     return vm.getInstanceVariable(receiver, name_str) catch return error.Fatal;
 }
 
 pub fn builtinKernelInstanceVariableSet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 2);
-
-    const name_arg = args[0];
-    var name_str: []const u8 = undefined;
-
-    switch (name_arg.data) {
-        .symbol => |sym| {
-            name_str = sym.name;
-        },
-        .string => |str| {
-            name_str = str.str;
-        },
-        else => {
-            const exc = try vm.createException(vm.type_error_class, "not a symbol nor a string");
-            vm.pending_exception = exc;
-            return error.Unwind;
-        },
-    }
-
-    if (name_str.len <= 1 or name_str[0] != '@') {
-        const msg = std.fmt.allocPrint(vm.allocator, "'{s}' is not allowed as an instance variable name", .{name_str}) catch return error.Fatal;
-        defer vm.allocator.free(msg);
-        const exc = try vm.createException(vm.argument_error_class, msg);
-        vm.pending_exception = exc;
-        return error.Unwind;
-    }
-
+    const name_str = try vm.coerceToIvarName(args[0]);
     vm.setInstanceVariable(receiver, name_str, args[1]) catch |err| {
         if (err == error.Unwind and vm.pending_exception != null) return error.Unwind;
         return error.Fatal;

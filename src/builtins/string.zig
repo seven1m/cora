@@ -52,6 +52,9 @@ pub fn register(vm: *VM) !void {
     const to_s_sym = try vm.intern("to_s");
     try vm.string_class.module.methods.put(to_s_sym, .{ .method = .{ .builtin = &builtinStringToS } });
 
+    const to_str_sym = try vm.intern("to_str");
+    try vm.string_class.module.methods.put(to_str_sym, .{ .method = .{ .builtin = &builtinStringToStr } });
+
     const inspect_sym = try vm.intern("inspect");
     try vm.string_class.module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinStringInspect } });
 }
@@ -61,6 +64,10 @@ pub fn builtinStringToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     return receiver; // String#to_s returns vm
 }
 
+pub fn builtinStringToStr(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    return builtinStringToS(vm, receiver, args, null);
+}
+
 pub fn builtinStringUnaryPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const string_obj = receiver.data.string;
@@ -68,12 +75,12 @@ pub fn builtinStringUnaryPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block
 }
 
 pub fn builtinStringPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireSingleArg(args, .string, "String");
-    const other_str = args[0].data.string;
+    try vm.requireArgCount(args, 1);
+    const other_str = try vm.coerceToStr(args[0], "no implicit conversion into String");
     const combined_str = std.fmt.allocPrint(
         vm.gc_allocator,
         "{s}{s}",
-        .{ receiver.data.string.str, other_str.str },
+        .{ receiver.data.string.str, other_str },
     ) catch return error.Fatal;
 
     return try vm.newString(combined_str, false);
@@ -117,11 +124,10 @@ pub fn builtinStringEncode(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 
     const target_encoding: enc.Encoding = switch (args[0].data) {
         .encoding => |e| e.encoding,
-        .string, .symbol => blk: {
+        else => blk: {
             const result = try encoding_builtin.builtinEncodingFind(vm, receiver, args, null);
             break :blk result.data.encoding.encoding;
         },
-        else => return vm.raiseExceptionFmt(vm.type_error_class, "wrong argument type {s} (expected Encoding, String, or Symbol)", .{@tagName(args[0].data)}),
     };
 
     const string_obj = receiver.data.string;
@@ -144,12 +150,10 @@ pub fn builtinStringForceEncoding(vm: *VM, receiver: Value, args: []Value, _: ?B
     // Get the new encoding from argument
     const new_encoding: enc.Encoding = switch (args[0].data) {
         .encoding => |e| e.encoding,
-        .string, .symbol => blk: {
-            // Use Encoding.find logic - works for both strings and symbols
+        else => blk: {
             const result = try encoding_builtin.builtinEncodingFind(vm, receiver, args, null);
             break :blk result.data.encoding.encoding;
         },
-        else => return vm.raiseExceptionFmt(vm.type_error_class, "wrong argument type {s} (expected Encoding, String, or Symbol)", .{@tagName(args[0].data)}),
     };
 
     // Create a new string with the same bytes but different encoding

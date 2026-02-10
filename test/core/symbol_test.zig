@@ -38,3 +38,9 @@ test "Symbol#to_s" {
     try std.testing.expect(result.data == .string);
     try std.testing.expectEqualSlices(u8, "foo", result.data.string.str);
 }
+
+test "Symbol#to_sym returns self" {
+    const result = try evalCode(":foo.to_sym.to_s");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "foo", result.data.string.str);
+}

@@ -119,6 +119,25 @@ test "Module define_method with string name" {
     try std.testing.expectEqual(@as(i64, 8), result.data.integer);
 }
 
+test "Module attr_reader coerces names via to_str" {
+    const result = try evalCode(
+        \\class AttrNameObj
+        \\  def to_str
+        \\    "value"
+        \\  end
+        \\end
+        \\class C
+        \\  attr_reader AttrNameObj.new
+        \\  def initialize
+        \\    @value = 7
+        \\  end
+        \\end
+        \\C.new.value
+    );
+    try std.testing.expect(result.data == .integer);
+    try std.testing.expectEqual(@as(i64, 7), result.data.integer);
+}
+
 test "Module attr_reader defines getter and returns symbols" {
     var result = try evalCode(
         \\class C

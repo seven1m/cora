@@ -102,6 +102,28 @@ test "alias_method returns new name as symbol" {
     try std.testing.expectEqualSlices(u8, "hi", result.data.symbol.name);
 }
 
+test "alias_method coerces names via to_str" {
+    const result = try evalCode(
+        \\class Baz
+        \\  def greet
+        \\    "hello"
+        \\  end
+        \\end
+        \\new_name = Object.new
+        \\old_name = Object.new
+        \\def new_name.to_str
+        \\  "hi"
+        \\end
+        \\def old_name.to_str
+        \\  "greet"
+        \\end
+        \\Baz.alias_method(new_name, old_name)
+        \\Baz.new.hi
+    );
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "hello", result.data.string.str);
+}
+
 test "alias undefined method raises NameError" {
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;

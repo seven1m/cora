@@ -97,10 +97,24 @@ test "Encoding.find normalizes name" {
     try std.testing.expectEqualSlices(u8, "UTF-8", result.data.string.str);
 }
 
-test "Encoding.find with symbol argument" {
-    const result = try evalCode("Encoding.find(:binary).name");
+test "Encoding.find with symbol argument raises TypeError" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+    const result = evalCodeWithOutput("Encoding.find(:binary)", &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.UnhandledException, result.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "TypeError") != null);
+}
+
+test "Encoding.find coerces to string via to_str" {
+    const result = try evalCode(
+        \\obj = Object.new
+        \\def obj.to_str
+        \\  "utf-8"
+        \\end
+        \\Encoding.find(obj).name
+    );
     try std.testing.expect(result.data == .string);
-    try std.testing.expectEqualSlices(u8, "ASCII-8BIT", result.data.string.str);
+    try std.testing.expectEqualSlices(u8, "UTF-8", result.data.string.str);
 }
 
 test "String#encoding returns UTF-8 by default" {
@@ -126,10 +140,12 @@ test "String#force_encoding accepts encoding object" {
     try std.testing.expectEqualSlices(u8, "US-ASCII", result.data.string.str);
 }
 
-test "String#force_encoding accepts symbol" {
-    const result = try evalCode("'hello'.force_encoding(:binary).encoding.name");
-    try std.testing.expect(result.data == .string);
-    try std.testing.expectEqualSlices(u8, "ASCII-8BIT", result.data.string.str);
+test "String#force_encoding with symbol raises TypeError" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+    const result = evalCodeWithOutput("'hello'.force_encoding(:binary)", &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.UnhandledException, result.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "TypeError") != null);
 }
 
 test "String#valid_encoding? returns true for valid UTF-8" {

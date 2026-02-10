@@ -195,3 +195,62 @@ test "Kernel#respond_to? raises for invalid argument types and arity" {
     try std.testing.expectEqual(error.UnhandledException, bad.err.?);
     try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "ArgumentError") != null);
 }
+
+test "Kernel#respond_to? coerces method name via to_str" {
+    const result = try evalCode(
+        \\obj = Object.new
+        \\def obj.foo
+        \\  1
+        \\end
+        \\name = Object.new
+        \\def name.to_str
+        \\  "foo"
+        \\end
+        \\obj.respond_to?(name)
+    );
+    try std.testing.expect(result.data == .boolean);
+    try std.testing.expectEqual(true, result.data.boolean);
+}
+
+test "Kernel#send coerces method name via to_str" {
+    const result = try evalCode(
+        \\obj = Object.new
+        \\def obj.foo
+        \\  42
+        \\end
+        \\name = Object.new
+        \\def name.to_str
+        \\  "foo"
+        \\end
+        \\obj.send(name)
+    );
+    try std.testing.expect(result.data == .integer);
+    try std.testing.expectEqual(@as(i64, 42), result.data.integer);
+}
+
+test "Kernel#instance_variable_get coerces name via to_str and invalid names raise NameError" {
+    const result = try evalCode(
+        \\obj = Object.new
+        \\obj.instance_variable_set(:@x, 9)
+        \\name = Object.new
+        \\def name.to_str
+        \\  "@x"
+        \\end
+        \\obj.instance_variable_get(name)
+    );
+    try std.testing.expect(result.data == .integer);
+    try std.testing.expectEqual(@as(i64, 9), result.data.integer);
+
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+    const bad = evalCodeWithOutput(
+        \\obj = Object.new
+        \\name = Object.new
+        \\def name.to_str
+        \\  "x"
+        \\end
+        \\obj.instance_variable_get(name)
+    , &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.UnhandledException, bad.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "NameError") != null);
+}

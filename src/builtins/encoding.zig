@@ -61,12 +61,11 @@ pub fn builtinEncodingFind(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
     try vm.requireArgCount(args, 1);
     const arg = args[0];
 
-    // Get encoding name from argument
-    const name_str = switch (arg.data) {
-        .string => |s| s.str,
-        .symbol => |s| s.name,
-        else => return vm.raiseExceptionFmt(vm.type_error_class, "wrong argument type {s} (expected String or Symbol)", .{@tagName(arg.data)}),
-    };
+    if (arg.data == .encoding) {
+        return arg;
+    }
+
+    const name_str = try vm.coerceToStr(arg, "no implicit conversion into String");
 
     // Normalize: uppercase and replace - with _
     var normalized: [32]u8 = undefined;

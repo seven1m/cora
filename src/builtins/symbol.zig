@@ -11,6 +11,9 @@ pub fn register(vm: *VM) !void {
     const to_s_sym = try vm.intern("to_s");
     try vm.symbol_class.module.methods.put(to_s_sym, .{ .method = .{ .builtin = &builtinSymbolToS } });
 
+    const to_sym_sym = try vm.intern("to_sym");
+    try vm.symbol_class.module.methods.put(to_sym_sym, .{ .method = .{ .builtin = &builtinSymbolToSym } });
+
     const inspect_sym = try vm.intern("inspect");
     try vm.symbol_class.module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinSymbolInspect } });
 }
@@ -27,4 +30,9 @@ pub fn builtinSymbolInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 
     const str = std.fmt.allocPrint(vm.gc_allocator, ":{s}", .{receiver.data.symbol.name}) catch return error.Fatal;
     return try vm.newString(str, false);
+}
+
+pub fn builtinSymbolToSym(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return receiver;
 }

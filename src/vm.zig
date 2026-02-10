@@ -2786,6 +2786,76 @@ pub const VM = struct {
         try self.requireArgType(args, 0, arg_tag, type_name);
     }
 
+    pub fn coerceToStr(self: *VM, arg: Value, type_error_message: []const u8) VMError![]const u8 {
+        if (arg.data == .string) {
+            return arg.data.string.str;
+        }
+
+        const to_str_sym = try self.intern("to_str");
+        const has_to_str = (try self.findMethod(arg, to_str_sym)) != null;
+        if (!has_to_str) {
+            const exc = try self.createException(self.type_error_class, type_error_message);
+            self.pending_exception = exc;
+            return error.Unwind;
+        }
+
+        const coerced = try self.callMethodByName(arg, "to_str", &[_]Value{}, null);
+        if (coerced.data != .string) {
+            const exc = try self.createException(self.type_error_class, type_error_message);
+            self.pending_exception = exc;
+            return error.Unwind;
+        }
+
+        return coerced.data.string.str;
+    }
+
+    pub fn coerceToPath(self: *VM, arg: Value, type_error_message: []const u8) VMError![]const u8 {
+        const to_path_sym = try self.intern("to_path");
+        const candidate = if ((try self.findMethod(arg, to_path_sym)) != null)
+            try self.callMethodByName(arg, "to_path", &[_]Value{}, null)
+        else
+            arg;
+
+        return self.coerceToStr(candidate, type_error_message);
+    }
+
+    pub fn coerceToMethodNameString(self: *VM, arg: Value) VMError![]const u8 {
+        return switch (arg.data) {
+            .symbol => |sym| sym.name,
+            else => self.coerceToStr(arg, "not a symbol nor a string"),
+        };
+    }
+
+    pub fn coerceToMethodNameSymbol(self: *VM, arg: Value) VMError!*SymbolObject {
+        const name_str = try self.coerceToMethodNameString(arg);
+        return self.intern(name_str);
+    }
+
+    fn isValidIvarName(name: []const u8) bool {
+        if (name.len < 2) return false;
+        if (name[0] != '@') return false;
+        if (name[1] == '@') return false;
+        if (std.ascii.isDigit(name[1])) return false;
+        return true;
+    }
+
+    pub fn coerceToIvarName(self: *VM, arg: Value) VMError![]const u8 {
+        const name_str = switch (arg.data) {
+            .symbol => |sym| sym.name,
+            else => try self.coerceToStr(arg, "not a symbol nor a string"),
+        };
+
+        if (!isValidIvarName(name_str)) {
+            return self.raiseExceptionFmt(
+                self.name_error_class,
+                "'{s}' is not allowed as an instance variable name",
+                .{name_str},
+            );
+        }
+
+        return name_str;
+    }
+
     pub fn raiseExceptionFmt(
         self: *VM,
         exception_class: *value.ClassObject,

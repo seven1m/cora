@@ -46,6 +46,12 @@ test "String#to_s" {
     try std.testing.expectEqualSlices(u8, "hello", result.data.string.str);
 }
 
+test "String#to_str" {
+    const result = try evalCode("'hello'.to_str");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "hello", result.data.string.str);
+}
+
 test "String#+ concatenates two strings" {
     const result = try evalCode("\"Hello, \" + \"world!\"");
     try std.testing.expect(result.data == .string);
@@ -82,4 +88,32 @@ test "String#+ TypeError for non-string argument" {
     );
 
     try std.testing.expectEqual(error.UnhandledException, result.err.?);
+}
+
+test "String#+ coerces argument via to_str" {
+    const result = try evalCode(
+        \\obj = Object.new
+        \\def obj.to_str
+        \\  " world"
+        \\end
+        \\"hello" + obj
+    );
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "hello world", result.data.string.str);
+}
+
+test "String#+ raises TypeError when to_str returns non-string" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+
+    const result = evalCodeWithOutput(
+        \\obj = Object.new
+        \\def obj.to_str
+        \\  123
+        \\end
+        \\"hello" + obj
+    , &stdout_buf, &stderr_buf);
+
+    try std.testing.expectEqual(error.UnhandledException, result.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "TypeError") != null);
 }

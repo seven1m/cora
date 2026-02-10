@@ -20,31 +20,13 @@ fn currentDefaultVisibility(vm: *VM) MethodVisibility {
 fn normalizeVisibilityArgs(vm: *VM, args: []Value, names: *std.ArrayList(*SymbolObject)) VMError!void {
     if (args.len == 1 and args[0].data == .array) {
         for (args[0].data.array.elements.items) |elem| {
-            const name_str: []const u8 = switch (elem.data) {
-                .symbol => |sym| sym.name,
-                .string => |str| str.str,
-                else => {
-                    const exc = try vm.createException(vm.type_error_class, "not a symbol nor a string");
-                    vm.pending_exception = exc;
-                    return error.Unwind;
-                },
-            };
-            names.append(vm.gc_allocator, try vm.intern(name_str)) catch return error.Fatal;
+            names.append(vm.gc_allocator, try vm.coerceToMethodNameSymbol(elem)) catch return error.Fatal;
         }
         return;
     }
 
     for (args) |arg| {
-        const name_str: []const u8 = switch (arg.data) {
-            .symbol => |sym| sym.name,
-            .string => |str| str.str,
-            else => {
-                const exc = try vm.createException(vm.type_error_class, "not a symbol nor a string");
-                vm.pending_exception = exc;
-                return error.Unwind;
-            },
-        };
-        names.append(vm.gc_allocator, try vm.intern(name_str)) catch return error.Fatal;
+        names.append(vm.gc_allocator, try vm.coerceToMethodNameSymbol(arg)) catch return error.Fatal;
     }
 }
 
@@ -210,18 +192,7 @@ pub fn builtinModuleDefineMethod(vm: *VM, receiver: Value, args: []Value, block:
     try vm.requireArgCount(args, 1);
     const blk = try vm.requireBlock(block);
 
-    const name_arg = args[0];
-    var name_str: []const u8 = undefined;
-    switch (name_arg.data) {
-        .symbol => |sym| name_str = sym.name,
-        .string => |str| name_str = str.str,
-        else => {
-            const exc = try vm.createException(vm.type_error_class, "not a symbol nor a string");
-            vm.pending_exception = exc;
-            return error.Unwind;
-        },
-    }
-
+    const name_str = try vm.coerceToMethodNameString(args[0]);
     const name_sym = try vm.intern(name_str);
     const proc_val = try vm.newProc(blk);
     const visibility = currentDefaultVisibility(vm);
@@ -264,17 +235,7 @@ pub fn builtinModuleAttrReader(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
     const visibility = currentDefaultVisibility(vm);
 
     for (args) |arg| {
-        var name_str: []const u8 = undefined;
-        switch (arg.data) {
-            .symbol => |sym| name_str = sym.name,
-            .string => |str| name_str = str.str,
-            else => {
-                const exc = try vm.createException(vm.type_error_class, "not a symbol nor a string");
-                vm.pending_exception = exc;
-                return error.Unwind;
-            },
-        }
-
+        const name_str = try vm.coerceToMethodNameString(arg);
         const method_sym = try vm.intern(name_str);
         const chunk_ptr = try vm.createAccessorChunk(name_str, .reader);
         methods.put(method_sym, .{
@@ -305,17 +266,7 @@ pub fn builtinModuleAttrWriter(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
     const visibility = currentDefaultVisibility(vm);
 
     for (args) |arg| {
-        var name_str: []const u8 = undefined;
-        switch (arg.data) {
-            .symbol => |sym| name_str = sym.name,
-            .string => |str| name_str = str.str,
-            else => {
-                const exc = try vm.createException(vm.type_error_class, "not a symbol nor a string");
-                vm.pending_exception = exc;
-                return error.Unwind;
-            },
-        }
-
+        const name_str = try vm.coerceToMethodNameString(arg);
         const writer_name = std.fmt.allocPrint(vm.program.allocator, "{s}=", .{name_str}) catch return error.Fatal;
         const method_sym = try vm.intern(writer_name);
         const chunk_ptr = try vm.createAccessorChunk(name_str, .writer);
@@ -347,17 +298,7 @@ pub fn builtinModuleAttrAccessor(vm: *VM, receiver: Value, args: []Value, _: ?Bl
     const visibility = currentDefaultVisibility(vm);
 
     for (args) |arg| {
-        var name_str: []const u8 = undefined;
-        switch (arg.data) {
-            .symbol => |sym| name_str = sym.name,
-            .string => |str| name_str = str.str,
-            else => {
-                const exc = try vm.createException(vm.type_error_class, "not a symbol nor a string");
-                vm.pending_exception = exc;
-                return error.Unwind;
-            },
-        }
-
+        const name_str = try vm.coerceToMethodNameString(arg);
         const writer_name = std.fmt.allocPrint(vm.program.allocator, "{s}=", .{name_str}) catch return error.Fatal;
 
         const reader_sym = try vm.intern(name_str);
@@ -385,29 +326,8 @@ pub fn builtinModuleAttrAccessor(vm: *VM, receiver: Value, args: []Value, _: ?Bl
 pub fn builtinModuleAliasMethod(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 2);
 
-    // Extract new name
-    var new_name_str: []const u8 = undefined;
-    switch (args[0].data) {
-        .symbol => |sym| new_name_str = sym.name,
-        .string => |str| new_name_str = str.str,
-        else => {
-            const exc = try vm.createException(vm.type_error_class, "not a symbol nor a string");
-            vm.pending_exception = exc;
-            return error.Unwind;
-        },
-    }
-
-    // Extract old name
-    var old_name_str: []const u8 = undefined;
-    switch (args[1].data) {
-        .symbol => |sym| old_name_str = sym.name,
-        .string => |str| old_name_str = str.str,
-        else => {
-            const exc = try vm.createException(vm.type_error_class, "not a symbol nor a string");
-            vm.pending_exception = exc;
-            return error.Unwind;
-        },
-    }
+    const new_name_str = try vm.coerceToMethodNameString(args[0]);
+    const old_name_str = try vm.coerceToMethodNameString(args[1]);
 
     const new_name_sym = try vm.intern(new_name_str);
     const old_name_sym = try vm.intern(old_name_str);
@@ -480,16 +400,7 @@ pub fn builtinModuleFunction(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     const methods = receiver.getModuleMethods() orelse unreachable;
 
     for (args) |arg| {
-        const name_str: []const u8 = switch (arg.data) {
-            .symbol => |sym| sym.name,
-            .string => |str| str.str,
-            else => {
-                const exc = try vm.createException(vm.type_error_class, "not a symbol nor a string");
-                vm.pending_exception = exc;
-                return error.Unwind;
-            },
-        };
-
+        const name_str = try vm.coerceToMethodNameString(arg);
         const name_sym = try vm.intern(name_str);
         const existing = methods.get(name_sym) orelse {
             const msg = std.fmt.allocPrint(
