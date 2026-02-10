@@ -1934,7 +1934,6 @@ pub const VM = struct {
         if (break_occurred) {
             self.break_occurred = false;
             // Break value is on stack from BREAK opcode
-            _ = try self.popFrame();
         }
 
         // Get result from stack (top of stack is at distance 0)

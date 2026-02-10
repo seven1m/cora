@@ -54,6 +54,9 @@ pub fn register(vm: *VM) !void {
     const at_exit_sym = try vm.intern("at_exit");
     try vm.kernel_module.methods.put(at_exit_sym, .{ .method = .{ .builtin = &builtinKernelAtExit } });
 
+    const loop_sym = try vm.intern("loop");
+    try vm.kernel_module.methods.put(loop_sym, .{ .method = .{ .builtin = &builtinKernelLoop } });
+
     const send_sym = try vm.intern("send");
     try vm.kernel_module.methods.put(send_sym, .{ .method = .{ .builtin = &builtinKernelSend } });
 }
@@ -391,6 +394,16 @@ pub fn builtinKernelAtExit(vm: *VM, _: Value, args: []Value, block: ?Block) VMEr
     const proc_val = try vm.newProc(blk);
     vm.at_exit_handlers.append(vm.gc_allocator, proc_val) catch return error.Fatal;
     return proc_val;
+}
+
+pub fn builtinKernelLoop(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const blk = try vm.requireBlock(block);
+
+    while (true) {
+        const result = try vm.yieldToBlock(blk, &[_]Value{});
+        if (result.break_occurred) return result.value;
+    }
 }
 
 pub fn builtinKernelSend(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
