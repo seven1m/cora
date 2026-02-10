@@ -18,7 +18,10 @@ pub fn register(vm: *VM) !void {
 }
 
 pub fn builtinObjectNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
-    const class_ptr = receiver.data.class;
+    const class_ptr = switch (receiver.data) {
+        .class => |class| class,
+        else => return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Class", .{}),
+    };
     const instance = try vm.newObjectForClass(class_ptr);
 
     // Call initialize if it exists

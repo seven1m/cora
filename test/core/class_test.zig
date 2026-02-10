@@ -85,3 +85,43 @@ test "Class hierarchy is set up correctly" {
     try std.testing.expect(vm.true_class.superclass == vm.object_class);
     try std.testing.expect(vm.false_class.superclass == vm.object_class);
 }
+
+test "Class.new creates an instantiable anonymous class" {
+    const result = try evalCode(
+        \\C = Class.new do
+        \\  def foo
+        \\    'ok'
+        \\  end
+        \\end
+        \\C.new.foo
+    );
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "ok", result.data.string.str);
+}
+
+test "Class.new accepts superclass argument" {
+    const result = try evalCode(
+        \\class Parent
+        \\  def greet
+        \\    'hi'
+        \\  end
+        \\end
+        \\C = Class.new(Parent)
+        \\C.new.greet
+    );
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "hi", result.data.string.str);
+}
+
+test "Class.new with non-class superclass raises TypeError" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+
+    const result = evalCodeWithOutput(
+        \\Class.new(123)
+    , &stdout_buf, &stderr_buf);
+
+    try std.testing.expectEqual(error.UnhandledException, result.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "TypeError") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "superclass must be a Class") != null);
+}

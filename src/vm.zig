@@ -2726,10 +2726,10 @@ pub const VM = struct {
 
         const allocator = self.program.allocator;
         const method_name = if (kind == .reader)
-            allocator.dupe(u8, base_name) catch return error.Fatal
+            self.gc_allocator_atomic.dupe(u8, base_name) catch return error.Fatal
         else
-            std.fmt.allocPrint(allocator, "{s}=", .{base_name}) catch return error.Fatal;
-        const ivar_name = std.fmt.allocPrint(allocator, "@{s}", .{base_name}) catch return error.Fatal;
+            std.fmt.allocPrint(self.gc_allocator_atomic, "{s}=", .{base_name}) catch return error.Fatal;
+        const ivar_name = std.fmt.allocPrint(self.gc_allocator_atomic, "@{s}", .{base_name}) catch return error.Fatal;
 
         const chunk_ptr = allocator.create(Chunk) catch return error.Fatal;
         chunk_ptr.* = Chunk.init(allocator, method_name);

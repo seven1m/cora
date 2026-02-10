@@ -148,3 +148,22 @@ test "Class method overriding" {
     try std.testing.expect(result2.data == .string);
     try std.testing.expectEqualSlices(u8, "parent", result2.data.string.str);
 }
+
+test "Object#new does not panic with singleton coercion in Class.new block" {
+    const result = try evalCode(
+        \\name = Object.new
+        \\def name.to_str
+        \\  "value"
+        \\end
+        \\
+        \\C = Class.new do
+        \\  attr_reader name
+        \\  def initialize
+        \\    @value = 7
+        \\  end
+        \\end
+        \\C.new.value
+    );
+    try std.testing.expect(result.data == .integer);
+    try std.testing.expectEqual(@as(i64, 7), result.data.integer);
+}
