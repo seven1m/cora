@@ -69,6 +69,9 @@ pub const OpCode = enum(u8) {
 
     // Regexp
     PUSH_REGEXP, // Operands: u16 (pattern constant index), u16 (options)
+
+    // Aliasing
+    ALIAS_METHOD, // Operands: u16 (new_name constant index), u16 (old_name constant index)
 };
 
 pub const BuiltinId = enum(u8) {
@@ -122,6 +125,7 @@ pub fn opcodeName(op: OpCode) []const u8 {
         .SUPER => "SUPER",
         .FORWARDING_SUPER => "FORWARDING_SUPER",
         .PUSH_REGEXP => "PUSH_REGEXP",
+        .ALIAS_METHOD => "ALIAS_METHOD",
     };
 }
 
@@ -177,7 +181,7 @@ pub const Instruction = struct {
             .PUSH_LAMBDA => {
                 try writer.print(" {d}", .{self.ax});
             },
-            .PUSH_REGEXP => {
+            .PUSH_REGEXP, .ALIAS_METHOD => {
                 try writer.print(" {d} {d}", .{ self.bx, self.ax });
             },
             else => {},

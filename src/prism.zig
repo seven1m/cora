@@ -67,6 +67,7 @@ pub const InterpolatedStringNode = c.pm_interpolated_string_node_t;
 pub const ForwardingSuperNode = c.pm_forwarding_super_node_t;
 pub const SuperNode = c.pm_super_node_t;
 pub const RegularExpressionNode = c.pm_regular_expression_node_t;
+pub const AliasMethodNode = c.pm_alias_method_node_t;
 
 pub const REGEXP_FLAGS_IGNORE_CASE = c.PM_REGULAR_EXPRESSION_FLAGS_IGNORE_CASE;
 pub const REGEXP_FLAGS_EXTENDED = c.PM_REGULAR_EXPRESSION_FLAGS_EXTENDED;
@@ -133,6 +134,7 @@ pub const Node = union(enum) {
     forwarding_super: *ForwardingSuperNode,
     super_node: *SuperNode,
     regular_expression: *RegularExpressionNode,
+    alias_method: *AliasMethodNode,
 };
 
 /// Parser wraps Prism's parser and AST lifecycle
@@ -427,6 +429,10 @@ pub const Parser = struct {
 
         if (node_type == c.PM_REGULAR_EXPRESSION_NODE) {
             return Node{ .regular_expression = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_ALIAS_METHOD_NODE) {
+            return Node{ .alias_method = @ptrCast(raw) };
         }
 
         var stdout_buffer: [8192]u8 = undefined;

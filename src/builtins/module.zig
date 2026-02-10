@@ -27,6 +27,9 @@ pub fn register(vm: *VM) !void {
 
     const attr_accessor_sym = try vm.intern("attr_accessor");
     try vm.module_class.module.methods.put(attr_accessor_sym, .{ .builtin = &builtinModuleAttrAccessor });
+
+    const alias_method_sym = try vm.intern("alias_method");
+    try vm.module_class.module.methods.put(alias_method_sym, .{ .builtin = &builtinModuleAliasMethod });
 }
 
 pub fn builtinModuleInclude(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -214,4 +217,78 @@ pub fn builtinModuleAttrAccessor(vm: *VM, receiver: Value, args: []Value, _: ?Bl
     }
 
     return Value{ .data = .{ .array = result_array } };
+}
+
+pub fn builtinModuleAliasMethod(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 2);
+
+    // Extract new name
+    var new_name_str: []const u8 = undefined;
+    switch (args[0].data) {
+        .symbol => |sym| new_name_str = sym.name,
+        .string => |str| new_name_str = str.str,
+        else => {
+            const exc = try vm.createException(vm.type_error_class, "not a symbol nor a string");
+            vm.pending_exception = exc;
+            return error.Unwind;
+        },
+    }
+
+    // Extract old name
+    var old_name_str: []const u8 = undefined;
+    switch (args[1].data) {
+        .symbol => |sym| old_name_str = sym.name,
+        .string => |str| old_name_str = str.str,
+        else => {
+            const exc = try vm.createException(vm.type_error_class, "not a symbol nor a string");
+            vm.pending_exception = exc;
+            return error.Unwind;
+        },
+    }
+
+    const new_name_sym = try vm.intern(new_name_str);
+    const old_name_sym = try vm.intern(old_name_str);
+
+    // Get method table from receiver (class or module)
+    var methods: *std.AutoHashMap(*SymbolObject, Method) = undefined;
+    var lookup_class: *value.ClassObject = undefined;
+    if (receiver.data == .class) {
+        methods = &receiver.data.class.module.methods;
+        lookup_class = receiver.data.class;
+    } else if (receiver.data == .module) {
+        methods = &receiver.data.module.methods;
+        // For modules, look up in own methods only
+        if (methods.get(old_name_sym)) |method| {
+            methods.put(new_name_sym, method) catch return error.Fatal;
+            return Value{ .data = .{ .symbol = new_name_sym } };
+        }
+        const msg = std.fmt.allocPrint(
+            vm.gc_allocator,
+            "undefined method '{s}'",
+            .{old_name_str},
+        ) catch return error.Fatal;
+        const exc = try vm.createException(vm.name_error_class, msg);
+        vm.pending_exception = exc;
+        return error.Unwind;
+    } else {
+        const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
+        vm.pending_exception = exc;
+        return error.Unwind;
+    }
+
+    // Look up old method via lookupMethod (walks inheritance chain)
+    if (vm.lookupMethod(lookup_class, old_name_sym)) |method| {
+        methods.put(new_name_sym, method) catch return error.Fatal;
+    } else {
+        const msg = std.fmt.allocPrint(
+            vm.gc_allocator,
+            "undefined method '{s}'",
+            .{old_name_str},
+        ) catch return error.Fatal;
+        const exc = try vm.createException(vm.name_error_class, msg);
+        vm.pending_exception = exc;
+        return error.Unwind;
+    }
+
+    return Value{ .data = .{ .symbol = new_name_sym } };
 }

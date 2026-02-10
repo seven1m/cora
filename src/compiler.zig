@@ -665,6 +665,10 @@ pub const Compiler = struct {
                 try self.current_chunk.emitOpU8U16(.SUPER, argc, block_chunk_id, line);
             },
 
+            .alias_method => |alias_node| {
+                try self.compileAliasMethod(alias_node, line);
+            },
+
             else => {
                 std.debug.print("Error: unsupported node type: {}\n", .{node});
                 return error.UnsupportedNode;
@@ -742,6 +746,19 @@ pub const Compiler = struct {
 
         // Patch the end jump
         try self.current_chunk.patchJump(jump_end);
+    }
+
+    fn compileAliasMethod(self: *Compiler, alias_node: *prism.AliasMethodNode, line: u32) anyerror!void {
+        // Both new_name and old_name are SymbolNodes in `alias new_name old_name`
+        const new_name_node: *prism.SymbolNode = @ptrCast(alias_node.new_name);
+        const new_name = new_name_node.unescaped.source[0..new_name_node.unescaped.length];
+        const new_name_idx = try self.current_chunk.addConstant(.{ .symbol = new_name });
+
+        const old_name_node: *prism.SymbolNode = @ptrCast(alias_node.old_name);
+        const old_name = old_name_node.unescaped.source[0..old_name_node.unescaped.length];
+        const old_name_idx = try self.current_chunk.addConstant(.{ .symbol = old_name });
+
+        try self.current_chunk.emitOpU16U16(.ALIAS_METHOD, @intCast(new_name_idx), @intCast(old_name_idx), line);
     }
 
     fn compileModule(self: *Compiler, module_node: *prism.ModuleNode, line: u32) anyerror!void {

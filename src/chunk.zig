@@ -528,6 +528,27 @@ pub const Chunk = struct {
                 try writer.print("\n", .{});
                 next_ip += 4;
             },
+
+            .ALIAS_METHOD => {
+                const new_name_idx = bytecode.readU16(self.code.items, next_ip);
+                const old_name_idx = bytecode.readU16(self.code.items, next_ip + 2);
+                try writer.print("ALIAS_METHOD {d} {d}", .{ new_name_idx, old_name_idx });
+                if (new_name_idx < self.constants.items.len) {
+                    const new_const = self.constants.items[new_name_idx];
+                    if (new_const == .symbol) {
+                        try writer.print(" (:{s}", .{new_const.symbol});
+                        if (old_name_idx < self.constants.items.len) {
+                            const old_const = self.constants.items[old_name_idx];
+                            if (old_const == .symbol) {
+                                try writer.print(" <- :{s}", .{old_const.symbol});
+                            }
+                        }
+                        try writer.print(")", .{});
+                    }
+                }
+                try writer.print("\n", .{});
+                next_ip += 4;
+            },
         }
 
         return next_ip;

@@ -1475,6 +1475,45 @@ pub const VM = struct {
                 try self.push(result);
             },
 
+            .ALIAS_METHOD => {
+                const new_name_idx = self.readU16();
+                const old_name_idx = self.readU16();
+
+                const new_name = self.currentChunk().constants.items[new_name_idx].symbol;
+                const old_name = self.currentChunk().constants.items[old_name_idx].symbol;
+
+                const new_name_sym = try self.intern(new_name);
+                const old_name_sym = try self.intern(old_name);
+
+                // Get method table from current self (class/module) or object_class at top-level
+                const current_self = frame.self_value;
+                var methods: *std.AutoHashMap(*value.SymbolObject, Method) = undefined;
+                if (current_self.data == .class) {
+                    methods = &current_self.data.class.module.methods;
+                } else if (current_self.data == .module) {
+                    methods = &current_self.data.module.methods;
+                } else {
+                    methods = &self.object_class.module.methods;
+                }
+
+                // Look up the old method
+                if (methods.get(old_name_sym)) |method| {
+                    methods.put(new_name_sym, method) catch return error.Fatal;
+                } else {
+                    const msg = std.fmt.allocPrint(
+                        self.gc_allocator,
+                        "undefined method '{s}'",
+                        .{old_name},
+                    ) catch return error.Fatal;
+                    const exc = try self.createException(self.name_error_class, msg);
+                    self.pending_exception = exc;
+                    return error.Unwind;
+                }
+
+                // alias returns nil in Ruby
+                try self.push(Value{ .data = .nil });
+            },
+
             .BREAK => {
                 // Break value is already on stack (pushed by compileBreakStatement)
                 self.break_occurred = true;
@@ -2092,7 +2131,7 @@ pub const VM = struct {
         };
     }
 
-    fn lookupMethod(_: *VM, class: *ClassObject, method_name: *value.SymbolObject) ?Method {
+    pub fn lookupMethod(_: *VM, class: *ClassObject, method_name: *value.SymbolObject) ?Method {
         var current_class: ?*ClassObject = class;
         while (current_class) |c| {
             // 1. Check prepended modules first (in reverse order - most recently prepended at highest index is checked first)

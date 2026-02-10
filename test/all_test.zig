@@ -15,6 +15,7 @@ const core_string_test = @import("core/string_test.zig");
 const core_symbol_test = @import("core/symbol_test.zig");
 const core_true_test = @import("core/true_test.zig");
 
+const language_alias_test = @import("language/alias_test.zig");
 const language_array_test = @import("language/array_test.zig");
 const language_at_exit_test = @import("language/at_exit_test.zig");
 const language_backtrace_test = @import("language/backtrace_test.zig");
@@ -63,6 +64,7 @@ comptime {
     _ = core_string_test;
     _ = core_symbol_test;
     _ = core_true_test;
+    _ = language_alias_test;
     _ = language_array_test;
     _ = language_at_exit_test;
     _ = language_backtrace_test;
