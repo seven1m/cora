@@ -62,6 +62,12 @@ pub fn register(vm: *VM) !void {
 
     const nil_sym = try vm.intern("nil?");
     try vm.kernel_module.methods.put(nil_sym, .{ .method = .{ .builtin = &builtinKernelNil } });
+
+    const freeze_sym = try vm.intern("freeze");
+    try vm.kernel_module.methods.put(freeze_sym, .{ .method = .{ .builtin = &builtinKernelFreeze } });
+
+    const frozen_sym = try vm.intern("frozen?");
+    try vm.kernel_module.methods.put(frozen_sym, .{ .method = .{ .builtin = &builtinKernelFrozen } });
 }
 
 pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -516,6 +522,18 @@ pub fn builtinKernelInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 pub fn builtinKernelNil(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return Value.boolean(false);
+}
+
+pub fn builtinKernelFreeze(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    var mutable_receiver = receiver;
+    mutable_receiver.freeze();
+    return receiver;
+}
+
+pub fn builtinKernelFrozen(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return Value.boolean(receiver.isFrozen());
 }
 
 pub fn builtinKernelP(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

@@ -193,7 +193,7 @@ pub const Value = struct {
             .string => |s| s.object.flags |= Object.FROZEN_FLAG,
             .symbol => |s| s.object.flags |= Object.FROZEN_FLAG,
             .module => |m| m.object.flags |= Object.FROZEN_FLAG,
-            .class => |c| c.object.flags |= Object.FROZEN_FLAG,
+            .class => |c| c.module.object.flags |= Object.FROZEN_FLAG,
             .instance => |i| i.flags |= Object.FROZEN_FLAG,
             .array => |a| a.object.flags |= Object.FROZEN_FLAG,
             .exception => |e| e.object.flags |= Object.FROZEN_FLAG,

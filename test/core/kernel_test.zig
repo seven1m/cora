@@ -71,3 +71,26 @@ test "Kernel#nil? returns false for non-nil" {
     try std.testing.expect(result.data == .boolean);
     try std.testing.expectEqual(false, result.data.boolean);
 }
+
+test "Kernel#freeze returns receiver and marks String frozen" {
+    const result = try evalCode("s = \"hello\"; s.freeze.object_id == s.object_id && s.frozen?");
+    try std.testing.expect(result.data == .boolean);
+    try std.testing.expectEqual(true, result.data.boolean);
+}
+
+test "Kernel#freeze marks Hash frozen and prevents mutation" {
+    const frozen_result = try evalCode("h = {}; h.freeze; h.frozen?");
+    try std.testing.expect(frozen_result.data == .boolean);
+    try std.testing.expectEqual(true, frozen_result.data.boolean);
+
+    var stdout_buf: [1024]u8 = undefined;
+    var stderr_buf: [1024]u8 = undefined;
+    const mutation = evalCodeWithOutput("h = {}; h.freeze; h[:x] = 1", &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.UnhandledException, mutation.err.?);
+}
+
+test "Kernel#freeze on Integer is a no-op and remains frozen" {
+    const result = try evalCode("i = 42; i.freeze.object_id == i.object_id && i.frozen?");
+    try std.testing.expect(result.data == .boolean);
+    try std.testing.expectEqual(true, result.data.boolean);
+}
