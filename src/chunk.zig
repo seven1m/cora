@@ -350,7 +350,7 @@ pub const Chunk = struct {
         var next_ip = ip + 1;
 
         switch (op) {
-            .PUSH_NIL, .PUSH_TRUE, .PUSH_FALSE, .PUSH_SELF, .POP, .HALT, .TRY_END, .CATCH_END, .ENSURE_START, .ENSURE_END, .RETRY, .BREAK => {
+            .PUSH_NIL, .PUSH_TRUE, .PUSH_FALSE, .PUSH_SELF, .POP, .DUP, .HALT, .TRY_END, .CATCH_END, .ENSURE_START, .ENSURE_END, .RETRY, .BREAK => {
                 try writer.print("{s}\n", .{bytecode.opcodeName(op)});
             },
 

@@ -1037,6 +1037,11 @@ pub const VM = struct {
                 _ = self.pop();
             },
 
+            .DUP => {
+                const top = self.peek(0);
+                try self.push(top);
+            },
+
             .CALL => {
                 const method_idx = self.readU16();
                 const argc = self.readByte();
@@ -1733,8 +1738,8 @@ pub const VM = struct {
                 fiber.state = .running;
             }
             if (fiber.awaiting_resume_value) {
-            try self.push(fiber.pending_resume_value);
-            fiber.awaiting_resume_value = false;
+                try self.push(fiber.pending_resume_value);
+                fiber.awaiting_resume_value = false;
             }
         }
 

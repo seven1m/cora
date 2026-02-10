@@ -7,6 +7,7 @@ pub const RANGE_FLAGS_EXCLUDE_END = c.PM_RANGE_FLAGS_EXCLUDE_END;
 
 pub const ArgumentsNode = c.pm_arguments_node_t;
 pub const ArrayNode = c.pm_array_node_t;
+pub const AndNode = c.pm_and_node_t;
 pub const BeginNode = c.pm_begin_node_t;
 pub const BlockNode = c.pm_block_node_t;
 pub const BlockParametersNode = c.pm_block_parameters_node_t;
@@ -33,6 +34,7 @@ pub const ProgramNode = c.pm_program_node_t;
 pub const RangeNode = c.pm_range_node_t;
 pub const RequiredParameterNode = c.pm_required_parameter_node_t;
 pub const OptionalParameterNode = c.pm_optional_parameter_node_t;
+pub const OrNode = c.pm_or_node_t;
 pub const RestParameterNode = c.pm_rest_parameter_node_t;
 pub const RequiredKeywordParameterNode = c.pm_required_keyword_parameter_node_t;
 pub const OptionalKeywordParameterNode = c.pm_optional_keyword_parameter_node_t;
@@ -75,6 +77,7 @@ pub const REGEXP_FLAGS_MULTI_LINE = c.PM_REGULAR_EXPRESSION_FLAGS_MULTI_LINE;
 
 pub const Node = union(enum) {
     array: *ArrayNode,
+    and_node: *AndNode,
     begin: *BeginNode,
     block: *BlockNode,
     block_parameters: *BlockParametersNode,
@@ -100,6 +103,7 @@ pub const Node = union(enum) {
     range: *RangeNode,
     required_parameter: *RequiredParameterNode,
     optional_parameter: *OptionalParameterNode,
+    or_node: *OrNode,
     rest_parameter: *RestParameterNode,
     required_keyword_parameter: *RequiredKeywordParameterNode,
     optional_keyword_parameter: *OptionalKeywordParameterNode,
@@ -303,6 +307,10 @@ pub const Parser = struct {
             return Node{ .array = @ptrCast(raw) };
         }
 
+        if (node_type == c.PM_AND_NODE) {
+            return Node{ .and_node = @ptrCast(raw) };
+        }
+
         if (node_type == c.PM_BEGIN_NODE) {
             return Node{ .begin = @ptrCast(raw) };
         }
@@ -393,6 +401,10 @@ pub const Parser = struct {
 
         if (node_type == c.PM_OPTIONAL_PARAMETER_NODE) {
             return Node{ .optional_parameter = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_OR_NODE) {
+            return Node{ .or_node = @ptrCast(raw) };
         }
 
         if (node_type == c.PM_REST_PARAMETER_NODE) {

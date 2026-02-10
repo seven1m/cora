@@ -440,6 +440,14 @@ pub const Compiler = struct {
                 try self.compileUnlessStatement(unless_node, line);
             },
 
+            .and_node => |and_node| {
+                try self.compileAndNode(and_node, line);
+            },
+
+            .or_node => |or_node| {
+                try self.compileOrNode(or_node, line);
+            },
+
             .module => |module_node| {
                 try self.compileModule(module_node, line);
             },
@@ -745,6 +753,36 @@ pub const Compiler = struct {
         }
 
         // Patch the end jump
+        try self.current_chunk.patchJump(jump_end);
+    }
+
+    fn compileAndNode(self: *Compiler, and_node: *prism.AndNode, line: u32) anyerror!void {
+        const left = try self.parser.asNode(@ptrCast(and_node.left));
+        try self.compileNode(left, line);
+
+        try self.current_chunk.emitOp(.DUP, line);
+        const jump_end = try self.current_chunk.emitJump(.JUMP_IF_FALSE, line);
+
+        // Left was truthy: discard it and evaluate the right side.
+        try self.current_chunk.emitOp(.POP, line);
+        const right = try self.parser.asNode(@ptrCast(and_node.right));
+        try self.compileNode(right, line);
+
+        try self.current_chunk.patchJump(jump_end);
+    }
+
+    fn compileOrNode(self: *Compiler, or_node: *prism.OrNode, line: u32) anyerror!void {
+        const left = try self.parser.asNode(@ptrCast(or_node.left));
+        try self.compileNode(left, line);
+
+        try self.current_chunk.emitOp(.DUP, line);
+        const jump_end = try self.current_chunk.emitJump(.JUMP_IF_TRUE, line);
+
+        // Left was falsey: discard it and evaluate the right side.
+        try self.current_chunk.emitOp(.POP, line);
+        const right = try self.parser.asNode(@ptrCast(or_node.right));
+        try self.compileNode(right, line);
+
         try self.current_chunk.patchJump(jump_end);
     }
 

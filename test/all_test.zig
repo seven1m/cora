@@ -29,6 +29,7 @@ const language_global_variable_test = @import("language/global_variable_test.zig
 const language_hash_test = @import("language/hash_test.zig");
 const language_instance_variable_test = @import("language/instance_variable_test.zig");
 const language_if_test = @import("language/if_test.zig");
+const language_logical_operator_test = @import("language/logical_operator_test.zig");
 const language_lambda_test = @import("language/lambda_test.zig");
 const language_method_test = @import("language/method_test.zig");
 const language_proc_test = @import("language/proc_test.zig");
@@ -78,6 +79,7 @@ comptime {
     _ = language_hash_test;
     _ = language_instance_variable_test;
     _ = language_if_test;
+    _ = language_logical_operator_test;
     _ = language_lambda_test;
     _ = language_method_test;
     _ = language_proc_test;
