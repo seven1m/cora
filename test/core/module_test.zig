@@ -212,3 +212,51 @@ test "Module attr_accessor defines getter and setter and returns symbols" {
     try std.testing.expectEqual(@as(i64, 1), result.data.array.elements.items[0].data.integer);
     try std.testing.expectEqual(@as(i64, 2), result.data.array.elements.items[1].data.integer);
 }
+
+test "Module module_function creates module singleton method and privatizes instance method" {
+    var result = try evalCode(
+        \\module M
+        \\  def answer
+        \\    42
+        \\  end
+        \\  module_function :answer
+        \\end
+        \\M.answer
+    );
+    try std.testing.expectEqual(@as(i64, 42), result.data.integer);
+
+    result = try evalCode(
+        \\module M
+        \\  def answer
+        \\    42
+        \\  end
+        \\  module_function :answer
+        \\end
+        \\class C
+        \\  include M
+        \\  def call_answer
+        \\    answer
+        \\  end
+        \\end
+        \\C.new.call_answer
+    );
+    try std.testing.expectEqual(@as(i64, 42), result.data.integer);
+
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+    const bad = evalCodeWithOutput(
+        \\module M
+        \\  def answer
+        \\    42
+        \\  end
+        \\  module_function :answer
+        \\end
+        \\class C
+        \\  include M
+        \\end
+        \\C.new.answer
+    , &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.UnhandledException, bad.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "NoMethodError") != null);
+    try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "answer") != null);
+}

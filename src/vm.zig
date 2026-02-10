@@ -1301,15 +1301,26 @@ pub const VM = struct {
                 if (self.program.method_chunks.get(chunk_idx)) |chunk_ptr| {
                     // Capture the current lexical scope for this method
                     chunk_ptr.lexical_scope = self.current_lexical_scope;
-                    const visibility = self.currentDefaultMethodVisibility();
+                    const module_function_mode = if (self.current_lexical_scope) |scope| scope.module_function_mode else false;
+                    const visibility: MethodVisibility = if (module_function_mode) .private else self.currentDefaultMethodVisibility();
 
                     // Get current self from the frame
                     const current_self = frame.self_value;
                     const methods = current_self.getModuleMethods() orelse &self.object_class.module.methods;
-                    methods.put(method_name_sym, .{
+                    const entry: MethodEntry = .{
                         .method = .{ .chunk = chunk_ptr },
                         .visibility = visibility,
-                    }) catch return error.Fatal;
+                    };
+                    methods.put(method_name_sym, entry) catch return error.Fatal;
+
+                    // module_function mode (set by Module#module_function with no args)
+                    // also creates a public singleton method copy on the defining module.
+                    if (module_function_mode and current_self.data == .module) {
+                        const singleton_class = try self.getOrCreateSingletonClass(current_self);
+                        var singleton_entry = entry;
+                        singleton_entry.visibility = .public;
+                        singleton_class.module.methods.put(method_name_sym, singleton_entry) catch return error.Fatal;
+                    }
                 } else {
                     std.debug.print("Error: undefined method chunk {d}\n", .{chunk_idx});
                     return error.Fatal;

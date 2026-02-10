@@ -51,6 +51,7 @@ fn setVisibility(vm: *VM, receiver: Value, args: []Value, visibility: MethodVisi
     if (args.len == 0) {
         if (vm.current_lexical_scope) |scope| {
             scope.default_method_visibility = visibility;
+            scope.module_function_mode = false;
         }
         return Value.nil();
     }
@@ -96,6 +97,13 @@ fn setVisibility(vm: *VM, receiver: Value, args: []Value, visibility: MethodVisi
     return Value{ .data = .{ .array = arr } };
 }
 
+fn copyMethodToModuleSingleton(vm: *VM, module_receiver: Value, name_sym: *SymbolObject, entry: value.MethodEntry) VMError!void {
+    const singleton_class = try vm.getOrCreateSingletonClass(module_receiver);
+    var singleton_entry = entry;
+    singleton_entry.visibility = .public;
+    singleton_class.module.methods.put(name_sym, singleton_entry) catch return error.Fatal;
+}
+
 pub fn register(vm: *VM) !void {
     const include_sym = try vm.intern("include");
     try vm.object_class.module.methods.put(include_sym, .{ .method = .{ .builtin = &builtinModuleInclude } });
@@ -133,6 +141,12 @@ pub fn register(vm: *VM) !void {
     const protected_sym = try vm.intern("protected");
     try vm.module_class.module.methods.put(protected_sym, .{
         .method = .{ .builtin = &builtinModuleProtected },
+        .visibility = .private,
+    });
+
+    const module_function_sym = try vm.intern("module_function");
+    try vm.module_class.module.methods.put(module_function_sym, .{
+        .method = .{ .builtin = &builtinModuleFunction },
         .visibility = .private,
     });
 }
@@ -182,10 +196,18 @@ pub fn builtinModuleDefineMethod(vm: *VM, receiver: Value, args: []Value, block:
         vm.pending_exception = exc;
         return error.Unwind;
     };
-    methods.put(name_sym, .{
+    const module_function_mode = if (vm.current_lexical_scope) |scope| scope.module_function_mode else false;
+    const effective_visibility: MethodVisibility = if (module_function_mode) .private else visibility;
+
+    const entry: value.MethodEntry = .{
         .method = .{ .proc = proc_val.data.proc },
-        .visibility = visibility,
-    }) catch return error.Fatal;
+        .visibility = effective_visibility,
+    };
+    methods.put(name_sym, entry) catch return error.Fatal;
+
+    if (module_function_mode and receiver.data == .module) {
+        try copyMethodToModuleSingleton(vm, receiver, name_sym, entry);
+    }
 
     return Value{ .data = .{ .symbol = name_sym } };
 }
@@ -409,4 +431,56 @@ pub fn builtinModulePublic(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 
 pub fn builtinModuleProtected(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     return setVisibility(vm, receiver, args, .protected);
+}
+
+pub fn builtinModuleFunction(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    if (args.len == 0) {
+        if (vm.current_lexical_scope) |scope| {
+            scope.default_method_visibility = .private;
+            scope.module_function_mode = true;
+        }
+        return Value.nil();
+    }
+
+    const methods = receiver.getModuleMethods() orelse unreachable;
+
+    for (args) |arg| {
+        const name_str: []const u8 = switch (arg.data) {
+            .symbol => |sym| sym.name,
+            .string => |str| str.str,
+            else => {
+                const exc = try vm.createException(vm.type_error_class, "not a symbol nor a string");
+                vm.pending_exception = exc;
+                return error.Unwind;
+            },
+        };
+
+        const name_sym = try vm.intern(name_str);
+        const existing = methods.get(name_sym) orelse {
+            const msg = std.fmt.allocPrint(
+                vm.gc_allocator,
+                "undefined method '{s}'",
+                .{name_sym.name},
+            ) catch return error.Fatal;
+            const exc = try vm.createException(vm.name_error_class, msg);
+            vm.pending_exception = exc;
+            return error.Unwind;
+        };
+
+        try copyMethodToModuleSingleton(vm, receiver, name_sym, existing);
+
+        var private_entry = existing;
+        private_entry.visibility = .private;
+        methods.put(name_sym, private_entry) catch return error.Fatal;
+    }
+
+    if (args.len == 1) {
+        return args[0];
+    }
+
+    const arr = try vm.createArray();
+    for (args) |arg| {
+        arr.elements.append(vm.gc_allocator, arg) catch return error.Fatal;
+    }
+    return Value{ .data = .{ .array = arr } };
 }
