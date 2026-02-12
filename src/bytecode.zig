@@ -77,6 +77,9 @@ pub const OpCode = enum(u8) {
 
     // Aliasing
     ALIAS_METHOD, // Operands: u16 (new_name constant index), u16 (old_name constant index)
+
+    // Multi-assignment
+    MULTI_ASSIGN_PREPARE, // No operands - converts TOS to array via to_ary protocol
 };
 
 pub const ReceiverCallStyle = enum(u8) {
@@ -141,6 +144,7 @@ pub fn opcodeName(op: OpCode) []const u8 {
         .FORWARDING_SUPER => "FORWARDING_SUPER",
         .PUSH_REGEXP => "PUSH_REGEXP",
         .ALIAS_METHOD => "ALIAS_METHOD",
+        .MULTI_ASSIGN_PREPARE => "MULTI_ASSIGN_PREPARE",
     };
 }
 
@@ -199,7 +203,7 @@ pub const Instruction = struct {
             .PUSH_REGEXP, .ALIAS_METHOD => {
                 try writer.print(" {d} {d}", .{ self.bx, self.ax });
             },
-            .PUSH_NIL, .PUSH_TRUE, .PUSH_FALSE, .PUSH_SELF, .POP, .DUP, .SWAP, .CASE_MATCH, .HALT, .TRY_END, .CATCH_END, .ENSURE_START, .ENSURE_END, .RETRY, .BREAK => {},
+            .PUSH_NIL, .PUSH_TRUE, .PUSH_FALSE, .PUSH_SELF, .POP, .DUP, .SWAP, .CASE_MATCH, .HALT, .TRY_END, .CATCH_END, .ENSURE_START, .ENSURE_END, .RETRY, .BREAK, .MULTI_ASSIGN_PREPARE => {},
             else => {},
         }
     }

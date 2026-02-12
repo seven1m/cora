@@ -933,11 +933,19 @@ pub const Compiler = struct {
         const value_node = try self.parser.asNode(@ptrCast(node.value));
         try self.compileNode(value_node, line);
 
-        // For Phase 1-3: We expect RHS to be an array (Prism creates ArrayNode for "1, 2")
-        // Phase 6 will add proper to_ary conversion and wrapping for non-array values
-
-        // DUP the array to preserve it for return value
+        // DUP the original value for return value (Ruby returns original RHS, not converted array)
         try self.current_chunk.emitOp(.DUP, line);
+
+        // If RHS is not an array literal, convert top value to array via to_ary protocol
+        // Stack: [original_value, value_to_convert]
+        if (value_node != .array) {
+            try self.current_chunk.emitOp(.MULTI_ASSIGN_PREPARE, line);
+            // Stack is now: [original_value, converted_array]
+        }
+
+        // DUP the array for destructuring (preserve one copy)
+        try self.current_chunk.emitOp(.DUP, line);
+        // Stack: [original_value, array, array]
 
         // Count targets
         const left_count = node.lefts.size;
@@ -977,7 +985,9 @@ pub const Compiler = struct {
             try self.compileMultiTarget(target, negative_index, line);
         }
 
-        // Pop the working array copy (leave original for return value)
+        // Pop the working array copy
+        try self.current_chunk.emitOp(.POP, line);
+        // Pop the preserved array copy (leave only original RHS value for return)
         try self.current_chunk.emitOp(.POP, line);
     }
 

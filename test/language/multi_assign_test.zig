@@ -219,3 +219,80 @@ test "splat with complex targets" {
     try std.testing.expect(result.data == .array);
     try std.testing.expectEqual(@as(usize, 2), result.data.array.elements.items.len);
 }
+
+test "single non-array RHS assigns to first target" {
+    var result = try evalCode("a, b, c = 1; a");
+    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+
+    result = try evalCode("a, b, c = 1; b");
+    try std.testing.expect(result.data == .nil);
+
+    result = try evalCode("a, b, c = 1; c");
+    try std.testing.expect(result.data == .nil);
+}
+
+test "single array variable RHS is destructured" {
+    var result = try evalCode("x = [10, 20]; a, b = x; a");
+    try std.testing.expectEqual(@as(i64, 10), result.data.integer);
+
+    result = try evalCode("x = [10, 20]; a, b = x; b");
+    try std.testing.expectEqual(@as(i64, 20), result.data.integer);
+}
+
+test "to_ary is called on non-array objects" {
+    const code =
+        \\class Converter
+        \\  def to_ary
+        \\    [1, 2, 3]
+        \\  end
+        \\end
+        \\a, b, c = Converter.new
+        \\a
+    ;
+    var result = try evalCode(code);
+    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+
+    const code2 =
+        \\class Converter
+        \\  def to_ary
+        \\    [1, 2, 3]
+        \\  end
+        \\end
+        \\a, b, c = Converter.new
+        \\c
+    ;
+    result = try evalCode(code2);
+    try std.testing.expectEqual(@as(i64, 3), result.data.integer);
+}
+
+test "to_ary returning nil treats as single value" {
+    const code =
+        \\class NilConverter
+        \\  def to_ary
+        \\    nil
+        \\  end
+        \\end
+        \\a, b = NilConverter.new
+        \\b
+    ;
+    const result = try evalCode(code);
+    try std.testing.expect(result.data == .nil);
+}
+
+test "splat with single non-array value" {
+    var result = try evalCode("a, *b = 5; a");
+    try std.testing.expectEqual(@as(i64, 5), result.data.integer);
+
+    result = try evalCode("a, *b = 5; b");
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(@as(usize, 0), result.data.array.elements.items.len);
+}
+
+test "return value is original RHS" {
+    var result = try evalCode("x = (a, b = 5); x");
+    try std.testing.expectEqual(@as(i64, 5), result.data.integer);
+
+    result = try evalCode("x = (a, b = [1, 2]); x");
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(@as(usize, 2), result.data.array.elements.items.len);
+}

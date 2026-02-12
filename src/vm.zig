@@ -1568,6 +1568,56 @@ pub const VM = struct {
                 try self.push(Value{ .data = .nil });
             },
 
+            .MULTI_ASSIGN_PREPARE => {
+                const receiver = self.pop();
+
+                // If already an array, just push it back
+                if (receiver.data == .array) {
+                    try self.push(receiver);
+                    return;
+                }
+
+                // Try to_ary protocol
+                const to_ary_sym = try self.intern("to_ary");
+
+                // Check if receiver responds to :to_ary (including private methods)
+                var respond_args = [_]Value{ .{ .data = .{ .symbol = to_ary_sym } }, Value.boolean(true) };
+                const responds = try self.callMethodByName(receiver, "respond_to?", &respond_args, null);
+
+                if (responds.data == .boolean and responds.data.boolean) {
+                    // Call to_ary
+                    const to_ary_result = try self.callMethodByName(receiver, "to_ary", &[_]Value{}, null);
+
+                    if (to_ary_result.data == .nil) {
+                        // to_ary returned nil -> wrap receiver in array
+                        const array_obj = self.gc_allocator.create(value.ArrayObject) catch return error.Fatal;
+                        array_obj.* = .{
+                            .object = .{ .flags = 0, .class = self.array_class, .singleton_class = null, .instance_variables = null },
+                            .elements = .empty,
+                        };
+                        array_obj.elements.append(self.gc_allocator, receiver) catch return error.Fatal;
+                        try self.push(.{ .data = .{ .array = array_obj } });
+                    } else if (to_ary_result.data == .array) {
+                        // to_ary returned an array -> use it
+                        try self.push(to_ary_result);
+                    } else {
+                        // to_ary returned non-array/non-nil -> TypeError
+                        const exc = try self.createException(self.type_error_class, "can't convert to Array (to_ary must return Array or nil)");
+                        self.pending_exception = exc;
+                        return error.Unwind;
+                    }
+                } else {
+                    // Doesn't respond to to_ary -> wrap receiver in array
+                    const array_obj = self.gc_allocator.create(value.ArrayObject) catch return error.Fatal;
+                    array_obj.* = .{
+                        .object = .{ .flags = 0, .class = self.array_class, .singleton_class = null, .instance_variables = null },
+                        .elements = .empty,
+                    };
+                    array_obj.elements.append(self.gc_allocator, receiver) catch return error.Fatal;
+                    try self.push(.{ .data = .{ .array = array_obj } });
+                }
+            },
+
             .BREAK => {
                 // Break value is already on stack (pushed by compileBreakStatement)
                 self.break_occurred = true;
