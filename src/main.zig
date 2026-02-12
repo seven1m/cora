@@ -77,9 +77,9 @@ pub fn main() !void {
         std.debug.print("Parse error\n", .{});
         return;
     };
+    defer parser.deinit();
 
     if (print_ast) {
-        defer parser.deinit();
         const output = try parser.prettyPrint(allocator);
         defer allocator.free(output);
         std.debug.print("{s}\n", .{output});
@@ -112,7 +112,7 @@ pub fn main() !void {
         return;
     }
 
-    var virtual_machine = try vm.VM.init(allocator, bdwgc.allocator, bdwgc.allocator_atomic, parser, &program);
+    var virtual_machine = try vm.VM.init(allocator, bdwgc.allocator, bdwgc.allocator_atomic, &program);
     defer virtual_machine.deinit();
 
     const result = virtual_machine.run();

@@ -103,7 +103,7 @@ pub fn evalCodeWithOutputAndPath(ruby_code: []const u8, stdout_buf: []u8, stderr
 
     const allocator = getAllocator();
 
-    const parser = prism.Parser.init(allocator, ruby_code, source_path) catch |err| {
+    var parser = prism.Parser.init(allocator, ruby_code, source_path) catch |err| {
         return .{
             .value = Value.nil(),
             .stdout = "",
@@ -111,11 +111,12 @@ pub fn evalCodeWithOutputAndPath(ruby_code: []const u8, stdout_buf: []u8, stderr
             .err = err,
         };
     };
+    defer parser.deinit();
 
-    var vm = VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic, parser);
+    var vm = VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic);
     defer vm.deinit();
 
-    var program = compiler.Compiler.compile(allocator, &vm.parser, 1) catch |err| {
+    var program = compiler.Compiler.compile(allocator, &parser, 1) catch |err| {
         return .{
             .value = Value.nil(),
             .stdout = "",

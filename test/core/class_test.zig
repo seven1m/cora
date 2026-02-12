@@ -64,12 +64,13 @@ test "Class hierarchy is set up correctly" {
     defer bdwgc.deinit();
 
     const allocator = getAllocator();
-    const parser = try prism.Parser.init(allocator, "", null);
+    var parser = try prism.Parser.init(allocator, "", null);
+    defer parser.deinit();
 
-    var vm = VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic, parser);
+    var vm = VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic);
     defer vm.deinit();
 
-    var program = try compiler.Compiler.compile(allocator, &vm.parser, 1);
+    var program = try compiler.Compiler.compile(allocator, &parser, 1);
     defer program.deinit();
 
     try vm.prepare(&program);

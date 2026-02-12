@@ -92,7 +92,18 @@ pub const Chunk = struct {
 
     pub fn deinit(self: *Chunk) void {
         self.code.deinit(self.allocator);
+        for (self.constants.items) |constant| {
+            switch (constant) {
+                .string => |s| self.allocator.free(s),
+                .symbol => |s| self.allocator.free(s),
+                else => {},
+            }
+        }
         self.constants.deinit(self.allocator);
+        var constant_name_iter = self.constant_names.keyIterator();
+        while (constant_name_iter.next()) |name| {
+            self.allocator.free(name.*);
+        }
         self.constant_names.deinit();
         self.line_info.deinit(self.allocator);
         self.optional_params.deinit(self.allocator);
@@ -117,14 +128,25 @@ pub const Chunk = struct {
 
     /// Add a constant to the constant pool, return its index
     pub fn addConstant(self: *Chunk, const_val: Constant) !u32 {
-        try self.constants.append(self.allocator, const_val);
+        const owned = switch (const_val) {
+            .string => |s| Constant{ .string = try self.allocator.dupe(u8, s) },
+            .symbol => |s| Constant{ .symbol = try self.allocator.dupe(u8, s) },
+            else => const_val,
+        };
+        try self.constants.append(self.allocator, owned);
         return @intCast(self.constants.items.len - 1);
     }
 
     /// Add a named constant (class, module, etc.)
     pub fn addNamedConstant(self: *Chunk, name: []const u8, const_val: Constant) !u32 {
         const idx = try self.addConstant(const_val);
-        try self.constant_names.put(name, idx);
+        if (self.constant_names.contains(name)) {
+            try self.constant_names.put(name, idx);
+            return idx;
+        }
+        const owned_name = try self.allocator.dupe(u8, name);
+        errdefer self.allocator.free(owned_name);
+        try self.constant_names.put(owned_name, idx);
         return idx;
     }
 

@@ -86,8 +86,6 @@ pub const VM = struct {
     gc_allocator: std.mem.Allocator,
     gc_allocator_atomic: std.mem.Allocator,
 
-    parser: prism.Parser,
-
     stack: std.ArrayList(Value) = .empty,
     frames: std.ArrayList(CallFrame) = .empty,
 
@@ -159,7 +157,6 @@ pub const VM = struct {
     // File loading infrastructure
     loaded_files: std.StringHashMap(void) = undefined,
     loaded_paths: std.ArrayList([]const u8) = .empty,
-    all_parsers: std.ArrayList(prism.Parser) = .empty,
     load_path: std.ArrayList([]const u8) = .empty,
     current_loading_file: ?[]const u8 = null,
     next_chunk_id: u16 = 1,
@@ -174,12 +171,11 @@ pub const VM = struct {
     stdout: ?*std.Io.Writer = null,
     stderr: ?*std.Io.Writer = null,
 
-    pub fn initEmpty(allocator: std.mem.Allocator, gc_allocator: std.mem.Allocator, gc_allocator_atomic: std.mem.Allocator, parser: prism.Parser) VM {
+    pub fn initEmpty(allocator: std.mem.Allocator, gc_allocator: std.mem.Allocator, gc_allocator_atomic: std.mem.Allocator) VM {
         return VM{
             .allocator = allocator,
             .gc_allocator = gc_allocator,
             .gc_allocator_atomic = gc_allocator_atomic,
-            .parser = parser,
             .symbols = std.StringHashMap(*SymbolObject).init(gc_allocator),
             .globals = std.StringHashMap(Value).init(gc_allocator),
             .loaded_files = std.StringHashMap(void).init(gc_allocator),
@@ -240,7 +236,7 @@ pub const VM = struct {
         self.load_path.append(self.allocator, dot) catch return error.Fatal;
         self.next_chunk_id = program.next_chunk_id;
 
-        if (self.parser.source_file) |main_file| {
+        if (program.main_chunk.source_file) |main_file| {
             const abs_path = try self.resolveAbsolutePath(main_file);
             self.loaded_files.put(abs_path, {}) catch return error.Fatal;
             self.current_loading_file = abs_path;
@@ -626,20 +622,13 @@ pub const VM = struct {
         }
     }
 
-    pub fn init(allocator: std.mem.Allocator, gc_allocator: std.mem.Allocator, gc_allocator_atomic: std.mem.Allocator, parser: prism.Parser, program: *compiler.CompiledProgram) VMError!VM {
-        var vm = initEmpty(allocator, gc_allocator, gc_allocator_atomic, parser);
+    pub fn init(allocator: std.mem.Allocator, gc_allocator: std.mem.Allocator, gc_allocator_atomic: std.mem.Allocator, program: *compiler.CompiledProgram) VMError!VM {
+        var vm = initEmpty(allocator, gc_allocator, gc_allocator_atomic);
         vm.prepare(program) catch return error.Fatal;
         return vm;
     }
 
     pub fn deinit(self: *VM) void {
-        self.parser.deinit();
-
-        for (self.all_parsers.items) |*p| {
-            p.deinit();
-        }
-        self.all_parsers.deinit(self.allocator);
-
         var key_iter = self.loaded_files.keyIterator();
         while (key_iter.next()) |key| {
             self.allocator.free(key.*);
@@ -658,6 +647,10 @@ pub const VM = struct {
         self.frames.deinit(self.gc_allocator);
         self.env_stack.deinit(self.gc_allocator);
         self.symbols.deinit();
+        var global_key_iter = self.globals.keyIterator();
+        while (global_key_iter.next()) |key| {
+            self.allocator.free(key.*);
+        }
         self.globals.deinit();
         self.at_exit_handlers.deinit(self.gc_allocator);
     }
@@ -912,7 +905,13 @@ pub const VM = struct {
                 const var_name = name_val.symbol;
                 const global_val = self.peek(0);
 
-                self.globals.put(var_name, global_val) catch return error.Fatal;
+                if (self.globals.getPtr(var_name)) |existing| {
+                    existing.* = global_val;
+                } else {
+                    const owned_name = self.allocator.dupe(u8, var_name) catch return error.Fatal;
+                    errdefer self.allocator.free(owned_name);
+                    self.globals.put(owned_name, global_val) catch return error.Fatal;
+                }
             },
 
             .GET_IVAR => {
@@ -2663,13 +2662,8 @@ pub const VM = struct {
     }
 
     pub fn newStringWithEncoding(self: *VM, str: []const u8, frozen: bool, encoding: enc.Encoding) VMError!Value {
-        var copy = str;
-        var flags: u32 = 0;
-        if (frozen) {
-            flags = Object.FROZEN_FLAG;
-        } else {
-            copy = self.gc_allocator_atomic.dupe(u8, str) catch return error.Fatal;
-        }
+        const copy = self.gc_allocator_atomic.dupe(u8, str) catch return error.Fatal;
+        const flags: u32 = if (frozen) Object.FROZEN_FLAG else 0;
 
         const string_obj = self.gc_allocator.create(StringObject) catch return error.Fatal;
         string_obj.* = .{
@@ -2762,7 +2756,7 @@ pub const VM = struct {
         chunk_ptr.* = Chunk.init(allocator, method_name);
         chunk_ptr.chunk_id = self.next_chunk_id;
         self.next_chunk_id += 1;
-        chunk_ptr.source_file = self.parser.source_file;
+        chunk_ptr.source_file = self.current_loading_file orelse self.program.main_chunk.source_file;
         chunk_ptr.lexical_scope = self.current_lexical_scope;
         chunk_ptr.arity = if (kind == .reader) 0 else 1;
 
@@ -2957,7 +2951,7 @@ pub const VM = struct {
         if (bytes_read != file_size) return error.Fatal;
 
         var parser = prism.Parser.init(self.allocator, code_buffer, absolute_path) catch return error.Fatal;
-        self.all_parsers.append(self.allocator, parser) catch return error.Fatal;
+        defer parser.deinit();
 
         var program = compiler.Compiler.compile(self.allocator, &parser, self.next_chunk_id) catch return error.Fatal;
         // Ensure cleanup of the loaded program's chunks on error
