@@ -651,6 +651,10 @@ pub const Compiler = struct {
                 try self.compileInstanceVariableOrWrite(var_write, line);
             },
 
+            .multi_write => |multi_write| {
+                try self.compileMultiWrite(multi_write, line);
+            },
+
             .forwarding_super => |super_node| {
                 // Bare super: forwards all original arguments
                 // Compile optional block
@@ -933,6 +937,73 @@ pub const Compiler = struct {
         } else {
             try self.current_chunk.emitOpU8U8(.SET_LOCAL_DEEP, slot.idx, slot.depth, line);
         }
+    }
+
+    fn compileMultiWrite(self: *Compiler, node: *prism.MultiWriteNode, line: u32) !void {
+        // Compile RHS value onto stack
+        const value_node = try self.parser.asNode(@ptrCast(node.value));
+        try self.compileNode(value_node, line);
+
+        // For Phase 1-2: We expect RHS to be an array (Prism creates ArrayNode for "1, 2")
+        // Phase 6 will add proper to_ary conversion and wrapping for non-array values
+
+        // DUP the array to preserve it for return value
+        try self.current_chunk.emitOp(.DUP, line);
+
+        // Count targets
+        const left_count = node.lefts.size;
+        const right_count = node.rights.size;
+
+        // Assign to left targets (indices 0, 1, 2, ...)
+        var i: usize = 0;
+        while (i < left_count) : (i += 1) {
+            const target = try self.parser.asNode(node.lefts.nodes[i]);
+            try self.compileMultiTarget(target, @intCast(i), line);
+        }
+
+        // For Phase 1, we skip splat handling (node.rest)
+
+        // Assign to right targets (negative indices -1, -2, ... from end)
+        i = 0;
+        while (i < right_count) : (i += 1) {
+            const target = try self.parser.asNode(node.rights.nodes[i]);
+            const negative_index: i64 = -@as(i64, @intCast(right_count - i));
+            try self.compileMultiTarget(target, negative_index, line);
+        }
+
+        // Pop the working array copy (leave original for return value)
+        try self.current_chunk.emitOp(.POP, line);
+    }
+
+    fn compileMultiTarget(self: *Compiler, target: prism.Node, index: i64, line: u32) !void {
+        switch (target) {
+            .local_variable_target => |var_target| {
+                // Extract array element at index and assign to local variable
+                const var_name = try self.parser.getLocalVariableName(var_target.name);
+                try self.extractArrayElement(index, line);
+                const slot = try self.resolveOrCreateLocalSlot(var_name);
+                try self.emitSetLocalSlot(slot, line);
+                // Pop the assigned value (SET_LOCAL pushes it back) to keep only array on stack
+                try self.current_chunk.emitOp(.POP, line);
+            },
+            else => {
+                std.debug.print("Unsupported multi-assignment target type (Phase 1)\n", .{});
+                return error.UnsupportedAssignmentTarget;
+            },
+        }
+    }
+
+    fn extractArrayElement(self: *Compiler, index: i64, line: u32) !void {
+        // Assumes array is on stack
+        // Emits: DUP, PUSH_CONST(index), CALL([], 1)
+        try self.current_chunk.emitOp(.DUP, line);
+
+        const idx_const = try self.current_chunk.addConstant(.{ .integer = index });
+        try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(idx_const), line);
+
+        const bracket_sym = try self.current_chunk.addConstant(.{ .string = "[]" });
+        const receiver_style: u8 = @intFromEnum(bytecode.ReceiverCallStyle.explicit);
+        try self.current_chunk.emitCall(@intCast(bracket_sym), 1, receiver_style, 0, line);
     }
 
     fn compileLocalAndWrite(self: *Compiler, var_write: *prism.LocalVariableAndWriteNode, line: u32) !void {

@@ -80,6 +80,10 @@ pub const ForwardingSuperNode = c.pm_forwarding_super_node_t;
 pub const SuperNode = c.pm_super_node_t;
 pub const RegularExpressionNode = c.pm_regular_expression_node_t;
 pub const AliasMethodNode = c.pm_alias_method_node_t;
+pub const MultiWriteNode = c.pm_multi_write_node_t;
+pub const MultiTargetNode = c.pm_multi_target_node_t;
+pub const SplatNode = c.pm_splat_node_t;
+pub const ImplicitRestNode = c.pm_implicit_rest_node_t;
 
 pub const REGEXP_FLAGS_IGNORE_CASE = c.PM_REGULAR_EXPRESSION_FLAGS_IGNORE_CASE;
 pub const REGEXP_FLAGS_EXTENDED = c.PM_REGULAR_EXPRESSION_FLAGS_EXTENDED;
@@ -159,6 +163,10 @@ pub const Node = union(enum) {
     super_node: *SuperNode,
     regular_expression: *RegularExpressionNode,
     alias_method: *AliasMethodNode,
+    multi_write: *MultiWriteNode,
+    multi_target: *MultiTargetNode,
+    splat: *SplatNode,
+    implicit_rest: *ImplicitRestNode,
 };
 
 /// Parser wraps Prism's parser and AST lifecycle
@@ -497,6 +505,22 @@ pub const Parser = struct {
 
         if (node_type == c.PM_ALIAS_METHOD_NODE) {
             return Node{ .alias_method = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_MULTI_WRITE_NODE) {
+            return Node{ .multi_write = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_MULTI_TARGET_NODE) {
+            return Node{ .multi_target = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_SPLAT_NODE) {
+            return Node{ .splat = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_IMPLICIT_REST_NODE) {
+            return Node{ .implicit_rest = @ptrCast(raw) };
         }
 
         var stdout_buffer: [8192]u8 = undefined;
