@@ -78,23 +78,78 @@ pub fn builtinArrayPush(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
 }
 
 pub fn builtinArrayBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireSingleArg(args, .integer, "Integer");
+    try vm.requireArgRange(args, 1, 2);
+
     const array = receiver.data.array;
-    const index = args[0].data.integer;
     const len: i64 = @intCast(array.elements.items.len);
 
-    // Handle negative indices (count from end)
-    var actual_index: i64 = index;
-    if (index < 0) {
-        actual_index = len + index;
+    if (args.len == 1) {
+        // Single argument: arr[index]
+        try vm.requireArgType(args, 0, .integer, "Integer");
+        const index = args[0].data.integer;
+
+        // Handle negative indices (count from end)
+        var actual_index: i64 = index;
+        if (index < 0) {
+            actual_index = len + index;
+        }
+
+        // Return nil for out of bounds
+        if (actual_index < 0 or actual_index >= len) {
+            return Value.nil();
+        }
+
+        return array.elements.items[@intCast(actual_index)];
+    } else if (args.len == 2) {
+        // Two arguments: arr[start, length] - array slicing
+        try vm.requireArgType(args, 0, .integer, "Integer");
+        try vm.requireArgType(args, 1, .integer, "Integer");
+
+        const start = args[0].data.integer;
+        const length = args[1].data.integer;
+
+        // Handle negative start index
+        var actual_start: i64 = start;
+        if (start < 0) {
+            actual_start = len + start;
+        }
+
+        // Return nil if start is out of bounds
+        if (actual_start < 0 or actual_start > len) {
+            return Value.nil();
+        }
+
+        // Negative length is invalid
+        if (length < 0) {
+            return Value.nil();
+        }
+
+        // Calculate end index (capped at array length)
+        const end_idx: i64 = @min(actual_start + length, len);
+
+        // Create new array with sliced elements
+        const result_array = vm.gc_allocator.create(value.ArrayObject) catch return error.Fatal;
+        result_array.* = .{
+            .object = .{
+                .flags = 0,
+                .class = vm.array_class,
+                .singleton_class = null,
+                .instance_variables = null,
+            },
+            .elements = .empty,
+        };
+
+        // Copy elements from start to end
+        var i: i64 = actual_start;
+        while (i < end_idx) : (i += 1) {
+            const idx: usize = @intCast(i);
+            result_array.elements.append(vm.gc_allocator, array.elements.items[idx]) catch return error.Fatal;
+        }
+
+        return Value{ .data = .{ .array = result_array } };
     }
 
-    // Return nil for out of bounds
-    if (actual_index < 0 or actual_index >= len) {
-        return Value.nil();
-    }
-
-    return array.elements.items[@intCast(actual_index)];
+    unreachable; // requireArgRange ensures args.len is 1 or 2
 }
 
 pub fn builtinArrayBracketSet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

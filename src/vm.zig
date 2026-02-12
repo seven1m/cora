@@ -1072,6 +1072,14 @@ pub const VM = struct {
                 try self.push(top);
             },
 
+            .SWAP => {
+                // Swap top two stack items
+                const a = self.pop();
+                const b = self.pop();
+                try self.push(a);
+                try self.push(b);
+            },
+
             .CASE_MATCH => {
                 const condition = self.pop();
                 const predicate = self.peek(0);

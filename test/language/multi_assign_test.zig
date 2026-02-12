@@ -44,3 +44,55 @@ test "swapping variables" {
     result = try evalCode("a = 1; b = 2; a, b = b, a; b");
     try std.testing.expectEqual(@as(i64, 1), result.data.integer);
 }
+
+test "trailing splat collects remaining elements" {
+    var result = try evalCode("a, *b = 1, 2, 3, 4; a");
+    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+
+    result = try evalCode("a, *b = 1, 2, 3, 4; b");
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(@as(usize, 3), result.data.array.elements.items.len);
+    try std.testing.expectEqual(@as(i64, 2), result.data.array.elements.items[0].data.integer);
+    try std.testing.expectEqual(@as(i64, 3), result.data.array.elements.items[1].data.integer);
+    try std.testing.expectEqual(@as(i64, 4), result.data.array.elements.items[2].data.integer);
+}
+
+test "leading splat collects initial elements" {
+    var result = try evalCode("*a, b, c = 1, 2, 3, 4; b");
+    try std.testing.expectEqual(@as(i64, 3), result.data.integer);
+
+    result = try evalCode("*a, b, c = 1, 2, 3, 4; c");
+    try std.testing.expectEqual(@as(i64, 4), result.data.integer);
+
+    result = try evalCode("*a, b, c = 1, 2, 3, 4; a");
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(@as(usize, 2), result.data.array.elements.items.len);
+    try std.testing.expectEqual(@as(i64, 1), result.data.array.elements.items[0].data.integer);
+    try std.testing.expectEqual(@as(i64, 2), result.data.array.elements.items[1].data.integer);
+}
+
+test "middle splat collects middle elements" {
+    var result = try evalCode("a, *b, c = 1, 2, 3, 4; a");
+    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+
+    result = try evalCode("a, *b, c = 1, 2, 3, 4; c");
+    try std.testing.expectEqual(@as(i64, 4), result.data.integer);
+
+    result = try evalCode("a, *b, c = 1, 2, 3, 4; b");
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(@as(usize, 2), result.data.array.elements.items.len);
+    try std.testing.expectEqual(@as(i64, 2), result.data.array.elements.items[0].data.integer);
+    try std.testing.expectEqual(@as(i64, 3), result.data.array.elements.items[1].data.integer);
+}
+
+test "splat with exact match returns empty array" {
+    const result = try evalCode("a, *b, c = 1, 2; b");
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(@as(usize, 0), result.data.array.elements.items.len);
+}
+
+test "splat only collects all elements" {
+    const result = try evalCode("*a = 1, 2, 3; a");
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(@as(usize, 3), result.data.array.elements.items.len);
+}

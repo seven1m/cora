@@ -944,7 +944,7 @@ pub const Compiler = struct {
         const value_node = try self.parser.asNode(@ptrCast(node.value));
         try self.compileNode(value_node, line);
 
-        // For Phase 1-2: We expect RHS to be an array (Prism creates ArrayNode for "1, 2")
+        // For Phase 1-3: We expect RHS to be an array (Prism creates ArrayNode for "1, 2")
         // Phase 6 will add proper to_ary conversion and wrapping for non-array values
 
         // DUP the array to preserve it for return value
@@ -961,7 +961,24 @@ pub const Compiler = struct {
             try self.compileMultiTarget(target, @intCast(i), line);
         }
 
-        // For Phase 1, we skip splat handling (node.rest)
+        // Handle splat operator (Phase 3)
+        if (node.rest) |rest_ptr| {
+            const rest_node = try self.parser.asNode(@ptrCast(rest_ptr));
+            switch (rest_node) {
+                .splat => |splat| {
+                    // Splat with variable: *var
+                    if (splat.expression) |expr_ptr| {
+                        const target = try self.parser.asNode(@ptrCast(expr_ptr));
+                        try self.compileSplatAssignment(target, @intCast(left_count), @intCast(right_count), line);
+                    }
+                    // else: bare * without variable, just discard the middle elements
+                },
+                .implicit_rest => {
+                    // Implicit rest (trailing comma), discard extras
+                },
+                else => {},
+            }
+        }
 
         // Assign to right targets (negative indices -1, -2, ... from end)
         i = 0;
@@ -1004,6 +1021,59 @@ pub const Compiler = struct {
         const bracket_sym = try self.current_chunk.addConstant(.{ .string = "[]" });
         const receiver_style: u8 = @intFromEnum(bytecode.ReceiverCallStyle.explicit);
         try self.current_chunk.emitCall(@intCast(bracket_sym), 1, receiver_style, 0, line);
+    }
+
+    fn compileSplatAssignment(self: *Compiler, target: prism.Node, left_count: u8, right_count: u8, line: u32) !void {
+        // Extract middle elements using array slicing with SWAP
+        // Stack has: [array, ...]
+        // Goal: array[left_count, array.length - left_count - right_count]
+
+        const receiver_style: u8 = @intFromEnum(bytecode.ReceiverCallStyle.explicit);
+
+        // Calculate length: array.length - left_count - right_count
+        try self.current_chunk.emitOp(.DUP, line);
+        const length_sym = try self.current_chunk.addConstant(.{ .string = "length" });
+        try self.current_chunk.emitCall(@intCast(length_sym), 0, receiver_style, 0, line);
+        // Stack: [array, length]
+
+        const left_const = try self.current_chunk.addConstant(.{ .integer = left_count });
+        try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(left_const), line);
+        const minus_sym = try self.current_chunk.addConstant(.{ .string = "-" });
+        try self.current_chunk.emitCall(@intCast(minus_sym), 1, receiver_style, 0, line);
+        // Stack: [array, length - left]
+
+        const right_const = try self.current_chunk.addConstant(.{ .integer = right_count });
+        try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(right_const), line);
+        try self.current_chunk.emitCall(@intCast(minus_sym), 1, receiver_style, 0, line);
+        // Stack: [array, final_length]
+
+        // Push start index
+        const start_const = try self.current_chunk.addConstant(.{ .integer = left_count });
+        try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(start_const), line);
+        // Stack: [array, final_length, start]
+
+        // Use SWAP to reorder: [array, final_length, start] → [array, start, final_length]
+        try self.current_chunk.emitOp(.SWAP, line);
+        // Stack: [array, start, final_length]
+
+        // Call array[start, length]
+        const bracket_sym = try self.current_chunk.addConstant(.{ .string = "[]" });
+        try self.current_chunk.emitCall(@intCast(bracket_sym), 2, receiver_style, 0, line);
+        // Stack: [result_array]
+
+        // Assign to target variable
+        switch (target) {
+            .local_variable_target => |var_target| {
+                const var_name = try self.parser.getLocalVariableName(var_target.name);
+                const slot = try self.resolveOrCreateLocalSlot(var_name);
+                try self.emitSetLocalSlot(slot, line);
+                try self.current_chunk.emitOp(.POP, line);
+            },
+            else => {
+                std.debug.print("Unsupported splat target type (Phase 3)\n", .{});
+                return error.UnsupportedSplatTarget;
+            },
+        }
     }
 
     fn compileLocalAndWrite(self: *Compiler, var_write: *prism.LocalVariableAndWriteNode, line: u32) !void {
