@@ -84,6 +84,13 @@ pub const MultiWriteNode = c.pm_multi_write_node_t;
 pub const MultiTargetNode = c.pm_multi_target_node_t;
 pub const SplatNode = c.pm_splat_node_t;
 pub const ImplicitRestNode = c.pm_implicit_rest_node_t;
+pub const GlobalVariableTargetNode = c.pm_global_variable_target_node_t;
+pub const InstanceVariableTargetNode = c.pm_instance_variable_target_node_t;
+pub const ConstantTargetNode = c.pm_constant_target_node_t;
+pub const ConstantPathTargetNode = c.pm_constant_path_target_node_t;
+pub const ClassVariableTargetNode = c.pm_class_variable_target_node_t;
+pub const IndexTargetNode = c.pm_index_target_node_t;
+pub const CallTargetNode = c.pm_call_target_node_t;
 
 pub const REGEXP_FLAGS_IGNORE_CASE = c.PM_REGULAR_EXPRESSION_FLAGS_IGNORE_CASE;
 pub const REGEXP_FLAGS_EXTENDED = c.PM_REGULAR_EXPRESSION_FLAGS_EXTENDED;
@@ -167,6 +174,13 @@ pub const Node = union(enum) {
     multi_target: *MultiTargetNode,
     splat: *SplatNode,
     implicit_rest: *ImplicitRestNode,
+    global_variable_target: *GlobalVariableTargetNode,
+    instance_variable_target: *InstanceVariableTargetNode,
+    constant_target: *ConstantTargetNode,
+    constant_path_target: *ConstantPathTargetNode,
+    class_variable_target: *ClassVariableTargetNode,
+    index_target: *IndexTargetNode,
+    call_target: *CallTargetNode,
 };
 
 /// Parser wraps Prism's parser and AST lifecycle
@@ -521,6 +535,34 @@ pub const Parser = struct {
 
         if (node_type == c.PM_IMPLICIT_REST_NODE) {
             return Node{ .implicit_rest = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_GLOBAL_VARIABLE_TARGET_NODE) {
+            return Node{ .global_variable_target = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_INSTANCE_VARIABLE_TARGET_NODE) {
+            return Node{ .instance_variable_target = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_CONSTANT_TARGET_NODE) {
+            return Node{ .constant_target = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_CONSTANT_PATH_TARGET_NODE) {
+            return Node{ .constant_path_target = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_CLASS_VARIABLE_TARGET_NODE) {
+            return Node{ .class_variable_target = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_INDEX_TARGET_NODE) {
+            return Node{ .index_target = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_CALL_TARGET_NODE) {
+            return Node{ .call_target = @ptrCast(raw) };
         }
 
         var stdout_buffer: [8192]u8 = undefined;

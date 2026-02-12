@@ -1014,8 +1014,101 @@ pub const Compiler = struct {
                 // Pop the nested array result
                 try self.current_chunk.emitOp(.POP, line);
             },
+            .global_variable_target => |var_target| {
+                // Extract array element at index and assign to global variable
+                const var_name = try self.parser.getConstantName(@intCast(var_target.name));
+                try self.extractArrayElement(index, line);
+                const name_idx = try self.current_chunk.addConstant(.{ .symbol = var_name });
+                try self.current_chunk.emitOpU16(.SET_GLOBAL, @intCast(name_idx), line);
+                try self.current_chunk.emitOp(.POP, line);
+            },
+            .instance_variable_target => |var_target| {
+                // Extract array element at index and assign to instance variable
+                const var_name = try self.parser.getConstantName(@intCast(var_target.name));
+                try self.extractArrayElement(index, line);
+                const name_idx = try self.current_chunk.addConstant(.{ .symbol = var_name });
+                try self.current_chunk.emitOpU16(.SET_IVAR, @intCast(name_idx), line);
+                try self.current_chunk.emitOp(.POP, line);
+            },
+            .constant_target => |const_target| {
+                // Extract array element at index and assign to constant
+                const const_name = try self.parser.getConstantName(@intCast(const_target.name));
+                try self.extractArrayElement(index, line);
+                const name_idx = try self.current_chunk.addConstant(.{ .string = const_name });
+                try self.current_chunk.emitOpU16(.SET_CONST, @intCast(name_idx), line);
+                try self.current_chunk.emitOp(.POP, line);
+            },
+            .index_target => |index_target| {
+                // arr[i], arr[j] = 1, 2  =>  arr.[]=(i, 1); arr.[]=(j, 2)
+                // Stack: [array]
+                try self.extractArrayElement(index, line);
+                // Stack: [array, value]
+
+                // Compile receiver
+                const receiver_node = try self.parser.asNode(@ptrCast(index_target.receiver));
+                try self.compileNode(receiver_node, line);
+                // Stack: [array, value, receiver]
+
+                // Swap to get: [array, receiver, value]
+                try self.current_chunk.emitOp(.SWAP, line);
+                // Stack: [array, receiver, value]
+
+                // Compile index arguments
+                const args_node = @as(*prism.ArgumentsNode, @ptrCast(index_target.arguments));
+                const argc = args_node.arguments.size;
+                var i: usize = 0;
+                while (i < argc) : (i += 1) {
+                    const arg_node = try self.parser.asNode(args_node.arguments.nodes[i]);
+                    try self.compileNode(arg_node, line);
+                }
+                // Stack: [array, receiver, value, index]
+
+                // Swap to move value to end: [array, receiver, index, value]
+                try self.current_chunk.emitOp(.SWAP, line);
+                // Stack: [array, receiver, index, value]
+
+                // Call []=(index, value)
+                const bracket_eq = try self.current_chunk.addConstant(.{ .string = "[]=" });
+                const receiver_style: u8 = @intFromEnum(bytecode.ReceiverCallStyle.explicit);
+                try self.current_chunk.emitCall(@intCast(bracket_eq), @intCast(argc + 1), receiver_style, 0, line);
+                // Stack: [array, return_value]
+                try self.current_chunk.emitOp(.POP, line);
+                // Stack: [array]
+            },
+            .call_target => |call_target| {
+                // obj.attr, obj.attr2 = 1, 2  =>  obj.attr=(1); obj.attr2=(2)
+                try self.extractArrayElement(index, line);
+                // Stack: [array, value]
+
+                // Compile receiver
+                const receiver_node = try self.parser.asNode(@ptrCast(call_target.receiver));
+                try self.compileNode(receiver_node, line);
+                // Stack: [array, value, receiver]
+
+                // Swap to get: [array, receiver, value]
+                try self.current_chunk.emitOp(.SWAP, line);
+
+                // Get setter method name (Prism already includes the '=' in the name)
+                const setter_name = try self.parser.getConstantName(@intCast(call_target.name));
+
+                const setter_idx = try self.current_chunk.addConstant(.{ .string = setter_name });
+                const receiver_style: u8 = @intFromEnum(bytecode.ReceiverCallStyle.explicit);
+                try self.current_chunk.emitCall(@intCast(setter_idx), 1, receiver_style, 0, line);
+                // Stack: [array, return_value]
+                try self.current_chunk.emitOp(.POP, line);
+            },
+            .constant_path_target => {
+                // TODO: Foo::Bar = value - requires compiling the path
+                std.debug.print("Constant path targets not yet supported in multi-assignment\n", .{});
+                return error.UnsupportedAssignmentTarget;
+            },
+            .class_variable_target => {
+                // TODO: @@var = value - requires class variable support
+                std.debug.print("Class variable targets not yet supported in multi-assignment\n", .{});
+                return error.UnsupportedAssignmentTarget;
+            },
             else => {
-                std.debug.print("Unsupported multi-assignment target type (Phase 4)\n", .{});
+                std.debug.print("Unsupported multi-assignment target type\n", .{});
                 return error.UnsupportedAssignmentTarget;
             },
         }
@@ -1118,6 +1211,7 @@ pub const Compiler = struct {
         // Stack: [result_array]
 
         // Assign to target variable
+        // Stack: [result_array]
         switch (target) {
             .local_variable_target => |var_target| {
                 const var_name = try self.parser.getLocalVariableName(var_target.name);
@@ -1125,8 +1219,87 @@ pub const Compiler = struct {
                 try self.emitSetLocalSlot(slot, line);
                 try self.current_chunk.emitOp(.POP, line);
             },
+            .global_variable_target => |var_target| {
+                const var_name = try self.parser.getConstantName(@intCast(var_target.name));
+                const name_idx = try self.current_chunk.addConstant(.{ .symbol = var_name });
+                try self.current_chunk.emitOpU16(.SET_GLOBAL, @intCast(name_idx), line);
+                try self.current_chunk.emitOp(.POP, line);
+            },
+            .instance_variable_target => |var_target| {
+                const var_name = try self.parser.getConstantName(@intCast(var_target.name));
+                const name_idx = try self.current_chunk.addConstant(.{ .symbol = var_name });
+                try self.current_chunk.emitOpU16(.SET_IVAR, @intCast(name_idx), line);
+                try self.current_chunk.emitOp(.POP, line);
+            },
+            .constant_target => |const_target| {
+                const const_name = try self.parser.getConstantName(@intCast(const_target.name));
+                const name_idx = try self.current_chunk.addConstant(.{ .string = const_name });
+                try self.current_chunk.emitOpU16(.SET_CONST, @intCast(name_idx), line);
+                try self.current_chunk.emitOp(.POP, line);
+            },
+            .index_target => |index_target| {
+                // *rest, arr[0] = ...  =>  arr.[]=(0, result_array)
+                // Stack: [result_array]
+
+                // Compile receiver
+                const receiver_node = try self.parser.asNode(@ptrCast(index_target.receiver));
+                try self.compileNode(receiver_node, line);
+                // Stack: [result_array, receiver]
+
+                // Swap to get: [receiver, result_array]
+                try self.current_chunk.emitOp(.SWAP, line);
+
+                // Compile index arguments
+                const args_node = @as(*prism.ArgumentsNode, @ptrCast(index_target.arguments));
+                const argc = args_node.arguments.size;
+                var i: usize = 0;
+                while (i < argc) : (i += 1) {
+                    const arg_node = try self.parser.asNode(args_node.arguments.nodes[i]);
+                    try self.compileNode(arg_node, line);
+                }
+                // Stack: [receiver, result_array, index]
+
+                // Swap to move value to end: [receiver, index, result_array]
+                try self.current_chunk.emitOp(.SWAP, line);
+
+                // Call []=(index, result_array)
+                const bracket_eq = try self.current_chunk.addConstant(.{ .string = "[]=" });
+                const rs: u8 = @intFromEnum(bytecode.ReceiverCallStyle.explicit);
+                try self.current_chunk.emitCall(@intCast(bracket_eq), @intCast(argc + 1), rs, 0, line);
+                try self.current_chunk.emitOp(.POP, line);
+            },
+            .call_target => |call_target| {
+                // *rest, obj.attr = ...  =>  obj.attr=(result_array)
+                // Stack: [result_array]
+
+                // Compile receiver
+                const receiver_node = try self.parser.asNode(@ptrCast(call_target.receiver));
+                try self.compileNode(receiver_node, line);
+                // Stack: [result_array, receiver]
+
+                // Swap to get: [receiver, result_array]
+                try self.current_chunk.emitOp(.SWAP, line);
+
+                // Get setter method name (Prism already includes the '=' in the name)
+                const setter_name = try self.parser.getConstantName(@intCast(call_target.name));
+
+                const setter_idx = try self.current_chunk.addConstant(.{ .string = setter_name });
+                const rs: u8 = @intFromEnum(bytecode.ReceiverCallStyle.explicit);
+                try self.current_chunk.emitCall(@intCast(setter_idx), 1, rs, 0, line);
+                try self.current_chunk.emitOp(.POP, line);
+            },
+            .constant_path_target => {
+                // TODO: Foo::Bar = value - requires compiling the path
+                std.debug.print("Constant path targets not yet supported in splat assignment\n", .{});
+                return error.UnsupportedSplatTarget;
+            },
+            .class_variable_target => {
+                // TODO: @@var = value - requires class variable support
+                std.debug.print("Class variable targets not yet supported in splat assignment\n", .{});
+                return error.UnsupportedSplatTarget;
+            },
             else => {
-                std.debug.print("Unsupported splat target type (Phase 3)\n", .{});
+                std.debug.print("Unsupported splat target type\n", .{});
                 return error.UnsupportedSplatTarget;
             },
         }

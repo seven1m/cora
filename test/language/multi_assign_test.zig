@@ -143,3 +143,79 @@ test "nested destructuring with splat" {
     result = try evalCode("(a, *b), c = [1, 2, 3], 4; c");
     try std.testing.expectEqual(@as(i64, 4), result.data.integer);
 }
+
+test "global variable targets" {
+    var result = try evalCode("$a, $b = 10, 20; $a");
+    try std.testing.expectEqual(@as(i64, 10), result.data.integer);
+
+    result = try evalCode("$a, $b = 10, 20; $b");
+    try std.testing.expectEqual(@as(i64, 20), result.data.integer);
+}
+
+test "instance variable targets" {
+    const code =
+        \\class Foo
+        \\  def test
+        \\    @a, @b = 1, 2
+        \\    @a
+        \\  end
+        \\end
+        \\Foo.new.test
+    ;
+    const result = try evalCode(code);
+    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+}
+
+test "constant targets" {
+    var result = try evalCode("A, B = 100, 200; A");
+    try std.testing.expectEqual(@as(i64, 100), result.data.integer);
+
+    result = try evalCode("A, B = 100, 200; B");
+    try std.testing.expectEqual(@as(i64, 200), result.data.integer);
+}
+
+test "indexed assignment targets" {
+    var result = try evalCode("arr = [0, 0, 0]; arr[0], arr[1] = 10, 20; arr[0]");
+    try std.testing.expectEqual(@as(i64, 10), result.data.integer);
+
+    result = try evalCode("arr = [0, 0, 0]; arr[0], arr[1] = 10, 20; arr[1]");
+    try std.testing.expectEqual(@as(i64, 20), result.data.integer);
+}
+
+test "attribute assignment targets" {
+    const code =
+        \\class Point
+        \\  def x=(val); @x = val; end
+        \\  def y=(val); @y = val; end
+        \\  def x; @x; end
+        \\  def y; @y; end
+        \\end
+        \\p = Point.new
+        \\p.x, p.y = 5, 10
+        \\p.x
+    ;
+    const result = try evalCode(code);
+    try std.testing.expectEqual(@as(i64, 5), result.data.integer);
+}
+
+test "mixed complex targets" {
+    const code =
+        \\arr = [0, 0]
+        \\$g, arr[0], @i = 1, 2, 3
+        \\$g
+    ;
+    var result = try evalCode(code);
+    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+
+    result = try evalCode("arr = [0, 0]; $g, arr[0], @i = 1, 2, 3; arr[0]");
+    try std.testing.expectEqual(@as(i64, 2), result.data.integer);
+}
+
+test "splat with complex targets" {
+    var result = try evalCode("$a, *$b = 1, 2, 3; $a");
+    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+
+    result = try evalCode("$a, *$b = 1, 2, 3; $b");
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(@as(usize, 2), result.data.array.elements.items.len);
+}
