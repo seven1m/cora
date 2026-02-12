@@ -937,53 +937,45 @@ pub const VM = struct {
             .GET_CONST => {
                 const idx = self.readU16();
                 const constant = self.currentChunk().constants.items[idx];
-                if (constant == .string) {
-                    const name_sym = try self.intern(constant.string);
+                const name_sym = try self.intern(constant.symbol);
 
-                    // Walk lexical scope chain first
-                    if (frame.ep.lexical_scope) |scope| {
-                        if (try self.findConstantInLexicalScope(scope, name_sym)) |val| {
-                            try self.push(val);
-                            return;
-                        }
+                // Walk lexical scope chain first
+                if (frame.ep.lexical_scope) |scope| {
+                    if (try self.findConstantInLexicalScope(scope, name_sym)) |val| {
+                        try self.push(val);
+                        return;
                     }
+                }
 
-                    // Fallback: top-level Object constants
-                    if (self.object_class.module.constants.get(name_sym)) |const_val| {
-                        try self.push(const_val);
-                    } else {
-                        const msg = std.fmt.allocPrint(
-                            self.gc_allocator,
-                            "uninitialized constant {s}",
-                            .{constant.string},
-                        ) catch return error.Fatal;
-                        const exc = try self.createException(self.name_error_class, msg);
-                        self.pending_exception = exc;
-                        return error.Unwind;
-                    }
+                // Fallback: top-level Object constants
+                if (self.object_class.module.constants.get(name_sym)) |const_val| {
+                    try self.push(const_val);
                 } else {
-                    try self.push(Value.nil());
+                    const msg = std.fmt.allocPrint(
+                        self.gc_allocator,
+                        "uninitialized constant {s}",
+                        .{constant.symbol},
+                    ) catch return error.Fatal;
+                    const exc = try self.createException(self.name_error_class, msg);
+                    self.pending_exception = exc;
+                    return error.Unwind;
                 }
             },
 
             .GET_CONST_OR_NIL => {
                 const idx = self.readU16();
                 const constant = self.currentChunk().constants.items[idx];
-                if (constant == .string) {
-                    const name_sym = try self.intern(constant.string);
+                const name_sym = try self.intern(constant.symbol);
 
-                    if (frame.ep.lexical_scope) |scope| {
-                        if (try self.findConstantInLexicalScope(scope, name_sym)) |val| {
-                            try self.push(val);
-                            return;
-                        }
+                if (frame.ep.lexical_scope) |scope| {
+                    if (try self.findConstantInLexicalScope(scope, name_sym)) |val| {
+                        try self.push(val);
+                        return;
                     }
+                }
 
-                    if (self.object_class.module.constants.get(name_sym)) |const_val| {
-                        try self.push(const_val);
-                    } else {
-                        try self.push(Value.nil());
-                    }
+                if (self.object_class.module.constants.get(name_sym)) |const_val| {
+                    try self.push(const_val);
                 } else {
                     try self.push(Value.nil());
                 }
@@ -993,15 +985,13 @@ pub const VM = struct {
                 const idx = self.readU16();
                 const val = self.pop();
                 const constant = self.currentChunk().constants.items[idx];
-                if (constant == .string) {
-                    const name_sym = try self.intern(constant.string);
+                const name_sym = try self.intern(constant.symbol);
 
-                    // Set in current lexical scope's module (or Object if no scope)
-                    if (frame.ep.lexical_scope) |scope| {
-                        scope.getModule().constants.put(name_sym, val) catch return error.Fatal;
-                    } else {
-                        self.object_class.module.constants.put(name_sym, val) catch return error.Fatal;
-                    }
+                // Set in current lexical scope's module (or Object if no scope)
+                if (frame.ep.lexical_scope) |scope| {
+                    scope.getModule().constants.put(name_sym, val) catch return error.Fatal;
+                } else {
+                    self.object_class.module.constants.put(name_sym, val) catch return error.Fatal;
                 }
                 try self.push(val);
             },
@@ -1010,29 +1000,24 @@ pub const VM = struct {
                 const idx = self.readU16();
                 const constant = self.currentChunk().constants.items[idx];
                 const parent_val = self.pop();
+                const name_sym = try self.intern(constant.symbol);
 
-                if (constant == .string) {
-                    const name_sym = try self.intern(constant.string);
-
-                    const module = switch (parent_val.data) {
-                        .class => |c| &c.module,
-                        .module => |m| m,
-                        else => unreachable,
-                    };
-                    if (module.constants.get(name_sym)) |const_val| {
-                        try self.push(const_val);
-                    } else {
-                        const msg = std.fmt.allocPrint(
-                            self.gc_allocator,
-                            "uninitialized constant {s}::{s}",
-                            .{ module.name.name, constant.string },
-                        ) catch return error.Fatal;
-                        const exc = try self.createException(self.name_error_class, msg);
-                        self.pending_exception = exc;
-                        return error.Unwind;
-                    }
+                const module = switch (parent_val.data) {
+                    .class => |c| &c.module,
+                    .module => |m| m,
+                    else => unreachable,
+                };
+                if (module.constants.get(name_sym)) |const_val| {
+                    try self.push(const_val);
                 } else {
-                    try self.push(Value.nil());
+                    const msg = std.fmt.allocPrint(
+                        self.gc_allocator,
+                        "uninitialized constant {s}::{s}",
+                        .{ module.name.name, constant.symbol },
+                    ) catch return error.Fatal;
+                    const exc = try self.createException(self.name_error_class, msg);
+                    self.pending_exception = exc;
+                    return error.Unwind;
                 }
             },
 

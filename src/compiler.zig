@@ -245,7 +245,7 @@ pub const Compiler = struct {
 
             .range => |range_node| {
                 // Push Range class onto the stack
-                const range_name_idx = try self.current_chunk.addConstant(.{ .string = "Range" });
+                const range_name_idx = try self.current_chunk.addConstant(.{ .symbol = "Range" });
                 try self.current_chunk.emitOpU16(.GET_CONST, @intCast(range_name_idx), line);
 
                 // Compile left endpoint (nil for beginless)
@@ -318,7 +318,7 @@ pub const Compiler = struct {
 
             .constant_read => |const_read| {
                 const const_name = try self.parser.getConstantName(const_read.name);
-                const idx = try self.current_chunk.addConstant(.{ .string = const_name });
+                const idx = try self.current_chunk.addConstant(.{ .symbol = const_name });
                 try self.current_chunk.emitOpU16(.GET_CONST, @intCast(idx), line);
             },
 
@@ -334,7 +334,7 @@ pub const Compiler = struct {
 
                 // Get the constant name to look up
                 const const_name = try self.parser.getConstantName(const_path.name);
-                const idx = try self.current_chunk.addConstant(.{ .string = const_name });
+                const idx = try self.current_chunk.addConstant(.{ .symbol = const_name });
                 try self.current_chunk.emitOpU16(.GET_CONST_PATH, @intCast(idx), line);
             },
 
@@ -343,7 +343,7 @@ pub const Compiler = struct {
                 const value_node = try self.parser.asNode(@ptrCast(const_write.value));
                 try self.compileNode(value_node, line);
 
-                const idx = try self.current_chunk.addConstant(.{ .string = const_name });
+                const idx = try self.current_chunk.addConstant(.{ .symbol = const_name });
                 try self.current_chunk.emitOpU16(.SET_CONST, @intCast(idx), line);
             },
 
@@ -1034,7 +1034,7 @@ pub const Compiler = struct {
                 // Extract array element at index and assign to constant
                 const const_name = try self.parser.getConstantName(@intCast(const_target.name));
                 try self.extractArrayElement(index, line);
-                const name_idx = try self.current_chunk.addConstant(.{ .string = const_name });
+                const name_idx = try self.current_chunk.addConstant(.{ .symbol = const_name });
                 try self.current_chunk.emitOpU16(.SET_CONST, @intCast(name_idx), line);
                 try self.current_chunk.emitOp(.POP, line);
             },
@@ -1403,7 +1403,7 @@ pub const Compiler = struct {
 
     fn compileConstantAndWrite(self: *Compiler, const_write: *prism.ConstantAndWriteNode, line: u32) !void {
         const const_name = try self.parser.getConstantName(const_write.name);
-        const const_idx = try self.current_chunk.addConstant(.{ .string = const_name });
+        const const_idx = try self.current_chunk.addConstant(.{ .symbol = const_name });
 
         try self.current_chunk.emitOpU16(.GET_CONST, @intCast(const_idx), line);
         try self.current_chunk.emitOp(.DUP, line);
@@ -1419,7 +1419,7 @@ pub const Compiler = struct {
 
     fn compileConstantOrWrite(self: *Compiler, const_write: *prism.ConstantOrWriteNode, line: u32) !void {
         const const_name = try self.parser.getConstantName(const_write.name);
-        const const_idx = try self.current_chunk.addConstant(.{ .string = const_name });
+        const const_idx = try self.current_chunk.addConstant(.{ .symbol = const_name });
 
         try self.current_chunk.emitOpU16(.GET_CONST_OR_NIL, @intCast(const_idx), line);
         try self.current_chunk.emitOp(.DUP, line);
