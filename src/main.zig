@@ -88,7 +88,6 @@ pub fn main() !void {
 
     var program = try compiler.Compiler.compile(allocator, &parser, 1);
     defer program.deinit();
-    errdefer program.deinit();
 
     if (dump_bytecode) {
         // Print bytecode disassembly to stdout
