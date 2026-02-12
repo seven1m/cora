@@ -96,3 +96,50 @@ test "splat only collects all elements" {
     try std.testing.expect(result.data == .array);
     try std.testing.expectEqual(@as(usize, 3), result.data.array.elements.items.len);
 }
+
+test "simple nested destructuring" {
+    var result = try evalCode("(a, b), c = [1, 2], 3; a");
+    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+
+    result = try evalCode("(a, b), c = [1, 2], 3; b");
+    try std.testing.expectEqual(@as(i64, 2), result.data.integer);
+
+    result = try evalCode("(a, b), c = [1, 2], 3; c");
+    try std.testing.expectEqual(@as(i64, 3), result.data.integer);
+}
+
+test "multiple nested destructuring" {
+    var result = try evalCode("(a, b), (c, d) = [1, 2], [3, 4]; a");
+    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+
+    result = try evalCode("(a, b), (c, d) = [1, 2], [3, 4]; d");
+    try std.testing.expectEqual(@as(i64, 4), result.data.integer);
+}
+
+test "deeply nested destructuring" {
+    var result = try evalCode("((a, b), c), d = [[1, 2], 3], 4; a");
+    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+
+    result = try evalCode("((a, b), c), d = [[1, 2], 3], 4; b");
+    try std.testing.expectEqual(@as(i64, 2), result.data.integer);
+
+    result = try evalCode("((a, b), c), d = [[1, 2], 3], 4; c");
+    try std.testing.expectEqual(@as(i64, 3), result.data.integer);
+
+    result = try evalCode("((a, b), c), d = [[1, 2], 3], 4; d");
+    try std.testing.expectEqual(@as(i64, 4), result.data.integer);
+}
+
+test "nested destructuring with splat" {
+    var result = try evalCode("(a, *b), c = [1, 2, 3], 4; a");
+    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+
+    result = try evalCode("(a, *b), c = [1, 2, 3], 4; b");
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(@as(usize, 2), result.data.array.elements.items.len);
+    try std.testing.expectEqual(@as(i64, 2), result.data.array.elements.items[0].data.integer);
+    try std.testing.expectEqual(@as(i64, 3), result.data.array.elements.items[1].data.integer);
+
+    result = try evalCode("(a, *b), c = [1, 2, 3], 4; c");
+    try std.testing.expectEqual(@as(i64, 4), result.data.integer);
+}

@@ -992,7 +992,7 @@ pub const Compiler = struct {
         try self.current_chunk.emitOp(.POP, line);
     }
 
-    fn compileMultiTarget(self: *Compiler, target: prism.Node, index: i64, line: u32) !void {
+    fn compileMultiTarget(self: *Compiler, target: prism.Node, index: i64, line: u32) anyerror!void {
         switch (target) {
             .local_variable_target => |var_target| {
                 // Extract array element at index and assign to local variable
@@ -1003,11 +1003,67 @@ pub const Compiler = struct {
                 // Pop the assigned value (SET_LOCAL pushes it back) to keep only array on stack
                 try self.current_chunk.emitOp(.POP, line);
             },
+            .multi_target => |multi_target| {
+                // Nested destructuring: (a, b), c = [[1, 2], 3]
+                // Extract the element at this index (should be an array)
+                try self.extractArrayElement(index, line);
+
+                // Now recursively destructure this nested array
+                try self.compileNestedMultiTarget(multi_target, line);
+
+                // Pop the nested array result
+                try self.current_chunk.emitOp(.POP, line);
+            },
             else => {
-                std.debug.print("Unsupported multi-assignment target type (Phase 1)\n", .{});
+                std.debug.print("Unsupported multi-assignment target type (Phase 4)\n", .{});
                 return error.UnsupportedAssignmentTarget;
             },
         }
+    }
+
+    fn compileNestedMultiTarget(self: *Compiler, node: *prism.MultiTargetNode, line: u32) anyerror!void {
+        // At this point, the nested array is on top of the stack
+        // We need to destructure it like we do in compileMultiWrite
+
+        // DUP the array to preserve it (similar to compileMultiWrite)
+        try self.current_chunk.emitOp(.DUP, line);
+
+        // Count targets
+        const left_count = node.lefts.size;
+        const right_count = node.rights.size;
+
+        // Assign to left targets
+        var i: usize = 0;
+        while (i < left_count) : (i += 1) {
+            const target = try self.parser.asNode(node.lefts.nodes[i]);
+            try self.compileMultiTarget(target, @intCast(i), line);
+        }
+
+        // Handle splat operator
+        if (node.rest) |rest_ptr| {
+            const rest_node = try self.parser.asNode(@ptrCast(rest_ptr));
+            switch (rest_node) {
+                .splat => |splat| {
+                    if (splat.expression) |expr_ptr| {
+                        const target = try self.parser.asNode(@ptrCast(expr_ptr));
+                        try self.compileSplatAssignment(target, @intCast(left_count), @intCast(right_count), line);
+                    }
+                },
+                .implicit_rest => {},
+                else => {},
+            }
+        }
+
+        // Assign to right targets
+        i = 0;
+        while (i < right_count) : (i += 1) {
+            const target = try self.parser.asNode(node.rights.nodes[i]);
+            const negative_index: i64 = -@as(i64, @intCast(right_count - i));
+            try self.compileMultiTarget(target, negative_index, line);
+        }
+
+        // Pop the working array copy
+        try self.current_chunk.emitOp(.POP, line);
     }
 
     fn extractArrayElement(self: *Compiler, index: i64, line: u32) !void {
