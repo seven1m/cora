@@ -1402,6 +1402,20 @@ pub const VM = struct {
                 try self.push(.{ .data = .{ .hash = hash_obj } });
             },
 
+            .PUSH_RANGE => {
+                const exclude_end_flag = self.readByte();
+                const end_val = self.pop();
+                const begin_val = self.pop();
+
+                const range_val = try self.newRange(self.range_class);
+                const range_obj = range_val.data.range;
+                range_obj.begin = begin_val;
+                range_obj.end = end_val;
+                range_obj.exclude_end = exclude_end_flag != 0;
+
+                try self.push(range_val);
+            },
+
             .INTERPOLATE_STRING => {
                 const part_count = self.readByte();
 

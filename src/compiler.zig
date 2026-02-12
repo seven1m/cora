@@ -244,10 +244,6 @@ pub const Compiler = struct {
             },
 
             .range => |range_node| {
-                // Push Range class onto the stack
-                const range_name_idx = try self.current_chunk.addConstant(.{ .symbol = "Range" });
-                try self.current_chunk.emitOpU16(.GET_CONST, @intCast(range_name_idx), line);
-
                 // Compile left endpoint (nil for beginless)
                 if (range_node.left != null) {
                     const left_node = try self.parser.asNode(@ptrCast(range_node.left));
@@ -272,17 +268,10 @@ pub const Compiler = struct {
                     try self.current_chunk.emitOp(.PUSH_NIL, line);
                 }
 
-                // Exclude end flag
+                // Emit PUSH_RANGE with exclude_end flag
                 const exclude_end = (range_node.base.flags & prism.RANGE_FLAGS_EXCLUDE_END) != 0;
-                if (exclude_end) {
-                    try self.current_chunk.emitOp(.PUSH_TRUE, line);
-                } else {
-                    try self.current_chunk.emitOp(.PUSH_FALSE, line);
-                }
-
-                // Call Range.new(begin, end, exclude_end)
-                const method_idx = try self.current_chunk.addConstant(.{ .string = "new" });
-                try self.current_chunk.emitCall(@intCast(method_idx), 3, @intFromEnum(bytecode.ReceiverCallStyle.explicit), 0, line);
+                const exclude_end_flag: u8 = if (exclude_end) 1 else 0;
+                try self.current_chunk.emitOpU8(.PUSH_RANGE, exclude_end_flag, line);
             },
 
             .local_variable_read => |var_read| {
