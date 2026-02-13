@@ -63,3 +63,34 @@ test "Array inspect method" {
     try std.testing.expect(result.data == .string);
     try std.testing.expectEqualSlices(u8, "[1, 2, 3]", result.data.string.str);
 }
+
+test "Array literal evaluates elements left-to-right" {
+    const result = try evalCode(
+        \\class ArrayEvalOrder
+        \\  def initialize
+        \\    @seen = []
+        \\  end
+        \\  def t(n)
+        \\    @seen << n
+        \\    n
+        \\  end
+        \\  def seen
+        \\    @seen
+        \\  end
+        \\end
+        \\obj = ArrayEvalOrder.new
+        \\arr = [obj.t(1), obj.t(2), obj.t(3)]
+        \\[obj.seen, arr]
+    );
+    try std.testing.expect(result.data == .array);
+    const seen = result.data.array.elements.items[0];
+    const arr = result.data.array.elements.items[1];
+    try std.testing.expect(seen.data == .array);
+    try std.testing.expect(arr.data == .array);
+    try std.testing.expectEqual(@as(i64, 1), seen.data.array.elements.items[0].data.integer);
+    try std.testing.expectEqual(@as(i64, 2), seen.data.array.elements.items[1].data.integer);
+    try std.testing.expectEqual(@as(i64, 3), seen.data.array.elements.items[2].data.integer);
+    try std.testing.expectEqual(@as(i64, 1), arr.data.array.elements.items[0].data.integer);
+    try std.testing.expectEqual(@as(i64, 2), arr.data.array.elements.items[1].data.integer);
+    try std.testing.expectEqual(@as(i64, 3), arr.data.array.elements.items[2].data.integer);
+}

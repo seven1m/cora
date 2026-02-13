@@ -2,17 +2,6 @@
 
 Prioritized by prerequisites (items earlier unblock later ones).
 
-## 0) Critical runtime regression (do next)
-
-- [ ] Fix array literal element evaluation regression where chained method-call expressions can produce incorrect `nil` values.
-  - Repro (fails unexpectedly): `obj = RespondToMissingHookSpec.new; [obj.respond_to?(:to_s), obj.respond_to?(:dynamic_method), obj.calls.length]`
-  - Equivalent stepwise form currently works:
-    - `first = obj.respond_to?(:to_s)`
-    - `second = obj.respond_to?(:dynamic_method)`
-    - `calls = obj.calls`
-    - `[first, second, calls.length]`
-  - Expected: both forms produce identical results; no context-sensitive `nil` for `obj.calls`.
-
 ## 1) Compiler/parser blockers (must compile first)
 
 - [x] Add `FloatNode` support end-to-end.

@@ -228,3 +228,30 @@ test "Hash select without block raises error" {
     const result = evalCode("h = {a: 1}\nh.select");
     try std.testing.expectError(error.UnhandledException, result);
 }
+
+test "Hash literal evaluates pairs left-to-right" {
+    const result = try evalCode(
+        \\class HashEvalOrder
+        \\  def initialize
+        \\    @seen = []
+        \\  end
+        \\  def t(n)
+        \\    @seen << n
+        \\    n
+        \\  end
+        \\  def seen
+        \\    @seen
+        \\  end
+        \\end
+        \\obj = HashEvalOrder.new
+        \\h = { obj.t(1) => obj.t(2), obj.t(3) => obj.t(4) }
+        \\[obj.seen, h]
+    );
+    try std.testing.expect(result.data == .array);
+    const seen = result.data.array.elements.items[0];
+    try std.testing.expect(seen.data == .array);
+    try std.testing.expectEqual(@as(i64, 1), seen.data.array.elements.items[0].data.integer);
+    try std.testing.expectEqual(@as(i64, 2), seen.data.array.elements.items[1].data.integer);
+    try std.testing.expectEqual(@as(i64, 3), seen.data.array.elements.items[2].data.integer);
+    try std.testing.expectEqual(@as(i64, 4), seen.data.array.elements.items[3].data.integer);
+}

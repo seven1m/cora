@@ -275,6 +275,28 @@ test "Kernel#respond_to? include_private controls respond_to_missing? fallback" 
     try std.testing.expectEqual(false, result.data.array.elements.items[5].data.boolean);
 }
 
+test "Array literal preserves side effects across respond_to? calls" {
+    const result = try evalCode(
+        \\class RespondToMissingHookSpec
+        \\  def respond_to_missing?(name, include_private = false)
+        \\    @calls ||= []
+        \\    @calls << [name, include_private]
+        \\    name.to_s == "dynamic_method"
+        \\  end
+        \\
+        \\  def calls
+        \\    @calls
+        \\  end
+        \\end
+        \\obj = RespondToMissingHookSpec.new
+        \\[obj.respond_to?(:to_s), obj.respond_to?(:dynamic_method), obj.calls.length]
+    );
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(true, result.data.array.elements.items[0].data.boolean);
+    try std.testing.expectEqual(true, result.data.array.elements.items[1].data.boolean);
+    try std.testing.expectEqual(@as(i64, 1), result.data.array.elements.items[2].data.integer);
+}
+
 test "Kernel#send coerces method name via to_str" {
     const result = try evalCode(
         \\obj = Object.new

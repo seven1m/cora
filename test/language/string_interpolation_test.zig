@@ -50,3 +50,32 @@ test "Alternative %Q syntax with interpolation" {
     try std.testing.expect(result.data == .string);
     try std.testing.expectEqualSlices(u8, "Hello, Ruby!", result.data.string.str);
 }
+
+test "Interpolated string evaluates embedded expressions left-to-right" {
+    const result = try evalCode(
+        \\class InterpEvalOrder
+        \\  def initialize
+        \\    @seen = []
+        \\  end
+        \\  def t(n)
+        \\    @seen << n
+        \\    n
+        \\  end
+        \\  def seen
+        \\    @seen
+        \\  end
+        \\end
+        \\obj = InterpEvalOrder.new
+        \\s = "#{obj.t(1)}#{obj.t(2)}#{obj.t(3)}"
+        \\[obj.seen, s]
+    );
+    try std.testing.expect(result.data == .array);
+    const seen = result.data.array.elements.items[0];
+    const str = result.data.array.elements.items[1];
+    try std.testing.expect(seen.data == .array);
+    try std.testing.expect(str.data == .string);
+    try std.testing.expectEqual(@as(i64, 1), seen.data.array.elements.items[0].data.integer);
+    try std.testing.expectEqual(@as(i64, 2), seen.data.array.elements.items[1].data.integer);
+    try std.testing.expectEqual(@as(i64, 3), seen.data.array.elements.items[2].data.integer);
+    try std.testing.expectEqualSlices(u8, "123", str.data.string.str);
+}

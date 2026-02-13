@@ -1562,11 +1562,14 @@ pub const VM = struct {
                 const element_count = self.readByte();
 
                 const array_obj = try self.createArray();
+                if (self.stack.items.len < element_count) return error.Fatal;
+                array_obj.elements.ensureTotalCapacity(self.gc_allocator, element_count) catch return error.Fatal;
+                array_obj.elements.items.len = element_count;
 
-                var i: usize = 0;
-                while (i < element_count) : (i += 1) {
-                    const elem = self.pop();
-                    array_obj.elements.append(self.gc_allocator, elem) catch return error.Fatal;
+                var dst = element_count;
+                while (dst > 0) {
+                    dst -= 1;
+                    array_obj.elements.items[dst] = self.pop();
                 }
 
                 try self.push(.{ .data = .{ .array = array_obj } });
@@ -1607,11 +1610,15 @@ pub const VM = struct {
                 const pair_count = self.readByte();
 
                 const hash_obj = try self.createHash();
+                const needed: usize = pair_count * 2;
+                if (self.stack.items.len < needed) return error.Fatal;
+                const start = self.stack.items.len - needed;
+                const pairs = self.stack.items[start..];
 
                 var i: usize = 0;
                 while (i < pair_count) : (i += 1) {
-                    const key = self.pop();
-                    const val = self.pop();
+                    const key = pairs[i * 2];
+                    const val = pairs[i * 2 + 1];
 
                     const key_hash = key.hash();
 
@@ -1629,6 +1636,7 @@ pub const VM = struct {
                     }) catch return error.Fatal;
                     hash_obj.map.put(key_hash, new_idx) catch return error.Fatal;
                 }
+                self.stack.items.len = start;
 
                 try self.push(.{ .data = .{ .hash = hash_obj } });
             },
@@ -1653,10 +1661,11 @@ pub const VM = struct {
                 var buf: std.ArrayList(u8) = .empty;
                 defer buf.deinit(self.allocator);
                 const writer = buf.writer(self.allocator);
-
+                if (self.stack.items.len < part_count) return error.Fatal;
+                const start = self.stack.items.len - part_count;
                 var i: usize = 0;
                 while (i < part_count) : (i += 1) {
-                    const val = self.pop();
+                    const val = self.stack.items[start + i];
                     const str_val = self.callMethodByName(val, "to_s", &[_]Value{}, null) catch |err| {
                         if (err == error.Unwind and self.pending_exception != null) {
                             return error.Unwind;
@@ -1670,6 +1679,7 @@ pub const VM = struct {
                     }
                     writer.writeAll(str_val.data.string.str) catch return error.Fatal;
                 }
+                self.stack.items.len = start;
 
                 const final_str = buf.toOwnedSlice(self.allocator) catch return error.Fatal;
                 defer self.allocator.free(final_str);

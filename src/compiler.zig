@@ -507,12 +507,10 @@ pub const Compiler = struct {
             },
 
             .array => |array_node| {
-                // Compile array elements in reverse order
-                // (so they're in correct order when popped from stack)
                 const element_count: u8 = @intCast(array_node.elements.size);
-                var i: i32 = @intCast(array_node.elements.size);
-                while (i > 0) : (i -= 1) {
-                    const elem = array_node.elements.nodes[@intCast(i - 1)];
+                var i: usize = 0;
+                while (i < array_node.elements.size) : (i += 1) {
+                    const elem = array_node.elements.nodes[i];
                     const elem_node = try self.parser.asNode(elem);
                     try self.compileNode(elem_node, line);
                 }
@@ -527,10 +525,10 @@ pub const Compiler = struct {
                     return error.TooManyHashPairs;
                 }
 
-                // Compile key-value pairs in reverse order
-                var i: i32 = @intCast(hash_node.elements.size);
-                while (i > 0) : (i -= 1) {
-                    const assoc_raw = hash_node.elements.nodes[@intCast(i - 1)];
+                // Compile key-value pairs left-to-right so side effects run in source order.
+                var i: usize = 0;
+                while (i < hash_node.elements.size) : (i += 1) {
+                    const assoc_raw = hash_node.elements.nodes[i];
                     const assoc_node = try self.parser.asNode(assoc_raw);
 
                     // Each element should be an AssocNode
@@ -538,13 +536,12 @@ pub const Compiler = struct {
                         return error.ExpectedAssocNode;
                     }
 
-                    // Compile value first
-                    const value_node = try self.parser.asNode(@ptrCast(assoc_node.assoc.value));
-                    try self.compileNode(value_node, line);
-
-                    // Compile key second
+                    // Compile key first, then value (Ruby evaluation order).
                     const key_node = try self.parser.asNode(@ptrCast(assoc_node.assoc.key));
                     try self.compileNode(key_node, line);
+
+                    const value_node = try self.parser.asNode(@ptrCast(assoc_node.assoc.value));
+                    try self.compileNode(value_node, line);
                 }
 
                 // Emit PUSH_HASH with pair count
@@ -778,15 +775,11 @@ pub const Compiler = struct {
         }
         const part_count: u8 = @intCast(parts.size);
 
-        if (part_count == 0) {
-            const idx = try self.current_chunk.addConstant(.{ .string = "" });
-            try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(idx), line);
-            return 0;
-        }
+        if (part_count == 0) return 0;
 
-        var i: i32 = @intCast(parts.size);
-        while (i > 0) : (i -= 1) {
-            const part = parts.nodes[@intCast(i - 1)];
+        var i: usize = 0;
+        while (i < parts.size) : (i += 1) {
+            const part = parts.nodes[i];
             const part_node = try self.parser.asNode(part);
 
             switch (part_node) {
