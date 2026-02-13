@@ -2213,6 +2213,26 @@ pub const Compiler = struct {
         return null;
     }
 
+    fn compileRescueTypeExpressionChunk(self: *Compiler, expression: prism.Node, line: u32) !chunk.ChunkId {
+        const rescue_type_chunk_ptr = try self.allocator.create(Chunk);
+        rescue_type_chunk_ptr.* = Chunk.init(self.allocator, "rescue_type");
+        rescue_type_chunk_ptr.source_file = self.parser.source_file;
+
+        const rescue_type_chunk_id = try self.nextChunkId();
+        rescue_type_chunk_ptr.chunk_id = rescue_type_chunk_id;
+        try self.method_chunks.put(rescue_type_chunk_id, rescue_type_chunk_ptr);
+
+        const saved_chunk = self.current_chunk;
+        self.current_chunk = rescue_type_chunk_ptr;
+        errdefer self.current_chunk = saved_chunk;
+
+        try self.compileNode(expression, line);
+        try self.current_chunk.emitOpU8(.RETURN, 0, line);
+
+        self.current_chunk = saved_chunk;
+        return rescue_type_chunk_id;
+    }
+
     fn compileBeginNode(self: *Compiler, begin_node: *prism.BeginNode, line: u32) !void {
         // Create exception handler entry
         const handler_idx = self.current_chunk.exception_handlers.items.len;
@@ -2249,8 +2269,8 @@ pub const Compiler = struct {
 
             const catch_ip = self.current_chunk.code.items.len;
 
-            // Collect exception types (if any)
-            var exception_types: std.ArrayList(u16) = .empty;
+            // Collect exception type expression chunks (if any)
+            var exception_type_expr_chunks: std.ArrayList(chunk.ChunkId) = .empty;
 
             // Check if there are exception types specified
             if (rescue_node.exceptions.size > 0) {
@@ -2258,20 +2278,8 @@ pub const Compiler = struct {
                 while (i < rescue_node.exceptions.size) : (i += 1) {
                     const exc_node_raw = rescue_node.exceptions.nodes[i];
                     const exc_node = try self.parser.asNode(exc_node_raw);
-
-                    // For now, we store the constant index for the exception class name
-                    // The VM will resolve it at runtime
-                    switch (exc_node) {
-                        .constant_read => |const_read| {
-                            const name = try self.parser.getConstantName(const_read.name);
-                            const idx = try self.current_chunk.addConstant(.{ .string = name });
-                            try exception_types.append(self.allocator, @intCast(idx));
-                        },
-                        else => {
-                            std.debug.print("Error: unsupported exception type node\n", .{});
-                            return error.UnsupportedNode;
-                        },
-                    }
+                    const type_chunk_id = try self.compileRescueTypeExpressionChunk(exc_node, line);
+                    try exception_type_expr_chunks.append(self.allocator, type_chunk_id);
                 }
             }
             // If no exception types, it's a bare rescue (catches StandardError)
@@ -2322,7 +2330,7 @@ pub const Compiler = struct {
 
             // Store rescue handler info
             try rescue_handlers.append(self.allocator, .{
-                .exception_types = exception_types,
+                .exception_type_expr_chunks = exception_type_expr_chunks,
                 .catch_ip = catch_ip,
                 .catch_end_ip = catch_end_ip,
                 .var_idx = if (var_idx == 255) null else var_idx,
@@ -2425,7 +2433,7 @@ pub const Compiler = struct {
         const catch_ip = self.current_chunk.code.items.len;
 
         // No specific exception types means bare rescue (StandardError)
-        const exception_types: std.ArrayList(u16) = .empty;
+        const exception_type_expr_chunks: std.ArrayList(chunk.ChunkId) = .empty;
 
         // No variable binding for rescue modifier
         const var_idx: u8 = 255; // 255 means no binding
@@ -2447,7 +2455,7 @@ pub const Compiler = struct {
         // Create the rescue handler
         var rescue_handlers: std.ArrayList(chunk.RescueHandler) = .empty;
         try rescue_handlers.append(self.allocator, .{
-            .exception_types = exception_types,
+            .exception_type_expr_chunks = exception_type_expr_chunks,
             .catch_ip = catch_ip,
             .catch_end_ip = catch_end_ip,
             .var_idx = null,

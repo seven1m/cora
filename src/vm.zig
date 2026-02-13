@@ -3601,30 +3601,32 @@ pub const VM = struct {
 
     /// Unwind the call stack looking for exception handlers
     pub fn unwindStack(self: *VM) VMError!void {
-        while (self.frames.items.len > 0) {
+        if (try self.unwindStackUntilFrameDepth(0)) {
+            return;
+        }
+
+        // No handler was found in any frame.
+        // Caller (main.zig) will print the unhandled exception.
+        return error.UnhandledException;
+    }
+
+    fn unwindStackUntilFrameDepth(self: *VM, min_frame_len: usize) VMError!bool {
+        while (self.frames.items.len > min_frame_len) {
             const frame_idx = self.frames.items.len - 1;
-            const frame = &self.frames.items[frame_idx];
 
-            // Look for an exception handler in this frame
-            if (try self.findExceptionHandler(frame)) |handler_info| {
-
-                // Found a matching handler
+            if (try self.findExceptionHandler(frame_idx)) |handler_info| {
                 if (handler_info.rescue_idx) |rescue_idx| {
-                    // Jump to rescue clause
                     const rescue_handler = &handler_info.handler.rescue_handlers.items[rescue_idx];
-                    frame.ip = rescue_handler.catch_ip;
-                    return; // Stop unwinding
+                    self.frames.items[frame_idx].ip = rescue_handler.catch_ip;
+                    return true;
                 } else if (handler_info.handler.ensure_ip) |ensure_ip| {
-                    // No matching rescue, but there's an ensure block
-                    frame.ip = ensure_ip;
-                    return; // Execute ensure, then continue unwinding
+                    self.frames.items[frame_idx].ip = ensure_ip;
+                    return true;
                 }
             }
 
-            // No handler in this frame, pop it and continue
             _ = self.frames.pop();
 
-            // Restore stack to frame base
             if (self.frames.items.len > 0) {
                 const prev_frame = &self.frames.items[self.frames.items.len - 1];
                 self.stack.shrinkRetainingCapacity(prev_frame.stack_base);
@@ -3633,51 +3635,143 @@ pub const VM = struct {
             }
         }
 
-        // If we get here, no handler was found - return error
-        // Caller (main.zig) will print the unhandled exception
-        return error.UnhandledException;
+        return false;
+    }
+
+    fn executeRescueTypeExpression(
+        self: *VM,
+        rescue_type_chunk: *const Chunk,
+        env: *Environment,
+        self_value: Value,
+    ) VMError!Value {
+        const saved_stack_len = self.stack.items.len;
+        const base_frame_len = self.frames.items.len;
+
+        const rescue_type_frame = CallFrame{
+            .chunk = @constCast(rescue_type_chunk),
+            .ip = 0,
+            .stack_base = self.stack.items.len,
+            .self_value = self_value,
+            .ep = env,
+            .frame_type = .method,
+            .block = null,
+        };
+
+        self.frames.append(self.gc_allocator, rescue_type_frame) catch return error.Fatal;
+
+        const target_frame_depth = self.frames.items.len;
+        while (self.frames.items.len >= target_frame_depth) {
+            self.executeInstruction() catch |err| switch (err) {
+                error.Unwind => {
+                    const handled = try self.unwindStackUntilFrameDepth(base_frame_len);
+                    if (!handled) {
+                        return error.Unwind;
+                    }
+                },
+                else => return err,
+            };
+        }
+
+        const rescue_type = if (self.stack.items.len > saved_stack_len)
+            self.pop()
+        else
+            Value.nil();
+
+        return rescue_type;
+    }
+
+    fn matchesExceptionClassOrModule(self: *VM, exception: *value.ExceptionObject, rescue_type: Value) VMError!bool {
+        switch (rescue_type.data) {
+            .class => |type_class| {
+                return self.matchesException(exception, type_class);
+            },
+            .module => |type_module| {
+                var current_class: ?*ClassObject = exception.object.class;
+                while (current_class) |class| {
+                    if (&class.module == type_module) {
+                        return true;
+                    }
+                    for (class.prepended_modules.items) |module| {
+                        if (module == type_module) return true;
+                    }
+                    for (class.included_modules.items) |module| {
+                        if (module == type_module) return true;
+                    }
+                    current_class = class.superclass;
+                }
+                return false;
+            },
+            else => return self.raiseExceptionFmt(self.type_error_class, "class or module required for rescue clause", .{}),
+        }
     }
 
     /// Find an exception handler in the current frame
-    fn findExceptionHandler(self: *VM, frame: *CallFrame) VMError!?struct {
+    fn findExceptionHandler(self: *VM, frame_idx: usize) VMError!?struct {
         handler: *chunk.ExceptionHandler,
         rescue_idx: ?usize,
     } {
+        const frame = self.frames.items[frame_idx];
         const ip = frame.ip;
+        const frame_ep = frame.ep;
+        const frame_self = frame.self_value;
+        const frame_chunk = frame.chunk;
 
         // Search the exception handler table
-        for (frame.chunk.exception_handlers.items) |*handler| {
+        for (frame_chunk.exception_handlers.items) |*handler| {
 
             // Check if IP is in the protected region
             if (ip >= handler.try_start_ip and ip < handler.try_end_ip) {
                 // Search for a matching rescue handler
                 for (handler.rescue_handlers.items, 0..) |*rescue, idx| {
                     // Check if exception matches any of the rescue types
-                    if (rescue.exception_types.items.len == 0) {
+                    if (rescue.exception_type_expr_chunks.items.len == 0) {
                         // Bare rescue catches StandardError
                         if (self.matchesException(self.pending_exception.?, self.standard_error_class)) {
                             return .{ .handler = handler, .rescue_idx = idx };
                         }
                     } else {
-                        // Check each specified exception type
-                        for (rescue.exception_types.items) |const_idx| {
-                            // Resolve the constant to get the exception class name
-                            const constant = frame.chunk.constants.items[const_idx];
-                            if (constant != .string) continue;
+                        var rescue_eval_raised = false;
 
-                            const class_name = constant.string;
+                        // Check each specified exception type expression
+                        for (rescue.exception_type_expr_chunks.items) |type_expr_chunk_id| {
+                            const rescue_type_chunk = self.program.method_chunks.get(type_expr_chunk_id) orelse {
+                                return error.Fatal;
+                            };
 
-                            // Look up the class by name in Object's constants
-                            const class_name_sym = self.intern(class_name) catch return error.Fatal;
-                            const class_val = self.object_class.module.constants.get(class_name_sym) orelse continue;
+                            const rescue_type = self.executeRescueTypeExpression(rescue_type_chunk, frame_ep, frame_self) catch |err| {
+                                switch (err) {
+                                    error.Unwind => {
+                                        rescue_eval_raised = true;
+                                        break;
+                                    },
+                                    else => return err,
+                                }
+                            };
 
-                            if (class_val.data != .class) continue;
-                            const exception_class = class_val.data.class;
+                            if (rescue_eval_raised) break;
 
-                            // Check if the current exception matches this class
-                            if (self.matchesException(self.pending_exception.?, exception_class)) {
+                            const matches = self.matchesExceptionClassOrModule(self.pending_exception.?, rescue_type) catch |err| {
+                                switch (err) {
+                                    error.Unwind => {
+                                        rescue_eval_raised = true;
+                                        break;
+                                    },
+                                    else => return err,
+                                }
+                            };
+
+                            if (rescue_eval_raised) break;
+
+                            if (matches) {
                                 return .{ .handler = handler, .rescue_idx = idx };
                             }
+                        }
+
+                        if (rescue_eval_raised) {
+                            if (handler.ensure_ip != null) {
+                                return .{ .handler = handler, .rescue_idx = null };
+                            }
+                            return null;
                         }
                     }
                 }

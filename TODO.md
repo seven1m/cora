@@ -16,7 +16,7 @@ Prioritized by prerequisites (items earlier unblock later ones).
 - [x] Add `XStringNode` / `InterpolatedXStringNode` (backtick command literals).
   - Evidence: `../natalie/test/support/spec.rb:259`, `../natalie/test/support/spec.rb:264`, `../natalie/test/support/spec.rb:480`
   - Verified failure: `UnhandledNode: XStringNode`.
-- [ ] Extend rescue exception-type compilation to allow dynamic expressions (e.g. ivar/class expression), not only simple constant forms.
+- [x] Extend rescue exception-type compilation to allow dynamic expressions (e.g. ivar/class expression), not only simple constant forms.
   - Evidence: `../natalie/test/support/spec.rb:920`, `../natalie/test/support/spec.rb:946` (`rescue @klass => e`)
   - Verified failure with snippet: `unsupported exception type node`.
 

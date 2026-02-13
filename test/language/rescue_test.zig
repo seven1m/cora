@@ -181,6 +181,61 @@ test "Multiple exception types in one rescue clause" {
     try std.testing.expectEqual(@as(i64, 99), result.data.integer);
 }
 
+test "Rescue with dynamic ivar exception type matches" {
+    const result = try evalCode(
+        \\@klass = TypeError
+        \\begin
+        \\  1 + "string"
+        \\rescue @klass
+        \\  123
+        \\end
+    );
+    try std.testing.expectEqual(@as(i64, 123), result.data.integer);
+}
+
+test "Rescue with arbitrary expression exception type matches" {
+    const result = try evalCode(
+        \\begin
+        \\  raise "boom"
+        \\rescue (-> { StandardError }.call) => e
+        \\  124
+        \\end
+    );
+    try std.testing.expectEqual(@as(i64, 124), result.data.integer);
+}
+
+test "Rescue with module exception type matches" {
+    const result = try evalCode(
+        \\module Marker; end
+        \\class CustomError < RuntimeError
+        \\  include Marker
+        \\end
+        \\begin
+        \\  raise CustomError, "boom"
+        \\rescue Marker
+        \\  125
+        \\end
+    );
+    try std.testing.expectEqual(@as(i64, 125), result.data.integer);
+}
+
+test "Rescue with invalid exception type raises TypeError" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+
+    const result = evalCodeWithOutput(
+        \\@klass = 123
+        \\begin
+        \\  raise "boom"
+        \\rescue @klass
+        \\  0
+        \\end
+    , &stdout_buf, &stderr_buf);
+
+    try std.testing.expectEqual(error.UnhandledException, result.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "TypeError: class or module required for rescue clause") != null);
+}
+
 test "Rescue with variable binding works" {
     const result = try evalCode(
         \\begin

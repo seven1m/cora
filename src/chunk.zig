@@ -20,7 +20,7 @@ pub const Constant = union(enum) {
 };
 
 pub const RescueHandler = struct {
-    exception_types: std.ArrayList(u16) = .empty, // Constant pool indices for exception classes
+    exception_type_expr_chunks: std.ArrayList(ChunkId) = .empty, // Chunk IDs for rescue type expressions
     catch_ip: usize, // IP to jump to for this rescue
     catch_end_ip: usize, // End of rescue clause
     var_idx: ?u8, // Local var index for exception binding (=> e)
@@ -112,7 +112,7 @@ pub const Chunk = struct {
         // Free exception handler tables
         for (self.exception_handlers.items) |*handler| {
             for (handler.rescue_handlers.items) |*rescue| {
-                rescue.exception_types.deinit(self.allocator);
+                rescue.exception_type_expr_chunks.deinit(self.allocator);
             }
             handler.rescue_handlers.deinit(self.allocator);
         }
