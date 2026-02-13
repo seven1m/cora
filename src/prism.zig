@@ -26,6 +26,7 @@ pub const EnsureNode = c.pm_ensure_node_t;
 pub const FalseNode = c.pm_false_node_t;
 pub const IfNode = c.pm_if_node_t;
 pub const IntegerNode = c.pm_integer_node_t;
+pub const FloatNode = c.pm_float_node_t;
 pub const LocalVariableReadNode = c.pm_local_variable_read_node_t;
 pub const LocalVariableTargetNode = c.pm_local_variable_target_node_t;
 pub const LocalVariableWriteNode = c.pm_local_variable_write_node_t;
@@ -117,6 +118,7 @@ pub const Node = union(enum) {
     false_node: *FalseNode,
     if_node: *IfNode,
     integer: *IntegerNode,
+    float: *FloatNode,
     local_variable_read: *LocalVariableReadNode,
     local_variable_target: *LocalVariableTargetNode,
     local_variable_and_write: *LocalVariableAndWriteNode,
@@ -255,6 +257,10 @@ pub const Parser = struct {
 
         if (node_type == c.PM_INTEGER_NODE) {
             return Node{ .integer = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_FLOAT_NODE) {
+            return Node{ .float = @ptrCast(raw) };
         }
 
         if (node_type == c.PM_SYMBOL_NODE) {

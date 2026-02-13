@@ -9,6 +9,19 @@ const VMError = vm_mod.VMError;
 const Block = vm_mod.Block;
 const Value = value.Value;
 
+const NumericArg = union(enum) {
+    integer: i64,
+    float: f64,
+};
+
+fn coerceNumericArg(vm: *VM, arg: Value) VMError!NumericArg {
+    return switch (arg.data) {
+        .integer => |i| .{ .integer = i },
+        .float => |f| .{ .float = f },
+        else => vm.raiseExceptionFmt(vm.type_error_class, "argument is not numeric", .{}),
+    };
+}
+
 pub fn register(vm: *VM) !void {
     const plus_sym = try vm.intern("+");
     try vm.integer_class.module.methods.put(plus_sym, .{ .method = .{ .builtin = &builtinIntegerPlus } });
@@ -63,33 +76,51 @@ pub fn register(vm: *VM) !void {
 }
 
 pub fn builtinIntegerPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireSingleArg(args, .integer, "Integer");
-    const result = receiver.data.integer + args[0].data.integer;
-    return Value.integer(result);
+    try vm.requireArgCount(args, 1);
+    const lhs = receiver.data.integer;
+    const rhs = try coerceNumericArg(vm, args[0]);
+    return switch (rhs) {
+        .integer => |i| Value.integer(lhs + i),
+        .float => |f| Value.float(@as(f64, @floatFromInt(lhs)) + f),
+    };
 }
 
 pub fn builtinIntegerMinus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireSingleArg(args, .integer, "Integer");
-    const result = receiver.data.integer - args[0].data.integer;
-    return Value.integer(result);
+    try vm.requireArgCount(args, 1);
+    const lhs = receiver.data.integer;
+    const rhs = try coerceNumericArg(vm, args[0]);
+    return switch (rhs) {
+        .integer => |i| Value.integer(lhs - i),
+        .float => |f| Value.float(@as(f64, @floatFromInt(lhs)) - f),
+    };
 }
 
 pub fn builtinIntegerMultiply(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireSingleArg(args, .integer, "Integer");
-    const result = receiver.data.integer * args[0].data.integer;
-    return Value.integer(result);
+    try vm.requireArgCount(args, 1);
+    const lhs = receiver.data.integer;
+    const rhs = try coerceNumericArg(vm, args[0]);
+    return switch (rhs) {
+        .integer => |i| Value.integer(lhs * i),
+        .float => |f| Value.float(@as(f64, @floatFromInt(lhs)) * f),
+    };
 }
 
 pub fn builtinIntegerDivide(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireSingleArg(args, .integer, "Integer");
-    const divisor = args[0].data.integer;
-    if (divisor == 0) {
-        return vm.raiseExceptionFmt(vm.zero_division_error_class, "divided by 0", .{});
-    }
-    const result = std.math.divFloor(i64, receiver.data.integer, divisor) catch {
-        return vm.raiseExceptionFmt(vm.range_error_class, "integer overflow", .{});
+    try vm.requireArgCount(args, 1);
+    const lhs = receiver.data.integer;
+    const rhs = try coerceNumericArg(vm, args[0]);
+    return switch (rhs) {
+        .integer => |divisor| blk: {
+            if (divisor == 0) {
+                return vm.raiseExceptionFmt(vm.zero_division_error_class, "divided by 0", .{});
+            }
+            const result = std.math.divFloor(i64, lhs, divisor) catch {
+                return vm.raiseExceptionFmt(vm.range_error_class, "integer overflow", .{});
+            };
+            break :blk Value.integer(result);
+        },
+        .float => |divisor| Value.float(@as(f64, @floatFromInt(lhs)) / divisor),
     };
-    return Value.integer(result);
 }
 
 pub fn builtinIntegerModulo(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -138,33 +169,53 @@ pub fn builtinIntegerPower(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 }
 
 pub fn builtinIntegerEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireSingleArg(args, .integer, "Integer");
-    const result = receiver.data.integer == args[0].data.integer;
-    return Value.boolean(result);
+    try vm.requireArgCount(args, 1);
+    const lhs = receiver.data.integer;
+    const rhs = coerceNumericArg(vm, args[0]) catch return Value.boolean(false);
+    return switch (rhs) {
+        .integer => |i| Value.boolean(lhs == i),
+        .float => |f| Value.boolean(@as(f64, @floatFromInt(lhs)) == f),
+    };
 }
 
 pub fn builtinIntegerLessThan(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireSingleArg(args, .integer, "Integer");
-    const result = receiver.data.integer < args[0].data.integer;
-    return Value.boolean(result);
+    try vm.requireArgCount(args, 1);
+    const lhs = receiver.data.integer;
+    const rhs = try coerceNumericArg(vm, args[0]);
+    return switch (rhs) {
+        .integer => |i| Value.boolean(lhs < i),
+        .float => |f| Value.boolean(@as(f64, @floatFromInt(lhs)) < f),
+    };
 }
 
 pub fn builtinIntegerLessThanOrEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireSingleArg(args, .integer, "Integer");
-    const result = receiver.data.integer <= args[0].data.integer;
-    return Value.boolean(result);
+    try vm.requireArgCount(args, 1);
+    const lhs = receiver.data.integer;
+    const rhs = try coerceNumericArg(vm, args[0]);
+    return switch (rhs) {
+        .integer => |i| Value.boolean(lhs <= i),
+        .float => |f| Value.boolean(@as(f64, @floatFromInt(lhs)) <= f),
+    };
 }
 
 pub fn builtinIntegerGreaterThan(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireSingleArg(args, .integer, "Integer");
-    const result = receiver.data.integer > args[0].data.integer;
-    return Value.boolean(result);
+    try vm.requireArgCount(args, 1);
+    const lhs = receiver.data.integer;
+    const rhs = try coerceNumericArg(vm, args[0]);
+    return switch (rhs) {
+        .integer => |i| Value.boolean(lhs > i),
+        .float => |f| Value.boolean(@as(f64, @floatFromInt(lhs)) > f),
+    };
 }
 
 pub fn builtinIntegerGreaterThanOrEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireSingleArg(args, .integer, "Integer");
-    const result = receiver.data.integer >= args[0].data.integer;
-    return Value.boolean(result);
+    try vm.requireArgCount(args, 1);
+    const lhs = receiver.data.integer;
+    const rhs = try coerceNumericArg(vm, args[0]);
+    return switch (rhs) {
+        .integer => |i| Value.boolean(lhs >= i),
+        .float => |f| Value.boolean(@as(f64, @floatFromInt(lhs)) >= f),
+    };
 }
 
 pub fn builtinIntegerToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

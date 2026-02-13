@@ -147,6 +147,11 @@ pub const Compiler = struct {
                 try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(idx), line);
             },
 
+            .float => |float_node| {
+                const idx = try self.current_chunk.addConstant(.{ .float = float_node.value });
+                try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(idx), line);
+            },
+
             .string => |string_node| {
                 const str_val = string_node.unescaped;
                 const str_slice = str_val.source[0..str_val.length];

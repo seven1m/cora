@@ -506,7 +506,7 @@ pub fn builtinKernelSingletonClass(vm: *VM, receiver: Value, args: []Value, _: ?
     switch (receiver.data) {
         .nil => return .{ .data = .{ .class = vm.nil_class } },
         .boolean => |b| return .{ .data = .{ .class = if (b) vm.true_class else vm.false_class } },
-        .integer, .symbol => return vm.raiseExceptionFmt(vm.type_error_class, "can't define singleton", .{}),
+        .integer, .float, .symbol => return vm.raiseExceptionFmt(vm.type_error_class, "can't define singleton", .{}),
         else => {},
     }
 

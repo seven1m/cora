@@ -156,6 +156,7 @@ pub const Value = struct {
         hash: *HashObject,
         instance: *Object,
         integer: i64,
+        float: f64,
         module: *ModuleObject,
         nil: void,
         proc: *ProcObject,
@@ -168,7 +169,7 @@ pub const Value = struct {
     pub fn isFrozen(self: Value) bool {
         return switch (self.data) {
             // Primitives are always frozen
-            .integer, .nil, .boolean => true,
+            .integer, .float, .nil, .boolean => true,
             // Encoding objects are always frozen (singletons)
             .encoding => true,
             // Regexp literals are always frozen (like in Ruby)
@@ -221,7 +222,7 @@ pub const Value = struct {
             .proc => |p| &p.object,
             .range => |r| &r.object,
             .regexp => |r| &r.object,
-            .integer, .nil, .boolean => null,
+            .integer, .float, .nil, .boolean => null,
         };
     }
 
@@ -251,6 +252,7 @@ pub const Value = struct {
             break :blk @intCast(@intFromPtr(ptr));
         } else switch (self.data) {
             .integer => |i| (i << 1) | 1,
+            .float => |f| @bitCast(f),
             .boolean => |b| if (b) 20 else 0,
             .nil => 8,
             else => unreachable,
@@ -269,6 +271,10 @@ pub const Value = struct {
         return .{ .data = .{ .integer = value } };
     }
 
+    pub fn float(value: f64) Value {
+        return .{ .data = .{ .float = value } };
+    }
+
     pub fn is_truthy(self: Value) bool {
         return switch (self.data) {
             .nil => false,
@@ -280,6 +286,7 @@ pub const Value = struct {
     pub fn format(self: Value, writer: *std.Io.Writer) !void {
         switch (self.data) {
             .integer => |i| try writer.print("{d}", .{i}),
+            .float => |f| try writer.print("{d}", .{f}),
             .string => |s| try writer.print("\"{s}\"", .{s}),
             .symbol => |s| try writer.print(":{s}", .{s.name}),
             .boolean => |b| try writer.print("{s}", .{if (b) "true" else "false"}),
@@ -317,6 +324,7 @@ pub const Value = struct {
     pub fn hash(self: Value) u64 {
         return switch (self.data) {
             .integer => |i| @bitCast(@as(i64, i)),
+            .float => |f| @bitCast(f),
             .boolean => |b| if (b) 1 else 0,
             .nil => 0,
             .symbol => |s| @intFromPtr(s),
@@ -334,6 +342,7 @@ pub const Value = struct {
 
         return switch (self.data) {
             .integer => |i| i == other.data.integer,
+            .float => |f| f == other.data.float,
             .boolean => |b| b == other.data.boolean,
             .nil => true,
             .symbol => |s| s == other.data.symbol,

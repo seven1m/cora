@@ -14,6 +14,7 @@ pub const MAX_CHUNK_ID: ChunkId = BLOCK_ARG_ON_STACK - 1;
 
 pub const Constant = union(enum) {
     integer: i64,
+    float: f64,
     string: []const u8,
     symbol: []const u8,
 };
@@ -353,6 +354,7 @@ pub const Chunk = struct {
                 try writer.print("{d}=", .{i});
                 switch (constant) {
                     .integer => |int_val| try writer.print("{d}", .{int_val}),
+                    .float => |float_val| try writer.print("{d}", .{float_val}),
                     .string => |str| try writer.print("\"{s}\"", .{str}),
                     .symbol => |sym| try writer.print(":{s}", .{sym}),
                 }
@@ -396,6 +398,7 @@ pub const Chunk = struct {
                     const constant = self.constants.items[idx];
                     switch (constant) {
                         .integer => |i| try writer.print(" ({d})", .{i}),
+                        .float => |f| try writer.print(" ({d})", .{f}),
                         .string => |s| try writer.print(" (\"{s}\")", .{s}),
                         .symbol => |s| try writer.print(" (:{s})", .{s}),
                     }

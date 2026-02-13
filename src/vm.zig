@@ -102,6 +102,7 @@ pub const VM = struct {
     basic_object_class: *value.ClassObject,
     class_class: *value.ClassObject,
     integer_class: *value.ClassObject,
+    float_class: *value.ClassObject,
     module_class: *value.ClassObject,
     numeric_class: *value.ClassObject,
     object_class: *value.ClassObject,
@@ -183,6 +184,7 @@ pub const VM = struct {
             .basic_object_class = undefined,
             .class_class = undefined,
             .integer_class = undefined,
+            .float_class = undefined,
             .module_class = undefined,
             .numeric_class = undefined,
             .object_class = undefined,
@@ -268,6 +270,10 @@ pub const VM = struct {
         const integer_name_sym = try self.intern("Integer");
         const integer_class_val = try self.newClass(integer_name_sym, self.numeric_class);
         self.integer_class = integer_class_val.data.class;
+
+        const float_name_sym = try self.intern("Float");
+        const float_class_val = try self.newClass(float_name_sym, self.numeric_class);
+        self.float_class = float_class_val.data.class;
 
         const string_name_sym = try self.intern("String");
         const string_class_val = try self.newClass(string_name_sym, self.object_class);
@@ -390,6 +396,7 @@ pub const VM = struct {
         self.object_class.module.constants.put(module_name_sym, module_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(numeric_name_sym, numeric_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(integer_name_sym, integer_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(float_name_sym, float_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(string_name_sym, string_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(symbol_name_sym, symbol_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(array_name_sym, array_class_val) catch return error.Fatal;
@@ -702,6 +709,7 @@ pub const VM = struct {
     fn constantToValue(self: *VM, constant: chunk.Constant) VMError!Value {
         return switch (constant) {
             .integer => |i| Value.integer(i),
+            .float => |f| Value.float(f),
             .string => |s| try self.newString(s, true),
             .symbol => |s| Value{ .data = .{ .symbol = (try self.intern(s)) } },
         };
@@ -2262,6 +2270,7 @@ pub const VM = struct {
 
             // Primitives without Object headers - hardcode the class
             .integer => return self.integer_class,
+            .float => return self.float_class,
             .nil => return self.nil_class,
             .boolean => |b| if (b) return self.true_class else return self.false_class,
         }
@@ -2282,7 +2291,7 @@ pub const VM = struct {
             .fiber => |f| &f.object,
             .range => |r| &r.object,
             .regexp => |r| &r.object,
-            .integer, .nil, .boolean => null,
+            .integer, .float, .nil, .boolean => null,
         };
     }
 
@@ -2505,7 +2514,7 @@ pub const VM = struct {
             .proc => self.proc_class,
             .fiber => self.fiber_class,
             .regexp => self.regexp_class,
-            .integer, .boolean, .nil => unreachable, // Primitives can't have singleton classes
+            .integer, .float, .boolean, .nil => unreachable, // Primitives can't have singleton classes
         };
 
         // Create the singleton ClassObject

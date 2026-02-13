@@ -283,7 +283,7 @@ test "Kernel#singleton_class returns NilClass/TrueClass/FalseClass for immediate
     try std.testing.expectEqualStrings("FalseClass", result.data.class.module.name.name);
 }
 
-test "Kernel#singleton_class raises TypeError for Integer and Symbol" {
+test "Kernel#singleton_class raises TypeError for Integer, Float, and Symbol" {
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;
 
@@ -292,6 +292,10 @@ test "Kernel#singleton_class raises TypeError for Integer and Symbol" {
     try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "TypeError") != null);
 
     bad = evalCodeWithOutput(":foo.singleton_class", &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.UnhandledException, bad.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "TypeError") != null);
+
+    bad = evalCodeWithOutput("1.5.singleton_class", &stdout_buf, &stderr_buf);
     try std.testing.expectEqual(error.UnhandledException, bad.err.?);
     try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "TypeError") != null);
 }
