@@ -74,6 +74,7 @@ pub const InstanceVariableOrWriteNode = c.pm_instance_variable_or_write_node_t;
 pub const InstanceVariableWriteNode = c.pm_instance_variable_write_node_t;
 pub const LocalVariableAndWriteNode = c.pm_local_variable_and_write_node_t;
 pub const LocalVariableOrWriteNode = c.pm_local_variable_or_write_node_t;
+pub const LocalVariableOperatorWriteNode = c.pm_local_variable_operator_write_node_t;
 pub const BlockArgumentNode = c.pm_block_argument_node_t;
 pub const EmbeddedStatementsNode = c.pm_embedded_statements_node_t;
 pub const InterpolatedStringNode = c.pm_interpolated_string_node_t;
@@ -123,6 +124,7 @@ pub const Node = union(enum) {
     local_variable_target: *LocalVariableTargetNode,
     local_variable_and_write: *LocalVariableAndWriteNode,
     local_variable_or_write: *LocalVariableOrWriteNode,
+    local_variable_operator_write: *LocalVariableOperatorWriteNode,
     local_variable_write: *LocalVariableWriteNode,
     module: *ModuleNode,
     nil_node: *NilNode,
@@ -317,6 +319,10 @@ pub const Parser = struct {
         }
         if (node_type == c.PM_LOCAL_VARIABLE_OR_WRITE_NODE) {
             return Node{ .local_variable_or_write = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_LOCAL_VARIABLE_OPERATOR_WRITE_NODE) {
+            return Node{ .local_variable_operator_write = @ptrCast(raw) };
         }
 
         if (node_type == c.PM_REQUIRED_PARAMETER_NODE) {

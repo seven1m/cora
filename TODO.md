@@ -7,7 +7,7 @@ Prioritized by prerequisites (items earlier unblock later ones).
 - [x] Add `FloatNode` support end-to-end.
   - Evidence: `../natalie/test/support/spec.rb:23`, `../natalie/test/support/spec.rb:24`
   - Verified failure: `UnhandledNode: FloatNode` when running `cora ../natalie/test/support/spec.rb`.
-- [ ] Add operator-write AST support for locals (`+=`, `-=`, etc.), at least `LocalVariableOperatorWriteNode`.
+- [x] Add operator-write AST support for locals (`+=`, `-=`, etc.), at least `LocalVariableOperatorWriteNode`.
   - Evidence: `../natalie/test/support/spec.rb:208` (`zone += ...`)
   - Verified failure after float stripping: `UnhandledNode: LocalVariableOperatorWriteNode`.
 - [ ] Add splat arguments in calls/super (`foo(*args)`, `super(*args, &block)`).

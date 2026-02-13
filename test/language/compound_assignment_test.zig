@@ -56,6 +56,25 @@ test "local compound assignment updates outer scope locals" {
     try std.testing.expectEqual(@as(i64, 3), result.data.integer);
 }
 
+test "local operator assignment updates local variable" {
+    const result = try evalCode(
+        \\x = 1
+        \\x += 2
+        \\x
+    );
+    try std.testing.expectEqual(@as(i64, 3), result.data.integer);
+}
+
+test "local operator assignment updates captured outer local" {
+    const result = try evalCode(
+        \\x = 10
+        \\f = -> { x += 5 }
+        \\f.call
+        \\x
+    );
+    try std.testing.expectEqual(@as(i64, 15), result.data.integer);
+}
+
 test "global compound assignment" {
     var result = try evalCode(
         \\$g = nil

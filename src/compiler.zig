@@ -281,16 +281,8 @@ pub const Compiler = struct {
 
             .local_variable_read => |var_read| {
                 const var_name = try self.parser.getLocalVariableName(var_read.name);
-                // Try to find in current scope first
-                if (self.findLocal(var_name)) |idx| {
-                    try self.current_chunk.emitOpU8(.GET_LOCAL, idx, line);
-                } else if (self.findLocalWithDepth(var_name)) |info| {
-                    // Found in parent scope - emit deep access
-                    try self.current_chunk.emitOpU8U8(.GET_LOCAL_DEEP, @intCast(info.idx), @intCast(info.depth), line);
-                } else {
-                    std.debug.print("Error: undefined local variable '{s}'\n", .{var_name});
-                    return error.UndefinedVariable;
-                }
+                const slot = try self.resolveExistingLocalSlot(var_name);
+                try self.emitGetLocalSlot(slot, line);
             },
 
             .local_variable_write => |var_write| {
@@ -308,6 +300,10 @@ pub const Compiler = struct {
 
             .local_variable_or_write => |var_write| {
                 try self.compileLocalOrWrite(var_write, line);
+            },
+
+            .local_variable_operator_write => |var_write| {
+                try self.compileLocalOperatorWrite(var_write, line);
             },
 
             .constant_read => |const_read| {
@@ -917,6 +913,20 @@ pub const Compiler = struct {
         };
     }
 
+    fn resolveExistingLocalSlot(self: *Compiler, var_name: []const u8) !LocalSlot {
+        if (self.findLocal(var_name)) |idx| {
+            return .{ .idx = idx, .depth = 0 };
+        }
+        if (self.findLocalWithDepth(var_name)) |info| {
+            return .{
+                .idx = @intCast(info.idx),
+                .depth = @intCast(info.depth),
+            };
+        }
+        std.debug.print("Error: undefined local variable '{s}'\n", .{var_name});
+        return error.UndefinedVariable;
+    }
+
     fn emitGetLocalSlot(self: *Compiler, slot: LocalSlot, line: u32) !void {
         if (slot.depth == 0) {
             try self.current_chunk.emitOpU8(.GET_LOCAL, slot.idx, line);
@@ -1339,6 +1349,23 @@ pub const Compiler = struct {
         try self.emitSetLocalSlot(slot, line);
 
         try self.current_chunk.patchJump(jump_end);
+    }
+
+    fn compileLocalOperatorWrite(self: *Compiler, var_write: *prism.LocalVariableOperatorWriteNode, line: u32) !void {
+        const var_name = try self.parser.getLocalVariableName(var_write.name);
+        const slot = try self.resolveExistingLocalSlot(var_name);
+
+        try self.emitGetLocalSlot(slot, line);
+
+        const value_node = try self.parser.asNode(@ptrCast(var_write.value));
+        try self.compileNode(value_node, line);
+
+        const operator_name = try self.parser.getConstantName(@intCast(var_write.binary_operator));
+        const method_idx = try self.current_chunk.addConstant(.{ .string = operator_name });
+        const receiver_style: u8 = @intFromEnum(bytecode.ReceiverCallStyle.explicit);
+        try self.current_chunk.emitCall(@intCast(method_idx), 1, receiver_style, 0, line);
+
+        try self.emitSetLocalSlot(slot, line);
     }
 
     fn compileGlobalAndWrite(self: *Compiler, var_write: *prism.GlobalVariableAndWriteNode, line: u32) !void {
