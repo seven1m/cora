@@ -224,38 +224,8 @@ pub fn builtinKernelLoad(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
 }
 
 pub fn builtinKernelPuts(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
-    if (args.len == 0) {
-        // puts with no args prints empty line
-        vm.stdout.?.print("\n", .{}) catch return VMError.Fatal;
-        _ = vm.stdout.?.flush() catch {};
-        return Value.nil();
-    }
-
-    for (args) |arg| {
-        if (arg.data == .array) {
-            // Special case: flatten arrays, call to_s on each element
-            for (arg.data.array.elements.items) |elem| {
-                const str_val = try vm.callMethodByName(elem, "to_s", &[_]Value{}, null);
-                if (str_val.data != .string) {
-                    const exc = try vm.createException(vm.type_error_class, "to_s did not return String");
-                    vm.pending_exception = exc;
-                    return error.Unwind;
-                }
-                vm.stdout.?.print("{s}\n", .{str_val.data.string.str}) catch return VMError.Fatal;
-            }
-        } else {
-            // Normal case: call to_s on the argument
-            const str_val = try vm.callMethodByName(arg, "to_s", &[_]Value{}, null);
-            if (str_val.data != .string) {
-                const exc = try vm.createException(vm.type_error_class, "to_s did not return String");
-                vm.pending_exception = exc;
-                return error.Unwind;
-            }
-            vm.stdout.?.print("{s}\n", .{str_val.data.string.str}) catch return VMError.Fatal;
-        }
-    }
-    _ = vm.stdout.?.flush() catch {};
-
+    const stdout_target = vm.globals.get("$stdout") orelse return error.Fatal;
+    _ = try vm.callMethodByName(stdout_target, "puts", args, null);
     return Value.nil();
 }
 
@@ -544,13 +514,13 @@ pub fn builtinKernelDir(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Val
 }
 
 pub fn builtinKernelP(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    const stdout_target = vm.globals.get("$stdout") orelse return error.Fatal;
     if (args.len == 0) {
-        vm.stdout.?.print("\n", .{}) catch return error.Fatal;
-        _ = vm.stdout.?.flush() catch {};
+        _ = try vm.callMethodByName(stdout_target, "puts", &[_]Value{}, null);
         return Value.nil();
     }
 
-    for (args, 0..) |arg, idx| {
+    for (args) |arg| {
         const inspected = try vm.callMethodByName(arg, "inspect", &[_]Value{}, null);
         if (inspected.data != .string) {
             const exc = try vm.createException(vm.type_error_class, "inspect did not return String");
@@ -558,13 +528,9 @@ pub fn builtinKernelP(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value
             return error.Unwind;
         }
 
-        if (idx > 0) {
-            vm.stdout.?.print("\n", .{}) catch return error.Fatal;
-        }
-        vm.stdout.?.print("{s}", .{inspected.data.string.str}) catch return error.Fatal;
+        var put_args: [1]Value = .{inspected};
+        _ = try vm.callMethodByName(stdout_target, "puts", &put_args, null);
     }
-    vm.stdout.?.print("\n", .{}) catch return error.Fatal;
-    _ = vm.stdout.?.flush() catch {};
 
     if (args.len == 1) {
         return args[0];

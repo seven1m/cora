@@ -35,7 +35,7 @@ Prioritized by prerequisites (items earlier unblock later ones).
   - `RUBY_ENGINE` (`../natalie/test/support/spec.rb:251`, `../natalie/test/support/spec.rb:1767`)
   - `RUBY_VERSION` (`../natalie/test/support/spec.rb:298`)
   - `RUBY_PLATFORM` (`../natalie/test/support/spec.rb:339`)
-- [ ] Provide `STDOUT` constant (and likely `STDERR` for parity).
+- [x] Provide `STDOUT` constant (and likely `STDERR` for parity).
   - Evidence: `../natalie/test/support/spec.rb:1515`
   - Verified failure: `uninitialized constant STDOUT`.
 
@@ -89,9 +89,11 @@ Prioritized by prerequisites (items earlier unblock later ones).
 
 ## 6) Host/OS integration used by helper behaviors
 
-- [ ] Provide minimal `File` and `Tempfile` support used directly by this file.
+- [x] Provide minimal `File` support used directly by this file.
   - Evidence: `../natalie/test/support/spec.rb:27`, `../natalie/test/support/spec.rb:265`, `../natalie/test/support/spec.rb:268`, `../natalie/test/support/spec.rb:291`
-  - Verified failures: `uninitialized constant File`, `uninitialized constant Tempfile`.
+- [ ] Provide minimal `Tempfile` support used directly by this file.
+  - Evidence: `../natalie/test/support/spec.rb:265`, `../natalie/test/support/spec.rb:268`
+  - Verified failure: `uninitialized constant Tempfile`.
 - [ ] Provide `Signal.list` used for exit-status decoding.
   - Evidence: `../natalie/test/support/spec.rb:277`
   - Verified failure: `uninitialized constant Signal`.

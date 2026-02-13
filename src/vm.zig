@@ -113,8 +113,10 @@ pub const VM = struct {
     object_class: *value.ClassObject,
     string_class: *value.ClassObject,
     symbol_class: *value.ClassObject,
+    io_class: *value.ClassObject,
     array_class: *value.ClassObject,
     hash_class: *value.ClassObject,
+    file_class: *value.ClassObject,
     range_class: *value.ClassObject,
     proc_class: *value.ClassObject,
     fiber_class: *value.ClassObject,
@@ -138,6 +140,7 @@ pub const VM = struct {
     name_error_class: *value.ClassObject,
     no_method_error_class: *value.ClassObject,
     local_jump_error_class: *value.ClassObject,
+    io_error_class: *value.ClassObject,
     fiber_error_class: *value.ClassObject,
     load_error_class: *value.ClassObject,
     range_error_class: *value.ClassObject,
@@ -160,6 +163,7 @@ pub const VM = struct {
     break_occurred: bool = false,
 
     at_exit_handlers: std.ArrayList(Value) = .empty,
+    io_objects: std.ArrayList(*value.IoObject) = .empty,
 
     // File loading infrastructure
     loaded_files: std.StringHashMap(void) = undefined,
@@ -197,8 +201,10 @@ pub const VM = struct {
             .object_class = undefined,
             .string_class = undefined,
             .symbol_class = undefined,
+            .io_class = undefined,
             .array_class = undefined,
             .hash_class = undefined,
+            .file_class = undefined,
             .range_class = undefined,
             .proc_class = undefined,
             .fiber_class = undefined,
@@ -219,6 +225,7 @@ pub const VM = struct {
             .name_error_class = undefined,
             .no_method_error_class = undefined,
             .local_jump_error_class = undefined,
+            .io_error_class = undefined,
             .fiber_error_class = undefined,
             .load_error_class = undefined,
             .range_error_class = undefined,
@@ -291,6 +298,10 @@ pub const VM = struct {
         const symbol_class_val = try self.newClass(symbol_name_sym, self.object_class);
         self.symbol_class = symbol_class_val.data.class;
 
+        const io_name_sym = try self.intern("IO");
+        const io_class_val = try self.newClassWithType(io_name_sym, self.object_class, .io);
+        self.io_class = io_class_val.data.class;
+
         const array_name_sym = try self.intern("Array");
         const array_class_val = try self.newClassWithType(array_name_sym, self.object_class, .array);
         self.array_class = array_class_val.data.class;
@@ -298,6 +309,10 @@ pub const VM = struct {
         const hash_name_sym = try self.intern("Hash");
         const hash_class_val = try self.newClassWithType(hash_name_sym, self.object_class, .hash);
         self.hash_class = hash_class_val.data.class;
+
+        const file_name_sym = try self.intern("File");
+        const file_class_val = try self.newClassWithType(file_name_sym, self.io_class, .io);
+        self.file_class = file_class_val.data.class;
 
         const range_name_sym = try self.intern("Range");
         const range_class_val = try self.newClassWithType(range_name_sym, self.object_class, .range);
@@ -372,6 +387,10 @@ pub const VM = struct {
         const local_jump_error_class_val = try self.newClass(local_jump_error_name_sym, self.standard_error_class);
         self.local_jump_error_class = local_jump_error_class_val.data.class;
 
+        const io_error_name_sym = try self.intern("IOError");
+        const io_error_class_val = try self.newClass(io_error_name_sym, self.standard_error_class);
+        self.io_error_class = io_error_class_val.data.class;
+
         const fiber_error_name_sym = try self.intern("FiberError");
         const fiber_error_class_val = try self.newClass(fiber_error_name_sym, self.standard_error_class);
         self.fiber_error_class = fiber_error_class_val.data.class;
@@ -411,8 +430,10 @@ pub const VM = struct {
         self.object_class.module.constants.put(float_name_sym, float_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(string_name_sym, string_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(symbol_name_sym, symbol_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(io_name_sym, io_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(array_name_sym, array_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(hash_name_sym, hash_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(file_name_sym, file_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(range_name_sym, range_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(proc_name_sym, proc_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(fiber_name_sym, fiber_class_val) catch return error.Fatal;
@@ -430,6 +451,7 @@ pub const VM = struct {
         self.object_class.module.constants.put(name_error_name_sym, name_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(no_method_error_name_sym, no_method_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(local_jump_error_name_sym, local_jump_error_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(io_error_name_sym, io_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(fiber_error_name_sym, fiber_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(load_error_name_sym, load_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(range_error_name_sym, range_error_class_val) catch return error.Fatal;
@@ -446,6 +468,19 @@ pub const VM = struct {
         self.object_class.module.constants.put(ruby_version_sym, ruby_version_val) catch return error.Fatal;
         self.object_class.module.constants.put(ruby_platform_sym, ruby_platform_val) catch return error.Fatal;
         try self.setArgv(&[_][]const u8{});
+
+        const stdin_sym = try self.intern("STDIN");
+        const stdout_sym = try self.intern("STDOUT");
+        const stderr_sym = try self.intern("STDERR");
+        const stdin_obj = try self.newIo(self.io_class, 0, false, true, false, false);
+        const stdout_obj = try self.newIo(self.io_class, 1, false, false, true, false);
+        const stderr_obj = try self.newIo(self.io_class, 2, false, false, true, false);
+        self.object_class.module.constants.put(stdin_sym, stdin_obj) catch return error.Fatal;
+        self.object_class.module.constants.put(stdout_sym, stdout_obj) catch return error.Fatal;
+        self.object_class.module.constants.put(stderr_sym, stderr_obj) catch return error.Fatal;
+        try self.setGlobal("$stdin", stdin_obj);
+        try self.setGlobal("$stdout", stdout_obj);
+        try self.setGlobal("$stderr", stderr_obj);
 
         const env_obj = try self.newInstance(self.object_class);
         self.env_object = env_obj;
@@ -773,6 +808,13 @@ pub const VM = struct {
         }
         self.globals.deinit();
         self.at_exit_handlers.deinit(self.gc_allocator);
+        for (self.io_objects.items) |io_obj| {
+            if (io_obj.owns_fd and !io_obj.closed and io_obj.fd >= 0) {
+                std.posix.close(@intCast(io_obj.fd));
+                io_obj.closed = true;
+            }
+        }
+        self.io_objects.deinit(self.gc_allocator);
     }
 
     pub fn run(self: *VM) VMError!Value {
@@ -2468,6 +2510,7 @@ pub const VM = struct {
             .class => |c| return c.module.object.class.?,
             .proc => |p| return p.object.class.?,
             .fiber => |f| return f.object.class.?,
+            .io => |io| return io.object.class.?,
             .range => |r| return r.object.class.?,
             .regexp => |r| return r.object.class.?,
 
@@ -2489,6 +2532,7 @@ pub const VM = struct {
             .symbol => |s| &s.object,
             .array => |a| &a.object,
             .hash => |h| &h.object,
+            .io => |io| &io.object,
             .exception => |e| &e.object,
             .proc => |p| &p.object,
             .fiber => |f| &f.object,
@@ -2716,6 +2760,7 @@ pub const VM = struct {
             .encoding => self.encoding_class,
             .proc => self.proc_class,
             .fiber => self.fiber_class,
+            .io => self.io_class,
             .regexp => self.regexp_class,
             .integer, .float, .boolean, .nil => unreachable, // Primitives can't have singleton classes
         };
@@ -2829,6 +2874,29 @@ pub const VM = struct {
         return .{ .data = .{ .fiber = fiber_obj } };
     }
 
+    pub fn newIo(
+        self: *VM,
+        class_obj: *ClassObject,
+        fd: i32,
+        owns_fd: bool,
+        readable: bool,
+        writable: bool,
+        append: bool,
+    ) VMError!Value {
+        const io_obj = self.gc_allocator.create(value.IoObject) catch return error.Fatal;
+        io_obj.* = .{
+            .object = .{ .flags = 0, .class = class_obj, .singleton_class = null, .instance_variables = null },
+            .fd = fd,
+            .owns_fd = owns_fd,
+            .closed = false,
+            .readable = readable,
+            .writable = writable,
+            .append = append,
+        };
+        self.io_objects.append(self.gc_allocator, io_obj) catch return error.Fatal;
+        return .{ .data = .{ .io = io_obj } };
+    }
+
     pub fn newRange(self: *VM, class_obj: *ClassObject) VMError!Value {
         const range_obj = self.gc_allocator.create(value.RangeObject) catch return error.Fatal;
         range_obj.* = .{
@@ -2892,6 +2960,7 @@ pub const VM = struct {
             },
             .range => self.newRange(class_obj),
             .fiber => try self.newFiber(class_obj, null),
+            .io => try self.newIo(class_obj, -1, false, false, false, false),
             .instance => self.newInstance(class_obj),
         };
     }

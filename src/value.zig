@@ -77,6 +77,7 @@ pub const ObjectType = enum {
     hash,
     range,
     fiber,
+    io,
 };
 
 pub const ClassObject = struct {
@@ -138,6 +139,16 @@ pub const FiberObject = struct {
     pending_resume_value: Value = Value.nil(),
 };
 
+pub const IoObject = struct {
+    object: Object,
+    fd: i32,
+    owns_fd: bool,
+    closed: bool = false,
+    readable: bool,
+    writable: bool,
+    append: bool,
+};
+
 pub const RegexpObject = struct {
     object: Object,
     pattern: []const u8,
@@ -154,6 +165,7 @@ pub const Value = struct {
         exception: *ExceptionObject,
         fiber: *FiberObject,
         hash: *HashObject,
+        io: *IoObject,
         instance: *Object,
         integer: i64,
         float: f64,
@@ -184,6 +196,7 @@ pub const Value = struct {
             .exception => |e| (e.object.flags & Object.FROZEN_FLAG) != 0,
             .fiber => |f| (f.object.flags & Object.FROZEN_FLAG) != 0,
             .hash => |h| (h.object.flags & Object.FROZEN_FLAG) != 0,
+            .io => |io| (io.object.flags & Object.FROZEN_FLAG) != 0,
             .proc => |p| (p.object.flags & Object.FROZEN_FLAG) != 0,
             .range => |r| (r.object.flags & Object.FROZEN_FLAG) != 0,
         };
@@ -200,6 +213,7 @@ pub const Value = struct {
             .exception => |e| e.object.flags |= Object.FROZEN_FLAG,
             .fiber => |f| f.object.flags |= Object.FROZEN_FLAG,
             .hash => |h| h.object.flags |= Object.FROZEN_FLAG,
+            .io => |io| io.object.flags |= Object.FROZEN_FLAG,
             .proc => |p| p.object.flags |= Object.FROZEN_FLAG,
             .range => |r| r.object.flags |= Object.FROZEN_FLAG,
             // Primitives are already frozen, do nothing
@@ -219,6 +233,7 @@ pub const Value = struct {
             .exception => |e| &e.object,
             .fiber => |f| &f.object,
             .hash => |h| &h.object,
+            .io => |io| &io.object,
             .proc => |p| &p.object,
             .range => |r| &r.object,
             .regexp => |r| &r.object,
@@ -316,6 +331,7 @@ pub const Value = struct {
             },
             .proc => |p| try writer.print("#<Proc:0x{x}>", .{@intFromPtr(p)}),
             .fiber => |f| try writer.print("#<Fiber:0x{x}>", .{@intFromPtr(f)}),
+            .io => |io| try writer.print("#<IO:fd {d}>", .{io.fd}),
             .range => |_| try writer.print("#<Range>", .{}),
             .regexp => |r| try writer.print("/{s}/", .{r.pattern}),
         }
