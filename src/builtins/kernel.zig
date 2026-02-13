@@ -379,28 +379,11 @@ pub fn builtinKernelRespondTo(vm: *VM, receiver: Value, args: []Value, _: ?Block
     try vm.requireArgRange(args, 1, 2);
 
     const method_name_sym = try vm.coerceToMethodNameSymbol(args[0]);
-
     const include_private = if (args.len == 2) args[1].is_truthy() else false;
-
-    var has_hidden_match = false;
-
-    if (receiver.getSingletonClass()) |singleton_class| {
-        if (vm.lookupMethod(singleton_class, method_name_sym)) |resolved| {
-            if (include_private) return Value.boolean(true);
-            if (resolved.entry.visibility == .public) return Value.boolean(true);
-            has_hidden_match = true;
+    if (try vm.findMethod(receiver, method_name_sym)) |resolved| {
+        if (include_private or resolved.entry.visibility == .public) {
+            return Value.boolean(true);
         }
-    }
-
-    const receiver_class = vm.getClass(receiver);
-    if (vm.lookupMethod(receiver_class, method_name_sym)) |resolved| {
-        if (include_private) return Value.boolean(true);
-        if (resolved.entry.visibility == .public) return Value.boolean(true);
-        has_hidden_match = true;
-    }
-
-    if (has_hidden_match and include_private) {
-        return Value.boolean(true);
     }
 
     var respond_args: [2]Value = .{

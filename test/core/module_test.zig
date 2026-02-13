@@ -279,3 +279,104 @@ test "Module module_function creates module singleton method and privatizes inst
     try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "NoMethodError") != null);
     try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "answer") != null);
 }
+
+test "Module undef_method removes a directly defined method" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+    const bad = evalCodeWithOutput(
+        \\class C
+        \\  def greet
+        \\    1
+        \\  end
+        \\  undef_method :greet
+        \\end
+        \\C.new.greet
+    , &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.UnhandledException, bad.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "NoMethodError") != null);
+    try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "greet") != null);
+}
+
+test "Module undef_method on subclass blocks inherited dispatch without mutating ancestor" {
+    const result = try evalCode(
+        \\class Parent
+        \\  def call
+        \\    1
+        \\  end
+        \\end
+        \\class Child < Parent
+        \\  undef_method :call
+        \\end
+        \\[
+        \\  Parent.new.call,
+        \\  begin
+        \\    Child.new.call
+        \\    :ok
+        \\  rescue NoMethodError
+        \\    :missing
+        \\  end,
+        \\]
+    );
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(@as(i64, 1), result.data.array.elements.items[0].data.integer);
+    try std.testing.expectEqualSlices(u8, "missing", result.data.array.elements.items[1].data.symbol.name);
+}
+
+test "Module undef_method raises NameError for missing name" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+    const bad = evalCodeWithOutput(
+        \\class C
+        \\  undef_method :not_defined_here
+        \\end
+    , &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.UnhandledException, bad.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "NameError") != null);
+    try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "not_defined_here") != null);
+}
+
+test "Module undef_method with no args returns self and is a no-op" {
+    const result = try evalCode(
+        \\class C
+        \\  def call
+        \\    1
+        \\  end
+        \\end
+        \\same = C.undef_method
+        \\[same.object_id, C.object_id, C.new.call]
+    );
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(result.data.array.elements.items[0].data.integer, result.data.array.elements.items[1].data.integer);
+    try std.testing.expectEqual(@as(i64, 1), result.data.array.elements.items[2].data.integer);
+}
+
+test "Module undef_method is callable publicly" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+    const bad = evalCodeWithOutput(
+        \\class C
+        \\  def call
+        \\    1
+        \\  end
+        \\end
+        \\C.undef_method(:call)
+        \\C.new.call
+    , &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.UnhandledException, bad.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "NoMethodError") != null);
+    try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "call") != null);
+}
+
+test "Module undef_method allows method_missing to handle equal?" {
+    const result = try evalCode(
+        \\class C
+        \\  def method_missing(name, *args)
+        \\    name
+        \\  end
+        \\  undef_method :equal?
+        \\end
+        \\C.new.equal?(1)
+    );
+    try std.testing.expect(result.data == .symbol);
+    try std.testing.expectEqualSlices(u8, "equal?", result.data.symbol.name);
+}

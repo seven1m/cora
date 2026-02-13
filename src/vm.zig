@@ -45,6 +45,7 @@ pub const Method = union(enum) {
     chunk: *Chunk,
     builtin: *const fn (*VM, Value, []Value, ?Block) VMError!Value,
     proc: *value.ProcObject,
+    undefined: void,
 };
 
 const ReceiverCallStyle = bytecode.ReceiverCallStyle;
@@ -52,6 +53,12 @@ const ReceiverCallStyle = bytecode.ReceiverCallStyle;
 pub const ResolvedMethod = struct {
     owner_class: *ClassObject,
     entry: MethodEntry,
+};
+
+const LookupMethodResult = union(enum) {
+    found: ResolvedMethod,
+    undefined: void,
+    not_found: void,
 };
 
 pub const Environment = struct {
@@ -2160,21 +2167,66 @@ pub const VM = struct {
 
     /// Find a method on a receiver, checking singleton class first, then regular class
     pub fn findMethod(self: *VM, receiver: Value, method_name_sym: *SymbolObject) VMError!?ResolvedMethod {
-        var method: ?ResolvedMethod = null;
-
         // First, check singleton class
         if (receiver.getObjectPointer() != null) {
             const singleton_class = self.getOrCreateSingletonClass(receiver) catch return error.Fatal;
-            method = self.lookupMethod(singleton_class, method_name_sym);
+            switch (self.lookupMethodDetailed(singleton_class, method_name_sym)) {
+                .found => |resolved| return resolved,
+                .undefined => return null,
+                .not_found => {},
+            }
         }
 
-        // If not found in singleton class, check regular class
-        if (method == null) {
-            const class = self.getClass(receiver);
-            method = self.lookupMethod(class, method_name_sym);
+        // If not found in singleton class, check regular class.
+        const class = self.getClass(receiver);
+        return switch (self.lookupMethodDetailed(class, method_name_sym)) {
+            .found => |resolved| resolved,
+            .undefined, .not_found => null,
+        };
+    }
+
+    fn resolveLookupEntry(_: *VM, owner_class: *ClassObject, entry: MethodEntry) LookupMethodResult {
+        return switch (entry.method) {
+            .undefined => .undefined,
+            else => .{ .found = .{
+                .owner_class = owner_class,
+                .entry = entry,
+            } },
+        };
+    }
+
+    pub fn lookupMethodDetailed(self: *VM, class: *ClassObject, method_name: *value.SymbolObject) LookupMethodResult {
+        var current_class: ?*ClassObject = class;
+        while (current_class) |c| {
+            // 1. Check prepended modules first (in reverse order - most recently prepended at highest index is checked first)
+            var i = c.prepended_modules.items.len;
+            while (i > 0) {
+                i -= 1;
+                const module = c.prepended_modules.items[i];
+                if (module.methods.get(method_name)) |entry| {
+                    return self.resolveLookupEntry(c, entry);
+                }
+            }
+
+            // 2. Check class's own methods
+            if (c.module.methods.get(method_name)) |entry| {
+                return self.resolveLookupEntry(c, entry);
+            }
+
+            // 3. Check included modules (in reverse order - most recently included at highest index is checked first)
+            i = c.included_modules.items.len;
+            while (i > 0) {
+                i -= 1;
+                const module = c.included_modules.items[i];
+                if (module.methods.get(method_name)) |entry| {
+                    return self.resolveLookupEntry(c, entry);
+                }
+            }
+
+            current_class = c.superclass;
         }
 
-        return method;
+        return .not_found;
     }
 
     fn raiseNoMethod(self: *VM, receiver: Value, method_name: []const u8) VMError!void {
@@ -2270,6 +2322,7 @@ pub const VM = struct {
             .proc => |proc_obj| {
                 return self.callProcAsMethod(proc_obj, receiver, args, block);
             },
+            .undefined => unreachable,
         }
     }
 
@@ -2575,6 +2628,7 @@ pub const VM = struct {
                 const result = try self.callProcAsMethod(proc_obj, receiver, args[0..argc], block);
                 try self.push(result);
             },
+            .undefined => unreachable,
         }
     }
 
@@ -2624,46 +2678,11 @@ pub const VM = struct {
         };
     }
 
-    pub fn lookupMethod(_: *VM, class: *ClassObject, method_name: *value.SymbolObject) ?ResolvedMethod {
-        var current_class: ?*ClassObject = class;
-        while (current_class) |c| {
-            // 1. Check prepended modules first (in reverse order - most recently prepended at highest index is checked first)
-            var i = c.prepended_modules.items.len;
-            while (i > 0) {
-                i -= 1;
-                const module = c.prepended_modules.items[i];
-                if (module.methods.get(method_name)) |entry| {
-                    return .{
-                        .owner_class = c,
-                        .entry = entry,
-                    };
-                }
-            }
-
-            // 2. Check class's own methods
-            if (c.module.methods.get(method_name)) |entry| {
-                return .{
-                    .owner_class = c,
-                    .entry = entry,
-                };
-            }
-
-            // 3. Check included modules (in reverse order - most recently included at highest index is checked first)
-            i = c.included_modules.items.len;
-            while (i > 0) {
-                i -= 1;
-                const module = c.included_modules.items[i];
-                if (module.methods.get(method_name)) |entry| {
-                    return .{
-                        .owner_class = c,
-                        .entry = entry,
-                    };
-                }
-            }
-
-            current_class = c.superclass;
-        }
-        return null;
+    pub fn lookupMethod(self: *VM, class: *ClassObject, method_name: *value.SymbolObject) ?ResolvedMethod {
+        return switch (self.lookupMethodDetailed(class, method_name)) {
+            .found => |resolved| resolved,
+            .undefined, .not_found => null,
+        };
     }
 
     /// Get the defining class for super lookup from the current frame's lexical scope
@@ -2794,6 +2813,7 @@ pub const VM = struct {
                 const result = try self.callProcAsMethod(proc_obj, receiver, args, block);
                 try self.push(result);
             },
+            .undefined => unreachable,
         }
     }
 

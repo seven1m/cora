@@ -44,10 +44,7 @@ Prioritized by prerequisites (items earlier unblock later ones).
 - [x] Add `method_missing` fallback dispatch when a method lookup fails.
   - Evidence: matcher DSL defines `method_missing` and relies on unknown matcher methods (`../natalie/test/support/spec.rb:509`).
   - Verified failure with snippet: class-defined `method_missing` is not invoked.
-- [ ] Add `Module#instance_method` and minimal `UnboundMethod#bind_call`.
-  - Evidence: `../natalie/test/support/spec.rb:525`
-  - Verified failure: `undefined method 'instance_method' for Module`.
-- [ ] Add `Module#undef_method`.
+- [x] Add `Module#undef_method`.
   - Evidence: `../natalie/test/support/spec.rb:533`
   - Verified failure with snippet: `undefined method 'undef_method' for Class`.
 - [ ] Add `Object#define_singleton_method` and method removal support (`Module#remove_method` on singleton classes).
@@ -105,3 +102,8 @@ Prioritized by prerequisites (items earlier unblock later ones).
   - Verified failure: `uninitialized constant Thread`.
 - [x] Backtick execution should update `$?` with process status semantics expected by this file.
   - Evidence: backticks + `$?.exitstatus` check in `../natalie/test/support/spec.rb:259`, `../natalie/test/support/spec.rb:280`
+
+## 7) Cleanup
+
+- [ ] Audit all exception raising code and make one or more helpers to look up class and format message
+- [ ] Audit all argument count checking code and use existing helpers -- make a new helper if needed

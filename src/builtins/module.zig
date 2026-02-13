@@ -30,6 +30,15 @@ fn normalizeVisibilityArgs(vm: *VM, args: []Value, names: *std.ArrayList(*Symbol
     }
 }
 
+fn getOwnDefinedMethodEntry(
+    methods: *std.AutoHashMap(*SymbolObject, value.MethodEntry),
+    name_sym: *SymbolObject,
+) ?value.MethodEntry {
+    const entry = methods.get(name_sym) orelse return null;
+    if (entry.method == .undefined) return null;
+    return entry;
+}
+
 fn setVisibility(vm: *VM, receiver: Value, args: []Value, visibility: MethodVisibility) VMError!Value {
     if (args.len == 0) {
         if (vm.current_lexical_scope) |scope| {
@@ -50,7 +59,7 @@ fn setVisibility(vm: *VM, receiver: Value, args: []Value, visibility: MethodVisi
     };
 
     for (names.items) |name_sym| {
-        const entry = methods.get(name_sym) orelse {
+        const entry = getOwnDefinedMethodEntry(methods, name_sym) orelse {
             const msg = std.fmt.allocPrint(
                 vm.gc_allocator,
                 "undefined method '{s}'",
@@ -108,6 +117,9 @@ pub fn register(vm: *VM) !void {
 
     const alias_method_sym = try vm.intern("alias_method");
     try vm.module_class.module.methods.put(alias_method_sym, .{ .method = .{ .builtin = &builtinModuleAliasMethod } });
+
+    const undef_method_sym = try vm.intern("undef_method");
+    try vm.module_class.module.methods.put(undef_method_sym, .{ .method = .{ .builtin = &builtinModuleUndefMethod } });
 
     const private_sym = try vm.intern("private");
     try vm.module_class.module.methods.put(private_sym, .{
@@ -343,7 +355,7 @@ pub fn builtinModuleAliasMethod(vm: *VM, receiver: Value, args: []Value, _: ?Blo
         lookup_class = receiver.data.class;
     } else if (receiver.data == .module) {
         // For modules, look up in own methods only
-        if (methods.get(old_name_sym)) |entry| {
+        if (getOwnDefinedMethodEntry(methods, old_name_sym)) |entry| {
             methods.put(new_name_sym, entry) catch return error.Fatal;
             return Value{ .data = .{ .symbol = new_name_sym } };
         }
@@ -376,6 +388,39 @@ pub fn builtinModuleAliasMethod(vm: *VM, receiver: Value, args: []Value, _: ?Blo
     return Value{ .data = .{ .symbol = new_name_sym } };
 }
 
+pub fn builtinModuleUndefMethod(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const methods = receiver.getModuleMethods() orelse {
+        const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
+        vm.pending_exception = exc;
+        return error.Unwind;
+    };
+
+    if (args.len == 0) return receiver;
+
+    for (args) |arg| {
+        const name_sym = try vm.coerceToMethodNameSymbol(arg);
+        const exists = switch (receiver.data) {
+            .class => |klass| vm.lookupMethod(klass, name_sym) != null,
+            .module => getOwnDefinedMethodEntry(methods, name_sym) != null,
+            else => unreachable,
+        };
+        if (!exists) {
+            const msg = std.fmt.allocPrint(
+                vm.gc_allocator,
+                "undefined method '{s}'",
+                .{name_sym.name},
+            ) catch return error.Fatal;
+            const exc = try vm.createException(vm.name_error_class, msg);
+            vm.pending_exception = exc;
+            return error.Unwind;
+        }
+
+        methods.put(name_sym, .{ .method = .{ .undefined = {} } }) catch return error.Fatal;
+    }
+
+    return receiver;
+}
+
 pub fn builtinModulePrivate(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     return setVisibility(vm, receiver, args, .private);
 }
@@ -402,7 +447,7 @@ pub fn builtinModuleFunction(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     for (args) |arg| {
         const name_str = try vm.coerceToMethodNameString(arg);
         const name_sym = try vm.intern(name_str);
-        const existing = methods.get(name_sym) orelse {
+        const existing = getOwnDefinedMethodEntry(methods, name_sym) orelse {
             const msg = std.fmt.allocPrint(
                 vm.gc_allocator,
                 "undefined method '{s}'",
