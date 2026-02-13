@@ -512,3 +512,33 @@ test "Kernel#methods and #private_methods validate arg count" {
     try std.testing.expectEqual(error.UnhandledException, bad.err.?);
     try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "ArgumentError") != null);
 }
+
+test "Kernel#tap yields self and returns self" {
+    const result = try evalCode(
+        \\obj = Object.new
+        \\seen = nil
+        \\ret = obj.tap { |o| seen = o.object_id; 42 }
+        \\[ret.object_id == obj.object_id, seen == obj.object_id]
+    );
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(true, result.data.array.elements.items[0].data.boolean);
+    try std.testing.expectEqual(true, result.data.array.elements.items[1].data.boolean);
+}
+
+test "Kernel#tap raises ArgumentError when no block is given" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+
+    const bad = evalCodeWithOutput("Object.new.tap", &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.UnhandledException, bad.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "ArgumentError") != null);
+}
+
+test "Kernel#tap validates arg count" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+
+    const bad = evalCodeWithOutput("Object.new.tap(1) { }", &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.UnhandledException, bad.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "ArgumentError") != null);
+}

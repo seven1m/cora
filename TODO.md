@@ -66,7 +66,7 @@ Prioritized by prerequisites (items earlier unblock later ones).
 
 ## 5) Core builtin methods used by this support file
 
-- [ ] Add `Object#tap`.
+- [x] Add `Object#tap`.
   - Evidence: `../natalie/test/support/spec.rb:1534`, `../natalie/test/support/spec.rb:1587`, `../natalie/test/support/spec.rb:1614`
   - Verified failure: `undefined method 'tap' for Object`.
 - [ ] Add missing `Array` methods used here: `reverse_each`, `prepend`, `find`, `empty?`, `none?`, `concat`.

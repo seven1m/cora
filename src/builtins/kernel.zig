@@ -111,6 +111,9 @@ pub fn register(vm: *VM) !void {
     const loop_sym = try vm.intern("loop");
     try vm.kernel_module.methods.put(loop_sym, .{ .method = .{ .builtin = &builtinKernelLoop } });
 
+    const tap_sym = try vm.intern("tap");
+    try vm.kernel_module.methods.put(tap_sym, .{ .method = .{ .builtin = &builtinKernelTap } });
+
     const send_sym = try vm.intern("send");
     try vm.kernel_module.methods.put(send_sym, .{ .method = .{ .builtin = &builtinKernelSend } });
 
@@ -474,6 +477,14 @@ pub fn builtinKernelLoop(vm: *VM, _: Value, args: []Value, block: ?Block) VMErro
         const result = try vm.yieldToBlock(blk, &[_]Value{});
         if (result.break_occurred) return result.value;
     }
+}
+
+pub fn builtinKernelTap(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const blk = try vm.requireBlock(block);
+    const result = try vm.yieldToBlock(blk, &[_]Value{receiver});
+    if (result.break_occurred) return result.value;
+    return receiver;
 }
 
 pub fn builtinKernelSend(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
