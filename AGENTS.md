@@ -20,15 +20,15 @@ Cora is a Ruby interpreter written in Zig using the Prism parser. It uses a **tw
 
 ## Key Concepts
 
-**Bytecode Chunks:** Each chunk contains code, constants, constant_names (HashMap for named constants), line info, name, chunk_id, arity, is_lambda flag, optional_params (list of OptionalParam entries with param_index and default_chunk_id), rest_param_index (slot for *rest parameter), post_required_count (required params after rest), exception_handlers table, lexical_scope, and source_file. Module bodies, class bodies, methods, blocks, procs, and lambdas are all compiled into separate chunks.
+**Bytecode Chunks:** Each chunk contains code, constants, constant_names (HashMap for named constants), line info, name, chunk_id, arity, is_lambda flag, optional_params (list of OptionalParam entries with param_index and default_chunk_id), rest_param_index (slot for *rest parameter), post_required_count (required params after rest), keyword metadata (required/optional keywords, `**kwargs` slot, `**nil` flag), block_param_index (`&block` slot), exception_handlers table, lexical_scope, and source_file. Module bodies, class bodies, methods, blocks, procs, and lambdas are all compiled into separate chunks.
 
 **Constants:** Compile-time constants (integer, string, symbol). Strings/symbols are borrowed from Parser AST (no allocation).
 
-**OpCodes:** Defined in `bytecode.zig` enum. Include literals, variable access, control flow, method calls, OOP definitions, blocks/procs/lambdas (YIELD, PUSH_LAMBDA, BREAK), constant path resolution (GET_CONST_PATH), exception handling (RAISE, TRY_BEGIN, TRY_END, CATCH_START, CATCH_END, ENSURE_START, ENSURE_END, RETRY). RETURN opcode has operand distinguishing implicit (0) vs explicit (1) returns for lambda semantics. Arithmetic operators are method calls, not opcodes. Prefer not to add new opcodes when possible, but when necessary, try to make them general and
+**OpCodes:** Defined in `bytecode.zig` enum. Include literals, variable/constant access (including globals and instance variables), control flow, method calls (`CALL`, `CALL_KW`), OOP definitions, blocks/procs/lambdas (YIELD, PUSH_LAMBDA, BREAK), constant path resolution (GET_CONST_PATH), exception handling (RAISE, TRY_BEGIN, TRY_END, CATCH_START, CATCH_END, ENSURE_START, ENSURE_END, RETRY), super (`SUPER`, `FORWARDING_SUPER`), regexp (`PUSH_REGEXP`), aliasing (`ALIAS_METHOD`), and multi-assignment prep (`MULTI_ASSIGN_PREPARE`). RETURN opcode has operand distinguishing implicit (0) vs explicit (1) returns for lambda semantics. Arithmetic operators are method calls, not opcodes. Prefer not to add new opcodes when possible, but when necessary, try to make them general and
 reusable for future needs, e.g. don't make a new CALL_* opcode for splatted args, instead make general opcodes for
 array manipulation and add a flag to CALL to accept an arguments array on the stack.
 
-**CALL Instruction:** Operands are method_idx (U16), argc (U8), block_chunk_id (U8).
+**CALL Instruction:** `CALL` operands are method_idx (U16), argc (U8), block_chunk_id (U16), with call flags supporting implicit-self and args-array mode. `CALL_KW` carries keyword count and keyword metadata index in addition to the call core operands.
 
 **CallFrames:** chunk, ip, stack_base, self_value, ep (Environment pointer), block (optional Block), frame_type (method/lambda/proc). Local variables are stored in the Environment (which has a fixed-size 32-slot variables array), not directly in CallFrame.
 
@@ -36,7 +36,7 @@ array manipulation and add a flag to CALL to accept an arguments array on the st
 
 **Classes/Modules:** Classes have module-like method storage, superclass, prepended/included module lists. Method lookup walks: prepended → class methods → included → superclass.
 
-**Value Types:** Primitives (integer, boolean, nil), heap-allocated (Object, SymbolObject, StringObject, ModuleObject, ClassObject, ArrayObject, HashObject, ExceptionObject, ProcObject).
+**Value Types:** Primitives (integer, float, boolean, nil), heap-allocated (Object instance, SymbolObject, StringObject, ModuleObject, ClassObject, ArrayObject, HashObject, RangeObject, ExceptionObject, ProcObject, FiberObject, RegexpObject, EncodingObject).
 
 **Blocks, Procs, and Lambdas:** All compiled into separate bytecode chunks with arity and parameters. Chunks have is_lambda flag distinguishing lambda from proc/block semantics. YIELD executes the block passed to current method. PUSH_LAMBDA creates a ProcObject wrapping a Block (chunk + defining_ep). Block struct contains chunk and defining_ep (the environment where the block was defined). Blocks capture variables from enclosing scopes (closures) via environment parent chain. When blocks escape to Proc objects, environments are promoted from stack to heap. CallFrames track `ep` (current environment) and optionally a `block` (if one was passed).
 
@@ -54,15 +54,28 @@ array manipulation and add a flag to CALL to accept an arguments array on the st
 - Exception classes: Exception, StandardError, RuntimeError, ArgumentError, TypeError, ZeroDivisionError, NoMethodError
 - Each chunk has exception_handlers table with ExceptionHandler entries
 - ExceptionHandler contains: try_start_ip, try_end_ip, rescue_handlers (list), else_ip (optional), ensure_ip (optional), ensure_end_ip (optional)
-- RescueHandler entries contain: exception_types (list of constant pool indices), catch_ip, catch_end_ip, var_idx (optional local slot for exception binding)
+- RescueHandler entries contain: exception_type_expr_chunks (list of chunk IDs for exception-type expressions), catch_ip, catch_end_ip, var_idx (optional local slot for exception binding)
 - VM tracks pending_exception and retry_point
+
+## Current Feature State
+
+- Core object model and classes/modules are implemented, including singleton methods, method aliasing, and method visibility controls.
+- Local variables, globals (`$x`), and instance variables (`@x`) are implemented.
+- Method parameters support required, optional, rest, keyword, keyword-rest, post-rest required, and block parameters.
+- Blocks/procs/lambdas, `yield`, closure capture, and lambda/proc semantic differences are implemented.
+- Exception handling covers `raise`, `begin/rescue/else/ensure`, `retry`, `break` from blocks, and dynamic rescue type expressions (for example `rescue (-> { StandardError }.call) => e`).
+- `super`/forwarding super, splatted call arguments, ranges, regexps, case/when matching, and string interpolation are implemented.
+- Fibers and `at_exit` handlers are implemented.
+- `ARGV` is available as a top-level constant and is populated from CLI script args.
+- `ENV` is exposed as a singleton object with singleton methods (`[]`, `[]=`, `to_h`). `ENV[]`/`ENV[]=` sync host process environment and `ENV.to_h` returns a fresh Hash snapshot each call.
+- `Kernel#__dir__`, backticks/xstring command execution, `require`, `require_relative`, and `load` are implemented.
 
 ## Memory Management
 
 **Infrastructure Allocator:** Manages HashMaps, call stack, bytecode chunks. Manually cleaned up.
 Prefer this allocator for VM-related housekeeping.
 
-**GC Allocator (Boehm-Demers-Weiser):** Manages all Ruby heap objects (ClassValue, ModuleValue, InstanceValue, method HashMaps). Conservative GC scans stack/heap. NO manual free().
+**GC Allocator (Boehm-Demers-Weiser):** Manages all Ruby heap objects (ClassObject, ModuleObject, Object instances, arrays/hashes/procs/fibers/regexps, and method/constant maps). Conservative GC scans stack/heap. NO manual free().
 
 **Atomic GC Allocator:** For "atomic" objects without internal pointers (string duplication).
 
@@ -99,7 +112,7 @@ zig build test -Dtest-filter="Proc"
 zig build test -Dtest-filter="Proc" -Dtest-verbose
 ```
 
-Tests are in `test/language/*.zig`. When adding new test files, remember to add them to `test/all_test.zig`.
+Tests live under `test/` (`test/core/*.zig`, `test/language/*.zig`, plus integration helpers/spec runner). When adding new test files, remember to add them to `test/all_test.zig`.
 
 **Running the CLI:**
 
@@ -118,10 +131,15 @@ zig-out/bin/cora [flags] [filename]
 
 Use "unmanaged" ArrayList: `field: ArrayList(*Value) = .empty` (allocator passed to append/insert).
 
+## Implementation Notes (User Preferences)
+
+- Prefer importing files at the top of the file. Avoid inline `@import(...)` expressions in function bodies or expressions.
+- Do not expose runtime implementation details to user Ruby code via fake/hidden instance variables or methods (e.g. `@__store`, `__hidden_methods__`). Keep runtime-only state in VM/runtime structures instead.
+
 ## Ruby Specs
 
 We have tests in both `*_test.zig` files and in `*_spec.rb` files.
 
-The zig tests (in the `tests/` directory) are for bootstrapping language features and for edge cases not expressed in ruby spec files.
+The Zig tests (in the `test/` directory) are for bootstrapping language features and for edge cases not expressed in Ruby spec files.
 
 The spec files (in the `spec/` directory) come from [ruby/spec](https://github.com/ruby/spec), which is a community-maintained repository of specs describing Ruby. When implementing one of these specs, we'll copy it over and try to get it passing. Look in `../ruby_spec` for the files before going to the web.
