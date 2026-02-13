@@ -73,6 +73,9 @@ pub fn register(vm: *VM) !void {
     const send_sym = try vm.intern("send");
     try vm.kernel_module.methods.put(send_sym, .{ .method = .{ .builtin = &builtinKernelSend } });
 
+    const define_singleton_method_sym = try vm.intern("define_singleton_method");
+    try vm.kernel_module.methods.put(define_singleton_method_sym, .{ .method = .{ .builtin = &builtinKernelDefineSingletonMethod } });
+
     const nil_sym = try vm.intern("nil?");
     try vm.kernel_module.methods.put(nil_sym, .{ .method = .{ .builtin = &builtinKernelNil } });
 
@@ -436,6 +439,22 @@ pub fn builtinKernelSend(vm: *VM, receiver: Value, args: []Value, block: ?Block)
     const name_str = try vm.coerceToMethodNameString(args[0]);
     const call_args = args[1..];
     return vm.callMethodByName(receiver, name_str, call_args, block);
+}
+
+pub fn builtinKernelDefineSingletonMethod(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const blk = try vm.requireBlock(block);
+
+    const name_str = try vm.coerceToMethodNameString(args[0]);
+    const name_sym = try vm.intern(name_str);
+    const proc_val = try vm.newProc(blk);
+
+    const singleton_class = try vm.getOrCreateSingletonClass(receiver);
+    singleton_class.module.methods.put(name_sym, .{
+        .method = .{ .proc = proc_val.data.proc },
+    }) catch return error.Fatal;
+
+    return Value{ .data = .{ .symbol = name_sym } };
 }
 
 pub fn builtinKernelInstanceVariableGet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

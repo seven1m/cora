@@ -51,6 +51,7 @@ pub const Method = union(enum) {
 const ReceiverCallStyle = bytecode.ReceiverCallStyle;
 
 pub const ResolvedMethod = struct {
+    name: *SymbolObject,
     owner_class: *ClassObject,
     entry: MethodEntry,
 };
@@ -91,6 +92,8 @@ pub const CallFrame = struct {
     ep: *Environment,
     block: ?Block = null,
     frame_type: enum { method, lambda, proc, fiber } = .method,
+    method_name: ?[]const u8 = null,
+    super_defining_class: ?*ClassObject = null,
 };
 
 pub const VM = struct {
@@ -2185,10 +2188,16 @@ pub const VM = struct {
         };
     }
 
-    fn resolveLookupEntry(_: *VM, owner_class: *ClassObject, entry: MethodEntry) LookupMethodResult {
+    fn resolveLookupEntry(
+        _: *VM,
+        method_name: *SymbolObject,
+        owner_class: *ClassObject,
+        entry: MethodEntry,
+    ) LookupMethodResult {
         return switch (entry.method) {
             .undefined => .undefined,
             else => .{ .found = .{
+                .name = method_name,
                 .owner_class = owner_class,
                 .entry = entry,
             } },
@@ -2204,13 +2213,13 @@ pub const VM = struct {
                 i -= 1;
                 const module = c.prepended_modules.items[i];
                 if (module.methods.get(method_name)) |entry| {
-                    return self.resolveLookupEntry(c, entry);
+                    return self.resolveLookupEntry(method_name, c, entry);
                 }
             }
 
             // 2. Check class's own methods
             if (c.module.methods.get(method_name)) |entry| {
-                return self.resolveLookupEntry(c, entry);
+                return self.resolveLookupEntry(method_name, c, entry);
             }
 
             // 3. Check included modules (in reverse order - most recently included at highest index is checked first)
@@ -2219,7 +2228,7 @@ pub const VM = struct {
                 i -= 1;
                 const module = c.included_modules.items[i];
                 if (module.methods.get(method_name)) |entry| {
-                    return self.resolveLookupEntry(c, entry);
+                    return self.resolveLookupEntry(method_name, c, entry);
                 }
             }
 
@@ -2320,7 +2329,7 @@ pub const VM = struct {
                 return try fun_ptr(self, receiver, args, block);
             },
             .proc => |proc_obj| {
-                return self.callProcAsMethod(proc_obj, receiver, args, block);
+                return self.callProcAsMethod(proc_obj, receiver, args, block, resolved.name.name, resolved.owner_class);
             },
             .undefined => unreachable,
         }
@@ -2426,7 +2435,15 @@ pub const VM = struct {
     }
 
     /// Execute a ProcObject as a method body
-    fn callProcAsMethod(self: *VM, proc_obj: *value.ProcObject, receiver: Value, args: []const Value, block: ?Block) VMError!Value {
+    fn callProcAsMethod(
+        self: *VM,
+        proc_obj: *value.ProcObject,
+        receiver: Value,
+        args: []const Value,
+        block: ?Block,
+        method_name: ?[]const u8,
+        defining_class: ?*ClassObject,
+    ) VMError!Value {
         const real_defining_ep = derefEnvironment(proc_obj.block.defining_ep);
         const proc_env = self.createStackEnvironment(real_defining_ep, proc_obj.block.chunk.lexical_scope orelse self.current_lexical_scope) catch return error.Fatal;
 
@@ -2438,6 +2455,8 @@ pub const VM = struct {
             .ep = proc_env,
             .block = block,
             .frame_type = .method,
+            .method_name = method_name,
+            .super_defining_class = defining_class,
         }) catch return error.Fatal;
 
         const current_frame = self.currentFrame();
@@ -2625,7 +2644,7 @@ pub const VM = struct {
                     self.pending_exception = exc;
                     return error.Unwind;
                 }
-                const result = try self.callProcAsMethod(proc_obj, receiver, args[0..argc], block);
+                const result = try self.callProcAsMethod(proc_obj, receiver, args[0..argc], block, method.name.name, method.owner_class);
                 try self.push(result);
             },
             .undefined => unreachable,
@@ -2744,12 +2763,12 @@ pub const VM = struct {
     fn callSuper(self: *VM, args: []const Value, block: ?Block) VMError!void {
         const frame = self.currentFrame();
 
-        // Get method name from current chunk
-        const method_name = frame.chunk.name;
+        // Use explicit frame metadata when a method body comes from a Proc (define_method/define_singleton_method).
+        const method_name = frame.method_name orelse frame.chunk.name;
         const method_name_sym = try self.intern(method_name);
 
-        // Get the defining class from the current method's lexical scope
-        const defining_class = self.getDefiningClassForSuper(frame.chunk) orelse {
+        // Get the defining class from frame metadata when available, else from lexical scope.
+        const defining_class = frame.super_defining_class orelse self.getDefiningClassForSuper(frame.chunk) orelse {
             const exc = try self.createException(self.no_method_error_class, "super called outside of method");
             self.pending_exception = exc;
             return error.Unwind;
@@ -2810,7 +2829,7 @@ pub const VM = struct {
                 try self.push(result);
             },
             .proc => |proc_obj| {
-                const result = try self.callProcAsMethod(proc_obj, receiver, args, block);
+                const result = try self.callProcAsMethod(proc_obj, receiver, args, block, resolved.name.name, resolved.owner_class);
                 try self.push(result);
             },
             .undefined => unreachable,

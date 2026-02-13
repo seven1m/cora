@@ -121,6 +121,9 @@ pub fn register(vm: *VM) !void {
     const undef_method_sym = try vm.intern("undef_method");
     try vm.module_class.module.methods.put(undef_method_sym, .{ .method = .{ .builtin = &builtinModuleUndefMethod } });
 
+    const remove_method_sym = try vm.intern("remove_method");
+    try vm.module_class.module.methods.put(remove_method_sym, .{ .method = .{ .builtin = &builtinModuleRemoveMethod } });
+
     const private_sym = try vm.intern("private");
     try vm.module_class.module.methods.put(private_sym, .{
         .method = .{ .builtin = &builtinModulePrivate },
@@ -416,6 +419,33 @@ pub fn builtinModuleUndefMethod(vm: *VM, receiver: Value, args: []Value, _: ?Blo
         }
 
         methods.put(name_sym, .{ .method = .{ .undefined = {} } }) catch return error.Fatal;
+    }
+
+    return receiver;
+}
+
+pub fn builtinModuleRemoveMethod(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgRange(args, 1, std.math.maxInt(usize));
+
+    const methods = receiver.getModuleMethods() orelse {
+        const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
+        vm.pending_exception = exc;
+        return error.Unwind;
+    };
+
+    for (args) |arg| {
+        const name_sym = try vm.coerceToMethodNameSymbol(arg);
+        _ = getOwnDefinedMethodEntry(methods, name_sym) orelse {
+            const msg = std.fmt.allocPrint(
+                vm.gc_allocator,
+                "undefined method '{s}'",
+                .{name_sym.name},
+            ) catch return error.Fatal;
+            const exc = try vm.createException(vm.name_error_class, msg);
+            vm.pending_exception = exc;
+            return error.Unwind;
+        };
+        _ = methods.remove(name_sym);
     }
 
     return receiver;

@@ -167,3 +167,58 @@ test "Object#new does not panic with singleton coercion in Class.new block" {
     try std.testing.expect(result.data == .integer);
     try std.testing.expectEqual(@as(i64, 7), result.data.integer);
 }
+
+test "Object#define_singleton_method defines and calls singleton method" {
+    const result = try evalCode(
+        \\obj = Object.new
+        \\ret = obj.define_singleton_method(:hello) { 'hi' }
+        \\[ret, obj.hello]
+    );
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqualSlices(u8, "hello", result.data.array.elements.items[0].data.symbol.name);
+    try std.testing.expectEqualSlices(u8, "hi", result.data.array.elements.items[1].data.string.str);
+}
+
+test "Object#define_singleton_method supports super dispatch" {
+    const result = try evalCode(
+        \\obj = "abc"
+        \\obj.define_singleton_method(:size) { super() + 1 }
+        \\obj.size
+    );
+    try std.testing.expectEqual(@as(i64, 4), result.data.integer);
+}
+
+test "singleton_class.remove_method removes singleton override and falls back to class method" {
+    const result = try evalCode(
+        \\class Greeter
+        \\  def greet
+        \\    'class'
+        \\  end
+        \\end
+        \\g = Greeter.new
+        \\g.define_singleton_method(:greet) { 'singleton' }
+        \\before = g.greet
+        \\g.singleton_class.remove_method(:greet)
+        \\[before, g.greet]
+    );
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqualSlices(u8, "singleton", result.data.array.elements.items[0].data.string.str);
+    try std.testing.expectEqualSlices(u8, "class", result.data.array.elements.items[1].data.string.str);
+}
+
+test "singleton_class.remove_method raises NameError for inherited-only method" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+    const bad = evalCodeWithOutput(
+        \\class Greeter
+        \\  def greet
+        \\    'class'
+        \\  end
+        \\end
+        \\g = Greeter.new
+        \\g.singleton_class.remove_method(:greet)
+    , &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.UnhandledException, bad.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "NameError") != null);
+    try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "greet") != null);
+}

@@ -380,3 +380,39 @@ test "Module undef_method allows method_missing to handle equal?" {
     try std.testing.expect(result.data == .symbol);
     try std.testing.expectEqualSlices(u8, "equal?", result.data.symbol.name);
 }
+
+test "Module remove_method removes own method and allows superclass fallback" {
+    const result = try evalCode(
+        \\class Parent
+        \\  def call
+        \\    1
+        \\  end
+        \\end
+        \\class Child < Parent
+        \\  def call
+        \\    2
+        \\  end
+        \\  remove_method :call
+        \\end
+        \\Child.new.call
+    );
+    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+}
+
+test "Module remove_method raises NameError when method is not defined on receiver" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+    const bad = evalCodeWithOutput(
+        \\class Parent
+        \\  def call
+        \\    1
+        \\  end
+        \\end
+        \\class Child < Parent
+        \\  remove_method :call
+        \\end
+    , &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.UnhandledException, bad.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "NameError") != null);
+    try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "call") != null);
+}

@@ -47,7 +47,7 @@ Prioritized by prerequisites (items earlier unblock later ones).
 - [x] Add `Module#undef_method`.
   - Evidence: `../natalie/test/support/spec.rb:533`
   - Verified failure with snippet: `undefined method 'undef_method' for Class`.
-- [ ] Add `Object#define_singleton_method` and method removal support (`Module#remove_method` on singleton classes).
+- [x] Add `Object#define_singleton_method` and method removal support (`Module#remove_method` on singleton classes).
   - Evidence: `../natalie/test/support/spec.rb:1077`, `../natalie/test/support/spec.rb:1091`, `../natalie/test/support/spec.rb:1538`
   - Verified failure: `undefined method 'define_singleton_method' for Object`.
 
