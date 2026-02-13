@@ -435,6 +435,16 @@ pub const VM = struct {
         self.object_class.module.constants.put(range_error_name_sym, range_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(regexp_error_name_sym, regexp_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(encoding_name_sym, encoding_class_val) catch return error.Fatal;
+        const ruby_engine_sym = try self.intern("RUBY_ENGINE");
+        const ruby_version_sym = try self.intern("RUBY_VERSION");
+        const ruby_platform_sym = try self.intern("RUBY_PLATFORM");
+        const ruby_engine_val = try self.newString("cora", false);
+        const ruby_version_val = try self.newString("4.0.0", false);
+        const ruby_platform = comptime std.fmt.comptimePrint("{s}-{s}", .{ @tagName(builtin.cpu.arch), @tagName(builtin.os.tag) });
+        const ruby_platform_val = try self.newString(ruby_platform, false);
+        self.object_class.module.constants.put(ruby_engine_sym, ruby_engine_val) catch return error.Fatal;
+        self.object_class.module.constants.put(ruby_version_sym, ruby_version_val) catch return error.Fatal;
+        self.object_class.module.constants.put(ruby_platform_sym, ruby_platform_val) catch return error.Fatal;
         try self.setArgv(&[_][]const u8{});
 
         const env_obj = try self.newInstance(self.object_class);

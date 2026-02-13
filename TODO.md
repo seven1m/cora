@@ -31,7 +31,7 @@ Prioritized by prerequisites (items earlier unblock later ones).
 - [x] Provide `ENV` object and `ENV[]` read/write behavior.
   - Evidence: `../natalie/test/support/spec.rb:120`, `../natalie/test/support/spec.rb:206`, `../natalie/test/support/spec.rb:210`
   - Verified failure: `uninitialized constant ENV`.
-- [ ] Provide Ruby platform/version constants used by guards:
+- [x] Provide Ruby platform/version constants used by guards:
   - `RUBY_ENGINE` (`../natalie/test/support/spec.rb:251`, `../natalie/test/support/spec.rb:1767`)
   - `RUBY_VERSION` (`../natalie/test/support/spec.rb:298`)
   - `RUBY_PLATFORM` (`../natalie/test/support/spec.rb:339`)
