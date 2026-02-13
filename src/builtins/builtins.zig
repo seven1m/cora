@@ -6,6 +6,7 @@ const array = @import("array.zig");
 const basic_object = @import("basic_object.zig");
 const class_builtin = @import("class.zig");
 const encoding = @import("encoding.zig");
+const env = @import("env.zig");
 const exception = @import("exception.zig");
 const false_class = @import("false_class.zig");
 const float = @import("float.zig");
@@ -33,6 +34,7 @@ pub fn registerAll(vm: *VM) !void {
     try float.register(vm);
     try array.register(vm);
     try hash.register(vm);
+    try env.register(vm);
     try proc_builtin.register(vm);
     try fiber.register(vm);
     try range.register(vm);

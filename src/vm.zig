@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const bytecode = @import("bytecode.zig");
 const chunk = @import("chunk.zig");
 const compiler = @import("compiler.zig");
@@ -18,6 +19,10 @@ const MethodVisibility = value.MethodVisibility;
 const StringObject = value.StringObject;
 const SymbolObject = value.SymbolObject;
 const Chunk = chunk.Chunk;
+
+extern "c" fn getenv(name: [*:0]const u8) ?[*:0]u8;
+extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
+extern "c" fn unsetenv(name: [*:0]const u8) c_int;
 
 pub const VMError = error{
     // Unhandled Ruby exception returned by VM.run()
@@ -161,6 +166,7 @@ pub const VM = struct {
     loaded_paths: std.ArrayList([]const u8) = .empty,
     load_path: std.ArrayList([]const u8) = .empty,
     current_loading_file: ?[]const u8 = null,
+    env_object: ?Value = null,
     next_chunk_id: u16 = 1,
 
     // Buffered writers for production
@@ -431,6 +437,11 @@ pub const VM = struct {
         self.object_class.module.constants.put(encoding_name_sym, encoding_class_val) catch return error.Fatal;
         try self.setArgv(&[_][]const u8{});
 
+        const env_obj = try self.newInstance(self.object_class);
+        self.env_object = env_obj;
+        const env_sym = try self.intern("ENV");
+        self.object_class.module.constants.put(env_sym, env_obj) catch return error.Fatal;
+
         // Register encoding constants on Encoding class
         const utf8_const_sym = try self.intern("UTF_8");
         const ascii_8bit_const_sym = try self.intern("ASCII_8BIT");
@@ -654,6 +665,77 @@ pub const VM = struct {
 
         const argv_sym = try self.intern("ARGV");
         self.object_class.module.constants.put(argv_sym, Value{ .data = .{ .array = argv_array } }) catch return error.Fatal;
+    }
+
+    fn allocCStringZ(self: *VM, bytes: []const u8) VMError![:0]u8 {
+        const out = self.allocator.allocSentinel(u8, bytes.len, 0) catch return error.Fatal;
+        @memcpy(out[0..bytes.len], bytes);
+        return out;
+    }
+
+    pub fn envGet(self: *VM, key: []const u8) VMError!Value {
+        const key_z = try self.allocCStringZ(key);
+        defer self.allocator.free(key_z);
+        const value_z = getenv(key_z.ptr) orelse return Value.nil();
+        return self.newString(std.mem.span(value_z), false);
+    }
+
+    pub fn syncHostEnvSet(self: *VM, key: []const u8, value_str: []const u8) VMError!void {
+        if (builtin.os.tag == .windows) {
+            return self.raiseExceptionFmt(self.runtime_error_class, "ENV host sync is not implemented on Windows", .{});
+        }
+
+        const key_z = try self.allocCStringZ(key);
+        defer self.allocator.free(key_z);
+        const value_z = try self.allocCStringZ(value_str);
+        defer self.allocator.free(value_z);
+
+        if (setenv(key_z.ptr, value_z.ptr, 1) != 0) {
+            return self.raiseExceptionFmt(self.runtime_error_class, "failed to set environment variable: {s}", .{key});
+        }
+    }
+
+    pub fn syncHostEnvUnset(self: *VM, key: []const u8) VMError!void {
+        if (builtin.os.tag == .windows) {
+            return self.raiseExceptionFmt(self.runtime_error_class, "ENV host sync is not implemented on Windows", .{});
+        }
+
+        const key_z = try self.allocCStringZ(key);
+        defer self.allocator.free(key_z);
+
+        if (unsetenv(key_z.ptr) != 0) {
+            return self.raiseExceptionFmt(self.runtime_error_class, "failed to unset environment variable: {s}", .{key});
+        }
+    }
+
+    pub fn envSetString(self: *VM, key: []const u8, value_str: []const u8, sync_host: bool) VMError!Value {
+        if (sync_host) {
+            try self.syncHostEnvSet(key, value_str);
+        }
+        return try self.newString(value_str, false);
+    }
+
+    pub fn envUnset(self: *VM, key: []const u8, sync_host: bool) VMError!Value {
+        if (sync_host) {
+            try self.syncHostEnvUnset(key);
+        }
+        return Value.nil();
+    }
+
+    pub fn envToHash(self: *VM) VMError!Value {
+        const hash_obj = try self.createHash();
+        var env_map = std.process.getEnvMap(self.allocator) catch return error.Fatal;
+        defer env_map.deinit();
+
+        var iter = env_map.iterator();
+        while (iter.next()) |entry| {
+            const key_val = try self.newString(entry.key_ptr.*, false);
+            const value_val = try self.newString(entry.value_ptr.*, false);
+            hash_obj.entries.append(self.gc_allocator, .{ .key = key_val, .value = value_val }) catch return error.Fatal;
+            hash_obj.map.put(key_val.hash(), hash_obj.entries.items.len - 1) catch return error.Fatal;
+        }
+
+        return .{ .data = .{ .hash = hash_obj } };
     }
 
     pub fn deinit(self: *VM) void {

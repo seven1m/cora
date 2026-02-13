@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 
@@ -586,7 +587,7 @@ pub fn builtinKernelBacktick(vm: *VM, _: Value, args: []Value, _: ?Block) VMErro
     try vm.requireArgCount(args, 1);
     const command = try vm.coerceToStr(args[0], "no implicit conversion into String");
 
-    const argv = if (@import("builtin").os.tag == .windows)
+    const argv = if (builtin.os.tag == .windows)
         [_][]const u8{ "cmd.exe", "/C", command }
     else
         [_][]const u8{ "/bin/sh", "-c", command };

@@ -28,7 +28,7 @@ Prioritized by prerequisites (items earlier unblock later ones).
 - [x] Provide `ARGV` constant/behavior.
   - Evidence: `../natalie/test/support/spec.rb:29`
   - Verified failure: `uninitialized constant ARGV`.
-- [ ] Provide `ENV` object and `ENV[]` read/write behavior.
+- [x] Provide `ENV` object and `ENV[]` read/write behavior.
   - Evidence: `../natalie/test/support/spec.rb:120`, `../natalie/test/support/spec.rb:206`, `../natalie/test/support/spec.rb:210`
   - Verified failure: `uninitialized constant ENV`.
 - [ ] Provide Ruby platform/version constants used by guards:
