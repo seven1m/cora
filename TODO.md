@@ -25,7 +25,7 @@ Prioritized by prerequisites (items earlier unblock later ones).
 - [x] Implement `Kernel#__dir__` (or equivalent pseudo-variable behavior).
   - Evidence: `../natalie/test/support/spec.rb:27`
   - Verified failure: `undefined method '__dir__' for Object`.
-- [ ] Provide `ARGV` constant/behavior.
+- [x] Provide `ARGV` constant/behavior.
   - Evidence: `../natalie/test/support/spec.rb:29`
   - Verified failure: `uninitialized constant ARGV`.
 - [ ] Provide `ENV` object and `ENV[]` read/write behavior.

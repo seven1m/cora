@@ -24,9 +24,16 @@ pub fn main() !void {
     var print_ast = false;
     var dump_bytecode = false;
     var source_file: ?[]const u8 = null;
+    var script_args: std.ArrayList([]const u8) = .empty;
+    defer script_args.deinit(allocator);
 
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
+        if (filename != null) {
+            try script_args.append(allocator, args[i]);
+            continue;
+        }
+
         if (std.mem.eql(u8, args[i], "-e")) {
             if (i + 1 < args.len) {
                 ruby_code = args[i + 1];
@@ -40,7 +47,11 @@ pub fn main() !void {
         } else if (std.mem.eql(u8, args[i], "--dump-bytecode")) {
             dump_bytecode = true;
         } else if (!std.mem.startsWith(u8, args[i], "-")) {
-            filename = args[i];
+            if (filename == null and ruby_code == null) {
+                filename = args[i];
+            } else {
+                try script_args.append(allocator, args[i]);
+            }
         }
     }
 
@@ -113,6 +124,7 @@ pub fn main() !void {
 
     var virtual_machine = try vm.VM.init(allocator, bdwgc.allocator, bdwgc.allocator_atomic, &program);
     defer virtual_machine.deinit();
+    try virtual_machine.setArgv(script_args.items);
 
     const result = virtual_machine.run();
 

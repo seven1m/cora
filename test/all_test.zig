@@ -3,6 +3,7 @@ const prism_test = @import("prism_test.zig");
 const binary_test = @import("binary_test.zig");
 
 const core_array_test = @import("core/array_test.zig");
+const core_argv_test = @import("core/argv_test.zig");
 const core_class_test = @import("core/class_test.zig");
 const core_encoding_test = @import("core/encoding_test.zig");
 const core_exception_test = @import("core/exception_test.zig");
@@ -62,6 +63,7 @@ comptime {
     _ = prism_test;
     _ = binary_test;
     _ = core_class_test;
+    _ = core_argv_test;
     _ = core_array_test;
     _ = core_encoding_test;
     _ = core_exception_test;

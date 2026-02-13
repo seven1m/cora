@@ -429,6 +429,7 @@ pub const VM = struct {
         self.object_class.module.constants.put(range_error_name_sym, range_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(regexp_error_name_sym, regexp_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(encoding_name_sym, encoding_class_val) catch return error.Fatal;
+        try self.setArgv(&[_][]const u8{});
 
         // Register encoding constants on Encoding class
         const utf8_const_sym = try self.intern("UTF_8");
@@ -642,6 +643,17 @@ pub const VM = struct {
         var vm = initEmpty(allocator, gc_allocator, gc_allocator_atomic);
         vm.prepare(program) catch return error.Fatal;
         return vm;
+    }
+
+    pub fn setArgv(self: *VM, args: []const []const u8) VMError!void {
+        const argv_array = try self.createArray();
+        for (args) |arg| {
+            const arg_str = try self.newString(arg, false);
+            argv_array.elements.append(self.gc_allocator, arg_str) catch return error.Fatal;
+        }
+
+        const argv_sym = try self.intern("ARGV");
+        self.object_class.module.constants.put(argv_sym, Value{ .data = .{ .array = argv_array } }) catch return error.Fatal;
     }
 
     pub fn deinit(self: *VM) void {
