@@ -70,6 +70,120 @@ fn sortSymbolsByName(symbols: []*SymbolObject) void {
     }.lessThan);
 }
 
+const InstanceMethodFilter = enum {
+    public_and_protected,
+    private_only,
+    protected_only,
+    public_only,
+};
+
+fn methodMatchesFilter(entry: value.MethodEntry, filter: InstanceMethodFilter) bool {
+    if (entry.method == .undefined) return false;
+    return switch (filter) {
+        .public_and_protected => entry.visibility == .public or entry.visibility == .protected,
+        .private_only => entry.visibility == .private,
+        .protected_only => entry.visibility == .protected,
+        .public_only => entry.visibility == .public,
+    };
+}
+
+fn collectMethodsFromTable(
+    vm: *VM,
+    methods: *std.AutoHashMap(*SymbolObject, value.MethodEntry),
+    filter: InstanceMethodFilter,
+    out: *std.ArrayList(*SymbolObject),
+    seen: *std.AutoHashMap(*SymbolObject, usize),
+    blocked: *std.AutoHashMap(*SymbolObject, void),
+) VMError!void {
+    var it = methods.iterator();
+    while (it.next()) |bucket| {
+        const name_sym = bucket.key_ptr.*;
+        const entry = bucket.value_ptr.*;
+
+        if (entry.method == .undefined) {
+            blocked.put(name_sym, {}) catch return error.Fatal;
+            if (seen.get(name_sym)) |idx| {
+                _ = out.swapRemove(idx);
+                _ = seen.remove(name_sym);
+                if (idx < out.items.len) {
+                    const swapped = out.items[idx];
+                    seen.put(swapped, idx) catch return error.Fatal;
+                }
+            }
+            continue;
+        }
+
+        if (blocked.contains(name_sym)) continue;
+        if (!methodMatchesFilter(entry, filter)) continue;
+        if (seen.contains(name_sym)) continue;
+
+        out.append(vm.gc_allocator, name_sym) catch return error.Fatal;
+        seen.put(name_sym, out.items.len - 1) catch return error.Fatal;
+    }
+}
+
+fn collectInstanceMethods(
+    vm: *VM,
+    receiver: Value,
+    filter: InstanceMethodFilter,
+    include_super: bool,
+) VMError!Value {
+    var names: std.ArrayList(*SymbolObject) = .empty;
+    defer names.deinit(vm.gc_allocator);
+
+    var seen: std.AutoHashMap(*SymbolObject, usize) = std.AutoHashMap(*SymbolObject, usize).init(vm.gc_allocator);
+    defer seen.deinit();
+
+    var blocked: std.AutoHashMap(*SymbolObject, void) = std.AutoHashMap(*SymbolObject, void).init(vm.gc_allocator);
+    defer blocked.deinit();
+
+    switch (receiver.data) {
+        .module => |module_obj| {
+            try collectMethodsFromTable(vm, &module_obj.methods, filter, &names, &seen, &blocked);
+        },
+        .class => |class_obj| {
+            var current: ?*ClassObject = class_obj;
+            while (current) |klass| {
+                if (include_super) {
+                    var i = klass.prepended_modules.items.len;
+                    while (i > 0) {
+                        i -= 1;
+                        const prepended = klass.prepended_modules.items[i];
+                        try collectMethodsFromTable(vm, &prepended.methods, filter, &names, &seen, &blocked);
+                    }
+                }
+
+                try collectMethodsFromTable(vm, &klass.module.methods, filter, &names, &seen, &blocked);
+
+                if (include_super) {
+                    var j = klass.included_modules.items.len;
+                    while (j > 0) {
+                        j -= 1;
+                        const included = klass.included_modules.items[j];
+                        try collectMethodsFromTable(vm, &included.methods, filter, &names, &seen, &blocked);
+                    }
+                }
+
+                if (!include_super) break;
+                current = klass.superclass;
+            }
+        },
+        else => {
+            const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
+            vm.pending_exception = exc;
+            return error.Unwind;
+        },
+    }
+
+    sortSymbolsByName(names.items);
+
+    const out = try vm.createArray();
+    for (names.items) |name_sym| {
+        out.elements.append(vm.gc_allocator, Value{ .data = .{ .symbol = name_sym } }) catch return error.Fatal;
+    }
+    return Value{ .data = .{ .array = out } };
+}
+
 fn setVisibility(vm: *VM, receiver: Value, args: []Value, visibility: MethodVisibility) VMError!Value {
     if (args.len == 0) {
         if (vm.current_lexical_scope) |scope| {
@@ -184,6 +298,18 @@ pub fn register(vm: *VM) !void {
 
     const constants_sym = try vm.intern("constants");
     try vm.module_class.module.methods.put(constants_sym, .{ .method = .{ .builtin = &builtinModuleConstants } });
+
+    const instance_methods_sym = try vm.intern("instance_methods");
+    try vm.module_class.module.methods.put(instance_methods_sym, .{ .method = .{ .builtin = &builtinModuleInstanceMethods } });
+
+    const private_instance_methods_sym = try vm.intern("private_instance_methods");
+    try vm.module_class.module.methods.put(private_instance_methods_sym, .{ .method = .{ .builtin = &builtinModulePrivateInstanceMethods } });
+
+    const protected_instance_methods_sym = try vm.intern("protected_instance_methods");
+    try vm.module_class.module.methods.put(protected_instance_methods_sym, .{ .method = .{ .builtin = &builtinModuleProtectedInstanceMethods } });
+
+    const public_instance_methods_sym = try vm.intern("public_instance_methods");
+    try vm.module_class.module.methods.put(public_instance_methods_sym, .{ .method = .{ .builtin = &builtinModulePublicInstanceMethods } });
 }
 
 pub fn builtinModuleCaseEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -255,6 +381,30 @@ pub fn builtinModuleConstants(vm: *VM, receiver: Value, args: []Value, _: ?Block
     }
 
     return Value{ .data = .{ .array = out } };
+}
+
+pub fn builtinModuleInstanceMethods(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const include_super = if (args.len == 1) args[0].is_truthy() else true;
+    return collectInstanceMethods(vm, receiver, .public_and_protected, include_super);
+}
+
+pub fn builtinModulePrivateInstanceMethods(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const include_super = if (args.len == 1) args[0].is_truthy() else true;
+    return collectInstanceMethods(vm, receiver, .private_only, include_super);
+}
+
+pub fn builtinModuleProtectedInstanceMethods(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const include_super = if (args.len == 1) args[0].is_truthy() else true;
+    return collectInstanceMethods(vm, receiver, .protected_only, include_super);
+}
+
+pub fn builtinModulePublicInstanceMethods(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const include_super = if (args.len == 1) args[0].is_truthy() else true;
+    return collectInstanceMethods(vm, receiver, .public_only, include_super);
 }
 
 pub fn builtinModuleInclude(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

@@ -469,3 +469,105 @@ test "Class constants(false) excludes inherited constants" {
     try std.testing.expectEqual(@as(usize, 1), names.len);
     try std.testing.expectEqualSlices(u8, "CHILD_CONST", names[0].data.symbol.name);
 }
+
+test "Module instance method visibility APIs filter correctly" {
+    var result = try evalCode(
+        \\class C
+        \\  def pub; end
+        \\  protected
+        \\  def prot; end
+        \\  private
+        \\  def priv; end
+        \\end
+        \\C.instance_methods(false)
+    );
+    try std.testing.expect(result.data == .array);
+    var has_pub = false;
+    var has_prot = false;
+    var has_priv = false;
+    for (result.data.array.elements.items) |name| {
+        if (std.mem.eql(u8, name.data.symbol.name, "pub")) has_pub = true;
+        if (std.mem.eql(u8, name.data.symbol.name, "prot")) has_prot = true;
+        if (std.mem.eql(u8, name.data.symbol.name, "priv")) has_priv = true;
+    }
+    try std.testing.expect(has_pub);
+    try std.testing.expect(has_prot);
+    try std.testing.expect(!has_priv);
+
+    result = try evalCode(
+        \\class C
+        \\  def pub; end
+        \\  protected
+        \\  def prot; end
+        \\  private
+        \\  def priv; end
+        \\end
+        \\[C.public_instance_methods(false), C.protected_instance_methods(false), C.private_instance_methods(false)]
+    );
+    try std.testing.expect(result.data == .array);
+    const publics = result.data.array.elements.items[0].data.array.elements.items;
+    const protecteds = result.data.array.elements.items[1].data.array.elements.items;
+    const privates = result.data.array.elements.items[2].data.array.elements.items;
+    try std.testing.expectEqual(@as(usize, 1), publics.len);
+    try std.testing.expectEqual(@as(usize, 1), protecteds.len);
+    try std.testing.expectEqual(@as(usize, 1), privates.len);
+    try std.testing.expectEqualSlices(u8, "pub", publics[0].data.symbol.name);
+    try std.testing.expectEqualSlices(u8, "prot", protecteds[0].data.symbol.name);
+    try std.testing.expectEqualSlices(u8, "priv", privates[0].data.symbol.name);
+}
+
+test "Module instance method APIs include inherited by default and exclude when false" {
+    var result = try evalCode(
+        \\class Parent
+        \\  def parent_pub; end
+        \\end
+        \\class Child < Parent
+        \\  def child_pub; end
+        \\end
+        \\Child.public_instance_methods
+    );
+    try std.testing.expect(result.data == .array);
+    var has_child = false;
+    var has_parent = false;
+    for (result.data.array.elements.items) |name| {
+        if (std.mem.eql(u8, name.data.symbol.name, "child_pub")) has_child = true;
+        if (std.mem.eql(u8, name.data.symbol.name, "parent_pub")) has_parent = true;
+    }
+    try std.testing.expect(has_child);
+    try std.testing.expect(has_parent);
+
+    result = try evalCode(
+        \\class Parent
+        \\  def parent_pub; end
+        \\end
+        \\class Child < Parent
+        \\  def child_pub; end
+        \\end
+        \\Child.public_instance_methods(false)
+    );
+    try std.testing.expect(result.data == .array);
+    has_child = false;
+    has_parent = false;
+    for (result.data.array.elements.items) |name| {
+        if (std.mem.eql(u8, name.data.symbol.name, "child_pub")) has_child = true;
+        if (std.mem.eql(u8, name.data.symbol.name, "parent_pub")) has_parent = true;
+    }
+    try std.testing.expect(has_child);
+    try std.testing.expect(!has_parent);
+}
+
+test "Module instance_methods omits methods undefined via undef_method" {
+    const result = try evalCode(
+        \\class Parent
+        \\  def parent_pub; end
+        \\end
+        \\class Child < Parent
+        \\  undef_method :parent_pub
+        \\end
+        \\Child.instance_methods
+    );
+    try std.testing.expect(result.data == .array);
+    for (result.data.array.elements.items) |name| {
+        try std.testing.expect(!std.mem.eql(u8, name.data.symbol.name, "parent_pub"));
+    }
+}

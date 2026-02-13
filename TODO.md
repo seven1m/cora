@@ -56,7 +56,7 @@ Prioritized by prerequisites (items earlier unblock later ones).
 - [x] Add `Module/Class#constants`.
   - Evidence: `../natalie/test/support/spec.rb:1281`
   - Verified failure: `undefined method 'constants' for Class`.
-- [ ] Add `Module/Class#instance_methods`, `#private_instance_methods`, `#protected_instance_methods`, `#public_instance_methods`.
+- [x] Add `Module/Class#instance_methods`, `#private_instance_methods`, `#protected_instance_methods`, `#public_instance_methods`.
   - Evidence: `../natalie/test/support/spec.rb:1337`, `../natalie/test/support/spec.rb:1356`, `../natalie/test/support/spec.rb:1375`, `../natalie/test/support/spec.rb:1396`
   - Verified failure example: `private_instance_methods` missing.
 - [ ] Add `Object#methods` and `#private_methods`.
