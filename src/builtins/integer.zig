@@ -219,7 +219,7 @@ pub fn builtinIntegerGreaterThanOrEqual(vm: *VM, receiver: Value, args: []Value,
 }
 
 pub fn builtinIntegerToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgRange(args, 0, 1);
+    try vm.requireArgCountRange(args, 0, 1);
 
     var base: u8 = 10;
     if (args.len == 1) {
@@ -261,7 +261,7 @@ pub fn builtinIntegerZero(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
 }
 
 pub fn builtinIntegerChr(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgRange(args, 0, 1);
+    try vm.requireArgCountRange(args, 0, 1);
 
     const codepoint = receiver.data.integer;
     if (codepoint < 0) {

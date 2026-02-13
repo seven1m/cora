@@ -125,7 +125,7 @@ fn ioReadN(vm: *VM, io: *IoObject, len: usize) VMError!Value {
 }
 
 pub fn builtinIoRead(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgRange(args, 0, 1);
+    try vm.requireArgCountRange(args, 0, 1);
     const io = try requireIoReceiver(vm, receiver);
 
     if (args.len == 0 or args[0].data == .nil) {

@@ -78,7 +78,7 @@ pub fn builtinArrayPush(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
 }
 
 pub fn builtinArrayBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgRange(args, 1, 2);
+    try vm.requireArgCountRange(args, 1, 2);
 
     const array = receiver.data.array;
     const len: i64 = @intCast(array.elements.items.len);
@@ -149,7 +149,7 @@ pub fn builtinArrayBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
         return Value{ .data = .{ .array = result_array } };
     }
 
-    unreachable; // requireArgRange ensures args.len is 1 or 2
+    unreachable; // requireArgCountRange ensures args.len is 1 or 2
 }
 
 pub fn builtinArrayBracketSet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -320,7 +320,7 @@ pub fn builtinArrayInclude(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 }
 
 pub fn builtinArrayJoin(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgRange(args, 0, 1);
+    try vm.requireArgCountRange(args, 0, 1);
     const sep = if (args.len == 1) try vm.coerceToStr(args[0], "no implicit conversion into String") else "";
 
     const array = receiver.data.array;

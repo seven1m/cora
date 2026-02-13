@@ -425,7 +425,7 @@ pub fn builtinModuleUndefMethod(vm: *VM, receiver: Value, args: []Value, _: ?Blo
 }
 
 pub fn builtinModuleRemoveMethod(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgRange(args, 1, std.math.maxInt(usize));
+    try vm.requireArgCountRange(args, 1, std.math.maxInt(usize));
 
     const methods = receiver.getModuleMethods() orelse {
         const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");

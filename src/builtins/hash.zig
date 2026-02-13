@@ -196,7 +196,7 @@ pub fn builtinHashInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
 }
 
 pub fn builtinHashFetch(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
-    try vm.requireArgRange(args, 1, 2);
+    try vm.requireArgCountRange(args, 1, 2);
 
     if (args.len == 2 and block != null) {
         return vm.raiseExceptionFmt(

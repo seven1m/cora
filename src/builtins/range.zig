@@ -22,7 +22,7 @@ pub fn register(vm: *VM) !void {
 }
 
 pub fn builtinRangeInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgRange(args, 2, 3);
+    try vm.requireArgCountRange(args, 2, 3);
 
     if (receiver.data != .range) {
         return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Range", .{});

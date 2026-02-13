@@ -68,7 +68,7 @@ fn openFileWithMode(vm: *VM, path: []const u8, mode: FileMode) VMError!Value {
 }
 
 fn pathAndMode(vm: *VM, args: []Value) VMError!struct { path: []const u8, mode: FileMode } {
-    try vm.requireArgRange(args, 1, 2);
+    try vm.requireArgCountRange(args, 1, 2);
     const path = try vm.coerceToPath(args[0], "no implicit conversion into String");
 
     const mode_str: []const u8 = if (args.len == 2) blk: {

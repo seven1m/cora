@@ -3198,7 +3198,7 @@ pub const VM = struct {
         }
     }
 
-    pub fn requireArgRange(self: *VM, args: []Value, min: usize, max: usize) VMError!void {
+    pub fn requireArgCountRange(self: *VM, args: []Value, min: usize, max: usize) VMError!void {
         if (args.len < min or args.len > max) {
             const msg = std.fmt.allocPrint(
                 self.gc_allocator,

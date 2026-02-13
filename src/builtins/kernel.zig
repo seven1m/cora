@@ -379,7 +379,7 @@ pub fn builtinKernelInstanceOf(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
 }
 
 pub fn builtinKernelRespondTo(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgRange(args, 1, 2);
+    try vm.requireArgCountRange(args, 1, 2);
 
     const method_name_sym = try vm.coerceToMethodNameSymbol(args[0]);
     const include_private = if (args.len == 2) args[1].is_truthy() else false;
@@ -398,7 +398,7 @@ pub fn builtinKernelRespondTo(vm: *VM, receiver: Value, args: []Value, _: ?Block
 }
 
 pub fn builtinKernelRespondToMissing(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgRange(args, 1, 2);
+    try vm.requireArgCountRange(args, 1, 2);
 
     _ = try vm.coerceToMethodNameSymbol(args[0]);
     return Value.boolean(false);

@@ -135,7 +135,7 @@ Use "unmanaged" ArrayList: `field: ArrayList(*Value) = .empty` (allocator passed
 
 - Prefer importing files at the top of the file. Avoid inline `@import(...)` expressions in function bodies or expressions.
 - Do not expose runtime implementation details to user Ruby code via fake/hidden instance variables or methods (e.g. `@__store`, `__hidden_methods__`). Keep runtime-only state in VM/runtime structures instead.
-- Always use VM argument-count helpers (`requireArgCount`, `requireArgRange`, etc.) instead of manually constructing "wrong number of arguments" exceptions in builtins.
+- Always use VM argument-count helpers (`requireArgCount`, `requireArgCountRange`, etc.) instead of manually constructing "wrong number of arguments" exceptions in builtins.
 
 ## Ruby Specs
 
