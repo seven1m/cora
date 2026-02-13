@@ -3,6 +3,7 @@ const test_helper = @import("../test_helper.zig");
 
 const evalCode = test_helper.evalCode;
 const evalCodeWithOutput = test_helper.evalCodeWithOutput;
+const evalFile = test_helper.evalFile;
 
 test "p with no arguments" {
     var stdout_buf: [1024]u8 = undefined;
@@ -226,6 +227,36 @@ test "Kernel#send coerces method name via to_str" {
     );
     try std.testing.expect(result.data == .integer);
     try std.testing.expectEqual(@as(i64, 42), result.data.integer);
+}
+
+test "Kernel#__dir__ returns dot for eval code" {
+    const result = try evalCode("__dir__");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, ".", result.data.string.str);
+}
+
+test "Kernel#__dir__ returns absolute directory for file execution" {
+    const allocator = std.testing.allocator;
+    const file_path = try std.fmt.allocPrint(
+        allocator,
+        "/tmp/cora-kernel-dir-{d}.rb",
+        .{std.time.nanoTimestamp()},
+    );
+    defer allocator.free(file_path);
+
+    const file = try std.fs.createFileAbsolute(file_path, .{ .truncate = true });
+    defer file.close();
+    try file.writeAll("__dir__\n");
+
+    var stdout_buf: [1024]u8 = undefined;
+    var stderr_buf: [1024]u8 = undefined;
+    const result = evalFile(file_path, &stdout_buf, &stderr_buf);
+    defer std.fs.deleteFileAbsolute(file_path) catch {};
+
+    if (result.err) |err| return err;
+
+    try std.testing.expect(result.value.data == .string);
+    try std.testing.expectEqualSlices(u8, "/tmp", result.value.data.string.str);
 }
 
 test "Kernel#instance_variable_get coerces name via to_str and invalid names raise NameError" {

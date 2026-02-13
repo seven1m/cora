@@ -22,7 +22,7 @@ Prioritized by prerequisites (items earlier unblock later ones).
 
 ## 2) Core boot/runtime globals required by this file
 
-- [ ] Implement `Kernel#__dir__` (or equivalent pseudo-variable behavior).
+- [x] Implement `Kernel#__dir__` (or equivalent pseudo-variable behavior).
   - Evidence: `../natalie/test/support/spec.rb:27`
   - Verified failure: `undefined method '__dir__' for Object`.
 - [ ] Provide `ARGV` constant/behavior.

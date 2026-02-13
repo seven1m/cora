@@ -81,6 +81,9 @@ pub fn register(vm: *VM) !void {
     const backtick_sym = try vm.intern("`");
     try vm.kernel_module.methods.put(backtick_sym, .{ .method = .{ .builtin = &builtinKernelBacktick } });
 
+    const dir_sym = try vm.intern("__dir__");
+    try vm.kernel_module.methods.put(dir_sym, .{ .method = .{ .builtin = &builtinKernelDir } });
+
     const exitstatus_sym = try vm.intern("exitstatus");
     try vm.process_status_class.module.methods.put(exitstatus_sym, .{ .method = .{ .builtin = &builtinProcessStatusExitstatus } });
 }
@@ -518,6 +521,25 @@ pub fn builtinKernelSingletonClass(vm: *VM, receiver: Value, args: []Value, _: ?
 
     const singleton_class = try vm.getOrCreateSingletonClass(receiver);
     return .{ .data = .{ .class = singleton_class } };
+}
+
+pub fn builtinKernelDir(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
+    const current_file = if (vm.frames.items.len > 0)
+        vm.currentFrame().chunk.source_file
+    else
+        vm.current_loading_file;
+
+    if (current_file) |path| {
+        const abs_path = vm.resolveAbsolutePath(path) catch return error.Fatal;
+        defer vm.allocator.free(abs_path);
+
+        const dir = std.fs.path.dirname(abs_path) orelse ".";
+        return try vm.newString(dir, false);
+    }
+
+    return try vm.newString(".", false);
 }
 
 pub fn builtinKernelP(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
