@@ -416,3 +416,56 @@ test "Module remove_method raises NameError when method is not defined on receiv
     try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "NameError") != null);
     try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "call") != null);
 }
+
+test "Module constants returns module constants as symbols" {
+    const result = try evalCode(
+        \\module M
+        \\  A = 1
+        \\  B = 2
+        \\end
+        \\M.constants
+    );
+    try std.testing.expect(result.data == .array);
+    const names = result.data.array.elements.items;
+    try std.testing.expectEqual(@as(usize, 2), names.len);
+    try std.testing.expectEqualSlices(u8, "A", names[0].data.symbol.name);
+    try std.testing.expectEqualSlices(u8, "B", names[1].data.symbol.name);
+}
+
+test "Class constants includes inherited constants by default" {
+    const result = try evalCode(
+        \\class Parent
+        \\  PARENT_CONST = 1
+        \\end
+        \\class Child < Parent
+        \\  CHILD_CONST = 2
+        \\end
+        \\Child.constants
+    );
+    try std.testing.expect(result.data == .array);
+    const names = result.data.array.elements.items;
+    var has_child = false;
+    var has_parent = false;
+    for (names) |name| {
+        if (std.mem.eql(u8, name.data.symbol.name, "CHILD_CONST")) has_child = true;
+        if (std.mem.eql(u8, name.data.symbol.name, "PARENT_CONST")) has_parent = true;
+    }
+    try std.testing.expect(has_child);
+    try std.testing.expect(has_parent);
+}
+
+test "Class constants(false) excludes inherited constants" {
+    const result = try evalCode(
+        \\class Parent
+        \\  PARENT_CONST = 1
+        \\end
+        \\class Child < Parent
+        \\  CHILD_CONST = 2
+        \\end
+        \\Child.constants(false)
+    );
+    try std.testing.expect(result.data == .array);
+    const names = result.data.array.elements.items;
+    try std.testing.expectEqual(@as(usize, 1), names.len);
+    try std.testing.expectEqualSlices(u8, "CHILD_CONST", names[0].data.symbol.name);
+}

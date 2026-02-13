@@ -53,7 +53,7 @@ Prioritized by prerequisites (items earlier unblock later ones).
 
 ## 4) Reflection APIs needed by spec matchers
 
-- [ ] Add `Module/Class#constants`.
+- [x] Add `Module/Class#constants`.
   - Evidence: `../natalie/test/support/spec.rb:1281`
   - Verified failure: `undefined method 'constants' for Class`.
 - [ ] Add `Module/Class#instance_methods`, `#private_instance_methods`, `#protected_instance_methods`, `#public_instance_methods`.

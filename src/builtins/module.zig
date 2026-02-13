@@ -39,6 +39,37 @@ fn getOwnDefinedMethodEntry(
     return entry;
 }
 
+fn appendConstantSymbolUnique(
+    vm: *VM,
+    out: *std.ArrayList(*SymbolObject),
+    seen: *std.AutoHashMap(*SymbolObject, void),
+    name_sym: *SymbolObject,
+) VMError!void {
+    if (seen.contains(name_sym)) return;
+    seen.put(name_sym, {}) catch return error.Fatal;
+    out.append(vm.gc_allocator, name_sym) catch return error.Fatal;
+}
+
+fn collectOwnConstantSymbols(
+    vm: *VM,
+    module_obj: *value.ModuleObject,
+    out: *std.ArrayList(*SymbolObject),
+    seen: *std.AutoHashMap(*SymbolObject, void),
+) VMError!void {
+    var it = module_obj.constants.iterator();
+    while (it.next()) |entry| {
+        try appendConstantSymbolUnique(vm, out, seen, entry.key_ptr.*);
+    }
+}
+
+fn sortSymbolsByName(symbols: []*SymbolObject) void {
+    std.sort.pdq(*SymbolObject, symbols, {}, struct {
+        fn lessThan(_: void, a: *SymbolObject, b: *SymbolObject) bool {
+            return std.mem.order(u8, a.name, b.name) == .lt;
+        }
+    }.lessThan);
+}
+
 fn setVisibility(vm: *VM, receiver: Value, args: []Value, visibility: MethodVisibility) VMError!Value {
     if (args.len == 0) {
         if (vm.current_lexical_scope) |scope| {
@@ -150,6 +181,9 @@ pub fn register(vm: *VM) !void {
 
     const case_equal_sym = try vm.intern("===");
     try vm.module_class.module.methods.put(case_equal_sym, .{ .method = .{ .builtin = &builtinModuleCaseEqual } });
+
+    const constants_sym = try vm.intern("constants");
+    try vm.module_class.module.methods.put(constants_sym, .{ .method = .{ .builtin = &builtinModuleConstants } });
 }
 
 pub fn builtinModuleCaseEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -181,6 +215,46 @@ pub fn builtinModuleCaseEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block
     }
 
     return Value.boolean(false);
+}
+
+pub fn builtinModuleConstants(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+
+    const include_inherited = if (args.len == 1) args[0].is_truthy() else true;
+
+    var constant_names: std.ArrayList(*SymbolObject) = .empty;
+    defer constant_names.deinit(vm.gc_allocator);
+
+    var seen: std.AutoHashMap(*SymbolObject, void) = std.AutoHashMap(*SymbolObject, void).init(vm.gc_allocator);
+    defer seen.deinit();
+
+    switch (receiver.data) {
+        .module => |module_obj| {
+            try collectOwnConstantSymbols(vm, module_obj, &constant_names, &seen);
+        },
+        .class => |class_obj| {
+            var current: ?*ClassObject = class_obj;
+            while (current) |klass| {
+                try collectOwnConstantSymbols(vm, &klass.module, &constant_names, &seen);
+                if (!include_inherited) break;
+                current = klass.superclass;
+            }
+        },
+        else => {
+            const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
+            vm.pending_exception = exc;
+            return error.Unwind;
+        },
+    }
+
+    sortSymbolsByName(constant_names.items);
+
+    const out = try vm.createArray();
+    for (constant_names.items) |name_sym| {
+        out.elements.append(vm.gc_allocator, Value{ .data = .{ .symbol = name_sym } }) catch return error.Fatal;
+    }
+
+    return Value{ .data = .{ .array = out } };
 }
 
 pub fn builtinModuleInclude(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
