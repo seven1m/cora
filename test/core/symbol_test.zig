@@ -43,3 +43,17 @@ test "Symbol#to_sym returns self" {
     try std.testing.expect(result.data == .string);
     try std.testing.expectEqualSlices(u8, "foo", result.data.string.str);
 }
+
+test "Symbol#== compares symbol identity/value" {
+    var result = try evalCode(":foo == :foo");
+    try std.testing.expect(result.data == .boolean);
+    try std.testing.expectEqual(true, result.data.boolean);
+
+    result = try evalCode(":foo == :bar");
+    try std.testing.expect(result.data == .boolean);
+    try std.testing.expectEqual(false, result.data.boolean);
+
+    result = try evalCode(":foo == 'foo'");
+    try std.testing.expect(result.data == .boolean);
+    try std.testing.expectEqual(false, result.data.boolean);
+}
