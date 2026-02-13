@@ -77,7 +77,10 @@ pub const LocalVariableOrWriteNode = c.pm_local_variable_or_write_node_t;
 pub const LocalVariableOperatorWriteNode = c.pm_local_variable_operator_write_node_t;
 pub const BlockArgumentNode = c.pm_block_argument_node_t;
 pub const EmbeddedStatementsNode = c.pm_embedded_statements_node_t;
+pub const EmbeddedVariableNode = c.pm_embedded_variable_node_t;
 pub const InterpolatedStringNode = c.pm_interpolated_string_node_t;
+pub const XStringNode = c.pm_x_string_node_t;
+pub const InterpolatedXStringNode = c.pm_interpolated_x_string_node_t;
 pub const ForwardingSuperNode = c.pm_forwarding_super_node_t;
 pub const SuperNode = c.pm_super_node_t;
 pub const RegularExpressionNode = c.pm_regular_expression_node_t;
@@ -169,7 +172,10 @@ pub const Node = union(enum) {
     instance_variable_write: *InstanceVariableWriteNode,
     block_argument: *BlockArgumentNode,
     embedded_statements: *EmbeddedStatementsNode,
+    embedded_variable: *EmbeddedVariableNode,
     interpolated_string: *InterpolatedStringNode,
+    x_string: *XStringNode,
+    interpolated_x_string: *InterpolatedXStringNode,
     forwarding_super: *ForwardingSuperNode,
     super_node: *SuperNode,
     regular_expression: *RegularExpressionNode,
@@ -481,8 +487,20 @@ pub const Parser = struct {
             return Node{ .embedded_statements = @ptrCast(raw) };
         }
 
+        if (node_type == c.PM_EMBEDDED_VARIABLE_NODE) {
+            return Node{ .embedded_variable = @ptrCast(raw) };
+        }
+
         if (node_type == c.PM_INTERPOLATED_STRING_NODE) {
             return Node{ .interpolated_string = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_X_STRING_NODE) {
+            return Node{ .x_string = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_INTERPOLATED_X_STRING_NODE) {
+            return Node{ .interpolated_x_string = @ptrCast(raw) };
         }
 
         if (node_type == c.PM_OPTIONAL_PARAMETER_NODE) {

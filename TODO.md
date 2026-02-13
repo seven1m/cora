@@ -13,7 +13,7 @@ Prioritized by prerequisites (items earlier unblock later ones).
 - [x] Add splat arguments in calls/super (`foo(*args)`, `super(*args, &block)`).
   - Evidence: `../natalie/test/support/spec.rb:797`, `../natalie/test/support/spec.rb:1077`
   - Verified failure with snippet: `def f(*a); g(*a); end` -> unsupported `.splat` node.
-- [ ] Add `XStringNode` / `InterpolatedXStringNode` (backtick command literals).
+- [x] Add `XStringNode` / `InterpolatedXStringNode` (backtick command literals).
   - Evidence: `../natalie/test/support/spec.rb:259`, `../natalie/test/support/spec.rb:264`, `../natalie/test/support/spec.rb:480`
   - Verified failure: `UnhandledNode: XStringNode`.
 - [ ] Extend rescue exception-type compilation to allow dynamic expressions (e.g. ivar/class expression), not only simple constant forms.
@@ -101,5 +101,5 @@ Prioritized by prerequisites (items earlier unblock later ones).
 - [ ] Provide minimal `Thread` API used by matcher (`Thread.new`, `status`, `kill`, `join`, `value`, `.pass`).
   - Evidence: `../natalie/test/support/spec.rb:615`, `../natalie/test/support/spec.rb:629`
   - Verified failure: `uninitialized constant Thread`.
-- [ ] Backtick execution should update `$?` with process status semantics expected by this file.
+- [x] Backtick execution should update `$?` with process status semantics expected by this file.
   - Evidence: backticks + `$?.exitstatus` check in `../natalie/test/support/spec.rb:259`, `../natalie/test/support/spec.rb:280`

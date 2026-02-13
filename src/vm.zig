@@ -118,6 +118,7 @@ pub const VM = struct {
     true_class: *value.ClassObject,
     false_class: *value.ClassObject,
     kernel_module: *value.ModuleObject,
+    process_status_class: *value.ClassObject,
     main_self: Value,
     main_fiber: *value.FiberObject,
     current_fiber: *value.FiberObject,
@@ -200,6 +201,7 @@ pub const VM = struct {
             .true_class = undefined,
             .false_class = undefined,
             .kernel_module = undefined,
+            .process_status_class = undefined,
             .main_fiber = undefined,
             .current_fiber = undefined,
             .exception_class = undefined,
@@ -323,6 +325,10 @@ pub const VM = struct {
         const kernel_module_val = try self.newModule(kernel_name_sym);
         self.kernel_module = kernel_module_val.data.module;
 
+        const process_status_name_sym = try self.intern("InternalProcessStatus");
+        const process_status_class_val = try self.newClass(process_status_name_sym, self.object_class);
+        self.process_status_class = process_status_class_val.data.class;
+
         // Exception class hierarchy
         const exception_name_sym = try self.intern("Exception");
         const exception_class_val = try self.newClass(exception_name_sym, self.object_class);
@@ -441,6 +447,9 @@ pub const VM = struct {
 
         // --- Stage 5: Register built-in methods ---
         builtins.registerAll(self) catch return error.Fatal;
+
+        // Initialize last process status global.
+        try self.setGlobal("$?", Value.nil());
 
         try self.includeModule(self.object_class, self.kernel_module);
 
@@ -912,14 +921,7 @@ pub const VM = struct {
                 const name_val = self.currentChunk().constants.items[name_idx];
                 const var_name = name_val.symbol;
                 const global_val = self.peek(0);
-
-                if (self.globals.getPtr(var_name)) |existing| {
-                    existing.* = global_val;
-                } else {
-                    const owned_name = self.allocator.dupe(u8, var_name) catch return error.Fatal;
-                    errdefer self.allocator.free(owned_name);
-                    self.globals.put(owned_name, global_val) catch return error.Fatal;
-                }
+                try self.setGlobal(var_name, global_val);
             },
 
             .GET_IVAR => {
@@ -2818,6 +2820,21 @@ pub const VM = struct {
 
         const name_sym = try self.intern(name);
         obj_ptr.instance_variables.?.put(name_sym, val) catch return error.Fatal;
+    }
+
+    pub fn setGlobal(self: *VM, name: []const u8, val: Value) VMError!void {
+        if (self.globals.getPtr(name)) |existing| {
+            existing.* = val;
+            return;
+        }
+        const owned_name = self.allocator.dupe(u8, name) catch return error.Fatal;
+        self.globals.put(owned_name, val) catch return error.Fatal;
+    }
+
+    pub fn setLastProcessStatus(self: *VM, exitstatus: i64) VMError!void {
+        const status_obj = try self.newInstance(self.process_status_class);
+        try self.setInstanceVariable(status_obj, "@exitstatus", Value.integer(exitstatus));
+        try self.setGlobal("$?", status_obj);
     }
 
     pub fn newString(self: *VM, str: []const u8, frozen: bool) VMError!Value {

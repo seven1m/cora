@@ -77,6 +77,12 @@ pub fn register(vm: *VM) !void {
 
     const singleton_class_sym = try vm.intern("singleton_class");
     try vm.kernel_module.methods.put(singleton_class_sym, .{ .method = .{ .builtin = &builtinKernelSingletonClass } });
+
+    const backtick_sym = try vm.intern("`");
+    try vm.kernel_module.methods.put(backtick_sym, .{ .method = .{ .builtin = &builtinKernelBacktick } });
+
+    const exitstatus_sym = try vm.intern("exitstatus");
+    try vm.process_status_class.module.methods.put(exitstatus_sym, .{ .method = .{ .builtin = &builtinProcessStatusExitstatus } });
 }
 
 pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -552,4 +558,56 @@ pub fn builtinKernelP(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value
 
         return .{ .data = .{ .array = array_obj } };
     }
+}
+
+pub fn builtinKernelBacktick(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const command = try vm.coerceToStr(args[0], "no implicit conversion into String");
+
+    const argv = if (@import("builtin").os.tag == .windows)
+        [_][]const u8{ "cmd.exe", "/C", command }
+    else
+        [_][]const u8{ "/bin/sh", "-c", command };
+
+    var child = std.process.Child.init(&argv, vm.allocator);
+    child.stdin_behavior = .Close;
+    child.stdout_behavior = .Pipe;
+    child.stderr_behavior = .Ignore;
+
+    child.spawn() catch |err| {
+        const msg = std.fmt.allocPrint(vm.gc_allocator, "failed to execute command: {s}", .{@errorName(err)}) catch return error.Fatal;
+        const exc = try vm.createException(vm.runtime_error_class, msg);
+        vm.pending_exception = exc;
+        return error.Unwind;
+    };
+
+    const stdout_bytes = child.stdout.?.readToEndAlloc(vm.allocator, 16 * 1024 * 1024) catch |err| {
+        const msg = std.fmt.allocPrint(vm.gc_allocator, "failed to read command output: {s}", .{@errorName(err)}) catch return error.Fatal;
+        const exc = try vm.createException(vm.runtime_error_class, msg);
+        vm.pending_exception = exc;
+        return error.Unwind;
+    };
+    defer vm.allocator.free(stdout_bytes);
+
+    const term = child.wait() catch |err| {
+        const msg = std.fmt.allocPrint(vm.gc_allocator, "failed to wait for command: {s}", .{@errorName(err)}) catch return error.Fatal;
+        const exc = try vm.createException(vm.runtime_error_class, msg);
+        vm.pending_exception = exc;
+        return error.Unwind;
+    };
+
+    const exitstatus: i64 = switch (term) {
+        .Exited => |code| @intCast(code),
+        .Signal => |sig| 128 + @as(i64, @intCast(sig)),
+        .Stopped => |sig| 128 + @as(i64, @intCast(sig)),
+        else => 1,
+    };
+    try vm.setLastProcessStatus(exitstatus);
+
+    return try vm.newString(stdout_bytes, false);
+}
+
+pub fn builtinProcessStatusExitstatus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return vm.getInstanceVariable(receiver, "@exitstatus");
 }

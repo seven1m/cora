@@ -180,47 +180,24 @@ pub const Compiler = struct {
             },
 
             .interpolated_string => |interp_node| {
-                const part_count: u8 = @intCast(interp_node.parts.size);
-
-                if (part_count > 255) {
-                    return error.TooManyInterpolationParts;
-                }
-
-                if (part_count == 0) {
-                    const idx = try self.current_chunk.addConstant(.{ .string = "" });
-                    try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(idx), line);
-                    return;
-                }
-
-                var i: i32 = @intCast(interp_node.parts.size);
-                while (i > 0) : (i -= 1) {
-                    const part = interp_node.parts.nodes[@intCast(i - 1)];
-                    const part_node = try self.parser.asNode(part);
-
-                    switch (part_node) {
-                        .string => |string_node| {
-                            const str_val = string_node.unescaped;
-                            const str_slice = str_val.source[0..str_val.length];
-                            const idx = try self.current_chunk.addConstant(.{ .string = str_slice });
-                            try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(idx), line);
-                        },
-                        .embedded_statements => |embed_node| {
-                            if (embed_node.statements) |stmts_raw| {
-                                const stmts = try self.parser.asNode(@ptrCast(stmts_raw));
-                                try self.compileNode(stmts, line);
-                            } else {
-                                const idx = try self.current_chunk.addConstant(.{ .string = "" });
-                                try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(idx), line);
-                            }
-                        },
-                        else => {
-                            std.debug.print("Error: unexpected node type in interpolated string\n", .{});
-                            return error.UnsupportedNode;
-                        },
-                    }
-                }
-
+                const part_count = try self.compileInterpolatedParts(interp_node.parts, line);
                 try self.current_chunk.emitOpU8(.INTERPOLATE_STRING, part_count, line);
+            },
+
+            .x_string => |xstring_node| {
+                try self.current_chunk.emitOp(.PUSH_SELF, line);
+                const str_val = xstring_node.unescaped;
+                const str_slice = str_val.source[0..str_val.length];
+                const idx = try self.current_chunk.addConstant(.{ .string = str_slice });
+                try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(idx), line);
+                try self.emitBacktickCall(line);
+            },
+
+            .interpolated_x_string => |interp_x_node| {
+                try self.current_chunk.emitOp(.PUSH_SELF, line);
+                const part_count = try self.compileInterpolatedParts(interp_x_node.parts, line);
+                try self.current_chunk.emitOpU8(.INTERPOLATE_STRING, part_count, line);
+                try self.emitBacktickCall(line);
             },
 
             .true_node => {
@@ -793,6 +770,59 @@ pub const Compiler = struct {
                 return error.UnsupportedNode;
             },
         }
+    }
+
+    fn compileInterpolatedParts(self: *Compiler, parts: anytype, line: u32) !u8 {
+        if (parts.size > 255) {
+            return error.TooManyInterpolationParts;
+        }
+        const part_count: u8 = @intCast(parts.size);
+
+        if (part_count == 0) {
+            const idx = try self.current_chunk.addConstant(.{ .string = "" });
+            try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(idx), line);
+            return 0;
+        }
+
+        var i: i32 = @intCast(parts.size);
+        while (i > 0) : (i -= 1) {
+            const part = parts.nodes[@intCast(i - 1)];
+            const part_node = try self.parser.asNode(part);
+
+            switch (part_node) {
+                .string => |string_node| {
+                    const str_val = string_node.unescaped;
+                    const str_slice = str_val.source[0..str_val.length];
+                    const idx = try self.current_chunk.addConstant(.{ .string = str_slice });
+                    try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(idx), line);
+                },
+                .embedded_statements => |embed_node| {
+                    if (embed_node.statements) |stmts_raw| {
+                        const stmts = try self.parser.asNode(@ptrCast(stmts_raw));
+                        try self.compileNode(stmts, line);
+                    } else {
+                        const idx = try self.current_chunk.addConstant(.{ .string = "" });
+                        try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(idx), line);
+                    }
+                },
+                .embedded_variable => |embed_var| {
+                    const var_node = try self.parser.asNode(@ptrCast(embed_var.variable));
+                    try self.compileNode(var_node, line);
+                },
+                else => {
+                    std.debug.print("Error: unexpected node type in interpolated string/xstring\n", .{});
+                    return error.UnsupportedNode;
+                },
+            }
+        }
+
+        return part_count;
+    }
+
+    fn emitBacktickCall(self: *Compiler, line: u32) !void {
+        const method_idx = try self.current_chunk.addConstant(.{ .string = "`" });
+        const call_flags = bytecode.encodeCallFlags(.implicit_self, false);
+        try self.current_chunk.emitCall(@intCast(method_idx), 1, call_flags, 0, line);
     }
 
     fn compileIfStatement(self: *Compiler, if_node: *prism.IfNode, line: u32) anyerror!void {
