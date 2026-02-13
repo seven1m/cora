@@ -2,12 +2,53 @@ const std = @import("std");
 const builtin = @import("builtin");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
+const method_reflection = @import("method_reflection.zig");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
 const Block = vm_mod.Block;
 const Value = value.Value;
 const ClassObject = value.ClassObject;
+const SymbolObject = value.SymbolObject;
+const MethodListFilter = method_reflection.MethodListFilter;
+
+fn collectKernelMethods(vm: *VM, receiver: Value, filter: MethodListFilter, include_super: bool) VMError!Value {
+    var names: std.ArrayList(*SymbolObject) = .empty;
+    defer names.deinit(vm.gc_allocator);
+
+    var seen: std.AutoHashMap(*SymbolObject, usize) = std.AutoHashMap(*SymbolObject, usize).init(vm.gc_allocator);
+    defer seen.deinit();
+
+    var blocked: std.AutoHashMap(*SymbolObject, void) = std.AutoHashMap(*SymbolObject, void).init(vm.gc_allocator);
+    defer blocked.deinit();
+
+    const receiver_class = vm.getClass(receiver);
+    const singleton = receiver.getSingletonClass();
+
+    if (include_super) {
+        if (singleton) |singleton_class| {
+            try method_reflection.collectClassChainMethods(vm, singleton_class, true, filter, true, &names, &seen, &blocked);
+        } else {
+            try method_reflection.collectClassChainMethods(vm, receiver_class, true, filter, true, &names, &seen, &blocked);
+        }
+    } else {
+        if (singleton) |singleton_class| {
+            try method_reflection.collectClassChainMethods(vm, singleton_class, false, filter, false, &names, &seen, &blocked);
+        }
+        if (filter == .private_only) {
+            try method_reflection.collectClassChainMethods(vm, receiver_class, false, filter, false, &names, &seen, &blocked);
+        }
+    }
+
+    method_reflection.sortSymbolsByName(names.items);
+
+    const out = try vm.createArray();
+    for (names.items) |name_sym| {
+        out.elements.append(vm.gc_allocator, Value{ .data = .{ .symbol = name_sym } }) catch return error.Fatal;
+    }
+
+    return Value{ .data = .{ .array = out } };
+}
 
 pub fn register(vm: *VM) !void {
     const puts_sym = try vm.intern("puts");
@@ -75,6 +116,12 @@ pub fn register(vm: *VM) !void {
 
     const define_singleton_method_sym = try vm.intern("define_singleton_method");
     try vm.kernel_module.methods.put(define_singleton_method_sym, .{ .method = .{ .builtin = &builtinKernelDefineSingletonMethod } });
+
+    const methods_sym = try vm.intern("methods");
+    try vm.kernel_module.methods.put(methods_sym, .{ .method = .{ .builtin = &builtinKernelMethods } });
+
+    const private_methods_sym = try vm.intern("private_methods");
+    try vm.kernel_module.methods.put(private_methods_sym, .{ .method = .{ .builtin = &builtinKernelPrivateMethods } });
 
     const nil_sym = try vm.intern("nil?");
     try vm.kernel_module.methods.put(nil_sym, .{ .method = .{ .builtin = &builtinKernelNil } });
@@ -455,6 +502,18 @@ pub fn builtinKernelDefineSingletonMethod(vm: *VM, receiver: Value, args: []Valu
     }) catch return error.Fatal;
 
     return Value{ .data = .{ .symbol = name_sym } };
+}
+
+pub fn builtinKernelMethods(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const include_super = if (args.len == 1) args[0].is_truthy() else true;
+    return collectKernelMethods(vm, receiver, .public_and_protected, include_super);
+}
+
+pub fn builtinKernelPrivateMethods(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const include_super = if (args.len == 1) args[0].is_truthy() else true;
+    return collectKernelMethods(vm, receiver, .private_only, include_super);
 }
 
 pub fn builtinKernelInstanceVariableGet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

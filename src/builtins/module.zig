@@ -1,6 +1,7 @@
 const std = @import("std");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
+const method_reflection = @import("method_reflection.zig");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -9,6 +10,7 @@ const Value = value.Value;
 const MethodVisibility = value.MethodVisibility;
 const SymbolObject = value.SymbolObject;
 const ClassObject = value.ClassObject;
+const MethodListFilter = method_reflection.MethodListFilter;
 
 fn currentDefaultVisibility(vm: *VM) MethodVisibility {
     if (vm.current_lexical_scope) |scope| {
@@ -62,70 +64,10 @@ fn collectOwnConstantSymbols(
     }
 }
 
-fn sortSymbolsByName(symbols: []*SymbolObject) void {
-    std.sort.pdq(*SymbolObject, symbols, {}, struct {
-        fn lessThan(_: void, a: *SymbolObject, b: *SymbolObject) bool {
-            return std.mem.order(u8, a.name, b.name) == .lt;
-        }
-    }.lessThan);
-}
-
-const InstanceMethodFilter = enum {
-    public_and_protected,
-    private_only,
-    protected_only,
-    public_only,
-};
-
-fn methodMatchesFilter(entry: value.MethodEntry, filter: InstanceMethodFilter) bool {
-    if (entry.method == .undefined) return false;
-    return switch (filter) {
-        .public_and_protected => entry.visibility == .public or entry.visibility == .protected,
-        .private_only => entry.visibility == .private,
-        .protected_only => entry.visibility == .protected,
-        .public_only => entry.visibility == .public,
-    };
-}
-
-fn collectMethodsFromTable(
-    vm: *VM,
-    methods: *std.AutoHashMap(*SymbolObject, value.MethodEntry),
-    filter: InstanceMethodFilter,
-    out: *std.ArrayList(*SymbolObject),
-    seen: *std.AutoHashMap(*SymbolObject, usize),
-    blocked: *std.AutoHashMap(*SymbolObject, void),
-) VMError!void {
-    var it = methods.iterator();
-    while (it.next()) |bucket| {
-        const name_sym = bucket.key_ptr.*;
-        const entry = bucket.value_ptr.*;
-
-        if (entry.method == .undefined) {
-            blocked.put(name_sym, {}) catch return error.Fatal;
-            if (seen.get(name_sym)) |idx| {
-                _ = out.swapRemove(idx);
-                _ = seen.remove(name_sym);
-                if (idx < out.items.len) {
-                    const swapped = out.items[idx];
-                    seen.put(swapped, idx) catch return error.Fatal;
-                }
-            }
-            continue;
-        }
-
-        if (blocked.contains(name_sym)) continue;
-        if (!methodMatchesFilter(entry, filter)) continue;
-        if (seen.contains(name_sym)) continue;
-
-        out.append(vm.gc_allocator, name_sym) catch return error.Fatal;
-        seen.put(name_sym, out.items.len - 1) catch return error.Fatal;
-    }
-}
-
 fn collectInstanceMethods(
     vm: *VM,
     receiver: Value,
-    filter: InstanceMethodFilter,
+    filter: MethodListFilter,
     include_super: bool,
 ) VMError!Value {
     var names: std.ArrayList(*SymbolObject) = .empty;
@@ -139,7 +81,7 @@ fn collectInstanceMethods(
 
     switch (receiver.data) {
         .module => |module_obj| {
-            try collectMethodsFromTable(vm, &module_obj.methods, filter, &names, &seen, &blocked);
+            try method_reflection.collectMethodsFromTable(vm, &module_obj.methods, filter, &names, &seen, &blocked);
         },
         .class => |class_obj| {
             var current: ?*ClassObject = class_obj;
@@ -149,18 +91,18 @@ fn collectInstanceMethods(
                     while (i > 0) {
                         i -= 1;
                         const prepended = klass.prepended_modules.items[i];
-                        try collectMethodsFromTable(vm, &prepended.methods, filter, &names, &seen, &blocked);
+                        try method_reflection.collectMethodsFromTable(vm, &prepended.methods, filter, &names, &seen, &blocked);
                     }
                 }
 
-                try collectMethodsFromTable(vm, &klass.module.methods, filter, &names, &seen, &blocked);
+                try method_reflection.collectMethodsFromTable(vm, &klass.module.methods, filter, &names, &seen, &blocked);
 
                 if (include_super) {
                     var j = klass.included_modules.items.len;
                     while (j > 0) {
                         j -= 1;
                         const included = klass.included_modules.items[j];
-                        try collectMethodsFromTable(vm, &included.methods, filter, &names, &seen, &blocked);
+                        try method_reflection.collectMethodsFromTable(vm, &included.methods, filter, &names, &seen, &blocked);
                     }
                 }
 
@@ -175,7 +117,7 @@ fn collectInstanceMethods(
         },
     }
 
-    sortSymbolsByName(names.items);
+    method_reflection.sortSymbolsByName(names.items);
 
     const out = try vm.createArray();
     for (names.items) |name_sym| {
@@ -373,7 +315,7 @@ pub fn builtinModuleConstants(vm: *VM, receiver: Value, args: []Value, _: ?Block
         },
     }
 
-    sortSymbolsByName(constant_names.items);
+    method_reflection.sortSymbolsByName(constant_names.items);
 
     const out = try vm.createArray();
     for (constant_names.items) |name_sym| {

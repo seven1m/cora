@@ -424,3 +424,91 @@ test "Kernel#singleton_class returns frozen singleton class for frozen object" {
     try std.testing.expect(result.data == .boolean);
     try std.testing.expectEqual(true, result.data.boolean);
 }
+
+test "Kernel#methods includes singleton and protected methods and excludes private" {
+    const result = try evalCode(
+        \\class KernelMethodsVisibilitySpec
+        \\  protected
+        \\  def prot_instance_marker; end
+        \\  private
+        \\  def priv_instance_marker; end
+        \\end
+        \\obj = KernelMethodsVisibilitySpec.new
+        \\obj.define_singleton_method(:pub_singleton_marker) { 1 }
+        \\methods = obj.methods
+        \\[
+        \\  methods.include?(:pub_singleton_marker),
+        \\  methods.include?(:prot_instance_marker),
+        \\  methods.include?(:priv_instance_marker)
+        \\]
+    );
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(true, result.data.array.elements.items[0].data.boolean);
+    try std.testing.expectEqual(true, result.data.array.elements.items[1].data.boolean);
+    try std.testing.expectEqual(false, result.data.array.elements.items[2].data.boolean);
+}
+
+test "Kernel#methods(false) returns only singleton methods" {
+    const result = try evalCode(
+        \\obj = Object.new
+        \\obj.define_singleton_method(:only_singleton_marker) { 1 }
+        \\methods = obj.methods(false)
+        \\[
+        \\  methods.include?(:only_singleton_marker),
+        \\  methods.include?(:object_id)
+        \\]
+    );
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(true, result.data.array.elements.items[0].data.boolean);
+    try std.testing.expectEqual(false, result.data.array.elements.items[1].data.boolean);
+}
+
+test "Kernel#private_methods includes inherited private methods by default" {
+    const result = try evalCode(
+        \\class PrivateBaseForMethods
+        \\  private
+        \\  def inherited_private_marker; end
+        \\end
+        \\class PrivateChildForMethods < PrivateBaseForMethods
+        \\end
+        \\obj = PrivateChildForMethods.new
+        \\obj.private_methods.include?(:inherited_private_marker)
+    );
+    try std.testing.expect(result.data == .boolean);
+    try std.testing.expectEqual(true, result.data.boolean);
+}
+
+test "Kernel#private_methods(false) excludes ancestor private methods" {
+    const result = try evalCode(
+        \\class PrivateBaseForMethodsFalse
+        \\  private
+        \\  def base_private_marker; end
+        \\end
+        \\class PrivateChildForMethodsFalse < PrivateBaseForMethodsFalse
+        \\  private
+        \\  def child_private_marker; end
+        \\end
+        \\obj = PrivateChildForMethodsFalse.new
+        \\methods = obj.private_methods(false)
+        \\[
+        \\  methods.include?(:base_private_marker),
+        \\  methods.include?(:child_private_marker)
+        \\]
+    );
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(false, result.data.array.elements.items[0].data.boolean);
+    try std.testing.expectEqual(true, result.data.array.elements.items[1].data.boolean);
+}
+
+test "Kernel#methods and #private_methods validate arg count" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+
+    var bad = evalCodeWithOutput("Object.new.methods(true, false)", &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.UnhandledException, bad.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "ArgumentError") != null);
+
+    bad = evalCodeWithOutput("Object.new.private_methods(true, false)", &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.UnhandledException, bad.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "ArgumentError") != null);
+}
