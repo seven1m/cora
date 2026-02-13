@@ -2,6 +2,17 @@
 
 Prioritized by prerequisites (items earlier unblock later ones).
 
+## 0) Critical runtime regression (do next)
+
+- [ ] Fix array literal element evaluation regression where chained method-call expressions can produce incorrect `nil` values.
+  - Repro (fails unexpectedly): `obj = RespondToMissingHookSpec.new; [obj.respond_to?(:to_s), obj.respond_to?(:dynamic_method), obj.calls.length]`
+  - Equivalent stepwise form currently works:
+    - `first = obj.respond_to?(:to_s)`
+    - `second = obj.respond_to?(:dynamic_method)`
+    - `calls = obj.calls`
+    - `[first, second, calls.length]`
+  - Expected: both forms produce identical results; no context-sensitive `nil` for `obj.calls`.
+
 ## 1) Compiler/parser blockers (must compile first)
 
 - [x] Add `FloatNode` support end-to-end.
@@ -41,7 +52,7 @@ Prioritized by prerequisites (items earlier unblock later ones).
 
 ## 3) Meta-programming/method dispatch foundations
 
-- [ ] Add `method_missing` fallback dispatch when a method lookup fails.
+- [x] Add `method_missing` fallback dispatch when a method lookup fails.
   - Evidence: matcher DSL defines `method_missing` and relies on unknown matcher methods (`../natalie/test/support/spec.rb:509`).
   - Verified failure with snippet: class-defined `method_missing` is not invoked.
 - [ ] Add `Module#instance_method` and minimal `UnboundMethod#bind_call`.

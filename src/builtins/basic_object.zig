@@ -12,6 +12,12 @@ pub fn register(vm: *VM) !void {
 
     const not_sym = try vm.intern("!");
     try vm.basic_object_class.module.methods.put(not_sym, .{ .method = .{ .builtin = &builtinBasicObjectNot } });
+
+    const method_missing_sym = try vm.intern("method_missing");
+    try vm.basic_object_class.module.methods.put(method_missing_sym, .{
+        .method = .{ .builtin = &builtinBasicObjectMethodMissing },
+        .visibility = .private,
+    });
 }
 
 pub fn builtinBasicObjectEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -22,4 +28,20 @@ pub fn builtinBasicObjectEqual(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
 pub fn builtinBasicObjectNot(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return Value.boolean(!receiver.is_truthy());
+}
+
+pub fn builtinBasicObjectMethodMissing(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    if (args.len == 0) {
+        return vm.raiseExceptionFmt(vm.no_method_error_class, "undefined method", .{});
+    }
+    switch (args[0].data) {
+        .symbol => |sym| {
+            return vm.raiseExceptionFmt(
+                vm.no_method_error_class,
+                "undefined method '{s}' for {s}",
+                .{ sym.name, vm.getClass(receiver).module.name.name },
+            );
+        },
+        else => unreachable,
+    }
 }

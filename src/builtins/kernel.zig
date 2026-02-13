@@ -55,6 +55,12 @@ pub fn register(vm: *VM) !void {
     const respond_to_sym = try vm.intern("respond_to?");
     try vm.kernel_module.methods.put(respond_to_sym, .{ .method = .{ .builtin = &builtinKernelRespondTo } });
 
+    const respond_to_missing_sym = try vm.intern("respond_to_missing?");
+    try vm.kernel_module.methods.put(respond_to_missing_sym, .{
+        .method = .{ .builtin = &builtinKernelRespondToMissing },
+        .visibility = .private,
+    });
+
     const block_given_sym = try vm.intern("block_given?");
     try vm.kernel_module.methods.put(block_given_sym, .{ .method = .{ .builtin = &builtinKernelBlockGiven } });
 
@@ -370,29 +376,45 @@ pub fn builtinKernelInstanceOf(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
 }
 
 pub fn builtinKernelRespondTo(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    if (args.len < 1 or args.len > 2) {
-        const exc = try vm.createException(vm.argument_error_class, "wrong number of arguments");
-        vm.pending_exception = exc;
-        return error.Unwind;
-    }
+    try vm.requireArgRange(args, 1, 2);
 
     const method_name_sym = try vm.coerceToMethodNameSymbol(args[0]);
 
     const include_private = if (args.len == 2) args[1].is_truthy() else false;
 
+    var has_hidden_match = false;
+
     if (receiver.getSingletonClass()) |singleton_class| {
         if (vm.lookupMethod(singleton_class, method_name_sym)) |resolved| {
             if (include_private) return Value.boolean(true);
-            return Value.boolean(resolved.entry.visibility == .public);
+            if (resolved.entry.visibility == .public) return Value.boolean(true);
+            has_hidden_match = true;
         }
     }
 
     const receiver_class = vm.getClass(receiver);
     if (vm.lookupMethod(receiver_class, method_name_sym)) |resolved| {
         if (include_private) return Value.boolean(true);
-        return Value.boolean(resolved.entry.visibility == .public);
+        if (resolved.entry.visibility == .public) return Value.boolean(true);
+        has_hidden_match = true;
     }
 
+    if (has_hidden_match and include_private) {
+        return Value.boolean(true);
+    }
+
+    var respond_args: [2]Value = .{
+        Value{ .data = .{ .symbol = method_name_sym } },
+        Value.boolean(include_private),
+    };
+    const hook_result = try vm.callMethodByName(receiver, "respond_to_missing?", &respond_args, null);
+    return Value.boolean(hook_result.is_truthy());
+}
+
+pub fn builtinKernelRespondToMissing(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgRange(args, 1, 2);
+
+    _ = try vm.coerceToMethodNameSymbol(args[0]);
     return Value.boolean(false);
 }
 

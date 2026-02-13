@@ -2167,55 +2167,145 @@ pub const VM = struct {
         return method;
     }
 
+    fn raiseNoMethod(self: *VM, receiver: Value, method_name: []const u8) VMError!void {
+        const class = self.getClass(receiver);
+        const class_name = class.module.name.name;
+        const msg = std.fmt.allocPrint(
+            self.gc_allocator,
+            "undefined method '{s}' for {s}",
+            .{ method_name, class_name },
+        ) catch return error.Fatal;
+        const exc = try self.createException(self.no_method_error_class, msg);
+        self.pending_exception = exc;
+        return error.Unwind;
+    }
+
+    fn invokeResolvedMethod(self: *VM, resolved: ResolvedMethod, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+        switch (resolved.entry.method) {
+            .chunk => |method_chunk| {
+                const has_keywords = false;
+
+                if (method_chunk.no_keywords and has_keywords) {
+                    const exc = try self.createException(self.argument_error_class, "this method does not accept keyword arguments");
+                    self.pending_exception = exc;
+                    return error.Unwind;
+                }
+
+                if (!has_keywords and method_chunk.required_keywords.items.len > 0) {
+                    const msg = "missing required keyword arguments";
+                    const exc = try self.createException(self.argument_error_class, msg);
+                    self.pending_exception = exc;
+                    return error.Unwind;
+                }
+
+                const saved_frame_count = self.frames.items.len;
+                try self.pushFrame(method_chunk, receiver, block);
+
+                const frame = self.currentFrame();
+                try self.copyArgumentsWithRestParam(method_chunk, frame.ep, args, .strict);
+
+                if (method_chunk.optional_keywords.items.len > 0 or method_chunk.keyword_rest_index != null) {
+                    var max_slot: u8 = frame.ep.variables_len;
+                    for (method_chunk.optional_keywords.items) |opt_kw| {
+                        if (opt_kw.param_slot >= max_slot) max_slot = opt_kw.param_slot + 1;
+                    }
+                    if (method_chunk.keyword_rest_index) |rest_idx| {
+                        if (rest_idx >= max_slot) max_slot = rest_idx + 1;
+                    }
+                    frame.ep.variables_len = max_slot;
+
+                    for (method_chunk.optional_keywords.items) |opt_kw| {
+                        const default_chunk = self.program.method_chunks.get(opt_kw.default_chunk_id).?;
+                        const current_ep = self.currentFrame().ep;
+                        const default_value = try self.executeDefaultExpression(default_chunk, current_ep);
+                        const f = &self.frames.items[self.frames.items.len - 1];
+                        f.ep.variables[opt_kw.param_slot] = default_value;
+                    }
+
+                    if (method_chunk.keyword_rest_index) |rest_idx| {
+                        const kw_hash = self.gc_allocator.create(value.HashObject) catch return error.Fatal;
+                        kw_hash.* = .{
+                            .object = .{ .flags = 0, .class = self.hash_class, .singleton_class = null, .instance_variables = null },
+                            .map = std.AutoHashMap(u64, usize).init(self.gc_allocator),
+                            .entries = .empty,
+                        };
+                        const f = &self.frames.items[self.frames.items.len - 1];
+                        f.ep.variables[rest_idx] = Value{ .data = .{ .hash = kw_hash } };
+                    }
+                }
+
+                if (method_chunk.block_param_index) |block_idx| {
+                    const current_frame = &self.frames.items[self.frames.items.len - 1];
+
+                    if (current_frame.block) |blk| {
+                        const proc_val = try self.newProc(blk);
+                        const f = &self.frames.items[self.frames.items.len - 1];
+                        f.ep.variables[block_idx] = proc_val;
+                    } else {
+                        current_frame.ep.variables[block_idx] = Value.nil();
+                    }
+
+                    const f = &self.frames.items[self.frames.items.len - 1];
+                    if (block_idx >= f.ep.variables_len) {
+                        f.ep.variables_len = block_idx + 1;
+                    }
+                }
+
+                try self.executeInstructionsUntilFrameLength(saved_frame_count + 1);
+                return self.pop();
+            },
+            .builtin => |fun_ptr| {
+                return try fun_ptr(self, receiver, args, block);
+            },
+            .proc => |proc_obj| {
+                return self.callProcAsMethod(proc_obj, receiver, args, block);
+            },
+        }
+    }
+
+    fn invokeMethodMissing(
+        self: *VM,
+        receiver: Value,
+        missing_method_sym: *SymbolObject,
+        args: []Value,
+        kw_hash: ?Value,
+        block: ?Block,
+    ) VMError!Value {
+        if (std.mem.eql(u8, missing_method_sym.name, "method_missing")) {
+            try self.raiseNoMethod(receiver, missing_method_sym.name);
+        }
+
+        const method_missing_sym = try self.intern("method_missing");
+        const resolved = try self.findMethod(receiver, method_missing_sym);
+        if (resolved == null) {
+            try self.raiseNoMethod(receiver, missing_method_sym.name);
+        }
+
+        var missing_args: [258]Value = undefined;
+        missing_args[0] = Value{ .data = .{ .symbol = missing_method_sym } };
+        for (args, 0..) |arg, i| {
+            missing_args[i + 1] = arg;
+        }
+
+        var missing_argc: usize = 1 + args.len;
+        if (kw_hash) |hash| {
+            missing_args[missing_argc] = hash;
+            missing_argc += 1;
+        }
+
+        return self.invokeResolvedMethod(resolved.?, receiver, missing_args[0..missing_argc], block);
+    }
+
     /// Call a method by name string (not from bytecode constant pool)
     pub fn callMethodByName(self: *VM, receiver: Value, method_name: []const u8, args: []Value, block: ?Block) VMError!Value {
         const method_name_sym = try self.intern(method_name);
         const resolved = try self.findMethod(receiver, method_name_sym);
 
         if (resolved == null) {
-            const class = self.getClass(receiver);
-            const class_name = class.module.name.name;
-            const msg = std.fmt.allocPrint(
-                self.gc_allocator,
-                "undefined method '{s}' for {s}",
-                .{ method_name, class_name },
-            ) catch return error.Fatal;
-            const exc = try self.createException(self.no_method_error_class, msg);
-            self.pending_exception = exc;
-            return error.Unwind;
+            return self.invokeMethodMissing(receiver, method_name_sym, args, null, block);
         }
 
-        if (resolved) |resolved_method| {
-            switch (resolved_method.entry.method) {
-                .chunk => |chunk_ptr| {
-                    // Save current execution state
-                    const saved_frame_count = self.frames.items.len;
-
-                    // Push frame with receiver as self_value
-                    self.pushFrame(chunk_ptr, receiver, block) catch return error.Fatal;
-
-                    // Copy arguments to environment
-                    var frame = self.currentFrame();
-                    for (args, 0..) |arg, i| {
-                        frame.ep.variables[i] = arg;
-                        frame.ep.variables_len = @as(u8, @intCast(i + 1));
-                    }
-
-                    // Execute until we return to saved frame count
-                    try self.executeInstructionsUntilFrameLength(saved_frame_count + 1);
-
-                    // Result is on top of stack
-                    return self.pop();
-                },
-                .builtin => |fun_ptr| {
-                    return try fun_ptr(self, receiver, args, block);
-                },
-                .proc => |proc_obj| {
-                    return try self.callProcAsMethod(proc_obj, receiver, args, block);
-                },
-            }
-        }
-        unreachable;
+        return self.invokeResolvedMethod(resolved.?, receiver, args, block);
     }
 
     /// Result from yielding to a block
@@ -2343,33 +2433,15 @@ pub const VM = struct {
         const method_name_sym = try self.intern(method_name);
 
         const resolved = try self.findMethod(receiver, method_name_sym);
-
-        if (resolved == null) {
-            const class = self.getClass(receiver);
-            const class_name = class.module.name.name;
-            const msg = std.fmt.allocPrint(
-                self.gc_allocator,
-                "undefined method '{s}' for {s}",
-                .{ method_name, class_name },
-            ) catch return error.Fatal;
-            const exc = try self.createException(self.no_method_error_class, msg);
-            self.pending_exception = exc;
-            return error.Unwind;
+        const should_fallback = resolved == null or !self.isMethodCallable(receiver, resolved.?, call_style);
+        if (should_fallback) {
+            const kw_hash = if (kwargc > 0) try self.createHashFromKeywords(kw_values.?[0..kwargc], kw_metadata.?) else null;
+            const result = try self.invokeMethodMissing(receiver, method_name_sym, args[0..argc], kw_hash, block);
+            try self.push(result);
+            return;
         }
 
         const method = resolved.?;
-        if (!self.isMethodCallable(receiver, method, call_style)) {
-            const class = self.getClass(receiver);
-            const class_name = class.module.name.name;
-            const msg = std.fmt.allocPrint(
-                self.gc_allocator,
-                "undefined method '{s}' for {s}",
-                .{ method_name, class_name },
-            ) catch return error.Fatal;
-            const exc = try self.createException(self.no_method_error_class, msg);
-            self.pending_exception = exc;
-            return error.Unwind;
-        }
 
         switch (method.entry.method) {
             .chunk => |method_chunk| {

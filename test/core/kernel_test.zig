@@ -213,6 +213,68 @@ test "Kernel#respond_to? coerces method name via to_str" {
     try std.testing.expectEqual(true, result.data.boolean);
 }
 
+test "Kernel#respond_to? consults respond_to_missing? for missing methods" {
+    const result = try evalCode(
+        \\class RespondToMissingHookSpec
+        \\  def respond_to_missing?(name, include_private = false)
+        \\    @calls ||= []
+        \\    @calls << [name, include_private]
+        \\    name.to_s == "dynamic_method"
+        \\  end
+        \\
+        \\  def calls
+        \\    @calls
+        \\  end
+        \\end
+        \\obj = RespondToMissingHookSpec.new
+        \\first = obj.respond_to?(:to_s)
+        \\second = obj.respond_to?(:dynamic_method)
+        \\calls = obj.calls
+        \\[first, second, calls.length]
+    );
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(true, result.data.array.elements.items[0].data.boolean);
+    try std.testing.expectEqual(true, result.data.array.elements.items[1].data.boolean);
+    try std.testing.expectEqual(@as(i64, 1), result.data.array.elements.items[2].data.integer);
+}
+
+test "Kernel#respond_to? include_private controls respond_to_missing? fallback" {
+    const result = try evalCode(
+        \\class RespondToMissingVisibilitySpec
+        \\  def initialize
+        \\    @last = nil
+        \\  end
+        \\
+        \\  def respond_to_missing?(name, include_private = false)
+        \\    @last = [name, include_private]
+        \\    false
+        \\  end
+        \\
+        \\  def last
+        \\    @last
+        \\  end
+        \\
+        \\  private
+        \\  def hidden
+        \\    :x
+        \\  end
+        \\end
+        \\obj = RespondToMissingVisibilitySpec.new
+        \\first = obj.respond_to?(:hidden)
+        \\first_last = obj.last
+        \\second = obj.respond_to?(:hidden, true)
+        \\second_last = obj.last
+        \\[first, first_last[0], first_last[1], second, second_last[0], second_last[1]]
+    );
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(false, result.data.array.elements.items[0].data.boolean);
+    try std.testing.expectEqualStrings("hidden", result.data.array.elements.items[1].data.symbol.name);
+    try std.testing.expectEqual(false, result.data.array.elements.items[2].data.boolean);
+    try std.testing.expectEqual(true, result.data.array.elements.items[3].data.boolean);
+    try std.testing.expectEqualStrings("hidden", result.data.array.elements.items[4].data.symbol.name);
+    try std.testing.expectEqual(false, result.data.array.elements.items[5].data.boolean);
+}
+
 test "Kernel#send coerces method name via to_str" {
     const result = try evalCode(
         \\obj = Object.new
