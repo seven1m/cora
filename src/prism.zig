@@ -95,6 +95,7 @@ pub const ConstantTargetNode = c.pm_constant_target_node_t;
 pub const ConstantPathTargetNode = c.pm_constant_path_target_node_t;
 pub const ClassVariableTargetNode = c.pm_class_variable_target_node_t;
 pub const IndexTargetNode = c.pm_index_target_node_t;
+pub const IndexOperatorWriteNode = c.pm_index_operator_write_node_t;
 pub const CallTargetNode = c.pm_call_target_node_t;
 
 pub const REGEXP_FLAGS_IGNORE_CASE = c.PM_REGULAR_EXPRESSION_FLAGS_IGNORE_CASE;
@@ -190,6 +191,7 @@ pub const Node = union(enum) {
     constant_path_target: *ConstantPathTargetNode,
     class_variable_target: *ClassVariableTargetNode,
     index_target: *IndexTargetNode,
+    index_operator_write: *IndexOperatorWriteNode,
     call_target: *CallTargetNode,
 };
 
@@ -589,6 +591,10 @@ pub const Parser = struct {
 
         if (node_type == c.PM_INDEX_TARGET_NODE) {
             return Node{ .index_target = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_INDEX_OPERATOR_WRITE_NODE) {
+            return Node{ .index_operator_write = @ptrCast(raw) };
         }
 
         if (node_type == c.PM_CALL_TARGET_NODE) {

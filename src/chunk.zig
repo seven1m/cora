@@ -400,6 +400,12 @@ pub const Chunk = struct {
                 try writer.print("{s}\n", .{bytecode.opcodeName(op)});
             },
 
+            .DUP_N => {
+                const count = bytecode.readU8(self.code.items, next_ip);
+                try writer.print("{s} {d}\n", .{ bytecode.opcodeName(op), count });
+                next_ip += 1;
+            },
+
             .PUSH_CONST, .GET_CONST, .GET_CONST_OR_NIL, .SET_CONST, .GET_CONST_PATH, .GET_GLOBAL, .SET_GLOBAL, .GET_IVAR, .SET_IVAR => {
                 const idx = bytecode.readU16(self.code.items, next_ip);
                 try writer.print("{s} {d}", .{ bytecode.opcodeName(op), idx });

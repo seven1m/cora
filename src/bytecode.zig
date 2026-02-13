@@ -26,6 +26,7 @@ pub const OpCode = enum(u8) {
     JUMP_IF_TRUE, // Operand: i16 (offset)
     POP, // No operands
     DUP, // No operands
+    DUP_N, // Operand: u8 (duplicate top N stack items in order)
     SWAP, // No operands - swaps top two stack items
     CASE_MATCH, // No operands - stack: [predicate, condition] -> [predicate, condition === predicate]
 
@@ -136,6 +137,7 @@ pub fn opcodeName(op: OpCode) []const u8 {
         .JUMP_IF_TRUE => "JUMP_IF_TRUE",
         .POP => "POP",
         .DUP => "DUP",
+        .DUP_N => "DUP_N",
         .SWAP => "SWAP",
         .CASE_MATCH => "CASE_MATCH",
         .CALL => "CALL",
@@ -226,6 +228,9 @@ pub const Instruction = struct {
             },
             .PUSH_REGEXP, .ALIAS_METHOD => {
                 try writer.print(" {d} {d}", .{ self.bx, self.ax });
+            },
+            .DUP_N => {
+                try writer.print(" {d}", .{self.a});
             },
             .PUSH_NIL, .PUSH_TRUE, .PUSH_FALSE, .PUSH_SELF, .POP, .DUP, .SWAP, .CASE_MATCH, .HALT, .TRY_END, .CATCH_END, .ENSURE_START, .ENSURE_END, .RETRY, .BREAK, .MULTI_ASSIGN_PREPARE, .ARRAY_APPEND, .ARRAY_CONCAT_ARRAY => {},
             else => {},

@@ -1223,6 +1223,22 @@ pub const VM = struct {
                 try self.push(top);
             },
 
+            .DUP_N => {
+                const count = self.readByte();
+                if (count > 0) {
+                    if (self.stack.items.len < count) {
+                        return error.Fatal;
+                    }
+
+                    const base = self.stack.items.len - count;
+                    var i: usize = 0;
+                    while (i < count) : (i += 1) {
+                        const v = self.stack.items[base + i];
+                        try self.push(v);
+                    }
+                }
+            },
+
             .SWAP => {
                 // Swap top two stack items
                 const a = self.pop();

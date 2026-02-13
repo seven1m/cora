@@ -75,6 +75,54 @@ test "local operator assignment updates captured outer local" {
     try std.testing.expectEqual(@as(i64, 15), result.data.integer);
 }
 
+test "index operator assignment updates array element and returns assigned value" {
+    const result = try evalCode(
+        \\a = [10, 20, 30]
+        \\x = (a[1] += 5)
+        \\[x, a[1]]
+    );
+
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(@as(usize, 2), result.data.array.elements.items.len);
+    try std.testing.expectEqual(@as(i64, 25), result.data.array.elements.items[0].data.integer);
+    try std.testing.expectEqual(@as(i64, 25), result.data.array.elements.items[1].data.integer);
+}
+
+test "index operator assignment evaluates index expression once" {
+    const result = try evalCode(
+        \\a = [1, 2, 3]
+        \\i = 0
+        \\a[(i = i + 1)] += 10
+        \\i
+    );
+
+    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+}
+
+test "index operator assignment evaluates receiver expression once" {
+    const result = try evalCode(
+        \\$counter = 0
+        \\def make_array
+        \\  $counter = $counter + 1
+        \\  [1, 2, 3]
+        \\end
+        \\make_array[0] += 7
+        \\$counter
+    );
+
+    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+}
+
+test "index operator assignment supports splatted index arguments" {
+    const result = try evalCode(
+        \\a = [10, 20, 30]
+        \\idx = [1]
+        \\a[*idx] += 7
+        \\a[1]
+    );
+    try std.testing.expectEqual(@as(i64, 27), result.data.integer);
+}
+
 test "global compound assignment" {
     var result = try evalCode(
         \\$g = nil
