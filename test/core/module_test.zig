@@ -470,6 +470,67 @@ test "Class constants(false) excludes inherited constants" {
     try std.testing.expectEqualSlices(u8, "CHILD_CONST", names[0].data.symbol.name);
 }
 
+test "Module ancestors returns lookup chain for class with prepend/include" {
+    const result = try evalCode(
+        \\module ParentInc
+        \\end
+        \\module ChildInc
+        \\end
+        \\module ChildPre
+        \\end
+        \\class Parent
+        \\  include ParentInc
+        \\end
+        \\class Child < Parent
+        \\  include ChildInc
+        \\  prepend ChildPre
+        \\end
+        \\Child.ancestors
+    );
+    try std.testing.expect(result.data == .array);
+    const entries = result.data.array.elements.items;
+    try std.testing.expectEqual(@as(usize, 8), entries.len);
+
+    try std.testing.expect(entries[0].data == .module);
+    try std.testing.expectEqualSlices(u8, "ChildPre", entries[0].data.module.name.name);
+    try std.testing.expect(entries[1].data == .class);
+    try std.testing.expectEqualSlices(u8, "Child", entries[1].data.class.module.name.name);
+    try std.testing.expect(entries[2].data == .module);
+    try std.testing.expectEqualSlices(u8, "ChildInc", entries[2].data.module.name.name);
+    try std.testing.expect(entries[3].data == .class);
+    try std.testing.expectEqualSlices(u8, "Parent", entries[3].data.class.module.name.name);
+    try std.testing.expect(entries[4].data == .module);
+    try std.testing.expectEqualSlices(u8, "ParentInc", entries[4].data.module.name.name);
+    try std.testing.expect(entries[5].data == .class);
+    try std.testing.expectEqualSlices(u8, "Object", entries[5].data.class.module.name.name);
+    try std.testing.expect(entries[6].data == .module);
+    try std.testing.expectEqualSlices(u8, "Kernel", entries[6].data.module.name.name);
+    try std.testing.expect(entries[7].data == .class);
+    try std.testing.expectEqualSlices(u8, "BasicObject", entries[7].data.class.module.name.name);
+}
+
+test "Module ancestors on module returns self" {
+    const result = try evalCode(
+        \\module M
+        \\end
+        \\M.ancestors
+    );
+    try std.testing.expect(result.data == .array);
+    const entries = result.data.array.elements.items;
+    try std.testing.expectEqual(@as(usize, 1), entries.len);
+    try std.testing.expect(entries[0].data == .module);
+    try std.testing.expectEqualSlices(u8, "M", entries[0].data.module.name.name);
+}
+
+test "Module ancestors validates arg count" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+
+    const bad = evalCodeWithOutput("Module.ancestors(false)", &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.UnhandledException, bad.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "ArgumentError") != null);
+}
+
 test "Module instance method visibility APIs filter correctly" {
     var result = try evalCode(
         \\class C

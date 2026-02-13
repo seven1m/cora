@@ -61,7 +61,7 @@ Prioritized by prerequisites (items earlier unblock later ones).
   - Verified failure example: `private_instance_methods` missing.
 - [x] Add `Object#methods` and `#private_methods`.
   - Evidence: `../natalie/test/support/spec.rb:1299`, `../natalie/test/support/spec.rb:1318`
-- [ ] Add `Module/Class#ancestors`.
+- [x] Add `Module/Class#ancestors`.
   - Evidence: `../natalie/test/support/spec.rb:588`
 
 ## 5) Core builtin methods used by this support file

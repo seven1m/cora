@@ -241,6 +241,9 @@ pub fn register(vm: *VM) !void {
     const constants_sym = try vm.intern("constants");
     try vm.module_class.module.methods.put(constants_sym, .{ .method = .{ .builtin = &builtinModuleConstants } });
 
+    const ancestors_sym = try vm.intern("ancestors");
+    try vm.module_class.module.methods.put(ancestors_sym, .{ .method = .{ .builtin = &builtinModuleAncestors } });
+
     const instance_methods_sym = try vm.intern("instance_methods");
     try vm.module_class.module.methods.put(instance_methods_sym, .{ .method = .{ .builtin = &builtinModuleInstanceMethods } });
 
@@ -320,6 +323,47 @@ pub fn builtinModuleConstants(vm: *VM, receiver: Value, args: []Value, _: ?Block
     const out = try vm.createArray();
     for (constant_names.items) |name_sym| {
         out.elements.append(vm.gc_allocator, Value{ .data = .{ .symbol = name_sym } }) catch return error.Fatal;
+    }
+
+    return Value{ .data = .{ .array = out } };
+}
+
+pub fn builtinModuleAncestors(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
+    const out = try vm.createArray();
+
+    switch (receiver.data) {
+        .module => |module_obj| {
+            out.elements.append(vm.gc_allocator, Value{ .data = .{ .module = module_obj } }) catch return error.Fatal;
+        },
+        .class => |class_obj| {
+            var current: ?*ClassObject = class_obj;
+            while (current) |klass| {
+                var i = klass.prepended_modules.items.len;
+                while (i > 0) {
+                    i -= 1;
+                    const prepended = klass.prepended_modules.items[i];
+                    out.elements.append(vm.gc_allocator, Value{ .data = .{ .module = prepended } }) catch return error.Fatal;
+                }
+
+                out.elements.append(vm.gc_allocator, Value{ .data = .{ .class = klass } }) catch return error.Fatal;
+
+                var j = klass.included_modules.items.len;
+                while (j > 0) {
+                    j -= 1;
+                    const included = klass.included_modules.items[j];
+                    out.elements.append(vm.gc_allocator, Value{ .data = .{ .module = included } }) catch return error.Fatal;
+                }
+
+                current = klass.superclass;
+            }
+        },
+        else => {
+            const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
+            vm.pending_exception = exc;
+            return error.Unwind;
+        },
     }
 
     return Value{ .data = .{ .array = out } };
