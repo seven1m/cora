@@ -24,7 +24,9 @@ Cora is a Ruby interpreter written in Zig using the Prism parser. It uses a **tw
 
 **Constants:** Compile-time constants (integer, string, symbol). Strings/symbols are borrowed from Parser AST (no allocation).
 
-**OpCodes:** Defined in `bytecode.zig` enum. Include literals, variable access, control flow, method calls, OOP definitions, blocks/procs/lambdas (YIELD, PUSH_LAMBDA, BREAK), constant path resolution (GET_CONST_PATH), exception handling (RAISE, TRY_BEGIN, TRY_END, CATCH_START, CATCH_END, ENSURE_START, ENSURE_END, RETRY). RETURN opcode has operand distinguishing implicit (0) vs explicit (1) returns for lambda semantics. Arithmetic operators are method calls, not opcodes.
+**OpCodes:** Defined in `bytecode.zig` enum. Include literals, variable access, control flow, method calls, OOP definitions, blocks/procs/lambdas (YIELD, PUSH_LAMBDA, BREAK), constant path resolution (GET_CONST_PATH), exception handling (RAISE, TRY_BEGIN, TRY_END, CATCH_START, CATCH_END, ENSURE_START, ENSURE_END, RETRY). RETURN opcode has operand distinguishing implicit (0) vs explicit (1) returns for lambda semantics. Arithmetic operators are method calls, not opcodes. Prefer not to add new opcodes when possible, but when necessary, try to make them general and
+reusable for future needs, e.g. don't make a new CALL_* opcode for splatted args, instead make general opcodes for
+array manipulation and add a flag to CALL to accept an arguments array on the stack.
 
 **CALL Instruction:** Operands are method_idx (U16), argc (U8), block_chunk_id (U8).
 

@@ -10,7 +10,7 @@ Prioritized by prerequisites (items earlier unblock later ones).
 - [x] Add operator-write AST support for locals (`+=`, `-=`, etc.), at least `LocalVariableOperatorWriteNode`.
   - Evidence: `../natalie/test/support/spec.rb:208` (`zone += ...`)
   - Verified failure after float stripping: `UnhandledNode: LocalVariableOperatorWriteNode`.
-- [ ] Add splat arguments in calls/super (`foo(*args)`, `super(*args, &block)`).
+- [x] Add splat arguments in calls/super (`foo(*args)`, `super(*args, &block)`).
   - Evidence: `../natalie/test/support/spec.rb:797`, `../natalie/test/support/spec.rb:1077`
   - Verified failure with snippet: `def f(*a); g(*a); end` -> unsupported `.splat` node.
 - [ ] Add `XStringNode` / `InterpolatedXStringNode` (backtick command literals).

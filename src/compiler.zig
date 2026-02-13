@@ -354,43 +354,100 @@ pub const Compiler = struct {
                     // Self is implicit receiver
                     try self.current_chunk.emitOp(.PUSH_SELF, line);
                 }
-                const call_style: u8 = @intFromEnum(if (call_node.receiver != null) bytecode.ReceiverCallStyle.explicit else bytecode.ReceiverCallStyle.implicit_self);
+                const receiver_style: bytecode.ReceiverCallStyle = if (call_node.receiver != null) .explicit else .implicit_self;
 
-                // Compile arguments, detecting keywords
-                var argc: u8 = 0;
+                // Compile arguments, detecting keywords and splats
+                var argc: u8 = 0; // fixed positional argc for non-array mode
                 var kwargc: u8 = 0;
                 var kw_names: std.ArrayList(u16) = .empty;
                 defer kw_names.deinit(self.allocator);
+                var args_array_mode = false;
 
                 if (call_node.arguments != null) {
                     const args = @as(*prism.ArgumentsNode, @ptrCast(call_node.arguments.?));
+                    var has_splat = false;
                     var i: usize = 0;
-
                     while (i < args.arguments.size) : (i += 1) {
-                        const arg = args.arguments.nodes[i];
-                        const arg_node = try self.parser.asNode(arg);
+                        const arg_node = try self.parser.asNode(args.arguments.nodes[i]);
+                        if (arg_node == .splat) {
+                            has_splat = true;
+                            break;
+                        }
+                    }
 
-                        if (arg_node == .keyword_hash) {
-                            const kw_hash = arg_node.keyword_hash;
-                            var j: usize = 0;
-                            while (j < kw_hash.elements.size) : (j += 1) {
-                                const elem = try self.parser.asNode(kw_hash.elements.nodes[j]);
-                                const assoc = elem.assoc;
-                                const key_node = try self.parser.asNode(@ptrCast(assoc.key));
-                                const symbol_val = key_node.symbol.unescaped;
-                                const symbol_name = symbol_val.source[0..symbol_val.length];
-                                const symbol_idx = try self.current_chunk.addConstant(.{ .symbol = symbol_name });
-                                try kw_names.append(self.allocator, @intCast(symbol_idx));
+                    if (!has_splat) {
+                        i = 0;
+                        while (i < args.arguments.size) : (i += 1) {
+                            const arg = args.arguments.nodes[i];
+                            const arg_node = try self.parser.asNode(arg);
 
-                                // Compile value onto stack
-                                const value_node = try self.parser.asNode(@ptrCast(assoc.value));
-                                try self.compileNode(value_node, line);
-                                kwargc += 1;
+                            if (arg_node == .keyword_hash) {
+                                const kw_hash = arg_node.keyword_hash;
+                                var j: usize = 0;
+                                while (j < kw_hash.elements.size) : (j += 1) {
+                                    const elem = try self.parser.asNode(kw_hash.elements.nodes[j]);
+                                    const assoc = elem.assoc;
+                                    const key_node = try self.parser.asNode(@ptrCast(assoc.key));
+                                    const symbol_val = key_node.symbol.unescaped;
+                                    const symbol_name = symbol_val.source[0..symbol_val.length];
+                                    const symbol_idx = try self.current_chunk.addConstant(.{ .symbol = symbol_name });
+                                    try kw_names.append(self.allocator, @intCast(symbol_idx));
+
+                                    // Compile value onto stack
+                                    const value_node = try self.parser.asNode(@ptrCast(assoc.value));
+                                    try self.compileNode(value_node, line);
+                                    kwargc += 1;
+                                }
+                            } else {
+                                // Regular positional argument
+                                try self.compileNode(arg_node, line);
+                                argc += 1;
                             }
-                        } else {
-                            // Regular positional argument
-                            try self.compileNode(arg_node, line);
-                            argc += 1;
+                        }
+                    } else {
+                        args_array_mode = true;
+                        try self.current_chunk.emitOpU8(.PUSH_ARRAY, 0, line);
+
+                        var seen_keyword_hash = false;
+                        i = 0;
+                        while (i < args.arguments.size) : (i += 1) {
+                            const arg = args.arguments.nodes[i];
+                            const arg_node = try self.parser.asNode(arg);
+
+                            if (arg_node == .keyword_hash) {
+                                seen_keyword_hash = true;
+                                const kw_hash = arg_node.keyword_hash;
+                                var j: usize = 0;
+                                while (j < kw_hash.elements.size) : (j += 1) {
+                                    const elem = try self.parser.asNode(kw_hash.elements.nodes[j]);
+                                    const assoc = elem.assoc;
+                                    const key_node = try self.parser.asNode(@ptrCast(assoc.key));
+                                    const symbol_val = key_node.symbol.unescaped;
+                                    const symbol_name = symbol_val.source[0..symbol_val.length];
+                                    const symbol_idx = try self.current_chunk.addConstant(.{ .symbol = symbol_name });
+                                    try kw_names.append(self.allocator, @intCast(symbol_idx));
+
+                                    const value_node = try self.parser.asNode(@ptrCast(assoc.value));
+                                    try self.compileNode(value_node, line);
+                                    kwargc += 1;
+                                }
+                                continue;
+                            }
+
+                            if (seen_keyword_hash) {
+                                std.debug.print("Error: positional arguments after keyword args with splat are not supported\n", .{});
+                                return error.UnsupportedNode;
+                            }
+
+                            if (arg_node == .splat) {
+                                const expr_ptr = arg_node.splat.expression orelse return error.UnsupportedNode;
+                                const expr = try self.parser.asNode(@ptrCast(expr_ptr));
+                                try self.compileNode(expr, line);
+                                try self.current_chunk.emitOp(.ARRAY_CONCAT_ARRAY, line);
+                            } else {
+                                try self.compileNode(arg_node, line);
+                                try self.current_chunk.emitOp(.ARRAY_APPEND, line);
+                            }
                         }
                     }
                 }
@@ -414,6 +471,7 @@ pub const Compiler = struct {
                 // Emit appropriate instruction
                 const method_name = try self.parser.getConstantName(call_node.name);
                 const method_idx = try self.current_chunk.addConstant(.{ .string = method_name });
+                const call_flags = bytecode.encodeCallFlags(receiver_style, args_array_mode);
 
                 if (kwargc > 0) {
                     // Create keyword metadata
@@ -422,9 +480,9 @@ pub const Compiler = struct {
                     try self.current_chunk.keyword_metadata.append(self.allocator, kw_meta);
                     const kw_metadata_idx = self.current_chunk.keyword_metadata.items.len - 1;
 
-                    try self.current_chunk.emitCallKw(@intCast(method_idx), argc, kwargc, call_style, @intCast(kw_metadata_idx), block_chunk_id, line);
+                    try self.current_chunk.emitCallKw(@intCast(method_idx), argc, kwargc, call_flags, @intCast(kw_metadata_idx), block_chunk_id, line);
                 } else {
-                    try self.current_chunk.emitCall(@intCast(method_idx), argc, call_style, block_chunk_id, line);
+                    try self.current_chunk.emitCall(@intCast(method_idx), argc, call_flags, block_chunk_id, line);
                 }
             },
 
@@ -666,14 +724,46 @@ pub const Compiler = struct {
             .super_node => |super_node| {
                 // super() or super(args): explicit arguments
                 var argc: u8 = 0;
+                var args_array_mode = false;
                 if (super_node.arguments) |args_ptr| {
                     const args = @as(*prism.ArgumentsNode, @ptrCast(args_ptr));
+                    var has_splat = false;
                     var i: usize = 0;
                     while (i < args.arguments.size) : (i += 1) {
-                        const arg = args.arguments.nodes[i];
-                        const arg_node = try self.parser.asNode(arg);
-                        try self.compileNode(arg_node, line);
-                        argc += 1;
+                        const arg_node = try self.parser.asNode(args.arguments.nodes[i]);
+                        if (arg_node == .splat) {
+                            has_splat = true;
+                            break;
+                        }
+                    }
+
+                    if (!has_splat) {
+                        i = 0;
+                        while (i < args.arguments.size) : (i += 1) {
+                            const arg = args.arguments.nodes[i];
+                            const arg_node = try self.parser.asNode(arg);
+                            try self.compileNode(arg_node, line);
+                            argc += 1;
+                        }
+                    } else {
+                        args_array_mode = true;
+                        try self.current_chunk.emitOpU8(.PUSH_ARRAY, 0, line);
+
+                        i = 0;
+                        while (i < args.arguments.size) : (i += 1) {
+                            const arg = args.arguments.nodes[i];
+                            const arg_node = try self.parser.asNode(arg);
+
+                            if (arg_node == .splat) {
+                                const expr_ptr = arg_node.splat.expression orelse return error.UnsupportedNode;
+                                const expr = try self.parser.asNode(@ptrCast(expr_ptr));
+                                try self.compileNode(expr, line);
+                                try self.current_chunk.emitOp(.ARRAY_CONCAT_ARRAY, line);
+                            } else {
+                                try self.compileNode(arg_node, line);
+                                try self.current_chunk.emitOp(.ARRAY_APPEND, line);
+                            }
+                        }
                     }
                 }
 
@@ -690,7 +780,8 @@ pub const Compiler = struct {
                     }
                 }
 
-                try self.current_chunk.emitOpU8U16(.SUPER, argc, block_chunk_id, line);
+                const super_flags: u8 = if (args_array_mode) bytecode.SUPER_FLAG_ARGS_ARRAY else 0;
+                try self.current_chunk.emitSuper(argc, super_flags, block_chunk_id, line);
             },
 
             .alias_method => |alias_node| {

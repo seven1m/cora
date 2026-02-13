@@ -270,6 +270,15 @@ pub const Chunk = struct {
         try self.line_info.append(self.allocator, line);
     }
 
+    pub fn emitSuper(self: *Chunk, argc: u8, flags: u8, block_chunk_id: u16, line: u32) !void {
+        try self.code.append(self.allocator, @intFromEnum(bytecode.OpCode.SUPER));
+        try self.code.append(self.allocator, argc);
+        try self.code.append(self.allocator, flags);
+        try self.code.append(self.allocator, @intCast(block_chunk_id & 0xFF));
+        try self.code.append(self.allocator, @intCast((block_chunk_id >> 8) & 0xFF));
+        try self.line_info.append(self.allocator, line);
+    }
+
     /// Emit a jump instruction and return the position to patch
     pub fn emitJump(self: *Chunk, op: bytecode.OpCode, line: u32) !usize {
         const pos = self.code.items.len;
@@ -387,7 +396,7 @@ pub const Chunk = struct {
         var next_ip = ip + 1;
 
         switch (op) {
-            .PUSH_NIL, .PUSH_TRUE, .PUSH_FALSE, .PUSH_SELF, .POP, .DUP, .SWAP, .CASE_MATCH, .HALT, .TRY_END, .CATCH_END, .ENSURE_START, .ENSURE_END, .RETRY, .BREAK, .MULTI_ASSIGN_PREPARE => {
+            .PUSH_NIL, .PUSH_TRUE, .PUSH_FALSE, .PUSH_SELF, .POP, .DUP, .SWAP, .CASE_MATCH, .HALT, .TRY_END, .CATCH_END, .ENSURE_START, .ENSURE_END, .RETRY, .BREAK, .MULTI_ASSIGN_PREPARE, .ARRAY_APPEND, .ARRAY_CONCAT_ARRAY => {
                 try writer.print("{s}\n", .{bytecode.opcodeName(op)});
             },
 
@@ -544,9 +553,15 @@ pub const Chunk = struct {
 
             .SUPER => {
                 const argc = bytecode.readU8(self.code.items, next_ip);
-                const block_id = bytecode.readU16(self.code.items, next_ip + 1);
-                try writer.print("SUPER {d}, {d}\n", .{ argc, block_id });
-                next_ip += 3;
+                const flags = bytecode.readU8(self.code.items, next_ip + 1);
+                const block_id = bytecode.readU16(self.code.items, next_ip + 2);
+                const args_array_mode = (flags & bytecode.SUPER_FLAG_ARGS_ARRAY) != 0;
+                try writer.print("SUPER {d}, {d}", .{ argc, block_id });
+                if (args_array_mode) {
+                    try writer.print(" (args_array)", .{});
+                }
+                try writer.print("\n", .{});
+                next_ip += 4;
             },
 
             .FORWARDING_SUPER => {

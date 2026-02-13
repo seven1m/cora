@@ -43,6 +43,8 @@ pub const OpCode = enum(u8) {
 
     // Collections
     PUSH_ARRAY, // Operand: u8 (element count)
+    ARRAY_APPEND, // No operands - stack: [..., array, value] -> [..., array]
+    ARRAY_CONCAT_ARRAY, // No operands - stack: [..., array, other_array] -> [..., array]
     PUSH_HASH, // Operand: u8 (pair count)
     PUSH_RANGE, // Operand: u8 (0=inclusive, 1=exclusive) - pops start, end from stack
     INTERPOLATE_STRING, // Operand: u8 (part count)
@@ -69,7 +71,7 @@ pub const OpCode = enum(u8) {
     BREAK, // No operands - used for breaking from blocks
 
     // Super calls
-    SUPER, // Operands: u8 (argc), u16 (block_chunk_id)
+    SUPER, // Operands: u8 (argc), u8 (flags), u16 (block_chunk_id)
     FORWARDING_SUPER, // Operand: u16 (block_chunk_id)
 
     // Regexp
@@ -86,6 +88,26 @@ pub const ReceiverCallStyle = enum(u8) {
     explicit = 0,
     implicit_self = 1,
 };
+
+pub const CALL_FLAG_IMPLICIT_SELF: u8 = 0x01;
+pub const CALL_FLAG_ARGS_ARRAY: u8 = 0x02;
+
+pub const SUPER_FLAG_ARGS_ARRAY: u8 = CALL_FLAG_ARGS_ARRAY;
+
+pub fn encodeCallFlags(receiver_style: ReceiverCallStyle, args_array_mode: bool) u8 {
+    var flags: u8 = 0;
+    if (receiver_style == .implicit_self) flags |= CALL_FLAG_IMPLICIT_SELF;
+    if (args_array_mode) flags |= CALL_FLAG_ARGS_ARRAY;
+    return flags;
+}
+
+pub fn decodeReceiverCallStyle(flags: u8) ReceiverCallStyle {
+    return if ((flags & CALL_FLAG_IMPLICIT_SELF) != 0) .implicit_self else .explicit;
+}
+
+pub fn argsArrayMode(flags: u8) bool {
+    return (flags & CALL_FLAG_ARGS_ARRAY) != 0;
+}
 
 pub const BuiltinId = enum(u8) {
     NEW = 1,
@@ -123,6 +145,8 @@ pub fn opcodeName(op: OpCode) []const u8 {
         .DEF_CLASS => "DEF_CLASS",
         .DEF_METHOD => "DEF_METHOD",
         .PUSH_ARRAY => "PUSH_ARRAY",
+        .ARRAY_APPEND => "ARRAY_APPEND",
+        .ARRAY_CONCAT_ARRAY => "ARRAY_CONCAT_ARRAY",
         .PUSH_HASH => "PUSH_HASH",
         .PUSH_RANGE => "PUSH_RANGE",
         .INTERPOLATE_STRING => "INTERPOLATE_STRING",
@@ -203,7 +227,7 @@ pub const Instruction = struct {
             .PUSH_REGEXP, .ALIAS_METHOD => {
                 try writer.print(" {d} {d}", .{ self.bx, self.ax });
             },
-            .PUSH_NIL, .PUSH_TRUE, .PUSH_FALSE, .PUSH_SELF, .POP, .DUP, .SWAP, .CASE_MATCH, .HALT, .TRY_END, .CATCH_END, .ENSURE_START, .ENSURE_END, .RETRY, .BREAK, .MULTI_ASSIGN_PREPARE => {},
+            .PUSH_NIL, .PUSH_TRUE, .PUSH_FALSE, .PUSH_SELF, .POP, .DUP, .SWAP, .CASE_MATCH, .HALT, .TRY_END, .CATCH_END, .ENSURE_START, .ENSURE_END, .RETRY, .BREAK, .MULTI_ASSIGN_PREPARE, .ARRAY_APPEND, .ARRAY_CONCAT_ARRAY => {},
             else => {},
         }
     }

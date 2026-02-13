@@ -1084,30 +1084,54 @@ pub const VM = struct {
             .CALL => {
                 const method_idx = self.readU16();
                 const argc = self.readByte();
-                const call_style: ReceiverCallStyle = @enumFromInt(self.readByte());
+                const call_flags = self.readByte();
+                const call_style: ReceiverCallStyle = bytecode.decodeReceiverCallStyle(call_flags);
+                const args_array_mode = bytecode.argsArrayMode(call_flags);
                 const block_chunk_id = self.readU16();
 
                 // Resolve block first (may pop from stack for &variable syntax)
                 const block = try self.resolveBlock(block_chunk_id, frame);
 
-                // Pop arguments
                 var args: [256]Value = undefined;
-                var i: usize = 0;
-                while (i < argc) : (i += 1) {
-                    args[argc - 1 - i] = self.pop();
+                var positional_argc: usize = 0;
+                if (args_array_mode) {
+                    const positional = self.pop();
+                    if (positional.data != .array) {
+                        const exc = try self.createException(self.type_error_class, "splat argument is not an Array");
+                        self.pending_exception = exc;
+                        return error.Unwind;
+                    }
+                    const elems = positional.data.array.elements.items;
+                    if (elems.len > args.len) {
+                        const exc = try self.createException(self.argument_error_class, "too many arguments");
+                        self.pending_exception = exc;
+                        return error.Unwind;
+                    }
+                    for (elems, 0..) |elem, i| {
+                        args[i] = elem;
+                    }
+                    positional_argc = elems.len;
+                } else {
+                    var i: usize = 0;
+                    while (i < argc) : (i += 1) {
+                        args[argc - 1 - i] = self.pop();
+                    }
+                    positional_argc = argc;
                 }
 
                 // Pop receiver
                 const receiver = self.pop();
 
-                try self.callMethodHelperForExecuteInstruction(method_idx, call_style, receiver, &args, argc, null, 0, null, block);
+                try self.callMethodHelperForExecuteInstruction(method_idx, call_style, receiver, &args, positional_argc, null, 0, null, block);
             },
 
             .CALL_KW => {
                 const method_idx = self.readU16();
                 const argc = self.readByte();
                 const kwargc = self.readByte();
-                const call_style: ReceiverCallStyle = @enumFromInt(self.readByte());
+                const call_flags = self.readByte();
+                const call_style: ReceiverCallStyle = bytecode.decodeReceiverCallStyle(call_flags);
+                const args_array_mode = bytecode.argsArrayMode(call_flags);
                 const kw_metadata_idx = self.readU16();
                 const block_chunk_id = self.readU16();
 
@@ -1122,12 +1146,32 @@ pub const VM = struct {
                     kw_values[i] = self.pop();
                 }
 
-                // Pop positional args
                 var args: [256]Value = undefined;
-                i = argc;
-                while (i > 0) {
-                    i -= 1;
-                    args[i] = self.pop();
+                var positional_argc: usize = 0;
+                if (args_array_mode) {
+                    const positional = self.pop();
+                    if (positional.data != .array) {
+                        const exc = try self.createException(self.type_error_class, "splat argument is not an Array");
+                        self.pending_exception = exc;
+                        return error.Unwind;
+                    }
+                    const elems = positional.data.array.elements.items;
+                    if (elems.len > args.len) {
+                        const exc = try self.createException(self.argument_error_class, "too many arguments");
+                        self.pending_exception = exc;
+                        return error.Unwind;
+                    }
+                    for (elems, 0..) |elem, idx| {
+                        args[idx] = elem;
+                    }
+                    positional_argc = elems.len;
+                } else {
+                    i = argc;
+                    while (i > 0) {
+                        i -= 1;
+                        args[i] = self.pop();
+                    }
+                    positional_argc = argc;
                 }
 
                 // Pop receiver
@@ -1137,7 +1181,7 @@ pub const VM = struct {
                 const kw_metadata = frame.chunk.keyword_metadata.items[kw_metadata_idx];
 
                 // Call method with keywords
-                try self.callMethodHelperForExecuteInstruction(method_idx, call_style, receiver, &args, argc, &kw_values, kwargc, kw_metadata, block);
+                try self.callMethodHelperForExecuteInstruction(method_idx, call_style, receiver, &args, positional_argc, &kw_values, kwargc, kw_metadata, block);
             },
 
             .RETURN => {
@@ -1378,6 +1422,37 @@ pub const VM = struct {
                 }
 
                 try self.push(.{ .data = .{ .array = array_obj } });
+            },
+
+            .ARRAY_APPEND => {
+                const value_to_append = self.pop();
+                const array_val = self.pop();
+                if (array_val.data != .array) {
+                    const exc = try self.createException(self.type_error_class, "internal error: ARRAY_APPEND target is not an Array");
+                    self.pending_exception = exc;
+                    return error.Unwind;
+                }
+                array_val.data.array.elements.append(self.gc_allocator, value_to_append) catch return error.Fatal;
+                try self.push(array_val);
+            },
+
+            .ARRAY_CONCAT_ARRAY => {
+                const other = self.pop();
+                const array_val = self.pop();
+                if (array_val.data != .array) {
+                    const exc = try self.createException(self.type_error_class, "internal error: ARRAY_CONCAT_ARRAY target is not an Array");
+                    self.pending_exception = exc;
+                    return error.Unwind;
+                }
+                if (other.data != .array) {
+                    const exc = try self.createException(self.type_error_class, "splat argument is not an Array");
+                    self.pending_exception = exc;
+                    return error.Unwind;
+                }
+                for (other.data.array.elements.items) |elem| {
+                    array_val.data.array.elements.append(self.gc_allocator, elem) catch return error.Fatal;
+                }
+                try self.push(array_val);
             },
 
             .PUSH_HASH => {
@@ -1775,19 +1850,41 @@ pub const VM = struct {
 
             .SUPER => {
                 const argc = self.readByte();
+                const flags = self.readByte();
+                const args_array_mode = (flags & bytecode.SUPER_FLAG_ARGS_ARRAY) != 0;
                 const block_chunk_id = self.readU16();
 
                 // Resolve block first (may pop from stack for &variable syntax)
                 const block = try self.resolveBlock(block_chunk_id, frame);
 
-                // Pop arguments
                 var args: [256]Value = undefined;
-                var i: usize = 0;
-                while (i < argc) : (i += 1) {
-                    args[argc - 1 - i] = self.pop();
+                var positional_argc: usize = 0;
+                if (args_array_mode) {
+                    const positional = self.pop();
+                    if (positional.data != .array) {
+                        const exc = try self.createException(self.type_error_class, "splat argument is not an Array");
+                        self.pending_exception = exc;
+                        return error.Unwind;
+                    }
+                    const elems = positional.data.array.elements.items;
+                    if (elems.len > args.len) {
+                        const exc = try self.createException(self.argument_error_class, "too many arguments");
+                        self.pending_exception = exc;
+                        return error.Unwind;
+                    }
+                    for (elems, 0..) |elem, idx| {
+                        args[idx] = elem;
+                    }
+                    positional_argc = elems.len;
+                } else {
+                    var i: usize = 0;
+                    while (i < argc) : (i += 1) {
+                        args[argc - 1 - i] = self.pop();
+                    }
+                    positional_argc = argc;
                 }
 
-                try self.callSuper(args[0..argc], block);
+                try self.callSuper(args[0..positional_argc], block);
             },
 
             .FORWARDING_SUPER => {
