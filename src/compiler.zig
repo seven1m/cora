@@ -418,7 +418,10 @@ pub const Compiler = struct {
             },
 
             .array => |array_node| {
-                const element_count: u8 = @intCast(array_node.elements.size);
+                if (array_node.elements.size > std.math.maxInt(u16)) {
+                    return error.TooManyArrayElements;
+                }
+                const element_count: u16 = @intCast(array_node.elements.size);
                 var i: usize = 0;
                 while (i < array_node.elements.size) : (i += 1) {
                     const elem = array_node.elements.nodes[i];
@@ -426,15 +429,14 @@ pub const Compiler = struct {
                     try self.compileNode(elem_node, line);
                 }
                 // Emit PUSH_ARRAY with element count
-                try self.current_chunk.emitOpU8(.PUSH_ARRAY, element_count, line);
+                try self.current_chunk.emitOpU16(.PUSH_ARRAY, element_count, line);
             },
 
             .hash => |hash_node| {
-                const pair_count: u8 = @intCast(hash_node.elements.size);
-
-                if (pair_count > 255) {
+                if (hash_node.elements.size > std.math.maxInt(u16)) {
                     return error.TooManyHashPairs;
                 }
+                const pair_count: u16 = @intCast(hash_node.elements.size);
 
                 // Compile key-value pairs left-to-right so side effects run in source order.
                 var i: usize = 0;
@@ -456,7 +458,7 @@ pub const Compiler = struct {
                 }
 
                 // Emit PUSH_HASH with pair count
-                try self.current_chunk.emitOpU8(.PUSH_HASH, pair_count, line);
+                try self.current_chunk.emitOpU16(.PUSH_HASH, pair_count, line);
             },
 
             .yield => |yield_node| {
@@ -663,7 +665,7 @@ pub const Compiler = struct {
                         }
                     } else {
                         args_array_mode = true;
-                        try self.current_chunk.emitOpU8(.PUSH_ARRAY, 0, line);
+                        try self.current_chunk.emitOpU16(.PUSH_ARRAY, 0, line);
 
                         i = 0;
                         while (i < args.arguments.size) : (i += 1) {
@@ -814,7 +816,7 @@ pub const Compiler = struct {
                 }
             } else {
                 result.args_array_mode = true;
-                try self.current_chunk.emitOpU8(.PUSH_ARRAY, 0, line);
+                try self.current_chunk.emitOpU16(.PUSH_ARRAY, 0, line);
 
                 var seen_keyword_hash = false;
                 i = 0;

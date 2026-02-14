@@ -1680,7 +1680,7 @@ pub const VM = struct {
             },
 
             .PUSH_ARRAY => {
-                const element_count = self.readByte();
+                const element_count = self.readU16();
 
                 const array_obj = try self.createArray();
                 if (self.stack.items.len < element_count) return error.Fatal;
@@ -1728,7 +1728,7 @@ pub const VM = struct {
             },
 
             .PUSH_HASH => {
-                const pair_count = self.readByte();
+                const pair_count = self.readU16();
 
                 const hash_obj = try self.createHash();
                 const needed: usize = pair_count * 2;

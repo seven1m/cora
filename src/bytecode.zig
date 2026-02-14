@@ -46,10 +46,10 @@ pub const OpCode = enum(u8) {
     PUSH_SELF, // No operands
 
     // Collections
-    PUSH_ARRAY, // Operand: u8 (element count)
+    PUSH_ARRAY, // Operand: u16 (element count)
     ARRAY_APPEND, // No operands - stack: [..., array, value] -> [..., array]
     ARRAY_CONCAT_ARRAY, // No operands - stack: [..., array, other_array] -> [..., array]
-    PUSH_HASH, // Operand: u8 (pair count)
+    PUSH_HASH, // Operand: u16 (pair count)
     PUSH_RANGE, // Operand: u8 (0=inclusive, 1=exclusive) - pops start, end from stack
     INTERPOLATE_STRING, // Operand: u8 (part count)
 
@@ -216,8 +216,11 @@ pub const Instruction = struct {
             .CALL => {
                 try writer.print(" {d} {d} {d}", .{ self.bx, self.a, self.ax });
             },
-            .GET_LOCAL, .SET_LOCAL, .PUSH_ARRAY, .PUSH_HASH, .PUSH_RANGE, .INTERPOLATE_STRING => {
+            .GET_LOCAL, .SET_LOCAL, .PUSH_RANGE, .INTERPOLATE_STRING => {
                 try writer.print(" {d}", .{self.a});
+            },
+            .PUSH_ARRAY, .PUSH_HASH => {
+                try writer.print(" {d}", .{self.bx});
             },
             .GET_LOCAL_DEEP, .SET_LOCAL_DEEP => {
                 try writer.print(" {d} {d}", .{ self.a, self.b });
