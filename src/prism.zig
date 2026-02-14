@@ -94,6 +94,11 @@ pub const InstanceVariableTargetNode = c.pm_instance_variable_target_node_t;
 pub const ConstantTargetNode = c.pm_constant_target_node_t;
 pub const ConstantPathTargetNode = c.pm_constant_path_target_node_t;
 pub const ClassVariableTargetNode = c.pm_class_variable_target_node_t;
+pub const ClassVariableReadNode = c.pm_class_variable_read_node_t;
+pub const ClassVariableWriteNode = c.pm_class_variable_write_node_t;
+pub const ClassVariableAndWriteNode = c.pm_class_variable_and_write_node_t;
+pub const ClassVariableOrWriteNode = c.pm_class_variable_or_write_node_t;
+pub const ClassVariableOperatorWriteNode = c.pm_class_variable_operator_write_node_t;
 pub const IndexTargetNode = c.pm_index_target_node_t;
 pub const IndexOperatorWriteNode = c.pm_index_operator_write_node_t;
 pub const CallTargetNode = c.pm_call_target_node_t;
@@ -190,6 +195,11 @@ pub const Node = union(enum) {
     constant_target: *ConstantTargetNode,
     constant_path_target: *ConstantPathTargetNode,
     class_variable_target: *ClassVariableTargetNode,
+    class_variable_read: *ClassVariableReadNode,
+    class_variable_write: *ClassVariableWriteNode,
+    class_variable_and_write: *ClassVariableAndWriteNode,
+    class_variable_or_write: *ClassVariableOrWriteNode,
+    class_variable_operator_write: *ClassVariableOperatorWriteNode,
     index_target: *IndexTargetNode,
     index_operator_write: *IndexOperatorWriteNode,
     call_target: *CallTargetNode,
@@ -587,6 +597,26 @@ pub const Parser = struct {
 
         if (node_type == c.PM_CLASS_VARIABLE_TARGET_NODE) {
             return Node{ .class_variable_target = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_CLASS_VARIABLE_READ_NODE) {
+            return Node{ .class_variable_read = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_CLASS_VARIABLE_WRITE_NODE) {
+            return Node{ .class_variable_write = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_CLASS_VARIABLE_AND_WRITE_NODE) {
+            return Node{ .class_variable_and_write = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_CLASS_VARIABLE_OR_WRITE_NODE) {
+            return Node{ .class_variable_or_write = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_CLASS_VARIABLE_OPERATOR_WRITE_NODE) {
+            return Node{ .class_variable_operator_write = @ptrCast(raw) };
         }
 
         if (node_type == c.PM_INDEX_TARGET_NODE) {

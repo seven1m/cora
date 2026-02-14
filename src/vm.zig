@@ -693,6 +693,55 @@ pub const VM = struct {
         return null;
     }
 
+    fn resolveClassVariableContext(
+        self: *VM,
+        frame: *CallFrame,
+    ) struct {
+        module: *value.ModuleObject,
+        start_class: ?*ClassObject,
+    } {
+        if (frame.ep.lexical_scope) |scope| {
+            return switch (scope.scope_module) {
+                .class => |class_obj| .{
+                    .module = &class_obj.module,
+                    .start_class = class_obj,
+                },
+                .module => |module| .{
+                    .module = module,
+                    .start_class = null,
+                },
+            };
+        }
+
+        return .{
+            .module = &self.object_class.module,
+            .start_class = self.object_class,
+        };
+    }
+
+    fn lookupClassVariable(
+        _: *VM,
+        owner_module: *value.ModuleObject,
+        start_class: ?*ClassObject,
+        name_sym: *value.SymbolObject,
+    ) ?Value {
+        if (owner_module.class_variables.get(name_sym)) |val| {
+            return val;
+        }
+
+        if (start_class) |start| {
+            var current = start.superclass;
+            while (current) |klass| {
+                if (klass.module.class_variables.get(name_sym)) |val| {
+                    return val;
+                }
+                current = klass.superclass;
+            }
+        }
+
+        return null;
+    }
+
     pub fn setupOutput(self: *VM) void {
         if (self.stdout == null) {
             self.stdout_writer = std.fs.File.stdout().writer(&self.stdout_buffer);
@@ -1078,6 +1127,52 @@ pub const VM = struct {
                 const var_name = name_val.symbol;
                 const global_val = self.peek(0);
                 try self.setGlobal(var_name, global_val);
+            },
+
+            .GET_CVAR => {
+                const name_idx = self.readU16();
+                const name_val = self.currentChunk().constants.items[name_idx];
+                const var_name = name_val.symbol;
+                const name_sym = try self.intern(var_name);
+
+                const ctx = self.resolveClassVariableContext(frame);
+                if (self.lookupClassVariable(ctx.module, ctx.start_class, name_sym)) |val| {
+                    try self.push(val);
+                } else {
+                    const msg = std.fmt.allocPrint(
+                        self.gc_allocator,
+                        "uninitialized class variable {s} in {s}",
+                        .{ var_name, ctx.module.name.name },
+                    ) catch return error.Fatal;
+                    const exc = try self.createException(self.name_error_class, msg);
+                    self.pending_exception = exc;
+                    return error.Unwind;
+                }
+            },
+
+            .GET_CVAR_OR_NIL => {
+                const name_idx = self.readU16();
+                const name_val = self.currentChunk().constants.items[name_idx];
+                const var_name = name_val.symbol;
+                const name_sym = try self.intern(var_name);
+
+                const ctx = self.resolveClassVariableContext(frame);
+                if (self.lookupClassVariable(ctx.module, ctx.start_class, name_sym)) |val| {
+                    try self.push(val);
+                } else {
+                    try self.push(Value.nil());
+                }
+            },
+
+            .SET_CVAR => {
+                const name_idx = self.readU16();
+                const name_val = self.currentChunk().constants.items[name_idx];
+                const var_name = name_val.symbol;
+                const name_sym = try self.intern(var_name);
+                const class_var_val = self.peek(0);
+
+                const ctx = self.resolveClassVariableContext(frame);
+                ctx.module.class_variables.put(name_sym, class_var_val) catch return error.Fatal;
             },
 
             .GET_IVAR => {
@@ -2917,6 +3012,7 @@ pub const VM = struct {
                 .name = singleton_name_sym,
                 .methods = std.AutoHashMap(*value.SymbolObject, MethodEntry).init(self.gc_allocator),
                 .constants = std.AutoHashMap(*value.SymbolObject, value.Value).init(self.gc_allocator),
+                .class_variables = std.AutoHashMap(*value.SymbolObject, value.Value).init(self.gc_allocator),
             },
         };
 
@@ -2958,6 +3054,7 @@ pub const VM = struct {
             .name = name,
             .methods = std.AutoHashMap(*SymbolObject, MethodEntry).init(self.gc_allocator),
             .constants = std.AutoHashMap(*SymbolObject, Value).init(self.gc_allocator),
+            .class_variables = std.AutoHashMap(*SymbolObject, Value).init(self.gc_allocator),
         };
         return .{ .data = .{ .module = module_obj } };
     }
@@ -2977,6 +3074,7 @@ pub const VM = struct {
                 .name = name,
                 .methods = std.AutoHashMap(*SymbolObject, MethodEntry).init(self.gc_allocator),
                 .constants = std.AutoHashMap(*SymbolObject, Value).init(self.gc_allocator),
+                .class_variables = std.AutoHashMap(*SymbolObject, Value).init(self.gc_allocator),
             },
         };
         return .{ .data = .{ .class = class_obj } };

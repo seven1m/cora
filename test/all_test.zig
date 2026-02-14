@@ -24,6 +24,7 @@ const language_array_test = @import("language/array_test.zig");
 const language_at_exit_test = @import("language/at_exit_test.zig");
 const language_backtrace_test = @import("language/backtrace_test.zig");
 const language_case_test = @import("language/case_test.zig");
+const language_class_variable_test = @import("language/class_variable_test.zig");
 const language_block_test = @import("language/block_test.zig");
 const language_block_break_test = @import("language/block_break_test.zig");
 const language_block_param_test = @import("language/block_param_test.zig");
@@ -86,6 +87,7 @@ comptime {
     _ = language_at_exit_test;
     _ = language_backtrace_test;
     _ = language_case_test;
+    _ = language_class_variable_test;
     _ = language_block_test;
     _ = language_block_break_test;
     _ = language_block_param_test;

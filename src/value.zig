@@ -64,6 +64,7 @@ pub const ModuleObject = struct {
     name: *SymbolObject,
     methods: std.AutoHashMap(*SymbolObject, MethodEntry),
     constants: std.AutoHashMap(*SymbolObject, Value),
+    class_variables: std.AutoHashMap(*SymbolObject, Value),
 };
 
 pub const MethodEntry = struct {

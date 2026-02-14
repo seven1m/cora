@@ -560,6 +560,33 @@ pub const Compiler = struct {
                 try self.compileGlobalOrWrite(var_write, line);
             },
 
+            .class_variable_read => |var_read| {
+                const var_name = try self.parser.getConstantName(@intCast(var_read.name));
+                const name_idx = try self.current_chunk.addConstant(.{ .symbol = var_name });
+                try self.current_chunk.emitOpU16(.GET_CVAR, @intCast(name_idx), line);
+            },
+
+            .class_variable_write => |var_write| {
+                const var_name = try self.parser.getConstantName(@intCast(var_write.name));
+                const value_node = try self.parser.asNode(@ptrCast(var_write.value));
+                try self.compileNode(value_node, line);
+
+                const name_idx = try self.current_chunk.addConstant(.{ .symbol = var_name });
+                try self.current_chunk.emitOpU16(.SET_CVAR, @intCast(name_idx), line);
+            },
+
+            .class_variable_and_write => |var_write| {
+                try self.compileClassVariableAndWrite(var_write, line);
+            },
+
+            .class_variable_or_write => |var_write| {
+                try self.compileClassVariableOrWrite(var_write, line);
+            },
+
+            .class_variable_operator_write => |var_write| {
+                try self.compileClassVariableOperatorWrite(var_write, line);
+            },
+
             .instance_variable_read => |var_read| {
                 const var_name = try self.parser.getConstantName(@intCast(var_read.name));
                 const name_idx = try self.current_chunk.addConstant(.{ .symbol = var_name });
@@ -1256,9 +1283,12 @@ pub const Compiler = struct {
                 return error.UnsupportedAssignmentTarget;
             },
             .class_variable_target => {
-                // TODO: @@var = value - requires class variable support
-                std.debug.print("Class variable targets not yet supported in multi-assignment\n", .{});
-                return error.UnsupportedAssignmentTarget;
+                const var_target = target.class_variable_target;
+                const var_name = try self.parser.getConstantName(@intCast(var_target.name));
+                try self.extractArrayElement(index, line);
+                const name_idx = try self.current_chunk.addConstant(.{ .symbol = var_name });
+                try self.current_chunk.emitOpU16(.SET_CVAR, @intCast(name_idx), line);
+                try self.current_chunk.emitOp(.POP, line);
             },
             else => {
                 std.debug.print("Unsupported multi-assignment target type\n", .{});
@@ -1447,9 +1477,11 @@ pub const Compiler = struct {
                 return error.UnsupportedSplatTarget;
             },
             .class_variable_target => {
-                // TODO: @@var = value - requires class variable support
-                std.debug.print("Class variable targets not yet supported in splat assignment\n", .{});
-                return error.UnsupportedSplatTarget;
+                const var_target = target.class_variable_target;
+                const var_name = try self.parser.getConstantName(@intCast(var_target.name));
+                const name_idx = try self.current_chunk.addConstant(.{ .symbol = var_name });
+                try self.current_chunk.emitOpU16(.SET_CVAR, @intCast(name_idx), line);
+                try self.current_chunk.emitOp(.POP, line);
             },
             else => {
                 std.debug.print("Unsupported splat target type\n", .{});
@@ -1505,6 +1537,55 @@ pub const Compiler = struct {
         try self.current_chunk.emitCall(@intCast(method_idx), 1, receiver_style, 0, line);
 
         try self.emitSetLocalSlot(slot, line);
+    }
+
+    fn compileClassVariableAndWrite(self: *Compiler, var_write: *prism.ClassVariableAndWriteNode, line: u32) !void {
+        const var_name = try self.parser.getConstantName(@intCast(var_write.name));
+        const name_idx = try self.current_chunk.addConstant(.{ .symbol = var_name });
+
+        try self.current_chunk.emitOpU16(.GET_CVAR, @intCast(name_idx), line);
+        try self.current_chunk.emitOp(.DUP, line);
+        const jump_end = try self.current_chunk.emitJump(.JUMP_IF_FALSE, line);
+        try self.current_chunk.emitOp(.POP, line);
+
+        const value_node = try self.parser.asNode(@ptrCast(var_write.value));
+        try self.compileNode(value_node, line);
+        try self.current_chunk.emitOpU16(.SET_CVAR, @intCast(name_idx), line);
+
+        try self.current_chunk.patchJump(jump_end);
+    }
+
+    fn compileClassVariableOrWrite(self: *Compiler, var_write: *prism.ClassVariableOrWriteNode, line: u32) !void {
+        const var_name = try self.parser.getConstantName(@intCast(var_write.name));
+        const name_idx = try self.current_chunk.addConstant(.{ .symbol = var_name });
+
+        try self.current_chunk.emitOpU16(.GET_CVAR_OR_NIL, @intCast(name_idx), line);
+        try self.current_chunk.emitOp(.DUP, line);
+        const jump_end = try self.current_chunk.emitJump(.JUMP_IF_TRUE, line);
+        try self.current_chunk.emitOp(.POP, line);
+
+        const value_node = try self.parser.asNode(@ptrCast(var_write.value));
+        try self.compileNode(value_node, line);
+        try self.current_chunk.emitOpU16(.SET_CVAR, @intCast(name_idx), line);
+
+        try self.current_chunk.patchJump(jump_end);
+    }
+
+    fn compileClassVariableOperatorWrite(self: *Compiler, var_write: *prism.ClassVariableOperatorWriteNode, line: u32) !void {
+        const var_name = try self.parser.getConstantName(@intCast(var_write.name));
+        const name_idx = try self.current_chunk.addConstant(.{ .symbol = var_name });
+
+        try self.current_chunk.emitOpU16(.GET_CVAR, @intCast(name_idx), line);
+
+        const value_node = try self.parser.asNode(@ptrCast(var_write.value));
+        try self.compileNode(value_node, line);
+
+        const operator_name = try self.parser.getConstantName(@intCast(var_write.binary_operator));
+        const method_idx = try self.current_chunk.addConstant(.{ .string = operator_name });
+        const receiver_style: u8 = @intFromEnum(bytecode.ReceiverCallStyle.explicit);
+        try self.current_chunk.emitCall(@intCast(method_idx), 1, receiver_style, 0, line);
+
+        try self.current_chunk.emitOpU16(.SET_CVAR, @intCast(name_idx), line);
     }
 
     fn compileIndexOperatorWrite(self: *Compiler, index_write: *prism.IndexOperatorWriteNode, line: u32) !void {

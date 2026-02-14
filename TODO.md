@@ -19,6 +19,10 @@ Prioritized by prerequisites (items earlier unblock later ones).
 - [x] Extend rescue exception-type compilation to allow dynamic expressions (e.g. ivar/class expression), not only simple constant forms.
   - Evidence: `../natalie/test/support/spec.rb:920`, `../natalie/test/support/spec.rb:946` (`rescue @klass => e`)
   - Verified failure with snippet: `unsupported exception type node`.
+- [x] Add class variable support (`@@x`) end-to-end (parser/compiler/VM/runtime semantics).
+  - surfaced while copying ruby/spec Array fixtures (`spec/core/array/fixtures/classes.rb` uses `@@count`)
+- [ ] Add `Integer#times`.
+  - surfaced while copying ruby/spec Array fixtures (`spec/core/array/fixtures/classes.rb` uses `5.times`)
 
 ## 2) Core boot/runtime globals required by this file
 
