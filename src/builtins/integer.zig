@@ -71,6 +71,9 @@ pub fn register(vm: *VM) !void {
     const zero_sym = try vm.intern("zero?");
     try vm.integer_class.module.methods.put(zero_sym, .{ .method = .{ .builtin = &builtinIntegerZero } });
 
+    const times_sym = try vm.intern("times");
+    try vm.integer_class.module.methods.put(times_sym, .{ .method = .{ .builtin = &builtinIntegerTimes } });
+
     const chr_sym = try vm.intern("chr");
     try vm.integer_class.module.methods.put(chr_sym, .{ .method = .{ .builtin = &builtinIntegerChr } });
 }
@@ -258,6 +261,27 @@ pub fn builtinIntegerNegative(vm: *VM, receiver: Value, args: []Value, _: ?Block
 pub fn builtinIntegerZero(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return Value.boolean(receiver.data.integer == 0);
+}
+
+pub fn builtinIntegerTimes(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const blk = try vm.requireBlock(block);
+
+    const count = receiver.data.integer;
+    if (count <= 0) {
+        return receiver;
+    }
+
+    var i: i64 = 0;
+    while (i < count) : (i += 1) {
+        const yield_args = [_]Value{Value.integer(i)};
+        const yield_result = try vm.yieldToBlock(blk, &yield_args);
+        if (yield_result.break_occurred) {
+            return yield_result.value;
+        }
+    }
+
+    return receiver;
 }
 
 pub fn builtinIntegerChr(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

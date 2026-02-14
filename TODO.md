@@ -21,7 +21,7 @@ Prioritized by prerequisites (items earlier unblock later ones).
   - Verified failure with snippet: `unsupported exception type node`.
 - [x] Add class variable support (`@@x`) end-to-end (parser/compiler/VM/runtime semantics).
   - surfaced while copying ruby/spec Array fixtures (`spec/core/array/fixtures/classes.rb` uses `@@count`)
-- [ ] Add `Integer#times`.
+- [x] Add `Integer#times`.
   - surfaced while copying ruby/spec Array fixtures (`spec/core/array/fixtures/classes.rb` uses `5.times`)
 
 ## 2) Core boot/runtime globals required by this file

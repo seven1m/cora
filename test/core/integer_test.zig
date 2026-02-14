@@ -75,6 +75,58 @@ test "Integer#zero?" {
     try std.testing.expectEqual(false, result.data.boolean);
 }
 
+test "Integer#times yields indices and returns receiver" {
+    const result = try evalCode(
+        \\acc = []
+        \\ret = 5.times { |i| acc << i }
+        \\[acc.inspect, ret]
+    );
+    try std.testing.expect(result.data == .array);
+    const values = result.data.array.elements.items;
+    try std.testing.expectEqual(@as(usize, 2), values.len);
+    try std.testing.expect(values[0].data == .string);
+    try std.testing.expectEqualSlices(u8, "[0, 1, 2, 3, 4]", values[0].data.string.str);
+    try std.testing.expect(values[1].data == .integer);
+    try std.testing.expectEqual(@as(i64, 5), values[1].data.integer);
+}
+
+test "Integer#times returns break value" {
+    const result = try evalCode("5.times { |i| break :done if i == 2 }");
+    try std.testing.expect(result.data == .symbol);
+    try std.testing.expectEqualSlices(u8, "done", result.data.symbol.name);
+}
+
+test "Integer#times for non-positive receiver does not yield" {
+    var result = try evalCode(
+        \\count = 0
+        \\ret = 0.times { count += 1 }
+        \\[count, ret]
+    );
+    try std.testing.expect(result.data == .array);
+    var values = result.data.array.elements.items;
+    try std.testing.expectEqual(@as(i64, 0), values[0].data.integer);
+    try std.testing.expectEqual(@as(i64, 0), values[1].data.integer);
+
+    result = try evalCode(
+        \\count = 0
+        \\ret = (-2).times { count += 1 }
+        \\[count, ret]
+    );
+    try std.testing.expect(result.data == .array);
+    values = result.data.array.elements.items;
+    try std.testing.expectEqual(@as(i64, 0), values[0].data.integer);
+    try std.testing.expectEqual(@as(i64, -2), values[1].data.integer);
+}
+
+test "Integer#times without a block raises ArgumentError" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+    const result = evalCodeWithOutput("3.times", &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.UnhandledException, result.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "ArgumentError") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "no block given") != null);
+}
+
 test "Equality comparison - true" {
     const result = try evalCode("5 == 5");
     try std.testing.expectEqual(true, result.data.boolean);
