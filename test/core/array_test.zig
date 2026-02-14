@@ -119,6 +119,15 @@ test "Array#map" {
     try std.testing.expectEqual(@as(i64, 6), result.data.array.elements.items[2].data.integer);
 }
 
+test "Array#each propagates break value" {
+    var result = try evalCode("a = [1, 2, 3]; a.each { |x| break :done if x == 2 }");
+    try std.testing.expect(result.data == .symbol);
+    try std.testing.expectEqualSlices(u8, "done", result.data.symbol.name);
+
+    result = try evalCode("a = [1, 2, 3]; a.each { break }");
+    try std.testing.expect(result.data == .nil);
+}
+
 test "Array#any?" {
     var result = try evalCode("[nil, false, 1].any?");
     try std.testing.expect(result.data == .boolean);

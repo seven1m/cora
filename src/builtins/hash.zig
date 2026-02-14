@@ -136,7 +136,7 @@ pub fn builtinHashEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
 
         // If break occurred, return immediately
         if (result.break_occurred) {
-            return receiver;
+            return result.value;
         }
     }
 

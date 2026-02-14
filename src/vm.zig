@@ -1854,9 +1854,10 @@ pub const VM = struct {
                     self.current_lexical_scope = scope;
                 }
 
+                const arity_mode: ArityMode = if (blk.is_lambda) .strict else .lenient;
                 // Copy arguments with rest parameter handling
                 const block_frame = self.currentFrame();
-                try self.copyArgumentsWithRestParam(blk, block_frame.ep, yield_args[0..argc], .strict);
+                try self.copyArgumentsWithRestParam(blk, block_frame.ep, yield_args[0..argc], arity_mode);
 
                 // Execute until block returns
                 self.break_occurred = false;
@@ -2520,9 +2521,10 @@ pub const VM = struct {
             self.current_lexical_scope = scope;
         }
 
+        const arity_mode: ArityMode = if (block.chunk.is_lambda) .strict else .lenient;
         // Copy arguments with rest parameter handling
         const block_frame = self.currentFrame();
-        try self.copyArgumentsWithRestParam(block.chunk, block_frame.ep, yield_args, .strict);
+        try self.copyArgumentsWithRestParam(block.chunk, block_frame.ep, yield_args, arity_mode);
 
         // Execute until block returns
         self.break_occurred = false;

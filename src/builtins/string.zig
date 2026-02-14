@@ -284,7 +284,7 @@ pub fn builtinStringChars(vm: *VM, receiver: Value, args: []Value, block: ?Block
             const yield_args = [_]Value{char_val};
             const yield_result = try vm.yieldToBlock(blk, &yield_args);
             if (yield_result.break_occurred) {
-                return receiver;
+                return yield_result.value;
             }
         }
         return receiver;

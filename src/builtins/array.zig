@@ -215,7 +215,7 @@ pub fn builtinArrayEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
 
         // If break occurred, return immediately
         if (result.break_occurred) {
-            return receiver;
+            return result.value;
         }
     }
 

@@ -217,3 +217,12 @@ test "String#to_sym" {
     try std.testing.expect(result.data == .string);
     try std.testing.expectEqualSlices(u8, "hello", result.data.string.str);
 }
+
+test "String#chars propagates break value" {
+    var result = try evalCode("'abc'.chars { |c| break :done if c == 'b' }");
+    try std.testing.expect(result.data == .symbol);
+    try std.testing.expectEqualSlices(u8, "done", result.data.symbol.name);
+
+    result = try evalCode("'abc'.chars { break }");
+    try std.testing.expect(result.data == .nil);
+}

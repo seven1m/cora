@@ -88,6 +88,15 @@ test "Hash each iteration" {
     try std.testing.expectEqualSlices(u8, ":a\n1\n:b\n2\n:c\n3\n", result.stdout);
 }
 
+test "Hash#each propagates break value" {
+    var result = try evalCode("h = {a: 1, b: 2}; h.each { |k, v| break :done if k == :b }");
+    try std.testing.expect(result.data == .symbol);
+    try std.testing.expectEqualSlices(u8, "done", result.data.symbol.name);
+
+    result = try evalCode("h = {a: 1, b: 2}; h.each { break }");
+    try std.testing.expect(result.data == .nil);
+}
+
 test "Hash to_s method" {
     const result = try evalCode("h = {a: 1, b: 2}\nh.to_s");
     try std.testing.expect(result.data == .string);

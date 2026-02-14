@@ -34,20 +34,30 @@ test "ArgumentError raised for no block given" {
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, "no block given") != null);
 }
 
-test "ArgumentError raised for wrong block arity" {
-    var stdout_buf: [8192]u8 = undefined;
-    var stderr_buf: [8192]u8 = undefined;
-
-    const result = evalCodeWithOutput(
+test "yield arity: block is lenient, lambda is strict" {
+    const block_result = try evalCode(
         \\def foo
         \\  yield 1
         \\end
-        \\foo { |a, b| a + b }
+        \\foo { |a, b| [a, b] }
+    );
+    try std.testing.expect(block_result.data == .array);
+    try std.testing.expectEqual(@as(i64, 1), block_result.data.array.elements.items[0].data.integer);
+    try std.testing.expect(block_result.data.array.elements.items[1].data == .nil);
+
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+
+    const lambda_result = evalCodeWithOutput(
+        \\def foo
+        \\  yield 1
+        \\end
+        \\l = ->(a, b) { a + b }
+        \\foo(&l)
     , &stdout_buf, &stderr_buf);
 
-    try std.testing.expectEqual(error.UnhandledException, result.err.?);
-
-    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "ArgumentError") != null);
+    try std.testing.expectEqual(error.UnhandledException, lambda_result.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, lambda_result.stderr, "ArgumentError") != null);
 }
 
 test "Block with multiple parameters" {
