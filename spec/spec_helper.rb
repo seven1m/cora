@@ -61,6 +61,54 @@ class SpecExpectation
       raise SpecFailedException, matcher.failure_message(@actual)
     end
   end
+
+  def method_missing(name, *args, &block)
+    result = @actual.send(name, *args, &block)
+    if result
+      :noop
+    else
+      raise SpecFailedException, "Expected #{@actual.inspect}.#{name} to be truthy"
+    end
+  end
+
+  def respond_to_missing?(name, include_private = false)
+    @actual.respond_to?(name, include_private) || super
+  end
+end
+
+class SpecNegatedExpectation
+  def initialize(actual)
+    @actual = actual
+  end
+
+  def ==(expected)
+    if @actual != expected
+      :noop
+    else
+      raise SpecFailedException, "Expected value not to equal: #{expected.inspect}"
+    end
+  end
+
+  def match(matcher)
+    if matcher.matches?(@actual)
+      raise SpecFailedException, "Expected value not to match: #{@actual.inspect}"
+    else
+      :noop
+    end
+  end
+
+  def method_missing(name, *args, &block)
+    result = @actual.send(name, *args, &block)
+    if result
+      raise SpecFailedException, "Expected #{@actual.inspect}.#{name} to be falsey"
+    else
+      :noop
+    end
+  end
+
+  def respond_to_missing?(name, include_private = false)
+    @actual.respond_to?(name, include_private) || super
+  end
 end
 
 class EqualMatcher
@@ -84,6 +132,17 @@ end
 class Object
   def should(*args)
     exp = SpecExpectation.new(self)
+    return exp if args.length == 0
+    matcher = args[0]
+    begin
+      exp.match(matcher)
+    rescue NoMethodError
+      exp.==(matcher)
+    end
+  end
+
+  def should_not(*args)
+    exp = SpecNegatedExpectation.new(self)
     return exp if args.length == 0
     matcher = args[0]
     begin

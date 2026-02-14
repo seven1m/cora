@@ -41,6 +41,9 @@ pub fn register(vm: *VM) !void {
     const include_sym = try vm.intern("include?");
     try vm.array_class.module.methods.put(include_sym, .{ .method = .{ .builtin = &builtinArrayInclude } });
 
+    const empty_sym = try vm.intern("empty?");
+    try vm.array_class.module.methods.put(empty_sym, .{ .method = .{ .builtin = &builtinArrayEmpty } });
+
     const join_sym = try vm.intern("join");
     try vm.array_class.module.methods.put(join_sym, .{ .method = .{ .builtin = &builtinArrayJoin } });
 
@@ -317,6 +320,12 @@ pub fn builtinArrayInclude(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
         if (try vm.valueEquals(element, args[0])) return Value.boolean(true);
     }
     return Value.boolean(false);
+}
+
+pub fn builtinArrayEmpty(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const array = receiver.data.array;
+    return Value.boolean(array.elements.items.len == 0);
 }
 
 pub fn builtinArrayJoin(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
