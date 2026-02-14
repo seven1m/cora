@@ -23,6 +23,8 @@ Prioritized by prerequisites (items earlier unblock later ones).
   - surfaced while copying ruby/spec Array fixtures (`spec/core/array/fixtures/classes.rb` uses `@@count`)
 - [x] Add `Integer#times`.
   - surfaced while copying ruby/spec Array fixtures (`spec/core/array/fixtures/classes.rb` uses `5.times`)
+- [ ] Add `Comparable` module/constant.
+  - surfaced while loading ruby/spec Array fixtures (`../ruby_spec/core/array/fixtures/classes.rb` defines `ComparableWithInteger` with `include Comparable`)
 
 ## 2) Core boot/runtime globals required by this file
 
