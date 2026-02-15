@@ -1,9 +1,14 @@
 const std = @import("std");
 const prism = @import("prism.zig");
 const bdwgc = @import("bdwgc");
+const vm = @import("vm.zig");
 const Chunk = @import("chunk.zig").Chunk;
-const VM = @import("vm.zig").VM;
-const Method = @import("vm.zig").Method;
+const VM = vm.VM;
+const Method = vm.Method;
+const Block = vm.Block;
+const FiberValueStack = vm.FiberValueStack;
+const FiberFrameStack = vm.FiberFrameStack;
+const FiberEnvironmentStack = vm.FiberEnvironmentStack;
 const onigmo = @import("onigmo.zig");
 
 const encoding = @import("encoding.zig");
@@ -119,8 +124,6 @@ pub const ExceptionObject = struct {
     cause: ?*ExceptionObject,
 };
 
-pub const Block = @import("vm.zig").Block;
-
 pub const ProcObject = struct {
     object: Object,
     block: Block,
@@ -130,9 +133,9 @@ pub const FiberObject = struct {
     object: Object,
     state: enum { created, running, suspended, terminated },
     block: ?Block,
-    stack: std.ArrayList(Value) = .empty,
-    frames: std.ArrayList(@import("vm.zig").CallFrame) = .empty,
-    env_stack: std.ArrayList(@import("vm.zig").Environment) = .empty,
+    stack: FiberValueStack,
+    frames: FiberFrameStack,
+    env_stack: FiberEnvironmentStack,
     current_lexical_scope: ?*LexicalScope = null,
     caller: ?*FiberObject = null,
     awaiting_resume_value: bool = false,

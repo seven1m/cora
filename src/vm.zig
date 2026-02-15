@@ -24,6 +24,49 @@ extern "c" fn getenv(name: [*:0]const u8) ?[*:0]u8;
 extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
 extern "c" fn unsetenv(name: [*:0]const u8) c_int;
 
+const MAX_FIBER_STACK_SIZE: usize = 4096;
+const MAX_FIBER_FRAMES: usize = 1024;
+const MAX_FIBER_ENVS: usize = 1024;
+
+fn FixedBufferList(comptime T: type, comptime N: usize) type {
+    return struct {
+        const Self = @This();
+
+        storage: [N]T = undefined,
+        items: []T = undefined,
+        capacity: usize = N,
+
+        pub fn init() Self {
+            var self: Self = undefined;
+            self.storage = undefined;
+            self.items = self.storage[0..0];
+            self.capacity = N;
+            return self;
+        }
+
+        pub fn append(self: *Self, _: std.mem.Allocator, item: T) !void {
+            if (self.items.len >= self.capacity) return error.OutOfMemory;
+            self.storage[self.items.len] = item;
+            self.items = self.storage[0 .. self.items.len + 1];
+        }
+
+        pub fn pop(self: *Self) ?T {
+            if (self.items.len == 0) return null;
+            const idx = self.items.len - 1;
+            const val = self.storage[idx];
+            self.items = self.storage[0..idx];
+            return val;
+        }
+
+        pub fn shrinkRetainingCapacity(self: *Self, new_len: usize) void {
+            if (new_len >= self.items.len) return;
+            self.items = self.storage[0..new_len];
+        }
+
+        pub fn deinit(_: *Self, _: std.mem.Allocator) void {}
+    };
+}
+
 pub const VMError = error{
     // Unhandled Ruby exception returned by VM.run()
     // Exception object is in pending_exception.
@@ -96,16 +139,20 @@ pub const CallFrame = struct {
     super_defining_class: ?*ClassObject = null,
 };
 
+pub const FiberValueStack = FixedBufferList(Value, MAX_FIBER_STACK_SIZE);
+pub const FiberFrameStack = FixedBufferList(CallFrame, MAX_FIBER_FRAMES);
+pub const FiberEnvironmentStack = FixedBufferList(Environment, MAX_FIBER_ENVS);
+
 pub const VM = struct {
     allocator: std.mem.Allocator,
     gc_allocator: std.mem.Allocator,
     gc_allocator_atomic: std.mem.Allocator,
 
-    stack: std.ArrayList(Value) = .empty,
-    frames: std.ArrayList(CallFrame) = .empty,
+    stack: *FiberValueStack,
+    frames: *FiberFrameStack,
 
     // Environment stack for optimistic allocation
-    env_stack: std.ArrayList(Environment) = .empty,
+    env_stack: *FiberEnvironmentStack,
 
     symbols: std.StringHashMap(*SymbolObject),
     globals: std.StringHashMap(Value),
@@ -198,6 +245,9 @@ pub const VM = struct {
             .allocator = allocator,
             .gc_allocator = gc_allocator,
             .gc_allocator_atomic = gc_allocator_atomic,
+            .stack = undefined,
+            .frames = undefined,
+            .env_stack = undefined,
             .symbols = std.StringHashMap(*SymbolObject).init(gc_allocator),
             .globals = std.StringHashMap(Value).init(gc_allocator),
             .loaded_files = std.StringHashMap(void).init(gc_allocator),
@@ -250,10 +300,6 @@ pub const VM = struct {
 
     pub fn prepare(self: *VM, program: *compiler.CompiledProgram) VMError!void {
         self.program = program;
-
-        // Pre-allocate env_stack to prevent reallocations that would invalidate pointers
-        // This is max call stack depth, not total calls - we reclaim on popFrame
-        self.env_stack.ensureTotalCapacity(self.gc_allocator, 512) catch return error.Fatal;
 
         // Initialize file loading infrastructure
         self.loaded_files = std.StringHashMap(void).init(self.allocator);
@@ -532,9 +578,9 @@ pub const VM = struct {
             .object = .{ .flags = 0, .class = self.fiber_class, .singleton_class = null, .instance_variables = null },
             .state = .running,
             .block = null,
-            .stack = .empty,
-            .frames = .empty,
-            .env_stack = .empty,
+            .stack = FiberValueStack.init(),
+            .frames = FiberFrameStack.init(),
+            .env_stack = FiberEnvironmentStack.init(),
             .current_lexical_scope = self.current_lexical_scope,
             .caller = null,
             .awaiting_resume_value = false,
@@ -543,11 +589,7 @@ pub const VM = struct {
         };
         self.main_fiber = main_fiber_obj;
         self.current_fiber = main_fiber_obj;
-        self.stack = self.main_fiber.stack;
-        self.frames = self.main_fiber.frames;
-        self.env_stack = self.main_fiber.env_stack;
-        self.current_lexical_scope = self.main_fiber.current_lexical_scope;
-        self.env_stack.ensureTotalCapacity(self.gc_allocator, 512) catch return error.Fatal;
+        self.restoreFiberState(main_fiber_obj);
     }
 
     pub fn createLexicalScope(self: *VM, scope_module_val: Value, parent: ?*LexicalScope) VMError!*LexicalScope {
@@ -582,6 +624,11 @@ pub const VM = struct {
     }
 
     pub fn createStackEnvironment(self: *VM, parent: ?*Environment, lexical_scope: ?*LexicalScope) VMError!*Environment {
+        if (self.env_stack.items.len >= self.env_stack.capacity) {
+            const exc = try self.createException(self.fiber_error_class, "fiber environment stack overflow");
+            self.pending_exception = exc;
+            return error.Unwind;
+        }
         const index = self.env_stack.items.len;
         self.env_stack.append(self.gc_allocator, .{
             .parent = parent,
@@ -930,6 +977,11 @@ pub const VM = struct {
     }
 
     fn push(self: *VM, val: Value) VMError!void {
+        if (self.stack.items.len >= self.stack.capacity) {
+            const exc = try self.createException(self.fiber_error_class, "fiber stack overflow");
+            self.pending_exception = exc;
+            return error.Unwind;
+        }
         self.stack.append(self.gc_allocator, val) catch return error.Fatal;
     }
 
@@ -1002,6 +1054,12 @@ pub const VM = struct {
     }
 
     fn pushFrame(self: *VM, ch: *Chunk, self_value: Value, block: ?Block) VMError!void {
+        if (self.frames.items.len >= self.frames.capacity) {
+            const exc = try self.createException(self.fiber_error_class, "fiber call stack overflow");
+            self.pending_exception = exc;
+            return error.Unwind;
+        }
+
         // Get parent environment (current frame's ep, if any)
         const parent_env = if (self.frames.items.len > 0)
             self.frames.items[self.frames.items.len - 1].ep
@@ -1044,16 +1102,13 @@ pub const VM = struct {
     }
 
     pub fn saveFiberState(self: *VM, fiber: *FiberObject) void {
-        fiber.stack = self.stack;
-        fiber.frames = self.frames;
-        fiber.env_stack = self.env_stack;
         fiber.current_lexical_scope = self.current_lexical_scope;
     }
 
     pub fn restoreFiberState(self: *VM, fiber: *FiberObject) void {
-        self.stack = fiber.stack;
-        self.frames = fiber.frames;
-        self.env_stack = fiber.env_stack;
+        self.stack = &fiber.stack;
+        self.frames = &fiber.frames;
+        self.env_stack = &fiber.env_stack;
         self.current_lexical_scope = fiber.current_lexical_scope;
     }
 
@@ -3099,9 +3154,9 @@ pub const VM = struct {
             .object = .{ .flags = 0, .class = class_obj, .singleton_class = null, .instance_variables = null },
             .state = .created,
             .block = block,
-            .stack = .empty,
-            .frames = .empty,
-            .env_stack = .empty,
+            .stack = FiberValueStack.init(),
+            .frames = FiberFrameStack.init(),
+            .env_stack = FiberEnvironmentStack.init(),
             .current_lexical_scope = null,
             .caller = null,
             .awaiting_resume_value = false,

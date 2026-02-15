@@ -56,6 +56,26 @@ test "Fiber.yield returns resume argument to the fiber" {
     try std.testing.expectEqual(@as(i64, 99), elems[1].data.integer);
 }
 
+test "Fiber preserves method local variables across yield and resume" {
+    const result = try evalCode(
+        \\def test_method
+        \\  x = 42
+        \\  yield
+        \\  x
+        \\end
+        \\f = Fiber.new { test_method { Fiber.yield(:paused) } }
+        \\a = f.resume
+        \\b = f.resume
+        \\[a, b]
+    );
+    try std.testing.expect(result.data == .array);
+    const elems = result.data.array.elements.items;
+    try std.testing.expectEqual(@as(usize, 2), elems.len);
+    try std.testing.expect(elems[0].data == .symbol);
+    try std.testing.expectEqualStrings("paused", elems[0].data.symbol.name);
+    try std.testing.expectEqual(@as(i64, 42), elems[1].data.integer);
+}
+
 test "Fiber.alive? reflects fiber lifecycle" {
     const result = try evalCode(
         \\f = Fiber.new { Fiber.yield }
