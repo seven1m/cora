@@ -264,10 +264,9 @@ pub const Compiler = struct {
 
             .local_variable_write => |var_write| {
                 const var_name = try self.parser.getLocalVariableName(var_write.name);
+                const slot = try self.resolveOrCreateLocalSlot(var_name);
                 const value_node = try self.parser.asNode(@ptrCast(var_write.value));
                 try self.compileNode(value_node, line);
-
-                const slot = try self.resolveOrCreateLocalSlot(var_name);
                 try self.emitSetLocalSlot(slot, line);
             },
 
@@ -2109,10 +2108,18 @@ pub const Compiler = struct {
         method_chunk_ptr.chunk_id = chunk_id;
         try self.method_chunks.put(chunk_id, method_chunk_ptr);
 
-        // Save the current chunk and switch to the method chunk
+        // Save the current chunk and switch to the method chunk.
+        // Methods do not close over outer local variables, so compile with
+        // a fresh local table to keep parameter slots starting at 0.
         const saved_chunk = self.current_chunk;
-        const saved_locals_len = self.locals.items.len;
+        const saved_locals = self.locals;
+        self.locals = .empty;
         self.current_chunk = method_chunk_ptr;
+        errdefer {
+            self.current_chunk = saved_chunk;
+            self.locals.deinit(self.allocator);
+            self.locals = saved_locals;
+        }
 
         // Process parameters (if any)
         var param_count: u8 = 0;
@@ -2146,7 +2153,8 @@ pub const Compiler = struct {
 
         // Restore the previous chunk
         self.current_chunk = saved_chunk;
-        self.locals.items.len = saved_locals_len;
+        self.locals.deinit(self.allocator);
+        self.locals = saved_locals;
 
         // Emit DEF_METHOD or DEF_SINGLETON_METHOD bytecode with method name and chunk ID
         const name_idx = try self.current_chunk.addConstant(.{ .symbol = method_name_slice });

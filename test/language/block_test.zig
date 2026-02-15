@@ -267,3 +267,14 @@ test "Closure: capture and modify in nested blocks" {
     try std.testing.expect(result.data == .integer);
     try std.testing.expectEqual(@as(i64, 333), result.data.integer); // a=11+300=311, b=22, total=333
 }
+
+test "Closure: RHS block sees assignment target as predeclared local" {
+    const result = try evalCode(
+        \\x = [1].map { x }
+        \\[x.length, x[0].nil?]
+    );
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(@as(usize, 2), result.data.array.elements.items.len);
+    try std.testing.expectEqual(@as(i64, 1), result.data.array.elements.items[0].data.integer);
+    try std.testing.expectEqual(true, result.data.array.elements.items[1].data.boolean);
+}
