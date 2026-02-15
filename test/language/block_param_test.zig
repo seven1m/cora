@@ -288,3 +288,53 @@ test "&variable with rest params and block" {
     );
     try std.testing.expectEqual(@as(i64, 13), result.data.integer);
 }
+
+test "&:symbol converts symbol to block via to_proc" {
+    const result = try evalCode(
+        \\['tim'].map(&:upcase)
+    );
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(@as(usize, 1), result.data.array.elements.items.len);
+    try std.testing.expect(result.data.array.elements.items[0].data == .string);
+    try std.testing.expectEqualStrings("TIM", result.data.array.elements.items[0].data.string.str);
+}
+
+test "&:symbol forwards arguments to method call" {
+    const result = try evalCode(
+        \\[1, 2].map(&:to_s)
+    );
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(@as(usize, 2), result.data.array.elements.items.len);
+    try std.testing.expect(result.data.array.elements.items[0].data == .string);
+    try std.testing.expectEqualStrings("1", result.data.array.elements.items[0].data.string.str);
+    try std.testing.expect(result.data.array.elements.items[1].data == .string);
+    try std.testing.expectEqualStrings("2", result.data.array.elements.items[1].data.string.str);
+}
+
+test "&argument calls to_proc when present" {
+    const result = try evalCode(
+        \\class M
+        \\  def to_proc
+        \\    proc { |x| x.to_s }
+        \\  end
+        \\end
+        \\[1, 2].map(&M.new)
+    );
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(@as(usize, 2), result.data.array.elements.items.len);
+    try std.testing.expect(result.data.array.elements.items[0].data == .string);
+    try std.testing.expectEqualStrings("1", result.data.array.elements.items[0].data.string.str);
+    try std.testing.expect(result.data.array.elements.items[1].data == .string);
+    try std.testing.expectEqualStrings("2", result.data.array.elements.items[1].data.string.str);
+}
+
+test "&argument to_proc returning non-Proc raises TypeError" {
+    try std.testing.expectError(error.UnhandledException, evalCode(
+        \\class M
+        \\  def to_proc
+        \\    123
+        \\  end
+        \\end
+        \\[1].map(&M.new)
+    ));
+}

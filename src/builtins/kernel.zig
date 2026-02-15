@@ -306,7 +306,7 @@ pub fn builtinKernelProc(vm: *VM, _: Value, args: []Value, block: ?Block) VMErro
 pub fn builtinKernelLambda(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
 
-    var blk = block orelse {
+    const blk = block orelse {
         const exc = try vm.createException(
             vm.argument_error_class,
             "tried to create Lambda without a block",
@@ -315,8 +315,11 @@ pub fn builtinKernelLambda(vm: *VM, _: Value, args: []Value, block: ?Block) VMEr
         return error.Unwind;
     };
 
-    // Mark the chunk as a lambda
-    blk.chunk.is_lambda = true;
+    // Mark bytecode-backed blocks as lambda; symbol procs are already lambda-like.
+    switch (blk.kind) {
+        .chunk => |chunk_blk| chunk_blk.chunk.is_lambda = true,
+        .symbol => {},
+    }
 
     return try vm.newProc(blk);
 }

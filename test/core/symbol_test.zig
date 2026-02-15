@@ -57,3 +57,9 @@ test "Symbol#== compares symbol identity/value" {
     try std.testing.expect(result.data == .boolean);
     try std.testing.expectEqual(false, result.data.boolean);
 }
+
+test "Symbol#to_proc creates callable proc" {
+    const result = try evalCode(":upcase.to_proc.call('tim')");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "TIM", result.data.string.str);
+}

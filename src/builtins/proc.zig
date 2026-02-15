@@ -5,7 +5,6 @@ const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
 const Block = vm_mod.Block;
 const Value = value.Value;
-const CallFrame = vm_mod.CallFrame;
 
 pub fn register(vm: *VM) !void {
     const proc_new_sym = try vm.intern("new");
@@ -37,39 +36,12 @@ pub fn builtinProcNew(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!V
 
 pub fn builtinProcCall(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     const proc_obj = receiver.data.proc;
-
-    const real_defining_ep = VM.derefEnvironment(proc_obj.block.defining_ep);
-
-    const proc_env = vm.createStackEnvironment(real_defining_ep, proc_obj.block.chunk.lexical_scope orelse vm.current_lexical_scope) catch return error.Fatal;
-
-    const proc_chunk = proc_obj.block.chunk;
-    const mode: VM.ArityMode = if (proc_chunk.is_lambda) .strict else .lenient;
-
-    // Copy arguments with rest parameter handling
-    try vm.copyArgumentsWithRestParam(proc_chunk, proc_env, args, mode);
-
-    if (proc_obj.block.chunk.lexical_scope) |scope| {
-        vm.current_lexical_scope = scope;
-    }
-
-    vm.frames.append(vm.gc_allocator, CallFrame{
-        .chunk = proc_obj.block.chunk,
-        .ip = 0,
-        .stack_base = vm.stack.items.len,
-        .self_value = proc_obj.block.defining_self,
-        .ep = proc_env,
-        .block = null,
-        .frame_type = if (proc_obj.block.chunk.is_lambda) .lambda else .proc,
-    }) catch return error.Fatal;
-
-    // Execute the proc/lambda until it returns
-    const saved_frame_count = vm.frames.items.len - 1;
-    try vm.executeInstructionsUntilFrameLength(saved_frame_count + 1);
-
-    // The return value is already on the stack from the RETURN instruction
-    return vm.pop();
+    return vm.callProcObject(proc_obj, args, null, null);
 }
 
 pub fn builtinProcIsLambda(_: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
-    return Value.boolean(receiver.data.proc.block.chunk.is_lambda);
+    return Value.boolean(switch (receiver.data.proc.block.kind) {
+        .chunk => |chunk_blk| chunk_blk.chunk.is_lambda,
+        .symbol => true,
+    });
 }

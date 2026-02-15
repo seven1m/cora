@@ -121,9 +121,16 @@ pub const Environment = struct {
 };
 
 pub const Block = struct {
-    chunk: *Chunk,
-    defining_ep: *Environment,
-    defining_self: Value,
+    pub const ChunkData = struct {
+        chunk: *Chunk,
+        defining_ep: *Environment,
+        defining_self: Value,
+    };
+
+    kind: union(enum) {
+        chunk: ChunkData,
+        symbol: *SymbolObject,
+    },
 };
 
 pub const CallFrame = struct {
@@ -734,8 +741,13 @@ pub const VM = struct {
                 frame.ep = new_env;
             }
             if (frame.block) |*blk| {
-                if (blk.defining_ep == old_env) {
-                    blk.defining_ep = new_env;
+                switch (blk.kind) {
+                    .chunk => |*chunk_blk| {
+                        if (chunk_blk.defining_ep == old_env) {
+                            chunk_blk.defining_ep = new_env;
+                        }
+                    },
+                    .symbol => {},
                 }
             }
         }
@@ -1052,36 +1064,55 @@ pub const VM = struct {
     }
 
     /// Resolve a block from its chunk ID. Handles three cases:
-    /// - BLOCK_ARG_ON_STACK: pops Proc from stack, extracts Block
+    /// - BLOCK_ARG_ON_STACK: pops Proc-like value and resolves to callable Block
     /// - Literal block (1..MAX_CHUNK_ID): looks up chunk, creates Block
     /// - No block (0): returns null
     fn resolveBlock(self: *VM, block_chunk_id: chunk.ChunkId, frame: *CallFrame) VMError!?Block {
         if (block_chunk_id == chunk.BLOCK_ARG_ON_STACK) {
-            // Block argument: Proc is on top of stack
-            const proc_val = self.pop();
+            // Block argument: value is on top of stack and may need to_proc coercion.
+            var proc_val = self.pop();
+            const original_val = proc_val;
 
-            if (proc_val.data == .proc) {
-                return proc_val.data.proc.block;
-            } else if (proc_val.data == .nil) {
+            if (proc_val.data == .nil) {
                 return null;
-            } else {
-                // Type error: not a Proc or nil
-                const exc = try self.createException(
-                    self.type_error_class,
-                    "wrong argument type (expected Proc)",
-                );
-                self.pending_exception = exc;
-                return error.Unwind;
             }
+
+            if (proc_val.data != .proc) {
+                const to_proc_sym = try self.intern("to_proc");
+                if ((try self.findMethod(proc_val, to_proc_sym)) == null) {
+                    return self.raiseExceptionFmt(
+                        self.type_error_class,
+                        "wrong argument type {s} (expected Proc)",
+                        .{self.getClass(proc_val).module.name.name},
+                    );
+                }
+                proc_val = try self.callMethodByName(proc_val, "to_proc", &[_]Value{}, null);
+                if (proc_val.data != .proc) {
+                    return self.raiseExceptionFmt(
+                        self.type_error_class,
+                        "can't convert {s} to Proc ({s}#to_proc gives {s})",
+                        .{
+                            self.getClass(original_val).module.name.name,
+                            self.getClass(original_val).module.name.name,
+                            self.getClass(proc_val).module.name.name,
+                        },
+                    );
+                }
+            }
+
+            const proc_obj = proc_val.data.proc;
+            return proc_obj.block;
         } else if (block_chunk_id != 0) {
             // Literal block: look up chunk
             if (self.program.method_chunks.get(block_chunk_id)) |bc| {
                 bc.lexical_scope = self.current_lexical_scope;
                 const defining_ep = try self.promoteEnvironmentToHeap(frame.ep);
                 return Block{
-                    .chunk = bc,
-                    .defining_ep = defining_ep,
-                    .defining_self = frame.self_value,
+                    .kind = .{ .chunk = .{
+                        .chunk = bc,
+                        .defining_ep = defining_ep,
+                        .defining_self = frame.self_value,
+                    } },
                 };
             } else {
                 return error.Fatal;
@@ -1173,25 +1204,37 @@ pub const VM = struct {
     fn runFiberCoroutine(fiber: *FiberObject) VMError!void {
         const self = fiber.owner_vm;
         const blk = fiber.block orelse return error.Fatal;
-        const real_defining_ep = derefEnvironment(blk.defining_ep);
-        const fiber_env = self.createStackEnvironment(real_defining_ep, blk.chunk.lexical_scope orelse self.current_lexical_scope) catch return error.Fatal;
+        switch (blk.kind) {
+            .chunk => |chunk_blk| {
+                const real_defining_ep = derefEnvironment(chunk_blk.defining_ep);
+                const fiber_env = self.createStackEnvironment(real_defining_ep, chunk_blk.chunk.lexical_scope orelse self.current_lexical_scope) catch return error.Fatal;
 
-        self.frames.append(self.gc_allocator, CallFrame{
-            .chunk = blk.chunk,
-            .ip = 0,
-            .stack_base = self.stack.items.len,
-            .self_value = blk.defining_self,
-            .ep = fiber_env,
-            .block = null,
-            .frame_type = .fiber,
-        }) catch return error.Fatal;
+                self.frames.append(self.gc_allocator, CallFrame{
+                    .chunk = chunk_blk.chunk,
+                    .ip = 0,
+                    .stack_base = self.stack.items.len,
+                    .self_value = chunk_blk.defining_self,
+                    .ep = fiber_env,
+                    .block = null,
+                    .frame_type = .fiber,
+                }) catch return error.Fatal;
 
-        if (blk.chunk.lexical_scope) |scope| {
-            self.current_lexical_scope = scope;
+                if (chunk_blk.chunk.lexical_scope) |scope| {
+                    self.current_lexical_scope = scope;
+                }
+
+                const current_frame = self.currentFrame();
+                self.copyArgumentsWithRestParam(chunk_blk.chunk, current_frame.ep, fiber.first_resume_args[0..fiber.first_resume_argc], .lenient) catch return error.Fatal;
+            },
+            .symbol => |sym| {
+                const result = try self.invokeSymbolProc(sym, fiber.first_resume_args[0..fiber.first_resume_argc], null);
+                fiber.state = .terminated;
+                fiber.coro_result = result;
+                fiber.coro_event = .returned;
+                if (fiber.coro) |c| c.yield();
+                return;
+            },
         }
-
-        const current_frame = self.currentFrame();
-        self.copyArgumentsWithRestParam(blk.chunk, current_frame.ep, fiber.first_resume_args[0..fiber.first_resume_argc], .lenient) catch return error.Fatal;
         fiber.state = .running;
 
         while (true) {
@@ -2082,48 +2125,11 @@ pub const VM = struct {
                     self.pending_exception = exc;
                     return error.Unwind;
                 };
+                const yield_result = try self.yieldToBlock(block, yield_args[0..argc]);
+                try self.push(yield_result.value);
 
-                const blk = block.chunk;
-
-                // Push frame with block's chunk, using block_defining_ep as parent for closure support
-                // We need to manually create the environment with the right parent
-                // Dereference block_defining_ep in case it's a forwarding pointer
-                const real_defining_ep = derefEnvironment(block.defining_ep);
-
-                const block_env = try self.createStackEnvironment(real_defining_ep, blk.lexical_scope orelse self.current_lexical_scope);
-
-                self.frames.append(self.gc_allocator, CallFrame{
-                    .chunk = blk,
-                    .ip = 0,
-                    .stack_base = self.stack.items.len,
-                    .self_value = frame.self_value,
-                    .ep = block_env,
-                    .block = null,
-                }) catch return error.Fatal;
-
-                // Update current_lexical_scope to the block's scope
-                if (blk.lexical_scope) |scope| {
-                    self.current_lexical_scope = scope;
-                }
-
-                const arity_mode: ArityMode = if (blk.is_lambda) .strict else .lenient;
-                // Copy arguments with rest parameter handling
-                const block_frame = self.currentFrame();
-                try self.copyArgumentsWithRestParam(blk, block_frame.ep, yield_args[0..argc], arity_mode);
-
-                // Execute until block returns
-                self.break_occurred = false;
-                const saved_frame_count = self.frames.items.len - 1;
-                try self.executeInstructionsUntilFrameLength(saved_frame_count + 1);
-
-                // Check if break occurred in block
-                if (self.break_occurred) {
-                    self.break_occurred = false;
-                    // Break value is already on stack from BREAK opcode
-                    // Break causes the yielding method to return early with the break value
+                if (yield_result.break_occurred) {
                     try self.popFrame();
-                } else {
-                    // Normal return - value is on stack from RETURN
                 }
             },
 
@@ -2133,9 +2139,11 @@ pub const VM = struct {
 
                 // Create a block with the lambda chunk and current environment
                 const block = Block{
-                    .chunk = lambda_chunk,
-                    .defining_ep = frame.ep,
-                    .defining_self = frame.self_value,
+                    .kind = .{ .chunk = .{
+                        .chunk = lambda_chunk,
+                        .defining_ep = frame.ep,
+                        .defining_self = frame.self_value,
+                    } },
                 };
 
                 // Create a Proc value from the block
@@ -2698,49 +2706,50 @@ pub const VM = struct {
     /// Yield to a block with arguments, handling break and exceptions
     /// Returns the block's result value and whether a break occurred
     pub fn yieldToBlock(self: *VM, block: Block, yield_args: []const Value) VMError!YieldResult {
-        // Dereference defining_ep in case it's a forwarding pointer
-        const real_defining_ep = derefEnvironment(block.defining_ep);
+        return switch (block.kind) {
+            .symbol => |sym| .{
+                .value = try self.invokeSymbolProc(sym, yield_args, null),
+                .break_occurred = false,
+            },
+            .chunk => |chunk_blk| blk: {
+                // Dereference defining_ep in case it's a forwarding pointer
+                const real_defining_ep = derefEnvironment(chunk_blk.defining_ep);
+                const block_env = self.createStackEnvironment(real_defining_ep, chunk_blk.chunk.lexical_scope orelse self.current_lexical_scope) catch return error.Fatal;
 
-        const block_env = self.createStackEnvironment(real_defining_ep, block.chunk.lexical_scope orelse self.current_lexical_scope) catch return error.Fatal;
+                // Push block frame (no nested block for builtin-called blocks)
+                self.frames.append(self.gc_allocator, CallFrame{
+                    .chunk = chunk_blk.chunk,
+                    .ip = 0,
+                    .stack_base = self.stack.items.len,
+                    .self_value = chunk_blk.defining_self,
+                    .ep = block_env,
+                    .block = null,
+                }) catch return error.Fatal;
 
-        // Push block frame (no nested block for builtin-called blocks)
-        self.frames.append(self.gc_allocator, CallFrame{
-            .chunk = block.chunk,
-            .ip = 0,
-            .stack_base = self.stack.items.len,
-            .self_value = block.defining_self,
-            .ep = block_env,
-            .block = null,
-        }) catch return error.Fatal;
+                // Update current_lexical_scope to the block's scope
+                if (chunk_blk.chunk.lexical_scope) |scope| {
+                    self.current_lexical_scope = scope;
+                }
 
-        // Update current_lexical_scope to the block's scope
-        if (block.chunk.lexical_scope) |scope| {
-            self.current_lexical_scope = scope;
-        }
+                const arity_mode: ArityMode = if (chunk_blk.chunk.is_lambda) .strict else .lenient;
+                const block_frame = self.currentFrame();
+                try self.copyArgumentsWithRestParam(chunk_blk.chunk, block_frame.ep, yield_args, arity_mode);
 
-        const arity_mode: ArityMode = if (block.chunk.is_lambda) .strict else .lenient;
-        // Copy arguments with rest parameter handling
-        const block_frame = self.currentFrame();
-        try self.copyArgumentsWithRestParam(block.chunk, block_frame.ep, yield_args, arity_mode);
+                self.break_occurred = false;
+                const saved_frame_count = self.frames.items.len - 1;
+                try self.executeInstructionsUntilFrameLength(saved_frame_count + 1);
 
-        // Execute until block returns
-        self.break_occurred = false;
-        const saved_frame_count = self.frames.items.len - 1;
-        try self.executeInstructionsUntilFrameLength(saved_frame_count + 1);
+                const break_occurred = self.break_occurred;
+                if (break_occurred) {
+                    self.break_occurred = false;
+                }
 
-        // Handle break or normal return
-        const break_occurred = self.break_occurred;
-        if (break_occurred) {
-            self.break_occurred = false;
-            // Break value is on stack from BREAK opcode
-        }
-
-        // Get result from stack (top of stack is at distance 0)
-        const result = if (self.stack.items.len > 0) self.peek(0) else Value.nil();
-
-        return YieldResult{
-            .value = result,
-            .break_occurred = break_occurred,
+                const result = if (self.stack.items.len > 0) self.pop() else Value.nil();
+                break :blk YieldResult{
+                    .value = result,
+                    .break_occurred = break_occurred,
+                };
+            },
         };
     }
 
@@ -2754,29 +2763,79 @@ pub const VM = struct {
         method_name: ?[]const u8,
         defining_class: ?*ClassObject,
     ) VMError!Value {
-        const real_defining_ep = derefEnvironment(proc_obj.block.defining_ep);
-        const proc_env = self.createStackEnvironment(real_defining_ep, proc_obj.block.chunk.lexical_scope orelse self.current_lexical_scope) catch return error.Fatal;
+        return switch (proc_obj.block.kind) {
+            .symbol => |sym| self.invokeSymbolProc(sym, args, block),
+            .chunk => |chunk_blk| blk: {
+                const real_defining_ep = derefEnvironment(chunk_blk.defining_ep);
+                const proc_env = self.createStackEnvironment(real_defining_ep, chunk_blk.chunk.lexical_scope orelse self.current_lexical_scope) catch return error.Fatal;
 
-        self.frames.append(self.gc_allocator, CallFrame{
-            .chunk = proc_obj.block.chunk,
-            .ip = 0,
-            .stack_base = self.stack.items.len,
-            .self_value = receiver,
-            .ep = proc_env,
-            .block = block,
-            .frame_type = .method,
-            .method_name = method_name,
-            .super_defining_class = defining_class,
-        }) catch return error.Fatal;
+                self.frames.append(self.gc_allocator, CallFrame{
+                    .chunk = chunk_blk.chunk,
+                    .ip = 0,
+                    .stack_base = self.stack.items.len,
+                    .self_value = receiver,
+                    .ep = proc_env,
+                    .block = block,
+                    .frame_type = .method,
+                    .method_name = method_name,
+                    .super_defining_class = defining_class,
+                }) catch return error.Fatal;
 
-        const current_frame = self.currentFrame();
-        try self.copyArgumentsWithRestParam(proc_obj.block.chunk, current_frame.ep, args, .strict);
+                const current_frame = self.currentFrame();
+                try self.copyArgumentsWithRestParam(chunk_blk.chunk, current_frame.ep, args, .strict);
 
-        // Execute until this frame completes
-        const saved_frame_count = self.frames.items.len - 1;
-        try self.executeInstructionsUntilFrameLength(saved_frame_count + 1);
+                const saved_frame_count = self.frames.items.len - 1;
+                try self.executeInstructionsUntilFrameLength(saved_frame_count + 1);
 
-        return self.pop();
+                break :blk self.pop();
+            },
+        };
+    }
+
+    fn invokeSymbolProc(self: *VM, symbol: *SymbolObject, args: []const Value, block: ?Block) VMError!Value {
+        if (args.len == 0) {
+            return self.raiseExceptionFmt(
+                self.argument_error_class,
+                "wrong number of arguments (given 0, expected 1+)",
+                .{},
+            );
+        }
+        var forwarded_args: [256]Value = undefined;
+        if (args.len > 1) {
+            @memcpy(forwarded_args[0 .. args.len - 1], args[1..]);
+        }
+        return self.callMethodByName(args[0], symbol.name, forwarded_args[0 .. args.len - 1], block);
+    }
+
+    pub fn callProcObject(self: *VM, proc_obj: *value.ProcObject, args: []const Value, block: ?Block, self_override: ?Value) VMError!Value {
+        return switch (proc_obj.block.kind) {
+            .symbol => |sym| self.invokeSymbolProc(sym, args, block),
+            .chunk => |chunk_blk| blk: {
+                const real_defining_ep = derefEnvironment(chunk_blk.defining_ep);
+                const proc_env = self.createStackEnvironment(real_defining_ep, chunk_blk.chunk.lexical_scope orelse self.current_lexical_scope) catch return error.Fatal;
+
+                const mode: ArityMode = if (chunk_blk.chunk.is_lambda) .strict else .lenient;
+                try self.copyArgumentsWithRestParam(chunk_blk.chunk, proc_env, args, mode);
+
+                if (chunk_blk.chunk.lexical_scope) |scope| {
+                    self.current_lexical_scope = scope;
+                }
+
+                self.frames.append(self.gc_allocator, CallFrame{
+                    .chunk = chunk_blk.chunk,
+                    .ip = 0,
+                    .stack_base = self.stack.items.len,
+                    .self_value = self_override orelse chunk_blk.defining_self,
+                    .ep = proc_env,
+                    .block = block,
+                    .frame_type = if (chunk_blk.chunk.is_lambda) .lambda else .proc,
+                }) catch return error.Fatal;
+
+                const saved_frame_count = self.frames.items.len - 1;
+                try self.executeInstructionsUntilFrameLength(saved_frame_count + 1);
+                break :blk self.pop();
+            },
+        };
     }
 
     /// Ensure a block was given, or raise an error
@@ -3575,15 +3634,16 @@ pub const VM = struct {
     }
 
     pub fn newProc(self: *VM, block: Block) VMError!Value {
-        const heap_ep = self.promoteEnvironmentToHeap(block.defining_ep) catch return error.Fatal;
-
         const proc_obj = self.gc_allocator.create(value.ProcObject) catch return error.Fatal;
         proc_obj.* = .{
             .object = .{ .flags = 0, .class = self.proc_class, .singleton_class = null, .instance_variables = null },
-            .block = .{
-                .chunk = block.chunk,
-                .defining_ep = heap_ep,
-                .defining_self = block.defining_self,
+            .block = switch (block.kind) {
+                .symbol => block,
+                .chunk => |chunk_blk| .{ .kind = .{ .chunk = .{
+                    .chunk = chunk_blk.chunk,
+                    .defining_ep = self.promoteEnvironmentToHeap(chunk_blk.defining_ep) catch return error.Fatal,
+                    .defining_self = chunk_blk.defining_self,
+                } } },
             },
         };
         return .{ .data = .{ .proc = proc_obj } };

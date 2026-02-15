@@ -34,14 +34,22 @@ pub fn builtinClassNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
     const class_val = try vm.newClass(anonymous_name, superclass);
 
     if (block) |blk| {
-        blk.chunk.lexical_scope = try vm.createLexicalScope(class_val, vm.current_lexical_scope);
+        const yield_result = switch (blk.kind) {
+            .chunk => |chunk_blk| chunk_blk_result: {
+                chunk_blk.chunk.lexical_scope = try vm.createLexicalScope(class_val, vm.current_lexical_scope);
 
-        var class_body_block = blk;
-        class_body_block.defining_self = class_val;
-        const yield_result = try vm.yieldToBlock(class_body_block, &[_]Value{});
-        if (yield_result.break_occurred) {
-            return yield_result.value;
-        }
+                const class_body_block = Block{
+                    .kind = .{ .chunk = .{
+                        .chunk = chunk_blk.chunk,
+                        .defining_ep = chunk_blk.defining_ep,
+                        .defining_self = class_val,
+                    } },
+                };
+                break :chunk_blk_result try vm.yieldToBlock(class_body_block, &[_]Value{});
+            },
+            .symbol => try vm.yieldToBlock(blk, &[_]Value{}),
+        };
+        if (yield_result.break_occurred) return yield_result.value;
     }
 
     return class_val;
