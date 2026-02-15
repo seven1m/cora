@@ -6,6 +6,10 @@
             .url = "git+https://github.com/bdwgc/bdwgc-zig#d412e7728d59b74fd956991d6ce738304133556b",
             .hash = "bdwgc_zig-0.1.0-ffcEgaR7AABxDBCeXXTiufs5o4MMAHgoZADlUh9xK1tw",
         },
+        .zio = .{
+            .url = "git+https://github.com/lalinsky/zio?ref=v0.8.0#d7e56167f37bfedbd0dd470f56e01620e69a0d4a",
+            .hash = "zio-0.8.0-xHbVVHtnGACrWEGWxWvXl2rYDp9qDmJ-UO4hynM9cibA",
+        },
     },
     .paths = .{""},
     .fingerprint = 0x6ce041564dec8ed6,

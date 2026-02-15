@@ -140,3 +140,93 @@ test "return inside Fiber raises LocalJumpError" {
     try std.testing.expect(result.err != null);
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, "LocalJumpError") != null);
 }
+
+test "Array#each + Fiber.yield resumes inside builtin" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+    const result = evalCodeWithOutput(
+        \\f = Fiber.new { [1,2].each { |x| Fiber.yield(x) }; :done }
+        \\p f.resume
+        \\p f.resume
+        \\p f.resume
+    , &stdout_buf, &stderr_buf);
+    try std.testing.expect(result.err == null);
+    try std.testing.expectEqualStrings("1\n2\n:done\n", result.stdout);
+}
+
+test "Kernel#tap resumes and returns receiver" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+    const result = evalCodeWithOutput(
+        \\f = Fiber.new do
+        \\  a = 1.tap { Fiber.yield(:pause) }
+        \\  p a
+        \\  :done
+        \\end
+        \\p f.resume
+        \\p f.resume
+    , &stdout_buf, &stderr_buf);
+    try std.testing.expect(result.err == null);
+    try std.testing.expectEqualStrings(":pause\n1\n:done\n", result.stdout);
+}
+
+test "File.open block keeps io open across Fiber.yield" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+    const result = evalCodeWithOutput(
+        \\File.write('/tmp/cora_fiber_file_open_bug.txt', "hi")
+        \\f = Fiber.new do
+        \\  File.open('/tmp/cora_fiber_file_open_bug.txt', 'r') do |io|
+        \\    Fiber.yield(:pause)
+        \\    p io.read
+        \\  end
+        \\  :done
+        \\end
+        \\p f.resume
+        \\p f.resume
+    , &stdout_buf, &stderr_buf);
+    try std.testing.expect(result.err == null);
+    try std.testing.expectEqualStrings(":pause\n\"hi\"\n:done\n", result.stdout);
+}
+
+test "Fiber stress: 10000 yield/resume cycles" {
+    const result = try evalCode(
+        \\f = Fiber.new do
+        \\  i = 0
+        \\  while i < 10000
+        \\    Fiber.yield(i)
+        \\    i += 1
+        \\  end
+        \\  :done
+        \\end
+        \\i = 0
+        \\ok = true
+        \\while i < 10000
+        \\  ok = false unless f.resume == i
+        \\  i += 1
+        \\end
+        \\ok && f.resume == :done
+    );
+    try std.testing.expect(result.data == .boolean);
+    try std.testing.expectEqual(true, result.data.boolean);
+}
+
+test "Fiber stress: nested builtins with many yields" {
+    const result = try evalCode(
+        \\vals = []
+        \\f = Fiber.new do
+        \\  50.times do |i|
+        \\    [i, i + 1].each do |x|
+        \\      vals.tap { Fiber.yield(x) }
+        \\    end
+        \\  end
+        \\  vals.length
+        \\end
+        \\sum = 0
+        \\100.times { sum += f.resume }
+        \\len = f.resume
+        \\sum == 2500 && len == 0
+    );
+    try std.testing.expect(result.data == .boolean);
+    try std.testing.expectEqual(true, result.data.boolean);
+}

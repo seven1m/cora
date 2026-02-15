@@ -87,7 +87,12 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const zio = b.dependency("zio", .{
+        .target = target,
+        .optimize = optimize,
+    });
     exe.root_module.addImport("bdwgc", bdwgc.module("bdwgc"));
+    exe.root_module.addImport("zio", zio.module("zio"));
 
     b.installArtifact(exe);
 
@@ -123,6 +128,7 @@ pub fn build(b: *std.Build) void {
     test_exe.linkLibC();
 
     test_exe.root_module.addImport("bdwgc", bdwgc.module("bdwgc"));
+    test_exe.root_module.addImport("zio", zio.module("zio"));
     test_exe.root_module.addImport("build_options", options.createModule());
     const cora_mod = b.createModule(.{
         .root_source_file = b.path("src/lib.zig"),
@@ -130,6 +136,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     cora_mod.addImport("bdwgc", bdwgc.module("bdwgc"));
+    cora_mod.addImport("zio", zio.module("zio"));
     cora_mod.addIncludePath(b.path("zig-out/prism/include"));
     cora_mod.addIncludePath(b.path("zig-out/onigmo/"));
     cora_mod.addObjectFile(b.path("zig-out/onigmo/.libs/libonigmo.a"));

@@ -9,6 +9,7 @@ const Block = vm.Block;
 const FiberValueStack = vm.FiberValueStack;
 const FiberFrameStack = vm.FiberFrameStack;
 const FiberEnvironmentStack = vm.FiberEnvironmentStack;
+const FiberCoro = vm.FiberCoro;
 const onigmo = @import("onigmo.zig");
 
 const encoding = @import("encoding.zig");
@@ -130,6 +131,13 @@ pub const ProcObject = struct {
 };
 
 pub const FiberObject = struct {
+    pub const CoroEvent = enum {
+        none,
+        yielded,
+        returned,
+        raised,
+    };
+
     object: Object,
     state: enum { created, running, suspended, terminated },
     block: ?Block,
@@ -138,9 +146,13 @@ pub const FiberObject = struct {
     env_stack: FiberEnvironmentStack,
     current_lexical_scope: ?*LexicalScope = null,
     caller: ?*FiberObject = null,
-    awaiting_resume_value: bool = false,
-    yielded_value: Value = Value.nil(),
-    pending_resume_value: Value = Value.nil(),
+    coro: ?*FiberCoro = null,
+    coro_event: CoroEvent = .none,
+    coro_result: Value = Value.nil(),
+    coro_exception: ?*ExceptionObject = null,
+    first_resume_args: [256]Value = undefined,
+    first_resume_argc: usize = 0,
+    owner_vm: *VM,
 };
 
 pub const IoObject = struct {

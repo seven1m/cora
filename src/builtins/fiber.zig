@@ -69,15 +69,8 @@ pub fn builtinFiberCurrent(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
 }
 
 pub fn builtinFiberYield(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
-    if (vm.current_fiber == vm.main_fiber) {
-        return raiseFiberError(vm, "can't yield from root fiber");
-    }
-
     const yield_value = try argsToValue(vm, args);
-    vm.current_fiber.yielded_value = yield_value;
-    vm.current_fiber.awaiting_resume_value = true;
-    vm.current_fiber.state = .suspended;
-    return error.FiberYield;
+    return vm.fiberYield(yield_value);
 }
 
 pub fn builtinFiberResume(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -93,29 +86,7 @@ pub fn builtinFiberResume(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     }
 
     const resume_value = try argsToValue(vm, args);
-    fiber.pending_resume_value = resume_value;
-
-    const caller = vm.current_fiber;
-    vm.saveFiberState(caller);
-    fiber.caller = caller;
-    vm.current_fiber = fiber;
-    vm.restoreFiberState(fiber);
-
-    errdefer {
-        vm.saveFiberState(fiber);
-        vm.current_fiber = caller;
-        vm.restoreFiberState(caller);
-        fiber.caller = null;
-    }
-
-    const result = try vm.runFiberUntilYieldOrTerminate(fiber, args);
-
-    vm.saveFiberState(fiber);
-    vm.current_fiber = caller;
-    vm.restoreFiberState(caller);
-    fiber.caller = null;
-
-    return result;
+    return vm.resumeFiber(fiber, args, resume_value);
 }
 
 pub fn builtinFiberAlive(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

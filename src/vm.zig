@@ -8,6 +8,7 @@ const onigmo = @import("onigmo.zig");
 const value = @import("value.zig");
 const prism = @import("prism.zig");
 const builtins = @import("builtins/builtins.zig");
+const zio = @import("zio");
 
 const Value = value.Value;
 const Object = value.Object;
@@ -79,9 +80,6 @@ pub const VMError = error{
     // Triggers stack unwind internally
     // This shouldn't escape VM.run().
     Unwind,
-
-    // Internal control flow for Fiber.yield
-    FiberYield,
 };
 
 pub const Method = union(enum) {
@@ -142,6 +140,8 @@ pub const CallFrame = struct {
 pub const FiberValueStack = FixedBufferList(Value, MAX_FIBER_STACK_SIZE);
 pub const FiberFrameStack = FixedBufferList(CallFrame, MAX_FIBER_FRAMES);
 pub const FiberEnvironmentStack = FixedBufferList(Environment, MAX_FIBER_ENVS);
+pub const FiberCoro = zio.coro.Coroutine;
+pub const FiberCoroContext = zio.coro.Context;
 
 pub const VM = struct {
     allocator: std.mem.Allocator,
@@ -186,6 +186,9 @@ pub const VM = struct {
     main_self: Value,
     main_fiber: *value.FiberObject,
     current_fiber: *value.FiberObject,
+    zio_main_context: FiberCoroContext = undefined,
+    zio_stack_growth_ready: bool = false,
+    zio_coroutines: std.ArrayList(*FiberCoro) = .empty,
 
     // Exception classes
     exception_class: *value.ClassObject,
@@ -295,11 +298,17 @@ pub const VM = struct {
             .encoding_ascii_8bit = undefined,
             .encoding_us_ascii = undefined,
             .main_self = undefined,
+            .zio_main_context = undefined,
+            .zio_stack_growth_ready = false,
+            .zio_coroutines = .empty,
         };
     }
 
     pub fn prepare(self: *VM, program: *compiler.CompiledProgram) VMError!void {
         self.program = program;
+        self.zio_coroutines = .empty;
+        zio.coro.setupStackGrowth() catch return error.Fatal;
+        self.zio_stack_growth_ready = true;
 
         // Initialize file loading infrastructure
         self.loaded_files = std.StringHashMap(void).init(self.allocator);
@@ -583,13 +592,18 @@ pub const VM = struct {
             .env_stack = FiberEnvironmentStack.init(),
             .current_lexical_scope = self.current_lexical_scope,
             .caller = null,
-            .awaiting_resume_value = false,
-            .yielded_value = Value.nil(),
-            .pending_resume_value = Value.nil(),
+            .coro = null,
+            .coro_event = .none,
+            .coro_result = Value.nil(),
+            .coro_exception = null,
+            .first_resume_args = undefined,
+            .first_resume_argc = 0,
+            .owner_vm = self,
         };
         self.main_fiber = main_fiber_obj;
         self.current_fiber = main_fiber_obj;
         self.restoreFiberState(main_fiber_obj);
+        self.zio_main_context = undefined;
     }
 
     pub fn createLexicalScope(self: *VM, scope_module_val: Value, parent: ?*LexicalScope) VMError!*LexicalScope {
@@ -801,7 +815,12 @@ pub const VM = struct {
         }
     }
 
-    pub fn init(allocator: std.mem.Allocator, gc_allocator: std.mem.Allocator, gc_allocator_atomic: std.mem.Allocator, program: *compiler.CompiledProgram) VMError!VM {
+    pub fn init(
+        allocator: std.mem.Allocator,
+        gc_allocator: std.mem.Allocator,
+        gc_allocator_atomic: std.mem.Allocator,
+        program: *compiler.CompiledProgram,
+    ) VMError!VM {
         var vm = initEmpty(allocator, gc_allocator, gc_allocator_atomic);
         vm.prepare(program) catch return error.Fatal;
         return vm;
@@ -907,6 +926,15 @@ pub const VM = struct {
         self.stack.deinit(self.gc_allocator);
         self.frames.deinit(self.gc_allocator);
         self.env_stack.deinit(self.gc_allocator);
+        for (self.zio_coroutines.items) |c| {
+            zio.coro.stackFree(c.context.stack_info);
+            self.allocator.destroy(c);
+        }
+        self.zio_coroutines.deinit(self.allocator);
+        if (self.zio_stack_growth_ready) {
+            zio.coro.cleanupStackGrowth();
+            self.zio_stack_growth_ready = false;
+        }
         self.symbols.deinit();
         var global_key_iter = self.globals.keyIterator();
         while (global_key_iter.next()) |key| {
@@ -1110,6 +1138,166 @@ pub const VM = struct {
         self.frames = &fiber.frames;
         self.env_stack = &fiber.env_stack;
         self.current_lexical_scope = fiber.current_lexical_scope;
+    }
+
+    fn fiberEntrypoint(coro_obj: *FiberCoro, userdata: ?*anyopaque) void {
+        _ = coro_obj;
+        const fiber: *FiberObject = @ptrCast(@alignCast(userdata.?));
+        runFiberCoroutine(fiber) catch |err| {
+            const self = fiber.owner_vm;
+            fiber.state = .terminated;
+            switch (err) {
+                error.UnhandledException => {
+                    fiber.coro_event = .raised;
+                    fiber.coro_exception = self.pending_exception;
+                },
+                else => {
+                    fiber.coro_event = .none;
+                    fiber.coro_exception = null;
+                },
+            }
+            if (fiber.coro) |c| c.yield();
+            return;
+        };
+    }
+
+    fn runFiberCoroutine(fiber: *FiberObject) VMError!void {
+        const self = fiber.owner_vm;
+        const blk = fiber.block orelse return error.Fatal;
+        const real_defining_ep = derefEnvironment(blk.defining_ep);
+        const fiber_env = self.createStackEnvironment(real_defining_ep, blk.chunk.lexical_scope orelse self.current_lexical_scope) catch return error.Fatal;
+
+        self.frames.append(self.gc_allocator, CallFrame{
+            .chunk = blk.chunk,
+            .ip = 0,
+            .stack_base = self.stack.items.len,
+            .self_value = blk.defining_self,
+            .ep = fiber_env,
+            .block = null,
+            .frame_type = .fiber,
+        }) catch return error.Fatal;
+
+        if (blk.chunk.lexical_scope) |scope| {
+            self.current_lexical_scope = scope;
+        }
+
+        const current_frame = self.currentFrame();
+        self.copyArgumentsWithRestParam(blk.chunk, current_frame.ep, fiber.first_resume_args[0..fiber.first_resume_argc], .lenient) catch return error.Fatal;
+        fiber.state = .running;
+
+        while (true) {
+            self.executeInstruction() catch |err| switch (err) {
+                error.Unwind => {
+                    self.unwindStack() catch |unwind_err| switch (unwind_err) {
+                        error.UnhandledException => return error.UnhandledException,
+                        else => return error.Fatal,
+                    };
+                },
+                else => return error.Fatal,
+            };
+
+            if (fiber.coro_event == .yielded) {
+                if (fiber.coro) |c| c.yield();
+            }
+
+            if (self.frames.items.len == 0) {
+                fiber.state = .terminated;
+                fiber.coro_result = self.pop();
+                fiber.coro_event = .returned;
+                if (fiber.coro) |c| c.yield();
+                return;
+            }
+        }
+    }
+
+    fn ensureFiberCoroutine(self: *VM, fiber: *FiberObject) VMError!void {
+        if (fiber.coro != null) return;
+
+        const coro_obj = self.allocator.create(FiberCoro) catch return error.Fatal;
+        coro_obj.* = .{
+            .context = undefined,
+            .parent_context_ptr = .init(&self.zio_main_context),
+        };
+        zio.coro.stackAlloc(&coro_obj.context.stack_info, 8 * 1024 * 1024, 256 * 1024) catch return error.Fatal;
+        coro_obj.setup(&fiberEntrypoint, fiber);
+        self.zio_coroutines.append(self.allocator, coro_obj) catch return error.Fatal;
+        fiber.coro = coro_obj;
+    }
+
+    pub fn fiberYield(self: *VM, yield_value: Value) VMError!Value {
+        const fiber = self.current_fiber;
+        if (fiber == self.main_fiber) {
+            const exc = try self.createException(self.fiber_error_class, "can't yield from root fiber");
+            self.pending_exception = exc;
+            return error.Unwind;
+        }
+
+        fiber.coro_result = yield_value;
+        fiber.coro_event = .yielded;
+        fiber.state = .suspended;
+
+        const coro_obj = fiber.coro orelse return error.Fatal;
+        coro_obj.yield();
+
+        fiber.state = .running;
+        return fiber.coro_result;
+    }
+
+    pub fn resumeFiber(self: *VM, fiber: *FiberObject, args: []Value, resume_value: Value) VMError!Value {
+        fiber.coro_result = resume_value;
+        fiber.coro_event = .none;
+
+        if (fiber.state == .created) {
+            if (args.len > fiber.first_resume_args.len) return error.Fatal;
+            for (args, 0..) |arg, i| {
+                fiber.first_resume_args[i] = arg;
+            }
+            fiber.first_resume_argc = args.len;
+            try self.ensureFiberCoroutine(fiber);
+        }
+
+        if (fiber.state == .suspended) {
+            fiber.state = .running;
+        }
+
+        const caller = self.current_fiber;
+        self.saveFiberState(caller);
+        fiber.caller = caller;
+
+        const parent_context: *FiberCoroContext = if (caller.coro) |caller_coro|
+            &caller_coro.context
+        else
+            &self.zio_main_context;
+
+        const target_coro = fiber.coro orelse return error.Fatal;
+        target_coro.parent_context_ptr.store(parent_context, .release);
+
+        self.current_fiber = fiber;
+        self.restoreFiberState(fiber);
+
+        errdefer {
+            self.saveFiberState(fiber);
+            self.current_fiber = caller;
+            self.restoreFiberState(caller);
+            fiber.caller = null;
+        }
+
+        target_coro.step();
+
+        self.saveFiberState(fiber);
+        self.current_fiber = caller;
+        self.restoreFiberState(caller);
+        fiber.caller = null;
+
+        return switch (fiber.coro_event) {
+            .yielded => fiber.coro_result,
+            .returned => fiber.coro_result,
+            .raised => {
+                self.pending_exception = fiber.coro_exception orelse return error.Fatal;
+                return error.Unwind;
+            },
+            .none => error.Fatal,
+        };
     }
 
     pub fn executeInstruction(self: *VM) VMError!void {
@@ -2249,61 +2437,6 @@ pub const VM = struct {
         }
     }
 
-    pub fn runFiberUntilYieldOrTerminate(self: *VM, fiber: *FiberObject, resume_args: []Value) VMError!Value {
-        if (fiber.state == .created) {
-            const blk = fiber.block orelse return error.Fatal;
-            const real_defining_ep = derefEnvironment(blk.defining_ep);
-            const fiber_env = self.createStackEnvironment(real_defining_ep, blk.chunk.lexical_scope orelse self.current_lexical_scope) catch return error.Fatal;
-
-            self.frames.append(self.gc_allocator, CallFrame{
-                .chunk = blk.chunk,
-                .ip = 0,
-                .stack_base = self.stack.items.len,
-                .self_value = blk.defining_self,
-                .ep = fiber_env,
-                .block = null,
-                .frame_type = .fiber,
-            }) catch return error.Fatal;
-
-            if (blk.chunk.lexical_scope) |scope| {
-                self.current_lexical_scope = scope;
-            }
-
-            const current_frame = self.currentFrame();
-            try self.copyArgumentsWithRestParam(blk.chunk, current_frame.ep, resume_args, .lenient);
-            fiber.state = .running;
-        } else {
-            if (fiber.state == .suspended) {
-                fiber.state = .running;
-            }
-            if (fiber.awaiting_resume_value) {
-                try self.push(fiber.pending_resume_value);
-                fiber.awaiting_resume_value = false;
-            }
-        }
-
-        while (true) {
-            self.executeInstruction() catch |err| switch (err) {
-                error.FiberYield => return fiber.yielded_value,
-                error.Unwind => {
-                    self.unwindStack() catch |unwind_err| switch (unwind_err) {
-                        error.UnhandledException => {
-                            fiber.state = .terminated;
-                            return unwind_err;
-                        },
-                        else => return unwind_err,
-                    };
-                },
-                else => return err,
-            };
-
-            if (self.frames.items.len == 0) {
-                fiber.state = .terminated;
-                return self.pop();
-            }
-        }
-    }
-
     fn currentDefaultMethodVisibility(self: *VM) MethodVisibility {
         if (self.current_lexical_scope) |scope| {
             return scope.default_method_visibility;
@@ -3159,9 +3292,13 @@ pub const VM = struct {
             .env_stack = FiberEnvironmentStack.init(),
             .current_lexical_scope = null,
             .caller = null,
-            .awaiting_resume_value = false,
-            .yielded_value = Value.nil(),
-            .pending_resume_value = Value.nil(),
+            .coro = null,
+            .coro_event = .none,
+            .coro_result = Value.nil(),
+            .coro_exception = null,
+            .first_resume_args = undefined,
+            .first_resume_argc = 0,
+            .owner_vm = self,
         };
         return .{ .data = .{ .fiber = fiber_obj } };
     }
