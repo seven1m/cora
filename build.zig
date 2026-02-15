@@ -106,8 +106,17 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run the VM");
     run_step.dependOn(&run_cmd.step);
 
-    const test_filter = b.option([]const u8, "test-filter", "Filter tests by name");
-    const test_filters = if (test_filter) |filter| &[_][]const u8{filter} else &.{};
+    const test_filter = b.option([]const u8, "test-filter", "Filter tests by name (supports 'foo|bar' OR matching)");
+    var parsed_test_filters: std.ArrayList([]const u8) = .empty;
+    if (test_filter) |filter| {
+        var it = std.mem.splitScalar(u8, filter, '|');
+        while (it.next()) |raw| {
+            const part = std.mem.trim(u8, raw, " \t\r\n");
+            if (part.len == 0) continue;
+            parsed_test_filters.append(b.allocator, part) catch @panic("OOM parsing -Dtest-filter");
+        }
+    }
+    const test_filters = parsed_test_filters.items;
 
     const test_exe = b.addTest(.{
         .root_module = b.createModule(.{
