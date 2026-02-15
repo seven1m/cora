@@ -65,7 +65,7 @@ pub fn builtinEncodingFind(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
         return arg;
     }
 
-    const name_str = try vm.coerceToStr(arg, "no implicit conversion into String");
+    const name_str = try arg.coerceToStr(vm, "no implicit conversion into String");
 
     // Normalize: uppercase and replace - with _
     var normalized: [32]u8 = undefined;

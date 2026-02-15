@@ -19,6 +19,7 @@ const MethodEntry = value.MethodEntry;
 const MethodVisibility = value.MethodVisibility;
 const StringObject = value.StringObject;
 const SymbolObject = value.SymbolObject;
+const MatchDataObject = value.MatchDataObject;
 const Chunk = chunk.Chunk;
 
 extern "c" fn getenv(name: [*:0]const u8) ?[*:0]u8;
@@ -178,6 +179,7 @@ pub const VM = struct {
     proc_class: *value.ClassObject,
     fiber_class: *value.ClassObject,
     regexp_class: *value.ClassObject,
+    match_data_class: *value.ClassObject,
     nil_class: *value.ClassObject,
     true_class: *value.ClassObject,
     false_class: *value.ClassObject,
@@ -272,6 +274,7 @@ pub const VM = struct {
             .proc_class = undefined,
             .fiber_class = undefined,
             .regexp_class = undefined,
+            .match_data_class = undefined,
             .nil_class = undefined,
             .true_class = undefined,
             .false_class = undefined,
@@ -395,6 +398,10 @@ pub const VM = struct {
         const regexp_class_val = try self.newClass(regexp_name_sym, self.object_class);
         self.regexp_class = regexp_class_val.data.class;
 
+        const match_data_name_sym = try self.intern("MatchData");
+        const match_data_class_val = try self.newClass(match_data_name_sym, self.object_class);
+        self.match_data_class = match_data_class_val.data.class;
+
         const nil_class_name_sym = try self.intern("NilClass");
         const nil_class_val = try self.newClass(nil_class_name_sym, self.object_class);
         self.nil_class = nil_class_val.data.class;
@@ -503,6 +510,7 @@ pub const VM = struct {
         self.object_class.module.constants.put(proc_name_sym, proc_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(fiber_name_sym, fiber_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(regexp_name_sym, regexp_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(match_data_name_sym, match_data_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(nil_class_name_sym, nil_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(true_class_name_sym, true_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(false_class_name_sym, false_class_val) catch return error.Fatal;
@@ -572,6 +580,7 @@ pub const VM = struct {
 
         // Initialize last process status global.
         try self.setGlobal("$?", Value.nil());
+        try self.clearLastMatch();
 
         try self.includeModule(self.object_class, self.kernel_module);
 
@@ -2967,6 +2976,7 @@ pub const VM = struct {
             .proc => |p| return p.object.class.?,
             .fiber => |f| return f.object.class.?,
             .io => |io| return io.object.class.?,
+            .match_data => |m| return m.object.class.?,
             .range => |r| return r.object.class.?,
             .regexp => |r| return r.object.class.?,
 
@@ -2989,6 +2999,7 @@ pub const VM = struct {
             .array => |a| &a.object,
             .hash => |h| &h.object,
             .io => |io| &io.object,
+            .match_data => |m| &m.object,
             .exception => |e| &e.object,
             .proc => |p| &p.object,
             .fiber => |f| &f.object,
@@ -3183,6 +3194,7 @@ pub const VM = struct {
             .proc => self.proc_class,
             .fiber => self.fiber_class,
             .io => self.io_class,
+            .match_data => self.match_data_class,
             .regexp => self.regexp_class,
             .integer, .float, .boolean, .nil => unreachable, // Primitives can't have singleton classes
         };
@@ -3375,6 +3387,98 @@ pub const VM = struct {
             .regex = result.regex.?,
         };
         return .{ .data = .{ .regexp = regexp_obj } };
+    }
+
+    pub fn newMatchData(
+        self: *VM,
+        regexp_obj: *value.RegexpObject,
+        source: *StringObject,
+        captures: []const Value,
+        begin_byte_offsets: []const i64,
+        end_byte_offsets: []const i64,
+    ) VMError!Value {
+        if (captures.len != begin_byte_offsets.len or captures.len != end_byte_offsets.len) {
+            return error.Fatal;
+        }
+
+        const md = self.gc_allocator.create(MatchDataObject) catch return error.Fatal;
+        md.* = .{
+            .object = .{
+                .flags = 0,
+                .class = self.match_data_class,
+                .singleton_class = null,
+                .instance_variables = null,
+            },
+            .regexp = regexp_obj,
+            .source = source,
+            .captures = .empty,
+            .begin_byte_offsets = .empty,
+            .end_byte_offsets = .empty,
+        };
+
+        for (captures) |capture| {
+            md.captures.append(self.gc_allocator, capture) catch return error.Fatal;
+        }
+        for (begin_byte_offsets) |pos| {
+            md.begin_byte_offsets.append(self.gc_allocator, pos) catch return error.Fatal;
+        }
+        for (end_byte_offsets) |pos| {
+            md.end_byte_offsets.append(self.gc_allocator, pos) catch return error.Fatal;
+        }
+
+        return .{ .data = .{ .match_data = md } };
+    }
+
+    pub fn setLastMatch(self: *VM, md: ?*MatchDataObject) VMError!void {
+        if (md == null) {
+            try self.setGlobal("$~", Value.nil());
+            try self.setGlobal("$&", Value.nil());
+            try self.setGlobal("$`", Value.nil());
+            try self.setGlobal("$'", Value.nil());
+            return;
+        }
+
+        const match_data = md.?;
+        const match_val = Value{ .data = .{ .match_data = match_data } };
+        try self.setGlobal("$~", match_val);
+
+        const full_capture = if (match_data.captures.items.len > 0)
+            match_data.captures.items[0]
+        else
+            Value.nil();
+        try self.setGlobal("$&", full_capture);
+
+        const source_bytes = match_data.source.str;
+        const source_encoding = match_data.source.encoding;
+        const begin_idx = if (match_data.begin_byte_offsets.items.len > 0)
+            match_data.begin_byte_offsets.items[0]
+        else
+            -1;
+        const end_idx = if (match_data.end_byte_offsets.items.len > 0)
+            match_data.end_byte_offsets.items[0]
+        else
+            -1;
+
+        if (begin_idx < 0 or end_idx < 0) {
+            try self.setGlobal("$`", Value.nil());
+            try self.setGlobal("$'", Value.nil());
+            return;
+        }
+
+        const begin_usize: usize = @intCast(begin_idx);
+        const end_usize: usize = @intCast(end_idx);
+        if (begin_usize > source_bytes.len or end_usize > source_bytes.len or begin_usize > end_usize) {
+            return error.Fatal;
+        }
+
+        const pre = try self.newStringWithEncoding(source_bytes[0..begin_usize], false, source_encoding);
+        const post = try self.newStringWithEncoding(source_bytes[end_usize..], false, source_encoding);
+        try self.setGlobal("$`", pre);
+        try self.setGlobal("$'", post);
+    }
+
+    pub fn clearLastMatch(self: *VM) VMError!void {
+        try self.setLastMatch(null);
     }
 
     pub fn newObjectForClass(self: *VM, class_obj: *ClassObject) VMError!Value {
@@ -3589,29 +3693,6 @@ pub const VM = struct {
         try self.requireArgType(args, 0, arg_tag, type_name);
     }
 
-    pub fn coerceToStr(self: *VM, arg: Value, type_error_message: []const u8) VMError![]const u8 {
-        if (arg.data == .string) {
-            return arg.data.string.str;
-        }
-
-        const to_str_sym = try self.intern("to_str");
-        const has_to_str = (try self.findMethod(arg, to_str_sym)) != null;
-        if (!has_to_str) {
-            const exc = try self.createException(self.type_error_class, type_error_message);
-            self.pending_exception = exc;
-            return error.Unwind;
-        }
-
-        const coerced = try self.callMethodByName(arg, "to_str", &[_]Value{}, null);
-        if (coerced.data != .string) {
-            const exc = try self.createException(self.type_error_class, type_error_message);
-            self.pending_exception = exc;
-            return error.Unwind;
-        }
-
-        return coerced.data.string.str;
-    }
-
     pub fn coerceToPath(self: *VM, arg: Value, type_error_message: []const u8) VMError![]const u8 {
         const to_path_sym = try self.intern("to_path");
         const candidate = if ((try self.findMethod(arg, to_path_sym)) != null)
@@ -3619,13 +3700,13 @@ pub const VM = struct {
         else
             arg;
 
-        return self.coerceToStr(candidate, type_error_message);
+        return candidate.coerceToStr(self, type_error_message);
     }
 
     pub fn coerceToMethodNameString(self: *VM, arg: Value) VMError![]const u8 {
         return switch (arg.data) {
             .symbol => |sym| sym.name,
-            else => self.coerceToStr(arg, "not a symbol nor a string"),
+            else => arg.coerceToStr(self, "not a symbol nor a string"),
         };
     }
 
@@ -3645,7 +3726,7 @@ pub const VM = struct {
     pub fn coerceToIvarName(self: *VM, arg: Value) VMError![]const u8 {
         const name_str = switch (arg.data) {
             .symbol => |sym| sym.name,
-            else => try self.coerceToStr(arg, "not a symbol nor a string"),
+            else => try arg.coerceToStr(self, "not a symbol nor a string"),
         };
 
         if (!isValidIvarName(name_str)) {

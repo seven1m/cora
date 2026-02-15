@@ -330,7 +330,7 @@ pub fn builtinArrayEmpty(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
 
 pub fn builtinArrayJoin(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
-    const sep = if (args.len == 1) try vm.coerceToStr(args[0], "no implicit conversion into String") else "";
+    const sep = if (args.len == 1) try args[0].coerceToStr(vm, "no implicit conversion into String") else "";
 
     const array = receiver.data.array;
     var buf: std.ArrayList(u8) = .empty;

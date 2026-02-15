@@ -645,7 +645,7 @@ pub fn builtinKernelP(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value
 
 pub fn builtinKernelBacktick(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const command = try vm.coerceToStr(args[0], "no implicit conversion into String");
+    const command = try args[0].coerceToStr(vm, "no implicit conversion into String");
 
     const argv = if (builtin.os.tag == .windows)
         [_][]const u8{ "cmd.exe", "/C", command }

@@ -22,19 +22,19 @@ pub fn register(vm: *VM) !void {
 
 pub fn builtinEnvBracket(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const key = try vm.coerceToStr(args[0], "no implicit conversion into String");
+    const key = try args[0].coerceToStr(vm, "no implicit conversion into String");
     return vm.envGet(key);
 }
 
 pub fn builtinEnvBracketSet(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 2);
-    const key = try vm.coerceToStr(args[0], "no implicit conversion into String");
+    const key = try args[0].coerceToStr(vm, "no implicit conversion into String");
 
     if (args[1].data == .nil) {
         return vm.envUnset(key, true);
     }
 
-    const value_str = try vm.coerceToStr(args[1], "no implicit conversion into String");
+    const value_str = try args[1].coerceToStr(vm, "no implicit conversion into String");
     return vm.envSetString(key, value_str, true);
 }
 

@@ -4,6 +4,7 @@ const bdwgc = @import("bdwgc");
 const vm = @import("vm.zig");
 const Chunk = @import("chunk.zig").Chunk;
 const VM = vm.VM;
+const VMError = vm.VMError;
 const Method = vm.Method;
 const Block = vm.Block;
 const FiberValueStack = vm.FiberValueStack;
@@ -172,6 +173,15 @@ pub const RegexpObject = struct {
     regex: onigmo.OnigRegex,
 };
 
+pub const MatchDataObject = struct {
+    object: Object,
+    regexp: *RegexpObject,
+    source: *StringObject,
+    captures: std.ArrayList(Value) = .empty,
+    begin_byte_offsets: std.ArrayList(i64) = .empty,
+    end_byte_offsets: std.ArrayList(i64) = .empty,
+};
+
 pub const Value = struct {
     data: union(enum) {
         array: *ArrayObject,
@@ -187,6 +197,7 @@ pub const Value = struct {
         float: f64,
         module: *ModuleObject,
         nil: void,
+        match_data: *MatchDataObject,
         proc: *ProcObject,
         range: *RangeObject,
         regexp: *RegexpObject,
@@ -213,6 +224,7 @@ pub const Value = struct {
             .fiber => |f| (f.object.flags & Object.FROZEN_FLAG) != 0,
             .hash => |h| (h.object.flags & Object.FROZEN_FLAG) != 0,
             .io => |io| (io.object.flags & Object.FROZEN_FLAG) != 0,
+            .match_data => |m| (m.object.flags & Object.FROZEN_FLAG) != 0,
             .proc => |p| (p.object.flags & Object.FROZEN_FLAG) != 0,
             .range => |r| (r.object.flags & Object.FROZEN_FLAG) != 0,
         };
@@ -230,6 +242,7 @@ pub const Value = struct {
             .fiber => |f| f.object.flags |= Object.FROZEN_FLAG,
             .hash => |h| h.object.flags |= Object.FROZEN_FLAG,
             .io => |io| io.object.flags |= Object.FROZEN_FLAG,
+            .match_data => |m| m.object.flags |= Object.FROZEN_FLAG,
             .proc => |p| p.object.flags |= Object.FROZEN_FLAG,
             .range => |r| r.object.flags |= Object.FROZEN_FLAG,
             // Primitives are already frozen, do nothing
@@ -250,6 +263,7 @@ pub const Value = struct {
             .fiber => |f| &f.object,
             .hash => |h| &h.object,
             .io => |io| &io.object,
+            .match_data => |m| &m.object,
             .proc => |p| &p.object,
             .range => |r| &r.object,
             .regexp => |r| &r.object,
@@ -314,6 +328,45 @@ pub const Value = struct {
         };
     }
 
+    pub fn coerceToStringValue(self: Value, vm_instance: *VM, type_error_message: []const u8) VMError!Value {
+        if (self.data == .string) {
+            return self;
+        }
+
+        const to_str_sym = try vm_instance.intern("to_str");
+        const has_to_str = (try vm_instance.findMethod(self, to_str_sym)) != null;
+        if (!has_to_str) {
+            const exc = try vm_instance.createException(vm_instance.type_error_class, type_error_message);
+            vm_instance.pending_exception = exc;
+            return error.Unwind;
+        }
+
+        const coerced = try vm_instance.callMethodByName(self, "to_str", &[_]Value{}, null);
+        if (coerced.data != .string) {
+            const exc = try vm_instance.createException(vm_instance.type_error_class, type_error_message);
+            vm_instance.pending_exception = exc;
+            return error.Unwind;
+        }
+
+        return coerced;
+    }
+
+    pub fn coerceToStr(self: Value, vm_instance: *VM, type_error_message: []const u8) VMError![]const u8 {
+        const coerced = try self.coerceToStringValue(vm_instance, type_error_message);
+        return coerced.data.string.str;
+    }
+
+    pub fn coerceToMatchSource(self: Value, vm_instance: *VM) VMError!?Value {
+        switch (self.data) {
+            .nil => return null,
+            .string => return self,
+            .symbol => |sym| return try vm_instance.newString(sym.name, false),
+            else => {},
+        }
+
+        return try self.coerceToStringValue(vm_instance, "no implicit conversion into String");
+    }
+
     pub fn format(self: Value, writer: *std.Io.Writer) !void {
         switch (self.data) {
             .integer => |i| try writer.print("{d}", .{i}),
@@ -348,6 +401,13 @@ pub const Value = struct {
             .proc => |p| try writer.print("#<Proc:0x{x}>", .{@intFromPtr(p)}),
             .fiber => |f| try writer.print("#<Fiber:0x{x}>", .{@intFromPtr(f)}),
             .io => |io| try writer.print("#<IO:fd {d}>", .{io.fd}),
+            .match_data => |m| {
+                if (m.captures.items.len == 0 or m.captures.items[0].data != .string) {
+                    try writer.print("#<MatchData>", .{});
+                } else {
+                    try writer.print("#<MatchData {s}>", .{m.captures.items[0].data.string.str});
+                }
+            },
             .range => |_| try writer.print("#<Range>", .{}),
             .regexp => |r| try writer.print("/{s}/", .{r.pattern}),
         }

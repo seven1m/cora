@@ -145,7 +145,7 @@ pub fn builtinIoRead(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
 pub fn builtinIoWrite(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const io = try requireIoReceiver(vm, receiver);
-    const str = try vm.coerceToStr(args[0], "no implicit conversion into String");
+    const str = try args[0].coerceToStr(vm, "no implicit conversion into String");
     const written = try ioWriteBytes(vm, io, str);
     return Value.integer(@intCast(written));
 }

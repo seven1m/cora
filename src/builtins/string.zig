@@ -3,6 +3,7 @@ const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 const enc = @import("../encoding.zig");
 const encoding_builtin = @import("encoding.zig");
+const regexp_builtin = @import("regexp.zig");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -87,6 +88,9 @@ pub fn register(vm: *VM) !void {
 
     const inspect_sym = try vm.intern("inspect");
     try vm.string_class.module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinStringInspect } });
+
+    const match_op_sym = try vm.intern("=~");
+    try vm.string_class.module.methods.put(match_op_sym, .{ .method = .{ .builtin = &builtinStringMatchOp } });
 }
 
 pub fn builtinStringToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -106,7 +110,7 @@ pub fn builtinStringUnaryPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block
 
 pub fn builtinStringPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const other_str = try vm.coerceToStr(args[0], "no implicit conversion into String");
+    const other_str = try args[0].coerceToStr(vm, "no implicit conversion into String");
     const combined_str = std.fmt.allocPrint(
         vm.gc_allocator,
         "{s}{s}",
@@ -129,7 +133,7 @@ pub fn builtinStringAppend(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
             const encoded = try encodeCodepointForEncoding(vm, cp, string_obj.encoding, &buf);
             break :blk encoded;
         },
-        else => try vm.coerceToStr(args[0], "no implicit conversion into String"),
+        else => try args[0].coerceToStr(vm, "no implicit conversion into String"),
     };
 
     const new_bytes = try concatBytes(vm, string_obj.str, bytes_to_append);
@@ -309,7 +313,7 @@ pub fn builtinStringStartWith(vm: *VM, receiver: Value, args: []Value, _: ?Block
     const string_obj = receiver.data.string;
 
     for (args) |arg| {
-        const prefix = try vm.coerceToStr(arg, "no implicit conversion into String");
+        const prefix = try arg.coerceToStr(vm, "no implicit conversion into String");
         if (!std.mem.startsWith(u8, string_obj.str, prefix)) continue;
         if (string_obj.encoding.isCharBoundary(string_obj.str, prefix.len)) {
             return Value.boolean(true);
@@ -324,7 +328,7 @@ pub fn builtinStringEndWith(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     const string_obj = receiver.data.string;
 
     for (args) |arg| {
-        const suffix = try vm.coerceToStr(arg, "no implicit conversion into String");
+        const suffix = try arg.coerceToStr(vm, "no implicit conversion into String");
         if (!std.mem.endsWith(u8, string_obj.str, suffix)) continue;
         const start = string_obj.str.len - suffix.len;
         if (string_obj.encoding.isCharBoundary(string_obj.str, start)) {
@@ -344,7 +348,7 @@ pub fn builtinStringPrepend(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     while (i > 0) {
         i -= 1;
         const arg = args[i];
-        const part = try vm.coerceToStr(arg, "no implicit conversion into String");
+        const part = try arg.coerceToStr(vm, "no implicit conversion into String");
         result = try concatBytes(vm, part, result);
     }
 
@@ -448,6 +452,14 @@ pub fn builtinStringInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     const str = buf.toOwnedSlice(vm.allocator) catch return error.Fatal;
     defer vm.allocator.free(str);
     return try vm.newString(str, false);
+}
+
+pub fn builtinStringMatchOp(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (args[0].data != .regexp) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "type mismatch: String given", .{});
+    }
+    return regexp_builtin.regexpMatchOp(vm, args[0].data.regexp, receiver);
 }
 
 fn charSliceByRange(

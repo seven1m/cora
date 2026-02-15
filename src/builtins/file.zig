@@ -73,7 +73,7 @@ fn pathAndMode(vm: *VM, args: []Value) VMError!struct { path: []const u8, mode: 
 
     const mode_str: []const u8 = if (args.len == 2) blk: {
         if (args[1].data == .nil) break :blk "r";
-        break :blk try vm.coerceToStr(args[1], "no implicit conversion into String");
+        break :blk try args[1].coerceToStr(vm, "no implicit conversion into String");
     } else "r";
     const mode = try parseMode(vm, mode_str);
     return .{ .path = path, .mode = mode };

@@ -15,6 +15,7 @@ const hash = @import("hash.zig");
 const io = @import("io.zig");
 const integer = @import("integer.zig");
 const kernel = @import("kernel.zig");
+const match_data = @import("match_data.zig");
 const module_builtin = @import("module.zig");
 const nil_class = @import("nil_class.zig");
 const object = @import("object.zig");
@@ -43,6 +44,7 @@ pub fn registerAll(vm: *VM) !void {
     try fiber.register(vm);
     try range.register(vm);
     try regexp.register(vm);
+    try match_data.register(vm);
     try string.register(vm);
     try symbol.register(vm);
     try nil_class.register(vm);

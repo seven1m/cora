@@ -29,6 +29,14 @@ pub fn register(vm: *VM) !void {
 
     const case_equal_sym = try vm.intern("===");
     try vm.regexp_class.module.methods.put(case_equal_sym, .{ .method = .{ .builtin = &builtinRegexpCaseEqual } });
+
+    const match_op_sym = try vm.intern("=~");
+    try vm.regexp_class.module.methods.put(match_op_sym, .{ .method = .{ .builtin = &builtinRegexpMatchOp } });
+
+    const regexp_class_val = Value{ .data = .{ .class = vm.regexp_class } };
+    const regexp_singleton = try vm.getOrCreateSingletonClass(regexp_class_val);
+    const last_match_sym = try vm.intern("last_match");
+    try regexp_singleton.module.methods.put(last_match_sym, .{ .method = .{ .builtin = &builtinRegexpLastMatch } });
 }
 
 fn builtinRegexpSource(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -127,4 +135,83 @@ fn builtinRegexpCaseEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
 
     const text = args[0].data.string.str;
     return Value.boolean(onigmo.search(receiver.data.regexp.regex, text));
+}
+
+fn matchDataAt(md: *value.MatchDataObject, index: i64) Value {
+    const len: i64 = @intCast(md.captures.items.len);
+    var actual = index;
+    if (actual < 0) actual += len;
+    if (actual < 0 or actual >= len) return Value.nil();
+    return md.captures.items[@intCast(actual)];
+}
+
+pub fn regexpMatchOp(vm: *VM, regexp_obj: *value.RegexpObject, arg: Value) VMError!Value {
+    const source_val_opt = try arg.coerceToMatchSource(vm);
+    if (source_val_opt == null) {
+        try vm.clearLastMatch();
+        return Value.nil();
+    }
+    const source_val = source_val_opt.?;
+    const source_obj = source_val.data.string;
+
+    const search_result = onigmo.searchWithCaptures(vm.gc_allocator, regexp_obj.regex, source_obj.str) catch return error.Fatal;
+    defer vm.gc_allocator.free(search_result.begin_offsets);
+    defer vm.gc_allocator.free(search_result.end_offsets);
+
+    if (!search_result.matched) {
+        try vm.clearLastMatch();
+        return Value.nil();
+    }
+
+    var captures: std.ArrayList(Value) = .empty;
+    defer captures.deinit(vm.gc_allocator);
+
+    for (search_result.begin_offsets, search_result.end_offsets) |beg, end_| {
+        if (beg < 0 or end_ < 0) {
+            captures.append(vm.gc_allocator, Value.nil()) catch return error.Fatal;
+            continue;
+        }
+
+        const begin_usize: usize = @intCast(beg);
+        const end_usize: usize = @intCast(end_);
+        if (begin_usize > source_obj.str.len or end_usize > source_obj.str.len or begin_usize > end_usize) {
+            return error.Fatal;
+        }
+
+        const capture_str = try vm.newStringWithEncoding(source_obj.str[begin_usize..end_usize], false, source_obj.encoding);
+        captures.append(vm.gc_allocator, capture_str) catch return error.Fatal;
+    }
+
+    const md_val = try vm.newMatchData(
+        regexp_obj,
+        source_obj,
+        captures.items,
+        search_result.begin_offsets,
+        search_result.end_offsets,
+    );
+    try vm.setLastMatch(md_val.data.match_data);
+    return Value.integer(search_result.match_index);
+}
+
+fn builtinRegexpMatchOp(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (receiver.data != .regexp) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "uninitialized Regexp", .{});
+    }
+    return regexpMatchOp(vm, receiver.data.regexp, args[0]);
+}
+
+fn builtinRegexpLastMatch(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const current = vm.globals.get("$~") orelse Value.nil();
+    if (args.len == 0) {
+        return current;
+    }
+    if (current.data != .match_data) {
+        return Value.nil();
+    }
+    if (args[0].data != .integer) {
+        return Value.nil();
+    }
+    return matchDataAt(current.data.match_data, args[0].data.integer);
 }
