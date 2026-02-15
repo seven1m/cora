@@ -143,4 +143,4 @@ We have tests in both `*_test.zig` files and in `*_spec.rb` files.
 
 The Zig tests (in the `test/` directory) are for bootstrapping language features and for edge cases not expressed in Ruby spec files.
 
-The spec files (in the `spec/` directory) come from [ruby/spec](https://github.com/ruby/spec), which is a community-maintained repository of specs describing Ruby. When implementing one of these specs, we'll copy it over and try to get it passing. Look in `../ruby_spec` for the files before going to the web.
+The spec files (in the `spec/` directory) come from [ruby/spec](https://github.com/ruby/spec), which is a community-maintained repository of specs describing Ruby. When implementing one of these specs, we'll copy it over and try to get it passing. Look in `../ruby_spec` for the files before going to the web. Prefer to keep the ruby spec matching the upstream copy (add any expectations or test harness needed) to make it work.

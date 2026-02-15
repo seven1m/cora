@@ -129,6 +129,134 @@ def equal(expected)
   EqualMatcher.new(expected)
 end
 
+class BeAnInstanceOfMatcher
+  def initialize(expected_class)
+    @expected_class = expected_class
+  end
+
+  def matches?(actual)
+    actual.instance_of?(@expected_class)
+  end
+
+  def failure_message(actual)
+    "Expected #{actual.inspect} to be an instance of #{@expected_class}"
+  end
+end
+
+def be_an_instance_of(expected_class)
+  BeAnInstanceOfMatcher.new(expected_class)
+end
+
+class BooleanMatcher
+  def initialize(expected)
+    @expected = expected
+  end
+
+  def matches?(actual)
+    actual == @expected
+  end
+
+  def failure_message(actual)
+    "Expected #{actual.inspect} to be #{@expected.inspect}"
+  end
+end
+
+def be_true
+  BooleanMatcher.new(true)
+end
+
+def be_false
+  BooleanMatcher.new(false)
+end
+
+class BeNilMatcher
+  def matches?(actual)
+    actual.nil?
+  end
+
+  def failure_message(actual)
+    "Expected #{actual.inspect} to be nil"
+  end
+end
+
+def be_nil
+  BeNilMatcher.new
+end
+
+class RaiseErrorMatcher
+  def initialize(expected_class = nil)
+    @expected_class = expected_class
+    @actual_exception = nil
+  end
+
+  def matches?(actual)
+    unless actual.respond_to?(:call)
+      return false
+    end
+
+    begin
+      actual.call
+      @actual_exception = nil
+      false
+    rescue => e
+      @actual_exception = e
+      return true if @expected_class.nil?
+      e.is_a?(@expected_class)
+    end
+  end
+
+  def failure_message(actual)
+    unless actual.respond_to?(:call)
+      return "Expected callable object, got #{actual.inspect}"
+    end
+
+    if @actual_exception.nil?
+      if @expected_class.nil?
+        "Expected block to raise an error, but no error was raised"
+      else
+        "Expected block to raise #{@expected_class}, but no error was raised"
+      end
+    else
+      if @expected_class.nil?
+        "Expected block to raise an error, got #{@actual_exception.class}: #{@actual_exception.message}"
+      else
+        "Expected block to raise #{@expected_class}, got #{@actual_exception.class}: #{@actual_exception.message}"
+      end
+    end
+  end
+end
+
+def raise_error(expected_class = nil)
+  RaiseErrorMatcher.new(expected_class)
+end
+
+class SpecMock
+  def initialize(name = nil)
+    @name = name || "mock"
+    @forbidden_calls = {}
+  end
+
+  def should_not_receive(method_name)
+    @forbidden_calls[method_name.to_sym] = true
+    self
+  end
+
+  def method_missing(name, *args, &block)
+    if @forbidden_calls[name.to_sym]
+      raise SpecFailedException, "Expected #{@name} not to receive #{name}"
+    end
+    nil
+  end
+
+  def respond_to_missing?(_name, _include_private = false)
+    true
+  end
+end
+
+def mock(name = nil)
+  SpecMock.new(name)
+end
+
 class Object
   def should(*args)
     exp = SpecExpectation.new(self)
