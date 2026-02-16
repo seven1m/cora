@@ -9,6 +9,7 @@ const value = @import("value.zig");
 const prism = @import("prism.zig");
 const builtins = @import("builtins/builtins.zig");
 const zio = @import("zio");
+const bdwgc = @import("bdwgc");
 
 const Value = value.Value;
 const Object = value.Object;
@@ -195,6 +196,8 @@ pub const VM = struct {
     main_self: Value,
     main_fiber: *value.FiberObject,
     current_fiber: *value.FiberObject,
+    gc_thread_handle: ?*anyopaque = null,
+    main_stack_base: ?*anyopaque = null,
     zio_main_context: FiberCoroContext = undefined,
     zio_stack_growth_ready: bool = false,
     zio_coroutines: std.ArrayList(*FiberCoro) = .empty,
@@ -311,6 +314,8 @@ pub const VM = struct {
             .zio_main_context = undefined,
             .zio_stack_growth_ready = false,
             .zio_coroutines = .empty,
+            .gc_thread_handle = null,
+            .main_stack_base = null,
         };
     }
 
@@ -620,6 +625,7 @@ pub const VM = struct {
         self.current_fiber = main_fiber_obj;
         self.restoreFiberState(main_fiber_obj);
         self.zio_main_context = undefined;
+        try self.captureMainGcStackBase();
     }
 
     pub fn createLexicalScope(self: *VM, scope_module_val: Value, parent: ?*LexicalScope) VMError!*LexicalScope {
@@ -1180,6 +1186,33 @@ pub const VM = struct {
         self.current_lexical_scope = fiber.current_lexical_scope;
     }
 
+    fn captureMainGcStackBase(self: *VM) VMError!void {
+        var boehm_stack_base: bdwgc.c.GC_stack_base = undefined;
+        const handle = bdwgc.c.GC_get_my_stackbottom(&boehm_stack_base);
+        if (handle == null) return error.Fatal;
+        if (boehm_stack_base.mem_base == null) return error.Fatal;
+        self.gc_thread_handle = handle;
+        self.main_stack_base = boehm_stack_base.mem_base;
+    }
+
+    fn stackBaseForFiber(self: *VM, fiber: *FiberObject) VMError!*anyopaque {
+        if (fiber == self.main_fiber) {
+            return self.main_stack_base orelse error.Fatal;
+        }
+        const coro = fiber.coro orelse return error.Fatal;
+        return @ptrFromInt(coro.context.stack_info.base);
+    }
+
+    fn setCurrentStackBaseForGc(self: *VM, stack_base: *anyopaque) VMError!void {
+        const gc_thread_handle = self.gc_thread_handle orelse return error.Fatal;
+        var boehm_stack_base: bdwgc.c.GC_stack_base = undefined;
+        boehm_stack_base.mem_base = stack_base;
+        if (@hasField(bdwgc.c.GC_stack_base, "reg_base")) {
+            boehm_stack_base.reg_base = null;
+        }
+        bdwgc.c.GC_set_stackbottom(gc_thread_handle, &boehm_stack_base);
+    }
+
     fn fiberEntrypoint(coro_obj: *FiberCoro, userdata: ?*anyopaque) void {
         _ = coro_obj;
         const fiber: *FiberObject = @ptrCast(@alignCast(userdata.?));
@@ -1324,6 +1357,10 @@ pub const VM = struct {
         const target_coro = fiber.coro orelse return error.Fatal;
         target_coro.parent_context_ptr.store(parent_context, .release);
 
+        const caller_stack_base = try self.stackBaseForFiber(caller);
+        const target_stack_base = try self.stackBaseForFiber(fiber);
+        try self.setCurrentStackBaseForGc(target_stack_base);
+
         self.current_fiber = fiber;
         self.restoreFiberState(fiber);
 
@@ -1332,6 +1369,7 @@ pub const VM = struct {
             self.current_fiber = caller;
             self.restoreFiberState(caller);
             fiber.caller = null;
+            self.setCurrentStackBaseForGc(caller_stack_base) catch {};
         }
 
         target_coro.step();
@@ -1340,6 +1378,7 @@ pub const VM = struct {
         self.current_fiber = caller;
         self.restoreFiberState(caller);
         fiber.caller = null;
+        try self.setCurrentStackBaseForGc(caller_stack_base);
 
         return switch (fiber.coro_event) {
             .yielded => fiber.coro_result,
