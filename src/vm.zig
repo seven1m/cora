@@ -1743,8 +1743,10 @@ pub const VM = struct {
                 const block_chunk_id = self.readU16();
                 const method_name_sym = try self.resolveCallMethodSymbolAndPatch(frame, instruction_start_ip, method_idx);
 
-                // Resolve block first (may pop from stack for &variable syntax)
-                const block = try self.resolveBlock(block_chunk_id, frame);
+                const block = if (block_chunk_id == 0)
+                    null
+                else
+                    try self.resolveBlock(block_chunk_id, frame);
 
                 var args: [256]Value = undefined;
                 var positional_argc: usize = 0;
@@ -1791,8 +1793,10 @@ pub const VM = struct {
                 const block_chunk_id = self.readU16();
                 const method_name_sym = try self.resolveCallMethodSymbolAndPatch(frame, instruction_start_ip, method_idx);
 
-                // Resolve block first (may pop from stack for &variable syntax)
-                const block = try self.resolveBlock(block_chunk_id, frame);
+                const block = if (block_chunk_id == 0)
+                    null
+                else
+                    try self.resolveBlock(block_chunk_id, frame);
 
                 // Pop keyword values
                 var kw_values: [256]Value = undefined;
