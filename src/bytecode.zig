@@ -6,6 +6,7 @@ pub const OpCode = enum(u8) {
     PUSH_TRUE, // No operands
     PUSH_FALSE, // No operands
     PUSH_CONST, // Operand: u16 (constant pool index)
+    PUSH_SYMBOL, // Operand: u16 (constant pool index containing symbol name string)
 
     // Variables and Constants
     GET_LOCAL, // Operand: u8 (local index)
@@ -123,6 +124,7 @@ pub fn opcodeName(op: OpCode) []const u8 {
         .PUSH_TRUE => "PUSH_TRUE",
         .PUSH_FALSE => "PUSH_FALSE",
         .PUSH_CONST => "PUSH_CONST",
+        .PUSH_SYMBOL => "PUSH_SYMBOL",
         .GET_LOCAL => "GET_LOCAL",
         .GET_LOCAL_DEEP => "GET_LOCAL_DEEP",
         .SET_LOCAL => "SET_LOCAL",
@@ -210,7 +212,7 @@ pub const Instruction = struct {
         try writer.print("{s}", .{opcodeName(self.op)});
 
         switch (self.op) {
-            .PUSH_CONST, .GET_CONST, .GET_CONST_OR_NIL, .SET_CONST, .GET_CONST_PATH, .DEF_MODULE, .DEF_CLASS, .DEF_METHOD, .GET_GLOBAL, .SET_GLOBAL, .GET_CVAR, .GET_CVAR_OR_NIL, .SET_CVAR, .GET_IVAR, .SET_IVAR => {
+            .PUSH_CONST, .PUSH_SYMBOL, .GET_CONST, .GET_CONST_OR_NIL, .SET_CONST, .GET_CONST_PATH, .DEF_MODULE, .DEF_CLASS, .DEF_METHOD, .GET_GLOBAL, .SET_GLOBAL, .GET_CVAR, .GET_CVAR_OR_NIL, .SET_CVAR, .GET_IVAR, .SET_IVAR => {
                 try writer.print(" {d}", .{self.bx});
             },
             .CALL => {

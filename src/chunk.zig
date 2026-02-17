@@ -2,6 +2,7 @@ const std = @import("std");
 const bytecode = @import("bytecode.zig");
 
 const LexicalScope = @import("value.zig").LexicalScope;
+const SymbolObject = @import("value.zig").SymbolObject;
 
 pub const ChunkId = u16;
 
@@ -16,7 +17,7 @@ pub const Constant = union(enum) {
     integer: i64,
     float: f64,
     string: []const u8,
-    symbol: []const u8,
+    symbol: *SymbolObject,
 };
 
 pub const RescueHandler = struct {
@@ -96,7 +97,6 @@ pub const Chunk = struct {
         for (self.constants.items) |constant| {
             switch (constant) {
                 .string => |s| self.allocator.free(s),
-                .symbol => |s| self.allocator.free(s),
                 else => {},
             }
         }
@@ -131,7 +131,6 @@ pub const Chunk = struct {
     pub fn addConstant(self: *Chunk, const_val: Constant) !u32 {
         const owned = switch (const_val) {
             .string => |s| Constant{ .string = try self.allocator.dupe(u8, s) },
-            .symbol => |s| Constant{ .symbol = try self.allocator.dupe(u8, s) },
             else => const_val,
         };
         try self.constants.append(self.allocator, owned);
@@ -327,7 +326,7 @@ pub const Chunk = struct {
             try writer.print("  required keywords: ", .{});
             for (self.required_keywords.items, 0..) |req_kw, i| {
                 if (i > 0) try writer.print(", ", .{});
-                const kw_name = self.constants.items[req_kw.name_idx].symbol;
+                const kw_name = self.constants.items[req_kw.name_idx].string;
                 try writer.print("{s} (slot {d})", .{ kw_name, req_kw.param_slot });
             }
             try writer.print("\n", .{});
@@ -337,7 +336,7 @@ pub const Chunk = struct {
             try writer.print("  optional keywords: ", .{});
             for (self.optional_keywords.items, 0..) |opt_kw, i| {
                 if (i > 0) try writer.print(", ", .{});
-                const kw_name = self.constants.items[opt_kw.name_idx].symbol;
+                const kw_name = self.constants.items[opt_kw.name_idx].string;
                 try writer.print("{s} (slot {d}, chunk {d})", .{ kw_name, opt_kw.param_slot, opt_kw.default_chunk_id });
             }
             try writer.print("\n", .{});
@@ -365,7 +364,7 @@ pub const Chunk = struct {
                     .integer => |int_val| try writer.print("{d}", .{int_val}),
                     .float => |float_val| try writer.print("{d}", .{float_val}),
                     .string => |str| try writer.print("\"{s}\"", .{str}),
-                    .symbol => |sym| try writer.print(":{s}", .{sym}),
+                    .symbol => |sym| try writer.print(":\"{s}\"(interned)", .{sym.name}),
                 }
             }
             try writer.print("\n-----------\n", .{});
@@ -406,7 +405,7 @@ pub const Chunk = struct {
                 next_ip += 1;
             },
 
-            .PUSH_CONST, .GET_CONST, .GET_CONST_OR_NIL, .SET_CONST, .GET_CONST_PATH, .GET_GLOBAL, .SET_GLOBAL, .GET_CVAR, .GET_CVAR_OR_NIL, .SET_CVAR, .GET_IVAR, .SET_IVAR => {
+            .PUSH_CONST, .PUSH_SYMBOL, .GET_CONST, .GET_CONST_OR_NIL, .SET_CONST, .GET_CONST_PATH, .GET_GLOBAL, .SET_GLOBAL, .GET_CVAR, .GET_CVAR_OR_NIL, .SET_CVAR, .GET_IVAR, .SET_IVAR => {
                 const idx = bytecode.readU16(self.code.items, next_ip);
                 try writer.print("{s} {d}", .{ bytecode.opcodeName(op), idx });
                 if (idx < self.constants.items.len) {
@@ -415,7 +414,7 @@ pub const Chunk = struct {
                         .integer => |i| try writer.print(" ({d})", .{i}),
                         .float => |f| try writer.print(" ({d})", .{f}),
                         .string => |s| try writer.print(" (\"{s}\")", .{s}),
-                        .symbol => |s| try writer.print(" (:{s})", .{s}),
+                        .symbol => |s| try writer.print(" (:{s})", .{s.name}),
                     }
                 }
                 try writer.print("\n", .{});
@@ -493,7 +492,7 @@ pub const Chunk = struct {
                     for (kw_meta.names.items, 0..) |name_idx, i| {
                         if (i > 0) try writer.print(", ", .{});
                         if (name_idx < self.constants.items.len) {
-                            const kw_name = self.constants.items[name_idx].symbol;
+                            const kw_name = self.constants.items[name_idx].string;
                             try writer.print("{s}", .{kw_name});
                         }
                     }
@@ -523,8 +522,8 @@ pub const Chunk = struct {
                 try writer.print("DEF_METHOD {d}", .{name_idx});
                 if (name_idx < self.constants.items.len) {
                     const constant = self.constants.items[name_idx];
-                    if (constant == .symbol) {
-                        try writer.print(" (:{s})", .{constant.symbol});
+                    if (constant == .string) {
+                        try writer.print(" (:{s})", .{constant.string});
                     }
                 }
                 try writer.print(" {d} (chunk {d})\n", .{ chunk_idx, chunk_idx });
@@ -537,8 +536,8 @@ pub const Chunk = struct {
                 try writer.print("DEF_SINGLETON_METHOD {d}", .{name_idx});
                 if (name_idx < self.constants.items.len) {
                     const constant = self.constants.items[name_idx];
-                    if (constant == .symbol) {
-                        try writer.print(" (:{s})", .{constant.symbol});
+                    if (constant == .string) {
+                        try writer.print(" (:{s})", .{constant.string});
                     }
                 }
                 try writer.print(" {d} (chunk {d})\n", .{ chunk_idx, chunk_idx });
@@ -602,12 +601,12 @@ pub const Chunk = struct {
                 try writer.print("ALIAS_METHOD {d} {d}", .{ new_name_idx, old_name_idx });
                 if (new_name_idx < self.constants.items.len) {
                     const new_const = self.constants.items[new_name_idx];
-                    if (new_const == .symbol) {
-                        try writer.print(" (:{s}", .{new_const.symbol});
+                    if (new_const == .string) {
+                        try writer.print(" (:{s}", .{new_const.string});
                         if (old_name_idx < self.constants.items.len) {
                             const old_const = self.constants.items[old_name_idx];
-                            if (old_const == .symbol) {
-                                try writer.print(" <- :{s}", .{old_const.symbol});
+                            if (old_const == .string) {
+                                try writer.print(" <- :{s}", .{old_const.string});
                             }
                         }
                         try writer.print(")", .{});

@@ -1027,7 +1027,46 @@ pub const VM = struct {
             .integer => |i| Value.integer(i),
             .float => |f| Value.float(f),
             .string => |s| try self.newString(s, true),
-            .symbol => |s| Value{ .data = .{ .symbol = (try self.intern(s)) } },
+            .symbol => |s| Value{ .data = .{ .symbol = s } },
+        };
+    }
+
+    fn resolveCallMethodSymbolAndPatch(
+        self: *VM,
+        frame: *CallFrame,
+        instruction_start_ip: usize,
+        method_idx: u16,
+    ) VMError!*SymbolObject {
+        if (method_idx >= frame.chunk.constants.items.len) {
+            return error.Fatal;
+        }
+
+        const method_constant = frame.chunk.constants.items[method_idx];
+        return switch (method_constant) {
+            .symbol => |sym| sym,
+            .string => |method_name| blk: {
+                const method_name_sym = try self.intern(method_name);
+
+                if (frame.chunk.constants.items.len > std.math.maxInt(u16)) {
+                    return error.Fatal;
+                }
+
+                frame.chunk.constants.append(
+                    frame.chunk.allocator,
+                    .{ .symbol = method_name_sym },
+                ) catch return error.Fatal;
+                const new_idx: u16 = @intCast(frame.chunk.constants.items.len - 1);
+
+                const method_operand_ip = instruction_start_ip + 1;
+                if (method_operand_ip + 1 >= frame.chunk.code.items.len) {
+                    return error.Fatal;
+                }
+                frame.chunk.code.items[method_operand_ip] = @intCast(new_idx & 0xFF);
+                frame.chunk.code.items[method_operand_ip + 1] = @intCast((new_idx >> 8) & 0xFF);
+
+                break :blk method_name_sym;
+            },
+            else => error.Fatal,
         };
     }
 
@@ -1418,6 +1457,16 @@ pub const VM = struct {
                 try self.push(val);
             },
 
+            .PUSH_SYMBOL => {
+                const idx = self.readU16();
+                const constant = self.currentChunk().constants.items[idx];
+                switch (constant) {
+                    .string => |name| try self.push(Value{ .data = .{ .symbol = (try self.intern(name)) } }),
+                    .symbol => |sym| try self.push(Value{ .data = .{ .symbol = sym } }),
+                    else => return error.Fatal,
+                }
+            },
+
             .GET_LOCAL => {
                 const local_idx = self.readByte();
                 const val = getVariableAtDepth(frame.ep, 0, local_idx) orelse Value.nil();
@@ -1449,7 +1498,7 @@ pub const VM = struct {
             .GET_GLOBAL => {
                 const name_idx = self.readU16();
                 const name_val = self.currentChunk().constants.items[name_idx];
-                const var_name = name_val.symbol;
+                const var_name = name_val.string;
 
                 const global_val = self.globals.get(var_name) orelse Value.nil();
                 try self.push(global_val);
@@ -1458,7 +1507,7 @@ pub const VM = struct {
             .SET_GLOBAL => {
                 const name_idx = self.readU16();
                 const name_val = self.currentChunk().constants.items[name_idx];
-                const var_name = name_val.symbol;
+                const var_name = name_val.string;
                 const global_val = self.peek(0);
                 try self.setGlobal(var_name, global_val);
             },
@@ -1466,7 +1515,7 @@ pub const VM = struct {
             .GET_CVAR => {
                 const name_idx = self.readU16();
                 const name_val = self.currentChunk().constants.items[name_idx];
-                const var_name = name_val.symbol;
+                const var_name = name_val.string;
                 const name_sym = try self.intern(var_name);
 
                 const ctx = self.resolveClassVariableContext(frame);
@@ -1487,7 +1536,7 @@ pub const VM = struct {
             .GET_CVAR_OR_NIL => {
                 const name_idx = self.readU16();
                 const name_val = self.currentChunk().constants.items[name_idx];
-                const var_name = name_val.symbol;
+                const var_name = name_val.string;
                 const name_sym = try self.intern(var_name);
 
                 const ctx = self.resolveClassVariableContext(frame);
@@ -1501,7 +1550,7 @@ pub const VM = struct {
             .SET_CVAR => {
                 const name_idx = self.readU16();
                 const name_val = self.currentChunk().constants.items[name_idx];
-                const var_name = name_val.symbol;
+                const var_name = name_val.string;
                 const name_sym = try self.intern(var_name);
                 const class_var_val = self.peek(0);
 
@@ -1512,7 +1561,7 @@ pub const VM = struct {
             .GET_IVAR => {
                 const name_idx = self.readU16();
                 const name_val = self.currentChunk().constants.items[name_idx];
-                const var_name = name_val.symbol;
+                const var_name = name_val.string;
                 const self_val = frame.self_value;
 
                 const ivar_val = try self.getInstanceVariable(self_val, var_name);
@@ -1522,7 +1571,7 @@ pub const VM = struct {
             .SET_IVAR => {
                 const name_idx = self.readU16();
                 const name_val = self.currentChunk().constants.items[name_idx];
-                const var_name = name_val.symbol;
+                const var_name = name_val.string;
                 const ivar_val = self.peek(0);
                 const self_val = frame.self_value;
 
@@ -1532,7 +1581,7 @@ pub const VM = struct {
             .GET_CONST => {
                 const idx = self.readU16();
                 const constant = self.currentChunk().constants.items[idx];
-                const name_sym = try self.intern(constant.symbol);
+                const name_sym = try self.intern(constant.string);
 
                 // Walk lexical scope chain first
                 if (frame.ep.lexical_scope) |scope| {
@@ -1549,7 +1598,7 @@ pub const VM = struct {
                     const msg = std.fmt.allocPrint(
                         self.gc_allocator,
                         "uninitialized constant {s}",
-                        .{constant.symbol},
+                        .{constant.string},
                     ) catch return error.Fatal;
                     const exc = try self.createException(self.name_error_class, msg);
                     self.pending_exception = exc;
@@ -1560,7 +1609,7 @@ pub const VM = struct {
             .GET_CONST_OR_NIL => {
                 const idx = self.readU16();
                 const constant = self.currentChunk().constants.items[idx];
-                const name_sym = try self.intern(constant.symbol);
+                const name_sym = try self.intern(constant.string);
 
                 if (frame.ep.lexical_scope) |scope| {
                     if (try self.findConstantInLexicalScope(scope, name_sym)) |val| {
@@ -1580,7 +1629,7 @@ pub const VM = struct {
                 const idx = self.readU16();
                 const val = self.pop();
                 const constant = self.currentChunk().constants.items[idx];
-                const name_sym = try self.intern(constant.symbol);
+                const name_sym = try self.intern(constant.string);
 
                 // Set in current lexical scope's module (or Object if no scope)
                 if (frame.ep.lexical_scope) |scope| {
@@ -1595,7 +1644,7 @@ pub const VM = struct {
                 const idx = self.readU16();
                 const constant = self.currentChunk().constants.items[idx];
                 const parent_val = self.pop();
-                const name_sym = try self.intern(constant.symbol);
+                const name_sym = try self.intern(constant.string);
 
                 const module = switch (parent_val.data) {
                     .class => |c| &c.module,
@@ -1608,7 +1657,7 @@ pub const VM = struct {
                     const msg = std.fmt.allocPrint(
                         self.gc_allocator,
                         "uninitialized constant {s}::{s}",
-                        .{ module.name.name, constant.symbol },
+                        .{ module.name.name, constant.string },
                     ) catch return error.Fatal;
                     const exc = try self.createException(self.name_error_class, msg);
                     self.pending_exception = exc;
@@ -1685,12 +1734,14 @@ pub const VM = struct {
             },
 
             .CALL => {
+                const instruction_start_ip = frame.ip - 1;
                 const method_idx = self.readU16();
                 const argc = self.readByte();
                 const call_flags = self.readByte();
                 const call_style: ReceiverCallStyle = bytecode.decodeReceiverCallStyle(call_flags);
                 const args_array_mode = bytecode.argsArrayMode(call_flags);
                 const block_chunk_id = self.readU16();
+                const method_name_sym = try self.resolveCallMethodSymbolAndPatch(frame, instruction_start_ip, method_idx);
 
                 // Resolve block first (may pop from stack for &variable syntax)
                 const block = try self.resolveBlock(block_chunk_id, frame);
@@ -1725,10 +1776,11 @@ pub const VM = struct {
                 // Pop receiver
                 const receiver = self.pop();
 
-                try self.callMethodHelperForExecuteInstruction(method_idx, call_style, receiver, &args, positional_argc, null, 0, null, block);
+                try self.callMethodHelperForExecuteInstruction(method_name_sym, call_style, receiver, &args, positional_argc, null, 0, null, block);
             },
 
             .CALL_KW => {
+                const instruction_start_ip = frame.ip - 1;
                 const method_idx = self.readU16();
                 const argc = self.readByte();
                 const kwargc = self.readByte();
@@ -1737,6 +1789,7 @@ pub const VM = struct {
                 const args_array_mode = bytecode.argsArrayMode(call_flags);
                 const kw_metadata_idx = self.readU16();
                 const block_chunk_id = self.readU16();
+                const method_name_sym = try self.resolveCallMethodSymbolAndPatch(frame, instruction_start_ip, method_idx);
 
                 // Resolve block first (may pop from stack for &variable syntax)
                 const block = try self.resolveBlock(block_chunk_id, frame);
@@ -1784,7 +1837,7 @@ pub const VM = struct {
                 const kw_metadata = frame.chunk.keyword_metadata.items[kw_metadata_idx];
 
                 // Call method with keywords
-                try self.callMethodHelperForExecuteInstruction(method_idx, call_style, receiver, &args, positional_argc, &kw_values, kwargc, kw_metadata, block);
+                try self.callMethodHelperForExecuteInstruction(method_name_sym, call_style, receiver, &args, positional_argc, &kw_values, kwargc, kw_metadata, block);
             },
 
             .RETURN => {
@@ -1944,11 +1997,11 @@ pub const VM = struct {
                 const chunk_idx = self.readByte();
 
                 const constant = self.currentChunk().constants.items[name_idx];
-                if (constant != .symbol) {
+                if (constant != .string) {
                     return error.Fatal;
                 }
 
-                const method_name = constant.symbol;
+                const method_name = constant.string;
                 const method_name_sym = try self.intern(method_name);
 
                 // Look up the chunk by ID
@@ -1986,11 +2039,11 @@ pub const VM = struct {
                 const chunk_idx = self.readByte();
 
                 const constant = self.currentChunk().constants.items[name_idx];
-                if (constant != .symbol) {
+                if (constant != .string) {
                     return error.Fatal;
                 }
 
-                const method_name = constant.symbol;
+                const method_name = constant.string;
                 const method_name_sym = try self.intern(method_name);
 
                 if (self.program.method_chunks.get(chunk_idx)) |chunk_ptr| {
@@ -2202,8 +2255,8 @@ pub const VM = struct {
                 const new_name_idx = self.readU16();
                 const old_name_idx = self.readU16();
 
-                const new_name = self.currentChunk().constants.items[new_name_idx].symbol;
-                const old_name = self.currentChunk().constants.items[old_name_idx].symbol;
+                const new_name = self.currentChunk().constants.items[new_name_idx].string;
+                const old_name = self.currentChunk().constants.items[old_name_idx].string;
 
                 const new_name_sym = try self.intern(new_name);
                 const old_name_sym = try self.intern(old_name);
@@ -2900,7 +2953,7 @@ pub const VM = struct {
     /// Don't call this from anywhere else because stack unwinding won't work right.
     fn callMethodHelperForExecuteInstruction(
         self: *VM,
-        method_idx: u16,
+        method_name_sym: *SymbolObject,
         call_style: ReceiverCallStyle,
         receiver: Value,
         args: *[256]Value,
@@ -2910,18 +2963,6 @@ pub const VM = struct {
         kw_metadata: ?chunk.KeywordMetadata,
         block: ?Block,
     ) VMError!void {
-        if (method_idx >= self.currentChunk().constants.items.len) {
-            return error.Fatal;
-        }
-
-        const constant = self.currentChunk().constants.items[method_idx];
-        if (constant != .string) {
-            return error.Fatal;
-        }
-
-        const method_name = constant.string;
-        const method_name_sym = try self.intern(method_name);
-
         const resolved = try self.findMethod(receiver, method_name_sym);
         const should_fallback = resolved == null or !self.isMethodCallable(receiver, resolved.?, call_style);
         if (should_fallback) {
@@ -3745,7 +3786,7 @@ pub const VM = struct {
         chunk_ptr.lexical_scope = self.current_lexical_scope;
         chunk_ptr.arity = if (kind == .reader) 0 else 1;
 
-        const name_idx = chunk_ptr.addConstant(.{ .symbol = ivar_name }) catch return error.Fatal;
+        const name_idx = chunk_ptr.addConstant(.{ .string = ivar_name }) catch return error.Fatal;
 
         switch (kind) {
             .reader => {
@@ -4175,13 +4216,13 @@ pub const VM = struct {
 
         // 1. Bind required keywords
         for (target_chunk.required_keywords.items) |req_kw| {
-            const req_name = target_chunk.constants.items[req_kw.name_idx].symbol;
+            const req_name = target_chunk.constants.items[req_kw.name_idx].string;
             const req_symbol = try self.intern(req_name);
 
             // Linear scan through provided keywords
             var found = false;
             for (kw_values, 0..) |_, i| {
-                const provided_name = caller_chunk.constants.items[kw_metadata.names.items[i]].symbol;
+                const provided_name = caller_chunk.constants.items[kw_metadata.names.items[i]].string;
                 const provided_symbol = try self.intern(provided_name);
 
                 // O(1) pointer equality check after interning
@@ -4207,12 +4248,12 @@ pub const VM = struct {
 
         // 2. Bind optional keywords
         for (target_chunk.optional_keywords.items) |opt_kw| {
-            const opt_name = target_chunk.constants.items[opt_kw.name_idx].symbol;
+            const opt_name = target_chunk.constants.items[opt_kw.name_idx].string;
             const opt_symbol = try self.intern(opt_name);
 
             var found = false;
             for (kw_values, 0..) |_, i| {
-                const provided_name = caller_chunk.constants.items[kw_metadata.names.items[i]].symbol;
+                const provided_name = caller_chunk.constants.items[kw_metadata.names.items[i]].string;
                 const provided_symbol = try self.intern(provided_name);
 
                 if (opt_symbol == provided_symbol) {
@@ -4244,7 +4285,7 @@ pub const VM = struct {
             // Collect unmatched keywords
             for (kw_values, 0..) |kw_value, i| {
                 if (!matched[i]) {
-                    const key_name = caller_chunk.constants.items[kw_metadata.names.items[i]].symbol;
+                    const key_name = caller_chunk.constants.items[kw_metadata.names.items[i]].string;
                     const key_symbol = try self.intern(key_name);
                     const key = Value{ .data = .{ .symbol = key_symbol } };
                     const key_hash = key.hash();
@@ -4263,7 +4304,7 @@ pub const VM = struct {
             // No keyword rest - check for unmatched keywords
             for (matched, 0..) |is_matched, i| {
                 if (!is_matched) {
-                    const unknown_name = caller_chunk.constants.items[kw_metadata.names.items[i]].symbol;
+                    const unknown_name = caller_chunk.constants.items[kw_metadata.names.items[i]].string;
                     const msg = std.fmt.allocPrint(
                         self.gc_allocator,
                         "unknown keyword: {s}",
@@ -4306,7 +4347,7 @@ pub const VM = struct {
         };
 
         for (kw_values, 0..) |kw_value, i| {
-            const key_name = current_chunk.constants.items[kw_metadata.names.items[i]].symbol;
+            const key_name = current_chunk.constants.items[kw_metadata.names.items[i]].string;
             const key_symbol = try self.intern(key_name);
             const key = Value{ .data = .{ .symbol = key_symbol } };
             const key_hash = key.hash();

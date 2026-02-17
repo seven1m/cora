@@ -162,8 +162,8 @@ pub const Compiler = struct {
             .symbol => |symbol_node| {
                 const symbol_val = symbol_node.unescaped;
                 const symbol_slice = symbol_val.source[0..symbol_val.length];
-                const idx = try self.current_chunk.addConstant(.{ .symbol = symbol_slice });
-                try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(idx), line);
+                const idx = try self.current_chunk.addConstant(.{ .string = symbol_slice });
+                try self.current_chunk.emitOpU16(.PUSH_SYMBOL, @intCast(idx), line);
             },
 
             .regular_expression => |regexp_node| {
@@ -284,7 +284,7 @@ pub const Compiler = struct {
 
             .constant_read => |const_read| {
                 const const_name = try self.parser.getConstantName(const_read.name);
-                const idx = try self.current_chunk.addConstant(.{ .symbol = const_name });
+                const idx = try self.current_chunk.addConstant(.{ .string = const_name });
                 try self.current_chunk.emitOpU16(.GET_CONST, @intCast(idx), line);
             },
 
@@ -300,7 +300,7 @@ pub const Compiler = struct {
 
                 // Get the constant name to look up
                 const const_name = try self.parser.getConstantName(const_path.name);
-                const idx = try self.current_chunk.addConstant(.{ .symbol = const_name });
+                const idx = try self.current_chunk.addConstant(.{ .string = const_name });
                 try self.current_chunk.emitOpU16(.GET_CONST_PATH, @intCast(idx), line);
             },
 
@@ -309,7 +309,7 @@ pub const Compiler = struct {
                 const value_node = try self.parser.asNode(@ptrCast(const_write.value));
                 try self.compileNode(value_node, line);
 
-                const idx = try self.current_chunk.addConstant(.{ .symbol = const_name });
+                const idx = try self.current_chunk.addConstant(.{ .string = const_name });
                 try self.current_chunk.emitOpU16(.SET_CONST, @intCast(idx), line);
             },
 
@@ -539,7 +539,7 @@ pub const Compiler = struct {
 
             .global_variable_read => |var_read| {
                 const var_name = try self.parser.getConstantName(@intCast(var_read.name));
-                const name_idx = try self.current_chunk.addConstant(.{ .symbol = var_name });
+                const name_idx = try self.current_chunk.addConstant(.{ .string = var_name });
                 try self.current_chunk.emitOpU16(.GET_GLOBAL, @intCast(name_idx), line);
             },
 
@@ -549,7 +549,7 @@ pub const Compiler = struct {
 
                 try self.compileNode(value_node, line);
 
-                const name_idx = try self.current_chunk.addConstant(.{ .symbol = var_name });
+                const name_idx = try self.current_chunk.addConstant(.{ .string = var_name });
                 try self.current_chunk.emitOpU16(.SET_GLOBAL, @intCast(name_idx), line);
             },
 
@@ -563,7 +563,7 @@ pub const Compiler = struct {
 
             .class_variable_read => |var_read| {
                 const var_name = try self.parser.getConstantName(@intCast(var_read.name));
-                const name_idx = try self.current_chunk.addConstant(.{ .symbol = var_name });
+                const name_idx = try self.current_chunk.addConstant(.{ .string = var_name });
                 try self.current_chunk.emitOpU16(.GET_CVAR, @intCast(name_idx), line);
             },
 
@@ -572,7 +572,7 @@ pub const Compiler = struct {
                 const value_node = try self.parser.asNode(@ptrCast(var_write.value));
                 try self.compileNode(value_node, line);
 
-                const name_idx = try self.current_chunk.addConstant(.{ .symbol = var_name });
+                const name_idx = try self.current_chunk.addConstant(.{ .string = var_name });
                 try self.current_chunk.emitOpU16(.SET_CVAR, @intCast(name_idx), line);
             },
 
@@ -590,7 +590,7 @@ pub const Compiler = struct {
 
             .instance_variable_read => |var_read| {
                 const var_name = try self.parser.getConstantName(@intCast(var_read.name));
-                const name_idx = try self.current_chunk.addConstant(.{ .symbol = var_name });
+                const name_idx = try self.current_chunk.addConstant(.{ .string = var_name });
                 try self.current_chunk.emitOpU16(.GET_IVAR, @intCast(name_idx), line);
             },
 
@@ -600,7 +600,7 @@ pub const Compiler = struct {
 
                 try self.compileNode(value_node, line);
 
-                const name_idx = try self.current_chunk.addConstant(.{ .symbol = var_name });
+                const name_idx = try self.current_chunk.addConstant(.{ .string = var_name });
                 try self.current_chunk.emitOpU16(.SET_IVAR, @intCast(name_idx), line);
             },
 
@@ -799,7 +799,7 @@ pub const Compiler = struct {
                             const key_node = try self.parser.asNode(@ptrCast(assoc.key));
                             const symbol_val = key_node.symbol.unescaped;
                             const symbol_name = symbol_val.source[0..symbol_val.length];
-                            const symbol_idx = try self.current_chunk.addConstant(.{ .symbol = symbol_name });
+                            const symbol_idx = try self.current_chunk.addConstant(.{ .string = symbol_name });
                             try kw_names.append(self.allocator, @intCast(symbol_idx));
 
                             // Compile keyword value onto stack
@@ -833,7 +833,7 @@ pub const Compiler = struct {
                             const key_node = try self.parser.asNode(@ptrCast(assoc.key));
                             const symbol_val = key_node.symbol.unescaped;
                             const symbol_name = symbol_val.source[0..symbol_val.length];
-                            const symbol_idx = try self.current_chunk.addConstant(.{ .symbol = symbol_name });
+                            const symbol_idx = try self.current_chunk.addConstant(.{ .string = symbol_name });
                             try kw_names.append(self.allocator, @intCast(symbol_idx));
 
                             const value_node = try self.parser.asNode(@ptrCast(assoc.value));
@@ -1199,7 +1199,7 @@ pub const Compiler = struct {
                 // Extract array element at index and assign to global variable
                 const var_name = try self.parser.getConstantName(@intCast(var_target.name));
                 try self.extractArrayElement(index, line);
-                const name_idx = try self.current_chunk.addConstant(.{ .symbol = var_name });
+                const name_idx = try self.current_chunk.addConstant(.{ .string = var_name });
                 try self.current_chunk.emitOpU16(.SET_GLOBAL, @intCast(name_idx), line);
                 try self.current_chunk.emitOp(.POP, line);
             },
@@ -1207,7 +1207,7 @@ pub const Compiler = struct {
                 // Extract array element at index and assign to instance variable
                 const var_name = try self.parser.getConstantName(@intCast(var_target.name));
                 try self.extractArrayElement(index, line);
-                const name_idx = try self.current_chunk.addConstant(.{ .symbol = var_name });
+                const name_idx = try self.current_chunk.addConstant(.{ .string = var_name });
                 try self.current_chunk.emitOpU16(.SET_IVAR, @intCast(name_idx), line);
                 try self.current_chunk.emitOp(.POP, line);
             },
@@ -1215,7 +1215,7 @@ pub const Compiler = struct {
                 // Extract array element at index and assign to constant
                 const const_name = try self.parser.getConstantName(@intCast(const_target.name));
                 try self.extractArrayElement(index, line);
-                const name_idx = try self.current_chunk.addConstant(.{ .symbol = const_name });
+                const name_idx = try self.current_chunk.addConstant(.{ .string = const_name });
                 try self.current_chunk.emitOpU16(.SET_CONST, @intCast(name_idx), line);
                 try self.current_chunk.emitOp(.POP, line);
             },
@@ -1287,7 +1287,7 @@ pub const Compiler = struct {
                 const var_target = target.class_variable_target;
                 const var_name = try self.parser.getConstantName(@intCast(var_target.name));
                 try self.extractArrayElement(index, line);
-                const name_idx = try self.current_chunk.addConstant(.{ .symbol = var_name });
+                const name_idx = try self.current_chunk.addConstant(.{ .string = var_name });
                 try self.current_chunk.emitOpU16(.SET_CVAR, @intCast(name_idx), line);
                 try self.current_chunk.emitOp(.POP, line);
             },
@@ -1405,13 +1405,13 @@ pub const Compiler = struct {
             },
             .global_variable_target => |var_target| {
                 const var_name = try self.parser.getConstantName(@intCast(var_target.name));
-                const name_idx = try self.current_chunk.addConstant(.{ .symbol = var_name });
+                const name_idx = try self.current_chunk.addConstant(.{ .string = var_name });
                 try self.current_chunk.emitOpU16(.SET_GLOBAL, @intCast(name_idx), line);
                 try self.current_chunk.emitOp(.POP, line);
             },
             .instance_variable_target => |var_target| {
                 const var_name = try self.parser.getConstantName(@intCast(var_target.name));
-                const name_idx = try self.current_chunk.addConstant(.{ .symbol = var_name });
+                const name_idx = try self.current_chunk.addConstant(.{ .string = var_name });
                 try self.current_chunk.emitOpU16(.SET_IVAR, @intCast(name_idx), line);
                 try self.current_chunk.emitOp(.POP, line);
             },
@@ -1480,7 +1480,7 @@ pub const Compiler = struct {
             .class_variable_target => {
                 const var_target = target.class_variable_target;
                 const var_name = try self.parser.getConstantName(@intCast(var_target.name));
-                const name_idx = try self.current_chunk.addConstant(.{ .symbol = var_name });
+                const name_idx = try self.current_chunk.addConstant(.{ .string = var_name });
                 try self.current_chunk.emitOpU16(.SET_CVAR, @intCast(name_idx), line);
                 try self.current_chunk.emitOp(.POP, line);
             },
@@ -1542,7 +1542,7 @@ pub const Compiler = struct {
 
     fn compileClassVariableAndWrite(self: *Compiler, var_write: *prism.ClassVariableAndWriteNode, line: u32) !void {
         const var_name = try self.parser.getConstantName(@intCast(var_write.name));
-        const name_idx = try self.current_chunk.addConstant(.{ .symbol = var_name });
+        const name_idx = try self.current_chunk.addConstant(.{ .string = var_name });
 
         try self.current_chunk.emitOpU16(.GET_CVAR, @intCast(name_idx), line);
         try self.current_chunk.emitOp(.DUP, line);
@@ -1558,7 +1558,7 @@ pub const Compiler = struct {
 
     fn compileClassVariableOrWrite(self: *Compiler, var_write: *prism.ClassVariableOrWriteNode, line: u32) !void {
         const var_name = try self.parser.getConstantName(@intCast(var_write.name));
-        const name_idx = try self.current_chunk.addConstant(.{ .symbol = var_name });
+        const name_idx = try self.current_chunk.addConstant(.{ .string = var_name });
 
         try self.current_chunk.emitOpU16(.GET_CVAR_OR_NIL, @intCast(name_idx), line);
         try self.current_chunk.emitOp(.DUP, line);
@@ -1574,7 +1574,7 @@ pub const Compiler = struct {
 
     fn compileClassVariableOperatorWrite(self: *Compiler, var_write: *prism.ClassVariableOperatorWriteNode, line: u32) !void {
         const var_name = try self.parser.getConstantName(@intCast(var_write.name));
-        const name_idx = try self.current_chunk.addConstant(.{ .symbol = var_name });
+        const name_idx = try self.current_chunk.addConstant(.{ .string = var_name });
 
         try self.current_chunk.emitOpU16(.GET_CVAR, @intCast(name_idx), line);
 
@@ -1641,7 +1641,7 @@ pub const Compiler = struct {
 
     fn compileGlobalAndWrite(self: *Compiler, var_write: *prism.GlobalVariableAndWriteNode, line: u32) !void {
         const var_name = try self.parser.getConstantName(@intCast(var_write.name));
-        const name_idx = try self.current_chunk.addConstant(.{ .symbol = var_name });
+        const name_idx = try self.current_chunk.addConstant(.{ .string = var_name });
 
         try self.current_chunk.emitOpU16(.GET_GLOBAL, @intCast(name_idx), line);
         try self.current_chunk.emitOp(.DUP, line);
@@ -1657,7 +1657,7 @@ pub const Compiler = struct {
 
     fn compileGlobalOrWrite(self: *Compiler, var_write: *prism.GlobalVariableOrWriteNode, line: u32) !void {
         const var_name = try self.parser.getConstantName(@intCast(var_write.name));
-        const name_idx = try self.current_chunk.addConstant(.{ .symbol = var_name });
+        const name_idx = try self.current_chunk.addConstant(.{ .string = var_name });
 
         try self.current_chunk.emitOpU16(.GET_GLOBAL, @intCast(name_idx), line);
         try self.current_chunk.emitOp(.DUP, line);
@@ -1673,7 +1673,7 @@ pub const Compiler = struct {
 
     fn compileInstanceVariableAndWrite(self: *Compiler, var_write: *prism.InstanceVariableAndWriteNode, line: u32) !void {
         const var_name = try self.parser.getConstantName(@intCast(var_write.name));
-        const name_idx = try self.current_chunk.addConstant(.{ .symbol = var_name });
+        const name_idx = try self.current_chunk.addConstant(.{ .string = var_name });
 
         try self.current_chunk.emitOpU16(.GET_IVAR, @intCast(name_idx), line);
         try self.current_chunk.emitOp(.DUP, line);
@@ -1689,7 +1689,7 @@ pub const Compiler = struct {
 
     fn compileInstanceVariableOrWrite(self: *Compiler, var_write: *prism.InstanceVariableOrWriteNode, line: u32) !void {
         const var_name = try self.parser.getConstantName(@intCast(var_write.name));
-        const name_idx = try self.current_chunk.addConstant(.{ .symbol = var_name });
+        const name_idx = try self.current_chunk.addConstant(.{ .string = var_name });
 
         try self.current_chunk.emitOpU16(.GET_IVAR, @intCast(name_idx), line);
         try self.current_chunk.emitOp(.DUP, line);
@@ -1705,7 +1705,7 @@ pub const Compiler = struct {
 
     fn compileConstantAndWrite(self: *Compiler, const_write: *prism.ConstantAndWriteNode, line: u32) !void {
         const const_name = try self.parser.getConstantName(const_write.name);
-        const const_idx = try self.current_chunk.addConstant(.{ .symbol = const_name });
+        const const_idx = try self.current_chunk.addConstant(.{ .string = const_name });
 
         try self.current_chunk.emitOpU16(.GET_CONST, @intCast(const_idx), line);
         try self.current_chunk.emitOp(.DUP, line);
@@ -1721,7 +1721,7 @@ pub const Compiler = struct {
 
     fn compileConstantOrWrite(self: *Compiler, const_write: *prism.ConstantOrWriteNode, line: u32) !void {
         const const_name = try self.parser.getConstantName(const_write.name);
-        const const_idx = try self.current_chunk.addConstant(.{ .symbol = const_name });
+        const const_idx = try self.current_chunk.addConstant(.{ .string = const_name });
 
         try self.current_chunk.emitOpU16(.GET_CONST_OR_NIL, @intCast(const_idx), line);
         try self.current_chunk.emitOp(.DUP, line);
@@ -1739,11 +1739,11 @@ pub const Compiler = struct {
         // Both new_name and old_name are SymbolNodes in `alias new_name old_name`
         const new_name_node: *prism.SymbolNode = @ptrCast(alias_node.new_name);
         const new_name = new_name_node.unescaped.source[0..new_name_node.unescaped.length];
-        const new_name_idx = try self.current_chunk.addConstant(.{ .symbol = new_name });
+        const new_name_idx = try self.current_chunk.addConstant(.{ .string = new_name });
 
         const old_name_node: *prism.SymbolNode = @ptrCast(alias_node.old_name);
         const old_name = old_name_node.unescaped.source[0..old_name_node.unescaped.length];
-        const old_name_idx = try self.current_chunk.addConstant(.{ .symbol = old_name });
+        const old_name_idx = try self.current_chunk.addConstant(.{ .string = old_name });
 
         try self.current_chunk.emitOpU16U16(.ALIAS_METHOD, @intCast(new_name_idx), @intCast(old_name_idx), line);
     }
@@ -2029,7 +2029,7 @@ pub const Compiler = struct {
                     const param_name = try self.parser.getLocalVariableName(kw_param.name);
                     try self.addLocal(param_name);
                     const slot = @as(u8, @intCast(self.locals.items.len - 1));
-                    const name_idx = try target_chunk.addConstant(.{ .symbol = param_name });
+                    const name_idx = try target_chunk.addConstant(.{ .string = param_name });
                     try target_chunk.required_keywords.append(self.allocator, .{
                         .name_idx = @intCast(name_idx),
                         .param_slot = slot,
@@ -2057,7 +2057,7 @@ pub const Compiler = struct {
 
                     self.current_chunk = saved_chunk_kw;
 
-                    const name_idx = try target_chunk.addConstant(.{ .symbol = param_name });
+                    const name_idx = try target_chunk.addConstant(.{ .string = param_name });
                     try target_chunk.optional_keywords.append(self.allocator, .{
                         .name_idx = @intCast(name_idx),
                         .param_slot = slot,
@@ -2157,7 +2157,7 @@ pub const Compiler = struct {
         self.locals = saved_locals;
 
         // Emit DEF_METHOD or DEF_SINGLETON_METHOD bytecode with method name and chunk ID
-        const name_idx = try self.current_chunk.addConstant(.{ .symbol = method_name_slice });
+        const name_idx = try self.current_chunk.addConstant(.{ .string = method_name_slice });
         if (is_singleton_method) {
             // DEF_SINGLETON_METHOD expects receiver on stack, pops it
             try self.current_chunk.emitOpU16U8(.DEF_SINGLETON_METHOD, @intCast(name_idx), @intCast(chunk_id), line);
@@ -2167,7 +2167,7 @@ pub const Compiler = struct {
         }
 
         // Return a symbol of the method name
-        try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(name_idx), line);
+        try self.current_chunk.emitOpU16(.PUSH_SYMBOL, @intCast(name_idx), line);
     }
 
     fn compileBlock(self: *Compiler, block_node: *prism.BlockNode, line: u32) !u16 {
