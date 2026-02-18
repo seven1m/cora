@@ -100,7 +100,7 @@ Prioritized by prerequisites (items earlier unblock later ones).
 - [ ] Provide `Signal.list` used for exit-status decoding.
   - Evidence: `../natalie/test/support/spec.rb:277`
   - Verified failure: `uninitialized constant Signal`.
-- [ ] Provide minimal `Process.uid` / `Process.euid`.
+- [x] Provide minimal `Process.uid` / `Process.euid`.
   - Evidence: `../natalie/test/support/spec.rb:372`, `../natalie/test/support/spec.rb:376`, `../natalie/test/support/spec.rb:380`
   - Verified failure: `uninitialized constant Process`.
 - [ ] Provide minimal `Thread` API used by matcher (`Thread.new`, `status`, `kill`, `join`, `value`, `.pass`).
