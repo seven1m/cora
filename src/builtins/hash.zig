@@ -244,13 +244,7 @@ pub fn builtinHashFetch(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
 }
 
 pub fn builtinHashDig(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    if (args.len == 0) {
-        return vm.raiseExceptionFmt(
-            vm.argument_error_class,
-            "wrong number of arguments (given 0, expected 1+)",
-            .{},
-        );
-    }
+    try vm.requireMinArgCount(args, 1);
 
     var current_value = receiver;
 

@@ -1200,7 +1200,7 @@ pub const VM = struct {
                     return self.raiseExceptionFmt(
                         self.type_error_class,
                         "wrong argument type {s} (expected Proc)",
-                        .{self.getClass(proc_val).module.name.name},
+                        .{self.className(proc_val)},
                     );
                 }
                 proc_val = try self.callMethodByName(proc_val, "to_proc", &[_]Value{}, null);
@@ -1209,9 +1209,9 @@ pub const VM = struct {
                         self.type_error_class,
                         "can't convert {s} to Proc ({s}#to_proc gives {s})",
                         .{
-                            self.getClass(original_val).module.name.name,
-                            self.getClass(original_val).module.name.name,
-                            self.getClass(proc_val).module.name.name,
+                            self.className(original_val),
+                            self.className(original_val),
+                            self.className(proc_val),
                         },
                     );
                 }
@@ -2422,72 +2422,20 @@ pub const VM = struct {
 
             .RAISE => {
                 const argc = self.readByte();
-
-                if (argc == 0) {
-                    // Re-raise current exception
-                    if (self.pending_exception) |exc| {
-                        self.pending_exception = exc;
-                        return error.Unwind;
-                    } else {
-                        // No exception to re-raise
-                        const exc = try self.createException(self.runtime_error_class, "no current exception");
-                        self.pending_exception = exc;
-                        return error.Unwind;
+                if (argc > 2) {
+                    var discard_count: u8 = 0;
+                    while (discard_count < argc) : (discard_count += 1) {
+                        _ = self.pop();
                     }
-                } else if (argc == 1) {
-                    // Single argument: exception instance or class
-                    const arg = self.pop();
-
-                    switch (arg.data) {
-                        .exception => |exc| {
-                            // Already an exception, raise it
-                            self.pending_exception = exc;
-                            return error.Unwind;
-                        },
-                        .class => |cls| {
-                            // Exception class with empty message
-                            const exc = try self.createException(cls, "");
-                            self.pending_exception = exc;
-                            return error.Unwind;
-                        },
-                        .string => |str| {
-                            // String message - create RuntimeError
-                            const exc = try self.createException(self.runtime_error_class, str.str);
-                            self.pending_exception = exc;
-                            return error.Unwind;
-                        },
-                        else => {
-                            // Invalid argument type
-                            const exc = try self.createException(self.type_error_class, "exception class/object expected");
-                            self.pending_exception = exc;
-                            return error.Unwind;
-                        },
-                    }
-                } else if (argc == 2) {
-                    // Two arguments: class and message
-                    const message = self.pop();
-                    const class_arg = self.pop();
-
-                    if (class_arg.data != .class) {
-                        const exc = try self.createException(self.type_error_class, "exception class/object expected");
-                        self.pending_exception = exc;
-                        return error.Unwind;
-                    }
-
-                    const msg_str = if (message.data == .string)
-                        message.data.string.str
-                    else
-                        "";
-
-                    const exc = try self.createException(class_arg.data.class, msg_str);
-                    self.pending_exception = exc;
-                    return error.Unwind;
-                } else {
-                    // Invalid number of arguments
-                    const exc = try self.createException(self.argument_error_class, "wrong number of arguments");
-                    self.pending_exception = exc;
-                    return error.Unwind;
+                    return self.raiseArgumentErrorWrongArgCountGeneric();
                 }
+                var raise_args: [2]Value = undefined;
+                var i: usize = argc;
+                while (i > 0) {
+                    i -= 1;
+                    raise_args[i] = self.pop();
+                }
+                return self.raiseFromArgs(raise_args[0..argc], "no current exception");
             },
 
             .TRY_BEGIN => {
@@ -2965,13 +2913,7 @@ pub const VM = struct {
     }
 
     fn invokeSymbolProc(self: *VM, symbol: *SymbolObject, args: []const Value, block: ?Block) VMError!Value {
-        if (args.len == 0) {
-            return self.raiseExceptionFmt(
-                self.argument_error_class,
-                "wrong number of arguments (given 0, expected 1+)",
-                .{},
-            );
-        }
+        try self.requireMinArgCount(args, 1);
         var forwarded_args: [256]Value = undefined;
         if (args.len > 1) {
             @memcpy(forwarded_args[0 .. args.len - 1], args[1..]);
@@ -3207,6 +3149,10 @@ pub const VM = struct {
             .nil => return self.nil_class,
             .boolean => |b| if (b) return self.true_class else return self.false_class,
         }
+    }
+
+    pub inline fn className(self: *VM, val: Value) []const u8 {
+        return self.getClass(val).module.name.name;
     }
 
     fn getObjectPointer(_: *VM, obj_val: value.Value) ?*value.Object {
@@ -3823,27 +3769,19 @@ pub const VM = struct {
 
     pub fn requireArgCount(self: *VM, args: []Value, expected: usize) VMError!void {
         if (args.len != expected) {
-            const msg = std.fmt.allocPrint(
-                self.gc_allocator,
-                "wrong number of arguments (given {d}, expected {d})",
-                .{ args.len, expected },
-            ) catch return error.Fatal;
-            const exc = try self.createException(self.argument_error_class, msg);
-            self.pending_exception = exc;
-            return error.Unwind;
+            return self.raiseArgumentErrorWrongArgCount(args.len, expected);
         }
     }
 
     pub fn requireArgCountRange(self: *VM, args: []Value, min: usize, max: usize) VMError!void {
         if (args.len < min or args.len > max) {
-            const msg = std.fmt.allocPrint(
-                self.gc_allocator,
-                "wrong number of arguments (given {d}, expected {d}..{d})",
-                .{ args.len, min, max },
-            ) catch return error.Fatal;
-            const exc = try self.createException(self.argument_error_class, msg);
-            self.pending_exception = exc;
-            return error.Unwind;
+            return self.raiseArgumentErrorWrongArgCountRange(args.len, min, max);
+        }
+    }
+
+    pub fn requireMinArgCount(self: *VM, args: []const Value, min: usize) VMError!void {
+        if (args.len < min) {
+            return self.raiseArgumentErrorWrongArgCountAtLeast(args.len, min);
         }
     }
 
@@ -3974,6 +3912,76 @@ pub const VM = struct {
         const exc = self.createException(exception_class, msg) catch return error.Fatal;
         self.pending_exception = exc;
         return error.Unwind;
+    }
+
+    pub fn raiseArgumentErrorWrongArgCount(self: *VM, given: usize, expected: usize) VMError {
+        return self.raiseExceptionFmt(
+            self.argument_error_class,
+            "wrong number of arguments (given {d}, expected {d})",
+            .{ given, expected },
+        );
+    }
+
+    pub fn raiseArgumentErrorWrongArgCountRange(self: *VM, given: usize, min: usize, max: usize) VMError {
+        return self.raiseExceptionFmt(
+            self.argument_error_class,
+            "wrong number of arguments (given {d}, expected {d}..{d})",
+            .{ given, min, max },
+        );
+    }
+
+    pub fn raiseArgumentErrorWrongArgCountAtLeast(self: *VM, given: usize, min: usize) VMError {
+        return self.raiseExceptionFmt(
+            self.argument_error_class,
+            "wrong number of arguments (given {d}, expected {d}+)",
+            .{ given, min },
+        );
+    }
+
+    pub fn raiseArgumentErrorWrongArgCountGeneric(self: *VM) VMError {
+        return self.raiseExceptionFmt(self.argument_error_class, "wrong number of arguments", .{});
+    }
+
+    pub fn raiseFromArgs(self: *VM, args: []const Value, no_current_exception_message: []const u8) VMError {
+        if (args.len == 0) {
+            if (self.pending_exception) |exc| {
+                self.pending_exception = exc;
+                return error.Unwind;
+            }
+            return self.raiseExceptionFmt(self.runtime_error_class, "{s}", .{no_current_exception_message});
+        }
+
+        if (args.len == 1) {
+            return switch (args[0].data) {
+                .exception => |exc| blk: {
+                    self.pending_exception = exc;
+                    break :blk error.Unwind;
+                },
+                .class => |cls| blk: {
+                    const exc = self.createException(cls, "") catch return error.Fatal;
+                    self.pending_exception = exc;
+                    break :blk error.Unwind;
+                },
+                .string => |str| blk: {
+                    const exc = self.createException(self.runtime_error_class, str.str) catch return error.Fatal;
+                    self.pending_exception = exc;
+                    break :blk error.Unwind;
+                },
+                else => self.raiseExceptionFmt(self.type_error_class, "exception class/object expected", .{}),
+            };
+        }
+
+        if (args.len == 2) {
+            if (args[0].data != .class) {
+                return self.raiseExceptionFmt(self.type_error_class, "exception class/object expected", .{});
+            }
+            const msg_str = if (args[1].data == .string) args[1].data.string.str else "";
+            const exc = self.createException(args[0].data.class, msg_str) catch return error.Fatal;
+            self.pending_exception = exc;
+            return error.Unwind;
+        }
+
+        return self.raiseArgumentErrorWrongArgCountGeneric();
     }
 
     // File loading helper methods
@@ -4173,24 +4181,10 @@ pub const VM = struct {
         // Arity checking
         if (mode == .strict) {
             if (args.len < min_args) {
-                const msg = std.fmt.allocPrint(
-                    self.gc_allocator,
-                    "wrong number of arguments (given {d}, expected {d}+)",
-                    .{ args.len, min_args },
-                ) catch return error.Fatal;
-                const exc = try self.createException(self.argument_error_class, msg);
-                self.pending_exception = exc;
-                return error.Unwind;
+                return self.raiseArgumentErrorWrongArgCountAtLeast(args.len, min_args);
             }
             if (target_chunk.rest_param_index == null and args.len > max_args) {
-                const msg = std.fmt.allocPrint(
-                    self.gc_allocator,
-                    "wrong number of arguments (given {d}, expected {d})",
-                    .{ args.len, max_args },
-                ) catch return error.Fatal;
-                const exc = try self.createException(self.argument_error_class, msg);
-                self.pending_exception = exc;
-                return error.Unwind;
+                return self.raiseArgumentErrorWrongArgCount(args.len, max_args);
             }
         }
 

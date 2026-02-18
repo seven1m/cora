@@ -111,22 +111,5 @@ Prioritized by prerequisites (items earlier unblock later ones).
 
 ## 7) Cleanup
 
-- [ ] Audit all exception raising code and make one or more helpers to look up class and format message
-- [ ] Audit all argument count checking code and use existing helpers -- make a new helper if needed
-
-## 8) Performance: no-block CALL/CALL_KW fast path
-
-- [ ] Add integer fast-paths in call dispatch for +, -, ==
-      Bypass findMethod/lookupMethodDetailed for Integer receiver + Integer arg in CALL path (src/vm.zig).
-      This should directly cut a large fraction of the method-lookup overhead.
-- [x] Add no-block fast path in CALL/CALL_KW
-      Avoid resolveBlock() call when block_chunk_id == 0 (src/vm.zig). Fib has no blocks, so this is low-risk
-      and directly targets ~2-3%.
-- [ ] Add simple arity-copy fast path
-      In callMethodHelperForExecuteInstruction, if method chunk has only required positional params and no
-      rest/optional/keywords/block-param, copy args directly instead of full copyArgumentsWithRestParam()
-      (src/vm.zig).
-- [ ] Reduce per-call symbol-resolution overhead further
-      resolveCallMethodSymbolAndPatch() still costs ~2.8%. A next step is a cached call opcode variant
-      (or tighter hot-path branch) once method symbol is patched.
-
+- [x] Audit all exception raising code and make one or more helpers to look up class and format message
+- [x] Audit all argument count checking code and use existing helpers -- make a new helper if needed

@@ -325,68 +325,7 @@ pub fn builtinKernelLambda(vm: *VM, _: Value, args: []Value, block: ?Block) VMEr
 }
 
 pub fn builtinKernelRaise(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
-    if (args.len == 0) {
-        // Re-raise current exception
-        if (vm.pending_exception) |exc| {
-            vm.pending_exception = exc;
-            return error.Unwind;
-        } else {
-            // No exception to re-raise - raise RuntimeError
-            const exc = try vm.createException(vm.runtime_error_class, "No exception to re-raise");
-            vm.pending_exception = exc;
-            return error.Unwind;
-        }
-    } else if (args.len == 1) {
-        const arg = args[0];
-        switch (arg.data) {
-            .exception => |exc| {
-                // Already an exception, raise it
-                vm.pending_exception = exc;
-                return error.Unwind;
-            },
-            .class => |cls| {
-                // Exception class with empty message
-                const exc = try vm.createException(cls, "");
-                vm.pending_exception = exc;
-                return error.Unwind;
-            },
-            .string => |str| {
-                // String message - create RuntimeError
-                const exc = try vm.createException(vm.runtime_error_class, str.str);
-                vm.pending_exception = exc;
-                return error.Unwind;
-            },
-            else => {
-                const exc = try vm.createException(vm.type_error_class, "exception class/object expected");
-                vm.pending_exception = exc;
-                return error.Unwind;
-            },
-        }
-    } else if (args.len == 2) {
-        const class_arg = args[0];
-        const message = args[1];
-
-        if (class_arg.data != .class) {
-            const exc = try vm.createException(vm.type_error_class, "exception class/object expected");
-            vm.pending_exception = exc;
-            return error.Unwind;
-        }
-
-        const msg_str = if (message.data == .string)
-            message.data.string.str
-        else
-            "";
-
-        const exc = try vm.createException(class_arg.data.class, msg_str);
-        vm.pending_exception = exc;
-        return error.Unwind;
-    } else {
-        const exc = try vm.createException(vm.argument_error_class, "wrong number of arguments");
-        vm.pending_exception = exc;
-        return error.Unwind;
-    }
-
-    return Value.nil();
+    return vm.raiseFromArgs(args, "No exception to re-raise");
 }
 
 pub fn builtinKernelIsA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -491,12 +430,7 @@ pub fn builtinKernelTap(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
 }
 
 pub fn builtinKernelSend(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
-    if (args.len == 0) {
-        const exc = try vm.createException(vm.argument_error_class, "wrong number of arguments");
-        vm.pending_exception = exc;
-        return error.Unwind;
-    }
-
+    try vm.requireMinArgCount(args, 1);
     const name_str = try vm.coerceToMethodNameString(args[0]);
     const call_args = args[1..];
     return vm.callMethodByName(receiver, name_str, call_args, block);

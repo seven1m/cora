@@ -447,11 +447,7 @@ pub fn builtinModuleDefineMethod(vm: *VM, receiver: Value, args: []Value, block:
 }
 
 pub fn builtinModuleAttrReader(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    if (args.len == 0) {
-        const exc = try vm.createException(vm.argument_error_class, "wrong number of arguments (given 0, expected 1)");
-        vm.pending_exception = exc;
-        return error.Unwind;
-    }
+    try vm.requireMinArgCount(args, 1);
 
     const methods = receiver.getModuleMethods() orelse {
         const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
@@ -479,11 +475,7 @@ pub fn builtinModuleAttrReader(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
 }
 
 pub fn builtinModuleAttrWriter(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    if (args.len == 0) {
-        const exc = try vm.createException(vm.argument_error_class, "wrong number of arguments (given 0, expected 1)");
-        vm.pending_exception = exc;
-        return error.Unwind;
-    }
+    try vm.requireMinArgCount(args, 1);
 
     const methods = receiver.getModuleMethods() orelse {
         const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
@@ -512,11 +504,7 @@ pub fn builtinModuleAttrWriter(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
 }
 
 pub fn builtinModuleAttrAccessor(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    if (args.len == 0) {
-        const exc = try vm.createException(vm.argument_error_class, "wrong number of arguments (given 0, expected 1)");
-        vm.pending_exception = exc;
-        return error.Unwind;
-    }
+    try vm.requireMinArgCount(args, 1);
 
     const methods = receiver.getModuleMethods() orelse {
         const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
@@ -644,7 +632,7 @@ pub fn builtinModuleUndefMethod(vm: *VM, receiver: Value, args: []Value, _: ?Blo
 }
 
 pub fn builtinModuleRemoveMethod(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCountRange(args, 1, std.math.maxInt(usize));
+    try vm.requireMinArgCount(args, 1);
 
     const methods = receiver.getModuleMethods() orelse {
         const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
