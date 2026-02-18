@@ -160,6 +160,7 @@ fn setVisibility(vm: *VM, receiver: Value, args: []Value, visibility: MethodVisi
         updated.visibility = visibility;
         methods.put(name_sym, updated) catch return error.Fatal;
     }
+    vm.bumpMethodStateVersion();
 
     if (args.len == 1 and args[0].data != .array) {
         return Value{ .data = .{ .symbol = names.items[0] } };
@@ -181,6 +182,7 @@ fn copyMethodToModuleSingleton(vm: *VM, module_receiver: Value, name_sym: *Symbo
     var singleton_entry = entry;
     singleton_entry.visibility = .public;
     singleton_class.module.methods.put(name_sym, singleton_entry) catch return error.Fatal;
+    vm.bumpMethodStateVersion();
 }
 
 pub fn register(vm: *VM) !void {
@@ -435,6 +437,7 @@ pub fn builtinModuleDefineMethod(vm: *VM, receiver: Value, args: []Value, block:
         .visibility = effective_visibility,
     };
     methods.put(name_sym, entry) catch return error.Fatal;
+    vm.bumpMethodStateVersion();
 
     if (module_function_mode and receiver.data == .module) {
         try copyMethodToModuleSingleton(vm, receiver, name_sym, entry);
@@ -470,6 +473,7 @@ pub fn builtinModuleAttrReader(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
 
         result_array.elements.append(vm.gc_allocator, Value{ .data = .{ .symbol = method_sym } }) catch return error.Fatal;
     }
+    vm.bumpMethodStateVersion();
 
     return Value{ .data = .{ .array = result_array } };
 }
@@ -502,6 +506,7 @@ pub fn builtinModuleAttrWriter(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
 
         result_array.elements.append(vm.gc_allocator, Value{ .data = .{ .symbol = method_sym } }) catch return error.Fatal;
     }
+    vm.bumpMethodStateVersion();
 
     return Value{ .data = .{ .array = result_array } };
 }
@@ -544,6 +549,7 @@ pub fn builtinModuleAttrAccessor(vm: *VM, receiver: Value, args: []Value, _: ?Bl
         result_array.elements.append(vm.gc_allocator, Value{ .data = .{ .symbol = reader_sym } }) catch return error.Fatal;
         result_array.elements.append(vm.gc_allocator, Value{ .data = .{ .symbol = writer_sym } }) catch return error.Fatal;
     }
+    vm.bumpMethodStateVersion();
 
     return Value{ .data = .{ .array = result_array } };
 }
@@ -570,6 +576,7 @@ pub fn builtinModuleAliasMethod(vm: *VM, receiver: Value, args: []Value, _: ?Blo
         // For modules, look up in own methods only
         if (getOwnDefinedMethodEntry(methods, old_name_sym)) |entry| {
             methods.put(new_name_sym, entry) catch return error.Fatal;
+            vm.bumpMethodStateVersion();
             return Value{ .data = .{ .symbol = new_name_sym } };
         }
         const msg = std.fmt.allocPrint(
@@ -587,6 +594,7 @@ pub fn builtinModuleAliasMethod(vm: *VM, receiver: Value, args: []Value, _: ?Blo
     // Look up old method via lookupMethod (walks inheritance chain)
     if (vm.lookupMethod(lookup_class, old_name_sym)) |resolved| {
         methods.put(new_name_sym, resolved.entry) catch return error.Fatal;
+        vm.bumpMethodStateVersion();
     } else {
         const msg = std.fmt.allocPrint(
             vm.gc_allocator,
@@ -630,6 +638,7 @@ pub fn builtinModuleUndefMethod(vm: *VM, receiver: Value, args: []Value, _: ?Blo
 
         methods.put(name_sym, .{ .method = .{ .undefined = {} } }) catch return error.Fatal;
     }
+    vm.bumpMethodStateVersion();
 
     return receiver;
 }
@@ -657,6 +666,7 @@ pub fn builtinModuleRemoveMethod(vm: *VM, receiver: Value, args: []Value, _: ?Bl
         };
         _ = methods.remove(name_sym);
     }
+    vm.bumpMethodStateVersion();
 
     return receiver;
 }
@@ -704,6 +714,7 @@ pub fn builtinModuleFunction(vm: *VM, receiver: Value, args: []Value, _: ?Block)
         private_entry.visibility = .private;
         methods.put(name_sym, private_entry) catch return error.Fatal;
     }
+    vm.bumpMethodStateVersion();
 
     if (args.len == 1) {
         return args[0];

@@ -514,6 +514,7 @@ pub fn builtinKernelDefineSingletonMethod(vm: *VM, receiver: Value, args: []Valu
     singleton_class.module.methods.put(name_sym, .{
         .method = .{ .proc = proc_val.data.proc },
     }) catch return error.Fatal;
+    vm.bumpMethodStateVersion();
 
     return Value{ .data = .{ .symbol = name_sym } };
 }

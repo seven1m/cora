@@ -2,6 +2,8 @@ const std = @import("std");
 const bytecode = @import("bytecode.zig");
 
 const LexicalScope = @import("value.zig").LexicalScope;
+const MethodEntry = @import("value.zig").MethodEntry;
+const ClassObject = @import("value.zig").ClassObject;
 const SymbolObject = @import("value.zig").SymbolObject;
 
 pub const ChunkId = u16;
@@ -56,6 +58,14 @@ pub const OptionalKeyword = struct {
     default_chunk_id: ChunkId, // Chunk with default expression
 };
 
+pub const CallSiteCache = struct {
+    receiver_class: *ClassObject,
+    method_name: *SymbolObject,
+    method_state_version: u64,
+    owner_class: *ClassObject,
+    entry: MethodEntry,
+};
+
 pub const Chunk = struct {
     code: std.ArrayList(u8) = .empty,
     constants: std.ArrayList(Constant) = .empty,
@@ -78,6 +88,7 @@ pub const Chunk = struct {
     no_keywords: bool = false, // True if **nil specified
     keyword_metadata: std.ArrayList(KeywordMetadata) = .empty,
     block_param_index: ?u8 = null, // Local slot for &block parameter
+    callsite_caches: std.ArrayList(?CallSiteCache) = .empty,
 
     pub fn init(allocator: std.mem.Allocator, name: []const u8) Chunk {
         return Chunk{
@@ -125,6 +136,7 @@ pub const Chunk = struct {
             kw_meta.names.deinit(self.allocator);
         }
         self.keyword_metadata.deinit(self.allocator);
+        self.callsite_caches.deinit(self.allocator);
     }
 
     /// Add a constant to the constant pool, return its index

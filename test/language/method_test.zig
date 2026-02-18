@@ -103,3 +103,98 @@ test "TypeError raised for wrong receiver type" {
     try std.testing.expectEqual(error.UnhandledException, result.err.?);
     // Note: Exception is raised, but message content checking depends on implementation
 }
+
+test "method call reflects method redefinition after prior call" {
+    const result = try evalCode(
+        \\class C
+        \\  def value
+        \\    1
+        \\  end
+        \\end
+        \\obj = C.new
+        \\first = obj.value
+        \\class C
+        \\  def value
+        \\    2
+        \\  end
+        \\end
+        \\[first, obj.value]
+    );
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(@as(i64, 1), result.data.array.elements.items[0].data.integer);
+    try std.testing.expectEqual(@as(i64, 2), result.data.array.elements.items[1].data.integer);
+}
+
+test "method call reflects include after prior call" {
+    const result = try evalCode(
+        \\class Base
+        \\  def value
+        \\    1
+        \\  end
+        \\end
+        \\module Mixin
+        \\  def value
+        \\    2
+        \\  end
+        \\end
+        \\class C < Base
+        \\end
+        \\obj = C.new
+        \\first = obj.value
+        \\class C
+        \\  include Mixin
+        \\end
+        \\[first, obj.value]
+    );
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(@as(i64, 1), result.data.array.elements.items[0].data.integer);
+    try std.testing.expectEqual(@as(i64, 2), result.data.array.elements.items[1].data.integer);
+}
+
+test "method call reflects prepend after prior call" {
+    const result = try evalCode(
+        \\module Prep
+        \\  def value
+        \\    2
+        \\  end
+        \\end
+        \\class C
+        \\  def value
+        \\    1
+        \\  end
+        \\end
+        \\obj = C.new
+        \\first = obj.value
+        \\class C
+        \\  prepend Prep
+        \\end
+        \\[first, obj.value]
+    );
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(@as(i64, 1), result.data.array.elements.items[0].data.integer);
+    try std.testing.expectEqual(@as(i64, 2), result.data.array.elements.items[1].data.integer);
+}
+
+test "method call reflects visibility change after prior call" {
+    const result = try evalCode(
+        \\class C
+        \\  def value
+        \\    1
+        \\  end
+        \\end
+        \\obj = C.new
+        \\first = obj.value
+        \\class C
+        \\  private :value
+        \\end
+        \\second = begin
+        \\  obj.value
+        \\rescue NoMethodError
+        \\  :no_method
+        \\end
+        \\[first, second]
+    );
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(@as(i64, 1), result.data.array.elements.items[0].data.integer);
+    try std.testing.expectEqualStrings("no_method", result.data.array.elements.items[1].data.symbol.name);
+}

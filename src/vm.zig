@@ -22,6 +22,7 @@ const StringObject = value.StringObject;
 const SymbolObject = value.SymbolObject;
 const MatchDataObject = value.MatchDataObject;
 const Chunk = chunk.Chunk;
+const CallSiteCache = chunk.CallSiteCache;
 
 extern "c" fn getenv(name: [*:0]const u8) ?[*:0]u8;
 extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
@@ -244,6 +245,7 @@ pub const VM = struct {
     current_loading_file: ?[]const u8 = null,
     env_object: ?Value = null,
     next_chunk_id: u16 = 1,
+    method_state_version: u64 = 1,
 
     // Buffered writers for production
     stdout_buffer: [4096]u8 = undefined,
@@ -316,6 +318,7 @@ pub const VM = struct {
             .zio_coroutines = .empty,
             .gc_thread_handle = null,
             .main_stack_base = null,
+            .method_state_version = 1,
         };
     }
 
@@ -1070,6 +1073,75 @@ pub const VM = struct {
         };
     }
 
+    pub fn bumpMethodStateVersion(self: *VM) void {
+        self.method_state_version +%= 1;
+        if (self.method_state_version == 0) {
+            self.method_state_version = 1;
+            var chunk_iter = self.program.method_chunks.valueIterator();
+            while (chunk_iter.next()) |chunk_ptr| {
+                for (chunk_ptr.*.callsite_caches.items) |*entry| {
+                    entry.* = null;
+                }
+            }
+            for (self.program.main_chunk.callsite_caches.items) |*entry| {
+                entry.* = null;
+            }
+        }
+    }
+
+    fn getDispatchClass(self: *VM, receiver: Value) *ClassObject {
+        if (self.getObjectPointer(receiver)) |obj_ptr| {
+            if (obj_ptr.singleton_class) |singleton_class| {
+                return singleton_class;
+            }
+        }
+        return self.getClass(receiver);
+    }
+
+    fn resolveMethodForCallSite(
+        self: *VM,
+        frame: *CallFrame,
+        instruction_start_ip: usize,
+        receiver: Value,
+        method_name_sym: *SymbolObject,
+    ) VMError!?ResolvedMethod {
+        if (frame.chunk.callsite_caches.items.len < frame.chunk.code.items.len) {
+            const old_len = frame.chunk.callsite_caches.items.len;
+            frame.chunk.callsite_caches.ensureTotalCapacity(frame.chunk.allocator, frame.chunk.code.items.len) catch return error.Fatal;
+            frame.chunk.callsite_caches.items.len = frame.chunk.code.items.len;
+            for (old_len..frame.chunk.callsite_caches.items.len) |idx| {
+                frame.chunk.callsite_caches.items[idx] = null;
+            }
+        }
+
+        const dispatch_class = self.getDispatchClass(receiver);
+        const cache_slot = &frame.chunk.callsite_caches.items[instruction_start_ip];
+        if (cache_slot.*) |cached| {
+            if (cached.receiver_class == dispatch_class and
+                cached.method_name == method_name_sym and
+                cached.method_state_version == self.method_state_version)
+            {
+                return .{
+                    .name = method_name_sym,
+                    .owner_class = cached.owner_class,
+                    .entry = cached.entry,
+                };
+            }
+        }
+
+        const resolved = try self.findMethod(receiver, method_name_sym);
+        if (resolved) |r| {
+            cache_slot.* = CallSiteCache{
+                .receiver_class = dispatch_class,
+                .method_name = method_name_sym,
+                .method_state_version = self.method_state_version,
+                .owner_class = r.owner_class,
+                .entry = r.entry,
+            };
+        }
+        return resolved;
+    }
+
     fn push(self: *VM, val: Value) VMError!void {
         if (self.stack.items.len >= self.stack.capacity) {
             const exc = try self.createException(self.fiber_error_class, "fiber stack overflow");
@@ -1778,7 +1850,7 @@ pub const VM = struct {
                 // Pop receiver
                 const receiver = self.pop();
 
-                try self.callMethodHelperForExecuteInstruction(method_name_sym, call_style, receiver, &args, positional_argc, null, 0, null, block);
+                try self.callMethodHelperForExecuteInstruction(frame, instruction_start_ip, method_name_sym, call_style, receiver, &args, positional_argc, null, 0, null, block);
             },
 
             .CALL_KW => {
@@ -1841,7 +1913,7 @@ pub const VM = struct {
                 const kw_metadata = frame.chunk.keyword_metadata.items[kw_metadata_idx];
 
                 // Call method with keywords
-                try self.callMethodHelperForExecuteInstruction(method_name_sym, call_style, receiver, &args, positional_argc, &kw_values, kwargc, kw_metadata, block);
+                try self.callMethodHelperForExecuteInstruction(frame, instruction_start_ip, method_name_sym, call_style, receiver, &args, positional_argc, &kw_values, kwargc, kw_metadata, block);
             },
 
             .RETURN => {
@@ -2023,6 +2095,7 @@ pub const VM = struct {
                         .visibility = visibility,
                     };
                     methods.put(method_name_sym, entry) catch return error.Fatal;
+                    self.bumpMethodStateVersion();
 
                     // module_function mode (set by Module#module_function with no args)
                     // also creates a public singleton method copy on the defining module.
@@ -2031,6 +2104,7 @@ pub const VM = struct {
                         var singleton_entry = entry;
                         singleton_entry.visibility = .public;
                         singleton_class.module.methods.put(method_name_sym, singleton_entry) catch return error.Fatal;
+                        self.bumpMethodStateVersion();
                     }
                 } else {
                     std.debug.print("Error: undefined method chunk {d}\n", .{chunk_idx});
@@ -2065,6 +2139,7 @@ pub const VM = struct {
                         .method = .{ .chunk = chunk_ptr },
                         .visibility = visibility,
                     }) catch return error.Fatal;
+                    self.bumpMethodStateVersion();
                 } else {
                     return error.Fatal;
                 }
@@ -2272,6 +2347,7 @@ pub const VM = struct {
                 // Look up the old method
                 if (methods.get(old_name_sym)) |entry| {
                     methods.put(new_name_sym, entry) catch return error.Fatal;
+                    self.bumpMethodStateVersion();
                 } else {
                     const msg = std.fmt.allocPrint(
                         self.gc_allocator,
@@ -2957,6 +3033,8 @@ pub const VM = struct {
     /// Don't call this from anywhere else because stack unwinding won't work right.
     fn callMethodHelperForExecuteInstruction(
         self: *VM,
+        frame: *CallFrame,
+        instruction_start_ip: usize,
         method_name_sym: *SymbolObject,
         call_style: ReceiverCallStyle,
         receiver: Value,
@@ -2967,7 +3045,7 @@ pub const VM = struct {
         kw_metadata: ?chunk.KeywordMetadata,
         block: ?Block,
     ) VMError!void {
-        const resolved = try self.findMethod(receiver, method_name_sym);
+        const resolved = try self.resolveMethodForCallSite(frame, instruction_start_ip, receiver, method_name_sym);
         const should_fallback = resolved == null or !self.isMethodCallable(receiver, resolved.?, call_style);
         if (should_fallback) {
             const kw_hash = if (kwargc > 0) try self.createHashFromKeywords(kw_values.?[0..kwargc], kw_metadata.?) else null;
@@ -3004,24 +3082,24 @@ pub const VM = struct {
                 try self.pushFrame(method_chunk, receiver, block);
 
                 // Copy positional arguments with rest parameter handling
-                const frame = self.currentFrame();
-                try self.copyArgumentsWithRestParam(method_chunk, frame.ep, args[0..argc], .strict);
+                const callee_frame = self.currentFrame();
+                try self.copyArgumentsWithRestParam(method_chunk, callee_frame.ep, args[0..argc], .strict);
 
                 if (has_keywords) {
                     // Bind keyword arguments
-                    try self.bindKeywordArguments(method_chunk, frame.ep, kw_values.?[0..kwargc], kw_metadata.?, caller_chunk.?);
+                    try self.bindKeywordArguments(method_chunk, callee_frame.ep, kw_values.?[0..kwargc], kw_metadata.?, caller_chunk.?);
                 } else {
                     // Bind optional keywords with defaults and keyword rest (when no keywords provided)
                     if (method_chunk.optional_keywords.items.len > 0 or method_chunk.keyword_rest_index != null) {
                         // FIRST: Update variables length to cover all keyword slots
-                        var max_slot: u8 = frame.ep.variables_len;
+                        var max_slot: u8 = callee_frame.ep.variables_len;
                         for (method_chunk.optional_keywords.items) |opt_kw| {
                             if (opt_kw.param_slot >= max_slot) max_slot = opt_kw.param_slot + 1;
                         }
                         if (method_chunk.keyword_rest_index) |rest_idx| {
                             if (rest_idx >= max_slot) max_slot = rest_idx + 1;
                         }
-                        frame.ep.variables_len = max_slot;
+                        callee_frame.ep.variables_len = max_slot;
 
                         // THEN: Bind optional keywords with their defaults
                         for (method_chunk.optional_keywords.items) |opt_kw| {
@@ -3735,10 +3813,12 @@ pub const VM = struct {
 
     pub fn includeModule(self: *VM, class: *value.ClassObject, module: *value.ModuleObject) VMError!void {
         class.included_modules.append(self.gc_allocator, module) catch return error.Fatal;
+        self.bumpMethodStateVersion();
     }
 
     pub fn prependModule(self: *VM, class: *value.ClassObject, module: *value.ModuleObject) VMError!void {
         class.prepended_modules.append(self.gc_allocator, module) catch return error.Fatal;
+        self.bumpMethodStateVersion();
     }
 
     pub fn requireArgCount(self: *VM, args: []Value, expected: usize) VMError!void {
