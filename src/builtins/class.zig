@@ -12,6 +12,9 @@ pub fn register(vm: *VM) !void {
     const class_class_val = Value{ .data = .{ .class = vm.class_class } };
     const class_singleton = try vm.getOrCreateSingletonClass(class_class_val);
     try class_singleton.module.methods.put(class_new_sym, .{ .method = .{ .builtin = &builtinClassNew } });
+
+    const class_equal_sym = try vm.intern("==");
+    try vm.class_class.module.methods.put(class_equal_sym, .{ .method = .{ .builtin = &builtinClassEqual } });
 }
 
 pub fn builtinClassNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -53,4 +56,12 @@ pub fn builtinClassNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
     }
 
     return class_val;
+}
+
+pub fn builtinClassEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (receiver.data != .class or args[0].data != .class) {
+        return Value.boolean(false);
+    }
+    return Value.boolean(receiver.data.class == args[0].data.class);
 }
