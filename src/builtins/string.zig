@@ -73,6 +73,9 @@ pub fn register(vm: *VM) !void {
     const string_empty_sym = try vm.intern("empty?");
     try vm.string_class.module.methods.put(string_empty_sym, .{ .method = .{ .builtin = &builtinStringEmpty } });
 
+    const string_ord_sym = try vm.intern("ord");
+    try vm.string_class.module.methods.put(string_ord_sym, .{ .method = .{ .builtin = &builtinStringOrd } });
+
     const string_bracket_sym = try vm.intern("[]");
     try vm.string_class.module.methods.put(string_bracket_sym, .{ .method = .{ .builtin = &builtinStringBracket } });
 
@@ -361,6 +364,24 @@ pub fn builtinStringLength(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 pub fn builtinStringEmpty(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return Value.boolean(receiver.data.string.str.len == 0);
+}
+
+pub fn builtinStringOrd(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const string_obj = receiver.data.string;
+    if (string_obj.str.len == 0) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "empty string", .{});
+    }
+
+    var index: usize = 0;
+    const parsed = string_obj.encoding.nextCodepoint(string_obj.str, &index);
+    if (parsed.len == 0) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "empty string", .{});
+    }
+    if (!parsed.valid) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "invalid byte sequence in {s}", .{string_obj.encoding.name()});
+    }
+    return Value.integer(parsed.codepoint);
 }
 
 pub fn builtinStringBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
