@@ -103,6 +103,9 @@ pub fn register(vm: *VM) !void {
     const string_prepend_sym = try vm.intern("prepend");
     try vm.string_class.module.methods.put(string_prepend_sym, .{ .method = .{ .builtin = &builtinStringPrepend } });
 
+    const string_split_sym = try vm.intern("split");
+    try vm.string_class.module.methods.put(string_split_sym, .{ .method = .{ .builtin = &builtinStringSplit } });
+
     const string_upcase_sym = try vm.intern("upcase");
     try vm.string_class.module.methods.put(string_upcase_sym, .{ .method = .{ .builtin = &builtinStringUpcase } });
 
@@ -647,6 +650,47 @@ pub fn builtinStringPrepend(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 
     string_obj.str = result;
     return receiver;
+}
+
+pub fn builtinStringSplit(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 2);
+    const string_obj = receiver.data.string;
+    const source = string_obj.str;
+    const array_obj = try vm.createArray();
+
+    if (args.len == 0 or args[0].data == .nil) {
+        var i: usize = 0;
+        while (i < source.len) {
+            while (i < source.len and std.ascii.isWhitespace(source[i])) : (i += 1) {}
+            if (i >= source.len) break;
+            const start = i;
+            while (i < source.len and !std.ascii.isWhitespace(source[i])) : (i += 1) {}
+            const token = source[start..i];
+            const token_val = try vm.newStringWithEncoding(token, false, string_obj.encoding);
+            array_obj.elements.append(vm.gc_allocator, token_val) catch return error.Fatal;
+        }
+        return Value{ .data = .{ .array = array_obj } };
+    }
+
+    const sep = try args[0].coerceToStr(vm, "no implicit conversion into String");
+    if (sep.len == 0) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "empty separator", .{});
+    }
+
+    var start: usize = 0;
+    while (true) {
+        const idx_opt = std.mem.indexOfPos(u8, source, start, sep);
+        if (idx_opt == null) break;
+        const idx = idx_opt.?;
+        const part = source[start..idx];
+        const part_val = try vm.newStringWithEncoding(part, false, string_obj.encoding);
+        array_obj.elements.append(vm.gc_allocator, part_val) catch return error.Fatal;
+        start = idx + sep.len;
+    }
+    const tail = source[start..];
+    const tail_val = try vm.newStringWithEncoding(tail, false, string_obj.encoding);
+    array_obj.elements.append(vm.gc_allocator, tail_val) catch return error.Fatal;
+    return Value{ .data = .{ .array = array_obj } };
 }
 
 pub fn builtinStringUpcase(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
