@@ -616,6 +616,7 @@ pub const VM = struct {
         const us_ascii_const_sym = try self.intern("US_ASCII");
         const shift_jis_const_sym = try self.intern("SHIFT_JIS");
         const sjis_const_sym = try self.intern("SJIS");
+        const euc_jp_const_sym = try self.intern("EUC_JP");
         const iso_8859_15_const_sym = try self.intern("ISO_8859_15");
         const utf7_const_sym = try self.intern("UTF_7");
         const utf16_const_sym = try self.intern("UTF_16");
@@ -644,6 +645,7 @@ pub const VM = struct {
         self.encoding_class.module.constants.put(us_ascii_const_sym, us_ascii_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(shift_jis_const_sym, shift_jis_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(sjis_const_sym, shift_jis_val) catch return error.Fatal;
+        self.encoding_class.module.constants.put(euc_jp_const_sym, shift_jis_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(iso_8859_15_const_sym, iso_8859_15_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(utf7_const_sym, utf7_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(utf16_const_sym, utf16_val) catch return error.Fatal;

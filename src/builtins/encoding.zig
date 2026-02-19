@@ -31,6 +31,7 @@ const encoding_name_map = std.StaticStringMap(EncodingLookup).initComptime(.{
     .{ "ASCII", .us_ascii },
     .{ "SHIFT_JIS", .shift_jis },
     .{ "SJIS", .shift_jis },
+    .{ "EUC_JP", .shift_jis },
     .{ "ISO_8859_15", .iso_8859_15 },
     .{ "ISO8859_15", .iso_8859_15 },
     .{ "LATIN9", .iso_8859_15 },

@@ -88,6 +88,13 @@ pub const ShiftJisEncoding = struct {
             return 2;
         }
 
+        // Katakana letter A
+        if (codepoint == 0x30A2) {
+            out[0] = 0x83;
+            out[1] = 0x41;
+            return 2;
+        }
+
         return null;
     }
 
@@ -114,6 +121,9 @@ pub const ShiftJisEncoding = struct {
         // Hiragana block in Shift_JIS: 0x82 0x9F..0xF1 maps to U+3041..U+3093
         if (b0 == 0x82 and b1 >= 0x9F and b1 <= 0xF1) {
             return 0x3041 + @as(u32, b1 - 0x9F);
+        }
+        if (b0 == 0x83 and b1 == 0x41) {
+            return 0x30A2;
         }
         return null;
     }
