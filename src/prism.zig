@@ -259,6 +259,43 @@ pub const Parser = struct {
         try writer.print("{s}", .{output});
     }
 
+    pub fn integerNodeToDecimalString(self: *Parser, node: *IntegerNode) ![]u8 {
+        var buffer: c.pm_buffer_t = undefined;
+        if (!c.pm_buffer_init(&buffer)) {
+            return error.OutOfMemory;
+        }
+        defer c.pm_buffer_free(&buffer);
+
+        c.pm_integer_string(&buffer, &node.value);
+        const out = @as([*]u8, @ptrCast(buffer.value))[0..buffer.length];
+        return self.allocator.dupe(u8, out);
+    }
+
+    pub fn integerNodeToI64(_: *Parser, node: *IntegerNode) ?i64 {
+        const pm_int = node.value;
+        const mag: u64 = if (pm_int.length == 0) blk: {
+            break :blk pm_int.value;
+        } else blk: {
+            if (pm_int.length > 2) return null;
+            const words = pm_int.values orelse return null;
+            var m: u64 = words[0];
+            if (pm_int.length == 2) {
+                m |= (@as(u64, words[1]) << 32);
+            }
+            break :blk m;
+        };
+
+        if (pm_int.negative) {
+            const min_abs: u64 = (@as(u64, 1) << 63);
+            if (mag > min_abs) return null;
+            if (mag == min_abs) return std.math.minInt(i64);
+            return -@as(i64, @intCast(mag));
+        }
+
+        if (mag > std.math.maxInt(i64)) return null;
+        return @intCast(mag);
+    }
+
     /// Convert a raw C node pointer to a typed Node
     pub fn asNode(self: *Parser, raw: *RawNode) !Node {
         const node_type = raw.type;

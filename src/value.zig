@@ -44,6 +44,11 @@ pub const StringObject = struct {
     validity: ValidityState = .unknown,
 };
 
+pub const BigIntegerObject = struct {
+    object: Object,
+    value: std.math.big.int.Managed,
+};
+
 pub const EncodingObject = struct {
     object: Object,
     encoding: Encoding,
@@ -196,6 +201,7 @@ pub const Value = struct {
         instance: *Object,
         integer: i64,
         float: f64,
+        big_integer: *BigIntegerObject,
         module: *ModuleObject,
         nil: void,
         match_data: *MatchDataObject,
@@ -223,6 +229,7 @@ pub const Value = struct {
             .array => |a| (a.object.flags & Object.FROZEN_FLAG) != 0,
             .exception => |e| (e.object.flags & Object.FROZEN_FLAG) != 0,
             .fiber => |f| (f.object.flags & Object.FROZEN_FLAG) != 0,
+            .big_integer => |b| (b.object.flags & Object.FROZEN_FLAG) != 0,
             .hash => |h| (h.object.flags & Object.FROZEN_FLAG) != 0,
             .io => |io| (io.object.flags & Object.FROZEN_FLAG) != 0,
             .match_data => |m| (m.object.flags & Object.FROZEN_FLAG) != 0,
@@ -241,6 +248,7 @@ pub const Value = struct {
             .array => |a| a.object.flags |= Object.FROZEN_FLAG,
             .exception => |e| e.object.flags |= Object.FROZEN_FLAG,
             .fiber => |f| f.object.flags |= Object.FROZEN_FLAG,
+            .big_integer => |b| b.object.flags |= Object.FROZEN_FLAG,
             .hash => |h| h.object.flags |= Object.FROZEN_FLAG,
             .io => |io| io.object.flags |= Object.FROZEN_FLAG,
             .match_data => |m| m.object.flags |= Object.FROZEN_FLAG,
@@ -262,6 +270,7 @@ pub const Value = struct {
             .array => |a| &a.object,
             .exception => |e| &e.object,
             .fiber => |f| &f.object,
+            .big_integer => |b| &b.object,
             .hash => |h| &h.object,
             .io => |io| &io.object,
             .match_data => |m| &m.object,
@@ -301,6 +310,7 @@ pub const Value = struct {
             .float => |f| @bitCast(f),
             .boolean => |b| if (b) 20 else 0,
             .nil => 8,
+            .big_integer => |b| @intCast(@intFromPtr(b)),
             else => unreachable,
         };
     }
@@ -352,6 +362,45 @@ pub const Value = struct {
         return coerced;
     }
 
+    pub fn ensureInteger(self: Value, vm_instance: *VM) VMError!void {
+        switch (self.data) {
+            .integer, .big_integer => {},
+            else => return vm_instance.raiseExceptionFmt(vm_instance.type_error_class, "argument is not numeric", .{}),
+        }
+    }
+
+    pub fn integerToF64(self: Value) f64 {
+        return switch (self.data) {
+            .integer => |i| @as(f64, @floatFromInt(i)),
+            .big_integer => |b| b.value.toFloat(f64, .nearest_even)[0],
+            else => unreachable,
+        };
+    }
+
+    pub fn integerToI64(self: Value, vm_instance: *VM, range_error_msg: []const u8) VMError!i64 {
+        return switch (self.data) {
+            .integer => |i| i,
+            .big_integer => |b| b.value.toInt(i64) catch return vm_instance.raiseExceptionFmt(vm_instance.range_error_class, "{s}", .{range_error_msg}),
+            else => unreachable,
+        };
+    }
+
+    pub fn integerArgToI64(self: Value, vm_instance: *VM, type_error_msg: []const u8, range_error_msg: []const u8) VMError!i64 {
+        return switch (self.data) {
+            .integer => |i| i,
+            .big_integer => |b| b.value.toInt(i64) catch return vm_instance.raiseExceptionFmt(vm_instance.range_error_class, "{s}", .{range_error_msg}),
+            else => vm_instance.raiseExceptionFmt(vm_instance.type_error_class, "{s}", .{type_error_msg}),
+        };
+    }
+
+    pub fn integerToManaged(self: Value, vm_instance: *VM) VMError!std.math.big.int.Managed {
+        return switch (self.data) {
+            .integer => |i| std.math.big.int.Managed.initSet(vm_instance.allocator, i) catch return error.Fatal,
+            .big_integer => |b| b.value.cloneWithDifferentAllocator(vm_instance.allocator) catch return error.Fatal,
+            else => unreachable,
+        };
+    }
+
     pub fn coerceToStr(self: Value, vm_instance: *VM, type_error_message: []const u8) VMError![]const u8 {
         const coerced = try self.coerceToStringValue(vm_instance, type_error_message);
         return coerced.data.string.str;
@@ -372,6 +421,7 @@ pub const Value = struct {
         switch (self.data) {
             .integer => |i| try writer.print("{d}", .{i}),
             .float => |f| try writer.print("{d}", .{f}),
+            .big_integer => |b| try writer.print("{}", .{b.value}),
             .string => |s| try writer.print("\"{s}\"", .{s}),
             .symbol => |s| try writer.print(":{s}", .{s.name}),
             .boolean => |b| try writer.print("{s}", .{if (b) "true" else "false"}),
@@ -418,6 +468,16 @@ pub const Value = struct {
         return switch (self.data) {
             .integer => |i| @bitCast(@as(i64, i)),
             .float => |f| @bitCast(f),
+            .big_integer => |b| blk: {
+                if (b.value.toInt(i64)) |i| {
+                    break :blk @bitCast(i);
+                } else |_| {
+                    const limbs = b.value.toConst().limbs;
+                    const limbs_bytes = std.mem.sliceAsBytes(limbs);
+                    const sign_seed: u64 = if (b.value.isPositive()) 0 else 1;
+                    break :blk std.hash.Wyhash.hash(sign_seed, limbs_bytes);
+                }
+            },
             .boolean => |b| if (b) 1 else 0,
             .nil => 0,
             .symbol => |s| @intFromPtr(s),
@@ -436,6 +496,7 @@ pub const Value = struct {
         return switch (self.data) {
             .integer => |i| i == other.data.integer,
             .float => |f| f == other.data.float,
+            .big_integer => |b| b.value.eql(other.data.big_integer.value),
             .boolean => |b| b == other.data.boolean,
             .nil => true,
             .symbol => |s| s == other.data.symbol,

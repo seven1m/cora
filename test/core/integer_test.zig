@@ -215,3 +215,24 @@ test "Integer#chr range errors" {
     try std.testing.expectEqual(error.UnhandledException, result.err.?);
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, "RangeError") != null);
 }
+
+test "large integer literals and overflow promote to big integer" {
+    var result = try evalCode("18446744073709551616");
+    try std.testing.expect(result.data == .big_integer);
+
+    result = try evalCode("9223372036854775807 + 1");
+    try std.testing.expect(result.data == .big_integer);
+
+    result = try evalCode("(9223372036854775807 + 1).to_s");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "9223372036854775808", result.data.string.str);
+}
+
+test "Integer division/modulo overflow promote" {
+    var result = try evalCode("(-9223372036854775808) / -1");
+    try std.testing.expect(result.data == .big_integer);
+
+    result = try evalCode("(-9223372036854775808) % -1");
+    try std.testing.expect(result.data == .integer);
+    try std.testing.expectEqual(@as(i64, 0), result.data.integer);
+}

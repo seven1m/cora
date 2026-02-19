@@ -8,18 +8,141 @@ const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
 const Block = vm_mod.Block;
 const Value = value.Value;
+const BigInt = std.math.big.int.Managed;
 
 const NumericArg = union(enum) {
-    integer: i64,
+    integer: Value,
     float: f64,
 };
 
 fn coerceNumericArg(vm: *VM, arg: Value) VMError!NumericArg {
     return switch (arg.data) {
-        .integer => |i| .{ .integer = i },
+        .integer, .big_integer => .{ .integer = arg },
         .float => |f| .{ .float = f },
         else => vm.raiseExceptionFmt(vm.type_error_class, "argument is not numeric", .{}),
     };
+}
+
+inline fn addIntegers(vm: *VM, lhs: Value, rhs: Value) VMError!Value {
+    if (lhs.data == .integer and rhs.data == .integer) {
+        const li = lhs.data.integer;
+        const ri = rhs.data.integer;
+        if (std.math.add(i64, li, ri)) |sum| {
+            return Value.integer(sum);
+        } else |_| {}
+    }
+
+    var a = try lhs.integerToManaged(vm);
+    defer a.deinit();
+    var b = try rhs.integerToManaged(vm);
+    defer b.deinit();
+    var out = BigInt.init(vm.allocator) catch return error.Fatal;
+    defer out.deinit();
+    out.add(&a, &b) catch return error.Fatal;
+    return vm.valueFromManagedInteger(&out);
+}
+
+inline fn subIntegers(vm: *VM, lhs: Value, rhs: Value) VMError!Value {
+    if (lhs.data == .integer and rhs.data == .integer) {
+        const li = lhs.data.integer;
+        const ri = rhs.data.integer;
+        if (std.math.sub(i64, li, ri)) |diff| {
+            return Value.integer(diff);
+        } else |_| {}
+    }
+
+    var a = try lhs.integerToManaged(vm);
+    defer a.deinit();
+    var b = try rhs.integerToManaged(vm);
+    defer b.deinit();
+    var out = BigInt.init(vm.allocator) catch return error.Fatal;
+    defer out.deinit();
+    out.sub(&a, &b) catch return error.Fatal;
+    return vm.valueFromManagedInteger(&out);
+}
+
+inline fn mulIntegers(vm: *VM, lhs: Value, rhs: Value) VMError!Value {
+    if (lhs.data == .integer and rhs.data == .integer) {
+        const li = lhs.data.integer;
+        const ri = rhs.data.integer;
+        if (std.math.mul(i64, li, ri)) |prod| {
+            return Value.integer(prod);
+        } else |_| {}
+    }
+
+    var a = try lhs.integerToManaged(vm);
+    defer a.deinit();
+    var b = try rhs.integerToManaged(vm);
+    defer b.deinit();
+    var out = BigInt.init(vm.allocator) catch return error.Fatal;
+    defer out.deinit();
+    out.mul(&a, &b) catch return error.Fatal;
+    return vm.valueFromManagedInteger(&out);
+}
+
+inline fn divFloorIntegers(vm: *VM, lhs: Value, rhs: Value) VMError!Value {
+    if (lhs.data == .integer and rhs.data == .integer) {
+        const li = lhs.data.integer;
+        const ri = rhs.data.integer;
+        if (std.math.divFloor(i64, li, ri)) |quot| {
+            return Value.integer(quot);
+        } else |_| {}
+    }
+
+    var a = try lhs.integerToManaged(vm);
+    defer a.deinit();
+    var b = try rhs.integerToManaged(vm);
+    defer b.deinit();
+
+    var quot = BigInt.init(vm.allocator) catch return error.Fatal;
+    defer quot.deinit();
+    var rem = BigInt.init(vm.allocator) catch return error.Fatal;
+    defer rem.deinit();
+
+    quot.divFloor(&rem, &a, &b) catch return error.Fatal;
+    return vm.valueFromManagedInteger(&quot);
+}
+
+inline fn modIntegers(vm: *VM, lhs: Value, rhs: Value) VMError!Value {
+    if (lhs.data == .integer and rhs.data == .integer) {
+        const li = lhs.data.integer;
+        const ri = rhs.data.integer;
+        const maybe_q = std.math.divFloor(i64, li, ri);
+        if (maybe_q) |q| {
+            const prod = std.math.mul(i64, q, ri) catch {
+                return vm.raiseExceptionFmt(vm.range_error_class, "integer overflow", .{});
+            };
+            const result = std.math.sub(i64, li, prod) catch {
+                return vm.raiseExceptionFmt(vm.range_error_class, "integer overflow", .{});
+            };
+            return Value.integer(result);
+        } else |_| {}
+    }
+
+    var a = try lhs.integerToManaged(vm);
+    defer a.deinit();
+    var b = try rhs.integerToManaged(vm);
+    defer b.deinit();
+
+    var quot = BigInt.init(vm.allocator) catch return error.Fatal;
+    defer quot.deinit();
+    var rem = BigInt.init(vm.allocator) catch return error.Fatal;
+    defer rem.deinit();
+
+    quot.divFloor(&rem, &a, &b) catch return error.Fatal;
+    return vm.valueFromManagedInteger(&rem);
+}
+
+inline fn compareIntegers(vm: *VM, lhs: Value, rhs: Value) VMError!std.math.Order {
+    if (lhs.data == .integer and rhs.data == .integer) {
+        return std.math.order(lhs.data.integer, rhs.data.integer);
+    }
+
+    var a = try lhs.integerToManaged(vm);
+    defer a.deinit();
+    var b = try rhs.integerToManaged(vm);
+    defer b.deinit();
+    return BigInt.order(a, b);
 }
 
 pub fn register(vm: *VM) !void {
@@ -83,163 +206,203 @@ pub fn register(vm: *VM) !void {
 
 pub fn builtinIntegerPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const lhs = receiver.data.integer;
+    try receiver.ensureInteger(vm);
     const rhs = try coerceNumericArg(vm, args[0]);
     return switch (rhs) {
-        .integer => |i| Value.integer(lhs + i),
-        .float => |f| Value.float(@as(f64, @floatFromInt(lhs)) + f),
+        .integer => |i| try addIntegers(vm, receiver, i),
+        .float => |f| Value.float(receiver.integerToF64() + f),
     };
 }
 
 pub fn builtinIntegerMinus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const lhs = receiver.data.integer;
+    try receiver.ensureInteger(vm);
     const rhs = try coerceNumericArg(vm, args[0]);
     return switch (rhs) {
-        .integer => |i| Value.integer(lhs - i),
-        .float => |f| Value.float(@as(f64, @floatFromInt(lhs)) - f),
+        .integer => |i| try subIntegers(vm, receiver, i),
+        .float => |f| Value.float(receiver.integerToF64() - f),
     };
 }
 
 pub fn builtinIntegerMultiply(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const lhs = receiver.data.integer;
+    try receiver.ensureInteger(vm);
     const rhs = try coerceNumericArg(vm, args[0]);
     return switch (rhs) {
-        .integer => |i| Value.integer(lhs * i),
-        .float => |f| Value.float(@as(f64, @floatFromInt(lhs)) * f),
+        .integer => |i| try mulIntegers(vm, receiver, i),
+        .float => |f| Value.float(receiver.integerToF64() * f),
     };
 }
 
 pub fn builtinIntegerDivide(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const lhs = receiver.data.integer;
+    try receiver.ensureInteger(vm);
     const rhs = try coerceNumericArg(vm, args[0]);
     return switch (rhs) {
         .integer => |divisor| blk: {
-            if (divisor == 0) {
+            const divisor_is_zero = switch (divisor.data) {
+                .integer => divisor.data.integer == 0,
+                .big_integer => divisor.data.big_integer.value.eqlZero(),
+                else => unreachable,
+            };
+            if (divisor_is_zero) {
                 return vm.raiseExceptionFmt(vm.zero_division_error_class, "divided by 0", .{});
             }
-            const result = std.math.divFloor(i64, lhs, divisor) catch {
-                return vm.raiseExceptionFmt(vm.range_error_class, "integer overflow", .{});
-            };
-            break :blk Value.integer(result);
+            break :blk try divFloorIntegers(vm, receiver, divisor);
         },
-        .float => |divisor| Value.float(@as(f64, @floatFromInt(lhs)) / divisor),
+        .float => |divisor| Value.float(receiver.integerToF64() / divisor),
     };
 }
 
 pub fn builtinIntegerModulo(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireSingleArg(args, .integer, "Integer");
-    const divisor = args[0].data.integer;
-    if (divisor == 0) {
+    try vm.requireArgCount(args, 1);
+    try receiver.ensureInteger(vm);
+    try args[0].ensureInteger(vm);
+
+    const divisor_is_zero = switch (args[0].data) {
+        .integer => args[0].data.integer == 0,
+        .big_integer => args[0].data.big_integer.value.eqlZero(),
+        else => unreachable,
+    };
+    if (divisor_is_zero) {
         return vm.raiseExceptionFmt(vm.zero_division_error_class, "divided by 0", .{});
     }
-    const quotient = std.math.divFloor(i64, receiver.data.integer, divisor) catch {
-        return vm.raiseExceptionFmt(vm.range_error_class, "integer overflow", .{});
-    };
-    const prod = std.math.mul(i64, quotient, divisor) catch {
-        return vm.raiseExceptionFmt(vm.range_error_class, "integer overflow", .{});
-    };
-    const result = std.math.sub(i64, receiver.data.integer, prod) catch {
-        return vm.raiseExceptionFmt(vm.range_error_class, "integer overflow", .{});
-    };
-    return Value.integer(result);
+
+    return modIntegers(vm, receiver, args[0]);
 }
 
 pub fn builtinIntegerPower(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireSingleArg(args, .integer, "Integer");
-    const exponent = args[0].data.integer;
-    if (exponent < 0) {
+    try vm.requireArgCount(args, 1);
+    try receiver.ensureInteger(vm);
+    try args[0].ensureInteger(vm);
+
+    const exponent_i64 = try args[0].integerToI64(vm, "exponent is too large");
+    if (exponent_i64 < 0) {
         return vm.raiseExceptionFmt(vm.argument_error_class, "negative exponent not supported", .{});
     }
+    if (exponent_i64 > std.math.maxInt(u32)) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "exponent is too large", .{});
+    }
 
-    var result: i64 = 1;
-    var base = receiver.data.integer;
-    var exp: u64 = @intCast(exponent);
+    const exponent_u32: u32 = @intCast(exponent_i64);
 
-    while (exp > 0) : (exp >>= 1) {
-        if ((exp & 1) == 1) {
-            result = std.math.mul(i64, result, base) catch {
-                return vm.raiseExceptionFmt(vm.range_error_class, "integer overflow", .{});
-            };
+    if (receiver.data == .integer) {
+        var result: i64 = 1;
+        var base = receiver.data.integer;
+        var exp: u64 = exponent_u32;
+        var overflowed = false;
+
+        while (exp > 0) : (exp >>= 1) {
+            if ((exp & 1) == 1) {
+                result = std.math.mul(i64, result, base) catch {
+                    overflowed = true;
+                    break;
+                };
+            }
+            if (exp > 1) {
+                base = std.math.mul(i64, base, base) catch {
+                    overflowed = true;
+                    break;
+                };
+            }
         }
-        if (exp > 1) {
-            base = std.math.mul(i64, base, base) catch {
-                return vm.raiseExceptionFmt(vm.range_error_class, "integer overflow", .{});
-            };
+
+        if (!overflowed) {
+            return Value.integer(result);
         }
     }
 
-    return Value.integer(result);
+    var a = try receiver.integerToManaged(vm);
+    defer a.deinit();
+    var out = BigInt.init(vm.allocator) catch return error.Fatal;
+    defer out.deinit();
+    out.pow(&a, exponent_u32) catch return error.Fatal;
+    return vm.valueFromManagedInteger(&out);
 }
 
 pub fn builtinIntegerEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const lhs = receiver.data.integer;
+    try receiver.ensureInteger(vm);
+
     const rhs = coerceNumericArg(vm, args[0]) catch return Value.boolean(false);
     return switch (rhs) {
-        .integer => |i| Value.boolean(lhs == i),
-        .float => |f| Value.boolean(@as(f64, @floatFromInt(lhs)) == f),
+        .float => |f| Value.boolean(receiver.integerToF64() == f),
+        .integer => |i| Value.boolean((try compareIntegers(vm, receiver, i)) == .eq),
     };
 }
 
 pub fn builtinIntegerLessThan(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const lhs = receiver.data.integer;
+    try receiver.ensureInteger(vm);
     const rhs = try coerceNumericArg(vm, args[0]);
     return switch (rhs) {
-        .integer => |i| Value.boolean(lhs < i),
-        .float => |f| Value.boolean(@as(f64, @floatFromInt(lhs)) < f),
+        .integer => |i| Value.boolean((try compareIntegers(vm, receiver, i)) == .lt),
+        .float => |f| Value.boolean(receiver.integerToF64() < f),
     };
 }
 
 pub fn builtinIntegerLessThanOrEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const lhs = receiver.data.integer;
+    try receiver.ensureInteger(vm);
     const rhs = try coerceNumericArg(vm, args[0]);
     return switch (rhs) {
-        .integer => |i| Value.boolean(lhs <= i),
-        .float => |f| Value.boolean(@as(f64, @floatFromInt(lhs)) <= f),
+        .integer => |i| {
+            const ord = try compareIntegers(vm, receiver, i);
+            return Value.boolean(ord == .lt or ord == .eq);
+        },
+        .float => |f| Value.boolean(receiver.integerToF64() <= f),
     };
 }
 
 pub fn builtinIntegerGreaterThan(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const lhs = receiver.data.integer;
+    try receiver.ensureInteger(vm);
     const rhs = try coerceNumericArg(vm, args[0]);
     return switch (rhs) {
-        .integer => |i| Value.boolean(lhs > i),
-        .float => |f| Value.boolean(@as(f64, @floatFromInt(lhs)) > f),
+        .integer => |i| Value.boolean((try compareIntegers(vm, receiver, i)) == .gt),
+        .float => |f| Value.boolean(receiver.integerToF64() > f),
     };
 }
 
 pub fn builtinIntegerGreaterThanOrEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const lhs = receiver.data.integer;
+    try receiver.ensureInteger(vm);
     const rhs = try coerceNumericArg(vm, args[0]);
     return switch (rhs) {
-        .integer => |i| Value.boolean(lhs >= i),
-        .float => |f| Value.boolean(@as(f64, @floatFromInt(lhs)) >= f),
+        .integer => |i| {
+            const ord = try compareIntegers(vm, receiver, i);
+            return Value.boolean(ord == .gt or ord == .eq);
+        },
+        .float => |f| Value.boolean(receiver.integerToF64() >= f),
     };
 }
 
 pub fn builtinIntegerToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
+    try receiver.ensureInteger(vm);
 
     var base: u8 = 10;
     if (args.len == 1) {
-        try vm.requireArgType(args, 0, .integer, "Integer");
-        const base_int = args[0].data.integer;
-        if (base_int < 2 or base_int > 36) {
-            return vm.raiseExceptionFmt(vm.argument_error_class, "invalid radix {d}", .{base_int});
+        const base_i64 = try args[0].integerArgToI64(vm, "argument is not an Integer", "base is too large");
+        if (base_i64 < 2 or base_i64 > 36) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "invalid radix {d}", .{base_i64});
         }
-        base = @intCast(base_int);
+        base = @intCast(base_i64);
     }
 
-    var buf: [65]u8 = undefined;
-    const str = integerToBaseString(receiver.data.integer, base, &buf);
-    return try vm.newStringWithEncoding(str, false, .{ .us_ascii = .{} });
+    switch (receiver.data) {
+        .integer => |i| {
+            var buf: [65]u8 = undefined;
+            const str = integerToBaseString(i, base, &buf);
+            return try vm.newStringWithEncoding(str, false, .{ .us_ascii = .{} });
+        },
+        .big_integer => |b| {
+            const str = b.value.toString(vm.allocator, base, .lower) catch return error.Fatal;
+            defer vm.allocator.free(str);
+            return try vm.newStringWithEncoding(str, false, .{ .us_ascii = .{} });
+        },
+        else => unreachable,
+    }
 }
 
 pub fn builtinIntegerInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -248,29 +411,54 @@ pub fn builtinIntegerInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block)
 
 pub fn builtinIntegerAbs(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const val = receiver.data.integer;
-    if (val >= 0) return Value.integer(val);
-    const abs_val = std.math.negate(val) catch {
-        return vm.raiseExceptionFmt(vm.range_error_class, "integer overflow", .{});
+    try receiver.ensureInteger(vm);
+
+    return switch (receiver.data) {
+        .integer => |val| {
+            if (val >= 0) return Value.integer(val);
+            if (std.math.negate(val)) |abs_val| {
+                return Value.integer(abs_val);
+            } else |_| {
+                return vm.newBigIntegerFromDecimalString("9223372036854775808");
+            }
+        },
+        .big_integer => |b| {
+            if (b.value.isPositive()) return receiver;
+            var temp = b.value.cloneWithDifferentAllocator(vm.allocator) catch return error.Fatal;
+            defer temp.deinit();
+            temp.abs();
+            return vm.valueFromManagedInteger(&temp);
+        },
+        else => unreachable,
     };
-    return Value.integer(abs_val);
 }
 
 pub fn builtinIntegerNegative(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    return Value.boolean(receiver.data.integer < 0);
+    try receiver.ensureInteger(vm);
+    return switch (receiver.data) {
+        .integer => |i| Value.boolean(i < 0),
+        .big_integer => |b| Value.boolean(!b.value.isPositive() and !b.value.eqlZero()),
+        else => unreachable,
+    };
 }
 
 pub fn builtinIntegerZero(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    return Value.boolean(receiver.data.integer == 0);
+    try receiver.ensureInteger(vm);
+    return switch (receiver.data) {
+        .integer => |i| Value.boolean(i == 0),
+        .big_integer => |b| Value.boolean(b.value.eqlZero()),
+        else => unreachable,
+    };
 }
 
 pub fn builtinIntegerTimes(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
+    try receiver.ensureInteger(vm);
     const blk = try vm.requireBlock(block);
 
-    const count = receiver.data.integer;
+    const count = try receiver.integerToI64(vm, "integer is too large to iterate");
     if (count <= 0) {
         return receiver;
     }
@@ -289,11 +477,12 @@ pub fn builtinIntegerTimes(vm: *VM, receiver: Value, args: []Value, block: ?Bloc
 
 pub fn builtinIntegerUpto(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
+    try receiver.ensureInteger(vm);
+    try args[0].ensureInteger(vm);
     const blk = try vm.requireBlock(block);
-    try vm.requireArgType(args, 0, .integer, "Integer");
 
-    const start = receiver.data.integer;
-    const stop = args[0].data.integer;
+    const start = try receiver.integerToI64(vm, "integer is too large to iterate");
+    const stop = try args[0].integerToI64(vm, "integer is too large to iterate");
     if (start > stop) {
         return receiver;
     }
@@ -312,8 +501,9 @@ pub fn builtinIntegerUpto(vm: *VM, receiver: Value, args: []Value, block: ?Block
 
 pub fn builtinIntegerChr(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
+    try receiver.ensureInteger(vm);
 
-    const codepoint = receiver.data.integer;
+    const codepoint = try receiver.integerToI64(vm, "integer is too large to convert into char");
     if (codepoint < 0) {
         return vm.raiseExceptionFmt(vm.range_error_class, "{d} out of char range", .{codepoint});
     }

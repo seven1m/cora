@@ -19,6 +19,7 @@ const LexicalScope = value.LexicalScope;
 const MethodEntry = value.MethodEntry;
 const MethodVisibility = value.MethodVisibility;
 const StringObject = value.StringObject;
+const BigIntegerObject = value.BigIntegerObject;
 const SymbolObject = value.SymbolObject;
 const MatchDataObject = value.MatchDataObject;
 const Chunk = chunk.Chunk;
@@ -1102,6 +1103,7 @@ pub const VM = struct {
     fn constantToValue(self: *VM, constant: chunk.Constant) VMError!Value {
         return switch (constant) {
             .integer => |i| Value.integer(i),
+            .big_integer_decimal => |digits| try self.newBigIntegerFromDecimalString(digits),
             .float => |f| Value.float(f),
             .string => |s| try self.newString(s, false),
             .symbol => |s| Value{ .data = .{ .symbol = s } },
@@ -3217,6 +3219,7 @@ pub const VM = struct {
             .class => |c| return c.module.object.class.?,
             .proc => |p| return p.object.class.?,
             .fiber => |f| return f.object.class.?,
+            .big_integer => |b| return b.object.class.?,
             .io => |io| return io.object.class.?,
             .match_data => |m| return m.object.class.?,
             .range => |r| return r.object.class.?,
@@ -3243,6 +3246,7 @@ pub const VM = struct {
             .string => |s| &s.object,
             .symbol => |s| &s.object,
             .array => |a| &a.object,
+            .big_integer => |b| &b.object,
             .hash => |h| &h.object,
             .io => |io| &io.object,
             .match_data => |m| &m.object,
@@ -3442,6 +3446,7 @@ pub const VM = struct {
             .io => self.io_class,
             .match_data => self.match_data_class,
             .regexp => self.regexp_class,
+            .big_integer => self.integer_class,
             .integer, .float, .boolean, .nil => unreachable, // Primitives can't have singleton classes
         };
 
@@ -3802,6 +3807,46 @@ pub const VM = struct {
 
     pub fn newString(self: *VM, str: []const u8, frozen: bool) VMError!Value {
         return self.newStringWithEncoding(str, frozen, .{ .utf8 = .{} });
+    }
+
+    pub fn newBigIntegerFromI64(self: *VM, n: i64) VMError!Value {
+        const managed = std.math.big.int.Managed.initSet(self.gc_allocator, n) catch return error.Fatal;
+        const big_obj = self.gc_allocator.create(BigIntegerObject) catch return error.Fatal;
+        big_obj.* = .{
+            .object = .{ .flags = 0, .class = self.integer_class, .singleton_class = null, .instance_variables = null },
+            .value = managed,
+        };
+        return .{ .data = .{ .big_integer = big_obj } };
+    }
+
+    pub fn newBigIntegerFromDecimalString(self: *VM, digits: []const u8) VMError!Value {
+        var managed = std.math.big.int.Managed.init(self.gc_allocator) catch return error.Fatal;
+        managed.setString(10, digits) catch return error.Fatal;
+
+        if (managed.toInt(i64)) |small| {
+            return Value.integer(small);
+        } else |_| {}
+
+        const big_obj = self.gc_allocator.create(BigIntegerObject) catch return error.Fatal;
+        big_obj.* = .{
+            .object = .{ .flags = 0, .class = self.integer_class, .singleton_class = null, .instance_variables = null },
+            .value = managed,
+        };
+        return .{ .data = .{ .big_integer = big_obj } };
+    }
+
+    pub fn valueFromManagedInteger(self: *VM, managed: *const std.math.big.int.Managed) VMError!Value {
+        if (managed.toInt(i64)) |small| {
+            return Value.integer(small);
+        } else |_| {}
+
+        const stored = managed.cloneWithDifferentAllocator(self.gc_allocator) catch return error.Fatal;
+        const big_obj = self.gc_allocator.create(BigIntegerObject) catch return error.Fatal;
+        big_obj.* = .{
+            .object = .{ .flags = 0, .class = self.integer_class, .singleton_class = null, .instance_variables = null },
+            .value = stored,
+        };
+        return .{ .data = .{ .big_integer = big_obj } };
     }
 
     pub fn newStringWithEncoding(self: *VM, str: []const u8, frozen: bool, encoding: enc.Encoding) VMError!Value {

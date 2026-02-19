@@ -17,6 +17,7 @@ pub const MAX_CHUNK_ID: ChunkId = BLOCK_ARG_ON_STACK - 1;
 
 pub const Constant = union(enum) {
     integer: i64,
+    big_integer_decimal: []const u8,
     float: f64,
     string: []const u8,
     symbol: *SymbolObject,
@@ -108,6 +109,7 @@ pub const Chunk = struct {
         for (self.constants.items) |constant| {
             switch (constant) {
                 .string => |s| self.allocator.free(s),
+                .big_integer_decimal => |digits| self.allocator.free(digits),
                 else => {},
             }
         }
@@ -143,6 +145,7 @@ pub const Chunk = struct {
     pub fn addConstant(self: *Chunk, const_val: Constant) !u32 {
         const owned = switch (const_val) {
             .string => |s| Constant{ .string = try self.allocator.dupe(u8, s) },
+            .big_integer_decimal => |s| Constant{ .big_integer_decimal = try self.allocator.dupe(u8, s) },
             else => const_val,
         };
         try self.constants.append(self.allocator, owned);
@@ -374,6 +377,7 @@ pub const Chunk = struct {
                 try writer.print("{d}=", .{i});
                 switch (constant) {
                     .integer => |int_val| try writer.print("{d}", .{int_val}),
+                    .big_integer_decimal => |digits| try writer.print("{s}", .{digits}),
                     .float => |float_val| try writer.print("{d}", .{float_val}),
                     .string => |str| try writer.print("\"{s}\"", .{str}),
                     .symbol => |sym| try writer.print(":\"{s}\"(interned)", .{sym.name}),
@@ -424,6 +428,7 @@ pub const Chunk = struct {
                     const constant = self.constants.items[idx];
                     switch (constant) {
                         .integer => |i| try writer.print(" ({d})", .{i}),
+                        .big_integer_decimal => |digits| try writer.print(" ({s})", .{digits}),
                         .float => |f| try writer.print(" ({d})", .{f}),
                         .string => |s| try writer.print(" (\"{s}\")", .{s}),
                         .symbol => |s| try writer.print(" (:{s})", .{s.name}),

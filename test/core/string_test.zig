@@ -210,6 +210,13 @@ test "String#to_i" {
     result = try evalCode("'ff'.to_i(16)");
     try std.testing.expect(result.data == .integer);
     try std.testing.expectEqual(@as(i64, 255), result.data.integer);
+
+    result = try evalCode("'18446744073709551616'.to_i");
+    try std.testing.expect(result.data == .big_integer);
+
+    result = try evalCode("'1_2_3_4'.to_i");
+    try std.testing.expect(result.data == .integer);
+    try std.testing.expectEqual(@as(i64, 1234), result.data.integer);
 }
 
 test "String#to_sym" {

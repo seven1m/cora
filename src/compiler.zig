@@ -139,11 +139,13 @@ pub const Compiler = struct {
             },
 
             .integer => |int_node| {
-                var int_val: i64 = @intCast(int_node.value.value);
-                if (int_node.value.negative) {
-                    int_val = -int_val;
-                }
-                const idx = try self.current_chunk.addConstant(.{ .integer = int_val });
+                const idx = if (self.parser.integerNodeToI64(int_node)) |int_val|
+                    try self.current_chunk.addConstant(.{ .integer = int_val })
+                else blk: {
+                    const decimal = try self.parser.integerNodeToDecimalString(int_node);
+                    defer self.allocator.free(decimal);
+                    break :blk try self.current_chunk.addConstant(.{ .big_integer_decimal = decimal });
+                };
                 try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(idx), line);
             },
 

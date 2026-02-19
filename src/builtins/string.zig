@@ -10,6 +10,7 @@ const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
 const Block = vm_mod.Block;
 const Value = value.Value;
+const BigInt = std.math.big.int.Managed;
 
 pub fn register(vm: *VM) !void {
     const initialize_sym = try vm.intern("initialize");
@@ -519,8 +520,7 @@ pub fn builtinStringToI(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
 
     var base: u8 = 10;
     if (args.len == 1) {
-        try vm.requireArgType(args, 0, .integer, "Integer");
-        const base_int = args[0].data.integer;
+        const base_int = try args[0].integerArgToI64(vm, "argument is not an Integer", "base is too large");
         if (base_int < 2 or base_int > 36) {
             return vm.raiseExceptionFmt(vm.argument_error_class, "invalid radix {d}", .{base_int});
         }
@@ -538,26 +538,66 @@ pub fn builtinStringToI(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     }
 
     var saw_digit = false;
+    var prev_was_digit = false;
     var value_i64: i64 = 0;
+    var value_big: ?BigInt = null;
+    defer if (value_big) |*b| b.deinit();
+    var base_big = BigInt.initSet(vm.allocator, @as(i64, base)) catch return error.Fatal;
+    defer base_big.deinit();
+
     while (i < s.len) : (i += 1) {
+        if (s[i] == '_') {
+            const next_digit = if (i + 1 < s.len) digitValue(s[i + 1]) else null;
+            if (saw_digit and prev_was_digit and next_digit != null and next_digit.? < base) {
+                prev_was_digit = false;
+                continue;
+            }
+            break;
+        }
+
         const d = digitValue(s[i]) orelse break;
         if (d >= base) break;
         saw_digit = true;
-        value_i64 = std.math.mul(i64, value_i64, base) catch {
-            return vm.raiseExceptionFmt(vm.range_error_class, "integer overflow", .{});
-        };
-        value_i64 = std.math.add(i64, value_i64, @as(i64, d)) catch {
-            return vm.raiseExceptionFmt(vm.range_error_class, "integer overflow", .{});
-        };
+        prev_was_digit = true;
+
+        if (value_big) |*big| {
+            big.mul(big, &base_big) catch return error.Fatal;
+            big.addScalar(big, d) catch return error.Fatal;
+            continue;
+        }
+
+        const mul = std.math.mul(i64, value_i64, base);
+        if (mul) |multiplied| {
+            const add = std.math.add(i64, multiplied, @as(i64, d));
+            if (add) |added| {
+                value_i64 = added;
+                continue;
+            } else |_| {}
+        } else |_| {}
+
+        value_big = BigInt.initSet(vm.allocator, value_i64) catch return error.Fatal;
+        value_big.?.mul(&value_big.?, &base_big) catch return error.Fatal;
+        value_big.?.addScalar(&value_big.?, d) catch return error.Fatal;
     }
 
     if (!saw_digit) return Value.integer(0);
-    if (negative) {
-        value_i64 = std.math.negate(value_i64) catch {
-            return vm.raiseExceptionFmt(vm.range_error_class, "integer overflow", .{});
-        };
+
+    if (value_big) |*big| {
+        if (negative and !big.eqlZero()) {
+            big.negate();
+        }
+        return vm.valueFromManagedInteger(big);
     }
-    return Value.integer(value_i64);
+
+    if (!negative) return Value.integer(value_i64);
+    if (std.math.negate(value_i64)) |neg| {
+        return Value.integer(neg);
+    } else |_| {
+        var promoted = BigInt.initSet(vm.allocator, value_i64) catch return error.Fatal;
+        defer promoted.deinit();
+        promoted.negate();
+        return vm.valueFromManagedInteger(&promoted);
+    }
 }
 
 pub fn builtinStringToSym(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
