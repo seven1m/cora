@@ -533,6 +533,12 @@ pub const Chunk = struct {
                 next_ip += 3;
             },
 
+            .DEF_SINGLETON_CLASS => {
+                const body_chunk_id = bytecode.readU16(self.code.items, next_ip);
+                try writer.print("DEF_SINGLETON_CLASS {d} (chunk {d})\n", .{ body_chunk_id, body_chunk_id });
+                next_ip += 2;
+            },
+
             .DEF_METHOD => {
                 const name_idx = bytecode.readU16(self.code.items, next_ip);
                 const chunk_idx = bytecode.readU8(self.code.items, next_ip + 2);

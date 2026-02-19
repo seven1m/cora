@@ -43,6 +43,7 @@ pub const OpCode = enum(u8) {
     // OOP
     DEF_MODULE, // Operands: u16 (name index), u16 (body chunk id)
     DEF_CLASS, // Operands: u16 (name index), u16 (body chunk id)
+    DEF_SINGLETON_CLASS, // Operand: u16 (body chunk id) - receiver on stack
     DEF_METHOD, // Operands: u16 (name index), u16 (chunk index)
     DEF_SINGLETON_METHOD, // Operands: u16 (name index), u16 (chunk index) - receiver on stack
     PUSH_SELF, // No operands
@@ -155,6 +156,7 @@ pub fn opcodeName(op: OpCode) []const u8 {
         .RETURN => "RETURN",
         .DEF_MODULE => "DEF_MODULE",
         .DEF_CLASS => "DEF_CLASS",
+        .DEF_SINGLETON_CLASS => "DEF_SINGLETON_CLASS",
         .DEF_METHOD => "DEF_METHOD",
         .PUSH_ARRAY => "PUSH_ARRAY",
         .ARRAY_APPEND => "ARRAY_APPEND",
@@ -214,7 +216,7 @@ pub const Instruction = struct {
         try writer.print("{s}", .{opcodeName(self.op)});
 
         switch (self.op) {
-            .PUSH_CONST, .PUSH_SYMBOL, .GET_CONST, .GET_CONST_OR_NIL, .SET_CONST, .GET_CONST_PATH, .DEF_MODULE, .DEF_CLASS, .DEF_METHOD, .GET_GLOBAL, .GET_BACKREF, .SET_GLOBAL, .GET_CVAR, .GET_CVAR_OR_NIL, .SET_CVAR, .GET_IVAR, .SET_IVAR => {
+            .PUSH_CONST, .PUSH_SYMBOL, .GET_CONST, .GET_CONST_OR_NIL, .SET_CONST, .GET_CONST_PATH, .DEF_MODULE, .DEF_CLASS, .DEF_SINGLETON_CLASS, .DEF_METHOD, .GET_GLOBAL, .GET_BACKREF, .SET_GLOBAL, .GET_CVAR, .GET_CVAR_OR_NIL, .SET_CVAR, .GET_IVAR, .SET_IVAR => {
                 try writer.print(" {d}", .{self.bx});
             },
             .CALL => {

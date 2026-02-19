@@ -2149,6 +2149,32 @@ pub const VM = struct {
                 }
             },
 
+            .DEF_SINGLETON_CLASS => {
+                const body_chunk_id = self.readU16();
+                const receiver = self.pop();
+
+                const singleton_val = switch (receiver.data) {
+                    .nil => Value{ .data = .{ .class = self.nil_class } },
+                    .boolean => |b| Value{ .data = .{ .class = if (b) self.true_class else self.false_class } },
+                    .integer, .float, .symbol => return self.raiseExceptionFmt(self.type_error_class, "can't define singleton", .{}),
+                    else => blk: {
+                        const singleton_class = try self.getOrCreateSingletonClass(receiver);
+                        break :blk Value{ .data = .{ .class = singleton_class } };
+                    },
+                };
+
+                if (body_chunk_id != 0) {
+                    if (self.program.method_chunks.get(body_chunk_id)) |body_chunk_ptr| {
+                        body_chunk_ptr.lexical_scope = try self.createLexicalScope(singleton_val, self.current_lexical_scope);
+                        try self.pushFrame(body_chunk_ptr, singleton_val, null);
+                    } else {
+                        return error.Fatal;
+                    }
+                } else {
+                    try self.push(Value.nil());
+                }
+            },
+
             .DEF_METHOD => {
                 const name_idx = self.readU16();
                 const chunk_idx = self.readByte();

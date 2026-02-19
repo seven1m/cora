@@ -403,6 +403,10 @@ pub const Compiler = struct {
                 try self.compileClass(class_node, line);
             },
 
+            .singleton_class => |singleton_class_node| {
+                try self.compileSingletonClass(singleton_class_node, line);
+            },
+
             .def => |def_node| {
                 try self.compileMethod(def_node, line);
             },
@@ -1866,6 +1870,36 @@ pub const Compiler = struct {
 
         // Emit DEF_CLASS instruction with the body chunk ID
         try self.current_chunk.emitOpU16U16(.DEF_CLASS, @intCast(idx), body_chunk_id, line);
+    }
+
+    fn compileSingletonClass(self: *Compiler, singleton_class_node: *prism.SingletonClassNode, line: u32) anyerror!void {
+        // Compile receiver expression first; VM pops it in DEF_SINGLETON_CLASS.
+        const expression_node = try self.parser.asNode(@ptrCast(singleton_class_node.expression));
+        try self.compileNode(expression_node, line);
+
+        // Create a separate chunk for the singleton class body.
+        var body_chunk_id: u16 = 0;
+        const body_chunk_ptr = try self.allocator.create(Chunk);
+        body_chunk_ptr.* = Chunk.init(self.allocator, "<singleton class>");
+        body_chunk_ptr.source_file = self.parser.source_file;
+        body_chunk_id = try self.nextChunkId();
+        body_chunk_ptr.chunk_id = body_chunk_id;
+        try self.method_chunks.put(body_chunk_id, body_chunk_ptr);
+
+        const saved_chunk = self.current_chunk;
+        self.current_chunk = body_chunk_ptr;
+
+        // Ruby-compatible singleton-class body result is the last expression.
+        if (singleton_class_node.body) |body_ptr| {
+            const body_node = try self.parser.asNode(@ptrCast(body_ptr));
+            try self.compileNode(body_node, line);
+        } else {
+            try self.current_chunk.emitOp(.PUSH_NIL, line);
+        }
+        try self.current_chunk.emitOpU8(.RETURN, 0, line);
+
+        self.current_chunk = saved_chunk;
+        try self.current_chunk.emitOpU16(.DEF_SINGLETON_CLASS, body_chunk_id, line);
     }
 
     /// Process optional parameters and compile their default expressions

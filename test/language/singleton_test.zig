@@ -222,3 +222,72 @@ test "singleton_class.remove_method raises NameError for inherited-only method" 
     try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "NameError") != null);
     try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "greet") != null);
 }
+
+test "class << self defines class methods" {
+    const result = try evalCode(
+        \\class ClassSingletonSpec
+        \\  class << self
+        \\    def value
+        \\      42
+        \\    end
+        \\  end
+        \\end
+        \\ClassSingletonSpec.value
+    );
+    try std.testing.expectEqual(@as(i64, 42), result.data.integer);
+}
+
+test "class << object returns last expression and defines singleton method" {
+    const result = try evalCode(
+        \\obj = Object.new
+        \\ret = class << obj
+        \\  def greet
+        \\    "hi"
+        \\  end
+        \\  123
+        \\end
+        \\[ret, obj.greet]
+    );
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(@as(i64, 123), result.data.array.elements.items[0].data.integer);
+    try std.testing.expectEqualSlices(u8, "hi", result.data.array.elements.items[1].data.string.str);
+}
+
+test "class << literals true false nil uses singleton class self" {
+    const result = try evalCode(
+        \\[
+        \\  (class << true; self; end) == TrueClass,
+        \\  (class << false; self; end) == FalseClass,
+        \\  (class << nil; self; end) == NilClass
+        \\]
+    );
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(true, result.data.array.elements.items[0].data.boolean);
+    try std.testing.expectEqual(true, result.data.array.elements.items[1].data.boolean);
+    try std.testing.expectEqual(true, result.data.array.elements.items[2].data.boolean);
+}
+
+test "class << object constant namespace stays on singleton class" {
+    const result = try evalCode(
+        \\obj = Object.new
+        \\class << obj
+        \\  CONST = 7
+        \\end
+        \\[class << obj; CONST; end, begin obj.class::CONST; false; rescue NameError; true; end]
+    );
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(@as(i64, 7), result.data.array.elements.items[0].data.integer);
+    try std.testing.expectEqual(true, result.data.array.elements.items[1].data.boolean);
+}
+
+test "class << non-singleton-capable literals raises TypeError" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+    var bad = evalCodeWithOutput("class << 1; self; end", &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.UnhandledException, bad.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "TypeError") != null);
+
+    bad = evalCodeWithOutput("class << :symbol; self; end", &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.UnhandledException, bad.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "TypeError") != null);
+}
