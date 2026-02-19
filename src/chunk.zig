@@ -417,7 +417,7 @@ pub const Chunk = struct {
                 next_ip += 1;
             },
 
-            .PUSH_CONST, .PUSH_SYMBOL, .GET_CONST, .GET_CONST_OR_NIL, .SET_CONST, .GET_CONST_PATH, .GET_GLOBAL, .SET_GLOBAL, .GET_CVAR, .GET_CVAR_OR_NIL, .SET_CVAR, .GET_IVAR, .SET_IVAR => {
+            .PUSH_CONST, .PUSH_SYMBOL, .GET_CONST, .GET_CONST_OR_NIL, .SET_CONST, .GET_CONST_PATH, .GET_GLOBAL, .GET_BACKREF, .SET_GLOBAL, .GET_CVAR, .GET_CVAR_OR_NIL, .SET_CVAR, .GET_IVAR, .SET_IVAR => {
                 const idx = bytecode.readU16(self.code.items, next_ip);
                 try writer.print("{s} {d}", .{ bytecode.opcodeName(op), idx });
                 if (idx < self.constants.items.len) {

@@ -543,6 +543,14 @@ pub const Compiler = struct {
                 try self.current_chunk.emitOpU16(.GET_GLOBAL, @intCast(name_idx), line);
             },
 
+            .numbered_reference_read => |numbered_read| {
+                if (numbered_read.number == 0) {
+                    try self.current_chunk.emitOp(.PUSH_NIL, line);
+                } else {
+                    try self.current_chunk.emitOpU16(.GET_BACKREF, @intCast(numbered_read.number), line);
+                }
+            },
+
             .global_variable_write => |var_write| {
                 const var_name = try self.parser.getConstantName(@intCast(var_write.name));
                 const value_node = try self.parser.asNode(@ptrCast(var_write.value));

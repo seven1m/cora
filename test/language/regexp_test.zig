@@ -112,9 +112,13 @@ test "Regexp =~ clears backref globals on no match" {
     const result = try evalCode(
         \\ /a/ =~ "cat"
         \\ /z/ =~ "cat"
-        \\ $~
+        \\ [$~, $1]
     );
-    try std.testing.expect(result.data == .nil);
+    try std.testing.expect(result.data == .array);
+    const items = result.data.array.elements.items;
+    try std.testing.expectEqual(@as(usize, 2), items.len);
+    try std.testing.expect(items[0].data == .nil);
+    try std.testing.expect(items[1].data == .nil);
 }
 
 test "String =~ Regexp returns match index" {
@@ -140,6 +144,9 @@ test "Regexp =~ sets backref globals and MatchData methods" {
         \\ /(a)(b)?/ =~ "cabt"
         \\ [
         \\   $~.instance_of?(MatchData),
+        \\   $1,
+        \\   $2,
+        \\   $3,
         \\   Regexp.last_match(0),
         \\   Regexp.last_match(1),
         \\   $~.captures,
@@ -151,18 +158,23 @@ test "Regexp =~ sets backref globals and MatchData methods" {
     );
     try std.testing.expect(result.data == .array);
     const items = result.data.array.elements.items;
-    try std.testing.expectEqual(@as(usize, 8), items.len);
+    try std.testing.expectEqual(@as(usize, 11), items.len);
     try std.testing.expect(items[0].data == .boolean and items[0].data.boolean);
     try std.testing.expect(items[1].data == .string);
-    try std.testing.expectEqualStrings("ab", items[1].data.string.str);
+    try std.testing.expectEqualStrings("a", items[1].data.string.str);
     try std.testing.expect(items[2].data == .string);
-    try std.testing.expectEqualStrings("a", items[2].data.string.str);
-    try std.testing.expect(items[3].data == .array);
-    try std.testing.expect(items[4].data == .array);
-    try std.testing.expect(items[5].data == .integer);
-    try std.testing.expectEqual(@as(i64, 3), items[5].data.integer);
-    try std.testing.expect(items[6].data == .string);
-    try std.testing.expectEqualStrings("c", items[6].data.string.str);
-    try std.testing.expect(items[7].data == .string);
-    try std.testing.expectEqualStrings("t", items[7].data.string.str);
+    try std.testing.expectEqualStrings("b", items[2].data.string.str);
+    try std.testing.expect(items[3].data == .nil);
+    try std.testing.expect(items[4].data == .string);
+    try std.testing.expectEqualStrings("ab", items[4].data.string.str);
+    try std.testing.expect(items[5].data == .string);
+    try std.testing.expectEqualStrings("a", items[5].data.string.str);
+    try std.testing.expect(items[6].data == .array);
+    try std.testing.expect(items[7].data == .array);
+    try std.testing.expect(items[8].data == .integer);
+    try std.testing.expectEqual(@as(i64, 3), items[8].data.integer);
+    try std.testing.expect(items[9].data == .string);
+    try std.testing.expectEqualStrings("c", items[9].data.string.str);
+    try std.testing.expect(items[10].data == .string);
+    try std.testing.expectEqualStrings("t", items[10].data.string.str);
 }

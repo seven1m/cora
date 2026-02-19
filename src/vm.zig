@@ -1643,6 +1643,11 @@ pub const VM = struct {
                 try self.push(global_val);
             },
 
+            .GET_BACKREF => {
+                const capture_index = self.readU16();
+                try self.push(self.getBackrefCapture(capture_index));
+            },
+
             .SET_GLOBAL => {
                 const name_idx = self.readU16();
                 const name_val = self.currentChunk().constants.items[name_idx];
@@ -3770,6 +3775,16 @@ pub const VM = struct {
         }
         const owned_name = self.allocator.dupe(u8, name) catch return error.Fatal;
         self.globals.put(owned_name, val) catch return error.Fatal;
+    }
+
+    fn getBackrefCapture(self: *VM, capture_index: u16) Value {
+        if (capture_index == 0) return Value.nil();
+        const match_val = self.globals.get("$~") orelse return Value.nil();
+        if (match_val.data != .match_data) return Value.nil();
+        const captures = match_val.data.match_data.captures.items;
+        const idx: usize = capture_index;
+        if (idx >= captures.len) return Value.nil();
+        return captures[idx];
     }
 
     pub fn setLastProcessStatus(self: *VM, exitstatus: i64) VMError!void {
