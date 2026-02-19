@@ -2177,7 +2177,7 @@ pub const VM = struct {
 
             .DEF_METHOD => {
                 const name_idx = self.readU16();
-                const chunk_idx = self.readByte();
+                const chunk_idx = self.readU16();
 
                 const constant = self.currentChunk().constants.items[name_idx];
                 if (constant != .string) {
@@ -2221,7 +2221,7 @@ pub const VM = struct {
 
             .DEF_SINGLETON_METHOD => {
                 const name_idx = self.readU16();
-                const chunk_idx = self.readByte();
+                const chunk_idx = self.readU16();
 
                 const constant = self.currentChunk().constants.items[name_idx];
                 if (constant != .string) {

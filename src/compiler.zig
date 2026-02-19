@@ -2225,10 +2225,10 @@ pub const Compiler = struct {
         const name_idx = try self.current_chunk.addConstant(.{ .string = method_name_slice });
         if (is_singleton_method) {
             // DEF_SINGLETON_METHOD expects receiver on stack, pops it
-            try self.current_chunk.emitOpU16U8(.DEF_SINGLETON_METHOD, @intCast(name_idx), @intCast(chunk_id), line);
+            try self.current_chunk.emitOpU16U16(.DEF_SINGLETON_METHOD, @intCast(name_idx), chunk_id, line);
         } else {
             // DEF_METHOD uses current self from frame
-            try self.current_chunk.emitOpU16U8(.DEF_METHOD, @intCast(name_idx), @intCast(chunk_id), line);
+            try self.current_chunk.emitOpU16U16(.DEF_METHOD, @intCast(name_idx), chunk_id, line);
         }
 
         // Return a symbol of the method name

@@ -541,7 +541,7 @@ pub const Chunk = struct {
 
             .DEF_METHOD => {
                 const name_idx = bytecode.readU16(self.code.items, next_ip);
-                const chunk_idx = bytecode.readU8(self.code.items, next_ip + 2);
+                const chunk_idx = bytecode.readU16(self.code.items, next_ip + 2);
                 try writer.print("DEF_METHOD {d}", .{name_idx});
                 if (name_idx < self.constants.items.len) {
                     const constant = self.constants.items[name_idx];
@@ -550,12 +550,12 @@ pub const Chunk = struct {
                     }
                 }
                 try writer.print(" {d} (chunk {d})\n", .{ chunk_idx, chunk_idx });
-                next_ip += 3;
+                next_ip += 4;
             },
 
             .DEF_SINGLETON_METHOD => {
                 const name_idx = bytecode.readU16(self.code.items, next_ip);
-                const chunk_idx = bytecode.readU8(self.code.items, next_ip + 2);
+                const chunk_idx = bytecode.readU16(self.code.items, next_ip + 2);
                 try writer.print("DEF_SINGLETON_METHOD {d}", .{name_idx});
                 if (name_idx < self.constants.items.len) {
                     const constant = self.constants.items[name_idx];
@@ -564,7 +564,7 @@ pub const Chunk = struct {
                     }
                 }
                 try writer.print(" {d} (chunk {d})\n", .{ chunk_idx, chunk_idx });
-                next_ip += 3;
+                next_ip += 4;
             },
 
             .YIELD => {
