@@ -85,6 +85,9 @@ pub fn register(vm: *VM) !void {
     const string_bytes_sym = try vm.intern("bytes");
     try vm.string_class.module.methods.put(string_bytes_sym, .{ .method = .{ .builtin = &builtinStringBytes } });
 
+    const string_getbyte_sym = try vm.intern("getbyte");
+    try vm.string_class.module.methods.put(string_getbyte_sym, .{ .method = .{ .builtin = &builtinStringGetbyte } });
+
     const string_codepoints_sym = try vm.intern("codepoints");
     try vm.string_class.module.methods.put(string_codepoints_sym, .{ .method = .{ .builtin = &builtinStringCodepoints } });
 
@@ -469,6 +472,22 @@ pub fn builtinStringBytes(vm: *VM, receiver: Value, args: []Value, block: ?Block
         array_obj.elements.append(vm.gc_allocator, Value.integer(b)) catch return error.Fatal;
     }
     return Value{ .data = .{ .array = array_obj } };
+}
+
+pub fn builtinStringGetbyte(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    try vm.requireArgType(args, 0, .integer, "Integer");
+
+    const bytes = receiver.data.string.str;
+    const len: i64 = @intCast(bytes.len);
+    var index = args[0].data.integer;
+    if (index < 0) {
+        index += len;
+    }
+    if (index < 0 or index >= len) {
+        return Value.nil();
+    }
+    return Value.integer(bytes[@intCast(index)]);
 }
 
 pub fn builtinStringCodepoints(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
