@@ -82,6 +82,9 @@ pub fn register(vm: *VM) !void {
     const string_chars_sym = try vm.intern("chars");
     try vm.string_class.module.methods.put(string_chars_sym, .{ .method = .{ .builtin = &builtinStringChars } });
 
+    const string_bytes_sym = try vm.intern("bytes");
+    try vm.string_class.module.methods.put(string_bytes_sym, .{ .method = .{ .builtin = &builtinStringBytes } });
+
     const string_codepoints_sym = try vm.intern("codepoints");
     try vm.string_class.module.methods.put(string_codepoints_sym, .{ .method = .{ .builtin = &builtinStringCodepoints } });
 
@@ -443,6 +446,28 @@ pub fn builtinStringChars(vm: *VM, receiver: Value, args: []Value, block: ?Block
         array_obj.elements.append(vm.gc_allocator, char_val) catch return error.Fatal;
     }
 
+    return Value{ .data = .{ .array = array_obj } };
+}
+
+pub fn builtinStringBytes(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const bytes = receiver.data.string.str;
+
+    if (block) |blk| {
+        for (bytes) |b| {
+            const yield_args = [_]Value{Value.integer(b)};
+            const yield_result = try vm.yieldToBlock(blk, &yield_args);
+            if (yield_result.break_occurred) {
+                return yield_result.value;
+            }
+        }
+        return receiver;
+    }
+
+    const array_obj = try vm.createArray();
+    for (bytes) |b| {
+        array_obj.elements.append(vm.gc_allocator, Value.integer(b)) catch return error.Fatal;
+    }
     return Value{ .data = .{ .array = array_obj } };
 }
 
