@@ -30,6 +30,9 @@ pub fn register(vm: *VM) !void {
     const string_concat_sym = try vm.intern("concat");
     try vm.string_class.module.methods.put(string_concat_sym, .{ .method = .{ .builtin = &builtinStringConcat } });
 
+    const string_replace_sym = try vm.intern("replace");
+    try vm.string_class.module.methods.put(string_replace_sym, .{ .method = .{ .builtin = &builtinStringReplace } });
+
     const string_equal_sym = try vm.intern("==");
     try vm.string_class.module.methods.put(string_equal_sym, .{ .method = .{ .builtin = &builtinStringEqual } });
 
@@ -209,6 +212,24 @@ pub fn builtinStringConcat(vm: *VM, receiver: Value, args: []Value, block: ?Bloc
     return builtinStringAppend(vm, receiver, args, block);
 }
 
+pub fn builtinStringReplace(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const string_obj = receiver.data.string;
+    const other = args[0];
+
+    const replacement: []const u8 = switch (other.data) {
+        .string => |s| blk: {
+            string_obj.encoding = s.encoding;
+            break :blk s.str;
+        },
+        else => try other.coerceToStr(vm, "no implicit conversion into String"),
+    };
+
+    string_obj.str = vm.gc_allocator_atomic.dupe(u8, replacement) catch return error.Fatal;
+    string_obj.validity = .unknown;
+    return receiver;
+}
+
 pub fn builtinStringEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const other = args[0];
@@ -307,6 +328,9 @@ pub fn builtinStringValidEncoding(vm: *VM, receiver: Value, args: []Value, _: ?B
 pub fn builtinStringAsciiOnly(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const string_obj = receiver.data.string;
+    if (!string_obj.encoding.isAsciiCompatible()) {
+        return Value.boolean(false);
+    }
     return Value.boolean(enc.isAsciiOnly(string_obj.str));
 }
 
