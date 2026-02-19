@@ -1,0 +1,140 @@
+---
+name: ruby-spec-porter
+description: Port Ruby specs from ../ruby_spec into this repo and make them pass with minimal divergence from upstream. Use when asked to pick a spec to pull over, copy upstream files, un-xit specs, or fix parser/compiler/vm/mspec-lite compatibility blockers discovered while running specs.
+---
+
+# Ruby Spec Porter
+
+## Overview
+
+Use this skill to add one or more specs from `../ruby_spec` into `spec/`, keep them aligned with upstream, and drive them to green by fixing Cora runtime/compiler/parser or mspec-lite harness gaps.
+
+## Priorities
+
+- Keep copied spec files matching upstream whenever possible.
+- Prefer runtime/compiler/parser/spec_helper fixes over spec edits.
+- Treat temporary `xit` as a short-term tactic only; remove once behavior is implemented.
+- Implement general mechanisms, not one-off hacks for a single example.
+- Fix small foundational blockers early if they unlock many specs.
+- Preserve mspec compatibility (not rspec APIs).
+
+## Workflow
+
+1. Pick a candidate spec.
+- Start with low-risk, high-signal specs in `../ruby_spec/core/string`.
+- Prefer specs that map to existing builtins/opcodes and require incremental behavior.
+- Avoid immediately choosing specs known to require broad missing subsystems.
+
+2. Copy upstream files unchanged.
+- Copy target file from `../ruby_spec/...` to local `spec/...`.
+- Also copy required `shared/` and `fixtures/` dependencies from upstream.
+- Example:
+```bash
+cp ../ruby_spec/core/string/start_with_spec.rb spec/core/string/start_with_spec.rb
+mkdir -p spec/shared/string
+cp ../ruby_spec/shared/string/start_with.rb spec/shared/string/start_with.rb
+```
+
+3. Run the spec and classify failures.
+- Run the copied spec directly first, then through `ruby/spec` aggregate if needed.
+```bash
+zig build run -- spec/core/string/<name>_spec.rb
+zig build test -Dtest-filter="ruby/spec"
+```
+- Categorize failures:
+  - Parser/compiler gaps (unsupported Prism node/opcode lowering)
+  - VM/runtime semantics gaps (method behavior, encoding, exceptions)
+  - mspec-lite harness gaps (matchers/mocks/hooks/spec_helper)
+  - Truly unsupported upstream assumptions
+
+4. Fix in the right layer.
+- Parser/compiler issue: add Prism node mapping and compile support.
+- VM/runtime issue: add or correct builtins/opcodes/encoding logic.
+- Harness issue: extend `spec/spec_helper.rb` mspec-lite compatibility.
+- Prefer reusable abstractions (e.g. general opcode/helper) over ad-hoc branching.
+
+5. Re-run and tighten.
+- Re-run target spec until green.
+- Re-run focused regression tests (language/core tests affected by the change).
+- Run ruby/spec aggregate filter to ensure no regressions in existing ported specs.
+
+6. Verify upstream alignment.
+- Diff each copied spec/shared fixture against upstream and remove local drift.
+```bash
+diff -q spec/core/string/<name>_spec.rb ../ruby_spec/core/string/<name>_spec.rb
+diff -q spec/shared/string/<shared>.rb ../ruby_spec/shared/string/<shared>.rb
+```
+- If divergence is unavoidable, keep it minimal and document the exact blocker.
+
+## Candidate Selection Heuristics
+
+When asked “what next spec should we port?”, prefer this order:
+1. Specs for methods already implemented in builtins (`start_with?`, `end_with?`, `ascii_only?`, `b`, etc.).
+2. Specs that primarily reveal semantic mismatches (encoding boundaries, coercion, return values).
+3. Specs that unlock shared examples used by multiple classes/modules.
+4. Only then pick specs needing new broad subsystems.
+
+## Editing Rules
+
+- Do not rewrite upstream spec expectations to fit Cora behavior unless explicitly approved.
+- If a spec uses unsupported syntax/features, implement support first (parser/compiler/vm), then restore upstream text.
+- For compatibility shims in `spec/spec_helper.rb`, keep names and semantics close to mspec expectations.
+
+## Completion Criteria
+
+A ported spec is “done” when:
+- Copied files exist locally and match upstream text.
+- The spec passes via `zig build run -- spec/...`.
+- Relevant focused tests pass.
+- `zig build test -Dtest-filter="ruby/spec"` stays green.
+
+## Commit Style
+
+Match this repository's commit style for spec-porting work.
+
+- Use one commit per Ruby method implemented or changed.
+- If one spec requires multiple new methods, split into multiple commits.
+- Keep commit messages short, imperative, no body.
+- Prefer non-interactive commits (`git add ... && git commit -m ...`).
+
+Message rules:
+
+1. New method added:
+- `Add Hash#delete`
+- `Add String#replace`
+
+2. Method already existed; behavior adjusted for spec semantics:
+- `Make String#start_with? spec-compliant`
+- `Make String#length more spec-compliant`
+
+3. Spec added and passes without changing method behavior:
+- `Add String#ascii_only? spec`
+- `Add String#b spec`
+
+4. Non-method foundational work needed to unblock specs:
+- Use concise imperative summaries, e.g.:
+  - `Implement regexp numbered references`
+  - `Add euc-jp encoding alias`
+
+Commit sequencing guidance:
+
+- Commit method additions first, one method per commit.
+- Then commit method semantic fixes.
+- Then commit spec-only additions that pass as-is.
+- Keep unrelated changes out of each commit.
+
+## Useful Commands
+
+```bash
+# list local vs upstream missing string specs
+comm -13 <(ls -1 spec/core/string | sort) <(ls -1 ../ruby_spec/core/string | sort)
+
+# run one spec file
+zig build run -- spec/core/string/chars_spec.rb
+
+# run aggregate ruby/spec harness
+zig build test -Dtest-filter="ruby/spec"
+
+# quick mismatch check for copied files
+diff -q spec/core/string/start_with_spec.rb ../ruby_spec/core/string/start_with_spec.rb
+```
