@@ -214,16 +214,15 @@ pub fn builtinStringConcat(vm: *VM, receiver: Value, args: []Value, block: ?Bloc
 
 pub fn builtinStringReplace(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
+    }
     const string_obj = receiver.data.string;
     const other = args[0];
 
-    const replacement: []const u8 = switch (other.data) {
-        .string => |s| blk: {
-            string_obj.encoding = s.encoding;
-            break :blk s.str;
-        },
-        else => try other.coerceToStr(vm, "no implicit conversion into String"),
-    };
+    const replacement_val = try coerceToStringValueViaCall(vm, other);
+    const replacement = replacement_val.data.string.str;
+    string_obj.encoding = replacement_val.data.string.encoding;
 
     string_obj.str = vm.gc_allocator_atomic.dupe(u8, replacement) catch return error.Fatal;
     string_obj.validity = .unknown;
