@@ -424,7 +424,31 @@ pub fn builtinStringStartWith(vm: *VM, receiver: Value, args: []Value, _: ?Block
     const string_obj = receiver.data.string;
 
     for (args) |arg| {
-        const prefix = try arg.coerceToStr(vm, "no implicit conversion into String");
+        if (arg.data == .regexp) {
+            const match_val = try regexp_builtin.regexpMatchOp(vm, arg.data.regexp, receiver);
+            switch (match_val.data) {
+                .integer => |idx| {
+                    if (idx == 0) return Value.boolean(true);
+                    try vm.clearLastMatch();
+                    continue;
+                },
+                else => {
+                    try vm.clearLastMatch();
+                    continue;
+                },
+            }
+        }
+
+        const prefix_val = try coerceToStringValueViaCall(vm, arg);
+        const prefix = prefix_val.data.string.str;
+        const prefix_enc = prefix_val.data.string.encoding;
+        if (enc.negotiate(string_obj.encoding, string_obj.str, prefix_enc, prefix) == null) {
+                return vm.raiseExceptionFmt(
+                    vm.argument_error_class,
+                    "incompatible character encodings: {s} and {s}",
+                    .{ string_obj.encoding.name(), prefix_enc.name() },
+                );
+        }
         if (!std.mem.startsWith(u8, string_obj.str, prefix)) continue;
         if (string_obj.encoding.isCharBoundary(string_obj.str, prefix.len)) {
             return Value.boolean(true);
@@ -439,7 +463,16 @@ pub fn builtinStringEndWith(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     const string_obj = receiver.data.string;
 
     for (args) |arg| {
-        const suffix = try arg.coerceToStr(vm, "no implicit conversion into String");
+        const suffix_val = try coerceToStringValueViaCall(vm, arg);
+        const suffix = suffix_val.data.string.str;
+        const suffix_enc = suffix_val.data.string.encoding;
+        if (enc.negotiate(string_obj.encoding, string_obj.str, suffix_enc, suffix) == null) {
+            return vm.raiseExceptionFmt(
+                vm.argument_error_class,
+                "incompatible character encodings: {s} and {s}",
+                .{ string_obj.encoding.name(), suffix_enc.name() },
+            );
+        }
         if (!std.mem.endsWith(u8, string_obj.str, suffix)) continue;
         const start = string_obj.str.len - suffix.len;
         if (string_obj.encoding.isCharBoundary(string_obj.str, start)) {
@@ -628,6 +661,23 @@ fn concatBytes(vm: *VM, left: []const u8, right: []const u8) VMError![]const u8 
     @memcpy(out[0..left.len], left);
     @memcpy(out[left.len..], right);
     return out;
+}
+
+fn coerceToStringValueViaCall(vm: *VM, arg: Value) VMError!Value {
+    if (arg.data == .string) return arg;
+
+    const coerced = vm.callMethodByName(arg, "to_str", &[_]Value{}, null) catch |err| {
+        if (err == error.Unwind and vm.pending_exception != null and vm.pending_exception.?.object.class == vm.no_method_error_class) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into String", .{});
+        }
+        return err;
+    };
+
+    if (coerced.data != .string) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into String", .{});
+    }
+
+    return coerced;
 }
 
 fn encodeCodepointForEncoding(vm: *VM, cp: i64, encoding: enc.Encoding, out: *[4]u8) VMError![]const u8 {

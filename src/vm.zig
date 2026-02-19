@@ -654,6 +654,8 @@ pub const VM = struct {
         self.encoding_class.module.constants.put(utf32_const_sym, utf32_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(utf32le_const_sym, utf32le_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(utf32be_const_sym, utf32be_val) catch return error.Fatal;
+        const compatibility_error_sym = try self.intern("CompatibilityError");
+        self.encoding_class.module.constants.put(compatibility_error_sym, argument_error_class_val) catch return error.Fatal;
 
         // --- Stage 5: Register built-in methods ---
         builtins.registerAll(self) catch return error.Fatal;
