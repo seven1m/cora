@@ -71,6 +71,7 @@ pub const GlobalVariableWriteNode = c.pm_global_variable_write_node_t;
 pub const InstanceVariableReadNode = c.pm_instance_variable_read_node_t;
 pub const InstanceVariableAndWriteNode = c.pm_instance_variable_and_write_node_t;
 pub const InstanceVariableOrWriteNode = c.pm_instance_variable_or_write_node_t;
+pub const InstanceVariableOperatorWriteNode = c.pm_instance_variable_operator_write_node_t;
 pub const InstanceVariableWriteNode = c.pm_instance_variable_write_node_t;
 pub const LocalVariableAndWriteNode = c.pm_local_variable_and_write_node_t;
 pub const LocalVariableOrWriteNode = c.pm_local_variable_or_write_node_t;
@@ -175,6 +176,7 @@ pub const Node = union(enum) {
     instance_variable_read: *InstanceVariableReadNode,
     instance_variable_and_write: *InstanceVariableAndWriteNode,
     instance_variable_or_write: *InstanceVariableOrWriteNode,
+    instance_variable_operator_write: *InstanceVariableOperatorWriteNode,
     instance_variable_write: *InstanceVariableWriteNode,
     block_argument: *BlockArgumentNode,
     embedded_statements: *EmbeddedStatementsNode,
@@ -489,6 +491,9 @@ pub const Parser = struct {
         }
         if (node_type == c.PM_INSTANCE_VARIABLE_OR_WRITE_NODE) {
             return Node{ .instance_variable_or_write = @ptrCast(raw) };
+        }
+        if (node_type == c.PM_INSTANCE_VARIABLE_OPERATOR_WRITE_NODE) {
+            return Node{ .instance_variable_operator_write = @ptrCast(raw) };
         }
 
         if (node_type == c.PM_BLOCK_ARGUMENT_NODE) {

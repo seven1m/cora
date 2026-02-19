@@ -612,6 +612,10 @@ pub const Compiler = struct {
                 try self.compileInstanceVariableOrWrite(var_write, line);
             },
 
+            .instance_variable_operator_write => |var_write| {
+                try self.compileInstanceVariableOperatorWrite(var_write, line);
+            },
+
             .index_operator_write => |index_write| {
                 try self.compileIndexOperatorWrite(index_write, line);
             },
@@ -1587,6 +1591,23 @@ pub const Compiler = struct {
         try self.current_chunk.emitCall(@intCast(method_idx), 1, receiver_style, 0, line);
 
         try self.current_chunk.emitOpU16(.SET_CVAR, @intCast(name_idx), line);
+    }
+
+    fn compileInstanceVariableOperatorWrite(self: *Compiler, var_write: *prism.InstanceVariableOperatorWriteNode, line: u32) !void {
+        const var_name = try self.parser.getConstantName(@intCast(var_write.name));
+        const name_idx = try self.current_chunk.addConstant(.{ .string = var_name });
+
+        try self.current_chunk.emitOpU16(.GET_IVAR, @intCast(name_idx), line);
+
+        const value_node = try self.parser.asNode(@ptrCast(var_write.value));
+        try self.compileNode(value_node, line);
+
+        const operator_name = try self.parser.getConstantName(@intCast(var_write.binary_operator));
+        const method_idx = try self.current_chunk.addConstant(.{ .string = operator_name });
+        const receiver_style: u8 = @intFromEnum(bytecode.ReceiverCallStyle.explicit);
+        try self.current_chunk.emitCall(@intCast(method_idx), 1, receiver_style, 0, line);
+
+        try self.current_chunk.emitOpU16(.SET_IVAR, @intCast(name_idx), line);
     }
 
     fn compileIndexOperatorWrite(self: *Compiler, index_write: *prism.IndexOperatorWriteNode, line: u32) !void {
