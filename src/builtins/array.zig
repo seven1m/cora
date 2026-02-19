@@ -15,6 +15,9 @@ pub fn register(vm: *VM) !void {
     const each_sym = try vm.intern("each");
     try vm.array_class.module.methods.put(each_sym, .{ .method = .{ .builtin = &builtinArrayEach } });
 
+    const each_with_index_sym = try vm.intern("each_with_index");
+    try vm.array_class.module.methods.put(each_with_index_sym, .{ .method = .{ .builtin = &builtinArrayEachWithIndex } });
+
     const bracket_sym = try vm.intern("[]");
     try vm.array_class.module.methods.put(bracket_sym, .{ .method = .{ .builtin = &builtinArrayBracket } });
 
@@ -221,6 +224,22 @@ pub fn builtinArrayEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
         const result = try vm.yieldToBlock(blk, &yield_args);
 
         // If break occurred, return immediately
+        if (result.break_occurred) {
+            return result.value;
+        }
+    }
+
+    return receiver;
+}
+
+pub fn builtinArrayEachWithIndex(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const blk = try vm.requireBlock(block);
+    const array_obj = receiver.data.array;
+
+    for (array_obj.elements.items, 0..) |element, idx| {
+        const yield_args = [_]Value{ element, Value.integer(@intCast(idx)) };
+        const result = try vm.yieldToBlock(blk, &yield_args);
         if (result.break_occurred) {
             return result.value;
         }
