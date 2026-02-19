@@ -56,6 +56,9 @@ pub fn register(vm: *VM) !void {
     const string_size_sym = try vm.intern("size");
     try vm.string_class.module.methods.put(string_size_sym, .{ .method = .{ .builtin = &builtinStringLength } });
 
+    const string_empty_sym = try vm.intern("empty?");
+    try vm.string_class.module.methods.put(string_empty_sym, .{ .method = .{ .builtin = &builtinStringEmpty } });
+
     const string_bracket_sym = try vm.intern("[]");
     try vm.string_class.module.methods.put(string_bracket_sym, .{ .method = .{ .builtin = &builtinStringBracket } });
 
@@ -250,6 +253,11 @@ pub fn builtinStringLength(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     try vm.requireArgCount(args, 0);
     const string_obj = receiver.data.string;
     return Value.integer(@intCast(string_obj.encoding.charCount(string_obj.str)));
+}
+
+pub fn builtinStringEmpty(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return Value.boolean(receiver.data.string.str.len == 0);
 }
 
 pub fn builtinStringBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
