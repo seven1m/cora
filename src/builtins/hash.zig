@@ -43,6 +43,9 @@ pub fn register(vm: *VM) !void {
 
     const select_sym = try vm.intern("select");
     try vm.hash_class.module.methods.put(select_sym, .{ .method = .{ .builtin = &builtinHashSelect } });
+
+    const delete_sym = try vm.intern("delete");
+    try vm.hash_class.module.methods.put(delete_sym, .{ .method = .{ .builtin = &builtinHashDelete } });
 }
 
 pub fn builtinHashBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -85,6 +88,25 @@ pub fn builtinHashBracketSet(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     hash_obj.map.put(key_hash, new_idx) catch return error.Fatal;
 
     return new_value;
+}
+
+pub fn builtinHashDelete(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const hash_obj = receiver.data.hash;
+    const key = args[0];
+    const key_hash = key.hash();
+
+    const idx = hash_obj.map.get(key_hash) orelse return Value.nil();
+    if (!hash_obj.entries.items[idx].key.eql(key)) {
+        return Value.nil();
+    }
+
+    const deleted = hash_obj.entries.orderedRemove(idx).value;
+    hash_obj.map.clearRetainingCapacity();
+    for (hash_obj.entries.items, 0..) |entry, i| {
+        hash_obj.map.put(entry.key.hash(), i) catch return error.Fatal;
+    }
+    return deleted;
 }
 
 pub fn builtinHashKeys(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
