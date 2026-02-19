@@ -167,6 +167,9 @@ pub fn register(vm: *VM) !void {
     const equal_sym = try vm.intern("==");
     try vm.integer_class.module.methods.put(equal_sym, .{ .method = .{ .builtin = &builtinIntegerEqual } });
 
+    const not_equal_sym = try vm.intern("!=");
+    try vm.integer_class.module.methods.put(not_equal_sym, .{ .method = .{ .builtin = &builtinIntegerNotEqual } });
+
     const less_than_sym = try vm.intern("<");
     try vm.integer_class.module.methods.put(less_than_sym, .{ .method = .{ .builtin = &builtinIntegerLessThan } });
 
@@ -329,6 +332,11 @@ pub fn builtinIntegerEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
         .float => |f| Value.boolean(receiver.integerToF64() == f),
         .integer => |i| Value.boolean((try compareIntegers(vm, receiver, i)) == .eq),
     };
+}
+
+pub fn builtinIntegerNotEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const equal = try builtinIntegerEqual(vm, receiver, args, null);
+    return Value.boolean(!equal.is_truthy());
 }
 
 pub fn builtinIntegerLessThan(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
