@@ -208,6 +208,7 @@ pub const VM = struct {
     exception_class: *value.ClassObject,
     standard_error_class: *value.ClassObject,
     runtime_error_class: *value.ClassObject,
+    frozen_error_class: *value.ClassObject,
     argument_error_class: *value.ClassObject,
     type_error_class: *value.ClassObject,
     zero_division_error_class: *value.ClassObject,
@@ -308,6 +309,7 @@ pub const VM = struct {
             .exception_class = undefined,
             .standard_error_class = undefined,
             .runtime_error_class = undefined,
+            .frozen_error_class = undefined,
             .argument_error_class = undefined,
             .type_error_class = undefined,
             .zero_division_error_class = undefined,
@@ -474,6 +476,10 @@ pub const VM = struct {
         const runtime_error_class_val = try self.newClass(runtime_error_name_sym, self.standard_error_class);
         self.runtime_error_class = runtime_error_class_val.data.class;
 
+        const frozen_error_name_sym = try self.intern("FrozenError");
+        const frozen_error_class_val = try self.newClass(frozen_error_name_sym, self.runtime_error_class);
+        self.frozen_error_class = frozen_error_class_val.data.class;
+
         const argument_error_name_sym = try self.intern("ArgumentError");
         const argument_error_class_val = try self.newClass(argument_error_name_sym, self.standard_error_class);
         self.argument_error_class = argument_error_class_val.data.class;
@@ -567,6 +573,7 @@ pub const VM = struct {
         self.object_class.module.constants.put(exception_name_sym, exception_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(standard_error_name_sym, standard_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(runtime_error_name_sym, runtime_error_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(frozen_error_name_sym, frozen_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(argument_error_name_sym, argument_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(type_error_name_sym, type_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(zero_division_error_name_sym, zero_division_error_class_val) catch return error.Fatal;
@@ -1096,7 +1103,7 @@ pub const VM = struct {
         return switch (constant) {
             .integer => |i| Value.integer(i),
             .float => |f| Value.float(f),
-            .string => |s| try self.newString(s, true),
+            .string => |s| try self.newString(s, false),
             .symbol => |s| Value{ .data = .{ .symbol = s } },
         };
     }

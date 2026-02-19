@@ -485,6 +485,9 @@ pub fn builtinStringEndWith(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 
 pub fn builtinStringPrepend(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     if (args.len == 0) return receiver;
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
+    }
     const string_obj = receiver.data.string;
 
     var result = string_obj.str;
@@ -492,8 +495,8 @@ pub fn builtinStringPrepend(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     while (i > 0) {
         i -= 1;
         const arg = args[i];
-        const part = try arg.coerceToStr(vm, "no implicit conversion into String");
-        result = try concatBytes(vm, part, result);
+        const part = try coerceToStringValueViaCall(vm, arg);
+        result = try concatBytes(vm, part.data.string.str, result);
     }
 
     string_obj.str = result;
