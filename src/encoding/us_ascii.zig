@@ -5,11 +5,16 @@ pub const UsAsciiEncoding = struct {
         return "US-ASCII";
     }
 
-    pub fn nextChar(_: UsAsciiEncoding, bytes: []const u8, index: *usize) encoding.CharResult {
-        if (index.* >= bytes.len) return .{ .valid = true, .len = 0 };
-        const b = bytes[index.*];
+    pub fn nextCodepoint(_: UsAsciiEncoding, bytes: []const u8, index: *usize) encoding.CodepointResult {
+        if (index.* >= bytes.len) return .{ .valid = true, .len = 0, .codepoint = 0 };
+        const value = bytes[index.*];
         index.* += 1;
-        return .{ .valid = b <= 127, .len = 1 };
+        return .{ .valid = value <= 127, .len = 1, .codepoint = value };
+    }
+
+    pub fn nextChar(_: UsAsciiEncoding, bytes: []const u8, index: *usize) encoding.CharResult {
+        const parsed = (UsAsciiEncoding{}).nextCodepoint(bytes, index);
+        return .{ .valid = parsed.valid, .len = parsed.len };
     }
 
     pub fn isValid(_: UsAsciiEncoding, bytes: []const u8) bool {

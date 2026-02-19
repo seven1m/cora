@@ -5,10 +5,16 @@ pub const Ascii8BitEncoding = struct {
         return "ASCII-8BIT";
     }
 
-    pub fn nextChar(_: Ascii8BitEncoding, bytes: []const u8, index: *usize) encoding.CharResult {
-        if (index.* >= bytes.len) return .{ .valid = true, .len = 0 };
+    pub fn nextCodepoint(_: Ascii8BitEncoding, bytes: []const u8, index: *usize) encoding.CodepointResult {
+        if (index.* >= bytes.len) return .{ .valid = true, .len = 0, .codepoint = 0 };
+        const value = bytes[index.*];
         index.* += 1;
-        return .{ .valid = true, .len = 1 }; // Every byte is valid
+        return .{ .valid = true, .len = 1, .codepoint = value };
+    }
+
+    pub fn nextChar(_: Ascii8BitEncoding, bytes: []const u8, index: *usize) encoding.CharResult {
+        const parsed = (Ascii8BitEncoding{}).nextCodepoint(bytes, index);
+        return .{ .valid = parsed.valid, .len = parsed.len };
     }
 
     pub fn isValid(_: Ascii8BitEncoding, _: []const u8) bool {

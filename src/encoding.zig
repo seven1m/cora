@@ -7,6 +7,12 @@ pub const CharResult = struct {
     len: usize,
 };
 
+pub const CodepointResult = struct {
+    valid: bool,
+    len: usize,
+    codepoint: u32,
+};
+
 pub const ValidityState = enum(u2) {
     unknown,
     valid,
@@ -28,6 +34,12 @@ pub const Encoding = union(enum) {
     pub fn nextChar(self: Encoding, bytes: []const u8, index: *usize) CharResult {
         return switch (self) {
             inline else => |enc| enc.nextChar(bytes, index),
+        };
+    }
+
+    pub fn nextCodepoint(self: Encoding, bytes: []const u8, index: *usize) CodepointResult {
+        return switch (self) {
+            inline else => |enc| enc.nextCodepoint(bytes, index),
         };
     }
 

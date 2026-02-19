@@ -160,6 +160,30 @@ test "String#valid_encoding? returns true for ASCII-8BIT (always valid)" {
     try std.testing.expect(result.data.boolean == true);
 }
 
+test "String#valid_encoding? returns false for invalid UTF-8 bytes" {
+    const result = try evalCode("\"\\xF0\\x9F\\x98\".force_encoding('UTF-8').valid_encoding?");
+    try std.testing.expect(result.data == .boolean);
+    try std.testing.expect(result.data.boolean == false);
+}
+
+test "String#chars splits truncated UTF-8 bytes one-by-one" {
+    const result = try evalCode("\"\\xF0\\x9F\\x98\".force_encoding('UTF-8').chars.size");
+    try std.testing.expect(result.data == .integer);
+    try std.testing.expectEqual(@as(i64, 3), result.data.integer);
+}
+
+test "String#valid_encoding? accepts non-ASCII byte in ASCII-8BIT" {
+    const result = try evalCode("\"\\xFF\".force_encoding('ASCII-8BIT').valid_encoding?");
+    try std.testing.expect(result.data == .boolean);
+    try std.testing.expect(result.data.boolean == true);
+}
+
+test "String#valid_encoding? rejects non-ASCII byte in US-ASCII" {
+    const result = try evalCode("\"\\xFF\".force_encoding('US-ASCII').valid_encoding?");
+    try std.testing.expect(result.data == .boolean);
+    try std.testing.expect(result.data.boolean == false);
+}
+
 test "String#ascii_only? returns true for ASCII string" {
     const result = try evalCode("'hello'.ascii_only?");
     try std.testing.expect(result.data == .boolean);

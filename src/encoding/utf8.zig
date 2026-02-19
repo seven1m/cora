@@ -5,108 +5,110 @@ pub const Utf8Encoding = struct {
         return "UTF-8";
     }
 
+    pub fn nextCodepoint(_: Utf8Encoding, bytes: []const u8, index: *usize) encoding.CodepointResult {
+        if (index.* >= bytes.len) return .{ .valid = true, .len = 0, .codepoint = 0 };
+
+        const i = index.*;
+        const first = bytes[i];
+
+        var codepoint: u32 = 0;
+        var expected_len: usize = 0;
+        if ((first >> 3) == 0b11110) {
+            codepoint = @as(u32, first ^ 0xF0) << 18;
+            expected_len = 4;
+        } else if ((first >> 4) == 0b1110) {
+            codepoint = @as(u32, first ^ 0xE0) << 12;
+            expected_len = 3;
+        } else if ((first >> 5) == 0b110) {
+            codepoint = @as(u32, first ^ 0xC0) << 6;
+            expected_len = 2;
+        } else if ((first >> 7) == 0b0) {
+            codepoint = first;
+            expected_len = 1;
+        } else {
+            index.* += 1;
+            return .{ .valid = false, .len = 1, .codepoint = first };
+        }
+
+        if (expected_len > 1 and i + 1 < bytes.len) {
+            const value = bytes[i + 1];
+            if ((value >> 6) != 0b10) {
+                index.* += 1;
+                return .{ .valid = false, .len = 1, .codepoint = codepoint };
+            }
+            codepoint += @as(u32, value ^ 0x80) << @intCast((expected_len - 2) * 6);
+        }
+
+        if (expected_len > 2 and i + 2 < bytes.len) {
+            const value = bytes[i + 2];
+            if ((value >> 6) != 0b10) {
+                index.* += 2;
+                return .{ .valid = false, .len = 2, .codepoint = codepoint };
+            }
+            codepoint += @as(u32, value ^ 0x80) << @intCast((expected_len - 3) * 6);
+        }
+
+        if (expected_len > 3 and i + 3 < bytes.len) {
+            const value = bytes[i + 3];
+            if ((value >> 6) != 0b10) {
+                index.* += 3;
+                return .{ .valid = false, .len = 3, .codepoint = codepoint };
+            }
+            codepoint += value ^ 0x80;
+        }
+
+        if (i + expected_len > bytes.len) {
+            const remaining = bytes.len - i;
+            index.* = bytes.len;
+            return .{ .valid = false, .len = remaining, .codepoint = codepoint };
+        }
+
+        var valid = true;
+        var result_len = expected_len;
+        switch (expected_len) {
+            1 => {},
+            2 => {
+                if (codepoint < 0x80) {
+                    valid = false;
+                    result_len = 1;
+                }
+            },
+            3 => {
+                if (codepoint < 0x800 or (codepoint >= 0xD800 and codepoint <= 0xDFFF)) {
+                    valid = false;
+                    result_len = 1;
+                }
+            },
+            4 => {
+                if (codepoint < 0x10000 or codepoint > 0x10FFFF) {
+                    valid = false;
+                    result_len = 1;
+                }
+            },
+            else => unreachable,
+        }
+
+        index.* += result_len;
+        return .{ .valid = valid, .len = result_len, .codepoint = codepoint };
+    }
+
     pub fn nextChar(_: Utf8Encoding, bytes: []const u8, index: *usize) encoding.CharResult {
-        if (index.* >= bytes.len) return .{ .valid = true, .len = 0 };
-        const first = bytes[index.*];
+        const start = index.*;
+        const parsed = (Utf8Encoding{}).nextCodepoint(bytes, index);
+        var len = parsed.len;
 
-        // Single byte (ASCII): 0xxxxxxx
-        if (first < 0x80) {
-            index.* += 1;
-            return .{ .valid = true, .len = 1 };
+        if (!parsed.valid and parsed.len > 1) {
+            index.* = start + 1;
+            len = 1;
         }
 
-        // Invalid: continuation byte at start or invalid lead byte
-        if (first < 0xC2 or first > 0xF4) {
-            index.* += 1;
-            return .{ .valid = false, .len = 1 };
-        }
-
-        // 2-byte sequence: 110xxxxx 10xxxxxx (C2-DF)
-        if (first >= 0xC2 and first <= 0xDF) {
-            if (index.* + 1 >= bytes.len) {
-                index.* += 1;
-                return .{ .valid = false, .len = 1 };
-            }
-            const second = bytes[index.* + 1];
-            if ((second & 0xC0) != 0x80) {
-                index.* += 1;
-                return .{ .valid = false, .len = 1 };
-            }
-            index.* += 2;
-            return .{ .valid = true, .len = 2 };
-        }
-
-        // 3-byte sequence: 1110xxxx 10xxxxxx 10xxxxxx (E0-EF)
-        if (first >= 0xE0 and first <= 0xEF) {
-            if (index.* + 2 >= bytes.len) {
-                const remaining = bytes.len - index.*;
-                index.* += remaining;
-                return .{ .valid = false, .len = remaining };
-            }
-            const second = bytes[index.* + 1];
-            const third = bytes[index.* + 2];
-
-            // Check continuation bytes
-            if ((second & 0xC0) != 0x80 or (third & 0xC0) != 0x80) {
-                index.* += 1;
-                return .{ .valid = false, .len = 1 };
-            }
-
-            // Check for overlong encodings and surrogate pairs
-            if (first == 0xE0 and second < 0xA0) {
-                index.* += 1;
-                return .{ .valid = false, .len = 1 };
-            }
-            if (first == 0xED and second >= 0xA0) {
-                // Surrogate pairs (U+D800 to U+DFFF) are invalid
-                index.* += 1;
-                return .{ .valid = false, .len = 1 };
-            }
-
-            index.* += 3;
-            return .{ .valid = true, .len = 3 };
-        }
-
-        // 4-byte sequence: 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx (F0-F4)
-        if (first >= 0xF0 and first <= 0xF4) {
-            if (index.* + 3 >= bytes.len) {
-                const remaining = bytes.len - index.*;
-                index.* += remaining;
-                return .{ .valid = false, .len = remaining };
-            }
-            const second = bytes[index.* + 1];
-            const third = bytes[index.* + 2];
-            const fourth = bytes[index.* + 3];
-
-            // Check continuation bytes
-            if ((second & 0xC0) != 0x80 or (third & 0xC0) != 0x80 or (fourth & 0xC0) != 0x80) {
-                index.* += 1;
-                return .{ .valid = false, .len = 1 };
-            }
-
-            // Check for overlong encodings and code points > U+10FFFF
-            if (first == 0xF0 and second < 0x90) {
-                index.* += 1;
-                return .{ .valid = false, .len = 1 };
-            }
-            if (first == 0xF4 and second > 0x8F) {
-                index.* += 1;
-                return .{ .valid = false, .len = 1 };
-            }
-
-            index.* += 4;
-            return .{ .valid = true, .len = 4 };
-        }
-
-        // Should not reach here, but handle gracefully
-        index.* += 1;
-        return .{ .valid = false, .len = 1 };
+        return .{ .valid = parsed.valid, .len = len };
     }
 
     pub fn isValid(_: Utf8Encoding, bytes: []const u8) bool {
         var i: usize = 0;
         while (i < bytes.len) {
-            const result = (Utf8Encoding{}).nextChar(bytes, &i);
+            const result = (Utf8Encoding{}).nextCodepoint(bytes, &i);
             if (!result.valid) return false;
         }
         return true;
@@ -152,15 +154,8 @@ pub const Utf8Encoding = struct {
     pub fn toUnicodeCodepoint(_: Utf8Encoding, bytes: []const u8) ?u32 {
         if (bytes.len == 0 or bytes.len > 4) return null;
         var i: usize = 0;
-        const parsed = (Utf8Encoding{}).nextChar(bytes, &i);
+        const parsed = (Utf8Encoding{}).nextCodepoint(bytes, &i);
         if (!parsed.valid or parsed.len != bytes.len or i != bytes.len) return null;
-
-        return switch (bytes.len) {
-            1 => bytes[0],
-            2 => (@as(u32, bytes[0] & 0x1F) << 6) | @as(u32, bytes[1] & 0x3F),
-            3 => (@as(u32, bytes[0] & 0x0F) << 12) | (@as(u32, bytes[1] & 0x3F) << 6) | @as(u32, bytes[2] & 0x3F),
-            4 => (@as(u32, bytes[0] & 0x07) << 18) | (@as(u32, bytes[1] & 0x3F) << 12) | (@as(u32, bytes[2] & 0x3F) << 6) | @as(u32, bytes[3] & 0x3F),
-            else => null,
-        };
+        return parsed.codepoint;
     }
 };
