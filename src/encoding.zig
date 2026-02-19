@@ -3,6 +3,10 @@ const Utf8Encoding = @import("encoding/utf8.zig").Utf8Encoding;
 const Ascii8BitEncoding = @import("encoding/ascii_8bit.zig").Ascii8BitEncoding;
 const UsAsciiEncoding = @import("encoding/us_ascii.zig").UsAsciiEncoding;
 const ShiftJisEncoding = @import("encoding/shift_jis.zig").ShiftJisEncoding;
+const Iso885915Encoding = @import("encoding/iso_8859_15.zig").Iso885915Encoding;
+const Utf7Encoding = @import("encoding/utf7.zig").Utf7Encoding;
+const Utf16Encoding = @import("encoding/utf16.zig").Utf16Encoding;
+const Utf32Encoding = @import("encoding/utf32.zig").Utf32Encoding;
 const Utf16LeEncoding = @import("encoding/utf16le.zig").Utf16LeEncoding;
 const Utf16BeEncoding = @import("encoding/utf16be.zig").Utf16BeEncoding;
 const Utf32LeEncoding = @import("encoding/utf32le.zig").Utf32LeEncoding;
@@ -30,6 +34,10 @@ pub const Encoding = union(enum) {
     ascii_8bit: Ascii8BitEncoding,
     us_ascii: UsAsciiEncoding,
     shift_jis: ShiftJisEncoding,
+    iso_8859_15: Iso885915Encoding,
+    utf7: Utf7Encoding,
+    utf16: Utf16Encoding,
+    utf32: Utf32Encoding,
     utf16le: Utf16LeEncoding,
     utf16be: Utf16BeEncoding,
     utf32le: Utf32LeEncoding,

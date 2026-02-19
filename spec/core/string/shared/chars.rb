@@ -9,7 +9,7 @@ describe :string_chars, shared: true do
     a.should == ['h', 'e', 'l', 'l', 'o']
   end
 
-  xit "returns self" do
+  it "returns self" do
     s = StringSpecs::MyString.new "hello"
     s.send(@method){}.should equal(s)
   end
@@ -19,7 +19,7 @@ describe :string_chars, shared: true do
       ["\303\207", "\342\210\202", "\303\251", "\306\222", "g"]
   end
 
-  xit "returns characters in the same encoding as self" do
+  it "returns characters in the same encoding as self" do
     "&%".dup.force_encoding('Shift_JIS').send(@method).to_a.all? {|c| c.encoding.name.should == 'Shift_JIS'}
     "&%".encode('BINARY').send(@method).to_a.all? {|c| c.encoding.should == Encoding::BINARY }
   end
@@ -30,21 +30,21 @@ describe :string_chars, shared: true do
     s.send(@method).to_a.should == [s]
   end
 
-  xit "works if the String's contents is invalid for its encoding" do
+  it "works if the String's contents is invalid for its encoding" do
     xA4 = [0xA4].pack('C')
     xA4.force_encoding('UTF-8')
     xA4.valid_encoding?.should be_false
     xA4.send(@method).to_a.should == [xA4.force_encoding("UTF-8")]
   end
 
-  xit "returns a different character if the String is transcoded" do
+  it "returns a different character if the String is transcoded" do
     s = "\u{20AC}".dup.force_encoding('UTF-8')
     s.encode('UTF-8').send(@method).to_a.should == ["\u{20AC}".dup.force_encoding('UTF-8')]
     s.encode('iso-8859-15').send(@method).to_a.should == [[0xA4].pack('C').force_encoding('iso-8859-15')]
     s.encode('iso-8859-15').encode('UTF-8').send(@method).to_a.should == ["\u{20AC}".dup.force_encoding('UTF-8')]
   end
 
-  xit "uses the String's encoding to determine what characters it contains" do
+  it "uses the String's encoding to determine what characters it contains" do
     s = +"\u{24B62}"
 
     s.force_encoding('UTF-8').send(@method).to_a.should == [
@@ -63,7 +63,7 @@ describe :string_chars, shared: true do
     ]
   end
 
-  xit "returns individual chars for dummy encodings" do
+  it "returns individual chars for dummy encodings" do
     "ab".dup.force_encoding(Encoding::UTF_7).send(@method).to_a.should == [
       "\x61".dup.force_encoding(Encoding::UTF_7),
       "\x62".dup.force_encoding(Encoding::UTF_7)

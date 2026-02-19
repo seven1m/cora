@@ -24,6 +24,26 @@ test "Encoding::SHIFT_JIS exists" {
     try std.testing.expect(result.data == .encoding);
 }
 
+test "Encoding::UTF_7 exists" {
+    const result = try evalCode("Encoding::UTF_7");
+    try std.testing.expect(result.data == .encoding);
+}
+
+test "Encoding::UTF_16 exists" {
+    const result = try evalCode("Encoding::UTF_16");
+    try std.testing.expect(result.data == .encoding);
+}
+
+test "Encoding::UTF_32 exists" {
+    const result = try evalCode("Encoding::UTF_32");
+    try std.testing.expect(result.data == .encoding);
+}
+
+test "Encoding::ISO_8859_15 exists" {
+    const result = try evalCode("Encoding::ISO_8859_15");
+    try std.testing.expect(result.data == .encoding);
+}
+
 test "Encoding::UTF_16LE exists" {
     const result = try evalCode("Encoding::UTF_16LE");
     try std.testing.expect(result.data == .encoding);
@@ -131,11 +151,11 @@ test "Encoding.find supports SHIFT_JIS aliases" {
 test "Encoding.find supports UTF-16/UTF-32 aliases" {
     const result_utf16 = try evalCode("Encoding.find('utf16').name");
     try std.testing.expect(result_utf16.data == .string);
-    try std.testing.expectEqualSlices(u8, "UTF-16BE", result_utf16.data.string.str);
+    try std.testing.expectEqualSlices(u8, "UTF-16", result_utf16.data.string.str);
 
     const result_utf32 = try evalCode("Encoding.find('utf32').name");
     try std.testing.expect(result_utf32.data == .string);
-    try std.testing.expectEqualSlices(u8, "UTF-32BE", result_utf32.data.string.str);
+    try std.testing.expectEqualSlices(u8, "UTF-32", result_utf32.data.string.str);
 }
 
 test "String#encode transcodes UTF-8 to UTF-32BE and preserves char count" {
