@@ -82,6 +82,9 @@ pub fn register(vm: *VM) !void {
     const string_chars_sym = try vm.intern("chars");
     try vm.string_class.module.methods.put(string_chars_sym, .{ .method = .{ .builtin = &builtinStringChars } });
 
+    const string_codepoints_sym = try vm.intern("codepoints");
+    try vm.string_class.module.methods.put(string_codepoints_sym, .{ .method = .{ .builtin = &builtinStringCodepoints } });
+
     const string_start_with_sym = try vm.intern("start_with?");
     try vm.string_class.module.methods.put(string_start_with_sym, .{ .method = .{ .builtin = &builtinStringStartWith } });
 
@@ -435,6 +438,44 @@ pub fn builtinStringChars(vm: *VM, receiver: Value, args: []Value, block: ?Block
         const slice = bytes[start .. start + result.len];
         const char_val = try vm.newStringWithEncoding(slice, false, encoding);
         array_obj.elements.append(vm.gc_allocator, char_val) catch return error.Fatal;
+    }
+
+    return Value{ .data = .{ .array = array_obj } };
+}
+
+pub fn builtinStringCodepoints(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const string_obj = receiver.data.string;
+    const bytes = string_obj.str;
+    const encoding = string_obj.encoding;
+
+    if (block) |blk| {
+        var i: usize = 0;
+        while (i < bytes.len) {
+            const parsed = encoding.nextCodepoint(bytes, &i);
+            if (parsed.len == 0) break;
+            if (!parsed.valid) {
+                return vm.raiseExceptionFmt(vm.argument_error_class, "invalid byte sequence in {s}", .{encoding.name()});
+            }
+
+            const yield_args = [_]Value{Value.integer(parsed.codepoint)};
+            const yield_result = try vm.yieldToBlock(blk, &yield_args);
+            if (yield_result.break_occurred) {
+                return yield_result.value;
+            }
+        }
+        return receiver;
+    }
+
+    const array_obj = try vm.createArray();
+    var i: usize = 0;
+    while (i < bytes.len) {
+        const parsed = encoding.nextCodepoint(bytes, &i);
+        if (parsed.len == 0) break;
+        if (!parsed.valid) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "invalid byte sequence in {s}", .{encoding.name()});
+        }
+        array_obj.elements.append(vm.gc_allocator, Value.integer(parsed.codepoint)) catch return error.Fatal;
     }
 
     return Value{ .data = .{ .array = array_obj } };
