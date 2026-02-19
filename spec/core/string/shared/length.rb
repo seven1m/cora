@@ -10,7 +10,7 @@ describe :string_length, shared: true do
     "four".send(@method).should == 4
   end
 
-  xit "returns the length of a string in different encodings" do
+  it "returns the length of a string in different encodings" do
     utf8_str = 'こにちわ' * 100
     utf8_str.send(@method).should == 400
     utf8_str.encode(Encoding::UTF_32BE).send(@method).should == 400
@@ -43,12 +43,12 @@ describe :string_length, shared: true do
     "é\xF4\x90\x80\x80è".send(@method).should == 6
   end
 
-  xit "adds 1 (and not 2) for a incomplete surrogate in UTF-16" do
+  it "adds 1 (and not 2) for a incomplete surrogate in UTF-16" do
     "\x00\xd8".dup.force_encoding("UTF-16LE").send(@method).should == 1
     "\xd8\x00".dup.force_encoding("UTF-16BE").send(@method).should == 1
   end
 
-  xit "adds 1 for a broken sequence in UTF-32" do
+  it "adds 1 for a broken sequence in UTF-32" do
     "\x04\x03\x02\x01".dup.force_encoding("UTF-32LE").send(@method).should == 1
     "\x01\x02\x03\x04".dup.force_encoding("UTF-32BE").send(@method).should == 1
   end

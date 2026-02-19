@@ -225,6 +225,11 @@ pub const VM = struct {
     encoding_utf8: *value.EncodingObject,
     encoding_ascii_8bit: *value.EncodingObject,
     encoding_us_ascii: *value.EncodingObject,
+    encoding_shift_jis: *value.EncodingObject,
+    encoding_utf16le: *value.EncodingObject,
+    encoding_utf16be: *value.EncodingObject,
+    encoding_utf32le: *value.EncodingObject,
+    encoding_utf32be: *value.EncodingObject,
 
     // Exception handling state
     pending_exception: ?*value.ExceptionObject = null,
@@ -314,6 +319,11 @@ pub const VM = struct {
             .encoding_utf8 = undefined,
             .encoding_ascii_8bit = undefined,
             .encoding_us_ascii = undefined,
+            .encoding_shift_jis = undefined,
+            .encoding_utf16le = undefined,
+            .encoding_utf16be = undefined,
+            .encoding_utf32le = undefined,
+            .encoding_utf32be = undefined,
             .main_self = undefined,
             .zio_main_context = undefined,
             .zio_stack_growth_ready = false,
@@ -509,6 +519,11 @@ pub const VM = struct {
         self.encoding_utf8 = try self.createEncodingObject(.{ .utf8 = .{} });
         self.encoding_ascii_8bit = try self.createEncodingObject(.{ .ascii_8bit = .{} });
         self.encoding_us_ascii = try self.createEncodingObject(.{ .us_ascii = .{} });
+        self.encoding_shift_jis = try self.createEncodingObject(.{ .shift_jis = .{} });
+        self.encoding_utf16le = try self.createEncodingObject(.{ .utf16le = .{} });
+        self.encoding_utf16be = try self.createEncodingObject(.{ .utf16be = .{} });
+        self.encoding_utf32le = try self.createEncodingObject(.{ .utf32le = .{} });
+        self.encoding_utf32be = try self.createEncodingObject(.{ .utf32be = .{} });
 
         // --- Stage 3: Set Class's superclass to Module ---
         self.class_class.superclass = self.module_class;
@@ -587,15 +602,36 @@ pub const VM = struct {
         const ascii_8bit_const_sym = try self.intern("ASCII_8BIT");
         const binary_const_sym = try self.intern("BINARY");
         const us_ascii_const_sym = try self.intern("US_ASCII");
+        const shift_jis_const_sym = try self.intern("SHIFT_JIS");
+        const sjis_const_sym = try self.intern("SJIS");
+        const utf16le_const_sym = try self.intern("UTF_16LE");
+        const utf16be_const_sym = try self.intern("UTF_16BE");
+        const utf16_const_sym = try self.intern("UTF_16");
+        const utf32le_const_sym = try self.intern("UTF_32LE");
+        const utf32be_const_sym = try self.intern("UTF_32BE");
+        const utf32_const_sym = try self.intern("UTF_32");
 
         const utf8_val = Value{ .data = .{ .encoding = self.encoding_utf8 } };
         const ascii_8bit_val = Value{ .data = .{ .encoding = self.encoding_ascii_8bit } };
         const us_ascii_val = Value{ .data = .{ .encoding = self.encoding_us_ascii } };
+        const shift_jis_val = Value{ .data = .{ .encoding = self.encoding_shift_jis } };
+        const utf16le_val = Value{ .data = .{ .encoding = self.encoding_utf16le } };
+        const utf16be_val = Value{ .data = .{ .encoding = self.encoding_utf16be } };
+        const utf32le_val = Value{ .data = .{ .encoding = self.encoding_utf32le } };
+        const utf32be_val = Value{ .data = .{ .encoding = self.encoding_utf32be } };
 
         self.encoding_class.module.constants.put(utf8_const_sym, utf8_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(ascii_8bit_const_sym, ascii_8bit_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(binary_const_sym, ascii_8bit_val) catch return error.Fatal; // BINARY is alias for ASCII_8BIT
         self.encoding_class.module.constants.put(us_ascii_const_sym, us_ascii_val) catch return error.Fatal;
+        self.encoding_class.module.constants.put(shift_jis_const_sym, shift_jis_val) catch return error.Fatal;
+        self.encoding_class.module.constants.put(sjis_const_sym, shift_jis_val) catch return error.Fatal;
+        self.encoding_class.module.constants.put(utf16le_const_sym, utf16le_val) catch return error.Fatal;
+        self.encoding_class.module.constants.put(utf16be_const_sym, utf16be_val) catch return error.Fatal;
+        self.encoding_class.module.constants.put(utf16_const_sym, utf16be_val) catch return error.Fatal; // Ruby default alias
+        self.encoding_class.module.constants.put(utf32le_const_sym, utf32le_val) catch return error.Fatal;
+        self.encoding_class.module.constants.put(utf32be_const_sym, utf32be_val) catch return error.Fatal;
+        self.encoding_class.module.constants.put(utf32_const_sym, utf32be_val) catch return error.Fatal; // Ruby default alias
 
         // --- Stage 5: Register built-in methods ---
         builtins.registerAll(self) catch return error.Fatal;

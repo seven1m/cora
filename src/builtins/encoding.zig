@@ -7,6 +7,40 @@ const VMError = vm_mod.VMError;
 const Block = vm_mod.Block;
 const Value = value.Value;
 
+const EncodingLookup = enum {
+    utf8,
+    ascii_8bit,
+    us_ascii,
+    shift_jis,
+    utf16le,
+    utf16be,
+    utf32le,
+    utf32be,
+};
+
+const encoding_name_map = std.StaticStringMap(EncodingLookup).initComptime(.{
+    .{ "UTF_8", .utf8 },
+    .{ "UTF8", .utf8 },
+    .{ "ASCII_8BIT", .ascii_8bit },
+    .{ "BINARY", .ascii_8bit },
+    .{ "US_ASCII", .us_ascii },
+    .{ "ASCII", .us_ascii },
+    .{ "SHIFT_JIS", .shift_jis },
+    .{ "SJIS", .shift_jis },
+    .{ "UTF_16LE", .utf16le },
+    .{ "UTF16LE", .utf16le },
+    .{ "UTF_16BE", .utf16be },
+    .{ "UTF16BE", .utf16be },
+    .{ "UTF_16", .utf16be },
+    .{ "UTF16", .utf16be },
+    .{ "UTF_32LE", .utf32le },
+    .{ "UTF32LE", .utf32le },
+    .{ "UTF_32BE", .utf32be },
+    .{ "UTF32BE", .utf32be },
+    .{ "UTF_32", .utf32be },
+    .{ "UTF32", .utf32be },
+});
+
 pub fn register(vm: *VM) !void {
     const name_sym = try vm.intern("name");
     try vm.encoding_class.module.methods.put(name_sym, .{ .method = .{ .builtin = &builtinEncodingName } });
@@ -83,13 +117,17 @@ pub fn builtinEncodingFind(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
     }
     const lookup = normalized[0..len];
 
-    // Match encoding name
-    if (std.mem.eql(u8, lookup, "UTF_8") or std.mem.eql(u8, lookup, "UTF8")) {
-        return Value{ .data = .{ .encoding = vm.encoding_utf8 } };
-    } else if (std.mem.eql(u8, lookup, "ASCII_8BIT") or std.mem.eql(u8, lookup, "BINARY")) {
-        return Value{ .data = .{ .encoding = vm.encoding_ascii_8bit } };
-    } else if (std.mem.eql(u8, lookup, "US_ASCII") or std.mem.eql(u8, lookup, "ASCII")) {
-        return Value{ .data = .{ .encoding = vm.encoding_us_ascii } };
+    if (encoding_name_map.get(lookup)) |enc_name| {
+        return switch (enc_name) {
+            .utf8 => Value{ .data = .{ .encoding = vm.encoding_utf8 } },
+            .ascii_8bit => Value{ .data = .{ .encoding = vm.encoding_ascii_8bit } },
+            .us_ascii => Value{ .data = .{ .encoding = vm.encoding_us_ascii } },
+            .shift_jis => Value{ .data = .{ .encoding = vm.encoding_shift_jis } },
+            .utf16le => Value{ .data = .{ .encoding = vm.encoding_utf16le } },
+            .utf16be => Value{ .data = .{ .encoding = vm.encoding_utf16be } },
+            .utf32le => Value{ .data = .{ .encoding = vm.encoding_utf32le } },
+            .utf32be => Value{ .data = .{ .encoding = vm.encoding_utf32be } },
+        };
     }
 
     return vm.raiseExceptionFmt(vm.argument_error_class, "unknown encoding name - {s}", .{name_str});

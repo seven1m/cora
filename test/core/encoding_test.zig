@@ -19,6 +19,31 @@ test "Encoding::US_ASCII exists" {
     try std.testing.expect(result.data == .encoding);
 }
 
+test "Encoding::SHIFT_JIS exists" {
+    const result = try evalCode("Encoding::SHIFT_JIS");
+    try std.testing.expect(result.data == .encoding);
+}
+
+test "Encoding::UTF_16LE exists" {
+    const result = try evalCode("Encoding::UTF_16LE");
+    try std.testing.expect(result.data == .encoding);
+}
+
+test "Encoding::UTF_16BE exists" {
+    const result = try evalCode("Encoding::UTF_16BE");
+    try std.testing.expect(result.data == .encoding);
+}
+
+test "Encoding::UTF_32LE exists" {
+    const result = try evalCode("Encoding::UTF_32LE");
+    try std.testing.expect(result.data == .encoding);
+}
+
+test "Encoding::UTF_32BE exists" {
+    const result = try evalCode("Encoding::UTF_32BE");
+    try std.testing.expect(result.data == .encoding);
+}
+
 test "Encoding::BINARY is alias for ASCII_8BIT" {
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;
@@ -95,6 +120,34 @@ test "Encoding.find normalizes name" {
     const result = try evalCode("Encoding.find('utf-8').name");
     try std.testing.expect(result.data == .string);
     try std.testing.expectEqualSlices(u8, "UTF-8", result.data.string.str);
+}
+
+test "Encoding.find supports SHIFT_JIS aliases" {
+    const result = try evalCode("Encoding.find('sjis').name");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "Shift_JIS", result.data.string.str);
+}
+
+test "Encoding.find supports UTF-16/UTF-32 aliases" {
+    const result_utf16 = try evalCode("Encoding.find('utf16').name");
+    try std.testing.expect(result_utf16.data == .string);
+    try std.testing.expectEqualSlices(u8, "UTF-16BE", result_utf16.data.string.str);
+
+    const result_utf32 = try evalCode("Encoding.find('utf32').name");
+    try std.testing.expect(result_utf32.data == .string);
+    try std.testing.expectEqualSlices(u8, "UTF-32BE", result_utf32.data.string.str);
+}
+
+test "String#encode transcodes UTF-8 to UTF-32BE and preserves char count" {
+    const result = try evalCode("'こにちわ'.encode(Encoding::UTF_32BE).length");
+    try std.testing.expect(result.data == .integer);
+    try std.testing.expectEqual(@as(i64, 4), result.data.integer);
+}
+
+test "String#encode transcodes UTF-8 to SHIFT_JIS and preserves char count" {
+    const result = try evalCode("'こにちわ'.encode(Encoding::SHIFT_JIS).length");
+    try std.testing.expect(result.data == .integer);
+    try std.testing.expectEqual(@as(i64, 4), result.data.integer);
 }
 
 test "Encoding.find with symbol argument raises TypeError" {

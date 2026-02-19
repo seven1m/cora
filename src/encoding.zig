@@ -1,6 +1,12 @@
+const std = @import("std");
 const Utf8Encoding = @import("encoding/utf8.zig").Utf8Encoding;
 const Ascii8BitEncoding = @import("encoding/ascii_8bit.zig").Ascii8BitEncoding;
 const UsAsciiEncoding = @import("encoding/us_ascii.zig").UsAsciiEncoding;
+const ShiftJisEncoding = @import("encoding/shift_jis.zig").ShiftJisEncoding;
+const Utf16LeEncoding = @import("encoding/utf16le.zig").Utf16LeEncoding;
+const Utf16BeEncoding = @import("encoding/utf16be.zig").Utf16BeEncoding;
+const Utf32LeEncoding = @import("encoding/utf32le.zig").Utf32LeEncoding;
+const Utf32BeEncoding = @import("encoding/utf32be.zig").Utf32BeEncoding;
 
 pub const CharResult = struct {
     valid: bool,
@@ -23,6 +29,11 @@ pub const Encoding = union(enum) {
     utf8: Utf8Encoding,
     ascii_8bit: Ascii8BitEncoding,
     us_ascii: UsAsciiEncoding,
+    shift_jis: ShiftJisEncoding,
+    utf16le: Utf16LeEncoding,
+    utf16be: Utf16BeEncoding,
+    utf32le: Utf32LeEncoding,
+    utf32be: Utf32BeEncoding,
 
     // Delegate to active variant using inline else
     pub fn name(self: Encoding) []const u8 {
@@ -130,6 +141,37 @@ pub const Encoding = union(enum) {
     }
 };
 
+pub const TranscodeError = error{
+    OutOfMemory,
+    InvalidByteSequence,
+    UndefinedConversion,
+};
+
+pub fn transcode(
+    allocator: std.mem.Allocator,
+    bytes: []const u8,
+    source: Encoding,
+    target: Encoding,
+) TranscodeError![]u8 {
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(allocator);
+
+    var i: usize = 0;
+    while (i < bytes.len) {
+        const parsed = source.nextCodepoint(bytes, &i);
+        if (parsed.len == 0) break;
+        if (!parsed.valid) return error.InvalidByteSequence;
+
+        var encoded: [4]u8 = undefined;
+        const encoded_len = target.fromUnicodeCodepoint(parsed.codepoint, &encoded) orelse {
+            return error.UndefinedConversion;
+        };
+        out.appendSlice(allocator, encoded[0..encoded_len]) catch return error.OutOfMemory;
+    }
+
+    return out.toOwnedSlice(allocator) catch return error.OutOfMemory;
+}
+
 /// Encoding negotiation for string operations.
 /// Returns the result encoding for combining two strings, or null if incompatible.
 pub fn negotiate(enc1: Encoding, str1: []const u8, enc2: Encoding, str2: []const u8) ?Encoding {
@@ -183,5 +225,3 @@ pub fn isAsciiOnly(bytes: []const u8) bool {
     }
     return true;
 }
-
-const std = @import("std");

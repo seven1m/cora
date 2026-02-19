@@ -228,6 +228,11 @@ pub fn builtinStringEncoding(vm: *VM, receiver: Value, args: []Value, _: ?Block)
         .utf8 => Value{ .data = .{ .encoding = vm.encoding_utf8 } },
         .ascii_8bit => Value{ .data = .{ .encoding = vm.encoding_ascii_8bit } },
         .us_ascii => Value{ .data = .{ .encoding = vm.encoding_us_ascii } },
+        .shift_jis => Value{ .data = .{ .encoding = vm.encoding_shift_jis } },
+        .utf16le => Value{ .data = .{ .encoding = vm.encoding_utf16le } },
+        .utf16be => Value{ .data = .{ .encoding = vm.encoding_utf16be } },
+        .utf32le => Value{ .data = .{ .encoding = vm.encoding_utf32le } },
+        .utf32be => Value{ .data = .{ .encoding = vm.encoding_utf32be } },
     };
 }
 
@@ -243,18 +248,22 @@ pub fn builtinStringEncode(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     };
 
     const string_obj = receiver.data.string;
-
-    // Validate bytes for target encoding when needed.
-    const requires_validation = switch (target_encoding) {
-        .ascii_8bit => false,
-        else => true,
+    const transcoded = enc.transcode(vm.gc_allocator_atomic, string_obj.str, string_obj.encoding, target_encoding) catch |err| {
+        switch (err) {
+            error.InvalidByteSequence => {
+                const src_name = string_obj.encoding.name();
+                return vm.raiseExceptionFmt(vm.argument_error_class, "invalid byte sequence in {s}", .{src_name});
+            },
+            error.UndefinedConversion => {
+                const src_name = string_obj.encoding.name();
+                const dst_name = target_encoding.name();
+                return vm.raiseExceptionFmt(vm.argument_error_class, "undefined conversion from {s} to {s}", .{ src_name, dst_name });
+            },
+            else => return error.Fatal,
+        }
     };
-    if (requires_validation and !target_encoding.isValid(string_obj.str)) {
-        const name = target_encoding.name();
-        return vm.raiseExceptionFmt(vm.argument_error_class, "invalid byte sequence in {s}", .{name});
-    }
 
-    return try vm.newStringWithEncoding(string_obj.str, false, target_encoding);
+    return try vm.newStringWithEncoding(transcoded, false, target_encoding);
 }
 
 pub fn builtinStringForceEncoding(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
