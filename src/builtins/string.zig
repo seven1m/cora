@@ -20,6 +20,9 @@ pub fn register(vm: *VM) !void {
     const string_plus_sym = try vm.intern("+");
     try vm.string_class.module.methods.put(string_plus_sym, .{ .method = .{ .builtin = &builtinStringPlus } });
 
+    const string_multiply_sym = try vm.intern("*");
+    try vm.string_class.module.methods.put(string_multiply_sym, .{ .method = .{ .builtin = &builtinStringMultiply } });
+
     const string_append_sym = try vm.intern("<<");
     try vm.string_class.module.methods.put(string_append_sym, .{ .method = .{ .builtin = &builtinStringAppend } });
 
@@ -151,6 +154,29 @@ pub fn builtinStringPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     return try vm.newString(combined_str, false);
 }
 
+pub fn builtinStringMultiply(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const times = switch (args[0].data) {
+        .integer => |n| n,
+        else => return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Integer", .{}),
+    };
+    if (times < 0) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "negative argument", .{});
+    }
+
+    const string_obj = receiver.data.string;
+    const n: usize = @intCast(times);
+    const out_len = string_obj.str.len * n;
+    const out = vm.gc_allocator_atomic.alloc(u8, out_len) catch return error.Fatal;
+    var offset: usize = 0;
+    var i: usize = 0;
+    while (i < n) : (i += 1) {
+        @memcpy(out[offset .. offset + string_obj.str.len], string_obj.str);
+        offset += string_obj.str.len;
+    }
+    return try vm.newStringWithEncoding(out, false, string_obj.encoding);
+}
+
 pub fn builtinStringAppend(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const string_obj = receiver.data.string;
@@ -242,9 +268,10 @@ pub fn builtinStringForceEncoding(vm: *VM, receiver: Value, args: []Value, _: ?B
         },
     };
 
-    // Create a new string with the same bytes but different encoding
     const string_obj = receiver.data.string;
-    return try vm.newStringWithEncoding(string_obj.str, false, new_encoding);
+    string_obj.encoding = new_encoding;
+    string_obj.validity = .unknown;
+    return receiver;
 }
 
 pub fn builtinStringValidEncoding(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
