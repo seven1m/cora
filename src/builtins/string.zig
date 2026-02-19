@@ -27,6 +27,9 @@ pub fn register(vm: *VM) !void {
     const string_append_sym = try vm.intern("<<");
     try vm.string_class.module.methods.put(string_append_sym, .{ .method = .{ .builtin = &builtinStringAppend } });
 
+    const string_concat_sym = try vm.intern("concat");
+    try vm.string_class.module.methods.put(string_concat_sym, .{ .method = .{ .builtin = &builtinStringConcat } });
+
     const string_equal_sym = try vm.intern("==");
     try vm.string_class.module.methods.put(string_equal_sym, .{ .method = .{ .builtin = &builtinStringEqual } });
 
@@ -200,6 +203,10 @@ pub fn builtinStringAppend(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     const new_bytes = try concatBytes(vm, string_obj.str, bytes_to_append);
     string_obj.str = new_bytes;
     return receiver;
+}
+
+pub fn builtinStringConcat(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    return builtinStringAppend(vm, receiver, args, block);
 }
 
 pub fn builtinStringEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
