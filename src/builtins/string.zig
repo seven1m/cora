@@ -91,6 +91,9 @@ pub fn register(vm: *VM) !void {
     const string_end_with_sym = try vm.intern("end_with?");
     try vm.string_class.module.methods.put(string_end_with_sym, .{ .method = .{ .builtin = &builtinStringEndWith } });
 
+    const string_include_sym = try vm.intern("include?");
+    try vm.string_class.module.methods.put(string_include_sym, .{ .method = .{ .builtin = &builtinStringInclude } });
+
     const string_prepend_sym = try vm.intern("prepend");
     try vm.string_class.module.methods.put(string_prepend_sym, .{ .method = .{ .builtin = &builtinStringPrepend } });
 
@@ -540,6 +543,43 @@ pub fn builtinStringEndWith(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
         if (string_obj.encoding.isCharBoundary(string_obj.str, start)) {
             return Value.boolean(true);
         }
+    }
+
+    return Value.boolean(false);
+}
+
+pub fn builtinStringInclude(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const string_obj = receiver.data.string;
+
+    const needle_val = try coerceToStringValueViaCall(vm, args[0]);
+    const needle = needle_val.data.string.str;
+    const needle_enc = needle_val.data.string.encoding;
+
+    if (needle.len == 0) {
+        return Value.boolean(true);
+    }
+
+    if (enc.negotiate(string_obj.encoding, string_obj.str, needle_enc, needle) == null) {
+        return vm.raiseExceptionFmt(
+            vm.argument_error_class,
+            "incompatible character encodings: {s} and {s}",
+            .{ string_obj.encoding.name(), needle_enc.name() },
+        );
+    }
+
+    if (needle.len > string_obj.str.len) {
+        return Value.boolean(false);
+    }
+
+    var pos: usize = 0;
+    while (pos <= string_obj.str.len - needle.len) {
+        const found = std.mem.indexOfPos(u8, string_obj.str, pos, needle) orelse return Value.boolean(false);
+        const end = found + needle.len;
+        if (string_obj.encoding.isCharBoundary(string_obj.str, found) and string_obj.encoding.isCharBoundary(string_obj.str, end)) {
+            return Value.boolean(true);
+        }
+        pos = found + 1;
     }
 
     return Value.boolean(false);
