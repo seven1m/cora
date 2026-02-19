@@ -3,6 +3,66 @@ $__passes = 0
 $__describe = ""
 $__shared_examples = {}
 $__skipped = []
+$__active_mocks = []
+$__context_stack = [
+  {
+    description: nil,
+    before_each: [],
+    before_all: [],
+    after_each: [],
+    after_all: [],
+    before_all_done: true,
+  },
+]
+
+def record_failure(it_desc, error)
+  message = error.message
+  if error.respond_to?(:class) && error.class
+    message = "#{error.class}: #{message}"
+  end
+  $__failures << [$__describe, it_desc, message]
+end
+
+def full_description
+  parts = []
+  $__context_stack.each do |ctx|
+    if ctx[:description]
+      parts << ctx[:description]
+    end
+  end
+  parts.join(" ")
+end
+
+def current_context
+  $__context_stack[$__context_stack.length - 1]
+end
+
+def run_before_all_hooks
+  $__context_stack.each do |ctx|
+    if !ctx[:before_all_done]
+      ctx[:before_all].each { |hook| hook.call }
+      ctx[:before_all_done] = true
+    end
+  end
+end
+
+def run_before_each_hooks
+  $__context_stack.each do |ctx|
+    ctx[:before_each].each { |hook| hook.call }
+  end
+end
+
+def run_after_each_hooks
+  i = $__context_stack.length - 1
+  while i >= 0
+    $__context_stack[i][:after_each].each { |hook| hook.call }
+    i -= 1
+  end
+end
+
+def run_after_all_hooks(ctx)
+  ctx[:after_all].each { |hook| hook.call }
+end
 
 def describe(desc, shared: false, &block)
   if shared
@@ -10,8 +70,44 @@ def describe(desc, shared: false, &block)
     return
   end
 
-  $__describe = desc
+  ctx = {
+    description: desc.to_s,
+    before_each: [],
+    before_all: [],
+    after_each: [],
+    after_all: [],
+    before_all_done: false,
+  }
+  $__context_stack << ctx
+  previous = $__describe
+  $__describe = full_description
   block.call
+  run_after_all_hooks(ctx)
+ensure
+  $__context_stack = $__context_stack[0, $__context_stack.length - 1]
+  $__describe = previous
+end
+
+def context(desc, &block)
+  describe(desc, &block)
+end
+
+def before(scope = :each, &block)
+  ctx = current_context
+  if scope == :all
+    ctx[:before_all] << block
+  else
+    ctx[:before_each] << block
+  end
+end
+
+def after(scope = :each, &block)
+  ctx = current_context
+  if scope == :all
+    ctx[:after_all] << block
+  else
+    ctx[:after_each] << block
+  end
 end
 
 def it_behaves_like(name, *args)
@@ -20,23 +116,75 @@ def it_behaves_like(name, *args)
 
   prev_method = @method
   @method = args[0] if args.length > 0
-  $__describe = name
   shared.call
 ensure
   @method = prev_method
 end
 
 def it(desc)
+  run_before_all_hooks
+  error = nil
+
   begin
+    run_before_each_hooks
     yield
-    $__passes = $__passes + 1
   rescue => e
-    $__failures << [$__describe, desc, e.message]
+    error = e
+  ensure
+    begin
+      $__active_mocks.each { |m| m.verify_expectations! }
+    rescue => e
+      error = e if error.nil?
+    end
+
+    begin
+      run_after_each_hooks
+    rescue => e
+      error = e if error.nil?
+    end
+
+    $__active_mocks = []
+  end
+
+  if error
+    record_failure(desc, error)
+  else
+    $__passes = $__passes + 1
   end
 end
 
 def xit(desc)
   $__skipped << [$__describe, desc]
+end
+
+def ruby_version_is(*_args, &block)
+  block.call if block
+end
+
+def platform_is(*_args, &block)
+  block.call if block
+end
+
+def platform_is_not(*_args, &block)
+  block.call if block
+end
+
+def deviates_on(*_args, &block)
+  block.call if block
+end
+
+def quarantine!(*_args); end
+
+def guard(*_args, &block)
+  block.call if block
+end
+
+def guard_not(*_args, &block)
+  block.call if block
+end
+
+def flunk(message = "Flunked")
+  raise SpecFailedException, message
 end
 
 class SpecFailedException < StandardError; end
@@ -125,8 +273,49 @@ class EqualMatcher
   end
 end
 
-def equal(expected)
-  EqualMatcher.new(expected)
+class EqlMatcher
+  def initialize(expected)
+    @expected = expected
+  end
+
+  def matches?(actual)
+    actual.eql?(@expected)
+  end
+
+  def failure_message(actual)
+    "Expected #{actual.inspect} to eql #{@expected.inspect}"
+  end
+end
+
+class IncludeMatcher
+  def initialize(*expected)
+    @expected = expected
+  end
+
+  def matches?(actual)
+    @expected.each do |item|
+      return false unless actual.include?(item)
+    end
+    true
+  end
+
+  def failure_message(actual)
+    "Expected #{actual.inspect} to include #{@expected.inspect}"
+  end
+end
+
+class KindOfMatcher
+  def initialize(expected_class)
+    @expected_class = expected_class
+  end
+
+  def matches?(actual)
+    actual.is_a?(@expected_class)
+  end
+
+  def failure_message(actual)
+    "Expected #{actual.inspect} to be kind of #{@expected_class}"
+  end
 end
 
 class BeAnInstanceOfMatcher
@@ -143,10 +332,6 @@ class BeAnInstanceOfMatcher
   end
 end
 
-def be_an_instance_of(expected_class)
-  BeAnInstanceOfMatcher.new(expected_class)
-end
-
 class BooleanMatcher
   def initialize(expected)
     @expected = expected
@@ -161,14 +346,6 @@ class BooleanMatcher
   end
 end
 
-def be_true
-  BooleanMatcher.new(true)
-end
-
-def be_false
-  BooleanMatcher.new(false)
-end
-
 class BeNilMatcher
   def matches?(actual)
     actual.nil?
@@ -179,13 +356,277 @@ class BeNilMatcher
   end
 end
 
-def be_nil
-  BeNilMatcher.new
+class BeEmptyMatcher
+  def matches?(actual)
+    actual.empty?
+  end
+
+  def failure_message(actual)
+    "Expected #{actual.inspect} to be empty"
+  end
+end
+
+class RespondToMatcher
+  def initialize(name, include_private = false)
+    @name = name
+    @include_private = include_private
+  end
+
+  def matches?(actual)
+    actual.respond_to?(@name, @include_private)
+  end
+
+  def failure_message(actual)
+    "Expected #{actual.inspect} to respond to #{@name.inspect}"
+  end
+end
+
+class BeCloseMatcher
+  def initialize(expected, tolerance)
+    @expected = expected
+    @tolerance = tolerance
+  end
+
+  def matches?(actual)
+    (actual - @expected).abs <= @tolerance
+  end
+
+  def failure_message(actual)
+    "Expected #{actual.inspect} to be within #{@tolerance.inspect} of #{@expected.inspect}"
+  end
+end
+
+class HaveMethodMatcher
+  def initialize(name)
+    @name = name
+  end
+
+  def matches?(actual)
+    actual.respond_to?(@name, true)
+  end
+
+  def failure_message(actual)
+    "Expected #{actual.inspect} to have method #{@name.inspect}"
+  end
+end
+
+class HaveConstantMatcher
+  def initialize(name)
+    @name = name
+  end
+
+  def matches?(actual)
+    actual.const_defined?(@name)
+  end
+
+  def failure_message(actual)
+    "Expected #{actual.inspect} to have constant #{@name.inspect}"
+  end
+end
+
+class HaveInstanceMethodMatcher
+  def initialize(name, visibility, include_super = true)
+    @name = name
+    @visibility = visibility
+    @include_super = include_super
+  end
+
+  def matches?(actual)
+    list = case @visibility
+    when :public then actual.public_instance_methods(@include_super)
+    when :private then actual.private_instance_methods(@include_super)
+    when :protected then actual.protected_instance_methods(@include_super)
+    else actual.instance_methods(@include_super)
+    end
+    list.include?(@name)
+  end
+
+  def failure_message(actual)
+    "Expected #{actual.inspect} to have #{@visibility} instance method #{@name.inspect}"
+  end
+end
+
+class HavePrivateMethodMatcher
+  def initialize(name)
+    @name = name
+  end
+
+  def matches?(actual)
+    actual.private_methods.include?(@name)
+  end
+
+  def failure_message(actual)
+    "Expected #{actual.inspect} to have private method #{@name.inspect}"
+  end
+end
+
+class BeComputedByMatcher
+  def initialize(method_name, *extra_args)
+    @method_name = method_name
+    @extra_args = extra_args
+  end
+
+  def matches?(actual)
+    actual.each do |tuple|
+      return false unless tuple.is_a?(Array) && tuple.length >= 2
+      receiver = tuple[0]
+      expected = tuple[1]
+      result = receiver.send(@method_name, *@extra_args)
+      return false unless result == expected
+    end
+    true
+  end
+
+  def failure_message(actual)
+    "Expected #{actual.inspect} to be computed by #{@method_name}"
+  end
+end
+
+class SpecCaptureIO
+  attr_reader :string
+
+  def initialize
+    @string = ""
+  end
+
+  def write(value)
+    @string = @string + value.to_s
+    value.to_s.length
+  end
+
+  def <<(value)
+    write(value)
+    self
+  end
+
+  def print(*args)
+    args.each { |a| write(a.to_s) }
+    nil
+  end
+
+  def puts(*args)
+    if args.length == 0
+      write("\n")
+      return nil
+    end
+    args.each do |a|
+      s = a.to_s
+      if s.end_with?("\n")
+        write(s)
+      else
+        write(s + "\n")
+      end
+    end
+    nil
+  end
+
+  def flush
+    nil
+  end
+end
+
+class OutputMatcher
+  def initialize(expected_stdout = nil, expected_stderr = nil, fd = nil)
+    @expected_stdout = expected_stdout
+    @expected_stderr = expected_stderr
+    @fd = fd
+    @actual_stdout = nil
+    @actual_stderr = nil
+  end
+
+  def matches?(callable)
+    return false unless callable.respond_to?(:call)
+
+    out = SpecCaptureIO.new
+    err = SpecCaptureIO.new
+    old_out = $stdout
+    old_err = $stderr
+    $stdout = out
+    $stderr = err
+    begin
+      callable.call
+    ensure
+      $stdout = old_out
+      $stderr = old_err
+    end
+
+    @actual_stdout = out.string
+    @actual_stderr = err.string
+    matches_output?
+  end
+
+  def matches_output?
+    if @fd
+      actual = fd_string(@fd)
+      expected = @expected_stdout
+      return match_value?(expected, actual)
+    end
+
+    return false unless match_value?(@expected_stdout, @actual_stdout)
+    return false unless match_value?(@expected_stderr, @actual_stderr)
+    true
+  end
+
+  def fd_string(fd)
+    if fd == 2 || fd == STDERR
+      @actual_stderr
+    else
+      @actual_stdout
+    end
+  end
+
+  def match_value?(expected, actual)
+    return true if expected.nil?
+    if expected.is_a?(Regexp)
+      !(actual =~ expected).nil?
+    else
+      actual == expected
+    end
+  end
+
+  def failure_message(_actual)
+    "Expected output did not match"
+  end
+end
+
+class ComplainMatcher
+  def initialize(expected = nil, _opts = nil)
+    @expected = expected
+    @actual = nil
+  end
+
+  def matches?(callable)
+    return false unless callable.respond_to?(:call)
+
+    err = SpecCaptureIO.new
+    old_err = $stderr
+    $stderr = err
+    begin
+      callable.call
+    ensure
+      $stderr = old_err
+    end
+    @actual = err.string
+
+    if @expected.nil?
+      @actual != ""
+    elsif @expected.is_a?(Regexp)
+      !(@actual =~ @expected).nil?
+    else
+      @actual == @expected
+    end
+  end
+
+  def failure_message(_actual)
+    "Expected warning output to match #{@expected.inspect}, got #{@actual.inspect}"
+  end
 end
 
 class RaiseErrorMatcher
-  def initialize(expected_class = nil)
+  def initialize(expected_class = nil, expected_message = nil, verifier = nil)
     @expected_class = expected_class
+    @expected_message = expected_message
+    @verifier = verifier
     @actual_exception = nil
   end
 
@@ -197,11 +638,32 @@ class RaiseErrorMatcher
     begin
       actual.call
       @actual_exception = nil
-      false
+      return false
     rescue => e
       @actual_exception = e
-      return true if @expected_class.nil?
-      e.is_a?(@expected_class)
+    end
+
+    return false unless match_class?
+    return false unless match_message?
+    @verifier.call(@actual_exception) if @verifier
+    true
+  end
+
+  def match_class?
+    return true if @expected_class.nil?
+    if @expected_class.is_a?(Module)
+      @actual_exception.is_a?(@expected_class)
+    else
+      true
+    end
+  end
+
+  def match_message?
+    return true if @expected_message.nil?
+    if @expected_message.is_a?(Regexp)
+      !(@actual_exception.message =~ @expected_message).nil?
+    else
+      @actual_exception.message == @expected_message
     end
   end
 
@@ -211,29 +673,234 @@ class RaiseErrorMatcher
     end
 
     if @actual_exception.nil?
-      if @expected_class.nil?
-        "Expected block to raise an error, but no error was raised"
-      else
-        "Expected block to raise #{@expected_class}, but no error was raised"
-      end
+      "Expected block to raise an error, but no error was raised"
     else
-      if @expected_class.nil?
-        "Expected block to raise an error, got #{@actual_exception.class}: #{@actual_exception.message}"
-      else
-        "Expected block to raise #{@expected_class}, got #{@actual_exception.class}: #{@actual_exception.message}"
-      end
+      "Expected raise_error(#{@expected_class.inspect}, #{@expected_message.inspect}), got #{@actual_exception.class}: #{@actual_exception.message}"
     end
   end
 end
 
-def raise_error(expected_class = nil)
-  RaiseErrorMatcher.new(expected_class)
+def equal(expected)
+  EqualMatcher.new(expected)
+end
+
+def eql(expected)
+  EqlMatcher.new(expected)
+end
+
+def include(*expected)
+  IncludeMatcher.new(*expected)
+end
+
+def be_kind_of(expected_class)
+  KindOfMatcher.new(expected_class)
+end
+
+def be_a(expected_class)
+  be_kind_of(expected_class)
+end
+
+def be_an_instance_of(expected_class)
+  BeAnInstanceOfMatcher.new(expected_class)
+end
+
+def be_true
+  BooleanMatcher.new(true)
+end
+
+def be_false
+  BooleanMatcher.new(false)
+end
+
+def be_nil
+  BeNilMatcher.new
+end
+
+def be_empty
+  BeEmptyMatcher.new
+end
+
+def respond_to(name, include_private = false)
+  RespondToMatcher.new(name, include_private)
+end
+
+def be_close(expected, tolerance)
+  BeCloseMatcher.new(expected, tolerance)
+end
+
+def have_method(name)
+  HaveMethodMatcher.new(name)
+end
+
+def have_constant(name)
+  HaveConstantMatcher.new(name)
+end
+
+def have_instance_method(name, include_super = true)
+  HaveInstanceMethodMatcher.new(name, :any, include_super)
+end
+
+def have_public_instance_method(name, include_super = true)
+  HaveInstanceMethodMatcher.new(name, :public, include_super)
+end
+
+def have_private_instance_method(name, include_super = true)
+  HaveInstanceMethodMatcher.new(name, :private, include_super)
+end
+
+def have_protected_instance_method(name, include_super = true)
+  HaveInstanceMethodMatcher.new(name, :protected, include_super)
+end
+
+def have_private_method(name)
+  HavePrivateMethodMatcher.new(name)
+end
+
+def be_computed_by(method_name, *extra_args)
+  BeComputedByMatcher.new(method_name, *extra_args)
+end
+
+def output(expected_stdout = nil, expected_stderr = nil)
+  OutputMatcher.new(expected_stdout, expected_stderr, nil)
+end
+
+def output_to_fd(expected_output = nil, fd = nil)
+  OutputMatcher.new(expected_output, nil, fd || 1)
+end
+
+def complain(expected = nil, opts = nil)
+  ComplainMatcher.new(expected, opts)
+end
+
+def raise_error(expected = nil, expected_message = nil, &verifier)
+  expected_class = nil
+  message = expected_message
+
+  if expected.is_a?(Module)
+    expected_class = expected
+  elsif expected.is_a?(String) || expected.is_a?(Regexp)
+    message = expected
+  end
+
+  RaiseErrorMatcher.new(expected_class, message, verifier)
+end
+
+class SpecMockExpectation
+  def initialize(mock_name, method_name)
+    @mock_name = mock_name
+    @method_name = method_name
+    @expected_args = nil
+    @calls = 0
+    @min_calls = 1
+    @max_calls = 1
+    @return_values = []
+    @raise_value = nil
+    @pending_exactly = nil
+  end
+
+  def with(*args)
+    @expected_args = args
+    self
+  end
+
+  def and_return(*values)
+    @return_values = values
+    self
+  end
+
+  def and_raise(value = RuntimeError)
+    @raise_value = value
+    self
+  end
+
+  def once
+    @min_calls = 1
+    @max_calls = 1
+    self
+  end
+
+  def twice
+    @min_calls = 2
+    @max_calls = 2
+    self
+  end
+
+  def exactly(n)
+    @pending_exactly = n
+    self
+  end
+
+  def at_least(n)
+    @min_calls = n
+    @max_calls = nil
+    self
+  end
+
+  def at_most(n)
+    @min_calls = 0
+    @max_calls = n
+    self
+  end
+
+  def any_number_of_times
+    @min_calls = 0
+    @max_calls = nil
+    self
+  end
+
+  def times
+    if !@pending_exactly.nil?
+      @min_calls = @pending_exactly
+      @max_calls = @pending_exactly
+      @pending_exactly = nil
+    end
+    self
+  end
+
+  def ordered
+    self
+  end
+
+  def invoke(args)
+    if !@expected_args.nil? && @expected_args != args
+      raise SpecFailedException, "Expected #{@mock_name}.#{@method_name}(#{@expected_args.inspect}), got args #{args.inspect}"
+    end
+
+    @calls += 1
+
+    if !@max_calls.nil? && @calls > @max_calls
+      raise SpecFailedException, "Expected #{@mock_name}.#{@method_name} at most #{@max_calls} times, got #{@calls}"
+    end
+
+    if !@raise_value.nil?
+      if @raise_value.is_a?(Class)
+        raise @raise_value
+      else
+        raise @raise_value
+      end
+    end
+
+    if @return_values.length == 0
+      nil
+    elsif @calls <= @return_values.length
+      @return_values[@calls - 1]
+    else
+      @return_values[@return_values.length - 1]
+    end
+  end
+
+  def verify!
+    if @calls < @min_calls
+      raise SpecFailedException, "Expected #{@mock_name}.#{@method_name} at least #{@min_calls} times, got #{@calls}"
+    end
+  end
 end
 
 class SpecMock
   def initialize(name = nil)
     @name = name || "mock"
     @forbidden_calls = {}
+    @expected_calls = {}
   end
 
   def should_not_receive(method_name)
@@ -241,10 +908,30 @@ class SpecMock
     self
   end
 
+  def should_receive(method_name)
+    method_name = method_name.to_sym
+    @forbidden_calls.delete(method_name)
+    exp = SpecMockExpectation.new(@name, method_name)
+    @expected_calls[method_name] = exp
+    exp
+  end
+
+  def verify_expectations!
+    @expected_calls.each do |_name, exp|
+      exp.verify!
+    end
+  end
+
   def method_missing(name, *args, &block)
-    if @forbidden_calls[name.to_sym]
+    sym = name.to_sym
+
+    if @forbidden_calls[sym]
       raise SpecFailedException, "Expected #{@name} not to receive #{name}"
     end
+
+    exp = @expected_calls[sym]
+    return exp.invoke(args) if exp
+
     nil
   end
 
@@ -254,7 +941,27 @@ class SpecMock
 end
 
 def mock(name = nil)
-  SpecMock.new(name)
+  m = SpecMock.new(name)
+  $__active_mocks << m
+  m
+end
+
+class ExpectationTarget
+  def initialize(actual)
+    @actual = actual
+  end
+
+  def to(matcher)
+    SpecExpectation.new(@actual).match(matcher)
+  end
+
+  def not_to(matcher)
+    SpecNegatedExpectation.new(@actual).match(matcher)
+  end
+end
+
+def expect(actual)
+  ExpectationTarget.new(actual)
 end
 
 class Object
