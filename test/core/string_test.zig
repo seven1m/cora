@@ -226,3 +226,27 @@ test "String#chars propagates break value" {
     result = try evalCode("'abc'.chars { break }");
     try std.testing.expect(result.data == .nil);
 }
+
+test "String#unpack integer and float directives" {
+    var result = try evalCode("\"\\x01\\x02\".b.unpack('C2').inspect");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "[1, 2]", result.data.string.str);
+
+    result = try evalCode("\"\".b.unpack('C2').inspect");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "[nil, nil]", result.data.string.str);
+
+    result = try evalCode("[1.5].pack('d').unpack('d')[0]");
+    try std.testing.expect(result.data == .float);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.5), result.data.float, 0.0000001);
+}
+
+test "String#unpack string directives" {
+    var result = try evalCode("\"A \\x00\".b.unpack('A3').inspect");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "[\"A\"]", result.data.string.str);
+
+    result = try evalCode("\"abc\\x00xyz\".b.unpack('Z*').inspect");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "[\"abc\"]", result.data.string.str);
+}

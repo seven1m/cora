@@ -1,6 +1,7 @@
 const std = @import("std");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
+const pack_runtime = @import("../pack.zig");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -70,6 +71,9 @@ pub fn register(vm: *VM) !void {
 
     const all_sym = try vm.intern("all?");
     try vm.array_class.module.methods.put(all_sym, .{ .method = .{ .builtin = &builtinArrayAll } });
+
+    const pack_sym = try vm.intern("pack");
+    try vm.array_class.module.methods.put(pack_sym, .{ .method = .{ .builtin = &builtinArrayPack } });
 }
 
 pub fn builtinArrayPush(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -454,6 +458,12 @@ pub fn builtinArrayAll(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
     }
 
     return Value.boolean(true);
+}
+
+pub fn builtinArrayPack(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const format = try args[0].coerceToStr(vm, "no implicit conversion into String");
+    return pack_runtime.arrayPack(vm, receiver.data.array.elements.items, format);
 }
 
 fn arrayContainsEquivalent(vm: *VM, haystack: []Value, needle: Value) VMError!bool {

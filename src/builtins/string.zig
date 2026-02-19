@@ -4,6 +4,7 @@ const value = @import("../value.zig");
 const enc = @import("../encoding.zig");
 const encoding_builtin = @import("encoding.zig");
 const regexp_builtin = @import("regexp.zig");
+const pack_runtime = @import("../pack.zig");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -100,6 +101,9 @@ pub fn register(vm: *VM) !void {
 
     const match_op_sym = try vm.intern("=~");
     try vm.string_class.module.methods.put(match_op_sym, .{ .method = .{ .builtin = &builtinStringMatchOp } });
+
+    const unpack_sym = try vm.intern("unpack");
+    try vm.string_class.module.methods.put(unpack_sym, .{ .method = .{ .builtin = &builtinStringUnpack } });
 }
 
 pub fn builtinStringToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -532,6 +536,12 @@ pub fn builtinStringMatchOp(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
         return vm.raiseExceptionFmt(vm.type_error_class, "type mismatch: String given", .{});
     }
     return regexp_builtin.regexpMatchOp(vm, args[0].data.regexp, receiver);
+}
+
+pub fn builtinStringUnpack(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const format = try args[0].coerceToStr(vm, "no implicit conversion into String");
+    return pack_runtime.stringUnpack(vm, receiver.data.string.str, format);
 }
 
 fn charSliceByRange(

@@ -217,3 +217,37 @@ test "Array#| union" {
     try std.testing.expectEqual(@as(i64, 3), result.data.array.elements.items[2].data.integer);
     try std.testing.expectEqual(@as(i64, 4), result.data.array.elements.items[3].data.integer);
 }
+
+test "Array#pack integer directives" {
+    var result = try evalCode("[1, 2, 255].pack('C*')");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "\x01\x02\xff", result.data.string.str);
+
+    result = try evalCode("[0x1234].pack('n').unpack('C*').inspect");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "[18, 52]", result.data.string.str);
+}
+
+test "Array#pack string directives" {
+    var result = try evalCode("['ab'].pack('A4')");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "ab  ", result.data.string.str);
+
+    result = try evalCode("['ab'].pack('a4')");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "ab\x00\x00", result.data.string.str);
+
+    result = try evalCode("['ab'].pack('Z4')");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "ab\x00\x00", result.data.string.str);
+}
+
+test "Array#pack cursor directives" {
+    var result = try evalCode("[1, 2].pack('CXC')");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "\x02", result.data.string.str);
+
+    result = try evalCode("[1, 2].pack('C@3C')");
+    try std.testing.expect(result.data == .string);
+    try std.testing.expectEqualSlices(u8, "\x01\x00\x00\x02", result.data.string.str);
+}
