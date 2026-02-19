@@ -169,6 +169,10 @@ def platform_is_not(*_args, &block)
   block.call if block
 end
 
+def not_supported_on(*_args, &block)
+  block.call if block
+end
+
 def deviates_on(*_args, &block)
   block.call if block
 end

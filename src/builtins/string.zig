@@ -37,6 +37,9 @@ pub fn register(vm: *VM) !void {
     const string_equal_sym = try vm.intern("==");
     try vm.string_class.module.methods.put(string_equal_sym, .{ .method = .{ .builtin = &builtinStringEqual } });
 
+    const string_eql_sym = try vm.intern("eql?");
+    try vm.string_class.module.methods.put(string_eql_sym, .{ .method = .{ .builtin = &builtinStringEql } });
+
     const string_not_equal_sym = try vm.intern("!=");
     try vm.string_class.module.methods.put(string_not_equal_sym, .{ .method = .{ .builtin = &builtinStringNotEqual } });
 
@@ -257,6 +260,34 @@ pub fn builtinStringEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     }
     const result = std.mem.eql(u8, receiver.data.string.str, other.data.string.str);
     return Value.boolean(result);
+}
+
+pub fn builtinStringEql(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const other = args[0];
+    if (other.data != .string) {
+        return Value.boolean(false);
+    }
+
+    const lhs = receiver.data.string;
+    const rhs = other.data.string;
+    if (!std.mem.eql(u8, lhs.str, rhs.str)) {
+        return Value.boolean(false);
+    }
+
+    if (lhs.str.len == 0) {
+        return Value.boolean(true);
+    }
+
+    if (lhs.encoding.eql(rhs.encoding)) {
+        return Value.boolean(true);
+    }
+
+    if (lhs.encoding.isAsciiCompatible() and rhs.encoding.isAsciiCompatible() and enc.isAsciiOnly(lhs.str) and enc.isAsciiOnly(rhs.str)) {
+        return Value.boolean(true);
+    }
+
+    return Value.boolean(false);
 }
 
 pub fn builtinStringNotEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
