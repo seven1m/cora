@@ -81,6 +81,7 @@ pub const MethodEntry = struct {
 
 pub const ObjectType = enum {
     instance,
+    string,
     array,
     hash,
     range,

@@ -11,6 +11,9 @@ const Block = vm_mod.Block;
 const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
+    const initialize_sym = try vm.intern("initialize");
+    try vm.string_class.module.methods.put(initialize_sym, .{ .method = .{ .builtin = &builtinStringInitialize } });
+
     const string_uplus_sym = try vm.intern("+@");
     try vm.string_class.module.methods.put(string_uplus_sym, .{ .method = .{ .builtin = &builtinStringUnaryPlus } });
 
@@ -98,7 +101,32 @@ pub fn register(vm: *VM) !void {
 
 pub fn builtinStringToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    return receiver; // String#to_s returns vm
+    const string_obj = receiver.data.string;
+    if (string_obj.object.class == vm.string_class) {
+        return receiver;
+    }
+    return try vm.newStringWithEncoding(string_obj.str, false, string_obj.encoding);
+}
+
+pub fn builtinStringInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const string_obj = receiver.data.string;
+
+    if (args.len == 0) {
+        return receiver;
+    }
+
+    const new_bytes: []const u8 = switch (args[0].data) {
+        .string => |s| blk: {
+            string_obj.encoding = s.encoding;
+            break :blk s.str;
+        },
+        else => try args[0].coerceToStr(vm, "no implicit conversion into String"),
+    };
+
+    string_obj.str = vm.gc_allocator_atomic.dupe(u8, new_bytes) catch return error.Fatal;
+    string_obj.validity = .unknown;
+    return receiver;
 }
 
 pub fn builtinStringToStr(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

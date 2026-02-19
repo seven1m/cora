@@ -376,7 +376,7 @@ pub const VM = struct {
         self.float_class = float_class_val.data.class;
 
         const string_name_sym = try self.intern("String");
-        const string_class_val = try self.newClass(string_name_sym, self.object_class);
+        const string_class_val = try self.newClassWithType(string_name_sym, self.object_class, .string);
         self.string_class = string_class_val.data.class;
 
         const symbol_name_sym = try self.intern("Symbol");
@@ -3358,7 +3358,7 @@ pub const VM = struct {
             },
             .instance => |i| i.class.?, // Instance singleton inherits from instance's class
             .module => self.module_class,
-            .string => self.string_class,
+            .string => |s| s.object.class.?,
             .symbol => self.symbol_class,
             .array => self.array_class,
             .hash => self.hash_class,
@@ -3657,6 +3657,7 @@ pub const VM = struct {
 
     pub fn newObjectForClass(self: *VM, class_obj: *ClassObject) VMError!Value {
         return switch (class_obj.object_type) {
+            .string => self.newStringForClass(class_obj, "", false),
             .array => blk: {
                 const array_obj = try self.createArray();
                 break :blk Value{ .data = .{ .array = array_obj } };
@@ -3722,12 +3723,20 @@ pub const VM = struct {
     }
 
     pub fn newStringWithEncoding(self: *VM, str: []const u8, frozen: bool, encoding: enc.Encoding) VMError!Value {
+        return self.newStringForClassWithEncoding(self.string_class, str, frozen, encoding);
+    }
+
+    pub fn newStringForClass(self: *VM, class_obj: *ClassObject, str: []const u8, frozen: bool) VMError!Value {
+        return self.newStringForClassWithEncoding(class_obj, str, frozen, .{ .utf8 = .{} });
+    }
+
+    pub fn newStringForClassWithEncoding(self: *VM, class_obj: *ClassObject, str: []const u8, frozen: bool, encoding: enc.Encoding) VMError!Value {
         const copy = self.gc_allocator_atomic.dupe(u8, str) catch return error.Fatal;
         const flags: u32 = if (frozen) Object.FROZEN_FLAG else 0;
 
         const string_obj = self.gc_allocator.create(StringObject) catch return error.Fatal;
         string_obj.* = .{
-            .object = .{ .flags = flags, .class = self.string_class, .singleton_class = null, .instance_variables = null },
+            .object = .{ .flags = flags, .class = class_obj, .singleton_class = null, .instance_variables = null },
             .str = copy,
             .encoding = encoding,
         };
