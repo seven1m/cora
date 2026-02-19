@@ -74,6 +74,9 @@ pub fn register(vm: *VM) !void {
     const times_sym = try vm.intern("times");
     try vm.integer_class.module.methods.put(times_sym, .{ .method = .{ .builtin = &builtinIntegerTimes } });
 
+    const upto_sym = try vm.intern("upto");
+    try vm.integer_class.module.methods.put(upto_sym, .{ .method = .{ .builtin = &builtinIntegerUpto } });
+
     const chr_sym = try vm.intern("chr");
     try vm.integer_class.module.methods.put(chr_sym, .{ .method = .{ .builtin = &builtinIntegerChr } });
 }
@@ -274,6 +277,29 @@ pub fn builtinIntegerTimes(vm: *VM, receiver: Value, args: []Value, block: ?Bloc
 
     var i: i64 = 0;
     while (i < count) : (i += 1) {
+        const yield_args = [_]Value{Value.integer(i)};
+        const yield_result = try vm.yieldToBlock(blk, &yield_args);
+        if (yield_result.break_occurred) {
+            return yield_result.value;
+        }
+    }
+
+    return receiver;
+}
+
+pub fn builtinIntegerUpto(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const blk = try vm.requireBlock(block);
+    try vm.requireArgType(args, 0, .integer, "Integer");
+
+    const start = receiver.data.integer;
+    const stop = args[0].data.integer;
+    if (start > stop) {
+        return receiver;
+    }
+
+    var i = start;
+    while (i <= stop) : (i += 1) {
         const yield_args = [_]Value{Value.integer(i)};
         const yield_result = try vm.yieldToBlock(blk, &yield_args);
         if (yield_result.break_occurred) {
