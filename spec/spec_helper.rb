@@ -121,13 +121,18 @@ ensure
   @method = prev_method
 end
 
-def it(desc)
+def it(desc, &block)
+  if block.nil?
+    $__skipped << [$__describe, desc]
+    return
+  end
+
   run_before_all_hooks
   error = nil
 
   begin
     run_before_each_hooks
-    yield
+    block.call
   rescue => e
     error = e
   ensure

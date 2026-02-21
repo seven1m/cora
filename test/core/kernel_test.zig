@@ -313,6 +313,75 @@ test "Kernel#send coerces method name via to_str" {
     try std.testing.expectEqual(@as(i64, 42), result.data.integer);
 }
 
+test "Kernel#to_enum and #enum_for return Enumerator and default to #each" {
+    var result = try evalCode("[1, 2].to_enum");
+    try std.testing.expect(result.data == .enumerator);
+
+    result = try evalCode("[1, 2].enum_for");
+    try std.testing.expect(result.data == .enumerator);
+
+    result = try evalCode(
+        \\e = [1, 2].to_enum
+        \\[e.next, e.next]
+    );
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(@as(i64, 1), result.data.array.elements.items[0].data.integer);
+    try std.testing.expectEqual(@as(i64, 2), result.data.array.elements.items[1].data.integer);
+}
+
+test "Kernel#to_enum forwards method name and arguments" {
+    const result = try evalCode(
+        \\obj = Object.new
+        \\def obj.repeat(n)
+        \\  i = 0
+        \\  while i < n
+        \\    yield i
+        \\    i = i + 1
+        \\  end
+        \\end
+        \\e = obj.to_enum(:repeat, 3)
+        \\[e.next, e.next, e.next]
+    );
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(@as(i64, 0), result.data.array.elements.items[0].data.integer);
+    try std.testing.expectEqual(@as(i64, 1), result.data.array.elements.items[1].data.integer);
+    try std.testing.expectEqual(@as(i64, 2), result.data.array.elements.items[2].data.integer);
+}
+
+test "Kernel#to_enum coerces method name via to_str" {
+    const result = try evalCode(
+        \\obj = Object.new
+        \\def obj.each
+        \\  yield 9
+        \\end
+        \\name = Object.new
+        \\def name.to_str
+        \\  "each"
+        \\end
+        \\obj.to_enum(name).next
+    );
+    try std.testing.expect(result.data == .integer);
+    try std.testing.expectEqual(@as(i64, 9), result.data.integer);
+}
+
+test "Kernel#enum_for block is deferred and used by Enumerator#size" {
+    const result = try evalCode(
+        \\calls = 0
+        \\e = Object.new.enum_for do
+        \\  calls = calls + 1
+        \\  123
+        \\end
+        \\before = calls
+        \\value = e.size
+        \\after = calls
+        \\[before, value, after]
+    );
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(@as(i64, 0), result.data.array.elements.items[0].data.integer);
+    try std.testing.expectEqual(@as(i64, 123), result.data.array.elements.items[1].data.integer);
+    try std.testing.expectEqual(@as(i64, 1), result.data.array.elements.items[2].data.integer);
+}
+
 test "Kernel#__dir__ returns dot for eval code" {
     const result = try evalCode("__dir__");
     try std.testing.expect(result.data == .string);

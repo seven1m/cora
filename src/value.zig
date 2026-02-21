@@ -192,6 +192,7 @@ pub const EnumeratorObject = struct {
     object: Object,
     kind: Kind,
     method_args: ?*ArrayObject,
+    size_proc: ?*ProcObject,
     fiber: ?*FiberObject,
     lookahead: Value,
     has_lookahead: bool,

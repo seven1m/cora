@@ -31,6 +31,9 @@ pub fn register(vm: *VM) !void {
     const inspect_sym = try vm.intern("inspect");
     try vm.enumerator_class.module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinEnumeratorInspect } });
 
+    const size_sym = try vm.intern("size");
+    try vm.enumerator_class.module.methods.put(size_sym, .{ .method = .{ .builtin = &builtinEnumeratorSize } });
+
     // Yielder instance methods
     const yield_push_sym = try vm.intern("<<");
     try vm.yielder_class.module.methods.put(yield_push_sym, .{ .method = .{ .builtin = &builtinYielderPush } });
@@ -52,7 +55,7 @@ fn builtinEnumeratorNew(vm: *VM, _: Value, args: []Value, block: ?Block) VMError
 
     // Wrap the block as a ProcObject
     const proc_val = try vm.newProc(blk);
-    return vm.newEnumerator(.{ .generator = .{ .proc = proc_val.data.proc } }, null);
+    return vm.newEnumerator(.{ .generator = .{ .proc = proc_val.data.proc } }, null, null);
 }
 
 // --- Enumerator instance methods ---
@@ -174,6 +177,17 @@ fn builtinEnumeratorInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     }
 }
 
+fn builtinEnumeratorSize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const enum_obj = receiver.data.enumerator;
+
+    if (enum_obj.size_proc) |size_proc| {
+        return vm.callProcObject(size_proc, &[_]Value{}, null, null);
+    }
+
+    return Value.nil();
+}
+
 // --- Yielder instance methods ---
 
 fn builtinYielderPush(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -241,7 +255,17 @@ fn enumeratorFiberBody(vm: *VM, args: []Value) VMError!Value {
 }
 
 fn enumeratorFiberYieldBlock(vm: *VM, args: []Value) VMError!Value {
-    const yield_value = if (args.len > 0) args[0] else Value.nil();
+    const yield_value = switch (args.len) {
+        0 => Value.nil(),
+        1 => args[0],
+        else => blk: {
+            const arr = try vm.createArray();
+            for (args) |arg| {
+                arr.elements.append(vm.gc_allocator, arg) catch return error.Fatal;
+            }
+            break :blk Value{ .data = .{ .array = arr } };
+        },
+    };
     return vm.fiberYield(yield_value);
 }
 

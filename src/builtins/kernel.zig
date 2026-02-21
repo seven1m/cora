@@ -117,6 +117,12 @@ pub fn register(vm: *VM) !void {
     const send_sym = try vm.intern("send");
     try vm.kernel_module.methods.put(send_sym, .{ .method = .{ .builtin = &builtinKernelSend } });
 
+    const to_enum_sym = try vm.intern("to_enum");
+    try vm.kernel_module.methods.put(to_enum_sym, .{ .method = .{ .builtin = &builtinKernelToEnum } });
+
+    const enum_for_sym = try vm.intern("enum_for");
+    try vm.kernel_module.methods.put(enum_for_sym, .{ .method = .{ .builtin = &builtinKernelEnumFor } });
+
     const define_singleton_method_sym = try vm.intern("define_singleton_method");
     try vm.kernel_module.methods.put(define_singleton_method_sym, .{ .method = .{ .builtin = &builtinKernelDefineSingletonMethod } });
 
@@ -434,6 +440,29 @@ pub fn builtinKernelSend(vm: *VM, receiver: Value, args: []Value, block: ?Block)
     const name_str = try vm.coerceToMethodNameString(args[0]);
     const call_args = args[1..];
     return vm.callMethodByName(receiver, name_str, call_args, block);
+}
+
+fn kernelEnumForCommon(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    const method_name = if (args.len == 0)
+        try vm.intern("each")
+    else
+        try vm.coerceToMethodNameSymbol(args[0]);
+    const method_args = if (args.len == 0) &[_]Value{} else args[1..];
+
+    const size_proc = if (block) |blk|
+        (try vm.newProc(blk)).data.proc
+    else
+        null;
+
+    return vm.createMethodEnumeratorWithSize(receiver, method_name, method_args, size_proc);
+}
+
+pub fn builtinKernelToEnum(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    return kernelEnumForCommon(vm, receiver, args, block);
+}
+
+pub fn builtinKernelEnumFor(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    return kernelEnumForCommon(vm, receiver, args, block);
 }
 
 pub fn builtinKernelDefineSingletonMethod(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {

@@ -3986,12 +3986,18 @@ pub const VM = struct {
         return .{ .data = .{ .proc = proc_obj } };
     }
 
-    pub fn newEnumerator(self: *VM, kind: value.EnumeratorObject.Kind, method_args: ?*value.ArrayObject) VMError!Value {
+    pub fn newEnumerator(
+        self: *VM,
+        kind: value.EnumeratorObject.Kind,
+        method_args: ?*value.ArrayObject,
+        size_proc: ?*value.ProcObject,
+    ) VMError!Value {
         const enum_obj = self.gc_allocator.create(value.EnumeratorObject) catch return error.Fatal;
         enum_obj.* = .{
             .object = .{ .flags = 0, .class = self.enumerator_class, .singleton_class = null, .instance_variables = null },
             .kind = kind,
             .method_args = method_args,
+            .size_proc = size_proc,
             .fiber = null,
             .lookahead = Value.nil(),
             .has_lookahead = false,
@@ -4009,6 +4015,16 @@ pub const VM = struct {
     }
 
     pub fn createMethodEnumerator(self: *VM, receiver: Value, method_name: *SymbolObject, args: []const Value) VMError!Value {
+        return self.createMethodEnumeratorWithSize(receiver, method_name, args, null);
+    }
+
+    pub fn createMethodEnumeratorWithSize(
+        self: *VM,
+        receiver: Value,
+        method_name: *SymbolObject,
+        args: []const Value,
+        size_proc: ?*value.ProcObject,
+    ) VMError!Value {
         var method_args: ?*value.ArrayObject = null;
         if (args.len > 0) {
             const arr = try self.createArray();
@@ -4017,7 +4033,7 @@ pub const VM = struct {
             }
             method_args = arr;
         }
-        return self.newEnumerator(.{ .method = .{ .receiver = receiver, .method_name = method_name } }, method_args);
+        return self.newEnumerator(.{ .method = .{ .receiver = receiver, .method_name = method_name } }, method_args, size_proc);
     }
 
     pub fn includeModule(self: *VM, class: *value.ClassObject, module: *value.ModuleObject) VMError!void {

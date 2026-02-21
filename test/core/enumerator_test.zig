@@ -184,6 +184,51 @@ test "Enumerator#inspect for method-based" {
     try std.testing.expect(std.mem.indexOf(u8, str, "each") != null);
 }
 
+test "Enumerator#size returns nil when no size proc was provided" {
+    const result = try evalCode("[1, 2, 3].each.size");
+    try std.testing.expect(result.data == .nil);
+}
+
+test "to_enum next exposes multi-arg yields as arrays" {
+    const result = try evalCode(
+        \\o = Object.new
+        \\def o.each
+        \\  yield :a
+        \\  yield :b1, :b2
+        \\  yield [:c]
+        \\  yield :d1, :d2, :d3
+        \\end
+        \\e = o.to_enum
+        \\[e.next, e.next, e.next, e.next]
+    );
+    try std.testing.expect(result.data == .array);
+
+    const values = result.data.array.elements.items;
+    try std.testing.expect(values[0].data == .symbol);
+    try std.testing.expectEqualStrings("a", values[0].data.symbol.name);
+
+    try std.testing.expect(values[1].data == .array);
+    try std.testing.expectEqual(@as(usize, 2), values[1].data.array.elements.items.len);
+    try std.testing.expect(values[1].data.array.elements.items[0].data == .symbol);
+    try std.testing.expect(values[1].data.array.elements.items[1].data == .symbol);
+    try std.testing.expectEqualStrings("b1", values[1].data.array.elements.items[0].data.symbol.name);
+    try std.testing.expectEqualStrings("b2", values[1].data.array.elements.items[1].data.symbol.name);
+
+    try std.testing.expect(values[2].data == .array);
+    try std.testing.expectEqual(@as(usize, 1), values[2].data.array.elements.items.len);
+    try std.testing.expect(values[2].data.array.elements.items[0].data == .symbol);
+    try std.testing.expectEqualStrings("c", values[2].data.array.elements.items[0].data.symbol.name);
+
+    try std.testing.expect(values[3].data == .array);
+    try std.testing.expectEqual(@as(usize, 3), values[3].data.array.elements.items.len);
+    try std.testing.expect(values[3].data.array.elements.items[0].data == .symbol);
+    try std.testing.expect(values[3].data.array.elements.items[1].data == .symbol);
+    try std.testing.expect(values[3].data.array.elements.items[2].data == .symbol);
+    try std.testing.expectEqualStrings("d1", values[3].data.array.elements.items[0].data.symbol.name);
+    try std.testing.expectEqualStrings("d2", values[3].data.array.elements.items[1].data.symbol.name);
+    try std.testing.expectEqualStrings("d3", values[3].data.array.elements.items[2].data.symbol.name);
+}
+
 // --- StopIteration exception hierarchy ---
 
 test "StopIteration is a kind of IndexError" {
