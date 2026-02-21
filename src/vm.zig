@@ -4165,7 +4165,7 @@ pub const VM = struct {
         chunk_ptr.* = Chunk.init(allocator, method_name);
         chunk_ptr.chunk_id = self.next_chunk_id;
         self.next_chunk_id += 1;
-        chunk_ptr.source_file = self.current_loading_file orelse self.program.main_chunk.source_file;
+        chunk_ptr.setSourceFile(self.current_loading_file orelse self.program.main_chunk.source_file) catch return error.Fatal;
         chunk_ptr.lexical_scope = self.current_lexical_scope;
         chunk_ptr.arity = if (kind == .reader) 0 else 1;
 

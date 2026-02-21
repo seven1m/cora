@@ -84,6 +84,7 @@ pub const Chunk = struct {
     lexical_scope: ?*LexicalScope = null,
     exception_handlers: std.ArrayList(ExceptionHandler) = .empty,
     source_file: ?[]const u8 = null,
+    source_file_owned: bool = false,
     required_keywords: std.ArrayList(RequiredKeyword) = .empty,
     optional_keywords: std.ArrayList(OptionalKeyword) = .empty,
     keyword_rest_index: ?u8 = null, // Slot for **kwargs hash
@@ -109,6 +110,11 @@ pub const Chunk = struct {
         self.code.deinit(self.allocator);
         if (self.name_owned) {
             self.allocator.free(self.name);
+        }
+        if (self.source_file_owned) {
+            if (self.source_file) |source_file| {
+                self.allocator.free(source_file);
+            }
         }
         for (self.constants.items) |constant| {
             switch (constant) {
@@ -143,6 +149,21 @@ pub const Chunk = struct {
         }
         self.keyword_metadata.deinit(self.allocator);
         self.callsite_caches.deinit(self.allocator);
+    }
+
+    pub fn setSourceFile(self: *Chunk, source_file: ?[]const u8) !void {
+        if (self.source_file_owned) {
+            if (self.source_file) |existing| {
+                self.allocator.free(existing);
+            }
+            self.source_file_owned = false;
+        }
+        self.source_file = null;
+
+        if (source_file) |path| {
+            self.source_file = try self.allocator.dupe(u8, path);
+            self.source_file_owned = true;
+        }
     }
 
     /// Add a constant to the constant pool, return its index

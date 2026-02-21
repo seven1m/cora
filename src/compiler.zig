@@ -89,7 +89,7 @@ pub const Compiler = struct {
         defer compiler.deinit();
 
         var main_chunk = Chunk.init(allocator, "main");
-        main_chunk.source_file = parser.source_file;
+        try main_chunk.setSourceFile(parser.source_file);
         compiler.current_chunk = &main_chunk;
 
         // On error, clean up chunks that were allocated during compilation
@@ -1841,7 +1841,7 @@ pub const Compiler = struct {
             const body_chunk_ptr = try self.allocator.create(Chunk);
             body_chunk_ptr.* = Chunk.init(self.allocator, try self.allocator.dupe(u8, module_name));
             body_chunk_ptr.name_owned = true;
-            body_chunk_ptr.source_file = self.parser.source_file;
+            try body_chunk_ptr.setSourceFile(self.parser.source_file);
             body_chunk_id = try self.nextChunkId();
             body_chunk_ptr.chunk_id = body_chunk_id;
             try self.method_chunks.put(body_chunk_id, body_chunk_ptr);
@@ -1891,7 +1891,7 @@ pub const Compiler = struct {
             const body_chunk_ptr = try self.allocator.create(Chunk);
             body_chunk_ptr.* = Chunk.init(self.allocator, try self.allocator.dupe(u8, class_name));
             body_chunk_ptr.name_owned = true;
-            body_chunk_ptr.source_file = self.parser.source_file;
+            try body_chunk_ptr.setSourceFile(self.parser.source_file);
             body_chunk_id = try self.nextChunkId();
             body_chunk_ptr.chunk_id = body_chunk_id;
             try self.method_chunks.put(body_chunk_id, body_chunk_ptr);
@@ -1927,7 +1927,7 @@ pub const Compiler = struct {
         var body_chunk_id: u16 = 0;
         const body_chunk_ptr = try self.allocator.create(Chunk);
         body_chunk_ptr.* = Chunk.init(self.allocator, "<singleton class>");
-        body_chunk_ptr.source_file = self.parser.source_file;
+        try body_chunk_ptr.setSourceFile(self.parser.source_file);
         body_chunk_id = try self.nextChunkId();
         body_chunk_ptr.chunk_id = body_chunk_id;
         try self.method_chunks.put(body_chunk_id, body_chunk_ptr);
@@ -2000,7 +2000,7 @@ pub const Compiler = struct {
             // Compile default expression into a mini-chunk
             const default_chunk_ptr = try self.allocator.create(chunk.Chunk);
             default_chunk_ptr.* = chunk.Chunk.init(self.allocator, "default");
-            default_chunk_ptr.source_file = self.parser.source_file;
+            try default_chunk_ptr.setSourceFile(self.parser.source_file);
             const default_chunk_id = try self.nextChunkId();
             default_chunk_ptr.chunk_id = default_chunk_id;
             try self.method_chunks.put(default_chunk_id, default_chunk_ptr);
@@ -2154,7 +2154,7 @@ pub const Compiler = struct {
                     // Compile default expression into separate chunk (track immediately before compilation)
                     const default_chunk_ptr = try self.allocator.create(Chunk);
                     default_chunk_ptr.* = Chunk.init(self.allocator, "keyword_default");
-                    default_chunk_ptr.source_file = self.parser.source_file;
+                    try default_chunk_ptr.setSourceFile(self.parser.source_file);
                     const default_chunk_id = try self.nextChunkId();
                     default_chunk_ptr.chunk_id = default_chunk_id;
                     try self.method_chunks.put(default_chunk_id, default_chunk_ptr);
@@ -2215,7 +2215,7 @@ pub const Compiler = struct {
         const method_chunk_ptr = try self.allocator.create(Chunk);
         method_chunk_ptr.* = Chunk.init(self.allocator, try self.allocator.dupe(u8, method_name_slice));
         method_chunk_ptr.name_owned = true;
-        method_chunk_ptr.source_file = self.parser.source_file;
+        try method_chunk_ptr.setSourceFile(self.parser.source_file);
         const chunk_id = try self.nextChunkId();
         method_chunk_ptr.chunk_id = chunk_id;
         try self.method_chunks.put(chunk_id, method_chunk_ptr);
@@ -2286,7 +2286,7 @@ pub const Compiler = struct {
         // Allocate chunk on heap and track it immediately (before compilation can fail)
         const block_chunk_ptr = try self.allocator.create(Chunk);
         block_chunk_ptr.* = Chunk.init(self.allocator, "block");
-        block_chunk_ptr.source_file = self.parser.source_file;
+        try block_chunk_ptr.setSourceFile(self.parser.source_file);
         const chunk_id = try self.nextChunkId();
         block_chunk_ptr.chunk_id = chunk_id;
         try self.method_chunks.put(chunk_id, block_chunk_ptr);
@@ -2369,7 +2369,7 @@ pub const Compiler = struct {
         const lambda_chunk_ptr = try self.allocator.create(Chunk);
         lambda_chunk_ptr.* = Chunk.init(self.allocator, "lambda");
         lambda_chunk_ptr.is_lambda = true; // Mark as lambda
-        lambda_chunk_ptr.source_file = self.parser.source_file;
+        try lambda_chunk_ptr.setSourceFile(self.parser.source_file);
         const chunk_id = try self.nextChunkId();
         lambda_chunk_ptr.chunk_id = chunk_id;
         try self.method_chunks.put(chunk_id, lambda_chunk_ptr);
@@ -2487,7 +2487,7 @@ pub const Compiler = struct {
     fn compileRescueTypeExpressionChunk(self: *Compiler, expression: prism.Node, line: u32) !chunk.ChunkId {
         const rescue_type_chunk_ptr = try self.allocator.create(Chunk);
         rescue_type_chunk_ptr.* = Chunk.init(self.allocator, "rescue_type");
-        rescue_type_chunk_ptr.source_file = self.parser.source_file;
+        try rescue_type_chunk_ptr.setSourceFile(self.parser.source_file);
 
         const rescue_type_chunk_id = try self.nextChunkId();
         rescue_type_chunk_ptr.chunk_id = rescue_type_chunk_id;
