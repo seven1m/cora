@@ -118,13 +118,9 @@ test "Integer#times for non-positive receiver does not yield" {
     try std.testing.expectEqual(@as(i64, -2), values[1].data.integer);
 }
 
-test "Integer#times without a block raises ArgumentError" {
-    var stdout_buf: [8192]u8 = undefined;
-    var stderr_buf: [8192]u8 = undefined;
-    const result = evalCodeWithOutput("3.times", &stdout_buf, &stderr_buf);
-    try std.testing.expectEqual(error.UnhandledException, result.err.?);
-    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "ArgumentError") != null);
-    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "no block given") != null);
+test "Integer#times without a block returns Enumerator" {
+    const result = try evalCode("3.times");
+    try std.testing.expect(result.data == .enumerator);
 }
 
 test "Equality comparison - true" {

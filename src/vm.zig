@@ -133,6 +133,7 @@ pub const Block = struct {
     kind: union(enum) {
         chunk: ChunkData,
         symbol: *SymbolObject,
+        builtin: *const fn (*VM, []Value) VMError!Value,
     },
 };
 
@@ -221,6 +222,11 @@ pub const VM = struct {
     load_error_class: *value.ClassObject,
     range_error_class: *value.ClassObject,
     regexp_error_class: *value.ClassObject,
+    index_error_class: *value.ClassObject,
+    stop_iteration_class: *value.ClassObject,
+
+    enumerator_class: *value.ClassObject,
+    yielder_class: *value.ClassObject,
 
     // Encoding infrastructure
     encoding_class: *value.ClassObject,
@@ -322,6 +328,10 @@ pub const VM = struct {
             .load_error_class = undefined,
             .range_error_class = undefined,
             .regexp_error_class = undefined,
+            .index_error_class = undefined,
+            .stop_iteration_class = undefined,
+            .enumerator_class = undefined,
+            .yielder_class = undefined,
             .encoding_class = undefined,
             .encoding_utf8 = undefined,
             .encoding_ascii_8bit = undefined,
@@ -525,6 +535,22 @@ pub const VM = struct {
         const regexp_error_class_val = try self.newClass(regexp_error_name_sym, self.standard_error_class);
         self.regexp_error_class = regexp_error_class_val.data.class;
 
+        const index_error_name_sym = try self.intern("IndexError");
+        const index_error_class_val = try self.newClass(index_error_name_sym, self.standard_error_class);
+        self.index_error_class = index_error_class_val.data.class;
+
+        const stop_iteration_name_sym = try self.intern("StopIteration");
+        const stop_iteration_class_val = try self.newClass(stop_iteration_name_sym, self.index_error_class);
+        self.stop_iteration_class = stop_iteration_class_val.data.class;
+
+        const enumerator_name_sym = try self.intern("Enumerator");
+        const enumerator_class_val = try self.newClass(enumerator_name_sym, self.object_class);
+        self.enumerator_class = enumerator_class_val.data.class;
+
+        const yielder_name_sym = try self.intern("Yielder");
+        const yielder_class_val = try self.newClass(yielder_name_sym, self.object_class);
+        self.yielder_class = yielder_class_val.data.class;
+
         // Encoding class and singleton encoding objects
         const encoding_name_sym = try self.intern("Encoding");
         const encoding_class_val = try self.newClass(encoding_name_sym, self.object_class);
@@ -586,6 +612,10 @@ pub const VM = struct {
         self.object_class.module.constants.put(load_error_name_sym, load_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(range_error_name_sym, range_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(regexp_error_name_sym, regexp_error_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(index_error_name_sym, index_error_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(stop_iteration_name_sym, stop_iteration_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(enumerator_name_sym, enumerator_class_val) catch return error.Fatal;
+        self.enumerator_class.module.constants.put(yielder_name_sym, yielder_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(encoding_name_sym, encoding_class_val) catch return error.Fatal;
         const ruby_engine_sym = try self.intern("RUBY_ENGINE");
         const ruby_version_sym = try self.intern("RUBY_VERSION");
@@ -831,7 +861,7 @@ pub const VM = struct {
                             chunk_blk.defining_ep = new_env;
                         }
                     },
-                    .symbol => {},
+                    .symbol, .builtin => {},
                 }
             }
         }
@@ -1448,6 +1478,23 @@ pub const VM = struct {
             },
             .symbol => |sym| {
                 const result = try self.invokeSymbolProc(sym, fiber.first_resume_args[0..fiber.first_resume_argc], null);
+                fiber.state = .terminated;
+                fiber.coro_result = result;
+                fiber.coro_event = .returned;
+                if (fiber.coro) |c| c.yield();
+                return;
+            },
+            .builtin => |func| {
+                const result = func(self, fiber.first_resume_args[0..fiber.first_resume_argc]) catch |err| {
+                    if (err == error.Unwind) {
+                        fiber.state = .terminated;
+                        fiber.coro_exception = self.pending_exception;
+                        fiber.coro_event = .raised;
+                        if (fiber.coro) |c| c.yield();
+                        return;
+                    }
+                    return err;
+                };
                 fiber.state = .terminated;
                 fiber.coro_result = result;
                 fiber.coro_event = .returned;
@@ -2938,6 +2985,10 @@ pub const VM = struct {
                 .value = try self.invokeSymbolProc(sym, yield_args, null),
                 .break_occurred = false,
             },
+            .builtin => |func| .{
+                .value = try func(self, @constCast(yield_args)),
+                .break_occurred = false,
+            },
             .chunk => |chunk_blk| blk: {
                 // Dereference defining_ep in case it's a forwarding pointer
                 const real_defining_ep = derefEnvironment(chunk_blk.defining_ep);
@@ -2992,6 +3043,7 @@ pub const VM = struct {
     ) VMError!Value {
         return switch (proc_obj.block.kind) {
             .symbol => |sym| self.invokeSymbolProc(sym, args, block),
+            .builtin => |func| func(self, @constCast(args)),
             .chunk => |chunk_blk| blk: {
                 const real_defining_ep = derefEnvironment(chunk_blk.defining_ep);
                 const proc_env = self.createStackEnvironment(real_defining_ep, chunk_blk.chunk.lexical_scope orelse self.current_lexical_scope) catch return error.Fatal;
@@ -3031,6 +3083,7 @@ pub const VM = struct {
     pub fn callProcObject(self: *VM, proc_obj: *value.ProcObject, args: []const Value, block: ?Block, self_override: ?Value) VMError!Value {
         return switch (proc_obj.block.kind) {
             .symbol => |sym| self.invokeSymbolProc(sym, args, block),
+            .builtin => |func| func(self, @constCast(args)),
             .chunk => |chunk_blk| blk: {
                 const real_defining_ep = derefEnvironment(chunk_blk.defining_ep);
                 const proc_env = self.createStackEnvironment(real_defining_ep, chunk_blk.chunk.lexical_scope orelse self.current_lexical_scope) catch return error.Fatal;
@@ -3250,6 +3303,8 @@ pub const VM = struct {
             .match_data => |m| return m.object.class.?,
             .range => |r| return r.object.class.?,
             .regexp => |r| return r.object.class.?,
+            .enumerator => |e| return e.object.class.?,
+            .yielder => |y| return y.object.class.?,
 
             // Primitives without Object headers - hardcode the class
             .integer => return self.integer_class,
@@ -3281,6 +3336,8 @@ pub const VM = struct {
             .fiber => |f| &f.object,
             .range => |r| &r.object,
             .regexp => |r| &r.object,
+            .enumerator => |e| &e.object,
+            .yielder => |y| &y.object,
             .integer, .float, .nil, .boolean => null,
         };
     }
@@ -3472,6 +3529,8 @@ pub const VM = struct {
             .io => self.io_class,
             .match_data => self.match_data_class,
             .regexp => self.regexp_class,
+            .enumerator => self.enumerator_class,
+            .yielder => self.yielder_class,
             .big_integer => self.integer_class,
             .integer, .float, .boolean, .nil => unreachable, // Primitives can't have singleton classes
         };
@@ -3916,6 +3975,7 @@ pub const VM = struct {
             .object = .{ .flags = 0, .class = self.proc_class, .singleton_class = null, .instance_variables = null },
             .block = switch (block.kind) {
                 .symbol => block,
+                .builtin => block,
                 .chunk => |chunk_blk| .{ .kind = .{ .chunk = .{
                     .chunk = chunk_blk.chunk,
                     .defining_ep = self.promoteEnvironmentToHeap(chunk_blk.defining_ep) catch return error.Fatal,
@@ -3924,6 +3984,40 @@ pub const VM = struct {
             },
         };
         return .{ .data = .{ .proc = proc_obj } };
+    }
+
+    pub fn newEnumerator(self: *VM, kind: value.EnumeratorObject.Kind, method_args: ?*value.ArrayObject) VMError!Value {
+        const enum_obj = self.gc_allocator.create(value.EnumeratorObject) catch return error.Fatal;
+        enum_obj.* = .{
+            .object = .{ .flags = 0, .class = self.enumerator_class, .singleton_class = null, .instance_variables = null },
+            .kind = kind,
+            .method_args = method_args,
+            .fiber = null,
+            .lookahead = Value.nil(),
+            .has_lookahead = false,
+        };
+        return .{ .data = .{ .enumerator = enum_obj } };
+    }
+
+    pub fn newYielder(self: *VM, block: Block) VMError!Value {
+        const yielder_obj = self.gc_allocator.create(value.YielderObject) catch return error.Fatal;
+        yielder_obj.* = .{
+            .object = .{ .flags = 0, .class = self.yielder_class, .singleton_class = null, .instance_variables = null },
+            .block = block,
+        };
+        return .{ .data = .{ .yielder = yielder_obj } };
+    }
+
+    pub fn createMethodEnumerator(self: *VM, receiver: Value, method_name: *SymbolObject, args: []const Value) VMError!Value {
+        var method_args: ?*value.ArrayObject = null;
+        if (args.len > 0) {
+            const arr = try self.createArray();
+            for (args) |arg| {
+                arr.elements.append(self.gc_allocator, arg) catch return error.Fatal;
+            }
+            method_args = arr;
+        }
+        return self.newEnumerator(.{ .method = .{ .receiver = receiver, .method_name = method_name } }, method_args);
     }
 
     pub fn includeModule(self: *VM, class: *value.ClassObject, module: *value.ModuleObject) VMError!void {

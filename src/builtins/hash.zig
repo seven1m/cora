@@ -148,7 +148,9 @@ pub fn builtinHashSize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
 
 pub fn builtinHashEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const blk = try vm.requireBlock(block);
+    const blk = block orelse {
+        return try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
+    };
     const hash_obj = receiver.data.hash;
 
     // Iterate in insertion order
@@ -295,7 +297,9 @@ pub fn builtinHashDig(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
 
 pub fn builtinHashSelect(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const blk = try vm.requireBlock(block);
+    const blk = block orelse {
+        return try vm.createMethodEnumerator(receiver, try vm.intern("select"), &.{});
+    };
     const hash_obj = receiver.data.hash;
 
     // Create a new hash for the result

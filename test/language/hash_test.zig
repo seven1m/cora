@@ -233,9 +233,9 @@ test "Hash select returns empty hash when nothing matches" {
     try std.testing.expectEqual(0, result.data.hash.entries.items.len);
 }
 
-test "Hash select without block raises error" {
-    const result = evalCode("h = {a: 1}\nh.select");
-    try std.testing.expectError(error.UnhandledException, result);
+test "Hash select without block returns Enumerator" {
+    const result = try evalCode("h = {a: 1}\nh.select");
+    try std.testing.expect(result.data == .enumerator);
 }
 
 test "Hash literal evaluates pairs left-to-right" {

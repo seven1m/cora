@@ -215,7 +215,9 @@ pub fn builtinArrayEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
 
 pub fn builtinArrayEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const blk = try vm.requireBlock(block);
+    const blk = block orelse {
+        return try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
+    };
     const array_obj = receiver.data.array;
 
     // Iterate over array elements
@@ -234,7 +236,9 @@ pub fn builtinArrayEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
 
 pub fn builtinArrayEachWithIndex(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const blk = try vm.requireBlock(block);
+    const blk = block orelse {
+        return try vm.createMethodEnumerator(receiver, try vm.intern("each_with_index"), &.{});
+    };
     const array_obj = receiver.data.array;
 
     for (array_obj.elements.items, 0..) |element, idx| {
@@ -281,7 +285,9 @@ pub fn builtinArrayLength(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
 
 pub fn builtinArrayMap(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const blk = try vm.requireBlock(block);
+    const blk = block orelse {
+        return try vm.createMethodEnumerator(receiver, try vm.intern("map"), &.{});
+    };
     const source = receiver.data.array;
     const result = try vm.createArray();
 
@@ -299,7 +305,9 @@ pub fn builtinArrayMap(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
 
 pub fn builtinArrayMapBang(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const blk = try vm.requireBlock(block);
+    const blk = block orelse {
+        return try vm.createMethodEnumerator(receiver, try vm.intern("map!"), &.{});
+    };
     const array = receiver.data.array;
 
     for (array.elements.items, 0..) |element, idx| {

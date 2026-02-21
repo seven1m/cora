@@ -51,6 +51,7 @@ pub fn builtinClassNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
                 break :chunk_blk_result try vm.yieldToBlock(class_body_block, &[_]Value{});
             },
             .symbol => try vm.yieldToBlock(blk, &[_]Value{}),
+            .builtin => try vm.yieldToBlock(blk, &[_]Value{}),
         };
         if (yield_result.break_occurred) return yield_result.value;
     }

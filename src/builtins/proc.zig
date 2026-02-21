@@ -42,6 +42,6 @@ pub fn builtinProcCall(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
 pub fn builtinProcIsLambda(_: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
     return Value.boolean(switch (receiver.data.proc.block.kind) {
         .chunk => |chunk_blk| chunk_blk.chunk.is_lambda,
-        .symbol => true,
+        .symbol, .builtin => true,
     });
 }

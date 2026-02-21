@@ -6,6 +6,7 @@ const core_array_test = @import("core/array_test.zig");
 const core_argv_test = @import("core/argv_test.zig");
 const core_class_test = @import("core/class_test.zig");
 const core_encoding_test = @import("core/encoding_test.zig");
+const core_enumerator_test = @import("core/enumerator_test.zig");
 const core_env_test = @import("core/env_test.zig");
 const core_exception_test = @import("core/exception_test.zig");
 const core_false_test = @import("core/false_test.zig");
@@ -71,6 +72,7 @@ comptime {
     _ = core_argv_test;
     _ = core_array_test;
     _ = core_encoding_test;
+    _ = core_enumerator_test;
     _ = core_env_test;
     _ = core_exception_test;
     _ = core_false_test;

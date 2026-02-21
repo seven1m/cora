@@ -464,7 +464,9 @@ pub fn builtinIntegerZero(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
 pub fn builtinIntegerTimes(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     try receiver.ensureInteger(vm);
-    const blk = try vm.requireBlock(block);
+    const blk = block orelse {
+        return try vm.createMethodEnumerator(receiver, try vm.intern("times"), &.{});
+    };
 
     const count = try receiver.integerToI64(vm, "integer is too large to iterate");
     if (count <= 0) {
@@ -487,7 +489,9 @@ pub fn builtinIntegerUpto(vm: *VM, receiver: Value, args: []Value, block: ?Block
     try vm.requireArgCount(args, 1);
     try receiver.ensureInteger(vm);
     try args[0].ensureInteger(vm);
-    const blk = try vm.requireBlock(block);
+    const blk = block orelse {
+        return try vm.createMethodEnumerator(receiver, try vm.intern("upto"), args);
+    };
 
     const start = try receiver.integerToI64(vm, "integer is too large to iterate");
     const stop = try args[0].integerToI64(vm, "integer is too large to iterate");

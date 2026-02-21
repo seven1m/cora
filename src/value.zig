@@ -188,12 +188,37 @@ pub const MatchDataObject = struct {
     end_byte_offsets: std.ArrayList(i64) = .empty,
 };
 
+pub const EnumeratorObject = struct {
+    object: Object,
+    kind: Kind,
+    method_args: ?*ArrayObject,
+    fiber: ?*FiberObject,
+    lookahead: Value,
+    has_lookahead: bool,
+
+    pub const Kind = union(enum) {
+        method: struct {
+            receiver: Value,
+            method_name: *SymbolObject,
+        },
+        generator: struct {
+            proc: *ProcObject,
+        },
+    };
+};
+
+pub const YielderObject = struct {
+    object: Object,
+    block: Block,
+};
+
 pub const Value = struct {
     data: union(enum) {
         array: *ArrayObject,
         boolean: bool,
         class: *ClassObject,
         encoding: *EncodingObject,
+        enumerator: *EnumeratorObject,
         exception: *ExceptionObject,
         fiber: *FiberObject,
         hash: *HashObject,
@@ -210,6 +235,7 @@ pub const Value = struct {
         regexp: *RegexpObject,
         string: *StringObject,
         symbol: *SymbolObject,
+        yielder: *YielderObject,
     },
 
     pub fn isFrozen(self: Value) bool {
@@ -235,6 +261,8 @@ pub const Value = struct {
             .match_data => |m| (m.object.flags & Object.FROZEN_FLAG) != 0,
             .proc => |p| (p.object.flags & Object.FROZEN_FLAG) != 0,
             .range => |r| (r.object.flags & Object.FROZEN_FLAG) != 0,
+            .enumerator => |e| (e.object.flags & Object.FROZEN_FLAG) != 0,
+            .yielder => |y| (y.object.flags & Object.FROZEN_FLAG) != 0,
         };
     }
 
@@ -254,6 +282,8 @@ pub const Value = struct {
             .match_data => |m| m.object.flags |= Object.FROZEN_FLAG,
             .proc => |p| p.object.flags |= Object.FROZEN_FLAG,
             .range => |r| r.object.flags |= Object.FROZEN_FLAG,
+            .enumerator => |e| e.object.flags |= Object.FROZEN_FLAG,
+            .yielder => |y| y.object.flags |= Object.FROZEN_FLAG,
             // Primitives are already frozen, do nothing
             else => {},
         }
@@ -277,6 +307,8 @@ pub const Value = struct {
             .proc => |p| &p.object,
             .range => |r| &r.object,
             .regexp => |r| &r.object,
+            .enumerator => |e| &e.object,
+            .yielder => |y| &y.object,
             .integer, .float, .nil, .boolean => null,
         };
     }
@@ -461,6 +493,8 @@ pub const Value = struct {
             },
             .range => |_| try writer.print("#<Range>", .{}),
             .regexp => |r| try writer.print("/{s}/", .{r.pattern}),
+            .enumerator => |e| try writer.print("#<Enumerator:0x{x}>", .{@intFromPtr(e)}),
+            .yielder => |y| try writer.print("#<Enumerator::Yielder:0x{x}>", .{@intFromPtr(y)}),
         }
     }
 

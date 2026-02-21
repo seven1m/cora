@@ -6,6 +6,7 @@ const array = @import("array.zig");
 const basic_object = @import("basic_object.zig");
 const class_builtin = @import("class.zig");
 const encoding = @import("encoding.zig");
+const enumerator = @import("enumerator.zig");
 const env = @import("env.zig");
 const exception = @import("exception.zig");
 const false_class = @import("false_class.zig");
@@ -54,4 +55,5 @@ pub fn registerAll(vm: *VM) !void {
     try false_class.register(vm);
     try exception.register(vm);
     try encoding.register(vm);
+    try enumerator.register(vm);
 }
