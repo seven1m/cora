@@ -4887,8 +4887,7 @@ pub const VM = struct {
                 }
             }
 
-            _ = self.frames.pop();
-
+            try self.popFrame();
             if (self.frames.items.len > 0) {
                 const prev_frame = &self.frames.items[self.frames.items.len - 1];
                 self.stack.shrinkRetainingCapacity(prev_frame.stack_base);
