@@ -1839,7 +1839,8 @@ pub const Compiler = struct {
         if (module_node.body) |body_ptr| {
             // Allocate chunk on heap and track it immediately (before compilation can fail)
             const body_chunk_ptr = try self.allocator.create(Chunk);
-            body_chunk_ptr.* = Chunk.init(self.allocator, module_name);
+            body_chunk_ptr.* = Chunk.init(self.allocator, try self.allocator.dupe(u8, module_name));
+            body_chunk_ptr.name_owned = true;
             body_chunk_ptr.source_file = self.parser.source_file;
             body_chunk_id = try self.nextChunkId();
             body_chunk_ptr.chunk_id = body_chunk_id;
@@ -1888,7 +1889,8 @@ pub const Compiler = struct {
         if (class_node.body) |body_ptr| {
             // Allocate chunk on heap and track it immediately (before compilation can fail)
             const body_chunk_ptr = try self.allocator.create(Chunk);
-            body_chunk_ptr.* = Chunk.init(self.allocator, class_name);
+            body_chunk_ptr.* = Chunk.init(self.allocator, try self.allocator.dupe(u8, class_name));
+            body_chunk_ptr.name_owned = true;
             body_chunk_ptr.source_file = self.parser.source_file;
             body_chunk_id = try self.nextChunkId();
             body_chunk_ptr.chunk_id = body_chunk_id;
@@ -2211,7 +2213,8 @@ pub const Compiler = struct {
 
         // Allocate chunk on heap and track it immediately (before compilation can fail)
         const method_chunk_ptr = try self.allocator.create(Chunk);
-        method_chunk_ptr.* = Chunk.init(self.allocator, method_name_slice);
+        method_chunk_ptr.* = Chunk.init(self.allocator, try self.allocator.dupe(u8, method_name_slice));
+        method_chunk_ptr.name_owned = true;
         method_chunk_ptr.source_file = self.parser.source_file;
         const chunk_id = try self.nextChunkId();
         method_chunk_ptr.chunk_id = chunk_id;

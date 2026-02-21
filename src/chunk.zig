@@ -74,6 +74,7 @@ pub const Chunk = struct {
     line_info: std.ArrayList(u32) = .empty,
     allocator: std.mem.Allocator,
     name: []const u8,
+    name_owned: bool = false,
     chunk_id: ?ChunkId = null,
     arity: u8 = 0, // For block chunks: number of pre-rest required parameters
     is_lambda: bool = false, // Distinguishes lambda from proc
@@ -106,6 +107,9 @@ pub const Chunk = struct {
 
     pub fn deinit(self: *Chunk) void {
         self.code.deinit(self.allocator);
+        if (self.name_owned) {
+            self.allocator.free(self.name);
+        }
         for (self.constants.items) |constant| {
             switch (constant) {
                 .string => |s| self.allocator.free(s),
