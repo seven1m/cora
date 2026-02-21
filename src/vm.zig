@@ -763,6 +763,7 @@ pub const VM = struct {
         self.current_fiber = main_fiber_obj;
         self.restoreFiberState(main_fiber_obj);
         self.zio_main_context = undefined;
+        try self.prepareProgramCallSites();
         try self.captureMainGcStackBase();
     }
 
@@ -1170,43 +1171,98 @@ pub const VM = struct {
         };
     }
 
+    fn callMethodSymbolFromConstant(self: *VM, ch: *Chunk, method_idx: u16) VMError!*SymbolObject {
+        if (method_idx >= ch.constants.items.len) return error.Fatal;
+        return switch (ch.constants.items[method_idx]) {
+            .symbol => |sym| sym,
+            .string => |method_name| blk: {
+                const sym = try self.intern(method_name);
+                ch.constants.items[method_idx] = .{ .symbol = sym };
+                break :blk sym;
+            },
+            else => error.Fatal,
+        };
+    }
+
     fn resolveCallMethodSymbolAndPatch(
         self: *VM,
         frame: *CallFrame,
         instruction_start_ip: usize,
         method_idx: u16,
     ) VMError!*SymbolObject {
-        if (method_idx >= frame.chunk.constants.items.len) {
-            return error.Fatal;
+        _ = instruction_start_ip;
+        return self.callMethodSymbolFromConstant(frame.chunk, method_idx);
+    }
+
+    fn ensureCallSiteArrays(ch: *Chunk) VMError!void {
+        if (ch.callsite_caches.items.len < ch.code.items.len) {
+            const old_len = ch.callsite_caches.items.len;
+            ch.callsite_caches.ensureTotalCapacity(ch.allocator, ch.code.items.len) catch return error.Fatal;
+            ch.callsite_caches.items.len = ch.code.items.len;
+            for (old_len..ch.callsite_caches.items.len) |idx| {
+                ch.callsite_caches.items[idx] = null;
+            }
         }
 
-        const method_constant = frame.chunk.constants.items[method_idx];
-        return switch (method_constant) {
-            .symbol => |sym| sym,
-            .string => |method_name| blk: {
-                const method_name_sym = try self.intern(method_name);
+        if (ch.callsite_descriptors.items.len < ch.code.items.len) {
+            const old_len = ch.callsite_descriptors.items.len;
+            ch.callsite_descriptors.ensureTotalCapacity(ch.allocator, ch.code.items.len) catch return error.Fatal;
+            ch.callsite_descriptors.items.len = ch.code.items.len;
+            for (old_len..ch.callsite_descriptors.items.len) |idx| {
+                ch.callsite_descriptors.items[idx] = null;
+            }
+        }
+    }
 
-                if (frame.chunk.constants.items.len > std.math.maxInt(u16)) {
-                    return error.Fatal;
-                }
-
-                frame.chunk.constants.append(
-                    frame.chunk.allocator,
-                    .{ .symbol = method_name_sym },
-                ) catch return error.Fatal;
-                const new_idx: u16 = @intCast(frame.chunk.constants.items.len - 1);
-
-                const method_operand_ip = instruction_start_ip + 1;
-                if (method_operand_ip + 1 >= frame.chunk.code.items.len) {
-                    return error.Fatal;
-                }
-                frame.chunk.code.items[method_operand_ip] = @intCast(new_idx & 0xFF);
-                frame.chunk.code.items[method_operand_ip + 1] = @intCast((new_idx >> 8) & 0xFF);
-
-                break :blk method_name_sym;
+    fn decodeCallSiteDescriptor(ch: *Chunk, instruction_start_ip: usize) VMError!chunk.CallSiteDescriptor {
+        const op = @as(bytecode.OpCode, @enumFromInt(ch.code.items[instruction_start_ip]));
+        return switch (op) {
+            .CALL => .{
+                .kind = .call,
+                .method_idx = bytecode.readU16(ch.code.items, instruction_start_ip + 1),
+                .argc = bytecode.readU8(ch.code.items, instruction_start_ip + 3),
+                .call_flags = bytecode.readU8(ch.code.items, instruction_start_ip + 4),
+                .block_chunk_id = bytecode.readU16(ch.code.items, instruction_start_ip + 5),
+            },
+            .CALL_KW => .{
+                .kind = .call_kw,
+                .method_idx = bytecode.readU16(ch.code.items, instruction_start_ip + 1),
+                .argc = bytecode.readU8(ch.code.items, instruction_start_ip + 3),
+                .kwargc = bytecode.readU8(ch.code.items, instruction_start_ip + 4),
+                .call_flags = bytecode.readU8(ch.code.items, instruction_start_ip + 5),
+                .kw_metadata_idx = bytecode.readU16(ch.code.items, instruction_start_ip + 6),
+                .block_chunk_id = bytecode.readU16(ch.code.items, instruction_start_ip + 8),
             },
             else => error.Fatal,
         };
+    }
+
+    fn prepareChunkCallSites(self: *VM, ch: *Chunk) VMError!void {
+        if (ch.code.items.len == 0) return;
+        try ensureCallSiteArrays(ch);
+
+        var ip: usize = 0;
+        while (ip < ch.code.items.len) {
+            const op = @as(bytecode.OpCode, @enumFromInt(ch.code.items[ip]));
+            switch (op) {
+                .CALL, .CALL_KW => {
+                    var desc = try decodeCallSiteDescriptor(ch, ip);
+                    desc.method_sym = try self.callMethodSymbolFromConstant(ch, desc.method_idx);
+                    ch.callsite_descriptors.items[ip] = desc;
+                },
+                else => {},
+            }
+            ip += bytecode.instructionLength(op);
+        }
+    }
+
+    fn prepareProgramCallSites(self: *VM) VMError!void {
+        try self.prepareChunkCallSites(&self.program.main_chunk);
+
+        var chunk_iter = self.program.method_chunks.valueIterator();
+        while (chunk_iter.next()) |chunk_ptr| {
+            try self.prepareChunkCallSites(chunk_ptr.*);
+        }
     }
 
     pub fn bumpMethodStateVersion(self: *VM) void {
@@ -1276,6 +1332,42 @@ pub const VM = struct {
             };
         }
         return resolved;
+    }
+
+    fn getOrDecodeCallSiteDescriptor(
+        self: *VM,
+        ch: *Chunk,
+        instruction_start_ip: usize,
+        expected_kind: chunk.CallSiteKind,
+    ) VMError!*chunk.CallSiteDescriptor {
+        if (instruction_start_ip >= ch.code.items.len) return error.Fatal;
+        try ensureCallSiteArrays(ch);
+
+        if (ch.callsite_descriptors.items[instruction_start_ip]) |*desc| {
+            if (desc.kind != expected_kind) return error.Fatal;
+            return desc;
+        }
+
+        var desc = try decodeCallSiteDescriptor(ch, instruction_start_ip);
+        desc.method_sym = try self.callMethodSymbolFromConstant(ch, desc.method_idx);
+
+        if (desc.kind != expected_kind) return error.Fatal;
+        ch.callsite_descriptors.items[instruction_start_ip] = desc;
+        return &ch.callsite_descriptors.items[instruction_start_ip].?;
+    }
+
+    fn resolveCallMethodSymbolFromDescriptor(
+        self: *VM,
+        frame: *CallFrame,
+        instruction_start_ip: usize,
+        desc: *chunk.CallSiteDescriptor,
+    ) VMError!*SymbolObject {
+        if (desc.method_sym) |sym| {
+            return sym;
+        }
+        const sym = try self.resolveCallMethodSymbolAndPatch(frame, instruction_start_ip, desc.method_idx);
+        desc.method_sym = sym;
+        return sym;
     }
 
     fn push(self: *VM, val: Value) VMError!void {
@@ -1965,13 +2057,16 @@ pub const VM = struct {
 
             .CALL => {
                 const instruction_start_ip = frame.ip - 1;
-                const method_idx = self.readU16();
-                const argc = self.readByte();
-                const call_flags = self.readByte();
-                const call_style: ReceiverCallStyle = bytecode.decodeReceiverCallStyle(call_flags);
-                const args_array_mode = bytecode.argsArrayMode(call_flags);
-                const block_chunk_id = self.readU16();
-                const method_name_sym = try self.resolveCallMethodSymbolAndPatch(frame, instruction_start_ip, method_idx);
+                const call_desc = if (instruction_start_ip < frame.chunk.callsite_descriptors.items.len and frame.chunk.callsite_descriptors.items[instruction_start_ip] != null)
+                    &frame.chunk.callsite_descriptors.items[instruction_start_ip].?
+                else
+                    try self.getOrDecodeCallSiteDescriptor(frame.chunk, instruction_start_ip, .call);
+                frame.ip = instruction_start_ip + 7;
+                const argc = call_desc.argc;
+                const call_style: ReceiverCallStyle = bytecode.decodeReceiverCallStyle(call_desc.call_flags);
+                const args_array_mode = bytecode.argsArrayMode(call_desc.call_flags);
+                const block_chunk_id = call_desc.block_chunk_id;
+                const method_name_sym = call_desc.method_sym orelse try self.resolveCallMethodSymbolFromDescriptor(frame, instruction_start_ip, call_desc);
 
                 const block = if (block_chunk_id == 0)
                     null
@@ -1980,6 +2075,7 @@ pub const VM = struct {
 
                 var args: [256]Value = undefined;
                 var positional_argc: usize = 0;
+                var receiver: Value = undefined;
                 if (args_array_mode) {
                     const positional = self.pop();
                     if (positional.data != .array) {
@@ -1997,31 +2093,68 @@ pub const VM = struct {
                         args[i] = elem;
                     }
                     positional_argc = elems.len;
+                    receiver = self.pop();
                 } else {
-                    var i: usize = 0;
-                    while (i < argc) : (i += 1) {
-                        args[argc - 1 - i] = self.pop();
+                    if (self.stack.items.len < argc + 1) {
+                        return error.Fatal;
                     }
+                    const receiver_index = self.stack.items.len - (argc + 1);
+                    receiver = self.stack.items[receiver_index];
+
+                    // Stack-window fast path for chunk methods:
+                    // bind arguments directly from caller stack and avoid temporary arg buffers.
+                    if (call_style == .implicit_self) {
+                        const resolved = try self.resolveMethodForCallSite(frame, instruction_start_ip, receiver, method_name_sym);
+                        if (resolved) |method| {
+                            if (self.isMethodCallable(receiver, method, call_style)) {
+                                switch (method.entry.method) {
+                                    .chunk => |method_chunk| {
+                                        try self.setupChunkCallFrame(
+                                            method_chunk,
+                                            receiver,
+                                            self.stack.items[(receiver_index + 1)..(receiver_index + 1 + argc)],
+                                            null,
+                                            null,
+                                            null,
+                                            block,
+                                        );
+                                        self.stack.shrinkRetainingCapacity(receiver_index);
+                                        self.currentFrame().stack_base = receiver_index;
+                                        return;
+                                    },
+                                    else => {},
+                                }
+                            }
+                        }
+                    }
+
+                    if (argc > 0) {
+                        @memcpy(
+                            args[0..argc],
+                            self.stack.items[(receiver_index + 1)..(receiver_index + 1 + argc)],
+                        );
+                    }
+                    self.stack.shrinkRetainingCapacity(receiver_index);
                     positional_argc = argc;
                 }
-
-                // Pop receiver
-                const receiver = self.pop();
 
                 try self.callMethodHelperForExecuteInstruction(frame, instruction_start_ip, method_name_sym, call_style, receiver, &args, positional_argc, null, 0, null, block);
             },
 
             .CALL_KW => {
                 const instruction_start_ip = frame.ip - 1;
-                const method_idx = self.readU16();
-                const argc = self.readByte();
-                const kwargc = self.readByte();
-                const call_flags = self.readByte();
-                const call_style: ReceiverCallStyle = bytecode.decodeReceiverCallStyle(call_flags);
-                const args_array_mode = bytecode.argsArrayMode(call_flags);
-                const kw_metadata_idx = self.readU16();
-                const block_chunk_id = self.readU16();
-                const method_name_sym = try self.resolveCallMethodSymbolAndPatch(frame, instruction_start_ip, method_idx);
+                const call_desc = if (instruction_start_ip < frame.chunk.callsite_descriptors.items.len and frame.chunk.callsite_descriptors.items[instruction_start_ip] != null)
+                    &frame.chunk.callsite_descriptors.items[instruction_start_ip].?
+                else
+                    try self.getOrDecodeCallSiteDescriptor(frame.chunk, instruction_start_ip, .call_kw);
+                frame.ip = instruction_start_ip + 10;
+                const argc = call_desc.argc;
+                const kwargc = call_desc.kwargc;
+                const call_style: ReceiverCallStyle = bytecode.decodeReceiverCallStyle(call_desc.call_flags);
+                const args_array_mode = bytecode.argsArrayMode(call_desc.call_flags);
+                const kw_metadata_idx = call_desc.kw_metadata_idx;
+                const block_chunk_id = call_desc.block_chunk_id;
+                const method_name_sym = call_desc.method_sym orelse try self.resolveCallMethodSymbolFromDescriptor(frame, instruction_start_ip, call_desc);
 
                 const block = if (block_chunk_id == 0)
                     null
@@ -2030,15 +2163,18 @@ pub const VM = struct {
 
                 // Pop keyword values
                 var kw_values: [256]Value = undefined;
-                var i: usize = kwargc;
-                while (i > 0) {
-                    i -= 1;
-                    kw_values[i] = self.pop();
-                }
+                var i: usize = 0;
 
                 var args: [256]Value = undefined;
                 var positional_argc: usize = 0;
+                var receiver: Value = undefined;
+                const kw_metadata = frame.chunk.keyword_metadata.items[kw_metadata_idx];
                 if (args_array_mode) {
+                    i = kwargc;
+                    while (i > 0) {
+                        i -= 1;
+                        kw_values[i] = self.pop();
+                    }
                     const positional = self.pop();
                     if (positional.data != .array) {
                         const exc = try self.createException(self.type_error_class, "splat argument is not an Array");
@@ -2055,20 +2191,54 @@ pub const VM = struct {
                         args[idx] = elem;
                     }
                     positional_argc = elems.len;
+                    receiver = self.pop();
                 } else {
-                    i = argc;
-                    while (i > 0) {
-                        i -= 1;
-                        args[i] = self.pop();
+                    if (self.stack.items.len < argc + kwargc + 1) {
+                        return error.Fatal;
                     }
+                    const receiver_index = self.stack.items.len - (argc + kwargc + 1);
+                    receiver = self.stack.items[receiver_index];
+
+                    if (call_style == .implicit_self) {
+                        const resolved = try self.resolveMethodForCallSite(frame, instruction_start_ip, receiver, method_name_sym);
+                        if (resolved) |method| {
+                            if (self.isMethodCallable(receiver, method, call_style)) {
+                                switch (method.entry.method) {
+                                    .chunk => |method_chunk| {
+                                        try self.setupChunkCallFrame(
+                                            method_chunk,
+                                            receiver,
+                                            self.stack.items[(receiver_index + 1)..(receiver_index + 1 + argc)],
+                                            self.stack.items[(receiver_index + 1 + argc)..(receiver_index + 1 + argc + kwargc)],
+                                            kw_metadata,
+                                            frame.chunk,
+                                            block,
+                                        );
+                                        self.stack.shrinkRetainingCapacity(receiver_index);
+                                        self.currentFrame().stack_base = receiver_index;
+                                        return;
+                                    },
+                                    else => {},
+                                }
+                            }
+                        }
+                    }
+
+                    if (argc > 0) {
+                        @memcpy(
+                            args[0..argc],
+                            self.stack.items[(receiver_index + 1)..(receiver_index + 1 + argc)],
+                        );
+                    }
+                    if (kwargc > 0) {
+                        @memcpy(
+                            kw_values[0..kwargc],
+                            self.stack.items[(receiver_index + 1 + argc)..(receiver_index + 1 + argc + kwargc)],
+                        );
+                    }
+                    self.stack.shrinkRetainingCapacity(receiver_index);
                     positional_argc = argc;
                 }
-
-                // Pop receiver
-                const receiver = self.pop();
-
-                // Get keyword metadata
-                const kw_metadata = frame.chunk.keyword_metadata.items[kw_metadata_idx];
 
                 // Call method with keywords
                 try self.callMethodHelperForExecuteInstruction(frame, instruction_start_ip, method_name_sym, call_style, receiver, &args, positional_argc, &kw_values, kwargc, kw_metadata, block);
@@ -2897,76 +3067,95 @@ pub const VM = struct {
         return error.Unwind;
     }
 
+    inline fn setupChunkCallFrame(
+        self: *VM,
+        method_chunk: *Chunk,
+        receiver: Value,
+        args: []const Value,
+        kw_values: ?[]Value,
+        kw_metadata: ?chunk.KeywordMetadata,
+        caller_chunk: ?*Chunk,
+        block: ?Block,
+    ) VMError!void {
+        const has_keywords = kw_values != null and kw_values.?.len > 0;
+
+        if (method_chunk.no_keywords and has_keywords) {
+            const exc = try self.createException(self.argument_error_class, "this method does not accept keyword arguments");
+            self.pending_exception = exc;
+            return error.Unwind;
+        }
+
+        if (!has_keywords and method_chunk.required_keywords.items.len > 0) {
+            const msg = "missing required keyword arguments";
+            const exc = try self.createException(self.argument_error_class, msg);
+            self.pending_exception = exc;
+            return error.Unwind;
+        }
+
+        try self.pushFrame(method_chunk, receiver, block);
+        const callee_frame = self.currentFrame();
+        try self.copyArgumentsWithRestParam(method_chunk, callee_frame.ep, args, .strict);
+
+        if (has_keywords) {
+            const kw_vals = kw_values.?;
+            const kw_meta = kw_metadata orelse return error.Fatal;
+            const caller = caller_chunk orelse return error.Fatal;
+            try self.bindKeywordArguments(method_chunk, callee_frame.ep, kw_vals, kw_meta, caller);
+        } else {
+            if (method_chunk.optional_keywords.items.len > 0 or method_chunk.keyword_rest_index != null) {
+                var max_slot: u8 = callee_frame.ep.variables_len;
+                for (method_chunk.optional_keywords.items) |opt_kw| {
+                    if (opt_kw.param_slot >= max_slot) max_slot = opt_kw.param_slot + 1;
+                }
+                if (method_chunk.keyword_rest_index) |rest_idx| {
+                    if (rest_idx >= max_slot) max_slot = rest_idx + 1;
+                }
+                callee_frame.ep.variables_len = max_slot;
+
+                for (method_chunk.optional_keywords.items) |opt_kw| {
+                    const default_chunk = self.program.method_chunks.get(opt_kw.default_chunk_id).?;
+                    const current_ep = self.currentFrame().ep;
+                    const default_value = try self.executeDefaultExpression(default_chunk, current_ep);
+                    const f = &self.frames.items[self.frames.items.len - 1];
+                    f.ep.variables[opt_kw.param_slot] = default_value;
+                }
+
+                if (method_chunk.keyword_rest_index) |rest_idx| {
+                    const kw_hash = self.gc_allocator.create(value.HashObject) catch return error.Fatal;
+                    kw_hash.* = .{
+                        .object = .{ .flags = 0, .class = self.hash_class, .singleton_class = null, .instance_variables = null },
+                        .map = std.AutoHashMap(u64, usize).init(self.gc_allocator),
+                        .entries = .empty,
+                    };
+                    const f = &self.frames.items[self.frames.items.len - 1];
+                    f.ep.variables[rest_idx] = Value{ .data = .{ .hash = kw_hash } };
+                }
+            }
+        }
+
+        if (method_chunk.block_param_index) |block_idx| {
+            const current_frame = &self.frames.items[self.frames.items.len - 1];
+
+            if (current_frame.block) |blk| {
+                const proc_val = try self.newProc(blk);
+                const f = &self.frames.items[self.frames.items.len - 1];
+                f.ep.variables[block_idx] = proc_val;
+            } else {
+                current_frame.ep.variables[block_idx] = Value.nil();
+            }
+
+            const f = &self.frames.items[self.frames.items.len - 1];
+            if (block_idx >= f.ep.variables_len) {
+                f.ep.variables_len = block_idx + 1;
+            }
+        }
+    }
+
     fn invokeResolvedMethod(self: *VM, resolved: ResolvedMethod, receiver: Value, args: []Value, block: ?Block) VMError!Value {
         switch (resolved.entry.method) {
             .chunk => |method_chunk| {
-                const has_keywords = false;
-
-                if (method_chunk.no_keywords and has_keywords) {
-                    const exc = try self.createException(self.argument_error_class, "this method does not accept keyword arguments");
-                    self.pending_exception = exc;
-                    return error.Unwind;
-                }
-
-                if (!has_keywords and method_chunk.required_keywords.items.len > 0) {
-                    const msg = "missing required keyword arguments";
-                    const exc = try self.createException(self.argument_error_class, msg);
-                    self.pending_exception = exc;
-                    return error.Unwind;
-                }
-
                 const saved_frame_count = self.frames.items.len;
-                try self.pushFrame(method_chunk, receiver, block);
-
-                const frame = self.currentFrame();
-                try self.copyArgumentsWithRestParam(method_chunk, frame.ep, args, .strict);
-
-                if (method_chunk.optional_keywords.items.len > 0 or method_chunk.keyword_rest_index != null) {
-                    var max_slot: u8 = frame.ep.variables_len;
-                    for (method_chunk.optional_keywords.items) |opt_kw| {
-                        if (opt_kw.param_slot >= max_slot) max_slot = opt_kw.param_slot + 1;
-                    }
-                    if (method_chunk.keyword_rest_index) |rest_idx| {
-                        if (rest_idx >= max_slot) max_slot = rest_idx + 1;
-                    }
-                    frame.ep.variables_len = max_slot;
-
-                    for (method_chunk.optional_keywords.items) |opt_kw| {
-                        const default_chunk = self.program.method_chunks.get(opt_kw.default_chunk_id).?;
-                        const current_ep = self.currentFrame().ep;
-                        const default_value = try self.executeDefaultExpression(default_chunk, current_ep);
-                        const f = &self.frames.items[self.frames.items.len - 1];
-                        f.ep.variables[opt_kw.param_slot] = default_value;
-                    }
-
-                    if (method_chunk.keyword_rest_index) |rest_idx| {
-                        const kw_hash = self.gc_allocator.create(value.HashObject) catch return error.Fatal;
-                        kw_hash.* = .{
-                            .object = .{ .flags = 0, .class = self.hash_class, .singleton_class = null, .instance_variables = null },
-                            .map = std.AutoHashMap(u64, usize).init(self.gc_allocator),
-                            .entries = .empty,
-                        };
-                        const f = &self.frames.items[self.frames.items.len - 1];
-                        f.ep.variables[rest_idx] = Value{ .data = .{ .hash = kw_hash } };
-                    }
-                }
-
-                if (method_chunk.block_param_index) |block_idx| {
-                    const current_frame = &self.frames.items[self.frames.items.len - 1];
-
-                    if (current_frame.block) |blk| {
-                        const proc_val = try self.newProc(blk);
-                        const f = &self.frames.items[self.frames.items.len - 1];
-                        f.ep.variables[block_idx] = proc_val;
-                    } else {
-                        current_frame.ep.variables[block_idx] = Value.nil();
-                    }
-
-                    const f = &self.frames.items[self.frames.items.len - 1];
-                    if (block_idx >= f.ep.variables_len) {
-                        f.ep.variables_len = block_idx + 1;
-                    }
-                }
+                try self.setupChunkCallFrame(method_chunk, receiver, args, null, null, null, block);
 
                 try self.executeInstructionsUntilFrameLength(saved_frame_count + 1);
                 return self.pop();
@@ -3216,96 +3405,9 @@ pub const VM = struct {
         switch (method.entry.method) {
             .chunk => |method_chunk| {
                 const has_keywords = kwargc > 0;
-
-                // Check for **nil
-                if (method_chunk.no_keywords and has_keywords) {
-                    const exc = try self.createException(self.argument_error_class, "this method does not accept keyword arguments");
-                    self.pending_exception = exc;
-                    return error.Unwind;
-                }
-
-                // Check if method requires keywords but none were provided
-                if (!has_keywords and method_chunk.required_keywords.items.len > 0) {
-                    const msg = "missing required keyword arguments";
-                    const exc = try self.createException(self.argument_error_class, msg);
-                    self.pending_exception = exc;
-                    return error.Unwind;
-                }
-
-                // Get caller's chunk BEFORE pushing new frame (needed for keyword metadata)
                 const caller_chunk = if (has_keywords) self.currentFrame().chunk else null;
-
-                // Push frame with receiver as self_value
-                try self.pushFrame(method_chunk, receiver, block);
-
-                // Copy positional arguments with rest parameter handling
-                const callee_frame = self.currentFrame();
-                try self.copyArgumentsWithRestParam(method_chunk, callee_frame.ep, args[0..argc], .strict);
-
-                if (has_keywords) {
-                    // Bind keyword arguments
-                    try self.bindKeywordArguments(method_chunk, callee_frame.ep, kw_values.?[0..kwargc], kw_metadata.?, caller_chunk.?);
-                } else {
-                    // Bind optional keywords with defaults and keyword rest (when no keywords provided)
-                    if (method_chunk.optional_keywords.items.len > 0 or method_chunk.keyword_rest_index != null) {
-                        // FIRST: Update variables length to cover all keyword slots
-                        var max_slot: u8 = callee_frame.ep.variables_len;
-                        for (method_chunk.optional_keywords.items) |opt_kw| {
-                            if (opt_kw.param_slot >= max_slot) max_slot = opt_kw.param_slot + 1;
-                        }
-                        if (method_chunk.keyword_rest_index) |rest_idx| {
-                            if (rest_idx >= max_slot) max_slot = rest_idx + 1;
-                        }
-                        callee_frame.ep.variables_len = max_slot;
-
-                        // THEN: Bind optional keywords with their defaults
-                        for (method_chunk.optional_keywords.items) |opt_kw| {
-                            const default_chunk = self.program.method_chunks.get(opt_kw.default_chunk_id).?;
-                            // Re-get frame pointer at start of each iteration
-                            const current_ep = self.currentFrame().ep;
-                            const default_value = try self.executeDefaultExpression(default_chunk, current_ep);
-                            // Re-get frame pointer after executeDefaultExpression
-                            const f = &self.frames.items[self.frames.items.len - 1];
-                            f.ep.variables[opt_kw.param_slot] = default_value;
-                        }
-
-                        // THEN: Set up keyword rest with empty hash
-                        if (method_chunk.keyword_rest_index) |rest_idx| {
-                            const kw_hash = self.gc_allocator.create(value.HashObject) catch return error.Fatal;
-                            kw_hash.* = .{
-                                .object = .{ .flags = 0, .class = self.hash_class, .singleton_class = null, .instance_variables = null },
-                                .map = std.AutoHashMap(u64, usize).init(self.gc_allocator),
-                                .entries = .empty,
-                            };
-                            // Re-get frame pointer
-                            const f = &self.frames.items[self.frames.items.len - 1];
-                            f.ep.variables[rest_idx] = Value{ .data = .{ .hash = kw_hash } };
-                        }
-                    }
-                }
-
-                // Bind block parameter if present
-                if (method_chunk.block_param_index) |block_idx| {
-                    // Re-get frame pointer (newProc may cause reallocation)
-                    const current_frame = &self.frames.items[self.frames.items.len - 1];
-
-                    if (current_frame.block) |blk| {
-                        // Convert Block to ProcObject
-                        const proc_val = try self.newProc(blk);
-                        // Re-get frame pointer again after newProc
-                        const f = &self.frames.items[self.frames.items.len - 1];
-                        f.ep.variables[block_idx] = proc_val;
-                    } else {
-                        // No block passed - store nil
-                        current_frame.ep.variables[block_idx] = Value.nil();
-                    }
-
-                    // Ensure variables_len covers block parameter slot
-                    const f = &self.frames.items[self.frames.items.len - 1];
-                    if (block_idx >= f.ep.variables_len) {
-                        f.ep.variables_len = block_idx + 1;
-                    }
-                }
+                const kw_slice: ?[]Value = if (has_keywords) kw_values.?[0..kwargc] else null;
+                try self.setupChunkCallFrame(method_chunk, receiver, args[0..argc], kw_slice, kw_metadata, caller_chunk, block);
             },
             .builtin => |fun_ptr| {
                 var final_args: []Value = undefined;
@@ -4417,6 +4519,11 @@ pub const VM = struct {
         }
 
         self.next_chunk_id = program.next_chunk_id;
+        try self.prepareChunkCallSites(&program.main_chunk);
+        var loaded_iter = program.method_chunks.valueIterator();
+        while (loaded_iter.next()) |chunk_ptr| {
+            try self.prepareChunkCallSites(chunk_ptr.*);
+        }
 
         // Transfer ownership of method chunks to main program
         var iter = program.method_chunks.iterator();

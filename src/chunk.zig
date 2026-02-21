@@ -67,6 +67,22 @@ pub const CallSiteCache = struct {
     entry: MethodEntry,
 };
 
+pub const CallSiteKind = enum {
+    call,
+    call_kw,
+};
+
+pub const CallSiteDescriptor = struct {
+    kind: CallSiteKind,
+    method_idx: u16,
+    method_sym: ?*SymbolObject = null,
+    argc: u8,
+    call_flags: u8,
+    kwargc: u8 = 0,
+    kw_metadata_idx: u16 = 0,
+    block_chunk_id: u16,
+};
+
 pub const Chunk = struct {
     code: std.ArrayList(u8) = .empty,
     constants: std.ArrayList(Constant) = .empty,
@@ -92,6 +108,7 @@ pub const Chunk = struct {
     keyword_metadata: std.ArrayList(KeywordMetadata) = .empty,
     block_param_index: ?u8 = null, // Local slot for &block parameter
     callsite_caches: std.ArrayList(?CallSiteCache) = .empty,
+    callsite_descriptors: std.ArrayList(?CallSiteDescriptor) = .empty,
 
     pub fn init(allocator: std.mem.Allocator, name: []const u8) Chunk {
         return Chunk{
@@ -149,6 +166,7 @@ pub const Chunk = struct {
         }
         self.keyword_metadata.deinit(self.allocator);
         self.callsite_caches.deinit(self.allocator);
+        self.callsite_descriptors.deinit(self.allocator);
     }
 
     pub fn setSourceFile(self: *Chunk, source_file: ?[]const u8) !void {
