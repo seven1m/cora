@@ -186,6 +186,14 @@ pub const Compiler = struct {
                 try self.current_chunk.emitOpU8(.INTERPOLATE_STRING, part_count, line);
             },
 
+            .interpolated_symbol => |interp_node| {
+                const part_count = try self.compileInterpolatedParts(interp_node.parts, line);
+                try self.current_chunk.emitOpU8(.INTERPOLATE_STRING, part_count, line);
+                const method_idx = try self.current_chunk.addConstant(.{ .string = "to_sym" });
+                const call_flags = bytecode.encodeCallFlags(.explicit, false);
+                try self.current_chunk.emitCall(@intCast(method_idx), 0, call_flags, 0, line);
+            },
+
             .x_string => |xstring_node| {
                 try self.current_chunk.emitOp(.PUSH_SELF, line);
                 const str_val = xstring_node.unescaped;

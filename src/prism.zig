@@ -83,6 +83,7 @@ pub const BlockArgumentNode = c.pm_block_argument_node_t;
 pub const EmbeddedStatementsNode = c.pm_embedded_statements_node_t;
 pub const EmbeddedVariableNode = c.pm_embedded_variable_node_t;
 pub const InterpolatedStringNode = c.pm_interpolated_string_node_t;
+pub const InterpolatedSymbolNode = c.pm_interpolated_symbol_node_t;
 pub const XStringNode = c.pm_x_string_node_t;
 pub const InterpolatedXStringNode = c.pm_interpolated_x_string_node_t;
 pub const ForwardingSuperNode = c.pm_forwarding_super_node_t;
@@ -188,6 +189,7 @@ pub const Node = union(enum) {
     embedded_statements: *EmbeddedStatementsNode,
     embedded_variable: *EmbeddedVariableNode,
     interpolated_string: *InterpolatedStringNode,
+    interpolated_symbol: *InterpolatedSymbolNode,
     x_string: *XStringNode,
     interpolated_x_string: *InterpolatedXStringNode,
     forwarding_super: *ForwardingSuperNode,
@@ -563,6 +565,10 @@ pub const Parser = struct {
 
         if (node_type == c.PM_INTERPOLATED_STRING_NODE) {
             return Node{ .interpolated_string = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_INTERPOLATED_SYMBOL_NODE) {
+            return Node{ .interpolated_symbol = @ptrCast(raw) };
         }
 
         if (node_type == c.PM_X_STRING_NODE) {
