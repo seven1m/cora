@@ -579,6 +579,12 @@ pub const Compiler = struct {
                 try self.current_chunk.emitOpU16(.GET_GLOBAL, @intCast(name_idx), line);
             },
 
+            .back_reference_read => |backref_read| {
+                const var_name = try self.parser.getConstantName(@intCast(backref_read.name));
+                const name_idx = try self.current_chunk.addConstant(.{ .string = var_name });
+                try self.current_chunk.emitOpU16(.GET_GLOBAL, @intCast(name_idx), line);
+            },
+
             .numbered_reference_read => |numbered_read| {
                 if (numbered_read.number == 0) {
                     try self.current_chunk.emitOp(.PUSH_NIL, line);

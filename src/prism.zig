@@ -66,6 +66,7 @@ pub const AssocNode = c.pm_assoc_node_t;
 pub const LambdaNode = c.pm_lambda_node_t;
 pub const MissingNode = c.pm_missing_node_t;
 pub const GlobalVariableReadNode = c.pm_global_variable_read_node_t;
+pub const BackReferenceReadNode = c.pm_back_reference_read_node_t;
 pub const NumberedReferenceReadNode = c.pm_numbered_reference_read_node_t;
 pub const GlobalVariableAndWriteNode = c.pm_global_variable_and_write_node_t;
 pub const GlobalVariableOrWriteNode = c.pm_global_variable_or_write_node_t;
@@ -173,6 +174,7 @@ pub const Node = union(enum) {
     lambda: *LambdaNode,
     missing: *MissingNode,
     global_variable_read: *GlobalVariableReadNode,
+    back_reference_read: *BackReferenceReadNode,
     numbered_reference_read: *NumberedReferenceReadNode,
     global_variable_and_write: *GlobalVariableAndWriteNode,
     global_variable_or_write: *GlobalVariableOrWriteNode,
@@ -512,6 +514,9 @@ pub const Parser = struct {
 
         if (node_type == c.PM_GLOBAL_VARIABLE_READ_NODE) {
             return Node{ .global_variable_read = @ptrCast(raw) };
+        }
+        if (node_type == c.PM_BACK_REFERENCE_READ_NODE) {
+            return Node{ .back_reference_read = @ptrCast(raw) };
         }
         if (node_type == c.PM_NUMBERED_REFERENCE_READ_NODE) {
             return Node{ .numbered_reference_read = @ptrCast(raw) };
