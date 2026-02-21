@@ -107,6 +107,7 @@ pub fn build(b: *std.Build) void {
     run_step.dependOn(&run_cmd.step);
 
     const test_filter = b.option([]const u8, "test-filter", "Filter tests by name (supports 'foo|bar' OR matching)");
+    options.addOption([]const u8, "test_filter_raw", test_filter orelse "");
     var parsed_test_filters: std.ArrayList([]const u8) = .empty;
     if (test_filter) |filter| {
         var it = std.mem.splitScalar(u8, filter, '|');
@@ -150,6 +151,15 @@ pub fn build(b: *std.Build) void {
     cora_mod.addIncludePath(b.path("zig-out/onigmo/"));
     cora_mod.addObjectFile(b.path("zig-out/onigmo/.libs/libonigmo.a"));
     test_exe.root_module.addImport("cora", cora_mod);
+
+    const ruby_spec_runner_mod = b.createModule(.{
+        .root_source_file = b.path("test/ruby_spec_runner.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    ruby_spec_runner_mod.addImport("cora", cora_mod);
+    ruby_spec_runner_mod.addImport("bdwgc", bdwgc.module("bdwgc"));
+    test_exe.root_module.addImport("ruby_spec_runner", ruby_spec_runner_mod);
 
     const test_run = b.addRunArtifact(test_exe);
     test_run.step.dependOn(prism_build_step);

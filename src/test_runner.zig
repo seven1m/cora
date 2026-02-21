@@ -5,8 +5,10 @@ const std = @import("std");
 const testing = std.testing;
 const assert = std.debug.assert;
 const build_options = @import("build_options");
+const ruby_spec_runner = @import("ruby_spec_runner");
 
 const verbose = @hasDecl(build_options, "test_verbose") and build_options.test_verbose;
+const test_filter_raw = if (@hasDecl(build_options, "test_filter_raw")) build_options.test_filter_raw else "";
 
 pub const std_options: std.Options = .{
     .logFn = log,
@@ -17,6 +19,76 @@ var fba = std.heap.FixedBufferAllocator.init(&fba_buffer);
 var fba_buffer: [8192]u8 = undefined;
 var stdin_buffer: [4096]u8 = undefined;
 var stdout_buffer: [4096]u8 = undefined;
+
+const RubySpecTest = union(enum) {
+    spec: ruby_spec_runner.SpecCase,
+    no_specs_found: void,
+
+    fn displayName(self: RubySpecTest) []const u8 {
+        return switch (self) {
+            .spec => |spec| spec.name,
+            .no_specs_found => "ruby/spec (no _spec.rb files found in spec/)",
+        };
+    }
+};
+
+fn deinitRubySpecTests(allocator: std.mem.Allocator, tests: *std.ArrayList(RubySpecTest)) void {
+    for (tests.items) |test_case| {
+        switch (test_case) {
+            .spec => |spec| ruby_spec_runner.deinitSpecCase(allocator, spec),
+            .no_specs_found => {},
+        }
+    }
+    tests.deinit(allocator);
+}
+
+fn filterMatches(name: []const u8) bool {
+    if (test_filter_raw.len == 0) return true;
+
+    var it = std.mem.splitScalar(u8, test_filter_raw, '|');
+    while (it.next()) |raw| {
+        const part = std.mem.trim(u8, raw, " \t\r\n");
+        if (part.len == 0) continue;
+        if (std.mem.indexOf(u8, name, part) != null) return true;
+    }
+
+    return false;
+}
+
+fn loadRubySpecTests(allocator: std.mem.Allocator) !std.ArrayList(RubySpecTest) {
+    var collected_specs: std.ArrayList(ruby_spec_runner.SpecCase) = .empty;
+    defer collected_specs.deinit(allocator);
+
+    try ruby_spec_runner.collectSpecCases(allocator, "spec", &collected_specs);
+    ruby_spec_runner.sortSpecCases(collected_specs.items);
+
+    var ruby_spec_tests: std.ArrayList(RubySpecTest) = .empty;
+    errdefer deinitRubySpecTests(allocator, &ruby_spec_tests);
+
+    for (collected_specs.items) |spec| {
+        if (filterMatches(spec.name)) {
+            try ruby_spec_tests.append(allocator, .{ .spec = spec });
+        } else {
+            ruby_spec_runner.deinitSpecCase(allocator, spec);
+        }
+    }
+
+    if (ruby_spec_tests.items.len == 0 and test_filter_raw.len == 0 and collected_specs.items.len == 0) {
+        try ruby_spec_tests.append(allocator, .{ .no_specs_found = {} });
+    }
+
+    return ruby_spec_tests;
+}
+
+fn runRubySpecTest(test_case: RubySpecTest) !void {
+    switch (test_case) {
+        .spec => |spec| try ruby_spec_runner.runSpec(spec.path),
+        .no_specs_found => {
+            std.debug.print("No spec files found in spec/\n", .{});
+            return error.NoSpecsFound;
+        },
+    }
+}
 
 const crippled = switch (builtin.zig_backend) {
     .stage2_aarch64,
@@ -97,14 +169,18 @@ fn mainServer() !void {
                     @panic("internal test runner memory leak");
                 };
 
+                var ruby_spec_tests = try loadRubySpecTests(testing.allocator);
+                defer deinitRubySpecTests(testing.allocator, &ruby_spec_tests);
+
                 var string_bytes: std.ArrayListUnmanaged(u8) = .empty;
                 defer string_bytes.deinit(testing.allocator);
                 try string_bytes.append(testing.allocator, 0); // Reserve 0 for null.
 
                 const test_fns = builtin.test_functions;
-                const names = try testing.allocator.alloc(u32, test_fns.len);
+                const total_tests = test_fns.len + ruby_spec_tests.items.len;
+                const names = try testing.allocator.alloc(u32, total_tests);
                 defer testing.allocator.free(names);
-                const expected_panic_msgs = try testing.allocator.alloc(u32, test_fns.len);
+                const expected_panic_msgs = try testing.allocator.alloc(u32, total_tests);
                 defer testing.allocator.free(expected_panic_msgs);
 
                 for (test_fns, names, expected_panic_msgs) |test_fn, *name, *expected_panic_msg| {
@@ -113,6 +189,15 @@ fn mainServer() !void {
                     string_bytes.appendSliceAssumeCapacity(test_fn.name);
                     string_bytes.appendAssumeCapacity(0);
                     expected_panic_msg.* = 0;
+                }
+
+                for (ruby_spec_tests.items, test_fns.len..) |ruby_spec_test, i| {
+                    const test_name = ruby_spec_test.displayName();
+                    names[i] = @intCast(string_bytes.items.len);
+                    try string_bytes.ensureUnusedCapacity(testing.allocator, test_name.len + 1);
+                    string_bytes.appendSliceAssumeCapacity(test_name);
+                    string_bytes.appendAssumeCapacity(0);
+                    expected_panic_msgs[i] = 0;
                 }
 
                 try server.serveTestMetadata(.{
@@ -126,19 +211,38 @@ fn mainServer() !void {
                 testing.allocator_instance = .{};
                 log_err_count = 0;
                 const index = try server.receiveBody_u32();
-                const test_fn = builtin.test_functions[index];
                 var fail = false;
                 var skip = false;
                 is_fuzz_test = false;
-                test_fn.func() catch |err| switch (err) {
-                    error.SkipZigTest => skip = true,
-                    else => {
+
+                const test_fns = builtin.test_functions;
+                if (index < test_fns.len) {
+                    const test_fn = test_fns[index];
+                    test_fn.func() catch |err| switch (err) {
+                        error.SkipZigTest => skip = true,
+                        else => {
+                            fail = true;
+                            if (@errorReturnTrace()) |trace| {
+                                std.debug.dumpStackTrace(trace.*);
+                            }
+                        },
+                    };
+                } else {
+                    var ruby_spec_tests = try loadRubySpecTests(testing.allocator);
+                    if (index - test_fns.len >= ruby_spec_tests.items.len) {
+                        deinitRubySpecTests(testing.allocator, &ruby_spec_tests);
+                        return error.InvalidTestIndex;
+                    }
+                    const ruby_spec_test = ruby_spec_tests.items[index - test_fns.len];
+                    runRubySpecTest(ruby_spec_test) catch {
                         fail = true;
                         if (@errorReturnTrace()) |trace| {
                             std.debug.dumpStackTrace(trace.*);
                         }
-                    },
-                };
+                    };
+                    deinitRubySpecTests(testing.allocator, &ruby_spec_tests);
+                }
+
                 const leak = testing.allocator_instance.deinit() == .leak;
                 try server.serveTestResults(.{
                     .index = index,
@@ -188,13 +292,21 @@ fn mainServer() !void {
 fn mainTerminal() void {
     @disableInstrumentation();
     const test_fn_list = builtin.test_functions;
+
+    var ruby_spec_tests = loadRubySpecTests(std.heap.page_allocator) catch |err| {
+        std.debug.print("Failed to discover ruby specs: {s}\n", .{@errorName(err)});
+        std.process.exit(1);
+    };
+    defer deinitRubySpecTests(std.heap.page_allocator, &ruby_spec_tests);
+
+    const total_tests = test_fn_list.len + ruby_spec_tests.items.len;
     var ok_count: usize = 0;
     var skip_count: usize = 0;
     var fail_count: usize = 0;
     var fuzz_count: usize = 0;
     const root_node = if (builtin.fuzz) std.Progress.Node.none else std.Progress.start(.{
         .root_name = "Test",
-        .estimated_total_items = test_fn_list.len,
+        .estimated_total_items = total_tests,
     });
     const have_tty = std.fs.File.stderr().isTty();
 
@@ -216,7 +328,7 @@ fn mainTerminal() void {
 
         const test_node = root_node.start(test_fn.name, 0);
         if (!have_tty) {
-            std.debug.print("{d}/{d} {s}...", .{ i + 1, test_fn_list.len, test_fn.name });
+            std.debug.print("{d}/{d} {s}...", .{ i + 1, total_tests, test_fn.name });
         }
         is_fuzz_test = false;
         if (test_fn.func()) |_| {
@@ -227,7 +339,7 @@ fn mainTerminal() void {
             error.SkipZigTest => {
                 skip_count += 1;
                 if (have_tty) {
-                    std.debug.print("{d}/{d} {s}...SKIP\n", .{ i + 1, test_fn_list.len, test_fn.name });
+                    std.debug.print("{d}/{d} {s}...SKIP\n", .{ i + 1, total_tests, test_fn.name });
                 } else {
                     std.debug.print("SKIP\n", .{});
                 }
@@ -237,7 +349,7 @@ fn mainTerminal() void {
                 fail_count += 1;
                 if (have_tty) {
                     std.debug.print("{d}/{d} {s}...FAIL ({s})\n", .{
-                        i + 1, test_fn_list.len, test_fn.name, @errorName(err),
+                        i + 1, total_tests, test_fn.name, @errorName(err),
                     });
                 } else {
                     std.debug.print("FAIL ({s})\n", .{@errorName(err)});
@@ -250,8 +362,47 @@ fn mainTerminal() void {
         }
         fuzz_count += @intFromBool(is_fuzz_test);
     }
+
+    for (ruby_spec_tests.items, 0..) |ruby_spec_test, i| {
+        const display_name = ruby_spec_test.displayName();
+        const overall_index = test_fn_list.len + i;
+        if (verbose) {
+            std.debug.print("TEST {s}\n", .{display_name});
+        }
+        testing.allocator_instance = .{};
+        defer {
+            if (testing.allocator_instance.deinit() == .leak) {
+                leaks += 1;
+            }
+        }
+        testing.log_level = .warn;
+
+        const test_node = root_node.start(display_name, 0);
+        if (!have_tty) {
+            std.debug.print("{d}/{d} {s}...", .{ overall_index + 1, total_tests, display_name });
+        }
+        runRubySpecTest(ruby_spec_test) catch |err| {
+            fail_count += 1;
+            if (have_tty) {
+                std.debug.print("{d}/{d} {s}...FAIL ({s})\n", .{
+                    overall_index + 1, total_tests, display_name, @errorName(err),
+                });
+            } else {
+                std.debug.print("FAIL ({s})\n", .{@errorName(err)});
+            }
+            if (@errorReturnTrace()) |trace| {
+                std.debug.dumpStackTrace(trace.*);
+            }
+            test_node.end();
+            continue;
+        };
+        ok_count += 1;
+        test_node.end();
+        if (!have_tty) std.debug.print("OK\n", .{});
+    }
+
     root_node.end();
-    if (ok_count == test_fn_list.len) {
+    if (ok_count == total_tests) {
         std.debug.print("All {d} tests passed.\n", .{ok_count});
     } else {
         std.debug.print("{d} passed; {d} skipped; {d} failed.\n", .{ ok_count, skip_count, fail_count });

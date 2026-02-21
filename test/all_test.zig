@@ -62,7 +62,6 @@ const language_super_test = @import("language/super_test.zig");
 const language_splat_call_test = @import("language/splat_call_test.zig");
 const language_xstring_test = @import("language/xstring_test.zig");
 const language_visibility_test = @import("language/visibility_test.zig");
-const spec_test = @import("spec_test.zig");
 
 comptime {
     _ = value_test;
@@ -127,5 +126,4 @@ comptime {
     _ = language_splat_call_test;
     _ = language_xstring_test;
     _ = language_visibility_test;
-    _ = spec_test;
 }
