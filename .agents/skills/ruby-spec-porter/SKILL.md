@@ -1,6 +1,6 @@
 ---
 name: ruby-spec-porter
-description: Port Ruby specs from ../ruby_spec into this repo and make them pass with minimal divergence from upstream. Use when asked to pick a spec to pull over, copy upstream files, un-xit specs, or fix parser/compiler/vm/mspec-lite compatibility blockers discovered while running specs.
+description: Port Ruby specs from ../ruby_spec into this repo and make them pass with minimal divergence from upstream. Use when asked to pick a spec to pull over, copy upstream files and fix parser/compiler/vm/mspec-lite compatibility blockers discovered while running specs.
 ---
 
 # Ruby Spec Porter
@@ -14,15 +14,16 @@ Use this skill to add one or more specs from `../ruby_spec` into `spec/`, keep t
 - Keep copied spec files matching upstream whenever possible.
 - Prefer runtime/compiler/parser/spec_helper fixes over spec edits.
 - When a copied upstream spec cannot run yet, prefer temporary `CORAFIXME` wrappers over rewriting expectations.
-- Treat temporary `CORAFIXME`/`xit` usage as short-term tactics only; remove once behavior is implemented.
+- Treat temporary `CORAFIXME` usage as short-term tactics only; remove once behavior is implemented.
 - Implement general mechanisms, not one-off hacks for a single example.
 - Fix small foundational blockers early if they unlock many specs.
 - Preserve mspec compatibility (not rspec APIs).
+- Work on specs pauses if you find any fundamental issues with the Cora runtime. Memory errors/leaks, data corruption, and MRI-incompatibility take center stage when you find it.
 
 ## Workflow
 
 1. Pick a candidate spec.
-- Start with low-risk, high-signal specs in `../ruby_spec/core/string`.
+- Start with low-risk, high-signal specs in `../ruby_spec/core/*`.
 - Prefer specs that map to existing builtins/opcodes and require incremental behavior.
 - Avoid immediately choosing specs known to require broad missing subsystems.
 
@@ -144,7 +145,7 @@ Commit sequencing guidance:
 
 ```bash
 # list local vs upstream missing string specs
-comm -13 <(ls -1 spec/core/string | sort) <(ls -1 ../ruby_spec/core/string | sort)
+diff <(ls -1 spec/core/string | sort) <(ls -1 ../ruby_spec/core/string | sort)
 
 # run one spec file
 zig build run -- spec/core/string/chars_spec.rb
