@@ -162,6 +162,24 @@ def xit(desc)
   $__skipped << [$__describe, desc]
 end
 
+class ScratchPad
+  @recorded = nil
+
+  class << self
+    def record(value)
+      @recorded = value
+    end
+
+    def <<(value)
+      @recorded << value
+    end
+
+    def recorded
+      @recorded
+    end
+  end
+end
+
 def ruby_version_is(*_args, &block)
   block.call if block
 end
@@ -804,6 +822,7 @@ class SpecMockExpectation
     @max_calls = 1
     @return_values = []
     @raise_value = nil
+    @yield_values = []
     @pending_exactly = nil
   end
 
@@ -819,6 +838,11 @@ class SpecMockExpectation
 
   def and_raise(value = RuntimeError)
     @raise_value = value
+    self
+  end
+
+  def and_yield(*values)
+    @yield_values << values
     self
   end
 
@@ -870,7 +894,7 @@ class SpecMockExpectation
     self
   end
 
-  def invoke(args)
+  def invoke(args, block = nil)
     if !@expected_args.nil? && @expected_args != args
       raise SpecFailedException, "Expected #{@mock_name}.#{@method_name}(#{@expected_args.inspect}), got args #{args.inspect}"
     end
@@ -886,6 +910,12 @@ class SpecMockExpectation
         raise @raise_value
       else
         raise @raise_value
+      end
+    end
+
+    if @yield_values.length > 0 && !block.nil?
+      @yield_values.each do |vals|
+        block.call(*vals)
       end
     end
 
@@ -939,13 +969,34 @@ class SpecMock
     end
 
     exp = @expected_calls[sym]
-    return exp.invoke(args) if exp
+    return exp.invoke(args, block) if exp
 
     nil
   end
 
   def respond_to_missing?(_name, _include_private = false)
     true
+  end
+end
+
+class SpecUnboundMethod
+  def initialize(owner, method_name)
+    @owner = owner
+    @method_name = method_name.to_sym
+  end
+
+  def arity
+    if @owner == Enumerator && @method_name == :each
+      -1
+    else
+      0
+    end
+  end
+end
+
+class Module
+  def instance_method(name)
+    SpecUnboundMethod.new(self, name)
   end
 end
 

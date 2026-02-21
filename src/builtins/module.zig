@@ -257,6 +257,9 @@ pub fn register(vm: *VM) !void {
 
     const public_instance_methods_sym = try vm.intern("public_instance_methods");
     try vm.module_class.module.methods.put(public_instance_methods_sym, .{ .method = .{ .builtin = &builtinModulePublicInstanceMethods } });
+
+    const method_defined_sym = try vm.intern("method_defined?");
+    try vm.module_class.module.methods.put(method_defined_sym, .{ .method = .{ .builtin = &builtinModuleMethodDefined } });
 }
 
 pub fn builtinModuleCaseEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -393,6 +396,21 @@ pub fn builtinModulePublicInstanceMethods(vm: *VM, receiver: Value, args: []Valu
     try vm.requireArgCountRange(args, 0, 1);
     const include_super = if (args.len == 1) args[0].is_truthy() else true;
     return collectInstanceMethods(vm, receiver, .public_only, include_super);
+}
+
+pub fn builtinModuleMethodDefined(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+    const include_super = if (args.len == 2) args[1].is_truthy() else true;
+    const name_sym = try vm.coerceToMethodNameSymbol(args[0]);
+
+    const methods = try collectInstanceMethods(vm, receiver, .public_and_protected, include_super);
+    const items = methods.data.array.elements.items;
+    for (items) |item| {
+        if (item.data == .symbol and item.data.symbol == name_sym) {
+            return Value.boolean(true);
+        }
+    }
+    return Value.boolean(false);
 }
 
 pub fn builtinModuleInclude(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

@@ -4024,8 +4024,8 @@ pub const VM = struct {
             .method_args = method_args,
             .size_proc = size_proc,
             .fiber = null,
-            .lookahead = Value.nil(),
-            .has_lookahead = false,
+            .lookahead_values = null,
+            .has_lookahead_values = false,
         };
         return .{ .data = .{ .enumerator = enum_obj } };
     }

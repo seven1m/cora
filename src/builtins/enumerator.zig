@@ -19,11 +19,23 @@ pub fn register(vm: *VM) !void {
     const each_sym = try vm.intern("each");
     try vm.enumerator_class.module.methods.put(each_sym, .{ .method = .{ .builtin = &builtinEnumeratorEach } });
 
+    const map_sym = try vm.intern("map");
+    try vm.enumerator_class.module.methods.put(map_sym, .{ .method = .{ .builtin = &builtinEnumeratorMap } });
+
+    const to_a_sym = try vm.intern("to_a");
+    try vm.enumerator_class.module.methods.put(to_a_sym, .{ .method = .{ .builtin = &builtinEnumeratorToA } });
+
     const next_sym = try vm.intern("next");
     try vm.enumerator_class.module.methods.put(next_sym, .{ .method = .{ .builtin = &builtinEnumeratorNext } });
 
+    const next_values_sym = try vm.intern("next_values");
+    try vm.enumerator_class.module.methods.put(next_values_sym, .{ .method = .{ .builtin = &builtinEnumeratorNextValues } });
+
     const peek_sym = try vm.intern("peek");
     try vm.enumerator_class.module.methods.put(peek_sym, .{ .method = .{ .builtin = &builtinEnumeratorPeek } });
+
+    const peek_values_sym = try vm.intern("peek_values");
+    try vm.enumerator_class.module.methods.put(peek_values_sym, .{ .method = .{ .builtin = &builtinEnumeratorPeekValues } });
 
     const rewind_sym = try vm.intern("rewind");
     try vm.enumerator_class.module.methods.put(rewind_sym, .{ .method = .{ .builtin = &builtinEnumeratorRewind } });
@@ -61,12 +73,30 @@ fn builtinEnumeratorNew(vm: *VM, _: Value, args: []Value, block: ?Block) VMError
 // --- Enumerator instance methods ---
 
 fn builtinEnumeratorEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 0);
     const enum_obj = receiver.data.enumerator;
 
     const blk = block orelse {
-        // No block: return self
-        return receiver;
+        if (args.len == 0) {
+            return receiver;
+        }
+
+        switch (enum_obj.kind) {
+            .method => |_| {
+                var merged_args = try vm.createArray();
+                if (enum_obj.method_args) |method_args| {
+                    for (method_args.elements.items) |arg| {
+                        merged_args.elements.append(vm.gc_allocator, arg) catch return error.Fatal;
+                    }
+                }
+                for (args) |arg| {
+                    merged_args.elements.append(vm.gc_allocator, arg) catch return error.Fatal;
+                }
+                return vm.newEnumerator(enum_obj.kind, merged_args, enum_obj.size_proc);
+            },
+            .generator => {
+                return vm.newEnumerator(enum_obj.kind, null, enum_obj.size_proc);
+            },
+        }
     };
 
     switch (enum_obj.kind) {
@@ -79,6 +109,10 @@ fn builtinEnumeratorEach(vm: *VM, receiver: Value, args: []Value, block: ?Block)
                     call_args_buf[call_argc] = arg;
                     call_argc += 1;
                 }
+            }
+            for (args) |arg| {
+                call_args_buf[call_argc] = arg;
+                call_argc += 1;
             }
             return vm.callMethodByName(m.receiver, m.method_name.name, call_args_buf[0..call_argc], blk);
         },
@@ -95,60 +129,37 @@ fn builtinEnumeratorNext(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     try vm.requireArgCount(args, 0);
     const enum_obj = receiver.data.enumerator;
 
-    // If we have a lookahead value from peek, consume it
-    if (enum_obj.has_lookahead) {
-        const val = enum_obj.lookahead;
-        enum_obj.has_lookahead = false;
-        enum_obj.lookahead = Value.nil();
-        return val;
-    }
+    const yield_values = try takeNextYieldValues(vm, enum_obj);
+    return collapseYieldValues(yield_values);
+}
 
-    // Ensure we have a fiber for external iteration
-    const fiber = try ensureEnumeratorFiber(vm, enum_obj);
-
-    // If fiber is terminated, raise StopIteration
-    if (fiber.state == .terminated) {
-        return raiseStopIteration(vm);
-    }
-
-    // On first resume, pass the enumerator as arg so the fiber body can access it
-    // On subsequent resumes, the fiber is already running and just resumes from yield
-    var resume_args: [1]Value = .{Value{ .data = .{ .enumerator = enum_obj } }};
-    const result = try vm.resumeFiber(
-        fiber,
-        if (fiber.state == .created) resume_args[0..1] else &[_]Value{},
-        Value.nil(),
-    );
-
-    // If fiber terminated after resuming (returned rather than yielded), iteration is done
-    if (fiber.state == .terminated) {
-        return raiseStopIteration(vm);
-    }
-
-    return result;
+fn builtinEnumeratorNextValues(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const enum_obj = receiver.data.enumerator;
+    const yield_values = try takeNextYieldValues(vm, enum_obj);
+    return Value{ .data = .{ .array = yield_values } };
 }
 
 fn builtinEnumeratorPeek(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const enum_obj = receiver.data.enumerator;
+    const yield_values = try peekNextYieldValues(vm, enum_obj);
+    return collapseYieldValues(yield_values);
+}
 
-    if (enum_obj.has_lookahead) {
-        return enum_obj.lookahead;
-    }
-
-    // Call next - if StopIteration, let it propagate
-    const val = try builtinEnumeratorNext(vm, receiver, args, null);
-    enum_obj.lookahead = val;
-    enum_obj.has_lookahead = true;
-    return val;
+fn builtinEnumeratorPeekValues(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const enum_obj = receiver.data.enumerator;
+    const yield_values = try peekNextYieldValues(vm, enum_obj);
+    return Value{ .data = .{ .array = yield_values } };
 }
 
 fn builtinEnumeratorRewind(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const enum_obj = receiver.data.enumerator;
     enum_obj.fiber = null;
-    enum_obj.has_lookahead = false;
-    enum_obj.lookahead = Value.nil();
+    enum_obj.has_lookahead_values = false;
+    enum_obj.lookahead_values = null;
     return receiver;
 }
 
@@ -186,6 +197,65 @@ fn builtinEnumeratorSize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     }
 
     return Value.nil();
+}
+
+fn builtinEnumeratorToA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const out = try vm.createArray();
+
+    while (true) {
+        const next_val = builtinEnumeratorNext(vm, receiver, &[_]Value{}, null) catch |err| {
+            if (err == error.Unwind and vm.pending_exception != null and vm.pending_exception.?.object.class == vm.stop_iteration_class) {
+                vm.pending_exception = null;
+                break;
+            }
+            return err;
+        };
+        out.elements.append(vm.gc_allocator, next_val) catch return error.Fatal;
+    }
+
+    return Value{ .data = .{ .array = out } };
+}
+
+fn builtinEnumeratorMap(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const blk = block orelse {
+        return vm.createMethodEnumerator(receiver, try vm.intern("map"), &.{});
+    };
+
+    const out = try vm.createArray();
+    var yielded_args_buf: [256]Value = undefined;
+    while (true) {
+        const next_val = builtinEnumeratorNext(vm, receiver, &[_]Value{}, null) catch |err| {
+            if (err == error.Unwind and vm.pending_exception != null and vm.pending_exception.?.object.class == vm.stop_iteration_class) {
+                vm.pending_exception = null;
+                break;
+            }
+            return err;
+        };
+
+        var yielded_args: []const Value = &[_]Value{next_val};
+        if (next_val.data == .array) {
+            switch (blk.kind) {
+                .chunk => |chunk_blk| {
+                    if (chunk_blk.chunk.arity > 1) {
+                        const elems = next_val.data.array.elements.items;
+                        for (elems, 0..) |elem, i| {
+                            yielded_args_buf[i] = elem;
+                        }
+                        yielded_args = yielded_args_buf[0..elems.len];
+                    }
+                },
+                .symbol, .builtin => {},
+            }
+        }
+
+        const mapped = try vm.yieldToBlock(blk, yielded_args);
+        if (mapped.break_occurred) return mapped.value;
+        out.elements.append(vm.gc_allocator, mapped.value) catch return error.Fatal;
+    }
+
+    return Value{ .data = .{ .array = out } };
 }
 
 // --- Yielder instance methods ---
@@ -255,22 +325,65 @@ fn enumeratorFiberBody(vm: *VM, args: []Value) VMError!Value {
 }
 
 fn enumeratorFiberYieldBlock(vm: *VM, args: []Value) VMError!Value {
-    const yield_value = switch (args.len) {
-        0 => Value.nil(),
-        1 => args[0],
-        else => blk: {
-            const arr = try vm.createArray();
-            for (args) |arg| {
-                arr.elements.append(vm.gc_allocator, arg) catch return error.Fatal;
-            }
-            break :blk Value{ .data = .{ .array = arr } };
-        },
-    };
-    return vm.fiberYield(yield_value);
+    const arr = try vm.createArray();
+    for (args) |arg| {
+        arr.elements.append(vm.gc_allocator, arg) catch return error.Fatal;
+    }
+    return vm.fiberYield(Value{ .data = .{ .array = arr } });
 }
 
-fn raiseStopIteration(vm: *VM) VMError!Value {
+fn raiseStopIteration(vm: *VM) VMError {
     const exc = try vm.createException(vm.stop_iteration_class, "StopIteration");
     vm.pending_exception = exc;
     return error.Unwind;
+}
+
+fn collapseYieldValues(yield_values: *value.ArrayObject) Value {
+    return switch (yield_values.elements.items.len) {
+        0 => Value.nil(),
+        1 => yield_values.elements.items[0],
+        else => Value{ .data = .{ .array = yield_values } },
+    };
+}
+
+fn fetchNextYieldValues(vm: *VM, enum_obj: *value.EnumeratorObject) VMError!*value.ArrayObject {
+    // Ensure we have a fiber for external iteration
+    const fiber = try ensureEnumeratorFiber(vm, enum_obj);
+
+    if (fiber.state == .terminated) {
+        return raiseStopIteration(vm);
+    }
+
+    var resume_args: [1]Value = .{Value{ .data = .{ .enumerator = enum_obj } }};
+    const result = try vm.resumeFiber(
+        fiber,
+        if (fiber.state == .created) resume_args[0..1] else &[_]Value{},
+        Value.nil(),
+    );
+
+    if (fiber.state == .terminated) {
+        return raiseStopIteration(vm);
+    }
+    if (result.data != .array) return error.Fatal;
+    return result.data.array;
+}
+
+fn takeNextYieldValues(vm: *VM, enum_obj: *value.EnumeratorObject) VMError!*value.ArrayObject {
+    if (enum_obj.has_lookahead_values) {
+        const val = enum_obj.lookahead_values orelse return error.Fatal;
+        enum_obj.has_lookahead_values = false;
+        enum_obj.lookahead_values = null;
+        return val;
+    }
+    return fetchNextYieldValues(vm, enum_obj);
+}
+
+fn peekNextYieldValues(vm: *VM, enum_obj: *value.EnumeratorObject) VMError!*value.ArrayObject {
+    if (enum_obj.has_lookahead_values) {
+        return enum_obj.lookahead_values orelse return error.Fatal;
+    }
+    const val = try fetchNextYieldValues(vm, enum_obj);
+    enum_obj.lookahead_values = val;
+    enum_obj.has_lookahead_values = true;
+    return val;
 }

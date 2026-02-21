@@ -130,6 +130,9 @@ pub fn register(vm: *VM) !void {
     const match_op_sym = try vm.intern("=~");
     try vm.string_class.module.methods.put(match_op_sym, .{ .method = .{ .builtin = &builtinStringMatchOp } });
 
+    const scan_sym = try vm.intern("scan");
+    try vm.string_class.module.methods.put(scan_sym, .{ .method = .{ .builtin = &builtinStringScan } });
+
     const unpack_sym = try vm.intern("unpack");
     try vm.string_class.module.methods.put(unpack_sym, .{ .method = .{ .builtin = &builtinStringUnpack } });
 }
@@ -867,6 +870,55 @@ pub fn builtinStringMatchOp(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
         return vm.raiseExceptionFmt(vm.type_error_class, "type mismatch: String given", .{});
     }
     return regexp_builtin.regexpMatchOp(vm, args[0].data.regexp, receiver);
+}
+
+pub fn builtinStringScan(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (args[0].data != .regexp) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "wrong argument type", .{});
+    }
+
+    const regexp_obj = args[0].data.regexp;
+    const string_obj = receiver.data.string;
+
+    const out = if (block == null) try vm.createArray() else null;
+    var offset: usize = 0;
+
+    while (offset <= string_obj.str.len) {
+        const sub = try vm.newStringWithEncoding(string_obj.str[offset..], false, string_obj.encoding);
+        const match_idx = try regexp_builtin.regexpMatchOp(vm, regexp_obj, sub);
+        if (match_idx.data == .nil) break;
+
+        const last_match = vm.globals.get("$~") orelse Value.nil();
+        if (last_match.data != .match_data) break;
+        const md = last_match.data.match_data;
+
+        const yielded_value = if (md.captures.items.len <= 1)
+            md.captures.items[0]
+        else if (md.captures.items.len == 2)
+            md.captures.items[1]
+        else blk: {
+            const captures = try vm.createArray();
+            for (md.captures.items[1..]) |capture| {
+                captures.elements.append(vm.gc_allocator, capture) catch return error.Fatal;
+            }
+            break :blk Value{ .data = .{ .array = captures } };
+        };
+
+        if (block) |blk| {
+            const yielded = try vm.yieldToBlock(blk, &[_]Value{yielded_value});
+            if (yielded.break_occurred) return yielded.value;
+        } else {
+            out.?.elements.append(vm.gc_allocator, yielded_value) catch return error.Fatal;
+        }
+
+        const end_offset_i64 = if (md.end_byte_offsets.items.len > 0) md.end_byte_offsets.items[0] else 0;
+        const end_offset: usize = if (end_offset_i64 > 0) @intCast(end_offset_i64) else 0;
+        offset += if (end_offset > 0) end_offset else 1;
+    }
+
+    if (block != null) return receiver;
+    return Value{ .data = .{ .array = out.? } };
 }
 
 pub fn builtinStringUnpack(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

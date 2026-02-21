@@ -194,8 +194,8 @@ pub const EnumeratorObject = struct {
     method_args: ?*ArrayObject,
     size_proc: ?*ProcObject,
     fiber: ?*FiberObject,
-    lookahead: Value,
-    has_lookahead: bool,
+    lookahead_values: ?*ArrayObject,
+    has_lookahead_values: bool,
 
     pub const Kind = union(enum) {
         method: struct {
