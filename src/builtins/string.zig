@@ -307,21 +307,7 @@ pub fn builtinStringNotEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block)
 pub fn builtinStringEncoding(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const string_obj = receiver.data.string;
-    // Return the appropriate encoding singleton
-    return switch (string_obj.encoding) {
-        .utf8 => Value{ .data = .{ .encoding = vm.encoding_utf8 } },
-        .ascii_8bit => Value{ .data = .{ .encoding = vm.encoding_ascii_8bit } },
-        .us_ascii => Value{ .data = .{ .encoding = vm.encoding_us_ascii } },
-        .shift_jis => Value{ .data = .{ .encoding = vm.encoding_shift_jis } },
-        .iso_8859_15 => Value{ .data = .{ .encoding = vm.encoding_iso_8859_15 } },
-        .utf7 => Value{ .data = .{ .encoding = vm.encoding_utf7 } },
-        .utf16 => Value{ .data = .{ .encoding = vm.encoding_utf16 } },
-        .utf32 => Value{ .data = .{ .encoding = vm.encoding_utf32 } },
-        .utf16le => Value{ .data = .{ .encoding = vm.encoding_utf16le } },
-        .utf16be => Value{ .data = .{ .encoding = vm.encoding_utf16be } },
-        .utf32le => Value{ .data = .{ .encoding = vm.encoding_utf32le } },
-        .utf32be => Value{ .data = .{ .encoding = vm.encoding_utf32be } },
-    };
+    return vm.encodingToValue(string_obj.encoding);
 }
 
 pub fn builtinStringEncode(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -589,11 +575,11 @@ pub fn builtinStringStartWith(vm: *VM, receiver: Value, args: []Value, _: ?Block
         const prefix = prefix_val.data.string.str;
         const prefix_enc = prefix_val.data.string.encoding;
         if (enc.negotiate(string_obj.encoding, string_obj.str, prefix_enc, prefix) == null) {
-                return vm.raiseExceptionFmt(
-                    vm.argument_error_class,
-                    "incompatible character encodings: {s} and {s}",
-                    .{ string_obj.encoding.name(), prefix_enc.name() },
-                );
+            return vm.raiseExceptionFmt(
+                vm.argument_error_class,
+                "incompatible character encodings: {s} and {s}",
+                .{ string_obj.encoding.name(), prefix_enc.name() },
+            );
         }
         if (!std.mem.startsWith(u8, string_obj.str, prefix)) continue;
         if (string_obj.encoding.isCharBoundary(string_obj.str, prefix.len)) {
@@ -824,9 +810,48 @@ pub fn builtinStringToI(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     }
 }
 
+fn appendSymbolErrorEscapedBytes(writer: anytype, input: []const u8) !void {
+    for (input) |c| {
+        switch (c) {
+            '"' => try writer.writeAll("\\\""),
+            '\\' => try writer.writeAll("\\\\"),
+            '\n' => try writer.writeAll("\\n"),
+            '\t' => try writer.writeAll("\\t"),
+            '\r' => try writer.writeAll("\\r"),
+            '\x08' => try writer.writeAll("\\b"),
+            '\x0c' => try writer.writeAll("\\f"),
+            '\x0b' => try writer.writeAll("\\v"),
+            '\x00' => try writer.writeAll("\\0"),
+            else => {
+                if (c < 32 or c > 126) {
+                    try std.fmt.format(writer, "\\x{X:0>2}", .{c});
+                } else {
+                    try writer.writeByte(c);
+                }
+            },
+        }
+    }
+}
+
 pub fn builtinStringToSym(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const sym = try vm.intern(receiver.data.string.str);
+    const string_obj = receiver.data.string;
+
+    if (!string_obj.encoding.isValid(string_obj.str)) {
+        var escaped_bytes: std.ArrayList(u8) = .empty;
+        defer escaped_bytes.deinit(vm.allocator);
+        const writer = escaped_bytes.writer(vm.allocator);
+        appendSymbolErrorEscapedBytes(writer, string_obj.str) catch return error.Fatal;
+        const escaped = escaped_bytes.toOwnedSlice(vm.allocator) catch return error.Fatal;
+        defer vm.allocator.free(escaped);
+        return vm.raiseExceptionFmt(vm.encoding_error_class, "invalid symbol in encoding {s} :\"{s}\"", .{ string_obj.encoding.name(), escaped });
+    }
+
+    const symbol_encoding: enc.Encoding = if (string_obj.encoding.isAsciiCompatible() and enc.isAsciiOnly(string_obj.str))
+        .{ .us_ascii = .{} }
+    else
+        string_obj.encoding;
+    const sym = try vm.internWithEncoding(string_obj.str, symbol_encoding);
     return Value{ .data = .{ .symbol = sym } };
 }
 

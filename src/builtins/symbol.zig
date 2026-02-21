@@ -22,6 +22,9 @@ pub fn register(vm: *VM) !void {
 
     const to_proc_sym = try vm.intern("to_proc");
     try vm.symbol_class.module.methods.put(to_proc_sym, .{ .method = .{ .builtin = &builtinSymbolToProc } });
+
+    const encoding_sym = try vm.intern("encoding");
+    try vm.symbol_class.module.methods.put(encoding_sym, .{ .method = .{ .builtin = &builtinSymbolEncoding } });
 }
 
 pub fn builtinSymbolEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -33,9 +36,8 @@ pub fn builtinSymbolEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
 
 pub fn builtinSymbolToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-
-    const str = std.fmt.allocPrint(vm.gc_allocator, "{s}", .{receiver.data.symbol.name}) catch return error.Fatal;
-    return try vm.newString(str, false);
+    const sym = receiver.data.symbol;
+    return try vm.newStringWithEncoding(sym.name, false, sym.encoding);
 }
 
 pub fn builtinSymbolInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -55,4 +57,9 @@ pub fn builtinSymbolToProc(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     return vm.newProc(.{
         .kind = .{ .symbol = receiver.data.symbol },
     });
+}
+
+pub fn builtinSymbolEncoding(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return vm.encodingToValue(receiver.data.symbol.encoding);
 }

@@ -35,6 +35,7 @@ pub const Object = struct {
 pub const SymbolObject = struct {
     object: Object,
     name: []const u8,
+    encoding: Encoding = .{ .us_ascii = .{} },
 };
 
 pub const StringObject = struct {

@@ -22,65 +22,51 @@ describe :string_to_sym, shared: true do
   end
 
   it "returns a US-ASCII Symbol for a UTF-8 String containing only US-ASCII characters" do
-    CORAFIXME "Symbol#encoding is not implemented", exception: NoMethodError, message: /undefined method 'encoding' for Symbol/ do
-      sym = "foobar".send(@method)
-      sym.encoding.should == Encoding::US_ASCII
-      sym.should equal :"foobar"
-    end
+    sym = "foobar".send(@method)
+    sym.encoding.should == Encoding::US_ASCII
+    sym.should equal :"foobar"
   end
 
   it "returns a US-ASCII Symbol for a binary String containing only US-ASCII characters" do
-    CORAFIXME "Symbol#encoding is not implemented", exception: NoMethodError, message: /undefined method 'encoding' for Symbol/ do
-      sym = "foobar".b.send(@method)
-      sym.encoding.should == Encoding::US_ASCII
-      sym.should equal :"foobar"
-    end
+    sym = "foobar".b.send(@method)
+    sym.encoding.should == Encoding::US_ASCII
+    sym.should equal :"foobar"
   end
 
   it "returns a UTF-8 Symbol for a UTF-8 String containing non US-ASCII characters" do
-    CORAFIXME "Symbol#encoding is not implemented", exception: NoMethodError, message: /undefined method 'encoding' for Symbol/ do
-      sym = "il était une fois".send(@method)
-      sym.encoding.should == Encoding::UTF_8
-      sym.should equal :"il était une #{'fois'}"
-    end
+    sym = "il était une fois".send(@method)
+    sym.encoding.should == Encoding::UTF_8
+    sym.should equal :"il était une #{'fois'}"
   end
 
   it "returns a UTF-16LE Symbol for a UTF-16LE String containing non US-ASCII characters" do
-    CORAFIXME "Symbol#encoding is not implemented", exception: NoMethodError, message: /undefined method 'encoding' for Symbol/ do
-      utf16_str = "UtéF16".encode(Encoding::UTF_16LE)
-      sym = utf16_str.send(@method)
-      sym.encoding.should == Encoding::UTF_16LE
-      sym.to_s.should == utf16_str
-    end
+    utf16_str = "UtéF16".encode(Encoding::UTF_16LE)
+    sym = utf16_str.send(@method)
+    sym.encoding.should == Encoding::UTF_16LE
+    sym.to_s.should == utf16_str
   end
 
   it "returns a binary Symbol for a binary String containing non US-ASCII characters" do
-    CORAFIXME "Symbol#encoding is not implemented", exception: NoMethodError, message: /undefined method 'encoding' for Symbol/ do
-      binary_string = "binarí".b
-      sym = binary_string.send(@method)
-      sym.encoding.should == Encoding::BINARY
-      sym.to_s.should == binary_string
-    end
+    binary_string = "binarí".b
+    sym = binary_string.send(@method)
+    sym.encoding.should == Encoding::BINARY
+    sym.to_s.should == binary_string
   end
 
   it "ignores existing symbols with different encoding" do
-    CORAFIXME "Encoding::ISO_8859_1 alias is not implemented", exception: NameError, message: /uninitialized constant Encoding::ISO_8859_1/ do
-      source = "fée"
+    source = "fée"
 
-      iso_symbol = source.dup.force_encoding(Encoding::ISO_8859_1).send(@method)
-      iso_symbol.encoding.should == Encoding::ISO_8859_1
-      binary_symbol = source.dup.force_encoding(Encoding::BINARY).send(@method)
-      binary_symbol.encoding.should == Encoding::BINARY
-    end
+    iso_symbol = source.dup.force_encoding(Encoding::ISO_8859_1).send(@method)
+    iso_symbol.encoding.should == Encoding::ISO_8859_1
+    binary_symbol = source.dup.force_encoding(Encoding::BINARY).send(@method)
+    binary_symbol.encoding.should == Encoding::BINARY
   end
 
   it "raises an EncodingError for UTF-8 String containing invalid bytes" do
-    CORAFIXME "EncodingError class is not implemented", exception: NameError, message: /uninitialized constant EncodingError/ do
-      invalid_utf8 = "\xC3"
-      invalid_utf8.should_not.valid_encoding?
-      -> {
-        invalid_utf8.send(@method)
-      }.should raise_error(EncodingError, 'invalid symbol in encoding UTF-8 :"\xC3"')
-    end
+    invalid_utf8 = "\xC3"
+    invalid_utf8.should_not.valid_encoding?
+    -> {
+      invalid_utf8.send(@method)
+    }.should raise_error(EncodingError, 'invalid symbol in encoding UTF-8 :"\xC3"')
   end
 end

@@ -155,6 +155,27 @@ pub const FiberEnvironmentStack = FixedBufferList(Environment, MAX_FIBER_ENVS);
 pub const FiberCoro = zio.coro.Coroutine;
 pub const FiberCoroContext = zio.coro.Context;
 
+const SymbolEncodingTag = std.meta.Tag(enc.Encoding);
+
+const SymbolKey = struct {
+    bytes: []const u8,
+    encoding_tag: SymbolEncodingTag,
+};
+
+const SymbolKeyContext = struct {
+    pub fn hash(_: SymbolKeyContext, key: SymbolKey) u64 {
+        var hasher = std.hash.Wyhash.init(0);
+        hasher.update(key.bytes);
+        const tag_u8: u8 = @intFromEnum(key.encoding_tag);
+        hasher.update(std.mem.asBytes(&tag_u8));
+        return hasher.final();
+    }
+
+    pub fn eql(_: SymbolKeyContext, a: SymbolKey, b: SymbolKey) bool {
+        return a.encoding_tag == b.encoding_tag and std.mem.eql(u8, a.bytes, b.bytes);
+    }
+};
+
 pub const VM = struct {
     allocator: std.mem.Allocator,
     gc_allocator: std.mem.Allocator,
@@ -166,7 +187,7 @@ pub const VM = struct {
     // Environment stack for optimistic allocation
     env_stack: *FiberEnvironmentStack,
 
-    symbols: std.StringHashMap(*SymbolObject),
+    symbols: std.HashMap(SymbolKey, *SymbolObject, SymbolKeyContext, std.hash_map.default_max_load_percentage),
     globals: std.StringHashMap(Value),
 
     program: *compiler.CompiledProgram,
@@ -220,6 +241,7 @@ pub const VM = struct {
     io_error_class: *value.ClassObject,
     fiber_error_class: *value.ClassObject,
     load_error_class: *value.ClassObject,
+    encoding_error_class: *value.ClassObject,
     range_error_class: *value.ClassObject,
     regexp_error_class: *value.ClassObject,
     index_error_class: *value.ClassObject,
@@ -283,7 +305,7 @@ pub const VM = struct {
             .stack = undefined,
             .frames = undefined,
             .env_stack = undefined,
-            .symbols = std.StringHashMap(*SymbolObject).init(gc_allocator),
+            .symbols = std.HashMap(SymbolKey, *SymbolObject, SymbolKeyContext, std.hash_map.default_max_load_percentage).init(gc_allocator),
             .globals = std.StringHashMap(Value).init(gc_allocator),
             .loaded_files = std.StringHashMap(void).init(gc_allocator),
             .program = undefined,
@@ -326,6 +348,7 @@ pub const VM = struct {
             .io_error_class = undefined,
             .fiber_error_class = undefined,
             .load_error_class = undefined,
+            .encoding_error_class = undefined,
             .range_error_class = undefined,
             .regexp_error_class = undefined,
             .index_error_class = undefined,
@@ -527,6 +550,10 @@ pub const VM = struct {
         const load_error_class_val = try self.newClass(load_error_name_sym, self.standard_error_class);
         self.load_error_class = load_error_class_val.data.class;
 
+        const encoding_error_name_sym = try self.intern("EncodingError");
+        const encoding_error_class_val = try self.newClass(encoding_error_name_sym, self.standard_error_class);
+        self.encoding_error_class = encoding_error_class_val.data.class;
+
         const range_error_name_sym = try self.intern("RangeError");
         const range_error_class_val = try self.newClass(range_error_name_sym, self.standard_error_class);
         self.range_error_class = range_error_class_val.data.class;
@@ -610,6 +637,7 @@ pub const VM = struct {
         self.object_class.module.constants.put(io_error_name_sym, io_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(fiber_error_name_sym, fiber_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(load_error_name_sym, load_error_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(encoding_error_name_sym, encoding_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(range_error_name_sym, range_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(regexp_error_name_sym, regexp_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(index_error_name_sym, index_error_class_val) catch return error.Fatal;
@@ -655,6 +683,7 @@ pub const VM = struct {
         const shift_jis_const_sym = try self.intern("SHIFT_JIS");
         const sjis_const_sym = try self.intern("SJIS");
         const euc_jp_const_sym = try self.intern("EUC_JP");
+        const iso_8859_1_const_sym = try self.intern("ISO_8859_1");
         const iso_8859_15_const_sym = try self.intern("ISO_8859_15");
         const utf7_const_sym = try self.intern("UTF_7");
         const utf16_const_sym = try self.intern("UTF_16");
@@ -684,6 +713,7 @@ pub const VM = struct {
         self.encoding_class.module.constants.put(shift_jis_const_sym, shift_jis_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(sjis_const_sym, shift_jis_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(euc_jp_const_sym, shift_jis_val) catch return error.Fatal;
+        self.encoding_class.module.constants.put(iso_8859_1_const_sym, iso_8859_15_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(iso_8859_15_const_sym, iso_8859_15_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(utf7_const_sym, utf7_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(utf16_const_sym, utf16_val) catch return error.Fatal;
@@ -3590,21 +3620,31 @@ pub const VM = struct {
     }
 
     pub fn intern(self: *VM, str: []const u8) VMError!*SymbolObject {
-        // Check if already interned
-        if (self.symbols.get(str)) |symbol_obj| {
+        return self.internWithEncoding(str, .{ .us_ascii = .{} });
+    }
+
+    pub fn internWithEncoding(self: *VM, str: []const u8, symbol_encoding: enc.Encoding) VMError!*SymbolObject {
+        const probe_key = SymbolKey{
+            .bytes = str,
+            .encoding_tag = @as(SymbolEncodingTag, symbol_encoding),
+        };
+        if (self.symbols.get(probe_key)) |symbol_obj| {
             return symbol_obj;
         }
 
-        const key = self.gc_allocator_atomic.dupe(u8, str) catch return error.Fatal;
+        const key_bytes = self.gc_allocator_atomic.dupe(u8, str) catch return error.Fatal;
+        const map_key = SymbolKey{
+            .bytes = key_bytes,
+            .encoding_tag = @as(SymbolEncodingTag, symbol_encoding),
+        };
 
-        // Create a symbol and store it
         const symbol_obj = self.gc_allocator.create(SymbolObject) catch return error.Fatal;
         symbol_obj.* = .{
             .object = .{ .flags = Object.FROZEN_FLAG, .class = self.symbol_class, .singleton_class = null, .instance_variables = null },
-            .name = key,
+            .name = key_bytes,
+            .encoding = symbol_encoding,
         };
-        self.symbols.put(key, symbol_obj) catch return error.Fatal;
-
+        self.symbols.put(map_key, symbol_obj) catch return error.Fatal;
         return symbol_obj;
     }
 
@@ -3978,6 +4018,23 @@ pub const VM = struct {
             .encoding = encoding,
         };
         return .{ .data = .{ .string = string_obj } };
+    }
+
+    pub fn encodingToValue(self: *VM, encoding_value: enc.Encoding) Value {
+        return switch (encoding_value) {
+            .utf8 => Value{ .data = .{ .encoding = self.encoding_utf8 } },
+            .ascii_8bit => Value{ .data = .{ .encoding = self.encoding_ascii_8bit } },
+            .us_ascii => Value{ .data = .{ .encoding = self.encoding_us_ascii } },
+            .shift_jis => Value{ .data = .{ .encoding = self.encoding_shift_jis } },
+            .iso_8859_15 => Value{ .data = .{ .encoding = self.encoding_iso_8859_15 } },
+            .utf7 => Value{ .data = .{ .encoding = self.encoding_utf7 } },
+            .utf16 => Value{ .data = .{ .encoding = self.encoding_utf16 } },
+            .utf32 => Value{ .data = .{ .encoding = self.encoding_utf32 } },
+            .utf16le => Value{ .data = .{ .encoding = self.encoding_utf16le } },
+            .utf16be => Value{ .data = .{ .encoding = self.encoding_utf16be } },
+            .utf32le => Value{ .data = .{ .encoding = self.encoding_utf32le } },
+            .utf32be => Value{ .data = .{ .encoding = self.encoding_utf32be } },
+        };
     }
 
     fn createEncodingObject(self: *VM, encoding: enc.Encoding) VMError!*value.EncodingObject {
