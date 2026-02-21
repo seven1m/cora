@@ -215,6 +215,51 @@ def flunk(message = "Flunked")
 end
 
 class SpecFailedException < StandardError; end
+class CoraFixMeException < StandardError; end
+
+def CORAFIXME(description, exception: StandardError, message: nil, condition: true)
+  raise SpecFailedException, "CORAFIXME requires a block" unless block_given?
+  return yield unless condition
+
+  matcher = case message
+  when String
+    ->(actual_message) { actual_message.include?(message) }
+  when Regexp
+    ->(actual_message) { !(actual_message =~ message).nil? }
+  when nil
+    ->(_actual_message) { true }
+  else
+    raise ArgumentError, "message must be nil, String, or Regexp"
+  end
+
+  status = nil
+  captured = nil
+  begin
+    yield
+    status = :unexpected_pass
+  rescue exception => e
+    captured = e
+    if matcher.call(e.message)
+      status = :valid_fixme
+    else
+      status = :wrong_message
+    end
+  rescue Exception => e
+    captured = e
+    status = :wrong_class
+  end
+
+  case status
+  when :unexpected_pass
+    raise CoraFixMeException, "Issue has been fixed, please remove or update CORAFIXME: #{description}"
+  when :wrong_message
+    raise CoraFixMeException,
+          "Issue hidden by CORAFIXME marker message is incorrect (should be #{message.inspect} but was #{captured.message.inspect})"
+  when :wrong_class
+    raise CoraFixMeException,
+          "Issue hidden by CORAFIXME marker class is incorrect. Expected #{exception}, was #{captured.class}"
+  end
+end
 
 class SpecExpectation
   def initialize(actual)

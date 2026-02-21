@@ -13,7 +13,8 @@ Use this skill to add one or more specs from `../ruby_spec` into `spec/`, keep t
 
 - Keep copied spec files matching upstream whenever possible.
 - Prefer runtime/compiler/parser/spec_helper fixes over spec edits.
-- Treat temporary `xit` as a short-term tactic only; remove once behavior is implemented.
+- When a copied upstream spec cannot run yet, prefer temporary `CORAFIXME` wrappers over rewriting expectations.
+- Treat temporary `CORAFIXME`/`xit` usage as short-term tactics only; remove once behavior is implemented.
 - Implement general mechanisms, not one-off hacks for a single example.
 - Fix small foundational blockers early if they unlock many specs.
 - Preserve mspec compatibility (not rspec APIs).
@@ -52,6 +53,20 @@ zig build test -Dtest-filter="ruby/spec"
 - VM/runtime issue: add or correct builtins/opcodes/encoding logic.
 - Harness issue: extend `spec/spec_helper.rb` mspec-lite compatibility.
 - Prefer reusable abstractions (e.g. general opcode/helper) over ad-hoc branching.
+- If a blocker cannot be fixed in the same pass, wrap only the failing example(s) in `CORAFIXME` with a precise description and expected failure class/message.
+  Example:
+```ruby
+it "handles threaded backref isolation" do
+  CORAFIXME "Thread is not implemented yet", exception: NameError, message: /uninitialized constant Thread/ do
+    cap1, cap2 = nil
+    "foo" =~ /(o+)/
+    cap1 = $1
+    Thread.new { cap2 = $1 }.join
+    cap2.should == nil
+    cap1.should == "oo"
+  end
+end
+```
 
 5. Re-run and tighten.
 - Re-run target spec until green.
@@ -77,8 +92,10 @@ When asked “what next spec should we port?”, prefer this order:
 ## Editing Rules
 
 - Do not rewrite upstream spec expectations to fit Cora behavior unless explicitly approved.
-- If a spec uses unsupported syntax/features, implement support first (parser/compiler/vm), then restore upstream text.
+- Keep copied upstream files byte-for-byte identical whenever feasible.
+- If a spec uses unsupported syntax/features and you cannot implement support immediately, preserve the upstream body and add the smallest possible `CORAFIXME` wrapper around failing examples.
 - For compatibility shims in `spec/spec_helper.rb`, keep names and semantics close to mspec expectations.
+- Avoid broad file-level disables when a narrow per-example `CORAFIXME` can isolate the gap.
 
 ## Completion Criteria
 
