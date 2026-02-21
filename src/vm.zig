@@ -2458,6 +2458,31 @@ pub const VM = struct {
                 }
             },
 
+            .YIELD_SPLAT => {
+                const args_array_val = self.pop();
+                if (args_array_val.data != .array) {
+                    const exc = try self.createException(self.type_error_class, "splat argument is not an Array");
+                    self.pending_exception = exc;
+                    return error.Unwind;
+                }
+
+                const block = frame.block orelse {
+                    const exc = try self.createException(
+                        self.argument_error_class,
+                        "no block given",
+                    );
+                    self.pending_exception = exc;
+                    return error.Unwind;
+                };
+
+                const yield_result = try self.yieldToBlock(block, args_array_val.data.array.elements.items);
+                try self.push(yield_result.value);
+
+                if (yield_result.break_occurred) {
+                    try self.popFrame();
+                }
+            },
+
             .PUSH_LAMBDA => {
                 const chunk_id = self.readU16();
                 const lambda_chunk = self.program.method_chunks.get(chunk_id) orelse unreachable;

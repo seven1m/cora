@@ -471,16 +471,46 @@ pub const Compiler = struct {
                 var argc: u8 = 0;
                 if (yield_node.arguments) |args_ptr| {
                     const args = @as(*prism.ArgumentsNode, @ptrCast(args_ptr));
+                    var has_splat = false;
                     var i: usize = 0;
                     while (i < args.arguments.size) : (i += 1) {
-                        const arg = args.arguments.nodes[i];
-                        const arg_node = try self.parser.asNode(arg);
-                        try self.compileNode(arg_node, line);
-                        argc += 1;
+                        const arg_node = try self.parser.asNode(args.arguments.nodes[i]);
+                        if (arg_node == .splat) {
+                            has_splat = true;
+                            break;
+                        }
                     }
+
+                    if (!has_splat) {
+                        i = 0;
+                        while (i < args.arguments.size) : (i += 1) {
+                            const arg = args.arguments.nodes[i];
+                            const arg_node = try self.parser.asNode(arg);
+                            try self.compileNode(arg_node, line);
+                            argc += 1;
+                        }
+                        try self.current_chunk.emitOpU8(.YIELD, argc, line);
+                    } else {
+                        try self.current_chunk.emitOpU16(.PUSH_ARRAY, 0, line);
+                        i = 0;
+                        while (i < args.arguments.size) : (i += 1) {
+                            const arg_node = try self.parser.asNode(args.arguments.nodes[i]);
+                            if (arg_node == .splat) {
+                                const expr_ptr = arg_node.splat.expression orelse return error.UnsupportedNode;
+                                const expr = try self.parser.asNode(@ptrCast(expr_ptr));
+                                try self.compileNode(expr, line);
+                                try self.current_chunk.emitOp(.ARRAY_CONCAT_ARRAY, line);
+                            } else {
+                                try self.compileNode(arg_node, line);
+                                try self.current_chunk.emitOp(.ARRAY_APPEND, line);
+                            }
+                        }
+                        try self.current_chunk.emitOp(.YIELD_SPLAT, line);
+                    }
+                } else {
+                    // Emit YIELD with argument count
+                    try self.current_chunk.emitOpU8(.YIELD, argc, line);
                 }
-                // Emit YIELD with argument count
-                try self.current_chunk.emitOpU8(.YIELD, argc, line);
             },
 
             .block => |block_node| {

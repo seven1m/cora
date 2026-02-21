@@ -60,6 +60,19 @@ test "yield arity: block is lenient, lambda is strict" {
     try std.testing.expect(std.mem.indexOf(u8, lambda_result.stderr, "ArgumentError") != null);
 }
 
+test "yield splat expands array arguments" {
+    const result = try evalCode(
+        \\def emit
+        \\  yield *[1, 2, 3]
+        \\end
+        \\emit { |a, b, c| [a, b, c] }
+    );
+    try std.testing.expect(result.data == .array);
+    try std.testing.expectEqual(@as(i64, 1), result.data.array.elements.items[0].data.integer);
+    try std.testing.expectEqual(@as(i64, 2), result.data.array.elements.items[1].data.integer);
+    try std.testing.expectEqual(@as(i64, 3), result.data.array.elements.items[2].data.integer);
+}
+
 test "Block with multiple parameters" {
     const result = try evalCode(
         \\def add_them

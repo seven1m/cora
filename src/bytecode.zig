@@ -61,6 +61,7 @@ pub const OpCode = enum(u8) {
 
     // Blocks
     YIELD, // Operand: u8 (argc)
+    YIELD_SPLAT, // No operands - pops args array and yields its elements
     PUSH_LAMBDA, // Operand: u16 (chunk_id)
 
     // Constant path resolution
@@ -167,6 +168,7 @@ pub fn opcodeName(op: OpCode) []const u8 {
         .HALT => "HALT",
         .DEF_SINGLETON_METHOD => "DEF_SINGLETON_METHOD",
         .YIELD => "YIELD",
+        .YIELD_SPLAT => "YIELD_SPLAT",
         .PUSH_LAMBDA => "PUSH_LAMBDA",
         .GET_CONST_PATH => "GET_CONST_PATH",
         .RAISE => "RAISE",
@@ -247,7 +249,7 @@ pub const Instruction = struct {
             .DUP_N => {
                 try writer.print(" {d}", .{self.a});
             },
-            .PUSH_NIL, .PUSH_TRUE, .PUSH_FALSE, .PUSH_SELF, .POP, .DUP, .SWAP, .CASE_MATCH, .HALT, .TRY_END, .CATCH_END, .ENSURE_START, .ENSURE_END, .RETRY, .BREAK, .MULTI_ASSIGN_PREPARE, .ARRAY_APPEND, .ARRAY_CONCAT_ARRAY => {},
+            .PUSH_NIL, .PUSH_TRUE, .PUSH_FALSE, .PUSH_SELF, .POP, .DUP, .SWAP, .CASE_MATCH, .HALT, .TRY_END, .CATCH_END, .ENSURE_START, .ENSURE_END, .RETRY, .BREAK, .MULTI_ASSIGN_PREPARE, .ARRAY_APPEND, .ARRAY_CONCAT_ARRAY, .YIELD_SPLAT => {},
             else => {},
         }
     }
