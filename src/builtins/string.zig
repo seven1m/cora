@@ -118,6 +118,9 @@ pub fn register(vm: *VM) !void {
     const string_to_sym_sym = try vm.intern("to_sym");
     try vm.string_class.module.methods.put(string_to_sym_sym, .{ .method = .{ .builtin = &builtinStringToSym } });
 
+    const string_intern_sym = try vm.intern("intern");
+    try vm.string_class.module.methods.put(string_intern_sym, .{ .method = .{ .builtin = &builtinStringToSym } });
+
     const to_s_sym = try vm.intern("to_s");
     try vm.string_class.module.methods.put(to_s_sym, .{ .method = .{ .builtin = &builtinStringToS } });
 
