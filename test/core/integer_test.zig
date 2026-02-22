@@ -232,3 +232,65 @@ test "Integer division/modulo overflow promote" {
     try std.testing.expect(result.data == .integer);
     try std.testing.expectEqual(@as(i64, 0), result.data.integer);
 }
+
+test "Integer math dispatches redefined +" {
+    const result = try evalCode(
+        \\1 + 2
+        \\class Integer
+        \\  def +(other)
+        \\    99
+        \\  end
+        \\end
+        \\1 + 2
+    );
+    try std.testing.expect(result.data == .integer);
+    try std.testing.expectEqual(@as(i64, 99), result.data.integer);
+}
+
+test "Integer math dispatches prepended +" {
+    const result = try evalCode(
+        \\module IntegerPlusOverride
+        \\  def +(other)
+        \\    123
+        \\  end
+        \\end
+        \\1 + 2
+        \\class Integer
+        \\  prepend IntegerPlusOverride
+        \\end
+        \\1 + 2
+    );
+    try std.testing.expect(result.data == .integer);
+    try std.testing.expectEqual(@as(i64, 123), result.data.integer);
+}
+
+test "Integer == dispatches redefined ==" {
+    const result = try evalCode(
+        \\1 == 1
+        \\class Integer
+        \\  def ==(other)
+        \\    false
+        \\  end
+        \\end
+        \\1 == 1
+    );
+    try std.testing.expect(result.data == .boolean);
+    try std.testing.expectEqual(false, result.data.boolean);
+}
+
+test "Integer == dispatches prepended ==" {
+    const result = try evalCode(
+        \\module IntegerEqOverride
+        \\  def ==(other)
+        \\    :eq_override
+        \\  end
+        \\end
+        \\1 == 1
+        \\class Integer
+        \\  prepend IntegerEqOverride
+        \\end
+        \\1 == 1
+    );
+    try std.testing.expect(result.data == .symbol);
+    try std.testing.expectEqualSlices(u8, "eq_override", result.data.symbol.name);
+}

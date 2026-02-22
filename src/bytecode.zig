@@ -40,6 +40,13 @@ pub const OpCode = enum(u8) {
     CALL_KW, // Operands: u16 method_idx, u8 argc, u8 kwargc, u16 kw_metadata_idx, u16 block_chunk_id
     RETURN, // Operand: u8 (0=implicit, 1=explicit)
 
+    // Optimized ops for integer math
+    OPT_PLUS, // No operands
+    OPT_MINUS, // No operands
+    OPT_MULT, // No operands
+    OPT_DIV, // No operands
+    OPT_EQ, // No operands
+
     // OOP
     DEF_MODULE, // Operands: u16 (name index), u16 (body chunk id)
     DEF_CLASS, // Operands: u16 (name index), u16 (body chunk id)
@@ -126,6 +133,11 @@ pub fn instructionLength(op: OpCode) usize {
         .DUP,
         .SWAP,
         .CASE_MATCH,
+        .OPT_PLUS,
+        .OPT_MINUS,
+        .OPT_MULT,
+        .OPT_DIV,
+        .OPT_EQ,
         .ARRAY_APPEND,
         .ARRAY_CONCAT_ARRAY,
         .HALT,
@@ -229,6 +241,11 @@ pub fn opcodeName(op: OpCode) []const u8 {
         .CASE_MATCH => "CASE_MATCH",
         .CALL => "CALL",
         .CALL_KW => "CALL_KW",
+        .OPT_PLUS => "OPT_PLUS",
+        .OPT_MINUS => "OPT_MINUS",
+        .OPT_MULT => "OPT_MULT",
+        .OPT_DIV => "OPT_DIV",
+        .OPT_EQ => "OPT_EQ",
         .RETURN => "RETURN",
         .DEF_MODULE => "DEF_MODULE",
         .DEF_CLASS => "DEF_CLASS",
@@ -324,7 +341,7 @@ pub const Instruction = struct {
             .DUP_N => {
                 try writer.print(" {d}", .{self.a});
             },
-            .PUSH_NIL, .PUSH_TRUE, .PUSH_FALSE, .PUSH_SELF, .POP, .DUP, .SWAP, .CASE_MATCH, .HALT, .TRY_END, .CATCH_END, .ENSURE_START, .ENSURE_END, .RETRY, .BREAK, .MULTI_ASSIGN_PREPARE, .ARRAY_APPEND, .ARRAY_CONCAT_ARRAY, .YIELD_SPLAT => {},
+            .PUSH_NIL, .PUSH_TRUE, .PUSH_FALSE, .PUSH_SELF, .POP, .DUP, .SWAP, .CASE_MATCH, .OPT_PLUS, .OPT_MINUS, .OPT_MULT, .OPT_DIV, .OPT_EQ, .HALT, .TRY_END, .CATCH_END, .ENSURE_START, .ENSURE_END, .RETRY, .BREAK, .MULTI_ASSIGN_PREPARE, .ARRAY_APPEND, .ARRAY_CONCAT_ARRAY, .YIELD_SPLAT => {},
             else => {},
         }
     }

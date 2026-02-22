@@ -24,6 +24,7 @@ const SymbolObject = value.SymbolObject;
 const MatchDataObject = value.MatchDataObject;
 const Chunk = chunk.Chunk;
 const CallSiteCache = chunk.CallSiteCache;
+const BigInt = std.math.big.int.Managed;
 
 extern "c" fn getenv(name: [*:0]const u8) ?[*:0]u8;
 extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
@@ -286,6 +287,7 @@ pub const VM = struct {
     env_object: ?Value = null,
     next_chunk_id: u16 = 1,
     method_state_version: u64 = 1,
+    integer_changed: bool = false,
 
     // Buffered writers for production
     stdout_buffer: [4096]u8 = undefined,
@@ -727,6 +729,7 @@ pub const VM = struct {
 
         // --- Stage 5: Register built-in methods ---
         builtins.registerAll(self) catch return error.Fatal;
+        self.integer_changed = false;
 
         // Initialize last process status global.
         try self.setGlobal("$?", Value.nil());
@@ -1370,6 +1373,85 @@ pub const VM = struct {
         return sym;
     }
 
+    fn addIntegerValues(self: *VM, lhs: Value, rhs: Value) VMError!Value {
+        if (lhs.data == .integer and rhs.data == .integer) {
+            if (std.math.add(i64, lhs.data.integer, rhs.data.integer)) |sum| {
+                return Value.integer(sum);
+            } else |_| {}
+        }
+
+        var a = try lhs.integerToManaged(self);
+        defer a.deinit();
+        var b = try rhs.integerToManaged(self);
+        defer b.deinit();
+        var out = BigInt.init(self.allocator) catch return error.Fatal;
+        defer out.deinit();
+        out.add(&a, &b) catch return error.Fatal;
+        return self.valueFromManagedInteger(&out);
+    }
+
+    fn subIntegerValues(self: *VM, lhs: Value, rhs: Value) VMError!Value {
+        if (lhs.data == .integer and rhs.data == .integer) {
+            if (std.math.sub(i64, lhs.data.integer, rhs.data.integer)) |diff| {
+                return Value.integer(diff);
+            } else |_| {}
+        }
+
+        var a = try lhs.integerToManaged(self);
+        defer a.deinit();
+        var b = try rhs.integerToManaged(self);
+        defer b.deinit();
+        var out = BigInt.init(self.allocator) catch return error.Fatal;
+        defer out.deinit();
+        out.sub(&a, &b) catch return error.Fatal;
+        return self.valueFromManagedInteger(&out);
+    }
+
+    fn mulIntegerValues(self: *VM, lhs: Value, rhs: Value) VMError!Value {
+        if (lhs.data == .integer and rhs.data == .integer) {
+            if (std.math.mul(i64, lhs.data.integer, rhs.data.integer)) |product| {
+                return Value.integer(product);
+            } else |_| {}
+        }
+
+        var a = try lhs.integerToManaged(self);
+        defer a.deinit();
+        var b = try rhs.integerToManaged(self);
+        defer b.deinit();
+        var out = BigInt.init(self.allocator) catch return error.Fatal;
+        defer out.deinit();
+        out.mul(&a, &b) catch return error.Fatal;
+        return self.valueFromManagedInteger(&out);
+    }
+
+    fn divFloorIntegerValues(self: *VM, lhs: Value, rhs: Value) VMError!Value {
+        const divisor_is_zero = switch (rhs.data) {
+            .integer => rhs.data.integer == 0,
+            .big_integer => rhs.data.big_integer.value.eqlZero(),
+            else => false,
+        };
+        if (divisor_is_zero) {
+            return self.raiseExceptionFmt(self.zero_division_error_class, "divided by 0", .{});
+        }
+
+        if (lhs.data == .integer and rhs.data == .integer) {
+            if (std.math.divFloor(i64, lhs.data.integer, rhs.data.integer)) |quot| {
+                return Value.integer(quot);
+            } else |_| {}
+        }
+
+        var a = try lhs.integerToManaged(self);
+        defer a.deinit();
+        var b = try rhs.integerToManaged(self);
+        defer b.deinit();
+        var quot = BigInt.init(self.allocator) catch return error.Fatal;
+        defer quot.deinit();
+        var rem = BigInt.init(self.allocator) catch return error.Fatal;
+        defer rem.deinit();
+        quot.divFloor(&rem, &a, &b) catch return error.Fatal;
+        return self.valueFromManagedInteger(&quot);
+    }
+
     fn push(self: *VM, val: Value) VMError!void {
         if (self.stack.items.len >= self.stack.capacity) {
             const exc = try self.createException(self.fiber_error_class, "fiber stack overflow");
@@ -1747,6 +1829,47 @@ pub const VM = struct {
         };
     }
 
+    const OptIntegerBinaryOp = enum {
+        plus,
+        minus,
+        mult,
+        div,
+        eq,
+    };
+
+    inline fn executeOptIntegerBinary(self: *VM, op: OptIntegerBinaryOp) VMError!void {
+        if (self.stack.items.len < 2) return error.Fatal;
+        const receiver = self.peek(1);
+        const arg = self.peek(0);
+
+        if (!self.integer_changed and receiver.data == .integer and arg.data == .integer) {
+            _ = self.pop();
+            _ = self.pop();
+            const fast_result = switch (op) {
+                .plus => try self.addIntegerValues(receiver, arg),
+                .minus => try self.subIntegerValues(receiver, arg),
+                .mult => try self.mulIntegerValues(receiver, arg),
+                .div => try self.divFloorIntegerValues(receiver, arg),
+                .eq => Value.boolean(receiver.data.integer == arg.data.integer),
+            };
+            try self.push(fast_result);
+            return;
+        }
+
+        var args = [_]Value{arg};
+        const method_name = switch (op) {
+            .plus => "+",
+            .minus => "-",
+            .mult => "*",
+            .div => "/",
+            .eq => "==",
+        };
+        const result = try self.callMethodByName(receiver, method_name, args[0..], null);
+        _ = self.pop();
+        _ = self.pop();
+        try self.push(result);
+    }
+
     pub fn executeInstruction(self: *VM) VMError!void {
         const frame = self.currentFrame();
         if (frame.ip >= frame.chunk.code.items.len)
@@ -2053,6 +2176,26 @@ pub const VM = struct {
                 var args = [_]Value{predicate};
                 const result = try self.callMethodByName(condition, "===", args[0..], null);
                 try self.push(result);
+            },
+
+            .OPT_PLUS => {
+                try self.executeOptIntegerBinary(.plus);
+            },
+
+            .OPT_MINUS => {
+                try self.executeOptIntegerBinary(.minus);
+            },
+
+            .OPT_MULT => {
+                try self.executeOptIntegerBinary(.mult);
+            },
+
+            .OPT_DIV => {
+                try self.executeOptIntegerBinary(.div);
+            },
+
+            .OPT_EQ => {
+                try self.executeOptIntegerBinary(.eq);
             },
 
             .CALL => {
@@ -2449,6 +2592,7 @@ pub const VM = struct {
                         .visibility = visibility,
                     };
                     methods.put(method_name_sym, entry) catch return error.Fatal;
+                    self.markIntegerChangedForReceiver(current_self);
                     self.bumpMethodStateVersion();
 
                     // module_function mode (set by Module#module_function with no args)
@@ -2458,6 +2602,7 @@ pub const VM = struct {
                         var singleton_entry = entry;
                         singleton_entry.visibility = .public;
                         singleton_class.module.methods.put(method_name_sym, singleton_entry) catch return error.Fatal;
+                        self.markIntegerChangedForReceiver(.{ .data = .{ .class = singleton_class } });
                         self.bumpMethodStateVersion();
                     }
                 } else {
@@ -2493,6 +2638,7 @@ pub const VM = struct {
                         .method = .{ .chunk = chunk_ptr },
                         .visibility = visibility,
                     }) catch return error.Fatal;
+                    self.markIntegerChangedForReceiver(receiver);
                     self.bumpMethodStateVersion();
                 } else {
                     return error.Fatal;
@@ -2726,6 +2872,7 @@ pub const VM = struct {
                 // Look up the old method
                 if (methods.get(old_name_sym)) |entry| {
                     methods.put(new_name_sym, entry) catch return error.Fatal;
+                    self.markIntegerChangedForReceiver(current_self);
                     self.bumpMethodStateVersion();
                 } else {
                     const msg = std.fmt.allocPrint(
@@ -4220,13 +4367,46 @@ pub const VM = struct {
         return self.newEnumerator(.{ .method = .{ .receiver = receiver, .method_name = method_name } }, method_args, size_proc);
     }
 
+    fn moduleAffectsInteger(self: *VM, module: *value.ModuleObject) bool {
+        if (module == &self.integer_class.module) return true;
+        for (self.integer_class.prepended_modules.items) |prepended| {
+            if (prepended == module) return true;
+        }
+        for (self.integer_class.included_modules.items) |included| {
+            if (included == module) return true;
+        }
+        return false;
+    }
+
+    pub fn markIntegerChangedForReceiver(self: *VM, receiver: Value) void {
+        switch (receiver.data) {
+            .class => |klass| {
+                if (klass == self.integer_class or self.moduleAffectsInteger(&klass.module)) {
+                    self.integer_changed = true;
+                }
+            },
+            .module => |module| {
+                if (self.moduleAffectsInteger(module)) {
+                    self.integer_changed = true;
+                }
+            },
+            else => {},
+        }
+    }
+
     pub fn includeModule(self: *VM, class: *value.ClassObject, module: *value.ModuleObject) VMError!void {
         class.included_modules.append(self.gc_allocator, module) catch return error.Fatal;
+        if (class == self.integer_class) {
+            self.integer_changed = true;
+        }
         self.bumpMethodStateVersion();
     }
 
     pub fn prependModule(self: *VM, class: *value.ClassObject, module: *value.ModuleObject) VMError!void {
         class.prepended_modules.append(self.gc_allocator, module) catch return error.Fatal;
+        if (class == self.integer_class) {
+            self.integer_changed = true;
+        }
         self.bumpMethodStateVersion();
     }
 

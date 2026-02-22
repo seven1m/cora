@@ -367,8 +367,23 @@ pub const Compiler = struct {
                 const method_name = try self.parser.getConstantName(call_node.name);
                 const method_idx = try self.current_chunk.addConstant(.{ .string = method_name });
                 const call_flags = bytecode.encodeCallFlags(receiver_style, compiled_args.args_array_mode);
+                var emitted_opt = false;
 
-                if (compiled_args.kwargc > 0) {
+                if (call_node.receiver != null and
+                    block_chunk_id == 0 and
+                    compiled_args.argc == 1 and
+                    compiled_args.kwargc == 0 and
+                    !compiled_args.args_array_mode)
+                {
+                    if (optIntegerMathOpcode(method_name)) |op| {
+                        try self.current_chunk.emitOp(op, line);
+                        emitted_opt = true;
+                    }
+                }
+
+                if (emitted_opt) {
+                    // Specialized opcode already emitted.
+                } else if (compiled_args.kwargc > 0) {
                     try self.current_chunk.emitCallKw(
                         @intCast(method_idx),
                         compiled_args.argc,
@@ -829,6 +844,15 @@ pub const Compiler = struct {
         kw_metadata_idx: ?u16 = null,
         args_array_mode: bool = false,
     };
+
+    fn optIntegerMathOpcode(method_name: []const u8) ?bytecode.OpCode {
+        if (std.mem.eql(u8, method_name, "+")) return .OPT_PLUS;
+        if (std.mem.eql(u8, method_name, "-")) return .OPT_MINUS;
+        if (std.mem.eql(u8, method_name, "*")) return .OPT_MULT;
+        if (std.mem.eql(u8, method_name, "/")) return .OPT_DIV;
+        if (std.mem.eql(u8, method_name, "==")) return .OPT_EQ;
+        return null;
+    }
 
     fn compileCallArguments(self: *Compiler, args_ptr: ?*prism.ArgumentsNode, line: u32) !CompiledCallArguments {
         var result: CompiledCallArguments = .{};
