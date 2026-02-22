@@ -270,7 +270,7 @@ pub const VM = struct {
     pending_exception: ?*value.ExceptionObject = null,
     retry_point: ?struct {
         frame_idx: usize,
-        ip: usize,
+        instr_idx: usize,
     } = null,
 
     // Block break state
@@ -766,7 +766,7 @@ pub const VM = struct {
         self.current_fiber = main_fiber_obj;
         self.restoreFiberState(main_fiber_obj);
         self.zio_main_context = undefined;
-        try self.prepareProgramCallSites();
+        try self.buildProgramCallsiteDescriptors();
         try self.captureMainGcStackBase();
     }
 
@@ -1164,16 +1164,6 @@ pub const VM = struct {
         return self.currentFrame().chunk;
     }
 
-    fn constantToValue(self: *VM, constant: chunk.Constant) VMError!Value {
-        return switch (constant) {
-            .integer => |i| Value.integer(i),
-            .big_integer_decimal => |digits| try self.newBigIntegerFromDecimalString(digits),
-            .float => |f| Value.float(f),
-            .string => |s| try self.newString(s, false),
-            .symbol => |s| Value{ .data = .{ .symbol = s } },
-        };
-    }
-
     fn callMethodSymbolFromConstant(self: *VM, ch: *Chunk, method_idx: u16) VMError!*SymbolObject {
         if (method_idx >= ch.constants.items.len) return error.Fatal;
         return switch (ch.constants.items[method_idx]) {
@@ -1187,84 +1177,72 @@ pub const VM = struct {
         };
     }
 
-    fn resolveCallMethodSymbolAndPatch(
-        self: *VM,
-        frame: *CallFrame,
-        instruction_start_ip: usize,
-        method_idx: u16,
-    ) VMError!*SymbolObject {
-        _ = instruction_start_ip;
-        return self.callMethodSymbolFromConstant(frame.chunk, method_idx);
-    }
-
-    fn ensureCallSiteArrays(ch: *Chunk) VMError!void {
-        if (ch.callsite_caches.items.len < ch.code.items.len) {
-            const old_len = ch.callsite_caches.items.len;
-            ch.callsite_caches.ensureTotalCapacity(ch.allocator, ch.code.items.len) catch return error.Fatal;
-            ch.callsite_caches.items.len = ch.code.items.len;
-            for (old_len..ch.callsite_caches.items.len) |idx| {
-                ch.callsite_caches.items[idx] = null;
+    fn ensureCallsiteArraysByInstr(ch: *Chunk) VMError!void {
+        const instr_len = ch.exec_code.items.len;
+        if (ch.callsite_caches_by_instr.items.len < instr_len) {
+            const old_len = ch.callsite_caches_by_instr.items.len;
+            ch.callsite_caches_by_instr.ensureTotalCapacity(ch.allocator, instr_len) catch return error.Fatal;
+            ch.callsite_caches_by_instr.items.len = instr_len;
+            for (old_len..ch.callsite_caches_by_instr.items.len) |idx| {
+                ch.callsite_caches_by_instr.items[idx] = null;
             }
         }
 
-        if (ch.callsite_descriptors.items.len < ch.code.items.len) {
-            const old_len = ch.callsite_descriptors.items.len;
-            ch.callsite_descriptors.ensureTotalCapacity(ch.allocator, ch.code.items.len) catch return error.Fatal;
-            ch.callsite_descriptors.items.len = ch.code.items.len;
-            for (old_len..ch.callsite_descriptors.items.len) |idx| {
-                ch.callsite_descriptors.items[idx] = null;
+        if (ch.callsite_descriptors_by_instr.items.len < instr_len) {
+            const old_len = ch.callsite_descriptors_by_instr.items.len;
+            ch.callsite_descriptors_by_instr.ensureTotalCapacity(ch.allocator, instr_len) catch return error.Fatal;
+            ch.callsite_descriptors_by_instr.items.len = instr_len;
+            for (old_len..ch.callsite_descriptors_by_instr.items.len) |idx| {
+                ch.callsite_descriptors_by_instr.items[idx] = null;
             }
         }
     }
 
-    fn decodeCallSiteDescriptor(ch: *Chunk, instruction_start_ip: usize) VMError!chunk.CallSiteDescriptor {
-        const op = @as(bytecode.OpCode, @enumFromInt(ch.code.items[instruction_start_ip]));
-        return switch (op) {
+    fn decodeCallSiteDescriptorFromInstr(instr: chunk.ExecInstr) VMError!chunk.CallSiteDescriptor {
+        const operands = instr.operands[0..instr.operand_len];
+        return switch (instr.op) {
             .CALL => .{
                 .kind = .call,
-                .method_idx = bytecode.readU16(ch.code.items, instruction_start_ip + 1),
-                .argc = bytecode.readU8(ch.code.items, instruction_start_ip + 3),
-                .call_flags = bytecode.readU8(ch.code.items, instruction_start_ip + 4),
-                .block_chunk_id = bytecode.readU16(ch.code.items, instruction_start_ip + 5),
+                .method_idx = readU16At(operands, 0),
+                .argc = readU8At(operands, 2),
+                .call_flags = readU8At(operands, 3),
+                .block_chunk_id = readU16At(operands, 4),
             },
             .CALL_KW => .{
                 .kind = .call_kw,
-                .method_idx = bytecode.readU16(ch.code.items, instruction_start_ip + 1),
-                .argc = bytecode.readU8(ch.code.items, instruction_start_ip + 3),
-                .kwargc = bytecode.readU8(ch.code.items, instruction_start_ip + 4),
-                .call_flags = bytecode.readU8(ch.code.items, instruction_start_ip + 5),
-                .kw_metadata_idx = bytecode.readU16(ch.code.items, instruction_start_ip + 6),
-                .block_chunk_id = bytecode.readU16(ch.code.items, instruction_start_ip + 8),
+                .method_idx = readU16At(operands, 0),
+                .argc = readU8At(operands, 2),
+                .kwargc = readU8At(operands, 3),
+                .call_flags = readU8At(operands, 4),
+                .kw_metadata_idx = readU16At(operands, 5),
+                .block_chunk_id = readU16At(operands, 7),
             },
             else => error.Fatal,
         };
     }
 
-    fn prepareChunkCallSites(self: *VM, ch: *Chunk) VMError!void {
-        if (ch.code.items.len == 0) return;
-        try ensureCallSiteArrays(ch);
+    fn buildChunkCallsiteDescriptors(self: *VM, ch: *Chunk) VMError!void {
+        if (ch.exec_code.items.len == 0) return;
+        try ensureCallsiteArraysByInstr(ch);
 
-        var ip: usize = 0;
-        while (ip < ch.code.items.len) {
-            const op = @as(bytecode.OpCode, @enumFromInt(ch.code.items[ip]));
-            switch (op) {
+        for (ch.exec_code.items, 0..) |instr, instr_idx| {
+            switch (instr.op) {
                 .CALL, .CALL_KW => {
-                    var desc = try decodeCallSiteDescriptor(ch, ip);
+                    var desc = try decodeCallSiteDescriptorFromInstr(instr);
                     desc.method_sym = try self.callMethodSymbolFromConstant(ch, desc.method_idx);
-                    ch.callsite_descriptors.items[ip] = desc;
+                    ch.callsite_descriptors_by_instr.items[instr_idx] = desc;
                 },
                 else => {},
             }
-            ip += bytecode.instructionLength(op);
         }
     }
 
-    fn prepareProgramCallSites(self: *VM) VMError!void {
-        try self.prepareChunkCallSites(&self.program.main_chunk);
+    fn buildProgramCallsiteDescriptors(self: *VM) VMError!void {
+        try self.buildChunkCallsiteDescriptors(&self.program.main_chunk);
 
         var chunk_iter = self.program.child_chunks.valueIterator();
         while (chunk_iter.next()) |chunk_ptr| {
-            try self.prepareChunkCallSites(chunk_ptr.*);
+            try self.buildChunkCallsiteDescriptors(chunk_ptr.*);
         }
     }
 
@@ -1274,11 +1252,11 @@ pub const VM = struct {
             self.method_state_version = 1;
             var chunk_iter = self.program.child_chunks.valueIterator();
             while (chunk_iter.next()) |chunk_ptr| {
-                for (chunk_ptr.*.callsite_caches.items) |*entry| {
+                for (chunk_ptr.*.callsite_caches_by_instr.items) |*entry| {
                     entry.* = null;
                 }
             }
-            for (self.program.main_chunk.callsite_caches.items) |*entry| {
+            for (self.program.main_chunk.callsite_caches_by_instr.items) |*entry| {
                 entry.* = null;
             }
         }
@@ -1296,21 +1274,21 @@ pub const VM = struct {
     fn resolveMethodForCallSite(
         self: *VM,
         frame: *CallFrame,
-        instruction_start_ip: usize,
+        callsite_instr_idx: usize,
         receiver: Value,
         method_name_sym: *SymbolObject,
     ) VMError!?ResolvedMethod {
-        if (frame.chunk.callsite_caches.items.len < frame.chunk.code.items.len) {
-            const old_len = frame.chunk.callsite_caches.items.len;
-            frame.chunk.callsite_caches.ensureTotalCapacity(frame.chunk.allocator, frame.chunk.code.items.len) catch return error.Fatal;
-            frame.chunk.callsite_caches.items.len = frame.chunk.code.items.len;
-            for (old_len..frame.chunk.callsite_caches.items.len) |idx| {
-                frame.chunk.callsite_caches.items[idx] = null;
+        if (frame.chunk.callsite_caches_by_instr.items.len < frame.chunk.exec_code.items.len) {
+            const old_len = frame.chunk.callsite_caches_by_instr.items.len;
+            frame.chunk.callsite_caches_by_instr.ensureTotalCapacity(frame.chunk.allocator, frame.chunk.exec_code.items.len) catch return error.Fatal;
+            frame.chunk.callsite_caches_by_instr.items.len = frame.chunk.exec_code.items.len;
+            for (old_len..frame.chunk.callsite_caches_by_instr.items.len) |idx| {
+                frame.chunk.callsite_caches_by_instr.items[idx] = null;
             }
         }
 
         const dispatch_class = self.getDispatchClass(receiver);
-        const cache_slot = &frame.chunk.callsite_caches.items[instruction_start_ip];
+        const cache_slot = &frame.chunk.callsite_caches_by_instr.items[callsite_instr_idx];
         if (cache_slot.*) |cached| {
             if (cached.receiver_class == dispatch_class and
                 cached.method_name == method_name_sym and
@@ -1340,35 +1318,34 @@ pub const VM = struct {
     fn getOrDecodeCallSiteDescriptor(
         self: *VM,
         ch: *Chunk,
-        instruction_start_ip: usize,
+        callsite_instr_idx: usize,
         expected_kind: chunk.CallSiteKind,
     ) VMError!*chunk.CallSiteDescriptor {
-        if (instruction_start_ip >= ch.code.items.len) return error.Fatal;
-        try ensureCallSiteArrays(ch);
+        if (callsite_instr_idx >= ch.exec_code.items.len) return error.Fatal;
+        try ensureCallsiteArraysByInstr(ch);
 
-        if (ch.callsite_descriptors.items[instruction_start_ip]) |*desc| {
+        if (ch.callsite_descriptors_by_instr.items[callsite_instr_idx]) |*desc| {
             if (desc.kind != expected_kind) return error.Fatal;
             return desc;
         }
 
-        var desc = try decodeCallSiteDescriptor(ch, instruction_start_ip);
+        var desc = try decodeCallSiteDescriptorFromInstr(ch.exec_code.items[callsite_instr_idx]);
         desc.method_sym = try self.callMethodSymbolFromConstant(ch, desc.method_idx);
 
         if (desc.kind != expected_kind) return error.Fatal;
-        ch.callsite_descriptors.items[instruction_start_ip] = desc;
-        return &ch.callsite_descriptors.items[instruction_start_ip].?;
+        ch.callsite_descriptors_by_instr.items[callsite_instr_idx] = desc;
+        return &ch.callsite_descriptors_by_instr.items[callsite_instr_idx].?;
     }
 
     fn resolveCallMethodSymbolFromDescriptor(
         self: *VM,
-        frame: *CallFrame,
-        instruction_start_ip: usize,
+        ch: *Chunk,
         desc: *chunk.CallSiteDescriptor,
     ) VMError!*SymbolObject {
         if (desc.method_sym) |sym| {
             return sym;
         }
-        const sym = try self.resolveCallMethodSymbolAndPatch(frame, instruction_start_ip, desc.method_idx);
+        const sym = try self.callMethodSymbolFromConstant(ch, desc.method_idx);
         desc.method_sym = sym;
         return sym;
     }
@@ -1469,25 +1446,36 @@ pub const VM = struct {
         return self.stack.items[self.stack.items.len - 1 - distance];
     }
 
-    fn readByte(self: *VM) u8 {
-        const frame = self.currentFrame();
-        const byte = bytecode.readU8(frame.chunk.code.items, frame.ip);
-        frame.ip += 1;
+    fn readByteFrom(frame: *CallFrame, operands: []const u8, operand_cursor: *usize) u8 {
+        _ = frame;
+        const byte = operands[operand_cursor.*];
+        operand_cursor.* += 1;
         return byte;
     }
 
-    fn readU16(self: *VM) u16 {
-        const frame = self.currentFrame();
-        const val = bytecode.readU16(frame.chunk.code.items, frame.ip);
-        frame.ip += 2;
-        return val;
+    fn readU16From(frame: *CallFrame, operands: []const u8, operand_cursor: *usize) u16 {
+        _ = frame;
+        const lo: u16 = operands[operand_cursor.*];
+        const hi: u16 = operands[operand_cursor.* + 1];
+        operand_cursor.* += 2;
+        return lo | (hi << 8);
     }
 
-    fn readI16(self: *VM) i16 {
-        const frame = self.currentFrame();
-        const val = bytecode.readI16(frame.chunk.code.items, frame.ip);
-        frame.ip += 2;
-        return val;
+    fn readI16From(frame: *CallFrame, operands: []const u8, operand_cursor: *usize) i16 {
+        return @bitCast(readU16From(frame, operands, operand_cursor));
+    }
+
+    inline fn readU8At(operands: []const u8, index: usize) u8 {
+        return operands[index];
+    }
+
+    inline fn readU16At(operands: []const u8, index: usize) u16 {
+        return @as(u16, operands[index]) | (@as(u16, operands[index + 1]) << 8);
+    }
+
+    fn setFrameIp(frame: *CallFrame, ip: usize) VMError!void {
+        if (ip >= frame.chunk.exec_code.items.len) return error.Fatal;
+        frame.ip = ip;
     }
 
     /// Resolve a block from its chunk ID. Handles three cases:
@@ -1872,10 +1860,15 @@ pub const VM = struct {
 
     pub fn executeInstruction(self: *VM) VMError!void {
         const frame = self.currentFrame();
-        if (frame.ip >= frame.chunk.code.items.len)
-            @panic("Something went wrong");
+        if (frame.ip >= frame.chunk.exec_code.items.len) return error.Fatal;
 
-        const op = @as(bytecode.OpCode, @enumFromInt(self.readByte()));
+        const instr_idx = frame.ip;
+        const instr = frame.chunk.exec_code.items[instr_idx];
+        frame.ip = instr_idx + 1;
+        const operands = instr.operands[0..instr.operand_len];
+        var operand_cursor: usize = 0;
+        const op = instr.op;
+        const constants = frame.chunk.constants.items;
 
         switch (op) {
             .PUSH_NIL => {
@@ -1891,15 +1884,21 @@ pub const VM = struct {
             },
 
             .PUSH_CONST => {
-                const idx = self.readU16();
-                const constant = self.currentChunk().constants.items[idx];
-                const val = try self.constantToValue(constant);
+                const idx = readU16From(frame, operands, &operand_cursor);
+                const constant = constants[idx];
+                const val = switch (constant) {
+                    .integer => |i| Value.integer(i),
+                    .big_integer_decimal => |digits| try self.newBigIntegerFromDecimalString(digits),
+                    .float => |f| Value.float(f),
+                    .string => |s| try self.newString(s, false),
+                    .symbol => |s| Value{ .data = .{ .symbol = s } },
+                };
                 try self.push(val);
             },
 
             .PUSH_SYMBOL => {
-                const idx = self.readU16();
-                const constant = self.currentChunk().constants.items[idx];
+                const idx = readU16From(frame, operands, &operand_cursor);
+                const constant = constants[idx];
                 switch (constant) {
                     .string => |name| try self.push(Value{ .data = .{ .symbol = (try self.intern(name)) } }),
                     .symbol => |sym| try self.push(Value{ .data = .{ .symbol = sym } }),
@@ -1908,36 +1907,36 @@ pub const VM = struct {
             },
 
             .GET_LOCAL => {
-                const local_idx = self.readByte();
+                const local_idx = readByteFrom(frame, operands, &operand_cursor);
                 const val = getVariableAtDepth(frame.ep, 0, local_idx) orelse Value.nil();
                 try self.push(val);
             },
 
             .SET_LOCAL => {
-                const local_idx = self.readByte();
+                const local_idx = readByteFrom(frame, operands, &operand_cursor);
                 const val = self.pop();
                 try setVariableAtDepth(frame.ep, 0, local_idx, val);
                 try self.push(val);
             },
 
             .GET_LOCAL_DEEP => {
-                const local_idx = self.readByte();
-                const depth = self.readByte();
+                const local_idx = readByteFrom(frame, operands, &operand_cursor);
+                const depth = readByteFrom(frame, operands, &operand_cursor);
                 const val = getVariableAtDepth(frame.ep, depth, local_idx) orelse Value.nil();
                 try self.push(val);
             },
 
             .SET_LOCAL_DEEP => {
-                const local_idx = self.readByte();
-                const depth = self.readByte();
+                const local_idx = readByteFrom(frame, operands, &operand_cursor);
+                const depth = readByteFrom(frame, operands, &operand_cursor);
                 const val = self.pop();
                 try setVariableAtDepth(frame.ep, depth, local_idx, val);
                 try self.push(val);
             },
 
             .GET_GLOBAL => {
-                const name_idx = self.readU16();
-                const name_val = self.currentChunk().constants.items[name_idx];
+                const name_idx = readU16From(frame, operands, &operand_cursor);
+                const name_val = constants[name_idx];
                 const var_name = name_val.string;
 
                 const global_val = self.globals.get(var_name) orelse Value.nil();
@@ -1945,21 +1944,21 @@ pub const VM = struct {
             },
 
             .GET_BACKREF => {
-                const capture_index = self.readU16();
+                const capture_index = readU16From(frame, operands, &operand_cursor);
                 try self.push(self.getBackrefCapture(capture_index));
             },
 
             .SET_GLOBAL => {
-                const name_idx = self.readU16();
-                const name_val = self.currentChunk().constants.items[name_idx];
+                const name_idx = readU16From(frame, operands, &operand_cursor);
+                const name_val = constants[name_idx];
                 const var_name = name_val.string;
                 const global_val = self.peek(0);
                 try self.setGlobal(var_name, global_val);
             },
 
             .GET_CVAR => {
-                const name_idx = self.readU16();
-                const name_val = self.currentChunk().constants.items[name_idx];
+                const name_idx = readU16From(frame, operands, &operand_cursor);
+                const name_val = constants[name_idx];
                 const var_name = name_val.string;
                 const name_sym = try self.intern(var_name);
 
@@ -1979,8 +1978,8 @@ pub const VM = struct {
             },
 
             .GET_CVAR_OR_NIL => {
-                const name_idx = self.readU16();
-                const name_val = self.currentChunk().constants.items[name_idx];
+                const name_idx = readU16From(frame, operands, &operand_cursor);
+                const name_val = constants[name_idx];
                 const var_name = name_val.string;
                 const name_sym = try self.intern(var_name);
 
@@ -1993,8 +1992,8 @@ pub const VM = struct {
             },
 
             .SET_CVAR => {
-                const name_idx = self.readU16();
-                const name_val = self.currentChunk().constants.items[name_idx];
+                const name_idx = readU16From(frame, operands, &operand_cursor);
+                const name_val = constants[name_idx];
                 const var_name = name_val.string;
                 const name_sym = try self.intern(var_name);
                 const class_var_val = self.peek(0);
@@ -2004,8 +2003,8 @@ pub const VM = struct {
             },
 
             .GET_IVAR => {
-                const name_idx = self.readU16();
-                const name_val = self.currentChunk().constants.items[name_idx];
+                const name_idx = readU16From(frame, operands, &operand_cursor);
+                const name_val = constants[name_idx];
                 const var_name = name_val.string;
                 const self_val = frame.self_value;
 
@@ -2014,8 +2013,8 @@ pub const VM = struct {
             },
 
             .SET_IVAR => {
-                const name_idx = self.readU16();
-                const name_val = self.currentChunk().constants.items[name_idx];
+                const name_idx = readU16From(frame, operands, &operand_cursor);
+                const name_val = constants[name_idx];
                 const var_name = name_val.string;
                 const ivar_val = self.peek(0);
                 const self_val = frame.self_value;
@@ -2024,8 +2023,8 @@ pub const VM = struct {
             },
 
             .GET_CONST => {
-                const idx = self.readU16();
-                const constant = self.currentChunk().constants.items[idx];
+                const idx = readU16From(frame, operands, &operand_cursor);
+                const constant = constants[idx];
                 const name_sym = try self.intern(constant.string);
 
                 // Walk lexical scope chain first
@@ -2052,8 +2051,8 @@ pub const VM = struct {
             },
 
             .GET_CONST_OR_NIL => {
-                const idx = self.readU16();
-                const constant = self.currentChunk().constants.items[idx];
+                const idx = readU16From(frame, operands, &operand_cursor);
+                const constant = constants[idx];
                 const name_sym = try self.intern(constant.string);
 
                 if (frame.ep.lexical_scope) |scope| {
@@ -2071,9 +2070,9 @@ pub const VM = struct {
             },
 
             .SET_CONST => {
-                const idx = self.readU16();
+                const idx = readU16From(frame, operands, &operand_cursor);
                 const val = self.pop();
-                const constant = self.currentChunk().constants.items[idx];
+                const constant = constants[idx];
                 const name_sym = try self.intern(constant.string);
 
                 // Set in current lexical scope's module (or Object if no scope)
@@ -2086,8 +2085,8 @@ pub const VM = struct {
             },
 
             .GET_CONST_PATH => {
-                const idx = self.readU16();
-                const constant = self.currentChunk().constants.items[idx];
+                const idx = readU16From(frame, operands, &operand_cursor);
+                const constant = constants[idx];
                 const parent_val = self.pop();
                 const name_sym = try self.intern(constant.string);
 
@@ -2115,25 +2114,25 @@ pub const VM = struct {
             },
 
             .JUMP => {
-                const offset = self.readI16();
-                frame.ip = @intCast(@as(i32, @intCast(frame.ip)) + offset);
+                const offset = readI16From(frame, operands, &operand_cursor);
+                try setFrameIp(frame, @intCast(@as(i32, @intCast(frame.ip)) + offset));
             },
 
             .JUMP_IF_FALSE => {
-                const offset = self.readI16();
+                const offset = readI16From(frame, operands, &operand_cursor);
                 const cond = self.pop();
 
                 if (!cond.is_truthy()) {
-                    frame.ip = @intCast(@as(i32, @intCast(frame.ip)) + offset);
+                    try setFrameIp(frame, @intCast(@as(i32, @intCast(frame.ip)) + offset));
                 }
             },
 
             .JUMP_IF_TRUE => {
-                const offset = self.readI16();
+                const offset = readI16From(frame, operands, &operand_cursor);
                 const cond = self.pop();
 
                 if (cond.is_truthy()) {
-                    frame.ip = @intCast(@as(i32, @intCast(frame.ip)) + offset);
+                    try setFrameIp(frame, @intCast(@as(i32, @intCast(frame.ip)) + offset));
                 }
             },
 
@@ -2147,7 +2146,7 @@ pub const VM = struct {
             },
 
             .DUP_N => {
-                const count = self.readByte();
+                const count = readByteFrom(frame, operands, &operand_cursor);
                 if (count > 0) {
                     if (self.stack.items.len < count) {
                         return error.Fatal;
@@ -2199,17 +2198,16 @@ pub const VM = struct {
             },
 
             .CALL => {
-                const instruction_start_ip = frame.ip - 1;
-                const call_desc = if (instruction_start_ip < frame.chunk.callsite_descriptors.items.len and frame.chunk.callsite_descriptors.items[instruction_start_ip] != null)
-                    &frame.chunk.callsite_descriptors.items[instruction_start_ip].?
+                const callsite_instr_idx = frame.ip - 1;
+                const call_desc = if (callsite_instr_idx < frame.chunk.callsite_descriptors_by_instr.items.len and frame.chunk.callsite_descriptors_by_instr.items[callsite_instr_idx] != null)
+                    &frame.chunk.callsite_descriptors_by_instr.items[callsite_instr_idx].?
                 else
-                    try self.getOrDecodeCallSiteDescriptor(frame.chunk, instruction_start_ip, .call);
-                frame.ip = instruction_start_ip + 7;
+                    try self.getOrDecodeCallSiteDescriptor(frame.chunk, callsite_instr_idx, .call);
                 const argc = call_desc.argc;
                 const call_style: ReceiverCallStyle = bytecode.decodeReceiverCallStyle(call_desc.call_flags);
                 const args_array_mode = bytecode.argsArrayMode(call_desc.call_flags);
                 const block_chunk_id = call_desc.block_chunk_id;
-                const method_name_sym = call_desc.method_sym orelse try self.resolveCallMethodSymbolFromDescriptor(frame, instruction_start_ip, call_desc);
+                const method_name_sym = call_desc.method_sym orelse try self.resolveCallMethodSymbolFromDescriptor(frame.chunk, call_desc);
 
                 const block = if (block_chunk_id == 0)
                     null
@@ -2247,7 +2245,7 @@ pub const VM = struct {
                     // Stack-window fast path for chunk methods:
                     // bind arguments directly from caller stack and avoid temporary arg buffers.
                     if (call_style == .implicit_self) {
-                        const resolved = try self.resolveMethodForCallSite(frame, instruction_start_ip, receiver, method_name_sym);
+                        const resolved = try self.resolveMethodForCallSite(frame, callsite_instr_idx, receiver, method_name_sym);
                         if (resolved) |method| {
                             if (self.isMethodCallable(receiver, method, call_style)) {
                                 switch (method.entry.method) {
@@ -2281,23 +2279,22 @@ pub const VM = struct {
                     positional_argc = argc;
                 }
 
-                try self.callMethodHelperForExecuteInstruction(frame, instruction_start_ip, method_name_sym, call_style, receiver, &args, positional_argc, null, 0, null, block);
+                try self.callMethodHelperForExecuteInstruction(frame, callsite_instr_idx, method_name_sym, call_style, receiver, &args, positional_argc, null, 0, null, block);
             },
 
             .CALL_KW => {
-                const instruction_start_ip = frame.ip - 1;
-                const call_desc = if (instruction_start_ip < frame.chunk.callsite_descriptors.items.len and frame.chunk.callsite_descriptors.items[instruction_start_ip] != null)
-                    &frame.chunk.callsite_descriptors.items[instruction_start_ip].?
+                const callsite_instr_idx = frame.ip - 1;
+                const call_desc = if (callsite_instr_idx < frame.chunk.callsite_descriptors_by_instr.items.len and frame.chunk.callsite_descriptors_by_instr.items[callsite_instr_idx] != null)
+                    &frame.chunk.callsite_descriptors_by_instr.items[callsite_instr_idx].?
                 else
-                    try self.getOrDecodeCallSiteDescriptor(frame.chunk, instruction_start_ip, .call_kw);
-                frame.ip = instruction_start_ip + 10;
+                    try self.getOrDecodeCallSiteDescriptor(frame.chunk, callsite_instr_idx, .call_kw);
                 const argc = call_desc.argc;
                 const kwargc = call_desc.kwargc;
                 const call_style: ReceiverCallStyle = bytecode.decodeReceiverCallStyle(call_desc.call_flags);
                 const args_array_mode = bytecode.argsArrayMode(call_desc.call_flags);
                 const kw_metadata_idx = call_desc.kw_metadata_idx;
                 const block_chunk_id = call_desc.block_chunk_id;
-                const method_name_sym = call_desc.method_sym orelse try self.resolveCallMethodSymbolFromDescriptor(frame, instruction_start_ip, call_desc);
+                const method_name_sym = call_desc.method_sym orelse try self.resolveCallMethodSymbolFromDescriptor(frame.chunk, call_desc);
 
                 const block = if (block_chunk_id == 0)
                     null
@@ -2343,7 +2340,7 @@ pub const VM = struct {
                     receiver = self.stack.items[receiver_index];
 
                     if (call_style == .implicit_self) {
-                        const resolved = try self.resolveMethodForCallSite(frame, instruction_start_ip, receiver, method_name_sym);
+                        const resolved = try self.resolveMethodForCallSite(frame, callsite_instr_idx, receiver, method_name_sym);
                         if (resolved) |method| {
                             if (self.isMethodCallable(receiver, method, call_style)) {
                                 switch (method.entry.method) {
@@ -2384,11 +2381,11 @@ pub const VM = struct {
                 }
 
                 // Call method with keywords
-                try self.callMethodHelperForExecuteInstruction(frame, instruction_start_ip, method_name_sym, call_style, receiver, &args, positional_argc, &kw_values, kwargc, kw_metadata, block);
+                try self.callMethodHelperForExecuteInstruction(frame, callsite_instr_idx, method_name_sym, call_style, receiver, &args, positional_argc, &kw_values, kwargc, kw_metadata, block);
             },
 
             .RETURN => {
-                const is_explicit = self.readByte();
+                const is_explicit = readByteFrom(frame, operands, &operand_cursor);
                 const result = self.pop();
                 const current_frame = self.currentFrame();
 
@@ -2432,10 +2429,10 @@ pub const VM = struct {
             },
 
             .DEF_MODULE => {
-                const name_idx = self.readU16();
-                const body_chunk_id = self.readU16();
+                const name_idx = readU16From(frame, operands, &operand_cursor);
+                const body_chunk_id = readU16From(frame, operands, &operand_cursor);
 
-                const constant = self.currentChunk().constants.items[name_idx];
+                const constant = constants[name_idx];
                 if (constant == .string) {
                     const name_sym = try self.intern(constant.string);
                     const module_val = try self.newModule(name_sym);
@@ -2468,8 +2465,8 @@ pub const VM = struct {
             },
 
             .DEF_CLASS => {
-                const name_idx = self.readU16();
-                const body_chunk_id = self.readU16();
+                const name_idx = readU16From(frame, operands, &operand_cursor);
+                const body_chunk_id = readU16From(frame, operands, &operand_cursor);
 
                 // Pop superclass (or nil)
                 const superclass_val = self.pop();
@@ -2483,7 +2480,7 @@ pub const VM = struct {
                     return error.Unwind;
                 }
 
-                const constant = self.currentChunk().constants.items[name_idx];
+                const constant = constants[name_idx];
                 if (constant == .string) {
                     const name_sym = try self.intern(constant.string);
 
@@ -2540,7 +2537,7 @@ pub const VM = struct {
             },
 
             .DEF_SINGLETON_CLASS => {
-                const body_chunk_id = self.readU16();
+                const body_chunk_id = readU16From(frame, operands, &operand_cursor);
                 const receiver = self.pop();
 
                 const singleton_val = switch (receiver.data) {
@@ -2566,10 +2563,10 @@ pub const VM = struct {
             },
 
             .DEF_METHOD => {
-                const name_idx = self.readU16();
-                const chunk_idx = self.readU16();
+                const name_idx = readU16From(frame, operands, &operand_cursor);
+                const chunk_idx = readU16From(frame, operands, &operand_cursor);
 
-                const constant = self.currentChunk().constants.items[name_idx];
+                const constant = constants[name_idx];
                 if (constant != .string) {
                     return error.Fatal;
                 }
@@ -2612,10 +2609,10 @@ pub const VM = struct {
             },
 
             .DEF_SINGLETON_METHOD => {
-                const name_idx = self.readU16();
-                const chunk_idx = self.readU16();
+                const name_idx = readU16From(frame, operands, &operand_cursor);
+                const chunk_idx = readU16From(frame, operands, &operand_cursor);
 
-                const constant = self.currentChunk().constants.items[name_idx];
+                const constant = constants[name_idx];
                 if (constant != .string) {
                     return error.Fatal;
                 }
@@ -2646,7 +2643,7 @@ pub const VM = struct {
             },
 
             .PUSH_ARRAY => {
-                const element_count = self.readU16();
+                const element_count = readU16From(frame, operands, &operand_cursor);
 
                 const array_obj = try self.createArray();
                 if (self.stack.items.len < element_count) return error.Fatal;
@@ -2694,7 +2691,7 @@ pub const VM = struct {
             },
 
             .PUSH_HASH => {
-                const pair_count = self.readU16();
+                const pair_count = readU16From(frame, operands, &operand_cursor);
 
                 const hash_obj = try self.createHash();
                 const needed: usize = pair_count * 2;
@@ -2729,7 +2726,7 @@ pub const VM = struct {
             },
 
             .PUSH_RANGE => {
-                const exclude_end_flag = self.readByte();
+                const exclude_end_flag = readByteFrom(frame, operands, &operand_cursor);
                 const end_val = self.pop();
                 const begin_val = self.pop();
 
@@ -2743,7 +2740,7 @@ pub const VM = struct {
             },
 
             .INTERPOLATE_STRING => {
-                const part_count = self.readByte();
+                const part_count = readByteFrom(frame, operands, &operand_cursor);
 
                 var buf: std.ArrayList(u8) = .empty;
                 defer buf.deinit(self.allocator);
@@ -2778,7 +2775,7 @@ pub const VM = struct {
             },
 
             .YIELD => {
-                const argc = self.readByte();
+                const argc = readByteFrom(frame, operands, &operand_cursor);
 
                 // Pop arguments
                 var yield_args: [256]Value = undefined;
@@ -2830,7 +2827,7 @@ pub const VM = struct {
             },
 
             .PUSH_LAMBDA => {
-                const chunk_id = self.readU16();
+                const chunk_id = readU16From(frame, operands, &operand_cursor);
                 const lambda_chunk = self.program.child_chunks.get(chunk_id) orelse unreachable;
 
                 // Create a block with the lambda chunk and current environment
@@ -2848,19 +2845,19 @@ pub const VM = struct {
             },
 
             .PUSH_REGEXP => {
-                const pattern_idx = self.readU16();
-                const options = self.readU16();
-                const pattern = self.currentChunk().constants.items[pattern_idx].string;
+                const pattern_idx = readU16From(frame, operands, &operand_cursor);
+                const options = readU16From(frame, operands, &operand_cursor);
+                const pattern = constants[pattern_idx].string;
                 const result = try self.newRegexp(pattern, options);
                 try self.push(result);
             },
 
             .ALIAS_METHOD => {
-                const new_name_idx = self.readU16();
-                const old_name_idx = self.readU16();
+                const new_name_idx = readU16From(frame, operands, &operand_cursor);
+                const old_name_idx = readU16From(frame, operands, &operand_cursor);
 
-                const new_name = self.currentChunk().constants.items[new_name_idx].string;
-                const old_name = self.currentChunk().constants.items[old_name_idx].string;
+                const new_name = constants[new_name_idx].string;
+                const old_name = constants[old_name_idx].string;
 
                 const new_name_sym = try self.intern(new_name);
                 const old_name_sym = try self.intern(old_name);
@@ -2947,7 +2944,7 @@ pub const VM = struct {
             },
 
             .RAISE => {
-                const argc = self.readByte();
+                const argc = readByteFrom(frame, operands, &operand_cursor);
                 if (argc > 2) {
                     var discard_count: u8 = 0;
                     while (discard_count < argc) : (discard_count += 1) {
@@ -2966,13 +2963,13 @@ pub const VM = struct {
 
             .TRY_BEGIN => {
                 // Skip the handler index operand
-                _ = self.readU16();
+                _ = readU16From(frame, operands, &operand_cursor);
 
                 // Save retry point (current frame and IP after TRY_BEGIN)
                 // This allows 'retry' to jump back to the beginning of the begin block
                 self.retry_point = .{
                     .frame_idx = self.frames.items.len - 1,
-                    .ip = self.currentFrame().ip,
+                    .instr_idx = self.currentFrame().ip,
                 };
             },
 
@@ -2990,7 +2987,7 @@ pub const VM = struct {
                         self.pending_exception = null;
 
                         // Jump back to the saved retry point
-                        frame.ip = retry_pt.ip;
+                        try setFrameIp(frame, retry_pt.instr_idx);
                     } else {
                         // Retry called from wrong frame - this shouldn't happen with proper compilation
                         const exc = try self.createException(self.runtime_error_class, "retry called from wrong frame");
@@ -3018,7 +3015,7 @@ pub const VM = struct {
 
             .CATCH_START => {
                 // Read variable index
-                const var_idx = self.readByte();
+                const var_idx = readByteFrom(frame, operands, &operand_cursor);
 
                 // Store exception in local variable if binding exists
                 if (var_idx != 255) {
@@ -3035,10 +3032,10 @@ pub const VM = struct {
             },
 
             .SUPER => {
-                const argc = self.readByte();
-                const flags = self.readByte();
+                const argc = readByteFrom(frame, operands, &operand_cursor);
+                const flags = readByteFrom(frame, operands, &operand_cursor);
                 const args_array_mode = (flags & bytecode.SUPER_FLAG_ARGS_ARRAY) != 0;
-                const block_chunk_id = self.readU16();
+                const block_chunk_id = readU16From(frame, operands, &operand_cursor);
 
                 // Resolve block first (may pop from stack for &variable syntax)
                 const block = try self.resolveBlock(block_chunk_id, frame);
@@ -3074,7 +3071,7 @@ pub const VM = struct {
             },
 
             .FORWARDING_SUPER => {
-                const block_chunk_id = self.readU16();
+                const block_chunk_id = readU16From(frame, operands, &operand_cursor);
 
                 // Resolve block, falling back to frame's block for forwarding
                 var block = try self.resolveBlock(block_chunk_id, frame);
@@ -3527,7 +3524,7 @@ pub const VM = struct {
     fn callMethodHelperForExecuteInstruction(
         self: *VM,
         frame: *CallFrame,
-        instruction_start_ip: usize,
+        callsite_instr_idx: usize,
         method_name_sym: *SymbolObject,
         call_style: ReceiverCallStyle,
         receiver: Value,
@@ -3538,7 +3535,7 @@ pub const VM = struct {
         kw_metadata: ?chunk.KeywordMetadata,
         block: ?Block,
     ) VMError!void {
-        const resolved = try self.resolveMethodForCallSite(frame, instruction_start_ip, receiver, method_name_sym);
+        const resolved = try self.resolveMethodForCallSite(frame, callsite_instr_idx, receiver, method_name_sym);
         const should_fallback = resolved == null or !self.isMethodCallable(receiver, resolved.?, call_style);
         if (should_fallback) {
             const kw_hash = if (kwargc > 0) try self.createHashFromKeywords(kw_values.?[0..kwargc], kw_metadata.?) else null;
@@ -4465,6 +4462,7 @@ pub const VM = struct {
             },
         }
 
+        try self.buildChunkCallsiteDescriptors(chunk_ptr);
         self.program.child_chunks.put(chunk_ptr.chunk_id.?, chunk_ptr) catch return error.Fatal;
         return chunk_ptr;
     }
@@ -4699,10 +4697,10 @@ pub const VM = struct {
         }
 
         self.next_chunk_id = program.next_chunk_id;
-        try self.prepareChunkCallSites(&program.main_chunk);
+        try self.buildChunkCallsiteDescriptors(&program.main_chunk);
         var loaded_iter = program.child_chunks.valueIterator();
         while (loaded_iter.next()) |chunk_ptr| {
-            try self.prepareChunkCallSites(chunk_ptr.*);
+            try self.buildChunkCallsiteDescriptors(chunk_ptr.*);
         }
 
         // Transfer ownership of chunks to main program
@@ -5129,8 +5127,8 @@ pub const VM = struct {
             const frame = &self.frames.items[i];
 
             // Get line number for current IP
-            const line = if (frame.ip > 0 and frame.ip - 1 < frame.chunk.line_info.items.len)
-                frame.chunk.line_info.items[frame.ip - 1]
+            const line = if (frame.ip < frame.chunk.line_info.items.len)
+                frame.chunk.line_info.items[frame.ip]
             else
                 0;
 
@@ -5166,10 +5164,10 @@ pub const VM = struct {
             if (try self.findExceptionHandler(frame_idx)) |handler_info| {
                 if (handler_info.rescue_idx) |rescue_idx| {
                     const rescue_handler = &handler_info.handler.rescue_handlers.items[rescue_idx];
-                    self.frames.items[frame_idx].ip = rescue_handler.catch_ip;
+                    try setFrameIp(&self.frames.items[frame_idx], rescue_handler.catch_instr_idx);
                     return true;
-                } else if (handler_info.handler.ensure_ip) |ensure_ip| {
-                    self.frames.items[frame_idx].ip = ensure_ip;
+                } else if (handler_info.handler.ensure_instr_idx) |ensure_instr_idx| {
+                    try setFrameIp(&self.frames.items[frame_idx], ensure_instr_idx);
                     return true;
                 }
             }
@@ -5268,7 +5266,7 @@ pub const VM = struct {
         for (frame_chunk.exception_handlers.items) |*handler| {
 
             // Check if IP is in the protected region
-            if (ip >= handler.try_start_ip and ip < handler.try_end_ip) {
+            if (ip >= handler.try_start_instr_idx and ip < handler.try_end_instr_idx) {
                 // Search for a matching rescue handler
                 for (handler.rescue_handlers.items, 0..) |*rescue, idx| {
                     // Check if exception matches any of the rescue types
@@ -5316,7 +5314,7 @@ pub const VM = struct {
                         }
 
                         if (rescue_eval_raised) {
-                            if (handler.ensure_ip != null) {
+                            if (handler.ensure_instr_idx != null) {
                                 return .{ .handler = handler, .rescue_idx = null };
                             }
                             return null;
@@ -5325,7 +5323,7 @@ pub const VM = struct {
                 }
 
                 // No matching rescue, but might have ensure
-                if (handler.ensure_ip != null) {
+                if (handler.ensure_instr_idx != null) {
                     return .{ .handler = handler, .rescue_idx = null };
                 }
             }

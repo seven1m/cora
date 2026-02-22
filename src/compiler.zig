@@ -2535,7 +2535,7 @@ pub const Compiler = struct {
         // Emit TRY_BEGIN with handler index
         try self.current_chunk.emitOpU16(.TRY_BEGIN, @intCast(handler_idx), line);
 
-        const try_start_ip = self.current_chunk.code.items.len;
+        const try_start_instr_idx = self.current_chunk.exec_code.items.len;
 
         // Compile the protected statements
         if (begin_node.statements) |statements_ptr| {
@@ -2548,7 +2548,7 @@ pub const Compiler = struct {
 
         // Emit TRY_END to mark normal completion
         try self.current_chunk.emitOp(.TRY_END, line);
-        const try_end_ip = self.current_chunk.code.items.len;
+        const try_end_instr_idx = self.current_chunk.exec_code.items.len;
 
         // Jump over rescue clauses on normal completion
         const jump_over_rescue = try self.current_chunk.emitJump(.JUMP, line);
@@ -2562,7 +2562,7 @@ pub const Compiler = struct {
         while (rescue_ptr != null) {
             const rescue_node = @as(*prism.RescueNode, @ptrCast(rescue_ptr));
 
-            const catch_ip = self.current_chunk.code.items.len;
+            const catch_instr_idx = self.current_chunk.exec_code.items.len;
 
             // Collect exception type expression chunks (if any)
             var exception_type_expr_chunks: std.ArrayList(chunk.ChunkId) = .empty;
@@ -2617,7 +2617,7 @@ pub const Compiler = struct {
 
             // Emit CATCH_END
             try self.current_chunk.emitOp(.CATCH_END, line);
-            const catch_end_ip = self.current_chunk.code.items.len;
+            const catch_end_instr_idx = self.current_chunk.exec_code.items.len;
 
             // Jump over remaining rescue clauses after executing this one
             const jump_to_end = try self.current_chunk.emitJump(.JUMP, line);
@@ -2626,8 +2626,8 @@ pub const Compiler = struct {
             // Store rescue handler info
             try rescue_handlers.append(self.allocator, .{
                 .exception_type_expr_chunks = exception_type_expr_chunks,
-                .catch_ip = catch_ip,
-                .catch_end_ip = catch_end_ip,
+                .catch_instr_idx = catch_instr_idx,
+                .catch_end_instr_idx = catch_end_instr_idx,
                 .var_idx = if (var_idx == 255) null else var_idx,
             });
 
@@ -2639,9 +2639,9 @@ pub const Compiler = struct {
         try self.current_chunk.patchJump(jump_over_rescue);
 
         // Else clause (only runs if no exception was raised)
-        var else_ip: ?usize = null;
+        var else_instr_idx: ?usize = null;
         if (begin_node.else_clause) |else_ptr| {
-            else_ip = self.current_chunk.code.items.len;
+            else_instr_idx = self.current_chunk.exec_code.items.len;
             const else_node = try self.parser.asNode(@ptrCast(else_ptr));
 
             // Compile else body
@@ -2661,10 +2661,10 @@ pub const Compiler = struct {
         }
 
         // Ensure clause (always runs)
-        var ensure_ip: ?usize = null;
-        var ensure_end_ip: ?usize = null;
+        var ensure_instr_idx: ?usize = null;
+        var ensure_end_instr_idx: ?usize = null;
         if (begin_node.ensure_clause) |ensure_ptr| {
-            ensure_ip = self.current_chunk.code.items.len;
+            ensure_instr_idx = self.current_chunk.exec_code.items.len;
 
             // Emit ENSURE_START
             try self.current_chunk.emitOp(.ENSURE_START, line);
@@ -2683,17 +2683,17 @@ pub const Compiler = struct {
 
             // Emit ENSURE_END
             try self.current_chunk.emitOp(.ENSURE_END, line);
-            ensure_end_ip = self.current_chunk.code.items.len;
+            ensure_end_instr_idx = self.current_chunk.exec_code.items.len;
         }
 
         // Create the exception handler entry
         try self.current_chunk.exception_handlers.append(self.allocator, .{
-            .try_start_ip = try_start_ip,
-            .try_end_ip = try_end_ip,
+            .try_start_instr_idx = try_start_instr_idx,
+            .try_end_instr_idx = try_end_instr_idx,
             .rescue_handlers = rescue_handlers,
-            .else_ip = else_ip,
-            .ensure_ip = ensure_ip,
-            .ensure_end_ip = ensure_end_ip,
+            .else_instr_idx = else_instr_idx,
+            .ensure_instr_idx = ensure_instr_idx,
+            .ensure_end_instr_idx = ensure_end_instr_idx,
         });
     }
 
@@ -2711,7 +2711,7 @@ pub const Compiler = struct {
         // Emit TRY_BEGIN with handler index
         try self.current_chunk.emitOpU16(.TRY_BEGIN, @intCast(handler_idx), line);
 
-        const try_start_ip = self.current_chunk.code.items.len;
+        const try_start_instr_idx = self.current_chunk.exec_code.items.len;
 
         // Compile the main expression
         const expression = try self.parser.asNode(@ptrCast(rescue_modifier_node.expression));
@@ -2719,13 +2719,13 @@ pub const Compiler = struct {
 
         // Emit TRY_END to mark normal completion
         try self.current_chunk.emitOp(.TRY_END, line);
-        const try_end_ip = self.current_chunk.code.items.len;
+        const try_end_instr_idx = self.current_chunk.exec_code.items.len;
 
         // Jump over rescue clause on normal completion
         const jump_over_rescue = try self.current_chunk.emitJump(.JUMP, line);
 
         // Compile rescue clause (catches StandardError by default)
-        const catch_ip = self.current_chunk.code.items.len;
+        const catch_instr_idx = self.current_chunk.exec_code.items.len;
 
         // No specific exception types means bare rescue (StandardError)
         const exception_type_expr_chunks: std.ArrayList(chunk.ChunkId) = .empty;
@@ -2742,7 +2742,7 @@ pub const Compiler = struct {
 
         // Emit CATCH_END
         try self.current_chunk.emitOp(.CATCH_END, line);
-        const catch_end_ip = self.current_chunk.code.items.len;
+        const catch_end_instr_idx = self.current_chunk.exec_code.items.len;
 
         // Patch the jump over rescue clause (from normal completion)
         try self.current_chunk.patchJump(jump_over_rescue);
@@ -2751,19 +2751,19 @@ pub const Compiler = struct {
         var rescue_handlers: std.ArrayList(chunk.RescueHandler) = .empty;
         try rescue_handlers.append(self.allocator, .{
             .exception_type_expr_chunks = exception_type_expr_chunks,
-            .catch_ip = catch_ip,
-            .catch_end_ip = catch_end_ip,
+            .catch_instr_idx = catch_instr_idx,
+            .catch_end_instr_idx = catch_end_instr_idx,
             .var_idx = null,
         });
 
         // Create the exception handler entry (no else or ensure for rescue modifier)
         try self.current_chunk.exception_handlers.append(self.allocator, .{
-            .try_start_ip = try_start_ip,
-            .try_end_ip = try_end_ip,
+            .try_start_instr_idx = try_start_instr_idx,
+            .try_end_instr_idx = try_end_instr_idx,
             .rescue_handlers = rescue_handlers,
-            .else_ip = null,
-            .ensure_ip = null,
-            .ensure_end_ip = null,
+            .else_instr_idx = null,
+            .ensure_instr_idx = null,
+            .ensure_end_instr_idx = null,
         });
     }
 
@@ -2813,7 +2813,7 @@ pub const Compiler = struct {
         }
 
         // Mark loop start position for backward jump
-        const loop_start_ip = self.current_chunk.code.items.len;
+        const loop_start_ip = self.current_chunk.exec_code.items.len;
 
         // 1. Compile condition expression
         const condition = try self.parser.asNode(@ptrCast(while_node.predicate));
@@ -2831,9 +2831,9 @@ pub const Compiler = struct {
         }
 
         // 5. Jump back to loop start (backward jump)
-        const jump_back_pos = self.current_chunk.code.items.len;
+        const jump_back_pos = self.current_chunk.exec_code.items.len;
         const offset: i16 = @intCast(@as(i32, @intCast(loop_start_ip)) -
-            @as(i32, @intCast(jump_back_pos)) - 3);
+            @as(i32, @intCast(jump_back_pos)) - 1);
         try self.current_chunk.emitOpI16(.JUMP, offset, line);
 
         // 6. Patch forward jump to here (after loop exits)
@@ -2860,7 +2860,7 @@ pub const Compiler = struct {
         }
 
         // Mark loop start position for backward jump
-        const loop_start_ip = self.current_chunk.code.items.len;
+        const loop_start_ip = self.current_chunk.exec_code.items.len;
 
         // 1. Compile condition expression
         const condition = try self.parser.asNode(@ptrCast(until_node.predicate));
@@ -2878,9 +2878,9 @@ pub const Compiler = struct {
         }
 
         // 5. Jump back to loop start (backward jump)
-        const jump_back_pos = self.current_chunk.code.items.len;
+        const jump_back_pos = self.current_chunk.exec_code.items.len;
         const offset: i16 = @intCast(@as(i32, @intCast(loop_start_ip)) -
-            @as(i32, @intCast(jump_back_pos)) - 3);
+            @as(i32, @intCast(jump_back_pos)) - 1);
         try self.current_chunk.emitOpI16(.JUMP, offset, line);
 
         // 6. Patch forward jump to here (after loop exits)
