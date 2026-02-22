@@ -110,8 +110,8 @@ pub fn main() !void {
         try program.main_chunk.disassemble(stdout);
         try stdout.print("\n", .{});
 
-        // Print method chunks
-        var iter = program.method_chunks.iterator();
+        // Print chunks
+        var iter = program.child_chunks.iterator();
         while (iter.next()) |entry| {
             try entry.value_ptr.*.disassemble(stdout);
             try stdout.print("\n", .{});

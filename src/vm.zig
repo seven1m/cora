@@ -1259,7 +1259,7 @@ pub const VM = struct {
     fn prepareProgramCallSites(self: *VM) VMError!void {
         try self.prepareChunkCallSites(&self.program.main_chunk);
 
-        var chunk_iter = self.program.method_chunks.valueIterator();
+        var chunk_iter = self.program.child_chunks.valueIterator();
         while (chunk_iter.next()) |chunk_ptr| {
             try self.prepareChunkCallSites(chunk_ptr.*);
         }
@@ -1269,7 +1269,7 @@ pub const VM = struct {
         self.method_state_version +%= 1;
         if (self.method_state_version == 0) {
             self.method_state_version = 1;
-            var chunk_iter = self.program.method_chunks.valueIterator();
+            var chunk_iter = self.program.child_chunks.valueIterator();
             while (chunk_iter.next()) |chunk_ptr| {
                 for (chunk_ptr.*.callsite_caches.items) |*entry| {
                     entry.* = null;
@@ -1449,7 +1449,7 @@ pub const VM = struct {
             return proc_obj.block;
         } else if (block_chunk_id != 0) {
             // Literal block: look up chunk
-            if (self.program.method_chunks.get(block_chunk_id)) |bc| {
+            if (self.program.child_chunks.get(block_chunk_id)) |bc| {
                 bc.lexical_scope = self.current_lexical_scope;
                 const defining_ep = try self.promoteEnvironmentToHeap(frame.ep);
                 return Block{
@@ -2306,7 +2306,7 @@ pub const VM = struct {
 
                     // Execute module body if it exists
                     if (body_chunk_id != 0) {
-                        if (self.program.method_chunks.get(body_chunk_id)) |body_chunk_ptr| {
+                        if (self.program.child_chunks.get(body_chunk_id)) |body_chunk_ptr| {
                             // Create new lexical scope for this module
                             body_chunk_ptr.lexical_scope = try self.createLexicalScope(module_val, self.current_lexical_scope);
 
@@ -2378,7 +2378,7 @@ pub const VM = struct {
 
                     // Execute class body if it exists
                     if (body_chunk_id != 0) {
-                        if (self.program.method_chunks.get(body_chunk_id)) |body_chunk_ptr| {
+                        if (self.program.child_chunks.get(body_chunk_id)) |body_chunk_ptr| {
                             // Create new lexical scope for this class
                             body_chunk_ptr.lexical_scope = try self.createLexicalScope(class_val, self.current_lexical_scope);
 
@@ -2411,7 +2411,7 @@ pub const VM = struct {
                 };
 
                 if (body_chunk_id != 0) {
-                    if (self.program.method_chunks.get(body_chunk_id)) |body_chunk_ptr| {
+                    if (self.program.child_chunks.get(body_chunk_id)) |body_chunk_ptr| {
                         body_chunk_ptr.lexical_scope = try self.createLexicalScope(singleton_val, self.current_lexical_scope);
                         try self.pushFrame(body_chunk_ptr, singleton_val, null);
                     } else {
@@ -2435,7 +2435,7 @@ pub const VM = struct {
                 const method_name_sym = try self.intern(method_name);
 
                 // Look up the chunk by ID
-                if (self.program.method_chunks.get(chunk_idx)) |chunk_ptr| {
+                if (self.program.child_chunks.get(chunk_idx)) |chunk_ptr| {
                     // Capture the current lexical scope for this method
                     chunk_ptr.lexical_scope = self.current_lexical_scope;
                     const module_function_mode = if (self.current_lexical_scope) |scope| scope.module_function_mode else false;
@@ -2461,7 +2461,7 @@ pub const VM = struct {
                         self.bumpMethodStateVersion();
                     }
                 } else {
-                    std.debug.print("Error: undefined method chunk {d}\n", .{chunk_idx});
+                    std.debug.print("Error: undefined chunk {d}\n", .{chunk_idx});
                     return error.Fatal;
                 }
             },
@@ -2478,7 +2478,7 @@ pub const VM = struct {
                 const method_name = constant.string;
                 const method_name_sym = try self.intern(method_name);
 
-                if (self.program.method_chunks.get(chunk_idx)) |chunk_ptr| {
+                if (self.program.child_chunks.get(chunk_idx)) |chunk_ptr| {
                     chunk_ptr.lexical_scope = self.current_lexical_scope;
                     const visibility = self.currentDefaultMethodVisibility();
 
@@ -2685,7 +2685,7 @@ pub const VM = struct {
 
             .PUSH_LAMBDA => {
                 const chunk_id = self.readU16();
-                const lambda_chunk = self.program.method_chunks.get(chunk_id) orelse unreachable;
+                const lambda_chunk = self.program.child_chunks.get(chunk_id) orelse unreachable;
 
                 // Create a block with the lambda chunk and current environment
                 const block = Block{
@@ -3113,7 +3113,7 @@ pub const VM = struct {
                 callee_frame.ep.variables_len = max_slot;
 
                 for (method_chunk.optional_keywords.items) |opt_kw| {
-                    const default_chunk = self.program.method_chunks.get(opt_kw.default_chunk_id).?;
+                    const default_chunk = self.program.child_chunks.get(opt_kw.default_chunk_id).?;
                     const current_ep = self.currentFrame().ep;
                     const default_value = try self.executeDefaultExpression(default_chunk, current_ep);
                     const f = &self.frames.items[self.frames.items.len - 1];
@@ -4252,7 +4252,7 @@ pub const VM = struct {
 
     pub fn createAccessorChunk(self: *VM, base_name: []const u8, kind: AccessorKind) VMError!*Chunk {
         if (self.next_chunk_id > chunk.MAX_CHUNK_ID) {
-            std.debug.print("Too many method chunks\n", .{});
+            std.debug.print("Too many chunks\n", .{});
             return error.Fatal;
         }
 
@@ -4285,7 +4285,7 @@ pub const VM = struct {
             },
         }
 
-        self.program.method_chunks.put(chunk_ptr.chunk_id.?, chunk_ptr) catch return error.Fatal;
+        self.program.child_chunks.put(chunk_ptr.chunk_id.?, chunk_ptr) catch return error.Fatal;
         return chunk_ptr;
     }
 
@@ -4515,20 +4515,20 @@ pub const VM = struct {
         // Ensure cleanup of the loaded program's chunks on error
         defer {
             program.main_chunk.deinit();
-            program.method_chunks.deinit();
+            program.child_chunks.deinit();
         }
 
         self.next_chunk_id = program.next_chunk_id;
         try self.prepareChunkCallSites(&program.main_chunk);
-        var loaded_iter = program.method_chunks.valueIterator();
+        var loaded_iter = program.child_chunks.valueIterator();
         while (loaded_iter.next()) |chunk_ptr| {
             try self.prepareChunkCallSites(chunk_ptr.*);
         }
 
-        // Transfer ownership of method chunks to main program
-        var iter = program.method_chunks.iterator();
+        // Transfer ownership of chunks to main program
+        var iter = program.child_chunks.iterator();
         while (iter.next()) |entry| {
-            self.program.method_chunks.put(entry.key_ptr.*, entry.value_ptr.*) catch return error.Fatal;
+            self.program.child_chunks.put(entry.key_ptr.*, entry.value_ptr.*) catch return error.Fatal;
         }
 
         const prev_file = self.current_loading_file;
@@ -4700,7 +4700,7 @@ pub const VM = struct {
             // Evaluate defaults for remaining optionals
             while (i < optional_count) : (i += 1) {
                 const opt_info = target_chunk.optional_params.items[i];
-                const default_chunk = self.program.method_chunks.get(opt_info.default_chunk_id) orelse {
+                const default_chunk = self.program.child_chunks.get(opt_info.default_chunk_id) orelse {
                     return error.Fatal;
                 };
 
@@ -4812,7 +4812,7 @@ pub const VM = struct {
 
             if (!found) {
                 // Execute default expression
-                const default_chunk = self.program.method_chunks.get(opt_kw.default_chunk_id).?;
+                const default_chunk = self.program.child_chunks.get(opt_kw.default_chunk_id).?;
                 const default_value = try self.executeDefaultExpression(default_chunk, env);
                 env.variables[opt_kw.param_slot] = default_value;
             }
@@ -5102,7 +5102,7 @@ pub const VM = struct {
 
                         // Check each specified exception type expression
                         for (rescue.exception_type_expr_chunks.items) |type_expr_chunk_id| {
-                            const rescue_type_chunk = self.program.method_chunks.get(type_expr_chunk_id) orelse {
+                            const rescue_type_chunk = self.program.child_chunks.get(type_expr_chunk_id) orelse {
                                 return error.Fatal;
                             };
 

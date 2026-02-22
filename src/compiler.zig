@@ -9,19 +9,19 @@ const Chunk = chunk.Chunk;
 pub const CompiledProgram = struct {
     allocator: std.mem.Allocator,
     main_chunk: Chunk,
-    method_chunks: std.AutoHashMap(chunk.ChunkId, *Chunk),
+    child_chunks: std.AutoHashMap(chunk.ChunkId, *Chunk),
     next_chunk_id: chunk.ChunkId,
 
     pub fn deinit(self: *CompiledProgram) void {
         self.main_chunk.deinit();
-        var iter = self.method_chunks.iterator();
+        var iter = self.child_chunks.iterator();
         while (iter.next()) |entry| {
-            // Free the method chunk contents
+            // Free the chunk contents
             entry.value_ptr.*.deinit();
             // Free the chunk struct itself (allocated on heap)
             self.allocator.destroy(entry.value_ptr.*);
         }
-        self.method_chunks.deinit();
+        self.child_chunks.deinit();
     }
 };
 
@@ -47,7 +47,7 @@ pub const Compiler = struct {
     // Track all locals in current scope chain (for closure compilation)
     all_locals: std.ArrayList(std.ArrayList(Local)) = .empty,
 
-    method_chunks: std.AutoHashMap(chunk.ChunkId, *Chunk),
+    child_chunks: std.AutoHashMap(chunk.ChunkId, *Chunk),
     chunk_counter: chunk.ChunkId = 1,
     loop_stack: std.ArrayList(LoopContext) = .empty,
 
@@ -56,7 +56,7 @@ pub const Compiler = struct {
             .allocator = allocator,
             .parser = parser,
             .current_chunk = undefined,
-            .method_chunks = std.AutoHashMap(chunk.ChunkId, *Chunk).init(allocator),
+            .child_chunks = std.AutoHashMap(chunk.ChunkId, *Chunk).init(allocator),
             .chunk_counter = starting_chunk_id,
         };
     }
@@ -71,7 +71,7 @@ pub const Compiler = struct {
             scope.deinit(self.allocator);
         }
         self.all_locals.deinit(self.allocator);
-        // self.method_chunks is transferred to CompiledProgram.
+        // self.child_chunks is transferred to CompiledProgram.
     }
 
     /// Allocate the next chunk ID, returning an error if we've exceeded the limit.
@@ -95,12 +95,12 @@ pub const Compiler = struct {
         // On error, clean up chunks that were allocated during compilation
         errdefer {
             main_chunk.deinit();
-            var iter = compiler.method_chunks.iterator();
+            var iter = compiler.child_chunks.iterator();
             while (iter.next()) |entry| {
                 entry.value_ptr.*.deinit();
                 allocator.destroy(entry.value_ptr.*);
             }
-            compiler.method_chunks.deinit();
+            compiler.child_chunks.deinit();
         }
 
         const root = try parser.root();
@@ -110,7 +110,7 @@ pub const Compiler = struct {
         return CompiledProgram{
             .allocator = allocator,
             .main_chunk = main_chunk,
-            .method_chunks = compiler.method_chunks,
+            .child_chunks = compiler.child_chunks,
             .next_chunk_id = compiler.chunk_counter,
         };
     }
@@ -1844,7 +1844,7 @@ pub const Compiler = struct {
             try body_chunk_ptr.setSourceFile(self.parser.source_file);
             body_chunk_id = try self.nextChunkId();
             body_chunk_ptr.chunk_id = body_chunk_id;
-            try self.method_chunks.put(body_chunk_id, body_chunk_ptr);
+            try self.child_chunks.put(body_chunk_id, body_chunk_ptr);
 
             // Save the current chunk and switch to the body chunk
             const saved_chunk = self.current_chunk;
@@ -1894,7 +1894,7 @@ pub const Compiler = struct {
             try body_chunk_ptr.setSourceFile(self.parser.source_file);
             body_chunk_id = try self.nextChunkId();
             body_chunk_ptr.chunk_id = body_chunk_id;
-            try self.method_chunks.put(body_chunk_id, body_chunk_ptr);
+            try self.child_chunks.put(body_chunk_id, body_chunk_ptr);
 
             // Save the current chunk and switch to the body chunk
             const saved_chunk = self.current_chunk;
@@ -1930,7 +1930,7 @@ pub const Compiler = struct {
         try body_chunk_ptr.setSourceFile(self.parser.source_file);
         body_chunk_id = try self.nextChunkId();
         body_chunk_ptr.chunk_id = body_chunk_id;
-        try self.method_chunks.put(body_chunk_id, body_chunk_ptr);
+        try self.child_chunks.put(body_chunk_id, body_chunk_ptr);
 
         const saved_chunk = self.current_chunk;
         self.current_chunk = body_chunk_ptr;
@@ -2003,7 +2003,7 @@ pub const Compiler = struct {
             try default_chunk_ptr.setSourceFile(self.parser.source_file);
             const default_chunk_id = try self.nextChunkId();
             default_chunk_ptr.chunk_id = default_chunk_id;
-            try self.method_chunks.put(default_chunk_id, default_chunk_ptr);
+            try self.child_chunks.put(default_chunk_id, default_chunk_ptr);
 
             const saved_chunk_for_default = self.current_chunk;
             self.current_chunk = default_chunk_ptr;
@@ -2157,7 +2157,7 @@ pub const Compiler = struct {
                     try default_chunk_ptr.setSourceFile(self.parser.source_file);
                     const default_chunk_id = try self.nextChunkId();
                     default_chunk_ptr.chunk_id = default_chunk_id;
-                    try self.method_chunks.put(default_chunk_id, default_chunk_ptr);
+                    try self.child_chunks.put(default_chunk_id, default_chunk_ptr);
 
                     const saved_chunk_kw = self.current_chunk;
                     self.current_chunk = default_chunk_ptr;
@@ -2218,9 +2218,9 @@ pub const Compiler = struct {
         try method_chunk_ptr.setSourceFile(self.parser.source_file);
         const chunk_id = try self.nextChunkId();
         method_chunk_ptr.chunk_id = chunk_id;
-        try self.method_chunks.put(chunk_id, method_chunk_ptr);
+        try self.child_chunks.put(chunk_id, method_chunk_ptr);
 
-        // Save the current chunk and switch to the method chunk.
+        // Save the current chunk and switch to the chunk.
         // Methods do not close over outer local variables, so compile with
         // a fresh local table to keep parameter slots starting at 0.
         const saved_chunk = self.current_chunk;
@@ -2289,7 +2289,7 @@ pub const Compiler = struct {
         try block_chunk_ptr.setSourceFile(self.parser.source_file);
         const chunk_id = try self.nextChunkId();
         block_chunk_ptr.chunk_id = chunk_id;
-        try self.method_chunks.put(chunk_id, block_chunk_ptr);
+        try self.child_chunks.put(chunk_id, block_chunk_ptr);
 
         // Save the current chunk and switch to the block chunk
         const saved_chunk = self.current_chunk;
@@ -2372,7 +2372,7 @@ pub const Compiler = struct {
         try lambda_chunk_ptr.setSourceFile(self.parser.source_file);
         const chunk_id = try self.nextChunkId();
         lambda_chunk_ptr.chunk_id = chunk_id;
-        try self.method_chunks.put(chunk_id, lambda_chunk_ptr);
+        try self.child_chunks.put(chunk_id, lambda_chunk_ptr);
 
         // Save the current chunk and switch to the lambda chunk
         const saved_chunk = self.current_chunk;
@@ -2491,7 +2491,7 @@ pub const Compiler = struct {
 
         const rescue_type_chunk_id = try self.nextChunkId();
         rescue_type_chunk_ptr.chunk_id = rescue_type_chunk_id;
-        try self.method_chunks.put(rescue_type_chunk_id, rescue_type_chunk_ptr);
+        try self.child_chunks.put(rescue_type_chunk_id, rescue_type_chunk_ptr);
 
         const saved_chunk = self.current_chunk;
         self.current_chunk = rescue_type_chunk_ptr;
