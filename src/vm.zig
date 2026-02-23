@@ -2640,26 +2640,24 @@ pub const VM = struct {
     }
 
     inline fn push(self: *VM, val: Value) VMError!void {
-        const stack = self.stack;
-        const len = stack.items.len;
-        if (len >= stack.capacity) {
+        const len = self.stack.items.len;
+        if (len >= self.stack.capacity) {
             const exc = try self.createException(self.fiber_error_class, "fiber stack overflow");
             self.pending_exception = exc;
             return error.Unwind;
         }
 
-        stack.storage[len] = val;
-        stack.items = stack.storage[0 .. len + 1];
+        self.stack.storage[len] = val;
+        self.stack.items = self.stack.storage[0 .. len + 1];
     }
 
     pub inline fn pop(self: *VM) Value {
-        const stack = self.stack;
-        const len = stack.items.len;
+        const len = self.stack.items.len;
         if (len == 0) return Value.nil();
 
         const idx = len - 1;
-        const val = stack.storage[idx];
-        stack.items = stack.storage[0..idx];
+        const val = self.stack.storage[idx];
+        self.stack.items = self.stack.storage[0..idx];
         return val;
     }
 
