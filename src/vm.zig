@@ -3224,6 +3224,16 @@ pub const VM = struct {
         return error.Unwind;
     }
 
+    inline fn isSimplePositionalSignature(method_chunk: *const Chunk) bool {
+        return method_chunk.optional_params.items.len == 0 and
+            method_chunk.rest_param_index == null and
+            method_chunk.post_required_count == 0 and
+            method_chunk.required_keywords.items.len == 0 and
+            method_chunk.optional_keywords.items.len == 0 and
+            method_chunk.keyword_rest_index == null and
+            method_chunk.block_param_index == null;
+    }
+
     inline fn setupChunkCallFrame(
         self: *VM,
         method_chunk: *Chunk,
@@ -3251,7 +3261,18 @@ pub const VM = struct {
 
         try self.pushFrame(method_chunk, receiver, block);
         const callee_frame = self.currentFrame();
-        try self.copyArgumentsWithRestParam(method_chunk, callee_frame.ep, args, .strict);
+        if (isSimplePositionalSignature(method_chunk)) {
+            if (args.len != method_chunk.arity) {
+                return self.raiseArgumentErrorWrongArgCount(args.len, method_chunk.arity);
+            }
+
+            if (args.len > 0) {
+                @memcpy(callee_frame.ep.variables[0..args.len], args);
+            }
+            callee_frame.ep.variables_len = @intCast(args.len);
+        } else {
+            try self.copyArgumentsWithRestParam(method_chunk, callee_frame.ep, args, .strict);
+        }
 
         if (has_keywords) {
             const kw_vals = kw_values.?;
