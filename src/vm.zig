@@ -1429,20 +1429,31 @@ pub const VM = struct {
         return self.valueFromManagedInteger(&quot);
     }
 
-    fn push(self: *VM, val: Value) VMError!void {
-        if (self.stack.items.len >= self.stack.capacity) {
+    inline fn push(self: *VM, val: Value) VMError!void {
+        const stack = self.stack;
+        const len = stack.items.len;
+        if (len >= stack.capacity) {
             const exc = try self.createException(self.fiber_error_class, "fiber stack overflow");
             self.pending_exception = exc;
             return error.Unwind;
         }
-        self.stack.append(self.gc_allocator, val) catch return error.Fatal;
+
+        stack.storage[len] = val;
+        stack.items = stack.storage[0 .. len + 1];
     }
 
-    pub fn pop(self: *VM) Value {
-        return self.stack.pop() orelse Value.nil();
+    pub inline fn pop(self: *VM) Value {
+        const stack = self.stack;
+        const len = stack.items.len;
+        if (len == 0) return Value.nil();
+
+        const idx = len - 1;
+        const val = stack.storage[idx];
+        stack.items = stack.storage[0..idx];
+        return val;
     }
 
-    fn peek(self: *VM, distance: usize) Value {
+    inline fn peek(self: *VM, distance: usize) Value {
         return self.stack.items[self.stack.items.len - 1 - distance];
     }
 
