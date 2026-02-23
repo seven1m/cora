@@ -807,14 +807,16 @@ pub const VM = struct {
             self.pending_exception = exc;
             return error.Unwind;
         }
-        const index = self.env_stack.items.len;
-        self.env_stack.append(self.gc_allocator, .{
-            .parent = parent,
-            .lexical_scope = lexical_scope,
-            .variables = undefined,
-            .variables_len = 0,
-        }) catch return error.Fatal;
-        return &self.env_stack.items[index];
+        const env_index = self.env_stack.items.len;
+        self.env_stack.items = self.env_stack.storage[0 .. env_index + 1];
+
+        const env = &self.env_stack.storage[env_index];
+        env.parent = parent;
+        env.lexical_scope = lexical_scope;
+        env.variables = undefined;
+        env.variables_len = 0;
+        env.heap_forwarding_ptr = null;
+        return env;
     }
 
     // Get variable by walking environment chain
