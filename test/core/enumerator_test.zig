@@ -51,7 +51,7 @@ test "Enumerator.new next raises StopIteration" {
 
 test "Array#each without block returns Enumerator" {
     const result = try evalCode("[1, 2, 3].each");
-    try std.testing.expect(result.data == .enumerator);
+    try std.testing.expect(result.isEnumerator());
 }
 
 test "Array#each enumerator round-trip" {
@@ -79,12 +79,12 @@ test "Array#each enumerator next" {
 
 test "Array#map without block returns Enumerator" {
     const result = try evalCode("[1, 2, 3].map");
-    try std.testing.expect(result.data == .enumerator);
+    try std.testing.expect(result.isEnumerator());
 }
 
 test "Array#each_with_index without block returns Enumerator" {
     const result = try evalCode("[1, 2, 3].each_with_index");
-    try std.testing.expect(result.data == .enumerator);
+    try std.testing.expect(result.isEnumerator());
 }
 
 // --- Peek ---
@@ -137,14 +137,14 @@ test "Yielder << chaining" {
 
 test "Hash#each without block returns Enumerator" {
     const result = try evalCode("{a: 1}.each");
-    try std.testing.expect(result.data == .enumerator);
+    try std.testing.expect(result.isEnumerator());
 }
 
 // --- Integer#times without block ---
 
 test "Integer#times without block returns Enumerator" {
     const result = try evalCode("3.times");
-    try std.testing.expect(result.data == .enumerator);
+    try std.testing.expect(result.isEnumerator());
 }
 
 test "Integer#times enumerator next" {
@@ -178,15 +178,15 @@ test "Enumerator#each without block returns self" {
 
 test "Enumerator#inspect for method-based" {
     const result = try evalCode("[1, 2, 3].each.inspect");
-    try std.testing.expect(result.data == .string);
-    const str = result.data.string.str;
+    try std.testing.expect(result.isString());
+    const str = result.toStringObject().str;
     try std.testing.expect(std.mem.indexOf(u8, str, "Enumerator") != null);
     try std.testing.expect(std.mem.indexOf(u8, str, "each") != null);
 }
 
 test "Enumerator#size returns nil when no size proc was provided" {
     const result = try evalCode("[1, 2, 3].each.size");
-    try std.testing.expect(result.data == .nil);
+    try std.testing.expect(result.isNil());
 }
 
 test "to_enum next exposes multi-arg yields as arrays" {
@@ -201,32 +201,32 @@ test "to_enum next exposes multi-arg yields as arrays" {
         \\e = o.to_enum
         \\[e.next, e.next, e.next, e.next]
     );
-    try std.testing.expect(result.data == .array);
+    try std.testing.expect(result.isArray());
 
-    const values = result.data.array.elements.items;
-    try std.testing.expect(values[0].data == .symbol);
-    try std.testing.expectEqualStrings("a", values[0].data.symbol.name);
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expect(values[0].isSymbol());
+    try std.testing.expectEqualStrings("a", values[0].toSymbolObject().name);
 
-    try std.testing.expect(values[1].data == .array);
-    try std.testing.expectEqual(@as(usize, 2), values[1].data.array.elements.items.len);
-    try std.testing.expect(values[1].data.array.elements.items[0].data == .symbol);
-    try std.testing.expect(values[1].data.array.elements.items[1].data == .symbol);
-    try std.testing.expectEqualStrings("b1", values[1].data.array.elements.items[0].data.symbol.name);
-    try std.testing.expectEqualStrings("b2", values[1].data.array.elements.items[1].data.symbol.name);
+    try std.testing.expect(values[1].isArray());
+    try std.testing.expectEqual(@as(usize, 2), values[1].toArrayObject().elements.items.len);
+    try std.testing.expect(values[1].toArrayObject().elements.items[0].isSymbol());
+    try std.testing.expect(values[1].toArrayObject().elements.items[1].isSymbol());
+    try std.testing.expectEqualStrings("b1", values[1].toArrayObject().elements.items[0].toSymbolObject().name);
+    try std.testing.expectEqualStrings("b2", values[1].toArrayObject().elements.items[1].toSymbolObject().name);
 
-    try std.testing.expect(values[2].data == .array);
-    try std.testing.expectEqual(@as(usize, 1), values[2].data.array.elements.items.len);
-    try std.testing.expect(values[2].data.array.elements.items[0].data == .symbol);
-    try std.testing.expectEqualStrings("c", values[2].data.array.elements.items[0].data.symbol.name);
+    try std.testing.expect(values[2].isArray());
+    try std.testing.expectEqual(@as(usize, 1), values[2].toArrayObject().elements.items.len);
+    try std.testing.expect(values[2].toArrayObject().elements.items[0].isSymbol());
+    try std.testing.expectEqualStrings("c", values[2].toArrayObject().elements.items[0].toSymbolObject().name);
 
-    try std.testing.expect(values[3].data == .array);
-    try std.testing.expectEqual(@as(usize, 3), values[3].data.array.elements.items.len);
-    try std.testing.expect(values[3].data.array.elements.items[0].data == .symbol);
-    try std.testing.expect(values[3].data.array.elements.items[1].data == .symbol);
-    try std.testing.expect(values[3].data.array.elements.items[2].data == .symbol);
-    try std.testing.expectEqualStrings("d1", values[3].data.array.elements.items[0].data.symbol.name);
-    try std.testing.expectEqualStrings("d2", values[3].data.array.elements.items[1].data.symbol.name);
-    try std.testing.expectEqualStrings("d3", values[3].data.array.elements.items[2].data.symbol.name);
+    try std.testing.expect(values[3].isArray());
+    try std.testing.expectEqual(@as(usize, 3), values[3].toArrayObject().elements.items.len);
+    try std.testing.expect(values[3].toArrayObject().elements.items[0].isSymbol());
+    try std.testing.expect(values[3].toArrayObject().elements.items[1].isSymbol());
+    try std.testing.expect(values[3].toArrayObject().elements.items[2].isSymbol());
+    try std.testing.expectEqualStrings("d1", values[3].toArrayObject().elements.items[0].toSymbolObject().name);
+    try std.testing.expectEqualStrings("d2", values[3].toArrayObject().elements.items[1].toSymbolObject().name);
+    try std.testing.expectEqualStrings("d3", values[3].toArrayObject().elements.items[2].toSymbolObject().name);
 }
 
 // --- StopIteration exception hierarchy ---
@@ -276,7 +276,7 @@ test "Enumerator infinite generator with next" {
 
 test "Integer#upto without block returns Enumerator" {
     const result = try evalCode("1.upto(5)");
-    try std.testing.expect(result.data == .enumerator);
+    try std.testing.expect(result.isEnumerator());
 }
 
 test "Integer#upto enumerator next" {

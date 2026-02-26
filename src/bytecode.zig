@@ -7,6 +7,7 @@ pub const OpCode = enum(u8) {
     PUSH_FALSE, // No operands
     PUSH_CONST, // Operand: u16 (constant pool index)
     PUSH_SYMBOL, // Operand: u16 (constant pool index containing symbol name string)
+    PUSH_I8, // Operand: i8 (inline small integer)
 
     // Variables and Constants
     GET_LOCAL, // Operand: u8 (local index)
@@ -26,18 +27,18 @@ pub const OpCode = enum(u8) {
     SET_IVAR, // Operand: u16 (constant pool index of variable name)
 
     // Control flow
-    JUMP, // Operand: i16 (offset)
+    JUMP, // Operand: i16 (offset from next instruction)
     JUMP_IF_FALSE, // Operand: i16 (offset)
     JUMP_IF_TRUE, // Operand: i16 (offset)
     POP, // No operands
     DUP, // No operands
     DUP_N, // Operand: u8 (duplicate top N stack items in order)
     SWAP, // No operands - swaps top two stack items
-    CASE_MATCH, // No operands - stack: [predicate, condition] -> [predicate, condition === predicate]
+    CASE_MATCH, // No operands
 
     // Method calls
-    CALL, // Operands: u16 (method name index), u8 (argc), u16 (block chunk id)
-    CALL_KW, // Operands: u16 method_idx, u8 argc, u8 kwargc, u16 kw_metadata_idx, u16 block_chunk_id
+    CALL, // Operands: u16 (method name index), u8 (argc), u8 (call_flags), u16 (block chunk id)
+    CALL_KW, // Operands: u16 method_idx, u8 argc, u8 kwargc, u8 call_flags, u16 kw_metadata_idx, u16 block_chunk_id
     RETURN, // Operand: u8 (0=implicit, 1=explicit)
 
     // Optimized ops for integer math
@@ -46,6 +47,10 @@ pub const OpCode = enum(u8) {
     OPT_MULT, // No operands
     OPT_DIV, // No operands
     OPT_EQ, // No operands
+    OPT_LT, // No operands
+    OPT_GT, // No operands
+    OPT_LE, // No operands
+    OPT_GE, // No operands
 
     // OOP
     DEF_MODULE, // Operands: u16 (name index), u16 (body chunk id)
@@ -57,10 +62,10 @@ pub const OpCode = enum(u8) {
 
     // Collections
     PUSH_ARRAY, // Operand: u16 (element count)
-    ARRAY_APPEND, // No operands - stack: [..., array, value] -> [..., array]
-    ARRAY_CONCAT_ARRAY, // No operands - stack: [..., array, other_array] -> [..., array]
+    ARRAY_APPEND, // No operands
+    ARRAY_CONCAT_ARRAY, // No operands
     PUSH_HASH, // Operand: u16 (pair count)
-    PUSH_RANGE, // Operand: u8 (0=inclusive, 1=exclusive) - pops start, end from stack
+    PUSH_RANGE, // Operand: u8 (0=inclusive, 1=exclusive)
     INTERPOLATE_STRING, // Operand: u8 (part count)
 
     // Special
@@ -68,22 +73,22 @@ pub const OpCode = enum(u8) {
 
     // Blocks
     YIELD, // Operand: u8 (argc)
-    YIELD_SPLAT, // No operands - pops args array and yields its elements
+    YIELD_SPLAT, // No operands
     PUSH_LAMBDA, // Operand: u16 (chunk_id)
 
     // Constant path resolution
-    GET_CONST_PATH, // Operand: u16 (constant name index) - pops module/class, looks up constant
+    GET_CONST_PATH, // Operand: u16 (constant name index)
 
     // Exception handling
-    RAISE, // Operand: u8 (argc) - 0=re-raise, 1=exception instance or class, 2=class+message
-    TRY_BEGIN, // Operand: u16 (handler_idx) - points to exception_handlers table entry
-    TRY_END, // No operands - marks end of protected region (normal completion)
-    CATCH_START, // Operand: u8 (var_idx) - store exception in local var (255 = no binding)
-    CATCH_END, // No operands - marks exit from rescue clause
-    ENSURE_START, // No operands - marks entry to ensure block
-    ENSURE_END, // No operands - marks exit from ensure block
-    RETRY, // No operands - jump back to beginning of current begin block
-    BREAK, // No operands - used for breaking from blocks
+    RAISE, // Operand: u8 (argc)
+    TRY_BEGIN, // Operand: u16 (handler_idx)
+    TRY_END, // No operands
+    CATCH_START, // Operand: u8 (var_idx)
+    CATCH_END, // No operands
+    ENSURE_START, // No operands
+    ENSURE_END, // No operands
+    RETRY, // No operands
+    BREAK, // No operands
 
     // Super calls
     SUPER, // Operands: u8 (argc), u8 (flags), u16 (block_chunk_id)
@@ -96,7 +101,7 @@ pub const OpCode = enum(u8) {
     ALIAS_METHOD, // Operands: u16 (new_name constant index), u16 (old_name constant index)
 
     // Multi-assignment
-    MULTI_ASSIGN_PREPARE, // No operands - converts TOS to array via to_ary protocol
+    MULTI_ASSIGN_PREPARE, // No operands
 };
 
 pub const ReceiverCallStyle = enum(u8) {
@@ -128,6 +133,65 @@ pub const BuiltinId = enum(u8) {
     NEW = 1,
 };
 
+/// Returns the number of operand bytes for a given opcode (not counting the opcode byte itself).
+pub fn opcodeOperandSize(op: OpCode) usize {
+    return switch (op) {
+        // No operands
+        .PUSH_NIL, .PUSH_TRUE, .PUSH_FALSE, .PUSH_SELF,
+        .POP, .DUP, .SWAP, .CASE_MATCH,
+        .OPT_PLUS, .OPT_MINUS, .OPT_MULT, .OPT_DIV, .OPT_EQ,
+        .OPT_LT, .OPT_GT, .OPT_LE, .OPT_GE,
+        .ARRAY_APPEND, .ARRAY_CONCAT_ARRAY,
+        .HALT, .TRY_END, .CATCH_END, .ENSURE_START, .ENSURE_END,
+        .RETRY, .BREAK, .YIELD_SPLAT, .MULTI_ASSIGN_PREPARE,
+        => 0,
+
+        // 1-byte operands
+        .GET_LOCAL, .SET_LOCAL, .DUP_N, .YIELD, .RETURN,
+        .PUSH_RANGE, .INTERPOLATE_STRING, .RAISE, .CATCH_START, .PUSH_I8,
+        => 1,
+
+        // 2-byte operands (u16)
+        .GET_LOCAL_DEEP, .SET_LOCAL_DEEP,
+        .GET_GLOBAL, .SET_GLOBAL, .GET_BACKREF,
+        .GET_CVAR, .GET_CVAR_OR_NIL, .SET_CVAR,
+        .GET_CONST, .GET_CONST_OR_NIL, .SET_CONST,
+        .GET_IVAR, .SET_IVAR,
+        .PUSH_CONST, .PUSH_SYMBOL,
+        .JUMP, .JUMP_IF_FALSE, .JUMP_IF_TRUE,
+        .TRY_BEGIN, .PUSH_LAMBDA, .GET_CONST_PATH,
+        .PUSH_ARRAY, .PUSH_HASH,
+        => 2,
+
+        // 4-byte operands
+        .DEF_SINGLETON_CLASS, // u16 body_chunk_id (2 bytes)
+        => 2,
+
+        // DEF_MODULE: u16 name_idx + u16 body_chunk_id = 4 bytes
+        .DEF_MODULE, .DEF_METHOD, .DEF_SINGLETON_METHOD,
+        .DEF_CLASS,
+        => 4,
+
+        // SUPER: u8 argc + u8 flags + u16 block_chunk_id = 4 bytes
+        .SUPER => 4,
+
+        // FORWARDING_SUPER: u16 block_chunk_id = 2 bytes
+        .FORWARDING_SUPER => 2,
+
+        // PUSH_REGEXP: u16 pattern + u16 options = 4 bytes
+        .PUSH_REGEXP => 4,
+
+        // ALIAS_METHOD: u16 new_name + u16 old_name = 4 bytes
+        .ALIAS_METHOD => 4,
+
+        // CALL: u16 method_idx + u8 argc + u8 call_flags + u16 block_chunk_id = 6 bytes
+        .CALL => 6,
+
+        // CALL_KW: u16 method_idx + u8 argc + u8 kwargc + u8 call_flags + u16 kw_metadata_idx + u16 block_chunk_id = 9 bytes
+        .CALL_KW => 9,
+    };
+}
+
 pub fn opcodeName(op: OpCode) []const u8 {
     return switch (op) {
         .PUSH_NIL => "PUSH_NIL",
@@ -135,6 +199,7 @@ pub fn opcodeName(op: OpCode) []const u8 {
         .PUSH_FALSE => "PUSH_FALSE",
         .PUSH_CONST => "PUSH_CONST",
         .PUSH_SYMBOL => "PUSH_SYMBOL",
+        .PUSH_I8 => "PUSH_I8",
         .GET_LOCAL => "GET_LOCAL",
         .GET_LOCAL_DEEP => "GET_LOCAL_DEEP",
         .SET_LOCAL => "SET_LOCAL",
@@ -166,6 +231,10 @@ pub fn opcodeName(op: OpCode) []const u8 {
         .OPT_MULT => "OPT_MULT",
         .OPT_DIV => "OPT_DIV",
         .OPT_EQ => "OPT_EQ",
+        .OPT_LT => "OPT_LT",
+        .OPT_GT => "OPT_GT",
+        .OPT_LE => "OPT_LE",
+        .OPT_GE => "OPT_GE",
         .RETURN => "RETURN",
         .DEF_MODULE => "DEF_MODULE",
         .DEF_CLASS => "DEF_CLASS",

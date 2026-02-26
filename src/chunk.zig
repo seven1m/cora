@@ -25,39 +25,39 @@ pub const Constant = union(enum) {
 };
 
 pub const RescueHandler = struct {
-    exception_type_expr_chunks: std.ArrayList(ChunkId) = .empty, // Chunk IDs for rescue type expressions
-    catch_instr_idx: usize, // Instruction index to jump to for this rescue
-    catch_end_instr_idx: usize, // End instruction index of rescue clause
-    var_idx: ?u8, // Local var index for exception binding (=> e)
+    exception_type_expr_chunks: std.ArrayList(ChunkId) = .empty,
+    catch_byte_offset: usize,
+    catch_end_byte_offset: usize,
+    var_idx: ?u8,
 };
 
 pub const ExceptionHandler = struct {
-    try_start_instr_idx: usize, // Start instruction index of protected region
-    try_end_instr_idx: usize, // End instruction index of protected region
+    try_start_byte_offset: usize,
+    try_end_byte_offset: usize,
     rescue_handlers: std.ArrayList(RescueHandler) = .empty,
-    else_instr_idx: ?usize, // Else clause instruction index (runs if no exception)
-    ensure_instr_idx: ?usize, // Ensure clause instruction index (always runs)
-    ensure_end_instr_idx: ?usize, // End instruction index of ensure block
+    else_byte_offset: ?usize,
+    ensure_byte_offset: ?usize,
+    ensure_end_byte_offset: ?usize,
 };
 
 pub const OptionalParam = struct {
-    param_index: u8, // Local slot for this parameter
-    default_chunk_id: ChunkId, // Chunk ID containing default expression
+    param_index: u8,
+    default_chunk_id: ChunkId,
 };
 
 pub const KeywordMetadata = struct {
-    names: std.ArrayList(u16) = .empty, // Symbol indices in constant pool
+    names: std.ArrayList(u16) = .empty,
 };
 
 pub const RequiredKeyword = struct {
-    name_idx: u16, // Constant pool index (symbol)
-    param_slot: u8, // Local variable slot
+    name_idx: u16,
+    param_slot: u8,
 };
 
 pub const OptionalKeyword = struct {
-    name_idx: u16, // Constant pool index (symbol)
-    param_slot: u8, // Local variable slot
-    default_chunk_id: ChunkId, // Chunk with default expression
+    name_idx: u16,
+    param_slot: u8,
+    default_chunk_id: ChunkId,
 };
 
 pub const CallSiteCache = struct {
@@ -68,13 +68,7 @@ pub const CallSiteCache = struct {
     entry: MethodEntry,
 };
 
-pub const CallSiteKind = enum {
-    call,
-    call_kw,
-};
-
 pub const CallSiteDescriptor = struct {
-    kind: CallSiteKind,
     method_idx: u16,
     method_sym: ?*SymbolObject = null,
     argc: u8,
@@ -84,48 +78,52 @@ pub const CallSiteDescriptor = struct {
     block_chunk_id: u16,
 };
 
-pub const ExecInstr = struct {
-    op: OpCode,
-    operands: [9]u8 = [_]u8{0} ** 9,
-    operand_len: u8 = 0,
+pub const LineInfo = struct {
+    byte_offset: u32,
+    line: u32,
 };
 
 pub const Chunk = struct {
+    // Flat bytecode stream
+    code: std.ArrayList(u8) = .empty,
+
     constants: std.ArrayList(Constant) = .empty,
-    constant_names: std.StringHashMap(u32), // Name -> constant index
-    line_info: std.ArrayList(u32) = .empty,
+    constant_names: std.StringHashMap(u32),
+    line_info: std.ArrayList(LineInfo) = .empty,
     allocator: std.mem.Allocator,
     name: []const u8,
     name_owned: bool = false,
     chunk_id: ?ChunkId = null,
-    arity: u8 = 0, // For block chunks: number of pre-rest required parameters
-    is_lambda: bool = false, // Distinguishes lambda from proc
-    optional_params: std.ArrayList(OptionalParam) = .empty, // Optional parameters with defaults
-    rest_param_index: ?u8 = null, // Slot where rest array is stored
-    post_required_count: u8 = 0, // Required params after rest
+    arity: u8 = 0,
+    locals_count: u8 = 0, // Total number of locals (including params)
+    is_lambda: bool = false,
+    optional_params: std.ArrayList(OptionalParam) = .empty,
+    rest_param_index: ?u8 = null,
+    post_required_count: u8 = 0,
     lexical_scope: ?*LexicalScope = null,
     exception_handlers: std.ArrayList(ExceptionHandler) = .empty,
     source_file: ?[]const u8 = null,
     source_file_owned: bool = false,
     required_keywords: std.ArrayList(RequiredKeyword) = .empty,
     optional_keywords: std.ArrayList(OptionalKeyword) = .empty,
-    keyword_rest_index: ?u8 = null, // Slot for **kwargs hash
-    no_keywords: bool = false, // True if **nil specified
+    keyword_rest_index: ?u8 = null,
+    no_keywords: bool = false,
     keyword_metadata: std.ArrayList(KeywordMetadata) = .empty,
-    block_param_index: ?u8 = null, // Local slot for &block parameter
-    callsite_caches_by_instr: std.ArrayList(?CallSiteCache) = .empty,
-    callsite_descriptors_by_instr: std.ArrayList(?CallSiteDescriptor) = .empty,
-    exec_code: std.ArrayList(ExecInstr) = .empty,
+    block_param_index: ?u8 = null,
+
+    /// Set by compiler: true if this chunk has a simple positional-only signature
+    /// (no optional/rest/keyword/block params).
+    is_simple_positional: bool = false,
+
+    // Callsite caches indexed by callsite_id
+    callsite_caches: std.ArrayList(?CallSiteCache) = .empty,
+    callsite_descriptors: std.ArrayList(?CallSiteDescriptor) = .empty,
 
     pub fn init(allocator: std.mem.Allocator, name: []const u8) Chunk {
         return Chunk{
-            .constants = .empty,
             .constant_names = std.StringHashMap(u32).init(allocator),
-            .line_info = .empty,
             .allocator = allocator,
             .name = name,
-            .chunk_id = null,
-            .arity = 0,
         };
     }
 
@@ -147,14 +145,14 @@ pub const Chunk = struct {
         }
         self.constants.deinit(self.allocator);
         var constant_name_iter = self.constant_names.keyIterator();
-        while (constant_name_iter.next()) |name| {
-            self.allocator.free(name.*);
+        while (constant_name_iter.next()) |key| {
+            self.allocator.free(key.*);
         }
         self.constant_names.deinit();
         self.line_info.deinit(self.allocator);
+        self.code.deinit(self.allocator);
         self.optional_params.deinit(self.allocator);
 
-        // Free exception handler tables
         for (self.exception_handlers.items) |*handler| {
             for (handler.rescue_handlers.items) |*rescue| {
                 rescue.exception_type_expr_chunks.deinit(self.allocator);
@@ -163,16 +161,14 @@ pub const Chunk = struct {
         }
         self.exception_handlers.deinit(self.allocator);
 
-        // Free keyword structures
         self.required_keywords.deinit(self.allocator);
         self.optional_keywords.deinit(self.allocator);
         for (self.keyword_metadata.items) |*kw_meta| {
             kw_meta.names.deinit(self.allocator);
         }
         self.keyword_metadata.deinit(self.allocator);
-        self.callsite_caches_by_instr.deinit(self.allocator);
-        self.callsite_descriptors_by_instr.deinit(self.allocator);
-        self.exec_code.deinit(self.allocator);
+        self.callsite_caches.deinit(self.allocator);
+        self.callsite_descriptors.deinit(self.allocator);
     }
 
     pub fn setSourceFile(self: *Chunk, source_file: ?[]const u8) !void {
@@ -219,140 +215,203 @@ pub const Chunk = struct {
         return self.constant_names.get(name);
     }
 
-    /// Emit an opcode without operands
-    pub fn emitOp(self: *Chunk, op: bytecode.OpCode, line: u32) !void {
-        try self.emitInstr(op, &[_]u8{}, line);
+    // =========================================================================
+    // Emit helpers - write packed bytes to the code stream
+    // =========================================================================
+
+    fn recordLine(self: *Chunk, line: u32) !void {
+        const offset: u32 = @intCast(self.code.items.len);
+        // Only record if line changed from last entry
+        if (self.line_info.items.len > 0) {
+            const last = &self.line_info.items[self.line_info.items.len - 1];
+            if (last.line == line) return;
+        }
+        try self.line_info.append(self.allocator, .{ .byte_offset = offset, .line = line });
+    }
+
+    /// Current byte offset (for jump patching)
+    pub fn currentOffset(self: *Chunk) usize {
+        return self.code.items.len;
+    }
+
+    /// Emit opcode with no operands
+    pub fn emitOp(self: *Chunk, op: OpCode, line: u32) !void {
+        try self.recordLine(line);
+        try self.code.append(self.allocator, @intFromEnum(op));
     }
 
     /// Emit opcode with u8 operand
-    pub fn emitOpU8(self: *Chunk, op: bytecode.OpCode, operand: u8, line: u32) !void {
-        try self.emitInstr(op, &[_]u8{operand}, line);
+    pub fn emitOpU8(self: *Chunk, op: OpCode, operand: u8, line: u32) !void {
+        try self.recordLine(line);
+        try self.code.append(self.allocator, @intFromEnum(op));
+        try self.code.append(self.allocator, operand);
     }
 
-    /// Emit opcode with u16 operand
-    pub fn emitOpU16(self: *Chunk, op: bytecode.OpCode, operand: u16, line: u32) !void {
-        try self.emitInstr(op, &[_]u8{
-            @intCast(operand & 0xFF),
-            @intCast((operand >> 8) & 0xFF),
-        }, line);
+    /// Emit opcode with i8 operand
+    pub fn emitOpI8(self: *Chunk, op: OpCode, operand: i8, line: u32) !void {
+        try self.recordLine(line);
+        try self.code.append(self.allocator, @intFromEnum(op));
+        try self.code.append(self.allocator, @bitCast(operand));
     }
 
-    /// Emit opcode with i16 operand (for jumps)
-    pub fn emitOpI16(self: *Chunk, op: bytecode.OpCode, operand: i16, line: u32) !void {
-        const unsigned: u16 = @bitCast(operand);
-        try self.emitInstr(op, &[_]u8{
-            @intCast(unsigned & 0xFF),
-            @intCast((unsigned >> 8) & 0xFF),
-        }, line);
+    /// Emit opcode with u16 operand (little-endian)
+    pub fn emitOpU16(self: *Chunk, op: OpCode, operand: u16, line: u32) !void {
+        try self.recordLine(line);
+        try self.code.append(self.allocator, @intFromEnum(op));
+        try self.code.append(self.allocator, @intCast(operand & 0xFF));
+        try self.code.append(self.allocator, @intCast(operand >> 8));
     }
 
     /// Emit opcode with two u8 operands
-    pub fn emitOpU8U8(self: *Chunk, op: bytecode.OpCode, a: u8, b: u8, line: u32) !void {
-        try self.emitInstr(op, &[_]u8{ a, b }, line);
+    pub fn emitOpU8U8(self: *Chunk, op: OpCode, a: u8, b: u8, line: u32) !void {
+        try self.recordLine(line);
+        try self.code.append(self.allocator, @intFromEnum(op));
+        try self.code.append(self.allocator, a);
+        try self.code.append(self.allocator, b);
     }
 
-    /// Emit opcode with u16 and u8 operands
-    pub fn emitOpU16U8(self: *Chunk, op: bytecode.OpCode, a: u16, b: u8, line: u32) !void {
-        try self.emitInstr(op, &[_]u8{
-            @intCast(a & 0xFF),
-            @intCast((a >> 8) & 0xFF),
-            b,
-        }, line);
+    /// Emit opcode with u16 + u8 operands
+    pub fn emitOpU16U8(self: *Chunk, op: OpCode, a: u16, b: u8, line: u32) !void {
+        try self.recordLine(line);
+        try self.code.append(self.allocator, @intFromEnum(op));
+        try self.code.append(self.allocator, @intCast(a & 0xFF));
+        try self.code.append(self.allocator, @intCast(a >> 8));
+        try self.code.append(self.allocator, b);
     }
 
-    /// Emit opcode with u16 and two u8 operands
-    pub fn emitOpU16U8U8(self: *Chunk, op: bytecode.OpCode, a: u16, b: u8, c: u8, line: u32) !void {
-        try self.emitInstr(op, &[_]u8{
-            @intCast(a & 0xFF),
-            @intCast((a >> 8) & 0xFF),
-            b,
-            c,
-        }, line);
+    /// Emit opcode with u16 + u8 + u8 operands
+    pub fn emitOpU16U8U8(self: *Chunk, op: OpCode, a: u16, b: u8, c: u8, line: u32) !void {
+        try self.recordLine(line);
+        try self.code.append(self.allocator, @intFromEnum(op));
+        try self.code.append(self.allocator, @intCast(a & 0xFF));
+        try self.code.append(self.allocator, @intCast(a >> 8));
+        try self.code.append(self.allocator, b);
+        try self.code.append(self.allocator, c);
     }
 
-    /// Emit opcode with u16, u8, and u16 operands
-    pub fn emitOpU16U8U16(self: *Chunk, op: bytecode.OpCode, a: u16, b: u8, c: u16, line: u32) !void {
-        try self.emitInstr(op, &[_]u8{
-            @intCast(a & 0xFF),
-            @intCast((a >> 8) & 0xFF),
-            b,
-            @intCast(c & 0xFF),
-            @intCast((c >> 8) & 0xFF),
-        }, line);
+    /// Emit opcode with u16 + u8 + u16 operands
+    pub fn emitOpU16U8U16(self: *Chunk, op: OpCode, a: u16, b: u8, c: u16, line: u32) !void {
+        try self.recordLine(line);
+        try self.code.append(self.allocator, @intFromEnum(op));
+        try self.code.append(self.allocator, @intCast(a & 0xFF));
+        try self.code.append(self.allocator, @intCast(a >> 8));
+        try self.code.append(self.allocator, b);
+        try self.code.append(self.allocator, @intCast(c & 0xFF));
+        try self.code.append(self.allocator, @intCast(c >> 8));
     }
 
     /// Emit opcode with two u16 operands
-    pub fn emitOpU16U16(self: *Chunk, op: bytecode.OpCode, a: u16, b: u16, line: u32) !void {
-        try self.emitInstr(op, &[_]u8{
-            @intCast(a & 0xFF),
-            @intCast((a >> 8) & 0xFF),
-            @intCast(b & 0xFF),
-            @intCast((b >> 8) & 0xFF),
-        }, line);
+    pub fn emitOpU16U16(self: *Chunk, op: OpCode, a: u16, b: u16, line: u32) !void {
+        try self.recordLine(line);
+        try self.code.append(self.allocator, @intFromEnum(op));
+        try self.code.append(self.allocator, @intCast(a & 0xFF));
+        try self.code.append(self.allocator, @intCast(a >> 8));
+        try self.code.append(self.allocator, @intCast(b & 0xFF));
+        try self.code.append(self.allocator, @intCast(b >> 8));
     }
 
-    /// Emit opcode with u8 and u16 operands
-    pub fn emitOpU8U16(self: *Chunk, op: bytecode.OpCode, a: u8, b: u16, line: u32) !void {
-        try self.emitInstr(op, &[_]u8{
-            a,
-            @intCast(b & 0xFF),
-            @intCast((b >> 8) & 0xFF),
-        }, line);
+    /// Emit opcode with u8 + u16 operands
+    pub fn emitOpU8U16(self: *Chunk, op: OpCode, a: u8, b: u16, line: u32) !void {
+        try self.recordLine(line);
+        try self.code.append(self.allocator, @intFromEnum(op));
+        try self.code.append(self.allocator, a);
+        try self.code.append(self.allocator, @intCast(b & 0xFF));
+        try self.code.append(self.allocator, @intCast(b >> 8));
     }
 
-    /// Emit CALL_KW instruction with keyword arguments
+    /// Emit CALL: u16 method_idx, u8 argc, u8 call_flags, u16 block_chunk_id
     pub fn emitCall(self: *Chunk, method_idx: u16, argc: u8, call_style: u8, block_chunk_id: u16, line: u32) !void {
-        try self.emitInstr(bytecode.OpCode.CALL, &[_]u8{
-            @intCast(method_idx & 0xFF),
-            @intCast((method_idx >> 8) & 0xFF),
-            argc,
-            call_style,
-            @intCast(block_chunk_id & 0xFF),
-            @intCast((block_chunk_id >> 8) & 0xFF),
-        }, line);
+        try self.recordLine(line);
+        try self.code.append(self.allocator, @intFromEnum(OpCode.CALL));
+        try self.code.append(self.allocator, @intCast(method_idx & 0xFF));
+        try self.code.append(self.allocator, @intCast(method_idx >> 8));
+        try self.code.append(self.allocator, argc);
+        try self.code.append(self.allocator, call_style);
+        try self.code.append(self.allocator, @intCast(block_chunk_id & 0xFF));
+        try self.code.append(self.allocator, @intCast(block_chunk_id >> 8));
     }
 
-    /// Emit CALL_KW instruction with keyword arguments
+    /// Emit CALL_KW: u16 method_idx, u8 argc, u8 kwargc, u8 call_flags, u16 kw_metadata_idx, u16 block_chunk_id
     pub fn emitCallKw(self: *Chunk, method_idx: u16, argc: u8, kwargc: u8, call_style: u8, kw_metadata_idx: u16, block_chunk_id: u16, line: u32) !void {
-        try self.emitInstr(bytecode.OpCode.CALL_KW, &[_]u8{
-            @intCast(method_idx & 0xFF),
-            @intCast((method_idx >> 8) & 0xFF),
-            argc,
-            kwargc,
-            call_style,
-            @intCast(kw_metadata_idx & 0xFF),
-            @intCast((kw_metadata_idx >> 8) & 0xFF),
-            @intCast(block_chunk_id & 0xFF),
-            @intCast((block_chunk_id >> 8) & 0xFF),
-        }, line);
+        try self.recordLine(line);
+        try self.code.append(self.allocator, @intFromEnum(OpCode.CALL_KW));
+        try self.code.append(self.allocator, @intCast(method_idx & 0xFF));
+        try self.code.append(self.allocator, @intCast(method_idx >> 8));
+        try self.code.append(self.allocator, argc);
+        try self.code.append(self.allocator, kwargc);
+        try self.code.append(self.allocator, call_style);
+        try self.code.append(self.allocator, @intCast(kw_metadata_idx & 0xFF));
+        try self.code.append(self.allocator, @intCast(kw_metadata_idx >> 8));
+        try self.code.append(self.allocator, @intCast(block_chunk_id & 0xFF));
+        try self.code.append(self.allocator, @intCast(block_chunk_id >> 8));
     }
 
     pub fn emitSuper(self: *Chunk, argc: u8, flags: u8, block_chunk_id: u16, line: u32) !void {
-        try self.emitInstr(bytecode.OpCode.SUPER, &[_]u8{
-            argc,
-            flags,
-            @intCast(block_chunk_id & 0xFF),
-            @intCast((block_chunk_id >> 8) & 0xFF),
-        }, line);
+        try self.recordLine(line);
+        try self.code.append(self.allocator, @intFromEnum(OpCode.SUPER));
+        try self.code.append(self.allocator, argc);
+        try self.code.append(self.allocator, flags);
+        try self.code.append(self.allocator, @intCast(block_chunk_id & 0xFF));
+        try self.code.append(self.allocator, @intCast(block_chunk_id >> 8));
     }
 
-    /// Emit a jump instruction and return the instruction index to patch.
-    pub fn emitJump(self: *Chunk, op: bytecode.OpCode, line: u32) !usize {
-        const instr_idx = self.exec_code.items.len;
-        try self.emitInstr(op, &[_]u8{ 0, 0 }, line);
-        return instr_idx;
+    /// Emit a jump instruction and return the byte offset of the i16 operand (for patching).
+    pub fn emitJump(self: *Chunk, op: OpCode, line: u32) !usize {
+        try self.recordLine(line);
+        try self.code.append(self.allocator, @intFromEnum(op));
+        const patch_offset = self.code.items.len;
+        try self.code.append(self.allocator, 0); // placeholder lo
+        try self.code.append(self.allocator, 0); // placeholder hi
+        return patch_offset;
     }
 
-    /// Patch a jump instruction at the given instruction index.
-    pub fn patchJump(self: *Chunk, jump_instr_idx: usize) !void {
-        const jump_target = self.exec_code.items.len;
-        if (jump_instr_idx >= self.exec_code.items.len) return error.InvalidJumpPatch;
-        var instr = &self.exec_code.items[jump_instr_idx];
-        if (instr.operand_len < 2) return error.InvalidJumpPatch;
-        const offset: i16 = @intCast(@as(i32, @intCast(jump_target)) - @as(i32, @intCast(jump_instr_idx)) - 1);
+    /// Emit a backward jump to a known target byte offset.
+    pub fn emitBackwardJump(self: *Chunk, op: OpCode, target: usize, line: u32) !void {
+        try self.recordLine(line);
+        try self.code.append(self.allocator, @intFromEnum(op));
+        // Offset is relative to the byte after the i16 operand
+        const next_ip = self.code.items.len + 2;
+        const offset: i16 = @intCast(@as(i32, @intCast(target)) - @as(i32, @intCast(next_ip)));
         const unsigned: u16 = @bitCast(offset);
-        instr.operands[0] = @intCast(unsigned & 0xFF);
-        instr.operands[1] = @intCast((unsigned >> 8) & 0xFF);
+        try self.code.append(self.allocator, @intCast(unsigned & 0xFF));
+        try self.code.append(self.allocator, @intCast(unsigned >> 8));
+    }
+
+    /// Patch a jump at the given byte offset. Target is current code end.
+    /// Offset is relative to the byte after the i16 operand (next instruction).
+    pub fn patchJump(self: *Chunk, patch_offset: usize) !void {
+        const target = self.code.items.len;
+        const next_ip = patch_offset + 2; // byte after the i16 operand
+        const offset: i16 = @intCast(@as(i32, @intCast(target)) - @as(i32, @intCast(next_ip)));
+        const unsigned: u16 = @bitCast(offset);
+        self.code.items[patch_offset] = @intCast(unsigned & 0xFF);
+        self.code.items[patch_offset + 1] = @intCast(unsigned >> 8);
+    }
+
+    /// Allocate a new callsite ID and return it.
+    pub fn nextCallsiteId(self: *Chunk) !u16 {
+        const id: u16 = @intCast(self.callsite_caches.items.len);
+        try self.callsite_caches.append(self.allocator, null);
+        try self.callsite_descriptors.append(self.allocator, null);
+        return id;
+    }
+
+    /// Look up line number for a byte offset (binary search on line_info).
+    pub fn getLine(self: *Chunk, byte_offset: usize) u32 {
+        if (self.line_info.items.len == 0) return 0;
+        // Binary search for the last entry with byte_offset <= target
+        var lo: usize = 0;
+        var hi: usize = self.line_info.items.len;
+        while (lo < hi) {
+            const mid = lo + (hi - lo) / 2;
+            if (self.line_info.items[mid].byte_offset <= byte_offset) {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        if (lo == 0) return self.line_info.items[0].line;
+        return self.line_info.items[lo - 1].line;
     }
 
     /// Print disassembly of this chunk
@@ -363,56 +422,16 @@ pub const Chunk = struct {
             try writer.print("== {s} ==\n", .{self.name});
         }
 
-        // Print parameter info
         if (self.rest_param_index) |rest_idx| {
             try writer.print("  arity: {d}, rest param at slot {d}, post-required: {d}\n", .{ self.arity, rest_idx, self.post_required_count });
         } else if (self.arity > 0) {
             try writer.print("  arity: {d}\n", .{self.arity});
         }
 
-        if (self.optional_params.items.len > 0) {
-            try writer.print("  optional params: ", .{});
-            for (self.optional_params.items, 0..) |opt, i| {
-                if (i > 0) try writer.print(", ", .{});
-                try writer.print("slot {d} (chunk {d})", .{ opt.param_index, opt.default_chunk_id });
-            }
-            try writer.print("\n", .{});
+        if (self.locals_count > 0) {
+            try writer.print("  locals: {d}\n", .{self.locals_count});
         }
 
-        // Print keyword parameter info
-        if (self.required_keywords.items.len > 0) {
-            try writer.print("  required keywords: ", .{});
-            for (self.required_keywords.items, 0..) |req_kw, i| {
-                if (i > 0) try writer.print(", ", .{});
-                const kw_name = self.constants.items[req_kw.name_idx].string;
-                try writer.print("{s} (slot {d})", .{ kw_name, req_kw.param_slot });
-            }
-            try writer.print("\n", .{});
-        }
-
-        if (self.optional_keywords.items.len > 0) {
-            try writer.print("  optional keywords: ", .{});
-            for (self.optional_keywords.items, 0..) |opt_kw, i| {
-                if (i > 0) try writer.print(", ", .{});
-                const kw_name = self.constants.items[opt_kw.name_idx].string;
-                try writer.print("{s} (slot {d}, chunk {d})", .{ kw_name, opt_kw.param_slot, opt_kw.default_chunk_id });
-            }
-            try writer.print("\n", .{});
-        }
-
-        if (self.keyword_rest_index) |rest_idx| {
-            try writer.print("  keyword rest at slot {d}\n", .{rest_idx});
-        }
-
-        if (self.no_keywords) {
-            try writer.print("  no keywords (**nil)\n", .{});
-        }
-
-        if (self.block_param_index) |block_idx| {
-            try writer.print("  block param at slot {d}\n", .{block_idx});
-        }
-
-        // Print constants
         if (self.constants.items.len > 0) {
             try writer.print("constants: ", .{});
             for (self.constants.items, 0..) |constant, i| {
@@ -429,42 +448,60 @@ pub const Chunk = struct {
             try writer.print("\n-----------\n", .{});
         }
 
-        for (self.exec_code.items, 0..) |instr, instr_idx| {
-            try self.disassembleInstruction(instr, instr_idx, writer);
+        // Disassemble byte stream
+        var offset: usize = 0;
+        while (offset < self.code.items.len) {
+            offset = try self.disassembleInstruction(offset, writer);
         }
     }
 
-    fn disassembleInstruction(self: *Chunk, instr: ExecInstr, instr_idx: usize, writer: *std.Io.Writer) !void {
-        try writer.print("{:0>4} ", .{instr_idx});
+    fn disassembleInstruction(self: *Chunk, offset: usize, writer: *std.Io.Writer) !usize {
+        try writer.print("{:0>4} ", .{offset});
 
-        if (instr_idx > 0 and instr_idx < self.line_info.items.len and
-            self.line_info.items[instr_idx] == self.line_info.items[instr_idx - 1])
-        {
+        const line = self.getLine(offset);
+        if (offset > 0 and line == self.getLine(offset - 1)) {
             try writer.print("   | ", .{});
-        } else if (instr_idx < self.line_info.items.len) {
-            try writer.print("{:4} ", .{self.line_info.items[instr_idx]});
         } else {
-            try writer.print("   ? ", .{});
+            try writer.print("{:4} ", .{line});
         }
 
-        const op = instr.op;
-        const operands = instr.operands[0..instr.operand_len];
-        var operand_cursor: usize = 0;
+        const op: OpCode = @enumFromInt(self.code.items[offset]);
+        var ip = offset + 1;
 
         switch (op) {
-            .PUSH_NIL, .PUSH_TRUE, .PUSH_FALSE, .PUSH_SELF, .POP, .DUP, .SWAP, .CASE_MATCH, .OPT_PLUS, .OPT_MINUS, .OPT_MULT, .OPT_DIV, .OPT_EQ, .HALT, .TRY_END, .CATCH_END, .ENSURE_START, .ENSURE_END, .RETRY, .BREAK, .MULTI_ASSIGN_PREPARE, .ARRAY_APPEND, .ARRAY_CONCAT_ARRAY, .YIELD_SPLAT => {
+            .PUSH_NIL, .PUSH_TRUE, .PUSH_FALSE, .PUSH_SELF, .POP, .DUP, .SWAP, .CASE_MATCH, .OPT_PLUS, .OPT_MINUS, .OPT_MULT, .OPT_DIV, .OPT_EQ, .OPT_LT, .OPT_GT, .OPT_LE, .OPT_GE, .HALT, .TRY_END, .CATCH_END, .ENSURE_START, .ENSURE_END, .RETRY, .BREAK, .MULTI_ASSIGN_PREPARE, .ARRAY_APPEND, .ARRAY_CONCAT_ARRAY, .YIELD_SPLAT => {
                 try writer.print("{s}\n", .{bytecode.opcodeName(op)});
             },
 
-            .DUP_N => {
-                const count = readU8(operands, &operand_cursor);
-                try writer.print("{s} {d}\n", .{ bytecode.opcodeName(op), count });
+            .PUSH_I8 => {
+                const val: i8 = @bitCast(self.code.items[ip]);
+                ip += 1;
+                try writer.print("PUSH_I8 {d}\n", .{val});
             },
 
-            .PUSH_CONST, .PUSH_SYMBOL, .GET_CONST, .GET_CONST_OR_NIL, .SET_CONST, .GET_CONST_PATH, .GET_GLOBAL, .GET_BACKREF, .SET_GLOBAL, .GET_CVAR, .GET_CVAR_OR_NIL, .SET_CVAR, .GET_IVAR, .SET_IVAR => {
-                const idx = readU16(operands, &operand_cursor);
+            .GET_LOCAL, .SET_LOCAL, .PUSH_RANGE, .INTERPOLATE_STRING, .RAISE, .CATCH_START, .DUP_N, .YIELD => {
+                const idx = self.code.items[ip];
+                ip += 1;
+                try writer.print("{s} {d}\n", .{ bytecode.opcodeName(op), idx });
+            },
+
+            .GET_LOCAL_DEEP, .SET_LOCAL_DEEP => {
+                const local_idx = self.code.items[ip];
+                const depth = self.code.items[ip + 1];
+                ip += 2;
+                try writer.print("{s} {d} {d}\n", .{ bytecode.opcodeName(op), local_idx, depth });
+            },
+
+            .RETURN => {
+                const is_explicit = self.code.items[ip];
+                ip += 1;
+                try writer.print("RETURN {s}\n", .{if (is_explicit == 1) "explicit" else "implicit"});
+            },
+
+            .PUSH_CONST, .PUSH_SYMBOL, .GET_CONST, .GET_CONST_OR_NIL, .SET_CONST, .GET_CONST_PATH, .GET_GLOBAL, .GET_BACKREF, .SET_GLOBAL, .GET_CVAR, .GET_CVAR_OR_NIL, .SET_CVAR, .GET_IVAR, .SET_IVAR, .PUSH_ARRAY, .PUSH_HASH, .TRY_BEGIN, .PUSH_LAMBDA, .DEF_SINGLETON_CLASS, .FORWARDING_SUPER => {
+                const idx = readU16(self.code.items, &ip);
                 try writer.print("{s} {d}", .{ bytecode.opcodeName(op), idx });
-                if (idx < self.constants.items.len) {
+                if ((op == .PUSH_CONST or op == .PUSH_SYMBOL or op == .GET_CONST or op == .GET_CONST_OR_NIL or op == .SET_CONST or op == .GET_CONST_PATH or op == .GET_GLOBAL or op == .SET_GLOBAL or op == .GET_CVAR or op == .GET_CVAR_OR_NIL or op == .SET_CVAR or op == .GET_IVAR or op == .SET_IVAR) and idx < self.constants.items.len) {
                     const constant = self.constants.items[idx];
                     switch (constant) {
                         .integer => |i| try writer.print(" ({d})", .{i}),
@@ -477,218 +514,87 @@ pub const Chunk = struct {
                 try writer.print("\n", .{});
             },
 
-            .DEF_MODULE => {
-                const idx = readU16(operands, &operand_cursor);
-                const chunk_id = readU8(operands, &operand_cursor);
-                try writer.print("{s} {d} {d}", .{ bytecode.opcodeName(op), idx, chunk_id });
-                if (idx < self.constants.items.len) {
-                    const constant = self.constants.items[idx];
-                    if (constant == .string) {
-                        try writer.print(" (\"{s}\")", .{constant.string});
-                    }
-                }
-                try writer.print("\n", .{});
-            },
-
-            .GET_LOCAL, .SET_LOCAL, .PUSH_RANGE, .INTERPOLATE_STRING, .RAISE, .CATCH_START => {
-                const idx = readU8(operands, &operand_cursor);
-                try writer.print("{s} {d}\n", .{ bytecode.opcodeName(op), idx });
-            },
-
-            .PUSH_ARRAY, .PUSH_HASH => {
-                const count = readU16(operands, &operand_cursor);
-                try writer.print("{s} {d}\n", .{ bytecode.opcodeName(op), count });
-            },
-
-            .GET_LOCAL_DEEP, .SET_LOCAL_DEEP => {
-                const local_idx = readU8(operands, &operand_cursor);
-                const depth = readU8(operands, &operand_cursor);
-                try writer.print("{s} {d} {d}\n", .{ bytecode.opcodeName(op), local_idx, depth });
-            },
-
-            .TRY_BEGIN => {
-                const handler_idx = readU16(operands, &operand_cursor);
-                try writer.print("{s} {d}\n", .{ bytecode.opcodeName(op), handler_idx });
-            },
-
             .JUMP, .JUMP_IF_FALSE, .JUMP_IF_TRUE => {
-                const offset = readI16(operands, &operand_cursor);
-                try writer.print("{s} {d}\n", .{ bytecode.opcodeName(op), offset });
+                const signed_offset = readI16(self.code.items, &ip);
+                const target: i32 = @as(i32, @intCast(ip)) + signed_offset;
+                try writer.print("{s} {d} (-> {d})\n", .{ bytecode.opcodeName(op), signed_offset, target });
             },
 
             .CALL => {
-                const method_idx = readU16(operands, &operand_cursor);
-                const argc = readU8(operands, &operand_cursor);
-                const call_style = readU8(operands, &operand_cursor);
-                const block_id = readU16(operands, &operand_cursor);
-                try writer.print("CALL {d}, {d}, {d}, {d}\n", .{ method_idx, argc, call_style, block_id });
+                const method_idx = readU16(self.code.items, &ip);
+                const argc = self.code.items[ip];
+                ip += 1;
+                const call_flags = self.code.items[ip];
+                ip += 1;
+                const block_id = readU16(self.code.items, &ip);
+                try writer.print("CALL {d}", .{method_idx});
+                if (method_idx < self.constants.items.len) {
+                    const c = self.constants.items[method_idx];
+                    if (c == .string) try writer.print(" (\"{s}\")", .{c.string});
+                }
+                try writer.print(", argc={d}, flags={d}, block={d}\n", .{ argc, call_flags, block_id });
             },
 
             .CALL_KW => {
-                const method_idx = readU16(operands, &operand_cursor);
-                const argc = readU8(operands, &operand_cursor);
-                const kwargc = readU8(operands, &operand_cursor);
-                const call_style = readU8(operands, &operand_cursor);
-                const kw_metadata_idx = readU16(operands, &operand_cursor);
-                const block_id = readU16(operands, &operand_cursor);
+                const method_idx = readU16(self.code.items, &ip);
+                const argc = self.code.items[ip];
+                ip += 1;
+                const kwargc = self.code.items[ip];
+                ip += 1;
+                const call_flags = self.code.items[ip];
+                ip += 1;
+                const kw_metadata_idx = readU16(self.code.items, &ip);
+                const block_id = readU16(self.code.items, &ip);
+                try writer.print("CALL_KW {d}, {d}, {d}, {d}, {d}, {d}\n", .{ method_idx, argc, kwargc, call_flags, kw_metadata_idx, block_id });
+            },
 
-                try writer.print("CALL_KW {d}, {d}, {d}, {d}, {d}, {d}", .{ method_idx, argc, kwargc, call_style, kw_metadata_idx, block_id });
-
-                // Show keyword names if metadata is available
-                if (kw_metadata_idx < self.keyword_metadata.items.len) {
-                    const kw_meta = self.keyword_metadata.items[kw_metadata_idx];
-                    try writer.print(" (keywords: ", .{});
-                    for (kw_meta.names.items, 0..) |name_idx, i| {
-                        if (i > 0) try writer.print(", ", .{});
-                        if (name_idx < self.constants.items.len) {
-                            const kw_name = self.constants.items[name_idx].string;
-                            try writer.print("{s}", .{kw_name});
-                        }
-                    }
-                    try writer.print(")", .{});
+            .DEF_METHOD, .DEF_SINGLETON_METHOD, .ALIAS_METHOD, .PUSH_REGEXP, .DEF_MODULE => {
+                const a = readU16(self.code.items, &ip);
+                const b = readU16(self.code.items, &ip);
+                try writer.print("{s} {d} {d}", .{ bytecode.opcodeName(op), a, b });
+                if (a < self.constants.items.len) {
+                    const c = self.constants.items[a];
+                    if (c == .string) try writer.print(" (\"{s}\")", .{c.string});
                 }
                 try writer.print("\n", .{});
             },
 
             .DEF_CLASS => {
-                const name_idx = readU16(operands, &operand_cursor);
-                const body_chunk_id = readU8(operands, &operand_cursor);
+                const name_idx = readU16(self.code.items, &ip);
+                const body_chunk_id = readU16(self.code.items, &ip);
                 try writer.print("DEF_CLASS {d}", .{name_idx});
                 if (name_idx < self.constants.items.len) {
-                    const constant = self.constants.items[name_idx];
-                    if (constant == .string) {
-                        try writer.print(" (\"{s}\")", .{constant.string});
-                    }
+                    const c = self.constants.items[name_idx];
+                    if (c == .string) try writer.print(" (\"{s}\")", .{c.string});
                 }
-                try writer.print(" {d} (chunk {d})\n", .{ body_chunk_id, body_chunk_id });
-            },
-
-            .DEF_SINGLETON_CLASS => {
-                const body_chunk_id = readU16(operands, &operand_cursor);
-                try writer.print("DEF_SINGLETON_CLASS {d} (chunk {d})\n", .{ body_chunk_id, body_chunk_id });
-            },
-
-            .DEF_METHOD => {
-                const name_idx = readU16(operands, &operand_cursor);
-                const chunk_idx = readU16(operands, &operand_cursor);
-                try writer.print("DEF_METHOD {d}", .{name_idx});
-                if (name_idx < self.constants.items.len) {
-                    const constant = self.constants.items[name_idx];
-                    if (constant == .string) {
-                        try writer.print(" (:{s})", .{constant.string});
-                    }
-                }
-                try writer.print(" {d} (chunk {d})\n", .{ chunk_idx, chunk_idx });
-            },
-
-            .DEF_SINGLETON_METHOD => {
-                const name_idx = readU16(operands, &operand_cursor);
-                const chunk_idx = readU16(operands, &operand_cursor);
-                try writer.print("DEF_SINGLETON_METHOD {d}", .{name_idx});
-                if (name_idx < self.constants.items.len) {
-                    const constant = self.constants.items[name_idx];
-                    if (constant == .string) {
-                        try writer.print(" (:{s})", .{constant.string});
-                    }
-                }
-                try writer.print(" {d} (chunk {d})\n", .{ chunk_idx, chunk_idx });
-            },
-
-            .YIELD => {
-                const argc = readU8(operands, &operand_cursor);
-                try writer.print("YIELD {d}\n", .{argc});
-            },
-
-            .PUSH_LAMBDA => {
-                const chunk_id = readU16(operands, &operand_cursor);
-                try writer.print("PUSH_LAMBDA {d}\n", .{chunk_id});
-            },
-
-            .RETURN => {
-                const is_explicit = readU8(operands, &operand_cursor);
-                try writer.print("RETURN {s}\n", .{if (is_explicit == 1) "explicit" else "implicit"});
+                try writer.print(" {d}\n", .{body_chunk_id});
             },
 
             .SUPER => {
-                const argc = readU8(operands, &operand_cursor);
-                const flags = readU8(operands, &operand_cursor);
-                const block_id = readU16(operands, &operand_cursor);
-                const args_array_mode = (flags & bytecode.SUPER_FLAG_ARGS_ARRAY) != 0;
-                try writer.print("SUPER {d}, {d}", .{ argc, block_id });
-                if (args_array_mode) {
-                    try writer.print(" (args_array)", .{});
-                }
-                try writer.print("\n", .{});
-            },
-
-            .FORWARDING_SUPER => {
-                const block_id = readU16(operands, &operand_cursor);
-                try writer.print("FORWARDING_SUPER {d}\n", .{block_id});
-            },
-
-            .PUSH_REGEXP => {
-                const pattern_idx = readU16(operands, &operand_cursor);
-                const options = readU16(operands, &operand_cursor);
-                try writer.print("PUSH_REGEXP {d} {d}", .{ pattern_idx, options });
-                if (pattern_idx < self.constants.items.len) {
-                    const constant = self.constants.items[pattern_idx];
-                    if (constant == .string) {
-                        try writer.print(" (/{s}/)", .{constant.string});
-                    }
-                }
-                try writer.print("\n", .{});
-            },
-
-            .ALIAS_METHOD => {
-                const new_name_idx = readU16(operands, &operand_cursor);
-                const old_name_idx = readU16(operands, &operand_cursor);
-                try writer.print("ALIAS_METHOD {d} {d}", .{ new_name_idx, old_name_idx });
-                if (new_name_idx < self.constants.items.len) {
-                    const new_const = self.constants.items[new_name_idx];
-                    if (new_const == .string) {
-                        try writer.print(" (:{s}", .{new_const.string});
-                        if (old_name_idx < self.constants.items.len) {
-                            const old_const = self.constants.items[old_name_idx];
-                            if (old_const == .string) {
-                                try writer.print(" <- :{s}", .{old_const.string});
-                            }
-                        }
-                        try writer.print(")", .{});
-                    }
-                }
-                try writer.print("\n", .{});
+                const argc = self.code.items[ip];
+                ip += 1;
+                const flags = self.code.items[ip];
+                ip += 1;
+                const block_id = readU16(self.code.items, &ip);
+                try writer.print("SUPER {d}, {d}, {d}\n", .{ argc, flags, block_id });
             },
         }
+
+        return ip;
     }
 
-    fn emitInstr(self: *Chunk, op: bytecode.OpCode, operands: []const u8, line: u32) !void {
-        if (operands.len > 9) return error.InvalidOperandCount;
-        var instr = ExecInstr{
-            .op = op,
-            .operands = [_]u8{0} ** 9,
-            .operand_len = @intCast(operands.len),
-        };
-        if (operands.len > 0) {
-            @memcpy(instr.operands[0..operands.len], operands);
-        }
-        try self.exec_code.append(self.allocator, instr);
-        try self.line_info.append(self.allocator, line);
-    }
+    // =========================================================================
+    // Byte reading helpers (for disassembly and VM)
+    // =========================================================================
 
-    fn readU8(operands: []const u8, cursor: *usize) u8 {
-        const out = operands[cursor.*];
-        cursor.* += 1;
-        return out;
-    }
-
-    fn readU16(operands: []const u8, cursor: *usize) u16 {
-        const lo: u16 = operands[cursor.*];
-        const hi: u16 = operands[cursor.* + 1];
-        cursor.* += 2;
+    pub fn readU16(code: []const u8, ip: *usize) u16 {
+        const lo: u16 = code[ip.*];
+        const hi: u16 = code[ip.* + 1];
+        ip.* += 2;
         return lo | (hi << 8);
     }
 
-    fn readI16(operands: []const u8, cursor: *usize) i16 {
-        return @bitCast(readU16(operands, cursor));
+    pub fn readI16(code: []const u8, ip: *usize) i16 {
+        return @bitCast(readU16(code, ip));
     }
 };

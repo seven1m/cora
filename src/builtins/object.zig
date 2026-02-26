@@ -21,10 +21,10 @@ pub fn register(vm: *VM) !void {
 }
 
 pub fn builtinObjectNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
-    const class_ptr = switch (receiver.data) {
-        .class => |class| class,
-        else => return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Class", .{}),
-    };
+    if (!receiver.isClass()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Class", .{});
+    }
+    const class_ptr = receiver.toClassObject();
     const instance = try vm.newObjectForClass(class_ptr);
 
     // Call initialize if it exists
@@ -42,15 +42,13 @@ pub fn builtinObjectNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
 
 pub fn builtinObjectObjectId(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-
     const object_id: i64 = receiver.objectId();
-
-    return Value{ .data = .{ .integer = object_id } };
+    return Value.integer(object_id);
 }
 
 pub fn builtinObjectClass(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    return Value{ .data = .{ .class = vm.getClass(receiver) } };
+    return Value.fromObject(vm.getClass(receiver));
 }
 
 pub fn builtinObjectCaseEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

@@ -30,7 +30,7 @@ pub fn builtinEnvBracketSet(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
     try vm.requireArgCount(args, 2);
     const key = try args[0].coerceToStr(vm, "no implicit conversion into String");
 
-    if (args[1].data == .nil) {
+    if (args[1].isNil()) {
         return vm.envUnset(key, true);
     }
 

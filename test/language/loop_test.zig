@@ -13,7 +13,7 @@ test "loop - repeats until break" {
         \\end
         \\i
     );
-    try std.testing.expectEqual(@as(i64, 10), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 10), result.toInteger());
 }
 
 test "loop - returns break value" {
@@ -22,7 +22,7 @@ test "loop - returns break value" {
         \\  break 123
         \\end
     );
-    try std.testing.expectEqual(@as(i64, 123), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 123), result.toInteger());
 }
 
 test "loop - bare break returns nil" {
@@ -31,7 +31,7 @@ test "loop - bare break returns nil" {
         \\  break
         \\end
     );
-    try std.testing.expect(result.data == .nil);
+    try std.testing.expect(result.isNil());
 }
 
 test "loop - nested break exits innermost loop call" {
@@ -45,7 +45,7 @@ test "loop - nested break exits innermost loop call" {
         \\  break outer if inner == 99
         \\end
     );
-    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
 }
 
 test "loop - propagates non-break exceptions" {

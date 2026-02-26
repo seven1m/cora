@@ -6,62 +6,62 @@ const evalCodeWithOutput = test_helper.evalCodeWithOutput;
 
 test "Regexp inspect" {
     const result = try evalCode("/hello/.inspect");
-    try std.testing.expect(result.data == .string);
-    try std.testing.expectEqualStrings("/hello/", result.data.string.str);
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualStrings("/hello/", result.toStringObject().str);
 }
 
 test "Regexp with flags" {
     const result = try evalCode("/hello/i.inspect");
-    try std.testing.expect(result.data == .string);
-    try std.testing.expectEqualStrings("/hello/i", result.data.string.str);
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualStrings("/hello/i", result.toStringObject().str);
 }
 
 test "Regexp source" {
     const result = try evalCode("/hello/.source");
-    try std.testing.expect(result.data == .string);
-    try std.testing.expectEqualStrings("hello", result.data.string.str);
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualStrings("hello", result.toStringObject().str);
 }
 
 test "Regexp options" {
     const result = try evalCode("/hello/i.options");
-    try std.testing.expect(result.data == .integer);
-    try std.testing.expectEqual(1, result.data.integer);
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(1, result.toInteger());
 }
 
 test "Regexp options with multiple flags" {
     const result = try evalCode("/hello/im.options");
-    try std.testing.expect(result.data == .integer);
-    try std.testing.expectEqual(5, result.data.integer);
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(5, result.toInteger());
 }
 
 test "Regexp casefold? true" {
     const result = try evalCode("/hello/i.casefold?");
-    try std.testing.expect(result.data == .boolean);
-    try std.testing.expectEqual(true, result.data.boolean);
+    try std.testing.expect(result.isBool());
+    try std.testing.expectEqual(true, result.toBool());
 }
 
 test "Regexp casefold? false" {
     const result = try evalCode("/hello/.casefold?");
-    try std.testing.expect(result.data == .boolean);
-    try std.testing.expectEqual(false, result.data.boolean);
+    try std.testing.expect(result.isBool());
+    try std.testing.expectEqual(false, result.toBool());
 }
 
 test "Regexp equality" {
     const result = try evalCode("/hello/ == /hello/");
-    try std.testing.expect(result.data == .boolean);
-    try std.testing.expectEqual(true, result.data.boolean);
+    try std.testing.expect(result.isBool());
+    try std.testing.expectEqual(true, result.toBool());
 }
 
 test "Regexp inequality different pattern" {
     const result = try evalCode("/hello/ == /world/");
-    try std.testing.expect(result.data == .boolean);
-    try std.testing.expectEqual(false, result.data.boolean);
+    try std.testing.expect(result.isBool());
+    try std.testing.expectEqual(false, result.toBool());
 }
 
 test "Regexp inequality different flags" {
     const result = try evalCode("/hello/ == /hello/i");
-    try std.testing.expect(result.data == .boolean);
-    try std.testing.expectEqual(false, result.data.boolean);
+    try std.testing.expect(result.isBool());
+    try std.testing.expectEqual(false, result.toBool());
 }
 
 test "Invalid regexp raises RegexpError" {
@@ -80,32 +80,32 @@ test "Invalid regexp raises RegexpError" {
         // The error should have been caught by rescue
         try std.testing.expect(false);
     } else {
-        try std.testing.expect(result.value.data == .string);
+        try std.testing.expect(result.value.isString());
     }
 }
 
 test "Regexp to_s" {
     const result = try evalCode("/hello/.to_s");
-    try std.testing.expect(result.data == .string);
-    try std.testing.expectEqualStrings("(?-imx:hello)", result.data.string.str);
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualStrings("(?-imx:hello)", result.toStringObject().str);
 }
 
 test "Regexp to_s with ignorecase flag" {
     const result = try evalCode("/hello/i.to_s");
-    try std.testing.expect(result.data == .string);
-    try std.testing.expectEqualStrings("(?i-mx:hello)", result.data.string.str);
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualStrings("(?i-mx:hello)", result.toStringObject().str);
 }
 
 test "Regexp =~ returns match index" {
     const result = try evalCode("/a/ =~ \"cat\"");
-    try std.testing.expect(result.data == .integer);
-    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
 }
 
 test "Regexp =~ coerces Symbol argument" {
     const result = try evalCode("/a/ =~ :cat");
-    try std.testing.expect(result.data == .integer);
-    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
 }
 
 test "Regexp =~ clears backref globals on no match" {
@@ -114,17 +114,17 @@ test "Regexp =~ clears backref globals on no match" {
         \\ /z/ =~ "cat"
         \\ [$~, $1]
     );
-    try std.testing.expect(result.data == .array);
-    const items = result.data.array.elements.items;
+    try std.testing.expect(result.isArray());
+    const items = result.toArrayObject().elements.items;
     try std.testing.expectEqual(@as(usize, 2), items.len);
-    try std.testing.expect(items[0].data == .nil);
-    try std.testing.expect(items[1].data == .nil);
+    try std.testing.expect(items[0].isNil());
+    try std.testing.expect(items[1].isNil());
 }
 
 test "String =~ Regexp returns match index" {
     const result = try evalCode("\"cat\" =~ /a/");
-    try std.testing.expect(result.data == .integer);
-    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
 }
 
 test "String =~ String raises TypeError" {
@@ -135,8 +135,8 @@ test "String =~ String raises TypeError" {
         \\   e.instance_of?(TypeError)
         \\ end
     );
-    try std.testing.expect(result.data == .boolean);
-    try std.testing.expectEqual(true, result.data.boolean);
+    try std.testing.expect(result.isBool());
+    try std.testing.expectEqual(true, result.toBool());
 }
 
 test "Regexp =~ sets backref globals and MatchData methods" {
@@ -156,25 +156,25 @@ test "Regexp =~ sets backref globals and MatchData methods" {
         \\   $~.post_match
         \\ ]
     );
-    try std.testing.expect(result.data == .array);
-    const items = result.data.array.elements.items;
+    try std.testing.expect(result.isArray());
+    const items = result.toArrayObject().elements.items;
     try std.testing.expectEqual(@as(usize, 11), items.len);
-    try std.testing.expect(items[0].data == .boolean and items[0].data.boolean);
-    try std.testing.expect(items[1].data == .string);
-    try std.testing.expectEqualStrings("a", items[1].data.string.str);
-    try std.testing.expect(items[2].data == .string);
-    try std.testing.expectEqualStrings("b", items[2].data.string.str);
-    try std.testing.expect(items[3].data == .nil);
-    try std.testing.expect(items[4].data == .string);
-    try std.testing.expectEqualStrings("ab", items[4].data.string.str);
-    try std.testing.expect(items[5].data == .string);
-    try std.testing.expectEqualStrings("a", items[5].data.string.str);
-    try std.testing.expect(items[6].data == .array);
-    try std.testing.expect(items[7].data == .array);
-    try std.testing.expect(items[8].data == .integer);
-    try std.testing.expectEqual(@as(i64, 3), items[8].data.integer);
-    try std.testing.expect(items[9].data == .string);
-    try std.testing.expectEqualStrings("c", items[9].data.string.str);
-    try std.testing.expect(items[10].data == .string);
-    try std.testing.expectEqualStrings("t", items[10].data.string.str);
+    try std.testing.expect(items[0].isBool() and items[0].toBool());
+    try std.testing.expect(items[1].isString());
+    try std.testing.expectEqualStrings("a", items[1].toStringObject().str);
+    try std.testing.expect(items[2].isString());
+    try std.testing.expectEqualStrings("b", items[2].toStringObject().str);
+    try std.testing.expect(items[3].isNil());
+    try std.testing.expect(items[4].isString());
+    try std.testing.expectEqualStrings("ab", items[4].toStringObject().str);
+    try std.testing.expect(items[5].isString());
+    try std.testing.expectEqualStrings("a", items[5].toStringObject().str);
+    try std.testing.expect(items[6].isArray());
+    try std.testing.expect(items[7].isArray());
+    try std.testing.expect(items[8].isInteger());
+    try std.testing.expectEqual(@as(i64, 3), items[8].toInteger());
+    try std.testing.expect(items[9].isString());
+    try std.testing.expectEqualStrings("c", items[9].toStringObject().str);
+    try std.testing.expect(items[10].isString());
+    try std.testing.expectEqualStrings("t", items[10].toStringObject().str);
 }

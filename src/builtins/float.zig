@@ -8,11 +8,9 @@ const Block = vm_mod.Block;
 const Value = value.Value;
 
 fn coerceNumericArg(vm: *VM, arg: Value) VMError!f64 {
-    return switch (arg.data) {
-        .float => |f| f,
-        .integer => |i| @floatFromInt(i),
-        else => vm.raiseExceptionFmt(vm.type_error_class, "argument is not numeric", .{}),
-    };
+    if (arg.isFloat()) return arg.toFloatObject().val;
+    if (arg.isInteger()) return @floatFromInt(arg.toInteger());
+    return vm.raiseExceptionFmt(vm.type_error_class, "argument is not numeric", .{});
 }
 
 pub fn register(vm: *VM) !void {
@@ -64,89 +62,89 @@ pub fn register(vm: *VM) !void {
 
 pub fn builtinFloatPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const lhs = receiver.data.float;
+    const lhs = receiver.toFloatObject().val;
     const rhs = try coerceNumericArg(vm, args[0]);
-    return Value.float(lhs + rhs);
+    return vm.newFloat(lhs + rhs);
 }
 
 pub fn builtinFloatMinus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const lhs = receiver.data.float;
+    const lhs = receiver.toFloatObject().val;
     const rhs = try coerceNumericArg(vm, args[0]);
-    return Value.float(lhs - rhs);
+    return vm.newFloat(lhs - rhs);
 }
 
 pub fn builtinFloatMultiply(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const lhs = receiver.data.float;
+    const lhs = receiver.toFloatObject().val;
     const rhs = try coerceNumericArg(vm, args[0]);
-    return Value.float(lhs * rhs);
+    return vm.newFloat(lhs * rhs);
 }
 
 pub fn builtinFloatDivide(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const lhs = receiver.data.float;
+    const lhs = receiver.toFloatObject().val;
     const rhs = try coerceNumericArg(vm, args[0]);
-    return Value.float(lhs / rhs);
+    return vm.newFloat(lhs / rhs);
 }
 
 pub fn builtinFloatEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const lhs = receiver.data.float;
+    const lhs = receiver.toFloatObject().val;
     const rhs = coerceNumericArg(vm, args[0]) catch return Value.boolean(false);
     return Value.boolean(lhs == rhs);
 }
 
 pub fn builtinFloatEql(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    if (args[0].data != .float) return Value.boolean(false);
-    const lhs = receiver.data.float;
-    return Value.boolean(lhs == args[0].data.float);
+    if (!args[0].isFloat()) return Value.boolean(false);
+    const lhs = receiver.toFloatObject().val;
+    return Value.boolean(lhs == args[0].toFloatObject().val);
 }
 
 pub fn builtinFloatLessThan(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const lhs = receiver.data.float;
+    const lhs = receiver.toFloatObject().val;
     const rhs = try coerceNumericArg(vm, args[0]);
     return Value.boolean(lhs < rhs);
 }
 
 pub fn builtinFloatLessThanOrEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const lhs = receiver.data.float;
+    const lhs = receiver.toFloatObject().val;
     const rhs = try coerceNumericArg(vm, args[0]);
     return Value.boolean(lhs <= rhs);
 }
 
 pub fn builtinFloatGreaterThan(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const lhs = receiver.data.float;
+    const lhs = receiver.toFloatObject().val;
     const rhs = try coerceNumericArg(vm, args[0]);
     return Value.boolean(lhs > rhs);
 }
 
 pub fn builtinFloatGreaterThanOrEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const lhs = receiver.data.float;
+    const lhs = receiver.toFloatObject().val;
     const rhs = try coerceNumericArg(vm, args[0]);
     return Value.boolean(lhs >= rhs);
 }
 
 pub fn builtinFloatAbs(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const f = receiver.data.float;
-    return Value.float(@abs(f));
+    const f = receiver.toFloatObject().val;
+    return vm.newFloat(@abs(f));
 }
 
 pub fn builtinFloatNan(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const f = receiver.data.float;
+    const f = receiver.toFloatObject().val;
     return Value.boolean(std.math.isNan(f));
 }
 
 pub fn builtinFloatInfinite(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const f = receiver.data.float;
+    const f = receiver.toFloatObject().val;
     if (std.math.isPositiveInf(f)) return Value.integer(1);
     if (std.math.isNegativeInf(f)) return Value.integer(-1);
     return Value.nil();
@@ -169,7 +167,7 @@ fn floatToString(vm: *VM, value_f: f64) VMError!Value {
 
 pub fn builtinFloatToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const f = receiver.data.float;
+    const f = receiver.toFloatObject().val;
     return floatToString(vm, f);
 }
 

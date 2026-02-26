@@ -14,8 +14,8 @@ test "alias keyword in a class" {
         \\end
         \\Foo.new.hi
     );
-    try std.testing.expect(result.data == .string);
-    try std.testing.expectEqualSlices(u8, "hello", result.data.string.str);
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "hello", result.toStringObject().str);
 }
 
 test "alias keyword preserves original method" {
@@ -28,8 +28,8 @@ test "alias keyword preserves original method" {
         \\end
         \\Foo.new.greet
     );
-    try std.testing.expect(result.data == .string);
-    try std.testing.expectEqualSlices(u8, "hello", result.data.string.str);
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "hello", result.toStringObject().str);
 }
 
 test "alias is independent of original method redefinition" {
@@ -45,8 +45,8 @@ test "alias is independent of original method redefinition" {
         \\end
         \\Foo.new.hi
     );
-    try std.testing.expect(result.data == .string);
-    try std.testing.expectEqualSlices(u8, "hello", result.data.string.str);
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "hello", result.toStringObject().str);
 }
 
 test "alias at top-level" {
@@ -57,8 +57,8 @@ test "alias at top-level" {
         \\alias hi greet
         \\hi
     );
-    try std.testing.expect(result.data == .string);
-    try std.testing.expectEqualSlices(u8, "hello", result.data.string.str);
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "hello", result.toStringObject().str);
 }
 
 test "alias_method with symbol args" {
@@ -71,8 +71,8 @@ test "alias_method with symbol args" {
         \\end
         \\Bar.new.hi
     );
-    try std.testing.expect(result.data == .string);
-    try std.testing.expectEqualSlices(u8, "hello", result.data.string.str);
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "hello", result.toStringObject().str);
 }
 
 test "alias_method with string args" {
@@ -85,8 +85,8 @@ test "alias_method with string args" {
         \\end
         \\Bar.new.hi
     );
-    try std.testing.expect(result.data == .string);
-    try std.testing.expectEqualSlices(u8, "hello", result.data.string.str);
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "hello", result.toStringObject().str);
 }
 
 test "alias_method returns new name as symbol" {
@@ -98,8 +98,8 @@ test "alias_method returns new name as symbol" {
         \\end
         \\Baz.alias_method(:hi, :greet)
     );
-    try std.testing.expect(result.data == .symbol);
-    try std.testing.expectEqualSlices(u8, "hi", result.data.symbol.name);
+    try std.testing.expect(result.isSymbol());
+    try std.testing.expectEqualSlices(u8, "hi", result.toSymbolObject().name);
 }
 
 test "alias_method coerces names via to_str" {
@@ -120,8 +120,8 @@ test "alias_method coerces names via to_str" {
         \\Baz.alias_method(new_name, old_name)
         \\Baz.new.hi
     );
-    try std.testing.expect(result.data == .string);
-    try std.testing.expectEqualSlices(u8, "hello", result.data.string.str);
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "hello", result.toStringObject().str);
 }
 
 test "alias undefined method raises NameError" {

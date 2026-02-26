@@ -9,7 +9,7 @@ test "until loop - returns nil" {
         \\end
         \\result
     );
-    try std.testing.expect(result.data == .nil);
+    try std.testing.expect(result.isNil());
 }
 
 test "until loop - condition true from start" {
@@ -20,7 +20,7 @@ test "until loop - condition true from start" {
         \\end
         \\x
     );
-    try std.testing.expectEqual(@as(i64, 10), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 10), result.toInteger());
 }
 
 test "until loop - empty body" {
@@ -28,7 +28,7 @@ test "until loop - empty body" {
         \\until true
         \\end
     );
-    try std.testing.expect(result.data == .nil);
+    try std.testing.expect(result.isNil());
 }
 
 test "until loop - modifier form" {
@@ -37,7 +37,7 @@ test "until loop - modifier form" {
         \\x = x + 1 until x == 3
         \\x
     );
-    try std.testing.expectEqual(@as(i64, 3), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 3), result.toInteger());
 }
 
 test "until loop - executes at least once when condition false" {
@@ -52,7 +52,7 @@ test "until loop - executes at least once when condition false" {
     , &stdout_buf, &stderr_buf);
 
     try std.testing.expect(eval_result.err == null);
-    try std.testing.expect(eval_result.value.data == .nil);
+    try std.testing.expect(eval_result.value.isNil());
     try std.testing.expectEqualStrings("0\n", eval_result.stdout);
 }
 
@@ -64,7 +64,7 @@ test "until loop - break without value" {
         \\  break if i == 3
         \\end
     );
-    try std.testing.expect(result.data == .nil);
+    try std.testing.expect(result.isNil());
 }
 
 test "until loop - break with value" {
@@ -75,7 +75,7 @@ test "until loop - break with value" {
         \\  break 42 if i == 3
         \\end
     );
-    try std.testing.expectEqual(@as(i64, 42), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
 }
 
 test "until loop - break in nested loop" {
@@ -91,7 +91,7 @@ test "until loop - break in nested loop" {
         \\end
         \\outer
     );
-    try std.testing.expectEqual(@as(i64, 5), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 5), result.toInteger());
 }
 
 test "until loop - break returns expression value" {
@@ -101,5 +101,5 @@ test "until loop - break returns expression value" {
         \\  break x + 5
         \\end
     );
-    try std.testing.expectEqual(@as(i64, 15), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 15), result.toInteger());
 }

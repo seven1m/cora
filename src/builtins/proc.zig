@@ -8,7 +8,7 @@ const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
     const proc_new_sym = try vm.intern("new");
-    const proc_class_val = Value{ .data = .{ .class = vm.proc_class } };
+    const proc_class_val = Value.fromObject(vm.proc_class);
     const proc_singleton = try vm.getOrCreateSingletonClass(proc_class_val);
     try proc_singleton.module.methods.put(proc_new_sym, .{ .method = .{ .builtin = &builtinProcNew } });
 
@@ -35,12 +35,12 @@ pub fn builtinProcNew(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!V
 }
 
 pub fn builtinProcCall(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    const proc_obj = receiver.data.proc;
+    const proc_obj = receiver.toProcObject();
     return vm.callProcObject(proc_obj, args, null, null);
 }
 
 pub fn builtinProcIsLambda(_: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
-    return Value.boolean(switch (receiver.data.proc.block.kind) {
+    return Value.boolean(switch (receiver.toProcObject().block.kind) {
         .chunk => |chunk_blk| chunk_blk.chunk.is_lambda,
         .symbol, .builtin => true,
     });

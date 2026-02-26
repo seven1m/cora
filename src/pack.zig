@@ -153,7 +153,7 @@ pub fn stringUnpack(vm: *VM, bytes: []const u8, format: []const u8) VMError!Valu
         }
     }
 
-    return Value{ .data = .{ .array = out } };
+    return Value.fromObject(out);
 }
 
 fn tokenize(vm: *VM, format: []const u8) VMError!std.ArrayList(DirectiveToken) {
@@ -342,10 +342,10 @@ fn packStringDirective(
     const arg = items[arg_index.*];
     arg_index.* += 1;
 
-    const str: []const u8 = switch (arg.data) {
-        .nil => "",
-        else => try arg.coerceToStr(vm, "no implicit conversion into String"),
-    };
+    const str: []const u8 = if (arg.isNil())
+        ""
+    else
+        try arg.coerceToStr(vm, "no implicit conversion into String");
 
     switch (token.directive) {
         'a' => {
@@ -456,11 +456,11 @@ fn unpackFloat(
         if (byte_size == 4) {
             const bits = std.mem.readInt(u32, tmp[0..4], .little);
             const f: f32 = @bitCast(bits);
-            out.elements.append(vm.gc_allocator, Value.float(@floatCast(f))) catch return error.Fatal;
+            out.elements.append(vm.gc_allocator, try vm.newFloat(@floatCast(f))) catch return error.Fatal;
         } else {
             const bits = std.mem.readInt(u64, &tmp, .little);
             const f: f64 = @bitCast(bits);
-            out.elements.append(vm.gc_allocator, Value.float(f)) catch return error.Fatal;
+            out.elements.append(vm.gc_allocator, try vm.newFloat(f)) catch return error.Fatal;
         }
     }
 }
@@ -553,7 +553,7 @@ fn appendZeros(vm: *VM, out: *std.ArrayList(u8), count: usize) VMError!void {
 }
 
 fn coerceToInt(vm: *VM, arg: Value) VMError!i64 {
-    if (arg.data == .integer) return arg.data.integer;
+    if (arg.isInteger()) return arg.toInteger();
 
     const to_int_sym = try vm.intern("to_int");
     const has_to_int = (try vm.findMethod(arg, to_int_sym)) != null;
@@ -562,31 +562,26 @@ fn coerceToInt(vm: *VM, arg: Value) VMError!i64 {
     }
 
     const coerced = try vm.callMethodByName(arg, "to_int", &[_]Value{}, null);
-    if (coerced.data != .integer) {
+    if (!coerced.isInteger()) {
         return vm.raiseExceptionFmt(vm.type_error_class, "can't convert to Integer (to_int gives non-Integer)", .{});
     }
 
-    return coerced.data.integer;
+    return coerced.toInteger();
 }
 
 fn coerceToFloat(vm: *VM, arg: Value) VMError!f64 {
-    return switch (arg.data) {
-        .float => |f| f,
-        .integer => |i| @floatFromInt(i),
-        else => blk: {
-            const to_f_sym = try vm.intern("to_f");
-            const has_to_f = (try vm.findMethod(arg, to_f_sym)) != null;
-            if (!has_to_f) {
-                return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Float", .{});
-            }
-            const coerced = try vm.callMethodByName(arg, "to_f", &[_]Value{}, null);
-            break :blk switch (coerced.data) {
-                .float => |f| f,
-                .integer => |i| @floatFromInt(i),
-                else => return vm.raiseExceptionFmt(vm.type_error_class, "can't convert to Float (to_f gives non-Float)", .{}),
-            };
-        },
-    };
+    if (arg.isFloat()) return arg.toFloatObject().val;
+    if (arg.isInteger()) return @floatFromInt(arg.toInteger());
+
+    const to_f_sym = try vm.intern("to_f");
+    const has_to_f = (try vm.findMethod(arg, to_f_sym)) != null;
+    if (!has_to_f) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Float", .{});
+    }
+    const coerced = try vm.callMethodByName(arg, "to_f", &[_]Value{}, null);
+    if (coerced.isFloat()) return coerced.toFloatObject().val;
+    if (coerced.isInteger()) return @floatFromInt(coerced.toInteger());
+    return vm.raiseExceptionFmt(vm.type_error_class, "can't convert to Float (to_f gives non-Float)", .{});
 }
 
 fn nativeOr(endianness: Endianness) Endianness {

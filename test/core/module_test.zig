@@ -9,8 +9,8 @@ test "Modules" {
         \\module Foo
         \\end
     );
-    try std.testing.expect(result.data == .module);
-    try std.testing.expectEqualSlices(u8, "Foo", result.data.module.name.name);
+    try std.testing.expect(result.isModule());
+    try std.testing.expectEqualSlices(u8, "Foo", result.toModuleObject().name.name);
 }
 
 test "Module include" {
@@ -35,7 +35,7 @@ test "Module include" {
         \\bar = Bar.new
         \\bar.call
     );
-    try std.testing.expectEqualSlices(u8, "baz", result.data.string.str);
+    try std.testing.expectEqualSlices(u8, "baz", result.toStringObject().str);
 
     result = try evalCode(
         \\module Foo
@@ -54,7 +54,7 @@ test "Module include" {
         \\bar = Bar.new
         \\bar.call
     );
-    try std.testing.expectEqualSlices(u8, "foo", result.data.string.str);
+    try std.testing.expectEqualSlices(u8, "foo", result.toStringObject().str);
 }
 
 test "Module prepend" {
@@ -81,8 +81,8 @@ test "Module prepend" {
         \\
         \\Foo.new.call
     );
-    try std.testing.expect(result.data == .string);
-    try std.testing.expectEqualSlices(u8, "before 2", result.data.string.str);
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "before 2", result.toStringObject().str);
 }
 
 test "Module define_method on class" {
@@ -92,7 +92,7 @@ test "Module define_method on class" {
         \\end
         \\Foo.new.sum(2, 3)
     );
-    try std.testing.expectEqual(@as(i64, 5), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 5), result.toInteger());
 }
 
 test "Module define_method on module include" {
@@ -105,8 +105,8 @@ test "Module define_method on module include" {
         \\end
         \\C.new.hello
     );
-    try std.testing.expect(result.data == .string);
-    try std.testing.expectEqualSlices(u8, "hi", result.data.string.str);
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "hi", result.toStringObject().str);
 }
 
 test "Module define_method with string name" {
@@ -116,7 +116,7 @@ test "Module define_method with string name" {
         \\end
         \\Foo.new.mul(2, 4)
     );
-    try std.testing.expectEqual(@as(i64, 8), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 8), result.toInteger());
 }
 
 test "Module attr_reader coerces names via to_str" {
@@ -134,8 +134,8 @@ test "Module attr_reader coerces names via to_str" {
         \\end
         \\C.new.value
     );
-    try std.testing.expect(result.data == .integer);
-    try std.testing.expectEqual(@as(i64, 7), result.data.integer);
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 7), result.toInteger());
 }
 
 test "Module attr_reader defines getter and returns symbols" {
@@ -151,10 +151,10 @@ test "Module attr_reader defines getter and returns symbols" {
         \\end
         \\C.make
     );
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(@as(usize, 2), result.data.array.elements.items.len);
-    try std.testing.expectEqualSlices(u8, "a", result.data.array.elements.items[0].data.symbol.name);
-    try std.testing.expectEqualSlices(u8, "b", result.data.array.elements.items[1].data.symbol.name);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(usize, 2), result.toArrayObject().elements.items.len);
+    try std.testing.expectEqualSlices(u8, "a", result.toArrayObject().elements.items[0].toSymbolObject().name);
+    try std.testing.expectEqualSlices(u8, "b", result.toArrayObject().elements.items[1].toSymbolObject().name);
 
     result = try evalCode(
         \\class C
@@ -167,9 +167,9 @@ test "Module attr_reader defines getter and returns symbols" {
         \\c = C.new
         \\[c.a, c.b]
     );
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(@as(i64, 1), result.data.array.elements.items[0].data.integer);
-    try std.testing.expectEqual(@as(i64, 2), result.data.array.elements.items[1].data.integer);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(i64, 1), result.toArrayObject().elements.items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 2), result.toArrayObject().elements.items[1].toInteger());
 }
 
 test "Module attr_writer defines setter and returns symbols" {
@@ -181,10 +181,10 @@ test "Module attr_writer defines setter and returns symbols" {
         \\end
         \\C.make
     );
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(@as(usize, 2), result.data.array.elements.items.len);
-    try std.testing.expectEqualSlices(u8, "a=", result.data.array.elements.items[0].data.symbol.name);
-    try std.testing.expectEqualSlices(u8, "b=", result.data.array.elements.items[1].data.symbol.name);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(usize, 2), result.toArrayObject().elements.items.len);
+    try std.testing.expectEqualSlices(u8, "a=", result.toArrayObject().elements.items[0].toSymbolObject().name);
+    try std.testing.expectEqualSlices(u8, "b=", result.toArrayObject().elements.items[1].toSymbolObject().name);
 
     result = try evalCode(
         \\class C
@@ -197,9 +197,9 @@ test "Module attr_writer defines setter and returns symbols" {
         \\end
         \\C.new.set
     );
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(@as(i64, 10), result.data.array.elements.items[0].data.integer);
-    try std.testing.expectEqual(@as(i64, 20), result.data.array.elements.items[1].data.integer);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(i64, 10), result.toArrayObject().elements.items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 20), result.toArrayObject().elements.items[1].toInteger());
 }
 
 test "Module attr_accessor defines getter and setter and returns symbols" {
@@ -211,12 +211,12 @@ test "Module attr_accessor defines getter and setter and returns symbols" {
         \\end
         \\C.make
     );
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(@as(usize, 4), result.data.array.elements.items.len);
-    try std.testing.expectEqualSlices(u8, "a", result.data.array.elements.items[0].data.symbol.name);
-    try std.testing.expectEqualSlices(u8, "a=", result.data.array.elements.items[1].data.symbol.name);
-    try std.testing.expectEqualSlices(u8, "b", result.data.array.elements.items[2].data.symbol.name);
-    try std.testing.expectEqualSlices(u8, "b=", result.data.array.elements.items[3].data.symbol.name);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(usize, 4), result.toArrayObject().elements.items.len);
+    try std.testing.expectEqualSlices(u8, "a", result.toArrayObject().elements.items[0].toSymbolObject().name);
+    try std.testing.expectEqualSlices(u8, "a=", result.toArrayObject().elements.items[1].toSymbolObject().name);
+    try std.testing.expectEqualSlices(u8, "b", result.toArrayObject().elements.items[2].toSymbolObject().name);
+    try std.testing.expectEqualSlices(u8, "b=", result.toArrayObject().elements.items[3].toSymbolObject().name);
 
     result = try evalCode(
         \\class C
@@ -227,9 +227,9 @@ test "Module attr_accessor defines getter and setter and returns symbols" {
         \\c.b = 2
         \\[c.a, c.b]
     );
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(@as(i64, 1), result.data.array.elements.items[0].data.integer);
-    try std.testing.expectEqual(@as(i64, 2), result.data.array.elements.items[1].data.integer);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(i64, 1), result.toArrayObject().elements.items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 2), result.toArrayObject().elements.items[1].toInteger());
 }
 
 test "Module module_function creates module singleton method and privatizes instance method" {
@@ -242,7 +242,7 @@ test "Module module_function creates module singleton method and privatizes inst
         \\end
         \\M.answer
     );
-    try std.testing.expectEqual(@as(i64, 42), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
 
     result = try evalCode(
         \\module M
@@ -259,7 +259,7 @@ test "Module module_function creates module singleton method and privatizes inst
         \\end
         \\C.new.call_answer
     );
-    try std.testing.expectEqual(@as(i64, 42), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
 
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;
@@ -317,9 +317,9 @@ test "Module undef_method on subclass blocks inherited dispatch without mutating
         \\  end,
         \\]
     );
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(@as(i64, 1), result.data.array.elements.items[0].data.integer);
-    try std.testing.expectEqualSlices(u8, "missing", result.data.array.elements.items[1].data.symbol.name);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(i64, 1), result.toArrayObject().elements.items[0].toInteger());
+    try std.testing.expectEqualSlices(u8, "missing", result.toArrayObject().elements.items[1].toSymbolObject().name);
 }
 
 test "Module undef_method raises NameError for missing name" {
@@ -345,9 +345,9 @@ test "Module undef_method with no args returns self and is a no-op" {
         \\same = C.undef_method
         \\[same.object_id, C.object_id, C.new.call]
     );
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(result.data.array.elements.items[0].data.integer, result.data.array.elements.items[1].data.integer);
-    try std.testing.expectEqual(@as(i64, 1), result.data.array.elements.items[2].data.integer);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(result.toArrayObject().elements.items[0].toInteger(), result.toArrayObject().elements.items[1].toInteger());
+    try std.testing.expectEqual(@as(i64, 1), result.toArrayObject().elements.items[2].toInteger());
 }
 
 test "Module undef_method is callable publicly" {
@@ -377,8 +377,8 @@ test "Module undef_method allows method_missing to handle equal?" {
         \\end
         \\C.new.equal?(1)
     );
-    try std.testing.expect(result.data == .symbol);
-    try std.testing.expectEqualSlices(u8, "equal?", result.data.symbol.name);
+    try std.testing.expect(result.isSymbol());
+    try std.testing.expectEqualSlices(u8, "equal?", result.toSymbolObject().name);
 }
 
 test "Module remove_method removes own method and allows superclass fallback" {
@@ -396,7 +396,7 @@ test "Module remove_method removes own method and allows superclass fallback" {
         \\end
         \\Child.new.call
     );
-    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
 }
 
 test "Module remove_method raises NameError when method is not defined on receiver" {
@@ -425,11 +425,11 @@ test "Module constants returns module constants as symbols" {
         \\end
         \\M.constants
     );
-    try std.testing.expect(result.data == .array);
-    const names = result.data.array.elements.items;
+    try std.testing.expect(result.isArray());
+    const names = result.toArrayObject().elements.items;
     try std.testing.expectEqual(@as(usize, 2), names.len);
-    try std.testing.expectEqualSlices(u8, "A", names[0].data.symbol.name);
-    try std.testing.expectEqualSlices(u8, "B", names[1].data.symbol.name);
+    try std.testing.expectEqualSlices(u8, "A", names[0].toSymbolObject().name);
+    try std.testing.expectEqualSlices(u8, "B", names[1].toSymbolObject().name);
 }
 
 test "Class constants includes inherited constants by default" {
@@ -442,13 +442,13 @@ test "Class constants includes inherited constants by default" {
         \\end
         \\Child.constants
     );
-    try std.testing.expect(result.data == .array);
-    const names = result.data.array.elements.items;
+    try std.testing.expect(result.isArray());
+    const names = result.toArrayObject().elements.items;
     var has_child = false;
     var has_parent = false;
     for (names) |name| {
-        if (std.mem.eql(u8, name.data.symbol.name, "CHILD_CONST")) has_child = true;
-        if (std.mem.eql(u8, name.data.symbol.name, "PARENT_CONST")) has_parent = true;
+        if (std.mem.eql(u8, name.toSymbolObject().name, "CHILD_CONST")) has_child = true;
+        if (std.mem.eql(u8, name.toSymbolObject().name, "PARENT_CONST")) has_parent = true;
     }
     try std.testing.expect(has_child);
     try std.testing.expect(has_parent);
@@ -464,10 +464,10 @@ test "Class constants(false) excludes inherited constants" {
         \\end
         \\Child.constants(false)
     );
-    try std.testing.expect(result.data == .array);
-    const names = result.data.array.elements.items;
+    try std.testing.expect(result.isArray());
+    const names = result.toArrayObject().elements.items;
     try std.testing.expectEqual(@as(usize, 1), names.len);
-    try std.testing.expectEqualSlices(u8, "CHILD_CONST", names[0].data.symbol.name);
+    try std.testing.expectEqualSlices(u8, "CHILD_CONST", names[0].toSymbolObject().name);
 }
 
 test "Module ancestors returns lookup chain for class with prepend/include" {
@@ -487,26 +487,26 @@ test "Module ancestors returns lookup chain for class with prepend/include" {
         \\end
         \\Child.ancestors
     );
-    try std.testing.expect(result.data == .array);
-    const entries = result.data.array.elements.items;
+    try std.testing.expect(result.isArray());
+    const entries = result.toArrayObject().elements.items;
     try std.testing.expectEqual(@as(usize, 8), entries.len);
 
-    try std.testing.expect(entries[0].data == .module);
-    try std.testing.expectEqualSlices(u8, "ChildPre", entries[0].data.module.name.name);
-    try std.testing.expect(entries[1].data == .class);
-    try std.testing.expectEqualSlices(u8, "Child", entries[1].data.class.module.name.name);
-    try std.testing.expect(entries[2].data == .module);
-    try std.testing.expectEqualSlices(u8, "ChildInc", entries[2].data.module.name.name);
-    try std.testing.expect(entries[3].data == .class);
-    try std.testing.expectEqualSlices(u8, "Parent", entries[3].data.class.module.name.name);
-    try std.testing.expect(entries[4].data == .module);
-    try std.testing.expectEqualSlices(u8, "ParentInc", entries[4].data.module.name.name);
-    try std.testing.expect(entries[5].data == .class);
-    try std.testing.expectEqualSlices(u8, "Object", entries[5].data.class.module.name.name);
-    try std.testing.expect(entries[6].data == .module);
-    try std.testing.expectEqualSlices(u8, "Kernel", entries[6].data.module.name.name);
-    try std.testing.expect(entries[7].data == .class);
-    try std.testing.expectEqualSlices(u8, "BasicObject", entries[7].data.class.module.name.name);
+    try std.testing.expect(entries[0].isModule());
+    try std.testing.expectEqualSlices(u8, "ChildPre", entries[0].toModuleObject().name.name);
+    try std.testing.expect(entries[1].isClass());
+    try std.testing.expectEqualSlices(u8, "Child", entries[1].toClassObject().module.name.name);
+    try std.testing.expect(entries[2].isModule());
+    try std.testing.expectEqualSlices(u8, "ChildInc", entries[2].toModuleObject().name.name);
+    try std.testing.expect(entries[3].isClass());
+    try std.testing.expectEqualSlices(u8, "Parent", entries[3].toClassObject().module.name.name);
+    try std.testing.expect(entries[4].isModule());
+    try std.testing.expectEqualSlices(u8, "ParentInc", entries[4].toModuleObject().name.name);
+    try std.testing.expect(entries[5].isClass());
+    try std.testing.expectEqualSlices(u8, "Object", entries[5].toClassObject().module.name.name);
+    try std.testing.expect(entries[6].isModule());
+    try std.testing.expectEqualSlices(u8, "Kernel", entries[6].toModuleObject().name.name);
+    try std.testing.expect(entries[7].isClass());
+    try std.testing.expectEqualSlices(u8, "BasicObject", entries[7].toClassObject().module.name.name);
 }
 
 test "Module ancestors on module returns self" {
@@ -515,11 +515,11 @@ test "Module ancestors on module returns self" {
         \\end
         \\M.ancestors
     );
-    try std.testing.expect(result.data == .array);
-    const entries = result.data.array.elements.items;
+    try std.testing.expect(result.isArray());
+    const entries = result.toArrayObject().elements.items;
     try std.testing.expectEqual(@as(usize, 1), entries.len);
-    try std.testing.expect(entries[0].data == .module);
-    try std.testing.expectEqualSlices(u8, "M", entries[0].data.module.name.name);
+    try std.testing.expect(entries[0].isModule());
+    try std.testing.expectEqualSlices(u8, "M", entries[0].toModuleObject().name.name);
 }
 
 test "Module ancestors validates arg count" {
@@ -542,14 +542,14 @@ test "Module instance method visibility APIs filter correctly" {
         \\end
         \\C.instance_methods(false)
     );
-    try std.testing.expect(result.data == .array);
+    try std.testing.expect(result.isArray());
     var has_pub = false;
     var has_prot = false;
     var has_priv = false;
-    for (result.data.array.elements.items) |name| {
-        if (std.mem.eql(u8, name.data.symbol.name, "pub")) has_pub = true;
-        if (std.mem.eql(u8, name.data.symbol.name, "prot")) has_prot = true;
-        if (std.mem.eql(u8, name.data.symbol.name, "priv")) has_priv = true;
+    for (result.toArrayObject().elements.items) |name| {
+        if (std.mem.eql(u8, name.toSymbolObject().name, "pub")) has_pub = true;
+        if (std.mem.eql(u8, name.toSymbolObject().name, "prot")) has_prot = true;
+        if (std.mem.eql(u8, name.toSymbolObject().name, "priv")) has_priv = true;
     }
     try std.testing.expect(has_pub);
     try std.testing.expect(has_prot);
@@ -565,16 +565,16 @@ test "Module instance method visibility APIs filter correctly" {
         \\end
         \\[C.public_instance_methods(false), C.protected_instance_methods(false), C.private_instance_methods(false)]
     );
-    try std.testing.expect(result.data == .array);
-    const publics = result.data.array.elements.items[0].data.array.elements.items;
-    const protecteds = result.data.array.elements.items[1].data.array.elements.items;
-    const privates = result.data.array.elements.items[2].data.array.elements.items;
+    try std.testing.expect(result.isArray());
+    const publics = result.toArrayObject().elements.items[0].toArrayObject().elements.items;
+    const protecteds = result.toArrayObject().elements.items[1].toArrayObject().elements.items;
+    const privates = result.toArrayObject().elements.items[2].toArrayObject().elements.items;
     try std.testing.expectEqual(@as(usize, 1), publics.len);
     try std.testing.expectEqual(@as(usize, 1), protecteds.len);
     try std.testing.expectEqual(@as(usize, 1), privates.len);
-    try std.testing.expectEqualSlices(u8, "pub", publics[0].data.symbol.name);
-    try std.testing.expectEqualSlices(u8, "prot", protecteds[0].data.symbol.name);
-    try std.testing.expectEqualSlices(u8, "priv", privates[0].data.symbol.name);
+    try std.testing.expectEqualSlices(u8, "pub", publics[0].toSymbolObject().name);
+    try std.testing.expectEqualSlices(u8, "prot", protecteds[0].toSymbolObject().name);
+    try std.testing.expectEqualSlices(u8, "priv", privates[0].toSymbolObject().name);
 }
 
 test "Module instance method APIs include inherited by default and exclude when false" {
@@ -587,12 +587,12 @@ test "Module instance method APIs include inherited by default and exclude when 
         \\end
         \\Child.public_instance_methods
     );
-    try std.testing.expect(result.data == .array);
+    try std.testing.expect(result.isArray());
     var has_child = false;
     var has_parent = false;
-    for (result.data.array.elements.items) |name| {
-        if (std.mem.eql(u8, name.data.symbol.name, "child_pub")) has_child = true;
-        if (std.mem.eql(u8, name.data.symbol.name, "parent_pub")) has_parent = true;
+    for (result.toArrayObject().elements.items) |name| {
+        if (std.mem.eql(u8, name.toSymbolObject().name, "child_pub")) has_child = true;
+        if (std.mem.eql(u8, name.toSymbolObject().name, "parent_pub")) has_parent = true;
     }
     try std.testing.expect(has_child);
     try std.testing.expect(has_parent);
@@ -606,12 +606,12 @@ test "Module instance method APIs include inherited by default and exclude when 
         \\end
         \\Child.public_instance_methods(false)
     );
-    try std.testing.expect(result.data == .array);
+    try std.testing.expect(result.isArray());
     has_child = false;
     has_parent = false;
-    for (result.data.array.elements.items) |name| {
-        if (std.mem.eql(u8, name.data.symbol.name, "child_pub")) has_child = true;
-        if (std.mem.eql(u8, name.data.symbol.name, "parent_pub")) has_parent = true;
+    for (result.toArrayObject().elements.items) |name| {
+        if (std.mem.eql(u8, name.toSymbolObject().name, "child_pub")) has_child = true;
+        if (std.mem.eql(u8, name.toSymbolObject().name, "parent_pub")) has_parent = true;
     }
     try std.testing.expect(has_child);
     try std.testing.expect(!has_parent);
@@ -627,8 +627,8 @@ test "Module instance_methods omits methods undefined via undef_method" {
         \\end
         \\Child.instance_methods
     );
-    try std.testing.expect(result.data == .array);
-    for (result.data.array.elements.items) |name| {
-        try std.testing.expect(!std.mem.eql(u8, name.data.symbol.name, "parent_pub"));
+    try std.testing.expect(result.isArray());
+    for (result.toArrayObject().elements.items) |name| {
+        try std.testing.expect(!std.mem.eql(u8, name.toSymbolObject().name, "parent_pub"));
     }
 }

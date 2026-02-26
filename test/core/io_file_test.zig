@@ -16,19 +16,19 @@ test "STDIN/STDOUT/STDERR constants mirror $stdin/$stdout/$stderr" {
         \\  STDERR.object_id == $stderr.object_id
         \\]
     );
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(@as(usize, 3), result.data.array.elements.items.len);
-    try std.testing.expectEqual(true, result.data.array.elements.items[0].data.boolean);
-    try std.testing.expectEqual(true, result.data.array.elements.items[1].data.boolean);
-    try std.testing.expectEqual(true, result.data.array.elements.items[2].data.boolean);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(usize, 3), result.toArrayObject().elements.items.len);
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[0].toBool());
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[1].toBool());
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[2].toBool());
 }
 
 test "standard stream fileno values are 0,1,2" {
     const result = try evalCode("[STDIN.fileno, STDOUT.fileno, STDERR.fileno]");
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(@as(i64, 0), result.data.array.elements.items[0].data.integer);
-    try std.testing.expectEqual(@as(i64, 1), result.data.array.elements.items[1].data.integer);
-    try std.testing.expectEqual(@as(i64, 2), result.data.array.elements.items[2].data.integer);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(i64, 0), result.toArrayObject().elements.items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 1), result.toArrayObject().elements.items[1].toInteger());
+    try std.testing.expectEqual(@as(i64, 2), result.toArrayObject().elements.items[2].toInteger());
 }
 
 test "File.write and File.read round trip content" {
@@ -43,10 +43,10 @@ test "File.write and File.read round trip content" {
     defer std.testing.allocator.free(source);
 
     const result = try evalCode(source);
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(@as(i64, 5), result.data.array.elements.items[0].data.integer);
-    try std.testing.expect(result.data.array.elements.items[1].data == .string);
-    try std.testing.expectEqualSlices(u8, "hello", result.data.array.elements.items[1].data.string.str);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(i64, 5), result.toArrayObject().elements.items[0].toInteger());
+    try std.testing.expect(result.toArrayObject().elements.items[1].isString());
+    try std.testing.expectEqualSlices(u8, "hello", result.toArrayObject().elements.items[1].toStringObject().str);
 }
 
 test "File.open with block closes file automatically" {
@@ -62,8 +62,8 @@ test "File.open with block closes file automatically" {
     defer std.testing.allocator.free(source);
 
     const result = try evalCode(source);
-    try std.testing.expect(result.data == .boolean);
-    try std.testing.expectEqual(true, result.data.boolean);
+    try std.testing.expect(result.isBool());
+    try std.testing.expectEqual(true, result.toBool());
 }
 
 test "Kernel puts and p follow $stdout reassignment" {
@@ -83,8 +83,8 @@ test "Kernel puts and p follow $stdout reassignment" {
     defer std.testing.allocator.free(source);
 
     const result = try evalCode(source);
-    try std.testing.expect(result.data == .string);
-    try std.testing.expectEqualSlices(u8, "alpha\n42\n", result.data.string.str);
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "alpha\n42\n", result.toStringObject().str);
 }
 
 test "File.new invalid mode raises ArgumentError" {

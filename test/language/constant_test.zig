@@ -9,7 +9,7 @@ test "Constants can be set and read" {
         \\FOO = 42
         \\FOO
     );
-    try std.testing.expectEqual(@as(i64, 42), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
 }
 
 test "Constant path: simple module constant" {
@@ -19,7 +19,7 @@ test "Constant path: simple module constant" {
         \\end
         \\A::X
     );
-    try std.testing.expectEqual(@as(i64, 42), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
 }
 
 test "Constant path: nested modules" {
@@ -31,7 +31,7 @@ test "Constant path: nested modules" {
         \\end
         \\A::B::Y
     );
-    try std.testing.expectEqual(@as(i64, 99), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 99), result.toInteger());
 }
 
 test "Constant path: class constant" {
@@ -41,7 +41,7 @@ test "Constant path: class constant" {
         \\end
         \\C::Z
     );
-    try std.testing.expectEqual(@as(i64, 123), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 123), result.toInteger());
 }
 
 test "Lexical scope: nested module constants" {
@@ -69,7 +69,7 @@ test "Lexical scope: class with method finding outer constant" {
         \\end
         \\C.new.get_y
     );
-    try std.testing.expectEqual(@as(i64, 42), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
 }
 
 test "Lexical scope: top-level fallback" {
@@ -82,7 +82,7 @@ test "Lexical scope: top-level fallback" {
         \\end
         \\A.new.get_x
     );
-    try std.testing.expectEqual(@as(i64, 100), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 100), result.toInteger());
 }
 
 test "Unknown constant raises NameError" {

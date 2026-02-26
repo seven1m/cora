@@ -10,7 +10,7 @@ test "block parameter receives Proc when block passed" {
         \\end
         \\foo { puts "hello" }
     );
-    try std.testing.expect(result.data == .proc);
+    try std.testing.expect(result.isProc());
 }
 
 test "block parameter receives nil when no block" {
@@ -20,7 +20,7 @@ test "block parameter receives nil when no block" {
         \\end
         \\foo
     );
-    try std.testing.expect(result.data == .nil);
+    try std.testing.expect(result.isNil());
 }
 
 test "calling block.call executes the block" {
@@ -32,7 +32,7 @@ test "calling block.call executes the block" {
         \\foo { x = 42 }
         \\x
     );
-    try std.testing.expectEqual(@as(i64, 42), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
 }
 
 test "block parameter with yield both work" {
@@ -45,7 +45,7 @@ test "block parameter with yield both work" {
         \\foo { |n| x = x + n }
         \\x
     );
-    try std.testing.expectEqual(@as(i64, 3), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 3), result.toInteger());
 }
 
 test "block parameter with required positional params" {
@@ -55,7 +55,7 @@ test "block parameter with required positional params" {
         \\end
         \\foo(1, 2) { 3 }
     );
-    try std.testing.expectEqual(@as(i64, 6), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 6), result.toInteger());
 }
 
 test "block parameter with optional params" {
@@ -65,7 +65,7 @@ test "block parameter with optional params" {
         \\end
         \\foo(5) { 20 }
     );
-    try std.testing.expectEqual(@as(i64, 25), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 25), result.toInteger());
 }
 
 test "block parameter with rest parameter" {
@@ -75,7 +75,7 @@ test "block parameter with rest parameter" {
         \\end
         \\foo(1, 2, 3) { 99 }
     );
-    try std.testing.expectEqual(@as(i64, 102), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 102), result.toInteger());
 }
 
 test "block parameter with keyword params" {
@@ -85,7 +85,7 @@ test "block parameter with keyword params" {
         \\end
         \\foo(a: 10) { 30 }
     );
-    try std.testing.expectEqual(@as(i64, 45), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 45), result.toInteger());
 }
 
 test "passing block parameter to another method via call" {
@@ -98,7 +98,7 @@ test "passing block parameter to another method via call" {
         \\end
         \\foo { 100 }
     );
-    try std.testing.expectEqual(@as(i64, 100), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 100), result.toInteger());
 }
 
 test "block parameter is a Proc not lambda" {
@@ -108,8 +108,8 @@ test "block parameter is a Proc not lambda" {
         \\end
         \\foo { puts "hi" }
     );
-    try std.testing.expect(result.data == .boolean);
-    try std.testing.expect(!result.data.boolean);
+    try std.testing.expect(result.isBool());
+    try std.testing.expect(!result.toBool());
 }
 
 test "block parameter captures closure" {
@@ -123,7 +123,7 @@ test "block parameter captures closure" {
         \\b.call
         \\x
     );
-    try std.testing.expectEqual(@as(i64, 7), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 7), result.toInteger());
 }
 
 test "block parameter with arguments" {
@@ -133,7 +133,7 @@ test "block parameter with arguments" {
         \\end
         \\foo { |a, b| a + b }
     );
-    try std.testing.expectEqual(@as(i64, 30), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 30), result.toInteger());
 }
 
 test "block parameter can be stored and called later" {
@@ -144,7 +144,7 @@ test "block parameter can be stored and called later" {
         \\stored = foo { 42 }
         \\stored.call
     );
-    try std.testing.expectEqual(@as(i64, 42), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
 }
 
 test "pass block using &variable syntax" {
@@ -157,7 +157,7 @@ test "pass block using &variable syntax" {
         \\end
         \\foo { 42 }
     );
-    try std.testing.expectEqual(@as(i64, 52), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 52), result.toInteger());
 }
 
 test "pass &nil disables block" {
@@ -174,7 +174,7 @@ test "pass &nil disables block" {
         \\end
         \\foo
     );
-    try std.testing.expectEqualStrings("no block", result.data.string.str);
+    try std.testing.expectEqualStrings("no block", result.toStringObject().str);
 }
 
 test "lambda flag preserved when passing" {
@@ -188,8 +188,8 @@ test "lambda flag preserved when passing" {
         \\end
         \\foo
     );
-    try std.testing.expect(result.data == .boolean);
-    try std.testing.expect(result.data.boolean);
+    try std.testing.expect(result.isBool());
+    try std.testing.expect(result.toBool());
 }
 
 test "proc flag preserved when passing" {
@@ -203,8 +203,8 @@ test "proc flag preserved when passing" {
         \\end
         \\foo
     );
-    try std.testing.expect(result.data == .boolean);
-    try std.testing.expect(!result.data.boolean);
+    try std.testing.expect(result.isBool());
+    try std.testing.expect(!result.toBool());
 }
 
 test "passing invalid type raises TypeError" {
@@ -232,7 +232,7 @@ test "multiple method hops with &variable" {
         \\end
         \\foo { 21 }
     );
-    try std.testing.expectEqual(@as(i64, 42), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
 }
 
 test "closure preserved across multiple hops" {
@@ -247,7 +247,7 @@ test "closure preserved across multiple hops" {
         \\b = foo
         \\b.call
     );
-    try std.testing.expectEqual(@as(i64, 15), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 15), result.toInteger());
 }
 
 test "&variable with block arguments" {
@@ -260,7 +260,7 @@ test "&variable with block arguments" {
         \\end
         \\foo { |n| n * 2 }
     );
-    try std.testing.expectEqual(@as(i64, 10), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 10), result.toInteger());
 }
 
 test "&variable with keyword args and block" {
@@ -273,7 +273,7 @@ test "&variable with keyword args and block" {
         \\end
         \\foo { |n| n * 3 }
     );
-    try std.testing.expectEqual(@as(i64, 45), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 45), result.toInteger());
 }
 
 test "&variable with rest params and block" {
@@ -286,29 +286,29 @@ test "&variable with rest params and block" {
         \\end
         \\foo { |n| n + 10 }
     );
-    try std.testing.expectEqual(@as(i64, 13), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 13), result.toInteger());
 }
 
 test "&:symbol converts symbol to block via to_proc" {
     const result = try evalCode(
         \\['tim'].map(&:upcase)
     );
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(@as(usize, 1), result.data.array.elements.items.len);
-    try std.testing.expect(result.data.array.elements.items[0].data == .string);
-    try std.testing.expectEqualStrings("TIM", result.data.array.elements.items[0].data.string.str);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(usize, 1), result.toArrayObject().elements.items.len);
+    try std.testing.expect(result.toArrayObject().elements.items[0].isString());
+    try std.testing.expectEqualStrings("TIM", result.toArrayObject().elements.items[0].toStringObject().str);
 }
 
 test "&:symbol forwards arguments to method call" {
     const result = try evalCode(
         \\[1, 2].map(&:to_s)
     );
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(@as(usize, 2), result.data.array.elements.items.len);
-    try std.testing.expect(result.data.array.elements.items[0].data == .string);
-    try std.testing.expectEqualStrings("1", result.data.array.elements.items[0].data.string.str);
-    try std.testing.expect(result.data.array.elements.items[1].data == .string);
-    try std.testing.expectEqualStrings("2", result.data.array.elements.items[1].data.string.str);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(usize, 2), result.toArrayObject().elements.items.len);
+    try std.testing.expect(result.toArrayObject().elements.items[0].isString());
+    try std.testing.expectEqualStrings("1", result.toArrayObject().elements.items[0].toStringObject().str);
+    try std.testing.expect(result.toArrayObject().elements.items[1].isString());
+    try std.testing.expectEqualStrings("2", result.toArrayObject().elements.items[1].toStringObject().str);
 }
 
 test "&argument calls to_proc when present" {
@@ -320,12 +320,12 @@ test "&argument calls to_proc when present" {
         \\end
         \\[1, 2].map(&M.new)
     );
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(@as(usize, 2), result.data.array.elements.items.len);
-    try std.testing.expect(result.data.array.elements.items[0].data == .string);
-    try std.testing.expectEqualStrings("1", result.data.array.elements.items[0].data.string.str);
-    try std.testing.expect(result.data.array.elements.items[1].data == .string);
-    try std.testing.expectEqualStrings("2", result.data.array.elements.items[1].data.string.str);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(usize, 2), result.toArrayObject().elements.items.len);
+    try std.testing.expect(result.toArrayObject().elements.items[0].isString());
+    try std.testing.expectEqualStrings("1", result.toArrayObject().elements.items[0].toStringObject().str);
+    try std.testing.expect(result.toArrayObject().elements.items[1].isString());
+    try std.testing.expectEqualStrings("2", result.toArrayObject().elements.items[1].toStringObject().str);
 }
 
 test "&argument to_proc returning non-Proc raises TypeError" {

@@ -50,7 +50,7 @@ pub fn register(vm: *VM) !void {
 
 pub fn builtinHashBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const hash_obj = receiver.data.hash;
+    const hash_obj = receiver.toHashObject();
     const key = args[0];
     const key_hash = key.hash();
 
@@ -71,7 +71,7 @@ pub fn builtinHashBracketSet(vm: *VM, receiver: Value, args: []Value, _: ?Block)
         return error.Unwind;
     }
 
-    const hash_obj = receiver.data.hash;
+    const hash_obj = receiver.toHashObject();
     const key = args[0];
     const new_value = args[1];
     const key_hash = key.hash();
@@ -92,7 +92,7 @@ pub fn builtinHashBracketSet(vm: *VM, receiver: Value, args: []Value, _: ?Block)
 
 pub fn builtinHashDelete(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const hash_obj = receiver.data.hash;
+    const hash_obj = receiver.toHashObject();
     const key = args[0];
     const key_hash = key.hash();
 
@@ -111,10 +111,10 @@ pub fn builtinHashDelete(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
 
 pub fn builtinHashKeys(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const hash_obj = receiver.data.hash;
+    const hash_obj = receiver.toHashObject();
     const array_obj = vm.gc_allocator.create(value.ArrayObject) catch return error.Fatal;
     array_obj.* = .{
-        .object = .{ .flags = 0, .class = vm.array_class, .singleton_class = null, .instance_variables = null },
+        .object = .{ .type_tag = .array, .flags = 0, .class = vm.array_class, .singleton_class = null, .instance_variables = null },
         .elements = .empty,
     };
 
@@ -122,15 +122,15 @@ pub fn builtinHashKeys(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
         array_obj.elements.append(vm.gc_allocator, entry.key) catch return error.Fatal;
     }
 
-    return .{ .data = .{ .array = array_obj } };
+    return Value.fromObject(array_obj);
 }
 
 pub fn builtinHashValues(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const hash_obj = receiver.data.hash;
+    const hash_obj = receiver.toHashObject();
     const array_obj = vm.gc_allocator.create(value.ArrayObject) catch return error.Fatal;
     array_obj.* = .{
-        .object = .{ .flags = 0, .class = vm.array_class, .singleton_class = null, .instance_variables = null },
+        .object = .{ .type_tag = .array, .flags = 0, .class = vm.array_class, .singleton_class = null, .instance_variables = null },
         .elements = .empty,
     };
 
@@ -138,12 +138,12 @@ pub fn builtinHashValues(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
         array_obj.elements.append(vm.gc_allocator, entry.value) catch return error.Fatal;
     }
 
-    return .{ .data = .{ .array = array_obj } };
+    return Value.fromObject(array_obj);
 }
 
 pub fn builtinHashSize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    return Value.integer(@intCast(receiver.data.hash.entries.items.len));
+    return Value.integer(@intCast(receiver.toHashObject().entries.items.len));
 }
 
 pub fn builtinHashEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -151,7 +151,7 @@ pub fn builtinHashEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
     const blk = block orelse {
         return try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
     };
-    const hash_obj = receiver.data.hash;
+    const hash_obj = receiver.toHashObject();
 
     // Iterate in insertion order
     for (hash_obj.entries.items) |entry| {
@@ -169,7 +169,7 @@ pub fn builtinHashEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
 
 pub fn builtinHashToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const hash_obj = receiver.data.hash;
+    const hash_obj = receiver.toHashObject();
     var buf: std.ArrayList(u8) = .empty;
     defer buf.deinit(vm.allocator);
     const writer = buf.writer(vm.allocator);
@@ -181,31 +181,31 @@ pub fn builtinHashToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
         }
 
         // Check if key is a symbol - use shorthand syntax
-        if (entry.key.data == .symbol) {
+        if (entry.key.isSymbol()) {
             // Write symbol name without the : prefix
-            const sym = entry.key.data.symbol;
+            const sym = entry.key.toSymbolObject();
             writer.writeAll(sym.name) catch return error.Fatal;
             writer.writeAll(": ") catch return error.Fatal;
         } else {
             // Call inspect on non-symbol keys
             const key_val = try vm.callMethodByName(entry.key, "inspect", &.{}, null);
-            if (key_val.data != .string) {
+            if (!key_val.isString()) {
                 const exc = try vm.createException(vm.type_error_class, "inspect did not return String");
                 vm.pending_exception = exc;
                 return error.Unwind;
             }
-            writer.writeAll(key_val.data.string.str) catch return error.Fatal;
+            writer.writeAll(key_val.toStringObject().str) catch return error.Fatal;
             writer.writeAll(" => ") catch return error.Fatal;
         }
 
         // Call inspect on value
         const value_val = try vm.callMethodByName(entry.value, "inspect", &.{}, null);
-        if (value_val.data != .string) {
+        if (!value_val.isString()) {
             const exc = try vm.createException(vm.type_error_class, "inspect did not return String");
             vm.pending_exception = exc;
             return error.Unwind;
         }
-        writer.writeAll(value_val.data.string.str) catch return error.Fatal;
+        writer.writeAll(value_val.toStringObject().str) catch return error.Fatal;
     }
     writer.writeAll("}") catch return error.Fatal;
 
@@ -230,7 +230,7 @@ pub fn builtinHashFetch(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
         );
     }
 
-    const hash_obj = receiver.data.hash;
+    const hash_obj = receiver.toHashObject();
     const key = args[0];
     const key_hash = key.hash();
 
@@ -251,7 +251,7 @@ pub fn builtinHashFetch(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
     } else {
         // Raise KeyError - need to format the key
         const key_str = try vm.callMethodByName(key, "inspect", &.{}, null);
-        if (key_str.data != .string) {
+        if (!key_str.isString()) {
             return vm.raiseExceptionFmt(
                 vm.type_error_class,
                 "inspect did not return String",
@@ -262,7 +262,7 @@ pub fn builtinHashFetch(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
         return vm.raiseExceptionFmt(
             vm.runtime_error_class,
             "key not found: {s}",
-            .{key_str.data.string.str},
+            .{key_str.toStringObject().str},
         );
     }
 }
@@ -274,7 +274,7 @@ pub fn builtinHashDig(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
 
     for (args) |key| {
         // Check if current value is nil
-        if (current_value.data == .nil) {
+        if (current_value.isNil()) {
             return Value.nil();
         }
 
@@ -300,7 +300,7 @@ pub fn builtinHashSelect(vm: *VM, receiver: Value, args: []Value, block: ?Block)
     const blk = block orelse {
         return try vm.createMethodEnumerator(receiver, try vm.intern("select"), &.{});
     };
-    const hash_obj = receiver.data.hash;
+    const hash_obj = receiver.toHashObject();
 
     // Create a new hash for the result
     const result_hash = try vm.createHash();
@@ -312,12 +312,11 @@ pub fn builtinHashSelect(vm: *VM, receiver: Value, args: []Value, block: ?Block)
 
         // If break occurred, return immediately
         if (result.break_occurred) {
-            return .{ .data = .{ .hash = result_hash } };
+            return Value.fromObject(result_hash);
         }
 
         // Check if the block returned a truthy value
-        const is_truthy = (result.value.data != .nil) and
-            !(result.value.data == .boolean and !result.value.data.boolean);
+        const is_truthy = result.value.is_truthy();
 
         if (is_truthy) {
             // Add this entry to the result hash
@@ -328,5 +327,5 @@ pub fn builtinHashSelect(vm: *VM, receiver: Value, args: []Value, block: ?Block)
         }
     }
 
-    return .{ .data = .{ .hash = result_hash } };
+    return Value.fromObject(result_hash);
 }

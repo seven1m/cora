@@ -33,7 +33,7 @@ pub fn register(vm: *VM) !void {
     const match_op_sym = try vm.intern("=~");
     try vm.regexp_class.module.methods.put(match_op_sym, .{ .method = .{ .builtin = &builtinRegexpMatchOp } });
 
-    const regexp_class_val = Value{ .data = .{ .class = vm.regexp_class } };
+    const regexp_class_val = Value.fromObject(vm.regexp_class);
     const regexp_singleton = try vm.getOrCreateSingletonClass(regexp_class_val);
     const last_match_sym = try vm.intern("last_match");
     try regexp_singleton.module.methods.put(last_match_sym, .{ .method = .{ .builtin = &builtinRegexpLastMatch } });
@@ -41,17 +41,17 @@ pub fn register(vm: *VM) !void {
 
 fn builtinRegexpSource(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    return try vm.newString(receiver.data.regexp.pattern, false);
+    return try vm.newString(receiver.toRegexpObject().pattern, false);
 }
 
 fn builtinRegexpOptions(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    return Value.integer(@intCast(receiver.data.regexp.options));
+    return Value.integer(@intCast(receiver.toRegexpObject().options));
 }
 
 fn builtinRegexpInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const r = receiver.data.regexp;
+    const r = receiver.toRegexpObject();
 
     var buf: std.ArrayList(u8) = .empty;
     const writer = buf.writer(vm.allocator);
@@ -69,7 +69,7 @@ fn builtinRegexpInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
 
 fn builtinRegexpToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const r = receiver.data.regexp;
+    const r = receiver.toRegexpObject();
 
     var buf: std.ArrayList(u8) = .empty;
     const writer = buf.writer(vm.allocator);
@@ -112,11 +112,11 @@ fn builtinRegexpToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!
 fn builtinRegexpEq(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const other = args[0];
-    if (other.data != .regexp) {
+    if (!other.isRegexp()) {
         return Value.boolean(false);
     }
-    const self_r = receiver.data.regexp;
-    const other_r = other.data.regexp;
+    const self_r = receiver.toRegexpObject();
+    const other_r = other.toRegexpObject();
     return Value.boolean(
         std.mem.eql(u8, self_r.pattern, other_r.pattern) and self_r.options == other_r.options,
     );
@@ -124,17 +124,17 @@ fn builtinRegexpEq(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!V
 
 fn builtinRegexpCasefold(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    return Value.boolean((receiver.data.regexp.options & 1) != 0);
+    return Value.boolean((receiver.toRegexpObject().options & 1) != 0);
 }
 
 fn builtinRegexpCaseEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    if (args[0].data != .string) {
+    if (!args[0].isString()) {
         return Value.boolean(false);
     }
 
-    const text = args[0].data.string.str;
-    return Value.boolean(onigmo.search(receiver.data.regexp.regex, text));
+    const text = args[0].toStringObject().str;
+    return Value.boolean(onigmo.search(receiver.toRegexpObject().regex, text));
 }
 
 fn matchDataAt(md: *value.MatchDataObject, index: i64) Value {
@@ -152,7 +152,7 @@ pub fn regexpMatchOp(vm: *VM, regexp_obj: *value.RegexpObject, arg: Value) VMErr
         return Value.nil();
     }
     const source_val = source_val_opt.?;
-    const source_obj = source_val.data.string;
+    const source_obj = source_val.toStringObject();
 
     const search_result = onigmo.searchWithCaptures(vm.gc_allocator, regexp_obj.regex, source_obj.str) catch return error.Fatal;
     defer vm.gc_allocator.free(search_result.begin_offsets);
@@ -189,16 +189,16 @@ pub fn regexpMatchOp(vm: *VM, regexp_obj: *value.RegexpObject, arg: Value) VMErr
         search_result.begin_offsets,
         search_result.end_offsets,
     );
-    try vm.setLastMatch(md_val.data.match_data);
+    try vm.setLastMatch(md_val.toMatchDataObject());
     return Value.integer(search_result.match_index);
 }
 
 fn builtinRegexpMatchOp(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    if (receiver.data != .regexp) {
+    if (!receiver.isRegexp()) {
         return vm.raiseExceptionFmt(vm.type_error_class, "uninitialized Regexp", .{});
     }
-    return regexpMatchOp(vm, receiver.data.regexp, args[0]);
+    return regexpMatchOp(vm, receiver.toRegexpObject(), args[0]);
 }
 
 fn builtinRegexpLastMatch(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -207,11 +207,11 @@ fn builtinRegexpLastMatch(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
     if (args.len == 0) {
         return current;
     }
-    if (current.data != .match_data) {
+    if (!current.isMatchData()) {
         return Value.nil();
     }
-    if (args[0].data != .integer) {
+    if (!args[0].isInteger()) {
         return Value.nil();
     }
-    return matchDataAt(current.data.match_data, args[0].data.integer);
+    return matchDataAt(current.toMatchDataObject(), args[0].toInteger());
 }

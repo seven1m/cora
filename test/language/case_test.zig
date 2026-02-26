@@ -14,7 +14,7 @@ test "case expression with predicate chooses matching when" {
         \\  30
         \\end
     );
-    try std.testing.expectEqual(@as(i64, 20), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 20), result.toInteger());
 }
 
 test "case expression without predicate uses truthiness" {
@@ -28,7 +28,7 @@ test "case expression without predicate uses truthiness" {
         \\  30
         \\end
     );
-    try std.testing.expectEqual(@as(i64, 20), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 20), result.toInteger());
 }
 
 test "case returns nil when nothing matches and no else" {
@@ -38,7 +38,7 @@ test "case returns nil when nothing matches and no else" {
         \\  10
         \\end
     );
-    try std.testing.expect(result.data == .nil);
+    try std.testing.expect(result.isNil());
 }
 
 test "case supports comma-separated when conditions" {
@@ -52,7 +52,7 @@ test "case supports comma-separated when conditions" {
         \\  30
         \\end
     );
-    try std.testing.expectEqual(@as(i64, 20), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 20), result.toInteger());
 }
 
 test "case evaluates predicate once" {
@@ -65,7 +65,7 @@ test "case evaluates predicate once" {
         \\  0
         \\end
     );
-    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
 }
 
 test "case evaluates predicate once and when conditions left-to-right" {
@@ -79,7 +79,7 @@ test "case evaluates predicate once and when conditions left-to-right" {
         \\  0
         \\end
     );
-    try std.testing.expectEqual(@as(i64, 3), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 3), result.toInteger());
 }
 
 test "case when and else empty bodies return nil" {
@@ -90,7 +90,7 @@ test "case when and else empty bodies return nil" {
         \\  9
         \\end
     );
-    try std.testing.expect(result.data == .nil);
+    try std.testing.expect(result.isNil());
 
     result = try evalCode(
         \\case 2
@@ -99,7 +99,7 @@ test "case when and else empty bodies return nil" {
         \\else
         \\end
     );
-    try std.testing.expect(result.data == .nil);
+    try std.testing.expect(result.isNil());
 }
 
 test "case matching works with Module#=== Class/Range/Regexp" {
@@ -111,7 +111,7 @@ test "case matching works with Module#=== Class/Range/Regexp" {
         \\  0
         \\end
     );
-    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
 
     result = try evalCode(
         \\case 4
@@ -121,7 +121,7 @@ test "case matching works with Module#=== Class/Range/Regexp" {
         \\  0
         \\end
     );
-    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
 
     result = try evalCode(
         \\case "abc"
@@ -131,5 +131,5 @@ test "case matching works with Module#=== Class/Range/Regexp" {
         \\  0
         \\end
     );
-    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
 }

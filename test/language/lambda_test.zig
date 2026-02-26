@@ -5,29 +5,29 @@ const evalCode = test_helper.evalCode;
 
 test "lambda: stabby syntax creates lambda" {
     const result = try evalCode("l = -> { 42 }; l.call");
-    try std.testing.expectEqual(@as(i64, 42), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
 }
 
 test "lambda: lambda method creates lambda" {
     const result = try evalCode("l = lambda { 42 }; l.call");
-    try std.testing.expectEqual(@as(i64, 42), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
 }
 
 test "lambda: lambda? returns true for lambda" {
     const result = try evalCode("l = lambda { 42 }; l.lambda?");
-    try std.testing.expect(result.data == .boolean);
-    try std.testing.expect(result.data.boolean);
+    try std.testing.expect(result.isBool());
+    try std.testing.expect(result.toBool());
 }
 
 test "lambda: lambda? returns false for proc" {
     const result = try evalCode("p = proc { 42 }; p.lambda?");
-    try std.testing.expect(result.data == .boolean);
-    try std.testing.expect(!result.data.boolean);
+    try std.testing.expect(result.isBool());
+    try std.testing.expect(!result.toBool());
 }
 
 test "lambda: strict arity - exact match succeeds" {
     const result = try evalCode("l = lambda { |x, y| x + y }; l.call(3, 5)");
-    try std.testing.expectEqual(@as(i64, 8), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 8), result.toInteger());
 }
 
 test "lambda: strict arity - too few arguments raises ArgumentError" {
@@ -40,12 +40,12 @@ test "lambda: strict arity - too many arguments raises ArgumentError" {
 
 test "proc: lenient arity - too few arguments fills with nil" {
     const result = try evalCode("p = proc { |x, y| x }; p.call(5)");
-    try std.testing.expectEqual(@as(i64, 5), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 5), result.toInteger());
 }
 
 test "proc: lenient arity - too many arguments ignored" {
     const result = try evalCode("p = proc { |x| x }; p.call(5, 10)");
-    try std.testing.expectEqual(@as(i64, 5), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 5), result.toInteger());
 }
 
 test "lambda: return exits lambda only" {
@@ -57,7 +57,7 @@ test "lambda: return exits lambda only" {
         \\end
         \\foo
     );
-    try std.testing.expectEqual(@as(i64, 20), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 20), result.toInteger());
 }
 
 test "proc: return exits enclosing method" {
@@ -69,17 +69,17 @@ test "proc: return exits enclosing method" {
         \\end
         \\foo
     );
-    try std.testing.expectEqual(@as(i64, 10), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 10), result.toInteger());
 }
 
 test "lambda: parameters work correctly" {
     const result = try evalCode("l = lambda { |x| x + 2 }; l.call(5)");
-    try std.testing.expectEqual(@as(i64, 7), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 7), result.toInteger());
 }
 
 test "lambda: multiple parameters work" {
     const result = try evalCode("l = lambda { |x, y, z| x + y + z }; l.call(1, 2, 3)");
-    try std.testing.expectEqual(@as(i64, 6), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 6), result.toInteger());
 }
 
 test "lambda: closures capture variables" {
@@ -90,7 +90,7 @@ test "lambda: closures capture variables" {
         \\add5 = make_adder(5)
         \\add5.call(10)
     );
-    try std.testing.expectEqual(@as(i64, 15), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 15), result.toInteger());
 }
 
 test "proc: closures capture variables" {
@@ -101,7 +101,7 @@ test "proc: closures capture variables" {
         \\add5 = make_adder(5)
         \\add5.call(10)
     );
-    try std.testing.expectEqual(@as(i64, 15), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 15), result.toInteger());
 }
 
 test "lambda: nested lambda with proc" {
@@ -117,12 +117,12 @@ test "lambda: nested lambda with proc" {
         \\end
         \\foo
     );
-    try std.testing.expectEqual(@as(i64, 20), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 20), result.toInteger());
 }
 
 test "lambda: zero parameters" {
     const result = try evalCode("l = lambda { 42 }; l.call");
-    try std.testing.expectEqual(@as(i64, 42), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
 }
 
 test "lambda: zero parameters with arguments raises error" {
@@ -131,7 +131,7 @@ test "lambda: zero parameters with arguments raises error" {
 
 test "lambda: can be assigned to variable" {
     const result = try evalCode("l = lambda { |x| x + 2 }; m = l; m.call(3)");
-    try std.testing.expectEqual(@as(i64, 5), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 5), result.toInteger());
 }
 
 test "proc: different return behavior than lambda" {
@@ -150,12 +150,12 @@ test "proc: different return behavior than lambda" {
         \\
         \\test_lambda + test_proc
     );
-    try std.testing.expectEqual(@as(i64, 3), result.data.integer); // 2 + 1
+    try std.testing.expectEqual(@as(i64, 3), result.toInteger()); // 2 + 1
 }
 
 test "lambda: stabby lambda with parameters" {
     const result = try evalCode("l = ->(x, y) { x - y }; l.call(10, 3)");
-    try std.testing.expectEqual(@as(i64, 7), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 7), result.toInteger());
 }
 
 test "lambda: body can have multiple statements" {
@@ -167,15 +167,15 @@ test "lambda: body can have multiple statements" {
         \\}
         \\l.call(5)
     );
-    try std.testing.expectEqual(@as(i64, 8), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 8), result.toInteger());
 }
 
 test "lambda: return value is last expression" {
     const result = try evalCode("l = lambda { 1; 2; 3 }; l.call");
-    try std.testing.expectEqual(@as(i64, 3), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 3), result.toInteger());
 }
 
 test "proc: return value is last expression" {
     const result = try evalCode("p = proc { 1; 2; 3 }; p.call");
-    try std.testing.expectEqual(@as(i64, 3), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 3), result.toInteger());
 }

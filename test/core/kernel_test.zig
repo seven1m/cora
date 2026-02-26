@@ -10,7 +10,7 @@ test "p with no arguments" {
     var stderr_buf: [1024]u8 = undefined;
 
     const result = evalCodeWithOutput("p", &stdout_buf, &stderr_buf);
-    try std.testing.expect(result.value.data == .nil);
+    try std.testing.expect(result.value.isNil());
     try std.testing.expectEqualStrings("\n", result.stdout);
 }
 
@@ -19,8 +19,8 @@ test "p with single integer" {
     var stderr_buf: [1024]u8 = undefined;
 
     const result = evalCodeWithOutput("p 42", &stdout_buf, &stderr_buf);
-    try std.testing.expect(result.value.data == .integer);
-    try std.testing.expectEqual(@as(i64, 42), result.value.data.integer);
+    try std.testing.expect(result.value.isInteger());
+    try std.testing.expectEqual(@as(i64, 42), result.value.toInteger());
     try std.testing.expectEqualStrings("42\n", result.stdout);
 }
 
@@ -29,8 +29,8 @@ test "p with single string" {
     var stderr_buf: [1024]u8 = undefined;
 
     const result = evalCodeWithOutput("p \"hello\"", &stdout_buf, &stderr_buf);
-    try std.testing.expect(result.value.data == .string);
-    try std.testing.expectEqualSlices(u8, "hello", result.value.data.string.str);
+    try std.testing.expect(result.value.isString());
+    try std.testing.expectEqualSlices(u8, "hello", result.value.toStringObject().str);
     try std.testing.expectEqualStrings("\"hello\"\n", result.stdout);
 }
 
@@ -39,8 +39,8 @@ test "p with multiple integers" {
     var stderr_buf: [1024]u8 = undefined;
 
     const result = evalCodeWithOutput("p 1, 2, 3", &stdout_buf, &stderr_buf);
-    try std.testing.expect(result.value.data == .array);
-    try std.testing.expectEqual(@as(usize, 3), result.value.data.array.elements.items.len);
+    try std.testing.expect(result.value.isArray());
+    try std.testing.expectEqual(@as(usize, 3), result.value.toArrayObject().elements.items.len);
     try std.testing.expectEqualStrings("1\n2\n3\n", result.stdout);
 }
 
@@ -49,8 +49,8 @@ test "p with mixed types" {
     var stderr_buf: [1024]u8 = undefined;
 
     const result = evalCodeWithOutput("p 42, \"hello\", :foo", &stdout_buf, &stderr_buf);
-    try std.testing.expect(result.value.data == .array);
-    try std.testing.expectEqual(@as(usize, 3), result.value.data.array.elements.items.len);
+    try std.testing.expect(result.value.isArray());
+    try std.testing.expectEqual(@as(usize, 3), result.value.toArrayObject().elements.items.len);
     try std.testing.expectEqualStrings("42\n\"hello\"\n:foo\n", result.stdout);
 }
 
@@ -69,20 +69,20 @@ test "puts" {
 
 test "Kernel#nil? returns false for non-nil" {
     const result = try evalCode("1.nil?");
-    try std.testing.expect(result.data == .boolean);
-    try std.testing.expectEqual(false, result.data.boolean);
+    try std.testing.expect(result.isBool());
+    try std.testing.expectEqual(false, result.toBool());
 }
 
 test "Kernel#freeze returns receiver and marks String frozen" {
     const result = try evalCode("s = \"hello\"; s.freeze.object_id == s.object_id && s.frozen?");
-    try std.testing.expect(result.data == .boolean);
-    try std.testing.expectEqual(true, result.data.boolean);
+    try std.testing.expect(result.isBool());
+    try std.testing.expectEqual(true, result.toBool());
 }
 
 test "Kernel#freeze marks Hash frozen and prevents mutation" {
     const frozen_result = try evalCode("h = {}; h.freeze; h.frozen?");
-    try std.testing.expect(frozen_result.data == .boolean);
-    try std.testing.expectEqual(true, frozen_result.data.boolean);
+    try std.testing.expect(frozen_result.isBool());
+    try std.testing.expectEqual(true, frozen_result.toBool());
 
     var stdout_buf: [1024]u8 = undefined;
     var stderr_buf: [1024]u8 = undefined;
@@ -92,14 +92,14 @@ test "Kernel#freeze marks Hash frozen and prevents mutation" {
 
 test "Kernel#freeze on Integer is a no-op and remains frozen" {
     const result = try evalCode("i = 42; i.freeze.object_id == i.object_id && i.frozen?");
-    try std.testing.expect(result.data == .boolean);
-    try std.testing.expectEqual(true, result.data.boolean);
+    try std.testing.expect(result.isBool());
+    try std.testing.expectEqual(true, result.toBool());
 }
 
 test "Kernel#instance_of? returns true for exact class and false for ancestor/module" {
     var result = try evalCode("\"\".instance_of?(String)");
-    try std.testing.expect(result.data == .boolean);
-    try std.testing.expectEqual(true, result.data.boolean);
+    try std.testing.expect(result.isBool());
+    try std.testing.expectEqual(true, result.toBool());
 
     result = try evalCode(
         \\class A
@@ -108,8 +108,8 @@ test "Kernel#instance_of? returns true for exact class and false for ancestor/mo
         \\end
         \\B.new.instance_of?(A)
     );
-    try std.testing.expect(result.data == .boolean);
-    try std.testing.expectEqual(false, result.data.boolean);
+    try std.testing.expect(result.isBool());
+    try std.testing.expectEqual(false, result.toBool());
 
     result = try evalCode(
         \\module M
@@ -119,8 +119,8 @@ test "Kernel#instance_of? returns true for exact class and false for ancestor/mo
         \\end
         \\C.new.instance_of?(M)
     );
-    try std.testing.expect(result.data == .boolean);
-    try std.testing.expectEqual(false, result.data.boolean);
+    try std.testing.expect(result.isBool());
+    try std.testing.expectEqual(false, result.toBool());
 }
 
 test "Kernel#instance_of? raises TypeError for non class/module argument" {
@@ -145,10 +145,10 @@ test "Kernel#respond_to? supports symbol/string names and include_private" {
         \\k = K.new
         \\[k.respond_to?(:pub_method), k.respond_to?("pub_method"), k.respond_to?(:missing_method)]
     );
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(true, result.data.array.elements.items[0].data.boolean);
-    try std.testing.expectEqual(true, result.data.array.elements.items[1].data.boolean);
-    try std.testing.expectEqual(false, result.data.array.elements.items[2].data.boolean);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[0].toBool());
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[1].toBool());
+    try std.testing.expectEqual(false, result.toArrayObject().elements.items[2].toBool());
 
     result = try evalCode(
         \\class K
@@ -171,13 +171,13 @@ test "Kernel#respond_to? supports symbol/string names and include_private" {
         \\  k.respond_to?(:private_method, true)
         \\]
     );
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(false, result.data.array.elements.items[0].data.boolean);
-    try std.testing.expectEqual(false, result.data.array.elements.items[1].data.boolean);
-    try std.testing.expectEqual(false, result.data.array.elements.items[2].data.boolean);
-    try std.testing.expectEqual(false, result.data.array.elements.items[3].data.boolean);
-    try std.testing.expectEqual(true, result.data.array.elements.items[4].data.boolean);
-    try std.testing.expectEqual(true, result.data.array.elements.items[5].data.boolean);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(false, result.toArrayObject().elements.items[0].toBool());
+    try std.testing.expectEqual(false, result.toArrayObject().elements.items[1].toBool());
+    try std.testing.expectEqual(false, result.toArrayObject().elements.items[2].toBool());
+    try std.testing.expectEqual(false, result.toArrayObject().elements.items[3].toBool());
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[4].toBool());
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[5].toBool());
 }
 
 test "Kernel#respond_to? raises for invalid argument types and arity" {
@@ -209,8 +209,8 @@ test "Kernel#respond_to? coerces method name via to_str" {
         \\end
         \\obj.respond_to?(name)
     );
-    try std.testing.expect(result.data == .boolean);
-    try std.testing.expectEqual(true, result.data.boolean);
+    try std.testing.expect(result.isBool());
+    try std.testing.expectEqual(true, result.toBool());
 }
 
 test "Kernel#respond_to? consults respond_to_missing? for missing methods" {
@@ -232,10 +232,10 @@ test "Kernel#respond_to? consults respond_to_missing? for missing methods" {
         \\calls = obj.calls
         \\[first, second, calls.length]
     );
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(true, result.data.array.elements.items[0].data.boolean);
-    try std.testing.expectEqual(true, result.data.array.elements.items[1].data.boolean);
-    try std.testing.expectEqual(@as(i64, 1), result.data.array.elements.items[2].data.integer);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[0].toBool());
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[1].toBool());
+    try std.testing.expectEqual(@as(i64, 1), result.toArrayObject().elements.items[2].toInteger());
 }
 
 test "Kernel#respond_to? include_private controls respond_to_missing? fallback" {
@@ -266,13 +266,13 @@ test "Kernel#respond_to? include_private controls respond_to_missing? fallback" 
         \\second_last = obj.last
         \\[first, first_last[0], first_last[1], second, second_last[0], second_last[1]]
     );
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(false, result.data.array.elements.items[0].data.boolean);
-    try std.testing.expectEqualStrings("hidden", result.data.array.elements.items[1].data.symbol.name);
-    try std.testing.expectEqual(false, result.data.array.elements.items[2].data.boolean);
-    try std.testing.expectEqual(true, result.data.array.elements.items[3].data.boolean);
-    try std.testing.expectEqualStrings("hidden", result.data.array.elements.items[4].data.symbol.name);
-    try std.testing.expectEqual(false, result.data.array.elements.items[5].data.boolean);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(false, result.toArrayObject().elements.items[0].toBool());
+    try std.testing.expectEqualStrings("hidden", result.toArrayObject().elements.items[1].toSymbolObject().name);
+    try std.testing.expectEqual(false, result.toArrayObject().elements.items[2].toBool());
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[3].toBool());
+    try std.testing.expectEqualStrings("hidden", result.toArrayObject().elements.items[4].toSymbolObject().name);
+    try std.testing.expectEqual(false, result.toArrayObject().elements.items[5].toBool());
 }
 
 test "Array literal preserves side effects across respond_to? calls" {
@@ -291,10 +291,10 @@ test "Array literal preserves side effects across respond_to? calls" {
         \\obj = RespondToMissingHookSpec.new
         \\[obj.respond_to?(:to_s), obj.respond_to?(:dynamic_method), obj.calls.length]
     );
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(true, result.data.array.elements.items[0].data.boolean);
-    try std.testing.expectEqual(true, result.data.array.elements.items[1].data.boolean);
-    try std.testing.expectEqual(@as(i64, 1), result.data.array.elements.items[2].data.integer);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[0].toBool());
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[1].toBool());
+    try std.testing.expectEqual(@as(i64, 1), result.toArrayObject().elements.items[2].toInteger());
 }
 
 test "Kernel#send coerces method name via to_str" {
@@ -309,24 +309,24 @@ test "Kernel#send coerces method name via to_str" {
         \\end
         \\obj.send(name)
     );
-    try std.testing.expect(result.data == .integer);
-    try std.testing.expectEqual(@as(i64, 42), result.data.integer);
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
 }
 
 test "Kernel#to_enum and #enum_for return Enumerator and default to #each" {
     var result = try evalCode("[1, 2].to_enum");
-    try std.testing.expect(result.data == .enumerator);
+    try std.testing.expect(result.isEnumerator());
 
     result = try evalCode("[1, 2].enum_for");
-    try std.testing.expect(result.data == .enumerator);
+    try std.testing.expect(result.isEnumerator());
 
     result = try evalCode(
         \\e = [1, 2].to_enum
         \\[e.next, e.next]
     );
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(@as(i64, 1), result.data.array.elements.items[0].data.integer);
-    try std.testing.expectEqual(@as(i64, 2), result.data.array.elements.items[1].data.integer);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(i64, 1), result.toArrayObject().elements.items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 2), result.toArrayObject().elements.items[1].toInteger());
 }
 
 test "Kernel#to_enum forwards method name and arguments" {
@@ -342,10 +342,10 @@ test "Kernel#to_enum forwards method name and arguments" {
         \\e = obj.to_enum(:repeat, 3)
         \\[e.next, e.next, e.next]
     );
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(@as(i64, 0), result.data.array.elements.items[0].data.integer);
-    try std.testing.expectEqual(@as(i64, 1), result.data.array.elements.items[1].data.integer);
-    try std.testing.expectEqual(@as(i64, 2), result.data.array.elements.items[2].data.integer);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(i64, 0), result.toArrayObject().elements.items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 1), result.toArrayObject().elements.items[1].toInteger());
+    try std.testing.expectEqual(@as(i64, 2), result.toArrayObject().elements.items[2].toInteger());
 }
 
 test "Kernel#to_enum coerces method name via to_str" {
@@ -360,8 +360,8 @@ test "Kernel#to_enum coerces method name via to_str" {
         \\end
         \\obj.to_enum(name).next
     );
-    try std.testing.expect(result.data == .integer);
-    try std.testing.expectEqual(@as(i64, 9), result.data.integer);
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 9), result.toInteger());
 }
 
 test "Kernel#enum_for block is deferred and used by Enumerator#size" {
@@ -376,16 +376,16 @@ test "Kernel#enum_for block is deferred and used by Enumerator#size" {
         \\after = calls
         \\[before, value, after]
     );
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(@as(i64, 0), result.data.array.elements.items[0].data.integer);
-    try std.testing.expectEqual(@as(i64, 123), result.data.array.elements.items[1].data.integer);
-    try std.testing.expectEqual(@as(i64, 1), result.data.array.elements.items[2].data.integer);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(i64, 0), result.toArrayObject().elements.items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 123), result.toArrayObject().elements.items[1].toInteger());
+    try std.testing.expectEqual(@as(i64, 1), result.toArrayObject().elements.items[2].toInteger());
 }
 
 test "Kernel#__dir__ returns dot for eval code" {
     const result = try evalCode("__dir__");
-    try std.testing.expect(result.data == .string);
-    try std.testing.expectEqualSlices(u8, ".", result.data.string.str);
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, ".", result.toStringObject().str);
 }
 
 test "Kernel#__dir__ returns absolute directory for file execution" {
@@ -408,8 +408,8 @@ test "Kernel#__dir__ returns absolute directory for file execution" {
 
     if (result.err) |err| return err;
 
-    try std.testing.expect(result.value.data == .string);
-    try std.testing.expectEqualSlices(u8, "/tmp", result.value.data.string.str);
+    try std.testing.expect(result.value.isString());
+    try std.testing.expectEqualSlices(u8, "/tmp", result.value.toStringObject().str);
 }
 
 test "Kernel#instance_variable_get coerces name via to_str and invalid names raise NameError" {
@@ -422,8 +422,8 @@ test "Kernel#instance_variable_get coerces name via to_str and invalid names rai
         \\end
         \\obj.instance_variable_get(name)
     );
-    try std.testing.expect(result.data == .integer);
-    try std.testing.expectEqual(@as(i64, 9), result.data.integer);
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 9), result.toInteger());
 
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;
@@ -444,27 +444,27 @@ test "Kernel#singleton_class returns singleton class for object" {
         \\obj = Object.new
         \\[obj.singleton_class, obj.singleton_class]
     );
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(@as(usize, 2), result.data.array.elements.items.len);
-    try std.testing.expect(result.data.array.elements.items[0].data == .class);
-    try std.testing.expect(result.data.array.elements.items[1].data == .class);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(usize, 2), result.toArrayObject().elements.items.len);
+    try std.testing.expect(result.toArrayObject().elements.items[0].isClass());
+    try std.testing.expect(result.toArrayObject().elements.items[1].isClass());
     try std.testing.expect(
-        result.data.array.elements.items[0].data.class == result.data.array.elements.items[1].data.class,
+        result.toArrayObject().elements.items[0].toClassObject() == result.toArrayObject().elements.items[1].toClassObject(),
     );
 }
 
 test "Kernel#singleton_class returns NilClass/TrueClass/FalseClass for immediates" {
     var result = try evalCode("nil.singleton_class");
-    try std.testing.expect(result.data == .class);
-    try std.testing.expectEqualStrings("NilClass", result.data.class.module.name.name);
+    try std.testing.expect(result.isClass());
+    try std.testing.expectEqualStrings("NilClass", result.toClassObject().module.name.name);
 
     result = try evalCode("true.singleton_class");
-    try std.testing.expect(result.data == .class);
-    try std.testing.expectEqualStrings("TrueClass", result.data.class.module.name.name);
+    try std.testing.expect(result.isClass());
+    try std.testing.expectEqualStrings("TrueClass", result.toClassObject().module.name.name);
 
     result = try evalCode("false.singleton_class");
-    try std.testing.expect(result.data == .class);
-    try std.testing.expectEqualStrings("FalseClass", result.data.class.module.name.name);
+    try std.testing.expect(result.isClass());
+    try std.testing.expectEqualStrings("FalseClass", result.toClassObject().module.name.name);
 }
 
 test "Kernel#singleton_class raises TypeError for Integer, Float, and Symbol" {
@@ -490,8 +490,8 @@ test "Kernel#singleton_class returns frozen singleton class for frozen object" {
         \\obj.freeze
         \\obj.singleton_class.frozen?
     );
-    try std.testing.expect(result.data == .boolean);
-    try std.testing.expectEqual(true, result.data.boolean);
+    try std.testing.expect(result.isBool());
+    try std.testing.expectEqual(true, result.toBool());
 }
 
 test "Kernel#methods includes singleton and protected methods and excludes private" {
@@ -511,10 +511,10 @@ test "Kernel#methods includes singleton and protected methods and excludes priva
         \\  methods.include?(:priv_instance_marker)
         \\]
     );
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(true, result.data.array.elements.items[0].data.boolean);
-    try std.testing.expectEqual(true, result.data.array.elements.items[1].data.boolean);
-    try std.testing.expectEqual(false, result.data.array.elements.items[2].data.boolean);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[0].toBool());
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[1].toBool());
+    try std.testing.expectEqual(false, result.toArrayObject().elements.items[2].toBool());
 }
 
 test "Kernel#methods(false) returns only singleton methods" {
@@ -527,9 +527,9 @@ test "Kernel#methods(false) returns only singleton methods" {
         \\  methods.include?(:object_id)
         \\]
     );
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(true, result.data.array.elements.items[0].data.boolean);
-    try std.testing.expectEqual(false, result.data.array.elements.items[1].data.boolean);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[0].toBool());
+    try std.testing.expectEqual(false, result.toArrayObject().elements.items[1].toBool());
 }
 
 test "Kernel#private_methods includes inherited private methods by default" {
@@ -543,8 +543,8 @@ test "Kernel#private_methods includes inherited private methods by default" {
         \\obj = PrivateChildForMethods.new
         \\obj.private_methods.include?(:inherited_private_marker)
     );
-    try std.testing.expect(result.data == .boolean);
-    try std.testing.expectEqual(true, result.data.boolean);
+    try std.testing.expect(result.isBool());
+    try std.testing.expectEqual(true, result.toBool());
 }
 
 test "Kernel#private_methods(false) excludes ancestor private methods" {
@@ -564,9 +564,9 @@ test "Kernel#private_methods(false) excludes ancestor private methods" {
         \\  methods.include?(:child_private_marker)
         \\]
     );
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(false, result.data.array.elements.items[0].data.boolean);
-    try std.testing.expectEqual(true, result.data.array.elements.items[1].data.boolean);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(false, result.toArrayObject().elements.items[0].toBool());
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[1].toBool());
 }
 
 test "Kernel#methods and #private_methods validate arg count" {
@@ -589,9 +589,9 @@ test "Kernel#tap yields self and returns self" {
         \\ret = obj.tap { |o| seen = o.object_id; 42 }
         \\[ret.object_id == obj.object_id, seen == obj.object_id]
     );
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(true, result.data.array.elements.items[0].data.boolean);
-    try std.testing.expectEqual(true, result.data.array.elements.items[1].data.boolean);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[0].toBool());
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[1].toBool());
 }
 
 test "Kernel#tap raises ArgumentError when no block is given" {

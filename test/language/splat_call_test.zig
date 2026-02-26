@@ -5,12 +5,12 @@ const evalCode = test_helper.evalCode;
 const evalCodeWithOutput = test_helper.evalCodeWithOutput;
 
 fn expectIntArray(val: @import("cora").value.Value, expected: []const i64) !void {
-    try std.testing.expect(val.data == .array);
-    try std.testing.expectEqual(expected.len, val.data.array.elements.items.len);
+    try std.testing.expect(val.isArray());
+    try std.testing.expectEqual(expected.len, val.toArrayObject().elements.items.len);
     for (expected, 0..) |want, i| {
-        const got = val.data.array.elements.items[i];
-        try std.testing.expect(got.data == .integer);
-        try std.testing.expectEqual(want, got.data.integer);
+        const got = val.toArrayObject().elements.items[i];
+        try std.testing.expect(got.isInteger());
+        try std.testing.expectEqual(want, got.toInteger());
     }
 }
 
@@ -51,11 +51,11 @@ test "splat call with keywords via CALL_KW" {
         \\def f(*a, b:); [a, b]; end
         \\f(*[1, 2], b: 3)
     );
-    try std.testing.expect(result.data == .array);
-    try std.testing.expect(result.data.array.elements.items[0].data == .array);
-    try expectIntArray(result.data.array.elements.items[0], &.{ 1, 2 });
-    try std.testing.expect(result.data.array.elements.items[1].data == .integer);
-    try std.testing.expectEqual(@as(i64, 3), result.data.array.elements.items[1].data.integer);
+    try std.testing.expect(result.isArray());
+    try std.testing.expect(result.toArrayObject().elements.items[0].isArray());
+    try expectIntArray(result.toArrayObject().elements.items[0], &.{ 1, 2 });
+    try std.testing.expect(result.toArrayObject().elements.items[1].isInteger());
+    try std.testing.expectEqual(@as(i64, 3), result.toArrayObject().elements.items[1].toInteger());
 
     result = try evalCode(
         \\def g(a, b:, c:); [a, b, c]; end

@@ -17,7 +17,7 @@ const FileMode = struct {
 };
 
 pub fn register(vm: *VM) !void {
-    const file_class_val = Value{ .data = .{ .class = vm.file_class } };
+    const file_class_val = Value.fromObject(vm.file_class);
     const file_singleton = try vm.getOrCreateSingletonClass(file_class_val);
 
     const new_sym = try vm.intern("new");
@@ -72,7 +72,7 @@ fn pathAndMode(vm: *VM, args: []Value) VMError!struct { path: []const u8, mode: 
     const path = try vm.coerceToPath(args[0], "no implicit conversion into String");
 
     const mode_str: []const u8 = if (args.len == 2) blk: {
-        if (args[1].data == .nil) break :blk "r";
+        if (args[1].isNil()) break :blk "r";
         break :blk try args[1].coerceToStr(vm, "no implicit conversion into String");
     } else "r";
     const mode = try parseMode(vm, mode_str);

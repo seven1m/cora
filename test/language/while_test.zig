@@ -9,7 +9,7 @@ test "while loop - basic execution" {
         \\  x = x + 1
         \\end
     );
-    try std.testing.expect(result.data == .nil);
+    try std.testing.expect(result.isNil());
 }
 
 test "while loop - condition false from start" {
@@ -20,7 +20,7 @@ test "while loop - condition false from start" {
         \\end
         \\x
     );
-    try std.testing.expectEqual(@as(i64, 10), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 10), result.toInteger());
 }
 
 test "while loop - empty body" {
@@ -28,7 +28,7 @@ test "while loop - empty body" {
         \\while false
         \\end
     );
-    try std.testing.expect(result.data == .nil);
+    try std.testing.expect(result.isNil());
 }
 
 test "while loop - modifier form" {
@@ -37,7 +37,7 @@ test "while loop - modifier form" {
         \\x = x - 1 while x == 5
         \\x
     );
-    try std.testing.expectEqual(@as(i64, 4), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 4), result.toInteger());
 }
 
 test "while loop - break without value" {
@@ -48,7 +48,7 @@ test "while loop - break without value" {
         \\  break if i == 3
         \\end
     );
-    try std.testing.expect(result.data == .nil);
+    try std.testing.expect(result.isNil());
 }
 
 test "while loop - break with value" {
@@ -59,7 +59,7 @@ test "while loop - break with value" {
         \\  break 42 if i == 3
         \\end
     );
-    try std.testing.expectEqual(@as(i64, 42), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
 }
 
 test "while loop - break in nested loop" {
@@ -75,7 +75,7 @@ test "while loop - break in nested loop" {
         \\end
         \\outer
     );
-    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
 }
 
 test "while loop - break returns expression value" {
@@ -85,5 +85,5 @@ test "while loop - break returns expression value" {
         \\  break x + 5
         \\end
     );
-    try std.testing.expectEqual(@as(i64, 15), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 15), result.toInteger());
 }

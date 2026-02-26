@@ -29,5 +29,5 @@ pub fn builtinFalseClassInspect(vm: *VM, receiver: Value, args: []Value, block: 
 
 pub fn builtinFalseClassEqual(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    return Value.boolean(args[0].data == .boolean and args[0].data.boolean == false);
+    return Value.boolean(args[0].isFalse());
 }

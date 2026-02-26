@@ -20,8 +20,8 @@ fn currentDefaultVisibility(vm: *VM) MethodVisibility {
 }
 
 fn normalizeVisibilityArgs(vm: *VM, args: []Value, names: *std.ArrayList(*SymbolObject)) VMError!void {
-    if (args.len == 1 and args[0].data == .array) {
-        for (args[0].data.array.elements.items) |elem| {
+    if (args.len == 1 and args[0].isArray()) {
+        for (args[0].toArrayObject().elements.items) |elem| {
             names.append(vm.gc_allocator, try vm.coerceToMethodNameSymbol(elem)) catch return error.Fatal;
         }
         return;
@@ -79,51 +79,49 @@ fn collectInstanceMethods(
     var blocked: std.AutoHashMap(*SymbolObject, void) = std.AutoHashMap(*SymbolObject, void).init(vm.gc_allocator);
     defer blocked.deinit();
 
-    switch (receiver.data) {
-        .module => |module_obj| {
-            try method_reflection.collectMethodsFromTable(vm, &module_obj.methods, filter, &names, &seen, &blocked);
-        },
-        .class => |class_obj| {
-            var current: ?*ClassObject = class_obj;
-            while (current) |klass| {
-                if (include_super) {
-                    var i = klass.prepended_modules.items.len;
-                    while (i > 0) {
-                        i -= 1;
-                        const prepended = klass.prepended_modules.items[i];
-                        try method_reflection.collectMethodsFromTable(vm, &prepended.methods, filter, &names, &seen, &blocked);
-                    }
+    if (receiver.isModule()) {
+        const module_obj = receiver.toModuleObject();
+        try method_reflection.collectMethodsFromTable(vm, &module_obj.methods, filter, &names, &seen, &blocked);
+    } else if (receiver.isClass()) {
+        const class_obj = receiver.toClassObject();
+        var current: ?*ClassObject = class_obj;
+        while (current) |klass| {
+            if (include_super) {
+                var i = klass.prepended_modules.items.len;
+                while (i > 0) {
+                    i -= 1;
+                    const prepended = klass.prepended_modules.items[i];
+                    try method_reflection.collectMethodsFromTable(vm, &prepended.methods, filter, &names, &seen, &blocked);
                 }
-
-                try method_reflection.collectMethodsFromTable(vm, &klass.module.methods, filter, &names, &seen, &blocked);
-
-                if (include_super) {
-                    var j = klass.included_modules.items.len;
-                    while (j > 0) {
-                        j -= 1;
-                        const included = klass.included_modules.items[j];
-                        try method_reflection.collectMethodsFromTable(vm, &included.methods, filter, &names, &seen, &blocked);
-                    }
-                }
-
-                if (!include_super) break;
-                current = klass.superclass;
             }
-        },
-        else => {
-            const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
-            vm.pending_exception = exc;
-            return error.Unwind;
-        },
+
+            try method_reflection.collectMethodsFromTable(vm, &klass.module.methods, filter, &names, &seen, &blocked);
+
+            if (include_super) {
+                var j = klass.included_modules.items.len;
+                while (j > 0) {
+                    j -= 1;
+                    const included = klass.included_modules.items[j];
+                    try method_reflection.collectMethodsFromTable(vm, &included.methods, filter, &names, &seen, &blocked);
+                }
+            }
+
+            if (!include_super) break;
+            current = klass.superclass;
+        }
+    } else {
+        const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
+        vm.pending_exception = exc;
+        return error.Unwind;
     }
 
     method_reflection.sortSymbolsByName(names.items);
 
     const out = try vm.createArray();
     for (names.items) |name_sym| {
-        out.elements.append(vm.gc_allocator, Value{ .data = .{ .symbol = name_sym } }) catch return error.Fatal;
+        out.elements.append(vm.gc_allocator, Value.fromObject(name_sym)) catch return error.Fatal;
     }
-    return Value{ .data = .{ .array = out } };
+    return Value.fromObject(out);
 }
 
 fn setVisibility(vm: *VM, receiver: Value, args: []Value, visibility: MethodVisibility) VMError!Value {
@@ -163,19 +161,19 @@ fn setVisibility(vm: *VM, receiver: Value, args: []Value, visibility: MethodVisi
     vm.markIntegerChangedForReceiver(receiver);
     vm.bumpMethodStateVersion();
 
-    if (args.len == 1 and args[0].data != .array) {
-        return Value{ .data = .{ .symbol = names.items[0] } };
+    if (args.len == 1 and !args[0].isArray()) {
+        return Value.fromObject(names.items[0]);
     }
 
-    if (args.len == 1 and args[0].data == .array) {
+    if (args.len == 1 and args[0].isArray()) {
         return args[0];
     }
 
     const arr = try vm.createArray();
     for (names.items) |name_sym| {
-        arr.elements.append(vm.gc_allocator, Value{ .data = .{ .symbol = name_sym } }) catch return error.Fatal;
+        arr.elements.append(vm.gc_allocator, Value.fromObject(name_sym)) catch return error.Fatal;
     }
-    return Value{ .data = .{ .array = arr } };
+    return Value.fromObject(arr);
 }
 
 fn copyMethodToModuleSingleton(vm: *VM, module_receiver: Value, name_sym: *SymbolObject, entry: value.MethodEntry) VMError!void {
@@ -268,14 +266,14 @@ pub fn builtinModuleCaseEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block
     try vm.requireArgCount(args, 1);
 
     const target = args[0];
-    const receiver_module = switch (receiver.data) {
-        .class => |cls| &cls.module,
-        .module => |mod| mod,
-        else => {
-            const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
-            vm.pending_exception = exc;
-            return error.Unwind;
-        },
+    const receiver_module = if (receiver.isClass())
+        &receiver.toClassObject().module
+    else if (receiver.isModule())
+        receiver.toModuleObject()
+    else {
+        const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
+        vm.pending_exception = exc;
+        return error.Unwind;
     };
 
     var current: ?*ClassObject = vm.getClass(target);
@@ -306,33 +304,29 @@ pub fn builtinModuleConstants(vm: *VM, receiver: Value, args: []Value, _: ?Block
     var seen: std.AutoHashMap(*SymbolObject, void) = std.AutoHashMap(*SymbolObject, void).init(vm.gc_allocator);
     defer seen.deinit();
 
-    switch (receiver.data) {
-        .module => |module_obj| {
-            try collectOwnConstantSymbols(vm, module_obj, &constant_names, &seen);
-        },
-        .class => |class_obj| {
-            var current: ?*ClassObject = class_obj;
-            while (current) |klass| {
-                try collectOwnConstantSymbols(vm, &klass.module, &constant_names, &seen);
-                if (!include_inherited) break;
-                current = klass.superclass;
-            }
-        },
-        else => {
-            const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
-            vm.pending_exception = exc;
-            return error.Unwind;
-        },
+    if (receiver.isModule()) {
+        try collectOwnConstantSymbols(vm, receiver.toModuleObject(), &constant_names, &seen);
+    } else if (receiver.isClass()) {
+        var current: ?*ClassObject = receiver.toClassObject();
+        while (current) |klass| {
+            try collectOwnConstantSymbols(vm, &klass.module, &constant_names, &seen);
+            if (!include_inherited) break;
+            current = klass.superclass;
+        }
+    } else {
+        const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
+        vm.pending_exception = exc;
+        return error.Unwind;
     }
 
     method_reflection.sortSymbolsByName(constant_names.items);
 
     const out = try vm.createArray();
     for (constant_names.items) |name_sym| {
-        out.elements.append(vm.gc_allocator, Value{ .data = .{ .symbol = name_sym } }) catch return error.Fatal;
+        out.elements.append(vm.gc_allocator, Value.fromObject(name_sym)) catch return error.Fatal;
     }
 
-    return Value{ .data = .{ .array = out } };
+    return Value.fromObject(out);
 }
 
 pub fn builtinModuleAncestors(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -340,40 +334,36 @@ pub fn builtinModuleAncestors(vm: *VM, receiver: Value, args: []Value, _: ?Block
 
     const out = try vm.createArray();
 
-    switch (receiver.data) {
-        .module => |module_obj| {
-            out.elements.append(vm.gc_allocator, Value{ .data = .{ .module = module_obj } }) catch return error.Fatal;
-        },
-        .class => |class_obj| {
-            var current: ?*ClassObject = class_obj;
-            while (current) |klass| {
-                var i = klass.prepended_modules.items.len;
-                while (i > 0) {
-                    i -= 1;
-                    const prepended = klass.prepended_modules.items[i];
-                    out.elements.append(vm.gc_allocator, Value{ .data = .{ .module = prepended } }) catch return error.Fatal;
-                }
-
-                out.elements.append(vm.gc_allocator, Value{ .data = .{ .class = klass } }) catch return error.Fatal;
-
-                var j = klass.included_modules.items.len;
-                while (j > 0) {
-                    j -= 1;
-                    const included = klass.included_modules.items[j];
-                    out.elements.append(vm.gc_allocator, Value{ .data = .{ .module = included } }) catch return error.Fatal;
-                }
-
-                current = klass.superclass;
+    if (receiver.isModule()) {
+        out.elements.append(vm.gc_allocator, Value.fromObject(receiver.toModuleObject())) catch return error.Fatal;
+    } else if (receiver.isClass()) {
+        var current: ?*ClassObject = receiver.toClassObject();
+        while (current) |klass| {
+            var i = klass.prepended_modules.items.len;
+            while (i > 0) {
+                i -= 1;
+                const prepended = klass.prepended_modules.items[i];
+                out.elements.append(vm.gc_allocator, Value.fromObject(prepended)) catch return error.Fatal;
             }
-        },
-        else => {
-            const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
-            vm.pending_exception = exc;
-            return error.Unwind;
-        },
+
+            out.elements.append(vm.gc_allocator, Value.fromObject(klass)) catch return error.Fatal;
+
+            var j = klass.included_modules.items.len;
+            while (j > 0) {
+                j -= 1;
+                const included = klass.included_modules.items[j];
+                out.elements.append(vm.gc_allocator, Value.fromObject(included)) catch return error.Fatal;
+            }
+
+            current = klass.superclass;
+        }
+    } else {
+        const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
+        vm.pending_exception = exc;
+        return error.Unwind;
     }
 
-    return Value{ .data = .{ .array = out } };
+    return Value.fromObject(out);
 }
 
 pub fn builtinModuleInstanceMethods(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -406,9 +396,9 @@ pub fn builtinModuleMethodDefined(vm: *VM, receiver: Value, args: []Value, _: ?B
     const name_sym = try vm.coerceToMethodNameSymbol(args[0]);
 
     const methods = try collectInstanceMethods(vm, receiver, .public_and_protected, include_super);
-    const items = methods.data.array.elements.items;
+    const items = methods.toArrayObject().elements.items;
     for (items) |item| {
-        if (item.data == .symbol and item.data.symbol == name_sym) {
+        if (item.isSymbol() and item.toSymbolObject() == name_sym) {
             return Value.boolean(true);
         }
     }
@@ -417,8 +407,8 @@ pub fn builtinModuleMethodDefined(vm: *VM, receiver: Value, args: []Value, _: ?B
 
 pub fn builtinModuleInclude(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireSingleArg(args, .module, "Module");
-    const class = receiver.data.class;
-    const module = args[0].data.module;
+    const class = receiver.toClassObject();
+    const module = args[0].toModuleObject();
 
     vm.includeModule(class, module) catch return error.Fatal;
 
@@ -427,8 +417,8 @@ pub fn builtinModuleInclude(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 
 pub fn builtinModulePrepend(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireSingleArg(args, .module, "Module");
-    const class = receiver.data.class;
-    const module = args[0].data.module;
+    const class = receiver.toClassObject();
+    const module = args[0].toModuleObject();
 
     vm.prependModule(class, module) catch return error.Fatal;
 
@@ -453,18 +443,18 @@ pub fn builtinModuleDefineMethod(vm: *VM, receiver: Value, args: []Value, block:
     const effective_visibility: MethodVisibility = if (module_function_mode) .private else visibility;
 
     const entry: value.MethodEntry = .{
-        .method = .{ .proc = proc_val.data.proc },
+        .method = .{ .proc = proc_val.toProcObject() },
         .visibility = effective_visibility,
     };
     methods.put(name_sym, entry) catch return error.Fatal;
     vm.markIntegerChangedForReceiver(receiver);
     vm.bumpMethodStateVersion();
 
-    if (module_function_mode and receiver.data == .module) {
+    if (module_function_mode and receiver.isModule()) {
         try copyMethodToModuleSingleton(vm, receiver, name_sym, entry);
     }
 
-    return Value{ .data = .{ .symbol = name_sym } };
+    return Value.fromObject(name_sym);
 }
 
 pub fn builtinModuleAttrReader(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -488,12 +478,12 @@ pub fn builtinModuleAttrReader(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
             .visibility = visibility,
         }) catch return error.Fatal;
 
-        result_array.elements.append(vm.gc_allocator, Value{ .data = .{ .symbol = method_sym } }) catch return error.Fatal;
+        result_array.elements.append(vm.gc_allocator, Value.fromObject(method_sym)) catch return error.Fatal;
     }
     vm.markIntegerChangedForReceiver(receiver);
     vm.bumpMethodStateVersion();
 
-    return Value{ .data = .{ .array = result_array } };
+    return Value.fromObject(result_array);
 }
 
 pub fn builtinModuleAttrWriter(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -518,12 +508,12 @@ pub fn builtinModuleAttrWriter(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
             .visibility = visibility,
         }) catch return error.Fatal;
 
-        result_array.elements.append(vm.gc_allocator, Value{ .data = .{ .symbol = method_sym } }) catch return error.Fatal;
+        result_array.elements.append(vm.gc_allocator, Value.fromObject(method_sym)) catch return error.Fatal;
     }
     vm.markIntegerChangedForReceiver(receiver);
     vm.bumpMethodStateVersion();
 
-    return Value{ .data = .{ .array = result_array } };
+    return Value.fromObject(result_array);
 }
 
 pub fn builtinModuleAttrAccessor(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -557,13 +547,13 @@ pub fn builtinModuleAttrAccessor(vm: *VM, receiver: Value, args: []Value, _: ?Bl
             .visibility = visibility,
         }) catch return error.Fatal;
 
-        result_array.elements.append(vm.gc_allocator, Value{ .data = .{ .symbol = reader_sym } }) catch return error.Fatal;
-        result_array.elements.append(vm.gc_allocator, Value{ .data = .{ .symbol = writer_sym } }) catch return error.Fatal;
+        result_array.elements.append(vm.gc_allocator, Value.fromObject(reader_sym)) catch return error.Fatal;
+        result_array.elements.append(vm.gc_allocator, Value.fromObject(writer_sym)) catch return error.Fatal;
     }
     vm.markIntegerChangedForReceiver(receiver);
     vm.bumpMethodStateVersion();
 
-    return Value{ .data = .{ .array = result_array } };
+    return Value.fromObject(result_array);
 }
 
 pub fn builtinModuleAliasMethod(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -582,15 +572,15 @@ pub fn builtinModuleAliasMethod(vm: *VM, receiver: Value, args: []Value, _: ?Blo
         return error.Unwind;
     };
     var lookup_class: *value.ClassObject = undefined;
-    if (receiver.data == .class) {
-        lookup_class = receiver.data.class;
-    } else if (receiver.data == .module) {
+    if (receiver.isClass()) {
+        lookup_class = receiver.toClassObject();
+    } else if (receiver.isModule()) {
         // For modules, look up in own methods only
         if (getOwnDefinedMethodEntry(methods, old_name_sym)) |entry| {
             methods.put(new_name_sym, entry) catch return error.Fatal;
             vm.markIntegerChangedForReceiver(receiver);
             vm.bumpMethodStateVersion();
-            return Value{ .data = .{ .symbol = new_name_sym } };
+            return Value.fromObject(new_name_sym);
         }
         const msg = std.fmt.allocPrint(
             vm.gc_allocator,
@@ -620,7 +610,7 @@ pub fn builtinModuleAliasMethod(vm: *VM, receiver: Value, args: []Value, _: ?Blo
         return error.Unwind;
     }
 
-    return Value{ .data = .{ .symbol = new_name_sym } };
+    return Value.fromObject(new_name_sym);
 }
 
 pub fn builtinModuleUndefMethod(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -634,11 +624,12 @@ pub fn builtinModuleUndefMethod(vm: *VM, receiver: Value, args: []Value, _: ?Blo
 
     for (args) |arg| {
         const name_sym = try vm.coerceToMethodNameSymbol(arg);
-        const exists = switch (receiver.data) {
-            .class => |klass| vm.lookupMethod(klass, name_sym) != null,
-            .module => getOwnDefinedMethodEntry(methods, name_sym) != null,
-            else => unreachable,
-        };
+        const exists = if (receiver.isClass())
+            vm.lookupMethod(receiver.toClassObject(), name_sym) != null
+        else if (receiver.isModule())
+            getOwnDefinedMethodEntry(methods, name_sym) != null
+        else
+            unreachable;
         if (!exists) {
             const msg = std.fmt.allocPrint(
                 vm.gc_allocator,
@@ -741,5 +732,5 @@ pub fn builtinModuleFunction(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     for (args) |arg| {
         arr.elements.append(vm.gc_allocator, arg) catch return error.Fatal;
     }
-    return Value{ .data = .{ .array = arr } };
+    return Value.fromObject(arr);
 }

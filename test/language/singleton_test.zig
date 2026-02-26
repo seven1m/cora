@@ -13,8 +13,8 @@ test "Class method with self" {
         \\end
         \\Foo.bar
     );
-    try std.testing.expect(result.data == .string);
-    try std.testing.expectEqualSlices(u8, "class method", result.data.string.str);
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "class method", result.toStringObject().str);
 }
 
 test "Singleton method on instance" {
@@ -25,8 +25,8 @@ test "Singleton method on instance" {
         \\end
         \\foo.special
     );
-    try std.testing.expect(result.data == .string);
-    try std.testing.expectEqualSlices(u8, "special", result.data.string.str);
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "special", result.toStringObject().str);
 }
 
 test "Class method inheritance" {
@@ -40,8 +40,8 @@ test "Class method inheritance" {
         \\end
         \\Child.foo
     );
-    try std.testing.expect(result.data == .string);
-    try std.testing.expectEqualSlices(u8, "parent", result.data.string.str);
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "parent", result.toStringObject().str);
 }
 
 test "Instance vs class methods" {
@@ -56,8 +56,8 @@ test "Instance vs class methods" {
         \\end
         \\Foo.bar
     );
-    try std.testing.expect(result.data == .string);
-    try std.testing.expectEqualSlices(u8, "class", result.data.string.str);
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "class", result.toStringObject().str);
 
     const result2 = try evalCode(
         \\class Foo
@@ -70,8 +70,8 @@ test "Instance vs class methods" {
         \\end
         \\Foo.new.bar
     );
-    try std.testing.expect(result2.data == .string);
-    try std.testing.expectEqualSlices(u8, "instance", result2.data.string.str);
+    try std.testing.expect(result2.isString());
+    try std.testing.expectEqualSlices(u8, "instance", result2.toStringObject().str);
 }
 
 test "Singleton method on module" {
@@ -83,8 +83,8 @@ test "Singleton method on module" {
         \\end
         \\MyModule.foo
     );
-    try std.testing.expect(result.data == .string);
-    try std.testing.expectEqualSlices(u8, "module method", result.data.string.str);
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "module method", result.toStringObject().str);
 }
 
 test "Calling undefined class method raises NoMethodError" {
@@ -129,8 +129,8 @@ test "Class method overriding" {
         \\end
         \\Child.foo
     );
-    try std.testing.expect(result.data == .string);
-    try std.testing.expectEqualSlices(u8, "child", result.data.string.str);
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "child", result.toStringObject().str);
 
     const result2 = try evalCode(
         \\class Parent
@@ -145,8 +145,8 @@ test "Class method overriding" {
         \\end
         \\Parent.foo
     );
-    try std.testing.expect(result2.data == .string);
-    try std.testing.expectEqualSlices(u8, "parent", result2.data.string.str);
+    try std.testing.expect(result2.isString());
+    try std.testing.expectEqualSlices(u8, "parent", result2.toStringObject().str);
 }
 
 test "Object#new does not panic with singleton coercion in Class.new block" {
@@ -164,8 +164,8 @@ test "Object#new does not panic with singleton coercion in Class.new block" {
         \\end
         \\C.new.value
     );
-    try std.testing.expect(result.data == .integer);
-    try std.testing.expectEqual(@as(i64, 7), result.data.integer);
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 7), result.toInteger());
 }
 
 test "Object#define_singleton_method defines and calls singleton method" {
@@ -174,9 +174,9 @@ test "Object#define_singleton_method defines and calls singleton method" {
         \\ret = obj.define_singleton_method(:hello) { 'hi' }
         \\[ret, obj.hello]
     );
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqualSlices(u8, "hello", result.data.array.elements.items[0].data.symbol.name);
-    try std.testing.expectEqualSlices(u8, "hi", result.data.array.elements.items[1].data.string.str);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqualSlices(u8, "hello", result.toArrayObject().elements.items[0].toSymbolObject().name);
+    try std.testing.expectEqualSlices(u8, "hi", result.toArrayObject().elements.items[1].toStringObject().str);
 }
 
 test "Object#define_singleton_method supports super dispatch" {
@@ -185,7 +185,7 @@ test "Object#define_singleton_method supports super dispatch" {
         \\obj.define_singleton_method(:size) { super() + 1 }
         \\obj.size
     );
-    try std.testing.expectEqual(@as(i64, 4), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 4), result.toInteger());
 }
 
 test "singleton_class.remove_method removes singleton override and falls back to class method" {
@@ -201,9 +201,9 @@ test "singleton_class.remove_method removes singleton override and falls back to
         \\g.singleton_class.remove_method(:greet)
         \\[before, g.greet]
     );
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqualSlices(u8, "singleton", result.data.array.elements.items[0].data.string.str);
-    try std.testing.expectEqualSlices(u8, "class", result.data.array.elements.items[1].data.string.str);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqualSlices(u8, "singleton", result.toArrayObject().elements.items[0].toStringObject().str);
+    try std.testing.expectEqualSlices(u8, "class", result.toArrayObject().elements.items[1].toStringObject().str);
 }
 
 test "singleton_class.remove_method raises NameError for inherited-only method" {
@@ -234,7 +234,7 @@ test "class << self defines class methods" {
         \\end
         \\ClassSingletonSpec.value
     );
-    try std.testing.expectEqual(@as(i64, 42), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
 }
 
 test "class << object returns last expression and defines singleton method" {
@@ -248,9 +248,9 @@ test "class << object returns last expression and defines singleton method" {
         \\end
         \\[ret, obj.greet]
     );
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(@as(i64, 123), result.data.array.elements.items[0].data.integer);
-    try std.testing.expectEqualSlices(u8, "hi", result.data.array.elements.items[1].data.string.str);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(i64, 123), result.toArrayObject().elements.items[0].toInteger());
+    try std.testing.expectEqualSlices(u8, "hi", result.toArrayObject().elements.items[1].toStringObject().str);
 }
 
 test "class << literals true false nil uses singleton class self" {
@@ -261,10 +261,10 @@ test "class << literals true false nil uses singleton class self" {
         \\  (class << nil; self; end) == NilClass
         \\]
     );
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(true, result.data.array.elements.items[0].data.boolean);
-    try std.testing.expectEqual(true, result.data.array.elements.items[1].data.boolean);
-    try std.testing.expectEqual(true, result.data.array.elements.items[2].data.boolean);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[0].toBool());
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[1].toBool());
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[2].toBool());
 }
 
 test "class << object constant namespace stays on singleton class" {
@@ -275,9 +275,9 @@ test "class << object constant namespace stays on singleton class" {
         \\end
         \\[class << obj; CONST; end, begin obj.class::CONST; false; rescue NameError; true; end]
     );
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(@as(i64, 7), result.data.array.elements.items[0].data.integer);
-    try std.testing.expectEqual(true, result.data.array.elements.items[1].data.boolean);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(i64, 7), result.toArrayObject().elements.items[0].toInteger());
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[1].toBool());
 }
 
 test "class << non-singleton-capable literals raises TypeError" {

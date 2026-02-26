@@ -9,7 +9,7 @@ const ClassObject = value.ClassObject;
 
 pub fn register(vm: *VM) !void {
     const class_new_sym = try vm.intern("new");
-    const class_class_val = Value{ .data = .{ .class = vm.class_class } };
+    const class_class_val = Value.fromObject(vm.class_class);
     const class_singleton = try vm.getOrCreateSingletonClass(class_class_val);
     try class_singleton.module.methods.put(class_new_sym, .{ .method = .{ .builtin = &builtinClassNew } });
 
@@ -18,19 +18,18 @@ pub fn register(vm: *VM) !void {
 }
 
 pub fn builtinClassNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
-    _ = switch (receiver.data) {
-        .class => receiver.data.class,
-        else => return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Class", .{}),
-    };
+    if (!receiver.isClass()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Class", .{});
+    }
 
     try vm.requireArgCountRange(args, 0, 1);
 
     var superclass: *ClassObject = vm.object_class;
     if (args.len == 1) {
-        superclass = switch (args[0].data) {
-            .class => args[0].data.class,
-            else => return vm.raiseExceptionFmt(vm.type_error_class, "superclass must be a Class", .{}),
-        };
+        if (!args[0].isClass()) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "superclass must be a Class", .{});
+        }
+        superclass = args[0].toClassObject();
     }
 
     const anonymous_name = try vm.intern("<anonymous>");
@@ -61,8 +60,8 @@ pub fn builtinClassNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
 
 pub fn builtinClassEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    if (receiver.data != .class or args[0].data != .class) {
+    if (!receiver.isClass() or !args[0].isClass()) {
         return Value.boolean(false);
     }
-    return Value.boolean(receiver.data.class == args[0].data.class);
+    return Value.boolean(receiver.toClassObject() == args[0].toClassObject());
 }

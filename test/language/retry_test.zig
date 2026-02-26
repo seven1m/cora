@@ -18,7 +18,7 @@ test "Retry basic - retry until counter reaches target" {
         \\  retry
         \\end
     );
-    try std.testing.expectEqual(@as(i64, 10), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 10), result.toInteger());
 }
 
 test "Retry with ensure clause" {
@@ -42,7 +42,7 @@ test "Retry with ensure clause" {
     , &stdout_buf, &stderr_buf);
 
     try std.testing.expect(result.err == null);
-    try std.testing.expectEqual(@as(i64, 42), result.value.data.integer);
+    try std.testing.expectEqual(@as(i64, 42), result.value.toInteger());
 
     // Ensure should run only once (after successful completion)
     try std.testing.expectEqualSlices(u8, "cleanup\n", result.stdout);

@@ -7,8 +7,8 @@ const evalCodeWithOutput = test_helper.evalCodeWithOutput;
 
 test "Process constant exists and is a module" {
     const result = try evalCode("Process.is_a?(Module)");
-    try std.testing.expect(result.data == .boolean);
-    try std.testing.expectEqual(true, result.data.boolean);
+    try std.testing.expect(result.isBool());
+    try std.testing.expectEqual(true, result.toBool());
 }
 
 test "Process.uid returns current uid as Integer" {
@@ -22,8 +22,8 @@ test "Process.uid returns current uid as Integer" {
     }
 
     const result = try evalCode("Process.uid");
-    try std.testing.expect(result.data == .integer);
-    try std.testing.expect(result.data.integer >= 0);
+    try std.testing.expect(result.isInteger());
+    try std.testing.expect(result.toInteger() >= 0);
 }
 
 test "Process.euid returns current effective uid as Integer" {
@@ -37,6 +37,6 @@ test "Process.euid returns current effective uid as Integer" {
     }
 
     const result = try evalCode("Process.euid");
-    try std.testing.expect(result.data == .integer);
-    try std.testing.expect(result.data.integer >= 0);
+    try std.testing.expect(result.isInteger());
+    try std.testing.expect(result.toInteger() >= 0);
 }

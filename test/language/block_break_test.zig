@@ -17,7 +17,7 @@ test "block break - basic with value" {
         \\end
         \\result
     );
-    try std.testing.expectEqual(@as(i64, 42), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
 }
 
 test "block break - without value returns nil" {
@@ -33,7 +33,7 @@ test "block break - without value returns nil" {
         \\end
         \\result
     );
-    try std.testing.expect(result.data == .nil);
+    try std.testing.expect(result.isNil());
 }
 
 test "block break - stops execution immediately" {
@@ -99,7 +99,7 @@ test "block break - nested blocks use innermost" {
     );
     // Break from inner block should return 42 from inner, not outer
     // Outer continues and returns 99
-    try std.testing.expectEqual(@as(i64, 99), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 99), result.toInteger());
 }
 
 test "block break - different from loop break" {
@@ -121,5 +121,5 @@ test "block break - different from loop break" {
     );
     // Loop break exits loop, block continues and returns 55 to yield,
     // but the method continues and returns 77
-    try std.testing.expectEqual(@as(i64, 77), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 77), result.toInteger());
 }

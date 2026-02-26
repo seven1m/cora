@@ -44,10 +44,10 @@ fn collectKernelMethods(vm: *VM, receiver: Value, filter: MethodListFilter, incl
 
     const out = try vm.createArray();
     for (names.items) |name_sym| {
-        out.elements.append(vm.gc_allocator, Value{ .data = .{ .symbol = name_sym } }) catch return error.Fatal;
+        out.elements.append(vm.gc_allocator, Value.fromObject(name_sym)) catch return error.Fatal;
     }
 
-    return Value{ .data = .{ .array = out } };
+    return Value.fromObject(out);
 }
 
 pub fn register(vm: *VM) !void {
@@ -338,30 +338,30 @@ pub fn builtinKernelIsA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     try vm.requireArgCount(args, 1);
     const arg = args[0];
 
-    switch (arg.data) {
-        .class => |cls| {
-            var current: ?*ClassObject = vm.getClass(receiver);
-            while (current) |c| {
-                if (c == cls) return Value.boolean(true);
-                current = c.superclass;
+    if (arg.isClass()) {
+        const cls = arg.toClassObject();
+        var current: ?*ClassObject = vm.getClass(receiver);
+        while (current) |c| {
+            if (c == cls) return Value.boolean(true);
+            current = c.superclass;
+        }
+        return Value.boolean(false);
+    } else if (arg.isModule()) {
+        const mod = arg.toModuleObject();
+        var current: ?*ClassObject = vm.getClass(receiver);
+        while (current) |c| {
+            if (&c.module == mod) return Value.boolean(true);
+            for (c.prepended_modules.items) |m| {
+                if (m == mod) return Value.boolean(true);
             }
-            return Value.boolean(false);
-        },
-        .module => |mod| {
-            var current: ?*ClassObject = vm.getClass(receiver);
-            while (current) |c| {
-                if (&c.module == mod) return Value.boolean(true);
-                for (c.prepended_modules.items) |m| {
-                    if (m == mod) return Value.boolean(true);
-                }
-                for (c.included_modules.items) |m| {
-                    if (m == mod) return Value.boolean(true);
-                }
-                current = c.superclass;
+            for (c.included_modules.items) |m| {
+                if (m == mod) return Value.boolean(true);
             }
-            return Value.boolean(false);
-        },
-        else => return vm.raiseExceptionFmt(vm.type_error_class, "class or module required", .{}),
+            current = c.superclass;
+        }
+        return Value.boolean(false);
+    } else {
+        return vm.raiseExceptionFmt(vm.type_error_class, "class or module required", .{});
     }
 }
 
@@ -369,10 +369,12 @@ pub fn builtinKernelInstanceOf(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
     try vm.requireArgCount(args, 1);
     const arg = args[0];
 
-    switch (arg.data) {
-        .class => |cls| return Value.boolean(vm.getClass(receiver) == cls),
-        .module => return Value.boolean(false),
-        else => return vm.raiseExceptionFmt(vm.type_error_class, "class or module required", .{}),
+    if (arg.isClass()) {
+        return Value.boolean(vm.getClass(receiver) == arg.toClassObject());
+    } else if (arg.isModule()) {
+        return Value.boolean(false);
+    } else {
+        return vm.raiseExceptionFmt(vm.type_error_class, "class or module required", .{});
     }
 }
 
@@ -388,7 +390,7 @@ pub fn builtinKernelRespondTo(vm: *VM, receiver: Value, args: []Value, _: ?Block
     }
 
     var respond_args: [2]Value = .{
-        Value{ .data = .{ .symbol = method_name_sym } },
+        Value.fromObject(method_name_sym),
         Value.boolean(include_private),
     };
     const hook_result = try vm.callMethodByName(receiver, "respond_to_missing?", &respond_args, null);
@@ -450,7 +452,7 @@ fn kernelEnumForCommon(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
     const method_args = if (args.len == 0) &[_]Value{} else args[1..];
 
     const size_proc = if (block) |blk|
-        (try vm.newProc(blk)).data.proc
+        (try vm.newProc(blk)).toProcObject()
     else
         null;
 
@@ -475,12 +477,12 @@ pub fn builtinKernelDefineSingletonMethod(vm: *VM, receiver: Value, args: []Valu
 
     const singleton_class = try vm.getOrCreateSingletonClass(receiver);
     singleton_class.module.methods.put(name_sym, .{
-        .method = .{ .proc = proc_val.data.proc },
+        .method = .{ .proc = proc_val.toProcObject() },
     }) catch return error.Fatal;
     vm.markIntegerChangedForReceiver(receiver);
     vm.bumpMethodStateVersion();
 
-    return Value{ .data = .{ .symbol = name_sym } };
+    return Value.fromObject(name_sym);
 }
 
 pub fn builtinKernelMethods(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -545,15 +547,14 @@ pub fn builtinKernelFrozen(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 pub fn builtinKernelSingletonClass(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
 
-    switch (receiver.data) {
-        .nil => return .{ .data = .{ .class = vm.nil_class } },
-        .boolean => |b| return .{ .data = .{ .class = if (b) vm.true_class else vm.false_class } },
-        .integer, .float, .symbol => return vm.raiseExceptionFmt(vm.type_error_class, "can't define singleton", .{}),
-        else => {},
+    if (receiver.isNil()) return Value.fromObject(vm.nil_class);
+    if (receiver.isBool()) return Value.fromObject(if (receiver.toBool()) vm.true_class else vm.false_class);
+    if (receiver.isInteger() or receiver.isFloat() or receiver.isSymbol()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "can't define singleton", .{});
     }
 
     const singleton_class = try vm.getOrCreateSingletonClass(receiver);
-    return .{ .data = .{ .class = singleton_class } };
+    return Value.fromObject(singleton_class);
 }
 
 pub fn builtinKernelDir(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -584,7 +585,7 @@ pub fn builtinKernelP(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value
 
     for (args) |arg| {
         const inspected = try vm.callMethodByName(arg, "inspect", &[_]Value{}, null);
-        if (inspected.data != .string) {
+        if (!inspected.isString()) {
             const exc = try vm.createException(vm.type_error_class, "inspect did not return String");
             vm.pending_exception = exc;
             return error.Unwind;
@@ -599,7 +600,7 @@ pub fn builtinKernelP(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value
     } else {
         const array_obj = vm.gc_allocator.create(value.ArrayObject) catch return error.Fatal;
         array_obj.* = .{
-            .object = .{ .flags = 0, .class = vm.array_class, .singleton_class = null, .instance_variables = null },
+            .object = .{ .type_tag = .array, .flags = 0, .class = vm.array_class, .singleton_class = null, .instance_variables = null },
             .elements = .empty,
         };
 
@@ -607,7 +608,7 @@ pub fn builtinKernelP(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value
             array_obj.elements.append(vm.gc_allocator, arg) catch return error.Fatal;
         }
 
-        return .{ .data = .{ .array = array_obj } };
+        return Value.fromObject(array_obj);
     }
 }
 

@@ -6,37 +6,37 @@ const evalCodeWithOutput = test_helper.evalCodeWithOutput;
 
 test "Range literal creates Range" {
     const result = try evalCode("r = 1..3\nr.is_a?(Range)");
-    try std.testing.expect(result.data == .boolean);
-    try std.testing.expectEqual(true, result.data.boolean);
+    try std.testing.expect(result.isBool());
+    try std.testing.expectEqual(true, result.toBool());
 }
 
 test "Range literal exclude end" {
     const result = try evalCode("r = 1...3\nr.is_a?(Range)");
-    try std.testing.expect(result.data == .boolean);
-    try std.testing.expectEqual(true, result.data.boolean);
+    try std.testing.expect(result.isBool());
+    try std.testing.expectEqual(true, result.toBool());
 }
 
 test "Endless range is constructible" {
     const result = try evalCode("r = (1..)\nr.is_a?(Range)");
-    try std.testing.expect(result.data == .boolean);
-    try std.testing.expectEqual(true, result.data.boolean);
+    try std.testing.expect(result.isBool());
+    try std.testing.expectEqual(true, result.toBool());
 }
 
 test "Range to_a inclusive" {
     const result = try evalCode("(1..3).to_a");
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(3, result.data.array.elements.items.len);
-    try std.testing.expectEqual(1, result.data.array.elements.items[0].data.integer);
-    try std.testing.expectEqual(2, result.data.array.elements.items[1].data.integer);
-    try std.testing.expectEqual(3, result.data.array.elements.items[2].data.integer);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(3, result.toArrayObject().elements.items.len);
+    try std.testing.expectEqual(1, result.toArrayObject().elements.items[0].toInteger());
+    try std.testing.expectEqual(2, result.toArrayObject().elements.items[1].toInteger());
+    try std.testing.expectEqual(3, result.toArrayObject().elements.items[2].toInteger());
 }
 
 test "Range to_a exclusive" {
     const result = try evalCode("(1...3).to_a");
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(2, result.data.array.elements.items.len);
-    try std.testing.expectEqual(1, result.data.array.elements.items[0].data.integer);
-    try std.testing.expectEqual(2, result.data.array.elements.items[1].data.integer);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(2, result.toArrayObject().elements.items.len);
+    try std.testing.expectEqual(1, result.toArrayObject().elements.items[0].toInteger());
+    try std.testing.expectEqual(2, result.toArrayObject().elements.items[1].toInteger());
 }
 
 test "Range to_a endless raises" {
@@ -77,18 +77,18 @@ test "Range to_a type error" {
 
 test "Range inspect" {
     const inclusive = try evalCode("(1..3).inspect");
-    try std.testing.expect(inclusive.data == .string);
-    try std.testing.expectEqualSlices(u8, "1..3", inclusive.data.string.str);
+    try std.testing.expect(inclusive.isString());
+    try std.testing.expectEqualSlices(u8, "1..3", inclusive.toStringObject().str);
 
     const exclusive = try evalCode("(1...3).inspect");
-    try std.testing.expect(exclusive.data == .string);
-    try std.testing.expectEqualSlices(u8, "1...3", exclusive.data.string.str);
+    try std.testing.expect(exclusive.isString());
+    try std.testing.expectEqualSlices(u8, "1...3", exclusive.toStringObject().str);
 
     const endless = try evalCode("(1..).inspect");
-    try std.testing.expect(endless.data == .string);
-    try std.testing.expectEqualSlices(u8, "1..", endless.data.string.str);
+    try std.testing.expect(endless.isString());
+    try std.testing.expectEqualSlices(u8, "1..", endless.toStringObject().str);
 
     const beginless = try evalCode("(..3).inspect");
-    try std.testing.expect(beginless.data == .string);
-    try std.testing.expectEqualSlices(u8, "..3", beginless.data.string.str);
+    try std.testing.expect(beginless.isString());
+    try std.testing.expectEqualSlices(u8, "..3", beginless.toStringObject().str);
 }

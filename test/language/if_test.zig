@@ -12,7 +12,7 @@ test "If expression" {
         \\  0
         \\end
     );
-    try std.testing.expectEqual(@as(i64, 42), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
 
     result = try evalCode(
         \\if false
@@ -21,19 +21,19 @@ test "If expression" {
         \\  0
         \\end
     );
-    try std.testing.expectEqual(@as(i64, 0), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 0), result.toInteger());
 
     result = try evalCode(
         \\if true
         \\  42
         \\end
     );
-    try std.testing.expectEqual(@as(i64, 42), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
 
     result = try evalCode(
         \\if false
         \\  42
         \\end
     );
-    try std.testing.expect(result.data == .nil);
+    try std.testing.expect(result.isNil());
 }

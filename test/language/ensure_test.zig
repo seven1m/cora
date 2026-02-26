@@ -18,7 +18,7 @@ test "Ensure clause runs on normal completion" {
     , &stdout_buf, &stderr_buf);
 
     try std.testing.expect(result.err == null);
-    try std.testing.expectEqual(@as(i64, 42), result.value.data.integer);
+    try std.testing.expectEqual(@as(i64, 42), result.value.toInteger());
 
     try std.testing.expectEqualSlices(u8, "cleanup\n", result.stdout);
 }
@@ -39,7 +39,7 @@ test "Ensure clause runs after rescue" {
     , &stdout_buf, &stderr_buf);
 
     try std.testing.expect(result.err == null);
-    try std.testing.expectEqual(@as(i64, 100), result.value.data.integer);
+    try std.testing.expectEqual(@as(i64, 100), result.value.toInteger());
 
     try std.testing.expectEqualSlices(u8, "cleanup\n", result.stdout);
 }
@@ -69,5 +69,5 @@ test "Ensure return value is ignored" {
         \\  999
         \\end
     );
-    try std.testing.expectEqual(@as(i64, 42), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
 }

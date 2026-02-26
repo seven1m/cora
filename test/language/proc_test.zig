@@ -40,14 +40,14 @@ test "Proc.call uses defining self" {
         \\res = pr.call
         \\[res[0], res[1].object_id, obj.object_id]
     );
-    try std.testing.expect(result.data == .array);
-    const elems = result.data.array.elements.items;
+    try std.testing.expect(result.isArray());
+    const elems = result.toArrayObject().elements.items;
     try std.testing.expectEqual(@as(usize, 3), elems.len);
-    try std.testing.expect(elems[0].data == .integer);
-    try std.testing.expect(elems[1].data == .integer);
-    try std.testing.expect(elems[2].data == .integer);
-    try std.testing.expectEqual(@as(i64, 42), elems[0].data.integer);
-    try std.testing.expectEqual(elems[1].data.integer, elems[2].data.integer);
+    try std.testing.expect(elems[0].isInteger());
+    try std.testing.expect(elems[1].isInteger());
+    try std.testing.expect(elems[2].isInteger());
+    try std.testing.expectEqual(@as(i64, 42), elems[0].toInteger());
+    try std.testing.expectEqual(elems[1].toInteger(), elems[2].toInteger());
 }
 
 test "Proc closure: modifying captured variable in proc affects outer scope" {
@@ -63,8 +63,8 @@ test "Proc closure: modifying captured variable in proc affects outer scope" {
         \\pr.call
         \\x
     );
-    try std.testing.expect(result.data == .integer);
-    try std.testing.expectEqual(@as(i64, 10), result.data.integer);
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 10), result.toInteger());
 }
 
 test "Kernel#proc creates a Proc" {
@@ -88,8 +88,8 @@ test "Proc implicit return: returns last expression, method continues" {
         \\end
         \\foo
     );
-    try std.testing.expect(result.data == .integer);
-    try std.testing.expectEqual(@as(i64, 20), result.data.integer);
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 20), result.toInteger());
 }
 
 test "Proc explicit return: exits enclosing method" {
@@ -101,8 +101,8 @@ test "Proc explicit return: exits enclosing method" {
         \\end
         \\foo
     );
-    try std.testing.expect(result.data == .integer);
-    try std.testing.expectEqual(@as(i64, 10), result.data.integer);
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 10), result.toInteger());
 }
 
 test "Proc implicit return with value: returns value from proc, method continues" {
@@ -114,8 +114,8 @@ test "Proc implicit return with value: returns value from proc, method continues
         \\end
         \\foo
     );
-    try std.testing.expect(result.data == .integer);
-    try std.testing.expectEqual(@as(i64, 18), result.data.integer); // (3 + 5) + 10
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 18), result.toInteger()); // (3 + 5) + 10
 }
 
 test "Proc explicit return with value: exits method with that value" {
@@ -127,8 +127,8 @@ test "Proc explicit return with value: exits method with that value" {
         \\end
         \\foo
     );
-    try std.testing.expect(result.data == .integer);
-    try std.testing.expectEqual(@as(i64, 8), result.data.integer); // 3 + 5, method exits
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 8), result.toInteger()); // 3 + 5, method exits
 }
 
 test "proc keyword: implicit return behaves correctly" {
@@ -140,8 +140,8 @@ test "proc keyword: implicit return behaves correctly" {
         \\end
         \\foo
     );
-    try std.testing.expect(result.data == .integer);
-    try std.testing.expectEqual(@as(i64, 25), result.data.integer);
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 25), result.toInteger());
 }
 
 test "proc keyword: explicit return exits method" {
@@ -153,8 +153,8 @@ test "proc keyword: explicit return exits method" {
         \\end
         \\foo
     );
-    try std.testing.expect(result.data == .integer);
-    try std.testing.expectEqual(@as(i64, 15), result.data.integer);
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 15), result.toInteger());
 }
 
 test "Proc implicit return: multiple statements, returns last" {
@@ -170,8 +170,8 @@ test "Proc implicit return: multiple statements, returns last" {
         \\end
         \\foo
     );
-    try std.testing.expect(result.data == .integer);
-    try std.testing.expectEqual(@as(i64, 30), result.data.integer);
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 30), result.toInteger());
 }
 
 test "Proc explicit return: early exit from proc body" {
@@ -186,8 +186,8 @@ test "Proc explicit return: early exit from proc body" {
         \\end
         \\foo
     );
-    try std.testing.expect(result.data == .integer);
-    try std.testing.expectEqual(@as(i64, 100), result.data.integer);
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 100), result.toInteger());
 }
 
 test "Nested procs: outer explicit return exits method" {
@@ -203,8 +203,8 @@ test "Nested procs: outer explicit return exits method" {
         \\end
         \\foo
     );
-    try std.testing.expect(result.data == .integer);
-    try std.testing.expectEqual(@as(i64, 10), result.data.integer);
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 10), result.toInteger());
 }
 
 test "Nested procs: inner explicit return exits method from inside" {
@@ -220,6 +220,6 @@ test "Nested procs: inner explicit return exits method from inside" {
         \\end
         \\foo
     );
-    try std.testing.expect(result.data == .integer);
-    try std.testing.expectEqual(@as(i64, 5), result.data.integer);
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 5), result.toInteger());
 }

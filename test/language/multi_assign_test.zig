@@ -7,149 +7,149 @@ const evalCode = test_helper.evalCode;
 
 test "simple two-variable assignment" {
     var result = try evalCode("a, b = 1, 2; a");
-    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
 
     result = try evalCode("a, b = 1, 2; b");
-    try std.testing.expectEqual(@as(i64, 2), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 2), result.toInteger());
 }
 
 test "more targets than values - nil padding" {
     var result = try evalCode("a, b, c = 1, 2; c");
-    try std.testing.expect(result.data == .nil);
+    try std.testing.expect(result.isNil());
 
     result = try evalCode("a, b, c, d = 1, 2; d");
-    try std.testing.expect(result.data == .nil);
+    try std.testing.expect(result.isNil());
 }
 
 test "fewer targets than values - extras ignored" {
     var result = try evalCode("a, b = 1, 2, 3, 4; a");
-    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
 
     result = try evalCode("a, b = 1, 2, 3, 4; b");
-    try std.testing.expectEqual(@as(i64, 2), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 2), result.toInteger());
 }
 
 test "multi-assignment with array literal" {
     var result = try evalCode("a, b = [10, 20]; a");
-    try std.testing.expectEqual(@as(i64, 10), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 10), result.toInteger());
 
     result = try evalCode("a, b = [10, 20]; b");
-    try std.testing.expectEqual(@as(i64, 20), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 20), result.toInteger());
 }
 
 test "swapping variables" {
     var result = try evalCode("a = 1; b = 2; a, b = b, a; a");
-    try std.testing.expectEqual(@as(i64, 2), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 2), result.toInteger());
 
     result = try evalCode("a = 1; b = 2; a, b = b, a; b");
-    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
 }
 
 test "trailing splat collects remaining elements" {
     var result = try evalCode("a, *b = 1, 2, 3, 4; a");
-    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
 
     result = try evalCode("a, *b = 1, 2, 3, 4; b");
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(@as(usize, 3), result.data.array.elements.items.len);
-    try std.testing.expectEqual(@as(i64, 2), result.data.array.elements.items[0].data.integer);
-    try std.testing.expectEqual(@as(i64, 3), result.data.array.elements.items[1].data.integer);
-    try std.testing.expectEqual(@as(i64, 4), result.data.array.elements.items[2].data.integer);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(usize, 3), result.toArrayObject().elements.items.len);
+    try std.testing.expectEqual(@as(i64, 2), result.toArrayObject().elements.items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 3), result.toArrayObject().elements.items[1].toInteger());
+    try std.testing.expectEqual(@as(i64, 4), result.toArrayObject().elements.items[2].toInteger());
 }
 
 test "leading splat collects initial elements" {
     var result = try evalCode("*a, b, c = 1, 2, 3, 4; b");
-    try std.testing.expectEqual(@as(i64, 3), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 3), result.toInteger());
 
     result = try evalCode("*a, b, c = 1, 2, 3, 4; c");
-    try std.testing.expectEqual(@as(i64, 4), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 4), result.toInteger());
 
     result = try evalCode("*a, b, c = 1, 2, 3, 4; a");
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(@as(usize, 2), result.data.array.elements.items.len);
-    try std.testing.expectEqual(@as(i64, 1), result.data.array.elements.items[0].data.integer);
-    try std.testing.expectEqual(@as(i64, 2), result.data.array.elements.items[1].data.integer);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(usize, 2), result.toArrayObject().elements.items.len);
+    try std.testing.expectEqual(@as(i64, 1), result.toArrayObject().elements.items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 2), result.toArrayObject().elements.items[1].toInteger());
 }
 
 test "middle splat collects middle elements" {
     var result = try evalCode("a, *b, c = 1, 2, 3, 4; a");
-    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
 
     result = try evalCode("a, *b, c = 1, 2, 3, 4; c");
-    try std.testing.expectEqual(@as(i64, 4), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 4), result.toInteger());
 
     result = try evalCode("a, *b, c = 1, 2, 3, 4; b");
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(@as(usize, 2), result.data.array.elements.items.len);
-    try std.testing.expectEqual(@as(i64, 2), result.data.array.elements.items[0].data.integer);
-    try std.testing.expectEqual(@as(i64, 3), result.data.array.elements.items[1].data.integer);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(usize, 2), result.toArrayObject().elements.items.len);
+    try std.testing.expectEqual(@as(i64, 2), result.toArrayObject().elements.items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 3), result.toArrayObject().elements.items[1].toInteger());
 }
 
 test "splat with exact match returns empty array" {
     const result = try evalCode("a, *b, c = 1, 2; b");
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(@as(usize, 0), result.data.array.elements.items.len);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(usize, 0), result.toArrayObject().elements.items.len);
 }
 
 test "splat only collects all elements" {
     const result = try evalCode("*a = 1, 2, 3; a");
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(@as(usize, 3), result.data.array.elements.items.len);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(usize, 3), result.toArrayObject().elements.items.len);
 }
 
 test "simple nested destructuring" {
     var result = try evalCode("(a, b), c = [1, 2], 3; a");
-    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
 
     result = try evalCode("(a, b), c = [1, 2], 3; b");
-    try std.testing.expectEqual(@as(i64, 2), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 2), result.toInteger());
 
     result = try evalCode("(a, b), c = [1, 2], 3; c");
-    try std.testing.expectEqual(@as(i64, 3), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 3), result.toInteger());
 }
 
 test "multiple nested destructuring" {
     var result = try evalCode("(a, b), (c, d) = [1, 2], [3, 4]; a");
-    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
 
     result = try evalCode("(a, b), (c, d) = [1, 2], [3, 4]; d");
-    try std.testing.expectEqual(@as(i64, 4), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 4), result.toInteger());
 }
 
 test "deeply nested destructuring" {
     var result = try evalCode("((a, b), c), d = [[1, 2], 3], 4; a");
-    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
 
     result = try evalCode("((a, b), c), d = [[1, 2], 3], 4; b");
-    try std.testing.expectEqual(@as(i64, 2), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 2), result.toInteger());
 
     result = try evalCode("((a, b), c), d = [[1, 2], 3], 4; c");
-    try std.testing.expectEqual(@as(i64, 3), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 3), result.toInteger());
 
     result = try evalCode("((a, b), c), d = [[1, 2], 3], 4; d");
-    try std.testing.expectEqual(@as(i64, 4), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 4), result.toInteger());
 }
 
 test "nested destructuring with splat" {
     var result = try evalCode("(a, *b), c = [1, 2, 3], 4; a");
-    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
 
     result = try evalCode("(a, *b), c = [1, 2, 3], 4; b");
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(@as(usize, 2), result.data.array.elements.items.len);
-    try std.testing.expectEqual(@as(i64, 2), result.data.array.elements.items[0].data.integer);
-    try std.testing.expectEqual(@as(i64, 3), result.data.array.elements.items[1].data.integer);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(usize, 2), result.toArrayObject().elements.items.len);
+    try std.testing.expectEqual(@as(i64, 2), result.toArrayObject().elements.items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 3), result.toArrayObject().elements.items[1].toInteger());
 
     result = try evalCode("(a, *b), c = [1, 2, 3], 4; c");
-    try std.testing.expectEqual(@as(i64, 4), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 4), result.toInteger());
 }
 
 test "global variable targets" {
     var result = try evalCode("$a, $b = 10, 20; $a");
-    try std.testing.expectEqual(@as(i64, 10), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 10), result.toInteger());
 
     result = try evalCode("$a, $b = 10, 20; $b");
-    try std.testing.expectEqual(@as(i64, 20), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 20), result.toInteger());
 }
 
 test "instance variable targets" {
@@ -163,23 +163,23 @@ test "instance variable targets" {
         \\Foo.new.test
     ;
     const result = try evalCode(code);
-    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
 }
 
 test "constant targets" {
     var result = try evalCode("A, B = 100, 200; A");
-    try std.testing.expectEqual(@as(i64, 100), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 100), result.toInteger());
 
     result = try evalCode("A, B = 100, 200; B");
-    try std.testing.expectEqual(@as(i64, 200), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 200), result.toInteger());
 }
 
 test "indexed assignment targets" {
     var result = try evalCode("arr = [0, 0, 0]; arr[0], arr[1] = 10, 20; arr[0]");
-    try std.testing.expectEqual(@as(i64, 10), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 10), result.toInteger());
 
     result = try evalCode("arr = [0, 0, 0]; arr[0], arr[1] = 10, 20; arr[1]");
-    try std.testing.expectEqual(@as(i64, 20), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 20), result.toInteger());
 }
 
 test "attribute assignment targets" {
@@ -195,7 +195,7 @@ test "attribute assignment targets" {
         \\p.x
     ;
     const result = try evalCode(code);
-    try std.testing.expectEqual(@as(i64, 5), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 5), result.toInteger());
 }
 
 test "mixed complex targets" {
@@ -205,38 +205,38 @@ test "mixed complex targets" {
         \\$g
     ;
     var result = try evalCode(code);
-    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
 
     result = try evalCode("arr = [0, 0]; $g, arr[0], @i = 1, 2, 3; arr[0]");
-    try std.testing.expectEqual(@as(i64, 2), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 2), result.toInteger());
 }
 
 test "splat with complex targets" {
     var result = try evalCode("$a, *$b = 1, 2, 3; $a");
-    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
 
     result = try evalCode("$a, *$b = 1, 2, 3; $b");
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(@as(usize, 2), result.data.array.elements.items.len);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(usize, 2), result.toArrayObject().elements.items.len);
 }
 
 test "single non-array RHS assigns to first target" {
     var result = try evalCode("a, b, c = 1; a");
-    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
 
     result = try evalCode("a, b, c = 1; b");
-    try std.testing.expect(result.data == .nil);
+    try std.testing.expect(result.isNil());
 
     result = try evalCode("a, b, c = 1; c");
-    try std.testing.expect(result.data == .nil);
+    try std.testing.expect(result.isNil());
 }
 
 test "single array variable RHS is destructured" {
     var result = try evalCode("x = [10, 20]; a, b = x; a");
-    try std.testing.expectEqual(@as(i64, 10), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 10), result.toInteger());
 
     result = try evalCode("x = [10, 20]; a, b = x; b");
-    try std.testing.expectEqual(@as(i64, 20), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 20), result.toInteger());
 }
 
 test "to_ary is called on non-array objects" {
@@ -250,7 +250,7 @@ test "to_ary is called on non-array objects" {
         \\a
     ;
     var result = try evalCode(code);
-    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
 
     const code2 =
         \\class Converter
@@ -262,7 +262,7 @@ test "to_ary is called on non-array objects" {
         \\c
     ;
     result = try evalCode(code2);
-    try std.testing.expectEqual(@as(i64, 3), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 3), result.toInteger());
 }
 
 test "to_ary returning nil treats as single value" {
@@ -276,23 +276,23 @@ test "to_ary returning nil treats as single value" {
         \\b
     ;
     const result = try evalCode(code);
-    try std.testing.expect(result.data == .nil);
+    try std.testing.expect(result.isNil());
 }
 
 test "splat with single non-array value" {
     var result = try evalCode("a, *b = 5; a");
-    try std.testing.expectEqual(@as(i64, 5), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 5), result.toInteger());
 
     result = try evalCode("a, *b = 5; b");
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(@as(usize, 0), result.data.array.elements.items.len);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(usize, 0), result.toArrayObject().elements.items.len);
 }
 
 test "return value is original RHS" {
     var result = try evalCode("x = (a, b = 5); x");
-    try std.testing.expectEqual(@as(i64, 5), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 5), result.toInteger());
 
     result = try evalCode("x = (a, b = [1, 2]); x");
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(@as(usize, 2), result.data.array.elements.items.len);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(usize, 2), result.toArrayObject().elements.items.len);
 }

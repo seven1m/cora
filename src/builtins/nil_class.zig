@@ -34,7 +34,7 @@ pub fn builtinNilClassInspect(vm: *VM, _: Value, args: []Value, _: ?Block) VMErr
 
 pub fn builtinNilClassEqual(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    return Value.boolean(args[0].data == .nil);
+    return Value.boolean(args[0].isNil());
 }
 
 pub fn builtinNilClassNil(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

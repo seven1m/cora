@@ -270,7 +270,7 @@ pub const VM = struct {
     pending_exception: ?*value.ExceptionObject = null,
     retry_point: ?struct {
         frame_idx: usize,
-        instr_idx: usize,
+        byte_offset: usize,
     } = null,
 
     // Block break state
@@ -403,187 +403,187 @@ pub const VM = struct {
         // --- Stage 1: Create Class and BasicObject ---
         const class_name_sym = try self.intern("Class");
         const class_class_val = try self.newClass(class_name_sym, null);
-        self.class_class = class_class_val.data.class;
+        self.class_class = class_class_val.toClassObject();
         self.class_class.module.object.class = self.class_class;
 
         const basic_object_name_sym = try self.intern("BasicObject");
         const basic_object_class_val = try self.newClass(basic_object_name_sym, null);
-        self.basic_object_class = basic_object_class_val.data.class;
+        self.basic_object_class = basic_object_class_val.toClassObject();
 
         // --- Stage 2: Create classes that inherit from BasicObject or Object ---
         const object_name_sym = try self.intern("Object");
         const object_class_val = try self.newClass(object_name_sym, self.basic_object_class);
-        self.object_class = object_class_val.data.class;
+        self.object_class = object_class_val.toClassObject();
 
         const module_name_sym = try self.intern("Module");
         const module_class_val = try self.newClass(module_name_sym, self.object_class);
-        self.module_class = module_class_val.data.class;
+        self.module_class = module_class_val.toClassObject();
 
         const numeric_name_sym = try self.intern("Numeric");
         const numeric_class_val = try self.newClass(numeric_name_sym, self.object_class);
-        self.numeric_class = numeric_class_val.data.class;
+        self.numeric_class = numeric_class_val.toClassObject();
 
         const integer_name_sym = try self.intern("Integer");
         const integer_class_val = try self.newClass(integer_name_sym, self.numeric_class);
-        self.integer_class = integer_class_val.data.class;
+        self.integer_class = integer_class_val.toClassObject();
 
         const float_name_sym = try self.intern("Float");
         const float_class_val = try self.newClass(float_name_sym, self.numeric_class);
-        self.float_class = float_class_val.data.class;
+        self.float_class = float_class_val.toClassObject();
 
         const string_name_sym = try self.intern("String");
         const string_class_val = try self.newClassWithType(string_name_sym, self.object_class, .string);
-        self.string_class = string_class_val.data.class;
+        self.string_class = string_class_val.toClassObject();
 
         const symbol_name_sym = try self.intern("Symbol");
         const symbol_class_val = try self.newClass(symbol_name_sym, self.object_class);
-        self.symbol_class = symbol_class_val.data.class;
+        self.symbol_class = symbol_class_val.toClassObject();
 
         const io_name_sym = try self.intern("IO");
         const io_class_val = try self.newClassWithType(io_name_sym, self.object_class, .io);
-        self.io_class = io_class_val.data.class;
+        self.io_class = io_class_val.toClassObject();
 
         const array_name_sym = try self.intern("Array");
         const array_class_val = try self.newClassWithType(array_name_sym, self.object_class, .array);
-        self.array_class = array_class_val.data.class;
+        self.array_class = array_class_val.toClassObject();
 
         const hash_name_sym = try self.intern("Hash");
         const hash_class_val = try self.newClassWithType(hash_name_sym, self.object_class, .hash);
-        self.hash_class = hash_class_val.data.class;
+        self.hash_class = hash_class_val.toClassObject();
 
         const file_name_sym = try self.intern("File");
         const file_class_val = try self.newClassWithType(file_name_sym, self.io_class, .io);
-        self.file_class = file_class_val.data.class;
+        self.file_class = file_class_val.toClassObject();
 
         const range_name_sym = try self.intern("Range");
         const range_class_val = try self.newClassWithType(range_name_sym, self.object_class, .range);
-        self.range_class = range_class_val.data.class;
+        self.range_class = range_class_val.toClassObject();
 
         const proc_name_sym = try self.intern("Proc");
         const proc_class_val = try self.newClass(proc_name_sym, self.object_class);
-        self.proc_class = proc_class_val.data.class;
+        self.proc_class = proc_class_val.toClassObject();
 
         const fiber_name_sym = try self.intern("Fiber");
         const fiber_class_val = try self.newClassWithType(fiber_name_sym, self.object_class, .fiber);
-        self.fiber_class = fiber_class_val.data.class;
+        self.fiber_class = fiber_class_val.toClassObject();
 
         const regexp_name_sym = try self.intern("Regexp");
         const regexp_class_val = try self.newClass(regexp_name_sym, self.object_class);
-        self.regexp_class = regexp_class_val.data.class;
+        self.regexp_class = regexp_class_val.toClassObject();
 
         const match_data_name_sym = try self.intern("MatchData");
         const match_data_class_val = try self.newClass(match_data_name_sym, self.object_class);
-        self.match_data_class = match_data_class_val.data.class;
+        self.match_data_class = match_data_class_val.toClassObject();
 
         const nil_class_name_sym = try self.intern("NilClass");
         const nil_class_val = try self.newClass(nil_class_name_sym, self.object_class);
-        self.nil_class = nil_class_val.data.class;
+        self.nil_class = nil_class_val.toClassObject();
 
         const true_class_name_sym = try self.intern("TrueClass");
         const true_class_val = try self.newClass(true_class_name_sym, self.object_class);
-        self.true_class = true_class_val.data.class;
+        self.true_class = true_class_val.toClassObject();
 
         const false_class_name_sym = try self.intern("FalseClass");
         const false_class_val = try self.newClass(false_class_name_sym, self.object_class);
-        self.false_class = false_class_val.data.class;
+        self.false_class = false_class_val.toClassObject();
 
         const kernel_name_sym = try self.intern("Kernel");
         const kernel_module_val = try self.newModule(kernel_name_sym);
-        self.kernel_module = kernel_module_val.data.module;
+        self.kernel_module = kernel_module_val.toModuleObject();
 
         const process_name_sym = try self.intern("Process");
         const process_module_val = try self.newModule(process_name_sym);
-        self.process_module = process_module_val.data.module;
+        self.process_module = process_module_val.toModuleObject();
 
         const process_status_name_sym = try self.intern("InternalProcessStatus");
         const process_status_class_val = try self.newClass(process_status_name_sym, self.object_class);
-        self.process_status_class = process_status_class_val.data.class;
+        self.process_status_class = process_status_class_val.toClassObject();
 
         // Exception class hierarchy
         const exception_name_sym = try self.intern("Exception");
         const exception_class_val = try self.newClass(exception_name_sym, self.object_class);
-        self.exception_class = exception_class_val.data.class;
+        self.exception_class = exception_class_val.toClassObject();
 
         const standard_error_name_sym = try self.intern("StandardError");
         const standard_error_class_val = try self.newClass(standard_error_name_sym, self.exception_class);
-        self.standard_error_class = standard_error_class_val.data.class;
+        self.standard_error_class = standard_error_class_val.toClassObject();
 
         const runtime_error_name_sym = try self.intern("RuntimeError");
         const runtime_error_class_val = try self.newClass(runtime_error_name_sym, self.standard_error_class);
-        self.runtime_error_class = runtime_error_class_val.data.class;
+        self.runtime_error_class = runtime_error_class_val.toClassObject();
 
         const frozen_error_name_sym = try self.intern("FrozenError");
         const frozen_error_class_val = try self.newClass(frozen_error_name_sym, self.runtime_error_class);
-        self.frozen_error_class = frozen_error_class_val.data.class;
+        self.frozen_error_class = frozen_error_class_val.toClassObject();
 
         const argument_error_name_sym = try self.intern("ArgumentError");
         const argument_error_class_val = try self.newClass(argument_error_name_sym, self.standard_error_class);
-        self.argument_error_class = argument_error_class_val.data.class;
+        self.argument_error_class = argument_error_class_val.toClassObject();
 
         const type_error_name_sym = try self.intern("TypeError");
         const type_error_class_val = try self.newClass(type_error_name_sym, self.standard_error_class);
-        self.type_error_class = type_error_class_val.data.class;
+        self.type_error_class = type_error_class_val.toClassObject();
 
         const zero_division_error_name_sym = try self.intern("ZeroDivisionError");
         const zero_division_error_class_val = try self.newClass(zero_division_error_name_sym, self.standard_error_class);
-        self.zero_division_error_class = zero_division_error_class_val.data.class;
+        self.zero_division_error_class = zero_division_error_class_val.toClassObject();
 
         const name_error_name_sym = try self.intern("NameError");
         const name_error_class_val = try self.newClass(name_error_name_sym, self.standard_error_class);
-        self.name_error_class = name_error_class_val.data.class;
+        self.name_error_class = name_error_class_val.toClassObject();
 
         const no_method_error_name_sym = try self.intern("NoMethodError");
         const no_method_error_class_val = try self.newClass(no_method_error_name_sym, self.name_error_class);
-        self.no_method_error_class = no_method_error_class_val.data.class;
+        self.no_method_error_class = no_method_error_class_val.toClassObject();
 
         const local_jump_error_name_sym = try self.intern("LocalJumpError");
         const local_jump_error_class_val = try self.newClass(local_jump_error_name_sym, self.standard_error_class);
-        self.local_jump_error_class = local_jump_error_class_val.data.class;
+        self.local_jump_error_class = local_jump_error_class_val.toClassObject();
 
         const io_error_name_sym = try self.intern("IOError");
         const io_error_class_val = try self.newClass(io_error_name_sym, self.standard_error_class);
-        self.io_error_class = io_error_class_val.data.class;
+        self.io_error_class = io_error_class_val.toClassObject();
 
         const fiber_error_name_sym = try self.intern("FiberError");
         const fiber_error_class_val = try self.newClass(fiber_error_name_sym, self.standard_error_class);
-        self.fiber_error_class = fiber_error_class_val.data.class;
+        self.fiber_error_class = fiber_error_class_val.toClassObject();
 
         const load_error_name_sym = try self.intern("LoadError");
         const load_error_class_val = try self.newClass(load_error_name_sym, self.standard_error_class);
-        self.load_error_class = load_error_class_val.data.class;
+        self.load_error_class = load_error_class_val.toClassObject();
 
         const encoding_error_name_sym = try self.intern("EncodingError");
         const encoding_error_class_val = try self.newClass(encoding_error_name_sym, self.standard_error_class);
-        self.encoding_error_class = encoding_error_class_val.data.class;
+        self.encoding_error_class = encoding_error_class_val.toClassObject();
 
         const range_error_name_sym = try self.intern("RangeError");
         const range_error_class_val = try self.newClass(range_error_name_sym, self.standard_error_class);
-        self.range_error_class = range_error_class_val.data.class;
+        self.range_error_class = range_error_class_val.toClassObject();
 
         const regexp_error_name_sym = try self.intern("RegexpError");
         const regexp_error_class_val = try self.newClass(regexp_error_name_sym, self.standard_error_class);
-        self.regexp_error_class = regexp_error_class_val.data.class;
+        self.regexp_error_class = regexp_error_class_val.toClassObject();
 
         const index_error_name_sym = try self.intern("IndexError");
         const index_error_class_val = try self.newClass(index_error_name_sym, self.standard_error_class);
-        self.index_error_class = index_error_class_val.data.class;
+        self.index_error_class = index_error_class_val.toClassObject();
 
         const stop_iteration_name_sym = try self.intern("StopIteration");
         const stop_iteration_class_val = try self.newClass(stop_iteration_name_sym, self.index_error_class);
-        self.stop_iteration_class = stop_iteration_class_val.data.class;
+        self.stop_iteration_class = stop_iteration_class_val.toClassObject();
 
         const enumerator_name_sym = try self.intern("Enumerator");
         const enumerator_class_val = try self.newClass(enumerator_name_sym, self.object_class);
-        self.enumerator_class = enumerator_class_val.data.class;
+        self.enumerator_class = enumerator_class_val.toClassObject();
 
         const yielder_name_sym = try self.intern("Yielder");
         const yielder_class_val = try self.newClass(yielder_name_sym, self.object_class);
-        self.yielder_class = yielder_class_val.data.class;
+        self.yielder_class = yielder_class_val.toClassObject();
 
         // Encoding class and singleton encoding objects
         const encoding_name_sym = try self.intern("Encoding");
         const encoding_class_val = try self.newClass(encoding_name_sym, self.object_class);
-        self.encoding_class = encoding_class_val.data.class;
+        self.encoding_class = encoding_class_val.toClassObject();
 
         // Create singleton encoding objects
         self.encoding_utf8 = try self.createEncodingObject(.{ .utf8 = .{} });
@@ -695,18 +695,18 @@ pub const VM = struct {
         const utf32le_const_sym = try self.intern("UTF_32LE");
         const utf32be_const_sym = try self.intern("UTF_32BE");
 
-        const utf8_val = Value{ .data = .{ .encoding = self.encoding_utf8 } };
-        const ascii_8bit_val = Value{ .data = .{ .encoding = self.encoding_ascii_8bit } };
-        const us_ascii_val = Value{ .data = .{ .encoding = self.encoding_us_ascii } };
-        const shift_jis_val = Value{ .data = .{ .encoding = self.encoding_shift_jis } };
-        const iso_8859_15_val = Value{ .data = .{ .encoding = self.encoding_iso_8859_15 } };
-        const utf7_val = Value{ .data = .{ .encoding = self.encoding_utf7 } };
-        const utf16_val = Value{ .data = .{ .encoding = self.encoding_utf16 } };
-        const utf32_val = Value{ .data = .{ .encoding = self.encoding_utf32 } };
-        const utf16le_val = Value{ .data = .{ .encoding = self.encoding_utf16le } };
-        const utf16be_val = Value{ .data = .{ .encoding = self.encoding_utf16be } };
-        const utf32le_val = Value{ .data = .{ .encoding = self.encoding_utf32le } };
-        const utf32be_val = Value{ .data = .{ .encoding = self.encoding_utf32be } };
+        const utf8_val = Value.fromObject(self.encoding_utf8);
+        const ascii_8bit_val = Value.fromObject(self.encoding_ascii_8bit);
+        const us_ascii_val = Value.fromObject(self.encoding_us_ascii);
+        const shift_jis_val = Value.fromObject(self.encoding_shift_jis);
+        const iso_8859_15_val = Value.fromObject(self.encoding_iso_8859_15);
+        const utf7_val = Value.fromObject(self.encoding_utf7);
+        const utf16_val = Value.fromObject(self.encoding_utf16);
+        const utf32_val = Value.fromObject(self.encoding_utf32);
+        const utf16le_val = Value.fromObject(self.encoding_utf16le);
+        const utf16be_val = Value.fromObject(self.encoding_utf16be);
+        const utf32le_val = Value.fromObject(self.encoding_utf32le);
+        const utf32be_val = Value.fromObject(self.encoding_utf32be);
 
         self.encoding_class.module.constants.put(utf8_const_sym, utf8_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(ascii_8bit_const_sym, ascii_8bit_val) catch return error.Fatal;
@@ -741,12 +741,12 @@ pub const VM = struct {
         self.main_self = try self.newInstance(self.object_class);
 
         // --- Stage 6: Initialize top-level lexical scope ---
-        self.current_lexical_scope = try self.createLexicalScope(.{ .data = .{ .class = self.object_class } }, null);
+        self.current_lexical_scope = try self.createLexicalScope(Value.fromObject(self.object_class), null);
 
         // --- Stage 7: Initialize main fiber and bind VM state to it ---
         const main_fiber_obj = self.gc_allocator.create(value.FiberObject) catch return error.Fatal;
         main_fiber_obj.* = .{
-            .object = .{ .flags = 0, .class = self.fiber_class, .singleton_class = null, .instance_variables = null },
+            .object = .{ .type_tag = .fiber, .flags = 0, .class = self.fiber_class, .singleton_class = null, .instance_variables = null },
             .state = .running,
             .block = null,
             .stack = FiberValueStack.init(),
@@ -772,21 +772,17 @@ pub const VM = struct {
 
     pub fn createLexicalScope(self: *VM, scope_module_val: Value, parent: ?*LexicalScope) VMError!*LexicalScope {
         const scope = self.gc_allocator.create(LexicalScope) catch return error.Fatal;
-        switch (scope_module_val.data) {
-            .class => |cls| {
-                scope.* = .{
-                    .scope_module = .{ .class = cls },
-                    .parent = parent,
-                };
-            },
-            .module => |mod| {
-                scope.* = .{
-                    .scope_module = .{ .module = mod },
-                    .parent = parent,
-                };
-            },
-            else => unreachable,
-        }
+        if (scope_module_val.isClass()) {
+            scope.* = .{
+                .scope_module = .{ .class = scope_module_val.toClassObject() },
+                .parent = parent,
+            };
+        } else if (scope_module_val.isModule()) {
+            scope.* = .{
+                .scope_module = .{ .module = scope_module_val.toModuleObject() },
+                .parent = parent,
+            };
+        } else unreachable;
         return scope;
     }
 
@@ -1005,7 +1001,7 @@ pub const VM = struct {
         }
 
         const argv_sym = try self.intern("ARGV");
-        self.object_class.module.constants.put(argv_sym, Value{ .data = .{ .array = argv_array } }) catch return error.Fatal;
+        self.object_class.module.constants.put(argv_sym, Value.fromObject(argv_array)) catch return error.Fatal;
     }
 
     fn allocCStringZ(self: *VM, bytes: []const u8) VMError![:0]u8 {
@@ -1076,7 +1072,7 @@ pub const VM = struct {
             hash_obj.map.put(key_val.hash(), hash_obj.entries.items.len - 1) catch return error.Fatal;
         }
 
-        return .{ .data = .{ .hash = hash_obj } };
+        return Value.fromObject(hash_obj);
     }
 
     pub fn deinit(self: *VM) void {
@@ -1179,39 +1175,39 @@ pub const VM = struct {
         };
     }
 
-    fn ensureCallsiteArraysByInstr(ch: *Chunk) VMError!void {
-        const instr_len = ch.exec_code.items.len;
-        if (ch.callsite_caches_by_instr.items.len < instr_len) {
-            const old_len = ch.callsite_caches_by_instr.items.len;
-            ch.callsite_caches_by_instr.ensureTotalCapacity(ch.allocator, instr_len) catch return error.Fatal;
-            ch.callsite_caches_by_instr.items.len = instr_len;
-            for (old_len..ch.callsite_caches_by_instr.items.len) |idx| {
-                ch.callsite_caches_by_instr.items[idx] = null;
+    /// Ensure that callsite_caches and callsite_descriptors are large enough to hold
+    /// an entry at the given byte offset (used as callsite key).
+    fn ensureCallsiteArraysForOffset(ch: *Chunk, byte_offset: usize) VMError!void {
+        const needed = byte_offset + 1;
+        if (ch.callsite_caches.items.len < needed) {
+            const old_len = ch.callsite_caches.items.len;
+            ch.callsite_caches.ensureTotalCapacity(ch.allocator, needed) catch return error.Fatal;
+            ch.callsite_caches.items.len = needed;
+            for (old_len..ch.callsite_caches.items.len) |idx| {
+                ch.callsite_caches.items[idx] = null;
             }
         }
 
-        if (ch.callsite_descriptors_by_instr.items.len < instr_len) {
-            const old_len = ch.callsite_descriptors_by_instr.items.len;
-            ch.callsite_descriptors_by_instr.ensureTotalCapacity(ch.allocator, instr_len) catch return error.Fatal;
-            ch.callsite_descriptors_by_instr.items.len = instr_len;
-            for (old_len..ch.callsite_descriptors_by_instr.items.len) |idx| {
-                ch.callsite_descriptors_by_instr.items[idx] = null;
+        if (ch.callsite_descriptors.items.len < needed) {
+            const old_len = ch.callsite_descriptors.items.len;
+            ch.callsite_descriptors.ensureTotalCapacity(ch.allocator, needed) catch return error.Fatal;
+            ch.callsite_descriptors.items.len = needed;
+            for (old_len..ch.callsite_descriptors.items.len) |idx| {
+                ch.callsite_descriptors.items[idx] = null;
             }
         }
     }
 
-    fn decodeCallSiteDescriptorFromInstr(instr: chunk.ExecInstr) VMError!chunk.CallSiteDescriptor {
-        const operands = instr.operands[0..instr.operand_len];
-        return switch (instr.op) {
+    /// Decode a CallSiteDescriptor from the operand bytes immediately following a CALL/CALL_KW opcode.
+    fn decodeCallSiteDescriptorFromOperands(op: bytecode.OpCode, operands: []const u8) VMError!chunk.CallSiteDescriptor {
+        return switch (op) {
             .CALL => .{
-                .kind = .call,
                 .method_idx = readU16At(operands, 0),
                 .argc = readU8At(operands, 2),
                 .call_flags = readU8At(operands, 3),
                 .block_chunk_id = readU16At(operands, 4),
             },
             .CALL_KW => .{
-                .kind = .call_kw,
                 .method_idx = readU16At(operands, 0),
                 .argc = readU8At(operands, 2),
                 .kwargc = readU8At(operands, 3),
@@ -1224,17 +1220,30 @@ pub const VM = struct {
     }
 
     fn buildChunkCallsiteDescriptors(self: *VM, ch: *Chunk) VMError!void {
-        if (ch.exec_code.items.len == 0) return;
-        try ensureCallsiteArraysByInstr(ch);
+        if (ch.code.items.len == 0) return;
 
-        for (ch.exec_code.items, 0..) |instr, instr_idx| {
-            switch (instr.op) {
-                .CALL, .CALL_KW => {
-                    var desc = try decodeCallSiteDescriptorFromInstr(instr);
+        var ip: usize = 0;
+        while (ip < ch.code.items.len) {
+            const op: bytecode.OpCode = @enumFromInt(ch.code.items[ip]);
+            const operands = ch.code.items[ip + 1 ..];
+            switch (op) {
+                .CALL => {
+                    try ensureCallsiteArraysForOffset(ch, ip);
+                    var desc = try decodeCallSiteDescriptorFromOperands(op, operands);
                     desc.method_sym = try self.callMethodSymbolFromConstant(ch, desc.method_idx);
-                    ch.callsite_descriptors_by_instr.items[instr_idx] = desc;
+                    ch.callsite_descriptors.items[ip] = desc;
+                    ip += 1 + 6; // opcode + method_idx(2) + argc(1) + call_flags(1) + block_chunk_id(2)
                 },
-                else => {},
+                .CALL_KW => {
+                    try ensureCallsiteArraysForOffset(ch, ip);
+                    var desc = try decodeCallSiteDescriptorFromOperands(op, operands);
+                    desc.method_sym = try self.callMethodSymbolFromConstant(ch, desc.method_idx);
+                    ch.callsite_descriptors.items[ip] = desc;
+                    ip += 1 + 9; // opcode + method_idx(2) + argc(1) + kwargc(1) + call_flags(1) + kw_metadata_idx(2) + block_chunk_id(2)
+                },
+                else => {
+                    ip += 1 + bytecode.opcodeOperandSize(op);
+                },
             }
         }
     }
@@ -1254,43 +1263,41 @@ pub const VM = struct {
             self.method_state_version = 1;
             var chunk_iter = self.program.child_chunks.valueIterator();
             while (chunk_iter.next()) |chunk_ptr| {
-                for (chunk_ptr.*.callsite_caches_by_instr.items) |*entry| {
+                for (chunk_ptr.*.callsite_caches.items) |*entry| {
                     entry.* = null;
                 }
             }
-            for (self.program.main_chunk.callsite_caches_by_instr.items) |*entry| {
+            for (self.program.main_chunk.callsite_caches.items) |*entry| {
                 entry.* = null;
             }
         }
     }
 
-    fn getDispatchClass(self: *VM, receiver: Value) *ClassObject {
-        if (self.getObjectPointer(receiver)) |obj_ptr| {
-            if (obj_ptr.singleton_class) |singleton_class| {
-                return singleton_class;
-            }
+    inline fn getDispatchClass(self: *VM, receiver: Value) *ClassObject {
+        if (receiver.isInteger()) return self.integer_class;
+        if (receiver.isObject()) {
+            const obj: *value.Object = @ptrFromInt(receiver.raw);
+            return obj.singleton_class orelse obj.class.?;
         }
-        return self.getClass(receiver);
+        if (receiver.isNil()) return self.nil_class;
+        return if (receiver.toBool()) self.true_class else self.false_class;
     }
 
     fn resolveMethodForCallSite(
         self: *VM,
         frame: *CallFrame,
-        callsite_instr_idx: usize,
+        callsite_byte_offset: usize,
         receiver: Value,
         method_name_sym: *SymbolObject,
     ) VMError!?ResolvedMethod {
-        if (frame.chunk.callsite_caches_by_instr.items.len < frame.chunk.exec_code.items.len) {
-            const old_len = frame.chunk.callsite_caches_by_instr.items.len;
-            frame.chunk.callsite_caches_by_instr.ensureTotalCapacity(frame.chunk.allocator, frame.chunk.exec_code.items.len) catch return error.Fatal;
-            frame.chunk.callsite_caches_by_instr.items.len = frame.chunk.exec_code.items.len;
-            for (old_len..frame.chunk.callsite_caches_by_instr.items.len) |idx| {
-                frame.chunk.callsite_caches_by_instr.items[idx] = null;
-            }
+        // Fast path: check if cache arrays are already large enough
+        const caches = frame.chunk.callsite_caches.items;
+        if (callsite_byte_offset >= caches.len) {
+            try ensureCallsiteArraysForOffset(frame.chunk, callsite_byte_offset);
         }
 
         const dispatch_class = self.getDispatchClass(receiver);
-        const cache_slot = &frame.chunk.callsite_caches_by_instr.items[callsite_instr_idx];
+        const cache_slot = &frame.chunk.callsite_caches.items[callsite_byte_offset];
         if (cache_slot.*) |cached| {
             if (cached.receiver_class == dispatch_class and
                 cached.method_name == method_name_sym and
@@ -1320,23 +1327,22 @@ pub const VM = struct {
     fn getOrDecodeCallSiteDescriptor(
         self: *VM,
         ch: *Chunk,
-        callsite_instr_idx: usize,
-        expected_kind: chunk.CallSiteKind,
+        callsite_byte_offset: usize,
     ) VMError!*chunk.CallSiteDescriptor {
-        if (callsite_instr_idx >= ch.exec_code.items.len) return error.Fatal;
-        try ensureCallsiteArraysByInstr(ch);
+        if (callsite_byte_offset >= ch.code.items.len) return error.Fatal;
+        try ensureCallsiteArraysForOffset(ch, callsite_byte_offset);
 
-        if (ch.callsite_descriptors_by_instr.items[callsite_instr_idx]) |*desc| {
-            if (desc.kind != expected_kind) return error.Fatal;
+        if (ch.callsite_descriptors.items[callsite_byte_offset]) |*desc| {
             return desc;
         }
 
-        var desc = try decodeCallSiteDescriptorFromInstr(ch.exec_code.items[callsite_instr_idx]);
+        const op: bytecode.OpCode = @enumFromInt(ch.code.items[callsite_byte_offset]);
+        const operands = ch.code.items[callsite_byte_offset + 1 ..];
+        var desc = try decodeCallSiteDescriptorFromOperands(op, operands);
         desc.method_sym = try self.callMethodSymbolFromConstant(ch, desc.method_idx);
 
-        if (desc.kind != expected_kind) return error.Fatal;
-        ch.callsite_descriptors_by_instr.items[callsite_instr_idx] = desc;
-        return &ch.callsite_descriptors_by_instr.items[callsite_instr_idx].?;
+        ch.callsite_descriptors.items[callsite_byte_offset] = desc;
+        return &ch.callsite_descriptors.items[callsite_byte_offset].?;
     }
 
     fn resolveCallMethodSymbolFromDescriptor(
@@ -1353,8 +1359,8 @@ pub const VM = struct {
     }
 
     fn addIntegerValues(self: *VM, lhs: Value, rhs: Value) VMError!Value {
-        if (lhs.data == .integer and rhs.data == .integer) {
-            if (std.math.add(i64, lhs.data.integer, rhs.data.integer)) |sum| {
+        if (lhs.isInteger() and rhs.isInteger()) {
+            if (std.math.add(i64, lhs.toInteger(), rhs.toInteger())) |sum| {
                 return Value.integer(sum);
             } else |_| {}
         }
@@ -1370,8 +1376,8 @@ pub const VM = struct {
     }
 
     fn subIntegerValues(self: *VM, lhs: Value, rhs: Value) VMError!Value {
-        if (lhs.data == .integer and rhs.data == .integer) {
-            if (std.math.sub(i64, lhs.data.integer, rhs.data.integer)) |diff| {
+        if (lhs.isInteger() and rhs.isInteger()) {
+            if (std.math.sub(i64, lhs.toInteger(), rhs.toInteger())) |diff| {
                 return Value.integer(diff);
             } else |_| {}
         }
@@ -1387,8 +1393,8 @@ pub const VM = struct {
     }
 
     fn mulIntegerValues(self: *VM, lhs: Value, rhs: Value) VMError!Value {
-        if (lhs.data == .integer and rhs.data == .integer) {
-            if (std.math.mul(i64, lhs.data.integer, rhs.data.integer)) |product| {
+        if (lhs.isInteger() and rhs.isInteger()) {
+            if (std.math.mul(i64, lhs.toInteger(), rhs.toInteger())) |product| {
                 return Value.integer(product);
             } else |_| {}
         }
@@ -1404,17 +1410,18 @@ pub const VM = struct {
     }
 
     fn divFloorIntegerValues(self: *VM, lhs: Value, rhs: Value) VMError!Value {
-        const divisor_is_zero = switch (rhs.data) {
-            .integer => rhs.data.integer == 0,
-            .big_integer => rhs.data.big_integer.value.eqlZero(),
-            else => false,
-        };
+        const divisor_is_zero = if (rhs.isInteger())
+            rhs.toInteger() == 0
+        else if (rhs.isBigInteger())
+            rhs.toBigIntegerObject().value.eqlZero()
+        else
+            false;
         if (divisor_is_zero) {
             return self.raiseExceptionFmt(self.zero_division_error_class, "divided by 0", .{});
         }
 
-        if (lhs.data == .integer and rhs.data == .integer) {
-            if (std.math.divFloor(i64, lhs.data.integer, rhs.data.integer)) |quot| {
+        if (lhs.isInteger() and rhs.isInteger()) {
+            if (std.math.divFloor(i64, lhs.toInteger(), rhs.toInteger())) |quot| {
                 return Value.integer(quot);
             } else |_| {}
         }
@@ -1460,17 +1467,17 @@ pub const VM = struct {
     }
 
     fn readByteFrom(frame: *CallFrame, operands: []const u8, operand_cursor: *usize) u8 {
-        _ = frame;
         const byte = operands[operand_cursor.*];
         operand_cursor.* += 1;
+        frame.ip += 1;
         return byte;
     }
 
     fn readU16From(frame: *CallFrame, operands: []const u8, operand_cursor: *usize) u16 {
-        _ = frame;
         const lo: u16 = operands[operand_cursor.*];
         const hi: u16 = operands[operand_cursor.* + 1];
         operand_cursor.* += 2;
+        frame.ip += 2;
         return lo | (hi << 8);
     }
 
@@ -1487,7 +1494,7 @@ pub const VM = struct {
     }
 
     fn setFrameIp(frame: *CallFrame, ip: usize) VMError!void {
-        if (ip >= frame.chunk.exec_code.items.len) return error.Fatal;
+        if (ip > frame.chunk.code.items.len) return error.Fatal;
         frame.ip = ip;
     }
 
@@ -1501,11 +1508,11 @@ pub const VM = struct {
             var proc_val = self.pop();
             const original_val = proc_val;
 
-            if (proc_val.data == .nil) {
+            if (proc_val.isNil()) {
                 return null;
             }
 
-            if (proc_val.data != .proc) {
+            if (!proc_val.isProc()) {
                 const to_proc_sym = try self.intern("to_proc");
                 if ((try self.findMethod(proc_val, to_proc_sym)) == null) {
                     return self.raiseExceptionFmt(
@@ -1515,7 +1522,7 @@ pub const VM = struct {
                     );
                 }
                 proc_val = try self.callMethodByName(proc_val, "to_proc", &[_]Value{}, null);
-                if (proc_val.data != .proc) {
+                if (!proc_val.isProc()) {
                     return self.raiseExceptionFmt(
                         self.type_error_class,
                         "can't convert {s} to Proc ({s}#to_proc gives {s})",
@@ -1528,7 +1535,7 @@ pub const VM = struct {
                 }
             }
 
-            const proc_obj = proc_val.data.proc;
+            const proc_obj = proc_val.toProcObject();
             return proc_obj.block;
         } else if (block_chunk_id != 0) {
             // Literal block: look up chunk
@@ -1836,6 +1843,10 @@ pub const VM = struct {
         mult,
         div,
         eq,
+        lt,
+        gt,
+        le,
+        ge,
     };
 
     inline fn executeOptIntegerBinary(self: *VM, op: OptIntegerBinaryOp) VMError!void {
@@ -1843,7 +1854,7 @@ pub const VM = struct {
         const receiver = self.peek(1);
         const arg = self.peek(0);
 
-        if (!self.integer_changed and receiver.data == .integer and arg.data == .integer) {
+        if (!self.integer_changed and receiver.isInteger() and arg.isInteger()) {
             _ = self.pop();
             _ = self.pop();
             const fast_result = switch (op) {
@@ -1851,7 +1862,11 @@ pub const VM = struct {
                 .minus => try self.subIntegerValues(receiver, arg),
                 .mult => try self.mulIntegerValues(receiver, arg),
                 .div => try self.divFloorIntegerValues(receiver, arg),
-                .eq => Value.boolean(receiver.data.integer == arg.data.integer),
+                .eq => Value.boolean(receiver.toInteger() == arg.toInteger()),
+                .lt => Value.boolean(receiver.toInteger() < arg.toInteger()),
+                .gt => Value.boolean(receiver.toInteger() > arg.toInteger()),
+                .le => Value.boolean(receiver.toInteger() <= arg.toInteger()),
+                .ge => Value.boolean(receiver.toInteger() >= arg.toInteger()),
             };
             try self.push(fast_result);
             return;
@@ -1864,6 +1879,10 @@ pub const VM = struct {
             .mult => "*",
             .div => "/",
             .eq => "==",
+            .lt => "<",
+            .gt => ">",
+            .le => "<=",
+            .ge => ">=",
         };
         const result = try self.callMethodByName(receiver, method_name, args[0..], null);
         _ = self.pop();
@@ -1873,14 +1892,14 @@ pub const VM = struct {
 
     pub fn executeInstruction(self: *VM) VMError!void {
         const frame = self.currentFrame();
-        if (frame.ip >= frame.chunk.exec_code.items.len) return error.Fatal;
+        if (frame.ip >= frame.chunk.code.items.len) return error.Fatal;
 
         const instr_idx = frame.ip;
-        const instr = frame.chunk.exec_code.items[instr_idx];
+        const op: bytecode.OpCode = @enumFromInt(frame.chunk.code.items[instr_idx]);
+        // ip now points just past the opcode byte; operands start here
         frame.ip = instr_idx + 1;
-        const operands = instr.operands[0..instr.operand_len];
+        const operands = frame.chunk.code.items[frame.ip..];
         var operand_cursor: usize = 0;
-        const op = instr.op;
         const constants = frame.chunk.constants.items;
 
         switch (op) {
@@ -1900,28 +1919,35 @@ pub const VM = struct {
                 const idx = readU16From(frame, operands, &operand_cursor);
                 const constant = constants[idx];
                 const val = switch (constant) {
-                    .integer => |i| Value.integer(i),
+                    .integer => |i| if (std.math.cast(i63, i) != null) Value.integer(i) else try self.newBigIntegerFromI64(i),
                     .big_integer_decimal => |digits| try self.newBigIntegerFromDecimalString(digits),
-                    .float => |f| Value.float(f),
+                    .float => |f| try self.newFloat(f),
                     .string => |s| try self.newString(s, false),
-                    .symbol => |s| Value{ .data = .{ .symbol = s } },
+                    .symbol => |s| Value.fromObject(s),
                 };
                 try self.push(val);
+            },
+
+            .PUSH_I8 => {
+                const val: i8 = @bitCast(readByteFrom(frame, operands, &operand_cursor));
+                try self.push(Value.integer(@intCast(val)));
             },
 
             .PUSH_SYMBOL => {
                 const idx = readU16From(frame, operands, &operand_cursor);
                 const constant = constants[idx];
                 switch (constant) {
-                    .string => |name| try self.push(Value{ .data = .{ .symbol = (try self.intern(name)) } }),
-                    .symbol => |sym| try self.push(Value{ .data = .{ .symbol = sym } }),
+                    .string => |name| try self.push(Value.fromObject(try self.intern(name))),
+                    .symbol => |sym| try self.push(Value.fromObject(sym)),
                     else => return error.Fatal,
                 }
             },
 
             .GET_LOCAL => {
                 const local_idx = readByteFrom(frame, operands, &operand_cursor);
-                const val = getVariableAtDepth(frame.ep, 0, local_idx) orelse Value.nil();
+                // Fast path: direct access to current environment, no depth walking
+                const ep = derefEnvironment(frame.ep);
+                const val = if (local_idx < ep.variables_len) ep.variables[local_idx] else Value.nil();
                 try self.push(val);
             },
 
@@ -2103,11 +2129,12 @@ pub const VM = struct {
                 const parent_val = self.pop();
                 const name_sym = try self.intern(constant.string);
 
-                const module = switch (parent_val.data) {
-                    .class => |c| &c.module,
-                    .module => |m| m,
-                    else => unreachable,
-                };
+                const module = if (parent_val.isClass())
+                    &parent_val.toClassObject().module
+                else if (parent_val.isModule())
+                    parent_val.toModuleObject()
+                else
+                    unreachable;
                 if (module.constants.get(name_sym)) |const_val| {
                     try self.push(const_val);
                 } else {
@@ -2191,11 +2218,54 @@ pub const VM = struct {
             },
 
             .OPT_PLUS => {
-                try self.executeOptIntegerBinary(.plus);
+                const stack_items = self.stack.items;
+                const len = stack_items.len;
+                if (len >= 2) {
+                    const a_raw = stack_items[len - 2].raw;
+                    const b_raw = stack_items[len - 1].raw;
+                    if (!self.integer_changed and (a_raw & b_raw & 1) == 1) {
+                        // Tag-bit add: (a<<1|1) + (b<<1|1) - 1 = ((a+b)<<1|1)
+                        // Use signed overflow detection
+                        const a_signed = @as(i64, @bitCast(a_raw));
+                        const b_signed = @as(i64, @bitCast(b_raw));
+                        const result, const overflow = @addWithOverflow(a_signed, b_signed);
+                        if (overflow == 0) {
+                            self.stack.storage[len - 2] = .{ .raw = @bitCast(result -% 1) };
+                            self.stack.items = self.stack.storage[0 .. len - 1];
+                        } else {
+                            try self.executeOptIntegerBinary(.plus);
+                        }
+                    } else {
+                        try self.executeOptIntegerBinary(.plus);
+                    }
+                } else {
+                    return error.Fatal;
+                }
             },
 
             .OPT_MINUS => {
-                try self.executeOptIntegerBinary(.minus);
+                const stack_items = self.stack.items;
+                const len = stack_items.len;
+                if (len >= 2) {
+                    const a_raw = stack_items[len - 2].raw;
+                    const b_raw = stack_items[len - 1].raw;
+                    if (!self.integer_changed and (a_raw & b_raw & 1) == 1) {
+                        // Tag-bit sub: (a<<1|1) - (b<<1|1) + 1 = ((a-b)<<1|1)
+                        const a_signed = @as(i64, @bitCast(a_raw));
+                        const b_signed = @as(i64, @bitCast(b_raw));
+                        const result, const overflow = @subWithOverflow(a_signed, b_signed);
+                        if (overflow == 0) {
+                            self.stack.storage[len - 2] = .{ .raw = @bitCast(result +% 1) };
+                            self.stack.items = self.stack.storage[0 .. len - 1];
+                        } else {
+                            try self.executeOptIntegerBinary(.minus);
+                        }
+                    } else {
+                        try self.executeOptIntegerBinary(.minus);
+                    }
+                } else {
+                    return error.Fatal;
+                }
             },
 
             .OPT_MULT => {
@@ -2207,15 +2277,110 @@ pub const VM = struct {
             },
 
             .OPT_EQ => {
-                try self.executeOptIntegerBinary(.eq);
+                const stack_items = self.stack.items;
+                const len = stack_items.len;
+                if (len >= 2) {
+                    const a_raw = stack_items[len - 2].raw;
+                    const b_raw = stack_items[len - 1].raw;
+                    if (!self.integer_changed and (a_raw & b_raw & 1) == 1) {
+                        // Both tagged ints: compare raw values directly
+                        self.stack.storage[len - 2] = if (a_raw == b_raw) Value.TRUE else Value.FALSE;
+                        self.stack.items = self.stack.storage[0 .. len - 1];
+                    } else {
+                        try self.executeOptIntegerBinary(.eq);
+                    }
+                } else {
+                    return error.Fatal;
+                }
+            },
+
+            .OPT_LT => {
+                const stack_items = self.stack.items;
+                const len = stack_items.len;
+                if (len >= 2) {
+                    const a_raw = stack_items[len - 2].raw;
+                    const b_raw = stack_items[len - 1].raw;
+                    if (!self.integer_changed and (a_raw & b_raw & 1) == 1) {
+                        // Both tagged ints: signed comparison on raw values works because
+                        // tag bit is the same for both, so relative order is preserved
+                        const a_signed = @as(i64, @bitCast(a_raw));
+                        const b_signed = @as(i64, @bitCast(b_raw));
+                        self.stack.storage[len - 2] = if (a_signed < b_signed) Value.TRUE else Value.FALSE;
+                        self.stack.items = self.stack.storage[0 .. len - 1];
+                    } else {
+                        try self.executeOptIntegerBinary(.lt);
+                    }
+                } else {
+                    return error.Fatal;
+                }
+            },
+
+            .OPT_GT => {
+                const stack_items = self.stack.items;
+                const len = stack_items.len;
+                if (len >= 2) {
+                    const a_raw = stack_items[len - 2].raw;
+                    const b_raw = stack_items[len - 1].raw;
+                    if (!self.integer_changed and (a_raw & b_raw & 1) == 1) {
+                        const a_signed = @as(i64, @bitCast(a_raw));
+                        const b_signed = @as(i64, @bitCast(b_raw));
+                        self.stack.storage[len - 2] = if (a_signed > b_signed) Value.TRUE else Value.FALSE;
+                        self.stack.items = self.stack.storage[0 .. len - 1];
+                    } else {
+                        try self.executeOptIntegerBinary(.gt);
+                    }
+                } else {
+                    return error.Fatal;
+                }
+            },
+
+            .OPT_LE => {
+                const stack_items = self.stack.items;
+                const len = stack_items.len;
+                if (len >= 2) {
+                    const a_raw = stack_items[len - 2].raw;
+                    const b_raw = stack_items[len - 1].raw;
+                    if (!self.integer_changed and (a_raw & b_raw & 1) == 1) {
+                        const a_signed = @as(i64, @bitCast(a_raw));
+                        const b_signed = @as(i64, @bitCast(b_raw));
+                        self.stack.storage[len - 2] = if (a_signed <= b_signed) Value.TRUE else Value.FALSE;
+                        self.stack.items = self.stack.storage[0 .. len - 1];
+                    } else {
+                        try self.executeOptIntegerBinary(.le);
+                    }
+                } else {
+                    return error.Fatal;
+                }
+            },
+
+            .OPT_GE => {
+                const stack_items = self.stack.items;
+                const len = stack_items.len;
+                if (len >= 2) {
+                    const a_raw = stack_items[len - 2].raw;
+                    const b_raw = stack_items[len - 1].raw;
+                    if (!self.integer_changed and (a_raw & b_raw & 1) == 1) {
+                        const a_signed = @as(i64, @bitCast(a_raw));
+                        const b_signed = @as(i64, @bitCast(b_raw));
+                        self.stack.storage[len - 2] = if (a_signed >= b_signed) Value.TRUE else Value.FALSE;
+                        self.stack.items = self.stack.storage[0 .. len - 1];
+                    } else {
+                        try self.executeOptIntegerBinary(.ge);
+                    }
+                } else {
+                    return error.Fatal;
+                }
             },
 
             .CALL => {
-                const callsite_instr_idx = frame.ip - 1;
-                const call_desc = if (callsite_instr_idx < frame.chunk.callsite_descriptors_by_instr.items.len and frame.chunk.callsite_descriptors_by_instr.items[callsite_instr_idx] != null)
-                    &frame.chunk.callsite_descriptors_by_instr.items[callsite_instr_idx].?
+                const callsite_byte_offset = instr_idx; // byte offset of the CALL opcode
+                // Advance frame.ip past the 6 CALL operand bytes
+                frame.ip += 6;
+                operand_cursor += 6;
+                const call_desc = if (callsite_byte_offset < frame.chunk.callsite_descriptors.items.len and frame.chunk.callsite_descriptors.items[callsite_byte_offset] != null)
+                    &frame.chunk.callsite_descriptors.items[callsite_byte_offset].?
                 else
-                    try self.getOrDecodeCallSiteDescriptor(frame.chunk, callsite_instr_idx, .call);
+                    try self.getOrDecodeCallSiteDescriptor(frame.chunk, callsite_byte_offset);
                 const argc = call_desc.argc;
                 const call_style: ReceiverCallStyle = bytecode.decodeReceiverCallStyle(call_desc.call_flags);
                 const args_array_mode = bytecode.argsArrayMode(call_desc.call_flags);
@@ -2232,12 +2397,12 @@ pub const VM = struct {
                 var receiver: Value = undefined;
                 if (args_array_mode) {
                     const positional = self.pop();
-                    if (positional.data != .array) {
+                    if (!positional.isArray()) {
                         const exc = try self.createException(self.type_error_class, "splat argument is not an Array");
                         self.pending_exception = exc;
                         return error.Unwind;
                     }
-                    const elems = positional.data.array.elements.items;
+                    const elems = positional.toArrayObject().elements.items;
                     if (elems.len > args.len) {
                         const exc = try self.createException(self.argument_error_class, "too many arguments");
                         self.pending_exception = exc;
@@ -2258,7 +2423,71 @@ pub const VM = struct {
                     // Stack-window fast path for chunk methods:
                     // bind arguments directly from caller stack and avoid temporary arg buffers.
                     if (call_style == .implicit_self) {
-                        const resolved = try self.resolveMethodForCallSite(frame, callsite_instr_idx, receiver, method_name_sym);
+                        // Inline cache check: avoid calling resolveMethodForCallSite on cache hit
+                        const caches = frame.chunk.callsite_caches.items;
+                        if (callsite_byte_offset < caches.len) {
+                            if (caches[callsite_byte_offset]) |cached| {
+                                const dispatch_class = self.getDispatchClass(receiver);
+                                if (cached.receiver_class == dispatch_class and
+                                    cached.method_name == method_name_sym and
+                                    cached.method_state_version == self.method_state_version)
+                                {
+                                    // Cache hit - use cached method directly
+                                    switch (cached.entry.method) {
+                                        .chunk => |method_chunk| {
+                                            if (block == null and method_chunk.is_simple_positional and
+                                                argc == method_chunk.arity and
+                                                self.frames.items.len < self.frames.capacity and
+                                                self.env_stack.items.len < self.env_stack.capacity)
+                                            {
+                                                // Ultra-fast path: inline frame + env setup
+                                                const env_index = self.env_stack.items.len;
+                                                self.env_stack.items = self.env_stack.storage[0 .. env_index + 1];
+                                                const env = &self.env_stack.storage[env_index];
+                                                env.parent = frame.ep;
+                                                env.lexical_scope = method_chunk.lexical_scope orelse self.current_lexical_scope;
+                                                env.heap_forwarding_ptr = null;
+
+                                                if (argc > 0) {
+                                                    @memcpy(env.variables[0..argc], self.stack.items[(receiver_index + 1)..(receiver_index + 1 + argc)]);
+                                                }
+                                                env.variables_len = @intCast(argc);
+
+                                                self.stack.items = self.stack.storage[0..receiver_index];
+
+                                                self.frames.storage[self.frames.items.len] = CallFrame{
+                                                    .chunk = method_chunk,
+                                                    .ip = 0,
+                                                    .stack_base = receiver_index,
+                                                    .self_value = receiver,
+                                                    .ep = env,
+                                                    .block = null,
+                                                };
+                                                self.frames.items = self.frames.storage[0 .. self.frames.items.len + 1];
+
+                                                if (method_chunk.lexical_scope) |scope| {
+                                                    self.current_lexical_scope = scope;
+                                                }
+                                                return;
+                                            }
+                                            // Non-ultra-fast chunk call with cache hit
+                                            try self.setupChunkCallFrame(
+                                                method_chunk,
+                                                receiver,
+                                                self.stack.items[(receiver_index + 1)..(receiver_index + 1 + argc)],
+                                                null, null, null, block,
+                                            );
+                                            self.stack.shrinkRetainingCapacity(receiver_index);
+                                            self.currentFrame().stack_base = receiver_index;
+                                            return;
+                                        },
+                                        else => {},
+                                    }
+                                }
+                            }
+                        }
+                        // Cache miss: full resolution
+                        const resolved = try self.resolveMethodForCallSite(frame, callsite_byte_offset, receiver, method_name_sym);
                         if (resolved) |method| {
                             if (self.isMethodCallable(receiver, method, call_style)) {
                                 switch (method.entry.method) {
@@ -2267,10 +2496,7 @@ pub const VM = struct {
                                             method_chunk,
                                             receiver,
                                             self.stack.items[(receiver_index + 1)..(receiver_index + 1 + argc)],
-                                            null,
-                                            null,
-                                            null,
-                                            block,
+                                            null, null, null, block,
                                         );
                                         self.stack.shrinkRetainingCapacity(receiver_index);
                                         self.currentFrame().stack_base = receiver_index;
@@ -2292,15 +2518,18 @@ pub const VM = struct {
                     positional_argc = argc;
                 }
 
-                try self.callMethodHelperForExecuteInstruction(frame, callsite_instr_idx, method_name_sym, call_style, receiver, &args, positional_argc, null, 0, null, block);
+                try self.callMethodHelperForExecuteInstruction(frame, callsite_byte_offset, method_name_sym, call_style, receiver, &args, positional_argc, null, 0, null, block);
             },
 
             .CALL_KW => {
-                const callsite_instr_idx = frame.ip - 1;
-                const call_desc = if (callsite_instr_idx < frame.chunk.callsite_descriptors_by_instr.items.len and frame.chunk.callsite_descriptors_by_instr.items[callsite_instr_idx] != null)
-                    &frame.chunk.callsite_descriptors_by_instr.items[callsite_instr_idx].?
+                const callsite_byte_offset = instr_idx; // byte offset of the CALL_KW opcode
+                // Advance frame.ip past the 9 CALL_KW operand bytes
+                frame.ip += 9;
+                operand_cursor += 9;
+                const call_desc = if (callsite_byte_offset < frame.chunk.callsite_descriptors.items.len and frame.chunk.callsite_descriptors.items[callsite_byte_offset] != null)
+                    &frame.chunk.callsite_descriptors.items[callsite_byte_offset].?
                 else
-                    try self.getOrDecodeCallSiteDescriptor(frame.chunk, callsite_instr_idx, .call_kw);
+                    try self.getOrDecodeCallSiteDescriptor(frame.chunk, callsite_byte_offset);
                 const argc = call_desc.argc;
                 const kwargc = call_desc.kwargc;
                 const call_style: ReceiverCallStyle = bytecode.decodeReceiverCallStyle(call_desc.call_flags);
@@ -2329,12 +2558,12 @@ pub const VM = struct {
                         kw_values[i] = self.pop();
                     }
                     const positional = self.pop();
-                    if (positional.data != .array) {
+                    if (!positional.isArray()) {
                         const exc = try self.createException(self.type_error_class, "splat argument is not an Array");
                         self.pending_exception = exc;
                         return error.Unwind;
                     }
-                    const elems = positional.data.array.elements.items;
+                    const elems = positional.toArrayObject().elements.items;
                     if (elems.len > args.len) {
                         const exc = try self.createException(self.argument_error_class, "too many arguments");
                         self.pending_exception = exc;
@@ -2353,7 +2582,7 @@ pub const VM = struct {
                     receiver = self.stack.items[receiver_index];
 
                     if (call_style == .implicit_self) {
-                        const resolved = try self.resolveMethodForCallSite(frame, callsite_instr_idx, receiver, method_name_sym);
+                        const resolved = try self.resolveMethodForCallSite(frame, callsite_byte_offset, receiver, method_name_sym);
                         if (resolved) |method| {
                             if (self.isMethodCallable(receiver, method, call_style)) {
                                 switch (method.entry.method) {
@@ -2394,7 +2623,7 @@ pub const VM = struct {
                 }
 
                 // Call method with keywords
-                try self.callMethodHelperForExecuteInstruction(frame, callsite_instr_idx, method_name_sym, call_style, receiver, &args, positional_argc, &kw_values, kwargc, kw_metadata, block);
+                try self.callMethodHelperForExecuteInstruction(frame, callsite_byte_offset, method_name_sym, call_style, receiver, &args, positional_argc, &kw_values, kwargc, kw_metadata, block);
             },
 
             .RETURN => {
@@ -2402,40 +2631,42 @@ pub const VM = struct {
                 const result = self.pop();
                 const current_frame = self.currentFrame();
 
-                // Explicit returns in procs have special non-local return behavior
-                if (is_explicit == 1 and current_frame.frame_type == .fiber) {
+                // Fast path: implicit return or explicit return from method/lambda
+                if (is_explicit == 0 or (current_frame.frame_type != .fiber and current_frame.frame_type != .proc)) {
+                    // Inline fast popFrame: just decrement frame and env stack lengths
+                    const new_frame_len = self.frames.items.len - 1;
+                    self.frames.items = self.frames.storage[0..new_frame_len];
+                    if (self.env_stack.items.len > new_frame_len) {
+                        self.env_stack.items = self.env_stack.storage[0..new_frame_len];
+                    }
+                    // Restore lexical scope from previous frame
+                    if (new_frame_len > 0) {
+                        const prev_ep = derefEnvironment(self.frames.storage[new_frame_len - 1].ep);
+                        self.current_lexical_scope = prev_ep.lexical_scope;
+                    }
+                    try self.push(result);
+                } else if (current_frame.frame_type == .fiber) {
                     const exc = try self.createException(self.local_jump_error_class, "return from fiber");
                     self.pending_exception = exc;
                     return error.Unwind;
-                } else if (is_explicit == 1 and current_frame.frame_type == .proc) {
+                } else {
                     // Proc explicit return: walk back to enclosing method and exit it
                     try self.popFrame(); // Pop proc frame
 
-                    // Find first method frame and exit it (but not if it's the only frame left,
-                    // which would be the main/top-level frame when proc is called via .call)
                     var found_method = false;
                     if (self.frames.items.len > 1) {
                         while (self.frames.items.len > 0) {
                             const frame_type = self.frames.items[self.frames.items.len - 1].frame_type;
                             if (frame_type == .method) {
-                                try self.popFrame(); // Exit the method
+                                try self.popFrame();
                                 found_method = true;
                                 break;
                             }
-                            try self.popFrame(); // Skip intermediate frames
+                            try self.popFrame();
                         }
                     }
 
-                    // Push result if there are frames left or if we didn't find/pop a method
                     if (self.frames.items.len > 0 or !found_method) {
-                        try self.push(result);
-                    }
-                } else {
-                    // Normal return: exit current frame only (for methods, lambdas, implicit returns)
-                    try self.popFrame();
-                    if (self.frames.items.len > 0) {
-                        try self.push(result);
-                    } else {
                         try self.push(result);
                     }
                 }
@@ -2485,9 +2716,9 @@ pub const VM = struct {
                 const superclass_val = self.pop();
 
                 var superclass: *value.ClassObject = self.object_class;
-                if (superclass_val.data == .class) {
-                    superclass = superclass_val.data.class;
-                } else if (superclass_val.data != .nil) {
+                if (superclass_val.isClass()) {
+                    superclass = superclass_val.toClassObject();
+                } else if (!superclass_val.isNil()) {
                     const exc = try self.createException(self.type_error_class, "superclass must be a Class");
                     self.pending_exception = exc;
                     return error.Unwind;
@@ -2508,7 +2739,7 @@ pub const VM = struct {
 
                     var class_val: Value = undefined;
                     if (existing_class) |ec| {
-                        if (ec.data == .class) {
+                        if (ec.isClass()) {
                             // Reopen existing class
                             class_val = ec;
                         } else {
@@ -2553,14 +2784,15 @@ pub const VM = struct {
                 const body_chunk_id = readU16From(frame, operands, &operand_cursor);
                 const receiver = self.pop();
 
-                const singleton_val = switch (receiver.data) {
-                    .nil => Value{ .data = .{ .class = self.nil_class } },
-                    .boolean => |b| Value{ .data = .{ .class = if (b) self.true_class else self.false_class } },
-                    .integer, .float, .symbol => return self.raiseExceptionFmt(self.type_error_class, "can't define singleton", .{}),
-                    else => blk: {
-                        const singleton_class = try self.getOrCreateSingletonClass(receiver);
-                        break :blk Value{ .data = .{ .class = singleton_class } };
-                    },
+                const singleton_val = if (receiver.isNil())
+                    Value.fromObject(self.nil_class)
+                else if (receiver.isBool())
+                    Value.fromObject(if (receiver.toBool()) self.true_class else self.false_class)
+                else if (receiver.isInteger() or receiver.isFloat() or receiver.isSymbol())
+                    return self.raiseExceptionFmt(self.type_error_class, "can't define singleton", .{})
+                else blk: {
+                    const singleton_class = try self.getOrCreateSingletonClass(receiver);
+                    break :blk Value.fromObject(singleton_class);
                 };
 
                 if (body_chunk_id != 0) {
@@ -2607,12 +2839,12 @@ pub const VM = struct {
 
                     // module_function mode (set by Module#module_function with no args)
                     // also creates a public singleton method copy on the defining module.
-                    if (module_function_mode and current_self.data == .module) {
+                    if (module_function_mode and current_self.isModule()) {
                         const singleton_class = try self.getOrCreateSingletonClass(current_self);
                         var singleton_entry = entry;
                         singleton_entry.visibility = .public;
                         singleton_class.module.methods.put(method_name_sym, singleton_entry) catch return error.Fatal;
-                        self.markIntegerChangedForReceiver(.{ .data = .{ .class = singleton_class } });
+                        self.markIntegerChangedForReceiver(Value.fromObject(singleton_class));
                         self.bumpMethodStateVersion();
                     }
                 } else {
@@ -2669,36 +2901,36 @@ pub const VM = struct {
                     array_obj.elements.items[dst] = self.pop();
                 }
 
-                try self.push(.{ .data = .{ .array = array_obj } });
+                try self.push(Value.fromObject(array_obj));
             },
 
             .ARRAY_APPEND => {
                 const value_to_append = self.pop();
                 const array_val = self.pop();
-                if (array_val.data != .array) {
+                if (!array_val.isArray()) {
                     const exc = try self.createException(self.type_error_class, "internal error: ARRAY_APPEND target is not an Array");
                     self.pending_exception = exc;
                     return error.Unwind;
                 }
-                array_val.data.array.elements.append(self.gc_allocator, value_to_append) catch return error.Fatal;
+                array_val.toArrayObject().elements.append(self.gc_allocator, value_to_append) catch return error.Fatal;
                 try self.push(array_val);
             },
 
             .ARRAY_CONCAT_ARRAY => {
                 const other = self.pop();
                 const array_val = self.pop();
-                if (array_val.data != .array) {
+                if (!array_val.isArray()) {
                     const exc = try self.createException(self.type_error_class, "internal error: ARRAY_CONCAT_ARRAY target is not an Array");
                     self.pending_exception = exc;
                     return error.Unwind;
                 }
-                if (other.data != .array) {
+                if (!other.isArray()) {
                     const exc = try self.createException(self.type_error_class, "splat argument is not an Array");
                     self.pending_exception = exc;
                     return error.Unwind;
                 }
-                for (other.data.array.elements.items) |elem| {
-                    array_val.data.array.elements.append(self.gc_allocator, elem) catch return error.Fatal;
+                for (other.toArrayObject().elements.items) |elem| {
+                    array_val.toArrayObject().elements.append(self.gc_allocator, elem) catch return error.Fatal;
                 }
                 try self.push(array_val);
             },
@@ -2735,7 +2967,7 @@ pub const VM = struct {
                 }
                 self.stack.items.len = start;
 
-                try self.push(.{ .data = .{ .hash = hash_obj } });
+                try self.push(Value.fromObject(hash_obj));
             },
 
             .PUSH_RANGE => {
@@ -2744,7 +2976,7 @@ pub const VM = struct {
                 const begin_val = self.pop();
 
                 const range_val = try self.newRange(self.range_class);
-                const range_obj = range_val.data.range;
+                const range_obj = range_val.toRangeObject();
                 range_obj.begin = begin_val;
                 range_obj.end = end_val;
                 range_obj.exclude_end = exclude_end_flag != 0;
@@ -2769,12 +3001,12 @@ pub const VM = struct {
                         }
                         return err;
                     };
-                    if (str_val.data != .string) {
+                    if (!str_val.isString()) {
                         const exc = try self.createException(self.type_error_class, "to_s did not return String");
                         self.pending_exception = exc;
                         return error.Unwind;
                     }
-                    writer.writeAll(str_val.data.string.str) catch return error.Fatal;
+                    writer.writeAll(str_val.toStringObject().str) catch return error.Fatal;
                 }
                 self.stack.items.len = start;
 
@@ -2816,7 +3048,7 @@ pub const VM = struct {
 
             .YIELD_SPLAT => {
                 const args_array_val = self.pop();
-                if (args_array_val.data != .array) {
+                if (!args_array_val.isArray()) {
                     const exc = try self.createException(self.type_error_class, "splat argument is not an Array");
                     self.pending_exception = exc;
                     return error.Unwind;
@@ -2831,7 +3063,7 @@ pub const VM = struct {
                     return error.Unwind;
                 };
 
-                const yield_result = try self.yieldToBlock(block, args_array_val.data.array.elements.items);
+                const yield_result = try self.yieldToBlock(block, args_array_val.toArrayObject().elements.items);
                 try self.push(yield_result.value);
 
                 if (yield_result.break_occurred) {
@@ -2896,14 +3128,14 @@ pub const VM = struct {
                 }
 
                 // alias returns nil in Ruby
-                try self.push(Value{ .data = .nil });
+                try self.push(Value.NIL);
             },
 
             .MULTI_ASSIGN_PREPARE => {
                 const receiver = self.pop();
 
                 // If already an array, just push it back
-                if (receiver.data == .array) {
+                if (receiver.isArray()) {
                     try self.push(receiver);
                     return;
                 }
@@ -2912,23 +3144,23 @@ pub const VM = struct {
                 const to_ary_sym = try self.intern("to_ary");
 
                 // Check if receiver responds to :to_ary (including private methods)
-                var respond_args = [_]Value{ .{ .data = .{ .symbol = to_ary_sym } }, Value.boolean(true) };
+                var respond_args = [_]Value{ Value.fromObject(to_ary_sym), Value.boolean(true) };
                 const responds = try self.callMethodByName(receiver, "respond_to?", &respond_args, null);
 
-                if (responds.data == .boolean and responds.data.boolean) {
+                if (responds.isBool() and responds.toBool()) {
                     // Call to_ary
                     const to_ary_result = try self.callMethodByName(receiver, "to_ary", &[_]Value{}, null);
 
-                    if (to_ary_result.data == .nil) {
+                    if (to_ary_result.isNil()) {
                         // to_ary returned nil -> wrap receiver in array
                         const array_obj = self.gc_allocator.create(value.ArrayObject) catch return error.Fatal;
                         array_obj.* = .{
-                            .object = .{ .flags = 0, .class = self.array_class, .singleton_class = null, .instance_variables = null },
+                            .object = .{ .type_tag = .array, .flags = 0, .class = self.array_class, .singleton_class = null, .instance_variables = null },
                             .elements = .empty,
                         };
                         array_obj.elements.append(self.gc_allocator, receiver) catch return error.Fatal;
-                        try self.push(.{ .data = .{ .array = array_obj } });
-                    } else if (to_ary_result.data == .array) {
+                        try self.push(Value.fromObject(array_obj));
+                    } else if (to_ary_result.isArray()) {
                         // to_ary returned an array -> use it
                         try self.push(to_ary_result);
                     } else {
@@ -2941,11 +3173,11 @@ pub const VM = struct {
                     // Doesn't respond to to_ary -> wrap receiver in array
                     const array_obj = self.gc_allocator.create(value.ArrayObject) catch return error.Fatal;
                     array_obj.* = .{
-                        .object = .{ .flags = 0, .class = self.array_class, .singleton_class = null, .instance_variables = null },
+                        .object = .{ .type_tag = .array, .flags = 0, .class = self.array_class, .singleton_class = null, .instance_variables = null },
                         .elements = .empty,
                     };
                     array_obj.elements.append(self.gc_allocator, receiver) catch return error.Fatal;
-                    try self.push(.{ .data = .{ .array = array_obj } });
+                    try self.push(Value.fromObject(array_obj));
                 }
             },
 
@@ -2982,7 +3214,7 @@ pub const VM = struct {
                 // This allows 'retry' to jump back to the beginning of the begin block
                 self.retry_point = .{
                     .frame_idx = self.frames.items.len - 1,
-                    .instr_idx = self.currentFrame().ip,
+                    .byte_offset = self.currentFrame().ip,
                 };
             },
 
@@ -3000,7 +3232,7 @@ pub const VM = struct {
                         self.pending_exception = null;
 
                         // Jump back to the saved retry point
-                        try setFrameIp(frame, retry_pt.instr_idx);
+                        try setFrameIp(frame, retry_pt.byte_offset);
                     } else {
                         // Retry called from wrong frame - this shouldn't happen with proper compilation
                         const exc = try self.createException(self.runtime_error_class, "retry called from wrong frame");
@@ -3033,7 +3265,7 @@ pub const VM = struct {
                 // Store exception in local variable if binding exists
                 if (var_idx != 255) {
                     if (self.pending_exception) |exc| {
-                        frame.ep.variables[var_idx] = .{ .data = .{ .exception = exc } };
+                        frame.ep.variables[var_idx] = Value.fromObject(exc);
                         if (var_idx >= frame.ep.variables_len) {
                             frame.ep.variables_len = @as(u8, @intCast(var_idx + 1));
                         }
@@ -3057,12 +3289,12 @@ pub const VM = struct {
                 var positional_argc: usize = 0;
                 if (args_array_mode) {
                     const positional = self.pop();
-                    if (positional.data != .array) {
+                    if (!positional.isArray()) {
                         const exc = try self.createException(self.type_error_class, "splat argument is not an Array");
                         self.pending_exception = exc;
                         return error.Unwind;
                     }
-                    const elems = positional.data.array.elements.items;
+                    const elems = positional.toArrayObject().elements.items;
                     if (elems.len > args.len) {
                         const exc = try self.createException(self.argument_error_class, "too many arguments");
                         self.pending_exception = exc;
@@ -3102,11 +3334,294 @@ pub const VM = struct {
     }
 
     pub fn executeInstructionsUntilFrameLength(self: *VM, target_len: usize) VMError!void {
+        // Fast dispatch loop: handles common opcodes with minimal overhead
+        // Falls back to full executeInstruction for complex opcodes
         while (self.frames.items.len >= target_len) {
-            self.executeInstruction() catch |err| switch (err) {
-                error.Unwind => try self.unwindStack(),
-                else => return err,
-            };
+            const frame_len = self.frames.items.len;
+            const f = &self.frames.storage[frame_len - 1];
+            const code = f.chunk.code.items;
+            if (f.ip >= code.len) {
+                self.executeInstruction() catch |err| switch (err) {
+                    error.Unwind => try self.unwindStack(),
+                    else => return err,
+                };
+                continue;
+            }
+
+            const op: bytecode.OpCode = @enumFromInt(code[f.ip]);
+            switch (op) {
+                .GET_LOCAL => {
+                    const local_idx = code[f.ip + 1];
+                    f.ip += 2;
+                    const ep = derefEnvironment(f.ep);
+                    const val = if (local_idx < ep.variables_len) ep.variables[local_idx] else Value.nil();
+                    const len = self.stack.items.len;
+                    self.stack.storage[len] = val;
+                    self.stack.items = self.stack.storage[0 .. len + 1];
+                },
+                .PUSH_I8 => {
+                    const val: i8 = @bitCast(code[f.ip + 1]);
+                    f.ip += 2;
+                    const len = self.stack.items.len;
+                    self.stack.storage[len] = Value.integer(@intCast(val));
+                    self.stack.items = self.stack.storage[0 .. len + 1];
+                },
+                .PUSH_SELF => {
+                    f.ip += 1;
+                    const len = self.stack.items.len;
+                    self.stack.storage[len] = f.self_value;
+                    self.stack.items = self.stack.storage[0 .. len + 1];
+                },
+                .OPT_PLUS => {
+                    f.ip += 1;
+                    const len = self.stack.items.len;
+                    const a_raw = self.stack.storage[len - 2].raw;
+                    const b_raw = self.stack.storage[len - 1].raw;
+                    if (!self.integer_changed and (a_raw & b_raw & 1) == 1) {
+                        const a_signed = @as(i64, @bitCast(a_raw));
+                        const b_signed = @as(i64, @bitCast(b_raw));
+                        const result, const overflow = @addWithOverflow(a_signed, b_signed);
+                        if (overflow == 0) {
+                            self.stack.storage[len - 2] = .{ .raw = @bitCast(result -% 1) };
+                            self.stack.items = self.stack.storage[0 .. len - 1];
+                        } else {
+                            f.ip -= 1; // back up to re-execute in full handler
+                            self.executeInstruction() catch |err| switch (err) {
+                                error.Unwind => try self.unwindStack(),
+                                else => return err,
+                            };
+                        }
+                    } else {
+                        f.ip -= 1;
+                        self.executeInstruction() catch |err| switch (err) {
+                            error.Unwind => try self.unwindStack(),
+                            else => return err,
+                        };
+                    }
+                },
+                .OPT_MINUS => {
+                    f.ip += 1;
+                    const len = self.stack.items.len;
+                    const a_raw = self.stack.storage[len - 2].raw;
+                    const b_raw = self.stack.storage[len - 1].raw;
+                    if (!self.integer_changed and (a_raw & b_raw & 1) == 1) {
+                        const a_signed = @as(i64, @bitCast(a_raw));
+                        const b_signed = @as(i64, @bitCast(b_raw));
+                        const result, const overflow = @subWithOverflow(a_signed, b_signed);
+                        if (overflow == 0) {
+                            self.stack.storage[len - 2] = .{ .raw = @bitCast(result +% 1) };
+                            self.stack.items = self.stack.storage[0 .. len - 1];
+                        } else {
+                            f.ip -= 1;
+                            self.executeInstruction() catch |err| switch (err) {
+                                error.Unwind => try self.unwindStack(),
+                                else => return err,
+                            };
+                        }
+                    } else {
+                        f.ip -= 1;
+                        self.executeInstruction() catch |err| switch (err) {
+                            error.Unwind => try self.unwindStack(),
+                            else => return err,
+                        };
+                    }
+                },
+                .OPT_EQ => {
+                    f.ip += 1;
+                    const len = self.stack.items.len;
+                    const a_raw = self.stack.storage[len - 2].raw;
+                    const b_raw = self.stack.storage[len - 1].raw;
+                    if (!self.integer_changed and (a_raw & b_raw & 1) == 1) {
+                        self.stack.storage[len - 2] = if (a_raw == b_raw) Value.TRUE else Value.FALSE;
+                        self.stack.items = self.stack.storage[0 .. len - 1];
+                    } else {
+                        f.ip -= 1;
+                        self.executeInstruction() catch |err| switch (err) {
+                            error.Unwind => try self.unwindStack(),
+                            else => return err,
+                        };
+                    }
+                },
+                .OPT_LT, .OPT_GT, .OPT_LE, .OPT_GE => {
+                    f.ip += 1;
+                    const len = self.stack.items.len;
+                    const a_raw = self.stack.storage[len - 2].raw;
+                    const b_raw = self.stack.storage[len - 1].raw;
+                    if (!self.integer_changed and (a_raw & b_raw & 1) == 1) {
+                        const a_signed = @as(i64, @bitCast(a_raw));
+                        const b_signed = @as(i64, @bitCast(b_raw));
+                        const cmp_result = switch (op) {
+                            .OPT_LT => a_signed < b_signed,
+                            .OPT_GT => a_signed > b_signed,
+                            .OPT_LE => a_signed <= b_signed,
+                            .OPT_GE => a_signed >= b_signed,
+                            else => unreachable,
+                        };
+                        self.stack.storage[len - 2] = if (cmp_result) Value.TRUE else Value.FALSE;
+                        self.stack.items = self.stack.storage[0 .. len - 1];
+                    } else {
+                        f.ip -= 1;
+                        self.executeInstruction() catch |err| switch (err) {
+                            error.Unwind => try self.unwindStack(),
+                            else => return err,
+                        };
+                    }
+                },
+                .JUMP_IF_FALSE => {
+                    const lo: u16 = code[f.ip + 1];
+                    const hi: u16 = code[f.ip + 2];
+                    const offset: i16 = @bitCast(lo | (hi << 8));
+                    f.ip += 3;
+                    const len = self.stack.items.len;
+                    const cond = self.stack.storage[len - 1];
+                    self.stack.items = self.stack.storage[0 .. len - 1];
+                    if (!cond.is_truthy()) {
+                        f.ip = @intCast(@as(i32, @intCast(f.ip)) + offset);
+                    }
+                },
+                .JUMP => {
+                    const lo: u16 = code[f.ip + 1];
+                    const hi: u16 = code[f.ip + 2];
+                    const offset: i16 = @bitCast(lo | (hi << 8));
+                    f.ip += 3;
+                    f.ip = @intCast(@as(i32, @intCast(f.ip)) + offset);
+                },
+                .POP => {
+                    f.ip += 1;
+                    const len = self.stack.items.len;
+                    self.stack.items = self.stack.storage[0 .. len - 1];
+                },
+                .PUSH_NIL => {
+                    f.ip += 1;
+                    const len = self.stack.items.len;
+                    self.stack.storage[len] = Value.NIL;
+                    self.stack.items = self.stack.storage[0 .. len + 1];
+                },
+                .PUSH_TRUE => {
+                    f.ip += 1;
+                    const len = self.stack.items.len;
+                    self.stack.storage[len] = Value.TRUE;
+                    self.stack.items = self.stack.storage[0 .. len + 1];
+                },
+                .PUSH_FALSE => {
+                    f.ip += 1;
+                    const len = self.stack.items.len;
+                    self.stack.storage[len] = Value.FALSE;
+                    self.stack.items = self.stack.storage[0 .. len + 1];
+                },
+                .RETURN => {
+                    // Only handle fast-path implicit return from methods
+                    const is_explicit = code[f.ip + 1];
+                    if (is_explicit == 0 or f.frame_type == .method or f.frame_type == .lambda) {
+                        // Pop result
+                        const s_len = self.stack.items.len;
+                        const result = self.stack.storage[s_len - 1];
+                        // Pop frame
+                        const new_frame_len = self.frames.items.len - 1;
+                        self.frames.items = self.frames.storage[0..new_frame_len];
+                        if (self.env_stack.items.len > new_frame_len) {
+                            self.env_stack.items = self.env_stack.storage[0..new_frame_len];
+                        }
+                        if (new_frame_len > 0) {
+                            const prev_ep = derefEnvironment(self.frames.storage[new_frame_len - 1].ep);
+                            self.current_lexical_scope = prev_ep.lexical_scope;
+                        }
+                        // Push result (replace popped value)
+                        self.stack.storage[s_len - 1] = result;
+                        // stack length stays the same (popped one, pushed one)
+                    } else {
+                        // Complex return (proc, fiber) - fall back
+                        self.executeInstruction() catch |err| switch (err) {
+                            error.Unwind => try self.unwindStack(),
+                            else => return err,
+                        };
+                    }
+                },
+                .CALL => {
+                    // Fast path for simple chunk method calls (implicit_self, cache hit, simple sig)
+                    const callsite_byte_offset = f.ip;
+                    f.ip += 7; // opcode(1) + method_idx(2) + argc(1) + flags(1) + block_chunk_id(2)
+                    const call_flags = code[callsite_byte_offset + 4];
+                    const call_style: ReceiverCallStyle = bytecode.decodeReceiverCallStyle(call_flags);
+                    if (call_style == .implicit_self and !bytecode.argsArrayMode(call_flags)) {
+                        // Read block_chunk_id
+                        const blk_lo: u16 = code[callsite_byte_offset + 5];
+                        const blk_hi: u16 = code[callsite_byte_offset + 6];
+                        const block_chunk_id: chunk.ChunkId = @intCast(blk_lo | (blk_hi << 8));
+                        if (block_chunk_id == 0) {
+                            const argc: usize = code[callsite_byte_offset + 3];
+                            const caches = f.chunk.callsite_caches.items;
+                            if (callsite_byte_offset < caches.len) {
+                                if (caches[callsite_byte_offset]) |cached| {
+                                    // Get receiver from stack
+                                    const s_len = self.stack.items.len;
+                                    const receiver_index = s_len - (argc + 1);
+                                    const call_receiver = self.stack.items[receiver_index];
+                                    const dispatch_class = self.getDispatchClass(call_receiver);
+                                    if (cached.receiver_class == dispatch_class and
+                                        cached.method_state_version == self.method_state_version)
+                                    {
+                                        switch (cached.entry.method) {
+                                            .chunk => |method_chunk| {
+                                                if (method_chunk.is_simple_positional and
+                                                    argc == method_chunk.arity and
+                                                    self.frames.items.len < self.frames.capacity and
+                                                    self.env_stack.items.len < self.env_stack.capacity)
+                                                {
+                                                    // Ultra-fast inline call
+                                                    const env_index = self.env_stack.items.len;
+                                                    self.env_stack.items = self.env_stack.storage[0 .. env_index + 1];
+                                                    const env = &self.env_stack.storage[env_index];
+                                                    env.parent = f.ep;
+                                                    env.lexical_scope = method_chunk.lexical_scope orelse self.current_lexical_scope;
+                                                    env.heap_forwarding_ptr = null;
+
+                                                    if (argc > 0) {
+                                                        @memcpy(env.variables[0..argc], self.stack.items[(receiver_index + 1)..(receiver_index + 1 + argc)]);
+                                                    }
+                                                    env.variables_len = @intCast(argc);
+
+                                                    self.stack.items = self.stack.storage[0..receiver_index];
+
+                                                    const new_fl = self.frames.items.len;
+                                                    self.frames.storage[new_fl] = CallFrame{
+                                                        .chunk = method_chunk,
+                                                        .ip = 0,
+                                                        .stack_base = receiver_index,
+                                                        .self_value = call_receiver,
+                                                        .ep = env,
+                                                        .block = null,
+                                                    };
+                                                    self.frames.items = self.frames.storage[0 .. new_fl + 1];
+
+                                                    if (method_chunk.lexical_scope) |scope| {
+                                                        self.current_lexical_scope = scope;
+                                                    }
+                                                    continue;
+                                                }
+                                            },
+                                            else => {},
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    // Fall back to full CALL handler
+                    f.ip = callsite_byte_offset; // reset ip
+                    self.executeInstruction() catch |err| switch (err) {
+                        error.Unwind => try self.unwindStack(),
+                        else => return err,
+                    };
+                },
+                else => {
+                    // Fall back to full instruction handler for complex opcodes
+                    self.executeInstruction() catch |err| switch (err) {
+                        error.Unwind => try self.unwindStack(),
+                        else => return err,
+                    };
+                },
+            }
         }
     }
 
@@ -3224,15 +3739,6 @@ pub const VM = struct {
         return error.Unwind;
     }
 
-    inline fn isSimplePositionalSignature(method_chunk: *const Chunk) bool {
-        return method_chunk.optional_params.items.len == 0 and
-            method_chunk.rest_param_index == null and
-            method_chunk.post_required_count == 0 and
-            method_chunk.required_keywords.items.len == 0 and
-            method_chunk.optional_keywords.items.len == 0 and
-            method_chunk.keyword_rest_index == null and
-            method_chunk.block_param_index == null;
-    }
 
     inline fn setupChunkCallFrame(
         self: *VM,
@@ -3261,7 +3767,7 @@ pub const VM = struct {
 
         try self.pushFrame(method_chunk, receiver, block);
         const callee_frame = self.currentFrame();
-        if (isSimplePositionalSignature(method_chunk)) {
+        if (method_chunk.is_simple_positional) {
             if (args.len != method_chunk.arity) {
                 return self.raiseArgumentErrorWrongArgCount(args.len, method_chunk.arity);
             }
@@ -3301,12 +3807,12 @@ pub const VM = struct {
                 if (method_chunk.keyword_rest_index) |rest_idx| {
                     const kw_hash = self.gc_allocator.create(value.HashObject) catch return error.Fatal;
                     kw_hash.* = .{
-                        .object = .{ .flags = 0, .class = self.hash_class, .singleton_class = null, .instance_variables = null },
+                        .object = .{ .type_tag = .hash, .flags = 0, .class = self.hash_class, .singleton_class = null, .instance_variables = null },
                         .map = std.AutoHashMap(u64, usize).init(self.gc_allocator),
                         .entries = .empty,
                     };
                     const f = &self.frames.items[self.frames.items.len - 1];
-                    f.ep.variables[rest_idx] = Value{ .data = .{ .hash = kw_hash } };
+                    f.ep.variables[rest_idx] = Value.fromObject(kw_hash);
                 }
             }
         }
@@ -3367,7 +3873,7 @@ pub const VM = struct {
         }
 
         var missing_args: [258]Value = undefined;
-        missing_args[0] = Value{ .data = .{ .symbol = missing_method_sym } };
+        missing_args[0] = Value.fromObject(missing_method_sym);
         for (args, 0..) |arg, i| {
             missing_args[i + 1] = arg;
         }
@@ -3558,7 +4064,7 @@ pub const VM = struct {
     fn callMethodHelperForExecuteInstruction(
         self: *VM,
         frame: *CallFrame,
-        callsite_instr_idx: usize,
+        callsite_byte_offset: usize,
         method_name_sym: *SymbolObject,
         call_style: ReceiverCallStyle,
         receiver: Value,
@@ -3569,7 +4075,7 @@ pub const VM = struct {
         kw_metadata: ?chunk.KeywordMetadata,
         block: ?Block,
     ) VMError!void {
-        const resolved = try self.resolveMethodForCallSite(frame, callsite_instr_idx, receiver, method_name_sym);
+        const resolved = try self.resolveMethodForCallSite(frame, callsite_byte_offset, receiver, method_name_sym);
         const should_fallback = resolved == null or !self.isMethodCallable(receiver, resolved.?, call_style);
         if (should_fallback) {
             const kw_hash = if (kwargc > 0) try self.createHashFromKeywords(kw_values.?[0..kwargc], kw_metadata.?) else null;
@@ -3620,33 +4126,16 @@ pub const VM = struct {
     }
 
     pub fn getClass(self: *VM, val: Value) *ClassObject {
-        switch (val.data) {
+        if (val.isInteger()) return self.integer_class;
+        if (val.isNil()) return self.nil_class;
+        if (val.isBool()) return if (val.toBool()) self.true_class else self.false_class;
+        if (val.isObject()) {
             // Types with Object headers - use the class field from the header
-            .instance => |i| return i.class.?,
-            .string => |s| return s.object.class.?,
-            .symbol => |s| return s.object.class.?,
-            .array => |a| return a.object.class.?,
-            .hash => |h| return h.object.class.?,
-            .exception => |e| return e.object.class.?,
-            .encoding => |e| return e.object.class.?,
-            .module => |m| return m.object.class.?,
-            .class => |c| return c.module.object.class.?,
-            .proc => |p| return p.object.class.?,
-            .fiber => |f| return f.object.class.?,
-            .big_integer => |b| return b.object.class.?,
-            .io => |io| return io.object.class.?,
-            .match_data => |m| return m.object.class.?,
-            .range => |r| return r.object.class.?,
-            .regexp => |r| return r.object.class.?,
-            .enumerator => |e| return e.object.class.?,
-            .yielder => |y| return y.object.class.?,
-
-            // Primitives without Object headers - hardcode the class
-            .integer => return self.integer_class,
-            .float => return self.float_class,
-            .nil => return self.nil_class,
-            .boolean => |b| if (b) return self.true_class else return self.false_class,
+            const obj: *value.Object = @ptrFromInt(val.raw);
+            return obj.class.?;
         }
+        // float (special case not yet implemented)
+        return self.float_class;
     }
 
     pub inline fn className(self: *VM, val: Value) []const u8 {
@@ -3654,27 +4143,7 @@ pub const VM = struct {
     }
 
     fn getObjectPointer(_: *VM, obj_val: value.Value) ?*value.Object {
-        return switch (obj_val.data) {
-            .class => |c| &c.module.object,
-            .encoding => |e| &e.object,
-            .module => |m| &m.object,
-            .instance => |i| i,
-            .string => |s| &s.object,
-            .symbol => |s| &s.object,
-            .array => |a| &a.object,
-            .big_integer => |b| &b.object,
-            .hash => |h| &h.object,
-            .io => |io| &io.object,
-            .match_data => |m| &m.object,
-            .exception => |e| &e.object,
-            .proc => |p| &p.object,
-            .fiber => |f| &f.object,
-            .range => |r| &r.object,
-            .regexp => |r| &r.object,
-            .enumerator => |e| &e.object,
-            .yielder => |y| &y.object,
-            .integer, .float, .nil, .boolean => null,
-        };
+        return obj_val.getObjectPointer();
     }
 
     pub fn lookupMethod(self: *VM, class: *ClassObject, method_name: *value.SymbolObject) ?ResolvedMethod {
@@ -3724,8 +4193,8 @@ pub const VM = struct {
         var out: usize = 0;
         for (0..total_slots) |slot| {
             if (slot == rest_idx) {
-                if (slot < env.variables_len and env.variables[slot].data == .array) {
-                    for (env.variables[slot].data.array.elements.items) |elem| {
+                if (slot < env.variables_len and env.variables[slot].isArray()) {
+                    for (env.variables[slot].toArrayObject().elements.items) |elem| {
                         buf[out] = elem;
                         out += 1;
                     }
@@ -3841,33 +4310,43 @@ pub const VM = struct {
         const singleton_name_sym = try self.intern(singleton_name);
 
         // Determine singleton's superclass
-        const singleton_superclass: *ClassObject = switch (obj_val.data) {
-            .class => |c| blk: {
-                // For classes: singleton's superclass is parent class's singleton
-                if (c.superclass) |super| {
-                    break :blk try self.getOrCreateSingletonClass(.{ .data = .{ .class = super } });
-                } else {
-                    break :blk self.class_class; // Root class singletons inherit from Class
-                }
-            },
-            .instance => |i| i.class.?, // Instance singleton inherits from instance's class
-            .module => self.module_class,
-            .string => |s| s.object.class.?,
-            .symbol => self.symbol_class,
-            .array => self.array_class,
-            .hash => self.hash_class,
-            .range => self.range_class,
-            .exception => self.exception_class,
-            .encoding => self.encoding_class,
-            .proc => self.proc_class,
-            .fiber => self.fiber_class,
-            .io => self.io_class,
-            .match_data => self.match_data_class,
-            .regexp => self.regexp_class,
-            .enumerator => self.enumerator_class,
-            .yielder => self.yielder_class,
-            .big_integer => self.integer_class,
-            .integer, .float, .boolean, .nil => unreachable, // Primitives can't have singleton classes
+        const singleton_superclass: *ClassObject = blk: {
+            if (!obj_val.isObject()) unreachable; // Primitives can't have singleton classes
+            const tag = obj_val.objectTypeTag();
+            switch (tag) {
+                .class => {
+                    const c = obj_val.toClassObject();
+                    if (c.superclass) |super| {
+                        break :blk try self.getOrCreateSingletonClass(Value.fromObject(super));
+                    } else {
+                        break :blk self.class_class;
+                    }
+                },
+                .instance => {
+                    const inst_ptr: *value.Object = @ptrFromInt(obj_val.raw);
+                    break :blk inst_ptr.class.?;
+                },
+                .module => break :blk self.module_class,
+                .string => {
+                    const str_obj_ptr: *value.Object = @ptrFromInt(obj_val.raw);
+                    break :blk str_obj_ptr.class.?;
+                },
+                .symbol => break :blk self.symbol_class,
+                .array => break :blk self.array_class,
+                .hash => break :blk self.hash_class,
+                .range => break :blk self.range_class,
+                .exception => break :blk self.exception_class,
+                .encoding_obj => break :blk self.encoding_class,
+                .proc => break :blk self.proc_class,
+                .fiber => break :blk self.fiber_class,
+                .io => break :blk self.io_class,
+                .match_data => break :blk self.match_data_class,
+                .regexp => break :blk self.regexp_class,
+                .enumerator => break :blk self.enumerator_class,
+                .yielder => break :blk self.yielder_class,
+                .big_integer => break :blk self.integer_class,
+                .float => break :blk self.float_class,
+            }
         };
 
         // Create the singleton ClassObject
@@ -3877,6 +4356,7 @@ pub const VM = struct {
             .object_type = singleton_superclass.object_type,
             .module = .{
                 .object = .{
+                    .type_tag = .class,
                     .flags = 0,
                     .class = self.class_class,
                     .singleton_class = null,
@@ -3920,7 +4400,7 @@ pub const VM = struct {
 
         const symbol_obj = self.gc_allocator.create(SymbolObject) catch return error.Fatal;
         symbol_obj.* = .{
-            .object = .{ .flags = Object.FROZEN_FLAG, .class = self.symbol_class, .singleton_class = null, .instance_variables = null },
+            .object = .{ .type_tag = .symbol, .flags = Object.FROZEN_FLAG, .class = self.symbol_class, .singleton_class = null, .instance_variables = null },
             .name = key_bytes,
             .encoding = symbol_encoding,
         };
@@ -3933,13 +4413,13 @@ pub const VM = struct {
     pub fn newModule(self: *VM, name: *SymbolObject) VMError!Value {
         const module_obj = self.gc_allocator.create(value.ModuleObject) catch return error.Fatal;
         module_obj.* = .{
-            .object = .{ .flags = 0, .class = self.module_class, .singleton_class = null, .instance_variables = null },
+            .object = .{ .type_tag = .module, .flags = 0, .class = self.module_class, .singleton_class = null, .instance_variables = null },
             .name = name,
             .methods = std.AutoHashMap(*SymbolObject, MethodEntry).init(self.gc_allocator),
             .constants = std.AutoHashMap(*SymbolObject, Value).init(self.gc_allocator),
             .class_variables = std.AutoHashMap(*SymbolObject, Value).init(self.gc_allocator),
         };
-        return .{ .data = .{ .module = module_obj } };
+        return Value.fromObject(module_obj);
     }
 
     pub fn newClass(self: *VM, name: *SymbolObject, superclass: ?*ClassObject) VMError!Value {
@@ -3953,31 +4433,32 @@ pub const VM = struct {
             .superclass = superclass,
             .object_type = object_type,
             .module = .{
-                .object = .{ .flags = 0, .class = self.class_class, .singleton_class = null, .instance_variables = null },
+                .object = .{ .type_tag = .class, .flags = 0, .class = self.class_class, .singleton_class = null, .instance_variables = null },
                 .name = name,
                 .methods = std.AutoHashMap(*SymbolObject, MethodEntry).init(self.gc_allocator),
                 .constants = std.AutoHashMap(*SymbolObject, Value).init(self.gc_allocator),
                 .class_variables = std.AutoHashMap(*SymbolObject, Value).init(self.gc_allocator),
             },
         };
-        return .{ .data = .{ .class = class_obj } };
+        return Value.fromObject(class_obj);
     }
 
     pub fn newInstance(self: *VM, class_obj: *ClassObject) VMError!Value {
         const obj = self.gc_allocator.create(Object) catch return error.Fatal;
         obj.* = .{
+            .type_tag = .instance,
             .flags = 0,
             .class = class_obj,
             .singleton_class = null,
             .instance_variables = null,
         };
-        return .{ .data = .{ .instance = obj } };
+        return Value.fromObject(obj);
     }
 
     pub fn newFiber(self: *VM, class_obj: *ClassObject, block: ?Block) VMError!Value {
         const fiber_obj = self.gc_allocator.create(value.FiberObject) catch return error.Fatal;
         fiber_obj.* = .{
-            .object = .{ .flags = 0, .class = class_obj, .singleton_class = null, .instance_variables = null },
+            .object = .{ .type_tag = .fiber, .flags = 0, .class = class_obj, .singleton_class = null, .instance_variables = null },
             .state = .created,
             .block = block,
             .stack = FiberValueStack.init(),
@@ -3993,7 +4474,7 @@ pub const VM = struct {
             .first_resume_argc = 0,
             .owner_vm = self,
         };
-        return .{ .data = .{ .fiber = fiber_obj } };
+        return Value.fromObject(fiber_obj);
     }
 
     pub fn newIo(
@@ -4007,7 +4488,7 @@ pub const VM = struct {
     ) VMError!Value {
         const io_obj = self.gc_allocator.create(value.IoObject) catch return error.Fatal;
         io_obj.* = .{
-            .object = .{ .flags = 0, .class = class_obj, .singleton_class = null, .instance_variables = null },
+            .object = .{ .type_tag = .io, .flags = 0, .class = class_obj, .singleton_class = null, .instance_variables = null },
             .fd = fd,
             .owns_fd = owns_fd,
             .closed = false,
@@ -4016,13 +4497,14 @@ pub const VM = struct {
             .append = append,
         };
         self.io_objects.append(self.gc_allocator, io_obj) catch return error.Fatal;
-        return .{ .data = .{ .io = io_obj } };
+        return Value.fromObject(io_obj);
     }
 
     pub fn newRange(self: *VM, class_obj: *ClassObject) VMError!Value {
         const range_obj = self.gc_allocator.create(value.RangeObject) catch return error.Fatal;
         range_obj.* = .{
             .object = .{
+                .type_tag = .range,
                 .flags = 0,
                 .class = class_obj,
                 .singleton_class = null,
@@ -4032,7 +4514,7 @@ pub const VM = struct {
             .end = Value.nil(),
             .exclude_end = false,
         };
-        return .{ .data = .{ .range = range_obj } };
+        return Value.fromObject(range_obj);
     }
 
     pub fn newRegexp(self: *VM, pattern: []const u8, options: u16) VMError!Value {
@@ -4058,6 +4540,7 @@ pub const VM = struct {
         const regexp_obj = self.gc_allocator.create(value.RegexpObject) catch return error.Fatal;
         regexp_obj.* = .{
             .object = .{
+                .type_tag = .regexp,
                 .flags = value.Object.FROZEN_FLAG,
                 .class = self.regexp_class,
                 .singleton_class = null,
@@ -4067,7 +4550,7 @@ pub const VM = struct {
             .options = options,
             .regex = result.regex.?,
         };
-        return .{ .data = .{ .regexp = regexp_obj } };
+        return Value.fromObject(regexp_obj);
     }
 
     pub fn newMatchData(
@@ -4085,6 +4568,7 @@ pub const VM = struct {
         const md = self.gc_allocator.create(MatchDataObject) catch return error.Fatal;
         md.* = .{
             .object = .{
+                .type_tag = .match_data,
                 .flags = 0,
                 .class = self.match_data_class,
                 .singleton_class = null,
@@ -4107,7 +4591,7 @@ pub const VM = struct {
             md.end_byte_offsets.append(self.gc_allocator, pos) catch return error.Fatal;
         }
 
-        return .{ .data = .{ .match_data = md } };
+        return Value.fromObject(md);
     }
 
     pub fn setLastMatch(self: *VM, md: ?*MatchDataObject) VMError!void {
@@ -4120,7 +4604,7 @@ pub const VM = struct {
         }
 
         const match_data = md.?;
-        const match_val = Value{ .data = .{ .match_data = match_data } };
+        const match_val = Value.fromObject(match_data);
         try self.setGlobal("$~", match_val);
 
         const full_capture = if (match_data.captures.items.len > 0)
@@ -4167,11 +4651,11 @@ pub const VM = struct {
             .string => self.newStringForClass(class_obj, "", false),
             .array => blk: {
                 const array_obj = try self.createArray();
-                break :blk Value{ .data = .{ .array = array_obj } };
+                break :blk Value.fromObject(array_obj);
             },
             .hash => blk: {
                 const hash_obj = try self.createHash();
-                break :blk Value{ .data = .{ .hash = hash_obj } };
+                break :blk Value.fromObject(hash_obj);
             },
             .range => self.newRange(class_obj),
             .fiber => try self.newFiber(class_obj, null),
@@ -4222,8 +4706,8 @@ pub const VM = struct {
     fn getBackrefCapture(self: *VM, capture_index: u16) Value {
         if (capture_index == 0) return Value.nil();
         const match_val = self.globals.get("$~") orelse return Value.nil();
-        if (match_val.data != .match_data) return Value.nil();
-        const captures = match_val.data.match_data.captures.items;
+        if (!match_val.isMatchData()) return Value.nil();
+        const captures = match_val.toMatchDataObject().captures.items;
         const idx: usize = capture_index;
         if (idx >= captures.len) return Value.nil();
         return captures[idx];
@@ -4239,14 +4723,23 @@ pub const VM = struct {
         return self.newStringWithEncoding(str, frozen, .{ .utf8 = .{} });
     }
 
+    pub fn newFloat(self: *VM, f: f64) VMError!Value {
+        const float_obj = self.gc_allocator.create(value.FloatObject) catch return error.Fatal;
+        float_obj.* = .{
+            .object = .{ .type_tag = .float, .flags = 0, .class = self.float_class, .singleton_class = null, .instance_variables = null },
+            .val = f,
+        };
+        return Value.fromObject(float_obj);
+    }
+
     pub fn newBigIntegerFromI64(self: *VM, n: i64) VMError!Value {
         const managed = std.math.big.int.Managed.initSet(self.gc_allocator, n) catch return error.Fatal;
         const big_obj = self.gc_allocator.create(BigIntegerObject) catch return error.Fatal;
         big_obj.* = .{
-            .object = .{ .flags = 0, .class = self.integer_class, .singleton_class = null, .instance_variables = null },
+            .object = .{ .type_tag = .big_integer, .flags = 0, .class = self.integer_class, .singleton_class = null, .instance_variables = null },
             .value = managed,
         };
-        return .{ .data = .{ .big_integer = big_obj } };
+        return Value.fromObject(big_obj);
     }
 
     pub fn newBigIntegerFromDecimalString(self: *VM, digits: []const u8) VMError!Value {
@@ -4259,24 +4752,24 @@ pub const VM = struct {
 
         const big_obj = self.gc_allocator.create(BigIntegerObject) catch return error.Fatal;
         big_obj.* = .{
-            .object = .{ .flags = 0, .class = self.integer_class, .singleton_class = null, .instance_variables = null },
+            .object = .{ .type_tag = .big_integer, .flags = 0, .class = self.integer_class, .singleton_class = null, .instance_variables = null },
             .value = managed,
         };
-        return .{ .data = .{ .big_integer = big_obj } };
+        return Value.fromObject(big_obj);
     }
 
     pub fn valueFromManagedInteger(self: *VM, managed: *const std.math.big.int.Managed) VMError!Value {
-        if (managed.toInt(i64)) |small| {
-            return Value.integer(small);
+        if (managed.toInt(i63)) |small| {
+            return Value.integer(@as(i64, small));
         } else |_| {}
 
         const stored = managed.cloneWithDifferentAllocator(self.gc_allocator) catch return error.Fatal;
         const big_obj = self.gc_allocator.create(BigIntegerObject) catch return error.Fatal;
         big_obj.* = .{
-            .object = .{ .flags = 0, .class = self.integer_class, .singleton_class = null, .instance_variables = null },
+            .object = .{ .type_tag = .big_integer, .flags = 0, .class = self.integer_class, .singleton_class = null, .instance_variables = null },
             .value = stored,
         };
-        return .{ .data = .{ .big_integer = big_obj } };
+        return Value.fromObject(big_obj);
     }
 
     pub fn newStringWithEncoding(self: *VM, str: []const u8, frozen: bool, encoding: enc.Encoding) VMError!Value {
@@ -4293,27 +4786,27 @@ pub const VM = struct {
 
         const string_obj = self.gc_allocator.create(StringObject) catch return error.Fatal;
         string_obj.* = .{
-            .object = .{ .flags = flags, .class = class_obj, .singleton_class = null, .instance_variables = null },
+            .object = .{ .type_tag = .string, .flags = flags, .class = class_obj, .singleton_class = null, .instance_variables = null },
             .str = copy,
             .encoding = encoding,
         };
-        return .{ .data = .{ .string = string_obj } };
+        return Value.fromObject(string_obj);
     }
 
     pub fn encodingToValue(self: *VM, encoding_value: enc.Encoding) Value {
         return switch (encoding_value) {
-            .utf8 => Value{ .data = .{ .encoding = self.encoding_utf8 } },
-            .ascii_8bit => Value{ .data = .{ .encoding = self.encoding_ascii_8bit } },
-            .us_ascii => Value{ .data = .{ .encoding = self.encoding_us_ascii } },
-            .shift_jis => Value{ .data = .{ .encoding = self.encoding_shift_jis } },
-            .iso_8859_15 => Value{ .data = .{ .encoding = self.encoding_iso_8859_15 } },
-            .utf7 => Value{ .data = .{ .encoding = self.encoding_utf7 } },
-            .utf16 => Value{ .data = .{ .encoding = self.encoding_utf16 } },
-            .utf32 => Value{ .data = .{ .encoding = self.encoding_utf32 } },
-            .utf16le => Value{ .data = .{ .encoding = self.encoding_utf16le } },
-            .utf16be => Value{ .data = .{ .encoding = self.encoding_utf16be } },
-            .utf32le => Value{ .data = .{ .encoding = self.encoding_utf32le } },
-            .utf32be => Value{ .data = .{ .encoding = self.encoding_utf32be } },
+            .utf8 => Value.fromObject(self.encoding_utf8),
+            .ascii_8bit => Value.fromObject(self.encoding_ascii_8bit),
+            .us_ascii => Value.fromObject(self.encoding_us_ascii),
+            .shift_jis => Value.fromObject(self.encoding_shift_jis),
+            .iso_8859_15 => Value.fromObject(self.encoding_iso_8859_15),
+            .utf7 => Value.fromObject(self.encoding_utf7),
+            .utf16 => Value.fromObject(self.encoding_utf16),
+            .utf32 => Value.fromObject(self.encoding_utf32),
+            .utf16le => Value.fromObject(self.encoding_utf16le),
+            .utf16be => Value.fromObject(self.encoding_utf16be),
+            .utf32le => Value.fromObject(self.encoding_utf32le),
+            .utf32be => Value.fromObject(self.encoding_utf32be),
         };
     }
 
@@ -4321,6 +4814,7 @@ pub const VM = struct {
         const encoding_obj = self.gc_allocator.create(value.EncodingObject) catch return error.Fatal;
         encoding_obj.* = .{
             .object = .{
+                .type_tag = .encoding_obj,
                 .flags = Object.FROZEN_FLAG, // Encoding objects are frozen singletons
                 .class = self.encoding_class,
                 .singleton_class = null,
@@ -4334,7 +4828,7 @@ pub const VM = struct {
     pub fn newProc(self: *VM, block: Block) VMError!Value {
         const proc_obj = self.gc_allocator.create(value.ProcObject) catch return error.Fatal;
         proc_obj.* = .{
-            .object = .{ .flags = 0, .class = self.proc_class, .singleton_class = null, .instance_variables = null },
+            .object = .{ .type_tag = .proc, .flags = 0, .class = self.proc_class, .singleton_class = null, .instance_variables = null },
             .block = switch (block.kind) {
                 .symbol => block,
                 .builtin => block,
@@ -4345,7 +4839,7 @@ pub const VM = struct {
                 } } },
             },
         };
-        return .{ .data = .{ .proc = proc_obj } };
+        return Value.fromObject(proc_obj);
     }
 
     pub fn newEnumerator(
@@ -4356,7 +4850,7 @@ pub const VM = struct {
     ) VMError!Value {
         const enum_obj = self.gc_allocator.create(value.EnumeratorObject) catch return error.Fatal;
         enum_obj.* = .{
-            .object = .{ .flags = 0, .class = self.enumerator_class, .singleton_class = null, .instance_variables = null },
+            .object = .{ .type_tag = .enumerator, .flags = 0, .class = self.enumerator_class, .singleton_class = null, .instance_variables = null },
             .kind = kind,
             .method_args = method_args,
             .size_proc = size_proc,
@@ -4364,16 +4858,16 @@ pub const VM = struct {
             .lookahead_values = null,
             .has_lookahead_values = false,
         };
-        return .{ .data = .{ .enumerator = enum_obj } };
+        return Value.fromObject(enum_obj);
     }
 
     pub fn newYielder(self: *VM, block: Block) VMError!Value {
         const yielder_obj = self.gc_allocator.create(value.YielderObject) catch return error.Fatal;
         yielder_obj.* = .{
-            .object = .{ .flags = 0, .class = self.yielder_class, .singleton_class = null, .instance_variables = null },
+            .object = .{ .type_tag = .yielder, .flags = 0, .class = self.yielder_class, .singleton_class = null, .instance_variables = null },
             .block = block,
         };
-        return .{ .data = .{ .yielder = yielder_obj } };
+        return Value.fromObject(yielder_obj);
     }
 
     pub fn createMethodEnumerator(self: *VM, receiver: Value, method_name: *SymbolObject, args: []const Value) VMError!Value {
@@ -4410,18 +4904,16 @@ pub const VM = struct {
     }
 
     pub fn markIntegerChangedForReceiver(self: *VM, receiver: Value) void {
-        switch (receiver.data) {
-            .class => |klass| {
-                if (klass == self.integer_class or self.moduleAffectsInteger(&klass.module)) {
-                    self.integer_changed = true;
-                }
-            },
-            .module => |module| {
-                if (self.moduleAffectsInteger(module)) {
-                    self.integer_changed = true;
-                }
-            },
-            else => {},
+        if (receiver.isClass()) {
+            const klass = receiver.toClassObject();
+            if (klass == self.integer_class or self.moduleAffectsInteger(&klass.module)) {
+                self.integer_changed = true;
+            }
+        } else if (receiver.isModule()) {
+            const module = receiver.toModuleObject();
+            if (self.moduleAffectsInteger(module)) {
+                self.integer_changed = true;
+            }
         }
     }
 
@@ -4505,10 +4997,50 @@ pub const VM = struct {
         self: *VM,
         args: []Value,
         index: usize,
-        comptime expected_tag: std.meta.Tag(@TypeOf(@as(value.Value, undefined).data)),
+        comptime expected_tag: value.ObjectTypeTag,
         comptime type_name: []const u8,
     ) VMError!void {
-        if (args[index].data != expected_tag) {
+        const arg = args[index];
+        const matches = switch (expected_tag) {
+            .instance => arg.isInstance(),
+            .string => arg.isString(),
+            .symbol => arg.isSymbol(),
+            .array => arg.isArray(),
+            .hash => arg.isHash(),
+            .range => arg.isRange(),
+            .exception => arg.isException(),
+            .proc => arg.isProc(),
+            .fiber => arg.isFiber(),
+            .io => arg.isIo(),
+            .regexp => arg.isRegexp(),
+            .match_data => arg.isMatchData(),
+            .big_integer => arg.isBigInteger(),
+            .encoding_obj => arg.isEncoding(),
+            .enumerator => arg.isEnumerator(),
+            .yielder => arg.isYielder(),
+            .module => arg.isModule(),
+            .class => arg.isClass(),
+            .float => arg.isFloat(),
+        };
+        if (!matches) {
+            const msg = std.fmt.allocPrint(
+                self.gc_allocator,
+                "argument is not {s} {s}",
+                .{ if (type_name[0] == 'A' or type_name[0] == 'I' or type_name[0] == 'O') "an" else "a", type_name },
+            ) catch return error.Fatal;
+            const exc = try self.createException(self.type_error_class, msg);
+            self.pending_exception = exc;
+            return error.Unwind;
+        }
+    }
+
+    pub fn requireIntegerArg(
+        self: *VM,
+        args: []Value,
+        index: usize,
+        comptime type_name: []const u8,
+    ) VMError!void {
+        if (!args[index].isInteger()) {
             const msg = std.fmt.allocPrint(
                 self.gc_allocator,
                 "argument is not {s} {s}",
@@ -4523,7 +5055,7 @@ pub const VM = struct {
     pub fn requireSingleArg(
         self: *VM,
         args: []Value,
-        comptime arg_tag: std.meta.Tag(@TypeOf(@as(value.Value, undefined).data)),
+        comptime arg_tag: value.ObjectTypeTag,
         comptime type_name: []const u8,
     ) VMError!void {
         try self.requireArgCount(args, 1);
@@ -4541,10 +5073,8 @@ pub const VM = struct {
     }
 
     pub fn coerceToMethodNameString(self: *VM, arg: Value) VMError![]const u8 {
-        return switch (arg.data) {
-            .symbol => |sym| sym.name,
-            else => arg.coerceToStr(self, "not a symbol nor a string"),
-        };
+        if (arg.isSymbol()) return arg.toSymbolObject().name;
+        return arg.coerceToStr(self, "not a symbol nor a string");
     }
 
     pub fn coerceToMethodNameSymbol(self: *VM, arg: Value) VMError!*SymbolObject {
@@ -4561,10 +5091,10 @@ pub const VM = struct {
     }
 
     pub fn coerceToIvarName(self: *VM, arg: Value) VMError![]const u8 {
-        const name_str = switch (arg.data) {
-            .symbol => |sym| sym.name,
-            else => try arg.coerceToStr(self, "not a symbol nor a string"),
-        };
+        const name_str = if (arg.isSymbol())
+            arg.toSymbolObject().name
+        else
+            try arg.coerceToStr(self, "not a symbol nor a string");
 
         if (!isValidIvarName(name_str)) {
             return self.raiseExceptionFmt(
@@ -4627,31 +5157,28 @@ pub const VM = struct {
         }
 
         if (args.len == 1) {
-            return switch (args[0].data) {
-                .exception => |exc| blk: {
-                    self.pending_exception = exc;
-                    break :blk error.Unwind;
-                },
-                .class => |cls| blk: {
-                    const exc = self.createException(cls, "") catch return error.Fatal;
-                    self.pending_exception = exc;
-                    break :blk error.Unwind;
-                },
-                .string => |str| blk: {
-                    const exc = self.createException(self.runtime_error_class, str.str) catch return error.Fatal;
-                    self.pending_exception = exc;
-                    break :blk error.Unwind;
-                },
-                else => self.raiseExceptionFmt(self.type_error_class, "exception class/object expected", .{}),
-            };
+            if (args[0].isException()) {
+                self.pending_exception = args[0].toExceptionObject();
+                return error.Unwind;
+            } else if (args[0].isClass()) {
+                const exc = self.createException(args[0].toClassObject(), "") catch return error.Fatal;
+                self.pending_exception = exc;
+                return error.Unwind;
+            } else if (args[0].isString()) {
+                const exc = self.createException(self.runtime_error_class, args[0].toStringObject().str) catch return error.Fatal;
+                self.pending_exception = exc;
+                return error.Unwind;
+            } else {
+                return self.raiseExceptionFmt(self.type_error_class, "exception class/object expected", .{});
+            }
         }
 
         if (args.len == 2) {
-            if (args[0].data != .class) {
+            if (!args[0].isClass()) {
                 return self.raiseExceptionFmt(self.type_error_class, "exception class/object expected", .{});
             }
-            const msg_str = if (args[1].data == .string) args[1].data.string.str else "";
-            const exc = self.createException(args[0].data.class, msg_str) catch return error.Fatal;
+            const msg_str = if (args[1].isString()) args[1].toStringObject().str else "";
+            const exc = self.createException(args[0].toClassObject(), msg_str) catch return error.Fatal;
             self.pending_exception = exc;
             return error.Unwind;
         }
@@ -4779,6 +5306,7 @@ pub const VM = struct {
         const array_ptr = self.gc_allocator.create(value.ArrayObject) catch return error.Fatal;
         array_ptr.* = value.ArrayObject{
             .object = .{
+                .type_tag = .array,
                 .flags = 0,
                 .class = self.array_class,
                 .singleton_class = null,
@@ -4793,6 +5321,7 @@ pub const VM = struct {
         const hash_ptr = self.gc_allocator.create(value.HashObject) catch return error.Fatal;
         hash_ptr.* = value.HashObject{
             .object = .{
+                .type_tag = .hash,
                 .flags = 0,
                 .class = self.hash_class,
                 .singleton_class = null,
@@ -4940,7 +5469,7 @@ pub const VM = struct {
                 rest_array.elements.append(self.gc_allocator, args[arg_idx]) catch return error.Fatal;
                 arg_idx += 1;
             }
-            env.variables[rest_idx] = Value{ .data = .{ .array = rest_array } };
+            env.variables[rest_idx] = Value.fromObject(rest_array);
             local_idx = rest_idx + 1;
         }
 
@@ -5035,7 +5564,7 @@ pub const VM = struct {
             // ONLY create hash when **kwargs is present
             const kw_hash = self.gc_allocator.create(value.HashObject) catch return error.Fatal;
             kw_hash.* = .{
-                .object = .{ .flags = 0, .class = self.hash_class, .singleton_class = null, .instance_variables = null },
+                .object = .{ .type_tag = .hash, .flags = 0, .class = self.hash_class, .singleton_class = null, .instance_variables = null },
                 .map = std.AutoHashMap(u64, usize).init(self.gc_allocator),
                 .entries = .empty,
             };
@@ -5045,7 +5574,7 @@ pub const VM = struct {
                 if (!matched[i]) {
                     const key_name = caller_chunk.constants.items[kw_metadata.names.items[i]].string;
                     const key_symbol = try self.intern(key_name);
-                    const key = Value{ .data = .{ .symbol = key_symbol } };
+                    const key = Value.fromObject(key_symbol);
                     const key_hash = key.hash();
 
                     const new_idx = kw_hash.entries.items.len;
@@ -5057,7 +5586,7 @@ pub const VM = struct {
                 }
             }
 
-            env.variables[rest_idx] = Value{ .data = .{ .hash = kw_hash } };
+            env.variables[rest_idx] = Value.fromObject(kw_hash);
         } else {
             // No keyword rest - check for unmatched keywords
             for (matched, 0..) |is_matched, i| {
@@ -5099,7 +5628,7 @@ pub const VM = struct {
         const current_chunk = self.currentChunk();
         const kw_hash = self.gc_allocator.create(value.HashObject) catch return error.Fatal;
         kw_hash.* = .{
-            .object = .{ .flags = 0, .class = self.hash_class, .singleton_class = null, .instance_variables = null },
+            .object = .{ .type_tag = .hash, .flags = 0, .class = self.hash_class, .singleton_class = null, .instance_variables = null },
             .map = std.AutoHashMap(u64, usize).init(self.gc_allocator),
             .entries = .empty,
         };
@@ -5107,7 +5636,7 @@ pub const VM = struct {
         for (kw_values, 0..) |kw_value, i| {
             const key_name = current_chunk.constants.items[kw_metadata.names.items[i]].string;
             const key_symbol = try self.intern(key_name);
-            const key = Value{ .data = .{ .symbol = key_symbol } };
+            const key = Value.fromObject(key_symbol);
             const key_hash = key.hash();
 
             const new_idx = kw_hash.entries.items.len;
@@ -5118,7 +5647,7 @@ pub const VM = struct {
             kw_hash.map.put(key_hash, new_idx) catch return error.Fatal;
         }
 
-        return Value{ .data = .{ .hash = kw_hash } };
+        return Value.fromObject(kw_hash);
     }
 
     pub fn createException(self: *VM, class: *ClassObject, message: []const u8) VMError!*value.ExceptionObject {
@@ -5128,12 +5657,13 @@ pub const VM = struct {
 
         exc.* = .{
             .object = .{
+                .type_tag = .exception,
                 .flags = 0,
                 .class = class,
                 .singleton_class = null,
                 .instance_variables = null,
             },
-            .message = msg_str.data.string,
+            .message = msg_str.toStringObject(),
             .backtrace = backtrace,
             .cause = self.pending_exception,
         };
@@ -5146,6 +5676,7 @@ pub const VM = struct {
         const array_obj = self.gc_allocator.create(value.ArrayObject) catch return error.Fatal;
         array_obj.* = .{
             .object = .{
+                .type_tag = .array,
                 .flags = 0,
                 .class = self.array_class,
                 .singleton_class = null,
@@ -5160,9 +5691,9 @@ pub const VM = struct {
             i -= 1;
             const frame = &self.frames.items[i];
 
-            // Get line number for current IP
-            const line = if (frame.ip < frame.chunk.line_info.items.len)
-                frame.chunk.line_info.items[frame.ip]
+            // Get line number for current IP (byte offset)
+            const line = if (frame.chunk.line_info.items.len > 0)
+                frame.chunk.getLine(frame.ip)
             else
                 0;
 
@@ -5198,10 +5729,10 @@ pub const VM = struct {
             if (try self.findExceptionHandler(frame_idx)) |handler_info| {
                 if (handler_info.rescue_idx) |rescue_idx| {
                     const rescue_handler = &handler_info.handler.rescue_handlers.items[rescue_idx];
-                    try setFrameIp(&self.frames.items[frame_idx], rescue_handler.catch_instr_idx);
+                    try setFrameIp(&self.frames.items[frame_idx], rescue_handler.catch_byte_offset);
                     return true;
-                } else if (handler_info.handler.ensure_instr_idx) |ensure_instr_idx| {
-                    try setFrameIp(&self.frames.items[frame_idx], ensure_instr_idx);
+                } else if (handler_info.handler.ensure_byte_offset) |ensure_byte_offset| {
+                    try setFrameIp(&self.frames.items[frame_idx], ensure_byte_offset);
                     return true;
                 }
             }
@@ -5261,27 +5792,26 @@ pub const VM = struct {
     }
 
     fn matchesExceptionClassOrModule(self: *VM, exception: *value.ExceptionObject, rescue_type: Value) VMError!bool {
-        switch (rescue_type.data) {
-            .class => |type_class| {
-                return self.matchesException(exception, type_class);
-            },
-            .module => |type_module| {
-                var current_class: ?*ClassObject = exception.object.class;
-                while (current_class) |class| {
-                    if (&class.module == type_module) {
-                        return true;
-                    }
-                    for (class.prepended_modules.items) |module| {
-                        if (module == type_module) return true;
-                    }
-                    for (class.included_modules.items) |module| {
-                        if (module == type_module) return true;
-                    }
-                    current_class = class.superclass;
+        if (rescue_type.isClass()) {
+            return self.matchesException(exception, rescue_type.toClassObject());
+        } else if (rescue_type.isModule()) {
+            const type_module = rescue_type.toModuleObject();
+            var current_class: ?*ClassObject = exception.object.class;
+            while (current_class) |class| {
+                if (&class.module == type_module) {
+                    return true;
                 }
-                return false;
-            },
-            else => return self.raiseExceptionFmt(self.type_error_class, "class or module required for rescue clause", .{}),
+                for (class.prepended_modules.items) |module| {
+                    if (module == type_module) return true;
+                }
+                for (class.included_modules.items) |module| {
+                    if (module == type_module) return true;
+                }
+                current_class = class.superclass;
+            }
+            return false;
+        } else {
+            return self.raiseExceptionFmt(self.type_error_class, "class or module required for rescue clause", .{});
         }
     }
 
@@ -5300,7 +5830,7 @@ pub const VM = struct {
         for (frame_chunk.exception_handlers.items) |*handler| {
 
             // Check if IP is in the protected region
-            if (ip >= handler.try_start_instr_idx and ip < handler.try_end_instr_idx) {
+            if (ip >= handler.try_start_byte_offset and ip < handler.try_end_byte_offset) {
                 // Search for a matching rescue handler
                 for (handler.rescue_handlers.items, 0..) |*rescue, idx| {
                     // Check if exception matches any of the rescue types
@@ -5348,7 +5878,7 @@ pub const VM = struct {
                         }
 
                         if (rescue_eval_raised) {
-                            if (handler.ensure_instr_idx != null) {
+                            if (handler.ensure_byte_offset != null) {
                                 return .{ .handler = handler, .rescue_idx = null };
                             }
                             return null;
@@ -5357,7 +5887,7 @@ pub const VM = struct {
                 }
 
                 // No matching rescue, but might have ensure
-                if (handler.ensure_instr_idx != null) {
+                if (handler.ensure_byte_offset != null) {
                     return .{ .handler = handler, .rescue_idx = null };
                 }
             }
@@ -5394,8 +5924,8 @@ pub const VM = struct {
             if (exc.backtrace) |bt| {
                 writer.print("Backtrace:\n", .{}) catch {};
                 for (bt.elements.items) |line| {
-                    if (line.data == .string) {
-                        writer.print("  {s}\n", .{line.data.string.str}) catch {};
+                    if (line.isString()) {
+                        writer.print("  {s}\n", .{line.toStringObject().str}) catch {};
                     }
                 }
             }

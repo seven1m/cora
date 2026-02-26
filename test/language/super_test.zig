@@ -20,8 +20,8 @@ test "Basic super with explicit arguments" {
         \\
         \\B.new.foo(5)
     );
-    try std.testing.expect(result.data == .integer);
-    try std.testing.expectEqual(20, result.data.integer); // (5 * 2) + 10 = 20
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(20, result.toInteger()); // (5 * 2) + 10 = 20
 }
 
 test "Bare super forwards all arguments" {
@@ -40,8 +40,8 @@ test "Bare super forwards all arguments" {
         \\
         \\B.new.foo(10, 20)
     );
-    try std.testing.expect(result.data == .integer);
-    try std.testing.expectEqual(30, result.data.integer);
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(30, result.toInteger());
 }
 
 test "super() with no arguments" {
@@ -60,8 +60,8 @@ test "super() with no arguments" {
         \\
         \\B.new.foo
     );
-    try std.testing.expect(result.data == .integer);
-    try std.testing.expectEqual(42, result.data.integer);
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(42, result.toInteger());
 }
 
 test "Multi-level inheritance super" {
@@ -84,8 +84,8 @@ test "Multi-level inheritance super" {
         \\
         \\C.new.foo
     );
-    try std.testing.expect(result.data == .string);
-    try std.testing.expectEqualSlices(u8, "A", result.data.string.str);
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "A", result.toStringObject().str);
 }
 
 test "super with modification" {
@@ -104,8 +104,8 @@ test "super with modification" {
         \\
         \\B.new.greet("World")
     );
-    try std.testing.expect(result.data == .string);
-    try std.testing.expectEqualSlices(u8, "Hello, World!", result.data.string.str);
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "Hello, World!", result.toStringObject().str);
 }
 
 test "super with different arguments than received" {
@@ -124,8 +124,8 @@ test "super with different arguments than received" {
         \\
         \\B.new.add(1, 2)
     );
-    try std.testing.expect(result.data == .integer);
-    try std.testing.expectEqual(30, result.data.integer); // 10 + 20
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(30, result.toInteger()); // 10 + 20
 }
 
 test "NoMethodError when no superclass method" {
@@ -171,8 +171,8 @@ test "super in deeply nested inheritance" {
         \\
         \\C.new.value
     );
-    try std.testing.expect(result.data == .integer);
-    try std.testing.expectEqual(111, result.data.integer); // 1 + 10 + 100
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(111, result.toInteger()); // 1 + 10 + 100
 }
 
 test "super with optional parameters" {
@@ -191,8 +191,8 @@ test "super with optional parameters" {
         \\
         \\B.new.foo(10)
     );
-    try std.testing.expect(result.data == .integer);
-    try std.testing.expectEqual(15, result.data.integer);
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(15, result.toInteger());
 }
 
 test "bare super forwards correctly with side-effect locals in defaults" {
@@ -211,6 +211,6 @@ test "bare super forwards correctly with side-effect locals in defaults" {
         \\
         \\B.new.foo
     );
-    try std.testing.expect(result.data == .integer);
-    try std.testing.expectEqual(30, result.data.integer);
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(30, result.toInteger());
 }

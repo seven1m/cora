@@ -18,7 +18,7 @@ test "Begin/rescue catches exception" {
 
     // Rescue should catch the exception, so no error is raised
     try std.testing.expect(result.err == null);
-    try std.testing.expect(result.value.data == .nil);
+    try std.testing.expect(result.value.isNil());
 
     try std.testing.expectEqualSlices(u8, "caught\n", result.stdout);
 }
@@ -31,7 +31,7 @@ test "Begin/rescue returns value from rescue" {
         \\  42
         \\end
     );
-    try std.testing.expectEqual(@as(i64, 42), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
 }
 
 test "Begin/rescue with no exception executes protected code" {
@@ -42,7 +42,7 @@ test "Begin/rescue with no exception executes protected code" {
         \\  0
         \\end
     );
-    try std.testing.expectEqual(@as(i64, 15), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 15), result.toInteger());
 }
 
 test "Rescue with variable binding - capture exception" {
@@ -54,7 +54,7 @@ test "Rescue with variable binding - capture exception" {
         \\end
     );
     // For now, just verify rescue clause executes
-    try std.testing.expectEqual(@as(i64, 42), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
 }
 
 test "Nested begin/rescue" {
@@ -69,7 +69,7 @@ test "Nested begin/rescue" {
         \\  2
         \\end
     );
-    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
 }
 
 test "Exception class hierarchy - StandardError caught by bare rescue" {
@@ -80,7 +80,7 @@ test "Exception class hierarchy - StandardError caught by bare rescue" {
         \\  1
         \\end
     );
-    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
 }
 
 test "Exception class hierarchy - TypeError caught by bare rescue" {
@@ -91,7 +91,7 @@ test "Exception class hierarchy - TypeError caught by bare rescue" {
         \\  1
         \\end
     );
-    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
 }
 
 test "Exception in method call caught by outer rescue" {
@@ -105,7 +105,7 @@ test "Exception in method call caught by outer rescue" {
         \\  99
         \\end
     );
-    try std.testing.expectEqual(@as(i64, 99), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 99), result.toInteger());
 }
 
 test "Basic rescue catches exception" {
@@ -116,7 +116,7 @@ test "Basic rescue catches exception" {
         \\  42
         \\end
     );
-    try std.testing.expectEqual(@as(i64, 42), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
 }
 
 test "Rescue with TypeError matches" {
@@ -127,7 +127,7 @@ test "Rescue with TypeError matches" {
         \\  100
         \\end
     );
-    try std.testing.expectEqual(@as(i64, 100), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 100), result.toInteger());
 }
 
 test "Rescue with ArgumentError matches" {
@@ -141,7 +141,7 @@ test "Rescue with ArgumentError matches" {
         \\  200
         \\end
     );
-    try std.testing.expectEqual(@as(i64, 200), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 200), result.toInteger());
 }
 
 test "Rescue with NoMethodError matches" {
@@ -152,7 +152,7 @@ test "Rescue with NoMethodError matches" {
         \\  300
         \\end
     );
-    try std.testing.expectEqual(@as(i64, 300), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 300), result.toInteger());
 }
 
 test "Multiple rescue clauses - correct type matched" {
@@ -167,7 +167,7 @@ test "Multiple rescue clauses - correct type matched" {
         \\  3
         \\end
     );
-    try std.testing.expectEqual(@as(i64, 2), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 2), result.toInteger());
 }
 
 test "Multiple exception types in one rescue clause" {
@@ -178,7 +178,7 @@ test "Multiple exception types in one rescue clause" {
         \\  99
         \\end
     );
-    try std.testing.expectEqual(@as(i64, 99), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 99), result.toInteger());
 }
 
 test "Rescue with dynamic ivar exception type matches" {
@@ -190,7 +190,7 @@ test "Rescue with dynamic ivar exception type matches" {
         \\  123
         \\end
     );
-    try std.testing.expectEqual(@as(i64, 123), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 123), result.toInteger());
 }
 
 test "Rescue with arbitrary expression exception type matches" {
@@ -201,7 +201,7 @@ test "Rescue with arbitrary expression exception type matches" {
         \\  124
         \\end
     );
-    try std.testing.expectEqual(@as(i64, 124), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 124), result.toInteger());
 }
 
 test "Rescue with module exception type matches" {
@@ -216,7 +216,7 @@ test "Rescue with module exception type matches" {
         \\  125
         \\end
     );
-    try std.testing.expectEqual(@as(i64, 125), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 125), result.toInteger());
 }
 
 test "Rescue with invalid exception type raises TypeError" {
@@ -244,7 +244,7 @@ test "Rescue with variable binding works" {
         \\  77
         \\end
     );
-    try std.testing.expectEqual(@as(i64, 77), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 77), result.toInteger());
 }
 
 test "Normal execution skips rescue clause" {
@@ -255,12 +255,12 @@ test "Normal execution skips rescue clause" {
         \\  99
         \\end
     );
-    try std.testing.expectEqual(@as(i64, 15), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 15), result.toInteger());
 }
 
 test "Rescue modifier - no exception returns main value" {
     const result = try evalCode("42 rescue 99");
-    try std.testing.expectEqual(@as(i64, 42), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
 }
 
 test "Rescue modifier - exception returns rescue value" {
@@ -270,7 +270,7 @@ test "Rescue modifier - exception returns rescue value" {
         \\end
         \\fail rescue 100
     );
-    try std.testing.expectEqual(@as(i64, 100), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 100), result.toInteger());
 }
 
 test "Rescue modifier - in assignment" {
@@ -281,7 +281,7 @@ test "Rescue modifier - in assignment" {
         \\x = risky rescue 50
         \\x
     );
-    try std.testing.expectEqual(@as(i64, 50), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 50), result.toInteger());
 }
 
 test "All begin clauses together - normal completion" {
@@ -296,7 +296,7 @@ test "All begin clauses together - normal completion" {
         \\  40
         \\end
     );
-    try std.testing.expectEqual(@as(i64, 30), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 30), result.toInteger());
 }
 
 test "All begin clauses together - with exception" {
@@ -311,5 +311,5 @@ test "All begin clauses together - with exception" {
         \\  70
         \\end
     );
-    try std.testing.expectEqual(@as(i64, 50), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 50), result.toInteger());
 }

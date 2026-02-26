@@ -9,7 +9,7 @@ test "local ||= initializes undefined local" {
         \\a ||= 1
         \\a
     );
-    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
 }
 
 test "local &&= on undefined local returns nil and keeps nil" {
@@ -17,7 +17,7 @@ test "local &&= on undefined local returns nil and keeps nil" {
         \\a &&= 1
         \\a
     );
-    try std.testing.expect(result.data == .nil);
+    try std.testing.expect(result.isNil());
 }
 
 test "local compound assignment short-circuits rhs" {
@@ -27,7 +27,7 @@ test "local compound assignment short-circuits rhs" {
         \\x &&= (y = 1)
         \\y
     );
-    try std.testing.expectEqual(@as(i64, 0), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 0), result.toInteger());
 
     result = try evalCode(
         \\x = false
@@ -35,7 +35,7 @@ test "local compound assignment short-circuits rhs" {
         \\x ||= (y = 1)
         \\y
     );
-    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
 }
 
 test "local compound assignment updates outer scope locals" {
@@ -45,7 +45,7 @@ test "local compound assignment updates outer scope locals" {
         \\f.call
         \\x
     );
-    try std.testing.expectEqual(@as(i64, 2), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 2), result.toInteger());
 
     result = try evalCode(
         \\x = nil
@@ -53,7 +53,7 @@ test "local compound assignment updates outer scope locals" {
         \\f.call
         \\x
     );
-    try std.testing.expectEqual(@as(i64, 3), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 3), result.toInteger());
 }
 
 test "local operator assignment updates local variable" {
@@ -62,7 +62,7 @@ test "local operator assignment updates local variable" {
         \\x += 2
         \\x
     );
-    try std.testing.expectEqual(@as(i64, 3), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 3), result.toInteger());
 }
 
 test "local operator assignment updates captured outer local" {
@@ -72,7 +72,7 @@ test "local operator assignment updates captured outer local" {
         \\f.call
         \\x
     );
-    try std.testing.expectEqual(@as(i64, 15), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 15), result.toInteger());
 }
 
 test "index operator assignment updates array element and returns assigned value" {
@@ -82,10 +82,10 @@ test "index operator assignment updates array element and returns assigned value
         \\[x, a[1]]
     );
 
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(@as(usize, 2), result.data.array.elements.items.len);
-    try std.testing.expectEqual(@as(i64, 25), result.data.array.elements.items[0].data.integer);
-    try std.testing.expectEqual(@as(i64, 25), result.data.array.elements.items[1].data.integer);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(usize, 2), result.toArrayObject().elements.items.len);
+    try std.testing.expectEqual(@as(i64, 25), result.toArrayObject().elements.items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 25), result.toArrayObject().elements.items[1].toInteger());
 }
 
 test "index operator assignment evaluates index expression once" {
@@ -96,7 +96,7 @@ test "index operator assignment evaluates index expression once" {
         \\i
     );
 
-    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
 }
 
 test "index operator assignment evaluates receiver expression once" {
@@ -110,7 +110,7 @@ test "index operator assignment evaluates receiver expression once" {
         \\$counter
     );
 
-    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
 }
 
 test "index operator assignment supports splatted index arguments" {
@@ -120,7 +120,7 @@ test "index operator assignment supports splatted index arguments" {
         \\a[*idx] += 7
         \\a[1]
     );
-    try std.testing.expectEqual(@as(i64, 27), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 27), result.toInteger());
 }
 
 test "global compound assignment" {
@@ -129,14 +129,14 @@ test "global compound assignment" {
         \\$g ||= 9
         \\$g
     );
-    try std.testing.expectEqual(@as(i64, 9), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 9), result.toInteger());
 
     result = try evalCode(
         \\$h = false
         \\$h &&= 7
         \\$h
     );
-    try std.testing.expect(result.data == .boolean and !result.data.boolean);
+    try std.testing.expect(result.isBool() and !result.toBool());
 }
 
 test "instance variable compound assignment" {
@@ -148,7 +148,7 @@ test "instance variable compound assignment" {
         \\end
         \\Foo.new.run
     );
-    try std.testing.expectEqual(@as(i64, 10), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 10), result.toInteger());
 
     result = try evalCode(
         \\class Bar
@@ -159,7 +159,7 @@ test "instance variable compound assignment" {
         \\end
         \\Bar.new.run
     );
-    try std.testing.expect(result.data == .nil);
+    try std.testing.expect(result.isNil());
 }
 
 test "constant ||= initializes when missing" {
@@ -167,7 +167,7 @@ test "constant ||= initializes when missing" {
         \\X ||= 1
         \\X
     );
-    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
 }
 
 test "constant ||= assigns when existing constant is falsey" {
@@ -176,7 +176,7 @@ test "constant ||= assigns when existing constant is falsey" {
         \\Y ||= 2
         \\Y
     );
-    try std.testing.expectEqual(@as(i64, 2), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 2), result.toInteger());
 }
 
 test "constant &&= raises NameError when constant is missing" {

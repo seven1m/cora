@@ -13,8 +13,8 @@ test "Method with block and yield" {
         \\
         \\twice { |x| x + 10 }
     );
-    try std.testing.expect(result.data == .integer);
-    try std.testing.expectEqual(@as(i64, 12), result.data.integer);
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 12), result.toInteger());
 }
 
 test "ArgumentError raised for no block given" {
@@ -41,9 +41,9 @@ test "yield arity: block is lenient, lambda is strict" {
         \\end
         \\foo { |a, b| [a, b] }
     );
-    try std.testing.expect(block_result.data == .array);
-    try std.testing.expectEqual(@as(i64, 1), block_result.data.array.elements.items[0].data.integer);
-    try std.testing.expect(block_result.data.array.elements.items[1].data == .nil);
+    try std.testing.expect(block_result.isArray());
+    try std.testing.expectEqual(@as(i64, 1), block_result.toArrayObject().elements.items[0].toInteger());
+    try std.testing.expect(block_result.toArrayObject().elements.items[1].isNil());
 
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;
@@ -67,10 +67,10 @@ test "yield splat expands array arguments" {
         \\end
         \\emit { |a, b, c| [a, b, c] }
     );
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(@as(i64, 1), result.data.array.elements.items[0].data.integer);
-    try std.testing.expectEqual(@as(i64, 2), result.data.array.elements.items[1].data.integer);
-    try std.testing.expectEqual(@as(i64, 3), result.data.array.elements.items[2].data.integer);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(i64, 1), result.toArrayObject().elements.items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 2), result.toArrayObject().elements.items[1].toInteger());
+    try std.testing.expectEqual(@as(i64, 3), result.toArrayObject().elements.items[2].toInteger());
 }
 
 test "Block with multiple parameters" {
@@ -81,8 +81,8 @@ test "Block with multiple parameters" {
         \\
         \\add_them { |a, b| a + b }
     );
-    try std.testing.expect(result.data == .integer);
-    try std.testing.expectEqual(@as(i64, 12), result.data.integer);
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 12), result.toInteger());
 }
 
 test "Block with no parameters" {
@@ -93,8 +93,8 @@ test "Block with no parameters" {
         \\
         \\call_block { 42 }
     );
-    try std.testing.expect(result.data == .integer);
-    try std.testing.expectEqual(@as(i64, 42), result.data.integer);
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
 }
 
 test "Closure: read captured variable" {
@@ -110,8 +110,8 @@ test "Closure: read captured variable" {
         \\end
         \\result
     );
-    try std.testing.expect(result.data == .integer);
-    try std.testing.expectEqual(@as(i64, 5), result.data.integer);
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 5), result.toInteger());
 }
 
 test "Closure: write captured variable" {
@@ -126,8 +126,8 @@ test "Closure: write captured variable" {
         \\end
         \\x
     );
-    try std.testing.expect(result.data == .integer);
-    try std.testing.expectEqual(@as(i64, 10), result.data.integer);
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 10), result.toInteger());
 }
 
 test "Closure: update captured variable multiple times" {
@@ -144,8 +144,8 @@ test "Closure: update captured variable multiple times" {
         \\end
         \\x
     );
-    try std.testing.expect(result.data == .integer);
-    try std.testing.expectEqual(@as(i64, 4), result.data.integer);
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 4), result.toInteger());
 }
 
 test "Closure: multiple captured variables" {
@@ -164,8 +164,8 @@ test "Closure: multiple captured variables" {
         \\end
         \\x + y + z
     );
-    try std.testing.expect(result.data == .integer);
-    try std.testing.expectEqual(@as(i64, 66), result.data.integer); // 11 + 22 + 33
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 66), result.toInteger()); // 11 + 22 + 33
 }
 
 test "Closure: nested blocks update same variable" {
@@ -187,8 +187,8 @@ test "Closure: nested blocks update same variable" {
         \\end
         \\x
     );
-    try std.testing.expect(result.data == .integer);
-    try std.testing.expectEqual(@as(i64, 111), result.data.integer);
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 111), result.toInteger());
 }
 
 test "Closure: deep nesting (3 levels)" {
@@ -217,8 +217,8 @@ test "Closure: deep nesting (3 levels)" {
         \\end
         \\x
     );
-    try std.testing.expect(result.data == .integer);
-    try std.testing.expectEqual(@as(i64, 111), result.data.integer);
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 111), result.toInteger());
 }
 
 test "Closure: shadowing with block parameter" {
@@ -234,8 +234,8 @@ test "Closure: shadowing with block parameter" {
         \\end
         \\result
     );
-    try std.testing.expect(result.data == .integer);
-    try std.testing.expectEqual(@as(i64, 99), result.data.integer); // Block param shadows outer x
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 99), result.toInteger()); // Block param shadows outer x
 }
 
 test "Closure: outer variable unchanged when shadowed" {
@@ -250,8 +250,8 @@ test "Closure: outer variable unchanged when shadowed" {
         \\end
         \\x
     );
-    try std.testing.expect(result.data == .integer);
-    try std.testing.expectEqual(@as(i64, 5), result.data.integer); // Outer x should be unchanged
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 5), result.toInteger()); // Outer x should be unchanged
 }
 
 test "Closure: capture and modify in nested blocks" {
@@ -277,8 +277,8 @@ test "Closure: capture and modify in nested blocks" {
         \\end
         \\a + b
     );
-    try std.testing.expect(result.data == .integer);
-    try std.testing.expectEqual(@as(i64, 333), result.data.integer); // a=11+300=311, b=22, total=333
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 333), result.toInteger()); // a=11+300=311, b=22, total=333
 }
 
 test "Closure: RHS block sees assignment target as predeclared local" {
@@ -286,8 +286,8 @@ test "Closure: RHS block sees assignment target as predeclared local" {
         \\x = [1].map { x }
         \\[x.length, x[0].nil?]
     );
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(@as(usize, 2), result.data.array.elements.items.len);
-    try std.testing.expectEqual(@as(i64, 1), result.data.array.elements.items[0].data.integer);
-    try std.testing.expectEqual(true, result.data.array.elements.items[1].data.boolean);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(usize, 2), result.toArrayObject().elements.items.len);
+    try std.testing.expectEqual(@as(i64, 1), result.toArrayObject().elements.items[0].toInteger());
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[1].toBool());
 }

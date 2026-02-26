@@ -142,7 +142,7 @@ pub fn register(vm: *VM) !void {
 
 pub fn builtinStringToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const string_obj = receiver.data.string;
+    const string_obj = receiver.toStringObject();
     if (string_obj.object.class == vm.string_class) {
         return receiver;
     }
@@ -151,19 +151,17 @@ pub fn builtinStringToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
 
 pub fn builtinStringInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
-    const string_obj = receiver.data.string;
+    const string_obj = receiver.toStringObject();
 
     if (args.len == 0) {
         return receiver;
     }
 
-    const new_bytes: []const u8 = switch (args[0].data) {
-        .string => |s| blk: {
-            string_obj.encoding = s.encoding;
-            break :blk s.str;
-        },
-        else => try args[0].coerceToStr(vm, "no implicit conversion into String"),
-    };
+    const new_bytes: []const u8 = if (args[0].isString()) blk: {
+        const s = args[0].toStringObject();
+        string_obj.encoding = s.encoding;
+        break :blk s.str;
+    } else try args[0].coerceToStr(vm, "no implicit conversion into String");
 
     string_obj.str = vm.gc_allocator_atomic.dupe(u8, new_bytes) catch return error.Fatal;
     string_obj.validity = .unknown;
@@ -176,7 +174,7 @@ pub fn builtinStringToStr(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
 
 pub fn builtinStringUnaryPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const string_obj = receiver.data.string;
+    const string_obj = receiver.toStringObject();
     return try vm.newStringWithEncoding(string_obj.str, false, string_obj.encoding);
 }
 
@@ -186,7 +184,7 @@ pub fn builtinStringPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     const combined_str = std.fmt.allocPrint(
         vm.gc_allocator,
         "{s}{s}",
-        .{ receiver.data.string.str, other_str },
+        .{ receiver.toStringObject().str, other_str },
     ) catch return error.Fatal;
 
     return try vm.newString(combined_str, false);
@@ -194,15 +192,15 @@ pub fn builtinStringPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
 
 pub fn builtinStringMultiply(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const times = switch (args[0].data) {
-        .integer => |n| n,
-        else => return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Integer", .{}),
-    };
+    if (!args[0].isInteger()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Integer", .{});
+    }
+    const times = args[0].toInteger();
     if (times < 0) {
         return vm.raiseExceptionFmt(vm.argument_error_class, "negative argument", .{});
     }
 
-    const string_obj = receiver.data.string;
+    const string_obj = receiver.toStringObject();
     const n: usize = @intCast(times);
     const out_len = string_obj.str.len * n;
     const out = vm.gc_allocator_atomic.alloc(u8, out_len) catch return error.Fatal;
@@ -217,19 +215,17 @@ pub fn builtinStringMultiply(vm: *VM, receiver: Value, args: []Value, _: ?Block)
 
 pub fn builtinStringAppend(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const string_obj = receiver.data.string;
+    const string_obj = receiver.toStringObject();
 
-    const bytes_to_append: []const u8 = switch (args[0].data) {
-        .integer => |cp| blk: {
-            if (cp < 0) {
-                return vm.raiseExceptionFmt(vm.range_error_class, "{d} out of char range", .{cp});
-            }
-            var buf: [4]u8 = undefined;
-            const encoded = try encodeCodepointForEncoding(vm, cp, string_obj.encoding, &buf);
-            break :blk encoded;
-        },
-        else => try args[0].coerceToStr(vm, "no implicit conversion into String"),
-    };
+    const bytes_to_append: []const u8 = if (args[0].isInteger()) blk: {
+        const cp = args[0].toInteger();
+        if (cp < 0) {
+            return vm.raiseExceptionFmt(vm.range_error_class, "{d} out of char range", .{cp});
+        }
+        var buf: [4]u8 = undefined;
+        const encoded = try encodeCodepointForEncoding(vm, cp, string_obj.encoding, &buf);
+        break :blk encoded;
+    } else try args[0].coerceToStr(vm, "no implicit conversion into String");
 
     const new_bytes = try concatBytes(vm, string_obj.str, bytes_to_append);
     string_obj.str = new_bytes;
@@ -245,12 +241,12 @@ pub fn builtinStringReplace(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     if (receiver.isFrozen()) {
         return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
     }
-    const string_obj = receiver.data.string;
+    const string_obj = receiver.toStringObject();
     const other = args[0];
 
     const replacement_val = try coerceToStringValueViaCall(vm, other);
-    const replacement = replacement_val.data.string.str;
-    string_obj.encoding = replacement_val.data.string.encoding;
+    const replacement = replacement_val.toStringObject().str;
+    string_obj.encoding = replacement_val.toStringObject().encoding;
 
     string_obj.str = vm.gc_allocator_atomic.dupe(u8, replacement) catch return error.Fatal;
     string_obj.validity = .unknown;
@@ -261,22 +257,22 @@ pub fn builtinStringEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     try vm.requireArgCount(args, 1);
     const other = args[0];
     // String == only returns true if other is also a String with same content
-    if (other.data != .string) {
+    if (!other.isString()) {
         return Value.boolean(false);
     }
-    const result = std.mem.eql(u8, receiver.data.string.str, other.data.string.str);
+    const result = std.mem.eql(u8, receiver.toStringObject().str, other.toStringObject().str);
     return Value.boolean(result);
 }
 
 pub fn builtinStringEql(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const other = args[0];
-    if (other.data != .string) {
+    if (!other.isString()) {
         return Value.boolean(false);
     }
 
-    const lhs = receiver.data.string;
-    const rhs = other.data.string;
+    const lhs = receiver.toStringObject();
+    const rhs = other.toStringObject();
     if (!std.mem.eql(u8, lhs.str, rhs.str)) {
         return Value.boolean(false);
     }
@@ -300,31 +296,30 @@ pub fn builtinStringNotEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     try vm.requireArgCount(args, 1);
     const other = args[0];
     // String != returns true if other is not a String or has different content
-    if (other.data != .string) {
+    if (!other.isString()) {
         return Value.boolean(true);
     }
-    const result = !std.mem.eql(u8, receiver.data.string.str, other.data.string.str);
+    const result = !std.mem.eql(u8, receiver.toStringObject().str, other.toStringObject().str);
     return Value.boolean(result);
 }
 
 pub fn builtinStringEncoding(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const string_obj = receiver.data.string;
+    const string_obj = receiver.toStringObject();
     return vm.encodingToValue(string_obj.encoding);
 }
 
 pub fn builtinStringEncode(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
 
-    const target_encoding: enc.Encoding = switch (args[0].data) {
-        .encoding => |e| e.encoding,
-        else => blk: {
-            const result = try encoding_builtin.builtinEncodingFind(vm, receiver, args, null);
-            break :blk result.data.encoding.encoding;
-        },
+    const target_encoding: enc.Encoding = if (args[0].isEncoding())
+        args[0].toEncodingObject().encoding
+    else blk: {
+        const result = try encoding_builtin.builtinEncodingFind(vm, receiver, args, null);
+        break :blk result.toEncodingObject().encoding;
     };
 
-    const string_obj = receiver.data.string;
+    const string_obj = receiver.toStringObject();
     const transcoded = enc.transcode(vm.gc_allocator_atomic, string_obj.str, string_obj.encoding, target_encoding) catch |err| {
         switch (err) {
             error.InvalidByteSequence => {
@@ -346,15 +341,14 @@ pub fn builtinStringEncode(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 pub fn builtinStringForceEncoding(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     // Get the new encoding from argument
-    const new_encoding: enc.Encoding = switch (args[0].data) {
-        .encoding => |e| e.encoding,
-        else => blk: {
-            const result = try encoding_builtin.builtinEncodingFind(vm, receiver, args, null);
-            break :blk result.data.encoding.encoding;
-        },
+    const new_encoding: enc.Encoding = if (args[0].isEncoding())
+        args[0].toEncodingObject().encoding
+    else blk: {
+        const result = try encoding_builtin.builtinEncodingFind(vm, receiver, args, null);
+        break :blk result.toEncodingObject().encoding;
     };
 
-    const string_obj = receiver.data.string;
+    const string_obj = receiver.toStringObject();
     string_obj.encoding = new_encoding;
     string_obj.validity = .unknown;
     return receiver;
@@ -362,13 +356,13 @@ pub fn builtinStringForceEncoding(vm: *VM, receiver: Value, args: []Value, _: ?B
 
 pub fn builtinStringValidEncoding(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const string_obj = receiver.data.string;
+    const string_obj = receiver.toStringObject();
     return Value.boolean(string_obj.encoding.isValid(string_obj.str));
 }
 
 pub fn builtinStringAsciiOnly(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const string_obj = receiver.data.string;
+    const string_obj = receiver.toStringObject();
     if (!string_obj.encoding.isAsciiCompatible()) {
         return Value.boolean(false);
     }
@@ -377,36 +371,36 @@ pub fn builtinStringAsciiOnly(vm: *VM, receiver: Value, args: []Value, _: ?Block
 
 pub fn builtinStringB(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const string_obj = receiver.data.string;
+    const string_obj = receiver.toStringObject();
     // Return a new string with ASCII-8BIT encoding
     return try vm.newStringWithEncoding(string_obj.str, false, .{ .ascii_8bit = .{} });
 }
 
 pub fn builtinStringDup(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const string_obj = receiver.data.string;
+    const string_obj = receiver.toStringObject();
     return try vm.newStringWithEncoding(string_obj.str, false, string_obj.encoding);
 }
 
 pub fn builtinStringBytesize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    return Value{ .data = .{ .integer = @intCast(receiver.data.string.str.len) } };
+    return Value.integer(@intCast(receiver.toStringObject().str.len));
 }
 
 pub fn builtinStringLength(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const string_obj = receiver.data.string;
+    const string_obj = receiver.toStringObject();
     return Value.integer(@intCast(string_obj.encoding.charCount(string_obj.str)));
 }
 
 pub fn builtinStringEmpty(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    return Value.boolean(receiver.data.string.str.len == 0);
+    return Value.boolean(receiver.toStringObject().str.len == 0);
 }
 
 pub fn builtinStringOrd(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const string_obj = receiver.data.string;
+    const string_obj = receiver.toStringObject();
     if (string_obj.str.len == 0) {
         return vm.raiseExceptionFmt(vm.argument_error_class, "empty string", .{});
     }
@@ -424,26 +418,26 @@ pub fn builtinStringOrd(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
 
 pub fn builtinStringBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const string_obj = receiver.data.string;
+    const string_obj = receiver.toStringObject();
 
-    switch (args[0].data) {
-        .integer => |idx| {
-            const slice = string_obj.encoding.charSliceAtIndex(string_obj.str, idx);
-            if (slice == null) return Value.nil();
-            return try vm.newStringWithEncoding(slice.?, false, string_obj.encoding);
-        },
-        .range => |range_obj| {
-            const slice = try charSliceByRange(vm, string_obj.str, string_obj.encoding, range_obj.begin, range_obj.end, range_obj.exclude_end);
-            if (slice == null) return Value.nil();
-            return try vm.newStringWithEncoding(slice.?, false, string_obj.encoding);
-        },
-        else => return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Integer", .{}),
+    if (args[0].isInteger()) {
+        const idx = args[0].toInteger();
+        const slice = string_obj.encoding.charSliceAtIndex(string_obj.str, idx);
+        if (slice == null) return Value.nil();
+        return try vm.newStringWithEncoding(slice.?, false, string_obj.encoding);
+    } else if (args[0].isRange()) {
+        const range_obj = args[0].toRangeObject();
+        const slice = try charSliceByRange(vm, string_obj.str, string_obj.encoding, range_obj.begin, range_obj.end, range_obj.exclude_end);
+        if (slice == null) return Value.nil();
+        return try vm.newStringWithEncoding(slice.?, false, string_obj.encoding);
+    } else {
+        return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Integer", .{});
     }
 }
 
 pub fn builtinStringChars(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const string_obj = receiver.data.string;
+    const string_obj = receiver.toStringObject();
     const bytes = string_obj.str;
     const encoding = string_obj.encoding;
 
@@ -475,12 +469,12 @@ pub fn builtinStringChars(vm: *VM, receiver: Value, args: []Value, block: ?Block
         array_obj.elements.append(vm.gc_allocator, char_val) catch return error.Fatal;
     }
 
-    return Value{ .data = .{ .array = array_obj } };
+    return Value.fromObject(array_obj);
 }
 
 pub fn builtinStringBytes(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const bytes = receiver.data.string.str;
+    const bytes = receiver.toStringObject().str;
 
     if (block) |blk| {
         for (bytes) |b| {
@@ -497,16 +491,16 @@ pub fn builtinStringBytes(vm: *VM, receiver: Value, args: []Value, block: ?Block
     for (bytes) |b| {
         array_obj.elements.append(vm.gc_allocator, Value.integer(b)) catch return error.Fatal;
     }
-    return Value{ .data = .{ .array = array_obj } };
+    return Value.fromObject(array_obj);
 }
 
 pub fn builtinStringGetbyte(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    try vm.requireArgType(args, 0, .integer, "Integer");
+    try vm.requireIntegerArg(args, 0, "Integer");
 
-    const bytes = receiver.data.string.str;
+    const bytes = receiver.toStringObject().str;
     const len: i64 = @intCast(bytes.len);
-    var index = args[0].data.integer;
+    var index = args[0].toInteger();
     if (index < 0) {
         index += len;
     }
@@ -518,7 +512,7 @@ pub fn builtinStringGetbyte(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 
 pub fn builtinStringCodepoints(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const string_obj = receiver.data.string;
+    const string_obj = receiver.toStringObject();
     const bytes = string_obj.str;
     const encoding = string_obj.encoding;
 
@@ -551,32 +545,26 @@ pub fn builtinStringCodepoints(vm: *VM, receiver: Value, args: []Value, block: ?
         array_obj.elements.append(vm.gc_allocator, Value.integer(parsed.codepoint)) catch return error.Fatal;
     }
 
-    return Value{ .data = .{ .array = array_obj } };
+    return Value.fromObject(array_obj);
 }
 
 pub fn builtinStringStartWith(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     if (args.len == 0) return Value.boolean(false);
-    const string_obj = receiver.data.string;
+    const string_obj = receiver.toStringObject();
 
     for (args) |arg| {
-        if (arg.data == .regexp) {
-            const match_val = try regexp_builtin.regexpMatchOp(vm, arg.data.regexp, receiver);
-            switch (match_val.data) {
-                .integer => |idx| {
-                    if (idx == 0) return Value.boolean(true);
-                    try vm.clearLastMatch();
-                    continue;
-                },
-                else => {
-                    try vm.clearLastMatch();
-                    continue;
-                },
+        if (arg.isRegexp()) {
+            const match_val = try regexp_builtin.regexpMatchOp(vm, arg.toRegexpObject(), receiver);
+            if (match_val.isInteger() and match_val.toInteger() == 0) {
+                return Value.boolean(true);
             }
+            try vm.clearLastMatch();
+            continue;
         }
 
         const prefix_val = try coerceToStringValueViaCall(vm, arg);
-        const prefix = prefix_val.data.string.str;
-        const prefix_enc = prefix_val.data.string.encoding;
+        const prefix = prefix_val.toStringObject().str;
+        const prefix_enc = prefix_val.toStringObject().encoding;
         if (enc.negotiate(string_obj.encoding, string_obj.str, prefix_enc, prefix) == null) {
             return vm.raiseExceptionFmt(
                 vm.argument_error_class,
@@ -595,12 +583,12 @@ pub fn builtinStringStartWith(vm: *VM, receiver: Value, args: []Value, _: ?Block
 
 pub fn builtinStringEndWith(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     if (args.len == 0) return Value.boolean(false);
-    const string_obj = receiver.data.string;
+    const string_obj = receiver.toStringObject();
 
     for (args) |arg| {
         const suffix_val = try coerceToStringValueViaCall(vm, arg);
-        const suffix = suffix_val.data.string.str;
-        const suffix_enc = suffix_val.data.string.encoding;
+        const suffix = suffix_val.toStringObject().str;
+        const suffix_enc = suffix_val.toStringObject().encoding;
         if (enc.negotiate(string_obj.encoding, string_obj.str, suffix_enc, suffix) == null) {
             return vm.raiseExceptionFmt(
                 vm.argument_error_class,
@@ -620,11 +608,11 @@ pub fn builtinStringEndWith(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 
 pub fn builtinStringInclude(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const string_obj = receiver.data.string;
+    const string_obj = receiver.toStringObject();
 
     const needle_val = try coerceToStringValueViaCall(vm, args[0]);
-    const needle = needle_val.data.string.str;
-    const needle_enc = needle_val.data.string.encoding;
+    const needle = needle_val.toStringObject().str;
+    const needle_enc = needle_val.toStringObject().encoding;
 
     if (needle.len == 0) {
         return Value.boolean(true);
@@ -660,7 +648,7 @@ pub fn builtinStringPrepend(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     if (receiver.isFrozen()) {
         return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
     }
-    const string_obj = receiver.data.string;
+    const string_obj = receiver.toStringObject();
 
     var result = string_obj.str;
     var i: usize = args.len;
@@ -668,7 +656,7 @@ pub fn builtinStringPrepend(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
         i -= 1;
         const arg = args[i];
         const part = try coerceToStringValueViaCall(vm, arg);
-        result = try concatBytes(vm, part.data.string.str, result);
+        result = try concatBytes(vm, part.toStringObject().str, result);
     }
 
     string_obj.str = result;
@@ -677,11 +665,11 @@ pub fn builtinStringPrepend(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 
 pub fn builtinStringSplit(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 2);
-    const string_obj = receiver.data.string;
+    const string_obj = receiver.toStringObject();
     const source = string_obj.str;
     const array_obj = try vm.createArray();
 
-    if (args.len == 0 or args[0].data == .nil) {
+    if (args.len == 0 or args[0].isNil()) {
         var i: usize = 0;
         while (i < source.len) {
             while (i < source.len and std.ascii.isWhitespace(source[i])) : (i += 1) {}
@@ -692,7 +680,7 @@ pub fn builtinStringSplit(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
             const token_val = try vm.newStringWithEncoding(token, false, string_obj.encoding);
             array_obj.elements.append(vm.gc_allocator, token_val) catch return error.Fatal;
         }
-        return Value{ .data = .{ .array = array_obj } };
+        return Value.fromObject(array_obj);
     }
 
     const sep = try args[0].coerceToStr(vm, "no implicit conversion into String");
@@ -713,12 +701,12 @@ pub fn builtinStringSplit(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     const tail = source[start..];
     const tail_val = try vm.newStringWithEncoding(tail, false, string_obj.encoding);
     array_obj.elements.append(vm.gc_allocator, tail_val) catch return error.Fatal;
-    return Value{ .data = .{ .array = array_obj } };
+    return Value.fromObject(array_obj);
 }
 
 pub fn builtinStringUpcase(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const string_obj = receiver.data.string;
+    const string_obj = receiver.toStringObject();
     const new_bytes = vm.gc_allocator_atomic.dupe(u8, string_obj.str) catch return error.Fatal;
     for (new_bytes) |*b| {
         if (b.* >= 'a' and b.* <= 'z') {
@@ -740,7 +728,7 @@ pub fn builtinStringToI(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
         base = @intCast(base_int);
     }
 
-    const s = receiver.data.string.str;
+    const s = receiver.toStringObject().str;
     var i: usize = 0;
     while (i < s.len and std.ascii.isWhitespace(s[i])) : (i += 1) {}
 
@@ -838,7 +826,7 @@ fn appendSymbolErrorEscapedBytes(writer: anytype, input: []const u8) !void {
 
 pub fn builtinStringToSym(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const string_obj = receiver.data.string;
+    const string_obj = receiver.toStringObject();
 
     if (!string_obj.encoding.isValid(string_obj.str)) {
         var escaped_bytes: std.ArrayList(u8) = .empty;
@@ -855,12 +843,12 @@ pub fn builtinStringToSym(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     else
         string_obj.encoding;
     const sym = try vm.internWithEncoding(string_obj.str, symbol_encoding);
-    return Value{ .data = .{ .symbol = sym } };
+    return Value.fromObject(sym);
 }
 
 pub fn builtinStringInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const input = receiver.data.string.str;
+    const input = receiver.toStringObject().str;
     var buf: std.ArrayList(u8) = .empty;
     const writer = buf.writer(vm.allocator);
 
@@ -894,20 +882,20 @@ pub fn builtinStringInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 
 pub fn builtinStringMatchOp(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    if (args[0].data != .regexp) {
+    if (!args[0].isRegexp()) {
         return vm.raiseExceptionFmt(vm.type_error_class, "type mismatch: String given", .{});
     }
-    return regexp_builtin.regexpMatchOp(vm, args[0].data.regexp, receiver);
+    return regexp_builtin.regexpMatchOp(vm, args[0].toRegexpObject(), receiver);
 }
 
 pub fn builtinStringScan(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    if (args[0].data != .regexp) {
+    if (!args[0].isRegexp()) {
         return vm.raiseExceptionFmt(vm.type_error_class, "wrong argument type", .{});
     }
 
-    const regexp_obj = args[0].data.regexp;
-    const string_obj = receiver.data.string;
+    const regexp_obj = args[0].toRegexpObject();
+    const string_obj = receiver.toStringObject();
 
     const out = if (block == null) try vm.createArray() else null;
     var offset: usize = 0;
@@ -915,11 +903,11 @@ pub fn builtinStringScan(vm: *VM, receiver: Value, args: []Value, block: ?Block)
     while (offset <= string_obj.str.len) {
         const sub = try vm.newStringWithEncoding(string_obj.str[offset..], false, string_obj.encoding);
         const match_idx = try regexp_builtin.regexpMatchOp(vm, regexp_obj, sub);
-        if (match_idx.data == .nil) break;
+        if (match_idx.isNil()) break;
 
         const last_match = vm.globals.get("$~") orelse Value.nil();
-        if (last_match.data != .match_data) break;
-        const md = last_match.data.match_data;
+        if (!last_match.isMatchData()) break;
+        const md = last_match.toMatchDataObject();
 
         const yielded_value = if (md.captures.items.len <= 1)
             md.captures.items[0]
@@ -930,7 +918,7 @@ pub fn builtinStringScan(vm: *VM, receiver: Value, args: []Value, block: ?Block)
             for (md.captures.items[1..]) |capture| {
                 captures.elements.append(vm.gc_allocator, capture) catch return error.Fatal;
             }
-            break :blk Value{ .data = .{ .array = captures } };
+            break :blk Value.fromObject(captures);
         };
 
         if (block) |blk| {
@@ -946,13 +934,13 @@ pub fn builtinStringScan(vm: *VM, receiver: Value, args: []Value, block: ?Block)
     }
 
     if (block != null) return receiver;
-    return Value{ .data = .{ .array = out.? } };
+    return Value.fromObject(out.?);
 }
 
 pub fn builtinStringUnpack(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const format = try args[0].coerceToStr(vm, "no implicit conversion into String");
-    return pack_runtime.stringUnpack(vm, receiver.data.string.str, format);
+    return pack_runtime.stringUnpack(vm, receiver.toStringObject().str, format);
 }
 
 fn charSliceByRange(
@@ -965,25 +953,25 @@ fn charSliceByRange(
 ) VMError!?[]const u8 {
     const char_len_i64: i64 = @intCast(encoding.charCount(bytes));
 
-    const begin_i64: i64 = switch (begin_val.data) {
-        .integer => |i| i,
-        .nil => 0,
-        else => return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Integer", .{}),
-    };
+    const begin_i64: i64 = if (begin_val.isInteger())
+        begin_val.toInteger()
+    else if (begin_val.isNil())
+        0
+    else
+        return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Integer", .{});
 
     var start_idx = begin_i64;
     if (start_idx < 0) start_idx += char_len_i64;
     if (start_idx < 0 or start_idx > char_len_i64) return null;
 
-    var finish_exclusive = switch (end_val.data) {
-        .integer => |i| blk: {
-            var end_i64 = i;
-            if (end_i64 < 0) end_i64 += char_len_i64;
-            break :blk if (exclude_end) end_i64 else end_i64 + 1;
-        },
-        .nil => char_len_i64,
-        else => return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Integer", .{}),
-    };
+    var finish_exclusive: i64 = if (end_val.isInteger()) blk: {
+        var end_i64 = end_val.toInteger();
+        if (end_i64 < 0) end_i64 += char_len_i64;
+        break :blk if (exclude_end) end_i64 else end_i64 + 1;
+    } else if (end_val.isNil())
+        char_len_i64
+    else
+        return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Integer", .{});
 
     if (finish_exclusive < start_idx) {
         const start_byte = encoding.byteOffsetForCharIndex(bytes, @intCast(start_idx)) orelse bytes.len;
@@ -1007,7 +995,7 @@ fn concatBytes(vm: *VM, left: []const u8, right: []const u8) VMError![]const u8 
 }
 
 fn coerceToStringValueViaCall(vm: *VM, arg: Value) VMError!Value {
-    if (arg.data == .string) return arg;
+    if (arg.isString()) return arg;
 
     const coerced = vm.callMethodByName(arg, "to_str", &[_]Value{}, null) catch |err| {
         if (err == error.Unwind and vm.pending_exception != null and vm.pending_exception.?.object.class == vm.no_method_error_class) {
@@ -1016,7 +1004,7 @@ fn coerceToStringValueViaCall(vm: *VM, arg: Value) VMError!Value {
         return err;
     };
 
-    if (coerced.data != .string) {
+    if (!coerced.isString()) {
         return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into String", .{});
     }
 

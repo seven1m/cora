@@ -10,8 +10,8 @@ test "Fiber.new does not invoke block until resume" {
         \\f = Fiber.new { invoked = true }
         \\invoked
     );
-    try std.testing.expect(result.data == .boolean);
-    try std.testing.expectEqual(false, result.data.boolean);
+    try std.testing.expect(result.isBool());
+    try std.testing.expectEqual(false, result.toBool());
 }
 
 test "Fiber.current returns main fiber and current fiber inside" {
@@ -21,8 +21,8 @@ test "Fiber.current returns main fiber and current fiber inside" {
         \\ids = [root.object_id, f.resume.object_id]
         \\ids[0] == ids[1]
     );
-    try std.testing.expect(result.data == .boolean);
-    try std.testing.expectEqual(false, result.data.boolean);
+    try std.testing.expect(result.isBool());
+    try std.testing.expectEqual(false, result.toBool());
 }
 
 test "Fiber.resume and Fiber.yield exchange values" {
@@ -32,11 +32,11 @@ test "Fiber.resume and Fiber.yield exchange values" {
         \\b = f.resume
         \\[a, b]
     );
-    try std.testing.expect(result.data == .array);
-    const elems = result.data.array.elements.items;
+    try std.testing.expect(result.isArray());
+    const elems = result.toArrayObject().elements.items;
     try std.testing.expectEqual(@as(usize, 2), elems.len);
-    try std.testing.expectEqual(@as(i64, 1), elems[0].data.integer);
-    try std.testing.expectEqual(@as(i64, 2), elems[1].data.integer);
+    try std.testing.expectEqual(@as(i64, 1), elems[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 2), elems[1].toInteger());
 }
 
 test "Fiber.yield returns resume argument to the fiber" {
@@ -49,11 +49,11 @@ test "Fiber.yield returns resume argument to the fiber" {
         \\b = f.resume(99)
         \\[a, b]
     );
-    try std.testing.expect(result.data == .array);
-    const elems = result.data.array.elements.items;
+    try std.testing.expect(result.isArray());
+    const elems = result.toArrayObject().elements.items;
     try std.testing.expectEqual(@as(usize, 2), elems.len);
-    try std.testing.expect(elems[0].data == .nil);
-    try std.testing.expectEqual(@as(i64, 99), elems[1].data.integer);
+    try std.testing.expect(elems[0].isNil());
+    try std.testing.expectEqual(@as(i64, 99), elems[1].toInteger());
 }
 
 test "Fiber preserves method local variables across yield and resume" {
@@ -68,12 +68,12 @@ test "Fiber preserves method local variables across yield and resume" {
         \\b = f.resume
         \\[a, b]
     );
-    try std.testing.expect(result.data == .array);
-    const elems = result.data.array.elements.items;
+    try std.testing.expect(result.isArray());
+    const elems = result.toArrayObject().elements.items;
     try std.testing.expectEqual(@as(usize, 2), elems.len);
-    try std.testing.expect(elems[0].data == .symbol);
-    try std.testing.expectEqualStrings("paused", elems[0].data.symbol.name);
-    try std.testing.expectEqual(@as(i64, 42), elems[1].data.integer);
+    try std.testing.expect(elems[0].isSymbol());
+    try std.testing.expectEqualStrings("paused", elems[0].toSymbolObject().name);
+    try std.testing.expectEqual(@as(i64, 42), elems[1].toInteger());
 }
 
 test "Fiber.alive? reflects fiber lifecycle" {
@@ -86,12 +86,12 @@ test "Fiber.alive? reflects fiber lifecycle" {
         \\a3 = f.alive?
         \\[a1, a2, a3]
     );
-    try std.testing.expect(result.data == .array);
-    const elems = result.data.array.elements.items;
+    try std.testing.expect(result.isArray());
+    const elems = result.toArrayObject().elements.items;
     try std.testing.expectEqual(@as(usize, 3), elems.len);
-    try std.testing.expectEqual(true, elems[0].data.boolean);
-    try std.testing.expectEqual(true, elems[1].data.boolean);
-    try std.testing.expectEqual(false, elems[2].data.boolean);
+    try std.testing.expectEqual(true, elems[0].toBool());
+    try std.testing.expectEqual(true, elems[1].toBool());
+    try std.testing.expectEqual(false, elems[2].toBool());
 }
 
 test "Fiber.yield from main fiber raises FiberError" {
@@ -114,8 +114,8 @@ test "Fiber terminates after unhandled exception" {
         \\end
         \\f.alive?
     , &stdout_buf, &stderr_buf);
-    try std.testing.expect(result.value.data == .boolean);
-    try std.testing.expectEqual(false, result.value.data.boolean);
+    try std.testing.expect(result.value.isBool());
+    try std.testing.expectEqual(false, result.value.toBool());
     try std.testing.expectEqualSlices(u8, "boom\n", result.stdout);
 }
 
@@ -207,8 +207,8 @@ test "Fiber stress: 10000 yield/resume cycles" {
         \\end
         \\ok && f.resume == :done
     );
-    try std.testing.expect(result.data == .boolean);
-    try std.testing.expectEqual(true, result.data.boolean);
+    try std.testing.expect(result.isBool());
+    try std.testing.expectEqual(true, result.toBool());
 }
 
 test "Fiber stress: nested builtins with many yields" {
@@ -227,6 +227,6 @@ test "Fiber stress: nested builtins with many yields" {
         \\len = f.resume
         \\sum == 2500 && len == 0
     );
-    try std.testing.expect(result.data == .boolean);
-    try std.testing.expectEqual(true, result.data.boolean);
+    try std.testing.expect(result.isBool());
+    try std.testing.expectEqual(true, result.toBool());
 }

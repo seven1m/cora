@@ -10,8 +10,8 @@ test "Top-level methods" {
         \\  'foo'
         \\end
     );
-    try std.testing.expect(result.data == .symbol);
-    try std.testing.expectEqualSlices(u8, "foo", result.data.symbol.name);
+    try std.testing.expect(result.isSymbol());
+    try std.testing.expectEqualSlices(u8, "foo", result.toSymbolObject().name);
 
     result = try evalCode(
         \\def foo
@@ -19,8 +19,8 @@ test "Top-level methods" {
         \\end
         \\foo
     );
-    try std.testing.expect(result.data == .string);
-    try std.testing.expectEqualSlices(u8, "foo", result.data.string.str);
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "foo", result.toStringObject().str);
 }
 
 test "Method calls with arguments" {
@@ -30,8 +30,8 @@ test "Method calls with arguments" {
         \\end
         \\increment(41)
     );
-    try std.testing.expect(result.data == .integer);
-    try std.testing.expectEqual(42, result.data.integer);
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(42, result.toInteger());
 }
 
 test "NoMethodError raised for undefined method" {
@@ -59,10 +59,10 @@ test "method_missing receives method name and args" {
         \\end
         \\MethodMissingSpec.new.unknown_call(7)
     );
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqualStrings("unknown_call", result.data.array.elements.items[0].data.symbol.name);
-    try std.testing.expectEqual(@as(i64, 1), result.data.array.elements.items[1].data.integer);
-    try std.testing.expectEqual(@as(i64, 7), result.data.array.elements.items[2].data.integer);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqualStrings("unknown_call", result.toArrayObject().elements.items[0].toSymbolObject().name);
+    try std.testing.expectEqual(@as(i64, 1), result.toArrayObject().elements.items[1].toInteger());
+    try std.testing.expectEqual(@as(i64, 7), result.toArrayObject().elements.items[2].toInteger());
 }
 
 test "method_missing handles private and protected call failures" {
@@ -85,9 +85,9 @@ test "method_missing handles private and protected call failures" {
         \\obj = MethodMissingVisibilitySpec.new
         \\[obj.private_hidden, obj.protected_hidden]
     );
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqualStrings("private_hidden", result.data.array.elements.items[0].data.symbol.name);
-    try std.testing.expectEqualStrings("protected_hidden", result.data.array.elements.items[1].data.symbol.name);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqualStrings("private_hidden", result.toArrayObject().elements.items[0].toSymbolObject().name);
+    try std.testing.expectEqualStrings("protected_hidden", result.toArrayObject().elements.items[1].toSymbolObject().name);
 }
 
 test "TypeError raised for wrong receiver type" {
@@ -120,9 +120,9 @@ test "method call reflects method redefinition after prior call" {
         \\end
         \\[first, obj.value]
     );
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(@as(i64, 1), result.data.array.elements.items[0].data.integer);
-    try std.testing.expectEqual(@as(i64, 2), result.data.array.elements.items[1].data.integer);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(i64, 1), result.toArrayObject().elements.items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 2), result.toArrayObject().elements.items[1].toInteger());
 }
 
 test "method call reflects include after prior call" {
@@ -146,9 +146,9 @@ test "method call reflects include after prior call" {
         \\end
         \\[first, obj.value]
     );
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(@as(i64, 1), result.data.array.elements.items[0].data.integer);
-    try std.testing.expectEqual(@as(i64, 2), result.data.array.elements.items[1].data.integer);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(i64, 1), result.toArrayObject().elements.items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 2), result.toArrayObject().elements.items[1].toInteger());
 }
 
 test "method call reflects prepend after prior call" {
@@ -170,9 +170,9 @@ test "method call reflects prepend after prior call" {
         \\end
         \\[first, obj.value]
     );
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(@as(i64, 1), result.data.array.elements.items[0].data.integer);
-    try std.testing.expectEqual(@as(i64, 2), result.data.array.elements.items[1].data.integer);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(i64, 1), result.toArrayObject().elements.items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 2), result.toArrayObject().elements.items[1].toInteger());
 }
 
 test "method call reflects visibility change after prior call" {
@@ -194,7 +194,7 @@ test "method call reflects visibility change after prior call" {
         \\end
         \\[first, second]
     );
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(@as(i64, 1), result.data.array.elements.items[0].data.integer);
-    try std.testing.expectEqualStrings("no_method", result.data.array.elements.items[1].data.symbol.name);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(i64, 1), result.toArrayObject().elements.items[0].toInteger());
+    try std.testing.expectEqualStrings("no_method", result.toArrayObject().elements.items[1].toSymbolObject().name);
 }

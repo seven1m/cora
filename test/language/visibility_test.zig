@@ -18,7 +18,7 @@ test "private without args affects following defs and explicit self call fails" 
         \\end
         \\C.new.call_hidden
     );
-    try std.testing.expectEqual(@as(i64, 11), ok.data.integer);
+    try std.testing.expectEqual(@as(i64, 11), ok.toInteger());
 
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;
@@ -55,7 +55,7 @@ test "public without args restores visibility for following defs" {
         \\end
         \\C.new.b
     );
-    try std.testing.expectEqual(@as(i64, 2), ok.data.integer);
+    try std.testing.expectEqual(@as(i64, 2), ok.toInteger());
 
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;
@@ -91,7 +91,7 @@ test "private with names changes existing method visibility" {
         \\end
         \\C.new.call_wrapped
     );
-    try std.testing.expectEqual(@as(i64, 7), ok.data.integer);
+    try std.testing.expectEqual(@as(i64, 7), ok.toInteger());
 
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;
@@ -124,7 +124,7 @@ test "protected allows same-family receiver calls and blocks external calls" {
         \\end
         \\C.new.check(C.new)
     );
-    try std.testing.expectEqual(@as(i64, 5), ok.data.integer);
+    try std.testing.expectEqual(@as(i64, 5), ok.toInteger());
 
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;
@@ -155,7 +155,7 @@ test "define_method respects current default visibility" {
         \\end
         \\C.new.call_dyn
     );
-    try std.testing.expectEqual(@as(i64, 42), ok.data.integer);
+    try std.testing.expectEqual(@as(i64, 42), ok.toInteger());
 
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;

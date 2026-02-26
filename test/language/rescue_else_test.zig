@@ -14,7 +14,7 @@ test "Else clause runs on normal completion" {
         \\  30
         \\end
     );
-    try std.testing.expectEqual(@as(i64, 30), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 30), result.toInteger());
 }
 
 test "Else clause does not run when exception is rescued" {
@@ -27,5 +27,5 @@ test "Else clause does not run when exception is rescued" {
         \\  50
         \\end
     );
-    try std.testing.expectEqual(@as(i64, 40), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 40), result.toInteger());
 }

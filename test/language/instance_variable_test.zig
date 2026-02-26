@@ -18,7 +18,7 @@ test "instance variable basic assignment and read" {
         \\f.set_x(42)
         \\f.get_x
     );
-    try std.testing.expectEqual(@as(i64, 42), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
 }
 
 test "instance variable uninitialized returns nil" {
@@ -30,7 +30,7 @@ test "instance variable uninitialized returns nil" {
         \\end
         \\Bar.new.get_undefined
     );
-    try std.testing.expect(result.data == .nil);
+    try std.testing.expect(result.isNil());
 }
 
 test "instance_variable_set returns the value" {
@@ -42,7 +42,7 @@ test "instance_variable_set returns the value" {
         \\end
         \\Foo.new.test_ivar
     );
-    try std.testing.expectEqual(@as(i64, 123), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 123), result.toInteger());
 }
 
 test "instance_variable_set rejects symbol without @ prefix" {

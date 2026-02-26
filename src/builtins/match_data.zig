@@ -39,8 +39,8 @@ pub fn register(vm: *VM) !void {
 }
 
 fn getMatchData(receiver: Value) VMError!*value.MatchDataObject {
-    if (receiver.data != .match_data) return error.Fatal;
-    return receiver.data.match_data;
+    if (!receiver.isMatchData()) return error.Fatal;
+    return receiver.toMatchDataObject();
 }
 
 fn captureAt(md: *value.MatchDataObject, index: i64) Value {
@@ -56,16 +56,16 @@ fn buildArray(vm: *VM, items: []const Value) VMError!Value {
     for (items) |item| {
         arr.elements.append(vm.gc_allocator, item) catch return error.Fatal;
     }
-    return Value{ .data = .{ .array = arr } };
+    return Value.fromObject(arr);
 }
 
 fn builtinMatchDataBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    if (args[0].data != .integer) {
+    if (!args[0].isInteger()) {
         return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Integer", .{});
     }
     const md = try getMatchData(receiver);
-    return captureAt(md, args[0].data.integer);
+    return captureAt(md, args[0].toInteger());
 }
 
 fn builtinMatchDataMatch(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -96,13 +96,13 @@ fn builtinMatchDataLength(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
 fn builtinMatchDataRegexp(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const md = try getMatchData(receiver);
-    return Value{ .data = .{ .regexp = md.regexp } };
+    return Value.fromObject(md.regexp);
 }
 
 fn builtinMatchDataString(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const md = try getMatchData(receiver);
-    return Value{ .data = .{ .string = md.source } };
+    return Value.fromObject(md.source);
 }
 
 fn builtinMatchDataPreMatch(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

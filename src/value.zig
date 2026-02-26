@@ -1,16 +1,16 @@
 const std = @import("std");
 const prism = @import("prism.zig");
 const bdwgc = @import("bdwgc");
-const vm = @import("vm.zig");
+const vm_mod = @import("vm.zig");
 const Chunk = @import("chunk.zig").Chunk;
-const VM = vm.VM;
-const VMError = vm.VMError;
-const Method = vm.Method;
-const Block = vm.Block;
-const FiberValueStack = vm.FiberValueStack;
-const FiberFrameStack = vm.FiberFrameStack;
-const FiberEnvironmentStack = vm.FiberEnvironmentStack;
-const FiberCoro = vm.FiberCoro;
+const VM = vm_mod.VM;
+const VMError = vm_mod.VMError;
+const Method = vm_mod.Method;
+const Block = vm_mod.Block;
+const FiberValueStack = vm_mod.FiberValueStack;
+const FiberFrameStack = vm_mod.FiberFrameStack;
+const FiberEnvironmentStack = vm_mod.FiberEnvironmentStack;
+const FiberCoro = vm_mod.FiberCoro;
 const onigmo = @import("onigmo.zig");
 
 const encoding = @import("encoding.zig");
@@ -23,9 +23,34 @@ pub const MethodVisibility = enum {
     protected,
 };
 
+// Object type tag for heap-allocated objects.
+// Used to identify the concrete type of a heap pointer stored in a Value.
+pub const ObjectTypeTag = enum(u8) {
+    instance,
+    string,
+    symbol,
+    array,
+    hash,
+    range,
+    exception,
+    proc,
+    fiber,
+    io,
+    regexp,
+    match_data,
+    big_integer,
+    encoding_obj,
+    enumerator,
+    yielder,
+    module,
+    class,
+    float,
+};
+
 pub const Object = struct {
     pub const FROZEN_FLAG = 0x1;
 
+    type_tag: ObjectTypeTag,
     flags: u32,
     class: ?*ClassObject,
     singleton_class: ?*ClassObject,
@@ -48,6 +73,11 @@ pub const StringObject = struct {
 pub const BigIntegerObject = struct {
     object: Object,
     value: std.math.big.int.Managed,
+};
+
+pub const FloatObject = struct {
+    object: Object,
+    val: f64,
 };
 
 pub const EncodingObject = struct {
@@ -214,121 +244,278 @@ pub const YielderObject = struct {
     block: Block,
 };
 
+// =============================================================================
+// Value: CRuby-style tagged u64
+//
+// Encoding:
+//   Bit 0 = 1: Fixnum (i63). Extract: arithmetic_shift_right(raw, 1)
+//   raw == 0x00: false
+//   raw == 0x02: true
+//   raw == 0x04: nil
+//   raw == 0x06: undef
+//   (raw & 7) == 0 and raw > 0x06: heap object pointer (8-byte aligned)
+//
+// Truthiness (CRuby RTEST trick):
+//   (raw & ~0x04) != 0  →  only false(0) and nil(4) are falsy
+// =============================================================================
+
 pub const Value = struct {
-    data: union(enum) {
-        array: *ArrayObject,
-        boolean: bool,
-        class: *ClassObject,
-        encoding: *EncodingObject,
-        enumerator: *EnumeratorObject,
-        exception: *ExceptionObject,
-        fiber: *FiberObject,
-        hash: *HashObject,
-        io: *IoObject,
-        instance: *Object,
-        integer: i64,
-        float: f64,
-        big_integer: *BigIntegerObject,
-        module: *ModuleObject,
-        nil: void,
-        match_data: *MatchDataObject,
-        proc: *ProcObject,
-        range: *RangeObject,
-        regexp: *RegexpObject,
-        string: *StringObject,
-        symbol: *SymbolObject,
-        yielder: *YielderObject,
-    },
+    raw: u64,
 
-    pub fn isFrozen(self: Value) bool {
-        return switch (self.data) {
-            // Primitives are always frozen
-            .integer, .float, .nil, .boolean => true,
-            // Encoding objects are always frozen (singletons)
-            .encoding => true,
-            // Regexp literals are always frozen (like in Ruby)
-            .regexp => true,
-            // Objects check their flags
-            .string => |s| (s.object.flags & Object.FROZEN_FLAG) != 0,
-            .symbol => |s| (s.object.flags & Object.FROZEN_FLAG) != 0,
-            .module => |m| (m.object.flags & Object.FROZEN_FLAG) != 0,
-            .class => |c| (c.module.object.flags & Object.FROZEN_FLAG) != 0,
-            .instance => |i| (i.flags & Object.FROZEN_FLAG) != 0,
-            .array => |a| (a.object.flags & Object.FROZEN_FLAG) != 0,
-            .exception => |e| (e.object.flags & Object.FROZEN_FLAG) != 0,
-            .fiber => |f| (f.object.flags & Object.FROZEN_FLAG) != 0,
-            .big_integer => |b| (b.object.flags & Object.FROZEN_FLAG) != 0,
-            .hash => |h| (h.object.flags & Object.FROZEN_FLAG) != 0,
-            .io => |io| (io.object.flags & Object.FROZEN_FLAG) != 0,
-            .match_data => |m| (m.object.flags & Object.FROZEN_FLAG) != 0,
-            .proc => |p| (p.object.flags & Object.FROZEN_FLAG) != 0,
-            .range => |r| (r.object.flags & Object.FROZEN_FLAG) != 0,
-            .enumerator => |e| (e.object.flags & Object.FROZEN_FLAG) != 0,
-            .yielder => |y| (y.object.flags & Object.FROZEN_FLAG) != 0,
-        };
+    // -- Special constants --
+    pub const FALSE = Value{ .raw = 0x00 };
+    pub const TRUE = Value{ .raw = 0x02 };
+    pub const NIL = Value{ .raw = 0x04 };
+    pub const UNDEF = Value{ .raw = 0x06 };
+
+    // -- Constructors --
+
+    pub inline fn nil() Value {
+        return NIL;
     }
 
-    pub fn freeze(self: *Value) void {
-        switch (self.data) {
-            .string => |s| s.object.flags |= Object.FROZEN_FLAG,
-            .symbol => |s| s.object.flags |= Object.FROZEN_FLAG,
-            .module => |m| m.object.flags |= Object.FROZEN_FLAG,
-            .class => |c| c.module.object.flags |= Object.FROZEN_FLAG,
-            .instance => |i| i.flags |= Object.FROZEN_FLAG,
-            .array => |a| a.object.flags |= Object.FROZEN_FLAG,
-            .exception => |e| e.object.flags |= Object.FROZEN_FLAG,
-            .fiber => |f| f.object.flags |= Object.FROZEN_FLAG,
-            .big_integer => |b| b.object.flags |= Object.FROZEN_FLAG,
-            .hash => |h| h.object.flags |= Object.FROZEN_FLAG,
-            .io => |io| io.object.flags |= Object.FROZEN_FLAG,
-            .match_data => |m| m.object.flags |= Object.FROZEN_FLAG,
-            .proc => |p| p.object.flags |= Object.FROZEN_FLAG,
-            .range => |r| r.object.flags |= Object.FROZEN_FLAG,
-            .enumerator => |e| e.object.flags |= Object.FROZEN_FLAG,
-            .yielder => |y| y.object.flags |= Object.FROZEN_FLAG,
-            // Primitives are already frozen, do nothing
-            else => {},
-        }
+    pub inline fn boolean(v: bool) Value {
+        return if (v) TRUE else FALSE;
     }
+
+    pub inline fn integer(v: i64) Value {
+        return .{ .raw = (@as(u64, @bitCast(v)) << 1) | 1 };
+    }
+
+    pub inline fn float(v: f64) Value {
+        _ = v;
+        // Float boxing deferred - not needed for fib.rb
+        @panic("float values not yet implemented");
+    }
+
+    pub inline fn fromObject(ptr: anytype) Value {
+        return .{ .raw = @intFromPtr(ptr) };
+    }
+
+    // -- Type checks --
+
+    pub inline fn isInteger(self: Value) bool {
+        return (self.raw & 1) == 1;
+    }
+
+    pub inline fn isNil(self: Value) bool {
+        return self.raw == NIL.raw;
+    }
+
+    pub inline fn isTrue(self: Value) bool {
+        return self.raw == TRUE.raw;
+    }
+
+    pub inline fn isFalse(self: Value) bool {
+        return self.raw == FALSE.raw;
+    }
+
+    pub inline fn isBool(self: Value) bool {
+        return self.raw == TRUE.raw or self.raw == FALSE.raw;
+    }
+
+    pub inline fn isObject(self: Value) bool {
+        return (self.raw & 7) == 0 and self.raw > UNDEF.raw;
+    }
+
+    pub inline fn is_truthy(self: Value) bool {
+        return (self.raw & ~@as(u64, 0x04)) != 0;
+    }
+
+    // -- Extractors --
+
+    pub inline fn toInteger(self: Value) i64 {
+        return @as(i64, @bitCast(self.raw)) >> 1;
+    }
+
+    pub inline fn toBool(self: Value) bool {
+        return self.raw == TRUE.raw;
+    }
+
+    pub inline fn toObject(self: Value, comptime T: type) *T {
+        return @ptrFromInt(self.raw);
+    }
+
+    // Convenience: read the ObjectTypeTag from a heap object
+    pub inline fn objectTypeTag(self: Value) ObjectTypeTag {
+        const obj: *Object = @ptrFromInt(self.raw);
+        return obj.type_tag;
+    }
+
+    // -- Type-specific checks for heap objects --
+
+    pub inline fn isString(self: Value) bool {
+        return self.isObject() and self.objectTypeTag() == .string;
+    }
+
+    pub inline fn isSymbol(self: Value) bool {
+        return self.isObject() and self.objectTypeTag() == .symbol;
+    }
+
+    pub inline fn isArray(self: Value) bool {
+        return self.isObject() and self.objectTypeTag() == .array;
+    }
+
+    pub inline fn isHash(self: Value) bool {
+        return self.isObject() and self.objectTypeTag() == .hash;
+    }
+
+    pub inline fn isClass(self: Value) bool {
+        return self.isObject() and self.objectTypeTag() == .class;
+    }
+
+    pub inline fn isModule(self: Value) bool {
+        return self.isObject() and self.objectTypeTag() == .module;
+    }
+
+    pub inline fn isProc(self: Value) bool {
+        return self.isObject() and self.objectTypeTag() == .proc;
+    }
+
+    pub inline fn isFiber(self: Value) bool {
+        return self.isObject() and self.objectTypeTag() == .fiber;
+    }
+
+    pub inline fn isException(self: Value) bool {
+        return self.isObject() and self.objectTypeTag() == .exception;
+    }
+
+    pub inline fn isFloat(self: Value) bool {
+        return self.isObject() and self.objectTypeTag() == .float;
+    }
+
+    pub inline fn isBigInteger(self: Value) bool {
+        return self.isObject() and self.objectTypeTag() == .big_integer;
+    }
+
+    pub inline fn isRange(self: Value) bool {
+        return self.isObject() and self.objectTypeTag() == .range;
+    }
+
+    pub inline fn isRegexp(self: Value) bool {
+        return self.isObject() and self.objectTypeTag() == .regexp;
+    }
+
+    pub inline fn isInstance(self: Value) bool {
+        return self.isObject() and self.objectTypeTag() == .instance;
+    }
+
+    pub inline fn isIo(self: Value) bool {
+        return self.isObject() and self.objectTypeTag() == .io;
+    }
+
+    pub inline fn isEncoding(self: Value) bool {
+        return self.isObject() and self.objectTypeTag() == .encoding_obj;
+    }
+
+    pub inline fn isMatchData(self: Value) bool {
+        return self.isObject() and self.objectTypeTag() == .match_data;
+    }
+
+    pub inline fn isEnumerator(self: Value) bool {
+        return self.isObject() and self.objectTypeTag() == .enumerator;
+    }
+
+    pub inline fn isYielder(self: Value) bool {
+        return self.isObject() and self.objectTypeTag() == .yielder;
+    }
+
+    // -- Convenience extractors for heap types --
+
+    pub inline fn toStringObject(self: Value) *StringObject {
+        return @ptrFromInt(self.raw);
+    }
+
+    pub inline fn toSymbolObject(self: Value) *SymbolObject {
+        return @ptrFromInt(self.raw);
+    }
+
+    pub inline fn toArrayObject(self: Value) *ArrayObject {
+        return @ptrFromInt(self.raw);
+    }
+
+    pub inline fn toHashObject(self: Value) *HashObject {
+        return @ptrFromInt(self.raw);
+    }
+
+    pub inline fn toClassObject(self: Value) *ClassObject {
+        return @ptrFromInt(self.raw);
+    }
+
+    pub inline fn toModuleObject(self: Value) *ModuleObject {
+        return @ptrFromInt(self.raw);
+    }
+
+    pub inline fn toProcObject(self: Value) *ProcObject {
+        return @ptrFromInt(self.raw);
+    }
+
+    pub inline fn toFiberObject(self: Value) *FiberObject {
+        return @ptrFromInt(self.raw);
+    }
+
+    pub inline fn toExceptionObject(self: Value) *ExceptionObject {
+        return @ptrFromInt(self.raw);
+    }
+
+    pub inline fn toFloatObject(self: Value) *FloatObject {
+        return @ptrFromInt(self.raw);
+    }
+
+    pub inline fn toBigIntegerObject(self: Value) *BigIntegerObject {
+        return @ptrFromInt(self.raw);
+    }
+
+    pub inline fn toRangeObject(self: Value) *RangeObject {
+        return @ptrFromInt(self.raw);
+    }
+
+    pub inline fn toRegexpObject(self: Value) *RegexpObject {
+        return @ptrFromInt(self.raw);
+    }
+
+    pub inline fn toIoObject(self: Value) *IoObject {
+        return @ptrFromInt(self.raw);
+    }
+
+    pub inline fn toEncodingObject(self: Value) *EncodingObject {
+        return @ptrFromInt(self.raw);
+    }
+
+    pub inline fn toMatchDataObject(self: Value) *MatchDataObject {
+        return @ptrFromInt(self.raw);
+    }
+
+    pub inline fn toEnumeratorObject(self: Value) *EnumeratorObject {
+        return @ptrFromInt(self.raw);
+    }
+
+    pub inline fn toYielderObject(self: Value) *YielderObject {
+        return @ptrFromInt(self.raw);
+    }
+
+    pub inline fn toInstanceObject(self: Value) *Object {
+        return @ptrFromInt(self.raw);
+    }
+
+    // -- Object protocol --
 
     pub fn getObjectPointer(self: Value) ?*Object {
-        return switch (self.data) {
-            .class => |c| &c.module.object,
-            .encoding => |e| &e.object,
-            .module => |m| &m.object,
-            .instance => |i| i,
-            .string => |s| &s.object,
-            .symbol => |s| &s.object,
-            .array => |a| &a.object,
-            .exception => |e| &e.object,
-            .fiber => |f| &f.object,
-            .big_integer => |b| &b.object,
-            .hash => |h| &h.object,
-            .io => |io| &io.object,
-            .match_data => |m| &m.object,
-            .proc => |p| &p.object,
-            .range => |r| &r.object,
-            .regexp => |r| &r.object,
-            .enumerator => |e| &e.object,
-            .yielder => |y| &y.object,
-            .integer, .float, .nil, .boolean => null,
-        };
+        if (!self.isObject()) return null;
+        return @ptrFromInt(self.raw);
     }
 
     pub fn getSingletonClass(self: Value) ?*ClassObject {
-        const obj_ptr = self.getObjectPointer();
-        if (obj_ptr) |obj| {
-            return obj.singleton_class;
-        }
-        return null;
+        const obj_ptr = self.getObjectPointer() orelse return null;
+        return obj_ptr.singleton_class;
     }
 
     pub fn getModuleObject(self: Value) ?*ModuleObject {
-        return switch (self.data) {
-            .class => |c| &c.module,
-            .module => |m| m,
-            else => null,
-        };
+        if (!self.isObject()) return null;
+        const tag = self.objectTypeTag();
+        if (tag == .class) return &self.toClassObject().module;
+        if (tag == .module) return self.toModuleObject();
+        return null;
     }
 
     pub fn getModuleMethods(self: Value) ?*std.AutoHashMap(*SymbolObject, MethodEntry) {
@@ -337,46 +524,77 @@ pub const Value = struct {
     }
 
     pub fn objectId(self: Value) i64 {
-        return if (self.getObjectPointer()) |ptr| blk: {
-            break :blk @intCast(@intFromPtr(ptr));
-        } else switch (self.data) {
-            .integer => |i| (i << 1) | 1,
-            .float => |f| @bitCast(f),
-            .boolean => |b| if (b) 20 else 0,
-            .nil => 8,
-            .big_integer => |b| @intCast(@intFromPtr(b)),
-            else => unreachable,
-        };
+        if (self.isInteger()) return (self.toInteger() << 1) | 1;
+        if (self.isNil()) return 8;
+        if (self.isTrue()) return 20;
+        if (self.isFalse()) return 0;
+        if (self.isObject()) return @intCast(self.raw);
+        return 0;
     }
 
-    pub fn nil() Value {
-        return .{ .data = .nil };
+    pub fn isFrozen(self: Value) bool {
+        // Primitives are always frozen
+        if (self.isInteger() or self.isNil() or self.isBool()) return true;
+        if (!self.isObject()) return true;
+        const tag = self.objectTypeTag();
+        // Encoding objects and regexps are always frozen
+        if (tag == .encoding_obj or tag == .regexp) return true;
+        const obj = self.getObjectPointer().?;
+        return (obj.flags & Object.FROZEN_FLAG) != 0;
     }
 
-    pub fn boolean(value: bool) Value {
-        return .{ .data = .{ .boolean = value } };
+    pub fn freeze(self: Value) void {
+        if (!self.isObject()) return;
+        const obj = self.getObjectPointer().?;
+        obj.flags |= Object.FROZEN_FLAG;
     }
 
-    pub fn integer(value: i64) Value {
-        return .{ .data = .{ .integer = value } };
+    // -- Numeric helpers --
+
+    pub fn isNumeric(self: Value) bool {
+        if (self.isInteger()) return true;
+        if (self.isObject()) {
+            const tag = self.objectTypeTag();
+            return tag == .float or tag == .big_integer;
+        }
+        return false;
     }
 
-    pub fn float(value: f64) Value {
-        return .{ .data = .{ .float = value } };
+    pub fn ensureInteger(self: Value, vm_instance: *VM) VMError!void {
+        if (self.isInteger() or self.isBigInteger()) return;
+        return vm_instance.raiseExceptionFmt(vm_instance.type_error_class, "argument is not numeric", .{});
     }
 
-    pub fn is_truthy(self: Value) bool {
-        return switch (self.data) {
-            .nil => false,
-            .boolean => self.data.boolean,
-            else => true,
-        };
+    pub fn integerToF64(self: Value) f64 {
+        if (self.isInteger()) return @as(f64, @floatFromInt(self.toInteger()));
+        if (self.isBigInteger()) return self.toBigIntegerObject().value.toFloat(f64, .nearest_even)[0];
+        unreachable;
     }
+
+    pub fn integerToI64(self: Value, vm_instance: *VM, range_error_msg: []const u8) VMError!i64 {
+        if (self.isInteger()) return self.toInteger();
+        if (self.isBigInteger()) return self.toBigIntegerObject().value.toInt(i64) catch
+            return vm_instance.raiseExceptionFmt(vm_instance.range_error_class, "{s}", .{range_error_msg});
+        unreachable;
+    }
+
+    pub fn integerArgToI64(self: Value, vm_instance: *VM, type_error_msg: []const u8, range_error_msg: []const u8) VMError!i64 {
+        if (self.isInteger()) return self.toInteger();
+        if (self.isBigInteger()) return self.toBigIntegerObject().value.toInt(i64) catch
+            return vm_instance.raiseExceptionFmt(vm_instance.range_error_class, "{s}", .{range_error_msg});
+        return vm_instance.raiseExceptionFmt(vm_instance.type_error_class, "{s}", .{type_error_msg});
+    }
+
+    pub fn integerToManaged(self: Value, vm_instance: *VM) VMError!std.math.big.int.Managed {
+        if (self.isInteger()) return std.math.big.int.Managed.initSet(vm_instance.allocator, self.toInteger()) catch return error.Fatal;
+        if (self.isBigInteger()) return self.toBigIntegerObject().value.cloneWithDifferentAllocator(vm_instance.allocator) catch return error.Fatal;
+        unreachable;
+    }
+
+    // -- String coercion --
 
     pub fn coerceToStringValue(self: Value, vm_instance: *VM, type_error_message: []const u8) VMError!Value {
-        if (self.data == .string) {
-            return self;
-        }
+        if (self.isString()) return self;
 
         const to_str_sym = try vm_instance.intern("to_str");
         const has_to_str = (try vm_instance.findMethod(self, to_str_sym)) != null;
@@ -387,7 +605,7 @@ pub const Value = struct {
         }
 
         const coerced = try vm_instance.callMethodByName(self, "to_str", &[_]Value{}, null);
-        if (coerced.data != .string) {
+        if (!coerced.isString()) {
             const exc = try vm_instance.createException(vm_instance.type_error_class, type_error_message);
             vm_instance.pending_exception = exc;
             return error.Unwind;
@@ -396,115 +614,95 @@ pub const Value = struct {
         return coerced;
     }
 
-    pub fn ensureInteger(self: Value, vm_instance: *VM) VMError!void {
-        switch (self.data) {
-            .integer, .big_integer => {},
-            else => return vm_instance.raiseExceptionFmt(vm_instance.type_error_class, "argument is not numeric", .{}),
-        }
-    }
-
-    pub fn integerToF64(self: Value) f64 {
-        return switch (self.data) {
-            .integer => |i| @as(f64, @floatFromInt(i)),
-            .big_integer => |b| b.value.toFloat(f64, .nearest_even)[0],
-            else => unreachable,
-        };
-    }
-
-    pub fn integerToI64(self: Value, vm_instance: *VM, range_error_msg: []const u8) VMError!i64 {
-        return switch (self.data) {
-            .integer => |i| i,
-            .big_integer => |b| b.value.toInt(i64) catch return vm_instance.raiseExceptionFmt(vm_instance.range_error_class, "{s}", .{range_error_msg}),
-            else => unreachable,
-        };
-    }
-
-    pub fn integerArgToI64(self: Value, vm_instance: *VM, type_error_msg: []const u8, range_error_msg: []const u8) VMError!i64 {
-        return switch (self.data) {
-            .integer => |i| i,
-            .big_integer => |b| b.value.toInt(i64) catch return vm_instance.raiseExceptionFmt(vm_instance.range_error_class, "{s}", .{range_error_msg}),
-            else => vm_instance.raiseExceptionFmt(vm_instance.type_error_class, "{s}", .{type_error_msg}),
-        };
-    }
-
-    pub fn integerToManaged(self: Value, vm_instance: *VM) VMError!std.math.big.int.Managed {
-        return switch (self.data) {
-            .integer => |i| std.math.big.int.Managed.initSet(vm_instance.allocator, i) catch return error.Fatal,
-            .big_integer => |b| b.value.cloneWithDifferentAllocator(vm_instance.allocator) catch return error.Fatal,
-            else => unreachable,
-        };
-    }
-
     pub fn coerceToStr(self: Value, vm_instance: *VM, type_error_message: []const u8) VMError![]const u8 {
         const coerced = try self.coerceToStringValue(vm_instance, type_error_message);
-        return coerced.data.string.str;
+        return coerced.toStringObject().str;
     }
 
     pub fn coerceToMatchSource(self: Value, vm_instance: *VM) VMError!?Value {
-        switch (self.data) {
-            .nil => return null,
-            .string => return self,
-            .symbol => |sym| return try vm_instance.newString(sym.name, false),
-            else => {},
-        }
-
+        if (self.isNil()) return null;
+        if (self.isString()) return self;
+        if (self.isSymbol()) return try vm_instance.newString(self.toSymbolObject().name, false);
         return try self.coerceToStringValue(vm_instance, "no implicit conversion into String");
     }
 
+    // -- Display --
+
     pub fn format(self: Value, writer: *std.Io.Writer) !void {
-        switch (self.data) {
-            .integer => |i| try writer.print("{d}", .{i}),
-            .float => |f| try writer.print("{d}", .{f}),
-            .big_integer => |b| try writer.print("{}", .{b.value}),
-            .string => |s| try writer.print("\"{s}\"", .{s}),
-            .symbol => |s| try writer.print(":{s}", .{s.name}),
-            .boolean => |b| try writer.print("{s}", .{if (b) "true" else "false"}),
-            .nil => try writer.print("nil", .{}),
-            .module => |m| try writer.print("<Module {s}>", .{m.name.name}),
-            .class => |c| try writer.print("<Class {s}>", .{c.module.name.name}),
-            .encoding => |e| try writer.print("#<Encoding:{s}>", .{e.encoding.name()}),
-            .instance => |i| try writer.print("<{s} instance>", .{i.class.?.module.name.name}),
-            .array => |a| {
-                try writer.print("[", .{});
-                for (a.elements.items, 0..) |elem, idx| {
-                    if (idx > 0) try writer.print(", ", .{});
-                    try elem.format(writer);
-                }
-                try writer.print("]", .{});
-            },
-            .exception => |e| try writer.print("#<{s}: {s}>", .{ e.object.class.?.module.name.name, e.message.str }),
-            .hash => |h| {
-                try writer.print("{", .{});
-                for (h.entries.items, 0..) |entry, idx| {
-                    if (idx > 0) try writer.print(", ", .{});
-                    try entry.key.format(writer);
-                    try writer.print("=>", .{});
-                    try entry.value.format(writer);
-                }
-                try writer.print("}", .{});
-            },
-            .proc => |p| try writer.print("#<Proc:0x{x}>", .{@intFromPtr(p)}),
-            .fiber => |f| try writer.print("#<Fiber:0x{x}>", .{@intFromPtr(f)}),
-            .io => |io| try writer.print("#<IO:fd {d}>", .{io.fd}),
-            .match_data => |m| {
-                if (m.captures.items.len == 0 or m.captures.items[0].data != .string) {
-                    try writer.print("#<MatchData>", .{});
-                } else {
-                    try writer.print("#<MatchData {s}>", .{m.captures.items[0].data.string.str});
-                }
-            },
-            .range => |_| try writer.print("#<Range>", .{}),
-            .regexp => |r| try writer.print("/{s}/", .{r.pattern}),
-            .enumerator => |e| try writer.print("#<Enumerator:0x{x}>", .{@intFromPtr(e)}),
-            .yielder => |y| try writer.print("#<Enumerator::Yielder:0x{x}>", .{@intFromPtr(y)}),
+        if (self.isInteger()) {
+            try writer.print("{d}", .{self.toInteger()});
+        } else if (self.isNil()) {
+            try writer.print("nil", .{});
+        } else if (self.isBool()) {
+            try writer.print("{s}", .{if (self.toBool()) "true" else "false"});
+        } else if (self.isObject()) {
+            const tag = self.objectTypeTag();
+            switch (tag) {
+                .string => try writer.print("\"{s}\"", .{self.toStringObject().str}),
+                .symbol => try writer.print(":{s}", .{self.toSymbolObject().name}),
+                .module => try writer.print("<Module {s}>", .{self.toModuleObject().name.name}),
+                .class => try writer.print("<Class {s}>", .{self.toClassObject().module.name.name}),
+                .encoding_obj => try writer.print("#<Encoding:{s}>", .{self.toEncodingObject().encoding.name()}),
+                .instance => try writer.print("<{s} instance>", .{self.toInstanceObject().class.?.module.name.name}),
+                .array => {
+                    const a = self.toArrayObject();
+                    try writer.print("[", .{});
+                    for (a.elements.items, 0..) |elem, idx| {
+                        if (idx > 0) try writer.print(", ", .{});
+                        try elem.format(writer);
+                    }
+                    try writer.print("]", .{});
+                },
+                .exception => {
+                    const e = self.toExceptionObject();
+                    try writer.print("#<{s}: {s}>", .{ e.object.class.?.module.name.name, e.message.str });
+                },
+                .hash => {
+                    const h = self.toHashObject();
+                    try writer.print("{{", .{});
+                    for (h.entries.items, 0..) |entry, idx| {
+                        if (idx > 0) try writer.print(", ", .{});
+                        try entry.key.format(writer);
+                        try writer.print("=>", .{});
+                        try entry.value.format(writer);
+                    }
+                    try writer.print("}}", .{});
+                },
+                .proc => try writer.print("#<Proc:0x{x}>", .{self.raw}),
+                .fiber => try writer.print("#<Fiber:0x{x}>", .{self.raw}),
+                .io => try writer.print("#<IO:fd {d}>", .{self.toIoObject().fd}),
+                .match_data => {
+                    const m = self.toMatchDataObject();
+                    if (m.captures.items.len > 0 and m.captures.items[0].isString()) {
+                        try writer.print("#<MatchData {s}>", .{m.captures.items[0].toStringObject().str});
+                    } else {
+                        try writer.print("#<MatchData>", .{});
+                    }
+                },
+                .range => try writer.print("#<Range>", .{}),
+                .regexp => try writer.print("/{s}/", .{self.toRegexpObject().pattern}),
+                .enumerator => try writer.print("#<Enumerator:0x{x}>", .{self.raw}),
+                .yielder => try writer.print("#<Enumerator::Yielder:0x{x}>", .{self.raw}),
+                .big_integer => try writer.print("{}", .{self.toBigIntegerObject().value}),
+                .float => try writer.print("{d}", .{self.toFloatObject().val}),
+            }
+        } else {
+            try writer.print("<unknown>", .{});
         }
     }
 
+    // -- Hashing --
+
     pub fn hash(self: Value) u64 {
-        return switch (self.data) {
-            .integer => |i| @bitCast(@as(i64, i)),
-            .float => |f| @bitCast(f),
-            .big_integer => |b| blk: {
+        if (self.isInteger()) return @bitCast(self.toInteger());
+        if (self.isNil()) return 0;
+        if (self.isBool()) return if (self.toBool()) 1 else 0;
+        if (!self.isObject()) return 0;
+
+        const tag = self.objectTypeTag();
+        return switch (tag) {
+            .big_integer => blk: {
+                const b = self.toBigIntegerObject();
                 if (b.value.toInt(i64)) |i| {
                     break :blk @bitCast(i);
                 } else |_| {
@@ -514,31 +712,38 @@ pub const Value = struct {
                     break :blk std.hash.Wyhash.hash(sign_seed, limbs_bytes);
                 }
             },
-            .boolean => |b| if (b) 1 else 0,
-            .nil => 0,
-            .symbol => |s| @intFromPtr(s),
-            .string => |s| std.hash.Wyhash.hash(0, s.str),
-            .regexp => |r| std.hash.Wyhash.hash(@as(u64, r.options), r.pattern),
-            else => @intFromPtr(self.getObjectPointer() orelse return 0),
+            .symbol => @intFromPtr(self.toSymbolObject()),
+            .string => std.hash.Wyhash.hash(0, self.toStringObject().str),
+            .regexp => std.hash.Wyhash.hash(@as(u64, self.toRegexpObject().options), self.toRegexpObject().pattern),
+            .float => @bitCast(self.toFloatObject().val),
+            else => self.raw,
         };
     }
 
+    // -- Equality --
+
     pub fn eql(self: Value, other: Value) bool {
-        const self_tag = @as(std.meta.Tag(@TypeOf(self.data)), self.data);
-        const other_tag = @as(std.meta.Tag(@TypeOf(other.data)), other.data);
+        // Fast path: identical raw values
+        if (self.raw == other.raw) return true;
 
-        if (self_tag != other_tag) return false;
+        // Both integers
+        if (self.isInteger() and other.isInteger()) return false; // already checked raw equality
 
-        return switch (self.data) {
-            .integer => |i| i == other.data.integer,
-            .float => |f| f == other.data.float,
-            .big_integer => |b| b.value.eql(other.data.big_integer.value),
-            .boolean => |b| b == other.data.boolean,
-            .nil => true,
-            .symbol => |s| s == other.data.symbol,
-            .string => |s| std.mem.eql(u8, s.str, other.data.string.str),
-            .regexp => |r| std.mem.eql(u8, r.pattern, other.data.regexp.pattern) and r.options == other.data.regexp.options,
-            else => self.hash() == other.hash(),
-        };
+        // Both objects of the same type
+        if (self.isObject() and other.isObject()) {
+            const self_tag = self.objectTypeTag();
+            const other_tag = other.objectTypeTag();
+            if (self_tag != other_tag) return false;
+            return switch (self_tag) {
+                .big_integer => self.toBigIntegerObject().value.eql(other.toBigIntegerObject().value),
+                .string => std.mem.eql(u8, self.toStringObject().str, other.toStringObject().str),
+                .regexp => std.mem.eql(u8, self.toRegexpObject().pattern, other.toRegexpObject().pattern) and
+                    self.toRegexpObject().options == other.toRegexpObject().options,
+                .float => self.toFloatObject().val == other.toFloatObject().val,
+                else => self.hash() == other.hash(),
+            };
+        }
+
+        return false;
     }
 };

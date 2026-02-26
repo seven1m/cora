@@ -35,10 +35,8 @@ pub fn register(vm: *VM) !void {
 }
 
 fn requireIoReceiver(vm: *VM, receiver: Value) VMError!*IoObject {
-    return switch (receiver.data) {
-        .io => |io| io,
-        else => vm.raiseExceptionFmt(vm.type_error_class, "receiver is not an IO", .{}),
-    };
+    if (receiver.isIo()) return receiver.toIoObject();
+    return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not an IO", .{});
 }
 
 fn ensureIoOpen(vm: *VM, io: *IoObject) VMError!void {
@@ -128,18 +126,18 @@ pub fn builtinIoRead(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
     try vm.requireArgCountRange(args, 0, 1);
     const io = try requireIoReceiver(vm, receiver);
 
-    if (args.len == 0 or args[0].data == .nil) {
+    if (args.len == 0 or args[0].isNil()) {
         return ioReadAll(vm, io);
     }
 
-    if (args[0].data != .integer) {
+    if (!args[0].isInteger()) {
         return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Integer", .{});
     }
-    if (args[0].data.integer < 0) {
-        return vm.raiseExceptionFmt(vm.argument_error_class, "negative length {d} given", .{args[0].data.integer});
+    if (args[0].toInteger() < 0) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "negative length {d} given", .{args[0].toInteger()});
     }
 
-    return ioReadN(vm, io, @intCast(args[0].data.integer));
+    return ioReadN(vm, io, @intCast(args[0].toInteger()));
 }
 
 pub fn builtinIoWrite(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -154,10 +152,10 @@ pub fn builtinIoPrint(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
     const io = try requireIoReceiver(vm, receiver);
     for (args) |arg| {
         const str_val = try vm.callMethodByName(arg, "to_s", &[_]Value{}, null);
-        if (str_val.data != .string) {
+        if (!str_val.isString()) {
             return vm.raiseExceptionFmt(vm.type_error_class, "to_s did not return String", .{});
         }
-        _ = try ioWriteBytes(vm, io, str_val.data.string.str);
+        _ = try ioWriteBytes(vm, io, str_val.toStringObject().str);
     }
     return Value.nil();
 }
@@ -178,18 +176,18 @@ pub fn builtinIoPuts(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
 }
 
 fn ioPutsValue(vm: *VM, io: *IoObject, arg: Value) VMError!void {
-    if (arg.data == .array) {
-        for (arg.data.array.elements.items) |elem| {
+    if (arg.isArray()) {
+        for (arg.toArrayObject().elements.items) |elem| {
             try ioPutsValue(vm, io, elem);
         }
         return;
     }
 
     const str_val = try vm.callMethodByName(arg, "to_s", &[_]Value{}, null);
-    if (str_val.data != .string) {
+    if (!str_val.isString()) {
         return vm.raiseExceptionFmt(vm.type_error_class, "to_s did not return String", .{});
     }
-    const str = str_val.data.string.str;
+    const str = str_val.toStringObject().str;
     _ = try ioWriteBytes(vm, io, str);
     if (!std.mem.endsWith(u8, str, "\n")) {
         _ = try ioWriteBytes(vm, io, "\n");

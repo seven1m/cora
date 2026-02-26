@@ -16,19 +16,17 @@ const NumericArg = union(enum) {
 };
 
 fn coerceNumericArg(vm: *VM, arg: Value) VMError!NumericArg {
-    return switch (arg.data) {
-        .integer, .big_integer => .{ .integer = arg },
-        .float => |f| .{ .float = f },
-        else => vm.raiseExceptionFmt(vm.type_error_class, "argument is not numeric", .{}),
-    };
+    if (arg.isInteger() or arg.isBigInteger()) return .{ .integer = arg };
+    if (arg.isFloat()) return .{ .float = arg.toFloatObject().val };
+    return vm.raiseExceptionFmt(vm.type_error_class, "argument is not numeric", .{});
 }
 
 inline fn addIntegers(vm: *VM, lhs: Value, rhs: Value) VMError!Value {
-    if (lhs.data == .integer and rhs.data == .integer) {
-        const li = lhs.data.integer;
-        const ri = rhs.data.integer;
-        if (std.math.add(i64, li, ri)) |sum| {
-            return Value.integer(sum);
+    if (lhs.isInteger() and rhs.isInteger()) {
+        const li: i63 = @intCast(lhs.toInteger());
+        const ri: i63 = @intCast(rhs.toInteger());
+        if (std.math.add(i63, li, ri)) |sum| {
+            return Value.integer(@as(i64, sum));
         } else |_| {}
     }
 
@@ -43,11 +41,11 @@ inline fn addIntegers(vm: *VM, lhs: Value, rhs: Value) VMError!Value {
 }
 
 inline fn subIntegers(vm: *VM, lhs: Value, rhs: Value) VMError!Value {
-    if (lhs.data == .integer and rhs.data == .integer) {
-        const li = lhs.data.integer;
-        const ri = rhs.data.integer;
-        if (std.math.sub(i64, li, ri)) |diff| {
-            return Value.integer(diff);
+    if (lhs.isInteger() and rhs.isInteger()) {
+        const li: i63 = @intCast(lhs.toInteger());
+        const ri: i63 = @intCast(rhs.toInteger());
+        if (std.math.sub(i63, li, ri)) |diff| {
+            return Value.integer(@as(i64, diff));
         } else |_| {}
     }
 
@@ -62,11 +60,11 @@ inline fn subIntegers(vm: *VM, lhs: Value, rhs: Value) VMError!Value {
 }
 
 inline fn mulIntegers(vm: *VM, lhs: Value, rhs: Value) VMError!Value {
-    if (lhs.data == .integer and rhs.data == .integer) {
-        const li = lhs.data.integer;
-        const ri = rhs.data.integer;
-        if (std.math.mul(i64, li, ri)) |prod| {
-            return Value.integer(prod);
+    if (lhs.isInteger() and rhs.isInteger()) {
+        const li: i63 = @intCast(lhs.toInteger());
+        const ri: i63 = @intCast(rhs.toInteger());
+        if (std.math.mul(i63, li, ri)) |prod| {
+            return Value.integer(@as(i64, prod));
         } else |_| {}
     }
 
@@ -81,11 +79,11 @@ inline fn mulIntegers(vm: *VM, lhs: Value, rhs: Value) VMError!Value {
 }
 
 inline fn divFloorIntegers(vm: *VM, lhs: Value, rhs: Value) VMError!Value {
-    if (lhs.data == .integer and rhs.data == .integer) {
-        const li = lhs.data.integer;
-        const ri = rhs.data.integer;
-        if (std.math.divFloor(i64, li, ri)) |quot| {
-            return Value.integer(quot);
+    if (lhs.isInteger() and rhs.isInteger()) {
+        const li: i63 = @intCast(lhs.toInteger());
+        const ri: i63 = @intCast(rhs.toInteger());
+        if (std.math.divFloor(i63, li, ri)) |quot| {
+            return Value.integer(@as(i64, quot));
         } else |_| {}
     }
 
@@ -104,9 +102,9 @@ inline fn divFloorIntegers(vm: *VM, lhs: Value, rhs: Value) VMError!Value {
 }
 
 inline fn modIntegers(vm: *VM, lhs: Value, rhs: Value) VMError!Value {
-    if (lhs.data == .integer and rhs.data == .integer) {
-        const li = lhs.data.integer;
-        const ri = rhs.data.integer;
+    if (lhs.isInteger() and rhs.isInteger()) {
+        const li = lhs.toInteger();
+        const ri = rhs.toInteger();
         const maybe_q = std.math.divFloor(i64, li, ri);
         if (maybe_q) |q| {
             const prod = std.math.mul(i64, q, ri) catch {
@@ -134,8 +132,8 @@ inline fn modIntegers(vm: *VM, lhs: Value, rhs: Value) VMError!Value {
 }
 
 inline fn compareIntegers(vm: *VM, lhs: Value, rhs: Value) VMError!std.math.Order {
-    if (lhs.data == .integer and rhs.data == .integer) {
-        return std.math.order(lhs.data.integer, rhs.data.integer);
+    if (lhs.isInteger() and rhs.isInteger()) {
+        return std.math.order(lhs.toInteger(), rhs.toInteger());
     }
 
     var a = try lhs.integerToManaged(vm);
@@ -213,7 +211,7 @@ pub fn builtinIntegerPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     const rhs = try coerceNumericArg(vm, args[0]);
     return switch (rhs) {
         .integer => |i| try addIntegers(vm, receiver, i),
-        .float => |f| Value.float(receiver.integerToF64() + f),
+        .float => |f| try vm.newFloat(receiver.integerToF64() + f),
     };
 }
 
@@ -223,7 +221,7 @@ pub fn builtinIntegerMinus(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     const rhs = try coerceNumericArg(vm, args[0]);
     return switch (rhs) {
         .integer => |i| try subIntegers(vm, receiver, i),
-        .float => |f| Value.float(receiver.integerToF64() - f),
+        .float => |f| try vm.newFloat(receiver.integerToF64() - f),
     };
 }
 
@@ -233,7 +231,7 @@ pub fn builtinIntegerMultiply(vm: *VM, receiver: Value, args: []Value, _: ?Block
     const rhs = try coerceNumericArg(vm, args[0]);
     return switch (rhs) {
         .integer => |i| try mulIntegers(vm, receiver, i),
-        .float => |f| Value.float(receiver.integerToF64() * f),
+        .float => |f| try vm.newFloat(receiver.integerToF64() * f),
     };
 }
 
@@ -243,17 +241,18 @@ pub fn builtinIntegerDivide(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     const rhs = try coerceNumericArg(vm, args[0]);
     return switch (rhs) {
         .integer => |divisor| blk: {
-            const divisor_is_zero = switch (divisor.data) {
-                .integer => divisor.data.integer == 0,
-                .big_integer => divisor.data.big_integer.value.eqlZero(),
-                else => unreachable,
-            };
+            const divisor_is_zero = if (divisor.isInteger())
+                divisor.toInteger() == 0
+            else if (divisor.isBigInteger())
+                divisor.toBigIntegerObject().value.eqlZero()
+            else
+                unreachable;
             if (divisor_is_zero) {
                 return vm.raiseExceptionFmt(vm.zero_division_error_class, "divided by 0", .{});
             }
             break :blk try divFloorIntegers(vm, receiver, divisor);
         },
-        .float => |divisor| Value.float(receiver.integerToF64() / divisor),
+        .float => |divisor| try vm.newFloat(receiver.integerToF64() / divisor),
     };
 }
 
@@ -262,11 +261,12 @@ pub fn builtinIntegerModulo(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     try receiver.ensureInteger(vm);
     try args[0].ensureInteger(vm);
 
-    const divisor_is_zero = switch (args[0].data) {
-        .integer => args[0].data.integer == 0,
-        .big_integer => args[0].data.big_integer.value.eqlZero(),
-        else => unreachable,
-    };
+    const divisor_is_zero = if (args[0].isInteger())
+        args[0].toInteger() == 0
+    else if (args[0].isBigInteger())
+        args[0].toBigIntegerObject().value.eqlZero()
+    else
+        unreachable;
     if (divisor_is_zero) {
         return vm.raiseExceptionFmt(vm.zero_division_error_class, "divided by 0", .{});
     }
@@ -289,9 +289,9 @@ pub fn builtinIntegerPower(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 
     const exponent_u32: u32 = @intCast(exponent_i64);
 
-    if (receiver.data == .integer) {
+    if (receiver.isInteger()) {
         var result: i64 = 1;
-        var base = receiver.data.integer;
+        var base = receiver.toInteger();
         var exp: u64 = exponent_u32;
         var overflowed = false;
 
@@ -398,19 +398,16 @@ pub fn builtinIntegerToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
         base = @intCast(base_i64);
     }
 
-    switch (receiver.data) {
-        .integer => |i| {
-            var buf: [65]u8 = undefined;
-            const str = integerToBaseString(i, base, &buf);
-            return try vm.newStringWithEncoding(str, false, .{ .us_ascii = .{} });
-        },
-        .big_integer => |b| {
-            const str = b.value.toString(vm.allocator, base, .lower) catch return error.Fatal;
-            defer vm.allocator.free(str);
-            return try vm.newStringWithEncoding(str, false, .{ .us_ascii = .{} });
-        },
-        else => unreachable,
-    }
+    if (receiver.isInteger()) {
+        var buf: [65]u8 = undefined;
+        const str = integerToBaseString(receiver.toInteger(), base, &buf);
+        return try vm.newStringWithEncoding(str, false, .{ .us_ascii = .{} });
+    } else if (receiver.isBigInteger()) {
+        const b = receiver.toBigIntegerObject();
+        const str = b.value.toString(vm.allocator, base, .lower) catch return error.Fatal;
+        defer vm.allocator.free(str);
+        return try vm.newStringWithEncoding(str, false, .{ .us_ascii = .{} });
+    } else unreachable;
 }
 
 pub fn builtinIntegerInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -421,44 +418,41 @@ pub fn builtinIntegerAbs(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     try vm.requireArgCount(args, 0);
     try receiver.ensureInteger(vm);
 
-    return switch (receiver.data) {
-        .integer => |val| {
-            if (val >= 0) return Value.integer(val);
-            if (std.math.negate(val)) |abs_val| {
-                return Value.integer(abs_val);
-            } else |_| {
-                return vm.newBigIntegerFromDecimalString("9223372036854775808");
-            }
-        },
-        .big_integer => |b| {
-            if (b.value.isPositive()) return receiver;
-            var temp = b.value.cloneWithDifferentAllocator(vm.allocator) catch return error.Fatal;
-            defer temp.deinit();
-            temp.abs();
-            return vm.valueFromManagedInteger(&temp);
-        },
-        else => unreachable,
-    };
+    if (receiver.isInteger()) {
+        const val = receiver.toInteger();
+        if (val >= 0) return Value.integer(val);
+        if (std.math.negate(val)) |abs_val| {
+            return Value.integer(abs_val);
+        } else |_| {
+            return vm.newBigIntegerFromDecimalString("9223372036854775808");
+        }
+    } else if (receiver.isBigInteger()) {
+        const b = receiver.toBigIntegerObject();
+        if (b.value.isPositive()) return receiver;
+        var temp = b.value.cloneWithDifferentAllocator(vm.allocator) catch return error.Fatal;
+        defer temp.deinit();
+        temp.abs();
+        return vm.valueFromManagedInteger(&temp);
+    } else unreachable;
 }
 
 pub fn builtinIntegerNegative(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     try receiver.ensureInteger(vm);
-    return switch (receiver.data) {
-        .integer => |i| Value.boolean(i < 0),
-        .big_integer => |b| Value.boolean(!b.value.isPositive() and !b.value.eqlZero()),
-        else => unreachable,
-    };
+    if (receiver.isInteger()) return Value.boolean(receiver.toInteger() < 0);
+    if (receiver.isBigInteger()) {
+        const b = receiver.toBigIntegerObject();
+        return Value.boolean(!b.value.isPositive() and !b.value.eqlZero());
+    }
+    unreachable;
 }
 
 pub fn builtinIntegerZero(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     try receiver.ensureInteger(vm);
-    return switch (receiver.data) {
-        .integer => |i| Value.boolean(i == 0),
-        .big_integer => |b| Value.boolean(b.value.eqlZero()),
-        else => unreachable,
-    };
+    if (receiver.isInteger()) return Value.boolean(receiver.toInteger() == 0);
+    if (receiver.isBigInteger()) return Value.boolean(receiver.toBigIntegerObject().value.eqlZero());
+    unreachable;
 }
 
 pub fn builtinIntegerTimes(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -522,12 +516,11 @@ pub fn builtinIntegerChr(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
 
     const target_encoding: enc.Encoding = if (args.len == 0)
         if (codepoint <= 127) .{ .us_ascii = .{} } else .{ .ascii_8bit = .{} }
-    else switch (args[0].data) {
-        .encoding => |e| e.encoding,
-        else => blk: {
-            const result = try encoding_builtin.builtinEncodingFind(vm, receiver, args, null);
-            break :blk result.data.encoding.encoding;
-        },
+    else if (args[0].isEncoding())
+        args[0].toEncodingObject().encoding
+    else blk: {
+        const result = try encoding_builtin.builtinEncodingFind(vm, receiver, args, null);
+        break :blk result.toEncodingObject().encoding;
     };
 
     const cp: u32 = @intCast(codepoint);

@@ -96,6 +96,22 @@ pub fn build(b: *std.Build) void {
 
     b.installArtifact(exe);
 
+    const lite_exe = b.addExecutable(.{
+        .name = "cora_lite",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/cora_lite.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+
+    lite_exe.step.dependOn(prism_build_step);
+    lite_exe.addObjectFile(b.path("zig-out/prism/build/libprism.a"));
+    lite_exe.addIncludePath(b.path("zig-out/prism/include"));
+    lite_exe.linkLibC();
+
+    b.installArtifact(lite_exe);
+
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
 
@@ -105,6 +121,14 @@ pub fn build(b: *std.Build) void {
 
     const run_step = b.step("run", "Run the VM");
     run_step.dependOn(&run_cmd.step);
+
+    const run_lite_cmd = b.addRunArtifact(lite_exe);
+    run_lite_cmd.step.dependOn(b.getInstallStep());
+    if (b.args) |args| {
+        run_lite_cmd.addArgs(args);
+    }
+    const run_lite_step = b.step("run-lite", "Run cora_lite");
+    run_lite_step.dependOn(&run_lite_cmd.step);
 
     const test_filter = b.option([]const u8, "test-filter", "Filter tests by name (supports 'foo|bar' OR matching)");
     options.addOption([]const u8, "test_filter_raw", test_filter orelse "");

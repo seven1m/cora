@@ -14,6 +14,6 @@ pub fn register(vm: *VM) !void {
 pub fn builtinExceptionMessage(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
 
-    const exc = receiver.data.exception;
-    return .{ .data = .{ .string = exc.message } };
+    const exc = receiver.toExceptionObject();
+    return Value.fromObject(exc.message);
 }

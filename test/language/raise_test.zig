@@ -22,7 +22,7 @@ test "Re-raise in rescue clause" {
 
     // Outer rescue catches the re-raised exception
     try std.testing.expect(result.err == null);
-    try std.testing.expect(result.value.data == .nil);
+    try std.testing.expect(result.value.isNil());
     try std.testing.expectEqualSlices(u8, "final\n", result.stdout);
 }
 

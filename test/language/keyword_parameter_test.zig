@@ -6,7 +6,7 @@ const evalCodeWithOutput = test_helper.evalCodeWithOutput;
 
 test "Required keyword argument" {
     const result = try evalCode("def foo(x:); x * 2; end\nfoo(x: 21)");
-    try std.testing.expectEqual(42, result.data.integer);
+    try std.testing.expectEqual(42, result.toInteger());
 }
 
 test "Required keyword missing raises error" {
@@ -20,12 +20,12 @@ test "Required keyword missing raises error" {
 
 test "Optional keyword with default" {
     const result = try evalCode("def bar(y: 100); y; end\nbar()");
-    try std.testing.expectEqual(100, result.data.integer);
+    try std.testing.expectEqual(100, result.toInteger());
 }
 
 test "Optional keyword overridden" {
     const result = try evalCode("def bar(y: 100); y; end\nbar(y: 5)");
-    try std.testing.expectEqual(5, result.data.integer);
+    try std.testing.expectEqual(5, result.toInteger());
 }
 
 test "Mixed positional and keyword args" {
@@ -33,11 +33,11 @@ test "Mixed positional and keyword args" {
         \\def qux(a, b:, c: 3); [a, b, c]; end
         \\qux(10, b: 20)
     );
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(3, result.data.array.elements.items.len);
-    try std.testing.expectEqual(10, result.data.array.elements.items[0].data.integer);
-    try std.testing.expectEqual(20, result.data.array.elements.items[1].data.integer);
-    try std.testing.expectEqual(3, result.data.array.elements.items[2].data.integer);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(3, result.toArrayObject().elements.items.len);
+    try std.testing.expectEqual(10, result.toArrayObject().elements.items[0].toInteger());
+    try std.testing.expectEqual(20, result.toArrayObject().elements.items[1].toInteger());
+    try std.testing.expectEqual(3, result.toArrayObject().elements.items[2].toInteger());
 }
 
 test "Keyword rest collects extra keywords" {
@@ -45,8 +45,8 @@ test "Keyword rest collects extra keywords" {
         \\def baz(**opts); opts; end
         \\baz(a: 1, b: 2)
     );
-    try std.testing.expect(result.data == .hash);
-    try std.testing.expectEqual(2, result.data.hash.entries.items.len);
+    try std.testing.expect(result.isHash());
+    try std.testing.expectEqual(2, result.toHashObject().entries.items.len);
 }
 
 test "No keywords parameter rejects keywords" {
@@ -76,9 +76,9 @@ test "Keywords matched by name not position" {
         \\def foo(a:, b:); [a, b]; end
         \\foo(b: 2, a: 1)
     );
-    try std.testing.expect(result.data == .array);
-    try std.testing.expectEqual(1, result.data.array.elements.items[0].data.integer);
-    try std.testing.expectEqual(2, result.data.array.elements.items[1].data.integer);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(1, result.toArrayObject().elements.items[0].toInteger());
+    try std.testing.expectEqual(2, result.toArrayObject().elements.items[1].toInteger());
 }
 
 test "Keyword with positional arguments" {
@@ -86,7 +86,7 @@ test "Keyword with positional arguments" {
         \\def foo(x, y:); x + y; end
         \\foo(10, y: 32)
     );
-    try std.testing.expectEqual(42, result.data.integer);
+    try std.testing.expectEqual(42, result.toInteger());
 }
 
 test "Multiple optional keywords" {
@@ -94,7 +94,7 @@ test "Multiple optional keywords" {
         \\def foo(a: 1, b: 2, c: 3); a + b + c; end
         \\foo(b: 10)
     );
-    try std.testing.expectEqual(14, result.data.integer);
+    try std.testing.expectEqual(14, result.toInteger());
 }
 
 test "Empty keyword rest hash" {
@@ -102,8 +102,8 @@ test "Empty keyword rest hash" {
         \\def foo(a:, **opts); opts; end
         \\foo(a: 1)
     );
-    try std.testing.expect(result.data == .hash);
-    try std.testing.expectEqual(0, result.data.hash.entries.items.len);
+    try std.testing.expect(result.isHash());
+    try std.testing.expectEqual(0, result.toHashObject().entries.items.len);
 }
 
 test "Multiple optional keywords called with no arguments" {
@@ -111,5 +111,5 @@ test "Multiple optional keywords called with no arguments" {
         \\def foo(a: 10, b: 20, c: 30); a + b + c; end
         \\foo()
     );
-    try std.testing.expectEqual(60, result.data.integer);
+    try std.testing.expectEqual(60, result.toInteger());
 }

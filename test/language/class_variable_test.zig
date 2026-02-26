@@ -15,7 +15,7 @@ test "class variable basic read/write" {
         \\A.count
     );
 
-    try std.testing.expectEqual(@as(i64, 1), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
 }
 
 test "class variable operator write" {
@@ -30,7 +30,7 @@ test "class variable operator write" {
         \\A.count
     );
 
-    try std.testing.expectEqual(@as(i64, 2), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 2), result.toInteger());
 }
 
 test "class variable ||= initializes missing" {
@@ -43,7 +43,7 @@ test "class variable ||= initializes missing" {
         \\A.ensure
     );
 
-    try std.testing.expectEqual(@as(i64, 5), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 5), result.toInteger());
 }
 
 test "class variable &&= raises NameError when missing" {
@@ -80,7 +80,7 @@ test "class variable is visible in subclass" {
         \\Child.cv
     );
 
-    try std.testing.expectEqual(@as(i64, 9), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 9), result.toInteger());
 }
 
 test "class variable target works in multi assignment" {
@@ -95,7 +95,7 @@ test "class variable target works in multi assignment" {
         \\A.set
     );
 
-    try std.testing.expectEqual(@as(i64, 7), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 7), result.toInteger());
 }
 
 test "class variable target works in splat assignment" {
@@ -110,5 +110,5 @@ test "class variable target works in splat assignment" {
         \\A.set
     );
 
-    try std.testing.expectEqual(@as(i64, 3), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 3), result.toInteger());
 }

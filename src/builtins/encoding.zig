@@ -72,44 +72,44 @@ pub fn register(vm: *VM) !void {
     try vm.encoding_class.module.methods.put(ascii_compatible_sym, .{ .method = .{ .builtin = &builtinEncodingAsciiCompatible } });
 
     const find_sym = try vm.intern("find");
-    const encoding_class_val = Value{ .data = .{ .class = vm.encoding_class } };
+    const encoding_class_val = Value.fromObject(vm.encoding_class);
     const encoding_singleton = try vm.getOrCreateSingletonClass(encoding_class_val);
     try encoding_singleton.module.methods.put(find_sym, .{ .method = .{ .builtin = &builtinEncodingFind } });
 }
 
 pub fn builtinEncodingName(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const encoding_obj = receiver.data.encoding;
+    const encoding_obj = receiver.toEncodingObject();
     return try vm.newString(encoding_obj.encoding.name(), true);
 }
 
 pub fn builtinEncodingInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const encoding_obj = receiver.data.encoding;
+    const encoding_obj = receiver.toEncodingObject();
     const str = std.fmt.allocPrint(vm.gc_allocator, "#<Encoding:{s}>", .{encoding_obj.encoding.name()}) catch return error.Fatal;
     return try vm.newString(str, false);
 }
 
 pub fn builtinEncodingAsciiCompatible(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const encoding_obj = receiver.data.encoding;
+    const encoding_obj = receiver.toEncodingObject();
     return Value.boolean(encoding_obj.encoding.isAsciiCompatible());
 }
 
 pub fn builtinEncodingEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const other = args[0];
-    if (other.data != .encoding) {
+    if (!other.isEncoding()) {
         return Value.boolean(false);
     }
-    return Value.boolean(receiver.data.encoding.encoding.eql(other.data.encoding.encoding));
+    return Value.boolean(receiver.toEncodingObject().encoding.eql(other.toEncodingObject().encoding));
 }
 
 pub fn builtinEncodingFind(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const arg = args[0];
 
-    if (arg.data == .encoding) {
+    if (arg.isEncoding()) {
         return arg;
     }
 
@@ -133,18 +133,18 @@ pub fn builtinEncodingFind(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
 
     if (encoding_name_map.get(lookup)) |enc_name| {
         return switch (enc_name) {
-            .utf8 => Value{ .data = .{ .encoding = vm.encoding_utf8 } },
-            .ascii_8bit => Value{ .data = .{ .encoding = vm.encoding_ascii_8bit } },
-            .us_ascii => Value{ .data = .{ .encoding = vm.encoding_us_ascii } },
-            .shift_jis => Value{ .data = .{ .encoding = vm.encoding_shift_jis } },
-            .iso_8859_15 => Value{ .data = .{ .encoding = vm.encoding_iso_8859_15 } },
-            .utf7 => Value{ .data = .{ .encoding = vm.encoding_utf7 } },
-            .utf16 => Value{ .data = .{ .encoding = vm.encoding_utf16 } },
-            .utf32 => Value{ .data = .{ .encoding = vm.encoding_utf32 } },
-            .utf16le => Value{ .data = .{ .encoding = vm.encoding_utf16le } },
-            .utf16be => Value{ .data = .{ .encoding = vm.encoding_utf16be } },
-            .utf32le => Value{ .data = .{ .encoding = vm.encoding_utf32le } },
-            .utf32be => Value{ .data = .{ .encoding = vm.encoding_utf32be } },
+            .utf8 => Value.fromObject(vm.encoding_utf8),
+            .ascii_8bit => Value.fromObject(vm.encoding_ascii_8bit),
+            .us_ascii => Value.fromObject(vm.encoding_us_ascii),
+            .shift_jis => Value.fromObject(vm.encoding_shift_jis),
+            .iso_8859_15 => Value.fromObject(vm.encoding_iso_8859_15),
+            .utf7 => Value.fromObject(vm.encoding_utf7),
+            .utf16 => Value.fromObject(vm.encoding_utf16),
+            .utf32 => Value.fromObject(vm.encoding_utf32),
+            .utf16le => Value.fromObject(vm.encoding_utf16le),
+            .utf16be => Value.fromObject(vm.encoding_utf16be),
+            .utf32le => Value.fromObject(vm.encoding_utf32le),
+            .utf32be => Value.fromObject(vm.encoding_utf32be),
         };
     }
 

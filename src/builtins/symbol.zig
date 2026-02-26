@@ -30,20 +30,20 @@ pub fn register(vm: *VM) !void {
 pub fn builtinSymbolEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const other = args[0];
-    if (other.data != .symbol) return Value.boolean(false);
-    return Value.boolean(receiver.data.symbol == other.data.symbol);
+    if (!other.isSymbol()) return Value.boolean(false);
+    return Value.boolean(receiver.toSymbolObject() == other.toSymbolObject());
 }
 
 pub fn builtinSymbolToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const sym = receiver.data.symbol;
+    const sym = receiver.toSymbolObject();
     return try vm.newStringWithEncoding(sym.name, false, sym.encoding);
 }
 
 pub fn builtinSymbolInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
 
-    const str = std.fmt.allocPrint(vm.gc_allocator, ":{s}", .{receiver.data.symbol.name}) catch return error.Fatal;
+    const str = std.fmt.allocPrint(vm.gc_allocator, ":{s}", .{receiver.toSymbolObject().name}) catch return error.Fatal;
     return try vm.newString(str, false);
 }
 
@@ -55,11 +55,11 @@ pub fn builtinSymbolToSym(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
 pub fn builtinSymbolToProc(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return vm.newProc(.{
-        .kind = .{ .symbol = receiver.data.symbol },
+        .kind = .{ .symbol = receiver.toSymbolObject() },
     });
 }
 
 pub fn builtinSymbolEncoding(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    return vm.encodingToValue(receiver.data.symbol.encoding);
+    return vm.encodingToValue(receiver.toSymbolObject().encoding);
 }

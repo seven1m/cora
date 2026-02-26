@@ -12,6 +12,6 @@ test "Exception#message returns message string" {
         \\  e.message
         \\end
     );
-    try std.testing.expect(result.data == .string);
-    try std.testing.expectEqualSlices(u8, "my message", result.data.string.str);
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "my message", result.toStringObject().str);
 }

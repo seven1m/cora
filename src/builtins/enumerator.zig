@@ -9,7 +9,7 @@ const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
     // Enumerator singleton methods (class methods)
-    const enum_class_val = Value{ .data = .{ .class = vm.enumerator_class } };
+    const enum_class_val = Value.fromObject(vm.enumerator_class);
     const enum_singleton = try vm.getOrCreateSingletonClass(enum_class_val);
 
     const new_sym = try vm.intern("new");
@@ -67,13 +67,13 @@ fn builtinEnumeratorNew(vm: *VM, _: Value, args: []Value, block: ?Block) VMError
 
     // Wrap the block as a ProcObject
     const proc_val = try vm.newProc(blk);
-    return vm.newEnumerator(.{ .generator = .{ .proc = proc_val.data.proc } }, null, null);
+    return vm.newEnumerator(.{ .generator = .{ .proc = proc_val.toProcObject() } }, null, null);
 }
 
 // --- Enumerator instance methods ---
 
 fn builtinEnumeratorEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
-    const enum_obj = receiver.data.enumerator;
+    const enum_obj = receiver.toEnumeratorObject();
 
     const blk = block orelse {
         if (args.len == 0) {
@@ -127,7 +127,7 @@ fn builtinEnumeratorEach(vm: *VM, receiver: Value, args: []Value, block: ?Block)
 
 fn builtinEnumeratorNext(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const enum_obj = receiver.data.enumerator;
+    const enum_obj = receiver.toEnumeratorObject();
 
     const yield_values = try takeNextYieldValues(vm, enum_obj);
     return collapseYieldValues(yield_values);
@@ -135,28 +135,28 @@ fn builtinEnumeratorNext(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
 
 fn builtinEnumeratorNextValues(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const enum_obj = receiver.data.enumerator;
+    const enum_obj = receiver.toEnumeratorObject();
     const yield_values = try takeNextYieldValues(vm, enum_obj);
-    return Value{ .data = .{ .array = yield_values } };
+    return Value.fromObject(yield_values);
 }
 
 fn builtinEnumeratorPeek(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const enum_obj = receiver.data.enumerator;
+    const enum_obj = receiver.toEnumeratorObject();
     const yield_values = try peekNextYieldValues(vm, enum_obj);
     return collapseYieldValues(yield_values);
 }
 
 fn builtinEnumeratorPeekValues(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const enum_obj = receiver.data.enumerator;
+    const enum_obj = receiver.toEnumeratorObject();
     const yield_values = try peekNextYieldValues(vm, enum_obj);
-    return Value{ .data = .{ .array = yield_values } };
+    return Value.fromObject(yield_values);
 }
 
 fn builtinEnumeratorRewind(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const enum_obj = receiver.data.enumerator;
+    const enum_obj = receiver.toEnumeratorObject();
     enum_obj.fiber = null;
     enum_obj.has_lookahead_values = false;
     enum_obj.lookahead_values = null;
@@ -165,7 +165,7 @@ fn builtinEnumeratorRewind(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 
 fn builtinEnumeratorInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const enum_obj = receiver.data.enumerator;
+    const enum_obj = receiver.toEnumeratorObject();
 
     switch (enum_obj.kind) {
         .method => |m| {
@@ -190,7 +190,7 @@ fn builtinEnumeratorInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 
 fn builtinEnumeratorSize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const enum_obj = receiver.data.enumerator;
+    const enum_obj = receiver.toEnumeratorObject();
 
     if (enum_obj.size_proc) |size_proc| {
         return vm.callProcObject(size_proc, &[_]Value{}, null, null);
@@ -214,7 +214,7 @@ fn builtinEnumeratorToA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
         out.elements.append(vm.gc_allocator, next_val) catch return error.Fatal;
     }
 
-    return Value{ .data = .{ .array = out } };
+    return Value.fromObject(out);
 }
 
 fn builtinEnumeratorMap(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -235,11 +235,11 @@ fn builtinEnumeratorMap(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
         };
 
         var yielded_args: []const Value = &[_]Value{next_val};
-        if (next_val.data == .array) {
+        if (next_val.isArray()) {
             switch (blk.kind) {
                 .chunk => |chunk_blk| {
                     if (chunk_blk.chunk.arity > 1) {
-                        const elems = next_val.data.array.elements.items;
+                        const elems = next_val.toArrayObject().elements.items;
                         for (elems, 0..) |elem, i| {
                             yielded_args_buf[i] = elem;
                         }
@@ -255,14 +255,14 @@ fn builtinEnumeratorMap(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
         out.elements.append(vm.gc_allocator, mapped.value) catch return error.Fatal;
     }
 
-    return Value{ .data = .{ .array = out } };
+    return Value.fromObject(out);
 }
 
 // --- Yielder instance methods ---
 
 fn builtinYielderPush(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const yielder_obj = receiver.data.yielder;
+    const yielder_obj = receiver.toYielderObject();
 
     const yield_args = [_]Value{args[0]};
     _ = try vm.yieldToBlock(yielder_obj.block, &yield_args);
@@ -272,7 +272,7 @@ fn builtinYielderPush(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
 }
 
 fn builtinYielderYield(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    const yielder_obj = receiver.data.yielder;
+    const yielder_obj = receiver.toYielderObject();
     const result = try vm.yieldToBlock(yielder_obj.block, args);
     return result.value;
 }
@@ -289,7 +289,7 @@ fn ensureEnumeratorFiber(vm: *VM, enum_obj: *value.EnumeratorObject) VMError!*va
     // Create a new fiber with a builtin block that calls enum.each { |v| Fiber.yield(v) }
     const fiber_block = Block{ .kind = .{ .builtin = &enumeratorFiberBody } };
     const fiber_val = try vm.newFiber(vm.fiber_class, fiber_block);
-    const fiber = fiber_val.data.fiber;
+    const fiber = fiber_val.toFiberObject();
 
     enum_obj.fiber = fiber;
     return fiber;
@@ -298,7 +298,7 @@ fn ensureEnumeratorFiber(vm: *VM, enum_obj: *value.EnumeratorObject) VMError!*va
 fn enumeratorFiberBody(vm: *VM, args: []Value) VMError!Value {
     // args[0] is the enumerator value passed as first resume arg
     const enum_val = if (args.len > 0) args[0] else return error.Fatal;
-    const enum_obj = enum_val.data.enumerator;
+    const enum_obj = enum_val.toEnumeratorObject();
 
     // Create a block that fiber-yields each value
     const yield_block = Block{ .kind = .{ .builtin = &enumeratorFiberYieldBlock } };
@@ -329,7 +329,7 @@ fn enumeratorFiberYieldBlock(vm: *VM, args: []Value) VMError!Value {
     for (args) |arg| {
         arr.elements.append(vm.gc_allocator, arg) catch return error.Fatal;
     }
-    return vm.fiberYield(Value{ .data = .{ .array = arr } });
+    return vm.fiberYield(Value.fromObject(arr));
 }
 
 fn raiseStopIteration(vm: *VM) VMError {
@@ -342,7 +342,7 @@ fn collapseYieldValues(yield_values: *value.ArrayObject) Value {
     return switch (yield_values.elements.items.len) {
         0 => Value.nil(),
         1 => yield_values.elements.items[0],
-        else => Value{ .data = .{ .array = yield_values } },
+        else => Value.fromObject(yield_values),
     };
 }
 
@@ -354,7 +354,7 @@ fn fetchNextYieldValues(vm: *VM, enum_obj: *value.EnumeratorObject) VMError!*val
         return raiseStopIteration(vm);
     }
 
-    var resume_args: [1]Value = .{Value{ .data = .{ .enumerator = enum_obj } }};
+    var resume_args: [1]Value = .{Value.fromObject(enum_obj)};
     const result = try vm.resumeFiber(
         fiber,
         if (fiber.state == .created) resume_args[0..1] else &[_]Value{},
@@ -364,8 +364,8 @@ fn fetchNextYieldValues(vm: *VM, enum_obj: *value.EnumeratorObject) VMError!*val
     if (fiber.state == .terminated) {
         return raiseStopIteration(vm);
     }
-    if (result.data != .array) return error.Fatal;
-    return result.data.array;
+    if (!result.isArray()) return error.Fatal;
+    return result.toArrayObject();
 }
 
 fn takeNextYieldValues(vm: *VM, enum_obj: *value.EnumeratorObject) VMError!*value.ArrayObject {

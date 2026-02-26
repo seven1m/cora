@@ -8,8 +8,8 @@ test "Kernel#at_exit returns a Proc" {
     const result = try evalCode(
         \\at_exit { }.is_a?(Proc)
     );
-    try std.testing.expect(result.data == .boolean);
-    try std.testing.expectEqual(true, result.data.boolean);
+    try std.testing.expect(result.isBool());
+    try std.testing.expectEqual(true, result.toBool());
 }
 
 test "Kernel#at_exit runs handlers in LIFO order" {

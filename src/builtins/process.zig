@@ -9,7 +9,7 @@ const Block = vm_mod.Block;
 const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
-    const process_obj = Value{ .data = .{ .module = vm.process_module } };
+    const process_obj = Value.fromObject(vm.process_module);
     const process_singleton = try vm.getOrCreateSingletonClass(process_obj);
 
     const uid_sym = try vm.intern("uid");

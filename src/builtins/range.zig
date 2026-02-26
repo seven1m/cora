@@ -24,15 +24,15 @@ pub fn register(vm: *VM) !void {
 pub fn builtinRangeInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 2, 3);
 
-    if (receiver.data != .range) {
+    if (!receiver.isRange()) {
         return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Range", .{});
     }
 
     const exclude_end = if (args.len == 3) args[2].is_truthy() else false;
 
-    receiver.data.range.begin = args[0];
-    receiver.data.range.end = args[1];
-    receiver.data.range.exclude_end = exclude_end;
+    receiver.toRangeObject().begin = args[0];
+    receiver.toRangeObject().end = args[1];
+    receiver.toRangeObject().exclude_end = exclude_end;
 
     return Value.nil();
 }
@@ -40,40 +40,41 @@ pub fn builtinRangeInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block
 pub fn builtinRangeToA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
 
-    if (receiver.data != .range) {
+    if (!receiver.isRange()) {
         return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Range", .{});
     }
 
-    const begin_val = receiver.data.range.begin;
-    const end_val = receiver.data.range.end;
-    const exclude_end = receiver.data.range.exclude_end;
+    const range_obj = receiver.toRangeObject();
+    const begin_val = range_obj.begin;
+    const end_val = range_obj.end;
+    const exclude_end = range_obj.exclude_end;
 
-    if (begin_val.data == .nil) {
+    if (begin_val.isNil()) {
         return vm.raiseExceptionFmt(vm.range_error_class, "cannot convert beginless range to an array", .{});
     }
 
-    if (end_val.data == .nil) {
+    if (end_val.isNil()) {
         return vm.raiseExceptionFmt(vm.range_error_class, "cannot convert endless range to an array", .{});
     }
 
-    if (begin_val.data != .integer) {
+    if (!begin_val.isInteger()) {
         return vm.raiseExceptionFmt(
             vm.type_error_class,
-            "wrong argument type {s} (expected Integer)",
-            .{@tagName(begin_val.data)},
+            "wrong argument type (expected Integer)",
+            .{},
         );
     }
 
-    if (end_val.data != .integer) {
+    if (!end_val.isInteger()) {
         return vm.raiseExceptionFmt(
             vm.type_error_class,
-            "wrong argument type {s} (expected Integer)",
-            .{@tagName(end_val.data)},
+            "wrong argument type (expected Integer)",
+            .{},
         );
     }
 
-    const start_i = begin_val.data.integer;
-    const end_i = end_val.data.integer;
+    const start_i = begin_val.toInteger();
+    const end_i = end_val.toInteger();
 
     const array_obj = try vm.createArray();
 
@@ -91,29 +92,29 @@ pub fn builtinRangeToA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
         }
     }
 
-    return Value{ .data = .{ .array = array_obj } };
+    return Value.fromObject(array_obj);
 }
 
 pub fn builtinRangeInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
 
-    if (receiver.data != .range) {
+    if (!receiver.isRange()) {
         return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Range", .{});
     }
 
-    const range_obj = receiver.data.range;
+    const range_obj = receiver.toRangeObject();
 
     var buf: std.ArrayList(u8) = .empty;
     const writer = buf.writer(vm.allocator);
 
-    if (range_obj.begin.data != .nil) {
+    if (!range_obj.begin.isNil()) {
         const begin_inspected = try vm.callMethodByName(range_obj.begin, "inspect", &[_]Value{}, null);
-        if (begin_inspected.data != .string) {
+        if (!begin_inspected.isString()) {
             const exc = try vm.createException(vm.type_error_class, "inspect did not return String");
             vm.pending_exception = exc;
             return error.Unwind;
         }
-        writer.writeAll(begin_inspected.data.string.str) catch return error.Fatal;
+        writer.writeAll(begin_inspected.toStringObject().str) catch return error.Fatal;
     }
 
     if (range_obj.exclude_end) {
@@ -122,14 +123,14 @@ pub fn builtinRangeInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
         writer.writeAll("..") catch return error.Fatal;
     }
 
-    if (range_obj.end.data != .nil) {
+    if (!range_obj.end.isNil()) {
         const end_inspected = try vm.callMethodByName(range_obj.end, "inspect", &[_]Value{}, null);
-        if (end_inspected.data != .string) {
+        if (!end_inspected.isString()) {
             const exc = try vm.createException(vm.type_error_class, "inspect did not return String");
             vm.pending_exception = exc;
             return error.Unwind;
         }
-        writer.writeAll(end_inspected.data.string.str) catch return error.Fatal;
+        writer.writeAll(end_inspected.toStringObject().str) catch return error.Fatal;
     }
 
     const str = buf.toOwnedSlice(vm.allocator) catch return error.Fatal;
@@ -140,22 +141,22 @@ pub fn builtinRangeInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 pub fn builtinRangeCaseEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
 
-    if (receiver.data != .range) {
+    if (!receiver.isRange()) {
         return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Range", .{});
     }
 
-    const range_obj = receiver.data.range;
+    const range_obj = receiver.toRangeObject();
     const candidate = args[0];
 
-    if (candidate.data != .integer) return Value.boolean(false);
-    const n = candidate.data.integer;
+    if (!candidate.isInteger()) return Value.boolean(false);
+    const n = candidate.toInteger();
 
-    if (range_obj.begin.data != .integer or range_obj.end.data != .integer) {
+    if (!range_obj.begin.isInteger() or !range_obj.end.isInteger()) {
         return Value.boolean(false);
     }
 
-    const begin_i = range_obj.begin.data.integer;
-    const end_i = range_obj.end.data.integer;
+    const begin_i = range_obj.begin.toInteger();
+    const end_i = range_obj.end.toInteger();
 
     if (range_obj.exclude_end) {
         return Value.boolean(n >= begin_i and n < end_i);

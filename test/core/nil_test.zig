@@ -6,23 +6,23 @@ const evalCodeWithOutput = test_helper.evalCodeWithOutput;
 
 test "Nil value" {
     const result = try evalCode("nil");
-    try std.testing.expect(result.data == .nil);
+    try std.testing.expect(result.isNil());
 }
 
 test "NilClass#inspect" {
     const result = try evalCode("nil.inspect");
-    try std.testing.expect(result.data == .string);
-    try std.testing.expectEqualSlices(u8, "nil", result.data.string.str);
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "nil", result.toStringObject().str);
 }
 
 test "NilClass#to_s" {
     const result = try evalCode("nil.to_s");
-    try std.testing.expect(result.data == .string);
-    try std.testing.expectEqualSlices(u8, "", result.data.string.str);
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "", result.toStringObject().str);
 }
 
 test "NilClass#nil?" {
     const result = try evalCode("nil.nil?");
-    try std.testing.expect(result.data == .boolean);
-    try std.testing.expectEqual(true, result.data.boolean);
+    try std.testing.expect(result.isBool());
+    try std.testing.expectEqual(true, result.toBool());
 }

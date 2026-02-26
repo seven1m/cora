@@ -15,8 +15,8 @@ test "Classes" {
         \\class Foo
         \\end
     );
-    try std.testing.expect(result.data == .class);
-    try std.testing.expectEqualSlices(u8, "Foo", result.data.class.module.name.name);
+    try std.testing.expect(result.isClass());
+    try std.testing.expectEqualSlices(u8, "Foo", result.toClassObject().module.name.name);
 }
 
 test "Class instantiation" {
@@ -29,8 +29,8 @@ test "Class instantiation" {
         \\foo = Foo.new
         \\foo.foo
     );
-    try std.testing.expect(result.data == .string);
-    try std.testing.expectEqualSlices(u8, "foo", result.data.string.str);
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "foo", result.toStringObject().str);
 }
 
 test "Class inheritance" {
@@ -43,8 +43,8 @@ test "Class inheritance" {
         \\bar = Bar.new
         \\bar.foo
     );
-    try std.testing.expect(result.data == .string);
-    try std.testing.expectEqualSlices(u8, "foo", result.data.string.str);
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "foo", result.toStringObject().str);
 
     result = try evalCode(
         \\class Foo
@@ -56,7 +56,7 @@ test "Class inheritance" {
         \\bar = Bar.new
         \\bar.foo
     );
-    try std.testing.expectEqualSlices(u8, "bar", result.data.string.str);
+    try std.testing.expectEqualSlices(u8, "bar", result.toStringObject().str);
 }
 
 test "Class hierarchy is set up correctly" {
@@ -96,8 +96,8 @@ test "Class.new creates an instantiable anonymous class" {
         \\end
         \\C.new.foo
     );
-    try std.testing.expect(result.data == .string);
-    try std.testing.expectEqualSlices(u8, "ok", result.data.string.str);
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "ok", result.toStringObject().str);
 }
 
 test "Class.new accepts superclass argument" {
@@ -110,8 +110,8 @@ test "Class.new accepts superclass argument" {
         \\C = Class.new(Parent)
         \\C.new.greet
     );
-    try std.testing.expect(result.data == .string);
-    try std.testing.expectEqualSlices(u8, "hi", result.data.string.str);
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "hi", result.toStringObject().str);
 }
 
 test "Class.new with non-class superclass raises TypeError" {

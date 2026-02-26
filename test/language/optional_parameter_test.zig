@@ -6,27 +6,27 @@ const evalCodeWithOutput = test_helper.evalCodeWithOutput;
 
 test "method with one optional parameter - provided" {
     const result = try evalCode("def foo(a, b=10); a + b; end; foo(5, 3)");
-    try std.testing.expectEqual(@as(i64, 8), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 8), result.toInteger());
 }
 
 test "method with one optional parameter - default used" {
     const result = try evalCode("def foo(a, b=10); a + b; end; foo(5)");
-    try std.testing.expectEqual(@as(i64, 15), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 15), result.toInteger());
 }
 
 test "method with multiple optional parameters - all provided" {
     const result = try evalCode("def foo(a, b=10, c=20); a + b + c; end; foo(1, 2, 3)");
-    try std.testing.expectEqual(@as(i64, 6), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 6), result.toInteger());
 }
 
 test "method with multiple optional parameters - partial defaults" {
     const result = try evalCode("def foo(a, b=10, c=20); a + b + c; end; foo(1, 2)");
-    try std.testing.expectEqual(@as(i64, 23), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 23), result.toInteger());
 }
 
 test "method with multiple optional parameters - all defaults" {
     const result = try evalCode("def foo(a, b=10, c=20); a + b + c; end; foo(1)");
-    try std.testing.expectEqual(@as(i64, 31), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 31), result.toInteger());
 }
 
 test "optional parameter with expression default" {
@@ -48,12 +48,12 @@ test "optional parameter with expression default" {
 
 test "optional parameter referencing earlier parameter" {
     const result = try evalCode("def foo(x, y=x+1); x + y; end; foo(5)");
-    try std.testing.expectEqual(@as(i64, 11), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 11), result.toInteger());
 }
 
 test "optional parameter referencing earlier optional with default" {
     const result = try evalCode("def foo(x=42, y=x); x == y; end; foo()");
-    try std.testing.expect(result.data == .boolean and result.data.boolean == true);
+    try std.testing.expect(result.isBool() and result.toBool() == true);
 }
 
 test "required, optional, and rest parameters" {
@@ -93,12 +93,12 @@ test "required, optional, rest, and post parameters" {
 
 test "lambda with optional parameter strict arity - default used" {
     const result = try evalCode("l = ->(a, b=10) { a + b }; l.call(5)");
-    try std.testing.expectEqual(@as(i64, 15), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 15), result.toInteger());
 }
 
 test "lambda with optional parameter strict arity - provided" {
     const result = try evalCode("l = ->(a, b=10) { a + b }; l.call(5, 3)");
-    try std.testing.expectEqual(@as(i64, 8), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 8), result.toInteger());
 }
 
 test "lambda with optional parameter too many args raises error" {
@@ -110,7 +110,7 @@ test "lambda with optional parameter too many args raises error" {
 
 test "proc with optional parameter lenient arity" {
     const result = try evalCode("p = proc { |a, b=10| a + b }; p.call(5)");
-    try std.testing.expectEqual(@as(i64, 15), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 15), result.toInteger());
 }
 
 test "block with optional parameter" {
@@ -130,7 +130,7 @@ test "block with optional parameter" {
 
 test "optional parameter minimum args" {
     const result = try evalCode("def foo(a, b=10, c=20); a; end; foo(5)");
-    try std.testing.expectEqual(@as(i64, 5), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 5), result.toInteger());
 }
 
 test "optional parameter with rest - defaults used" {
@@ -152,12 +152,12 @@ test "optional parameter with rest - defaults used" {
 
 test "only optional parameters" {
     const result = try evalCode("def foo(a=5, b=10); a + b; end; foo()");
-    try std.testing.expectEqual(@as(i64, 15), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 15), result.toInteger());
 }
 
 test "only optional parameters - one provided" {
     const result = try evalCode("def foo(a=5, b=10); a + b; end; foo(3)");
-    try std.testing.expectEqual(@as(i64, 13), result.data.integer);
+    try std.testing.expectEqual(@as(i64, 13), result.toInteger());
 }
 
 test "default expression side-effect locals visible in method body" {
