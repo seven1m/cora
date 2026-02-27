@@ -223,3 +223,21 @@ test "Nested procs: inner explicit return exits method from inside" {
     try std.testing.expect(result.isInteger());
     try std.testing.expectEqual(@as(i64, 5), result.toInteger());
 }
+
+test "deep recursive Proc#call (stack depth stress test)" {
+    const result = try evalCode(
+        \\f = proc { |n| n > 0 ? f.call(n - 1) : 0 }
+        \\f.call(1000)
+    );
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 0), result.toInteger());
+}
+
+test "deep recursive lambda call (stack depth stress test)" {
+    const result = try evalCode(
+        \\f = lambda { |n| n > 0 ? f.call(n - 1) : 0 }
+        \\f.call(1000)
+    );
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 0), result.toInteger());
+}

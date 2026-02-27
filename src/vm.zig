@@ -31,8 +31,8 @@ extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int
 extern "c" fn unsetenv(name: [*:0]const u8) c_int;
 
 const MAX_FIBER_STACK_SIZE: usize = 4096;
-const MAX_FIBER_FRAMES: usize = 1024;
-const MAX_FIBER_ENVS: usize = 1024;
+const MAX_FIBER_FRAMES: usize = 2048;
+const MAX_FIBER_ENVS: usize = 2048;
 
 fn FixedBufferList(comptime T: type, comptime N: usize) type {
     return struct {
@@ -3039,7 +3039,7 @@ pub const VM = struct {
                     yield_args[argc - 1 - i] = self.pop();
                 }
 
-                // Check for block and push frame
+                // Check for block
                 const block = frame.block orelse {
                     const exc = try self.createException(
                         self.argument_error_class,
@@ -3048,11 +3048,37 @@ pub const VM = struct {
                     self.pending_exception = exc;
                     return error.Unwind;
                 };
-                const yield_result = try self.yieldToBlock(block, yield_args[0..argc]);
-                try self.push(yield_result.value);
+                switch (block.kind) {
+                    .chunk => |chunk_blk| {
+                        // De-recursed: push block frame inline, return to dispatch loop
+                        const real_defining_ep = derefEnvironment(chunk_blk.defining_ep);
+                        const block_env = self.createStackEnvironment(real_defining_ep, chunk_blk.chunk.lexical_scope orelse self.current_lexical_scope) catch return error.Fatal;
 
-                if (yield_result.break_occurred) {
-                    try self.popFrame();
+                        self.frames.append(self.gc_allocator, CallFrame{
+                            .chunk = chunk_blk.chunk,
+                            .ip = 0,
+                            .stack_base = self.stack.items.len,
+                            .self_value = chunk_blk.defining_self,
+                            .ep = block_env,
+                            .block = null,
+                        }) catch return error.Fatal;
+
+                        if (chunk_blk.chunk.lexical_scope) |scope| {
+                            self.current_lexical_scope = scope;
+                        }
+
+                        const arity_mode: ArityMode = if (chunk_blk.chunk.is_lambda) .strict else .lenient;
+                        const block_frame = self.currentFrame();
+                        try self.copyArgumentsWithRestParam(chunk_blk.chunk, block_frame.ep, yield_args[0..argc], arity_mode);
+                    },
+                    .symbol => |sym| {
+                        const result = try self.invokeSymbolProc(sym, yield_args[0..argc], null);
+                        try self.push(result);
+                    },
+                    .builtin => |func| {
+                        const result = try func(self, yield_args[0..argc]);
+                        try self.push(result);
+                    },
                 }
             },
 
@@ -3073,11 +3099,38 @@ pub const VM = struct {
                     return error.Unwind;
                 };
 
-                const yield_result = try self.yieldToBlock(block, args_array_val.toArrayObject().elements.items);
-                try self.push(yield_result.value);
+                const splat_args = args_array_val.toArrayObject().elements.items;
+                switch (block.kind) {
+                    .chunk => |chunk_blk| {
+                        // De-recursed: push block frame inline, return to dispatch loop
+                        const real_defining_ep = derefEnvironment(chunk_blk.defining_ep);
+                        const block_env = self.createStackEnvironment(real_defining_ep, chunk_blk.chunk.lexical_scope orelse self.current_lexical_scope) catch return error.Fatal;
 
-                if (yield_result.break_occurred) {
-                    try self.popFrame();
+                        self.frames.append(self.gc_allocator, CallFrame{
+                            .chunk = chunk_blk.chunk,
+                            .ip = 0,
+                            .stack_base = self.stack.items.len,
+                            .self_value = chunk_blk.defining_self,
+                            .ep = block_env,
+                            .block = null,
+                        }) catch return error.Fatal;
+
+                        if (chunk_blk.chunk.lexical_scope) |scope| {
+                            self.current_lexical_scope = scope;
+                        }
+
+                        const arity_mode: ArityMode = if (chunk_blk.chunk.is_lambda) .strict else .lenient;
+                        const block_frame = self.currentFrame();
+                        try self.copyArgumentsWithRestParam(chunk_blk.chunk, block_frame.ep, splat_args, arity_mode);
+                    },
+                    .symbol => |sym| {
+                        const result = try self.invokeSymbolProc(sym, splat_args, null);
+                        try self.push(result);
+                    },
+                    .builtin => |func| {
+                        const result = try func(self, @constCast(splat_args));
+                        try self.push(result);
+                    },
                 }
             },
 
@@ -3347,6 +3400,14 @@ pub const VM = struct {
         // Fast dispatch loop: handles common opcodes with minimal overhead
         // Falls back to full executeInstruction for complex opcodes
         while (self.frames.items.len >= target_len) {
+            // Handle BREAK from de-recursed block frames:
+            // BREAK pops the block frame and sets break_occurred.
+            // We need to also pop the yielding method's frame.
+            if (self.break_occurred) {
+                self.break_occurred = false;
+                try self.popFrame();
+                continue;
+            }
             const frame_len = self.frames.items.len;
             const f = &self.frames.storage[frame_len - 1];
             const code = f.chunk.code.items;
@@ -4104,6 +4165,39 @@ pub const VM = struct {
                 try self.setupChunkCallFrame(method_chunk, receiver, args[0..argc], kw_slice, kw_metadata, caller_chunk, block);
             },
             .builtin => |fun_ptr| {
+                // Special case: Proc#call on chunk proc — push frame inline to avoid recursion
+                if (kwargc == 0 and receiver.isProc()) {
+                    const proc_obj = receiver.toProcObject();
+                    switch (proc_obj.block.kind) {
+                        .chunk => |chunk_blk| {
+                            const mn = method.name.name;
+                            if (std.mem.eql(u8, mn, "call") or std.mem.eql(u8, mn, "[]") or std.mem.eql(u8, mn, "yield")) {
+                                const real_defining_ep = derefEnvironment(chunk_blk.defining_ep);
+                                const proc_env = self.createStackEnvironment(real_defining_ep, chunk_blk.chunk.lexical_scope orelse self.current_lexical_scope) catch return error.Fatal;
+
+                                const mode: ArityMode = if (chunk_blk.chunk.is_lambda) .strict else .lenient;
+                                try self.copyArgumentsWithRestParam(chunk_blk.chunk, proc_env, args[0..argc], mode);
+
+                                if (chunk_blk.chunk.lexical_scope) |scope| {
+                                    self.current_lexical_scope = scope;
+                                }
+
+                                self.frames.append(self.gc_allocator, CallFrame{
+                                    .chunk = chunk_blk.chunk,
+                                    .ip = 0,
+                                    .stack_base = self.stack.items.len,
+                                    .self_value = chunk_blk.defining_self,
+                                    .ep = proc_env,
+                                    .block = null,
+                                    .frame_type = if (chunk_blk.chunk.is_lambda) .lambda else .proc,
+                                }) catch return error.Fatal;
+                                return;
+                            }
+                        },
+                        else => {},
+                    }
+                }
+
                 var final_args: []Value = undefined;
                 if (kwargc > 0) {
                     // For builtin methods with keywords, convert keywords to hash
@@ -4128,8 +4222,36 @@ pub const VM = struct {
                     self.pending_exception = exc;
                     return error.Unwind;
                 }
-                const result = try self.callProcAsMethod(proc_obj, receiver, args[0..argc], block, method.name.name, method.owner_class);
-                try self.push(result);
+                switch (proc_obj.block.kind) {
+                    .chunk => |chunk_blk| {
+                        // De-recursed: push frame inline, return to dispatch loop
+                        const real_defining_ep = derefEnvironment(chunk_blk.defining_ep);
+                        const proc_env = self.createStackEnvironment(real_defining_ep, chunk_blk.chunk.lexical_scope orelse self.current_lexical_scope) catch return error.Fatal;
+
+                        self.frames.append(self.gc_allocator, CallFrame{
+                            .chunk = chunk_blk.chunk,
+                            .ip = 0,
+                            .stack_base = self.stack.items.len,
+                            .self_value = receiver,
+                            .ep = proc_env,
+                            .block = block,
+                            .frame_type = .method,
+                            .method_name = method.name.name,
+                            .super_defining_class = method.owner_class,
+                        }) catch return error.Fatal;
+
+                        const current_frame = self.currentFrame();
+                        try self.copyArgumentsWithRestParam(chunk_blk.chunk, current_frame.ep, args[0..argc], .strict);
+                    },
+                    .symbol => |sym| {
+                        const result = try self.invokeSymbolProc(sym, args[0..argc], block);
+                        try self.push(result);
+                    },
+                    .builtin => |func| {
+                        const result = try func(self, args[0..argc]);
+                        try self.push(result);
+                    },
+                }
             },
             .undefined => unreachable,
         }
