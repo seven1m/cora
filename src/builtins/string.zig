@@ -180,14 +180,20 @@ pub fn builtinStringUnaryPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block
 
 pub fn builtinStringPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const other_str = try args[0].coerceToStr(vm, "no implicit conversion into String");
-    const combined_str = std.fmt.allocPrint(
-        vm.gc_allocator,
-        "{s}{s}",
-        .{ receiver.toStringObject().str, other_str },
-    ) catch return error.Fatal;
+    const lhs = receiver.toStringObject();
+    const rhs_value = try coerceConcatArgumentToStringValue(vm, args[0], "no implicit conversion into String");
+    const rhs = rhs_value.toStringObject();
 
-    return try vm.newString(combined_str, false);
+    const result_encoding = resolveStringConcatEncoding(lhs.encoding, lhs.str, rhs.encoding, rhs.str) orelse {
+        return vm.raiseExceptionFmt(
+            vm.argument_error_class,
+            "incompatible character encodings: {s} and {s}",
+            .{ lhs.encoding.name(), rhs.encoding.name() },
+        );
+    };
+
+    const combined_str = try concatBytes(vm, lhs.str, rhs.str);
+    return try vm.newStringWithEncoding(combined_str, false, result_encoding);
 }
 
 pub fn builtinStringMultiply(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -1002,6 +1008,65 @@ fn concatBytes(vm: *VM, left: []const u8, right: []const u8) VMError![]const u8 
     @memcpy(out[0..left.len], left);
     @memcpy(out[left.len..], right);
     return out;
+}
+
+fn coerceConcatArgumentToStringValue(vm: *VM, arg: Value, type_error_message: []const u8) VMError!Value {
+    if (arg.isString()) return arg;
+
+    const to_str_sym = try vm.intern("to_str");
+    var respond_to_args: [2]Value = .{ Value.fromObject(to_str_sym), Value.boolean(true) };
+    const responds_to_to_str = blk: {
+        const respond_to_result = try vm.callMethodByName(arg, "respond_to?", &respond_to_args, null);
+        break :blk respond_to_result.is_truthy();
+    };
+
+    const coerced = if (responds_to_to_str)
+        try vm.callMethodByName(arg, "to_str", &[_]Value{}, null)
+    else
+        vm.callMethodByName(arg, "to_str", &[_]Value{}, null) catch |err| {
+            if (err == error.Unwind and
+                vm.pending_exception != null and
+                vm.pending_exception.?.object.class == vm.no_method_error_class)
+            {
+                const exc = try vm.createException(vm.type_error_class, type_error_message);
+                vm.pending_exception = exc;
+                return error.Unwind;
+            }
+            return err;
+        };
+
+    if (!coerced.isString()) {
+        const exc = try vm.createException(vm.type_error_class, type_error_message);
+        vm.pending_exception = exc;
+        return error.Unwind;
+    }
+
+    return coerced;
+}
+
+fn resolveStringConcatEncoding(
+    lhs_encoding: enc.Encoding,
+    lhs_bytes: []const u8,
+    rhs_encoding: enc.Encoding,
+    rhs_bytes: []const u8,
+) ?enc.Encoding {
+    if (lhs_encoding.eql(rhs_encoding)) return lhs_encoding;
+
+    // Empty-string operands always inherit the other side's encoding.
+    if (rhs_bytes.len == 0) return lhs_encoding;
+    if (lhs_bytes.len == 0) return rhs_encoding;
+
+    // Different ASCII-incompatible encodings are incompatible once both sides have content.
+    if (!lhs_encoding.isAsciiCompatible() or !rhs_encoding.isAsciiCompatible()) return null;
+
+    const lhs_ascii_only = enc.isAsciiOnly(lhs_bytes);
+    const rhs_ascii_only = enc.isAsciiOnly(rhs_bytes);
+
+    if (lhs_ascii_only and !rhs_ascii_only) return rhs_encoding;
+    if (!lhs_ascii_only and rhs_ascii_only) return lhs_encoding;
+    if (lhs_ascii_only and rhs_ascii_only) return lhs_encoding;
+
+    return null;
 }
 
 fn encodeCodepointForEncoding(vm: *VM, cp: i64, encoding: enc.Encoding, out: *[4]u8) VMError![]const u8 {
