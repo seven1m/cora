@@ -53,6 +53,9 @@ pub fn register(vm: *VM) !void {
     const infinite_sym = try vm.intern("infinite?");
     try vm.float_class.module.methods.put(infinite_sym, .{ .method = .{ .builtin = &builtinFloatInfinite } });
 
+    const to_int_sym = try vm.intern("to_int");
+    try vm.float_class.module.methods.put(to_int_sym, .{ .method = .{ .builtin = &builtinFloatToInt } });
+
     const to_s_sym = try vm.intern("to_s");
     try vm.float_class.module.methods.put(to_s_sym, .{ .method = .{ .builtin = &builtinFloatToS } });
 
@@ -148,6 +151,23 @@ pub fn builtinFloatInfinite(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     if (std.math.isPositiveInf(f)) return Value.integer(1);
     if (std.math.isNegativeInf(f)) return Value.integer(-1);
     return Value.nil();
+}
+
+pub fn builtinFloatToInt(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const f = receiver.toFloatObject().val;
+    if (std.math.isNan(f) or std.math.isInf(f)) {
+        return vm.raiseExceptionFmt(vm.range_error_class, "float out of range of integer", .{});
+    }
+
+    const truncated = @trunc(f);
+    const max_i64 = @as(f64, @floatFromInt(std.math.maxInt(i64)));
+    const min_i64 = @as(f64, @floatFromInt(std.math.minInt(i64)));
+    if (truncated > max_i64 or truncated < min_i64) {
+        return vm.raiseExceptionFmt(vm.range_error_class, "float out of range of integer", .{});
+    }
+
+    return Value.integer(@intFromFloat(truncated));
 }
 
 fn floatToString(vm: *VM, value_f: f64) VMError!Value {

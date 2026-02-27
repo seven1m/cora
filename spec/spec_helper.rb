@@ -115,10 +115,13 @@ def it_behaves_like(name, *args)
   raise "Shared examples not found: #{name}" unless shared
 
   prev_method = @method
+  prev_object = @object
   @method = args[0] if args.length > 0
+  @object = args[1] if args.length > 1
   shared.call
 ensure
   @method = prev_method
+  @object = prev_object
 end
 
 def it(desc, &block)
@@ -180,33 +183,53 @@ class ScratchPad
   end
 end
 
-def ruby_version_is(*_args, &block)
+def ruby_version_is(*_args, **_kwargs, &block)
   block.call if block
 end
 
-def platform_is(*_args, &block)
+def c_long_size
+  64
+end
+
+def max_long
+  9223372036854775807
+end
+
+def min_long
+  -9223372036854775808
+end
+
+def platform_is(*_args, **kwargs, &block)
+  requested_size = kwargs[:c_long_size]
+  if !requested_size.nil? && requested_size != c_long_size
+    return
+  end
   block.call if block
 end
 
-def platform_is_not(*_args, &block)
+def platform_is_not(*_args, **kwargs, &block)
+  requested_size = kwargs[:c_long_size]
+  if !requested_size.nil? && requested_size == c_long_size
+    return
+  end
   block.call if block
 end
 
-def not_supported_on(*_args, &block)
+def not_supported_on(*_args, **_kwargs, &block)
   block.call if block
 end
 
-def deviates_on(*_args, &block)
+def deviates_on(*_args, **_kwargs, &block)
   block.call if block
 end
 
 def quarantine!(*_args); end
 
-def guard(*_args, &block)
+def guard(*_args, **_kwargs, &block)
   block.call if block
 end
 
-def guard_not(*_args, &block)
+def guard_not(*_args, **_kwargs, &block)
   block.call if block
 end
 

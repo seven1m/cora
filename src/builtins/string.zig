@@ -192,17 +192,23 @@ pub fn builtinStringPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
 
 pub fn builtinStringMultiply(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    if (!args[0].isInteger()) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Integer", .{});
-    }
-    const times = args[0].toInteger();
+    const times_val = try coerceToIntegerValueViaToInt(vm, args[0]);
+    const times = try times_val.integerToI64(vm, "bignum too big to convert into `long`");
     if (times < 0) {
         return vm.raiseExceptionFmt(vm.argument_error_class, "negative argument", .{});
     }
 
     const string_obj = receiver.toStringObject();
+    if (times == 0 or string_obj.str.len == 0) {
+        return vm.newStringWithEncoding("", false, string_obj.encoding);
+    }
+
     const n: usize = @intCast(times);
-    const out_len = string_obj.str.len * n;
+    const out_len, const out_len_overflow = @mulWithOverflow(string_obj.str.len, n);
+    if (out_len_overflow != 0 or out_len > @as(usize, @intCast(std.math.maxInt(i64)))) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "argument too big", .{});
+    }
+
     const out = vm.gc_allocator_atomic.alloc(u8, out_len) catch return error.Fatal;
     var offset: usize = 0;
     var i: usize = 0;
@@ -992,6 +998,22 @@ fn concatBytes(vm: *VM, left: []const u8, right: []const u8) VMError![]const u8 
     @memcpy(out[0..left.len], left);
     @memcpy(out[left.len..], right);
     return out;
+}
+
+fn coerceToIntegerValueViaToInt(vm: *VM, arg: Value) VMError!Value {
+    if (arg.isInteger() or arg.isBigInteger()) return arg;
+
+    const coerced = vm.callMethodByName(arg, "to_int", &[_]Value{}, null) catch |err| {
+        if (err == error.Unwind and vm.pending_exception != null and vm.pending_exception.?.object.class == vm.no_method_error_class) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Integer", .{});
+        }
+        return err;
+    };
+    if (!coerced.isInteger() and !coerced.isBigInteger()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Integer", .{});
+    }
+
+    return coerced;
 }
 
 fn coerceToStringValueViaCall(vm: *VM, arg: Value) VMError!Value {
