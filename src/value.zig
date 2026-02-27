@@ -591,6 +591,58 @@ pub const Value = struct {
         unreachable;
     }
 
+    pub fn coerceToIntegerValue(
+        self: Value,
+        vm_instance: *VM,
+        missing_type_error_message: []const u8,
+        non_integer_type_error_message: []const u8,
+    ) VMError!Value {
+        if (self.isInteger() or self.isBigInteger()) return self;
+
+        const to_int_sym = try vm_instance.intern("to_int");
+        const has_to_int = (try vm_instance.findMethod(self, to_int_sym)) != null;
+        const coerced = if (has_to_int)
+            try vm_instance.callMethodByName(self, "to_int", &[_]Value{}, null)
+        else
+            vm_instance.callMethodByName(self, "to_int", &[_]Value{}, null) catch |err| {
+                if (err == error.Unwind and
+                    vm_instance.pending_exception != null and
+                    vm_instance.pending_exception.?.object.class == vm_instance.no_method_error_class)
+                {
+                    const exc = try vm_instance.createException(
+                        vm_instance.type_error_class,
+                        missing_type_error_message,
+                    );
+                    vm_instance.pending_exception = exc;
+                    return error.Unwind;
+                }
+                return err;
+            };
+
+        if (!coerced.isInteger() and !coerced.isBigInteger()) {
+            const exc = try vm_instance.createException(vm_instance.type_error_class, non_integer_type_error_message);
+            vm_instance.pending_exception = exc;
+            return error.Unwind;
+        }
+
+        return coerced;
+    }
+
+    pub fn coerceToI64ViaToInt(
+        self: Value,
+        vm_instance: *VM,
+        missing_type_error_message: []const u8,
+        non_integer_type_error_message: []const u8,
+        range_error_message: []const u8,
+    ) VMError!i64 {
+        const coerced = try self.coerceToIntegerValue(
+            vm_instance,
+            missing_type_error_message,
+            non_integer_type_error_message,
+        );
+        return coerced.integerToI64(vm_instance, range_error_message);
+    }
+
     // -- String coercion --
 
     pub fn coerceToStringValue(self: Value, vm_instance: *VM, type_error_message: []const u8) VMError!Value {
@@ -598,13 +650,21 @@ pub const Value = struct {
 
         const to_str_sym = try vm_instance.intern("to_str");
         const has_to_str = (try vm_instance.findMethod(self, to_str_sym)) != null;
-        if (!has_to_str) {
-            const exc = try vm_instance.createException(vm_instance.type_error_class, type_error_message);
-            vm_instance.pending_exception = exc;
-            return error.Unwind;
-        }
+        const coerced = if (has_to_str)
+            try vm_instance.callMethodByName(self, "to_str", &[_]Value{}, null)
+        else
+            vm_instance.callMethodByName(self, "to_str", &[_]Value{}, null) catch |err| {
+                if (err == error.Unwind and
+                    vm_instance.pending_exception != null and
+                    vm_instance.pending_exception.?.object.class == vm_instance.no_method_error_class)
+                {
+                    const exc = try vm_instance.createException(vm_instance.type_error_class, type_error_message);
+                    vm_instance.pending_exception = exc;
+                    return error.Unwind;
+                }
+                return err;
+            };
 
-        const coerced = try vm_instance.callMethodByName(self, "to_str", &[_]Value{}, null);
         if (!coerced.isString()) {
             const exc = try vm_instance.createException(vm_instance.type_error_class, type_error_message);
             vm_instance.pending_exception = exc;

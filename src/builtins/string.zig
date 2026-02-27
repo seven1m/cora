@@ -192,8 +192,12 @@ pub fn builtinStringPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
 
 pub fn builtinStringMultiply(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const times_val = try coerceToIntegerValueViaToInt(vm, args[0]);
-    const times = try times_val.integerToI64(vm, "bignum too big to convert into `long`");
+    const times = try args[0].coerceToI64ViaToInt(
+        vm,
+        "no implicit conversion into Integer",
+        "no implicit conversion into Integer",
+        "bignum too big to convert into `long`",
+    );
     if (times < 0) {
         return vm.raiseExceptionFmt(vm.argument_error_class, "negative argument", .{});
     }
@@ -250,7 +254,7 @@ pub fn builtinStringReplace(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     const string_obj = receiver.toStringObject();
     const other = args[0];
 
-    const replacement_val = try coerceToStringValueViaCall(vm, other);
+    const replacement_val = try other.coerceToStringValue(vm, "no implicit conversion into String");
     const replacement = replacement_val.toStringObject().str;
     string_obj.encoding = replacement_val.toStringObject().encoding;
 
@@ -568,7 +572,7 @@ pub fn builtinStringStartWith(vm: *VM, receiver: Value, args: []Value, _: ?Block
             continue;
         }
 
-        const prefix_val = try coerceToStringValueViaCall(vm, arg);
+        const prefix_val = try arg.coerceToStringValue(vm, "no implicit conversion into String");
         const prefix = prefix_val.toStringObject().str;
         const prefix_enc = prefix_val.toStringObject().encoding;
         if (enc.negotiate(string_obj.encoding, string_obj.str, prefix_enc, prefix) == null) {
@@ -592,7 +596,7 @@ pub fn builtinStringEndWith(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     const string_obj = receiver.toStringObject();
 
     for (args) |arg| {
-        const suffix_val = try coerceToStringValueViaCall(vm, arg);
+        const suffix_val = try arg.coerceToStringValue(vm, "no implicit conversion into String");
         const suffix = suffix_val.toStringObject().str;
         const suffix_enc = suffix_val.toStringObject().encoding;
         if (enc.negotiate(string_obj.encoding, string_obj.str, suffix_enc, suffix) == null) {
@@ -616,7 +620,7 @@ pub fn builtinStringInclude(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     try vm.requireArgCount(args, 1);
     const string_obj = receiver.toStringObject();
 
-    const needle_val = try coerceToStringValueViaCall(vm, args[0]);
+    const needle_val = try args[0].coerceToStringValue(vm, "no implicit conversion into String");
     const needle = needle_val.toStringObject().str;
     const needle_enc = needle_val.toStringObject().encoding;
 
@@ -661,7 +665,7 @@ pub fn builtinStringPrepend(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     while (i > 0) {
         i -= 1;
         const arg = args[i];
-        const part = try coerceToStringValueViaCall(vm, arg);
+        const part = try arg.coerceToStringValue(vm, "no implicit conversion into String");
         result = try concatBytes(vm, part.toStringObject().str, result);
     }
 
@@ -998,39 +1002,6 @@ fn concatBytes(vm: *VM, left: []const u8, right: []const u8) VMError![]const u8 
     @memcpy(out[0..left.len], left);
     @memcpy(out[left.len..], right);
     return out;
-}
-
-fn coerceToIntegerValueViaToInt(vm: *VM, arg: Value) VMError!Value {
-    if (arg.isInteger() or arg.isBigInteger()) return arg;
-
-    const coerced = vm.callMethodByName(arg, "to_int", &[_]Value{}, null) catch |err| {
-        if (err == error.Unwind and vm.pending_exception != null and vm.pending_exception.?.object.class == vm.no_method_error_class) {
-            return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Integer", .{});
-        }
-        return err;
-    };
-    if (!coerced.isInteger() and !coerced.isBigInteger()) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Integer", .{});
-    }
-
-    return coerced;
-}
-
-fn coerceToStringValueViaCall(vm: *VM, arg: Value) VMError!Value {
-    if (arg.isString()) return arg;
-
-    const coerced = vm.callMethodByName(arg, "to_str", &[_]Value{}, null) catch |err| {
-        if (err == error.Unwind and vm.pending_exception != null and vm.pending_exception.?.object.class == vm.no_method_error_class) {
-            return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into String", .{});
-        }
-        return err;
-    };
-
-    if (!coerced.isString()) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into String", .{});
-    }
-
-    return coerced;
 }
 
 fn encodeCodepointForEncoding(vm: *VM, cp: i64, encoding: enc.Encoding, out: *[4]u8) VMError![]const u8 {

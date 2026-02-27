@@ -553,20 +553,12 @@ fn appendZeros(vm: *VM, out: *std.ArrayList(u8), count: usize) VMError!void {
 }
 
 fn coerceToInt(vm: *VM, arg: Value) VMError!i64 {
-    if (arg.isInteger()) return arg.toInteger();
-
-    const to_int_sym = try vm.intern("to_int");
-    const has_to_int = (try vm.findMethod(arg, to_int_sym)) != null;
-    if (!has_to_int) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Integer", .{});
-    }
-
-    const coerced = try vm.callMethodByName(arg, "to_int", &[_]Value{}, null);
-    if (!coerced.isInteger()) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert to Integer (to_int gives non-Integer)", .{});
-    }
-
-    return coerced.toInteger();
+    return arg.coerceToI64ViaToInt(
+        vm,
+        "no implicit conversion into Integer",
+        "can't convert to Integer (to_int gives non-Integer)",
+        "integer too large",
+    );
 }
 
 fn coerceToFloat(vm: *VM, arg: Value) VMError!f64 {
