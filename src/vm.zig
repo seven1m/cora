@@ -1177,6 +1177,7 @@ pub const VM = struct {
             .symbol => |sym| sym,
             .string => |method_name| blk: {
                 const sym = try self.intern(method_name);
+                ch.allocator.free(method_name);
                 ch.constants.items[method_idx] = .{ .symbol = sym };
                 break :blk sym;
             },
