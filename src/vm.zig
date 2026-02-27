@@ -1130,7 +1130,7 @@ pub const VM = struct {
     pub fn run(self: *VM) VMError!Value {
         self.setupOutput();
         try self.pushFrame(&self.program.main_chunk, self.main_self, null);
-        try self.executeInstructionsUntilFrameLength(1);
+        try self.executeFastLoop(1, false, 0);
         return self.pop();
     }
 
@@ -1144,7 +1144,7 @@ pub const VM = struct {
             const handler = self.at_exit_handlers.pop().?;
             _ = self.callMethodByName(handler, "call", &[_]Value{}, null) catch |err| {
                 switch (err) {
-                    error.UnhandledException => {
+                    error.Unwind => {
                         if (self.pending_exception) |exc| {
                             last_exception = exc;
                             self.pending_exception = null;
@@ -1673,6 +1673,9 @@ pub const VM = struct {
         };
     }
 
+    /// Fiber execution loop. Uses its own inline loop rather than executeFastLoop because
+    /// fibers need mid-instruction hooks: checking for yield events and fiber termination
+    /// between each instruction. These checks would pollute the hot path in executeFastLoop.
     fn runFiberCoroutine(fiber: *FiberObject) VMError!void {
         const self = fiber.owner_vm;
         const blk = fiber.block orelse return error.Fatal;
@@ -3396,9 +3399,35 @@ pub const VM = struct {
         }
     }
 
-    pub fn executeInstructionsUntilFrameLength(self: *VM, target_len: usize) VMError!void {
-        // Fast dispatch loop: handles common opcodes with minimal overhead
-        // Falls back to full executeInstruction for complex opcodes
+    /// Execute one instruction via the slow path, handling unwind errors.
+    /// When bounded is true, uses bounded unwinding that stops at min_unwind_depth
+    /// (returns error.Unwind if no handler found above that depth).
+    /// When bounded is false, uses full unwinding.
+    inline fn executeInstructionWithUnwind(self: *VM, comptime bounded: bool, min_unwind_depth: usize) VMError!void {
+        self.executeInstruction() catch |err| switch (err) {
+            error.Unwind => {
+                if (bounded) {
+                    if (!try self.unwindStackUntilFrameDepth(min_unwind_depth))
+                        return error.Unwind;
+                } else {
+                    try self.unwindStack();
+                }
+            },
+            else => return err,
+        };
+    }
+
+    /// Top-level fast dispatch loop. Uses inline opcodes for hot paths (locals, arithmetic,
+    /// jumps, simple calls/returns) and falls back to executeInstruction() for complex opcodes.
+    ///
+    /// When bounded is false, unwinds fully on exception (used by run() for top-level).
+    /// When bounded is true, uses bounded unwinding that stops at min_unwind_depth and
+    /// returns error.Unwind if no handler is found (used by executeChunk/require to avoid
+    /// unwinding past the caller's frames).
+    ///
+    /// The comptime parameter generates two specialized versions so the run() hot path
+    /// has zero overhead from the bounded unwinding logic.
+    pub fn executeFastLoop(self: *VM, target_len: usize, comptime bounded: bool, min_unwind_depth: usize) VMError!void {
         while (self.frames.items.len >= target_len) {
             // Handle BREAK from de-recursed block frames:
             // BREAK pops the block frame and sets break_occurred.
@@ -3412,10 +3441,7 @@ pub const VM = struct {
             const f = &self.frames.storage[frame_len - 1];
             const code = f.chunk.code.items;
             if (f.ip >= code.len) {
-                self.executeInstruction() catch |err| switch (err) {
-                    error.Unwind => try self.unwindStack(),
-                    else => return err,
-                };
+                try self.executeInstructionWithUnwind(bounded, min_unwind_depth);
                 continue;
             }
 
@@ -3464,10 +3490,7 @@ pub const VM = struct {
                         }
                     } else {
                         f.ip -= 1;
-                        self.executeInstruction() catch |err| switch (err) {
-                            error.Unwind => try self.unwindStack(),
-                            else => return err,
-                        };
+                        try self.executeInstructionWithUnwind(bounded, min_unwind_depth);
                     }
                 },
                 .OPT_MINUS => {
@@ -3491,10 +3514,7 @@ pub const VM = struct {
                         }
                     } else {
                         f.ip -= 1;
-                        self.executeInstruction() catch |err| switch (err) {
-                            error.Unwind => try self.unwindStack(),
-                            else => return err,
-                        };
+                        try self.executeInstructionWithUnwind(bounded, min_unwind_depth);
                     }
                 },
                 .OPT_EQ => {
@@ -3507,10 +3527,7 @@ pub const VM = struct {
                         self.stack.items = self.stack.storage[0 .. len - 1];
                     } else {
                         f.ip -= 1;
-                        self.executeInstruction() catch |err| switch (err) {
-                            error.Unwind => try self.unwindStack(),
-                            else => return err,
-                        };
+                        try self.executeInstructionWithUnwind(bounded, min_unwind_depth);
                     }
                 },
                 .OPT_LT, .OPT_GT, .OPT_LE, .OPT_GE => {
@@ -3532,10 +3549,7 @@ pub const VM = struct {
                         self.stack.items = self.stack.storage[0 .. len - 1];
                     } else {
                         f.ip -= 1;
-                        self.executeInstruction() catch |err| switch (err) {
-                            error.Unwind => try self.unwindStack(),
-                            else => return err,
-                        };
+                        try self.executeInstructionWithUnwind(bounded, min_unwind_depth);
                     }
                 },
                 .JUMP_IF_FALSE => {
@@ -3602,10 +3616,7 @@ pub const VM = struct {
                         // stack length stays the same (popped one, pushed one)
                     } else {
                         // Complex return (proc, fiber) - fall back
-                        self.executeInstruction() catch |err| switch (err) {
-                            error.Unwind => try self.unwindStack(),
-                            else => return err,
-                        };
+                        try self.executeInstructionWithUnwind(bounded, min_unwind_depth);
                     }
                 },
                 .CALL => {
@@ -3680,17 +3691,11 @@ pub const VM = struct {
                     }
                     // Fall back to full CALL handler
                     f.ip = callsite_byte_offset; // reset ip
-                    self.executeInstruction() catch |err| switch (err) {
-                        error.Unwind => try self.unwindStack(),
-                        else => return err,
-                    };
+                    try self.executeInstructionWithUnwind(bounded, min_unwind_depth);
                 },
                 else => {
                     // Fall back to full instruction handler for complex opcodes
-                    self.executeInstruction() catch |err| switch (err) {
-                        error.Unwind => try self.unwindStack(),
-                        else => return err,
-                    };
+                    try self.executeInstructionWithUnwind(bounded, min_unwind_depth);
                 },
             }
         }
@@ -3912,7 +3917,7 @@ pub const VM = struct {
                 const saved_frame_count = self.frames.items.len;
                 try self.setupChunkCallFrame(method_chunk, receiver, args, null, null, null, block);
 
-                try self.executeInstructionsUntilFrameLength(saved_frame_count + 1);
+                try self.executeUntilReturn(saved_frame_count);
                 return self.pop();
             },
             .builtin => |fun_ptr| {
@@ -4014,7 +4019,7 @@ pub const VM = struct {
 
                 self.break_occurred = false;
                 const saved_frame_count = self.frames.items.len - 1;
-                try self.executeInstructionsUntilFrameLength(saved_frame_count + 1);
+                try self.executeUntilReturn(saved_frame_count);
 
                 const break_occurred = self.break_occurred;
                 if (break_occurred) {
@@ -4063,7 +4068,7 @@ pub const VM = struct {
                 try self.copyArgumentsWithRestParam(chunk_blk.chunk, current_frame.ep, args, .strict);
 
                 const saved_frame_count = self.frames.items.len - 1;
-                try self.executeInstructionsUntilFrameLength(saved_frame_count + 1);
+                try self.executeUntilReturn(saved_frame_count);
 
                 break :blk self.pop();
             },
@@ -4105,7 +4110,7 @@ pub const VM = struct {
                 }) catch return error.Fatal;
 
                 const saved_frame_count = self.frames.items.len - 1;
-                try self.executeInstructionsUntilFrameLength(saved_frame_count + 1);
+                try self.executeUntilReturn(saved_frame_count);
                 break :blk self.pop();
             },
         };
@@ -5426,9 +5431,11 @@ pub const VM = struct {
             self.current_lexical_scope = scope;
         }
 
-        // Execute instructions until this frame completes
+        // Execute instructions until this frame completes (uses fast dispatch loop).
+        // Uses bounded unwinding so that unrescued exceptions in loaded files
+        // don't unwind past the caller's frames.
         const target_frame_depth = self.frames.items.len;
-        try self.executeInstructionsUntilFrameLength(target_frame_depth);
+        try self.executeFastLoop(target_frame_depth, true, target_frame_depth - 1);
     }
 
     // ===== Exception Handling Methods =====
@@ -5489,8 +5496,8 @@ pub const VM = struct {
         self.frames.append(self.gc_allocator, default_frame) catch return error.Fatal;
 
         // Execute instructions until this frame completes
-        const target_frame_depth = self.frames.items.len;
-        try self.executeInstructionsUntilFrameLength(target_frame_depth);
+        const saved = self.frames.items.len - 1;
+        try self.executeUntilReturn(saved);
 
         // Pop result from stack (default chunk returns a value)
         const default_value = if (self.stack.items.len > saved_stack_len)
@@ -5881,6 +5888,29 @@ pub const VM = struct {
         return false;
     }
 
+    /// Execute a sub-call (method/block/proc invoked from builtins).
+    /// On exception, unwinds only within the callee; propagates error.Unwind to caller.
+    /// Execute a sub-call (method, block, proc) until it returns, using the slow
+    /// executeInstruction() dispatch. Uses bounded unwinding that stops at caller_frame_depth,
+    /// returning error.Unwind if no handler is found — preventing exceptions from unwinding
+    /// past the caller's frame. Used by invokeResolvedMethod, yieldToBlock, callProcObject, etc.
+    fn executeUntilReturn(self: *VM, caller_frame_depth: usize) VMError!void {
+        const target_frame_depth = caller_frame_depth + 1;
+        while (self.frames.items.len >= target_frame_depth) {
+            self.executeInstruction() catch |err| switch (err) {
+                error.Unwind => {
+                    if (!try self.unwindStackUntilFrameDepth(caller_frame_depth))
+                        return error.Unwind;
+                    // Handler found — if it's in a frame below our target (shouldn't happen),
+                    // propagate since the callee frame is gone.
+                    if (self.frames.items.len < target_frame_depth)
+                        return error.Unwind;
+                },
+                else => return err,
+            };
+        }
+    }
+
     fn executeRescueTypeExpression(
         self: *VM,
         rescue_type_chunk: *const Chunk,
@@ -5888,7 +5918,7 @@ pub const VM = struct {
         self_value: Value,
     ) VMError!Value {
         const saved_stack_len = self.stack.items.len;
-        const base_frame_len = self.frames.items.len;
+        const saved = self.frames.items.len;
 
         const rescue_type_frame = CallFrame{
             .chunk = @constCast(rescue_type_chunk),
@@ -5902,18 +5932,7 @@ pub const VM = struct {
 
         self.frames.append(self.gc_allocator, rescue_type_frame) catch return error.Fatal;
 
-        const target_frame_depth = self.frames.items.len;
-        while (self.frames.items.len >= target_frame_depth) {
-            self.executeInstruction() catch |err| switch (err) {
-                error.Unwind => {
-                    const handled = try self.unwindStackUntilFrameDepth(base_frame_len);
-                    if (!handled) {
-                        return error.Unwind;
-                    }
-                },
-                else => return err,
-            };
-        }
+        try self.executeUntilReturn(saved);
 
         const rescue_type = if (self.stack.items.len > saved_stack_len)
             self.pop()
