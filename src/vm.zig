@@ -867,8 +867,17 @@ pub const VM = struct {
 
         // 3. Allocate heap copy
         const heap_env = self.gc_allocator.create(Environment) catch return error.Fatal;
-        heap_env.* = stack_env.*;
-        heap_env.parent = heap_parent;
+        const initialized_len = @min(@as(usize, stack_env.variables_len), stack_env.variables.len);
+        heap_env.* = .{
+            .parent = heap_parent,
+            .lexical_scope = stack_env.lexical_scope,
+            .variables = undefined,
+            .variables_len = @intCast(initialized_len),
+            .heap_forwarding_ptr = null,
+        };
+        if (initialized_len > 0) {
+            @memcpy(heap_env.variables[0..initialized_len], stack_env.variables[0..initialized_len]);
+        }
         heap_env.heap_forwarding_ptr = heap_env; // Points to itself to mark as heap-allocated
 
         // 4. Update all references
