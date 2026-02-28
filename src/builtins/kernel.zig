@@ -54,6 +54,9 @@ pub fn register(vm: *VM) !void {
     const puts_sym = try vm.intern("puts");
     try vm.kernel_module.methods.put(puts_sym, .{ .method = .{ .builtin = &builtinKernelPuts } });
 
+    const print_sym = try vm.intern("print");
+    try vm.kernel_module.methods.put(print_sym, .{ .method = .{ .builtin = &builtinKernelPrint } });
+
     const proc_sym = try vm.intern("proc");
     try vm.kernel_module.methods.put(proc_sym, .{ .method = .{ .builtin = &builtinKernelProc } });
 
@@ -291,6 +294,13 @@ pub fn builtinKernelLoad(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
 pub fn builtinKernelPuts(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     const stdout_target = vm.globals.get("$stdout") orelse return error.Fatal;
     _ = try vm.callMethodByName(stdout_target, "puts", args, null);
+    return Value.nil();
+}
+
+pub fn builtinKernelPrint(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    const stdout_target = vm.globals.get("$stdout") orelse return error.Fatal;
+    _ = try vm.callMethodByName(stdout_target, "print", args, null);
+    _ = try vm.callMethodByName(stdout_target, "flush", &[_]Value{}, null);
     return Value.nil();
 }
 
