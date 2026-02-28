@@ -11,6 +11,15 @@ pub fn register(vm: *VM) !void {
     const init_sym = try vm.intern("initialize");
     try vm.range_class.module.methods.put(init_sym, .{ .method = .{ .builtin = &builtinRangeInitialize } });
 
+    const begin_sym = try vm.intern("begin");
+    try vm.range_class.module.methods.put(begin_sym, .{ .method = .{ .builtin = &builtinRangeBegin } });
+
+    const end_sym = try vm.intern("end");
+    try vm.range_class.module.methods.put(end_sym, .{ .method = .{ .builtin = &builtinRangeEnd } });
+
+    const exclude_end_sym = try vm.intern("exclude_end?");
+    try vm.range_class.module.methods.put(exclude_end_sym, .{ .method = .{ .builtin = &builtinRangeExcludeEnd } });
+
     const to_a_sym = try vm.intern("to_a");
     try vm.range_class.module.methods.put(to_a_sym, .{ .method = .{ .builtin = &builtinRangeToA } });
 
@@ -35,6 +44,30 @@ pub fn builtinRangeInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block
     receiver.toRangeObject().exclude_end = exclude_end;
 
     return Value.nil();
+}
+
+pub fn builtinRangeBegin(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    if (!receiver.isRange()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Range", .{});
+    }
+    return receiver.toRangeObject().begin;
+}
+
+pub fn builtinRangeEnd(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    if (!receiver.isRange()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Range", .{});
+    }
+    return receiver.toRangeObject().end;
+}
+
+pub fn builtinRangeExcludeEnd(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    if (!receiver.isRange()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Range", .{});
+    }
+    return Value.boolean(receiver.toRangeObject().exclude_end);
 }
 
 pub fn builtinRangeToA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
