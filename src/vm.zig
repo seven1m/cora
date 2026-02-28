@@ -4,6 +4,7 @@ const bytecode = @import("bytecode.zig");
 const chunk = @import("chunk.zig");
 const compiler = @import("compiler.zig");
 const enc = @import("encoding.zig");
+const fixed_buffer_list = @import("fixed_buffer_list.zig");
 const onigmo = @import("onigmo.zig");
 const value = @import("value.zig");
 const prism = @import("prism.zig");
@@ -25,6 +26,7 @@ const MatchDataObject = value.MatchDataObject;
 const Chunk = chunk.Chunk;
 const CallSiteCache = chunk.CallSiteCache;
 const BigInt = std.math.big.int.Managed;
+const FixedBufferList = fixed_buffer_list.FixedBufferList;
 
 extern "c" fn getenv(name: [*:0]const u8) ?[*:0]u8;
 extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
@@ -33,45 +35,6 @@ extern "c" fn unsetenv(name: [*:0]const u8) c_int;
 const MAX_FIBER_STACK_SIZE: usize = 4096;
 const MAX_FIBER_FRAMES: usize = 2048;
 const MAX_FIBER_ENVS: usize = 2048;
-
-fn FixedBufferList(comptime T: type, comptime N: usize) type {
-    return struct {
-        const Self = @This();
-
-        storage: [N]T = undefined,
-        items: []T = undefined,
-        capacity: usize = N,
-
-        pub fn init() Self {
-            var self: Self = undefined;
-            self.storage = undefined;
-            self.items = self.storage[0..0];
-            self.capacity = N;
-            return self;
-        }
-
-        pub fn append(self: *Self, _: std.mem.Allocator, item: T) !void {
-            if (self.items.len >= self.capacity) return error.OutOfMemory;
-            self.storage[self.items.len] = item;
-            self.items = self.storage[0 .. self.items.len + 1];
-        }
-
-        pub fn pop(self: *Self) ?T {
-            if (self.items.len == 0) return null;
-            const idx = self.items.len - 1;
-            const val = self.storage[idx];
-            self.items = self.storage[0..idx];
-            return val;
-        }
-
-        pub fn shrinkRetainingCapacity(self: *Self, new_len: usize) void {
-            if (new_len >= self.items.len) return;
-            self.items = self.storage[0..new_len];
-        }
-
-        pub fn deinit(_: *Self, _: std.mem.Allocator) void {}
-    };
-}
 
 pub const VMError = error{
     // Unhandled Ruby exception returned by VM.run()
