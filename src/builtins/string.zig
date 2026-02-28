@@ -79,6 +79,9 @@ pub fn register(vm: *VM) !void {
     const string_empty_sym = try vm.intern("empty?");
     try vm.string_class.module.methods.put(string_empty_sym, .{ .method = .{ .builtin = &builtinStringEmpty } });
 
+    const string_clear_sym = try vm.intern("clear");
+    try vm.string_class.module.methods.put(string_clear_sym, .{ .method = .{ .builtin = &builtinStringClear } });
+
     const string_ord_sym = try vm.intern("ord");
     try vm.string_class.module.methods.put(string_ord_sym, .{ .method = .{ .builtin = &builtinStringOrd } });
 
@@ -437,6 +440,17 @@ pub fn builtinStringLength(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 pub fn builtinStringEmpty(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return Value.boolean(receiver.toStringObject().str.len == 0);
+}
+
+pub fn builtinStringClear(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
+    }
+    const string_obj = receiver.toStringObject();
+    string_obj.str = "";
+    string_obj.validity = .unknown;
+    return receiver;
 }
 
 pub fn builtinStringOrd(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
