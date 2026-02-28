@@ -194,6 +194,7 @@ pub const VM = struct {
     program: *compiler.CompiledProgram,
 
     current_lexical_scope: ?*LexicalScope = null,
+    lexical_scopes: std.ArrayList(*LexicalScope) = .empty,
 
     basic_object_class: *value.ClassObject,
     class_class: *value.ClassObject,
@@ -377,6 +378,7 @@ pub const VM = struct {
             .gc_thread_handle = null,
             .main_stack_base = null,
             .method_state_version = 1,
+            .lexical_scopes = .empty,
         };
     }
 
@@ -771,7 +773,7 @@ pub const VM = struct {
     }
 
     pub fn createLexicalScope(self: *VM, scope_module_val: Value, parent: ?*LexicalScope) VMError!*LexicalScope {
-        const scope = self.gc_allocator.create(LexicalScope) catch return error.Fatal;
+        const scope = self.allocator.create(LexicalScope) catch return error.Fatal;
         if (scope_module_val.isClass()) {
             scope.* = .{
                 .scope_module = .{ .class = scope_module_val.toClassObject() },
@@ -783,6 +785,7 @@ pub const VM = struct {
                 .parent = parent,
             };
         } else unreachable;
+        self.lexical_scopes.append(self.allocator, scope) catch return error.Fatal;
         return scope;
     }
 
@@ -1125,6 +1128,10 @@ pub const VM = struct {
             }
         }
         self.io_objects.deinit(self.gc_allocator);
+        for (self.lexical_scopes.items) |scope| {
+            self.allocator.destroy(scope);
+        }
+        self.lexical_scopes.deinit(self.allocator);
     }
 
     pub fn run(self: *VM) VMError!Value {
@@ -2488,7 +2495,10 @@ pub const VM = struct {
                                                 method_chunk,
                                                 receiver,
                                                 self.stack.items[(receiver_index + 1)..(receiver_index + 1 + argc)],
-                                                null, null, null, block,
+                                                null,
+                                                null,
+                                                null,
+                                                block,
                                             );
                                             self.stack.shrinkRetainingCapacity(receiver_index);
                                             self.currentFrame().stack_base = receiver_index;
@@ -2509,7 +2519,10 @@ pub const VM = struct {
                                             method_chunk,
                                             receiver,
                                             self.stack.items[(receiver_index + 1)..(receiver_index + 1 + argc)],
-                                            null, null, null, block,
+                                            null,
+                                            null,
+                                            null,
+                                            block,
                                         );
                                         self.stack.shrinkRetainingCapacity(receiver_index);
                                         self.currentFrame().stack_base = receiver_index;
@@ -3814,7 +3827,6 @@ pub const VM = struct {
         self.pending_exception = exc;
         return error.Unwind;
     }
-
 
     inline fn setupChunkCallFrame(
         self: *VM,
