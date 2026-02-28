@@ -49,6 +49,9 @@ pub fn register(vm: *VM) !void {
     const string_encode_sym = try vm.intern("encode");
     try vm.string_class.module.methods.put(string_encode_sym, .{ .method = .{ .builtin = &builtinStringEncode } });
 
+    const string_encode_bang_sym = try vm.intern("encode!");
+    try vm.string_class.module.methods.put(string_encode_bang_sym, .{ .method = .{ .builtin = &builtinStringEncodeBang } });
+
     const string_force_encoding_sym = try vm.intern("force_encoding");
     try vm.string_class.module.methods.put(string_force_encoding_sym, .{ .method = .{ .builtin = &builtinStringForceEncoding } });
 
@@ -352,6 +355,20 @@ pub fn builtinStringEncode(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     };
 
     return try vm.newStringWithEncoding(transcoded, false, target_encoding);
+}
+
+pub fn builtinStringEncodeBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
+    }
+
+    const encoded = try builtinStringEncode(vm, receiver, args, null);
+    const receiver_obj = receiver.toStringObject();
+    const encoded_obj = encoded.toStringObject();
+    receiver_obj.str = encoded_obj.str;
+    receiver_obj.encoding = encoded_obj.encoding;
+    receiver_obj.validity = .unknown;
+    return receiver;
 }
 
 pub fn builtinStringForceEncoding(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
