@@ -147,8 +147,14 @@ pub fn register(vm: *VM) !void {
     const plus_sym = try vm.intern("+");
     try vm.integer_class.module.methods.put(plus_sym, .{ .method = .{ .builtin = &builtinIntegerPlus } });
 
+    const unary_plus_sym = try vm.intern("+@");
+    try vm.integer_class.module.methods.put(unary_plus_sym, .{ .method = .{ .builtin = &builtinIntegerUnaryPlus } });
+
     const minus_sym = try vm.intern("-");
     try vm.integer_class.module.methods.put(minus_sym, .{ .method = .{ .builtin = &builtinIntegerMinus } });
+
+    const unary_minus_sym = try vm.intern("-@");
+    try vm.integer_class.module.methods.put(unary_minus_sym, .{ .method = .{ .builtin = &builtinIntegerUnaryMinus } });
 
     const multiply_sym = try vm.intern("*");
     try vm.integer_class.module.methods.put(multiply_sym, .{ .method = .{ .builtin = &builtinIntegerMultiply } });
@@ -215,6 +221,12 @@ pub fn builtinIntegerPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     };
 }
 
+pub fn builtinIntegerUnaryPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    try receiver.ensureInteger(vm);
+    return receiver;
+}
+
 pub fn builtinIntegerMinus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     try receiver.ensureInteger(vm);
@@ -223,6 +235,21 @@ pub fn builtinIntegerMinus(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
         .integer => |i| try subIntegers(vm, receiver, i),
         .float => |f| try vm.newFloat(receiver.integerToF64() - f),
     };
+}
+
+pub fn builtinIntegerUnaryMinus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    try receiver.ensureInteger(vm);
+    if (receiver.isInteger()) {
+        if (std.math.negate(receiver.toInteger())) |negated| {
+            return Value.integer(negated);
+        } else |_| {}
+    }
+
+    var value_managed = try receiver.integerToManaged(vm);
+    defer value_managed.deinit();
+    value_managed.negate();
+    return vm.valueFromManagedInteger(&value_managed);
 }
 
 pub fn builtinIntegerMultiply(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
