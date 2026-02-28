@@ -13,6 +13,11 @@ const Value = value.Value;
 const BigInt = std.math.big.int.Managed;
 
 pub fn register(vm: *VM) !void {
+    const try_convert_sym = try vm.intern("try_convert");
+    const string_class_val = Value.fromObject(vm.string_class);
+    const string_singleton = try vm.getOrCreateSingletonClass(string_class_val);
+    try string_singleton.module.methods.put(try_convert_sym, .{ .method = .{ .builtin = &builtinStringTryConvert } });
+
     const initialize_sym = try vm.intern("initialize");
     try vm.string_class.module.methods.put(initialize_sym, .{ .method = .{ .builtin = &builtinStringInitialize } });
 
@@ -153,6 +158,32 @@ pub fn register(vm: *VM) !void {
 
     const unpack_sym = try vm.intern("unpack");
     try vm.string_class.module.methods.put(unpack_sym, .{ .method = .{ .builtin = &builtinStringUnpack } });
+}
+
+pub fn builtinStringTryConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const arg = args[0];
+    if (arg.isString()) return arg;
+
+    var no_args = [_]Value{};
+    const converted = vm.callMethodByName(arg, "to_str", no_args[0..], null) catch |err| {
+        if (err == error.Unwind and
+            vm.pending_exception != null and
+            std.mem.indexOf(u8, vm.pending_exception.?.message.str, "undefined method 'to_str'") != null)
+        {
+            vm.pending_exception = null;
+            return Value.nil();
+        }
+        return err;
+    };
+    if (converted.isNil()) return Value.nil();
+    if (converted.isString()) return converted;
+
+    return vm.raiseExceptionFmt(
+        vm.type_error_class,
+        "can't convert {s} to String ({s}#to_str gives {s})",
+        .{ vm.className(arg), vm.className(arg), vm.className(converted) },
+    );
 }
 
 pub fn builtinStringToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

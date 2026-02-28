@@ -1103,7 +1103,7 @@ class SpecMockExpectation
   end
 end
 
-class SpecMock
+class MockObject
   def initialize(name = nil)
     @name = name || "mock"
     @forbidden_calls = {}
@@ -1147,6 +1147,8 @@ class SpecMock
   end
 end
 
+SpecMock = MockObject
+
 class SpecUnboundMethod
   def initialize(owner, method_name)
     @owner = owner
@@ -1169,7 +1171,7 @@ class Module
 end
 
 def mock(name = nil)
-  m = SpecMock.new(name)
+  m = MockObject.new(name)
   $__active_mocks << m
   m
 end
