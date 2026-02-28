@@ -180,6 +180,9 @@ pub fn builtinStringToStr(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
 
 pub fn builtinStringUnaryPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
+    if (!receiver.isFrozen()) {
+        return receiver;
+    }
     const string_obj = receiver.toStringObject();
     return try vm.newStringWithEncoding(string_obj.str, false, string_obj.encoding);
 }

@@ -183,8 +183,98 @@ class ScratchPad
   end
 end
 
-def ruby_version_is(*_args, **_kwargs, &block)
-  block.call if block
+def cora_ruby_version
+  "3.3"
+end
+
+def parse_version_segments(version)
+  version.to_s.split('.').map { |segment| segment.to_i }
+end
+
+def compare_versions(lhs, rhs)
+  a = parse_version_segments(lhs)
+  b = parse_version_segments(rhs)
+  max_len = a.length
+  max_len = b.length if b.length > max_len
+  i = 0
+  while i < max_len
+    av = a[i] || 0
+    bv = b[i] || 0
+    return -1 if av < bv
+    return 1 if av > bv
+    i += 1
+  end
+  0
+end
+
+def ruby_version_is(*args, **_kwargs, &block)
+  return unless block
+  requirement = args[0]
+  if requirement.is_a?(Range)
+    begin_ver = requirement.begin
+    end_ver = requirement.end
+    lower_ok = begin_ver.nil? || begin_ver == "" || compare_versions(cora_ruby_version, begin_ver) >= 0
+    upper_cmp = compare_versions(cora_ruby_version, end_ver)
+    upper_ok = requirement.exclude_end? ? upper_cmp < 0 : upper_cmp <= 0
+    block.call if lower_ok && upper_ok
+    return
+  end
+  if requirement.nil? || compare_versions(cora_ruby_version, requirement) >= 0
+    block.call
+  end
+end
+
+def fixture(spec_file, fixture_name)
+  path = spec_file.to_s
+  absolute = path.length > 0 && path[0] == "/"
+  parts = path.split("/")
+  base = ""
+  i = 0
+  limit = parts.length - 1
+  while i < limit
+    if base == ""
+      base = parts[i]
+    else
+      base = "#{base}/#{parts[i]}"
+    end
+    i += 1
+  end
+  if base == ""
+    base = absolute ? "/" : "."
+  elsif absolute
+    base = "/#{base}"
+  end
+  "#{base}/fixtures/#{fixture_name}"
+end
+
+def cora_bin_path
+  "#{__dir__}/../zig-out/bin/cora"
+end
+
+def ruby_exe(script_path)
+  `#{cora_bin_path} "#{script_path}"`
+end
+
+def eval(source)
+  marker = "CORA_EVAL_EOF"
+  script_path = "/tmp/cora_eval_spec.rb"
+  command = "cat <<'#{marker}' > #{script_path}\n"
+  command += "result = begin\n"
+  command += source.to_s
+  command += "\nend\n"
+  command += "if result == true\n"
+  command += "  print \"true\"\n"
+  command += "elsif result == false\n"
+  command += "  print \"false\"\n"
+  command += "else\n"
+  command += "  print result.to_s\n"
+  command += "end\n"
+  command += "#{marker}\n"
+  command += "#{cora_bin_path} #{script_path}"
+  output = `#{command}`
+  return true if output == "true"
+  return false if output == "false"
+  output
 end
 
 def c_long_size
