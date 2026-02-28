@@ -231,6 +231,12 @@ pub const Compiler = struct {
                 try self.current_chunk.emitOp(.PUSH_SELF, line);
             },
 
+            .source_file => {
+                const source_file = self.parser.source_file orelse "(eval)";
+                const idx = try self.current_chunk.addConstant(.{ .string = source_file });
+                try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(idx), line);
+            },
+
             .parentheses => |paren_node| {
                 if (paren_node.body != null) {
                     const body = try self.parser.asNode(@ptrCast(paren_node.body));
