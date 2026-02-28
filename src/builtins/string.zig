@@ -426,7 +426,26 @@ pub fn builtinStringB(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
 pub fn builtinStringDup(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const string_obj = receiver.toStringObject();
-    return try vm.newStringWithEncoding(string_obj.str, false, string_obj.encoding);
+    const duplicate = try vm.newStringForClassWithEncoding(vm.getClass(receiver), string_obj.str, false, string_obj.encoding);
+
+    const src_obj = receiver.getObjectPointer().?;
+    const dst_obj = duplicate.getObjectPointer().?;
+    if (src_obj.instance_variables) |*src_ivars| {
+        var copied_ivars = std.AutoHashMap(*value.SymbolObject, Value).init(vm.gc_allocator);
+        var iter = src_ivars.iterator();
+        while (iter.next()) |entry| {
+            copied_ivars.put(entry.key_ptr.*, entry.value_ptr.*) catch return error.Fatal;
+        }
+        dst_obj.instance_variables = copied_ivars;
+    }
+
+    const initialize_copy_sym = try vm.intern("initialize_copy");
+    if (try vm.findMethod(duplicate, initialize_copy_sym)) |_| {
+        var initialize_copy_args = [_]Value{receiver};
+        _ = try vm.callMethodByName(duplicate, "initialize_copy", initialize_copy_args[0..], null);
+    }
+
+    return duplicate;
 }
 
 pub fn builtinStringBytesize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

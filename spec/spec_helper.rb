@@ -169,6 +169,10 @@ class ScratchPad
   @recorded = nil
 
   class << self
+    def clear
+      @recorded = nil
+    end
+
     def record(value)
       @recorded = value
     end
