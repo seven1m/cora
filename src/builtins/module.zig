@@ -64,6 +64,26 @@ fn collectOwnConstantSymbols(
     }
 }
 
+fn classIncludesModule(class_obj: *ClassObject, target: *value.ModuleObject) bool {
+    var current: ?*ClassObject = class_obj;
+    while (current) |klass| {
+        var i = klass.prepended_modules.items.len;
+        while (i > 0) {
+            i -= 1;
+            if (klass.prepended_modules.items[i] == target) return true;
+        }
+
+        var j = klass.included_modules.items.len;
+        while (j > 0) {
+            j -= 1;
+            if (klass.included_modules.items[j] == target) return true;
+        }
+
+        current = klass.superclass;
+    }
+    return false;
+}
+
 fn collectInstanceMethods(
     vm: *VM,
     receiver: Value,
@@ -212,6 +232,9 @@ pub fn register(vm: *VM) !void {
 
     const remove_method_sym = try vm.intern("remove_method");
     try vm.module_class.module.methods.put(remove_method_sym, .{ .method = .{ .builtin = &builtinModuleRemoveMethod } });
+
+    const include_query_sym = try vm.intern("include?");
+    try vm.module_class.module.methods.put(include_query_sym, .{ .method = .{ .builtin = &builtinModuleIncludeQ } });
 
     const private_sym = try vm.intern("private");
     try vm.module_class.module.methods.put(private_sym, .{
@@ -403,6 +426,23 @@ pub fn builtinModuleMethodDefined(vm: *VM, receiver: Value, args: []Value, _: ?B
         }
     }
     return Value.boolean(false);
+}
+
+pub fn builtinModuleIncludeQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireSingleArg(args, .module, "Module");
+    const target_module = args[0].toModuleObject();
+
+    if (receiver.isClass()) {
+        return Value.boolean(classIncludesModule(receiver.toClassObject(), target_module));
+    }
+
+    if (receiver.isModule()) {
+        return Value.boolean(false);
+    }
+
+    const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
+    vm.pending_exception = exc;
+    return error.Unwind;
 }
 
 pub fn builtinModuleInclude(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
