@@ -84,6 +84,9 @@ diff -q spec/shared/string/<shared>.rb ../ruby_spec/shared/string/<shared>.rb
 
 ## Candidate Selection Heuristics
 
+These are heuristics, not hard gates. If a spec in String, Integer, Array, or another core class is the logical next step, take it.
+Circular dependencies are common in ruby/spec and truly prerequisite-light specs are rare; choose an order of attack that maximizes momentum and unblocks adjacent specs.
+
 When asked “what next spec should we port?”, prefer this order:
 1. Specs for methods already implemented in builtins (`start_with?`, `end_with?`, `ascii_only?`, `b`, etc.).
 2. Specs that primarily reveal semantic mismatches (encoding boundaries, coercion, return values).
