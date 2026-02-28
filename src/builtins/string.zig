@@ -40,6 +40,9 @@ pub fn register(vm: *VM) !void {
     const string_eql_sym = try vm.intern("eql?");
     try vm.string_class.module.methods.put(string_eql_sym, .{ .method = .{ .builtin = &builtinStringEql } });
 
+    const string_hash_sym = try vm.intern("hash");
+    try vm.string_class.module.methods.put(string_hash_sym, .{ .method = .{ .builtin = &builtinStringHash } });
+
     const string_not_equal_sym = try vm.intern("!=");
     try vm.string_class.module.methods.put(string_not_equal_sym, .{ .method = .{ .builtin = &builtinStringNotEqual } });
 
@@ -329,6 +332,12 @@ pub fn builtinStringEql(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     }
 
     return Value.boolean(false);
+}
+
+pub fn builtinStringHash(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const hash_value: i64 = @bitCast(receiver.hash());
+    return Value.integer(hash_value);
 }
 
 pub fn builtinStringNotEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
