@@ -88,6 +88,9 @@ pub fn register(vm: *VM) !void {
     const string_bracket_sym = try vm.intern("[]");
     try vm.string_class.module.methods.put(string_bracket_sym, .{ .method = .{ .builtin = &builtinStringBracket } });
 
+    const string_bracket_set_sym = try vm.intern("[]=");
+    try vm.string_class.module.methods.put(string_bracket_set_sym, .{ .method = .{ .builtin = &builtinStringBracketSet } });
+
     const string_chars_sym = try vm.intern("chars");
     try vm.string_class.module.methods.put(string_chars_sym, .{ .method = .{ .builtin = &builtinStringChars } });
 
@@ -96,6 +99,9 @@ pub fn register(vm: *VM) !void {
 
     const string_getbyte_sym = try vm.intern("getbyte");
     try vm.string_class.module.methods.put(string_getbyte_sym, .{ .method = .{ .builtin = &builtinStringGetbyte } });
+
+    const string_setbyte_sym = try vm.intern("setbyte");
+    try vm.string_class.module.methods.put(string_setbyte_sym, .{ .method = .{ .builtin = &builtinStringSetbyte } });
 
     const string_codepoints_sym = try vm.intern("codepoints");
     try vm.string_class.module.methods.put(string_codepoints_sym, .{ .method = .{ .builtin = &builtinStringCodepoints } });
@@ -512,6 +518,181 @@ pub fn builtinStringBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     }
 }
 
+pub fn builtinStringBracketSet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 2, 3);
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
+    }
+
+    const string_obj = receiver.toStringObject();
+    const bytes = string_obj.str;
+    const encoding = string_obj.encoding;
+    const char_len_i64: i64 = @intCast(encoding.charCount(bytes));
+
+    var replace_start_byte: usize = 0;
+    var replace_end_byte: usize = 0;
+    const replacement_arg = args[args.len - 1];
+
+    if (args.len == 3 and args[0].isRegexp()) {
+        const regexp = args[0].toRegexpObject();
+        const capture_ref = try args[1].coerceToI64ViaToInt(
+            vm,
+            "no implicit conversion into Integer",
+            "no implicit conversion into Integer",
+            "bignum too big to convert into `long`",
+        );
+        const match_index = try regexp_builtin.regexpMatchOp(vm, regexp, receiver);
+        if (match_index.isNil()) {
+            return vm.raiseExceptionFmt(vm.index_error_class, "index out of string", .{});
+        }
+
+        const md_val = vm.globals.get("$~") orelse return error.Fatal;
+        if (!md_val.isMatchData()) return error.Fatal;
+        const md = md_val.toMatchDataObject();
+
+        const captures_total_i64: i64 = @intCast(md.captures.items.len);
+        if (captures_total_i64 <= 1) {
+            return vm.raiseExceptionFmt(vm.index_error_class, "index {d} out of regexp", .{capture_ref});
+        }
+        const capture_groups_i64 = captures_total_i64 - 1;
+
+        var capture_idx = capture_ref;
+        if (capture_idx > 0) {
+            // Positive references are 1-based capture group indexes.
+            if (capture_idx > capture_groups_i64) {
+                return vm.raiseExceptionFmt(vm.index_error_class, "index {d} out of regexp", .{capture_ref});
+            }
+        } else if (capture_idx < 0) {
+            // Negative references index capture groups from the end.
+            capture_idx = capture_groups_i64 + capture_idx + 1;
+            if (capture_idx <= 0 or capture_idx > capture_groups_i64) {
+                return vm.raiseExceptionFmt(vm.index_error_class, "index {d} out of regexp", .{capture_ref});
+            }
+        } else {
+            // MRI accepts 0 as the full match.
+            capture_idx = 0;
+        }
+
+        if (capture_idx < 0 or capture_idx >= captures_total_i64) {
+            return vm.raiseExceptionFmt(vm.index_error_class, "index {d} out of regexp", .{capture_ref});
+        }
+
+        const capture_usize: usize = @intCast(capture_idx);
+        const begin_i64 = md.begin_byte_offsets.items[capture_usize];
+        const end_i64 = md.end_byte_offsets.items[capture_usize];
+        if (begin_i64 < 0 or end_i64 < 0) {
+            return vm.raiseExceptionFmt(vm.index_error_class, "index {d} out of regexp", .{capture_ref});
+        }
+        replace_start_byte = @intCast(begin_i64);
+        replace_end_byte = @intCast(end_i64);
+    } else if (args.len == 2 and args[0].isRegexp()) {
+        const regexp = args[0].toRegexpObject();
+        const match_index = try regexp_builtin.regexpMatchOp(vm, regexp, receiver);
+        if (match_index.isNil()) {
+            return vm.raiseExceptionFmt(vm.index_error_class, "index out of string", .{});
+        }
+
+        const md_val = vm.globals.get("$~") orelse return error.Fatal;
+        if (!md_val.isMatchData()) return error.Fatal;
+        const md = md_val.toMatchDataObject();
+        if (md.begin_byte_offsets.items.len == 0 or md.end_byte_offsets.items.len == 0) {
+            return error.Fatal;
+        }
+
+        const begin_i64 = md.begin_byte_offsets.items[0];
+        const end_i64 = md.end_byte_offsets.items[0];
+        if (begin_i64 < 0 or end_i64 < 0) {
+            return vm.raiseExceptionFmt(vm.index_error_class, "index out of string", .{});
+        }
+        replace_start_byte = @intCast(begin_i64);
+        replace_end_byte = @intCast(end_i64);
+    } else if (args.len == 2 and args[0].isString()) {
+        const needle = args[0].toStringObject().str;
+        const start = std.mem.indexOf(u8, bytes, needle) orelse {
+            return vm.raiseExceptionFmt(vm.index_error_class, "string not matched", .{});
+        };
+        replace_start_byte = start;
+        replace_end_byte = start + needle.len;
+    } else if (args.len == 2 and args[0].isRange()) {
+        const range_obj = args[0].toRangeObject();
+        if (!range_obj.begin.isInteger() or !range_obj.end.isInteger()) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Integer", .{});
+        }
+
+        const begin_src = range_obj.begin.toInteger();
+        const end_src = range_obj.end.toInteger();
+        var start_char = begin_src;
+        if (start_char < 0) start_char += char_len_i64;
+        if (start_char < 0 or start_char > char_len_i64) {
+            return vm.raiseExceptionFmt(
+                vm.range_error_class,
+                "{d}{s}{d} out of range",
+                .{ begin_src, if (range_obj.exclude_end) "..." else "..", end_src },
+            );
+        }
+
+        var finish_exclusive = end_src;
+        if (finish_exclusive < 0) finish_exclusive += char_len_i64;
+        if (!range_obj.exclude_end) finish_exclusive += 1;
+        if (finish_exclusive < start_char) finish_exclusive = start_char;
+        if (finish_exclusive < 0) finish_exclusive = 0;
+        if (finish_exclusive > char_len_i64) finish_exclusive = char_len_i64;
+
+        replace_start_byte = encoding.byteOffsetForCharIndex(bytes, @intCast(start_char)) orelse bytes.len;
+        replace_end_byte = encoding.byteOffsetForCharIndex(bytes, @intCast(finish_exclusive)) orelse bytes.len;
+    } else if (args.len == 3) {
+        var index = try args[0].coerceToI64ViaToInt(
+            vm,
+            "no implicit conversion into Integer",
+            "no implicit conversion into Integer",
+            "bignum too big to convert into `long`",
+        );
+        const index_source = index;
+        const count = try args[1].coerceToI64ViaToInt(
+            vm,
+            "no implicit conversion into Integer",
+            "no implicit conversion into Integer",
+            "bignum too big to convert into `long`",
+        );
+        if (index < 0) index += char_len_i64;
+        if (index < 0 or index > char_len_i64) {
+            return vm.raiseExceptionFmt(vm.index_error_class, "index {d} out of string", .{index_source});
+        }
+        if (count < 0) {
+            return vm.raiseExceptionFmt(vm.index_error_class, "negative length {d}", .{count});
+        }
+
+        const max_count = char_len_i64 - index;
+        const normalized_count = if (count > max_count) max_count else count;
+        const finish = index + normalized_count;
+        replace_start_byte = encoding.byteOffsetForCharIndex(bytes, @intCast(index)) orelse bytes.len;
+        replace_end_byte = encoding.byteOffsetForCharIndex(bytes, @intCast(finish)) orelse bytes.len;
+    } else {
+        var index = try args[0].coerceToI64ViaToInt(
+            vm,
+            "no implicit conversion into Integer",
+            "no implicit conversion into Integer",
+            "bignum too big to convert into `long`",
+        );
+        const index_source = index;
+        var remove_chars: i64 = 1;
+        if (index < 0) index += char_len_i64;
+        if (char_len_i64 == 0 and index == 0) {
+            remove_chars = 0;
+        } else if (index < 0 or index >= char_len_i64) {
+            return vm.raiseExceptionFmt(vm.index_error_class, "index {d} out of string", .{index_source});
+        }
+
+        const finish = index + remove_chars;
+        replace_start_byte = encoding.byteOffsetForCharIndex(bytes, @intCast(index)) orelse bytes.len;
+        replace_end_byte = encoding.byteOffsetForCharIndex(bytes, @intCast(finish)) orelse bytes.len;
+    }
+
+    const replacement = try coerceConcatArgumentToStringValue(vm, replacement_arg, "no implicit conversion into String");
+    try spliceStringBytes(vm, receiver, replace_start_byte, replace_end_byte, replacement);
+    return replacement;
+}
+
 pub fn builtinStringChars(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const string_obj = receiver.toStringObject();
@@ -585,6 +766,45 @@ pub fn builtinStringGetbyte(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
         return Value.nil();
     }
     return Value.integer(bytes[@intCast(index)]);
+}
+
+pub fn builtinStringSetbyte(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 2);
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
+    }
+
+    var index = try args[0].coerceToI64ViaToInt(
+        vm,
+        "no implicit conversion into Integer",
+        "no implicit conversion into Integer",
+        "bignum too big to convert into `long`",
+    );
+    const index_source = index;
+    const byte_value = try args[1].coerceToI64ViaToInt(
+        vm,
+        "no implicit conversion into Integer",
+        "no implicit conversion into Integer",
+        "bignum too big to convert into `long`",
+    );
+    if (byte_value < 0 or byte_value > 255) {
+        return vm.raiseExceptionFmt(vm.range_error_class, "{d} out of char range", .{byte_value});
+    }
+
+    const string_obj = receiver.toStringObject();
+    const len_i64: i64 = @intCast(string_obj.str.len);
+    if (index < 0) {
+        index += len_i64;
+    }
+    if (index < 0 or index >= len_i64) {
+        return vm.raiseExceptionFmt(vm.index_error_class, "index {d} out of string", .{index_source});
+    }
+
+    const new_bytes = vm.gc_allocator_atomic.dupe(u8, string_obj.str) catch return error.Fatal;
+    new_bytes[@intCast(index)] = @intCast(byte_value);
+    string_obj.str = new_bytes;
+    string_obj.validity = .unknown;
+    return Value.integer(byte_value);
 }
 
 pub fn builtinStringCodepoints(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -1061,6 +1281,71 @@ fn charSliceByRange(
     const start_byte = encoding.byteOffsetForCharIndex(bytes, @intCast(start_idx)) orelse bytes.len;
     const end_byte = encoding.byteOffsetForCharIndex(bytes, @intCast(finish_exclusive)) orelse bytes.len;
     return bytes[start_byte..end_byte];
+}
+
+fn spliceStringBytes(
+    vm: *VM,
+    receiver: Value,
+    replace_start_byte: usize,
+    replace_end_byte: usize,
+    replacement: Value,
+) VMError!void {
+    const string_obj = receiver.toStringObject();
+    if (replace_start_byte > replace_end_byte or replace_end_byte > string_obj.str.len) {
+        return error.Fatal;
+    }
+    if (!replacement.isString()) {
+        return error.Fatal;
+    }
+
+    const replacement_obj = replacement.toStringObject();
+    const prefix = string_obj.str[0..replace_start_byte];
+    const suffix = string_obj.str[replace_end_byte..];
+
+    _ = resolveStringConcatEncoding(
+        string_obj.encoding,
+        string_obj.str,
+        replacement_obj.encoding,
+        replacement_obj.str,
+    ) orelse {
+        return vm.raiseExceptionFmt(
+            vm.argument_error_class,
+            "incompatible character encodings: {s} and {s}",
+            .{ string_obj.encoding.name(), replacement_obj.encoding.name() },
+        );
+    };
+
+    const interim_encoding = resolveStringConcatEncoding(
+        string_obj.encoding,
+        prefix,
+        replacement_obj.encoding,
+        replacement_obj.str,
+    ) orelse {
+        return vm.raiseExceptionFmt(
+            vm.argument_error_class,
+            "incompatible character encodings: {s} and {s}",
+            .{ string_obj.encoding.name(), replacement_obj.encoding.name() },
+        );
+    };
+
+    const prefix_with_replacement = try concatBytes(vm, prefix, replacement_obj.str);
+    const result_encoding = resolveStringConcatEncoding(
+        interim_encoding,
+        prefix_with_replacement,
+        string_obj.encoding,
+        suffix,
+    ) orelse {
+        return vm.raiseExceptionFmt(
+            vm.argument_error_class,
+            "incompatible character encodings: {s} and {s}",
+            .{ interim_encoding.name(), string_obj.encoding.name() },
+        );
+    };
+
+    const result_bytes = try concatBytes(vm, prefix_with_replacement, suffix);
+    string_obj.str = result_bytes;
+    string_obj.encoding = result_encoding;
+    string_obj.validity = .unknown;
 }
 
 fn concatBytes(vm: *VM, left: []const u8, right: []const u8) VMError![]const u8 {

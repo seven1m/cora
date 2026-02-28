@@ -43,24 +43,20 @@ describe "String#dup" do
   end
 
   it "does not modify the original string when changing dupped string" do
-    CORAFIXME "String#[]= is not implemented yet", exception: NoMethodError, message: /undefined method '\[\]=' for String/ do
-      orig = "string"[0..100]
-      dup = orig.dup
-      orig[0] = 'x'
-      orig.should == "xtring"
-      dup.should == "string"
-    end
+    orig = "string"[0..100]
+    dup = orig.dup
+    orig[0] = 'x'
+    orig.should == "xtring"
+    dup.should == "string"
   end
 
   it "does not modify the original setbyte-mutated string when changing dupped string" do
-    CORAFIXME "String#setbyte is not implemented yet", exception: NoMethodError, message: /undefined method 'setbyte' for String/ do
-      orig = +"a"
-      orig.setbyte 0, "b".ord
-      copy = orig.dup
-      orig.setbyte 0, "c".ord
-      orig.should == "c"
-      copy.should == "b"
-    end
+    orig = +"a"
+    orig.setbyte 0, "b".ord
+    copy = orig.dup
+    orig.setbyte 0, "c".ord
+    orig.should == "c"
+    copy.should == "b"
   end
 
   it "returns a String in the same encoding as self" do
