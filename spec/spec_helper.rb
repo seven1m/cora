@@ -199,6 +199,12 @@ def min_long
   -9223372036854775808
 end
 
+def bignum_value(offset = 0)
+  value = 1
+  c_long_size.times { value *= 2 }
+  value + offset
+end
+
 def platform_is(*_args, **kwargs, &block)
   requested_size = kwargs[:c_long_size]
   if !requested_size.nil? && requested_size != c_long_size

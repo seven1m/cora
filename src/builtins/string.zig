@@ -234,25 +234,33 @@ pub fn builtinStringMultiply(vm: *VM, receiver: Value, args: []Value, _: ?Block)
 
 pub fn builtinStringAppend(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const string_obj = receiver.toStringObject();
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
+    }
 
-    const bytes_to_append: []const u8 = if (args[0].isInteger()) blk: {
-        const cp = args[0].toInteger();
-        if (cp < 0) {
-            return vm.raiseExceptionFmt(vm.range_error_class, "{d} out of char range", .{cp});
-        }
-        var buf: [4]u8 = undefined;
-        const encoded = try encodeCodepointForEncoding(vm, cp, string_obj.encoding, &buf);
-        break :blk encoded;
-    } else try args[0].coerceToStr(vm, "no implicit conversion into String");
-
-    const new_bytes = try concatBytes(vm, string_obj.str, bytes_to_append);
-    string_obj.str = new_bytes;
+    const snapshot = ConcatSelfSnapshot{
+        .bytes = receiver.toStringObject().str,
+        .encoding = receiver.toStringObject().encoding,
+    };
+    try appendSingleConcatArg(vm, receiver, args[0], snapshot);
     return receiver;
 }
 
 pub fn builtinStringConcat(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
-    return builtinStringAppend(vm, receiver, args, block);
+    _ = block;
+    if (args.len == 0) return receiver;
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
+    }
+
+    const snapshot = ConcatSelfSnapshot{
+        .bytes = receiver.toStringObject().str,
+        .encoding = receiver.toStringObject().encoding,
+    };
+    for (args) |arg| {
+        try appendSingleConcatArg(vm, receiver, arg, snapshot);
+    }
+    return receiver;
 }
 
 pub fn builtinStringReplace(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -1027,17 +1035,72 @@ fn concatBytes(vm: *VM, left: []const u8, right: []const u8) VMError![]const u8 
     return out;
 }
 
+const ConcatSelfSnapshot = struct {
+    bytes: []const u8,
+    encoding: enc.Encoding,
+};
+
+fn appendSingleConcatArg(
+    vm: *VM,
+    receiver: Value,
+    arg: Value,
+    self_snapshot: ConcatSelfSnapshot,
+) VMError!void {
+    const string_obj = receiver.toStringObject();
+
+    if (arg.isInteger() or arg.isBigInteger()) {
+        const cp = try arg.integerArgToI64(vm, "no implicit conversion into Integer", "bignum too big to convert into `long`");
+        if (cp < 0) {
+            return vm.raiseExceptionFmt(vm.range_error_class, "{d} out of char range", .{cp});
+        }
+
+        // MRI treats US-ASCII receiver + byte values 128..255 as binary concatenation.
+        if (string_obj.encoding == .us_ascii and cp >= 128 and cp <= 255) {
+            const single_byte = [_]u8{@intCast(cp)};
+            string_obj.str = try concatBytes(vm, string_obj.str, &single_byte);
+            string_obj.encoding = .{ .ascii_8bit = .{} };
+            string_obj.validity = .unknown;
+            return;
+        }
+
+        var buf: [4]u8 = undefined;
+        const encoded = try encodeCodepointForEncoding(vm, cp, string_obj.encoding, &buf);
+        string_obj.str = try concatBytes(vm, string_obj.str, encoded);
+        string_obj.validity = .unknown;
+        return;
+    }
+
+    var rhs_bytes: []const u8 = undefined;
+    var rhs_encoding: enc.Encoding = undefined;
+    if (arg.isString() and arg.raw == receiver.raw) {
+        rhs_bytes = self_snapshot.bytes;
+        rhs_encoding = self_snapshot.encoding;
+    } else {
+        const rhs_value = try coerceConcatArgumentToStringValue(vm, arg, "no implicit conversion into String");
+        const rhs = rhs_value.toStringObject();
+        rhs_bytes = rhs.str;
+        rhs_encoding = rhs.encoding;
+    }
+
+    const result_encoding = resolveStringConcatEncoding(string_obj.encoding, string_obj.str, rhs_encoding, rhs_bytes) orelse {
+        return vm.raiseExceptionFmt(
+            vm.argument_error_class,
+            "incompatible character encodings: {s} and {s}",
+            .{ string_obj.encoding.name(), rhs_encoding.name() },
+        );
+    };
+
+    string_obj.str = try concatBytes(vm, string_obj.str, rhs_bytes);
+    string_obj.encoding = result_encoding;
+    string_obj.validity = .unknown;
+}
+
 fn coerceConcatArgumentToStringValue(vm: *VM, arg: Value, type_error_message: []const u8) VMError!Value {
     if (arg.isString()) return arg;
 
     const to_str_sym = try vm.intern("to_str");
-    var respond_to_args: [2]Value = .{ Value.fromObject(to_str_sym), Value.boolean(true) };
-    const responds_to_to_str = blk: {
-        const respond_to_result = try vm.callMethodByName(arg, "respond_to?", &respond_to_args, null);
-        break :blk respond_to_result.is_truthy();
-    };
-
-    const coerced = if (responds_to_to_str)
+    const has_to_str = (try vm.findMethod(arg, to_str_sym)) != null;
+    const coerced = if (has_to_str)
         try vm.callMethodByName(arg, "to_str", &[_]Value{}, null)
     else
         vm.callMethodByName(arg, "to_str", &[_]Value{}, null) catch |err| {
@@ -1045,9 +1108,12 @@ fn coerceConcatArgumentToStringValue(vm: *VM, arg: Value, type_error_message: []
                 vm.pending_exception != null and
                 vm.pending_exception.?.object.class == vm.no_method_error_class)
             {
-                const exc = try vm.createException(vm.type_error_class, type_error_message);
-                vm.pending_exception = exc;
-                return error.Unwind;
+                const missing_message = vm.pending_exception.?.message.str;
+                if (std.mem.indexOf(u8, missing_message, "undefined method 'to_str'") != null) {
+                    const exc = try vm.createException(vm.type_error_class, type_error_message);
+                    vm.pending_exception = exc;
+                    return error.Unwind;
+                }
             }
             return err;
         };
