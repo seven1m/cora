@@ -402,6 +402,10 @@ pub fn builtinStringEncodeBang(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
 
 pub fn builtinStringForceEncoding(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
+    }
+
     // Get the new encoding from argument
     const new_encoding: enc.Encoding = if (args[0].isEncoding())
         args[0].toEncodingObject().encoding

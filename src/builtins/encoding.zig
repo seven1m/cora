@@ -137,6 +137,13 @@ pub fn builtinEncodingFind(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
     }
     const lookup = normalized[0..len];
 
+    if (std.mem.eql(u8, lookup, "INTERNAL")) {
+        if (vm.default_internal_encoding) |encoding_obj| {
+            return Value.fromObject(encoding_obj);
+        }
+        return Value.fromObject(vm.encoding_ascii_8bit);
+    }
+
     if (encoding_name_map.get(lookup)) |enc_name| {
         return switch (enc_name) {
             .utf8 => Value.fromObject(vm.encoding_utf8),
