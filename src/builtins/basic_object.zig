@@ -7,8 +7,14 @@ const Block = vm_mod.Block;
 const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
+    const op_equal_sym = try vm.intern("==");
+    try vm.basic_object_class.module.methods.put(op_equal_sym, .{ .method = .{ .builtin = &builtinBasicObjectEqual } });
+
     const equal_sym = try vm.intern("equal?");
     try vm.basic_object_class.module.methods.put(equal_sym, .{ .method = .{ .builtin = &builtinBasicObjectEqual } });
+
+    const not_equal_sym = try vm.intern("!=");
+    try vm.basic_object_class.module.methods.put(not_equal_sym, .{ .method = .{ .builtin = &builtinBasicObjectNotEqual } });
 
     const not_sym = try vm.intern("!");
     try vm.basic_object_class.module.methods.put(not_sym, .{ .method = .{ .builtin = &builtinBasicObjectNot } });
@@ -23,6 +29,12 @@ pub fn register(vm: *VM) !void {
 pub fn builtinBasicObjectEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     return Value.boolean(receiver.objectId() == args[0].objectId());
+}
+
+pub fn builtinBasicObjectNotEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const equal = try vm.callMethodByName(receiver, "==", args[0..1], null);
+    return Value.boolean(!equal.is_truthy());
 }
 
 pub fn builtinBasicObjectNot(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
