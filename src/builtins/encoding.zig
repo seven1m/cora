@@ -75,6 +75,12 @@ pub fn register(vm: *VM) !void {
     const encoding_class_val = Value.fromObject(vm.encoding_class);
     const encoding_singleton = try vm.getOrCreateSingletonClass(encoding_class_val);
     try encoding_singleton.module.methods.put(find_sym, .{ .method = .{ .builtin = &builtinEncodingFind } });
+
+    const default_internal_sym = try vm.intern("default_internal");
+    try encoding_singleton.module.methods.put(default_internal_sym, .{ .method = .{ .builtin = &builtinEncodingDefaultInternal } });
+
+    const set_default_internal_sym = try vm.intern("default_internal=");
+    try encoding_singleton.module.methods.put(set_default_internal_sym, .{ .method = .{ .builtin = &builtinEncodingSetDefaultInternal } });
 }
 
 pub fn builtinEncodingName(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -149,4 +155,28 @@ pub fn builtinEncodingFind(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
     }
 
     return vm.raiseExceptionFmt(vm.argument_error_class, "unknown encoding name - {s}", .{name_str});
+}
+
+pub fn builtinEncodingDefaultInternal(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    if (vm.default_internal_encoding) |encoding_obj| {
+        return Value.fromObject(encoding_obj);
+    }
+    return Value.nil();
+}
+
+pub fn builtinEncodingSetDefaultInternal(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (args[0].isNil()) {
+        vm.default_internal_encoding = null;
+        return Value.nil();
+    }
+
+    const resolved: Value = if (args[0].isEncoding())
+        args[0]
+    else
+        try builtinEncodingFind(vm, Value.nil(), args, null);
+
+    vm.default_internal_encoding = resolved.toEncodingObject();
+    return resolved;
 }

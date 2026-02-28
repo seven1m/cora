@@ -266,6 +266,7 @@ pub const VM = struct {
     encoding_utf16be: *value.EncodingObject,
     encoding_utf32le: *value.EncodingObject,
     encoding_utf32be: *value.EncodingObject,
+    default_internal_encoding: ?*value.EncodingObject = null,
 
     // Exception handling state
     pending_exception: ?*value.ExceptionObject = null,
@@ -371,6 +372,7 @@ pub const VM = struct {
             .encoding_utf16be = undefined,
             .encoding_utf32le = undefined,
             .encoding_utf32be = undefined,
+            .default_internal_encoding = null,
             .main_self = undefined,
             .zio_main_context = undefined,
             .zio_stack_growth_ready = false,
