@@ -224,6 +224,8 @@ pub const ThreadObject = struct {
     report_on_exception: bool = true,
     abort_on_exception: bool = false,
     kill_requested: bool = false,
+    preempt_requested: bool = false,
+    ops_until_preempt: u32 = 0,
     args: ?[]Value = null,
     owner_vm: *VM,
 };

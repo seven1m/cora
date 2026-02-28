@@ -213,6 +213,30 @@ test "Thread exception propagation through join" {
     try std.testing.expectEqualStrings("boom", result.toStringObject().str);
 }
 
+test "thread preemption lets tight loops make progress without Thread.pass" {
+    const result = try evalCode(
+        \\counter = 0
+        \\t1 = Thread.new do
+        \\  Thread.stop
+        \\  while true
+        \\    counter += 1
+        \\  end
+        \\end
+        \\t2 = Thread.new do
+        \\  t1.wakeup
+        \\  while counter < 1
+        \\    # Busy wait with no explicit yielding.
+        \\  end
+        \\  t1.kill
+        \\  :done
+        \\end
+        \\t2.value
+        \\t1.join
+        \\counter >= 1
+    );
+    try std.testing.expectEqual(true, result.toBool());
+}
+
 test "Thread.pass yields to other threads" {
     const result = try evalCode(
         \\Thread.pass

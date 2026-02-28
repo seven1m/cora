@@ -36,6 +36,14 @@ extern "c" fn unsetenv(name: [*:0]const u8) c_int;
 const MAX_FIBER_STACK_SIZE: usize = 4096;
 const MAX_FIBER_FRAMES: usize = 2048;
 const MAX_FIBER_ENVS: usize = 2048;
+const DEFAULT_THREAD_PREEMPT_QUANTUM_OPS: u32 = 10_000;
+
+fn parseThreadPreemptQuantumOps() u32 {
+    const value_z = getenv("CORA_THREAD_QUANTUM_OPS") orelse return DEFAULT_THREAD_PREEMPT_QUANTUM_OPS;
+    const value_slice = std.mem.span(value_z);
+    const parsed = std.fmt.parseInt(u32, value_slice, 10) catch return DEFAULT_THREAD_PREEMPT_QUANTUM_OPS;
+    return if (parsed == 0) DEFAULT_THREAD_PREEMPT_QUANTUM_OPS else parsed;
+}
 
 pub const VMError = error{
     // Unhandled Ruby exception returned by VM.run()
@@ -193,6 +201,7 @@ pub const VM = struct {
     current_thread: ?*value.ThreadObject = null,
     thread_list: std.ArrayList(*value.ThreadObject) = .empty,
     runnable_queue: std.ArrayList(*value.ThreadObject) = .empty,
+    thread_preempt_quantum_ops: u32 = DEFAULT_THREAD_PREEMPT_QUANTUM_OPS,
     gc_thread_handle: ?*anyopaque = null,
     main_stack_base: ?*anyopaque = null,
     zio_main_context: FiberCoroContext = undefined,
@@ -315,6 +324,7 @@ pub const VM = struct {
             .current_thread = null,
             .thread_list = .empty,
             .runnable_queue = .empty,
+            .thread_preempt_quantum_ops = DEFAULT_THREAD_PREEMPT_QUANTUM_OPS,
             .exception_class = undefined,
             .standard_error_class = undefined,
             .runtime_error_class = undefined,
@@ -373,6 +383,7 @@ pub const VM = struct {
         const dot = self.allocator.dupe(u8, ".") catch return error.Fatal;
         self.load_path.append(self.allocator, dot) catch return error.Fatal;
         self.next_chunk_id = program.next_chunk_id;
+        self.thread_preempt_quantum_ops = parseThreadPreemptQuantumOps();
 
         if (program.main_chunk.source_file) |main_file| {
             const abs_path = try self.resolveAbsolutePath(main_file);
@@ -1867,6 +1878,8 @@ pub const VM = struct {
             .stack = FiberValueStack.init(),
             .frames = FiberFrameStack.init(),
             .env_stack = FiberEnvironmentStack.init(),
+            .preempt_requested = false,
+            .ops_until_preempt = self.thread_preempt_quantum_ops,
             .owner_vm = self,
         };
         self.main_thread = main_thread_obj;
@@ -1893,6 +1906,8 @@ pub const VM = struct {
             .env_stack = FiberEnvironmentStack.init(),
             .current_lexical_scope = self.current_lexical_scope,
             .args = args_copy,
+            .preempt_requested = false,
+            .ops_until_preempt = self.thread_preempt_quantum_ops,
             .owner_vm = self,
         };
         self.thread_list.append(self.gc_allocator, thread_obj) catch return error.Fatal;
@@ -2001,6 +2016,7 @@ pub const VM = struct {
             },
         }
         thread.state = .running;
+        self.resetThreadPreemptBudget(thread);
 
         while (true) {
             // Check kill request before each instruction
@@ -2010,6 +2026,14 @@ pub const VM = struct {
                 thread.terminated_normally = true;
                 if (thread.coro) |c| c.yield();
                 return;
+            }
+
+            var executed_op: ?bytecode.OpCode = null;
+            if (self.frames.items.len > 0) {
+                const frame = &self.frames.storage[self.frames.items.len - 1];
+                if (frame.ip < frame.chunk.code.items.len) {
+                    executed_op = @enumFromInt(frame.chunk.code.items[frame.ip]);
+                }
             }
 
             self.executeInstruction() catch |err| switch (err) {
@@ -2029,7 +2053,51 @@ pub const VM = struct {
                 if (thread.coro) |c| c.yield();
                 return;
             }
+
+            const safe_point = if (executed_op) |op| isThreadPreemptSafePoint(op) else false;
+            if (self.shouldPreemptThread(thread, safe_point)) {
+                try self.threadYield();
+            }
         }
+    }
+
+    inline fn hasOtherRunnableThread(self: *VM, current_thread: *value.ThreadObject) bool {
+        for (self.runnable_queue.items) |thread| {
+            if (thread == current_thread) continue;
+            if (thread.state == .created or thread.state == .running) return true;
+        }
+        return false;
+    }
+
+    inline fn resetThreadPreemptBudget(self: *VM, thread: *value.ThreadObject) void {
+        thread.preempt_requested = false;
+        thread.ops_until_preempt = self.thread_preempt_quantum_ops;
+    }
+
+    inline fn isThreadPreemptSafePoint(op: bytecode.OpCode) bool {
+        return switch (op) {
+            .JUMP, .JUMP_IF_FALSE, .RETURN => true,
+            else => false,
+        };
+    }
+
+    inline fn shouldPreemptThread(self: *VM, thread: *value.ThreadObject, safe_point: bool) bool {
+        if (self.thread_preempt_quantum_ops == 0) return false;
+        if (thread.ops_until_preempt > 1) {
+            thread.ops_until_preempt -= 1;
+        } else {
+            thread.ops_until_preempt = self.thread_preempt_quantum_ops;
+            thread.preempt_requested = true;
+        }
+
+        if (!thread.preempt_requested or !safe_point) return false;
+
+        if (!self.hasOtherRunnableThread(thread)) {
+            thread.preempt_requested = false;
+            return false;
+        }
+        thread.preempt_requested = false;
+        return true;
     }
 
     fn stackBaseForThread(self: *VM, thread: *value.ThreadObject) VMError!*anyopaque {
@@ -2086,6 +2154,7 @@ pub const VM = struct {
 
             const target_stack_base = try self.stackBaseForThread(thread);
             try self.setCurrentStackBaseForGc(target_stack_base);
+            self.resetThreadPreemptBudget(thread);
 
             const target_coro = thread.coro orelse return error.Fatal;
             const parent_context: *FiberCoroContext = if (caller_fiber.coro) |caller_coro|
@@ -2136,6 +2205,15 @@ pub const VM = struct {
             if (thread.coro) |c| c.yield();
             // If we somehow resume after being terminated, just error out
             return error.Fatal;
+        }
+    }
+
+    pub fn maybePreemptCurrentThread(self: *VM, safe_point: bool) VMError!void {
+        const thread = self.current_thread orelse return;
+        const main = self.main_thread orelse return;
+        if (thread == main) return;
+        if (self.shouldPreemptThread(thread, safe_point)) {
+            try self.threadYield();
         }
     }
 

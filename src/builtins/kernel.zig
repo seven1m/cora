@@ -436,6 +436,7 @@ pub fn builtinKernelLoop(vm: *VM, _: Value, args: []Value, block: ?Block) VMErro
     while (true) {
         const result = try vm.yieldToBlock(blk, &[_]Value{});
         if (result.break_occurred) return result.value;
+        try vm.maybePreemptCurrentThread(true);
     }
 }
 
