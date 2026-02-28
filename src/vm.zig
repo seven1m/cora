@@ -497,6 +497,9 @@ pub const VM = struct {
         const process_module_val = try self.newModule(process_name_sym);
         self.process_module = process_module_val.toModuleObject();
 
+        const comparable_name_sym = try self.intern("Comparable");
+        const comparable_module_val = try self.newModule(comparable_name_sym);
+
         const process_status_name_sym = try self.intern("InternalProcessStatus");
         const process_status_class_val = try self.newClass(process_status_name_sym, self.object_class);
         self.process_status_class = process_status_class_val.toClassObject();
@@ -628,6 +631,7 @@ pub const VM = struct {
         self.object_class.module.constants.put(false_class_name_sym, false_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(kernel_name_sym, kernel_module_val) catch return error.Fatal;
         self.object_class.module.constants.put(process_name_sym, process_module_val) catch return error.Fatal;
+        self.object_class.module.constants.put(comparable_name_sym, comparable_module_val) catch return error.Fatal;
         self.object_class.module.constants.put(exception_name_sym, exception_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(standard_error_name_sym, standard_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(runtime_error_name_sym, runtime_error_class_val) catch return error.Fatal;
