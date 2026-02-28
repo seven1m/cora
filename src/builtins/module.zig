@@ -501,6 +501,7 @@ pub fn builtinModuleAttrWriter(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
     for (args) |arg| {
         const name_str = try vm.coerceToMethodNameString(arg);
         const writer_name = std.fmt.allocPrint(vm.program.allocator, "{s}=", .{name_str}) catch return error.Fatal;
+        defer vm.program.allocator.free(writer_name);
         const method_sym = try vm.intern(writer_name);
         const chunk_ptr = try vm.createAccessorChunk(name_str, .writer);
         methods.put(method_sym, .{
@@ -531,6 +532,7 @@ pub fn builtinModuleAttrAccessor(vm: *VM, receiver: Value, args: []Value, _: ?Bl
     for (args) |arg| {
         const name_str = try vm.coerceToMethodNameString(arg);
         const writer_name = std.fmt.allocPrint(vm.program.allocator, "{s}=", .{name_str}) catch return error.Fatal;
+        defer vm.program.allocator.free(writer_name);
 
         const reader_sym = try vm.intern(name_str);
         const writer_sym = try vm.intern(writer_name);
