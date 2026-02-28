@@ -45,6 +45,7 @@ pub const ObjectTypeTag = enum(u8) {
     module,
     class,
     float,
+    thread,
 };
 
 pub const Object = struct {
@@ -190,6 +191,40 @@ pub const FiberObject = struct {
     coro_exception: ?*ExceptionObject = null,
     first_resume_args: [256]Value = undefined,
     first_resume_argc: usize = 0,
+    owner_vm: *VM,
+};
+
+pub const ThreadObject = struct {
+    pub const State = enum {
+        created,
+        running,
+        sleeping,
+        aborting,
+        terminated,
+    };
+
+    object: Object,
+    state: State,
+    block: ?Block,
+    stack: FiberValueStack,
+    frames: FiberFrameStack,
+    env_stack: FiberEnvironmentStack,
+    current_lexical_scope: ?*LexicalScope = null,
+    coro: ?*FiberCoro = null,
+    // Result/exception communication
+    result: Value = Value.nil(),
+    exception: ?*ExceptionObject = null,
+    terminated_normally: bool = false,
+    // Thread-local storage
+    fiber_locals: ?std.AutoHashMap(*SymbolObject, Value) = null,
+    thread_variables: ?std.AutoHashMap(*SymbolObject, Value) = null,
+    // Metadata
+    name: ?[]const u8 = null,
+    priority: i8 = 0,
+    report_on_exception: bool = true,
+    abort_on_exception: bool = false,
+    kill_requested: bool = false,
+    args: ?[]Value = null,
     owner_vm: *VM,
 };
 
@@ -420,6 +455,10 @@ pub const Value = struct {
         return self.isObject() and self.objectTypeTag() == .yielder;
     }
 
+    pub inline fn isThread(self: Value) bool {
+        return self.isObject() and self.objectTypeTag() == .thread;
+    }
+
     // -- Convenience extractors for heap types --
 
     pub inline fn toStringObject(self: Value) *StringObject {
@@ -491,6 +530,10 @@ pub const Value = struct {
     }
 
     pub inline fn toYielderObject(self: Value) *YielderObject {
+        return @ptrFromInt(self.raw);
+    }
+
+    pub inline fn toThreadObject(self: Value) *ThreadObject {
         return @ptrFromInt(self.raw);
     }
 
@@ -745,6 +788,7 @@ pub const Value = struct {
                 .yielder => try writer.print("#<Enumerator::Yielder:0x{x}>", .{self.raw}),
                 .big_integer => try writer.print("{}", .{self.toBigIntegerObject().value}),
                 .float => try writer.print("{d}", .{self.toFloatObject().val}),
+                .thread => try writer.print("#<Thread:0x{x}>", .{self.raw}),
             }
         } else {
             try writer.print("<unknown>", .{});

@@ -16,6 +16,7 @@ const Value = value.Value;
 const Object = value.Object;
 const ClassObject = value.ClassObject;
 const FiberObject = value.FiberObject;
+const ThreadObject = value.ThreadObject;
 const LexicalScope = value.LexicalScope;
 const MethodEntry = value.MethodEntry;
 const MethodVisibility = value.MethodVisibility;
@@ -186,6 +187,12 @@ pub const VM = struct {
     main_self: Value,
     main_fiber: *value.FiberObject,
     current_fiber: *value.FiberObject,
+    thread_class: *value.ClassObject,
+    thread_error_class: *value.ClassObject,
+    main_thread: ?*value.ThreadObject = null,
+    current_thread: ?*value.ThreadObject = null,
+    thread_list: std.ArrayList(*value.ThreadObject) = .empty,
+    runnable_queue: std.ArrayList(*value.ThreadObject) = .empty,
     gc_thread_handle: ?*anyopaque = null,
     main_stack_base: ?*anyopaque = null,
     zio_main_context: FiberCoroContext = undefined,
@@ -302,6 +309,12 @@ pub const VM = struct {
             .process_status_class = undefined,
             .main_fiber = undefined,
             .current_fiber = undefined,
+            .thread_class = undefined,
+            .thread_error_class = undefined,
+            .main_thread = null,
+            .current_thread = null,
+            .thread_list = .empty,
+            .runnable_queue = .empty,
             .exception_class = undefined,
             .standard_error_class = undefined,
             .runtime_error_class = undefined,
@@ -434,6 +447,10 @@ pub const VM = struct {
         const fiber_class_val = try self.newClassWithType(fiber_name_sym, self.object_class, .fiber);
         self.fiber_class = fiber_class_val.toClassObject();
 
+        const thread_name_sym = try self.intern("Thread");
+        const thread_class_val = try self.newClass(thread_name_sym, self.object_class);
+        self.thread_class = thread_class_val.toClassObject();
+
         const regexp_name_sym = try self.intern("Regexp");
         const regexp_class_val = try self.newClass(regexp_name_sym, self.object_class);
         self.regexp_class = regexp_class_val.toClassObject();
@@ -518,6 +535,10 @@ pub const VM = struct {
         const fiber_error_class_val = try self.newClass(fiber_error_name_sym, self.standard_error_class);
         self.fiber_error_class = fiber_error_class_val.toClassObject();
 
+        const thread_error_name_sym = try self.intern("ThreadError");
+        const thread_error_class_val = try self.newClass(thread_error_name_sym, self.standard_error_class);
+        self.thread_error_class = thread_error_class_val.toClassObject();
+
         const load_error_name_sym = try self.intern("LoadError");
         const load_error_class_val = try self.newClass(load_error_name_sym, self.standard_error_class);
         self.load_error_class = load_error_class_val.toClassObject();
@@ -589,6 +610,7 @@ pub const VM = struct {
         self.object_class.module.constants.put(range_name_sym, range_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(proc_name_sym, proc_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(fiber_name_sym, fiber_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(thread_name_sym, thread_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(regexp_name_sym, regexp_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(match_data_name_sym, match_data_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(nil_class_name_sym, nil_class_val) catch return error.Fatal;
@@ -609,6 +631,7 @@ pub const VM = struct {
         self.object_class.module.constants.put(local_jump_error_name_sym, local_jump_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(io_error_name_sym, io_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(fiber_error_name_sym, fiber_error_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(thread_error_name_sym, thread_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(load_error_name_sym, load_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(encoding_error_name_sym, encoding_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(range_error_name_sym, range_error_class_val) catch return error.Fatal;
@@ -740,6 +763,7 @@ pub const VM = struct {
         self.current_fiber = main_fiber_obj;
         self.restoreFiberState(main_fiber_obj);
         self.zio_main_context = undefined;
+
         try self.buildProgramCallsiteDescriptors();
         try self.captureMainGcStackBase();
     }
@@ -1827,6 +1851,292 @@ pub const VM = struct {
             },
             .none => error.Fatal,
         };
+    }
+
+    // =========================================================================
+    // Thread infrastructure
+    // =========================================================================
+
+    pub fn ensureMainThread(self: *VM) VMError!*value.ThreadObject {
+        if (self.main_thread) |mt| return mt;
+        const main_thread_obj = self.gc_allocator.create(value.ThreadObject) catch return error.Fatal;
+        main_thread_obj.* = .{
+            .object = .{ .type_tag = .thread, .flags = 0, .class = self.thread_class, .singleton_class = null, .instance_variables = null },
+            .state = .running,
+            .block = null,
+            .stack = FiberValueStack.init(),
+            .frames = FiberFrameStack.init(),
+            .env_stack = FiberEnvironmentStack.init(),
+            .owner_vm = self,
+        };
+        self.main_thread = main_thread_obj;
+        self.current_thread = main_thread_obj;
+        self.thread_list.append(self.gc_allocator, main_thread_obj) catch return error.Fatal;
+        return main_thread_obj;
+    }
+
+    pub fn newThread(self: *VM, class_obj: *value.ClassObject, block: Block, args: []Value) VMError!*value.ThreadObject {
+        _ = try self.ensureMainThread();
+        // Copy args to GC-allocated memory so they survive across coroutine switches
+        const args_copy = if (args.len > 0) blk: {
+            const copy = self.gc_allocator.alloc(Value, args.len) catch return error.Fatal;
+            @memcpy(copy, args);
+            break :blk copy;
+        } else null;
+        const thread_obj = self.gc_allocator.create(value.ThreadObject) catch return error.Fatal;
+        thread_obj.* = .{
+            .object = .{ .type_tag = .thread, .flags = 0, .class = class_obj, .singleton_class = null, .instance_variables = null },
+            .state = .created,
+            .block = block,
+            .stack = FiberValueStack.init(),
+            .frames = FiberFrameStack.init(),
+            .env_stack = FiberEnvironmentStack.init(),
+            .current_lexical_scope = self.current_lexical_scope,
+            .args = args_copy,
+            .owner_vm = self,
+        };
+        self.thread_list.append(self.gc_allocator, thread_obj) catch return error.Fatal;
+        self.runnable_queue.append(self.gc_allocator, thread_obj) catch return error.Fatal;
+        return thread_obj;
+    }
+
+    fn saveThreadState(self: *VM, thread: *value.ThreadObject) void {
+        thread.current_lexical_scope = self.current_lexical_scope;
+    }
+
+    fn restoreThreadState(self: *VM, thread: *value.ThreadObject) void {
+        self.stack = &thread.stack;
+        self.frames = &thread.frames;
+        self.env_stack = &thread.env_stack;
+        self.current_lexical_scope = thread.current_lexical_scope;
+    }
+
+    fn ensureThreadCoroutine(self: *VM, thread: *value.ThreadObject) VMError!void {
+        if (thread.coro != null) return;
+
+        const coro_obj = self.allocator.create(FiberCoro) catch return error.Fatal;
+        coro_obj.* = .{
+            .context = undefined,
+            .parent_context_ptr = .init(&self.zio_main_context),
+        };
+        zio.coro.stackAlloc(&coro_obj.context.stack_info, 8 * 1024 * 1024, 256 * 1024) catch return error.Fatal;
+        coro_obj.setup(&threadEntrypoint, thread);
+        self.zio_coroutines.append(self.allocator, coro_obj) catch return error.Fatal;
+        thread.coro = coro_obj;
+    }
+
+    fn threadEntrypoint(coro_obj: *FiberCoro, userdata: ?*anyopaque) void {
+        _ = coro_obj;
+        const thread: *value.ThreadObject = @ptrCast(@alignCast(userdata.?));
+        runThreadCoroutine(thread) catch |err| {
+            const self = thread.owner_vm;
+            thread.state = .terminated;
+            switch (err) {
+                error.UnhandledException => {
+                    thread.terminated_normally = false;
+                    thread.exception = self.pending_exception;
+                },
+                else => {
+                    thread.terminated_normally = true;
+                },
+            }
+            if (thread.coro) |c| c.yield();
+            return;
+        };
+    }
+
+    fn runThreadCoroutine(thread: *value.ThreadObject) VMError!void {
+        const self = thread.owner_vm;
+        const blk = thread.block orelse return error.Fatal;
+        switch (blk.kind) {
+            .chunk => |chunk_blk| {
+                const real_defining_ep = derefEnvironment(chunk_blk.defining_ep);
+                const thread_env = self.createStackEnvironment(real_defining_ep, chunk_blk.chunk.lexical_scope orelse self.current_lexical_scope) catch return error.Fatal;
+
+                self.frames.append(self.gc_allocator, CallFrame{
+                    .chunk = chunk_blk.chunk,
+                    .ip = 0,
+                    .stack_base = self.stack.items.len,
+                    .self_value = chunk_blk.defining_self,
+                    .ep = thread_env,
+                    .block = null,
+                    .frame_type = .fiber,
+                }) catch return error.Fatal;
+
+                if (chunk_blk.chunk.lexical_scope) |scope| {
+                    self.current_lexical_scope = scope;
+                }
+
+                const current_frame = self.currentFrame();
+                const thread_args = thread.args orelse &[_]Value{};
+                self.copyArgumentsWithRestParam(chunk_blk.chunk, current_frame.ep, thread_args, .lenient) catch return error.Fatal;
+            },
+            .symbol => |sym| {
+                const thread_args = thread.args orelse &[_]Value{};
+                const result = try self.invokeSymbolProc(sym, thread_args, null);
+                thread.state = .terminated;
+                thread.result = result;
+                thread.terminated_normally = true;
+                if (thread.coro) |c| c.yield();
+                return;
+            },
+            .builtin => |func| {
+                var empty_args = [_]Value{};
+                const thread_args = thread.args orelse &empty_args;
+                const result = func(self, thread_args) catch |err| {
+                    if (err == error.Unwind) {
+                        thread.state = .terminated;
+                        thread.exception = self.pending_exception;
+                        thread.terminated_normally = false;
+                        if (thread.coro) |c| c.yield();
+                        return;
+                    }
+                    return err;
+                };
+                thread.state = .terminated;
+                thread.result = result;
+                thread.terminated_normally = true;
+                if (thread.coro) |c| c.yield();
+                return;
+            },
+        }
+        thread.state = .running;
+
+        while (true) {
+            // Check kill request before each instruction
+            if (thread.kill_requested) {
+                thread.state = .terminated;
+                thread.result = Value.nil();
+                thread.terminated_normally = true;
+                if (thread.coro) |c| c.yield();
+                return;
+            }
+
+            self.executeInstruction() catch |err| switch (err) {
+                error.Unwind => {
+                    self.unwindStack() catch |unwind_err| switch (unwind_err) {
+                        error.UnhandledException => return error.UnhandledException,
+                        else => return error.Fatal,
+                    };
+                },
+                else => return error.Fatal,
+            };
+
+            if (self.frames.items.len == 0) {
+                thread.state = .terminated;
+                thread.result = self.pop();
+                thread.terminated_normally = true;
+                if (thread.coro) |c| c.yield();
+                return;
+            }
+        }
+    }
+
+    fn stackBaseForThread(self: *VM, thread: *value.ThreadObject) VMError!*anyopaque {
+        if (self.main_thread != null and thread == self.main_thread.?) {
+            return self.main_stack_base orelse error.Fatal;
+        }
+        const coro = thread.coro orelse return error.Fatal;
+        return @ptrFromInt(coro.context.stack_info.base);
+    }
+
+    /// Yield to the thread scheduler. Runs all other runnable threads one step each,
+    /// then returns control to the caller.
+    pub fn schedulerYield(self: *VM) VMError!void {
+        if (self.runnable_queue.items.len == 0) return;
+
+        const caller_thread = self.current_thread orelse return;
+
+        // Save current fiber state so we can restore it after
+        const caller_fiber = self.current_fiber;
+        self.saveFiberState(caller_fiber);
+        self.saveThreadState(caller_thread);
+
+        const caller_stack_base = try self.stackBaseForFiber(caller_fiber);
+
+        // Run each runnable thread one step
+        var i: usize = 0;
+        while (i < self.runnable_queue.items.len) {
+            const thread = self.runnable_queue.items[i];
+            if (thread == caller_thread) {
+                i += 1;
+                continue;
+            }
+            if (thread.state == .terminated) {
+                _ = self.runnable_queue.orderedRemove(i);
+                continue;
+            }
+
+            // Set up thread's coroutine if needed
+            if (thread.state == .created) {
+                try self.ensureThreadCoroutine(thread);
+                thread.state = .running;
+            }
+
+            if (thread.state == .sleeping) {
+                i += 1;
+                continue;
+            }
+
+            // Switch to thread
+            self.current_thread = thread;
+            self.restoreThreadState(thread);
+            // Restore main fiber state within the thread context
+            self.current_fiber = self.main_fiber;
+
+            const target_stack_base = try self.stackBaseForThread(thread);
+            try self.setCurrentStackBaseForGc(target_stack_base);
+
+            const target_coro = thread.coro orelse return error.Fatal;
+            const parent_context: *FiberCoroContext = if (caller_fiber.coro) |caller_coro|
+                &caller_coro.context
+            else
+                &self.zio_main_context;
+            target_coro.parent_context_ptr.store(parent_context, .release);
+            target_coro.step();
+
+            self.saveThreadState(thread);
+
+            if (thread.state == .terminated) {
+                // Thread may have already removed itself from the queue
+                if (i < self.runnable_queue.items.len and self.runnable_queue.items[i] == thread) {
+                    _ = self.runnable_queue.orderedRemove(i);
+                }
+                continue;
+            }
+
+            i += 1;
+        }
+
+        // Restore caller state
+        self.current_thread = caller_thread;
+        self.restoreThreadState(caller_thread);
+        self.current_fiber = caller_fiber;
+        self.restoreFiberState(caller_fiber);
+        try self.setCurrentStackBaseForGc(caller_stack_base);
+    }
+
+    /// Yield to scheduler, used by Thread.pass and join loops
+    pub fn threadYield(self: *VM) VMError!void {
+        const thread = self.current_thread orelse return self.schedulerYield();
+        const main = self.main_thread orelse return self.schedulerYield();
+        if (thread == main) {
+            // Main thread: run scheduler directly
+            return self.schedulerYield();
+        }
+        // Non-main thread: yield the coroutine
+        if (thread.coro) |c| c.yield();
+
+        // After resuming, check if we've been killed
+        if (thread.kill_requested) {
+            thread.state = .terminated;
+            thread.result = Value.nil();
+            thread.terminated_normally = true;
+            // Yield again so the scheduler sees us as terminated
+            if (thread.coro) |c| c.yield();
+            // If we somehow resume after being terminated, just error out
+            return error.Fatal;
+        }
     }
 
     const OptIntegerBinaryOp = enum {
@@ -4467,6 +4777,7 @@ pub const VM = struct {
                 .yielder => break :blk self.yielder_class,
                 .big_integer => break :blk self.integer_class,
                 .float => break :blk self.float_class,
+                .thread => break :blk self.thread_class,
             }
         };
 
@@ -5142,6 +5453,7 @@ pub const VM = struct {
             .module => arg.isModule(),
             .class => arg.isClass(),
             .float => arg.isFloat(),
+            .thread => arg.isThread(),
         };
         if (!matches) {
             const msg = std.fmt.allocPrint(

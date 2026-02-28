@@ -1,0 +1,60 @@
+require_relative '../../spec_helper'
+
+describe "Thread#name" do
+  before :each do
+    @thread = Thread.new {}
+  end
+
+  after :each do
+    @thread.join
+  end
+
+  it "is nil initially" do
+    @thread.name.should == nil
+  end
+
+  it "returns the thread name" do
+    @thread.name = "thread_name"
+    @thread.name.should == "thread_name"
+  end
+end
+
+describe "Thread#name=" do
+  before :each do
+    @thread = Thread.new {}
+  end
+
+  after :each do
+    @thread.join
+  end
+
+  it "can be set to a String" do
+    @thread.name = "new thread name"
+    @thread.name.should == "new thread name"
+  end
+
+  it "raises an ArgumentError if the name includes a null byte" do
+    CORAFIXME "Thread#name= null-byte validation is not fully implemented in Cora" do
+      -> {
+        @thread.name = "new thread\0name"
+      }.should raise_error(ArgumentError)
+    end
+  end
+
+  it "can be reset to nil" do
+    @thread.name = nil
+    @thread.name.should == nil
+  end
+
+  it "calls #to_str to convert name to String" do
+    CORAFIXME "Thread#name= coercion via to_str is not fully implemented in Cora" do
+      name = Object.new
+      def name.to_str
+        "a thread name"
+      end
+
+      @thread.name = name
+      @thread.name.should == "a thread name"
+    end
+  end
+end

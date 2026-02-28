@@ -23,6 +23,7 @@ const object = @import("object.zig");
 const proc_builtin = @import("proc.zig");
 const process = @import("process.zig");
 const fiber = @import("fiber.zig");
+const thread = @import("thread.zig");
 const range = @import("range.zig");
 const regexp = @import("regexp.zig");
 const string = @import("string.zig");
@@ -45,6 +46,7 @@ pub fn registerAll(vm: *VM) !void {
     try process.register(vm);
     try proc_builtin.register(vm);
     try fiber.register(vm);
+    try thread.register(vm);
     try range.register(vm);
     try regexp.register(vm);
     try match_data.register(vm);
