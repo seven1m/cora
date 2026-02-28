@@ -5892,13 +5892,9 @@ pub const VM = struct {
                 }
             }
 
+            const unwind_stack_base = self.frames.items[frame_idx].stack_base;
             try self.popFrame();
-            if (self.frames.items.len > 0) {
-                const prev_frame = &self.frames.items[self.frames.items.len - 1];
-                self.stack.shrinkRetainingCapacity(prev_frame.stack_base);
-            } else {
-                self.stack.shrinkRetainingCapacity(0);
-            }
+            self.stack.shrinkRetainingCapacity(unwind_stack_base);
         }
 
         return false;
