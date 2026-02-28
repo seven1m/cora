@@ -746,6 +746,7 @@ pub const VM = struct {
         try self.clearLastMatch();
 
         try self.includeModule(self.object_class, self.kernel_module);
+        try self.includeModule(self.string_class, comparable_module_val.toModuleObject());
 
         // Create top-level self (Ruby "main" object)
         self.main_self = try self.newInstance(self.object_class);
