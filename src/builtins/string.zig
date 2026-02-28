@@ -19,7 +19,10 @@ pub fn register(vm: *VM) !void {
     try string_singleton.module.methods.put(try_convert_sym, .{ .method = .{ .builtin = &builtinStringTryConvert } });
 
     const initialize_sym = try vm.intern("initialize");
-    try vm.string_class.module.methods.put(initialize_sym, .{ .method = .{ .builtin = &builtinStringInitialize } });
+    try vm.string_class.module.methods.put(initialize_sym, .{
+        .method = .{ .builtin = &builtinStringInitialize },
+        .visibility = .private,
+    });
 
     const string_uplus_sym = try vm.intern("+@");
     try vm.string_class.module.methods.put(string_uplus_sym, .{ .method = .{ .builtin = &builtinStringUnaryPlus } });
@@ -201,6 +204,10 @@ pub fn builtinStringInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
 
     if (args.len == 0) {
         return receiver;
+    }
+
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
     }
 
     const new_bytes: []const u8 = if (args[0].isString()) blk: {
