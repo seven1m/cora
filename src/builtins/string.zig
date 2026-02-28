@@ -298,12 +298,18 @@ pub fn builtinStringReplace(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 pub fn builtinStringEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const other = args[0];
-    // String == only returns true if other is also a String with same content
-    if (!other.isString()) {
-        return Value.boolean(false);
+
+    if (other.isString()) {
+        return builtinStringEql(vm, receiver, args, null);
     }
-    const result = std.mem.eql(u8, receiver.toStringObject().str, other.toStringObject().str);
-    return Value.boolean(result);
+
+    const to_str_sym = try vm.intern("to_str");
+    if ((try vm.findMethod(other, to_str_sym)) != null) {
+        var reverse_args = [_]Value{receiver};
+        return try vm.callMethodByName(other, "==", reverse_args[0..], null);
+    }
+
+    return Value.boolean(false);
 }
 
 pub fn builtinStringEql(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

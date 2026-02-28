@@ -1193,6 +1193,122 @@ def expect(actual)
 end
 
 class Object
+  def __spec_method_hooks
+    @__spec_method_hooks ||= {}
+  end
+
+  def __spec_hooked_methods
+    @__spec_hooked_methods ||= []
+  end
+
+  def __spec_expected_calls
+    @__spec_expected_calls ||= {}
+  end
+
+  def __spec_forbidden_calls
+    @__spec_forbidden_calls ||= {}
+  end
+
+  def __spec_install_hook(method_name)
+    method_name = method_name.to_sym
+    return if __spec_hooked_methods.include?(method_name)
+
+    original = nil
+    begin
+      original = method(method_name)
+    rescue NameError
+      original = nil
+    end
+
+    __spec_method_hooks[method_name] = original
+    __spec_hooked_methods << method_name
+    define_singleton_method(method_name) do |*args, &block|
+      __spec_dispatch_mock_call(method_name, args, block)
+    end
+  end
+
+  def __spec_dispatch_mock_call(method_name, args, block)
+    sym = method_name.to_sym
+    if __spec_forbidden_calls[sym]
+      raise SpecFailedException, "Expected #{self.inspect} not to receive #{sym}"
+    end
+
+    exp = __spec_expected_calls[sym]
+    return exp.invoke(args, block) if exp
+
+    original = __spec_method_hooks[sym]
+    return original.call(*args, &block) unless original.nil?
+
+    nil
+  end
+
+  def __spec_restore_hooks
+    singleton = class << self; self; end
+    __spec_hooked_methods.each do |name|
+      original = __spec_method_hooks[name]
+      if original.nil?
+        begin
+          singleton.__send__(:remove_method, name)
+        rescue NameError
+          nil
+        end
+      else
+        define_singleton_method(name) do |*args, &block|
+          original.call(*args, &block)
+        end
+      end
+    end
+    @__spec_method_hooks = {}
+    @__spec_hooked_methods = []
+    @__spec_expected_calls = {}
+    @__spec_forbidden_calls = {}
+  end
+
+  def should_receive(method_name)
+    method_name = method_name.to_sym
+    __spec_install_hook(method_name)
+    __spec_forbidden_calls.delete(method_name)
+    exp = SpecMockExpectation.new(self.class.to_s, method_name)
+    __spec_expected_calls[method_name] = exp
+    already_registered = false
+    $__active_mocks.each do |entry|
+      if entry.equal?(self)
+        already_registered = true
+        break
+      end
+    end
+    $__active_mocks << self unless already_registered
+    exp
+  end
+
+  def should_not_receive(method_name)
+    method_name = method_name.to_sym
+    __spec_install_hook(method_name)
+    __spec_expected_calls.delete(method_name)
+    __spec_forbidden_calls[method_name] = true
+    already_registered = false
+    $__active_mocks.each do |entry|
+      if entry.equal?(self)
+        already_registered = true
+        break
+      end
+    end
+    $__active_mocks << self unless already_registered
+    self
+  end
+
+  def stub!(method_name)
+    should_receive(method_name).any_number_of_times
+  end
+
+  def verify_expectations!
+    begin
+      __spec_expected_calls.each_value(&:verify!)
+    ensure
+      __spec_restore_hooks
+    end
+  end
+
   def should(*args)
     exp = SpecExpectation.new(self)
     return exp if args.length == 0
