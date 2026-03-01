@@ -58,8 +58,10 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const test_verbose = b.option(bool, "test-verbose", "Print each test name") orelse false;
+    const test_jobs = b.option(i32, "test-jobs", "Number of test worker processes (<=0 auto)") orelse 0;
     const options = b.addOptions();
     options.addOption(bool, "test_verbose", test_verbose);
+    options.addOption(i32, "test_jobs", test_jobs);
 
     const prism_build_step = buildPrism(b);
     const onigmo_build_step = buildOnigmo(b);
