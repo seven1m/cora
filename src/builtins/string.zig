@@ -1073,15 +1073,20 @@ pub fn builtinStringUpcase(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 pub fn builtinStringToI(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
 
-    var base: u8 = 10;
+    var requested_base: i64 = 10;
     if (args.len == 1) {
-        const base_int = try args[0].integerArgToI64(vm, "argument is not an Integer", "base is too large");
-        if (base_int < 2 or base_int > 36) {
-            return vm.raiseExceptionFmt(vm.argument_error_class, "invalid radix {d}", .{base_int});
+        requested_base = try args[0].coerceToI64ViaToInt(
+            vm,
+            "no implicit conversion of Object into Integer",
+            "can't convert Object to Integer (Object#to_int gives Object)",
+            "base is too large",
+        );
+        if ((requested_base < 2 or requested_base > 36) and requested_base != 0) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "invalid radix {d}", .{requested_base});
         }
-        base = @intCast(base_int);
     }
 
+    var base: u8 = if (requested_base == 0) 10 else @intCast(requested_base);
     const s = receiver.toStringObject().str;
     var i: usize = 0;
     while (i < s.len and std.ascii.isWhitespace(s[i])) : (i += 1) {}
@@ -1090,6 +1095,39 @@ pub fn builtinStringToI(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     if (i < s.len and (s[i] == '+' or s[i] == '-')) {
         negative = s[i] == '-';
         i += 1;
+    }
+
+    if (i < s.len and s[i] == '0') {
+        const has_prefix_char = i + 1 < s.len;
+        const prefix_ch = if (has_prefix_char) std.ascii.toLower(s[i + 1]) else 0;
+
+        if (requested_base == 0) {
+            switch (prefix_ch) {
+                'b' => {
+                    base = 2;
+                    i += 2;
+                },
+                'd' => {
+                    base = 10;
+                    i += 2;
+                },
+                'o' => {
+                    base = 8;
+                    i += 2;
+                },
+                'x' => {
+                    base = 16;
+                    i += 2;
+                },
+                else => base = 8,
+            }
+        } else if ((requested_base == 2 and prefix_ch == 'b') or
+            (requested_base == 8 and prefix_ch == 'o') or
+            (requested_base == 10 and prefix_ch == 'd') or
+            (requested_base == 16 and prefix_ch == 'x'))
+        {
+            i += 2;
+        }
     }
 
     var saw_digit = false;
