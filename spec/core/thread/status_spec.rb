@@ -11,9 +11,7 @@ describe "Thread#status" do
   end
 
   it "describes a sleeping thread" do
-    CORAFIXME "Thread sleeping status semantics are not fully implemented in Cora" do
-      ThreadSpecs.status_of_sleeping_thread.status.should == 'sleep'
-    end
+    ThreadSpecs.status_of_sleeping_thread.status.should == 'sleep'
   end
 
   it "describes a blocked thread" do
@@ -27,9 +25,7 @@ describe "Thread#status" do
   end
 
   it "describes a killed thread" do
-    CORAFIXME "Thread kill/sleep status interaction differs in Cora" do
-      ThreadSpecs.status_of_killed_thread.status.should == false
-    end
+    ThreadSpecs.status_of_killed_thread.status.should == false
   end
 
   it "describes a thread with an uncaught exception" do

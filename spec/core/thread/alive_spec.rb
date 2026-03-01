@@ -11,9 +11,7 @@ describe "Thread#alive?" do
   end
 
   it "describes a sleeping thread" do
-    CORAFIXME "Thread sleeping state behavior is not fully implemented in Cora" do
-      ThreadSpecs.status_of_sleeping_thread.should.alive?
-    end
+    ThreadSpecs.status_of_sleeping_thread.should.alive?
   end
 
   it "describes a blocked thread" do
@@ -27,9 +25,7 @@ describe "Thread#alive?" do
   end
 
   it "describes a killed thread" do
-    CORAFIXME "Thread kill/sleep interaction differs in Cora" do
-      ThreadSpecs.status_of_killed_thread.should_not.alive?
-    end
+    ThreadSpecs.status_of_killed_thread.should_not.alive?
   end
 
   it "describes a thread with an uncaught exception" do

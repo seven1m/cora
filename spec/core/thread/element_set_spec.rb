@@ -60,19 +60,17 @@ describe "Thread#[]=" do
   end
 
   it "stores a local in another thread when in a fiber" do
-    CORAFIXME "Cross-thread local updates from fibers need sleeping thread support in Cora" do
-      fib = Fiber.new do
-        t = Thread.new do
-          sleep
-          Thread.current[:value].should == 1
-        end
-
-        Thread.pass while t.status and t.status != "sleep"
-        t[:value] = 1
-        t.wakeup
-        t.join
+    fib = Fiber.new do
+      t = Thread.new do
+        sleep
+        Thread.current[:value].should == 1
       end
-      fib.resume
+
+      Thread.pass while t.status and t.status != "sleep"
+      t[:value] = 1
+      t.wakeup
+      t.join
     end
+    fib.resume
   end
 end

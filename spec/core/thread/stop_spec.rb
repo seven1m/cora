@@ -21,9 +21,7 @@ describe "Thread#stop?" do
   end
 
   it "describes a sleeping thread" do
-    CORAFIXME "Thread sleeping stop? semantics are not fully implemented in Cora" do
-      ThreadSpecs.status_of_sleeping_thread.should.stop?
-    end
+    ThreadSpecs.status_of_sleeping_thread.should.stop?
   end
 
   it "describes a blocked thread" do
@@ -37,9 +35,7 @@ describe "Thread#stop?" do
   end
 
   it "describes a killed thread" do
-    CORAFIXME "Thread kill/sleep stop? behavior differs in Cora" do
-      ThreadSpecs.status_of_killed_thread.should.stop?
-    end
+    ThreadSpecs.status_of_killed_thread.should.stop?
   end
 
   it "describes a thread with an uncaught exception" do

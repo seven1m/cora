@@ -114,6 +114,9 @@ pub fn register(vm: *VM) !void {
     const loop_sym = try vm.intern("loop");
     try vm.kernel_module.methods.put(loop_sym, .{ .method = .{ .builtin = &builtinKernelLoop } });
 
+    const sleep_sym = try vm.intern("sleep");
+    try vm.kernel_module.methods.put(sleep_sym, .{ .method = .{ .builtin = &builtinKernelSleep } });
+
     const tap_sym = try vm.intern("tap");
     try vm.kernel_module.methods.put(tap_sym, .{ .method = .{ .builtin = &builtinKernelTap } });
 
@@ -440,6 +443,45 @@ pub fn builtinKernelLoop(vm: *VM, _: Value, args: []Value, block: ?Block) VMErro
     }
 }
 
+pub fn builtinKernelSleep(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+
+    if (args.len == 0 or args[0].isNil()) {
+        const thread = vm.current_thread orelse {
+            try vm.schedulerYield();
+            return Value.integer(0);
+        };
+
+        if (vm.main_thread != null and thread == vm.main_thread.?) {
+            // Avoid deadlocking the cooperative scheduler on indefinite main-thread sleep.
+            try vm.schedulerYield();
+            return Value.integer(0);
+        }
+
+        thread.state = .sleeping;
+        try vm.threadYield();
+        return Value.integer(0);
+    }
+
+    const seconds = try sleepSecondsArg(vm, args[0]);
+    if (seconds < 0.0) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "time interval must be non-negative", .{});
+    }
+
+    if (seconds == 0.0) {
+        try vm.threadYield();
+        return Value.integer(0);
+    }
+
+    // Cooperative approximation: yield a bounded number of scheduler slices.
+    var spin_budget: u32 = @intFromFloat(@min(seconds * 1000.0, 1000.0));
+    if (spin_budget == 0) spin_budget = 1;
+    while (spin_budget > 0) : (spin_budget -= 1) {
+        try vm.threadYield();
+    }
+    return Value.integer(0);
+}
+
 pub fn builtinKernelTap(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const blk = try vm.requireBlock(block);
@@ -673,4 +715,10 @@ pub fn builtinKernelBacktick(vm: *VM, _: Value, args: []Value, _: ?Block) VMErro
 pub fn builtinProcessStatusExitstatus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return vm.getInstanceVariable(receiver, "@exitstatus");
+}
+
+fn sleepSecondsArg(vm: *VM, arg: Value) VMError!f64 {
+    if (arg.isInteger()) return arg.integerToF64();
+    if (arg.isFloat()) return arg.toFloatObject().val;
+    return vm.raiseExceptionFmt(vm.type_error_class, "can't convert into Float", .{});
 }
