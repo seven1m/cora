@@ -50,8 +50,16 @@ fn raiseFiberError(vm: *VM, msg: []const u8) VMError!Value {
     return error.Unwind;
 }
 
+fn runningInNonMainThread(vm: *VM) bool {
+    return vm.current_thread != null and vm.main_thread != null and vm.current_thread.? != vm.main_thread.?;
+}
+
 pub fn builtinFiberNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
+
+    if (runningInNonMainThread(vm)) {
+        return raiseFiberError(vm, "Fiber in non-main Thread is not supported");
+    }
 
     const blk = block orelse {
         const exc = try vm.createException(vm.argument_error_class, "no block given");
@@ -74,6 +82,10 @@ pub fn builtinFiberYield(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
 }
 
 pub fn builtinFiberResume(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    if (runningInNonMainThread(vm)) {
+        return raiseFiberError(vm, "Fiber in non-main Thread is not supported");
+    }
+
     const fiber = receiver.toFiberObject();
 
     if (fiber == vm.current_fiber) {

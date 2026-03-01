@@ -13,20 +13,21 @@ describe "Thread.current" do
     Thread.current.should_not equal(t.value)
   end
 
-  # CORAFIXME: This example crashes Cora with a general protection fault in coroutine switching.
-  # it "returns the correct thread in a Fiber" do
-  #   # This catches a bug where Fibers are running on a thread-pool
-  #   # and Fibers from a different Ruby Thread reuse the same native thread.
-  #   # Caching the Ruby Thread based on the native thread is not correct in that case.
-  #   2.times do
-  #     t = Thread.new {
-  #       cur = Thread.current
-  #       Fiber.new {
-  #         Thread.current
-  #       }.resume.should equal cur
-  #       cur
-  #     }
-  #     t.value.should equal t
-  #   end
-  # end
+  it "returns the correct thread in a Fiber" do
+    CORAFIXME "Fiber in non-main Thread is not yet supported in Cora" do
+      # This catches a bug where Fibers are running on a thread-pool
+      # and Fibers from a different Ruby Thread reuse the same native thread.
+      # Caching the Ruby Thread based on the native thread is not correct in that case.
+      2.times do
+        t = Thread.new {
+          cur = Thread.current
+          Fiber.new {
+            Thread.current
+          }.resume.should equal cur
+          cur
+        }
+        t.value.should equal t
+      end
+    end
+  end
 end

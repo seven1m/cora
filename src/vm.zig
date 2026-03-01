@@ -753,23 +753,21 @@ pub const VM = struct {
 
         // --- Stage 7: Initialize main fiber and bind VM state to it ---
         const main_fiber_obj = self.gc_allocator.create(value.FiberObject) catch return error.Fatal;
-        main_fiber_obj.* = .{
-            .object = .{ .type_tag = .fiber, .flags = 0, .class = self.fiber_class, .singleton_class = null, .instance_variables = null },
-            .state = .running,
-            .block = null,
-            .stack = FiberValueStack.init(),
-            .frames = FiberFrameStack.init(),
-            .env_stack = FiberEnvironmentStack.init(),
-            .current_lexical_scope = self.current_lexical_scope,
-            .caller = null,
-            .coro = null,
-            .coro_event = .none,
-            .coro_result = Value.nil(),
-            .coro_exception = null,
-            .first_resume_args = undefined,
-            .first_resume_argc = 0,
-            .owner_vm = self,
-        };
+        main_fiber_obj.object = .{ .type_tag = .fiber, .flags = 0, .class = self.fiber_class, .singleton_class = null, .instance_variables = null };
+        main_fiber_obj.state = .running;
+        main_fiber_obj.block = null;
+        initFiberValueStackInPlace(&main_fiber_obj.stack);
+        initFiberFrameStackInPlace(&main_fiber_obj.frames);
+        initFiberEnvironmentStackInPlace(&main_fiber_obj.env_stack);
+        main_fiber_obj.current_lexical_scope = self.current_lexical_scope;
+        main_fiber_obj.caller = null;
+        main_fiber_obj.coro = null;
+        main_fiber_obj.coro_event = .none;
+        main_fiber_obj.coro_result = Value.nil();
+        main_fiber_obj.coro_exception = null;
+        main_fiber_obj.first_resume_args = undefined;
+        main_fiber_obj.first_resume_argc = 0;
+        main_fiber_obj.owner_vm = self;
         self.main_fiber = main_fiber_obj;
         self.current_fiber = main_fiber_obj;
         self.restoreFiberState(main_fiber_obj);
@@ -1628,6 +1626,24 @@ pub const VM = struct {
         }
     }
 
+    inline fn initFiberValueStackInPlace(stack: *FiberValueStack) void {
+        stack.storage = undefined;
+        stack.items = stack.storage[0..0];
+        stack.capacity = MAX_FIBER_STACK_SIZE;
+    }
+
+    inline fn initFiberFrameStackInPlace(frames: *FiberFrameStack) void {
+        frames.storage = undefined;
+        frames.items = frames.storage[0..0];
+        frames.capacity = MAX_FIBER_FRAMES;
+    }
+
+    inline fn initFiberEnvironmentStackInPlace(envs: *FiberEnvironmentStack) void {
+        envs.storage = undefined;
+        envs.items = envs.storage[0..0];
+        envs.capacity = MAX_FIBER_ENVS;
+    }
+
     pub fn saveFiberState(self: *VM, fiber: *FiberObject) void {
         fiber.current_lexical_scope = self.current_lexical_scope;
     }
@@ -1871,17 +1887,28 @@ pub const VM = struct {
     pub fn ensureMainThread(self: *VM) VMError!*value.ThreadObject {
         if (self.main_thread) |mt| return mt;
         const main_thread_obj = self.gc_allocator.create(value.ThreadObject) catch return error.Fatal;
-        main_thread_obj.* = .{
-            .object = .{ .type_tag = .thread, .flags = 0, .class = self.thread_class, .singleton_class = null, .instance_variables = null },
-            .state = .running,
-            .block = null,
-            .stack = FiberValueStack.init(),
-            .frames = FiberFrameStack.init(),
-            .env_stack = FiberEnvironmentStack.init(),
-            .preempt_requested = false,
-            .ops_until_preempt = self.thread_preempt_quantum_ops,
-            .owner_vm = self,
-        };
+        main_thread_obj.object = .{ .type_tag = .thread, .flags = 0, .class = self.thread_class, .singleton_class = null, .instance_variables = null };
+        main_thread_obj.state = .running;
+        main_thread_obj.block = null;
+        initFiberValueStackInPlace(&main_thread_obj.stack);
+        initFiberFrameStackInPlace(&main_thread_obj.frames);
+        initFiberEnvironmentStackInPlace(&main_thread_obj.env_stack);
+        main_thread_obj.current_lexical_scope = null;
+        main_thread_obj.coro = null;
+        main_thread_obj.result = Value.nil();
+        main_thread_obj.exception = null;
+        main_thread_obj.terminated_normally = false;
+        main_thread_obj.fiber_locals = null;
+        main_thread_obj.thread_variables = null;
+        main_thread_obj.name = null;
+        main_thread_obj.priority = 0;
+        main_thread_obj.report_on_exception = true;
+        main_thread_obj.abort_on_exception = false;
+        main_thread_obj.kill_requested = false;
+        main_thread_obj.preempt_requested = false;
+        main_thread_obj.ops_until_preempt = self.thread_preempt_quantum_ops;
+        main_thread_obj.args = null;
+        main_thread_obj.owner_vm = self;
         self.main_thread = main_thread_obj;
         self.current_thread = main_thread_obj;
         self.thread_list.append(self.gc_allocator, main_thread_obj) catch return error.Fatal;
@@ -1897,19 +1924,28 @@ pub const VM = struct {
             break :blk copy;
         } else null;
         const thread_obj = self.gc_allocator.create(value.ThreadObject) catch return error.Fatal;
-        thread_obj.* = .{
-            .object = .{ .type_tag = .thread, .flags = 0, .class = class_obj, .singleton_class = null, .instance_variables = null },
-            .state = .created,
-            .block = block,
-            .stack = FiberValueStack.init(),
-            .frames = FiberFrameStack.init(),
-            .env_stack = FiberEnvironmentStack.init(),
-            .current_lexical_scope = self.current_lexical_scope,
-            .args = args_copy,
-            .preempt_requested = false,
-            .ops_until_preempt = self.thread_preempt_quantum_ops,
-            .owner_vm = self,
-        };
+        thread_obj.object = .{ .type_tag = .thread, .flags = 0, .class = class_obj, .singleton_class = null, .instance_variables = null };
+        thread_obj.state = .created;
+        thread_obj.block = block;
+        initFiberValueStackInPlace(&thread_obj.stack);
+        initFiberFrameStackInPlace(&thread_obj.frames);
+        initFiberEnvironmentStackInPlace(&thread_obj.env_stack);
+        thread_obj.current_lexical_scope = self.current_lexical_scope;
+        thread_obj.coro = null;
+        thread_obj.result = Value.nil();
+        thread_obj.exception = null;
+        thread_obj.terminated_normally = false;
+        thread_obj.fiber_locals = null;
+        thread_obj.thread_variables = null;
+        thread_obj.name = null;
+        thread_obj.priority = 0;
+        thread_obj.report_on_exception = true;
+        thread_obj.abort_on_exception = false;
+        thread_obj.kill_requested = false;
+        thread_obj.preempt_requested = false;
+        thread_obj.ops_until_preempt = self.thread_preempt_quantum_ops;
+        thread_obj.args = args_copy;
+        thread_obj.owner_vm = self;
         self.thread_list.append(self.gc_allocator, thread_obj) catch return error.Fatal;
         self.runnable_queue.append(self.gc_allocator, thread_obj) catch return error.Fatal;
         return thread_obj;
@@ -4967,23 +5003,21 @@ pub const VM = struct {
 
     pub fn newFiber(self: *VM, class_obj: *ClassObject, block: ?Block) VMError!Value {
         const fiber_obj = self.gc_allocator.create(value.FiberObject) catch return error.Fatal;
-        fiber_obj.* = .{
-            .object = .{ .type_tag = .fiber, .flags = 0, .class = class_obj, .singleton_class = null, .instance_variables = null },
-            .state = .created,
-            .block = block,
-            .stack = FiberValueStack.init(),
-            .frames = FiberFrameStack.init(),
-            .env_stack = FiberEnvironmentStack.init(),
-            .current_lexical_scope = null,
-            .caller = null,
-            .coro = null,
-            .coro_event = .none,
-            .coro_result = Value.nil(),
-            .coro_exception = null,
-            .first_resume_args = undefined,
-            .first_resume_argc = 0,
-            .owner_vm = self,
-        };
+        fiber_obj.object = .{ .type_tag = .fiber, .flags = 0, .class = class_obj, .singleton_class = null, .instance_variables = null };
+        fiber_obj.state = .created;
+        fiber_obj.block = block;
+        initFiberValueStackInPlace(&fiber_obj.stack);
+        initFiberFrameStackInPlace(&fiber_obj.frames);
+        initFiberEnvironmentStackInPlace(&fiber_obj.env_stack);
+        fiber_obj.current_lexical_scope = null;
+        fiber_obj.caller = null;
+        fiber_obj.coro = null;
+        fiber_obj.coro_event = .none;
+        fiber_obj.coro_result = Value.nil();
+        fiber_obj.coro_exception = null;
+        fiber_obj.first_resume_args = undefined;
+        fiber_obj.first_resume_argc = 0;
+        fiber_obj.owner_vm = self;
         return Value.fromObject(fiber_obj);
     }
 
