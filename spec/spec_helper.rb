@@ -488,8 +488,11 @@ class IncludeMatcher
   end
 
   def matches?(actual)
-    @expected.each do |item|
+    i = 0
+    while i < @expected.size
+      item = @expected[i]
       return false unless actual.include?(item)
+      i += 1
     end
     true
   end

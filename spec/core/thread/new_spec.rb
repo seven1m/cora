@@ -3,12 +3,10 @@ require_relative 'fixtures/classes'
 
 describe "Thread.new" do
   it "creates a thread executing the given block" do
-    CORAFIXME "Queue support is not fully implemented in Cora" do
-      q = Queue.new
-      Thread.new { q << true }.join
-      q << false
-      q.pop.should == true
-    end
+    q = Queue.new
+    Thread.new { q << true }.join
+    q << false
+    q.pop.should == true
   end
 
   it "can pass arguments to the thread block" do
@@ -56,34 +54,30 @@ describe "Thread.new" do
   end
 
   it "releases Mutexes held by the Thread when the Thread finishes" do
-    CORAFIXME "Mutex support is not fully implemented in Cora" do
-      m1 = Mutex.new
-      m2 = Mutex.new
-      t = Thread.new {
-        m1.lock
-        m1.should.locked?
-        m2.lock
-        m2.should.locked?
-      }
-      t.join
-      m1.should_not.locked?
-      m2.should_not.locked?
-    end
+    m1 = Mutex.new
+    m2 = Mutex.new
+    t = Thread.new {
+      m1.lock
+      m1.should.locked?
+      m2.lock
+      m2.should.locked?
+    }
+    t.join
+    m1.should_not.locked?
+    m2.should_not.locked?
   end
 
   it "releases Mutexes held by the Thread when the Thread finishes, also with Mutex#synchronize" do
-    CORAFIXME "Mutex#synchronize support is not fully implemented in Cora" do
-      m = Mutex.new
-      t = Thread.new {
-        m.synchronize {
-          m.unlock
-          m.lock
-        }
+    m = Mutex.new
+    t = Thread.new {
+      m.synchronize {
+        m.unlock
         m.lock
-        m.should.locked?
       }
-      t.join
-      m.should_not.locked?
-    end
+      m.lock
+      m.should.locked?
+    }
+    t.join
+    m.should_not.locked?
   end
 end

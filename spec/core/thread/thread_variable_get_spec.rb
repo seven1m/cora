@@ -56,7 +56,6 @@ describe "Thread#thread_variable_get" do
     it "raises a TypeError if the key is neither Symbol nor String without calling #to_sym" do
       key = mock('key')
       key.should_not_receive(:to_sym)
-      # CORAFIXME: Cora compiler does not yet support interpolated regexp literals.
       -> { @t.thread_variable_get(key) }.should raise_error(TypeError, /is not a symbol/)
     end
   end

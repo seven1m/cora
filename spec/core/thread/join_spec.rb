@@ -29,29 +29,25 @@ describe "Thread#join" do
   end
 
   it "returns nil if it is not finished when given a timeout" do
-    CORAFIXME "Queue and timeout-based Thread#join semantics are not fully implemented in Cora" do
-      q = Queue.new
-      t = Thread.new { q.pop }
-      begin
-        t.join(0).should == nil
-      ensure
-        q << true
-      end
-      t.join.should == t
+    q = Queue.new
+    t = Thread.new { q.pop }
+    begin
+      t.join(0).should == nil
+    ensure
+      q << true
     end
+    t.join.should == t
   end
 
   it "accepts a floating point timeout length" do
-    CORAFIXME "Floating timeout Thread#join semantics are not fully implemented in Cora" do
-      q = Queue.new
-      t = Thread.new { q.pop }
-      begin
-        t.join(0.01).should == nil
-      ensure
-        q << true
-      end
-      t.join.should == t
+    q = Queue.new
+    t = Thread.new { q.pop }
+    begin
+      t.join(0.01).should == nil
+    ensure
+      q << true
     end
+    t.join.should == t
   end
 
   it "raises any exceptions encountered in the thread body" do

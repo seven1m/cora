@@ -8,56 +8,53 @@ describe "Thread.list" do
   end
 
   it "includes threads of non-default thread groups" do
-    CORAFIXME "ThreadGroup and sleeping thread behavior are not fully implemented in Cora" do
-      t = Thread.new { sleep }
-      begin
-        ThreadGroup.new.add(t)
-        Thread.list.should include(t)
-      ensure
-        t.kill
-        t.join
-      end
+    t = Thread.new { sleep }
+    begin
+      ThreadGroup.new.add(t)
+      Thread.list.should include(t)
+    ensure
+      t.kill
+      t.join
     end
   end
 
   it "does not include deceased threads" do
-    CORAFIXME "Thread.list deceased-thread filtering is not fully implemented in Cora" do
-      t = Thread.new { 1; }
-      t.join
-      Thread.list.should_not include(t)
-    end
+    t = Thread.new { 1; }
+    t.join
+    Thread.pass
+    Thread.list.should_not include(t)
   end
 
   it "includes waiting threads" do
-    CORAFIXME "Queue-backed waiting thread behavior is not fully implemented in Cora" do
-      q = Queue.new
-      t = Thread.new { q.pop }
-      begin
-        Thread.pass while t.status and t.status != 'sleep'
-        Thread.list.should include(t)
-      ensure
-        q << nil
-        t.join
-      end
+    q = Queue.new
+    t = Thread.new { q.pop }
+    begin
+      Thread.pass while t.status and t.status != 'sleep'
+      Thread.list.should include(t)
+    ensure
+      q << nil
+      t.join
     end
   end
 
   it "returns instances of Thread and not null or nil values" do
-    CORAFIXME "Thread.list iteration and thread spawning semantics are not fully implemented in Cora" do
-      spawner = Thread.new do
-        Array.new(100) do
-          Thread.new {}
-        end
+    spawner = Thread.new do
+      threads = []
+      i = 0
+      while i < 100
+        threads << Thread.new {}
+        i += 1
       end
-
-      begin
-        Thread.list.each { |th|
-          th.should be_kind_of(Thread)
-        }
-      end while spawner.alive?
-
-      threads = spawner.value
-      threads.each(&:join)
+      threads
     end
+
+    begin
+      Thread.list.each { |th|
+        th.should be_kind_of(Thread)
+      }
+    end while spawner.alive?
+
+    threads = spawner.value
+    threads.each(&:join)
   end
 end

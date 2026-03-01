@@ -59,7 +59,6 @@ describe "Thread#thread_variable_set" do
   it "does not try to convert the key with #to_sym" do
     key = mock('key')
     key.should_not_receive(:to_sym)
-    # CORAFIXME: Cora compiler does not yet support interpolated regexp literals.
     -> { @t.thread_variable_set(key, 42) }.should raise_error(TypeError, /is not a symbol/)
   end
 end

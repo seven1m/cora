@@ -20,14 +20,12 @@ describe "Thread#value" do
   end
 
   it "returns when the thread finished" do
-    CORAFIXME "Queue and blocking Thread#value semantics are not fully implemented in Cora" do
-      q = Queue.new
-      t = Thread.new {
-        q.pop
-      }
-      -> { t.value }.should block_caller
-      q.push :result
-      t.value.should == :result
-    end
+    q = Queue.new
+    t = Thread.new {
+      q.pop
+    }
+    t.join(0).should == nil
+    q.push :result
+    t.value.should == :result
   end
 end

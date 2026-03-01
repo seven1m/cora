@@ -15,9 +15,7 @@ describe "Thread#alive?" do
   end
 
   it "describes a blocked thread" do
-    CORAFIXME "Mutex/blocking thread behavior is not fully implemented in Cora" do
-      ThreadSpecs.status_of_blocked_thread.should.alive?
-    end
+    ThreadSpecs.status_of_blocked_thread.should.alive?
   end
 
   it "describes a completed thread" do
@@ -40,22 +38,21 @@ describe "Thread#alive?" do
     ThreadSpecs.status_of_dying_sleeping_thread.should.alive?
   end
 
-  # CORAFIXME: This example hangs Cora (Thread kill/ensure scheduling interaction).
-  # it "returns true for a killed but still running thread" do
-  #   exit = false
-  #   t = Thread.new do
-  #     begin
-  #       sleep
-  #     ensure
-  #       Thread.pass until exit
-  #     end
-  #   end
-  #
-  #   ThreadSpecs.spin_until_sleeping(t)
-  #
-  #   t.kill
-  #   t.should.alive?
-  #   exit = true
-  #   t.join
-  # end
+  it "returns true for a killed but still running thread" do
+    exit = false
+    t = Thread.new do
+      begin
+        sleep
+      ensure
+        Thread.pass until exit
+      end
+    end
+
+    ThreadSpecs.spin_until_sleeping(t)
+
+    t.kill
+    t.should.alive?
+    exit = true
+    t.join
+  end
 end

@@ -15,9 +15,7 @@ describe "Thread#status" do
   end
 
   it "describes a blocked thread" do
-    CORAFIXME "Mutex/blocking status semantics are not fully implemented in Cora" do
-      ThreadSpecs.status_of_blocked_thread.status.should == 'sleep'
-    end
+    ThreadSpecs.status_of_blocked_thread.status.should == 'sleep'
   end
 
   it "describes a completed thread" do
@@ -45,20 +43,18 @@ describe "Thread#status" do
   end
 
   it "reports aborting on an externally killed thread that sleeps" do
-    CORAFIXME "Queue/sleep and external kill status behavior are not fully implemented in Cora" do
-      q = Queue.new
-      t = Thread.new do
-        begin
-          q.push nil
-          sleep
-        ensure
-          q.push Thread.current.status
-        end
+    q = Queue.new
+    t = Thread.new do
+      begin
+        q.push nil
+        sleep
+      ensure
+        q.push Thread.current.status
       end
-      q.pop
-      t.kill
-      t.join
-      q.pop.should == 'aborting'
     end
+    q.pop
+    t.kill
+    t.join
+    q.pop.should == 'aborting'
   end
 end

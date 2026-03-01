@@ -25,9 +25,7 @@ describe "Thread#stop?" do
   end
 
   it "describes a blocked thread" do
-    CORAFIXME "Mutex/blocking stop? semantics are not fully implemented in Cora" do
-      ThreadSpecs.status_of_blocked_thread.should.stop?
-    end
+    ThreadSpecs.status_of_blocked_thread.should.stop?
   end
 
   it "describes a completed thread" do

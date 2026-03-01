@@ -2227,11 +2227,14 @@ pub const VM = struct {
         while (true) {
             // Check kill request before each instruction
             if (thread.kill_requested) {
-                thread.state = .terminated;
-                thread.result = Value.nil();
-                thread.terminated_normally = true;
-                if (thread.coro) |c| c.yield();
-                return;
+                thread.kill_requested = false;
+                thread.state = .aborting;
+                self.pending_exception = try self.createException(self.thread_kill_exception_class, "");
+                self.unwindStack() catch |unwind_err| switch (unwind_err) {
+                    error.UnhandledException => return error.UnhandledException,
+                    else => return error.Fatal,
+                };
+                continue;
             }
 
             var executed_op: ?bytecode.OpCode = null;
@@ -2376,6 +2379,8 @@ pub const VM = struct {
             const target_coro = thread.coro orelse return error.Fatal;
             const parent_context: *FiberCoroContext = if (caller_fiber.coro) |caller_coro|
                 &caller_coro.context
+            else if (caller_thread.coro) |caller_thread_coro|
+                &caller_thread_coro.context
             else
                 &self.zio_main_context;
             target_coro.parent_context_ptr.store(parent_context, .release);
@@ -2418,13 +2423,10 @@ pub const VM = struct {
 
         // After resuming, check if we've been killed
         if (thread.kill_requested) {
-            thread.state = .terminated;
-            thread.result = Value.nil();
-            thread.terminated_normally = true;
-            // Yield again so the scheduler sees us as terminated
-            if (thread.coro) |c| c.yield();
-            // If we somehow resume after being terminated, just error out
-            return error.Fatal;
+            thread.kill_requested = false;
+            thread.state = .aborting;
+            self.pending_exception = try self.createException(self.thread_kill_exception_class, "");
+            return error.Unwind;
         }
     }
 
