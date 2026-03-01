@@ -41,9 +41,7 @@ describe "Thread#status" do
   end
 
   it "reports aborting on a killed thread after sleep" do
-    CORAFIXME "Thread aborting-after-sleep status semantics are not fully implemented in Cora" do
-      ThreadSpecs.status_of_dying_thread_after_sleep.status.should == 'aborting'
-    end
+    ThreadSpecs.status_of_dying_thread_after_sleep.status.should == 'aborting'
   end
 
   it "reports aborting on an externally killed thread that sleeps" do

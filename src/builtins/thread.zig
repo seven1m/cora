@@ -192,6 +192,11 @@ fn builtinThreadStop(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value 
     }
     thread.state = .sleeping;
     try vm.threadYield();
+    if (vm.pending_exception) |exc| {
+        if (exc.object.class == vm.thread_kill_exception_class and thread.state != .terminated) {
+            thread.state = .aborting;
+        }
+    }
     return Value.nil();
 }
 
