@@ -30,14 +30,12 @@ describe "Thread#thread_variable_get" do
   end
 
   it "converts a key that is neither String nor Symbol with #to_str" do
-    CORAFIXME "Thread#thread_variable_get key coercion via to_str is not fully implemented in Cora" do
-      key = Object.new
-      def key.to_str
-        'a'
-      end
-      @t.thread_variable_set(:a, 49)
-      @t.thread_variable_get(key).should == 49
+    key = Object.new
+    def key.to_str
+      'a'
     end
+    @t.thread_variable_set(:a, 49)
+    @t.thread_variable_get(key).should == 49
   end
 
   it "does not raise FrozenError if the thread is frozen" do
@@ -46,10 +44,8 @@ describe "Thread#thread_variable_get" do
   end
 
   it "raises a TypeError if the key is neither Symbol nor String when thread variables are already set" do
-    CORAFIXME "Thread#thread_variable_get TypeError message semantics are not fully implemented in Cora" do
-      @t.thread_variable_set(:a, 49)
-      -> { @t.thread_variable_get(123) }.should raise_error(TypeError, /123 is not a symbol/)
-    end
+    @t.thread_variable_set(:a, 49)
+    -> { @t.thread_variable_get(123) }.should raise_error(TypeError, /123 is not a symbol/)
   end
 
   ruby_version_is '3.4' do

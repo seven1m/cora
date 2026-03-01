@@ -313,8 +313,7 @@ fn builtinThreadRaise(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
     else if (args[0].isClass()) blk: {
         const msg = if (args.len > 1 and args[1].isString()) args[1].toStringObject().str else "";
         break :blk try vm.createException(args[0].toClassObject(), msg);
-    } else
-        try vm.createException(vm.runtime_error_class, "");
+    } else try vm.createException(vm.runtime_error_class, "");
 
     thread.exception = exc;
     thread.terminated_normally = false;
@@ -361,8 +360,9 @@ fn builtinThreadWakeup(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
 fn builtinThreadGetFiberLocal(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const thread = receiver.toThreadObject();
+    const fiber = try fiberLocalTarget(vm, thread);
     const key = try symbolArg(vm, args[0]);
-    if (thread.fiber_locals) |locals| {
+    if (fiber.fiber_locals) |locals| {
         if (locals.get(key)) |val| return val;
     }
     return Value.nil();
@@ -370,20 +370,31 @@ fn builtinThreadGetFiberLocal(vm: *VM, receiver: Value, args: []Value, _: ?Block
 
 fn builtinThreadSetFiberLocal(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 2);
-    const thread = receiver.toThreadObject();
-    const key = try symbolArg(vm, args[0]);
-    if (thread.fiber_locals == null) {
-        thread.fiber_locals = std.AutoHashMap(*value.SymbolObject, Value).init(vm.gc_allocator);
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen thread locals", .{});
     }
-    thread.fiber_locals.?.put(key, args[1]) catch return error.Fatal;
+    const thread = receiver.toThreadObject();
+    const fiber = try fiberLocalTarget(vm, thread);
+    const key = try symbolArg(vm, args[0]);
+    if (args[1].isNil()) {
+        if (fiber.fiber_locals) |*locals| {
+            _ = locals.remove(key);
+        }
+        return Value.nil();
+    }
+    if (fiber.fiber_locals == null) {
+        fiber.fiber_locals = std.AutoHashMap(*value.SymbolObject, Value).init(vm.gc_allocator);
+    }
+    fiber.fiber_locals.?.put(key, args[1]) catch return error.Fatal;
     return args[1];
 }
 
 fn builtinThreadKey(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const thread = receiver.toThreadObject();
+    const fiber = try fiberLocalTarget(vm, thread);
     const key = try symbolArg(vm, args[0]);
-    if (thread.fiber_locals) |locals| {
+    if (fiber.fiber_locals) |locals| {
         return Value.boolean(locals.contains(key));
     }
     return Value.boolean(false);
@@ -392,8 +403,9 @@ fn builtinThreadKey(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!
 fn builtinThreadKeys(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const thread = receiver.toThreadObject();
+    const fiber = try fiberLocalTarget(vm, thread);
     const arr = try vm.createArray();
-    if (thread.fiber_locals) |locals| {
+    if (fiber.fiber_locals) |locals| {
         var it = locals.keyIterator();
         while (it.next()) |key| {
             arr.elements.append(vm.gc_allocator, Value.fromObject(key.*)) catch return error.Fatal;
@@ -418,8 +430,17 @@ fn builtinThreadVarGet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
 
 fn builtinThreadVarSet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 2);
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen thread locals", .{});
+    }
     const thread = receiver.toThreadObject();
     const key = try symbolArg(vm, args[0]);
+    if (args[1].isNil()) {
+        if (thread.thread_variables) |*vars| {
+            _ = vars.remove(key);
+        }
+        return Value.nil();
+    }
     if (thread.thread_variables == null) {
         thread.thread_variables = std.AutoHashMap(*value.SymbolObject, Value).init(vm.gc_allocator);
     }
@@ -466,10 +487,12 @@ fn builtinThreadNameSet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     const thread = receiver.toThreadObject();
     if (args[0].isNil()) {
         thread.name = null;
-    } else if (args[0].isString()) {
-        thread.name = args[0].toStringObject().str;
     } else {
-        return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into String", .{});
+        const name = try args[0].coerceToStr(vm, "no implicit conversion into String");
+        if (std.mem.indexOfScalar(u8, name, 0) != null) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "thread name must not contain null bytes", .{});
+        }
+        thread.name = vm.gc_allocator_atomic.dupe(u8, name) catch return error.Fatal;
     }
     return args[0];
 }
@@ -521,7 +544,35 @@ fn builtinThreadStopQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
 fn symbolArg(vm: *VM, arg: Value) VMError!*value.SymbolObject {
     if (arg.isSymbol()) return arg.toSymbolObject();
     if (arg.isString()) return try vm.intern(arg.toStringObject().str);
-    return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Symbol", .{});
+
+    const to_str_sym = try vm.intern("to_str");
+    if ((try vm.findMethod(arg, to_str_sym)) != null) {
+        const coerced = try vm.callMethodByName(arg, "to_str", &[_]Value{}, null);
+        if (coerced.isString()) return try vm.intern(coerced.toStringObject().str);
+    }
+
+    return raiseNotSymbolTypeError(vm, arg);
+}
+
+fn raiseNotSymbolTypeError(vm: *VM, arg: Value) VMError!*value.SymbolObject {
+    if (arg.isInteger()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "{d} is not a symbol", .{arg.toInteger()});
+    }
+    if (arg.isBigInteger()) {
+        const value_str = arg.toBigIntegerObject().value.toString(vm.allocator, 10, .lower) catch return error.Fatal;
+        defer vm.allocator.free(value_str);
+        return vm.raiseExceptionFmt(vm.type_error_class, "{s} is not a symbol", .{value_str});
+    }
+    return vm.raiseExceptionFmt(vm.type_error_class, "is not a symbol", .{});
+}
+
+fn fiberLocalTarget(vm: *VM, thread: *value.ThreadObject) VMError!*value.FiberObject {
+    if (vm.current_thread != null and vm.current_thread.? == thread) {
+        return vm.current_fiber;
+    }
+    if (thread.current_fiber) |fiber| return fiber;
+    if (thread.main_fiber) |fiber| return fiber;
+    return error.Fatal;
 }
 
 fn removeFromRunnable(vm: *VM, thread: *value.ThreadObject) void {

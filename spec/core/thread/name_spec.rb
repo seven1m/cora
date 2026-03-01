@@ -34,11 +34,9 @@ describe "Thread#name=" do
   end
 
   it "raises an ArgumentError if the name includes a null byte" do
-    CORAFIXME "Thread#name= null-byte validation is not fully implemented in Cora" do
-      -> {
-        @thread.name = "new thread\0name"
-      }.should raise_error(ArgumentError)
-    end
+    -> {
+      @thread.name = "new thread\0name"
+    }.should raise_error(ArgumentError)
   end
 
   it "can be reset to nil" do
@@ -47,14 +45,12 @@ describe "Thread#name=" do
   end
 
   it "calls #to_str to convert name to String" do
-    CORAFIXME "Thread#name= coercion via to_str is not fully implemented in Cora" do
-      name = Object.new
-      def name.to_str
-        "a thread name"
-      end
-
-      @thread.name = name
-      @thread.name.should == "a thread name"
+    name = Object.new
+    def name.to_str
+      "a thread name"
     end
+
+    @thread.name = name
+    @thread.name.should == "a thread name"
   end
 end

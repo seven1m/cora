@@ -38,18 +38,16 @@ describe "Thread#[]" do
   end
 
   it "converts a key that is neither String nor Symbol with #to_str" do
-    CORAFIXME "Thread#[] key coercion via to_str is not fully implemented in Cora" do
-      key = Object.new
-      def key.to_str
-        'value'
-      end
-
-      th = Thread.new do
-        Thread.current[:value] = 1
-      end.join
-
-      th[key].should == 1
+    key = Object.new
+    def key.to_str
+      'value'
     end
+
+    th = Thread.new do
+      Thread.current[:value] = 1
+    end.join
+
+    th[key].should == 1
   end
 
   it "raises exceptions on the wrong type of keys" do
