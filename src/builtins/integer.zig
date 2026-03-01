@@ -431,8 +431,15 @@ pub fn builtinIntegerToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
         return try vm.newStringWithEncoding(str, false, .{ .us_ascii = .{} });
     } else if (receiver.isBigInteger()) {
         const b = receiver.toBigIntegerObject();
-        const str = b.value.toString(vm.allocator, base, .lower) catch return error.Fatal;
-        defer vm.allocator.free(str);
+        const decimal = b.value.toString(vm.allocator, 10, .lower) catch return error.Fatal;
+        defer vm.allocator.free(decimal);
+
+        const str = if (base == 10)
+            decimal
+        else
+            decimalStringToBaseString(vm.allocator, decimal, base) catch return error.Fatal;
+        defer if (base != 10) vm.allocator.free(str);
+
         return try vm.newStringWithEncoding(str, false, .{ .us_ascii = .{} });
     } else unreachable;
 }
@@ -588,4 +595,69 @@ fn integerToBaseString(number: i64, base: u8, out: *[65]u8) []const u8 {
     }
 
     return out[i..];
+}
+
+fn decimalStringToBaseString(allocator: std.mem.Allocator, decimal: []const u8, base: u8) ![]const u8 {
+    const digits_table = "0123456789abcdefghijklmnopqrstuvwxyz";
+    const negative = decimal.len > 0 and decimal[0] == '-';
+    var source = if (negative) decimal[1..] else decimal;
+
+    while (source.len > 1 and source[0] == '0') {
+        source = source[1..];
+    }
+    if (source.len == 0) source = "0";
+
+    if (std.mem.eql(u8, source, "0")) {
+        return allocator.dupe(u8, "0");
+    }
+
+    var work = try allocator.dupe(u8, source);
+    defer allocator.free(work);
+
+    var reversed: std.ArrayList(u8) = .empty;
+    defer reversed.deinit(allocator);
+
+    while (!(work.len == 1 and work[0] == '0')) {
+        var quotient: std.ArrayList(u8) = .empty;
+        defer quotient.deinit(allocator);
+
+        var carry: u16 = 0;
+        var started = false;
+        for (work) |ch| {
+            const decimal_digit = ch - '0';
+            const acc: u16 = carry * 10 + decimal_digit;
+            const q_digit: u8 = @intCast(acc / base);
+            carry = acc % base;
+
+            if (q_digit != 0 or started) {
+                try quotient.append(allocator, '0' + q_digit);
+                started = true;
+            }
+        }
+
+        try reversed.append(allocator, digits_table[carry]);
+
+        allocator.free(work);
+        if (quotient.items.len == 0) {
+            work = try allocator.dupe(u8, "0");
+        } else {
+            work = try quotient.toOwnedSlice(allocator);
+        }
+    }
+
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(allocator);
+    try out.ensureTotalCapacity(allocator, reversed.items.len + @as(usize, if (negative) 1 else 0));
+
+    if (negative) {
+        try out.append(allocator, '-');
+    }
+
+    var idx = reversed.items.len;
+    while (idx > 0) {
+        idx -= 1;
+        try out.append(allocator, reversed.items[idx]);
+    }
+
+    return out.toOwnedSlice(allocator);
 }
