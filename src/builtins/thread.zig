@@ -191,7 +191,7 @@ fn builtinThreadKillClass(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
         for (vm.runnable_queue.items) |t| {
             if (t == thread) break;
         } else {
-            vm.runnable_queue.append(vm.gc_allocator, thread) catch return error.Fatal;
+            vm.runnable_queue.append(vm.allocator, thread) catch return error.Fatal;
         }
     }
     return args[0];
@@ -539,5 +539,5 @@ fn addToRunnableIfAbsent(vm: *VM, thread: *value.ThreadObject) void {
     for (vm.runnable_queue.items) |t| {
         if (t == thread) return;
     }
-    vm.runnable_queue.append(vm.gc_allocator, thread) catch {};
+    vm.runnable_queue.append(vm.allocator, thread) catch {};
 }
