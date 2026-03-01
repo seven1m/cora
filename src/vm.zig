@@ -5362,6 +5362,10 @@ pub const VM = struct {
     }
 
     pub fn newObjectForClass(self: *VM, class_obj: *ClassObject) VMError!Value {
+        if (self.isClassOrSubclassOf(class_obj, self.exception_class)) {
+            return Value.fromObject(try self.createException(class_obj, ""));
+        }
+
         return switch (class_obj.object_type) {
             .string => self.newStringForClass(class_obj, "", false),
             .array => blk: {

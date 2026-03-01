@@ -55,13 +55,11 @@ describe "Thread#join" do
   end
 
   it "raises any exceptions encountered in the thread body" do
-    CORAFIXME "Thread report_on_exception and exception class behavior are not fully implemented in Cora" do
-      t = Thread.new {
-        Thread.current.report_on_exception = false
-        raise NotImplementedError.new("Just kidding")
-      }
-      -> { t.join }.should raise_error(NotImplementedError)
-    end
+    t = Thread.new {
+      Thread.current.report_on_exception = false
+      raise NotImplementedError.new("Just kidding")
+    }
+    -> { t.join }.should raise_error(NotImplementedError)
   end
 
   it "returns the dead thread" do
