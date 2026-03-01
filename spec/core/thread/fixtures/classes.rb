@@ -181,18 +181,18 @@ module ThreadSpecs
     status
   end
 
-  def self.dying_thread_ensures(kill_method_name=:kill)
+  def self.dying_thread_ensures(kill_method_name=:kill, &action)
     Thread.new do
       Thread.current.report_on_exception = false
       begin
         Thread.current.send(kill_method_name)
       ensure
-        yield
+        action.call if action
       end
     end
   end
 
-  def self.dying_thread_with_outer_ensure(kill_method_name=:kill)
+  def self.dying_thread_with_outer_ensure(kill_method_name=:kill, &action)
     Thread.new do
       Thread.current.report_on_exception = false
       begin
@@ -202,19 +202,19 @@ module ThreadSpecs
           raise "In dying thread"
         end
       ensure
-        yield
+        action.call if action
       end
     end
   end
 
-  def self.join_dying_thread_with_outer_ensure(kill_method_name=:kill)
-    t = dying_thread_with_outer_ensure(kill_method_name) { yield }
+  def self.join_dying_thread_with_outer_ensure(kill_method_name=:kill, &action)
+    t = dying_thread_with_outer_ensure(kill_method_name, &action)
     -> { t.join }.should raise_error(RuntimeError, "In dying thread")
     return t
   end
 
-  def self.wakeup_dying_sleeping_thread(kill_method_name=:kill)
-    t = ThreadSpecs.dying_thread_ensures(kill_method_name) { yield }
+  def self.wakeup_dying_sleeping_thread(kill_method_name=:kill, &action)
+    t = ThreadSpecs.dying_thread_ensures(kill_method_name, &action)
     Thread.pass while t.status and t.status != 'sleep'
     t.wakeup
     t.join
@@ -285,14 +285,14 @@ module ThreadSpecs
     Thread.critical.should == false
   end
 
-  def self.critical_thread_yields_to_main_thread(is_thread_sleep=false, is_thread_stop=false)
+  def self.critical_thread_yields_to_main_thread(is_thread_sleep=false, is_thread_stop=false, &action)
     @@after_first_sleep = false
 
     critical_thread = Thread.new do
       Thread.pass while Thread.main.status and Thread.main.status != "sleep"
       critical_thread1()
       Thread.main.wakeup
-      yield
+      action.call if action
       Thread.pass while @@after_first_sleep != true # Need to ensure that the next statement does not see the first sleep itself
       Thread.pass while Thread.main.status and Thread.main.status != "sleep"
       critical_thread2(is_thread_stop)
@@ -306,10 +306,10 @@ module ThreadSpecs
     main_thread2(critical_thread)
   end
 
-  def self.create_critical_thread
+  def self.create_critical_thread(&action)
     Thread.new do
       Thread.critical = true
-      yield
+      action.call if action
       Thread.critical = false
     end
   end

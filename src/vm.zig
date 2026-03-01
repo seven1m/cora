@@ -197,6 +197,7 @@ pub const VM = struct {
     current_fiber: *value.FiberObject,
     thread_class: *value.ClassObject,
     thread_error_class: *value.ClassObject,
+    thread_kill_exception_class: *value.ClassObject,
     main_thread: ?*value.ThreadObject = null,
     current_thread: ?*value.ThreadObject = null,
     thread_list: std.ArrayList(*value.ThreadObject) = .empty,
@@ -322,6 +323,7 @@ pub const VM = struct {
             .current_fiber = undefined,
             .thread_class = undefined,
             .thread_error_class = undefined,
+            .thread_kill_exception_class = undefined,
             .main_thread = null,
             .current_thread = null,
             .thread_list = .empty,
@@ -556,6 +558,10 @@ pub const VM = struct {
         const thread_error_name_sym = try self.intern("ThreadError");
         const thread_error_class_val = try self.newClass(thread_error_name_sym, self.standard_error_class);
         self.thread_error_class = thread_error_class_val.toClassObject();
+
+        const thread_kill_name_sym = try self.intern("ThreadKillSignal");
+        const thread_kill_class_val = try self.newClass(thread_kill_name_sym, self.exception_class);
+        self.thread_kill_exception_class = thread_kill_class_val.toClassObject();
 
         const load_error_name_sym = try self.intern("LoadError");
         const load_error_class_val = try self.newClass(load_error_name_sym, self.standard_error_class);
@@ -2136,8 +2142,20 @@ pub const VM = struct {
             thread.state = .terminated;
             switch (err) {
                 error.UnhandledException => {
-                    thread.terminated_normally = false;
-                    thread.exception = self.pending_exception;
+                    if (self.pending_exception) |exc| {
+                        if (exc.object.class == self.thread_kill_exception_class) {
+                            thread.terminated_normally = true;
+                            thread.exception = null;
+                            thread.result = Value.nil();
+                            self.pending_exception = null;
+                        } else {
+                            thread.terminated_normally = false;
+                            thread.exception = exc;
+                        }
+                    } else {
+                        thread.terminated_normally = false;
+                        thread.exception = null;
+                    }
                 },
                 else => {
                     thread.terminated_normally = true;

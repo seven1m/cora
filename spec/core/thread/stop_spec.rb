@@ -47,20 +47,14 @@ describe "Thread#stop?" do
   end
 
   it "describes a dying running thread" do
-    CORAFIXME "Thread dying-running stop? semantics are not fully implemented in Cora" do
-      ThreadSpecs.status_of_dying_running_thread.should_not.stop?
-    end
+    ThreadSpecs.status_of_dying_running_thread.should_not.stop?
   end
 
   it "describes a dying sleeping thread" do
-    CORAFIXME "Thread dying-sleeping stop? semantics are not fully implemented in Cora" do
-      ThreadSpecs.status_of_dying_sleeping_thread.should.stop?
-    end
+    ThreadSpecs.status_of_dying_sleeping_thread.should.stop?
   end
 
   it "describes a dying thread after sleep" do
-    CORAFIXME "Thread dying-after-sleep stop? semantics are not fully implemented in Cora" do
-      ThreadSpecs.status_of_dying_thread_after_sleep.should_not.stop?
-    end
+    ThreadSpecs.status_of_dying_thread_after_sleep.should_not.stop?
   end
 end

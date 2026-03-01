@@ -68,9 +68,7 @@ describe "Thread#join" do
   end
 
   it "raises any uncaught exception encountered in ensure block" do
-    CORAFIXME "Thread ensure/exception propagation semantics are not fully implemented in Cora" do
-      t = ThreadSpecs.dying_thread_ensures { raise NotImplementedError.new("Just kidding") }
-      -> { t.join }.should raise_error(NotImplementedError)
-    end
+    t = ThreadSpecs.dying_thread_ensures { raise NotImplementedError.new("Just kidding") }
+    -> { t.join }.should raise_error(NotImplementedError)
   end
 end

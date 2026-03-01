@@ -326,17 +326,9 @@ fn builtinThreadKill(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
 
     const is_current = vm.current_thread != null and thread == vm.current_thread.?;
     if (is_current) {
-        // Kill self: terminate immediately
-        thread.state = .terminated;
-        thread.result = Value.nil();
-        thread.terminated_normally = true;
-        // Remove from runnable queue
-        removeFromRunnable(vm, thread);
-        const is_main = vm.main_thread != null and thread == vm.main_thread.?;
-        if (!is_main) {
-            if (thread.coro) |c| c.yield();
-        }
-        return receiver;
+        thread.state = .aborting;
+        vm.pending_exception = try vm.createException(vm.thread_kill_exception_class, "");
+        return error.Unwind;
     }
 
     thread.kill_requested = true;

@@ -37,15 +37,11 @@ describe "Thread#alive?" do
   end
 
   it "describes a dying running thread" do
-    CORAFIXME "Thread dying/running status semantics are not fully implemented in Cora" do
-      ThreadSpecs.status_of_dying_running_thread.should.alive?
-    end
+    ThreadSpecs.status_of_dying_running_thread.should.alive?
   end
 
   it "describes a dying sleeping thread" do
-    CORAFIXME "Thread dying/sleeping status semantics are not fully implemented in Cora" do
-      ThreadSpecs.status_of_dying_sleeping_thread.should.alive?
-    end
+    ThreadSpecs.status_of_dying_sleeping_thread.should.alive?
   end
 
   # CORAFIXME: This example hangs Cora (Thread kill/ensure scheduling interaction).
