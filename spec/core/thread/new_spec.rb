@@ -24,12 +24,10 @@ describe "Thread.new" do
   end
 
   it "creates a subclass of thread calls super with a block in initialize" do
-    CORAFIXME "Thread subclass initialize/super block semantics are not fully implemented in Cora" do
-      arr = []
-      t = ThreadSpecs::SubThread.new(arr)
-      t.join
-      arr.should == [1]
-    end
+    arr = []
+    t = ThreadSpecs::SubThread.new(arr)
+    t.join
+    arr.should == [1]
   end
 
   it "calls #initialize and raises an error if super not used" do
@@ -44,19 +42,17 @@ describe "Thread.new" do
   end
 
   it "calls and respects #initialize for the block to use" do
-    CORAFIXME "Thread subclass initialize block handling is not fully implemented in Cora" do
-      c = Class.new(Thread) do
-        def initialize
-          ScratchPad.record [:good]
-          super { ScratchPad << :in_thread }
-        end
+    c = Class.new(Thread) do
+      def initialize
+        ScratchPad.record [:good]
+        super { ScratchPad << :in_thread }
       end
-
-      t = c.new
-      t.join
-
-      ScratchPad.recorded.should == [:good, :in_thread]
     end
+
+    t = c.new
+    t.join
+
+    ScratchPad.recorded.should == [:good, :in_thread]
   end
 
   it "releases Mutexes held by the Thread when the Thread finishes" do

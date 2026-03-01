@@ -3062,6 +3062,8 @@ pub const VM = struct {
                                                     .self_value = receiver,
                                                     .ep = env,
                                                     .block = null,
+                                                    .method_name = cached.method_name.name,
+                                                    .super_defining_class = cached.owner_class,
                                                 };
                                                 self.frames.items = self.frames.storage[0 .. self.frames.items.len + 1];
 
@@ -3078,6 +3080,8 @@ pub const VM = struct {
                                                 null,
                                                 null,
                                                 null,
+                                                cached.method_name.name,
+                                                cached.owner_class,
                                                 block,
                                             );
                                             self.stack.shrinkRetainingCapacity(receiver_index);
@@ -3102,6 +3106,8 @@ pub const VM = struct {
                                             null,
                                             null,
                                             null,
+                                            method.name.name,
+                                            method.owner_class,
                                             block,
                                         );
                                         self.stack.shrinkRetainingCapacity(receiver_index);
@@ -3200,6 +3206,8 @@ pub const VM = struct {
                                             self.stack.items[(receiver_index + 1 + argc)..(receiver_index + 1 + argc + kwargc)],
                                             kw_metadata,
                                             frame.chunk,
+                                            method.name.name,
+                                            method.owner_class,
                                             block,
                                         );
                                         self.stack.shrinkRetainingCapacity(receiver_index);
@@ -4416,6 +4424,8 @@ pub const VM = struct {
         kw_values: ?[]Value,
         kw_metadata: ?chunk.KeywordMetadata,
         caller_chunk: ?*Chunk,
+        method_name: ?[]const u8,
+        super_defining_class: ?*ClassObject,
         block: ?Block,
     ) VMError!void {
         const has_keywords = kw_values != null and kw_values.?.len > 0;
@@ -4435,6 +4445,8 @@ pub const VM = struct {
 
         try self.pushFrame(method_chunk, receiver, block);
         const callee_frame = self.currentFrame();
+        callee_frame.method_name = method_name;
+        callee_frame.super_defining_class = super_defining_class;
         if (method_chunk.is_simple_positional) {
             if (args.len != method_chunk.arity) {
                 return self.raiseArgumentErrorWrongArgCount(args.len, method_chunk.arity);
@@ -4507,7 +4519,17 @@ pub const VM = struct {
         switch (resolved.entry.method) {
             .chunk => |method_chunk| {
                 const saved_frame_count = self.frames.items.len;
-                try self.setupChunkCallFrame(method_chunk, receiver, args, null, null, null, block);
+                try self.setupChunkCallFrame(
+                    method_chunk,
+                    receiver,
+                    args,
+                    null,
+                    null,
+                    null,
+                    resolved.name.name,
+                    resolved.owner_class,
+                    block,
+                );
 
                 try self.executeUntilReturn(saved_frame_count);
                 return self.pop();
@@ -4759,7 +4781,17 @@ pub const VM = struct {
                 const has_keywords = kwargc > 0;
                 const caller_chunk = if (has_keywords) self.currentFrame().chunk else null;
                 const kw_slice: ?[]Value = if (has_keywords) kw_values.?[0..kwargc] else null;
-                try self.setupChunkCallFrame(method_chunk, receiver, args[0..argc], kw_slice, kw_metadata, caller_chunk, block);
+                try self.setupChunkCallFrame(
+                    method_chunk,
+                    receiver,
+                    args[0..argc],
+                    kw_slice,
+                    kw_metadata,
+                    caller_chunk,
+                    method.name.name,
+                    method.owner_class,
+                    block,
+                );
             },
             .builtin => |fun_ptr| {
                 // Special case: Proc#call on chunk proc — push frame inline to avoid recursion
@@ -5075,7 +5107,10 @@ pub const VM = struct {
                 .yielder => break :blk self.yielder_class,
                 .big_integer => break :blk self.integer_class,
                 .float => break :blk self.float_class,
-                .thread => break :blk self.thread_class,
+                .thread => {
+                    const thread_obj_ptr: *value.Object = @ptrFromInt(obj_val.raw);
+                    break :blk thread_obj_ptr.class.?;
+                },
             }
         };
 
