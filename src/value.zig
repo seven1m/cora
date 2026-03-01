@@ -191,6 +191,7 @@ pub const FiberObject = struct {
     coro_exception: ?*ExceptionObject = null,
     first_resume_args: [256]Value = undefined,
     first_resume_argc: usize = 0,
+    owner_thread: ?*ThreadObject = null,
     owner_vm: *VM,
 };
 
@@ -227,6 +228,8 @@ pub const ThreadObject = struct {
     preempt_requested: bool = false,
     ops_until_preempt: u32 = 0,
     args: ?[]Value = null,
+    main_fiber: ?*FiberObject = null,
+    current_fiber: ?*FiberObject = null,
     owner_vm: *VM,
 };
 

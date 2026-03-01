@@ -767,6 +767,7 @@ pub const VM = struct {
         main_fiber_obj.coro_exception = null;
         main_fiber_obj.first_resume_args = undefined;
         main_fiber_obj.first_resume_argc = 0;
+        main_fiber_obj.owner_thread = null;
         main_fiber_obj.owner_vm = self;
         self.main_fiber = main_fiber_obj;
         self.current_fiber = main_fiber_obj;
@@ -1645,14 +1646,44 @@ pub const VM = struct {
     }
 
     pub fn saveFiberState(self: *VM, fiber: *FiberObject) void {
+        if (fiber.owner_thread) |owner_thread| {
+            if (owner_thread.main_fiber != null and owner_thread.main_fiber.? == fiber) {
+                if (self.main_thread == null or owner_thread != self.main_thread.?) {
+                    owner_thread.current_lexical_scope = self.current_lexical_scope;
+                    return;
+                }
+            }
+        }
         fiber.current_lexical_scope = self.current_lexical_scope;
     }
 
     pub fn restoreFiberState(self: *VM, fiber: *FiberObject) void {
+        if (fiber.owner_thread) |owner_thread| {
+            if (owner_thread.main_fiber != null and owner_thread.main_fiber.? == fiber) {
+                if (self.main_thread == null or owner_thread != self.main_thread.?) {
+                    self.stack = &owner_thread.stack;
+                    self.frames = &owner_thread.frames;
+                    self.env_stack = &owner_thread.env_stack;
+                    self.current_lexical_scope = owner_thread.current_lexical_scope;
+                    return;
+                }
+            }
+        }
         self.stack = &fiber.stack;
         self.frames = &fiber.frames;
         self.env_stack = &fiber.env_stack;
         self.current_lexical_scope = fiber.current_lexical_scope;
+    }
+
+    inline fn rootFiberForCurrentThread(self: *VM) *FiberObject {
+        if (self.current_thread) |thread| {
+            if (thread.main_fiber) |main_fiber| return main_fiber;
+        }
+        return self.main_fiber;
+    }
+
+    inline fn setCurrentFiber(self: *VM, fiber: *FiberObject) void {
+        self.current_fiber = fiber;
     }
 
     fn captureMainGcStackBase(self: *VM) VMError!void {
@@ -1665,11 +1696,16 @@ pub const VM = struct {
     }
 
     fn stackBaseForFiber(self: *VM, fiber: *FiberObject) VMError!*anyopaque {
+        if (fiber.coro) |coro| {
+            return @ptrFromInt(coro.context.stack_info.base);
+        }
+        if (fiber.owner_thread) |owner_thread| {
+            return self.stackBaseForThread(owner_thread);
+        }
         if (fiber == self.main_fiber) {
             return self.main_stack_base orelse error.Fatal;
         }
-        const coro = fiber.coro orelse return error.Fatal;
-        return @ptrFromInt(coro.context.stack_info.base);
+        return error.Fatal;
     }
 
     fn setCurrentStackBaseForGc(self: *VM, stack_base: *anyopaque) VMError!void {
@@ -1800,7 +1836,7 @@ pub const VM = struct {
 
     pub fn fiberYield(self: *VM, yield_value: Value) VMError!Value {
         const fiber = self.current_fiber;
-        if (fiber == self.main_fiber) {
+        if (fiber == self.rootFiberForCurrentThread()) {
             const exc = try self.createException(self.fiber_error_class, "can't yield from root fiber");
             self.pending_exception = exc;
             return error.Unwind;
@@ -1840,6 +1876,11 @@ pub const VM = struct {
 
         const parent_context: *FiberCoroContext = if (caller.coro) |caller_coro|
             &caller_coro.context
+        else if (self.current_thread) |thread|
+            if (thread.coro) |thread_coro|
+                &thread_coro.context
+            else
+                &self.zio_main_context
         else
             &self.zio_main_context;
 
@@ -1850,12 +1891,12 @@ pub const VM = struct {
         const target_stack_base = try self.stackBaseForFiber(fiber);
         try self.setCurrentStackBaseForGc(target_stack_base);
 
-        self.current_fiber = fiber;
+        self.setCurrentFiber(fiber);
         self.restoreFiberState(fiber);
 
         errdefer {
             self.saveFiberState(fiber);
-            self.current_fiber = caller;
+            self.setCurrentFiber(caller);
             self.restoreFiberState(caller);
             fiber.caller = null;
             self.setCurrentStackBaseForGc(caller_stack_base) catch {};
@@ -1864,7 +1905,7 @@ pub const VM = struct {
         target_coro.step();
 
         self.saveFiberState(fiber);
-        self.current_fiber = caller;
+        self.setCurrentFiber(caller);
         self.restoreFiberState(caller);
         fiber.caller = null;
         try self.setCurrentStackBaseForGc(caller_stack_base);
@@ -1908,9 +1949,13 @@ pub const VM = struct {
         main_thread_obj.preempt_requested = false;
         main_thread_obj.ops_until_preempt = self.thread_preempt_quantum_ops;
         main_thread_obj.args = null;
+        main_thread_obj.main_fiber = self.main_fiber;
+        main_thread_obj.current_fiber = self.main_fiber;
         main_thread_obj.owner_vm = self;
+        self.main_fiber.owner_thread = main_thread_obj;
         self.main_thread = main_thread_obj;
         self.current_thread = main_thread_obj;
+        self.setCurrentFiber(self.main_fiber);
         self.thread_list.append(self.gc_allocator, main_thread_obj) catch return error.Fatal;
         return main_thread_obj;
     }
@@ -1945,6 +1990,25 @@ pub const VM = struct {
         thread_obj.preempt_requested = false;
         thread_obj.ops_until_preempt = self.thread_preempt_quantum_ops;
         thread_obj.args = args_copy;
+        const root_fiber = self.gc_allocator.create(value.FiberObject) catch return error.Fatal;
+        root_fiber.object = .{ .type_tag = .fiber, .flags = 0, .class = self.fiber_class, .singleton_class = null, .instance_variables = null };
+        root_fiber.state = .running;
+        root_fiber.block = null;
+        initFiberValueStackInPlace(&root_fiber.stack);
+        initFiberFrameStackInPlace(&root_fiber.frames);
+        initFiberEnvironmentStackInPlace(&root_fiber.env_stack);
+        root_fiber.current_lexical_scope = thread_obj.current_lexical_scope;
+        root_fiber.caller = null;
+        root_fiber.coro = null;
+        root_fiber.coro_event = .none;
+        root_fiber.coro_result = Value.nil();
+        root_fiber.coro_exception = null;
+        root_fiber.first_resume_args = undefined;
+        root_fiber.first_resume_argc = 0;
+        root_fiber.owner_thread = thread_obj;
+        root_fiber.owner_vm = self;
+        thread_obj.main_fiber = root_fiber;
+        thread_obj.current_fiber = root_fiber;
         thread_obj.owner_vm = self;
         self.thread_list.append(self.gc_allocator, thread_obj) catch return error.Fatal;
         self.runnable_queue.append(self.gc_allocator, thread_obj) catch return error.Fatal;
@@ -1953,6 +2017,7 @@ pub const VM = struct {
 
     fn saveThreadState(self: *VM, thread: *value.ThreadObject) void {
         thread.current_lexical_scope = self.current_lexical_scope;
+        thread.current_fiber = self.current_fiber;
     }
 
     fn restoreThreadState(self: *VM, thread: *value.ThreadObject) void {
@@ -2099,8 +2164,16 @@ pub const VM = struct {
 
     inline fn hasOtherRunnableThread(self: *VM, current_thread: *value.ThreadObject) bool {
         for (self.runnable_queue.items) |thread| {
+            if (!self.isKnownThread(thread)) continue;
             if (thread == current_thread) continue;
             if (thread.state == .created or thread.state == .running) return true;
+        }
+        return false;
+    }
+
+    inline fn isKnownThread(self: *VM, candidate: *value.ThreadObject) bool {
+        for (self.thread_list.items) |thread| {
+            if (thread == candidate) return true;
         }
         return false;
     }
@@ -2162,6 +2235,10 @@ pub const VM = struct {
         var i: usize = 0;
         while (i < self.runnable_queue.items.len) {
             const thread = self.runnable_queue.items[i];
+            if (!self.isKnownThread(thread)) {
+                _ = self.runnable_queue.orderedRemove(i);
+                continue;
+            }
             if (thread == caller_thread) {
                 i += 1;
                 continue;
@@ -2185,8 +2262,7 @@ pub const VM = struct {
             // Switch to thread
             self.current_thread = thread;
             self.restoreThreadState(thread);
-            // Restore main fiber state within the thread context
-            self.current_fiber = self.main_fiber;
+            self.current_fiber = thread.current_fiber orelse thread.main_fiber orelse self.main_fiber;
 
             const target_stack_base = try self.stackBaseForThread(thread);
             try self.setCurrentStackBaseForGc(target_stack_base);
@@ -5002,6 +5078,9 @@ pub const VM = struct {
     }
 
     pub fn newFiber(self: *VM, class_obj: *ClassObject, block: ?Block) VMError!Value {
+        if (self.current_thread == null) {
+            _ = try self.ensureMainThread();
+        }
         const fiber_obj = self.gc_allocator.create(value.FiberObject) catch return error.Fatal;
         fiber_obj.object = .{ .type_tag = .fiber, .flags = 0, .class = class_obj, .singleton_class = null, .instance_variables = null };
         fiber_obj.state = .created;
@@ -5017,6 +5096,7 @@ pub const VM = struct {
         fiber_obj.coro_exception = null;
         fiber_obj.first_resume_args = undefined;
         fiber_obj.first_resume_argc = 0;
+        fiber_obj.owner_thread = self.current_thread;
         fiber_obj.owner_vm = self;
         return Value.fromObject(fiber_obj);
     }

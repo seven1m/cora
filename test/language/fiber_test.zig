@@ -189,6 +189,51 @@ test "File.open block keeps io open across Fiber.yield" {
     try std.testing.expectEqualStrings(":pause\n\"hi\"\n:done\n", result.stdout);
 }
 
+test "Fiber works in non-main Thread" {
+    const result = try evalCode(
+        \\Thread.new do
+        \\  f = Fiber.new do
+        \\    Fiber.yield(:pause)
+        \\    :done
+        \\  end
+        \\  [f.resume, f.resume]
+        \\end.value
+    );
+    try std.testing.expect(result.isArray());
+    const elems = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 2), elems.len);
+    try std.testing.expect(elems[0].isSymbol());
+    try std.testing.expectEqualStrings("pause", elems[0].toSymbolObject().name);
+    try std.testing.expect(elems[1].isSymbol());
+    try std.testing.expectEqualStrings("done", elems[1].toSymbolObject().name);
+}
+
+test "Thread.current stays correct inside Fiber in non-main Thread" {
+    const result = try evalCode(
+        \\Thread.new do
+        \\  cur = Thread.current
+        \\  Fiber.new { Thread.current == cur }.resume
+        \\end.value
+    );
+    try std.testing.expect(result.isBool());
+    try std.testing.expectEqual(true, result.toBool());
+}
+
+test "Fiber.resume across threads raises FiberError" {
+    const result = try evalCode(
+        \\f = Fiber.new { :ok }
+        \\Thread.new do
+        \\  begin
+        \\    f.resume
+        \\  rescue => e
+        \\    e.message
+        \\  end
+        \\end.value
+    );
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualStrings("fiber called across threads", result.toStringObject().str);
+}
+
 test "Fiber stress: 10000 yield/resume cycles" {
     const result = try evalCode(
         \\f = Fiber.new do
