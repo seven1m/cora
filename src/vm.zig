@@ -514,6 +514,9 @@ pub const VM = struct {
         const runtime_error_class_val = try self.newClass(runtime_error_name_sym, self.standard_error_class);
         self.runtime_error_class = runtime_error_class_val.toClassObject();
 
+        const not_implemented_error_name_sym = try self.intern("NotImplementedError");
+        const not_implemented_error_class_val = try self.newClass(not_implemented_error_name_sym, self.standard_error_class);
+
         const frozen_error_name_sym = try self.intern("FrozenError");
         const frozen_error_class_val = try self.newClass(frozen_error_name_sym, self.runtime_error_class);
         self.frozen_error_class = frozen_error_class_val.toClassObject();
@@ -637,6 +640,7 @@ pub const VM = struct {
         self.object_class.module.constants.put(exception_name_sym, exception_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(standard_error_name_sym, standard_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(runtime_error_name_sym, runtime_error_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(not_implemented_error_name_sym, not_implemented_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(frozen_error_name_sym, frozen_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(argument_error_name_sym, argument_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(type_error_name_sym, type_error_class_val) catch return error.Fatal;
@@ -2022,18 +2026,12 @@ pub const VM = struct {
         return main_thread_obj;
     }
 
-    pub fn newThread(self: *VM, class_obj: *value.ClassObject, block: Block, args: []Value) VMError!*value.ThreadObject {
+    pub fn newThreadUnstarted(self: *VM, class_obj: *value.ClassObject) VMError!*value.ThreadObject {
         _ = try self.ensureMainThread();
-        // Copy args to GC-allocated memory so they survive across coroutine switches
-        const args_copy = if (args.len > 0) blk: {
-            const copy = self.gc_allocator.alloc(Value, args.len) catch return error.Fatal;
-            @memcpy(copy, args);
-            break :blk copy;
-        } else null;
         const thread_obj = self.gc_allocator.create(value.ThreadObject) catch return error.Fatal;
         thread_obj.object = .{ .type_tag = .thread, .flags = 0, .class = class_obj, .singleton_class = null, .instance_variables = null };
         thread_obj.state = .created;
-        thread_obj.block = block;
+        thread_obj.block = null;
         initFiberValueStackInPlace(&thread_obj.stack);
         initFiberFrameStackInPlace(&thread_obj.frames);
         initFiberEnvironmentStackInPlace(&thread_obj.env_stack);
@@ -2051,7 +2049,7 @@ pub const VM = struct {
         thread_obj.kill_requested = false;
         thread_obj.preempt_requested = false;
         thread_obj.ops_until_preempt = self.thread_preempt_quantum_ops;
-        thread_obj.args = args_copy;
+        thread_obj.args = null;
         const root_fiber = self.gc_allocator.create(value.FiberObject) catch return error.Fatal;
         root_fiber.object = .{ .type_tag = .fiber, .flags = 0, .class = self.fiber_class, .singleton_class = null, .instance_variables = null };
         root_fiber.state = .running;
@@ -2073,8 +2071,30 @@ pub const VM = struct {
         thread_obj.main_fiber = root_fiber;
         thread_obj.current_fiber = root_fiber;
         thread_obj.owner_vm = self;
+        return thread_obj;
+    }
+
+    pub fn configureThread(self: *VM, thread_obj: *value.ThreadObject, block: Block, args: []Value) VMError!void {
+        // Copy args to GC-allocated memory so they survive across coroutine switches.
+        const args_copy = if (args.len > 0) blk: {
+            const copy = self.gc_allocator.alloc(Value, args.len) catch return error.Fatal;
+            @memcpy(copy, args);
+            break :blk copy;
+        } else null;
+
+        thread_obj.block = block;
+        thread_obj.args = args_copy;
+    }
+
+    pub fn startThread(self: *VM, thread_obj: *value.ThreadObject) VMError!void {
         self.thread_list.append(self.allocator, thread_obj) catch return error.Fatal;
         self.runnable_queue.append(self.allocator, thread_obj) catch return error.Fatal;
+    }
+
+    pub fn newThread(self: *VM, class_obj: *value.ClassObject, block: Block, args: []Value) VMError!*value.ThreadObject {
+        const thread_obj = try self.newThreadUnstarted(class_obj);
+        try self.configureThread(thread_obj, block, args);
+        try self.startThread(thread_obj);
         return thread_obj;
     }
 

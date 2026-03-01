@@ -75,6 +75,9 @@ pub fn register(vm: *VM) !void {
     const all_sym = try vm.intern("all?");
     try vm.array_class.module.methods.put(all_sym, .{ .method = .{ .builtin = &builtinArrayAll } });
 
+    const sort_sym = try vm.intern("sort");
+    try vm.array_class.module.methods.put(sort_sym, .{ .method = .{ .builtin = &builtinArraySort } });
+
     const pack_sym = try vm.intern("pack");
     try vm.array_class.module.methods.put(pack_sym, .{ .method = .{ .builtin = &builtinArrayPack } });
 }
@@ -488,6 +491,29 @@ pub fn builtinArrayAll(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
     return Value.boolean(true);
 }
 
+pub fn builtinArraySort(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const source = receiver.toArrayObject();
+    const result = try vm.createArray();
+    result.elements.appendSlice(vm.gc_allocator, source.elements.items) catch return error.Fatal;
+
+    // In-place insertion sort on the duplicate, sufficient for current spec usage.
+    var i: usize = 1;
+    while (i < result.elements.items.len) : (i += 1) {
+        const key = result.elements.items[i];
+        var j = i;
+        while (j > 0) {
+            const prev = result.elements.items[j - 1];
+            if (!(try arrayValueLessThan(vm, key, prev))) break;
+            result.elements.items[j] = prev;
+            j -= 1;
+        }
+        result.elements.items[j] = key;
+    }
+
+    return Value.fromObject(result);
+}
+
 pub fn builtinArrayPack(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const format = try args[0].coerceToStr(vm, "no implicit conversion into String");
@@ -499,4 +525,25 @@ fn arrayContainsEquivalent(vm: *VM, haystack: []Value, needle: Value) VMError!bo
         if (try vm.valueEquals(item, needle)) return true;
     }
     return false;
+}
+
+fn arrayValueLessThan(vm: *VM, lhs: Value, rhs: Value) VMError!bool {
+    if (lhs.isInteger() and rhs.isInteger()) return lhs.toInteger() < rhs.toInteger();
+    if (lhs.isSymbol() and rhs.isSymbol()) {
+        return std.mem.order(u8, lhs.toSymbolObject().name, rhs.toSymbolObject().name) == .lt;
+    }
+    if (lhs.isString() and rhs.isString()) {
+        return std.mem.order(u8, lhs.toStringObject().str, rhs.toStringObject().str) == .lt;
+    }
+
+    var cmp_args = [_]Value{rhs};
+    const cmp = try vm.callMethodByName(lhs, "<=>", cmp_args[0..], null);
+    if (cmp.isInteger()) return cmp.toInteger() < 0;
+    if (cmp.isFloat()) return cmp.toFloatObject().val < 0.0;
+
+    return vm.raiseExceptionFmt(
+        vm.argument_error_class,
+        "comparison of {s} with {s} failed",
+        .{ vm.className(lhs), vm.className(rhs) },
+    );
 }

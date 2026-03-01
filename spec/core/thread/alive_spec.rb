@@ -33,9 +33,7 @@ describe "Thread#alive?" do
   end
 
   it "describes a thread with an uncaught exception" do
-    CORAFIXME "Thread exception reporting flags are not fully implemented in Cora" do
-      ThreadSpecs.status_of_thread_with_uncaught_exception.should_not.alive?
-    end
+    ThreadSpecs.status_of_thread_with_uncaught_exception.should_not.alive?
   end
 
   it "describes a dying running thread" do

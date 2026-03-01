@@ -33,9 +33,7 @@ describe "Thread#status" do
   end
 
   it "describes a thread with an uncaught exception" do
-    CORAFIXME "Thread exception status/reporting behavior is not fully implemented in Cora" do
-      ThreadSpecs.status_of_thread_with_uncaught_exception.status.should == nil
-    end
+    ThreadSpecs.status_of_thread_with_uncaught_exception.status.should == nil
   end
 
   it "describes a dying sleeping thread" do

@@ -22,12 +22,10 @@ describe "Thread#join" do
   end
 
   it "raises TypeError if the argument is not a valid timeout" do
-    CORAFIXME "Thread#join timeout argument validation is not fully implemented in Cora" do
-      t = Thread.new { }
-      t.join
-      -> { t.join(:foo) }.should raise_error TypeError
-      -> { t.join("bar") }.should raise_error TypeError
-    end
+    t = Thread.new { }
+    t.join
+    -> { t.join(:foo) }.should raise_error TypeError
+    -> { t.join("bar") }.should raise_error TypeError
   end
 
   it "returns nil if it is not finished when given a timeout" do

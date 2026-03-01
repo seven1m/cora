@@ -43,9 +43,7 @@ describe "Thread#stop?" do
   end
 
   it "describes a thread with an uncaught exception" do
-    CORAFIXME "Thread exception/stop? semantics are not fully implemented in Cora" do
-      ThreadSpecs.status_of_thread_with_uncaught_exception.should.stop?
-    end
+    ThreadSpecs.status_of_thread_with_uncaught_exception.should.stop?
   end
 
   it "describes a dying running thread" do

@@ -7,13 +7,11 @@ describe "Thread#value" do
   end
 
   it "re-raises an error for an uncaught exception" do
-    CORAFIXME "Thread exception reporting flag behavior is not fully implemented in Cora" do
-      t = Thread.new {
-        Thread.current.report_on_exception = false
-        raise "Hello"
-      }
-      -> { t.value }.should raise_error(RuntimeError, "Hello")
-    end
+    t = Thread.new {
+      Thread.current.report_on_exception = false
+      raise "Hello"
+    }
+    -> { t.value }.should raise_error(RuntimeError, "Hello")
   end
 
   it "is nil for a killed thread" do

@@ -111,25 +111,42 @@ pub fn register(vm: *VM) !void {
 
     const stop_q_sym = try vm.intern("stop?");
     try vm.thread_class.module.methods.put(stop_q_sym, .{ .method = .{ .builtin = &builtinThreadStopQ } });
+
+    const initialize_sym = try vm.intern("initialize");
+    try vm.thread_class.module.methods.put(initialize_sym, .{ .method = .{ .builtin = &builtinThreadInitialize } });
+
+    const report_on_exception_sym = try vm.intern("report_on_exception");
+    try vm.thread_class.module.methods.put(report_on_exception_sym, .{ .method = .{ .builtin = &builtinThreadReportOnException } });
+
+    const report_on_exception_set_sym = try vm.intern("report_on_exception=");
+    try vm.thread_class.module.methods.put(report_on_exception_set_sym, .{ .method = .{ .builtin = &builtinThreadReportOnExceptionSet } });
 }
 
 // =============================================================================
 // Class methods
 // =============================================================================
 
-fn builtinThreadNew(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
-    const blk = block orelse {
+fn builtinThreadNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    if (!receiver.isClass()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Class", .{});
+    }
+    const class_obj = receiver.toClassObject();
+    const thread = try vm.newThreadUnstarted(class_obj);
+    const thread_val = Value.fromObject(thread);
+    _ = try vm.callMethodByName(thread_val, "initialize", args, block);
+
+    if (thread.block == null) {
         const exc = try vm.createException(vm.thread_error_class, "must be called with a block");
         vm.pending_exception = exc;
         return error.Unwind;
-    };
+    }
 
-    const thread = try vm.newThread(vm.thread_class, blk, args);
+    try vm.startThread(thread);
 
     // Immediately yield to give the new thread a chance to start
     try vm.schedulerYield();
 
-    return Value.fromObject(thread);
+    return thread_val;
 }
 
 fn builtinThreadCurrent(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -201,10 +218,20 @@ fn builtinThreadKillClass(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
 // Instance methods
 // =============================================================================
 
+fn builtinThreadInitialize(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    const thread = receiver.toThreadObject();
+    const blk = block orelse {
+        const exc = try vm.createException(vm.thread_error_class, "must be called with a block");
+        vm.pending_exception = exc;
+        return error.Unwind;
+    };
+
+    try vm.configureThread(thread, blk, args);
+    return receiver;
+}
+
 fn builtinThreadJoin(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    if (args.len > 1) {
-        return vm.raiseExceptionFmt(vm.argument_error_class, "wrong number of arguments (given {d}, expected 0..1)", .{args.len});
-    }
+    try vm.requireArgCountRange(args, 0, 1);
     const thread = receiver.toThreadObject();
 
     if (vm.current_thread != null and thread == vm.current_thread.?) {
@@ -213,9 +240,30 @@ fn builtinThreadJoin(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
         return error.Unwind;
     }
 
-    // Wait for thread to finish
-    while (thread.state != .terminated) {
-        try vm.threadYield();
+    const timeout = try optionalTimeoutArg(vm, args);
+    if (timeout) |seconds| {
+        if (thread.state == .terminated) {
+            return receiver;
+        }
+
+        if (seconds <= 0.0) {
+            return Value.nil();
+        }
+
+        var spin_budget: u32 = @intFromFloat(@min(seconds * 1000.0, 1000.0));
+        if (spin_budget == 0) spin_budget = 1;
+        while (thread.state != .terminated and spin_budget > 0) : (spin_budget -= 1) {
+            try vm.threadYield();
+        }
+
+        if (thread.state != .terminated) {
+            return Value.nil();
+        }
+    } else {
+        // Wait for thread to finish.
+        while (thread.state != .terminated) {
+            try vm.threadYield();
+        }
     }
 
     // Re-raise exception if thread died with one
@@ -537,9 +585,30 @@ fn builtinThreadStopQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
     return Value.boolean(thread.state == .sleeping or thread.state == .terminated);
 }
 
+fn builtinThreadReportOnException(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return Value.boolean(receiver.toThreadObject().report_on_exception);
+}
+
+fn builtinThreadReportOnExceptionSet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    receiver.toThreadObject().report_on_exception = args[0].is_truthy();
+    return args[0];
+}
+
 // =============================================================================
 // Helpers
 // =============================================================================
+
+fn optionalTimeoutArg(vm: *VM, args: []Value) VMError!?f64 {
+    if (args.len == 0 or args[0].isNil()) return null;
+
+    const timeout = args[0];
+    if (timeout.isInteger()) return timeout.integerToF64();
+    if (timeout.isFloat()) return timeout.toFloatObject().val;
+
+    return vm.raiseExceptionFmt(vm.type_error_class, "can't convert into Float", .{});
+}
 
 fn symbolArg(vm: *VM, arg: Value) VMError!*value.SymbolObject {
     if (arg.isSymbol()) return arg.toSymbolObject();
