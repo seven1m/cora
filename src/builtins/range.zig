@@ -23,6 +23,9 @@ pub fn register(vm: *VM) !void {
     const to_a_sym = try vm.intern("to_a");
     try vm.range_class.module.methods.put(to_a_sym, .{ .method = .{ .builtin = &builtinRangeToA } });
 
+    const each_sym = try vm.intern("each");
+    try vm.range_class.module.methods.put(each_sym, .{ .method = .{ .builtin = &builtinRangeEach } });
+
     const inspect_sym = try vm.intern("inspect");
     try vm.range_class.module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinRangeInspect } });
 
@@ -126,6 +129,54 @@ pub fn builtinRangeToA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
     }
 
     return Value.fromObject(array_obj);
+}
+
+pub fn builtinRangeEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
+    if (!receiver.isRange()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Range", .{});
+    }
+
+    const blk = block orelse {
+        return try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
+    };
+
+    const range_obj = receiver.toRangeObject();
+    const begin_val = range_obj.begin;
+    const end_val = range_obj.end;
+    const exclude_end = range_obj.exclude_end;
+
+    if (begin_val.isNil() or end_val.isNil()) {
+        return vm.raiseExceptionFmt(vm.range_error_class, "cannot iterate from beginless or endless range", .{});
+    }
+
+    if (!begin_val.isInteger() or !end_val.isInteger()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "can't iterate from Range", .{});
+    }
+
+    const start_i = begin_val.toInteger();
+    const end_i = end_val.toInteger();
+
+    if (exclude_end) {
+        var current = start_i;
+        while (current < end_i) : (current += 1) {
+            const yield_args = [_]Value{Value.integer(current)};
+            const result = try vm.yieldToBlock(blk, &yield_args);
+            if (result.break_occurred) return result.value;
+            if (current == std.math.maxInt(i64)) break;
+        }
+    } else {
+        var current = start_i;
+        while (current <= end_i) : (current += 1) {
+            const yield_args = [_]Value{Value.integer(current)};
+            const result = try vm.yieldToBlock(blk, &yield_args);
+            if (result.break_occurred) return result.value;
+            if (current == std.math.maxInt(i64)) break;
+        }
+    }
+
+    return receiver;
 }
 
 pub fn builtinRangeInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
