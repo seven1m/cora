@@ -207,10 +207,16 @@ fn copyMethodToModuleSingleton(vm: *VM, module_receiver: Value, name_sym: *Symbo
 
 pub fn register(vm: *VM) !void {
     const include_sym = try vm.intern("include");
-    try vm.object_class.module.methods.put(include_sym, .{ .method = .{ .builtin = &builtinModuleInclude } });
+    try vm.module_class.module.methods.put(include_sym, .{
+        .method = .{ .builtin = &builtinModuleInclude },
+        .visibility = .private,
+    });
 
     const prepend_sym = try vm.intern("prepend");
-    try vm.object_class.module.methods.put(prepend_sym, .{ .method = .{ .builtin = &builtinModulePrepend } });
+    try vm.module_class.module.methods.put(prepend_sym, .{
+        .method = .{ .builtin = &builtinModulePrepend },
+        .visibility = .private,
+    });
 
     const define_method_sym = try vm.intern("define_method");
     try vm.module_class.module.methods.put(define_method_sym, .{ .method = .{ .builtin = &builtinModuleDefineMethod } });
