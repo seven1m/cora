@@ -445,6 +445,10 @@ pub const Compiler = struct {
                 try self.compileMethod(def_node, line);
             },
 
+            .defined => |defined_node| {
+                try self.compileDefinedNode(defined_node, line);
+            },
+
             .else_node => |else_node| {
                 // Compile the statements in the else block
                 if (else_node.statements) |statements_ptr| {
@@ -798,6 +802,282 @@ pub const Compiler = struct {
                 return error.UnsupportedNode;
             },
         }
+    }
+
+
+    fn compileDefinedNode(self: *Compiler, defined_node: *prism.DefinedNode, line: u32) !void {
+        if (defined_node.value == null) {
+            try self.emitDefinedDescriptor("expression", line);
+            return;
+        }
+
+        const value_node = try self.parser.asNode(@ptrCast(defined_node.value));
+        try self.compileDefinedValue(value_node, line);
+    }
+
+    fn compileDefinedValue(self: *Compiler, node: prism.Node, line: u32) !void {
+        switch (node) {
+            .self => {
+                try self.emitDefinedDescriptor("self", line);
+            },
+            .nil_node => {
+                try self.emitDefinedDescriptor("nil", line);
+            },
+            .true_node => {
+                try self.emitDefinedDescriptor("true", line);
+            },
+            .false_node => {
+                try self.emitDefinedDescriptor("false", line);
+            },
+
+            .local_variable_read => {
+                try self.emitDefinedDescriptor("local-variable", line);
+            },
+
+            .global_variable_read => |var_read| {
+                const var_name = try self.parser.getConstantName(@intCast(var_read.name));
+                if (std.mem.eql(u8, var_name, "$!") or std.mem.eql(u8, var_name, "$~")) {
+                    try self.emitDefinedDescriptor("global-variable", line);
+                    return;
+                }
+
+                const name_idx = try self.current_chunk.addConstant(.{ .string = var_name });
+                try self.current_chunk.emitOpU16(.GET_GLOBAL, @intCast(name_idx), line);
+                try self.emitBoolToDefinedDescriptor("global-variable", line);
+            },
+
+            .back_reference_read => |backref_read| {
+                const var_name = try self.parser.getConstantName(@intCast(backref_read.name));
+                if (std.mem.eql(u8, var_name, "$~")) {
+                    try self.emitDefinedDescriptor("global-variable", line);
+                    return;
+                }
+
+                const name_idx = try self.current_chunk.addConstant(.{ .string = var_name });
+                try self.current_chunk.emitOpU16(.GET_GLOBAL, @intCast(name_idx), line);
+                try self.emitBoolToDefinedDescriptor("global-variable", line);
+            },
+
+            .numbered_reference_read => |numbered_read| {
+                if (numbered_read.number == 0) {
+                    try self.current_chunk.emitOp(.PUSH_NIL, line);
+                } else {
+                    try self.current_chunk.emitOpU16(.GET_BACKREF, @intCast(numbered_read.number), line);
+                }
+                try self.emitBoolToDefinedDescriptor("global-variable", line);
+            },
+
+            .instance_variable_read => |var_read| {
+                const var_name = try self.parser.getConstantName(@intCast(var_read.name));
+                const name_idx = try self.current_chunk.addConstant(.{ .string = var_name });
+                try self.current_chunk.emitOpU16(.GET_IVAR, @intCast(name_idx), line);
+                try self.emitBoolToDefinedDescriptor("instance-variable", line);
+            },
+
+            .class_variable_read => |var_read| {
+                const var_name = try self.parser.getConstantName(@intCast(var_read.name));
+                const name_idx = try self.current_chunk.addConstant(.{ .string = var_name });
+                try self.current_chunk.emitOpU16(.GET_CVAR_OR_NIL, @intCast(name_idx), line);
+                try self.emitBoolToDefinedDescriptor("class variable", line);
+            },
+
+            .constant_read => |const_read| {
+                const const_name = try self.parser.getConstantName(const_read.name);
+                const idx = try self.current_chunk.addConstant(.{ .string = const_name });
+                try self.current_chunk.emitOpU16(.GET_CONST_OR_NIL, @intCast(idx), line);
+                try self.emitBoolToDefinedDescriptor("constant", line);
+            },
+
+            .constant_path => |const_path| {
+                if (const_path.parent == null) {
+                    const const_name = try self.parser.getConstantName(const_path.name);
+                    const idx = try self.current_chunk.addConstant(.{ .string = const_name });
+                    try self.current_chunk.emitOpU16(.GET_CONST_OR_NIL, @intCast(idx), line);
+                    try self.emitBoolToDefinedDescriptor("constant", line);
+                    return;
+                }
+
+                const handler_idx = self.current_chunk.exception_handlers.items.len;
+                try self.current_chunk.emitOpU16(.TRY_BEGIN, @intCast(handler_idx), line);
+                const try_start_byte_offset = self.current_chunk.currentOffset();
+
+                const parent_node = try self.parser.asNode(@ptrCast(const_path.parent.?));
+                try self.compileNode(parent_node, line);
+                const const_name = try self.parser.getConstantName(const_path.name);
+                const idx = try self.current_chunk.addConstant(.{ .string = const_name });
+                try self.current_chunk.emitOpU16(.GET_CONST_PATH, @intCast(idx), line);
+                try self.emitBoolToDefinedDescriptor("constant", line);
+
+                try self.current_chunk.emitOp(.TRY_END, line);
+                const try_end_byte_offset = self.current_chunk.currentOffset();
+                const jump_over_rescue = try self.current_chunk.emitJump(.JUMP, line);
+
+                const catch_byte_offset = self.current_chunk.currentOffset();
+                try self.current_chunk.emitOpU8(.CATCH_START, 255, line);
+                try self.current_chunk.emitOp(.PUSH_NIL, line);
+                try self.current_chunk.emitOp(.CATCH_END, line);
+                const catch_end_byte_offset = self.current_chunk.currentOffset();
+                try self.current_chunk.patchJump(jump_over_rescue);
+
+                var rescue_handlers: std.ArrayList(chunk.RescueHandler) = .empty;
+                try rescue_handlers.append(self.allocator, .{
+                    .exception_type_expr_chunks = .empty,
+                    .catch_byte_offset = catch_byte_offset,
+                    .catch_end_byte_offset = catch_end_byte_offset,
+                    .var_idx = null,
+                });
+
+                try self.current_chunk.exception_handlers.append(self.allocator, .{
+                    .try_start_byte_offset = try_start_byte_offset,
+                    .try_end_byte_offset = try_end_byte_offset,
+                    .rescue_handlers = rescue_handlers,
+                    .else_byte_offset = null,
+                    .ensure_byte_offset = null,
+                    .ensure_end_byte_offset = null,
+                });
+            },
+
+            .call => |call_node| {
+                try self.compileDefinedCall(call_node, line);
+            },
+
+            .array => |array_node| {
+                var false_jumps: std.ArrayList(usize) = .empty;
+                defer false_jumps.deinit(self.allocator);
+
+                var i: usize = 0;
+                while (i < array_node.elements.size) : (i += 1) {
+                    const elem_node = try self.parser.asNode(array_node.elements.nodes[i]);
+                    try self.compileDefinedValue(elem_node, line);
+                    const jump_if_false = try self.current_chunk.emitJump(.JUMP_IF_FALSE, line);
+                    try false_jumps.append(self.allocator, jump_if_false);
+                }
+
+                try self.emitDefinedDescriptor("expression", line);
+                const jump_to_end = try self.current_chunk.emitJump(.JUMP, line);
+
+                for (false_jumps.items) |jump_pos| {
+                    try self.current_chunk.patchJump(jump_pos);
+                }
+                try self.current_chunk.emitOp(.PUSH_NIL, line);
+                try self.current_chunk.patchJump(jump_to_end);
+            },
+
+            .parentheses => |paren_node| {
+                if (paren_node.body) |body_ptr| {
+                    const body_node = try self.parser.asNode(@ptrCast(body_ptr));
+                    try self.compileDefinedValue(body_node, line);
+                } else {
+                    try self.emitDefinedDescriptor("expression", line);
+                }
+            },
+
+            .local_variable_write,
+            .local_variable_and_write,
+            .local_variable_or_write,
+            .local_variable_operator_write,
+            .global_variable_write,
+            .global_variable_and_write,
+            .global_variable_or_write,
+            .instance_variable_write,
+            .instance_variable_and_write,
+            .instance_variable_or_write,
+            .instance_variable_operator_write,
+            .class_variable_write,
+            .class_variable_and_write,
+            .class_variable_or_write,
+            .class_variable_operator_write,
+            .constant_write,
+            .constant_and_write,
+            .constant_or_write,
+            .index_operator_write,
+            .multi_write,
+            => {
+                try self.emitDefinedDescriptor("assignment", line);
+            },
+
+            else => {
+                try self.emitDefinedDescriptor("expression", line);
+            },
+        }
+    }
+
+    fn compileDefinedCall(self: *Compiler, call_node: *prism.CallNode, line: u32) !void {
+        const method_name = try self.parser.getConstantName(call_node.name);
+
+        if (call_node.receiver == null) {
+            try self.current_chunk.emitOp(.PUSH_SELF, line);
+            try self.emitDefinedRespondToCheck(method_name, true, line);
+            return;
+        }
+
+        // `defined?` returns nil when evaluating the receiver raises.
+        const handler_idx = self.current_chunk.exception_handlers.items.len;
+        try self.current_chunk.emitOpU16(.TRY_BEGIN, @intCast(handler_idx), line);
+        const try_start_byte_offset = self.current_chunk.currentOffset();
+
+        const receiver_node = try self.parser.asNode(@ptrCast(call_node.receiver.?));
+        try self.compileNode(receiver_node, line);
+        try self.emitDefinedRespondToCheck(method_name, false, line);
+
+        try self.current_chunk.emitOp(.TRY_END, line);
+        const try_end_byte_offset = self.current_chunk.currentOffset();
+        const jump_over_rescue = try self.current_chunk.emitJump(.JUMP, line);
+
+        const catch_byte_offset = self.current_chunk.currentOffset();
+        try self.current_chunk.emitOpU8(.CATCH_START, 255, line);
+        try self.current_chunk.emitOp(.PUSH_NIL, line);
+        try self.current_chunk.emitOp(.CATCH_END, line);
+        const catch_end_byte_offset = self.current_chunk.currentOffset();
+
+        try self.current_chunk.patchJump(jump_over_rescue);
+
+        var rescue_handlers: std.ArrayList(chunk.RescueHandler) = .empty;
+        try rescue_handlers.append(self.allocator, .{
+            .exception_type_expr_chunks = .empty,
+            .catch_byte_offset = catch_byte_offset,
+            .catch_end_byte_offset = catch_end_byte_offset,
+            .var_idx = null,
+        });
+
+        try self.current_chunk.exception_handlers.append(self.allocator, .{
+            .try_start_byte_offset = try_start_byte_offset,
+            .try_end_byte_offset = try_end_byte_offset,
+            .rescue_handlers = rescue_handlers,
+            .else_byte_offset = null,
+            .ensure_byte_offset = null,
+            .ensure_end_byte_offset = null,
+        });
+    }
+
+    fn emitDefinedRespondToCheck(self: *Compiler, method_name: []const u8, include_private: bool, line: u32) !void {
+        const method_idx = try self.current_chunk.addConstant(.{ .string = method_name });
+        try self.current_chunk.emitOpU16(.PUSH_SYMBOL, @intCast(method_idx), line);
+        try self.current_chunk.emitOp(if (include_private) .PUSH_TRUE else .PUSH_FALSE, line);
+
+        const respond_to_idx = try self.current_chunk.addConstant(.{ .string = "respond_to?" });
+        const call_flags = bytecode.encodeCallFlags(.explicit, false);
+        try self.current_chunk.emitCall(@intCast(respond_to_idx), 2, call_flags, 0, line);
+        try self.emitBoolToDefinedDescriptor("method", line);
+    }
+
+    fn emitBoolToDefinedDescriptor(self: *Compiler, descriptor: []const u8, line: u32) !void {
+        const false_jump = try self.current_chunk.emitJump(.JUMP_IF_FALSE, line);
+        try self.emitDefinedDescriptor(descriptor, line);
+        const done_jump = try self.current_chunk.emitJump(.JUMP, line);
+
+        try self.current_chunk.patchJump(false_jump);
+        try self.current_chunk.emitOp(.PUSH_NIL, line);
+        try self.current_chunk.patchJump(done_jump);
+    }
+
+    fn emitDefinedDescriptor(self: *Compiler, descriptor: []const u8, line: u32) !void {
+        const idx = try self.current_chunk.addConstant(.{ .string = descriptor });
+        try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(idx), line);
+
+        const freeze_idx = try self.current_chunk.addConstant(.{ .string = "freeze" });
+        const call_flags = bytecode.encodeCallFlags(.explicit, false);
+        try self.current_chunk.emitCall(@intCast(freeze_idx), 0, call_flags, 0, line);
     }
 
     fn compileInterpolatedParts(self: *Compiler, parts: anytype, line: u32) !u8 {

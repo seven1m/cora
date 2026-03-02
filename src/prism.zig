@@ -22,6 +22,7 @@ pub const ConstantAndWriteNode = c.pm_constant_and_write_node_t;
 pub const ConstantOrWriteNode = c.pm_constant_or_write_node_t;
 pub const ConstantWriteNode = c.pm_constant_write_node_t;
 pub const DefNode = c.pm_def_node_t;
+pub const DefinedNode = c.pm_defined_node_t;
 pub const ElseNode = c.pm_else_node_t;
 pub const EnsureNode = c.pm_ensure_node_t;
 pub const FalseNode = c.pm_false_node_t;
@@ -130,6 +131,7 @@ pub const Node = union(enum) {
     constant_or_write: *ConstantOrWriteNode,
     constant_write: *ConstantWriteNode,
     def: *DefNode,
+    defined: *DefinedNode,
     else_node: *ElseNode,
     ensure: *EnsureNode,
     false_node: *FalseNode,
@@ -368,6 +370,10 @@ pub const Parser = struct {
 
         if (node_type == c.PM_DEF_NODE) {
             return Node{ .def = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_DEFINED_NODE) {
+            return Node{ .defined = @ptrCast(raw) };
         }
 
         if (node_type == c.PM_LOCAL_VARIABLE_READ_NODE) {
