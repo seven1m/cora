@@ -133,7 +133,7 @@ fn builtinThreadNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMEr
     const class_obj = receiver.toClassObject();
     const thread = try vm.newThreadUnstarted(class_obj);
     const thread_val = Value.fromObject(thread);
-    _ = try vm.callMethodByName(thread_val, "initialize", args, block);
+    _ = try vm.callMethodByNameForwardingKeywords(thread_val, "initialize", args, block);
 
     if (thread.block == null) {
         const exc = try vm.createException(vm.thread_error_class, "must be called with a block");

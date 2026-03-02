@@ -31,7 +31,7 @@ pub fn builtinObjectNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
     const init_sym = try vm.intern("initialize");
     if (try vm.findMethod(instance, init_sym)) |_| {
         // Use callMethodByName which handles dispatch properly
-        _ = try vm.callMethodByName(instance, "initialize", args, block);
+        _ = try vm.callMethodByNameForwardingKeywords(instance, "initialize", args, block);
     } else if (args.len != 0) {
         // No initialize method but arguments were passed
         try vm.requireArgCount(args, 0);

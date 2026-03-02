@@ -494,7 +494,7 @@ pub fn builtinKernelSend(vm: *VM, receiver: Value, args: []Value, block: ?Block)
     try vm.requireMinArgCount(args, 1);
     const name_str = try vm.coerceToMethodNameString(args[0]);
     const call_args = args[1..];
-    return vm.callMethodByName(receiver, name_str, call_args, block);
+    return vm.callMethodByNameForwardingKeywords(receiver, name_str, call_args, block);
 }
 
 fn kernelEnumForCommon(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {

@@ -36,6 +36,7 @@ extern "c" fn unsetenv(name: [*:0]const u8) c_int;
 const MAX_FIBER_STACK_SIZE: usize = 4096;
 const MAX_FIBER_FRAMES: usize = 2048;
 const MAX_FIBER_ENVS: usize = 2048;
+const MAX_BUILTIN_KEYWORDS: usize = 256;
 const DEFAULT_THREAD_PREEMPT_QUANTUM_OPS: u32 = 10_000;
 
 fn parseThreadPreemptQuantumOps() u32 {
@@ -127,6 +128,15 @@ pub const FiberFrameStack = FixedBufferList(CallFrame, MAX_FIBER_FRAMES);
 pub const FiberEnvironmentStack = FixedBufferList(Environment, MAX_FIBER_ENVS);
 pub const FiberCoro = zio.coro.Coroutine;
 pub const FiberCoroContext = zio.coro.Context;
+
+const BuiltinKeywordContext = struct {
+    caller_chunk: *const Chunk,
+    kw_values: []const Value,
+    kw_metadata: chunk.KeywordMetadata,
+    consumed: [MAX_BUILTIN_KEYWORDS]bool = [_]bool{false} ** MAX_BUILTIN_KEYWORDS,
+    cached_hash: ?Value = null,
+    hash_materialized: bool = false,
+};
 
 const SymbolEncodingTag = std.meta.Tag(enc.Encoding);
 
@@ -259,6 +269,7 @@ pub const VM = struct {
 
     // Block break state
     break_occurred: bool = false,
+    builtin_keyword_ctx: ?*BuiltinKeywordContext = null,
 
     at_exit_handlers: std.ArrayList(Value) = .empty,
     io_objects: std.ArrayList(*value.IoObject) = .empty,
@@ -373,6 +384,7 @@ pub const VM = struct {
             .main_stack_base = null,
             .method_state_version = 1,
             .lexical_scopes = .empty,
+            .builtin_keyword_ctx = null,
         };
     }
 
@@ -4425,7 +4437,7 @@ pub const VM = struct {
         args: []const Value,
         kw_values: ?[]Value,
         kw_metadata: ?chunk.KeywordMetadata,
-        caller_chunk: ?*Chunk,
+        caller_chunk: ?*const Chunk,
         method_name: ?[]const u8,
         super_defining_class: ?*ClassObject,
         block: ?Block,
@@ -4517,17 +4529,154 @@ pub const VM = struct {
         }
     }
 
-    fn invokeResolvedMethod(self: *VM, resolved: ResolvedMethod, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    fn keywordNameForContextIndex(self: *VM, ctx: *const BuiltinKeywordContext, idx: usize) VMError![]const u8 {
+        _ = self;
+        if (idx >= ctx.kw_metadata.names.items.len) {
+            return error.Fatal;
+        }
+        const name_idx = ctx.kw_metadata.names.items[idx];
+        if (name_idx >= ctx.caller_chunk.constants.items.len) {
+            return error.Fatal;
+        }
+        return switch (ctx.caller_chunk.constants.items[name_idx]) {
+            .string => |s| s,
+            .symbol => |sym| sym.name,
+            else => error.Fatal,
+        };
+    }
+
+    fn findKeywordInContext(self: *VM, ctx: *const BuiltinKeywordContext, name: []const u8) VMError!?usize {
+        var i: usize = 0;
+        while (i < ctx.kw_values.len) : (i += 1) {
+            const kw_name = try self.keywordNameForContextIndex(ctx, i);
+            if (std.mem.eql(u8, kw_name, name)) {
+                return i;
+            }
+        }
+        return null;
+    }
+
+    fn invokeBuiltinMethod(
+        self: *VM,
+        fun_ptr: *const fn (*VM, Value, []Value, ?Block) VMError!Value,
+        receiver: Value,
+        args: []Value,
+        block: ?Block,
+        keyword_ctx: ?*BuiltinKeywordContext,
+    ) VMError!Value {
+        const previous_ctx = self.builtin_keyword_ctx;
+        self.builtin_keyword_ctx = keyword_ctx;
+        defer self.builtin_keyword_ctx = previous_ctx;
+
+        const result = fun_ptr(self, receiver, args, block) catch |err| {
+            if (self.pending_exception != null) {
+                return error.Unwind;
+            }
+            return err;
+        };
+        return result;
+    }
+
+    pub fn keywordArgsGiven(self: *VM) bool {
+        return self.builtin_keyword_ctx != null and self.builtin_keyword_ctx.?.kw_values.len > 0;
+    }
+
+    pub fn consumeKeywordArg(self: *VM, name: []const u8) VMError!?Value {
+        const ctx = self.builtin_keyword_ctx orelse return null;
+
+        const idx = try self.findKeywordInContext(ctx, name) orelse return null;
+        ctx.consumed[idx] = true;
+        return ctx.kw_values[idx];
+    }
+
+    pub fn consumeKeywordArgs(self: *VM, comptime names: anytype, out_ptrs: anytype) VMError!void {
+        comptime {
+            const names_info = @typeInfo(@TypeOf(names));
+            if (names_info != .@"struct" or !names_info.@"struct".is_tuple) {
+                @compileError("consumeKeywordArgs names must be a tuple literal, e.g. .{\"foo\", \"bar\"}");
+            }
+
+            const outs_info = @typeInfo(@TypeOf(out_ptrs));
+            if (outs_info != .@"struct" or !outs_info.@"struct".is_tuple) {
+                @compileError("consumeKeywordArgs out_ptrs must be a tuple of pointers");
+            }
+
+            if (names_info.@"struct".fields.len != outs_info.@"struct".fields.len) {
+                @compileError("consumeKeywordArgs requires equal counts for names and output pointers");
+            }
+        }
+
+        inline for (names, out_ptrs) |name, out_ptr| {
+            const ptr_type = @TypeOf(out_ptr);
+            comptime {
+                const info = @typeInfo(ptr_type);
+                if (info != .pointer) {
+                    @compileError("consumeKeywordArgs outputs must be pointers");
+                }
+                const child = info.pointer.child;
+                if (child != Value and child != ?Value) {
+                    @compileError("consumeKeywordArgs output pointers must be *Value or *?Value");
+                }
+            }
+
+            const val = try self.consumeKeywordArg(name);
+            if (@typeInfo(ptr_type).pointer.child == Value) {
+                out_ptr.* = val orelse Value.nil();
+            } else {
+                out_ptr.* = val;
+            }
+        }
+    }
+
+    fn materializeKeywordHashForContext(self: *VM, ctx: *BuiltinKeywordContext) VMError!Value {
+        if (!ctx.hash_materialized) {
+            ctx.cached_hash = try self.createHashFromKeywords(ctx.caller_chunk, ctx.kw_values, ctx.kw_metadata);
+            ctx.hash_materialized = true;
+        }
+
+        @memset(ctx.consumed[0..ctx.kw_values.len], true);
+        return ctx.cached_hash.?;
+    }
+
+    pub fn consumeKeywordArgHash(self: *VM) VMError!?Value {
+        const ctx = self.builtin_keyword_ctx orelse return null;
+        return self.materializeKeywordHashForContext(ctx);
+    }
+
+    pub fn validateKeywordArgsConsumed(self: *VM) VMError!void {
+        const ctx = self.builtin_keyword_ctx orelse return;
+        if (ctx.kw_values.len == 0) return;
+
+        var i: usize = 0;
+        while (i < ctx.kw_values.len) : (i += 1) {
+            if (!ctx.consumed[i]) {
+                const kw_name = try self.keywordNameForContextIndex(ctx, i);
+                return self.raiseExceptionFmt(self.argument_error_class, "unknown keyword: {s}", .{kw_name});
+            }
+        }
+    }
+
+    fn invokeResolvedMethodWithKeywords(
+        self: *VM,
+        resolved: ResolvedMethod,
+        receiver: Value,
+        args: []Value,
+        block: ?Block,
+        keyword_ctx: ?*BuiltinKeywordContext,
+    ) VMError!Value {
         switch (resolved.entry.method) {
             .chunk => |method_chunk| {
                 const saved_frame_count = self.frames.items.len;
+                const kw_values = if (keyword_ctx) |ctx| if (ctx.kw_values.len > 0) @constCast(ctx.kw_values) else null else null;
+                const kw_metadata = if (keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_metadata else null else null;
+                const caller_chunk = if (keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.caller_chunk else null else null;
                 try self.setupChunkCallFrame(
                     method_chunk,
                     receiver,
                     args,
-                    null,
-                    null,
-                    null,
+                    kw_values,
+                    kw_metadata,
+                    caller_chunk,
                     resolved.name.name,
                     resolved.owner_class,
                     block,
@@ -4537,13 +4686,24 @@ pub const VM = struct {
                 return self.pop();
             },
             .builtin => |fun_ptr| {
-                return try fun_ptr(self, receiver, args, block);
+                return self.invokeBuiltinMethod(fun_ptr, receiver, args, block, keyword_ctx);
             },
             .proc => |proc_obj| {
+                if (keyword_ctx) |ctx| {
+                    if (ctx.kw_values.len > 0) {
+                        const exc = try self.createException(self.argument_error_class, "this method does not accept keyword arguments");
+                        self.pending_exception = exc;
+                        return error.Unwind;
+                    }
+                }
                 return self.callProcAsMethod(proc_obj, receiver, args, block, resolved.name.name, resolved.owner_class);
             },
             .undefined => unreachable,
         }
+    }
+
+    fn invokeResolvedMethod(self: *VM, resolved: ResolvedMethod, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+        return self.invokeResolvedMethodWithKeywords(resolved, receiver, args, block, null);
     }
 
     fn invokeMethodMissing(
@@ -4579,16 +4739,36 @@ pub const VM = struct {
         return self.invokeResolvedMethod(resolved.?, receiver, missing_args[0..missing_argc], block);
     }
 
-    /// Call a method by name string (not from bytecode constant pool)
-    pub fn callMethodByName(self: *VM, receiver: Value, method_name: []const u8, args: []Value, block: ?Block) VMError!Value {
+    fn callMethodByNameInternal(
+        self: *VM,
+        receiver: Value,
+        method_name: []const u8,
+        args: []Value,
+        block: ?Block,
+        keyword_ctx: ?*BuiltinKeywordContext,
+    ) VMError!Value {
         const method_name_sym = try self.intern(method_name);
         const resolved = try self.findMethod(receiver, method_name_sym);
 
         if (resolved == null) {
-            return self.invokeMethodMissing(receiver, method_name_sym, args, null, block);
+            const kw_hash = if (keyword_ctx) |ctx|
+                if (ctx.kw_values.len > 0) try self.materializeKeywordHashForContext(ctx) else null
+            else
+                null;
+            return self.invokeMethodMissing(receiver, method_name_sym, args, kw_hash, block);
         }
 
-        return self.invokeResolvedMethod(resolved.?, receiver, args, block);
+        return self.invokeResolvedMethodWithKeywords(resolved.?, receiver, args, block, keyword_ctx);
+    }
+
+    /// Call a method by name string (not from bytecode constant pool)
+    pub fn callMethodByName(self: *VM, receiver: Value, method_name: []const u8, args: []Value, block: ?Block) VMError!Value {
+        return self.callMethodByNameInternal(receiver, method_name, args, block, null);
+    }
+
+    /// Call a method by name while forwarding the current builtin keyword context.
+    pub fn callMethodByNameForwardingKeywords(self: *VM, receiver: Value, method_name: []const u8, args: []Value, block: ?Block) VMError!Value {
+        return self.callMethodByNameInternal(receiver, method_name, args, block, self.builtin_keyword_ctx);
     }
 
     /// Result from yielding to a block
@@ -4770,7 +4950,7 @@ pub const VM = struct {
         const resolved = try self.resolveMethodForCallSite(frame, callsite_byte_offset, receiver, method_name_sym);
         const should_fallback = resolved == null or !self.isMethodCallable(receiver, resolved.?, call_style);
         if (should_fallback) {
-            const kw_hash = if (kwargc > 0) try self.createHashFromKeywords(kw_values.?[0..kwargc], kw_metadata.?) else null;
+            const kw_hash = if (kwargc > 0) try self.createHashFromKeywords(frame.chunk, kw_values.?[0..kwargc], kw_metadata.?) else null;
             const result = try self.invokeMethodMissing(receiver, method_name_sym, args[0..argc], kw_hash, block);
             try self.push(result);
             return;
@@ -4829,22 +5009,17 @@ pub const VM = struct {
                     }
                 }
 
-                var final_args: []Value = undefined;
-                if (kwargc > 0) {
-                    // For builtin methods with keywords, convert keywords to hash
-                    const kw_hash = try self.createHashFromKeywords(kw_values.?[0..kwargc], kw_metadata.?);
-                    args[argc] = kw_hash;
-                    final_args = args[0..(argc + 1)];
-                } else {
-                    final_args = args[0..argc];
-                }
+                var keyword_ctx: BuiltinKeywordContext = undefined;
+                const maybe_keyword_ctx: ?*BuiltinKeywordContext = if (kwargc > 0) blk: {
+                    keyword_ctx = .{
+                        .caller_chunk = frame.chunk,
+                        .kw_values = kw_values.?[0..kwargc],
+                        .kw_metadata = kw_metadata.?,
+                    };
+                    break :blk &keyword_ctx;
+                } else null;
 
-                const result = fun_ptr(self, receiver, final_args, block) catch |err| {
-                    if (self.pending_exception != null) {
-                        return error.Unwind;
-                    }
-                    return err;
-                };
+                const result = try self.invokeBuiltinMethod(fun_ptr, receiver, args[0..argc], block, maybe_keyword_ctx);
                 try self.push(result);
             },
             .proc => |proc_obj| {
@@ -5032,12 +5207,7 @@ pub const VM = struct {
                 // For builtin methods, we need a mutable copy
                 var args_copy: [256]Value = undefined;
                 @memcpy(args_copy[0..args.len], args);
-                const result = fun_ptr(self, receiver, args_copy[0..args.len], block) catch |err| {
-                    if (self.pending_exception != null) {
-                        return error.Unwind;
-                    }
-                    return err;
-                };
+                const result = try self.invokeBuiltinMethod(fun_ptr, receiver, args_copy[0..args.len], block, null);
                 try self.push(result);
             },
             .proc => |proc_obj| {
@@ -5422,7 +5592,7 @@ pub const VM = struct {
         }
 
         return switch (class_obj.object_type) {
-            .string => self.newStringForClass(class_obj, "", false),
+            .string => self.newStringForClassWithEncoding(class_obj, "", false, .{ .ascii_8bit = .{} }),
             .array => blk: {
                 const array_obj = try self.createArray();
                 break :blk Value.fromObject(array_obj);
@@ -6399,10 +6569,10 @@ pub const VM = struct {
 
     fn createHashFromKeywords(
         self: *VM,
-        kw_values: []Value,
+        caller_chunk: *const Chunk,
+        kw_values: []const Value,
         kw_metadata: chunk.KeywordMetadata,
     ) VMError!Value {
-        const current_chunk = self.currentChunk();
         const kw_hash = self.gc_allocator.create(value.HashObject) catch return error.Fatal;
         kw_hash.* = .{
             .object = .{ .type_tag = .hash, .flags = 0, .class = self.hash_class, .singleton_class = null, .instance_variables = null },
@@ -6411,7 +6581,15 @@ pub const VM = struct {
         };
 
         for (kw_values, 0..) |kw_value, i| {
-            const key_name = current_chunk.constants.items[kw_metadata.names.items[i]].string;
+            const name_idx = kw_metadata.names.items[i];
+            if (name_idx >= caller_chunk.constants.items.len) {
+                return error.Fatal;
+            }
+            const key_name = switch (caller_chunk.constants.items[name_idx]) {
+                .string => |s| s,
+                .symbol => |sym| sym.name,
+                else => return error.Fatal,
+            };
             const key_symbol = try self.intern(key_name);
             const key = Value.fromObject(key_symbol);
             const key_hash = key.hash();

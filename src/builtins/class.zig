@@ -67,7 +67,7 @@ pub fn builtinClassNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
     const instance = try vm.newObjectForClass(class_ptr);
     const init_sym = try vm.intern("initialize");
     if (try vm.findMethod(instance, init_sym)) |_| {
-        _ = try vm.callMethodByName(instance, "initialize", args, block);
+        _ = try vm.callMethodByNameForwardingKeywords(instance, "initialize", args, block);
     } else if (args.len != 0) {
         try vm.requireArgCount(args, 0);
     }
