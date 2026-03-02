@@ -257,3 +257,26 @@ test "String#unpack string directives" {
     try std.testing.expect(result.isString());
     try std.testing.expectEqualSlices(u8, "[\"abc\"]", result.toStringObject().str);
 }
+
+test "String.new accepts encoding and capacity keywords" {
+    var result = try evalCode("String.new.encoding.name");
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "ASCII-8BIT", result.toStringObject().str);
+
+    result = try evalCode("String.new(\"abc\", encoding: \"US-ASCII\", capacity: 100_000).encoding.name");
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "US-ASCII", result.toStringObject().str);
+}
+
+test "Builtin methods reject keywords unless consumed" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+
+    const result = evalCodeWithOutput(
+        "String.new('', encoding: 'UTF-8', nope: 1)",
+        &stdout_buf,
+        &stderr_buf,
+    );
+    try std.testing.expectEqual(error.UnhandledException, result.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "unknown keyword: nope") != null);
+}

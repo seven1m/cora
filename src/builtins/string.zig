@@ -202,7 +202,36 @@ pub fn builtinStringInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
     try vm.requireArgCountRange(args, 0, 1);
     const string_obj = receiver.toStringObject();
 
-    if (args.len == 0) {
+    var keyword_encoding: ?Value = null;
+    var keyword_capacity: ?Value = null;
+    try vm.consumeKeywordArgs(
+        .{ "encoding", "capacity" },
+        .{ &keyword_encoding, &keyword_capacity },
+    );
+    try vm.validateKeywordArgsConsumed();
+
+    if (keyword_capacity) |capacity| {
+        _ = try capacity.coerceToI64ViaToInt(
+            vm,
+            "no implicit conversion of Object into Integer",
+            "can't convert Object to Integer (Object#to_int gives Object)",
+            "bignum too big to convert into `long`",
+        );
+    }
+
+    var requested_encoding: ?enc.Encoding = null;
+    if (keyword_encoding) |encoding_value| {
+        if (encoding_value.isEncoding()) {
+            requested_encoding = encoding_value.toEncodingObject().encoding;
+        } else {
+            var lookup_args = [_]Value{encoding_value};
+            const found = try encoding_builtin.builtinEncodingFind(vm, receiver, lookup_args[0..], null);
+            requested_encoding = found.toEncodingObject().encoding;
+        }
+    }
+
+    const has_keyword_options = keyword_encoding != null or keyword_capacity != null;
+    if (args.len == 0 and !has_keyword_options) {
         return receiver;
     }
 
@@ -210,13 +239,20 @@ pub fn builtinStringInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
         return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
     }
 
-    const new_bytes: []const u8 = if (args[0].isString()) blk: {
-        const s = args[0].toStringObject();
-        string_obj.encoding = s.encoding;
-        break :blk s.str;
-    } else try args[0].coerceToStr(vm, "no implicit conversion into String");
+    if (args.len == 0) {
+        if (requested_encoding) |encoding| {
+            string_obj.encoding = encoding;
+        }
+        string_obj.validity = .unknown;
+        return receiver;
+    }
 
-    string_obj.str = vm.gc_allocator_atomic.dupe(u8, new_bytes) catch return error.Fatal;
+    const replacement_val = try args[0].coerceToStringValue(vm, "no implicit conversion into String");
+    const replacement = replacement_val.toStringObject();
+    const final_encoding = requested_encoding orelse replacement.encoding;
+
+    string_obj.str = vm.gc_allocator_atomic.dupe(u8, replacement.str) catch return error.Fatal;
+    string_obj.encoding = final_encoding;
     string_obj.validity = .unknown;
     return receiver;
 }
