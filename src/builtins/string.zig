@@ -78,6 +78,9 @@ pub fn register(vm: *VM) !void {
     const string_dup_sym = try vm.intern("dup");
     try vm.string_class.module.methods.put(string_dup_sym, .{ .method = .{ .builtin = &builtinStringDup } });
 
+    const string_clone_sym = try vm.intern("clone");
+    try vm.string_class.module.methods.put(string_clone_sym, .{ .method = .{ .builtin = &builtinStringClone } });
+
     const string_bytesize_sym = try vm.intern("bytesize");
     try vm.string_class.module.methods.put(string_bytesize_sym, .{ .method = .{ .builtin = &builtinStringBytesize } });
 
@@ -544,6 +547,18 @@ pub fn builtinStringDup(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
         _ = try vm.callMethodByName(duplicate, "initialize_copy", initialize_copy_args[0..], null);
     }
 
+    return duplicate;
+}
+
+pub fn builtinStringClone(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const duplicate = try builtinStringDup(vm, receiver, args, null);
+
+    if (receiver.isFrozen()) {
+        var mutable_duplicate = duplicate;
+        mutable_duplicate.freeze();
+    }
+
+    try vm.copySingletonClassMetadata(receiver, duplicate);
     return duplicate;
 }
 
