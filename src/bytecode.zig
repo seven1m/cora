@@ -6,6 +6,7 @@ pub const OpCode = enum(u8) {
     PUSH_TRUE, // No operands
     PUSH_FALSE, // No operands
     PUSH_CONST, // Operand: u16 (constant pool index)
+    PUSH_FSTRING, // Operand: u16 (constant pool index)
     PUSH_SYMBOL, // Operand: u16 (constant pool index containing symbol name string)
     PUSH_I8, // Operand: i8 (inline small integer)
 
@@ -157,7 +158,7 @@ pub fn opcodeOperandSize(op: OpCode) usize {
         .GET_CVAR, .GET_CVAR_OR_NIL, .SET_CVAR,
         .GET_CONST, .GET_CONST_OR_NIL, .SET_CONST,
         .GET_IVAR, .SET_IVAR,
-        .PUSH_CONST, .PUSH_SYMBOL,
+        .PUSH_CONST, .PUSH_FSTRING, .PUSH_SYMBOL,
         .JUMP, .JUMP_IF_FALSE, .JUMP_IF_TRUE,
         .TRY_BEGIN, .PUSH_LAMBDA, .GET_CONST_PATH,
         .PUSH_ARRAY, .PUSH_HASH,
@@ -198,6 +199,7 @@ pub fn opcodeName(op: OpCode) []const u8 {
         .PUSH_TRUE => "PUSH_TRUE",
         .PUSH_FALSE => "PUSH_FALSE",
         .PUSH_CONST => "PUSH_CONST",
+        .PUSH_FSTRING => "PUSH_FSTRING",
         .PUSH_SYMBOL => "PUSH_SYMBOL",
         .PUSH_I8 => "PUSH_I8",
         .GET_LOCAL => "GET_LOCAL",

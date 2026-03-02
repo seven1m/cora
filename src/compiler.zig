@@ -343,6 +343,10 @@ pub const Compiler = struct {
             },
 
             .call => |call_node| {
+                if (try self.tryCompileFrozenLiteralCall(call_node, line)) {
+                    return;
+                }
+
                 // Compile receiver if it exists
                 if (call_node.receiver != null) {
                     const receiver = try self.parser.asNode(@ptrCast(call_node.receiver.?));
@@ -804,6 +808,27 @@ pub const Compiler = struct {
         }
     }
 
+    fn tryCompileFrozenLiteralCall(self: *Compiler, call_node: *prism.CallNode, line: u32) !bool {
+        if (call_node.receiver == null) return false;
+        if (call_node.block != null) return false;
+        if (call_node.arguments != null) {
+            const args = @as(*prism.ArgumentsNode, @ptrCast(call_node.arguments.?));
+            if (args.arguments.size != 0) return false;
+        }
+
+        const method_name = try self.parser.getConstantName(call_node.name);
+        if (!std.mem.eql(u8, method_name, "freeze")) return false;
+
+        const receiver_node = try self.parser.asNode(@ptrCast(call_node.receiver.?));
+        if (receiver_node != .string) return false;
+
+        const string_node = receiver_node.string;
+        const str_val = string_node.unescaped;
+        const str_slice = str_val.source[0..str_val.length];
+        const idx = try self.current_chunk.addConstant(.{ .string = str_slice });
+        try self.current_chunk.emitOpU16(.PUSH_FSTRING, @intCast(idx), line);
+        return true;
+    }
 
     fn compileDefinedNode(self: *Compiler, defined_node: *prism.DefinedNode, line: u32) !void {
         if (defined_node.value == null) {

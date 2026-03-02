@@ -172,6 +172,7 @@ pub const VM = struct {
 
     symbols: std.HashMap(SymbolKey, *SymbolObject, SymbolKeyContext, std.hash_map.default_max_load_percentage),
     globals: std.StringHashMap(Value),
+    fstring_cache: std.StringHashMap(Value),
 
     program: *compiler.CompiledProgram,
 
@@ -304,6 +305,7 @@ pub const VM = struct {
             .env_stack = undefined,
             .symbols = std.HashMap(SymbolKey, *SymbolObject, SymbolKeyContext, std.hash_map.default_max_load_percentage).init(gc_allocator),
             .globals = std.StringHashMap(Value).init(gc_allocator),
+            .fstring_cache = std.StringHashMap(Value).init(allocator),
             .loaded_files = std.StringHashMap(void).init(gc_allocator),
             .program = undefined,
             .basic_object_class = undefined,
@@ -1159,6 +1161,11 @@ pub const VM = struct {
             self.allocator.free(key.*);
         }
         self.globals.deinit();
+        var fstring_key_iter = self.fstring_cache.keyIterator();
+        while (fstring_key_iter.next()) |key| {
+            self.allocator.free(key.*);
+        }
+        self.fstring_cache.deinit();
         self.at_exit_handlers.deinit(self.gc_allocator);
         for (self.io_objects.items) |io_obj| {
             if (io_obj.owns_fd and !io_obj.closed and io_obj.fd >= 0) {
@@ -2540,6 +2547,15 @@ pub const VM = struct {
                     .symbol => |s| Value.fromObject(s),
                 };
                 try self.push(val);
+            },
+
+            .PUSH_FSTRING => {
+                const idx = readU16From(frame, operands, &operand_cursor);
+                const constant = constants[idx];
+                switch (constant) {
+                    .string => |s| try self.push(try self.getOrCreateFrozenStringLiteral(s)),
+                    else => return error.Fatal,
+                }
             },
 
             .PUSH_I8 => {
@@ -5661,6 +5677,17 @@ pub const VM = struct {
         const status_obj = try self.newInstance(self.process_status_class);
         try self.setInstanceVariable(status_obj, "@exitstatus", Value.integer(exitstatus));
         try self.setGlobal("$?", status_obj);
+    }
+
+    fn getOrCreateFrozenStringLiteral(self: *VM, str: []const u8) VMError!Value {
+        if (self.fstring_cache.get(str)) |cached| {
+            return cached;
+        }
+
+        const frozen = try self.newString(str, true);
+        const key = self.allocator.dupe(u8, str) catch return error.Fatal;
+        self.fstring_cache.put(key, frozen) catch return error.Fatal;
+        return frozen;
     }
 
     pub fn newString(self: *VM, str: []const u8, frozen: bool) VMError!Value {

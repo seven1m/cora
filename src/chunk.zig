@@ -498,10 +498,10 @@ pub const Chunk = struct {
                 try writer.print("RETURN {s}\n", .{if (is_explicit == 1) "explicit" else "implicit"});
             },
 
-            .PUSH_CONST, .PUSH_SYMBOL, .GET_CONST, .GET_CONST_OR_NIL, .SET_CONST, .GET_CONST_PATH, .GET_GLOBAL, .GET_BACKREF, .SET_GLOBAL, .GET_CVAR, .GET_CVAR_OR_NIL, .SET_CVAR, .GET_IVAR, .SET_IVAR, .PUSH_ARRAY, .PUSH_HASH, .TRY_BEGIN, .PUSH_LAMBDA, .DEF_SINGLETON_CLASS, .FORWARDING_SUPER => {
+            .PUSH_CONST, .PUSH_FSTRING, .PUSH_SYMBOL, .GET_CONST, .GET_CONST_OR_NIL, .SET_CONST, .GET_CONST_PATH, .GET_GLOBAL, .GET_BACKREF, .SET_GLOBAL, .GET_CVAR, .GET_CVAR_OR_NIL, .SET_CVAR, .GET_IVAR, .SET_IVAR, .PUSH_ARRAY, .PUSH_HASH, .TRY_BEGIN, .PUSH_LAMBDA, .DEF_SINGLETON_CLASS, .FORWARDING_SUPER => {
                 const idx = readU16(self.code.items, &ip);
                 try writer.print("{s} {d}", .{ bytecode.opcodeName(op), idx });
-                if ((op == .PUSH_CONST or op == .PUSH_SYMBOL or op == .GET_CONST or op == .GET_CONST_OR_NIL or op == .SET_CONST or op == .GET_CONST_PATH or op == .GET_GLOBAL or op == .SET_GLOBAL or op == .GET_CVAR or op == .GET_CVAR_OR_NIL or op == .SET_CVAR or op == .GET_IVAR or op == .SET_IVAR) and idx < self.constants.items.len) {
+                if ((op == .PUSH_CONST or op == .PUSH_FSTRING or op == .PUSH_SYMBOL or op == .GET_CONST or op == .GET_CONST_OR_NIL or op == .SET_CONST or op == .GET_CONST_PATH or op == .GET_GLOBAL or op == .SET_GLOBAL or op == .GET_CVAR or op == .GET_CVAR_OR_NIL or op == .SET_CVAR or op == .GET_IVAR or op == .SET_IVAR) and idx < self.constants.items.len) {
                     const constant = self.constants.items[idx];
                     switch (constant) {
                         .integer => |i| try writer.print(" ({d})", .{i}),
