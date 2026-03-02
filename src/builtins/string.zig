@@ -1367,8 +1367,30 @@ pub fn builtinStringScan(vm: *VM, receiver: Value, args: []Value, block: ?Block)
 
 pub fn builtinStringUnpack(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
+    var keyword_offset: ?Value = null;
+    try vm.consumeKeywordArgs(.{"offset"}, .{&keyword_offset});
+    try vm.validateKeywordArgsConsumed();
+
+    var offset: usize = 0;
+    if (keyword_offset) |offset_value| {
+        const offset_i64 = try offset_value.coerceToI64ViaToInt(
+            vm,
+            "no implicit conversion into Integer",
+            "no implicit conversion into Integer",
+            "bignum too big to convert into `long`",
+        );
+        if (offset_i64 < 0) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "offset can't be negative", .{});
+        }
+
+        offset = @intCast(offset_i64);
+        if (offset > receiver.toStringObject().str.len) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "offset outside of string", .{});
+        }
+    }
+
     const format = try args[0].coerceToStr(vm, "no implicit conversion into String");
-    return pack_runtime.stringUnpack(vm, receiver.toStringObject().str, format);
+    return pack_runtime.stringUnpack(vm, receiver.toStringObject().str[offset..], format);
 }
 
 fn charSliceByRange(
