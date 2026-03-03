@@ -4,11 +4,9 @@
 describe :string_encode, shared: true do
   describe "when passed no options" do
     it "transcodes to Encoding.default_internal when set" do
-      CORAFIXME "String shared encode default_internal transcode", exception: StandardError do
-        Encoding.default_internal = Encoding::UTF_8
-        str = [0xA4, 0xA2].pack('CC').force_encoding Encoding::EUC_JP
-        str.send(@method).should == "あ"
-      end
+      Encoding.default_internal = Encoding::UTF_8
+      str = [0xA4, 0xA2].pack('CC').force_encoding Encoding::EUC_JP
+      str.send(@method).should == "あ"
     end
 
     it "transcodes a 7-bit String despite no generic converting being available" do
@@ -31,27 +29,21 @@ describe :string_encode, shared: true do
 
   describe "when passed to encoding" do
     it "accepts a String argument" do
-      CORAFIXME "String shared encode to-encoding string argument", exception: StandardError do
-        str = [0xA4, 0xA2].pack('CC').force_encoding Encoding::EUC_JP
-        str.send(@method, "utf-8").should == "あ"
-      end
+      str = [0xA4, 0xA2].pack('CC').force_encoding Encoding::EUC_JP
+      str.send(@method, "utf-8").should == "あ"
     end
 
     it "calls #to_str to convert the object to an Encoding" do
-      CORAFIXME "String shared encode to-encoding to_str", exception: StandardError do
-        enc = mock("string encode encoding")
-        enc.should_receive(:to_str).and_return("utf-8")
+      enc = mock("string encode encoding")
+      enc.should_receive(:to_str).and_return("utf-8")
 
-        str = [0xA4, 0xA2].pack('CC').force_encoding Encoding::EUC_JP
-        str.send(@method, enc).should == "あ"
-      end
+      str = [0xA4, 0xA2].pack('CC').force_encoding Encoding::EUC_JP
+      str.send(@method, enc).should == "あ"
     end
 
     it "transcodes to the passed encoding" do
-      CORAFIXME "String shared encode to-encoding transcode", exception: StandardError do
-        str = [0xA4, 0xA2].pack('CC').force_encoding Encoding::EUC_JP
-        str.send(@method, Encoding::UTF_8).should == "あ"
-      end
+      str = [0xA4, 0xA2].pack('CC').force_encoding Encoding::EUC_JP
+      str.send(@method, Encoding::UTF_8).should == "あ"
     end
 
     it "transcodes Japanese multibyte characters" do
@@ -100,11 +92,9 @@ describe :string_encode, shared: true do
     end
 
     it "transcodes to Encoding.default_internal when set" do
-      CORAFIXME "String shared encode options default_internal transcode", exception: StandardError do
-        Encoding.default_internal = Encoding::UTF_8
-        str = [0xA4, 0xA2].pack('CC').force_encoding Encoding::EUC_JP
-        str.send(@method, invalid: :replace).should == "あ"
-      end
+      Encoding.default_internal = Encoding::UTF_8
+      str = [0xA4, 0xA2].pack('CC').force_encoding Encoding::EUC_JP
+      str.send(@method, invalid: :replace).should == "あ"
     end
 
     it "raises an Encoding::ConverterNotFoundError when no conversion is possible despite 'invalid: :replace, undef: :replace'" do
@@ -148,12 +138,10 @@ describe :string_encode, shared: true do
 
   describe "when passed to, options" do
     it "replaces undefined characters in the destination encoding" do
-      CORAFIXME "String shared encode to-options undef replace", exception: StandardError do
-        result = "あ?あ".send(@method, Encoding::EUC_JP, undef: :replace)
-        # testing for: "\xA4\xA2?\xA4\xA2"
-        xA4xA2 = [0xA4, 0xA2].pack('CC')
-        result.should == "#{xA4xA2}?#{xA4xA2}".force_encoding("euc-jp")
-      end
+      result = "あ?あ".send(@method, Encoding::EUC_JP, undef: :replace)
+      # testing for: "\xA4\xA2?\xA4\xA2"
+      xA4xA2 = [0xA4, 0xA2].pack('CC')
+      result.should == "#{xA4xA2}?#{xA4xA2}".force_encoding("euc-jp")
     end
 
     it "replaces invalid characters in the destination encoding" do
@@ -162,25 +150,21 @@ describe :string_encode, shared: true do
     end
 
     it "calls #to_hash to convert the options object" do
-      CORAFIXME "String shared encode to-options options to_hash", exception: StandardError do
-        options = mock("string encode options")
-        options.should_receive(:to_hash).and_return({ undef: :replace })
+      options = mock("string encode options")
+      options.should_receive(:to_hash).and_return({ undef: :replace })
 
-        result = "あ?あ".send(@method, Encoding::EUC_JP, **options)
-        xA4xA2 = [0xA4, 0xA2].pack('CC').force_encoding('utf-8')
-        result.should == "#{xA4xA2}?#{xA4xA2}".force_encoding("euc-jp")
-      end
+      result = "あ?あ".send(@method, Encoding::EUC_JP, **options)
+      xA4xA2 = [0xA4, 0xA2].pack('CC').force_encoding('utf-8')
+      result.should == "#{xA4xA2}?#{xA4xA2}".force_encoding("euc-jp")
     end
   end
 
   describe "when passed to, from, options" do
     it "replaces undefined characters in the destination encoding" do
-      CORAFIXME "String shared encode to-from-options undef replace", exception: StandardError do
-        str = "あ?あ".force_encoding Encoding::BINARY
-        result = str.send(@method, "euc-jp", "utf-8", undef: :replace)
-        xA4xA2 = [0xA4, 0xA2].pack('CC').force_encoding('utf-8')
-        result.should == "#{xA4xA2}?#{xA4xA2}".force_encoding("euc-jp")
-      end
+      str = "あ?あ".force_encoding Encoding::BINARY
+      result = str.send(@method, "euc-jp", "utf-8", undef: :replace)
+      xA4xA2 = [0xA4, 0xA2].pack('CC').force_encoding('utf-8')
+      result.should == "#{xA4xA2}?#{xA4xA2}".force_encoding("euc-jp")
     end
 
     it "replaces invalid characters in the destination encoding" do

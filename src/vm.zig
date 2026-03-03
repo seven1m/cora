@@ -257,6 +257,7 @@ pub const VM = struct {
     encoding_ascii_8bit: *value.EncodingObject,
     encoding_us_ascii: *value.EncodingObject,
     encoding_shift_jis: *value.EncodingObject,
+    encoding_euc_jp: *value.EncodingObject,
     encoding_iso_8859_9: *value.EncodingObject,
     encoding_iso_8859_15: *value.EncodingObject,
     encoding_utf7: *value.EncodingObject,
@@ -381,6 +382,7 @@ pub const VM = struct {
             .encoding_ascii_8bit = undefined,
             .encoding_us_ascii = undefined,
             .encoding_shift_jis = undefined,
+            .encoding_euc_jp = undefined,
             .encoding_iso_8859_9 = undefined,
             .encoding_iso_8859_15 = undefined,
             .encoding_utf7 = undefined,
@@ -647,6 +649,7 @@ pub const VM = struct {
         self.encoding_ascii_8bit = try self.createEncodingObject(.{ .ascii_8bit = .{} });
         self.encoding_us_ascii = try self.createEncodingObject(.{ .us_ascii = .{} });
         self.encoding_shift_jis = try self.createEncodingObject(.{ .shift_jis = .{} });
+        self.encoding_euc_jp = try self.createEncodingObject(.{ .euc_jp = .{} });
         self.encoding_iso_8859_9 = try self.createEncodingObject(.{ .iso_8859_9 = .{} });
         self.encoding_iso_8859_15 = try self.createEncodingObject(.{ .iso_8859_15 = .{} });
         self.encoding_utf7 = try self.createEncodingObject(.{ .utf7 = .{} });
@@ -769,6 +772,7 @@ pub const VM = struct {
         const ascii_8bit_val = Value.fromObject(self.encoding_ascii_8bit);
         const us_ascii_val = Value.fromObject(self.encoding_us_ascii);
         const shift_jis_val = Value.fromObject(self.encoding_shift_jis);
+        const euc_jp_val = Value.fromObject(self.encoding_euc_jp);
         const iso_8859_9_val = Value.fromObject(self.encoding_iso_8859_9);
         const iso_8859_15_val = Value.fromObject(self.encoding_iso_8859_15);
         const utf7_val = Value.fromObject(self.encoding_utf7);
@@ -788,7 +792,7 @@ pub const VM = struct {
         self.encoding_class.module.constants.put(shift_jis_const_sym, shift_jis_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(shift_jis_mixed_const_sym, shift_jis_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(sjis_const_sym, shift_jis_val) catch return error.Fatal;
-        self.encoding_class.module.constants.put(euc_jp_const_sym, shift_jis_val) catch return error.Fatal;
+        self.encoding_class.module.constants.put(euc_jp_const_sym, euc_jp_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(iso_8859_1_const_sym, iso_8859_15_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(iso_8859_9_const_sym, iso_8859_9_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(iso8859_9_const_sym, iso_8859_9_val) catch return error.Fatal;
@@ -5953,6 +5957,7 @@ pub const VM = struct {
             .ascii_8bit => Value.fromObject(self.encoding_ascii_8bit),
             .us_ascii => Value.fromObject(self.encoding_us_ascii),
             .shift_jis => Value.fromObject(self.encoding_shift_jis),
+            .euc_jp => Value.fromObject(self.encoding_euc_jp),
             .iso_8859_9 => Value.fromObject(self.encoding_iso_8859_9),
             .iso_8859_15 => Value.fromObject(self.encoding_iso_8859_15),
             .utf7 => Value.fromObject(self.encoding_utf7),
