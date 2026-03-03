@@ -133,9 +133,8 @@ pub const FiberCoro = zio.coro.Coroutine;
 pub const FiberCoroContext = zio.coro.Context;
 
 const BuiltinKeywordContext = struct {
-    caller_chunk: *const Chunk,
+    kw_keys: []const Value,
     kw_values: []const Value,
-    kw_metadata: chunk.KeywordMetadata,
     consumed: [MAX_BUILTIN_KEYWORDS]bool = [_]bool{false} ** MAX_BUILTIN_KEYWORDS,
     cached_hash: ?Value = null,
     hash_materialized: bool = false,
@@ -3135,7 +3134,6 @@ pub const VM = struct {
                                                 self.stack.items[(receiver_index + 1)..(receiver_index + 1 + argc)],
                                                 null,
                                                 null,
-                                                null,
                                                 cached.method_name.name,
                                                 cached.owner_class,
                                                 block,
@@ -3161,7 +3159,6 @@ pub const VM = struct {
                                             self.stack.items[(receiver_index + 1)..(receiver_index + 1 + argc)],
                                             null,
                                             null,
-                                            null,
                                             method.name.name,
                                             method.owner_class,
                                             block,
@@ -3186,7 +3183,7 @@ pub const VM = struct {
                     positional_argc = argc;
                 }
 
-                try self.callMethodHelperForExecuteInstruction(frame, callsite_byte_offset, method_name_sym, call_style, receiver, &args, positional_argc, null, 0, null, block);
+                try self.callMethodHelperForExecuteInstruction(frame, callsite_byte_offset, method_name_sym, call_style, receiver, &args, positional_argc, null, null, 0, block);
             },
 
             .CALL_KW => {
@@ -3202,6 +3199,7 @@ pub const VM = struct {
                 const kwargc = call_desc.kwargc;
                 const call_style: ReceiverCallStyle = bytecode.decodeReceiverCallStyle(call_desc.call_flags);
                 const args_array_mode = bytecode.argsArrayMode(call_desc.call_flags);
+                const kw_hash_mode = bytecode.kwHashMode(call_desc.call_flags);
                 const kw_metadata_idx = call_desc.kw_metadata_idx;
                 const block_chunk_id = call_desc.block_chunk_id;
                 const method_name_sym = call_desc.method_sym orelse try self.resolveCallMethodSymbolFromDescriptor(frame.chunk, call_desc);
@@ -3212,18 +3210,38 @@ pub const VM = struct {
                     try self.resolveBlock(block_chunk_id, frame);
 
                 // Pop keyword values
+                var kw_keys: [256]Value = undefined;
                 var kw_values: [256]Value = undefined;
                 var i: usize = 0;
+                var effective_kwargc: usize = 0;
 
                 var args: [256]Value = undefined;
                 var positional_argc: usize = 0;
                 var receiver: Value = undefined;
-                const kw_metadata = frame.chunk.keyword_metadata.items[kw_metadata_idx];
                 if (args_array_mode) {
-                    i = kwargc;
-                    while (i > 0) {
-                        i -= 1;
-                        kw_values[i] = self.pop();
+                    if (kw_hash_mode) {
+                        const kw_hash = self.pop();
+                        effective_kwargc = try self.extractKeywordPairsFromHash(kw_hash, &kw_keys, &kw_values);
+                    } else {
+                        i = kwargc;
+                        while (i > 0) {
+                            i -= 1;
+                            kw_values[i] = self.pop();
+                        }
+                        if (kwargc > 0) {
+                            const kw_metadata = frame.chunk.keyword_metadata.items[kw_metadata_idx];
+                            for (0..kwargc) |idx| {
+                                const name_idx = kw_metadata.names.items[idx];
+                                const key_name = switch (frame.chunk.constants.items[name_idx]) {
+                                    .string => |s| s,
+                                    .symbol => |sym| sym.name,
+                                    else => return error.Fatal,
+                                };
+                                const key_sym = try self.intern(key_name);
+                                kw_keys[idx] = Value.fromObject(key_sym);
+                            }
+                        }
+                        effective_kwargc = kwargc;
                     }
                     const positional = self.pop();
                     if (!positional.isArray()) {
@@ -3243,38 +3261,12 @@ pub const VM = struct {
                     positional_argc = elems.len;
                     receiver = self.pop();
                 } else {
-                    if (self.stack.items.len < argc + kwargc + 1) {
+                    const stack_kw_items: usize = if (kw_hash_mode) 1 else kwargc;
+                    if (self.stack.items.len < argc + stack_kw_items + 1) {
                         return error.Fatal;
                     }
-                    const receiver_index = self.stack.items.len - (argc + kwargc + 1);
+                    const receiver_index = self.stack.items.len - (argc + stack_kw_items + 1);
                     receiver = self.stack.items[receiver_index];
-
-                    if (call_style == .implicit_self) {
-                        const resolved = try self.resolveMethodForCallSite(frame, callsite_byte_offset, receiver, method_name_sym);
-                        if (resolved) |method| {
-                            if (self.isMethodCallable(receiver, method, call_style)) {
-                                switch (method.entry.method) {
-                                    .chunk => |method_chunk| {
-                                        try self.setupChunkCallFrame(
-                                            method_chunk,
-                                            receiver,
-                                            self.stack.items[(receiver_index + 1)..(receiver_index + 1 + argc)],
-                                            self.stack.items[(receiver_index + 1 + argc)..(receiver_index + 1 + argc + kwargc)],
-                                            kw_metadata,
-                                            frame.chunk,
-                                            method.name.name,
-                                            method.owner_class,
-                                            block,
-                                        );
-                                        self.stack.shrinkRetainingCapacity(receiver_index);
-                                        self.currentFrame().stack_base = receiver_index;
-                                        return;
-                                    },
-                                    else => {},
-                                }
-                            }
-                        }
-                    }
 
                     if (argc > 0) {
                         @memcpy(
@@ -3282,18 +3274,33 @@ pub const VM = struct {
                             self.stack.items[(receiver_index + 1)..(receiver_index + 1 + argc)],
                         );
                     }
-                    if (kwargc > 0) {
+                    if (kw_hash_mode) {
+                        const kw_hash = self.stack.items[receiver_index + 1 + argc];
+                        effective_kwargc = try self.extractKeywordPairsFromHash(kw_hash, &kw_keys, &kw_values);
+                    } else if (kwargc > 0) {
                         @memcpy(
                             kw_values[0..kwargc],
                             self.stack.items[(receiver_index + 1 + argc)..(receiver_index + 1 + argc + kwargc)],
                         );
+                        const kw_metadata = frame.chunk.keyword_metadata.items[kw_metadata_idx];
+                        for (0..kwargc) |idx| {
+                            const name_idx = kw_metadata.names.items[idx];
+                            const key_name = switch (frame.chunk.constants.items[name_idx]) {
+                                .string => |s| s,
+                                .symbol => |sym| sym.name,
+                                else => return error.Fatal,
+                            };
+                            const key_sym = try self.intern(key_name);
+                            kw_keys[idx] = Value.fromObject(key_sym);
+                        }
+                        effective_kwargc = kwargc;
                     }
                     self.stack.shrinkRetainingCapacity(receiver_index);
                     positional_argc = argc;
                 }
 
                 // Call method with keywords
-                try self.callMethodHelperForExecuteInstruction(frame, callsite_byte_offset, method_name_sym, call_style, receiver, &args, positional_argc, &kw_values, kwargc, kw_metadata, block);
+                try self.callMethodHelperForExecuteInstruction(frame, callsite_byte_offset, method_name_sym, call_style, receiver, &args, positional_argc, &kw_keys, &kw_values, effective_kwargc, block);
             },
 
             .RETURN => {
@@ -3638,6 +3645,41 @@ pub const VM = struct {
                 self.stack.items.len = start;
 
                 try self.push(Value.fromObject(hash_obj));
+            },
+
+            .HASH_SET_CONST_KEY => {
+                const key_name_idx = readU16From(frame, operands, &operand_cursor);
+                if (self.stack.items.len < 2) return error.Fatal;
+
+                const value_to_set = self.pop();
+                const target_hash_val = self.peek(0);
+                if (!target_hash_val.isHash()) {
+                    const exc = try self.createException(self.type_error_class, "internal error: HASH_SET_CONST_KEY target is not a Hash");
+                    self.pending_exception = exc;
+                    return error.Unwind;
+                }
+
+                if (key_name_idx >= frame.chunk.constants.items.len) return error.Fatal;
+                const key_name = switch (frame.chunk.constants.items[key_name_idx]) {
+                    .string => |s| s,
+                    .symbol => |sym| sym.name,
+                    else => return error.Fatal,
+                };
+                const key_sym = try self.intern(key_name);
+                try self.hashSetEntry(target_hash_val.toHashObject(), Value.fromObject(key_sym), value_to_set);
+            },
+
+            .HASH_MERGE_KW => {
+                if (self.stack.items.len < 2) return error.Fatal;
+                const source_val = self.pop();
+                const target_hash_val = self.peek(0);
+                if (!target_hash_val.isHash()) {
+                    const exc = try self.createException(self.type_error_class, "internal error: HASH_MERGE_KW target is not a Hash");
+                    self.pending_exception = exc;
+                    return error.Unwind;
+                }
+
+                try self.mergeKwSplatInto(target_hash_val.toHashObject(), source_val);
             },
 
             .PUSH_RANGE => {
@@ -4477,9 +4519,8 @@ pub const VM = struct {
         method_chunk: *Chunk,
         receiver: Value,
         args: []const Value,
-        kw_values: ?[]Value,
-        kw_metadata: ?chunk.KeywordMetadata,
-        caller_chunk: ?*const Chunk,
+        kw_keys: ?[]const Value,
+        kw_values: ?[]const Value,
         method_name: ?[]const u8,
         super_defining_class: ?*ClassObject,
         block: ?Block,
@@ -4517,10 +4558,9 @@ pub const VM = struct {
         }
 
         if (has_keywords) {
+            const keys = kw_keys orelse return error.Fatal;
             const kw_vals = kw_values.?;
-            const kw_meta = kw_metadata orelse return error.Fatal;
-            const caller = caller_chunk orelse return error.Fatal;
-            try self.bindKeywordArguments(method_chunk, callee_frame.ep, kw_vals, kw_meta, caller);
+            try self.bindKeywordArguments(method_chunk, callee_frame.ep, keys, kw_vals);
         } else {
             if (method_chunk.optional_keywords.items.len > 0 or method_chunk.keyword_rest_index != null) {
                 var max_slot: u8 = callee_frame.ep.variables_len;
@@ -4573,25 +4613,22 @@ pub const VM = struct {
 
     fn keywordNameForContextIndex(self: *VM, ctx: *const BuiltinKeywordContext, idx: usize) VMError![]const u8 {
         _ = self;
-        if (idx >= ctx.kw_metadata.names.items.len) {
-            return error.Fatal;
-        }
-        const name_idx = ctx.kw_metadata.names.items[idx];
-        if (name_idx >= ctx.caller_chunk.constants.items.len) {
-            return error.Fatal;
-        }
-        return switch (ctx.caller_chunk.constants.items[name_idx]) {
-            .string => |s| s,
-            .symbol => |sym| sym.name,
-            else => error.Fatal,
-        };
+        if (idx >= ctx.kw_keys.len) return error.Fatal;
+        const key = ctx.kw_keys[idx];
+        if (key.isSymbol()) return key.toSymbolObject().name;
+        if (key.isString()) return key.toStringObject().str;
+        return "unknown";
     }
 
     fn findKeywordInContext(self: *VM, ctx: *const BuiltinKeywordContext, name: []const u8) VMError!?usize {
+        _ = self;
         var i: usize = 0;
         while (i < ctx.kw_values.len) : (i += 1) {
-            const kw_name = try self.keywordNameForContextIndex(ctx, i);
-            if (std.mem.eql(u8, kw_name, name)) {
+            const key = ctx.kw_keys[i];
+            if (key.isSymbol() and std.mem.eql(u8, key.toSymbolObject().name, name)) {
+                return i;
+            }
+            if (key.isString() and std.mem.eql(u8, key.toStringObject().str, name)) {
                 return i;
             }
         }
@@ -4672,7 +4709,7 @@ pub const VM = struct {
 
     fn materializeKeywordHashForContext(self: *VM, ctx: *BuiltinKeywordContext) VMError!Value {
         if (!ctx.hash_materialized) {
-            ctx.cached_hash = try self.createHashFromKeywords(ctx.caller_chunk, ctx.kw_values, ctx.kw_metadata);
+            ctx.cached_hash = try self.createHashFromKeywordPairs(ctx.kw_keys, ctx.kw_values);
             ctx.hash_materialized = true;
         }
 
@@ -4692,8 +4729,14 @@ pub const VM = struct {
         var i: usize = 0;
         while (i < ctx.kw_values.len) : (i += 1) {
             if (!ctx.consumed[i]) {
-                const kw_name = try self.keywordNameForContextIndex(ctx, i);
-                return self.raiseExceptionFmt(self.argument_error_class, "unknown keyword: {s}", .{kw_name});
+                const key = ctx.kw_keys[i];
+                if (key.isSymbol()) {
+                    return self.raiseExceptionFmt(self.argument_error_class, "unknown keyword: {s}", .{key.toSymbolObject().name});
+                }
+                if (key.isString()) {
+                    return self.raiseExceptionFmt(self.argument_error_class, "unknown keyword: {s}", .{key.toStringObject().str});
+                }
+                return self.raiseExceptionFmt(self.argument_error_class, "unknown keyword", .{});
             }
         }
     }
@@ -4709,16 +4752,14 @@ pub const VM = struct {
         switch (resolved.entry.method) {
             .chunk => |method_chunk| {
                 const saved_frame_count = self.frames.items.len;
-                const kw_values = if (keyword_ctx) |ctx| if (ctx.kw_values.len > 0) @constCast(ctx.kw_values) else null else null;
-                const kw_metadata = if (keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_metadata else null else null;
-                const caller_chunk = if (keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.caller_chunk else null else null;
+                const kw_keys = if (keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_keys else null else null;
+                const kw_values = if (keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_values else null else null;
                 try self.setupChunkCallFrame(
                     method_chunk,
                     receiver,
                     args,
+                    kw_keys,
                     kw_values,
-                    kw_metadata,
-                    caller_chunk,
                     resolved.name.name,
                     resolved.owner_class,
                     block,
@@ -4995,15 +5036,15 @@ pub const VM = struct {
         receiver: Value,
         args: *[256]Value,
         argc: usize,
+        kw_keys: ?*[256]Value,
         kw_values: ?*[256]Value,
         kwargc: usize,
-        kw_metadata: ?chunk.KeywordMetadata,
         block: ?Block,
     ) VMError!void {
         const resolved = try self.resolveMethodForCallSite(frame, callsite_byte_offset, receiver, method_name_sym);
         const should_fallback = resolved == null or !self.isMethodCallable(receiver, resolved.?, call_style);
         if (should_fallback) {
-            const kw_hash = if (kwargc > 0) try self.createHashFromKeywords(frame.chunk, kw_values.?[0..kwargc], kw_metadata.?) else null;
+            const kw_hash = if (kwargc > 0) try self.createHashFromKeywordPairs(kw_keys.?[0..kwargc], kw_values.?[0..kwargc]) else null;
             const result = try self.invokeMethodMissing(receiver, method_name_sym, args[0..argc], kw_hash, block);
             try self.push(result);
             return;
@@ -5014,15 +5055,14 @@ pub const VM = struct {
         switch (method.entry.method) {
             .chunk => |method_chunk| {
                 const has_keywords = kwargc > 0;
-                const caller_chunk = if (has_keywords) self.currentFrame().chunk else null;
-                const kw_slice: ?[]Value = if (has_keywords) kw_values.?[0..kwargc] else null;
+                const kw_key_slice: ?[]const Value = if (has_keywords) kw_keys.?[0..kwargc] else null;
+                const kw_slice: ?[]const Value = if (has_keywords) kw_values.?[0..kwargc] else null;
                 try self.setupChunkCallFrame(
                     method_chunk,
                     receiver,
                     args[0..argc],
+                    kw_key_slice,
                     kw_slice,
-                    kw_metadata,
-                    caller_chunk,
                     method.name.name,
                     method.owner_class,
                     block,
@@ -5065,9 +5105,8 @@ pub const VM = struct {
                 var keyword_ctx: BuiltinKeywordContext = undefined;
                 const maybe_keyword_ctx: ?*BuiltinKeywordContext = if (kwargc > 0) blk: {
                     keyword_ctx = .{
-                        .caller_chunk = frame.chunk,
+                        .kw_keys = kw_keys.?[0..kwargc],
                         .kw_values = kw_values.?[0..kwargc],
-                        .kw_metadata = kw_metadata.?,
                     };
                     break :blk &keyword_ctx;
                 } else null;
@@ -6554,32 +6593,107 @@ pub const VM = struct {
         env.variables_len = @max(@as(u8, @intCast(local_idx)), env.variables_len);
     }
 
+    fn hashSetEntry(self: *VM, hash_obj: *value.HashObject, key: Value, new_value: Value) VMError!void {
+        const key_hash = key.hash();
+        if (hash_obj.map.get(key_hash)) |idx| {
+            if (hash_obj.entries.items[idx].key.eql(key)) {
+                hash_obj.entries.items[idx].value = new_value;
+                return;
+            }
+        }
+
+        const new_idx = hash_obj.entries.items.len;
+        hash_obj.entries.append(self.gc_allocator, .{ .key = key, .value = new_value }) catch return error.Fatal;
+        hash_obj.map.put(key_hash, new_idx) catch return error.Fatal;
+    }
+
+    fn coerceKwSplatToHash(self: *VM, kw_val: Value) VMError!?*value.HashObject {
+        if (kw_val.isNil()) return null;
+        if (kw_val.isHash()) return kw_val.toHashObject();
+
+        const empty_args = [_]Value{};
+        const maybe_hash = try self.checkCallMethodByName(kw_val, "to_hash", empty_args[0..], null);
+        if (maybe_hash == null) {
+            const exc = try self.createException(self.type_error_class, "no implicit conversion into Hash");
+            self.pending_exception = exc;
+            return error.Unwind;
+        }
+        if (!maybe_hash.?.isHash()) {
+            const exc = try self.createException(self.type_error_class, "can't convert to Hash");
+            self.pending_exception = exc;
+            return error.Unwind;
+        }
+
+        return maybe_hash.?.toHashObject();
+    }
+
+    fn mergeKwSplatInto(self: *VM, target_hash: *value.HashObject, source_value: Value) VMError!void {
+        const source_hash = try self.coerceKwSplatToHash(source_value) orelse return;
+        for (source_hash.entries.items) |entry| {
+            try self.hashSetEntry(target_hash, entry.key, entry.value);
+        }
+    }
+
+    fn extractKeywordPairsFromHash(
+        self: *VM,
+        kw_hash_value: Value,
+        out_keys: *[256]Value,
+        out_values: *[256]Value,
+    ) VMError!usize {
+        _ = self;
+        if (!kw_hash_value.isHash()) {
+            return error.Fatal;
+        }
+        const entries = kw_hash_value.toHashObject().entries.items;
+        if (entries.len > out_keys.len) {
+            return error.Fatal;
+        }
+
+        for (entries, 0..) |entry, i| {
+            out_keys[i] = entry.key;
+            out_values[i] = entry.value;
+        }
+        return entries.len;
+    }
+
+    fn createHashFromKeywordPairs(self: *VM, kw_keys: []const Value, kw_values: []const Value) VMError!Value {
+        if (kw_keys.len != kw_values.len) return error.Fatal;
+
+        const kw_hash = self.gc_allocator.create(value.HashObject) catch return error.Fatal;
+        kw_hash.* = .{
+            .object = .{ .type_tag = .hash, .flags = 0, .class = self.hash_class, .singleton_class = null, .instance_variables = null },
+            .map = std.AutoHashMap(u64, usize).init(self.gc_allocator),
+            .entries = .empty,
+        };
+
+        for (kw_values, 0..) |kw_value, i| {
+            try self.hashSetEntry(kw_hash, kw_keys[i], kw_value);
+        }
+
+        return Value.fromObject(kw_hash);
+    }
+
     fn bindKeywordArguments(
         self: *VM,
         target_chunk: *const Chunk,
         env: *Environment,
-        kw_values: []Value,
-        kw_metadata: chunk.KeywordMetadata,
-        caller_chunk: *const Chunk,
+        kw_keys: []const Value,
+        kw_values: []const Value,
     ) VMError!void {
-        // Track which provided keywords have been matched
+        if (kw_keys.len != kw_values.len) return error.Fatal;
+
         var matched = self.allocator.alloc(bool, kw_values.len) catch return error.Fatal;
         defer self.allocator.free(matched);
         @memset(matched, false);
 
-        // 1. Bind required keywords
         for (target_chunk.required_keywords.items) |req_kw| {
             const req_name = target_chunk.constants.items[req_kw.name_idx].string;
             const req_symbol = try self.intern(req_name);
 
-            // Linear scan through provided keywords
             var found = false;
-            for (kw_values, 0..) |_, i| {
-                const provided_name = caller_chunk.constants.items[kw_metadata.names.items[i]].string;
-                const provided_symbol = try self.intern(provided_name);
-
-                // O(1) pointer equality check after interning
-                if (req_symbol == provided_symbol) {
+            for (kw_keys, 0..) |kw_key, i| {
+                if (!kw_key.isSymbol()) continue;
+                if (kw_key.toSymbolObject() == req_symbol) {
                     env.variables[req_kw.param_slot] = kw_values[i];
                     matched[i] = true;
                     found = true;
@@ -6588,28 +6702,21 @@ pub const VM = struct {
             }
 
             if (!found) {
-                const msg = std.fmt.allocPrint(
-                    self.gc_allocator,
-                    "missing keyword: {s}",
-                    .{req_name},
-                ) catch return error.Fatal;
+                const msg = std.fmt.allocPrint(self.gc_allocator, "missing keyword: {s}", .{req_name}) catch return error.Fatal;
                 const exc = try self.createException(self.argument_error_class, msg);
                 self.pending_exception = exc;
                 return error.Unwind;
             }
         }
 
-        // 2. Bind optional keywords
         for (target_chunk.optional_keywords.items) |opt_kw| {
             const opt_name = target_chunk.constants.items[opt_kw.name_idx].string;
             const opt_symbol = try self.intern(opt_name);
 
             var found = false;
-            for (kw_values, 0..) |_, i| {
-                const provided_name = caller_chunk.constants.items[kw_metadata.names.items[i]].string;
-                const provided_symbol = try self.intern(provided_name);
-
-                if (opt_symbol == provided_symbol) {
+            for (kw_keys, 0..) |kw_key, i| {
+                if (!kw_key.isSymbol()) continue;
+                if (kw_key.toSymbolObject() == opt_symbol) {
                     env.variables[opt_kw.param_slot] = kw_values[i];
                     matched[i] = true;
                     found = true;
@@ -6618,16 +6725,13 @@ pub const VM = struct {
             }
 
             if (!found) {
-                // Execute default expression
                 const default_chunk = self.program.child_chunks.get(opt_kw.default_chunk_id).?;
                 const default_value = try self.executeDefaultExpression(default_chunk, env);
                 env.variables[opt_kw.param_slot] = default_value;
             }
         }
 
-        // 3. Handle unmatched keywords
         if (target_chunk.keyword_rest_index) |rest_idx| {
-            // ONLY create hash when **kwargs is present
             const kw_hash = self.gc_allocator.create(value.HashObject) catch return error.Fatal;
             kw_hash.* = .{
                 .object = .{ .type_tag = .hash, .flags = 0, .class = self.hash_class, .singleton_class = null, .instance_variables = null },
@@ -6635,34 +6739,23 @@ pub const VM = struct {
                 .entries = .empty,
             };
 
-            // Collect unmatched keywords
             for (kw_values, 0..) |kw_value, i| {
                 if (!matched[i]) {
-                    const key_name = caller_chunk.constants.items[kw_metadata.names.items[i]].string;
-                    const key_symbol = try self.intern(key_name);
-                    const key = Value.fromObject(key_symbol);
-                    const key_hash = key.hash();
-
-                    const new_idx = kw_hash.entries.items.len;
-                    kw_hash.entries.append(self.gc_allocator, .{
-                        .key = key,
-                        .value = kw_value,
-                    }) catch return error.Fatal;
-                    kw_hash.map.put(key_hash, new_idx) catch return error.Fatal;
+                    try self.hashSetEntry(kw_hash, kw_keys[i], kw_value);
                 }
             }
 
             env.variables[rest_idx] = Value.fromObject(kw_hash);
         } else {
-            // No keyword rest - check for unmatched keywords
             for (matched, 0..) |is_matched, i| {
                 if (!is_matched) {
-                    const unknown_name = caller_chunk.constants.items[kw_metadata.names.items[i]].string;
-                    const msg = std.fmt.allocPrint(
-                        self.gc_allocator,
-                        "unknown keyword: {s}",
-                        .{unknown_name},
-                    ) catch return error.Fatal;
+                    const key = kw_keys[i];
+                    const msg = if (key.isSymbol())
+                        std.fmt.allocPrint(self.gc_allocator, "unknown keyword: {s}", .{key.toSymbolObject().name}) catch return error.Fatal
+                    else if (key.isString())
+                        std.fmt.allocPrint(self.gc_allocator, "unknown keyword: \"{s}\"", .{key.toStringObject().str}) catch return error.Fatal
+                    else
+                        std.fmt.allocPrint(self.gc_allocator, "unknown keyword", .{}) catch return error.Fatal;
                     const exc = try self.createException(self.argument_error_class, msg);
                     self.pending_exception = exc;
                     return error.Unwind;
@@ -6670,7 +6763,6 @@ pub const VM = struct {
             }
         }
 
-        // Update variables length to include keyword parameters
         var max_slot: u8 = 0;
         for (target_chunk.required_keywords.items) |req_kw| {
             if (req_kw.param_slot >= max_slot) max_slot = req_kw.param_slot + 1;
@@ -6684,44 +6776,6 @@ pub const VM = struct {
         if (max_slot > env.variables_len) {
             env.variables_len = max_slot;
         }
-    }
-
-    fn createHashFromKeywords(
-        self: *VM,
-        caller_chunk: *const Chunk,
-        kw_values: []const Value,
-        kw_metadata: chunk.KeywordMetadata,
-    ) VMError!Value {
-        const kw_hash = self.gc_allocator.create(value.HashObject) catch return error.Fatal;
-        kw_hash.* = .{
-            .object = .{ .type_tag = .hash, .flags = 0, .class = self.hash_class, .singleton_class = null, .instance_variables = null },
-            .map = std.AutoHashMap(u64, usize).init(self.gc_allocator),
-            .entries = .empty,
-        };
-
-        for (kw_values, 0..) |kw_value, i| {
-            const name_idx = kw_metadata.names.items[i];
-            if (name_idx >= caller_chunk.constants.items.len) {
-                return error.Fatal;
-            }
-            const key_name = switch (caller_chunk.constants.items[name_idx]) {
-                .string => |s| s,
-                .symbol => |sym| sym.name,
-                else => return error.Fatal,
-            };
-            const key_symbol = try self.intern(key_name);
-            const key = Value.fromObject(key_symbol);
-            const key_hash = key.hash();
-
-            const new_idx = kw_hash.entries.items.len;
-            kw_hash.entries.append(self.gc_allocator, .{
-                .key = key,
-                .value = kw_value,
-            }) catch return error.Fatal;
-            kw_hash.map.put(key_hash, new_idx) catch return error.Fatal;
-        }
-
-        return Value.fromObject(kw_hash);
     }
 
     pub fn createException(self: *VM, class: *ClassObject, message: []const u8) VMError!*value.ExceptionObject {

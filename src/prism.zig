@@ -66,6 +66,7 @@ pub const UntilNode = c.pm_until_node_t;
 pub const BreakNode = c.pm_break_node_t;
 pub const HashNode = c.pm_hash_node_t;
 pub const AssocNode = c.pm_assoc_node_t;
+pub const AssocSplatNode = c.pm_assoc_splat_node_t;
 pub const LambdaNode = c.pm_lambda_node_t;
 pub const MissingNode = c.pm_missing_node_t;
 pub const GlobalVariableReadNode = c.pm_global_variable_read_node_t;
@@ -178,6 +179,7 @@ pub const Node = union(enum) {
     break_node: *BreakNode,
     hash: *HashNode,
     assoc: *AssocNode,
+    assoc_splat: *AssocSplatNode,
     lambda: *LambdaNode,
     missing: *MissingNode,
     global_variable_read: *GlobalVariableReadNode,
@@ -522,6 +524,9 @@ pub const Parser = struct {
 
         if (node_type == c.PM_ASSOC_NODE) {
             return Node{ .assoc = @ptrCast(raw) };
+        }
+        if (node_type == c.PM_ASSOC_SPLAT_NODE) {
+            return Node{ .assoc_splat = @ptrCast(raw) };
         }
 
         if (node_type == c.PM_LAMBDA_NODE) {

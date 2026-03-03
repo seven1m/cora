@@ -66,6 +66,8 @@ pub const OpCode = enum(u8) {
     ARRAY_APPEND, // No operands
     ARRAY_CONCAT_ARRAY, // No operands
     PUSH_HASH, // Operand: u16 (pair count)
+    HASH_SET_CONST_KEY, // Operand: u16 (constant pool index containing keyword name)
+    HASH_MERGE_KW, // No operands
     PUSH_RANGE, // Operand: u8 (0=inclusive, 1=exclusive)
     INTERPOLATE_STRING, // Operand: u8 (part count)
 
@@ -112,6 +114,7 @@ pub const ReceiverCallStyle = enum(u8) {
 
 pub const CALL_FLAG_IMPLICIT_SELF: u8 = 0x01;
 pub const CALL_FLAG_ARGS_ARRAY: u8 = 0x02;
+pub const CALL_FLAG_KW_HASH: u8 = 0x04;
 
 pub const SUPER_FLAG_ARGS_ARRAY: u8 = CALL_FLAG_ARGS_ARRAY;
 
@@ -122,12 +125,21 @@ pub fn encodeCallFlags(receiver_style: ReceiverCallStyle, args_array_mode: bool)
     return flags;
 }
 
+pub fn addKwHashFlag(flags: u8, kw_hash_mode: bool) u8 {
+    if (!kw_hash_mode) return flags;
+    return flags | CALL_FLAG_KW_HASH;
+}
+
 pub fn decodeReceiverCallStyle(flags: u8) ReceiverCallStyle {
     return if ((flags & CALL_FLAG_IMPLICIT_SELF) != 0) .implicit_self else .explicit;
 }
 
 pub fn argsArrayMode(flags: u8) bool {
     return (flags & CALL_FLAG_ARGS_ARRAY) != 0;
+}
+
+pub fn kwHashMode(flags: u8) bool {
+    return (flags & CALL_FLAG_KW_HASH) != 0;
 }
 
 pub const BuiltinId = enum(u8) {
@@ -143,6 +155,7 @@ pub fn opcodeOperandSize(op: OpCode) usize {
         .OPT_PLUS, .OPT_MINUS, .OPT_MULT, .OPT_DIV, .OPT_EQ,
         .OPT_LT, .OPT_GT, .OPT_LE, .OPT_GE,
         .ARRAY_APPEND, .ARRAY_CONCAT_ARRAY,
+        .HASH_MERGE_KW,
         .HALT, .TRY_END, .CATCH_END, .ENSURE_START, .ENSURE_END,
         .RETRY, .BREAK, .YIELD_SPLAT, .MULTI_ASSIGN_PREPARE,
         => 0,
@@ -161,7 +174,7 @@ pub fn opcodeOperandSize(op: OpCode) usize {
         .PUSH_CONST, .PUSH_FSTRING, .PUSH_SYMBOL,
         .JUMP, .JUMP_IF_FALSE, .JUMP_IF_TRUE,
         .TRY_BEGIN, .PUSH_LAMBDA, .GET_CONST_PATH,
-        .PUSH_ARRAY, .PUSH_HASH,
+        .PUSH_ARRAY, .PUSH_HASH, .HASH_SET_CONST_KEY,
         => 2,
 
         // 4-byte operands
@@ -246,6 +259,8 @@ pub fn opcodeName(op: OpCode) []const u8 {
         .ARRAY_APPEND => "ARRAY_APPEND",
         .ARRAY_CONCAT_ARRAY => "ARRAY_CONCAT_ARRAY",
         .PUSH_HASH => "PUSH_HASH",
+        .HASH_SET_CONST_KEY => "HASH_SET_CONST_KEY",
+        .HASH_MERGE_KW => "HASH_MERGE_KW",
         .PUSH_RANGE => "PUSH_RANGE",
         .INTERPOLATE_STRING => "INTERPOLATE_STRING",
         .HALT => "HALT",

@@ -400,13 +400,17 @@ pub const Compiler = struct {
                 // Emit appropriate instruction
                 const method_name = try self.parser.getConstantName(call_node.name);
                 const method_idx = try self.current_chunk.addConstant(.{ .string = method_name });
-                const call_flags = bytecode.encodeCallFlags(receiver_style, compiled_args.args_array_mode);
+                const call_flags = bytecode.addKwHashFlag(
+                    bytecode.encodeCallFlags(receiver_style, compiled_args.args_array_mode),
+                    compiled_args.kw_hash_mode,
+                );
                 var emitted_opt = false;
 
                 if (call_node.receiver != null and
                     block_chunk_id == 0 and
                     compiled_args.argc == 1 and
                     compiled_args.kwargc == 0 and
+                    !compiled_args.kw_hash_mode and
                     !compiled_args.args_array_mode)
                 {
                     if (optIntegerMathOpcode(method_name)) |op| {
@@ -417,13 +421,13 @@ pub const Compiler = struct {
 
                 if (emitted_opt) {
                     // Specialized opcode already emitted.
-                } else if (compiled_args.kwargc > 0) {
+                } else if (compiled_args.kwargc > 0 or compiled_args.kw_hash_mode) {
                     try self.current_chunk.emitCallKw(
                         @intCast(method_idx),
                         compiled_args.argc,
                         compiled_args.kwargc,
                         call_flags,
-                        compiled_args.kw_metadata_idx.?,
+                        compiled_args.kw_metadata_idx orelse 0,
                         block_chunk_id,
                         line,
                     );
@@ -1202,6 +1206,7 @@ pub const Compiler = struct {
         kwargc: u8 = 0,
         kw_metadata_idx: ?u16 = null,
         args_array_mode: bool = false,
+        kw_hash_mode: bool = false,
     };
 
     fn optIntegerMathOpcode(method_name: []const u8) ?bytecode.OpCode {
@@ -1224,87 +1229,177 @@ pub const Compiler = struct {
 
         if (args_ptr) |args| {
             var has_splat = false;
+            var has_keyword_splat = false;
             var i: usize = 0;
             while (i < args.arguments.size) : (i += 1) {
                 const arg_node = try self.parser.asNode(args.arguments.nodes[i]);
                 if (arg_node == .splat) {
                     has_splat = true;
-                    break;
+                } else if (arg_node == .keyword_hash) {
+                    const kw_hash = arg_node.keyword_hash;
+                    var j: usize = 0;
+                    while (j < kw_hash.elements.size) : (j += 1) {
+                        const elem = try self.parser.asNode(kw_hash.elements.nodes[j]);
+                        if (elem == .assoc_splat) {
+                            has_keyword_splat = true;
+                            break;
+                        }
+                    }
                 }
             }
 
-            if (!has_splat) {
-                i = 0;
-                while (i < args.arguments.size) : (i += 1) {
-                    const arg = args.arguments.nodes[i];
-                    const arg_node = try self.parser.asNode(arg);
+            if (!has_keyword_splat) {
+                if (!has_splat) {
+                    i = 0;
+                    while (i < args.arguments.size) : (i += 1) {
+                        const arg = args.arguments.nodes[i];
+                        const arg_node = try self.parser.asNode(arg);
 
-                    if (arg_node == .keyword_hash) {
-                        const kw_hash = arg_node.keyword_hash;
-                        var j: usize = 0;
-                        while (j < kw_hash.elements.size) : (j += 1) {
-                            const elem = try self.parser.asNode(kw_hash.elements.nodes[j]);
-                            const assoc = elem.assoc;
-                            const key_node = try self.parser.asNode(@ptrCast(assoc.key));
-                            const symbol_val = key_node.symbol.unescaped;
-                            const symbol_name = symbol_val.source[0..symbol_val.length];
-                            const symbol_idx = try self.current_chunk.addConstant(.{ .string = symbol_name });
-                            try kw_names.append(self.allocator, @intCast(symbol_idx));
+                        if (arg_node == .keyword_hash) {
+                            const kw_hash = arg_node.keyword_hash;
+                            var j: usize = 0;
+                            while (j < kw_hash.elements.size) : (j += 1) {
+                                const elem = try self.parser.asNode(kw_hash.elements.nodes[j]);
+                                const assoc = elem.assoc;
+                                const key_node = try self.parser.asNode(@ptrCast(assoc.key));
+                                const symbol_val = key_node.symbol.unescaped;
+                                const symbol_name = symbol_val.source[0..symbol_val.length];
+                                const symbol_idx = try self.current_chunk.addConstant(.{ .string = symbol_name });
+                                try kw_names.append(self.allocator, @intCast(symbol_idx));
 
-                            // Compile keyword value onto stack
-                            const value_node = try self.parser.asNode(@ptrCast(assoc.value));
-                            try self.compileNode(value_node, line);
-                            result.kwargc += 1;
+                                // Compile keyword value onto stack
+                                const value_node = try self.parser.asNode(@ptrCast(assoc.value));
+                                try self.compileNode(value_node, line);
+                                result.kwargc += 1;
+                            }
+                        } else {
+                            // Regular positional argument
+                            try self.compileNode(arg_node, line);
+                            result.argc += 1;
                         }
-                    } else {
-                        // Regular positional argument
-                        try self.compileNode(arg_node, line);
-                        result.argc += 1;
+                    }
+                } else {
+                    result.args_array_mode = true;
+                    try self.current_chunk.emitOpU16(.PUSH_ARRAY, 0, line);
+
+                    var seen_keyword_hash = false;
+                    i = 0;
+                    while (i < args.arguments.size) : (i += 1) {
+                        const arg = args.arguments.nodes[i];
+                        const arg_node = try self.parser.asNode(arg);
+
+                        if (arg_node == .keyword_hash) {
+                            seen_keyword_hash = true;
+                            const kw_hash = arg_node.keyword_hash;
+                            var j: usize = 0;
+                            while (j < kw_hash.elements.size) : (j += 1) {
+                                const elem = try self.parser.asNode(kw_hash.elements.nodes[j]);
+                                const assoc = elem.assoc;
+                                const key_node = try self.parser.asNode(@ptrCast(assoc.key));
+                                const symbol_val = key_node.symbol.unescaped;
+                                const symbol_name = symbol_val.source[0..symbol_val.length];
+                                const symbol_idx = try self.current_chunk.addConstant(.{ .string = symbol_name });
+                                try kw_names.append(self.allocator, @intCast(symbol_idx));
+
+                                const value_node = try self.parser.asNode(@ptrCast(assoc.value));
+                                try self.compileNode(value_node, line);
+                                result.kwargc += 1;
+                            }
+                            continue;
+                        }
+
+                        if (seen_keyword_hash) {
+                            std.debug.print("Error: positional arguments after keyword args with splat are not supported\n", .{});
+                            return error.UnsupportedNode;
+                        }
+
+                        if (arg_node == .splat) {
+                            const expr_ptr = arg_node.splat.expression orelse return error.UnsupportedNode;
+                            const expr = try self.parser.asNode(@ptrCast(expr_ptr));
+                            try self.compileNode(expr, line);
+                            try self.current_chunk.emitOp(.ARRAY_CONCAT_ARRAY, line);
+                        } else {
+                            try self.compileNode(arg_node, line);
+                            try self.current_chunk.emitOp(.ARRAY_APPEND, line);
+                        }
                     }
                 }
             } else {
-                result.args_array_mode = true;
-                try self.current_chunk.emitOpU16(.PUSH_ARRAY, 0, line);
+                result.kw_hash_mode = true;
+                if (has_splat) {
+                    result.args_array_mode = true;
+                    try self.current_chunk.emitOpU16(.PUSH_ARRAY, 0, line);
+                }
 
-                var seen_keyword_hash = false;
+                // First pass: positional arguments
                 i = 0;
                 while (i < args.arguments.size) : (i += 1) {
                     const arg = args.arguments.nodes[i];
                     const arg_node = try self.parser.asNode(arg);
+                    if (arg_node == .keyword_hash) continue;
 
-                    if (arg_node == .keyword_hash) {
-                        seen_keyword_hash = true;
-                        const kw_hash = arg_node.keyword_hash;
-                        var j: usize = 0;
-                        while (j < kw_hash.elements.size) : (j += 1) {
-                            const elem = try self.parser.asNode(kw_hash.elements.nodes[j]);
-                            const assoc = elem.assoc;
-                            const key_node = try self.parser.asNode(@ptrCast(assoc.key));
-                            const symbol_val = key_node.symbol.unescaped;
-                            const symbol_name = symbol_val.source[0..symbol_val.length];
-                            const symbol_idx = try self.current_chunk.addConstant(.{ .string = symbol_name });
-                            try kw_names.append(self.allocator, @intCast(symbol_idx));
-
-                            const value_node = try self.parser.asNode(@ptrCast(assoc.value));
-                            try self.compileNode(value_node, line);
-                            result.kwargc += 1;
-                        }
-                        continue;
-                    }
-
-                    if (seen_keyword_hash) {
-                        std.debug.print("Error: positional arguments after keyword args with splat are not supported\n", .{});
-                        return error.UnsupportedNode;
-                    }
-
-                    if (arg_node == .splat) {
+                    if (result.args_array_mode and arg_node == .splat) {
                         const expr_ptr = arg_node.splat.expression orelse return error.UnsupportedNode;
                         const expr = try self.parser.asNode(@ptrCast(expr_ptr));
                         try self.compileNode(expr, line);
                         try self.current_chunk.emitOp(.ARRAY_CONCAT_ARRAY, line);
                     } else {
                         try self.compileNode(arg_node, line);
-                        try self.current_chunk.emitOp(.ARRAY_APPEND, line);
+                        if (result.args_array_mode) {
+                            try self.current_chunk.emitOp(.ARRAY_APPEND, line);
+                        } else {
+                            result.argc += 1;
+                        }
+                    }
+                }
+
+                // Second pass: keyword arguments and keyword splats
+                try self.current_chunk.emitOpU16(.PUSH_HASH, 0, line);
+                i = 0;
+                while (i < args.arguments.size) : (i += 1) {
+                    const arg = args.arguments.nodes[i];
+                    const arg_node = try self.parser.asNode(arg);
+                    if (arg_node == .keyword_hash) {
+                        const kw_hash = arg_node.keyword_hash;
+                        var j: usize = 0;
+                        while (j < kw_hash.elements.size) : (j += 1) {
+                            const elem = try self.parser.asNode(kw_hash.elements.nodes[j]);
+                            switch (elem) {
+                                .assoc => {
+                                    const assoc = elem.assoc;
+                                    const key_node = try self.parser.asNode(@ptrCast(assoc.key));
+                                    if (key_node != .symbol) {
+                                        std.debug.print("Error: non-symbol keyword key is not yet supported in calls\n", .{});
+                                        return error.UnsupportedNode;
+                                    }
+                                    const symbol_val = key_node.symbol.unescaped;
+                                    const symbol_name = symbol_val.source[0..symbol_val.length];
+                                    const symbol_idx = try self.current_chunk.addConstant(.{ .string = symbol_name });
+
+                                    const value_node = try self.parser.asNode(@ptrCast(assoc.value));
+                                    try self.compileNode(value_node, line);
+
+                                    if (result.kw_hash_mode) {
+                                        try self.current_chunk.emitOpU16(.HASH_SET_CONST_KEY, @intCast(symbol_idx), line);
+                                    } else {
+                                        try kw_names.append(self.allocator, @intCast(symbol_idx));
+                                        result.kwargc += 1;
+                                    }
+                                },
+                                .assoc_splat => {
+                                    if (!result.kw_hash_mode) return error.UnsupportedNode;
+
+                                    if (elem.assoc_splat.value) |value_ptr| {
+                                        const value_node = try self.parser.asNode(@ptrCast(value_ptr));
+                                        try self.compileNode(value_node, line);
+                                    } else {
+                                        try self.current_chunk.emitOp(.PUSH_NIL, line);
+                                    }
+                                    try self.current_chunk.emitOp(.HASH_MERGE_KW, line);
+                                },
+                                else => return error.UnsupportedNode,
+                            }
+                        }
                     }
                 }
             }

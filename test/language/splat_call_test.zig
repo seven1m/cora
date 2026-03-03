@@ -93,3 +93,66 @@ test "splat argument must be Array" {
     try std.testing.expectEqual(@as(?anyerror, error.UnhandledException), result.err);
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, "TypeError") != null);
 }
+
+test "keyword splat basic and mixed with splat args" {
+    var result = try evalCode(
+        \\def f(a:, b: 0); [a, b]; end
+        \\h = {a: 1}
+        \\f(**h)
+    );
+    try expectIntArray(result, &.{ 1, 0 });
+
+    result = try evalCode(
+        \\def g(*a, b:); [a, b]; end
+        \\g(*[1, 2], **{b: 3})
+    );
+    try std.testing.expect(result.isArray());
+    try expectIntArray(result.toArrayObject().elements.items[0], &.{ 1, 2 });
+    try std.testing.expectEqual(@as(i64, 3), result.toArrayObject().elements.items[1].toInteger());
+}
+
+test "keyword splat supports to_hash coercion and nil" {
+    var result = try evalCode(
+        \\def f(a:); a; end
+        \\obj = Object.new
+        \\def obj.to_hash; {a: 42}; end
+        \\f(**obj)
+    );
+    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
+
+    result = try evalCode(
+        \\def f(**k); k; end
+        \\f(**nil).size
+    );
+    try std.testing.expectEqual(@as(i64, 0), result.toInteger());
+}
+
+test "keyword splat raises TypeError when coercion fails" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+
+    const result = evalCodeWithOutput(
+        \\def f(a:); a; end
+        \\f(**Object.new)
+    , &stdout_buf, &stderr_buf);
+
+    try std.testing.expectEqual(@as(?anyerror, error.UnhandledException), result.err);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "TypeError") != null);
+}
+
+test "keyword splat preserves non-symbol keys only in keyword rest" {
+    var result = try evalCode(
+        \\def f(**k); k; end
+        \\f(**{"a" => 1})["a"]
+    );
+    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
+
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+    const err_result = evalCodeWithOutput(
+        \\def g(a:); a; end
+        \\g(**{"a" => 1})
+    , &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(@as(?anyerror, error.UnhandledException), err_result.err);
+    try std.testing.expect(std.mem.indexOf(u8, err_result.stderr, "missing keyword") != null);
+}
