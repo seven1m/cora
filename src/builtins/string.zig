@@ -287,7 +287,7 @@ pub fn builtinStringPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
 
     const result_encoding = resolveStringConcatEncoding(lhs.encoding, lhs.str, rhs.encoding, rhs.str) orelse {
         return vm.raiseExceptionFmt(
-            vm.argument_error_class,
+            vm.encoding_compatibility_error_class,
             "incompatible character encodings: {s} and {s}",
             .{ lhs.encoding.name(), rhs.encoding.name() },
         );
@@ -1141,7 +1141,7 @@ pub fn builtinStringStartWith(vm: *VM, receiver: Value, args: []Value, _: ?Block
         const prefix_enc = prefix_val.toStringObject().encoding;
         if (enc.negotiate(string_obj.encoding, string_obj.str, prefix_enc, prefix) == null) {
             return vm.raiseExceptionFmt(
-                vm.argument_error_class,
+                vm.encoding_compatibility_error_class,
                 "incompatible character encodings: {s} and {s}",
                 .{ string_obj.encoding.name(), prefix_enc.name() },
             );
@@ -1165,7 +1165,7 @@ pub fn builtinStringEndWith(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
         const suffix_enc = suffix_val.toStringObject().encoding;
         if (enc.negotiate(string_obj.encoding, string_obj.str, suffix_enc, suffix) == null) {
             return vm.raiseExceptionFmt(
-                vm.argument_error_class,
+                vm.encoding_compatibility_error_class,
                 "incompatible character encodings: {s} and {s}",
                 .{ string_obj.encoding.name(), suffix_enc.name() },
             );
@@ -1189,7 +1189,7 @@ pub fn builtinStringDeletePrefix(vm: *VM, receiver: Value, args: []Value, _: ?Bl
     const prefix_enc = prefix_val.toStringObject().encoding;
     if (enc.negotiate(string_obj.encoding, string_obj.str, prefix_enc, prefix) == null) {
         return vm.raiseExceptionFmt(
-            vm.argument_error_class,
+            vm.encoding_compatibility_error_class,
             "incompatible character encodings: {s} and {s}",
             .{ string_obj.encoding.name(), prefix_enc.name() },
         );
@@ -1214,7 +1214,7 @@ pub fn builtinStringDeletePrefixBang(vm: *VM, receiver: Value, args: []Value, _:
     const prefix_enc = prefix_val.toStringObject().encoding;
     if (enc.negotiate(string_obj.encoding, string_obj.str, prefix_enc, prefix) == null) {
         return vm.raiseExceptionFmt(
-            vm.argument_error_class,
+            vm.encoding_compatibility_error_class,
             "incompatible character encodings: {s} and {s}",
             .{ string_obj.encoding.name(), prefix_enc.name() },
         );
@@ -1241,7 +1241,7 @@ pub fn builtinStringDeleteSuffix(vm: *VM, receiver: Value, args: []Value, _: ?Bl
     const suffix_enc = suffix_val.toStringObject().encoding;
     if (enc.negotiate(string_obj.encoding, string_obj.str, suffix_enc, suffix) == null) {
         return vm.raiseExceptionFmt(
-            vm.argument_error_class,
+            vm.encoding_compatibility_error_class,
             "incompatible character encodings: {s} and {s}",
             .{ string_obj.encoding.name(), suffix_enc.name() },
         );
@@ -1269,7 +1269,7 @@ pub fn builtinStringDeleteSuffixBang(vm: *VM, receiver: Value, args: []Value, _:
     const suffix_enc = suffix_val.toStringObject().encoding;
     if (enc.negotiate(string_obj.encoding, string_obj.str, suffix_enc, suffix) == null) {
         return vm.raiseExceptionFmt(
-            vm.argument_error_class,
+            vm.encoding_compatibility_error_class,
             "incompatible character encodings: {s} and {s}",
             .{ string_obj.encoding.name(), suffix_enc.name() },
         );
@@ -1305,7 +1305,7 @@ pub fn builtinStringInclude(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 
     if (enc.negotiate(string_obj.encoding, string_obj.str, needle_enc, needle) == null) {
         return vm.raiseExceptionFmt(
-            vm.argument_error_class,
+            vm.encoding_compatibility_error_class,
             "incompatible character encodings: {s} and {s}",
             .{ string_obj.encoding.name(), needle_enc.name() },
         );
@@ -1757,7 +1757,7 @@ fn spliceStringBytes(
         replacement_obj.str,
     ) orelse {
         return vm.raiseExceptionFmt(
-            vm.argument_error_class,
+            vm.encoding_compatibility_error_class,
             "incompatible character encodings: {s} and {s}",
             .{ string_obj.encoding.name(), replacement_obj.encoding.name() },
         );
@@ -1770,7 +1770,7 @@ fn spliceStringBytes(
         replacement_obj.str,
     ) orelse {
         return vm.raiseExceptionFmt(
-            vm.argument_error_class,
+            vm.encoding_compatibility_error_class,
             "incompatible character encodings: {s} and {s}",
             .{ string_obj.encoding.name(), replacement_obj.encoding.name() },
         );
@@ -1784,7 +1784,7 @@ fn spliceStringBytes(
         suffix,
     ) orelse {
         return vm.raiseExceptionFmt(
-            vm.argument_error_class,
+            vm.encoding_compatibility_error_class,
             "incompatible character encodings: {s} and {s}",
             .{ interim_encoding.name(), string_obj.encoding.name() },
         );
@@ -1853,7 +1853,7 @@ fn appendSingleConcatArg(
 
     const result_encoding = resolveStringConcatEncoding(string_obj.encoding, string_obj.str, rhs_encoding, rhs_bytes) orelse {
         return vm.raiseExceptionFmt(
-            vm.argument_error_class,
+            vm.encoding_compatibility_error_class,
             "incompatible character encodings: {s} and {s}",
             .{ string_obj.encoding.name(), rhs_encoding.name() },
         );
