@@ -697,22 +697,12 @@ pub const Value = struct {
     pub fn coerceToStringValue(self: Value, vm_instance: *VM, type_error_message: []const u8) VMError!Value {
         if (self.isString()) return self;
 
-        const to_str_sym = try vm_instance.intern("to_str");
-        const has_to_str = (try vm_instance.findMethod(self, to_str_sym)) != null;
-        const coerced = if (has_to_str)
-            try vm_instance.callMethodByName(self, "to_str", &[_]Value{}, null)
-        else
-            vm_instance.callMethodByName(self, "to_str", &[_]Value{}, null) catch |err| {
-                if (err == error.Unwind and
-                    vm_instance.pending_exception != null and
-                    vm_instance.pending_exception.?.object.class == vm_instance.no_method_error_class)
-                {
-                    const exc = try vm_instance.createException(vm_instance.type_error_class, type_error_message);
-                    vm_instance.pending_exception = exc;
-                    return error.Unwind;
-                }
-                return err;
-            };
+        const maybe_coerced = try vm_instance.checkCallMethodByName(self, "to_str", &[_]Value{}, null);
+        const coerced = maybe_coerced orelse {
+            const exc = try vm_instance.createException(vm_instance.type_error_class, type_error_message);
+            vm_instance.pending_exception = exc;
+            return error.Unwind;
+        };
 
         if (!coerced.isString()) {
             const exc = try vm_instance.createException(vm_instance.type_error_class, type_error_message);

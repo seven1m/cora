@@ -6099,11 +6099,8 @@ pub const VM = struct {
     }
 
     pub fn coerceToPath(self: *VM, arg: Value, type_error_message: []const u8) VMError![]const u8 {
-        const to_path_sym = try self.intern("to_path");
-        const candidate = if ((try self.findMethod(arg, to_path_sym)) != null)
-            try self.callMethodByName(arg, "to_path", &[_]Value{}, null)
-        else
-            arg;
+        const maybe_candidate = try self.checkCallMethodByName(arg, "to_path", &[_]Value{}, null);
+        const candidate = maybe_candidate orelse arg;
 
         return candidate.coerceToStr(self, type_error_message);
     }

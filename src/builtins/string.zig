@@ -174,17 +174,8 @@ pub fn builtinStringTryConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMEr
     const arg = args[0];
     if (arg.isString()) return arg;
 
-    var no_args = [_]Value{};
-    const converted = vm.callMethodByName(arg, "to_str", no_args[0..], null) catch |err| {
-        if (err == error.Unwind and
-            vm.pending_exception != null and
-            std.mem.indexOf(u8, vm.pending_exception.?.message.str, "undefined method 'to_str'") != null)
-        {
-            vm.pending_exception = null;
-            return Value.nil();
-        }
-        return err;
-    };
+    const maybe_converted = try vm.checkCallMethodByName(arg, "to_str", &[_]Value{}, null);
+    const converted = maybe_converted orelse return Value.nil();
     if (converted.isNil()) return Value.nil();
     if (converted.isString()) return converted;
 
@@ -1667,25 +1658,12 @@ fn appendSingleConcatArg(
 fn coerceConcatArgumentToStringValue(vm: *VM, arg: Value, type_error_message: []const u8) VMError!Value {
     if (arg.isString()) return arg;
 
-    const to_str_sym = try vm.intern("to_str");
-    const has_to_str = (try vm.findMethod(arg, to_str_sym)) != null;
-    const coerced = if (has_to_str)
-        try vm.callMethodByName(arg, "to_str", &[_]Value{}, null)
-    else
-        vm.callMethodByName(arg, "to_str", &[_]Value{}, null) catch |err| {
-            if (err == error.Unwind and
-                vm.pending_exception != null and
-                vm.pending_exception.?.object.class == vm.no_method_error_class)
-            {
-                const missing_message = vm.pending_exception.?.message.str;
-                if (std.mem.indexOf(u8, missing_message, "undefined method 'to_str'") != null) {
-                    const exc = try vm.createException(vm.type_error_class, type_error_message);
-                    vm.pending_exception = exc;
-                    return error.Unwind;
-                }
-            }
-            return err;
-        };
+    const maybe_coerced = try vm.checkCallMethodByName(arg, "to_str", &[_]Value{}, null);
+    const coerced = maybe_coerced orelse {
+        const exc = try vm.createException(vm.type_error_class, type_error_message);
+        vm.pending_exception = exc;
+        return error.Unwind;
+    };
 
     if (!coerced.isString()) {
         const exc = try vm.createException(vm.type_error_class, type_error_message);
