@@ -3,6 +3,7 @@ const bytecode = @import("bytecode.zig");
 const chunk = @import("chunk.zig");
 const prism = @import("prism.zig");
 const value = @import("value.zig");
+const enc = @import("encoding.zig");
 
 const Chunk = chunk.Chunk;
 
@@ -90,6 +91,7 @@ pub const Compiler = struct {
 
         var main_chunk = Chunk.init(allocator, "main");
         try main_chunk.setSourceFile(parser.source_file);
+        main_chunk.source_encoding = compiler.parserSourceEncoding();
         compiler.current_chunk = &main_chunk;
 
         // On error, clean up chunks that were allocated during compilation
@@ -235,6 +237,23 @@ pub const Compiler = struct {
                 const source_file = self.parser.source_file orelse "(eval)";
                 const idx = try self.current_chunk.addConstant(.{ .string = source_file });
                 try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(idx), line);
+            },
+
+            .source_encoding => {
+                const encoding_const_idx = try self.current_chunk.addConstant(.{ .string = "Encoding" });
+                try self.current_chunk.emitOpU16(.GET_CONST, @intCast(encoding_const_idx), line);
+
+                const encoding_ptr = self.parser.internal.encoding;
+                const encoding_name = if (encoding_ptr != null)
+                    std.mem.span(encoding_ptr.*.name)
+                else
+                    "UTF-8";
+                const encoding_name_idx = try self.current_chunk.addConstant(.{ .string = encoding_name });
+                try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(encoding_name_idx), line);
+
+                const find_idx = try self.current_chunk.addConstant(.{ .string = "find" });
+                const call_flags = bytecode.encodeCallFlags(.explicit, false);
+                try self.current_chunk.emitCall(@intCast(find_idx), 1, call_flags, 0, line);
             },
 
             .parentheses => |paren_node| {
@@ -806,6 +825,30 @@ pub const Compiler = struct {
                 return error.UnsupportedNode;
             },
         }
+    }
+
+    fn parserSourceEncoding(self: *Compiler) enc.Encoding {
+        const enc_ptr = self.parser.internal.encoding;
+        if (enc_ptr == null) return .{ .utf8 = .{} };
+        const name = std.mem.span(enc_ptr.*.name);
+
+        if (std.ascii.eqlIgnoreCase(name, "US-ASCII")) return .{ .us_ascii = .{} };
+        if (std.ascii.eqlIgnoreCase(name, "ASCII-8BIT")) return .{ .ascii_8bit = .{} };
+        if (std.ascii.eqlIgnoreCase(name, "UTF-8")) return .{ .utf8 = .{} };
+        if (std.ascii.eqlIgnoreCase(name, "Shift_JIS") or std.ascii.eqlIgnoreCase(name, "Windows-31J") or std.ascii.eqlIgnoreCase(name, "EUC-JP")) {
+            return .{ .shift_jis = .{} };
+        }
+        if (std.ascii.eqlIgnoreCase(name, "ISO-8859-9")) return .{ .iso_8859_9 = .{} };
+        if (std.ascii.eqlIgnoreCase(name, "ISO-8859-15")) return .{ .iso_8859_15 = .{} };
+        if (std.ascii.eqlIgnoreCase(name, "UTF-7")) return .{ .utf7 = .{} };
+        if (std.ascii.eqlIgnoreCase(name, "UTF-16")) return .{ .utf16 = .{} };
+        if (std.ascii.eqlIgnoreCase(name, "UTF-16LE")) return .{ .utf16le = .{} };
+        if (std.ascii.eqlIgnoreCase(name, "UTF-16BE")) return .{ .utf16be = .{} };
+        if (std.ascii.eqlIgnoreCase(name, "UTF-32")) return .{ .utf32 = .{} };
+        if (std.ascii.eqlIgnoreCase(name, "UTF-32LE")) return .{ .utf32le = .{} };
+        if (std.ascii.eqlIgnoreCase(name, "UTF-32BE")) return .{ .utf32be = .{} };
+
+        return .{ .utf8 = .{} };
     }
 
     fn tryCompileFrozenLiteralCall(self: *Compiler, call_node: *prism.CallNode, line: u32) !bool {
@@ -2191,6 +2234,7 @@ pub const Compiler = struct {
             body_chunk_ptr.* = Chunk.init(self.allocator, try self.allocator.dupe(u8, module_name));
             body_chunk_ptr.name_owned = true;
             try body_chunk_ptr.setSourceFile(self.parser.source_file);
+            body_chunk_ptr.source_encoding = self.parserSourceEncoding();
             body_chunk_id = try self.nextChunkId();
             body_chunk_ptr.chunk_id = body_chunk_id;
             try self.child_chunks.put(body_chunk_id, body_chunk_ptr);
@@ -2241,6 +2285,7 @@ pub const Compiler = struct {
             body_chunk_ptr.* = Chunk.init(self.allocator, try self.allocator.dupe(u8, class_name));
             body_chunk_ptr.name_owned = true;
             try body_chunk_ptr.setSourceFile(self.parser.source_file);
+            body_chunk_ptr.source_encoding = self.parserSourceEncoding();
             body_chunk_id = try self.nextChunkId();
             body_chunk_ptr.chunk_id = body_chunk_id;
             try self.child_chunks.put(body_chunk_id, body_chunk_ptr);
@@ -2277,6 +2322,7 @@ pub const Compiler = struct {
         const body_chunk_ptr = try self.allocator.create(Chunk);
         body_chunk_ptr.* = Chunk.init(self.allocator, "<singleton class>");
         try body_chunk_ptr.setSourceFile(self.parser.source_file);
+        body_chunk_ptr.source_encoding = self.parserSourceEncoding();
         body_chunk_id = try self.nextChunkId();
         body_chunk_ptr.chunk_id = body_chunk_id;
         try self.child_chunks.put(body_chunk_id, body_chunk_ptr);
@@ -2350,6 +2396,7 @@ pub const Compiler = struct {
             const default_chunk_ptr = try self.allocator.create(chunk.Chunk);
             default_chunk_ptr.* = chunk.Chunk.init(self.allocator, "default");
             try default_chunk_ptr.setSourceFile(self.parser.source_file);
+            default_chunk_ptr.source_encoding = self.parserSourceEncoding();
             const default_chunk_id = try self.nextChunkId();
             default_chunk_ptr.chunk_id = default_chunk_id;
             try self.child_chunks.put(default_chunk_id, default_chunk_ptr);
@@ -2504,6 +2551,7 @@ pub const Compiler = struct {
                     const default_chunk_ptr = try self.allocator.create(Chunk);
                     default_chunk_ptr.* = Chunk.init(self.allocator, "keyword_default");
                     try default_chunk_ptr.setSourceFile(self.parser.source_file);
+                    default_chunk_ptr.source_encoding = self.parserSourceEncoding();
                     const default_chunk_id = try self.nextChunkId();
                     default_chunk_ptr.chunk_id = default_chunk_id;
                     try self.child_chunks.put(default_chunk_id, default_chunk_ptr);
@@ -2565,6 +2613,7 @@ pub const Compiler = struct {
         method_chunk_ptr.* = Chunk.init(self.allocator, try self.allocator.dupe(u8, method_name_slice));
         method_chunk_ptr.name_owned = true;
         try method_chunk_ptr.setSourceFile(self.parser.source_file);
+        method_chunk_ptr.source_encoding = self.parserSourceEncoding();
         const chunk_id = try self.nextChunkId();
         method_chunk_ptr.chunk_id = chunk_id;
         try self.child_chunks.put(chunk_id, method_chunk_ptr);
@@ -2647,6 +2696,7 @@ pub const Compiler = struct {
         const block_chunk_ptr = try self.allocator.create(Chunk);
         block_chunk_ptr.* = Chunk.init(self.allocator, "block");
         try block_chunk_ptr.setSourceFile(self.parser.source_file);
+        block_chunk_ptr.source_encoding = self.parserSourceEncoding();
         const chunk_id = try self.nextChunkId();
         block_chunk_ptr.chunk_id = chunk_id;
         try self.child_chunks.put(chunk_id, block_chunk_ptr);
@@ -2741,6 +2791,7 @@ pub const Compiler = struct {
         lambda_chunk_ptr.* = Chunk.init(self.allocator, "lambda");
         lambda_chunk_ptr.is_lambda = true; // Mark as lambda
         try lambda_chunk_ptr.setSourceFile(self.parser.source_file);
+        lambda_chunk_ptr.source_encoding = self.parserSourceEncoding();
         const chunk_id = try self.nextChunkId();
         lambda_chunk_ptr.chunk_id = chunk_id;
         try self.child_chunks.put(chunk_id, lambda_chunk_ptr);
@@ -2870,6 +2921,7 @@ pub const Compiler = struct {
         const rescue_type_chunk_ptr = try self.allocator.create(Chunk);
         rescue_type_chunk_ptr.* = Chunk.init(self.allocator, "rescue_type");
         try rescue_type_chunk_ptr.setSourceFile(self.parser.source_file);
+        rescue_type_chunk_ptr.source_encoding = self.parserSourceEncoding();
 
         const rescue_type_chunk_id = try self.nextChunkId();
         rescue_type_chunk_ptr.chunk_id = rescue_type_chunk_id;

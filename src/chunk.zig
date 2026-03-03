@@ -1,5 +1,6 @@
 const std = @import("std");
 const bytecode = @import("bytecode.zig");
+const enc = @import("encoding.zig");
 
 const LexicalScope = @import("value.zig").LexicalScope;
 const MethodEntry = @import("value.zig").MethodEntry;
@@ -104,6 +105,7 @@ pub const Chunk = struct {
     exception_handlers: std.ArrayList(ExceptionHandler) = .empty,
     source_file: ?[]const u8 = null,
     source_file_owned: bool = false,
+    source_encoding: enc.Encoding = .{ .utf8 = .{} },
     required_keywords: std.ArrayList(RequiredKeyword) = .empty,
     optional_keywords: std.ArrayList(OptionalKeyword) = .empty,
     keyword_rest_index: ?u8 = null,

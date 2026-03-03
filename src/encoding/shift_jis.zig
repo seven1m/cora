@@ -95,6 +95,13 @@ pub const ShiftJisEncoding = struct {
             return 2;
         }
 
+        // Dagger
+        if (codepoint == 0x2020) {
+            out[0] = 0x81;
+            out[1] = 0xE0;
+            return 2;
+        }
+
         return null;
     }
 
@@ -124,6 +131,9 @@ pub const ShiftJisEncoding = struct {
         }
         if (b0 == 0x83 and b1 == 0x41) {
             return 0x30A2;
+        }
+        if (b0 == 0x81 and b1 == 0xE0) {
+            return 0x2020;
         }
         return null;
     }

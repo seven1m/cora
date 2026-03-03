@@ -53,6 +53,7 @@ pub const RetryNode = c.pm_retry_node_t;
 pub const ReturnNode = c.pm_return_node_t;
 pub const SelfNode = c.pm_self_node_t;
 pub const SourceFileNode = c.pm_source_file_node_t;
+pub const SourceEncodingNode = c.pm_source_encoding_node_t;
 pub const StatementsNode = c.pm_statements_node_t;
 pub const StringNode = c.pm_string_node_t;
 pub const SymbolNode = c.pm_symbol_node_t;
@@ -163,6 +164,7 @@ pub const Node = union(enum) {
     retry: *RetryNode,
     return_node: *ReturnNode,
     self: *SelfNode,
+    source_encoding: *SourceEncodingNode,
     source_file: *SourceFileNode,
     statements: *StatementsNode,
     string: *StringNode,
@@ -416,6 +418,10 @@ pub const Parser = struct {
 
         if (node_type == c.PM_SOURCE_FILE_NODE) {
             return Node{ .source_file = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_SOURCE_ENCODING_NODE) {
+            return Node{ .source_encoding = @ptrCast(raw) };
         }
 
         if (node_type == c.PM_IF_NODE) {

@@ -254,6 +254,7 @@ pub const VM = struct {
     encoding_ascii_8bit: *value.EncodingObject,
     encoding_us_ascii: *value.EncodingObject,
     encoding_shift_jis: *value.EncodingObject,
+    encoding_iso_8859_9: *value.EncodingObject,
     encoding_iso_8859_15: *value.EncodingObject,
     encoding_utf7: *value.EncodingObject,
     encoding_utf16: *value.EncodingObject,
@@ -372,6 +373,7 @@ pub const VM = struct {
             .encoding_ascii_8bit = undefined,
             .encoding_us_ascii = undefined,
             .encoding_shift_jis = undefined,
+            .encoding_iso_8859_9 = undefined,
             .encoding_iso_8859_15 = undefined,
             .encoding_utf7 = undefined,
             .encoding_utf16 = undefined,
@@ -625,6 +627,7 @@ pub const VM = struct {
         self.encoding_ascii_8bit = try self.createEncodingObject(.{ .ascii_8bit = .{} });
         self.encoding_us_ascii = try self.createEncodingObject(.{ .us_ascii = .{} });
         self.encoding_shift_jis = try self.createEncodingObject(.{ .shift_jis = .{} });
+        self.encoding_iso_8859_9 = try self.createEncodingObject(.{ .iso_8859_9 = .{} });
         self.encoding_iso_8859_15 = try self.createEncodingObject(.{ .iso_8859_15 = .{} });
         self.encoding_utf7 = try self.createEncodingObject(.{ .utf7 = .{} });
         self.encoding_utf16 = try self.createEncodingObject(.{ .utf16 = .{} });
@@ -728,6 +731,8 @@ pub const VM = struct {
         const sjis_const_sym = try self.intern("SJIS");
         const euc_jp_const_sym = try self.intern("EUC_JP");
         const iso_8859_1_const_sym = try self.intern("ISO_8859_1");
+        const iso_8859_9_const_sym = try self.intern("ISO_8859_9");
+        const iso8859_9_const_sym = try self.intern("ISO8859_9");
         const iso_8859_15_const_sym = try self.intern("ISO_8859_15");
         const utf7_const_sym = try self.intern("UTF_7");
         const utf16_const_sym = try self.intern("UTF_16");
@@ -741,6 +746,7 @@ pub const VM = struct {
         const ascii_8bit_val = Value.fromObject(self.encoding_ascii_8bit);
         const us_ascii_val = Value.fromObject(self.encoding_us_ascii);
         const shift_jis_val = Value.fromObject(self.encoding_shift_jis);
+        const iso_8859_9_val = Value.fromObject(self.encoding_iso_8859_9);
         const iso_8859_15_val = Value.fromObject(self.encoding_iso_8859_15);
         const utf7_val = Value.fromObject(self.encoding_utf7);
         const utf16_val = Value.fromObject(self.encoding_utf16);
@@ -760,6 +766,8 @@ pub const VM = struct {
         self.encoding_class.module.constants.put(sjis_const_sym, shift_jis_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(euc_jp_const_sym, shift_jis_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(iso_8859_1_const_sym, iso_8859_15_val) catch return error.Fatal;
+        self.encoding_class.module.constants.put(iso_8859_9_const_sym, iso_8859_9_val) catch return error.Fatal;
+        self.encoding_class.module.constants.put(iso8859_9_const_sym, iso_8859_9_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(iso_8859_15_const_sym, iso_8859_15_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(utf7_const_sym, utf7_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(utf16_const_sym, utf16_val) catch return error.Fatal;
@@ -2561,7 +2569,7 @@ pub const VM = struct {
                     .integer => |i| if (std.math.cast(i63, i) != null) Value.integer(i) else try self.newBigIntegerFromI64(i),
                     .big_integer_decimal => |digits| try self.newBigIntegerFromDecimalString(digits),
                     .float => |f| try self.newFloat(f),
-                    .string => |s| try self.newString(s, false),
+                    .string => |s| try self.newStringWithEncoding(s, false, literalStringEncodingForChunk(frame.chunk.source_encoding, s)),
                     .symbol => |s| Value.fromObject(s),
                 };
                 try self.push(val);
@@ -5763,6 +5771,23 @@ pub const VM = struct {
         return self.newStringWithEncoding(str, frozen, .{ .utf8 = .{} });
     }
 
+    fn literalStringEncodingForChunk(source_encoding: enc.Encoding, bytes: []const u8) enc.Encoding {
+        if (enc.isAsciiOnly(bytes)) {
+            return .{ .us_ascii = .{} };
+        }
+        if (source_encoding == .us_ascii or source_encoding == .ascii_8bit) {
+            const utf8_encoding = enc.Encoding{ .utf8 = .{} };
+            if (utf8_encoding.isValid(bytes)) {
+                return .{ .utf8 = .{} };
+            }
+            if (source_encoding == .us_ascii) {
+                return .{ .ascii_8bit = .{} };
+            }
+            return .{ .ascii_8bit = .{} };
+        }
+        return source_encoding;
+    }
+
     pub fn newFloat(self: *VM, f: f64) VMError!Value {
         const float_obj = self.gc_allocator.create(value.FloatObject) catch return error.Fatal;
         float_obj.* = .{
@@ -5839,6 +5864,7 @@ pub const VM = struct {
             .ascii_8bit => Value.fromObject(self.encoding_ascii_8bit),
             .us_ascii => Value.fromObject(self.encoding_us_ascii),
             .shift_jis => Value.fromObject(self.encoding_shift_jis),
+            .iso_8859_9 => Value.fromObject(self.encoding_iso_8859_9),
             .iso_8859_15 => Value.fromObject(self.encoding_iso_8859_15),
             .utf7 => Value.fromObject(self.encoding_utf7),
             .utf16 => Value.fromObject(self.encoding_utf16),

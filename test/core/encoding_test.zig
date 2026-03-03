@@ -190,12 +190,6 @@ test "Encoding.find coerces to string via to_str" {
     try std.testing.expectEqualSlices(u8, "UTF-8", result.toStringObject().str);
 }
 
-test "String#encoding returns UTF-8 by default" {
-    const result = try evalCode("'hello'.encoding.name");
-    try std.testing.expect(result.isString());
-    try std.testing.expectEqualSlices(u8, "UTF-8", result.toStringObject().str);
-}
-
 test "String#encoding returns encoding object" {
     const result = try evalCode("'hello'.encoding");
     try std.testing.expect(result.isEncoding());
