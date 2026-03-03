@@ -267,6 +267,7 @@ pub const VM = struct {
 
     // Exception handling state
     pending_exception: ?*value.ExceptionObject = null,
+    ensure_pending_exceptions: std.ArrayList(?*value.ExceptionObject) = .empty,
     retry_point: ?struct {
         frame_idx: usize,
         byte_offset: usize,
@@ -1182,6 +1183,7 @@ pub const VM = struct {
             self.allocator.free(key.*);
         }
         self.fstring_cache.deinit();
+        self.ensure_pending_exceptions.deinit(self.allocator);
         self.at_exit_handlers.deinit(self.gc_allocator);
         self.recursion_guard.deinit(self.allocator);
         for (self.io_objects.items) |io_obj| {
@@ -3305,11 +3307,13 @@ pub const VM = struct {
 
             .RETURN => {
                 const is_explicit = readByteFrom(frame, operands, &operand_cursor);
-                const result = self.pop();
                 const current_frame = self.currentFrame();
+                const frame_stack_base = current_frame.stack_base;
+                const result = self.pop();
 
                 // Fast path: implicit return or explicit return from method/lambda
                 if (is_explicit == 0 or (current_frame.frame_type != .fiber and current_frame.frame_type != .proc)) {
+                    self.stack.shrinkRetainingCapacity(frame_stack_base);
                     // Inline fast popFrame: just decrement frame and env stack lengths
                     const new_frame_len = self.frames.items.len - 1;
                     self.frames.items = self.frames.storage[0..new_frame_len];
@@ -3983,8 +3987,14 @@ pub const VM = struct {
                 };
             },
 
-            .TRY_END, .CATCH_END, .ENSURE_START => {
+            .TRY_END, .CATCH_END => {
                 // These opcodes are just markers, no action needed during normal execution
+            },
+
+            .ENSURE_START => {
+                // Preserve an in-flight exception while executing ensure body. Any rescue
+                // inside the ensure may clear pending_exception; ENSURE_END restores this.
+                self.ensure_pending_exceptions.append(self.allocator, self.pending_exception) catch return error.Fatal;
             },
 
             .RETRY => {
@@ -4016,11 +4026,20 @@ pub const VM = struct {
                 // Pop the ensure block's return value (it's ignored)
                 _ = self.pop();
 
-                // If there's a pending exception, re-raise it after ensure block
+                const saved_exception = if (self.ensure_pending_exceptions.items.len > 0)
+                    self.ensure_pending_exceptions.pop().?
+                else
+                    null;
+
+                // A new exception raised in ensure body takes precedence.
                 if (self.pending_exception != null) {
                     return error.Unwind;
                 }
-                // Otherwise, ensure block completed normally
+                // Otherwise, restore any outer exception that entered ensure.
+                if (saved_exception) |exc| {
+                    self.pending_exception = exc;
+                    return error.Unwind;
+                }
             },
 
             .CATCH_START => {
@@ -4297,9 +4316,9 @@ pub const VM = struct {
                     // Only handle fast-path implicit return from methods
                     const is_explicit = code[f.ip + 1];
                     if (is_explicit == 0 or f.frame_type == .method or f.frame_type == .lambda) {
-                        // Pop result
                         const s_len = self.stack.items.len;
                         const result = self.stack.storage[s_len - 1];
+                        self.stack.items = self.stack.storage[0..f.stack_base];
                         // Pop frame
                         const new_frame_len = self.frames.items.len - 1;
                         self.frames.items = self.frames.storage[0..new_frame_len];
@@ -4310,9 +4329,9 @@ pub const VM = struct {
                             const prev_ep = derefEnvironment(self.frames.storage[new_frame_len - 1].ep);
                             self.current_lexical_scope = prev_ep.lexical_scope;
                         }
-                        // Push result (replace popped value)
-                        self.stack.storage[s_len - 1] = result;
-                        // stack length stays the same (popped one, pushed one)
+                        const len = self.stack.items.len;
+                        self.stack.storage[len] = result;
+                        self.stack.items = self.stack.storage[0 .. len + 1];
                     } else {
                         // Complex return (proc, fiber) - fall back
                         try self.executeInstructionWithUnwind(bounded, min_unwind_depth);
