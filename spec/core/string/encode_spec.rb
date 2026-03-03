@@ -13,9 +13,7 @@ describe "String#encode" do
     Encoding.default_internal = @internal
   end
 
-  # CORA: Shared encode examples currently exercise broader transcoder/features
-  # than implemented in Cora's runtime. Keep focused coverage below.
-  # it_behaves_like :string_encode, :encode
+  it_behaves_like :string_encode, :encode
 
   describe "when passed no options" do
     it "returns a copy when Encoding.default_internal is nil" do
@@ -82,7 +80,7 @@ describe "String#encode" do
     end
 
     it "replaces invalid encoding in source with default replacement" do
-      CORAFIXME "String#encode invalid: :replace semantics", exception: ArgumentError do
+      CORAFIXME "String#encode invalid: :replace semantics", exception: StandardError do
         encoded = "ち\xE3\x81\xFF".encode("UTF-16LE", invalid: :replace)
         encoded.should == "\u3061\ufffd\ufffd".encode("UTF-16LE")
         encoded.encode("UTF-8").should == "ち\ufffd\ufffd"
@@ -90,7 +88,7 @@ describe "String#encode" do
     end
 
     it "replaces invalid encoding in source with a specified replacement" do
-      CORAFIXME "String#encode replace: option for invalid bytes", exception: ArgumentError do
+      CORAFIXME "String#encode replace: option for invalid bytes", exception: StandardError do
         encoded = "ち\xE3\x81\xFF".encode("UTF-16LE", invalid: :replace, replace: "foo")
         encoded.should == "\u3061foofoo".encode("UTF-16LE")
         encoded.encode("UTF-8").should == "ちfoofoo"
@@ -98,13 +96,13 @@ describe "String#encode" do
     end
 
     it "replace multiple invalid bytes at the end with a single replacement character" do
-      CORAFIXME "String#encode compacts invalid-byte replacement", exception: ArgumentError do
+      CORAFIXME "String#encode compacts invalid-byte replacement", exception: StandardError do
         "\xE3\x81\x93\xE3\x81".encode("UTF-8", invalid: :replace).should == "\u3053\ufffd"
       end
     end
 
     it "replaces invalid encoding in source using a specified replacement even when a fallback is given" do
-      CORAFIXME "String#encode fallback interaction for invalid bytes", exception: ArgumentError do
+      CORAFIXME "String#encode fallback interaction for invalid bytes", exception: StandardError do
         encoded = "ち\xE3\x81\xFF".encode("UTF-16LE", invalid: :replace, replace: "foo", fallback: -> c { "bar" })
         encoded.should == "\u3061foofoo".encode("UTF-16LE")
         encoded.encode("UTF-8").should == "ちfoofoo"
@@ -112,7 +110,7 @@ describe "String#encode" do
     end
 
     it "replaces undefined encoding in destination with default replacement" do
-      CORAFIXME "String#encode undef: :replace default replacement", exception: ArgumentError do
+      CORAFIXME "String#encode undef: :replace default replacement", exception: StandardError do
         encoded = "B\ufffd".encode(Encoding::US_ASCII, undef: :replace)
         encoded.should == "B?".encode(Encoding::US_ASCII)
         encoded.encode("UTF-8").should == "B?"
@@ -120,7 +118,7 @@ describe "String#encode" do
     end
 
     it "replaces undefined encoding in destination with a specified replacement" do
-      CORAFIXME "String#encode undef replacement string", exception: ArgumentError do
+      CORAFIXME "String#encode undef replacement string", exception: StandardError do
         encoded = "B\ufffd".encode(Encoding::US_ASCII, undef: :replace, replace: "foo")
         encoded.should == "Bfoo".encode(Encoding::US_ASCII)
         encoded.encode("UTF-8").should == "Bfoo"
@@ -128,7 +126,7 @@ describe "String#encode" do
     end
 
     it "replaces undefined encoding in destination with a specified replacement even if a fallback is given" do
-      CORAFIXME "String#encode fallback interaction for undef bytes", exception: ArgumentError do
+      CORAFIXME "String#encode fallback interaction for undef bytes", exception: StandardError do
         encoded = "B\ufffd".encode(Encoding::US_ASCII, undef: :replace, replace: "foo", fallback: proc {|x| "bar"})
         encoded.should == "Bfoo".encode(Encoding::US_ASCII)
         encoded.encode("UTF-8").should == "Bfoo"
@@ -136,7 +134,7 @@ describe "String#encode" do
     end
 
     it "replaces undefined encoding in destination using a fallback proc" do
-      CORAFIXME "String#encode fallback proc for undefined conversion", exception: ArgumentError do
+      CORAFIXME "String#encode fallback proc for undefined conversion", exception: StandardError do
         encoded = "B\ufffd".encode(Encoding::US_ASCII, fallback: proc {|x| "bar"})
         encoded.should == "Bbar".encode(Encoding::US_ASCII)
         encoded.encode("UTF-8").should == "Bbar"
@@ -144,7 +142,7 @@ describe "String#encode" do
     end
 
     it "replaces invalid encoding in source using replace even when fallback is given as proc" do
-      CORAFIXME "String#encode fallback proc with invalid replacement", exception: ArgumentError do
+      CORAFIXME "String#encode fallback proc with invalid replacement", exception: StandardError do
         encoded = "ち\xE3\x81\xFF".encode("UTF-16LE", invalid: :replace, replace: "foo", fallback: proc {|x| "bar"})
         encoded.should == "\u3061foofoo".encode("UTF-16LE")
         encoded.encode("UTF-8").should == "ちfoofoo"
@@ -207,9 +205,7 @@ describe "String#encode!" do
     Encoding.default_internal = @internal
   end
 
-  # CORA: Shared encode! examples are coupled to the same missing transcoder
-  # surface area as String#encode shared examples.
-  # it_behaves_like :string_encode, :encode!
+  it_behaves_like :string_encode, :encode!
 
   it "raises a FrozenError when called on a frozen String" do
     -> { "foo".freeze.encode!("euc-jp") }.should raise_error(FrozenError)

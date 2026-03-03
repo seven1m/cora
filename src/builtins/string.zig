@@ -621,12 +621,12 @@ pub fn builtinStringEncode(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
         switch (err) {
             error.InvalidByteSequence => {
                 const src_name = from_encoding.name();
-                return vm.raiseExceptionFmt(vm.argument_error_class, "invalid byte sequence in {s}", .{src_name});
+                return vm.raiseExceptionFmt(vm.encoding_invalid_byte_sequence_error_class, "invalid byte sequence in {s}", .{src_name});
             },
             error.UndefinedConversion => {
                 const src_name = from_encoding.name();
                 const dst_name = target_encoding.name();
-                return vm.raiseExceptionFmt(vm.argument_error_class, "undefined conversion from {s} to {s}", .{ src_name, dst_name });
+                return vm.raiseExceptionFmt(vm.encoding_undefined_conversion_error_class, "undefined conversion from {s} to {s}", .{ src_name, dst_name });
             },
             else => return error.Fatal,
         }

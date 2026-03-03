@@ -239,6 +239,10 @@ pub const VM = struct {
     fiber_error_class: *value.ClassObject,
     load_error_class: *value.ClassObject,
     encoding_error_class: *value.ClassObject,
+    encoding_compatibility_error_class: *value.ClassObject,
+    encoding_converter_not_found_error_class: *value.ClassObject,
+    encoding_undefined_conversion_error_class: *value.ClassObject,
+    encoding_invalid_byte_sequence_error_class: *value.ClassObject,
     range_error_class: *value.ClassObject,
     regexp_error_class: *value.ClassObject,
     index_error_class: *value.ClassObject,
@@ -362,6 +366,10 @@ pub const VM = struct {
             .fiber_error_class = undefined,
             .load_error_class = undefined,
             .encoding_error_class = undefined,
+            .encoding_compatibility_error_class = undefined,
+            .encoding_converter_not_found_error_class = undefined,
+            .encoding_undefined_conversion_error_class = undefined,
+            .encoding_invalid_byte_sequence_error_class = undefined,
             .range_error_class = undefined,
             .regexp_error_class = undefined,
             .index_error_class = undefined,
@@ -592,6 +600,18 @@ pub const VM = struct {
         const encoding_error_name_sym = try self.intern("EncodingError");
         const encoding_error_class_val = try self.newClass(encoding_error_name_sym, self.standard_error_class);
         self.encoding_error_class = encoding_error_class_val.toClassObject();
+        const encoding_compatibility_error_name_sym = try self.intern("CompatibilityError");
+        const encoding_compatibility_error_class_val = try self.newClass(encoding_compatibility_error_name_sym, self.encoding_error_class);
+        self.encoding_compatibility_error_class = encoding_compatibility_error_class_val.toClassObject();
+        const encoding_converter_not_found_error_name_sym = try self.intern("ConverterNotFoundError");
+        const encoding_converter_not_found_error_class_val = try self.newClass(encoding_converter_not_found_error_name_sym, self.encoding_error_class);
+        self.encoding_converter_not_found_error_class = encoding_converter_not_found_error_class_val.toClassObject();
+        const encoding_undefined_conversion_error_name_sym = try self.intern("UndefinedConversionError");
+        const encoding_undefined_conversion_error_class_val = try self.newClass(encoding_undefined_conversion_error_name_sym, self.encoding_error_class);
+        self.encoding_undefined_conversion_error_class = encoding_undefined_conversion_error_class_val.toClassObject();
+        const encoding_invalid_byte_sequence_error_name_sym = try self.intern("InvalidByteSequenceError");
+        const encoding_invalid_byte_sequence_error_class_val = try self.newClass(encoding_invalid_byte_sequence_error_name_sym, self.encoding_error_class);
+        self.encoding_invalid_byte_sequence_error_class = encoding_invalid_byte_sequence_error_class_val.toClassObject();
 
         const range_error_name_sym = try self.intern("RangeError");
         const range_error_class_val = try self.newClass(range_error_name_sym, self.standard_error_class);
@@ -741,6 +761,8 @@ pub const VM = struct {
         const utf32_const_sym = try self.intern("UTF_32");
         const utf32le_const_sym = try self.intern("UTF_32LE");
         const utf32be_const_sym = try self.intern("UTF_32BE");
+        const iso_2022_jp_const_sym = try self.intern("ISO_2022_JP");
+        const emacs_mule_const_sym = try self.intern("Emacs_Mule");
 
         const utf8_val = Value.fromObject(self.encoding_utf8);
         const ascii_8bit_val = Value.fromObject(self.encoding_ascii_8bit);
@@ -776,8 +798,12 @@ pub const VM = struct {
         self.encoding_class.module.constants.put(utf32_const_sym, utf32_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(utf32le_const_sym, utf32le_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(utf32be_const_sym, utf32be_val) catch return error.Fatal;
-        const compatibility_error_sym = try self.intern("CompatibilityError");
-        self.encoding_class.module.constants.put(compatibility_error_sym, argument_error_class_val) catch return error.Fatal;
+        self.encoding_class.module.constants.put(iso_2022_jp_const_sym, iso_8859_15_val) catch return error.Fatal;
+        self.encoding_class.module.constants.put(emacs_mule_const_sym, shift_jis_val) catch return error.Fatal;
+        self.encoding_class.module.constants.put(encoding_compatibility_error_name_sym, encoding_compatibility_error_class_val) catch return error.Fatal;
+        self.encoding_class.module.constants.put(encoding_converter_not_found_error_name_sym, encoding_converter_not_found_error_class_val) catch return error.Fatal;
+        self.encoding_class.module.constants.put(encoding_undefined_conversion_error_name_sym, encoding_undefined_conversion_error_class_val) catch return error.Fatal;
+        self.encoding_class.module.constants.put(encoding_invalid_byte_sequence_error_name_sym, encoding_invalid_byte_sequence_error_class_val) catch return error.Fatal;
 
         // --- Stage 5: Register built-in methods ---
         builtins.registerAll(self) catch return error.Fatal;

@@ -247,7 +247,7 @@ pub fn builtinEncodingFind(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
         };
     }
 
-    return vm.raiseExceptionFmt(vm.argument_error_class, "unknown encoding name - {s}", .{name_str});
+    return vm.raiseExceptionFmt(vm.encoding_converter_not_found_error_class, "unknown encoding name - {s}", .{name_str});
 }
 
 pub fn builtinEncodingDefaultInternal(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
