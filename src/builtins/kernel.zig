@@ -123,6 +123,9 @@ pub fn register(vm: *VM) !void {
     const send_sym = try vm.intern("send");
     try vm.kernel_module.methods.put(send_sym, .{ .method = .{ .builtin = &builtinKernelSend } });
 
+    const method_sym = try vm.intern("method");
+    try vm.kernel_module.methods.put(method_sym, .{ .method = .{ .builtin = &builtinKernelMethod } });
+
     const to_enum_sym = try vm.intern("to_enum");
     try vm.kernel_module.methods.put(to_enum_sym, .{ .method = .{ .builtin = &builtinKernelToEnum } });
 
@@ -495,6 +498,49 @@ pub fn builtinKernelSend(vm: *VM, receiver: Value, args: []Value, block: ?Block)
     const name_str = try vm.coerceToMethodNameString(args[0]);
     const call_args = args[1..];
     return vm.callMethodByNameForwardingKeywords(receiver, name_str, call_args, block);
+}
+
+fn builtinKernelBoundMethodCall(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    const target = try vm.getInstanceVariable(receiver, "@__method_receiver");
+    const method_name_val = try vm.getInstanceVariable(receiver, "@__method_name");
+    if (!method_name_val.isSymbol()) return error.Fatal;
+    return vm.callMethodByNameForwardingKeywords(target, method_name_val.toSymbolObject().name, args, block);
+}
+
+fn builtinKernelBoundMethodToProc(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return receiver;
+}
+
+pub fn builtinKernelMethod(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const method_name = try vm.coerceToMethodNameSymbol(args[0]);
+
+    if ((try vm.findMethod(receiver, method_name)) == null) {
+        return vm.raiseExceptionFmt(
+            vm.name_error_class,
+            "undefined method '{s}'",
+            .{method_name.name},
+        );
+    }
+
+    const method_obj = try vm.newInstance(vm.object_class);
+    try vm.setInstanceVariable(method_obj, "@__method_receiver", receiver);
+    try vm.setInstanceVariable(method_obj, "@__method_name", Value.fromObject(method_name));
+
+    const singleton = try vm.getOrCreateSingletonClass(method_obj);
+    const call_sym = try vm.intern("call");
+    singleton.module.methods.put(call_sym, .{
+        .method = .{ .builtin = &builtinKernelBoundMethodCall },
+    }) catch return error.Fatal;
+
+    const to_proc_sym = try vm.intern("to_proc");
+    singleton.module.methods.put(to_proc_sym, .{
+        .method = .{ .builtin = &builtinKernelBoundMethodToProc },
+    }) catch return error.Fatal;
+
+    vm.bumpMethodStateVersion();
+    return method_obj;
 }
 
 fn kernelEnumForCommon(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {

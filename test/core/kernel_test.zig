@@ -611,3 +611,28 @@ test "Kernel#tap validates arg count" {
     try std.testing.expectEqual(error.UnhandledException, bad.err.?);
     try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "ArgumentError") != null);
 }
+
+test "Kernel#method returns callable bound method wrapper" {
+    const result = try evalCode(
+        \\class KernelMethodBoundTarget
+        \\  def greet(name)
+        \\    "hi #{name}"
+        \\  end
+        \\end
+        \\obj = KernelMethodBoundTarget.new
+        \\m = obj.method(:greet)
+        \\[m.call("bob"), m.to_proc.call("kim")]
+    );
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqualStrings("hi bob", result.toArrayObject().elements.items[0].toStringObject().str);
+    try std.testing.expectEqualStrings("hi kim", result.toArrayObject().elements.items[1].toStringObject().str);
+}
+
+test "Kernel#method raises NameError for missing method" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+
+    const bad = evalCodeWithOutput("Object.new.method(:does_not_exist)", &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.UnhandledException, bad.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "NameError") != null);
+}
