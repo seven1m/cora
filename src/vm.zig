@@ -763,6 +763,7 @@ pub const VM = struct {
         const utf32be_const_sym = try self.intern("UTF_32BE");
         const iso_2022_jp_const_sym = try self.intern("ISO_2022_JP");
         const emacs_mule_const_sym = try self.intern("Emacs_Mule");
+        const converter_const_sym = try self.intern("Converter");
 
         const utf8_val = Value.fromObject(self.encoding_utf8);
         const ascii_8bit_val = Value.fromObject(self.encoding_ascii_8bit);
@@ -777,6 +778,7 @@ pub const VM = struct {
         const utf16be_val = Value.fromObject(self.encoding_utf16be);
         const utf32le_val = Value.fromObject(self.encoding_utf32le);
         const utf32be_val = Value.fromObject(self.encoding_utf32be);
+        const encoding_converter_class_val = try self.newClass(converter_const_sym, self.object_class);
 
         self.encoding_class.module.constants.put(utf8_const_sym, utf8_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(ascii_8bit_const_sym, ascii_8bit_val) catch return error.Fatal;
@@ -800,6 +802,7 @@ pub const VM = struct {
         self.encoding_class.module.constants.put(utf32be_const_sym, utf32be_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(iso_2022_jp_const_sym, iso_8859_15_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(emacs_mule_const_sym, shift_jis_val) catch return error.Fatal;
+        self.encoding_class.module.constants.put(converter_const_sym, encoding_converter_class_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(encoding_compatibility_error_name_sym, encoding_compatibility_error_class_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(encoding_converter_not_found_error_name_sym, encoding_converter_not_found_error_class_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(encoding_undefined_conversion_error_name_sym, encoding_undefined_conversion_error_class_val) catch return error.Fatal;

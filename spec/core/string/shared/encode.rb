@@ -12,24 +12,20 @@ describe :string_encode, shared: true do
     end
 
     it "transcodes a 7-bit String despite no generic converting being available" do
-      CORAFIXME "String shared encode 7-bit no-options", exception: StandardError do
-        -> do
-          Encoding::Converter.new Encoding::Emacs_Mule, Encoding::BINARY
-        end.should raise_error(Encoding::ConverterNotFoundError)
+      -> do
+        Encoding::Converter.new Encoding::Emacs_Mule, Encoding::BINARY
+      end.should raise_error(Encoding::ConverterNotFoundError)
 
-        Encoding.default_internal = Encoding::Emacs_Mule
-        str = "\x79".force_encoding Encoding::BINARY
+      Encoding.default_internal = Encoding::Emacs_Mule
+      str = "\x79".force_encoding Encoding::BINARY
 
-        str.send(@method).should == "y".force_encoding(Encoding::BINARY)
-      end
+      str.send(@method).should == "y".force_encoding(Encoding::BINARY)
     end
 
     it "raises an Encoding::ConverterNotFoundError when no conversion is possible" do
-      CORAFIXME "String shared encode converter-not-found no-options", exception: StandardError do
-        Encoding.default_internal = Encoding::Emacs_Mule
-        str = [0x80].pack('C').force_encoding Encoding::BINARY
-        -> { str.send(@method) }.should raise_error(Encoding::ConverterNotFoundError)
-      end
+      Encoding.default_internal = Encoding::Emacs_Mule
+      str = [0x80].pack('C').force_encoding Encoding::BINARY
+      -> { str.send(@method) }.should raise_error(Encoding::ConverterNotFoundError)
     end
   end
 
@@ -67,23 +63,19 @@ describe :string_encode, shared: true do
     end
 
     it "transcodes a 7-bit String despite no generic converting being available" do
-      CORAFIXME "String shared encode 7-bit to-encoding", exception: StandardError do
-        -> do
-          Encoding::Converter.new Encoding::Emacs_Mule, Encoding::BINARY
-        end.should raise_error(Encoding::ConverterNotFoundError)
+      -> do
+        Encoding::Converter.new Encoding::Emacs_Mule, Encoding::BINARY
+      end.should raise_error(Encoding::ConverterNotFoundError)
 
-        str = "\x79".force_encoding Encoding::BINARY
-        str.send(@method, Encoding::Emacs_Mule).should == "y".force_encoding(Encoding::BINARY)
-      end
+      str = "\x79".force_encoding Encoding::BINARY
+      str.send(@method, Encoding::Emacs_Mule).should == "y".force_encoding(Encoding::BINARY)
     end
 
     it "raises an Encoding::ConverterNotFoundError when no conversion is possible" do
-      CORAFIXME "String shared encode converter-not-found to-encoding", exception: StandardError do
-        str = [0x80].pack('C').force_encoding Encoding::BINARY
-        -> do
-          str.send(@method, Encoding::Emacs_Mule)
-        end.should raise_error(Encoding::ConverterNotFoundError)
-      end
+      str = [0x80].pack('C').force_encoding Encoding::BINARY
+      -> do
+        str.send(@method, Encoding::Emacs_Mule)
+      end.should raise_error(Encoding::ConverterNotFoundError)
     end
 
     it "raises an Encoding::ConverterNotFoundError for an invalid encoding" do
@@ -116,13 +108,11 @@ describe :string_encode, shared: true do
     end
 
     it "raises an Encoding::ConverterNotFoundError when no conversion is possible despite 'invalid: :replace, undef: :replace'" do
-      CORAFIXME "String shared encode options converter-not-found", exception: StandardError do
-        Encoding.default_internal = Encoding::Emacs_Mule
-        str = [0x80].pack('C').force_encoding Encoding::BINARY
-        -> do
-          str.send(@method, invalid: :replace, undef: :replace)
-        end.should raise_error(Encoding::ConverterNotFoundError)
-      end
+      Encoding.default_internal = Encoding::Emacs_Mule
+      str = [0x80].pack('C').force_encoding Encoding::BINARY
+      -> do
+        str.send(@method, invalid: :replace, undef: :replace)
+      end.should raise_error(Encoding::ConverterNotFoundError)
     end
 
     it "replaces invalid characters when replacing Emacs-Mule encoded strings" do

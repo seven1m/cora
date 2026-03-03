@@ -1,6 +1,7 @@
 const std = @import("std");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
+const converter = @import("encoding/converter.zig");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -162,6 +163,7 @@ pub fn register(vm: *VM) !void {
 
     const set_default_external_sym = try vm.intern("default_external=");
     try encoding_singleton.module.methods.put(set_default_external_sym, .{ .method = .{ .builtin = &builtinEncodingSetDefaultExternal } });
+    try converter.register(vm);
 }
 
 pub fn builtinEncodingName(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
