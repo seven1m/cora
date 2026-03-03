@@ -129,6 +129,18 @@ pub fn register(vm: *VM) !void {
     const string_end_with_sym = try vm.intern("end_with?");
     try vm.string_class.module.methods.put(string_end_with_sym, .{ .method = .{ .builtin = &builtinStringEndWith } });
 
+    const string_delete_prefix_sym = try vm.intern("delete_prefix");
+    try vm.string_class.module.methods.put(string_delete_prefix_sym, .{ .method = .{ .builtin = &builtinStringDeletePrefix } });
+
+    const string_delete_prefix_bang_sym = try vm.intern("delete_prefix!");
+    try vm.string_class.module.methods.put(string_delete_prefix_bang_sym, .{ .method = .{ .builtin = &builtinStringDeletePrefixBang } });
+
+    const string_delete_suffix_sym = try vm.intern("delete_suffix");
+    try vm.string_class.module.methods.put(string_delete_suffix_sym, .{ .method = .{ .builtin = &builtinStringDeleteSuffix } });
+
+    const string_delete_suffix_bang_sym = try vm.intern("delete_suffix!");
+    try vm.string_class.module.methods.put(string_delete_suffix_bang_sym, .{ .method = .{ .builtin = &builtinStringDeleteSuffixBang } });
+
     const string_include_sym = try vm.intern("include?");
     try vm.string_class.module.methods.put(string_include_sym, .{ .method = .{ .builtin = &builtinStringInclude } });
 
@@ -1082,6 +1094,117 @@ pub fn builtinStringEndWith(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     }
 
     return Value.boolean(false);
+}
+
+pub fn builtinStringDeletePrefix(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const string_obj = receiver.toStringObject();
+
+    const prefix_val = try args[0].coerceToStringValue(vm, "no implicit conversion into String");
+    const prefix = prefix_val.toStringObject().str;
+    const prefix_enc = prefix_val.toStringObject().encoding;
+    if (enc.negotiate(string_obj.encoding, string_obj.str, prefix_enc, prefix) == null) {
+        return vm.raiseExceptionFmt(
+            vm.argument_error_class,
+            "incompatible character encodings: {s} and {s}",
+            .{ string_obj.encoding.name(), prefix_enc.name() },
+        );
+    }
+
+    if (std.mem.startsWith(u8, string_obj.str, prefix) and string_obj.encoding.isCharBoundary(string_obj.str, prefix.len)) {
+        return try vm.newStringWithEncoding(string_obj.str[prefix.len..], false, string_obj.encoding);
+    }
+
+    return try vm.newStringWithEncoding(string_obj.str, false, string_obj.encoding);
+}
+
+pub fn builtinStringDeletePrefixBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
+    }
+    const string_obj = receiver.toStringObject();
+
+    const prefix_val = try args[0].coerceToStringValue(vm, "no implicit conversion into String");
+    const prefix = prefix_val.toStringObject().str;
+    const prefix_enc = prefix_val.toStringObject().encoding;
+    if (enc.negotiate(string_obj.encoding, string_obj.str, prefix_enc, prefix) == null) {
+        return vm.raiseExceptionFmt(
+            vm.argument_error_class,
+            "incompatible character encodings: {s} and {s}",
+            .{ string_obj.encoding.name(), prefix_enc.name() },
+        );
+    }
+
+    if (!(std.mem.startsWith(u8, string_obj.str, prefix) and string_obj.encoding.isCharBoundary(string_obj.str, prefix.len))) {
+        return Value.nil();
+    }
+    if (prefix.len == 0) {
+        return Value.nil();
+    }
+
+    string_obj.str = vm.gc_allocator_atomic.dupe(u8, string_obj.str[prefix.len..]) catch return error.Fatal;
+    string_obj.validity = .unknown;
+    return receiver;
+}
+
+pub fn builtinStringDeleteSuffix(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const string_obj = receiver.toStringObject();
+
+    const suffix_val = try args[0].coerceToStringValue(vm, "no implicit conversion into String");
+    const suffix = suffix_val.toStringObject().str;
+    const suffix_enc = suffix_val.toStringObject().encoding;
+    if (enc.negotiate(string_obj.encoding, string_obj.str, suffix_enc, suffix) == null) {
+        return vm.raiseExceptionFmt(
+            vm.argument_error_class,
+            "incompatible character encodings: {s} and {s}",
+            .{ string_obj.encoding.name(), suffix_enc.name() },
+        );
+    }
+
+    if (std.mem.endsWith(u8, string_obj.str, suffix)) {
+        const start = string_obj.str.len - suffix.len;
+        if (string_obj.encoding.isCharBoundary(string_obj.str, start)) {
+            return try vm.newStringWithEncoding(string_obj.str[0..start], false, string_obj.encoding);
+        }
+    }
+
+    return try vm.newStringWithEncoding(string_obj.str, false, string_obj.encoding);
+}
+
+pub fn builtinStringDeleteSuffixBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
+    }
+    const string_obj = receiver.toStringObject();
+
+    const suffix_val = try args[0].coerceToStringValue(vm, "no implicit conversion into String");
+    const suffix = suffix_val.toStringObject().str;
+    const suffix_enc = suffix_val.toStringObject().encoding;
+    if (enc.negotiate(string_obj.encoding, string_obj.str, suffix_enc, suffix) == null) {
+        return vm.raiseExceptionFmt(
+            vm.argument_error_class,
+            "incompatible character encodings: {s} and {s}",
+            .{ string_obj.encoding.name(), suffix_enc.name() },
+        );
+    }
+
+    if (!std.mem.endsWith(u8, string_obj.str, suffix)) {
+        return Value.nil();
+    }
+    if (suffix.len == 0) {
+        return Value.nil();
+    }
+    const start = string_obj.str.len - suffix.len;
+    if (!string_obj.encoding.isCharBoundary(string_obj.str, start)) {
+        return Value.nil();
+    }
+
+    string_obj.str = vm.gc_allocator_atomic.dupe(u8, string_obj.str[0..start]) catch return error.Fatal;
+    string_obj.validity = .unknown;
+    return receiver;
 }
 
 pub fn builtinStringInclude(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
