@@ -526,24 +526,105 @@ pub fn builtinStringEncoding(vm: *VM, receiver: Value, args: []Value, _: ?Block)
 }
 
 pub fn builtinStringEncode(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 1);
+    try vm.requireArgCountRange(args, 0, 2);
 
-    const target_encoding: enc.Encoding = if (args[0].isEncoding())
-        args[0].toEncodingObject().encoding
-    else blk: {
-        const result = try encoding_builtin.builtinEncodingFind(vm, receiver, args, null);
-        break :blk result.toEncodingObject().encoding;
-    };
+    var kw_invalid: ?Value = null;
+    var kw_undef: ?Value = null;
+    var kw_replace: ?Value = null;
+    var kw_fallback: ?Value = null;
+    var kw_cr_newline: ?Value = null;
+    var kw_crlf_newline: ?Value = null;
+    var kw_universal_newline: ?Value = null;
+    var kw_xml: ?Value = null;
+    try vm.consumeKeywordArgs(
+        .{ "invalid", "undef", "replace", "fallback", "cr_newline", "crlf_newline", "universal_newline", "xml" },
+        .{ &kw_invalid, &kw_undef, &kw_replace, &kw_fallback, &kw_cr_newline, &kw_crlf_newline, &kw_universal_newline, &kw_xml },
+    );
+    try vm.validateKeywordArgsConsumed();
+
+    const has_encode_options = kw_invalid != null or
+        kw_undef != null or
+        kw_replace != null or
+        kw_fallback != null or
+        kw_cr_newline != null or
+        kw_crlf_newline != null or
+        kw_universal_newline != null or
+        kw_xml != null;
+    _ = has_encode_options;
 
     const string_obj = receiver.toStringObject();
-    const transcoded = enc.transcode(vm.gc_allocator_atomic, string_obj.str, string_obj.encoding, target_encoding) catch |err| {
+    const from_encoding: enc.Encoding = if (args.len >= 2)
+        if (args[1].isEncoding())
+            args[1].toEncodingObject().encoding
+        else blk: {
+            var find_args = [_]Value{args[1]};
+            const result = try encoding_builtin.builtinEncodingFind(vm, receiver, find_args[0..], null);
+            break :blk result.toEncodingObject().encoding;
+        }
+    else
+        string_obj.encoding;
+    const target_encoding: enc.Encoding = if (args.len >= 1)
+        if (args[0].isEncoding())
+            args[0].toEncodingObject().encoding
+        else blk: {
+            var find_args = [_]Value{args[0]};
+            const result = try encoding_builtin.builtinEncodingFind(vm, receiver, find_args[0..], null);
+            break :blk result.toEncodingObject().encoding;
+        }
+    else if (vm.default_internal_encoding) |internal|
+        internal.encoding
+    else
+        string_obj.encoding;
+
+    var normalized_newlines: std.ArrayList(u8) = .empty;
+    defer normalized_newlines.deinit(vm.gc_allocator_atomic);
+    const source_bytes: []const u8 = blk: {
+        if (kw_universal_newline != null and kw_universal_newline.?.is_truthy()) {
+            var i: usize = 0;
+            while (i < string_obj.str.len) : (i += 1) {
+                const b = string_obj.str[i];
+                if (b == '\r') {
+                    if (i + 1 < string_obj.str.len and string_obj.str[i + 1] == '\n') {
+                        i += 1;
+                    }
+                    normalized_newlines.append(vm.gc_allocator_atomic, '\n') catch return error.Fatal;
+                } else {
+                    normalized_newlines.append(vm.gc_allocator_atomic, b) catch return error.Fatal;
+                }
+            }
+            break :blk normalized_newlines.items;
+        }
+
+        if (kw_crlf_newline != null and kw_crlf_newline.?.is_truthy()) {
+            for (string_obj.str) |b| {
+                if (b == '\n') {
+                    normalized_newlines.append(vm.gc_allocator_atomic, '\r') catch return error.Fatal;
+                    normalized_newlines.append(vm.gc_allocator_atomic, '\n') catch return error.Fatal;
+                } else {
+                    normalized_newlines.append(vm.gc_allocator_atomic, b) catch return error.Fatal;
+                }
+            }
+            break :blk normalized_newlines.items;
+        }
+
+        if (kw_cr_newline != null and kw_cr_newline.?.is_truthy()) {
+            for (string_obj.str) |b| {
+                normalized_newlines.append(vm.gc_allocator_atomic, if (b == '\n') '\r' else b) catch return error.Fatal;
+            }
+            break :blk normalized_newlines.items;
+        }
+
+        break :blk string_obj.str;
+    };
+
+    const transcoded = enc.transcode(vm.gc_allocator_atomic, source_bytes, from_encoding, target_encoding) catch |err| {
         switch (err) {
             error.InvalidByteSequence => {
-                const src_name = string_obj.encoding.name();
+                const src_name = from_encoding.name();
                 return vm.raiseExceptionFmt(vm.argument_error_class, "invalid byte sequence in {s}", .{src_name});
             },
             error.UndefinedConversion => {
-                const src_name = string_obj.encoding.name();
+                const src_name = from_encoding.name();
                 const dst_name = target_encoding.name();
                 return vm.raiseExceptionFmt(vm.argument_error_class, "undefined conversion from {s} to {s}", .{ src_name, dst_name });
             },
