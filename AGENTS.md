@@ -136,6 +136,17 @@ Use "unmanaged" ArrayList: `field: ArrayList(*Value) = .empty` (allocator passed
 - Prefer importing files at the top of the file. Avoid inline `@import(...)` expressions in function bodies or expressions.
 - Do not expose runtime implementation details to user Ruby code via fake/hidden instance variables or methods (e.g. `@__store`, `__hidden_methods__`). Keep runtime-only state in VM/runtime structures instead.
 - Always use VM argument-count helpers (`requireArgCount`, `requireArgCountRange`, etc.) instead of manually constructing "wrong number of arguments" exceptions in builtins.
+- Prefer `VM.checkCallMethodByName(receiver, "method", args, block)` for optional conversion/probe calls that should gracefully treat missing methods as "not supported" (MRI-style check-call behavior).
+- Do not parse exception messages (for example `"undefined method 'to_str'"`) to detect missing methods. Use `checkCallMethodByName` or explicit method lookup + dispatch rules.
+- Use normal `callMethodByName` (not check-call) when you must always perform the call or preserve side effects.
+
+### String coercion conventions
+- Canonical implicit String coercion lives in `Value.coerceToStringValue` (`src/value.zig`). Prefer this for Ruby APIs that require String-like arguments via `to_str` and should raise `TypeError` on failure.
+- Use `Value.coerceToStr` when you need `[]const u8` bytes after the same implicit coercion semantics.
+- Use `VM.checkCallMethodByName(..., "to_str", ...)` for optional/cooperative conversions (for example `String.try_convert`) where missing method should map to `nil`/fallback instead of raising.
+- If you only need capability probing (for example `String#==` checking whether `to_str` is supported before reverse-dispatch), use `respond_to?` semantics rather than forcing a coercion call.
+- Use `VM.coerceToPath` for path arguments (`to_path` then String coercion), rather than open-coding path coercion in builtins.
+- Avoid per-builtin ad hoc `to_str` coercion helpers unless semantics intentionally differ from the canonical paths; if they do differ, document why near the helper.
 
 ## Ruby Specs
 

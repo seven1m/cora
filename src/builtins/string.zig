@@ -270,7 +270,7 @@ pub fn builtinStringUnaryPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block
 pub fn builtinStringPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const lhs = receiver.toStringObject();
-    const rhs_value = try coerceConcatArgumentToStringValue(vm, args[0], "no implicit conversion into String");
+    const rhs_value = try args[0].coerceToStringValue(vm, "no implicit conversion into String");
     const rhs = rhs_value.toStringObject();
 
     const result_encoding = resolveStringConcatEncoding(lhs.encoding, lhs.str, rhs.encoding, rhs.str) orelse {
@@ -375,7 +375,9 @@ pub fn builtinStringEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     }
 
     const to_str_sym = try vm.intern("to_str");
-    if ((try vm.findMethod(other, to_str_sym)) != null) {
+    var respond_args = [_]Value{Value.fromObject(to_str_sym)};
+    const responds_to_to_str = try vm.callMethodByName(other, "respond_to?", respond_args[0..], null);
+    if (responds_to_to_str.is_truthy()) {
         var reverse_args = [_]Value{receiver};
         return try vm.callMethodByName(other, "==", reverse_args[0..], null);
     }
@@ -867,7 +869,7 @@ pub fn builtinStringBracketSet(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
         replace_end_byte = encoding.byteOffsetForCharIndex(bytes, @intCast(finish)) orelse bytes.len;
     }
 
-    const replacement = try coerceConcatArgumentToStringValue(vm, replacement_arg, "no implicit conversion into String");
+    const replacement = try replacement_arg.coerceToStringValue(vm, "no implicit conversion into String");
     try spliceStringBytes(vm, receiver, replace_start_byte, replace_end_byte, replacement);
     return replacement;
 }
@@ -1636,7 +1638,7 @@ fn appendSingleConcatArg(
         rhs_bytes = self_snapshot.bytes;
         rhs_encoding = self_snapshot.encoding;
     } else {
-        const rhs_value = try coerceConcatArgumentToStringValue(vm, arg, "no implicit conversion into String");
+        const rhs_value = try arg.coerceToStringValue(vm, "no implicit conversion into String");
         const rhs = rhs_value.toStringObject();
         rhs_bytes = rhs.str;
         rhs_encoding = rhs.encoding;
@@ -1653,25 +1655,6 @@ fn appendSingleConcatArg(
     string_obj.str = try concatBytes(vm, string_obj.str, rhs_bytes);
     string_obj.encoding = result_encoding;
     string_obj.validity = .unknown;
-}
-
-fn coerceConcatArgumentToStringValue(vm: *VM, arg: Value, type_error_message: []const u8) VMError!Value {
-    if (arg.isString()) return arg;
-
-    const maybe_coerced = try vm.checkCallMethodByName(arg, "to_str", &[_]Value{}, null);
-    const coerced = maybe_coerced orelse {
-        const exc = try vm.createException(vm.type_error_class, type_error_message);
-        vm.pending_exception = exc;
-        return error.Unwind;
-    };
-
-    if (!coerced.isString()) {
-        const exc = try vm.createException(vm.type_error_class, type_error_message);
-        vm.pending_exception = exc;
-        return error.Unwind;
-    }
-
-    return coerced;
 }
 
 fn resolveStringConcatEncoding(

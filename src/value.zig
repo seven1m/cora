@@ -694,6 +694,8 @@ pub const Value = struct {
 
     // -- String coercion --
 
+    /// Canonical implicit String coercion (`to_str`).
+    /// Use this for APIs that require String-like objects and should raise TypeError on failure.
     pub fn coerceToStringValue(self: Value, vm_instance: *VM, type_error_message: []const u8) VMError!Value {
         if (self.isString()) return self;
 
@@ -713,11 +715,13 @@ pub const Value = struct {
         return coerced;
     }
 
+    /// Byte-slice variant of `coerceToStringValue`.
     pub fn coerceToStr(self: Value, vm_instance: *VM, type_error_message: []const u8) VMError![]const u8 {
         const coerced = try self.coerceToStringValue(vm_instance, type_error_message);
         return coerced.toStringObject().str;
     }
 
+    /// Match-source coercion: nil => null, Symbol => String, otherwise implicit String coercion.
     pub fn coerceToMatchSource(self: Value, vm_instance: *VM) VMError!?Value {
         if (self.isNil()) return null;
         if (self.isString()) return self;
