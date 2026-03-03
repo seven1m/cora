@@ -6,9 +6,29 @@ const VM = cora.vm.VM;
 const Value = cora.value.Value;
 const bdwgc = @import("bdwgc");
 
+extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
+extern "c" fn unsetenv(name: [*:0]const u8) c_int;
+
+const spec_stats_prefix = "__cora_spec_stats__ ";
+
 pub const SpecCase = struct {
     path: []const u8,
     name: []const u8,
+};
+
+pub const SpecStats = struct {
+    total: usize = 0,
+    passed: usize = 0,
+    failed: usize = 0,
+    skipped: usize = 0,
+};
+
+pub const RunSpecResult = struct {
+    outcome: enum {
+        pass,
+        fail,
+    },
+    stats: ?SpecStats = null,
 };
 
 pub const EvalResult = struct {
@@ -97,21 +117,119 @@ pub fn sortSpecCases(specs: []SpecCase) void {
     }.lessThan);
 }
 
-pub fn runSpec(path: []const u8) !void {
+fn parseSpecStats(stdout: []const u8) ?SpecStats {
+    var search_start: usize = 0;
+    var marker_line: ?[]const u8 = null;
+    while (std.mem.indexOfPos(u8, stdout, search_start, spec_stats_prefix)) |prefix_start| {
+        const line_start = prefix_start + spec_stats_prefix.len;
+        const after_start = stdout[line_start..];
+        const line_end_rel = std.mem.indexOfScalar(u8, after_start, '\n') orelse after_start.len;
+        marker_line = std.mem.trim(u8, after_start[0..line_end_rel], " \t\r\n");
+        search_start = line_start + line_end_rel;
+    }
+    const line = marker_line orelse return null;
+
+    var stats = SpecStats{};
+    var has_total = false;
+    var has_passed = false;
+    var has_failed = false;
+    var has_skipped = false;
+
+    var token_it = std.mem.splitScalar(u8, line, ' ');
+    while (token_it.next()) |token| {
+        if (token.len == 0) continue;
+        const eq_index = std.mem.indexOfScalar(u8, token, '=') orelse continue;
+        const key = token[0..eq_index];
+        const value = token[eq_index + 1 ..];
+        const parsed = std.fmt.parseUnsigned(usize, value, 10) catch return null;
+
+        if (std.mem.eql(u8, key, "total")) {
+            stats.total = parsed;
+            has_total = true;
+        } else if (std.mem.eql(u8, key, "passed")) {
+            stats.passed = parsed;
+            has_passed = true;
+        } else if (std.mem.eql(u8, key, "failed")) {
+            stats.failed = parsed;
+            has_failed = true;
+        } else if (std.mem.eql(u8, key, "skipped")) {
+            stats.skipped = parsed;
+            has_skipped = true;
+        }
+    }
+
+    if (!(has_total and has_passed and has_failed and has_skipped)) return null;
+    return stats;
+}
+
+fn setSpecStatsEnv() ?[]u8 {
+    const allocator = std.heap.page_allocator;
+    const previous = std.process.getEnvVarOwned(allocator, "CORA_SPEC_STATS") catch |err| switch (err) {
+        error.EnvironmentVariableNotFound => null,
+        else => null,
+    };
+
+    const key_z = allocator.dupeZ(u8, "CORA_SPEC_STATS") catch {
+        if (previous) |value| allocator.free(value);
+        return previous;
+    };
+    defer allocator.free(key_z);
+    const value_z = allocator.dupeZ(u8, "1") catch {
+        if (previous) |value| allocator.free(value);
+        return previous;
+    };
+    defer allocator.free(value_z);
+
+    _ = setenv(key_z.ptr, value_z.ptr, 1);
+    return previous;
+}
+
+fn restoreSpecStatsEnv(previous_value: ?[]u8) void {
+    const allocator = std.heap.page_allocator;
+    defer if (previous_value) |value| allocator.free(value);
+
+    const key_z = allocator.dupeZ(u8, "CORA_SPEC_STATS") catch return;
+    defer allocator.free(key_z);
+
+    if (previous_value) |value| {
+        const value_z = allocator.dupeZ(u8, value) catch return;
+        defer allocator.free(value_z);
+        _ = setenv(key_z.ptr, value_z.ptr, 1);
+    } else {
+        _ = unsetenv(key_z.ptr);
+    }
+}
+
+pub fn runSpec(path: []const u8) RunSpecResult {
     var stdout_buf: [32768]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;
 
+    const previous_env_value = setSpecStatsEnv();
+    defer restoreSpecStatsEnv(previous_env_value);
+
     const result = evalFile(path, &stdout_buf, &stderr_buf);
+    const stats = parseSpecStats(result.stdout);
 
     if (result.err != null) {
         std.debug.print("\nSpec error ({s}): {s}\n{s}\n", .{ path, result.stdout, result.stderr });
-        return error.SpecFailed;
+        return .{
+            .outcome = .fail,
+            .stats = stats,
+        };
     }
 
     if (std.mem.indexOf(u8, result.stdout, "OK:") == null) {
         std.debug.print("\nSpec failed ({s}):\n{s}\n", .{ path, result.stdout });
-        return error.SpecFailed;
+        return .{
+            .outcome = .fail,
+            .stats = stats,
+        };
     }
+
+    return .{
+        .outcome = .pass,
+        .stats = stats,
+    };
 }
 
 pub fn evalFile(path: []const u8, stdout_buf: []u8, stderr_buf: []u8) EvalResult {

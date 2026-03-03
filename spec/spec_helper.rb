@@ -1,5 +1,6 @@
 $__failures = []
 $__passes = 0
+$__examples_total = 0
 $__describe = ""
 $__shared_examples = {}
 $__skipped = []
@@ -125,6 +126,7 @@ ensure
 end
 
 def it(desc, &block)
+  $__examples_total = $__examples_total + 1
   if block.nil?
     $__skipped << [$__describe, desc]
     return
@@ -162,6 +164,7 @@ def it(desc, &block)
 end
 
 def xit(desc)
+  $__examples_total = $__examples_total + 1
   $__skipped << [$__describe, desc]
 end
 
@@ -1416,6 +1419,11 @@ def report_results
     if $__skipped.length > 0
       puts "SKIPPED: #{$__skipped.length}"
     end
+  end
+  if ENV["CORA_SPEC_STATS"] == "1"
+    failed = $__failures.length
+    skipped = $__skipped.length
+    puts "__cora_spec_stats__ total=#{$__examples_total} passed=#{$__passes} failed=#{failed} skipped=#{skipped}"
   end
 end
 

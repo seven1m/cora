@@ -90,12 +90,27 @@ fn loadRubySpecTests(allocator: std.mem.Allocator) !std.ArrayList(RubySpecTest) 
     return ruby_spec_tests;
 }
 
-fn runRubySpecTest(test_case: RubySpecTest) !void {
+fn runRubySpecTest(test_case: RubySpecTest) TestRunResult {
     switch (test_case) {
-        .spec => |spec| try ruby_spec_runner.runSpec(spec.path),
+        .spec => |spec| {
+            const run_result = ruby_spec_runner.runSpec(spec.path);
+            var spec_total_delta: usize = 0;
+            if (run_result.stats) |stats| {
+                spec_total_delta = stats.total;
+            }
+            return .{
+                .outcome = if (run_result.outcome == .pass) .pass else .fail,
+                .err_name = if (run_result.outcome == .pass) null else "SpecFailed",
+                .spec_total_delta = spec_total_delta,
+                .spec_completed_delta = spec_total_delta,
+            };
+        },
         .no_specs_found => {
             std.debug.print("No spec files found in spec/\n", .{});
-            return error.NoSpecsFound;
+            return .{
+                .outcome = .fail,
+                .err_name = "NoSpecsFound",
+            };
         },
     }
 }
@@ -113,6 +128,8 @@ const TestRunResult = struct {
     log_err_count: usize = 0,
     leak: bool = false,
     fuzz: bool = false,
+    spec_total_delta: usize = 0,
+    spec_completed_delta: usize = 0,
 };
 
 const WorkerJsonResult = struct {
@@ -121,6 +138,8 @@ const WorkerJsonResult = struct {
     log_err_count: usize = 0,
     leak: bool = false,
     fuzz: bool = false,
+    spec_total_delta: usize = 0,
+    spec_completed_delta: usize = 0,
 };
 
 const ActiveWorker = struct {
@@ -184,6 +203,8 @@ fn executeTestAtIndex(test_fns: []const ZigTestFn, ruby_spec_tests: []const Ruby
 
     if (index < test_fns.len) {
         const test_fn = test_fns[index];
+        result.spec_total_delta = 0;
+        result.spec_completed_delta = 1;
         if (verbose) {
             std.debug.print("TEST {s}\n", .{test_fn.name});
         }
@@ -217,15 +238,11 @@ fn executeTestAtIndex(test_fns: []const ZigTestFn, ruby_spec_tests: []const Ruby
     if (verbose) {
         std.debug.print("TEST {s}\n", .{ruby_spec_test.displayName()});
     }
-    runRubySpecTest(ruby_spec_test) catch |err| {
-        result.outcome = .fail;
-        result.err_name = @errorName(err);
-        if (@errorReturnTrace()) |trace| {
-            std.debug.dumpStackTrace(trace.*);
-        }
-        return result;
-    };
-    result.outcome = .pass;
+    const ruby_result = runRubySpecTest(ruby_spec_test);
+    result.outcome = ruby_result.outcome;
+    result.err_name = ruby_result.err_name;
+    result.spec_total_delta = ruby_result.spec_total_delta;
+    result.spec_completed_delta = ruby_result.spec_completed_delta;
     return result;
 }
 
@@ -236,6 +253,8 @@ fn emitWorkerJsonResult(result: TestRunResult) void {
         .log_err_count = result.log_err_count,
         .leak = result.leak,
         .fuzz = result.fuzz,
+        .spec_total_delta = result.spec_total_delta,
+        .spec_completed_delta = result.spec_completed_delta,
     };
 
     const allocator = std.heap.page_allocator;
@@ -274,6 +293,8 @@ fn parseWorkerResult(allocator: std.mem.Allocator, term: std.process.Child.Term,
             .log_err_count = parsed.value.log_err_count,
             .leak = parsed.value.leak,
             .fuzz = parsed.value.fuzz,
+            .spec_total_delta = parsed.value.spec_total_delta,
+            .spec_completed_delta = parsed.value.spec_completed_delta,
         };
         if (parsed.value.err_name) |name| {
             if (allocator.dupe(u8, name)) |duped| {
@@ -399,21 +420,27 @@ const RunSummary = struct {
     fuzz_count: usize = 0,
     leaks: usize = 0,
     log_err_count: usize = 0,
+    known_total_specs: usize = 0,
+    completed_specs: usize = 0,
 };
 
 fn printTerminalOutcome(
     have_tty: bool,
-    test_index: usize,
-    total_tests: usize,
+    completed_specs: usize,
+    known_total_specs: usize,
     test_name: []const u8,
     result: TestRunResult,
 ) void {
     if (have_tty) {
         switch (result.outcome) {
-            .skip => std.debug.print("\r{d}/{d} {s}...SKIP\n", .{ test_index + 1, total_tests, test_name }),
-            .fail => std.debug.print("\r{d}/{d} {s}...FAIL ({s})\n", .{
-                test_index + 1,
-                total_tests,
+            .skip => std.debug.print("\r{d}/{d} specs {s}...SKIP\n", .{
+                completed_specs,
+                known_total_specs,
+                test_name,
+            }),
+            .fail => std.debug.print("\r{d}/{d} specs {s}...FAIL ({s})\n", .{
+                completed_specs,
+                known_total_specs,
                 test_name,
                 result.err_name orelse "UnknownError",
             }),
@@ -422,7 +449,7 @@ fn printTerminalOutcome(
         return;
     }
 
-    std.debug.print("{d}/{d} {s}...", .{ test_index + 1, total_tests, test_name });
+    std.debug.print("{d}/{d} specs {s}...", .{ completed_specs, known_total_specs, test_name });
     switch (result.outcome) {
         .pass => std.debug.print("OK\n", .{}),
         .skip => std.debug.print("SKIP\n", .{}),
@@ -434,6 +461,8 @@ fn applyResult(summary: *RunSummary, result: TestRunResult) void {
     summary.log_err_count += result.log_err_count;
     summary.leaks += @intFromBool(result.leak);
     summary.fuzz_count += @intFromBool(result.fuzz);
+    summary.known_total_specs += result.spec_total_delta;
+    summary.completed_specs += result.spec_completed_delta;
     switch (result.outcome) {
         .pass => summary.ok_count += 1,
         .skip => summary.skip_count += 1,
@@ -451,12 +480,11 @@ fn deinitTestRunResult(allocator: std.mem.Allocator, result: *TestRunResult) voi
     }
 }
 
-fn printParallelProgressStatus(have_tty: bool, summary: RunSummary, total_tests: usize, active_workers: usize) void {
+fn printParallelProgressStatus(have_tty: bool, summary: RunSummary, active_workers: usize) void {
     if (!have_tty) return;
-    const completed = summary.ok_count + summary.skip_count + summary.fail_count;
     std.debug.print(
-        "\r{d}/{d} complete ({d} workers active)      ",
-        .{ completed, total_tests, active_workers },
+        "\r{d}/{d} specs complete ({d} workers active)      ",
+        .{ summary.completed_specs, summary.known_total_specs, active_workers },
     );
 }
 
@@ -469,7 +497,9 @@ fn runProcessWorkerQueue(
     ruby_spec_tests: []const RubySpecTest,
     have_tty: bool,
 ) RunSummary {
-    var summary = RunSummary{};
+    var summary = RunSummary{
+        .known_total_specs = test_fns.len,
+    };
     const total_tests = test_fns.len + ruby_spec_tests.len;
     if (total_tests == 0) return summary;
     defer if (have_tty) std.debug.print("\n", .{});
@@ -490,8 +520,8 @@ fn runProcessWorkerQueue(
                     .outcome = .fail,
                     .err_name = @errorName(err),
                 };
-                printTerminalOutcome(have_tty, next_index, total_tests, testNameForIndex(test_fns, ruby_spec_tests, next_index), failure);
                 applyResult(&summary, failure);
+                printTerminalOutcome(have_tty, summary.completed_specs, summary.known_total_specs, testNameForIndex(test_fns, ruby_spec_tests, next_index), failure);
                 next_index += 1;
                 continue;
             };
@@ -501,7 +531,7 @@ fn runProcessWorkerQueue(
             };
             next_index += 1;
         }
-        printParallelProgressStatus(have_tty, summary, total_tests, active_workers.items.len);
+        printParallelProgressStatus(have_tty, summary, active_workers.items.len);
 
         if (active_workers.items.len == 0) continue;
 
@@ -596,10 +626,10 @@ fn runProcessWorkerQueue(
                 }
             }
 
-            printTerminalOutcome(have_tty, test_index, total_tests, test_name, result);
             applyResult(&summary, result);
+            printTerminalOutcome(have_tty, summary.completed_specs, summary.known_total_specs, test_name, result);
             deinitTestRunResult(allocator, &result);
-            printParallelProgressStatus(have_tty, summary, total_tests, active_workers.items.len);
+            printParallelProgressStatus(have_tty, summary, active_workers.items.len);
         }
     }
 
@@ -737,12 +767,13 @@ fn mainServer() !void {
                         return error.InvalidTestIndex;
                     }
                     const ruby_spec_test = ruby_spec_tests.items[index - test_fns.len];
-                    runRubySpecTest(ruby_spec_test) catch {
+                    const ruby_result = runRubySpecTest(ruby_spec_test);
+                    if (ruby_result.outcome == .fail) {
                         fail = true;
                         if (@errorReturnTrace()) |trace| {
                             std.debug.dumpStackTrace(trace.*);
                         }
-                    };
+                    }
                     deinitRubySpecTests(testing.allocator, &ruby_spec_tests);
                 }
 
@@ -860,6 +891,7 @@ fn mainTerminal() void {
                 summary.fail_count,
             });
         }
+        std.debug.print("Executed {d} specs.\n", .{summary.completed_specs});
         if (summary.log_err_count != 0) {
             std.debug.print("{d} errors were logged.\n", .{summary.log_err_count});
         }
@@ -875,10 +907,9 @@ fn mainTerminal() void {
         return;
     }
 
-    var ok_count: usize = 0;
-    var skip_count: usize = 0;
-    var fail_count: usize = 0;
-    var fuzz_count: usize = 0;
+    var summary = RunSummary{
+        .known_total_specs = test_fn_list.len,
+    };
     const root_node = if (builtin.fuzz) std.Progress.Node.none else std.Progress.start(.{
         .root_name = "Test",
         .estimated_total_items = total_tests,
@@ -888,110 +919,41 @@ fn mainTerminal() void {
     var async_frame_buffer: []align(builtin.target.stackAlignment()) u8 = undefined;
     async_frame_buffer = &[_]u8{};
 
-    var leaks: usize = 0;
-    for (test_fn_list, 0..) |test_fn, i| {
-        if (verbose) {
-            std.debug.print("TEST {s}\n", .{test_fn.name});
-        }
-        testing.allocator_instance = .{};
-        defer {
-            if (testing.allocator_instance.deinit() == .leak) {
-                leaks += 1;
-            }
-        }
-        testing.log_level = .warn;
-
-        const test_node = root_node.start(test_fn.name, 0);
-        if (!have_tty) {
-            std.debug.print("{d}/{d} {s}...", .{ i + 1, total_tests, test_fn.name });
-        }
-        is_fuzz_test = false;
-        if (test_fn.func()) |_| {
-            ok_count += 1;
-            test_node.end();
-            if (!have_tty) std.debug.print("OK\n", .{});
-        } else |err| switch (err) {
-            error.SkipZigTest => {
-                skip_count += 1;
-                if (have_tty) {
-                    std.debug.print("{d}/{d} {s}...SKIP\n", .{ i + 1, total_tests, test_fn.name });
-                } else {
-                    std.debug.print("SKIP\n", .{});
-                }
-                test_node.end();
-            },
-            else => {
-                fail_count += 1;
-                if (have_tty) {
-                    std.debug.print("{d}/{d} {s}...FAIL ({s})\n", .{
-                        i + 1, total_tests, test_fn.name, @errorName(err),
-                    });
-                } else {
-                    std.debug.print("FAIL ({s})\n", .{@errorName(err)});
-                }
-                if (@errorReturnTrace()) |trace| {
-                    std.debug.dumpStackTrace(trace.*);
-                }
-                test_node.end();
-            },
-        }
-        fuzz_count += @intFromBool(is_fuzz_test);
-    }
-
-    for (ruby_spec_tests.items, 0..) |ruby_spec_test, i| {
-        const display_name = ruby_spec_test.displayName();
-        const overall_index = test_fn_list.len + i;
-        if (verbose) {
-            std.debug.print("TEST {s}\n", .{display_name});
-        }
-        testing.allocator_instance = .{};
-        defer {
-            if (testing.allocator_instance.deinit() == .leak) {
-                leaks += 1;
-            }
-        }
-        testing.log_level = .warn;
-
-        const test_node = root_node.start(display_name, 0);
-        if (!have_tty) {
-            std.debug.print("{d}/{d} {s}...", .{ overall_index + 1, total_tests, display_name });
-        }
-        runRubySpecTest(ruby_spec_test) catch |err| {
-            fail_count += 1;
-            if (have_tty) {
-                std.debug.print("{d}/{d} {s}...FAIL ({s})\n", .{
-                    overall_index + 1, total_tests, display_name, @errorName(err),
-                });
-            } else {
-                std.debug.print("FAIL ({s})\n", .{@errorName(err)});
-            }
-            if (@errorReturnTrace()) |trace| {
-                std.debug.dumpStackTrace(trace.*);
-            }
-            test_node.end();
-            continue;
-        };
-        ok_count += 1;
+    for (0..total_tests) |test_index| {
+        const test_name = testNameForIndex(test_fn_list, ruby_spec_tests.items, test_index);
+        const test_node = root_node.start(test_name, 0);
+        const result = executeTestAtIndex(test_fn_list, ruby_spec_tests.items, test_index);
         test_node.end();
-        if (!have_tty) std.debug.print("OK\n", .{});
+
+        applyResult(&summary, result);
+        printTerminalOutcome(have_tty, summary.completed_specs, summary.known_total_specs, test_name, result);
+        if (have_tty) {
+            printParallelProgressStatus(have_tty, summary, 0);
+        }
     }
 
+    if (have_tty) std.debug.print("\n", .{});
     root_node.end();
-    if (ok_count == total_tests) {
-        std.debug.print("All {d} tests passed.\n", .{ok_count});
+    if (summary.ok_count == total_tests) {
+        std.debug.print("All {d} tests passed.\n", .{summary.ok_count});
     } else {
-        std.debug.print("{d} passed; {d} skipped; {d} failed.\n", .{ ok_count, skip_count, fail_count });
+        std.debug.print("{d} passed; {d} skipped; {d} failed.\n", .{
+            summary.ok_count,
+            summary.skip_count,
+            summary.fail_count,
+        });
     }
-    if (log_err_count != 0) {
-        std.debug.print("{d} errors were logged.\n", .{log_err_count});
+    std.debug.print("Executed {d} specs.\n", .{summary.completed_specs});
+    if (summary.log_err_count != 0) {
+        std.debug.print("{d} errors were logged.\n", .{summary.log_err_count});
     }
-    if (leaks != 0) {
-        std.debug.print("{d} tests leaked memory.\n", .{leaks});
+    if (summary.leaks != 0) {
+        std.debug.print("{d} tests leaked memory.\n", .{summary.leaks});
     }
-    if (fuzz_count != 0) {
-        std.debug.print("{d} fuzz tests found.\n", .{fuzz_count});
+    if (summary.fuzz_count != 0) {
+        std.debug.print("{d} fuzz tests found.\n", .{summary.fuzz_count});
     }
-    if (leaks != 0 or log_err_count != 0 or fail_count != 0) {
+    if (summary.leaks != 0 or summary.log_err_count != 0 or summary.fail_count != 0) {
         std.process.exit(1);
     }
 }
