@@ -647,3 +647,24 @@ test "Hash#default= sets value returned for missing keys" {
     try std.testing.expectEqualStrings("x", result.toArrayObject().elements.items[0].toStringObject().str);
     try std.testing.expectEqualStrings("x", result.toArrayObject().elements.items[1].toStringObject().str);
 }
+
+test "Hash#default_proc= drives missing-key lookup and getter" {
+    const result = try evalCode(
+        \\h = {}
+        \\h.default_proc = ->(_hash, key) { "miss:#{key}" }
+        \\[h[:abc], h.default_proc.nil?, h.default(:xyz)]
+    );
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqualStrings("miss:abc", result.toArrayObject().elements.items[0].toStringObject().str);
+    try std.testing.expectEqual(false, result.toArrayObject().elements.items[1].toBool());
+    try std.testing.expectEqualStrings("miss:xyz", result.toArrayObject().elements.items[2].toStringObject().str);
+}
+
+test "Hash#default_proc= rejects non-Proc values" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+
+    const bad = evalCodeWithOutput("h = {}; h.default_proc = 1", &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.UnhandledException, bad.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "TypeError") != null);
+}

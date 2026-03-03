@@ -52,6 +52,12 @@ pub fn register(vm: *VM) !void {
 
     const default_set_sym = try vm.intern("default=");
     try vm.hash_class.module.methods.put(default_set_sym, .{ .method = .{ .builtin = &builtinHashDefaultSet } });
+
+    const default_proc_sym = try vm.intern("default_proc");
+    try vm.hash_class.module.methods.put(default_proc_sym, .{ .method = .{ .builtin = &builtinHashDefaultProc } });
+
+    const default_proc_set_sym = try vm.intern("default_proc=");
+    try vm.hash_class.module.methods.put(default_proc_set_sym, .{ .method = .{ .builtin = &builtinHashDefaultProcSet } });
 }
 
 pub fn builtinHashBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -66,12 +72,23 @@ pub fn builtinHashBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
         }
     }
 
+    if (hash_obj.default_proc) |default_proc| {
+        const call_args = [_]Value{ receiver, key };
+        return vm.callProcObject(default_proc, call_args[0..], null, null);
+    }
     return hash_obj.default_value orelse Value.nil();
 }
 
 pub fn builtinHashDefault(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
-    return receiver.toHashObject().default_value orelse Value.nil();
+    const hash_obj = receiver.toHashObject();
+    if (args.len == 1) {
+        if (hash_obj.default_proc) |default_proc| {
+            const call_args = [_]Value{ receiver, args[0] };
+            return vm.callProcObject(default_proc, call_args[0..], null, null);
+        }
+    }
+    return hash_obj.default_value orelse Value.nil();
 }
 
 pub fn builtinHashDefaultSet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -83,6 +100,38 @@ pub fn builtinHashDefaultSet(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     }
     const hash_obj = receiver.toHashObject();
     hash_obj.default_value = args[0];
+    hash_obj.default_proc = null;
+    return args[0];
+}
+
+pub fn builtinHashDefaultProc(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const hash_obj = receiver.toHashObject();
+    if (hash_obj.default_proc) |default_proc| {
+        return Value.fromObject(default_proc);
+    }
+    return Value.nil();
+}
+
+pub fn builtinHashDefaultProcSet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (receiver.isFrozen()) {
+        const exc = try vm.createException(vm.runtime_error_class, "can't modify frozen Hash");
+        vm.pending_exception = exc;
+        return error.Unwind;
+    }
+
+    const hash_obj = receiver.toHashObject();
+    if (args[0].isNil()) {
+        hash_obj.default_proc = null;
+        return Value.nil();
+    }
+    if (!args[0].isProc()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "wrong argument type (expected Proc)", .{});
+    }
+
+    hash_obj.default_proc = args[0].toProcObject();
+    hash_obj.default_value = null;
     return args[0];
 }
 

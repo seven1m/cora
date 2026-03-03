@@ -4632,6 +4632,7 @@ pub const VM = struct {
                         .map = std.AutoHashMap(u64, usize).init(self.gc_allocator),
                         .entries = .empty,
                         .default_value = null,
+                        .default_proc = null,
                     };
                     const f = &self.frames.items[self.frames.items.len - 1];
                     f.ep.variables[rest_idx] = Value.fromObject(kw_hash);
@@ -6481,6 +6482,7 @@ pub const VM = struct {
             .map = std.AutoHashMap(u64, usize).init(self.gc_allocator),
             .entries = .empty,
             .default_value = null,
+            .default_proc = null,
         };
         return hash_ptr;
     }
@@ -6712,6 +6714,7 @@ pub const VM = struct {
             .map = std.AutoHashMap(u64, usize).init(self.gc_allocator),
             .entries = .empty,
             .default_value = null,
+            .default_proc = null,
         };
 
         for (kw_values, 0..) |kw_value, i| {
@@ -6786,6 +6789,7 @@ pub const VM = struct {
                         .map = std.AutoHashMap(u64, usize).init(self.gc_allocator),
                         .entries = .empty,
                         .default_value = null,
+                        .default_proc = null,
                     };
 
             for (kw_values, 0..) |kw_value, i| {
