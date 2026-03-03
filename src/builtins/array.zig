@@ -486,6 +486,11 @@ pub fn builtinArrayUnion(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
 
 pub fn builtinArrayInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
+    if (try vm.enterRecursionGuard(.array_inspect, receiver, Value.nil())) {
+        return try vm.newString("[...]", false);
+    }
+    defer vm.leaveRecursionGuard(.array_inspect, receiver, Value.nil());
+
     const array = receiver.toArrayObject();
     var buf: std.ArrayList(u8) = .empty;
     const writer = buf.writer(vm.allocator);

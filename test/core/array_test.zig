@@ -98,6 +98,16 @@ test "Array#inspect nested" {
     try std.testing.expectEqualSlices(u8, "[[1, 2], [3, 4]]", result.toStringObject().str);
 }
 
+test "Array#inspect recursive" {
+    const result = try evalCode(
+        \\a = [1, 2, 3]
+        \\a << a
+        \\a.inspect
+    );
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "[1, 2, 3, [...]]", result.toStringObject().str);
+}
+
 test "Array#to_s" {
     const result = try evalCode("[1, 2, 3].to_s");
     try std.testing.expect(result.isString());
