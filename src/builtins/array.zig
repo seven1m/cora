@@ -144,22 +144,57 @@ pub fn builtinArrayBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     const len: i64 = @intCast(array.elements.items.len);
 
     if (args.len == 1) {
-        // Single argument: arr[index]
-        try vm.requireIntegerArg(args, 0, "Integer");
-        const index = args[0].toInteger();
+        // Single argument: arr[index] or arr[range]
+        if (args[0].isInteger()) {
+            const index = args[0].toInteger();
 
-        // Handle negative indices (count from end)
-        var actual_index: i64 = index;
-        if (index < 0) {
-            actual_index = len + index;
+            // Handle negative indices (count from end)
+            var actual_index: i64 = index;
+            if (index < 0) {
+                actual_index = len + index;
+            }
+
+            // Return nil for out of bounds
+            if (actual_index < 0 or actual_index >= len) {
+                return Value.nil();
+            }
+
+            return array.elements.items[@intCast(actual_index)];
         }
 
-        // Return nil for out of bounds
-        if (actual_index < 0 or actual_index >= len) {
-            return Value.nil();
+        if (args[0].isRange()) {
+            const range_obj = args[0].toRangeObject();
+            if (!range_obj.begin.isInteger() or !range_obj.end.isInteger()) {
+                return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion of Range into Integer", .{});
+            }
+
+            var start = range_obj.begin.toInteger();
+            if (start < 0) start += len;
+            if (start < 0 or start > len) {
+                return Value.nil();
+            }
+
+            var finish = range_obj.end.toInteger();
+            if (finish < 0) finish += len;
+            if (!range_obj.exclude_end) finish += 1;
+
+            if (finish < start) {
+                const empty = try vm.createArray();
+                return Value.fromObject(empty);
+            }
+
+            const clamped_end = @max(start, @min(finish, len));
+
+            const result_array = try vm.createArray();
+            var i: i64 = start;
+            while (i < clamped_end) : (i += 1) {
+                const idx: usize = @intCast(i);
+                result_array.elements.append(vm.gc_allocator, array.elements.items[idx]) catch return error.Fatal;
+            }
+            return Value.fromObject(result_array);
         }
 
-        return array.elements.items[@intCast(actual_index)];
+        return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion of {s} into Integer", .{vm.className(args[0])});
     } else if (args.len == 2) {
         // Two arguments: arr[start, length] - array slicing
         try vm.requireIntegerArg(args, 0, "Integer");
