@@ -691,15 +691,14 @@ fn transcodeWithEncodeOptions(
         if (kw_fallback) |fallback| {
             const char_val = try vm.newStringWithEncoding(source_bytes[start..i], false, from_encoding);
             var fallback_result: ?Value = null;
+            var fallback_args = [_]Value{char_val};
 
             if (fallback.isProc()) {
-                const call_args = [_]Value{char_val};
-                fallback_result = try vm.callProcObject(fallback.toProcObject(), call_args[0..], null, null);
-            } else {
-                var fallback_args = [_]Value{char_val};
-                if (try vm.checkCallMethodByName(fallback, "[]", fallback_args[0..], null)) |result| {
-                    fallback_result = result;
-                }
+                fallback_result = try vm.callProcObject(fallback.toProcObject(), fallback_args[0..], null, null);
+            } else if (try vm.checkCallMethodByName(fallback, "call", fallback_args[0..], null)) |result| {
+                fallback_result = result;
+            } else if (try vm.checkCallMethodByName(fallback, "[]", fallback_args[0..], null)) |result| {
+                fallback_result = result;
             }
 
             if (fallback_result == null or fallback_result.?.isNil()) {

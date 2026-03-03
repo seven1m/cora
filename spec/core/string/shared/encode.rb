@@ -388,33 +388,25 @@ describe :string_encode, shared: true do
       end
 
       it "calls the method to get the replacement value, passing in the invalid character" do
-        CORAFIXME "String shared encode method fallback call", exception: StandardError do
-          encoded = "B\ufffd".encode(Encoding::US_ASCII, fallback: method(:replace))
-          encoded.should == "B[239, 191, 189]"
-        end
+        encoded = "B\ufffd".encode(Encoding::US_ASCII, fallback: method(:replace))
+        encoded.should == "B[239, 191, 189]"
       end
 
       it "calls to_str on the returned value" do
-        CORAFIXME "String shared encode method fallback to_str", exception: StandardError do
-          encoded = "B\ufffd".encode(Encoding::US_ASCII, fallback: method(:replace_to_str))
-          encoded.should == "Bbar"
-        end
+        encoded = "B\ufffd".encode(Encoding::US_ASCII, fallback: method(:replace_to_str))
+        encoded.should == "Bbar"
       end
 
       it "does not call to_s on the returned value" do
-        CORAFIXME "String shared encode method fallback no to_s", exception: StandardError do
-          -> {
-            "B\ufffd".encode(Encoding::US_ASCII, fallback: method(:replace_to_s))
-          }.should raise_error(TypeError, "no implicit conversion of Object into String")
-        end
+        -> {
+          "B\ufffd".encode(Encoding::US_ASCII, fallback: method(:replace_to_s))
+        }.should raise_error(TypeError, "no implicit conversion of Object into String")
       end
 
       it "raises an error if the returned value is itself invalid" do
-        CORAFIXME "String shared encode method fallback invalid return", exception: StandardError do
-          -> {
-            "B\ufffd".encode(Encoding::US_ASCII, fallback: method(:replace_bad))
-          }.should raise_error(ArgumentError, "too big fallback string")
-        end
+        -> {
+          "B\ufffd".encode(Encoding::US_ASCII, fallback: method(:replace_bad))
+        }.should raise_error(ArgumentError, "too big fallback string")
       end
     end
   end
