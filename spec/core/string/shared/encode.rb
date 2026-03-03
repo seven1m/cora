@@ -47,11 +47,9 @@ describe :string_encode, shared: true do
     end
 
     it "transcodes Japanese multibyte characters" do
-      CORAFIXME "String shared encode Japanese multibyte", exception: StandardError do
-        str = "あいうえお"
-        str.send(@method, Encoding::ISO_2022_JP).should ==
-          "\e\x24\x42\x24\x22\x24\x24\x24\x26\x24\x28\x24\x2A\e\x28\x42".force_encoding(Encoding::ISO_2022_JP)
-      end
+      str = "あいうえお"
+      str.send(@method, Encoding::ISO_2022_JP).should ==
+        "\e\x24\x42\x24\x22\x24\x24\x24\x26\x24\x28\x24\x2A\e\x28\x42".force_encoding(Encoding::ISO_2022_JP)
     end
 
     it "transcodes a 7-bit String despite no generic converting being available" do
@@ -114,25 +112,21 @@ describe :string_encode, shared: true do
 
   describe "when passed to, from" do
     it "transcodes between the encodings ignoring the String encoding" do
-      CORAFIXME "String shared encode to-from transcode", exception: StandardError do
-        str = "あ"
-        result = [0xA6, 0xD0, 0x8F, 0xAB, 0xE4, 0x8F, 0xAB, 0xB1].pack('C8')
-        result.force_encoding Encoding::EUC_JP
-        str.send(@method, "euc-jp", "ibm437").should == result
-      end
+      str = "あ"
+      result = [0xA6, 0xD0, 0x8F, 0xAB, 0xE4, 0x8F, 0xAB, 0xB1].pack('C8')
+      result.force_encoding Encoding::EUC_JP
+      str.send(@method, "euc-jp", "ibm437").should == result
     end
 
     it "calls #to_str to convert the from object to an Encoding" do
-      CORAFIXME "String shared encode to-from to_str", exception: StandardError do
-        enc = mock("string encode encoding")
-        enc.should_receive(:to_str).and_return("ibm437")
+      enc = mock("string encode encoding")
+      enc.should_receive(:to_str).and_return("ibm437")
 
-        str = "あ"
-        result = [0xA6, 0xD0, 0x8F, 0xAB, 0xE4, 0x8F, 0xAB, 0xB1].pack('C8')
-        result.force_encoding Encoding::EUC_JP
+      str = "あ"
+      result = [0xA6, 0xD0, 0x8F, 0xAB, 0xE4, 0x8F, 0xAB, 0xB1].pack('C8')
+      result.force_encoding Encoding::EUC_JP
 
-        str.send(@method, "euc-jp", enc).should == result
-      end
+      str.send(@method, "euc-jp", enc).should == result
     end
   end
 

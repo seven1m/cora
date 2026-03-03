@@ -258,6 +258,8 @@ pub const VM = struct {
     encoding_us_ascii: *value.EncodingObject,
     encoding_shift_jis: *value.EncodingObject,
     encoding_euc_jp: *value.EncodingObject,
+    encoding_cp437: *value.EncodingObject,
+    encoding_iso_2022_jp: *value.EncodingObject,
     encoding_iso_8859_9: *value.EncodingObject,
     encoding_iso_8859_15: *value.EncodingObject,
     encoding_utf7: *value.EncodingObject,
@@ -383,6 +385,8 @@ pub const VM = struct {
             .encoding_us_ascii = undefined,
             .encoding_shift_jis = undefined,
             .encoding_euc_jp = undefined,
+            .encoding_cp437 = undefined,
+            .encoding_iso_2022_jp = undefined,
             .encoding_iso_8859_9 = undefined,
             .encoding_iso_8859_15 = undefined,
             .encoding_utf7 = undefined,
@@ -650,6 +654,8 @@ pub const VM = struct {
         self.encoding_us_ascii = try self.createEncodingObject(.{ .us_ascii = .{} });
         self.encoding_shift_jis = try self.createEncodingObject(.{ .shift_jis = .{} });
         self.encoding_euc_jp = try self.createEncodingObject(.{ .euc_jp = .{} });
+        self.encoding_cp437 = try self.createEncodingObject(.{ .cp437 = .{} });
+        self.encoding_iso_2022_jp = try self.createEncodingObject(.{ .iso_2022_jp = .{} });
         self.encoding_iso_8859_9 = try self.createEncodingObject(.{ .iso_8859_9 = .{} });
         self.encoding_iso_8859_15 = try self.createEncodingObject(.{ .iso_8859_15 = .{} });
         self.encoding_utf7 = try self.createEncodingObject(.{ .utf7 = .{} });
@@ -773,6 +779,7 @@ pub const VM = struct {
         const us_ascii_val = Value.fromObject(self.encoding_us_ascii);
         const shift_jis_val = Value.fromObject(self.encoding_shift_jis);
         const euc_jp_val = Value.fromObject(self.encoding_euc_jp);
+        const cp437_val = Value.fromObject(self.encoding_cp437);
         const iso_8859_9_val = Value.fromObject(self.encoding_iso_8859_9);
         const iso_8859_15_val = Value.fromObject(self.encoding_iso_8859_15);
         const utf7_val = Value.fromObject(self.encoding_utf7);
@@ -804,8 +811,10 @@ pub const VM = struct {
         self.encoding_class.module.constants.put(utf32_const_sym, utf32_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(utf32le_const_sym, utf32le_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(utf32be_const_sym, utf32be_val) catch return error.Fatal;
-        self.encoding_class.module.constants.put(iso_2022_jp_const_sym, iso_8859_15_val) catch return error.Fatal;
+        self.encoding_class.module.constants.put(iso_2022_jp_const_sym, Value.fromObject(self.encoding_iso_2022_jp)) catch return error.Fatal;
         self.encoding_class.module.constants.put(emacs_mule_const_sym, shift_jis_val) catch return error.Fatal;
+        const ibm437_const_sym = try self.intern("IBM437");
+        self.encoding_class.module.constants.put(ibm437_const_sym, cp437_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(converter_const_sym, encoding_converter_class_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(encoding_compatibility_error_name_sym, encoding_compatibility_error_class_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(encoding_converter_not_found_error_name_sym, encoding_converter_not_found_error_class_val) catch return error.Fatal;
@@ -5958,6 +5967,8 @@ pub const VM = struct {
             .us_ascii => Value.fromObject(self.encoding_us_ascii),
             .shift_jis => Value.fromObject(self.encoding_shift_jis),
             .euc_jp => Value.fromObject(self.encoding_euc_jp),
+            .cp437 => Value.fromObject(self.encoding_cp437),
+            .iso_2022_jp => Value.fromObject(self.encoding_iso_2022_jp),
             .iso_8859_9 => Value.fromObject(self.encoding_iso_8859_9),
             .iso_8859_15 => Value.fromObject(self.encoding_iso_8859_15),
             .utf7 => Value.fromObject(self.encoding_utf7),

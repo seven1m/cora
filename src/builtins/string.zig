@@ -38,6 +38,54 @@ fn handleMissingConverter(
     return null;
 }
 
+fn transcodeToIso2022JpSimple(
+    vm: *VM,
+    source_bytes: []const u8,
+    from_encoding: enc.Encoding,
+    target_encoding: enc.Encoding,
+) VMError![]u8 {
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(vm.gc_allocator_atomic);
+
+    var ascii_mode = true;
+    var i: usize = 0;
+    while (i < source_bytes.len) {
+        const parsed = from_encoding.nextCodepoint(source_bytes, &i);
+        if (parsed.len == 0) break;
+        if (!parsed.valid) {
+            return vm.raiseExceptionFmt(vm.encoding_invalid_byte_sequence_error_class, "invalid byte sequence in {s}", .{from_encoding.name()});
+        }
+
+        if (parsed.codepoint <= 0x7F) {
+            if (!ascii_mode) {
+                out.appendSlice(vm.gc_allocator_atomic, "\x1B(B") catch return error.Fatal;
+                ascii_mode = true;
+            }
+            out.append(vm.gc_allocator_atomic, @intCast(parsed.codepoint)) catch return error.Fatal;
+            continue;
+        }
+
+        var encoded: [4]u8 = undefined;
+        const encoded_len = target_encoding.fromUnicodeCodepoint(parsed.codepoint, &encoded) orelse {
+            return raiseUndefinedConversionForCodepoint(vm, parsed.codepoint, from_encoding, target_encoding);
+        };
+        if (encoded_len != 2) {
+            return raiseUndefinedConversionForCodepoint(vm, parsed.codepoint, from_encoding, target_encoding);
+        }
+
+        if (ascii_mode) {
+            out.appendSlice(vm.gc_allocator_atomic, "\x1B$B") catch return error.Fatal;
+            ascii_mode = false;
+        }
+        out.appendSlice(vm.gc_allocator_atomic, encoded[0..2]) catch return error.Fatal;
+    }
+
+    if (!ascii_mode) {
+        out.appendSlice(vm.gc_allocator_atomic, "\x1B(B") catch return error.Fatal;
+    }
+    return out.toOwnedSlice(vm.gc_allocator_atomic) catch return error.Fatal;
+}
+
 pub fn register(vm: *VM) !void {
     const try_convert_sym = try vm.intern("try_convert");
     const string_class_val = Value.fromObject(vm.string_class);
@@ -675,6 +723,16 @@ fn transcodeWithEncodeOptions(
     kw_fallback: ?Value,
     xml_mode: EncodeXmlMode,
 ) VMError![]u8 {
+    if (isTag(target_encoding, .iso_2022_jp) and
+        kw_invalid == null and
+        kw_undef == null and
+        kw_replace == null and
+        kw_fallback == null and
+        xml_mode == .none)
+    {
+        return transcodeToIso2022JpSimple(vm, source_bytes, from_encoding, target_encoding);
+    }
+
     var out: std.ArrayList(u8) = .empty;
     defer out.deinit(vm.gc_allocator_atomic);
 

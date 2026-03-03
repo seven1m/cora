@@ -76,6 +76,27 @@ pub const EucJpEncoding = struct {
             return 2;
         }
 
+        // pi
+        if (codepoint == 0x03C0) {
+            out[0] = 0xA6;
+            out[1] = 0xD0;
+            return 2;
+        }
+
+        // ü and é (JIS X 0212 plane, 3-byte EUC-JP with SS3 lead)
+        if (codepoint == 0x00FC) {
+            out[0] = 0x8F;
+            out[1] = 0xAB;
+            out[2] = 0xE4;
+            return 3;
+        }
+        if (codepoint == 0x00E9) {
+            out[0] = 0x8F;
+            out[1] = 0xAB;
+            out[2] = 0xB1;
+            return 3;
+        }
+
         return null;
     }
 
@@ -98,6 +119,9 @@ pub const EucJpEncoding = struct {
         }
         if (b0 == 0xA2 and b1 == 0xAB) {
             return 0x2020;
+        }
+        if (b0 == 0xA6 and b1 == 0xD0) {
+            return 0x03C0;
         }
         return null;
     }
