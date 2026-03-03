@@ -9,6 +9,12 @@ const Block = vm_mod.Block;
 const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
+    const initialize_sym = try vm.intern("initialize");
+    try vm.array_class.module.methods.put(initialize_sym, .{
+        .method = .{ .builtin = &builtinArrayInitialize },
+        .visibility = .private,
+    });
+
     const push_sym = try vm.intern("<<");
     try vm.array_class.module.methods.put(push_sym, .{ .method = .{ .builtin = &builtinArrayPush } });
 
@@ -86,6 +92,47 @@ pub fn builtinArrayPush(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     try vm.requireArgCount(args, 1);
     const array = receiver.toArrayObject();
     array.elements.append(vm.gc_allocator, args[0]) catch return error.Fatal;
+
+    return receiver;
+}
+
+pub fn builtinArrayInitialize(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 2);
+
+    const array = receiver.toArrayObject();
+    array.elements.clearRetainingCapacity();
+
+    if (args.len == 0) {
+        return receiver;
+    }
+
+    const size = try args[0].coerceToI64ViaToInt(
+        vm,
+        "no implicit conversion into Integer",
+        "no implicit conversion into Integer",
+        "bignum too big to convert into `long`",
+    );
+    if (size < 0) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "negative array size", .{});
+    }
+
+    var i: i64 = 0;
+    if (block) |blk| {
+        while (i < size) : (i += 1) {
+            const yield_args = [_]Value{Value.integer(i)};
+            const yielded = try vm.yieldToBlock(blk, &yield_args);
+            if (yielded.break_occurred) {
+                return yielded.value;
+            }
+            array.elements.append(vm.gc_allocator, yielded.value) catch return error.Fatal;
+        }
+        return receiver;
+    }
+
+    const fill_value = if (args.len == 2) args[1] else Value.nil();
+    while (i < size) : (i += 1) {
+        array.elements.append(vm.gc_allocator, fill_value) catch return error.Fatal;
+    }
 
     return receiver;
 }
