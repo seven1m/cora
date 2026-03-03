@@ -80,11 +80,9 @@ describe "String#encode" do
     end
 
     it "replaces invalid encoding in source with default replacement" do
-      CORAFIXME "String#encode invalid: :replace semantics", exception: StandardError do
-        encoded = "ち\xE3\x81\xFF".encode("UTF-16LE", invalid: :replace)
-        encoded.should == "\u3061\ufffd\ufffd".encode("UTF-16LE")
-        encoded.encode("UTF-8").should == "ち\ufffd\ufffd"
-      end
+      encoded = "ち\xE3\x81\xFF".encode("UTF-16LE", invalid: :replace)
+      encoded.should == "\u3061\ufffd\ufffd".encode("UTF-16LE")
+      encoded.encode("UTF-8").should == "ち\ufffd\ufffd"
     end
 
     it "replaces invalid encoding in source with a specified replacement" do
@@ -94,9 +92,7 @@ describe "String#encode" do
     end
 
     it "replace multiple invalid bytes at the end with a single replacement character" do
-      CORAFIXME "String#encode compacts invalid-byte replacement", exception: StandardError do
-        "\xE3\x81\x93\xE3\x81".encode("UTF-8", invalid: :replace).should == "\u3053\ufffd"
-      end
+      "\xE3\x81\x93\xE3\x81".encode("UTF-8", invalid: :replace).should == "\u3053\ufffd"
     end
 
     it "replaces invalid encoding in source using a specified replacement even when a fallback is given" do

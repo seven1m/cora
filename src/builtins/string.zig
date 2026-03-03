@@ -563,6 +563,23 @@ fn replacementValueForEncode(
     return vm.newString("?", false);
 }
 
+fn appendDefaultReplacementForEncode(
+    vm: *VM,
+    out: *std.ArrayList(u8),
+    target_encoding: enc.Encoding,
+) VMError!void {
+    var encoded: [4]u8 = undefined;
+    if (target_encoding.fromUnicodeCodepoint(0xFFFD, &encoded)) |encoded_len| {
+        out.appendSlice(vm.gc_allocator_atomic, encoded[0..encoded_len]) catch return error.Fatal;
+        return;
+    }
+    if (target_encoding.fromUnicodeCodepoint('?', &encoded)) |encoded_len| {
+        out.appendSlice(vm.gc_allocator_atomic, encoded[0..encoded_len]) catch return error.Fatal;
+        return;
+    }
+    return vm.raiseExceptionFmt(vm.argument_error_class, "too big fallback string", .{});
+}
+
 fn appendReplacementForEncode(
     vm: *VM,
     out: *std.ArrayList(u8),
@@ -663,7 +680,7 @@ fn transcodeWithEncodeOptions(
 
     const invalid_replace = kw_invalid != null and kw_invalid.?.isSymbol() and std.mem.eql(u8, kw_invalid.?.toSymbolObject().name, "replace");
     const undef_replace = kw_undef != null and kw_undef.?.isSymbol() and std.mem.eql(u8, kw_undef.?.toSymbolObject().name, "replace");
-    const replacement = try replacementValueForEncode(vm, receiver, kw_replace);
+    const replacement = if (kw_replace) |_| try replacementValueForEncode(vm, receiver, kw_replace) else Value.nil();
 
     var i: usize = 0;
     while (i < source_bytes.len) {
@@ -673,7 +690,11 @@ fn transcodeWithEncodeOptions(
 
         if (!parsed.valid) {
             if (invalid_replace) {
-                try appendReplacementForEncode(vm, &out, replacement, target_encoding);
+                if (kw_replace != null) {
+                    try appendReplacementForEncode(vm, &out, replacement, target_encoding);
+                } else {
+                    try appendDefaultReplacementForEncode(vm, &out, target_encoding);
+                }
                 continue;
             }
             return vm.raiseExceptionFmt(vm.encoding_invalid_byte_sequence_error_class, "invalid byte sequence in {s}", .{from_encoding.name()});
@@ -710,7 +731,11 @@ fn transcodeWithEncodeOptions(
         }
 
         if (undef_replace) {
-            try appendReplacementForEncode(vm, &out, replacement, target_encoding);
+            if (kw_replace != null) {
+                try appendReplacementForEncode(vm, &out, replacement, target_encoding);
+            } else {
+                try appendDefaultReplacementForEncode(vm, &out, target_encoding);
+            }
             continue;
         }
 
