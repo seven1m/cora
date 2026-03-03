@@ -579,6 +579,9 @@ pub fn builtinStringForceEncoding(vm: *VM, receiver: Value, args: []Value, _: ?B
         args[0].toEncodingObject().encoding
     else blk: {
         const result = try encoding_builtin.builtinEncodingFind(vm, receiver, args, null);
+        if (result.isNil()) {
+            break :blk vm.encoding_ascii_8bit.encoding;
+        }
         break :blk result.toEncodingObject().encoding;
     };
 

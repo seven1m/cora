@@ -262,6 +262,7 @@ pub const VM = struct {
     encoding_utf16be: *value.EncodingObject,
     encoding_utf32le: *value.EncodingObject,
     encoding_utf32be: *value.EncodingObject,
+    default_external_encoding: *value.EncodingObject,
     default_internal_encoding: ?*value.EncodingObject = null,
 
     // Exception handling state
@@ -379,6 +380,7 @@ pub const VM = struct {
             .encoding_utf16be = undefined,
             .encoding_utf32le = undefined,
             .encoding_utf32be = undefined,
+            .default_external_encoding = undefined,
             .default_internal_encoding = null,
             .main_self = undefined,
             .zio_main_context = undefined,
@@ -631,6 +633,7 @@ pub const VM = struct {
         self.encoding_utf16be = try self.createEncodingObject(.{ .utf16be = .{} });
         self.encoding_utf32le = try self.createEncodingObject(.{ .utf32le = .{} });
         self.encoding_utf32be = try self.createEncodingObject(.{ .utf32be = .{} });
+        self.default_external_encoding = self.encoding_utf8;
 
         // --- Stage 3: Set Class's superclass to Module ---
         self.class_class.superclass = self.module_class;

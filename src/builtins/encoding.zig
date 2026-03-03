@@ -154,6 +154,12 @@ pub fn register(vm: *VM) !void {
 
     const set_default_internal_sym = try vm.intern("default_internal=");
     try encoding_singleton.module.methods.put(set_default_internal_sym, .{ .method = .{ .builtin = &builtinEncodingSetDefaultInternal } });
+
+    const default_external_sym = try vm.intern("default_external");
+    try encoding_singleton.module.methods.put(default_external_sym, .{ .method = .{ .builtin = &builtinEncodingDefaultExternal } });
+
+    const set_default_external_sym = try vm.intern("default_external=");
+    try encoding_singleton.module.methods.put(set_default_external_sym, .{ .method = .{ .builtin = &builtinEncodingSetDefaultExternal } });
 }
 
 pub fn builtinEncodingName(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -214,7 +220,11 @@ pub fn builtinEncodingFind(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
         if (vm.default_internal_encoding) |encoding_obj| {
             return Value.fromObject(encoding_obj);
         }
-        return Value.fromObject(vm.encoding_ascii_8bit);
+        return Value.nil();
+    }
+
+    if (std.mem.eql(u8, lookup, "EXTERNAL") or std.mem.eql(u8, lookup, "FILESYSTEM") or std.mem.eql(u8, lookup, "LOCALE")) {
+        return Value.fromObject(vm.default_external_encoding);
     }
 
     if (encoding_name_map.get(lookup)) |enc_name| {
@@ -258,5 +268,25 @@ pub fn builtinEncodingSetDefaultInternal(vm: *VM, _: Value, args: []Value, _: ?B
         try builtinEncodingFind(vm, Value.nil(), args, null);
 
     vm.default_internal_encoding = resolved.toEncodingObject();
+    return resolved;
+}
+
+pub fn builtinEncodingDefaultExternal(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return Value.fromObject(vm.default_external_encoding);
+}
+
+pub fn builtinEncodingSetDefaultExternal(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (args[0].isNil()) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "default external can not be nil", .{});
+    }
+
+    const resolved: Value = if (args[0].isEncoding())
+        args[0]
+    else
+        try builtinEncodingFind(vm, Value.nil(), args, null);
+
+    vm.default_external_encoding = resolved.toEncodingObject();
     return resolved;
 }
