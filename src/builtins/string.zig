@@ -54,6 +54,9 @@ pub fn register(vm: *VM) !void {
     const string_not_equal_sym = try vm.intern("!=");
     try vm.string_class.module.methods.put(string_not_equal_sym, .{ .method = .{ .builtin = &builtinStringNotEqual } });
 
+    const string_compare_sym = try vm.intern("<=>");
+    try vm.string_class.module.methods.put(string_compare_sym, .{ .method = .{ .builtin = &builtinStringCompare } });
+
     const string_encoding_sym = try vm.intern("encoding");
     try vm.string_class.module.methods.put(string_encoding_sym, .{ .method = .{ .builtin = &builtinStringEncoding } });
 
@@ -434,6 +437,83 @@ pub fn builtinStringNotEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     return Value.boolean(result);
 }
 
+pub fn builtinStringCompare(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const lhs = receiver.toStringObject();
+    const other = args[0];
+
+    if (other.isString()) {
+        return compareStringObjects(lhs, other.toStringObject());
+    }
+
+    const coerced = try tryCoerceToStringForCompare(vm, other);
+    if (coerced) |coerced_value| {
+        return compareStringObjects(lhs, coerced_value.toStringObject());
+    }
+
+    if (try vm.enterRecursionGuard(.string_compare_fallback, receiver, other)) return Value.nil();
+    defer vm.leaveRecursionGuard(.string_compare_fallback, receiver, other);
+
+    var reverse_args = [_]Value{receiver};
+    const maybe_reversed = try vm.checkCallMethodByName(other, "<=>", reverse_args[0..], null);
+    const reversed = maybe_reversed orelse return Value.nil();
+
+    if (reversed.isNil()) return Value.nil();
+    if (reversed.isInteger()) {
+        const value_int = reversed.toInteger();
+        if (value_int < 0) return Value.integer(1);
+        if (value_int > 0) return Value.integer(-1);
+        return Value.integer(0);
+    }
+    if (reversed.isFloat()) {
+        const value_float = reversed.toFloatObject().val;
+        if (value_float < 0) return Value.integer(1);
+        if (value_float > 0) return Value.integer(-1);
+        return Value.integer(0);
+    }
+    return Value.nil();
+}
+
+fn compareStringObjects(lhs: *const value.StringObject, rhs: *const value.StringObject) Value {
+    const order = std.mem.order(u8, lhs.str, rhs.str);
+    if (order == .lt) return Value.integer(-1);
+    if (order == .gt) return Value.integer(1);
+
+    if (lhs.str.len == 0 or lhs.encoding.eql(rhs.encoding)) {
+        return Value.integer(0);
+    }
+
+    if (lhs.encoding.isAsciiCompatible() and rhs.encoding.isAsciiCompatible() and
+        enc.isAsciiOnly(lhs.str) and enc.isAsciiOnly(rhs.str))
+    {
+        return Value.integer(0);
+    }
+
+    const lhs_tag = @intFromEnum(@as(std.meta.Tag(enc.Encoding), lhs.encoding));
+    const rhs_tag = @intFromEnum(@as(std.meta.Tag(enc.Encoding), rhs.encoding));
+    if (lhs_tag < rhs_tag) return Value.integer(-1);
+    if (lhs_tag > rhs_tag) return Value.integer(1);
+    return Value.integer(0);
+}
+
+fn tryCoerceToStringForCompare(vm: *VM, other: Value) VMError!?Value {
+    const maybe_coerced = try vm.checkCallMethodByName(other, "to_str", &[_]Value{}, null);
+    const coerced = maybe_coerced orelse return null;
+
+    if (coerced.isNil()) {
+        return null;
+    }
+
+    if (!coerced.isString()) {
+        return vm.raiseExceptionFmt(
+            vm.type_error_class,
+            "can't convert {s} to String ({s}#to_str gives {s})",
+            .{ vm.className(other), vm.className(other), vm.className(coerced) },
+        );
+    }
+
+    return coerced;
+}
 pub fn builtinStringEncoding(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const string_obj = receiver.toStringObject();

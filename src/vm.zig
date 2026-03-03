@@ -6,6 +6,7 @@ const compiler = @import("compiler.zig");
 const enc = @import("encoding.zig");
 const fixed_buffer_list = @import("fixed_buffer_list.zig");
 const onigmo = @import("onigmo.zig");
+const recursion_guard = @import("recursion_guard.zig");
 const value = @import("value.zig");
 const prism = @import("prism.zig");
 const builtins = @import("builtins/builtins.zig");
@@ -28,6 +29,8 @@ const Chunk = chunk.Chunk;
 const CallSiteCache = chunk.CallSiteCache;
 const BigInt = std.math.big.int.Managed;
 const FixedBufferList = fixed_buffer_list.FixedBufferList;
+const RecursionGuard = recursion_guard.RecursionGuard;
+pub const RecursionGuardKind = recursion_guard.Kind;
 
 extern "c" fn getenv(name: [*:0]const u8) ?[*:0]u8;
 extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
@@ -284,6 +287,7 @@ pub const VM = struct {
     next_chunk_id: u16 = 1,
     method_state_version: u64 = 1,
     integer_changed: bool = false,
+    recursion_guard: RecursionGuard = .{},
 
     // Buffered writers for production
     stdout_buffer: [4096]u8 = undefined,
@@ -1167,6 +1171,7 @@ pub const VM = struct {
         }
         self.fstring_cache.deinit();
         self.at_exit_handlers.deinit(self.gc_allocator);
+        self.recursion_guard.deinit(self.allocator);
         for (self.io_objects.items) |io_obj| {
             if (io_obj.owns_fd and !io_obj.closed and io_obj.fd >= 0) {
                 std.posix.close(@intCast(io_obj.fd));
@@ -1216,6 +1221,14 @@ pub const VM = struct {
         }
 
         self.pending_exception = original_exception;
+    }
+
+    pub fn enterRecursionGuard(self: *VM, kind: RecursionGuardKind, lhs: Value, rhs: Value) VMError!bool {
+        return self.recursion_guard.enter(self.allocator, kind, lhs, rhs) catch return error.Fatal;
+    }
+
+    pub fn leaveRecursionGuard(self: *VM, kind: RecursionGuardKind, lhs: Value, rhs: Value) void {
+        self.recursion_guard.leave(kind, lhs, rhs);
     }
 
     pub fn currentFrame(self: *VM) *CallFrame {
@@ -4785,6 +4798,17 @@ pub const VM = struct {
     /// Call a method by name while forwarding the current builtin keyword context.
     pub fn callMethodByNameForwardingKeywords(self: *VM, receiver: Value, method_name: []const u8, args: []Value, block: ?Block) VMError!Value {
         return self.callMethodByNameInternal(receiver, method_name, args, block, self.builtin_keyword_ctx);
+    }
+
+    /// MRI-like check-call helper for optional conversion/probe calls.
+    /// Returns null when receiver does not respond to the method.
+    /// If receiver responds, performs a normal call (including method_missing behavior).
+    pub fn checkCallMethodByName(self: *VM, receiver: Value, method_name: []const u8, args: []Value, block: ?Block) VMError!?Value {
+        const method_name_sym = try self.intern(method_name);
+        var respond_args: [1]Value = .{Value.fromObject(method_name_sym)};
+        const responds = try self.callMethodByName(receiver, "respond_to?", respond_args[0..], null);
+        if (!responds.is_truthy()) return null;
+        return try self.callMethodByName(receiver, method_name, args, block);
     }
 
     /// Result from yielding to a block

@@ -52,6 +52,25 @@ test "String#to_str" {
     try std.testing.expectEqualSlices(u8, "hello", result.toStringObject().str);
 }
 
+test "String#<=> inverse fallback recursion is pair-specific" {
+    const result = try evalCode(
+        \\$other = Object.new
+        \\def $other.<=>(_x)
+        \\  1
+        \\end
+        \\
+        \\obj = Object.new
+        \\def obj.<=>(x)
+        \\  $nested_result = ("b" <=> $other)
+        \\  x <=> self
+        \\end
+        \\
+        \\("a" <=> obj).nil? && $nested_result == -1
+    );
+    try std.testing.expect(result.isBool());
+    try std.testing.expectEqual(true, result.toBool());
+}
+
 test "String#+ concatenates two strings" {
     const result = try evalCode("\"Hello, \" + \"world!\"");
     try std.testing.expect(result.isString());

@@ -1111,10 +1111,14 @@ class MockObject
     @name = name || "mock"
     @forbidden_calls = {}
     @expected_calls = {}
+    @wrapped_methods = {}
   end
 
   def should_not_receive(method_name)
-    @forbidden_calls[method_name.to_sym] = true
+    method_name = method_name.to_sym
+    @expected_calls.delete(method_name)
+    @forbidden_calls[method_name] = true
+    install_method_wrapper(method_name)
     self
   end
 
@@ -1123,12 +1127,17 @@ class MockObject
     @forbidden_calls.delete(method_name)
     exp = SpecMockExpectation.new(@name, method_name)
     @expected_calls[method_name] = exp
+    install_method_wrapper(method_name)
     exp
   end
 
   def verify_expectations!
-    @expected_calls.each do |_name, exp|
-      exp.verify!
+    begin
+      @expected_calls.each do |_name, exp|
+        exp.verify!
+      end
+    ensure
+      restore_method_wrappers
     end
   end
 
@@ -1147,6 +1156,54 @@ class MockObject
 
   def respond_to_missing?(_name, _include_private = false)
     true
+  end
+
+  private
+
+  def install_method_wrapper(method_name)
+    already_wrapped = false
+    @wrapped_methods.each do |name, _|
+      if name == method_name
+        already_wrapped = true
+      end
+    end
+    return if already_wrapped
+
+    singleton = class << self; self; end
+    unless singleton.instance_methods(false).include?(method_name)
+      @wrapped_methods[method_name] = nil
+      return
+    end
+
+    original_name = "__spec_mock_original_#{object_id}_#{method_name}".to_sym
+    singleton.send(:alias_method, original_name, method_name)
+    @wrapped_methods[method_name] = original_name
+
+    define_singleton_method(method_name) do |*args, &block|
+      if @forbidden_calls[method_name]
+        raise SpecFailedException, "Expected #{@name} not to receive #{method_name}"
+      end
+
+      exp = @expected_calls[method_name]
+      return exp.invoke(args, block) if exp
+
+      send(original_name, *args, &block)
+    end
+  end
+
+  def restore_method_wrappers
+    singleton = class << self; self; end
+    @wrapped_methods.each do |method_name, original_name|
+      if !original_name.nil?
+        singleton.send(:alias_method, method_name, original_name)
+        begin
+          singleton.send(:remove_method, original_name)
+        rescue NameError
+          nil
+        end
+      end
+    end
+    @wrapped_methods = {}
   end
 end
 
@@ -1308,7 +1365,9 @@ class Object
 
   def verify_expectations!
     begin
-      __spec_expected_calls.each_value(&:verify!)
+      __spec_expected_calls.each do |_name, exp|
+        exp.verify!
+      end
     ensure
       __spec_restore_hooks
     end
