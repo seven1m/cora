@@ -719,6 +719,7 @@ pub const VM = struct {
         const ascii_8bit_const_sym = try self.intern("ASCII_8BIT");
         const binary_const_sym = try self.intern("BINARY");
         const us_ascii_const_sym = try self.intern("US_ASCII");
+        const ascii_const_sym = try self.intern("ASCII");
         const shift_jis_const_sym = try self.intern("SHIFT_JIS");
         const shift_jis_mixed_const_sym = try self.intern("Shift_JIS");
         const sjis_const_sym = try self.intern("SJIS");
@@ -750,6 +751,7 @@ pub const VM = struct {
         self.encoding_class.module.constants.put(ascii_8bit_const_sym, ascii_8bit_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(binary_const_sym, ascii_8bit_val) catch return error.Fatal; // BINARY is alias for ASCII_8BIT
         self.encoding_class.module.constants.put(us_ascii_const_sym, us_ascii_val) catch return error.Fatal;
+        self.encoding_class.module.constants.put(ascii_const_sym, us_ascii_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(shift_jis_const_sym, shift_jis_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(shift_jis_mixed_const_sym, shift_jis_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(sjis_const_sym, shift_jis_val) catch return error.Fatal;
