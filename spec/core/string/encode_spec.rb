@@ -88,11 +88,9 @@ describe "String#encode" do
     end
 
     it "replaces invalid encoding in source with a specified replacement" do
-      CORAFIXME "String#encode replace: option for invalid bytes", exception: StandardError do
-        encoded = "ち\xE3\x81\xFF".encode("UTF-16LE", invalid: :replace, replace: "foo")
-        encoded.should == "\u3061foofoo".encode("UTF-16LE")
-        encoded.encode("UTF-8").should == "ちfoofoo"
-      end
+      encoded = "ち\xE3\x81\xFF".encode("UTF-16LE", invalid: :replace, replace: "foo")
+      encoded.should == "\u3061foofoo".encode("UTF-16LE")
+      encoded.encode("UTF-8").should == "ちfoofoo"
     end
 
     it "replace multiple invalid bytes at the end with a single replacement character" do
@@ -102,51 +100,39 @@ describe "String#encode" do
     end
 
     it "replaces invalid encoding in source using a specified replacement even when a fallback is given" do
-      CORAFIXME "String#encode fallback interaction for invalid bytes", exception: StandardError do
-        encoded = "ち\xE3\x81\xFF".encode("UTF-16LE", invalid: :replace, replace: "foo", fallback: -> c { "bar" })
-        encoded.should == "\u3061foofoo".encode("UTF-16LE")
-        encoded.encode("UTF-8").should == "ちfoofoo"
-      end
+      encoded = "ち\xE3\x81\xFF".encode("UTF-16LE", invalid: :replace, replace: "foo", fallback: -> c { "bar" })
+      encoded.should == "\u3061foofoo".encode("UTF-16LE")
+      encoded.encode("UTF-8").should == "ちfoofoo"
     end
 
     it "replaces undefined encoding in destination with default replacement" do
-      CORAFIXME "String#encode undef: :replace default replacement", exception: StandardError do
-        encoded = "B\ufffd".encode(Encoding::US_ASCII, undef: :replace)
-        encoded.should == "B?".encode(Encoding::US_ASCII)
-        encoded.encode("UTF-8").should == "B?"
-      end
+      encoded = "B\ufffd".encode(Encoding::US_ASCII, undef: :replace)
+      encoded.should == "B?".encode(Encoding::US_ASCII)
+      encoded.encode("UTF-8").should == "B?"
     end
 
     it "replaces undefined encoding in destination with a specified replacement" do
-      CORAFIXME "String#encode undef replacement string", exception: StandardError do
-        encoded = "B\ufffd".encode(Encoding::US_ASCII, undef: :replace, replace: "foo")
-        encoded.should == "Bfoo".encode(Encoding::US_ASCII)
-        encoded.encode("UTF-8").should == "Bfoo"
-      end
+      encoded = "B\ufffd".encode(Encoding::US_ASCII, undef: :replace, replace: "foo")
+      encoded.should == "Bfoo".encode(Encoding::US_ASCII)
+      encoded.encode("UTF-8").should == "Bfoo"
     end
 
     it "replaces undefined encoding in destination with a specified replacement even if a fallback is given" do
-      CORAFIXME "String#encode fallback interaction for undef bytes", exception: StandardError do
-        encoded = "B\ufffd".encode(Encoding::US_ASCII, undef: :replace, replace: "foo", fallback: proc {|x| "bar"})
-        encoded.should == "Bfoo".encode(Encoding::US_ASCII)
-        encoded.encode("UTF-8").should == "Bfoo"
-      end
+      encoded = "B\ufffd".encode(Encoding::US_ASCII, undef: :replace, replace: "foo", fallback: proc {|x| "bar"})
+      encoded.should == "Bfoo".encode(Encoding::US_ASCII)
+      encoded.encode("UTF-8").should == "Bfoo"
     end
 
     it "replaces undefined encoding in destination using a fallback proc" do
-      CORAFIXME "String#encode fallback proc for undefined conversion", exception: StandardError do
-        encoded = "B\ufffd".encode(Encoding::US_ASCII, fallback: proc {|x| "bar"})
-        encoded.should == "Bbar".encode(Encoding::US_ASCII)
-        encoded.encode("UTF-8").should == "Bbar"
-      end
+      encoded = "B\ufffd".encode(Encoding::US_ASCII, fallback: proc {|x| "bar"})
+      encoded.should == "Bbar".encode(Encoding::US_ASCII)
+      encoded.encode("UTF-8").should == "Bbar"
     end
 
     it "replaces invalid encoding in source using replace even when fallback is given as proc" do
-      CORAFIXME "String#encode fallback proc with invalid replacement", exception: StandardError do
-        encoded = "ち\xE3\x81\xFF".encode("UTF-16LE", invalid: :replace, replace: "foo", fallback: proc {|x| "bar"})
-        encoded.should == "\u3061foofoo".encode("UTF-16LE")
-        encoded.encode("UTF-8").should == "ちfoofoo"
-      end
+      encoded = "ち\xE3\x81\xFF".encode("UTF-16LE", invalid: :replace, replace: "foo", fallback: proc {|x| "bar"})
+      encoded.should == "\u3061foofoo".encode("UTF-16LE")
+      encoded.encode("UTF-8").should == "ちfoofoo"
     end
   end
 

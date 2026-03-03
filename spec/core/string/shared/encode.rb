@@ -1,105 +1,92 @@
 # -*- encoding: utf-8 -*-
 # frozen_string_literal: false
 
-def cora_encode_it(description, &block)
-  cora_encode_known_passing = [
-    "raises an Encoding::ConverterNotFoundError for an invalid encoding",
-    "does not process transcoding options if not transcoding",
-    "calls #to_hash to convert the object",
-    "does not replace '\"'",
-  ]
-
-  # These specs currently fail in post-example mock verification rather than
-  # directly inside the example body, so force a deterministic FIX-ME marker.
-  cora_encode_force_fixme = [
-    "calls to_str on the returned value",
-  ]
-
-  it description do
-    if cora_encode_force_fixme.include?(description)
-      CORAFIXME("String shared encode pending: #{description}", exception: StandardError) do
-        raise SpecFailedException, "pending shared encode fallback coercion behavior"
-      end
-    else
-      CORAFIXME(
-        "String shared encode pending: #{description}",
-        exception: StandardError,
-        condition: !cora_encode_known_passing.include?(description),
-      ) do
-        block.call
-      end
-    end
-  end
-end
-
 describe :string_encode, shared: true do
   describe "when passed no options" do
-    cora_encode_it "transcodes to Encoding.default_internal when set" do
-      Encoding.default_internal = Encoding::UTF_8
-      str = [0xA4, 0xA2].pack('CC').force_encoding Encoding::EUC_JP
-      str.send(@method).should == "あ"
+    it "transcodes to Encoding.default_internal when set" do
+      CORAFIXME "String shared encode default_internal transcode", exception: StandardError do
+        Encoding.default_internal = Encoding::UTF_8
+        str = [0xA4, 0xA2].pack('CC').force_encoding Encoding::EUC_JP
+        str.send(@method).should == "あ"
+      end
     end
 
-    cora_encode_it "transcodes a 7-bit String despite no generic converting being available" do
-      -> do
-        Encoding::Converter.new Encoding::Emacs_Mule, Encoding::BINARY
-      end.should raise_error(Encoding::ConverterNotFoundError)
+    it "transcodes a 7-bit String despite no generic converting being available" do
+      CORAFIXME "String shared encode 7-bit no-options", exception: StandardError do
+        -> do
+          Encoding::Converter.new Encoding::Emacs_Mule, Encoding::BINARY
+        end.should raise_error(Encoding::ConverterNotFoundError)
 
-      Encoding.default_internal = Encoding::Emacs_Mule
-      str = "\x79".force_encoding Encoding::BINARY
+        Encoding.default_internal = Encoding::Emacs_Mule
+        str = "\x79".force_encoding Encoding::BINARY
 
-      str.send(@method).should == "y".force_encoding(Encoding::BINARY)
+        str.send(@method).should == "y".force_encoding(Encoding::BINARY)
+      end
     end
 
-    cora_encode_it "raises an Encoding::ConverterNotFoundError when no conversion is possible" do
-      Encoding.default_internal = Encoding::Emacs_Mule
-      str = [0x80].pack('C').force_encoding Encoding::BINARY
-      -> { str.send(@method) }.should raise_error(Encoding::ConverterNotFoundError)
+    it "raises an Encoding::ConverterNotFoundError when no conversion is possible" do
+      CORAFIXME "String shared encode converter-not-found no-options", exception: StandardError do
+        Encoding.default_internal = Encoding::Emacs_Mule
+        str = [0x80].pack('C').force_encoding Encoding::BINARY
+        -> { str.send(@method) }.should raise_error(Encoding::ConverterNotFoundError)
+      end
     end
   end
 
   describe "when passed to encoding" do
-    cora_encode_it "accepts a String argument" do
-      str = [0xA4, 0xA2].pack('CC').force_encoding Encoding::EUC_JP
-      str.send(@method, "utf-8").should == "あ"
+    it "accepts a String argument" do
+      CORAFIXME "String shared encode to-encoding string argument", exception: StandardError do
+        str = [0xA4, 0xA2].pack('CC').force_encoding Encoding::EUC_JP
+        str.send(@method, "utf-8").should == "あ"
+      end
     end
 
-    cora_encode_it "calls #to_str to convert the object to an Encoding" do
-      enc = mock("string encode encoding")
-      enc.should_receive(:to_str).and_return("utf-8")
+    it "calls #to_str to convert the object to an Encoding" do
+      CORAFIXME "String shared encode to-encoding to_str", exception: StandardError do
+        enc = mock("string encode encoding")
+        enc.should_receive(:to_str).and_return("utf-8")
 
-      str = [0xA4, 0xA2].pack('CC').force_encoding Encoding::EUC_JP
-      str.send(@method, enc).should == "あ"
+        str = [0xA4, 0xA2].pack('CC').force_encoding Encoding::EUC_JP
+        str.send(@method, enc).should == "あ"
+      end
     end
 
-    cora_encode_it "transcodes to the passed encoding" do
-      str = [0xA4, 0xA2].pack('CC').force_encoding Encoding::EUC_JP
-      str.send(@method, Encoding::UTF_8).should == "あ"
+    it "transcodes to the passed encoding" do
+      CORAFIXME "String shared encode to-encoding transcode", exception: StandardError do
+        str = [0xA4, 0xA2].pack('CC').force_encoding Encoding::EUC_JP
+        str.send(@method, Encoding::UTF_8).should == "あ"
+      end
     end
 
-    cora_encode_it "transcodes Japanese multibyte characters" do
-      str = "あいうえお"
-      str.send(@method, Encoding::ISO_2022_JP).should ==
-        "\e\x24\x42\x24\x22\x24\x24\x24\x26\x24\x28\x24\x2A\e\x28\x42".force_encoding(Encoding::ISO_2022_JP)
+    it "transcodes Japanese multibyte characters" do
+      CORAFIXME "String shared encode Japanese multibyte", exception: StandardError do
+        str = "あいうえお"
+        str.send(@method, Encoding::ISO_2022_JP).should ==
+          "\e\x24\x42\x24\x22\x24\x24\x24\x26\x24\x28\x24\x2A\e\x28\x42".force_encoding(Encoding::ISO_2022_JP)
+      end
     end
 
-    cora_encode_it "transcodes a 7-bit String despite no generic converting being available" do
-      -> do
-        Encoding::Converter.new Encoding::Emacs_Mule, Encoding::BINARY
-      end.should raise_error(Encoding::ConverterNotFoundError)
+    it "transcodes a 7-bit String despite no generic converting being available" do
+      CORAFIXME "String shared encode 7-bit to-encoding", exception: StandardError do
+        -> do
+          Encoding::Converter.new Encoding::Emacs_Mule, Encoding::BINARY
+        end.should raise_error(Encoding::ConverterNotFoundError)
 
-      str = "\x79".force_encoding Encoding::BINARY
-      str.send(@method, Encoding::Emacs_Mule).should == "y".force_encoding(Encoding::BINARY)
+        str = "\x79".force_encoding Encoding::BINARY
+        str.send(@method, Encoding::Emacs_Mule).should == "y".force_encoding(Encoding::BINARY)
+      end
     end
 
-    cora_encode_it "raises an Encoding::ConverterNotFoundError when no conversion is possible" do
-      str = [0x80].pack('C').force_encoding Encoding::BINARY
-      -> do
-        str.send(@method, Encoding::Emacs_Mule)
-      end.should raise_error(Encoding::ConverterNotFoundError)
+    it "raises an Encoding::ConverterNotFoundError when no conversion is possible" do
+      CORAFIXME "String shared encode converter-not-found to-encoding", exception: StandardError do
+        str = [0x80].pack('C').force_encoding Encoding::BINARY
+        -> do
+          str.send(@method, Encoding::Emacs_Mule)
+        end.should raise_error(Encoding::ConverterNotFoundError)
+      end
     end
 
-    cora_encode_it "raises an Encoding::ConverterNotFoundError for an invalid encoding" do
+    it "raises an Encoding::ConverterNotFoundError for an invalid encoding" do
       -> do
         "abc".send(@method, "xyz")
       end.should raise_error(Encoding::ConverterNotFoundError)
@@ -107,12 +94,12 @@ describe :string_encode, shared: true do
   end
 
   describe "when passed options" do
-    cora_encode_it "does not process transcoding options if not transcoding" do
+    it "does not process transcoding options if not transcoding" do
       result = "あ\ufffdあ".send(@method, undef: :replace)
       result.should == "あ\ufffdあ"
     end
 
-    cora_encode_it "calls #to_hash to convert the object" do
+    it "calls #to_hash to convert the object" do
       options = mock("string encode options")
       options.should_receive(:to_hash).and_return({ undef: :replace })
 
@@ -120,21 +107,25 @@ describe :string_encode, shared: true do
       result.should == "あ\ufffdあ"
     end
 
-    cora_encode_it "transcodes to Encoding.default_internal when set" do
-      Encoding.default_internal = Encoding::UTF_8
-      str = [0xA4, 0xA2].pack('CC').force_encoding Encoding::EUC_JP
-      str.send(@method, invalid: :replace).should == "あ"
+    it "transcodes to Encoding.default_internal when set" do
+      CORAFIXME "String shared encode options default_internal transcode", exception: StandardError do
+        Encoding.default_internal = Encoding::UTF_8
+        str = [0xA4, 0xA2].pack('CC').force_encoding Encoding::EUC_JP
+        str.send(@method, invalid: :replace).should == "あ"
+      end
     end
 
-    cora_encode_it "raises an Encoding::ConverterNotFoundError when no conversion is possible despite 'invalid: :replace, undef: :replace'" do
-      Encoding.default_internal = Encoding::Emacs_Mule
-      str = [0x80].pack('C').force_encoding Encoding::BINARY
-      -> do
-        str.send(@method, invalid: :replace, undef: :replace)
-      end.should raise_error(Encoding::ConverterNotFoundError)
+    it "raises an Encoding::ConverterNotFoundError when no conversion is possible despite 'invalid: :replace, undef: :replace'" do
+      CORAFIXME "String shared encode options converter-not-found", exception: StandardError do
+        Encoding.default_internal = Encoding::Emacs_Mule
+        str = [0x80].pack('C').force_encoding Encoding::BINARY
+        -> do
+          str.send(@method, invalid: :replace, undef: :replace)
+        end.should raise_error(Encoding::ConverterNotFoundError)
+      end
     end
 
-    cora_encode_it "replaces invalid characters when replacing Emacs-Mule encoded strings" do
+    it "replaces invalid characters when replacing Emacs-Mule encoded strings" do
       got = [0x80].pack('C').force_encoding('Emacs-Mule').send(@method, invalid: :replace)
 
       got.should == "?".encode('Emacs-Mule')
@@ -142,63 +133,73 @@ describe :string_encode, shared: true do
   end
 
   describe "when passed to, from" do
-    cora_encode_it "transcodes between the encodings ignoring the String encoding" do
-      str = "あ"
-      result = [0xA6, 0xD0, 0x8F, 0xAB, 0xE4, 0x8F, 0xAB, 0xB1].pack('C8')
-      result.force_encoding Encoding::EUC_JP
-      str.send(@method, "euc-jp", "ibm437").should == result
+    it "transcodes between the encodings ignoring the String encoding" do
+      CORAFIXME "String shared encode to-from transcode", exception: StandardError do
+        str = "あ"
+        result = [0xA6, 0xD0, 0x8F, 0xAB, 0xE4, 0x8F, 0xAB, 0xB1].pack('C8')
+        result.force_encoding Encoding::EUC_JP
+        str.send(@method, "euc-jp", "ibm437").should == result
+      end
     end
 
-    cora_encode_it "calls #to_str to convert the from object to an Encoding" do
-      enc = mock("string encode encoding")
-      enc.should_receive(:to_str).and_return("ibm437")
+    it "calls #to_str to convert the from object to an Encoding" do
+      CORAFIXME "String shared encode to-from to_str", exception: StandardError do
+        enc = mock("string encode encoding")
+        enc.should_receive(:to_str).and_return("ibm437")
 
-      str = "あ"
-      result = [0xA6, 0xD0, 0x8F, 0xAB, 0xE4, 0x8F, 0xAB, 0xB1].pack('C8')
-      result.force_encoding Encoding::EUC_JP
+        str = "あ"
+        result = [0xA6, 0xD0, 0x8F, 0xAB, 0xE4, 0x8F, 0xAB, 0xB1].pack('C8')
+        result.force_encoding Encoding::EUC_JP
 
-      str.send(@method, "euc-jp", enc).should == result
+        str.send(@method, "euc-jp", enc).should == result
+      end
     end
   end
 
   describe "when passed to, options" do
-    cora_encode_it "replaces undefined characters in the destination encoding" do
-      result = "あ?あ".send(@method, Encoding::EUC_JP, undef: :replace)
-      # testing for: "\xA4\xA2?\xA4\xA2"
-      xA4xA2 = [0xA4, 0xA2].pack('CC')
-      result.should == "#{xA4xA2}?#{xA4xA2}".force_encoding("euc-jp")
+    it "replaces undefined characters in the destination encoding" do
+      CORAFIXME "String shared encode to-options undef replace", exception: StandardError do
+        result = "あ?あ".send(@method, Encoding::EUC_JP, undef: :replace)
+        # testing for: "\xA4\xA2?\xA4\xA2"
+        xA4xA2 = [0xA4, 0xA2].pack('CC')
+        result.should == "#{xA4xA2}?#{xA4xA2}".force_encoding("euc-jp")
+      end
     end
 
-    cora_encode_it "replaces invalid characters in the destination encoding" do
+    it "replaces invalid characters in the destination encoding" do
       xFF = [0xFF].pack('C').force_encoding('utf-8')
       "ab#{xFF}c".send(@method, Encoding::ISO_8859_1, invalid: :replace).should == "ab?c"
     end
 
-    cora_encode_it "calls #to_hash to convert the options object" do
-      options = mock("string encode options")
-      options.should_receive(:to_hash).and_return({ undef: :replace })
+    it "calls #to_hash to convert the options object" do
+      CORAFIXME "String shared encode to-options options to_hash", exception: StandardError do
+        options = mock("string encode options")
+        options.should_receive(:to_hash).and_return({ undef: :replace })
 
-      result = "あ?あ".send(@method, Encoding::EUC_JP, **options)
-      xA4xA2 = [0xA4, 0xA2].pack('CC').force_encoding('utf-8')
-      result.should == "#{xA4xA2}?#{xA4xA2}".force_encoding("euc-jp")
+        result = "あ?あ".send(@method, Encoding::EUC_JP, **options)
+        xA4xA2 = [0xA4, 0xA2].pack('CC').force_encoding('utf-8')
+        result.should == "#{xA4xA2}?#{xA4xA2}".force_encoding("euc-jp")
+      end
     end
   end
 
   describe "when passed to, from, options" do
-    cora_encode_it "replaces undefined characters in the destination encoding" do
-      str = "あ?あ".force_encoding Encoding::BINARY
-      result = str.send(@method, "euc-jp", "utf-8", undef: :replace)
-      xA4xA2 = [0xA4, 0xA2].pack('CC').force_encoding('utf-8')
-      result.should == "#{xA4xA2}?#{xA4xA2}".force_encoding("euc-jp")
+    it "replaces undefined characters in the destination encoding" do
+      CORAFIXME "String shared encode to-from-options undef replace", exception: StandardError do
+        str = "あ?あ".force_encoding Encoding::BINARY
+        result = str.send(@method, "euc-jp", "utf-8", undef: :replace)
+        xA4xA2 = [0xA4, 0xA2].pack('CC').force_encoding('utf-8')
+        result.should == "#{xA4xA2}?#{xA4xA2}".force_encoding("euc-jp")
+      end
     end
 
-    cora_encode_it "replaces invalid characters in the destination encoding" do
+    it "replaces invalid characters in the destination encoding" do
       xFF = [0xFF].pack('C').force_encoding('utf-8')
       str = "ab#{xFF}c".force_encoding Encoding::BINARY
       str.send(@method, "iso-8859-1", "utf-8", invalid: :replace).should == "ab?c"
     end
 
-    cora_encode_it "calls #to_str to convert the to object to an encoding" do
+    it "calls #to_str to convert the to object to an encoding" do
       to = mock("string encode to encoding")
       to.should_receive(:to_str).and_return("iso-8859-1")
 
@@ -207,7 +208,7 @@ describe :string_encode, shared: true do
       str.send(@method, to, "utf-8", invalid: :replace).should == "ab?c"
     end
 
-    cora_encode_it "calls #to_str to convert the from object to an encoding" do
+    it "calls #to_str to convert the from object to an encoding" do
       from = mock("string encode to encoding")
       from.should_receive(:to_str).and_return("utf-8")
 
@@ -216,7 +217,7 @@ describe :string_encode, shared: true do
       str.send(@method, "iso-8859-1", from, invalid: :replace).should == "ab?c"
     end
 
-    cora_encode_it "calls #to_hash to convert the options object" do
+    it "calls #to_hash to convert the options object" do
       options = mock("string encode options")
       options.should_receive(:to_hash).and_return({ invalid: :replace })
 
@@ -228,19 +229,19 @@ describe :string_encode, shared: true do
 
   describe "given the fallback option" do
     context "given a hash" do
-      cora_encode_it "looks up the replacement value from the hash" do
+      it "looks up the replacement value from the hash" do
         encoded = "B\ufffd".encode(Encoding::US_ASCII, fallback: { "\ufffd" => "bar" })
         encoded.should == "Bbar"
       end
 
-      cora_encode_it "calls to_str on the returned value" do
+      it "calls to_str on the returned value" do
         obj = Object.new
         obj.should_receive(:to_str).and_return("bar")
         encoded = "B\ufffd".encode(Encoding::US_ASCII, fallback: { "\ufffd" => obj })
         encoded.should == "Bbar"
       end
 
-      cora_encode_it "does not call to_s on the returned value" do
+      it "does not call to_s on the returned value" do
         obj = Object.new
         obj.should_not_receive(:to_s)
         -> {
@@ -248,26 +249,26 @@ describe :string_encode, shared: true do
         }.should raise_error(TypeError, "no implicit conversion of Object into String")
       end
 
-      cora_encode_it "raises an error if the key is not present in the hash" do
+      it "raises an error if the key is not present in the hash" do
         -> {
           "B\ufffd".encode(Encoding::US_ASCII, fallback: { "foo" => "bar" })
         }.should raise_error(Encoding::UndefinedConversionError, "U+FFFD from UTF-8 to US-ASCII")
       end
 
-      cora_encode_it "raises an error if the value is itself invalid" do
+      it "raises an error if the value is itself invalid" do
         -> {
           "B\ufffd".encode(Encoding::US_ASCII, fallback: { "\ufffd" => "\uffee" })
         }.should raise_error(ArgumentError, "too big fallback string")
       end
 
-      cora_encode_it "uses the hash's default value if set" do
+      it "uses the hash's default value if set" do
         hash = {}
         hash.default = "bar"
         encoded = "B\ufffd".encode(Encoding::US_ASCII, fallback: hash)
         encoded.should == "Bbar"
       end
 
-      cora_encode_it "uses the result of calling default_proc if set" do
+      it "uses the result of calling default_proc if set" do
         hash = {}
         hash.default_proc = -> _, _ { "bar" }
         encoded = "B\ufffd".encode(Encoding::US_ASCII, fallback: hash)
@@ -282,7 +283,7 @@ describe :string_encode, shared: true do
         @hash_like["\ufffd"] = "bar"
       end
 
-      cora_encode_it "looks up the replacement value from the object" do
+      it "looks up the replacement value from the object" do
         encoded = "B\ufffd".encode(Encoding::US_ASCII, fallback: @hash_like)
         encoded.should == "Bbar"
       end
@@ -296,7 +297,7 @@ describe :string_encode, shared: true do
         @hash_like = klass.new
       end
 
-      cora_encode_it "calls [] on the object, passing the invalid character" do
+      it "calls [] on the object, passing the invalid character" do
         encoded = "B\ufffd".encode(Encoding::US_ASCII, fallback: @hash_like)
         encoded.should == "B[239, 191, 189]"
       end
@@ -307,7 +308,7 @@ describe :string_encode, shared: true do
         @non_hash_like = Object.new
       end
 
-      cora_encode_it "raises an error" do
+      it "raises an error" do
         -> {
           "B\ufffd".encode(Encoding::US_ASCII, fallback: @non_hash_like)
         }.should raise_error(Encoding::UndefinedConversionError, "U+FFFD from UTF-8 to US-ASCII")
@@ -315,19 +316,19 @@ describe :string_encode, shared: true do
     end
 
     context "given a proc" do
-      cora_encode_it "calls the proc to get the replacement value, passing in the invalid character" do
+      it "calls the proc to get the replacement value, passing in the invalid character" do
         encoded = "B\ufffd".encode(Encoding::US_ASCII, fallback: proc { |c| c.bytes.inspect })
         encoded.should == "B[239, 191, 189]"
       end
 
-      cora_encode_it "calls to_str on the returned value" do
+      it "calls to_str on the returned value" do
         obj = Object.new
         obj.should_receive(:to_str).and_return("bar")
         encoded = "B\ufffd".encode(Encoding::US_ASCII, fallback: proc { |c| obj })
         encoded.should == "Bbar"
       end
 
-      cora_encode_it "does not call to_s on the returned value" do
+      it "does not call to_s on the returned value" do
         obj = Object.new
         obj.should_not_receive(:to_s)
         -> {
@@ -335,7 +336,7 @@ describe :string_encode, shared: true do
         }.should raise_error(TypeError, "no implicit conversion of Object into String")
       end
 
-      cora_encode_it "raises an error if the returned value is itself invalid" do
+      it "raises an error if the returned value is itself invalid" do
         -> {
           "B\ufffd".encode(Encoding::US_ASCII, fallback: -> c { "\uffee" })
         }.should raise_error(ArgumentError, "too big fallback string")
@@ -343,19 +344,19 @@ describe :string_encode, shared: true do
     end
 
     context "given a lambda" do
-      cora_encode_it "calls the lambda to get the replacement value, passing in the invalid character" do
+      it "calls the lambda to get the replacement value, passing in the invalid character" do
         encoded = "B\ufffd".encode(Encoding::US_ASCII, fallback: -> c { c.bytes.inspect })
         encoded.should == "B[239, 191, 189]"
       end
 
-      cora_encode_it "calls to_str on the returned value" do
+      it "calls to_str on the returned value" do
         obj = Object.new
         obj.should_receive(:to_str).and_return("bar")
         encoded = "B\ufffd".encode(Encoding::US_ASCII, fallback: -> c { obj })
         encoded.should == "Bbar"
       end
 
-      cora_encode_it "does not call to_s on the returned value" do
+      it "does not call to_s on the returned value" do
         obj = Object.new
         obj.should_not_receive(:to_s)
         -> {
@@ -363,7 +364,7 @@ describe :string_encode, shared: true do
         }.should raise_error(TypeError, "no implicit conversion of Object into String")
       end
 
-      cora_encode_it "raises an error if the returned value is itself invalid" do
+      it "raises an error if the returned value is itself invalid" do
         -> {
           "B\ufffd".encode(Encoding::US_ASCII, fallback: -> c { "\uffee" })
         }.should raise_error(ArgumentError, "too big fallback string")
@@ -386,79 +387,87 @@ describe :string_encode, shared: true do
         obj
       end
 
-      cora_encode_it "calls the method to get the replacement value, passing in the invalid character" do
-        encoded = "B\ufffd".encode(Encoding::US_ASCII, fallback: method(:replace))
-        encoded.should == "B[239, 191, 189]"
+      it "calls the method to get the replacement value, passing in the invalid character" do
+        CORAFIXME "String shared encode method fallback call", exception: StandardError do
+          encoded = "B\ufffd".encode(Encoding::US_ASCII, fallback: method(:replace))
+          encoded.should == "B[239, 191, 189]"
+        end
       end
 
-      cora_encode_it "calls to_str on the returned value" do
-        encoded = "B\ufffd".encode(Encoding::US_ASCII, fallback: method(:replace_to_str))
-        encoded.should == "Bbar"
+      it "calls to_str on the returned value" do
+        CORAFIXME "String shared encode method fallback to_str", exception: StandardError do
+          encoded = "B\ufffd".encode(Encoding::US_ASCII, fallback: method(:replace_to_str))
+          encoded.should == "Bbar"
+        end
       end
 
-      cora_encode_it "does not call to_s on the returned value" do
-        -> {
-          "B\ufffd".encode(Encoding::US_ASCII, fallback: method(:replace_to_s))
-        }.should raise_error(TypeError, "no implicit conversion of Object into String")
+      it "does not call to_s on the returned value" do
+        CORAFIXME "String shared encode method fallback no to_s", exception: StandardError do
+          -> {
+            "B\ufffd".encode(Encoding::US_ASCII, fallback: method(:replace_to_s))
+          }.should raise_error(TypeError, "no implicit conversion of Object into String")
+        end
       end
 
-      cora_encode_it "raises an error if the returned value is itself invalid" do
-        -> {
-          "B\ufffd".encode(Encoding::US_ASCII, fallback: method(:replace_bad))
-        }.should raise_error(ArgumentError, "too big fallback string")
+      it "raises an error if the returned value is itself invalid" do
+        CORAFIXME "String shared encode method fallback invalid return", exception: StandardError do
+          -> {
+            "B\ufffd".encode(Encoding::US_ASCII, fallback: method(:replace_bad))
+          }.should raise_error(ArgumentError, "too big fallback string")
+        end
       end
     end
   end
 
   describe "given the xml: :text option" do
-    cora_encode_it "replaces all instances of '&' with '&amp;'" do
+    it "replaces all instances of '&' with '&amp;'" do
       '& and &'.send(@method, "UTF-8", xml: :text).should == '&amp; and &amp;'
     end
 
-    cora_encode_it "replaces all instances of '<' with '&lt;'" do
+    it "replaces all instances of '<' with '&lt;'" do
       '< and <'.send(@method, "UTF-8", xml: :text).should == '&lt; and &lt;'
     end
 
-    cora_encode_it "replaces all instances of '>' with '&gt;'" do
+    it "replaces all instances of '>' with '&gt;'" do
       '> and >'.send(@method, "UTF-8", xml: :text).should == '&gt; and &gt;'
     end
 
-    cora_encode_it "does not replace '\"'" do
+    it "does not replace '\"'" do
       '" and "'.send(@method, "UTF-8", xml: :text).should == '" and "'
     end
 
-    cora_encode_it "replaces undefined characters with their upper-case hexadecimal numeric character references" do
+    it "replaces undefined characters with their upper-case hexadecimal numeric character references" do
       'ürst'.send(@method, Encoding::US_ASCII, xml: :text).should == '&#xFC;rst'
     end
   end
 
   describe "given the xml: :attr option" do
-    cora_encode_it "surrounds the encoded text with double-quotes" do
+    it "surrounds the encoded text with double-quotes" do
       'abc'.send(@method, "UTF-8", xml: :attr).should == '"abc"'
     end
 
-    cora_encode_it "replaces all instances of '&' with '&amp;'" do
+    it "replaces all instances of '&' with '&amp;'" do
       '& and &'.send(@method, "UTF-8", xml: :attr).should == '"&amp; and &amp;"'
     end
 
-    cora_encode_it "replaces all instances of '<' with '&lt;'" do
+    it "replaces all instances of '<' with '&lt;'" do
       '< and <'.send(@method, "UTF-8", xml: :attr).should == '"&lt; and &lt;"'
     end
 
-    cora_encode_it "replaces all instances of '>' with '&gt;'" do
+    it "replaces all instances of '>' with '&gt;'" do
       '> and >'.send(@method, "UTF-8", xml: :attr).should == '"&gt; and &gt;"'
     end
 
-    cora_encode_it "replaces all instances of '\"' with '&quot;'" do
+    it "replaces all instances of '\"' with '&quot;'" do
       '" and "'.send(@method, "UTF-8", xml: :attr).should == '"&quot; and &quot;"'
     end
 
-    cora_encode_it "replaces undefined characters with their upper-case hexadecimal numeric character references" do
+    it "replaces undefined characters with their upper-case hexadecimal numeric character references" do
       'ürst'.send(@method, Encoding::US_ASCII, xml: :attr).should == '"&#xFC;rst"'
     end
   end
 
-  cora_encode_it "raises ArgumentError if the value of the :xml option is not :text or :attr" do
+  it "raises ArgumentError if the value of the :xml option is not :text or :attr" do
     -> { ''.send(@method, "UTF-8", xml: :other) }.should raise_error(ArgumentError)
   end
 end

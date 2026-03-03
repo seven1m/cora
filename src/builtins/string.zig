@@ -525,6 +525,200 @@ pub fn builtinStringEncoding(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     return vm.encodingToValue(string_obj.encoding);
 }
 
+fn replacementValueForEncode(
+    vm: *VM,
+    receiver: Value,
+    replacement_opt: ?Value,
+) VMError!Value {
+    if (replacement_opt) |replacement| {
+        return replacement.coerceToStringValue(vm, "no implicit conversion into String");
+    }
+    _ = receiver;
+    return vm.newString("?", false);
+}
+
+fn appendReplacementForEncode(
+    vm: *VM,
+    out: *std.ArrayList(u8),
+    replacement: Value,
+    target_encoding: enc.Encoding,
+) VMError!void {
+    const replacement_obj = replacement.toStringObject();
+    const transcoded = enc.transcode(vm.gc_allocator_atomic, replacement_obj.str, replacement_obj.encoding, target_encoding) catch |err| {
+        switch (err) {
+            error.UndefinedConversion => {
+                return vm.raiseExceptionFmt(vm.argument_error_class, "too big fallback string", .{});
+            },
+            error.InvalidByteSequence => {
+                return vm.raiseExceptionFmt(vm.encoding_invalid_byte_sequence_error_class, "invalid byte sequence in {s}", .{replacement_obj.encoding.name()});
+            },
+            else => return error.Fatal,
+        }
+    };
+    out.appendSlice(vm.gc_allocator_atomic, transcoded) catch return error.Fatal;
+}
+
+fn raiseUndefinedConversionForCodepoint(vm: *VM, codepoint: u32, from: enc.Encoding, to: enc.Encoding) VMError {
+    return vm.raiseExceptionFmt(
+        vm.encoding_undefined_conversion_error_class,
+        "U+{X:0>4} from {s} to {s}",
+        .{ codepoint, from.name(), to.name() },
+    );
+}
+
+const EncodeXmlMode = enum {
+    none,
+    text,
+    attr,
+};
+
+fn parseEncodeXmlMode(vm: *VM, kw_xml: ?Value) VMError!EncodeXmlMode {
+    if (kw_xml == null) return .none;
+    const xml = kw_xml.?;
+    if (!xml.isSymbol()) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "unexpected value for xml option: {s}", .{vm.className(xml)});
+    }
+    const name = xml.toSymbolObject().name;
+    if (std.mem.eql(u8, name, "text")) return .text;
+    if (std.mem.eql(u8, name, "attr")) return .attr;
+    return vm.raiseExceptionFmt(vm.argument_error_class, "unexpected value for xml option: :{s}", .{name});
+}
+
+fn appendCodepointInEncoding(
+    vm: *VM,
+    out: *std.ArrayList(u8),
+    codepoint: u32,
+    target_encoding: enc.Encoding,
+) VMError!void {
+    var encoded: [4]u8 = undefined;
+    if (target_encoding.fromUnicodeCodepoint(codepoint, &encoded)) |encoded_len| {
+        out.appendSlice(vm.gc_allocator_atomic, encoded[0..encoded_len]) catch return error.Fatal;
+        return;
+    }
+    return raiseUndefinedConversionForCodepoint(vm, codepoint, .{ .utf8 = .{} }, target_encoding);
+}
+
+fn appendXmlEntity(
+    vm: *VM,
+    out: *std.ArrayList(u8),
+    entity: []const u8,
+    target_encoding: enc.Encoding,
+) VMError!void {
+    for (entity) |b| {
+        try appendCodepointInEncoding(vm, out, @as(u32, b), target_encoding);
+    }
+}
+
+fn appendXmlNumericCharRef(
+    vm: *VM,
+    out: *std.ArrayList(u8),
+    codepoint: u32,
+    target_encoding: enc.Encoding,
+) VMError!void {
+    var buf: [20]u8 = undefined;
+    const char_ref = std.fmt.bufPrint(&buf, "&#x{X};", .{codepoint}) catch return error.Fatal;
+    try appendXmlEntity(vm, out, char_ref, target_encoding);
+}
+
+fn transcodeWithEncodeOptions(
+    vm: *VM,
+    receiver: Value,
+    source_bytes: []const u8,
+    from_encoding: enc.Encoding,
+    target_encoding: enc.Encoding,
+    kw_invalid: ?Value,
+    kw_undef: ?Value,
+    kw_replace: ?Value,
+    kw_fallback: ?Value,
+    xml_mode: EncodeXmlMode,
+) VMError![]u8 {
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(vm.gc_allocator_atomic);
+
+    const invalid_replace = kw_invalid != null and kw_invalid.?.isSymbol() and std.mem.eql(u8, kw_invalid.?.toSymbolObject().name, "replace");
+    const undef_replace = kw_undef != null and kw_undef.?.isSymbol() and std.mem.eql(u8, kw_undef.?.toSymbolObject().name, "replace");
+    const replacement = try replacementValueForEncode(vm, receiver, kw_replace);
+
+    var i: usize = 0;
+    while (i < source_bytes.len) {
+        const start = i;
+        const parsed = from_encoding.nextCodepoint(source_bytes, &i);
+        if (parsed.len == 0) break;
+
+        if (!parsed.valid) {
+            if (invalid_replace) {
+                try appendReplacementForEncode(vm, &out, replacement, target_encoding);
+                continue;
+            }
+            return vm.raiseExceptionFmt(vm.encoding_invalid_byte_sequence_error_class, "invalid byte sequence in {s}", .{from_encoding.name()});
+        }
+
+        if (xml_mode != .none) {
+            if (parsed.codepoint == '&') {
+                try appendXmlEntity(vm, &out, "&amp;", target_encoding);
+                continue;
+            }
+            if (parsed.codepoint == '<') {
+                try appendXmlEntity(vm, &out, "&lt;", target_encoding);
+                continue;
+            }
+            if (parsed.codepoint == '>') {
+                try appendXmlEntity(vm, &out, "&gt;", target_encoding);
+                continue;
+            }
+            if (xml_mode == .attr and parsed.codepoint == '"') {
+                try appendXmlEntity(vm, &out, "&quot;", target_encoding);
+                continue;
+            }
+        }
+
+        var encoded: [4]u8 = undefined;
+        if (target_encoding.fromUnicodeCodepoint(parsed.codepoint, &encoded)) |encoded_len| {
+            out.appendSlice(vm.gc_allocator_atomic, encoded[0..encoded_len]) catch return error.Fatal;
+            continue;
+        }
+
+        if (xml_mode != .none) {
+            try appendXmlNumericCharRef(vm, &out, parsed.codepoint, target_encoding);
+            continue;
+        }
+
+        if (undef_replace) {
+            try appendReplacementForEncode(vm, &out, replacement, target_encoding);
+            continue;
+        }
+
+        if (kw_fallback) |fallback| {
+            const char_val = try vm.newStringWithEncoding(source_bytes[start..i], false, from_encoding);
+            var fallback_result: ?Value = null;
+
+            if (fallback.isProc()) {
+                const call_args = [_]Value{char_val};
+                fallback_result = try vm.callProcObject(fallback.toProcObject(), call_args[0..], null, null);
+            } else {
+                var fallback_args = [_]Value{char_val};
+                if (try vm.checkCallMethodByName(fallback, "[]", fallback_args[0..], null)) |result| {
+                    fallback_result = result;
+                }
+            }
+
+            if (fallback_result == null or fallback_result.?.isNil()) {
+                return raiseUndefinedConversionForCodepoint(vm, parsed.codepoint, from_encoding, target_encoding);
+            }
+
+            const fallback_str = fallback_result.?.coerceToStringValue(vm, "no implicit conversion of Object into String") catch {
+                return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion of Object into String", .{});
+            };
+            try appendReplacementForEncode(vm, &out, fallback_str, target_encoding);
+            continue;
+        }
+
+        return raiseUndefinedConversionForCodepoint(vm, parsed.codepoint, from_encoding, target_encoding);
+    }
+
+    return out.toOwnedSlice(vm.gc_allocator_atomic) catch return error.Fatal;
+}
+
 pub fn builtinStringEncode(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 2);
 
@@ -551,6 +745,7 @@ pub fn builtinStringEncode(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
         kw_universal_newline != null or
         kw_xml != null;
     _ = has_encode_options;
+    const xml_mode = try parseEncodeXmlMode(vm, kw_xml);
 
     const string_obj = receiver.toStringObject();
     const from_encoding: enc.Encoding = if (args.len >= 2)
@@ -617,22 +812,29 @@ pub fn builtinStringEncode(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
         break :blk string_obj.str;
     };
 
-    const transcoded = enc.transcode(vm.gc_allocator_atomic, source_bytes, from_encoding, target_encoding) catch |err| {
-        switch (err) {
-            error.InvalidByteSequence => {
-                const src_name = from_encoding.name();
-                return vm.raiseExceptionFmt(vm.encoding_invalid_byte_sequence_error_class, "invalid byte sequence in {s}", .{src_name});
-            },
-            error.UndefinedConversion => {
-                const src_name = from_encoding.name();
-                const dst_name = target_encoding.name();
-                return vm.raiseExceptionFmt(vm.encoding_undefined_conversion_error_class, "undefined conversion from {s} to {s}", .{ src_name, dst_name });
-            },
-            else => return error.Fatal,
-        }
-    };
-
-    return try vm.newStringWithEncoding(transcoded, false, target_encoding);
+    const transcoded = try transcodeWithEncodeOptions(
+        vm,
+        receiver,
+        source_bytes,
+        from_encoding,
+        target_encoding,
+        kw_invalid,
+        kw_undef,
+        kw_replace,
+        kw_fallback,
+        xml_mode,
+    );
+    var encoded = try vm.newStringWithEncoding(transcoded, false, target_encoding);
+    if (xml_mode == .attr) {
+        const encoded_obj = encoded.toStringObject();
+        var wrapped: std.ArrayList(u8) = .empty;
+        defer wrapped.deinit(vm.gc_allocator_atomic);
+        try appendCodepointInEncoding(vm, &wrapped, '"', target_encoding);
+        wrapped.appendSlice(vm.gc_allocator_atomic, encoded_obj.str) catch return error.Fatal;
+        try appendCodepointInEncoding(vm, &wrapped, '"', target_encoding);
+        encoded = try vm.newStringWithEncoding(wrapped.items, true, target_encoding);
+    }
+    return encoded;
 }
 
 pub fn builtinStringEncodeBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
