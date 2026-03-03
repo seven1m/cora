@@ -148,6 +148,7 @@ pub const HashObject = struct {
     object: Object,
     map: std.AutoHashMap(u64, usize),
     entries: std.ArrayList(HashEntry) = .empty,
+    default_value: ?Value = null,
 };
 
 pub const RangeObject = struct {

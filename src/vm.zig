@@ -4631,6 +4631,7 @@ pub const VM = struct {
                         .object = .{ .type_tag = .hash, .flags = 0, .class = self.hash_class, .singleton_class = null, .instance_variables = null },
                         .map = std.AutoHashMap(u64, usize).init(self.gc_allocator),
                         .entries = .empty,
+                        .default_value = null,
                     };
                     const f = &self.frames.items[self.frames.items.len - 1];
                     f.ep.variables[rest_idx] = Value.fromObject(kw_hash);
@@ -6479,6 +6480,7 @@ pub const VM = struct {
             },
             .map = std.AutoHashMap(u64, usize).init(self.gc_allocator),
             .entries = .empty,
+            .default_value = null,
         };
         return hash_ptr;
     }
@@ -6709,6 +6711,7 @@ pub const VM = struct {
             .object = .{ .type_tag = .hash, .flags = 0, .class = self.hash_class, .singleton_class = null, .instance_variables = null },
             .map = std.AutoHashMap(u64, usize).init(self.gc_allocator),
             .entries = .empty,
+            .default_value = null,
         };
 
         for (kw_values, 0..) |kw_value, i| {
@@ -6777,12 +6780,13 @@ pub const VM = struct {
         }
 
         if (target_chunk.keyword_rest_index) |rest_idx| {
-            const kw_hash = self.gc_allocator.create(value.HashObject) catch return error.Fatal;
-            kw_hash.* = .{
-                .object = .{ .type_tag = .hash, .flags = 0, .class = self.hash_class, .singleton_class = null, .instance_variables = null },
-                .map = std.AutoHashMap(u64, usize).init(self.gc_allocator),
-                .entries = .empty,
-            };
+                    const kw_hash = self.gc_allocator.create(value.HashObject) catch return error.Fatal;
+                    kw_hash.* = .{
+                        .object = .{ .type_tag = .hash, .flags = 0, .class = self.hash_class, .singleton_class = null, .instance_variables = null },
+                        .map = std.AutoHashMap(u64, usize).init(self.gc_allocator),
+                        .entries = .empty,
+                        .default_value = null,
+                    };
 
             for (kw_values, 0..) |kw_value, i| {
                 if (!matched[i]) {

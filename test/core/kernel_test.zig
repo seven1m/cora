@@ -636,3 +636,14 @@ test "Kernel#method raises NameError for missing method" {
     try std.testing.expectEqual(error.UnhandledException, bad.err.?);
     try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "NameError") != null);
 }
+
+test "Hash#default= sets value returned for missing keys" {
+    const result = try evalCode(
+        \\h = {}
+        \\h.default = "x"
+        \\[h[:missing], h.default]
+    );
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqualStrings("x", result.toArrayObject().elements.items[0].toStringObject().str);
+    try std.testing.expectEqualStrings("x", result.toArrayObject().elements.items[1].toStringObject().str);
+}

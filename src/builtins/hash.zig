@@ -46,6 +46,12 @@ pub fn register(vm: *VM) !void {
 
     const delete_sym = try vm.intern("delete");
     try vm.hash_class.module.methods.put(delete_sym, .{ .method = .{ .builtin = &builtinHashDelete } });
+
+    const default_sym = try vm.intern("default");
+    try vm.hash_class.module.methods.put(default_sym, .{ .method = .{ .builtin = &builtinHashDefault } });
+
+    const default_set_sym = try vm.intern("default=");
+    try vm.hash_class.module.methods.put(default_set_sym, .{ .method = .{ .builtin = &builtinHashDefaultSet } });
 }
 
 pub fn builtinHashBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -60,7 +66,24 @@ pub fn builtinHashBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
         }
     }
 
-    return Value.nil();
+    return hash_obj.default_value orelse Value.nil();
+}
+
+pub fn builtinHashDefault(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    return receiver.toHashObject().default_value orelse Value.nil();
+}
+
+pub fn builtinHashDefaultSet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (receiver.isFrozen()) {
+        const exc = try vm.createException(vm.runtime_error_class, "can't modify frozen Hash");
+        vm.pending_exception = exc;
+        return error.Unwind;
+    }
+    const hash_obj = receiver.toHashObject();
+    hash_obj.default_value = args[0];
+    return args[0];
 }
 
 pub fn builtinHashBracketSet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
