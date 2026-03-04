@@ -1863,6 +1863,32 @@ fn appendSymbolErrorEscapedBytes(writer: anytype, input: []const u8) !void {
     }
 }
 
+fn isUnicodeEncoding(encoding: enc.Encoding) bool {
+    return switch (encoding) {
+        .utf8, .utf7, .utf16, .utf16le, .utf16be, .utf32, .utf32le, .utf32be => true,
+        else => false,
+    };
+}
+
+fn appendInspectHexByte(writer: anytype, b: u8) !void {
+    try std.fmt.format(writer, "\\x{X:0>2}", .{b});
+}
+
+fn appendInspectUnicodeEscape(writer: anytype, codepoint: u32) !void {
+    if (codepoint <= 0xFFFF) {
+        try std.fmt.format(writer, "\\u{X:0>4}", .{codepoint});
+        return;
+    }
+    try std.fmt.format(writer, "\\u{{{X}}}", .{codepoint});
+}
+
+fn appendUtf8Codepoint(writer: anytype, codepoint: u32) !void {
+    if (codepoint > std.math.maxInt(u21)) return error.InvalidCodePoint;
+    var utf8_buf: [4]u8 = undefined;
+    const encoded_len = std.unicode.utf8Encode(@intCast(codepoint), &utf8_buf) catch return error.InvalidCodePoint;
+    try writer.writeAll(utf8_buf[0..encoded_len]);
+}
+
 pub fn builtinStringToSym(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const string_obj = receiver.toStringObject();
@@ -1887,27 +1913,91 @@ pub fn builtinStringToSym(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
 
 pub fn builtinStringInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const input = receiver.toStringObject().str;
+    const string_obj = receiver.toStringObject();
+    const input = string_obj.str;
+    const input_encoding = string_obj.encoding;
+    const default_external = vm.default_external_encoding.encoding;
+    const use_unicode_controls = isUnicodeEncoding(input_encoding);
+    const use_hex_braces_for_non_ascii = input_encoding.isAsciiCompatible() and !input_encoding.eql(default_external);
+
     var buf: std.ArrayList(u8) = .empty;
     const writer = buf.writer(vm.allocator);
 
     writer.writeAll("\"") catch return error.Fatal;
-    for (input) |c| {
-        switch (c) {
+    var i: usize = 0;
+    while (i < input.len) {
+        const start = i;
+        const parsed = input_encoding.nextCodepoint(input, &i);
+        if (parsed.len == 0) break;
+
+        const char_bytes = input[start .. start + parsed.len];
+
+        if (!parsed.valid) {
+            for (char_bytes) |b| {
+                appendInspectHexByte(writer, b) catch return error.Fatal;
+            }
+            continue;
+        }
+
+        const codepoint = parsed.codepoint;
+        const next_byte = if (i < input.len) input[i] else 0;
+
+        switch (codepoint) {
             '"' => writer.writeAll("\\\"") catch return error.Fatal,
             '\\' => writer.writeAll("\\\\") catch return error.Fatal,
-            '\n' => writer.writeAll("\\n") catch return error.Fatal,
-            '\t' => writer.writeAll("\\t") catch return error.Fatal,
-            '\r' => writer.writeAll("\\r") catch return error.Fatal,
-            '\x08' => writer.writeAll("\\b") catch return error.Fatal, // backspace
-            '\x0c' => writer.writeAll("\\f") catch return error.Fatal, // form feed
-            '\x0b' => writer.writeAll("\\v") catch return error.Fatal, // vertical tab
-            '\x00' => writer.writeAll("\\0") catch return error.Fatal, // null
-            else => {
-                if (c < 32 or c > 126) {
-                    std.fmt.format(writer, "\\x{x:0>2}", .{c}) catch return error.Fatal;
+            0x07 => writer.writeAll("\\a") catch return error.Fatal,
+            0x08 => writer.writeAll("\\b") catch return error.Fatal,
+            0x09 => writer.writeAll("\\t") catch return error.Fatal,
+            0x0A => writer.writeAll("\\n") catch return error.Fatal,
+            0x0B => writer.writeAll("\\v") catch return error.Fatal,
+            0x0C => writer.writeAll("\\f") catch return error.Fatal,
+            0x0D => writer.writeAll("\\r") catch return error.Fatal,
+            '\x1B' => writer.writeAll("\\e") catch return error.Fatal,
+            '#' => {
+                if (next_byte == '$' or next_byte == '@' or next_byte == '{') {
+                    writer.writeAll("\\#") catch return error.Fatal;
                 } else {
-                    writer.writeByte(c) catch return error.Fatal;
+                    writer.writeByte('#') catch return error.Fatal;
+                }
+            },
+            else => {
+                if (codepoint < 0x20 or (codepoint >= 0x7F and codepoint <= 0x9F)) {
+                    if (use_unicode_controls) {
+                        appendInspectUnicodeEscape(writer, codepoint) catch return error.Fatal;
+                    } else {
+                        for (char_bytes) |b| {
+                            appendInspectHexByte(writer, b) catch return error.Fatal;
+                        }
+                    }
+                    continue;
+                }
+
+                if (codepoint > 0x7F and use_hex_braces_for_non_ascii) {
+                    writer.writeAll("\\x{") catch return error.Fatal;
+                    for (char_bytes) |b| {
+                        std.fmt.format(writer, "{X:0>2}", .{b}) catch return error.Fatal;
+                    }
+                    writer.writeAll("}") catch return error.Fatal;
+                    continue;
+                }
+
+                if (codepoint <= 0x7F) {
+                    writer.writeByte(@intCast(codepoint)) catch return error.Fatal;
+                    continue;
+                }
+
+                if (!input_encoding.isAsciiCompatible()) {
+                    appendInspectUnicodeEscape(writer, codepoint) catch return error.Fatal;
+                    continue;
+                }
+
+                if (isUnicodeEncoding(input_encoding)) {
+                    appendUtf8Codepoint(writer, codepoint) catch return error.Fatal;
+                    continue;
+                }
+
+                for (char_bytes) |b| {
+                    appendInspectHexByte(writer, b) catch return error.Fatal;
                 }
             },
         }
