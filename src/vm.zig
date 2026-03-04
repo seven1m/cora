@@ -6549,6 +6549,14 @@ pub const VM = struct {
         args: []const Value,
         mode: ArityMode,
     ) VMError!void {
+        var effective_args = args;
+        if (mode == .lenient and args.len == 1 and args[0].isArray()) {
+            const positional_slots = target_chunk.arity + target_chunk.optional_params.items.len + target_chunk.post_required_count;
+            if (positional_slots > 1) {
+                effective_args = args[0].toArrayObject().elements.items;
+            }
+        }
+
         const optional_count = target_chunk.optional_params.items.len;
         const min_required = target_chunk.arity + target_chunk.post_required_count;
         const max_without_rest = target_chunk.arity + optional_count + target_chunk.post_required_count;
@@ -6562,11 +6570,11 @@ pub const VM = struct {
 
         // Arity checking
         if (mode == .strict) {
-            if (args.len < min_args) {
-                return self.raiseArgumentErrorWrongArgCountAtLeast(args.len, min_args);
+            if (effective_args.len < min_args) {
+                return self.raiseArgumentErrorWrongArgCountAtLeast(effective_args.len, min_args);
             }
-            if (target_chunk.rest_param_index == null and args.len > max_args) {
-                return self.raiseArgumentErrorWrongArgCount(args.len, max_args);
+            if (target_chunk.rest_param_index == null and effective_args.len > max_args) {
+                return self.raiseArgumentErrorWrongArgCount(effective_args.len, max_args);
             }
         }
 
@@ -6576,8 +6584,8 @@ pub const VM = struct {
         // 1. Bind pre-optional required parameters
         var i: usize = 0;
         while (i < target_chunk.arity) : (i += 1) {
-            if (arg_idx < args.len) {
-                env.variables[local_idx] = args[arg_idx];
+            if (arg_idx < effective_args.len) {
+                env.variables[local_idx] = effective_args[arg_idx];
                 arg_idx += 1;
             } else if (mode == .lenient) {
                 env.variables[local_idx] = Value.nil();
@@ -6591,7 +6599,7 @@ pub const VM = struct {
         if (optional_count > 0) {
             // Determine how many optionals get arguments vs defaults
             // We need to reserve args for post-required params
-            const args_remaining = if (arg_idx < args.len) args.len - arg_idx else 0;
+            const args_remaining = if (arg_idx < effective_args.len) effective_args.len - arg_idx else 0;
             const args_available_for_optionals = if (args_remaining > target_chunk.post_required_count)
                 args_remaining - target_chunk.post_required_count
             else
@@ -6605,7 +6613,7 @@ pub const VM = struct {
             // Bind optionals that receive arguments
             i = 0;
             while (i < optionals_from_args) : (i += 1) {
-                env.variables[local_idx] = args[arg_idx];
+                env.variables[local_idx] = effective_args[arg_idx];
                 arg_idx += 1;
                 local_idx += 1;
                 env.variables_len = @intCast(local_idx); // Update so later defaults can see earlier optionals
@@ -6630,7 +6638,7 @@ pub const VM = struct {
         // 3. Handle rest parameter
         if (target_chunk.rest_param_index) |rest_idx| {
             // Calculate how many args go into rest array
-            const args_remaining_after_optionals = if (arg_idx < args.len) args.len - arg_idx else 0;
+            const args_remaining_after_optionals = if (arg_idx < effective_args.len) effective_args.len - arg_idx else 0;
             const available_for_rest = if (args_remaining_after_optionals > target_chunk.post_required_count)
                 args_remaining_after_optionals - target_chunk.post_required_count
             else
@@ -6639,7 +6647,7 @@ pub const VM = struct {
             const rest_array = try self.createArray();
             var j: usize = 0;
             while (j < available_for_rest) : (j += 1) {
-                rest_array.elements.append(self.gc_allocator, args[arg_idx]) catch return error.Fatal;
+                rest_array.elements.append(self.gc_allocator, effective_args[arg_idx]) catch return error.Fatal;
                 arg_idx += 1;
             }
             env.variables[rest_idx] = Value.fromObject(rest_array);
@@ -6649,9 +6657,13 @@ pub const VM = struct {
         // 4. Bind post-required parameters
         i = 0;
         while (i < target_chunk.post_required_count) : (i += 1) {
-            const post_arg_idx = args.len - target_chunk.post_required_count + i;
-            if (post_arg_idx < args.len and post_arg_idx >= arg_idx) {
-                env.variables[local_idx] = args[post_arg_idx];
+            const post_start = if (effective_args.len > target_chunk.post_required_count)
+                effective_args.len - target_chunk.post_required_count
+            else
+                0;
+            const post_arg_idx = post_start + i;
+            if (post_arg_idx < effective_args.len and post_arg_idx >= arg_idx) {
+                env.variables[local_idx] = effective_args[post_arg_idx];
             } else if (mode == .lenient) {
                 env.variables[local_idx] = Value.nil();
             }

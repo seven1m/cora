@@ -224,7 +224,6 @@ fn builtinEnumeratorMap(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
     };
 
     const out = try vm.createArray();
-    var yielded_args_buf: [256]Value = undefined;
     while (true) {
         const next_val = builtinEnumeratorNext(vm, receiver, &[_]Value{}, null) catch |err| {
             if (err == error.Unwind and vm.pending_exception != null and vm.pending_exception.?.object.class == vm.stop_iteration_class) {
@@ -234,23 +233,7 @@ fn builtinEnumeratorMap(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
             return err;
         };
 
-        var yielded_args: []const Value = &[_]Value{next_val};
-        if (next_val.isArray()) {
-            switch (blk.kind) {
-                .chunk => |chunk_blk| {
-                    if (chunk_blk.chunk.arity > 1) {
-                        const elems = next_val.toArrayObject().elements.items;
-                        for (elems, 0..) |elem, i| {
-                            yielded_args_buf[i] = elem;
-                        }
-                        yielded_args = yielded_args_buf[0..elems.len];
-                    }
-                },
-                .symbol, .builtin => {},
-            }
-        }
-
-        const mapped = try vm.yieldToBlock(blk, yielded_args);
+        const mapped = try vm.yieldToBlock(blk, &[_]Value{next_val});
         if (mapped.break_occurred) return mapped.value;
         out.elements.append(vm.gc_allocator, mapped.value) catch return error.Fatal;
     }
