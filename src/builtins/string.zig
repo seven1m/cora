@@ -112,6 +112,8 @@ pub fn register(vm: *VM) !void {
 
     const string_concat_sym = try vm.intern("concat");
     try vm.string_class.module.methods.put(string_concat_sym, .{ .method = .{ .builtin = &builtinStringConcat } });
+    const string_append_as_bytes_sym = try vm.intern("append_as_bytes");
+    try vm.string_class.module.methods.put(string_append_as_bytes_sym, .{ .method = .{ .builtin = &builtinStringAppendAsBytes } });
 
     const string_replace_sym = try vm.intern("replace");
     try vm.string_class.module.methods.put(string_replace_sym, .{ .method = .{ .builtin = &builtinStringReplace } });
@@ -472,6 +474,52 @@ pub fn builtinStringConcat(vm: *VM, receiver: Value, args: []Value, block: ?Bloc
     for (args) |arg| {
         try appendSingleConcatArg(vm, receiver, arg, snapshot);
     }
+    return receiver;
+}
+
+pub fn builtinStringAppendAsBytes(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    var extra_len: usize = 0;
+    for (args) |arg| {
+        if (arg.isString()) {
+            extra_len += arg.toStringObject().str.len;
+            continue;
+        }
+        if (arg.isInteger() or arg.isBigInteger()) {
+            extra_len += 1;
+            continue;
+        }
+        return vm.raiseExceptionFmt(
+            vm.type_error_class,
+            "wrong argument type {s} (expected String or Integer)",
+            .{vm.className(arg)},
+        );
+    }
+
+    if (receiver.isFrozen() and extra_len > 0) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
+    }
+    if (extra_len == 0) return receiver;
+
+    const string_obj = receiver.toStringObject();
+    const old_len = string_obj.str.len;
+    const out = vm.gc_allocator_atomic.alloc(u8, old_len + extra_len) catch return error.Fatal;
+    @memcpy(out[0..old_len], string_obj.str);
+
+    var write_index = old_len;
+    for (args) |arg| {
+        if (arg.isString()) {
+            const bytes = arg.toStringObject().str;
+            @memcpy(out[write_index .. write_index + bytes.len], bytes);
+            write_index += bytes.len;
+            continue;
+        }
+
+        out[write_index] = try integerLeastSignificantByte(vm, arg);
+        write_index += 1;
+    }
+
+    string_obj.str = out;
+    string_obj.validity = .unknown;
     return receiver;
 }
 
@@ -1599,7 +1647,7 @@ pub fn builtinStringInsert(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     }
 
     const insert_byte_offset = string_obj.encoding.byteOffsetForCharIndex(string_obj.str, @intCast(index)) orelse string_obj.str.len;
-    const replacement = try vm.newStringWithEncoding(insert_bytes, false, string_obj.encoding);
+    const replacement = try vm.newStringWithEncoding(insert_bytes, false, insert_encoding);
     try spliceStringBytes(vm, receiver, insert_byte_offset, insert_byte_offset, replacement);
     return receiver;
 }
@@ -2694,6 +2742,34 @@ fn warnSymbolToSMutation(vm: *VM, string_obj: *value.StringObject) VMError!void 
     _ = try vm.callMethodByName(stderr_target, "write", args[0..], null);
 }
 
+fn integerLeastSignificantByte(vm: *VM, arg: Value) VMError!u8 {
+    if (arg.isInteger()) {
+        const value_u64: u64 = @bitCast(arg.toInteger());
+        return @truncate(value_u64);
+    }
+    if (arg.isBigInteger()) {
+        const big_str = arg.toBigIntegerObject().value.toString(vm.allocator, 10, .lower) catch return error.Fatal;
+        defer vm.allocator.free(big_str);
+
+        var idx: usize = 0;
+        var negative = false;
+        if (big_str.len > 0 and big_str[0] == '-') {
+            negative = true;
+            idx = 1;
+        }
+
+        var modulo: u16 = 0;
+        while (idx < big_str.len) : (idx += 1) {
+            modulo = @intCast((@as(u32, modulo) * 10 + (big_str[idx] - '0')) % 256);
+        }
+
+        if (negative and modulo != 0) {
+            modulo = 256 - modulo;
+        }
+        return @intCast(modulo);
+    }
+    return error.Fatal;
+}
 const ConcatSelfSnapshot = struct {
     bytes: []const u8,
     encoding: enc.Encoding,
