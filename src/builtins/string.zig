@@ -176,6 +176,9 @@ pub fn register(vm: *VM) !void {
     const string_ord_sym = try vm.intern("ord");
     try vm.string_class.module.methods.put(string_ord_sym, .{ .method = .{ .builtin = &builtinStringOrd } });
 
+    const string_chr_sym = try vm.intern("chr");
+    try vm.string_class.module.methods.put(string_chr_sym, .{ .method = .{ .builtin = &builtinStringChr } });
+
     const string_bracket_sym = try vm.intern("[]");
     try vm.string_class.module.methods.put(string_bracket_sym, .{ .method = .{ .builtin = &builtinStringBracket } });
 
@@ -1108,6 +1111,24 @@ pub fn builtinStringOrd(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
         return vm.raiseExceptionFmt(vm.argument_error_class, "invalid byte sequence in {s}", .{string_obj.encoding.name()});
     }
     return Value.integer(parsed.codepoint);
+}
+
+pub fn builtinStringChr(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const string_obj = receiver.toStringObject();
+    const bytes = string_obj.str;
+    const encoding = string_obj.encoding;
+
+    if (bytes.len == 0) {
+        return vm.newStringWithEncoding("", false, encoding);
+    }
+
+    var index: usize = 0;
+    const parsed = encoding.nextChar(bytes, &index);
+    if (parsed.len == 0) {
+        return vm.newStringWithEncoding("", false, encoding);
+    }
+    return vm.newStringWithEncoding(bytes[0..parsed.len], false, encoding);
 }
 
 pub fn builtinStringBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
