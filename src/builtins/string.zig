@@ -242,6 +242,9 @@ pub fn register(vm: *VM) !void {
     const string_to_i_sym = try vm.intern("to_i");
     try vm.string_class.module.methods.put(string_to_i_sym, .{ .method = .{ .builtin = &builtinStringToI } });
 
+    const string_hex_sym = try vm.intern("hex");
+    try vm.string_class.module.methods.put(string_hex_sym, .{ .method = .{ .builtin = &builtinStringHex } });
+
     const string_to_sym_sym = try vm.intern("to_sym");
     try vm.string_class.module.methods.put(string_to_sym_sym, .{ .method = .{ .builtin = &builtinStringToSym } });
 
@@ -1957,6 +1960,12 @@ pub fn builtinStringToI(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
         promoted.negate();
         return vm.valueFromManagedInteger(&promoted);
     }
+}
+
+pub fn builtinStringHex(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    var base_arg = [_]Value{Value.integer(16)};
+    return builtinStringToI(vm, receiver, base_arg[0..], null);
 }
 
 fn appendSymbolErrorEscapedBytes(writer: anytype, input: []const u8) !void {
