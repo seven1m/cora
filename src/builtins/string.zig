@@ -184,6 +184,8 @@ pub fn register(vm: *VM) !void {
 
     const string_slice_sym = try vm.intern("slice");
     try vm.string_class.module.methods.put(string_slice_sym, .{ .method = .{ .builtin = &builtinStringSlice } });
+    const string_slice_bang_sym = try vm.intern("slice!");
+    try vm.string_class.module.methods.put(string_slice_bang_sym, .{ .method = .{ .builtin = &builtinStringSliceBang } });
 
     const string_bracket_set_sym = try vm.intern("[]=");
     try vm.string_class.module.methods.put(string_bracket_set_sym, .{ .method = .{ .builtin = &builtinStringBracketSet } });
@@ -208,6 +210,9 @@ pub fn register(vm: *VM) !void {
 
     const string_setbyte_sym = try vm.intern("setbyte");
     try vm.string_class.module.methods.put(string_setbyte_sym, .{ .method = .{ .builtin = &builtinStringSetbyte } });
+
+    const string_insert_sym = try vm.intern("insert");
+    try vm.string_class.module.methods.put(string_insert_sym, .{ .method = .{ .builtin = &builtinStringInsert } });
 
     const string_codepoints_sym = try vm.intern("codepoints");
     try vm.string_class.module.methods.put(string_codepoints_sym, .{ .method = .{ .builtin = &builtinStringCodepoints } });
@@ -1168,6 +1173,22 @@ pub fn builtinStringSlice(vm: *VM, receiver: Value, args: []Value, block: ?Block
     return builtinStringBracket(vm, receiver, args, block);
 }
 
+pub fn builtinStringSliceBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+
+    const removed = try builtinStringBracket(vm, receiver, args, null);
+    if (removed.isNil()) return Value.nil();
+
+    const replacement = try vm.newStringWithEncoding("", false, receiver.toStringObject().encoding);
+    var set_args: [3]Value = undefined;
+    for (args, 0..) |arg, idx| {
+        set_args[idx] = arg;
+    }
+    set_args[args.len] = replacement;
+    _ = try builtinStringBracketSet(vm, receiver, set_args[0 .. args.len + 1], null);
+    return removed;
+}
+
 pub fn builtinStringByteSlice(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 1, 2);
     const string_obj = receiver.toStringObject();
@@ -1541,6 +1562,46 @@ pub fn builtinStringSetbyte(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     string_obj.str = new_bytes;
     string_obj.validity = .unknown;
     return Value.integer(byte_value);
+}
+
+pub fn builtinStringInsert(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 2);
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
+    }
+
+    var index = try args[0].coerceToI64ViaToInt(
+        vm,
+        "no implicit conversion into Integer",
+        "no implicit conversion into Integer",
+        "bignum too big to convert into `long`",
+    );
+    const insert_value = try args[1].coerceToStringValue(vm, "no implicit conversion into String");
+    const insert_bytes = insert_value.toStringObject().str;
+    const insert_encoding = insert_value.toStringObject().encoding;
+
+    const string_obj = receiver.toStringObject();
+    if (enc.negotiate(string_obj.encoding, string_obj.str, insert_encoding, insert_bytes) == null) {
+        return vm.raiseExceptionFmt(
+            vm.encoding_compatibility_error_class,
+            "incompatible character encodings: {s} and {s}",
+            .{ string_obj.encoding.name(), insert_encoding.name() },
+        );
+    }
+
+    const char_len: i64 = @intCast(string_obj.encoding.charCount(string_obj.str));
+    const index_source = index;
+    if (index < 0) {
+        index += char_len + 1;
+    }
+    if (index < 0 or index > char_len) {
+        return vm.raiseExceptionFmt(vm.index_error_class, "index {d} out of string", .{index_source});
+    }
+
+    const insert_byte_offset = string_obj.encoding.byteOffsetForCharIndex(string_obj.str, @intCast(index)) orelse string_obj.str.len;
+    const replacement = try vm.newStringWithEncoding(insert_bytes, false, string_obj.encoding);
+    try spliceStringBytes(vm, receiver, insert_byte_offset, insert_byte_offset, replacement);
+    return receiver;
 }
 
 pub fn builtinStringCodepoints(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
