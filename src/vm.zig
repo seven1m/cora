@@ -2651,7 +2651,10 @@ pub const VM = struct {
                 const idx = readU16From(frame, operands, &operand_cursor);
                 const constant = constants[idx];
                 switch (constant) {
-                    .string => |name| try self.push(Value.fromObject(try self.intern(name))),
+                    .string => |name| {
+                        const symbol_encoding = literalSymbolEncodingForChunk(frame.chunk.source_encoding, name);
+                        try self.push(Value.fromObject(try self.internWithEncoding(name, symbol_encoding)));
+                    },
                     .symbol => |sym| try self.push(Value.fromObject(sym)),
                     else => return error.Fatal,
                 }
@@ -5908,6 +5911,13 @@ pub const VM = struct {
             return .{ .ascii_8bit = .{} };
         }
         return source_encoding;
+    }
+
+    fn literalSymbolEncodingForChunk(source_encoding: enc.Encoding, bytes: []const u8) enc.Encoding {
+        if (enc.isAsciiOnly(bytes)) {
+            return .{ .us_ascii = .{} };
+        }
+        return literalStringEncodingForChunk(source_encoding, bytes);
     }
 
     pub fn newFloat(self: *VM, f: f64) VMError!Value {

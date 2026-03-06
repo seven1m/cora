@@ -25,6 +25,12 @@ pub fn register(vm: *VM) !void {
 
     const encoding_sym = try vm.intern("encoding");
     try vm.symbol_class.module.methods.put(encoding_sym, .{ .method = .{ .builtin = &builtinSymbolEncoding } });
+
+    const length_sym = try vm.intern("length");
+    try vm.symbol_class.module.methods.put(length_sym, .{ .method = .{ .builtin = &builtinSymbolLength } });
+
+    const size_sym = try vm.intern("size");
+    try vm.symbol_class.module.methods.put(size_sym, .{ .method = .{ .builtin = &builtinSymbolLength } });
 }
 
 pub fn builtinSymbolEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -62,4 +68,10 @@ pub fn builtinSymbolToProc(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 pub fn builtinSymbolEncoding(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return vm.encodingToValue(receiver.toSymbolObject().encoding);
+}
+
+pub fn builtinSymbolLength(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const sym = receiver.toSymbolObject();
+    return Value.integer(@intCast(sym.encoding.charCount(sym.name)));
 }

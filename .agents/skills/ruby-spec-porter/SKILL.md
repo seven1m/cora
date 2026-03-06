@@ -38,10 +38,10 @@ cp ../ruby_spec/shared/string/start_with.rb spec/shared/string/start_with.rb
 ```
 
 3. Run the spec and classify failures.
-- Run the copied spec directly first, then through `ruby/spec` aggregate if needed.
+- Run the copied spec directly first, then the full test suite to verify there are no regressions.
 ```bash
 zig build run -- spec/core/string/<name>_spec.rb
-zig build test -Dtest-filter="ruby/spec"
+zig build test
 ```
 - Categorize failures:
   - Parser/compiler gaps (unsupported Prism node/opcode lowering)
