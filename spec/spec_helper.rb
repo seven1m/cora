@@ -1142,13 +1142,13 @@ class MockObject
   end
 
   def verify_expectations!
-    begin
-      @expected_calls.each do |_name, exp|
-        exp.verify!
-      end
-    ensure
-      restore_method_wrappers
+    keys = @expected_calls.keys
+    i = 0
+    while i < keys.length
+      @expected_calls[keys[i]].verify!
+      i += 1
     end
+    restore_method_wrappers
   end
 
   def method_missing(name, *args, &block)
@@ -1180,7 +1180,7 @@ class MockObject
     return if already_wrapped
 
     singleton = class << self; self; end
-    unless singleton.instance_methods(false).include?(method_name)
+    unless singleton.instance_methods.include?(method_name)
       @wrapped_methods[method_name] = nil
       return
     end
@@ -1203,7 +1203,11 @@ class MockObject
 
   def restore_method_wrappers
     singleton = class << self; self; end
-    @wrapped_methods.each do |method_name, original_name|
+    method_names = @wrapped_methods.keys
+    i = 0
+    while i < method_names.length
+      method_name = method_names[i]
+      original_name = @wrapped_methods[method_name]
       if !original_name.nil?
         singleton.send(:alias_method, method_name, original_name)
         begin
@@ -1212,6 +1216,7 @@ class MockObject
           nil
         end
       end
+      i += 1
     end
     @wrapped_methods = {}
   end
