@@ -36,6 +36,9 @@ pub fn register(vm: *VM) !void {
 
     const post_match_sym = try vm.intern("post_match");
     try vm.match_data_class.module.methods.put(post_match_sym, .{ .method = .{ .builtin = &builtinMatchDataPostMatch } });
+
+    const offset_sym = try vm.intern("offset");
+    try vm.match_data_class.module.methods.put(offset_sym, .{ .method = .{ .builtin = &builtinMatchDataOffset } });
 }
 
 fn getMatchData(receiver: Value) VMError!*value.MatchDataObject {
@@ -125,4 +128,28 @@ fn builtinMatchDataPostMatch(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     const end_idx: usize = @intCast(md.end_byte_offsets.items[0]);
     if (end_idx > md.source.str.len) return error.Fatal;
     return vm.newStringWithEncoding(md.source.str[end_idx..], false, md.source.encoding);
+}
+
+fn builtinMatchDataOffset(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (!args[0].isInteger()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Integer", .{});
+    }
+
+    const md = try getMatchData(receiver);
+    var idx = args[0].toInteger();
+    const len: i64 = @intCast(md.captures.items.len);
+    if (idx < 0) idx += len;
+    if (idx < 0 or idx >= len) return Value.nil();
+
+    const index: usize = @intCast(idx);
+    if (index >= md.begin_byte_offsets.items.len or index >= md.end_byte_offsets.items.len) return Value.nil();
+    const begin_pos = md.begin_byte_offsets.items[index];
+    const end_pos = md.end_byte_offsets.items[index];
+    if (begin_pos < 0 or end_pos < 0) return Value.nil();
+
+    const arr = try vm.createArray();
+    arr.elements.append(vm.gc_allocator, Value.integer(begin_pos)) catch return error.Fatal;
+    arr.elements.append(vm.gc_allocator, Value.integer(end_pos)) catch return error.Fatal;
+    return Value.fromObject(arr);
 }
