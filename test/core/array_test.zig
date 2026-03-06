@@ -172,22 +172,6 @@ test "Array#join" {
     try std.testing.expectEqualSlices(u8, "1-2-3", result.toStringObject().str);
 }
 
-test "Array#first and Array#last" {
-    var result = try evalCode("[1, 2, 3].first");
-    try std.testing.expect(result.isInteger());
-    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
-
-    result = try evalCode("[1, 2, 3].last");
-    try std.testing.expect(result.isInteger());
-    try std.testing.expectEqual(@as(i64, 3), result.toInteger());
-
-    result = try evalCode("[].first");
-    try std.testing.expect(result.isNil());
-
-    result = try evalCode("[].last");
-    try std.testing.expect(result.isNil());
-}
-
 test "Array#[]= set and extend" {
     var result = try evalCode("a = [1, 2, 3]; a[1] = 9; a");
     try std.testing.expect(result.isArray());

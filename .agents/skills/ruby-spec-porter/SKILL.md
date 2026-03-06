@@ -18,6 +18,7 @@ Use this skill to add one or more specs from `../ruby_spec` into `spec/`, keep t
 - Implement general mechanisms, not one-off hacks for a single example.
 - Fix small foundational blockers early if they unlock many specs.
 - Preserve mspec compatibility (not rspec APIs).
+- Remove local Zig tests that are fully supplanted by ported Ruby specs so coverage lives in one place.
 - Work on specs pauses if you find any fundamental issues with the Cora runtime. Memory errors/leaks, data corruption, and MRI-incompatibility take center stage when you find it.
 
 ## TODO Tracking
@@ -85,6 +86,7 @@ end
 
 5. Re-run and tighten.
 - Re-run target spec until green.
+- Remove any local Zig tests that now duplicate the same behavior covered by the ported Ruby spec.
 - Re-run focused regression tests (language/core tests affected by the change).
 - Run ruby/spec aggregate filter to ensure no regressions in existing ported specs.
 
