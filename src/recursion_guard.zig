@@ -6,6 +6,7 @@ const Value = value.Value;
 pub const Kind = enum {
     string_compare_fallback,
     array_inspect,
+    array_equal,
 };
 
 const Entry = struct {

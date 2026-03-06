@@ -289,6 +289,15 @@ pub fn builtinArrayEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
 
     const left = receiver.toArrayObject();
     const right = other.toArrayObject();
+
+    if (left == right) {
+        return Value.boolean(true);
+    }
+    if (try vm.enterRecursionGuard(.array_equal, receiver, other)) {
+        return Value.boolean(true);
+    }
+    defer vm.leaveRecursionGuard(.array_equal, receiver, other);
+
     if (left.elements.items.len != right.elements.items.len) {
         return Value.boolean(false);
     }
@@ -580,7 +589,16 @@ pub fn builtinArrayInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 
 pub fn builtinArrayToA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    return receiver;
+    if (receiver.toArrayObject().object.class == vm.array_class) {
+        return receiver;
+    }
+
+    const source = receiver.toArrayObject();
+    const out = try vm.createArray();
+    for (source.elements.items) |elem| {
+        out.elements.append(vm.gc_allocator, elem) catch return error.Fatal;
+    }
+    return Value.fromObject(out);
 }
 
 pub fn builtinArrayAll(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {

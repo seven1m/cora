@@ -5420,8 +5420,14 @@ pub const VM = struct {
                     break :blk str_obj_ptr.class.?;
                 },
                 .symbol => break :blk self.symbol_class,
-                .array => break :blk self.array_class,
-                .hash => break :blk self.hash_class,
+                .array => {
+                    const array_obj_ptr: *value.Object = @ptrFromInt(obj_val.raw);
+                    break :blk array_obj_ptr.class orelse self.array_class;
+                },
+                .hash => {
+                    const hash_obj_ptr: *value.Object = @ptrFromInt(obj_val.raw);
+                    break :blk hash_obj_ptr.class orelse self.hash_class;
+                },
                 .range => break :blk self.range_class,
                 .exception => break :blk self.exception_class,
                 .encoding_obj => break :blk self.encoding_class,
@@ -5789,11 +5795,34 @@ pub const VM = struct {
         return switch (class_obj.object_type) {
             .string => self.newStringForClassWithEncoding(class_obj, "", false, .{ .ascii_8bit = .{} }),
             .array => blk: {
-                const array_obj = try self.createArray();
+                const array_obj = self.gc_allocator.create(value.ArrayObject) catch return error.Fatal;
+                array_obj.* = .{
+                    .object = .{
+                        .type_tag = .array,
+                        .flags = 0,
+                        .class = class_obj,
+                        .singleton_class = null,
+                        .instance_variables = null,
+                    },
+                    .elements = .empty,
+                };
                 break :blk Value.fromObject(array_obj);
             },
             .hash => blk: {
-                const hash_obj = try self.createHash();
+                const hash_obj = self.gc_allocator.create(value.HashObject) catch return error.Fatal;
+                hash_obj.* = .{
+                    .object = .{
+                        .type_tag = .hash,
+                        .flags = 0,
+                        .class = class_obj,
+                        .singleton_class = null,
+                        .instance_variables = null,
+                    },
+                    .map = std.AutoHashMap(u64, usize).init(self.gc_allocator),
+                    .entries = .empty,
+                    .default_value = null,
+                    .default_proc = null,
+                };
                 break :blk Value.fromObject(hash_obj);
             },
             .range => self.newRange(class_obj),
