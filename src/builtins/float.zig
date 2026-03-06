@@ -110,7 +110,13 @@ pub fn builtinFloatDivide(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
 pub fn builtinFloatEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const lhs = receiver.toFloatObject().val;
-    const rhs = coerceNumericArg(vm, args[0]) catch return Value.boolean(false);
+    const rhs = coerceNumericArg(vm, args[0]) catch |err| {
+        if (err == error.Unwind) {
+            vm.pending_exception = null;
+            return Value.boolean(false);
+        }
+        return err;
+    };
     return Value.boolean(lhs == rhs);
 }
 

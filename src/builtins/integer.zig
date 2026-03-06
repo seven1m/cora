@@ -412,7 +412,13 @@ pub fn builtinIntegerEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     try vm.requireArgCount(args, 1);
     try receiver.ensureInteger(vm);
 
-    const rhs = coerceNumericArg(vm, args[0]) catch return Value.boolean(false);
+    const rhs = coerceNumericArg(vm, args[0]) catch |err| {
+        if (err == error.Unwind) {
+            vm.pending_exception = null;
+            return Value.boolean(false);
+        }
+        return err;
+    };
     return switch (rhs) {
         .float => |f| Value.boolean(receiver.integerToF64() == f),
         .integer => |i| Value.boolean((try compareIntegers(vm, receiver, i)) == .eq),
