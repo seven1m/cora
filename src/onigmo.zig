@@ -2,6 +2,8 @@ const std = @import("std");
 const c = @cImport(@cInclude("onigmo.h"));
 
 pub const OnigRegex = c.OnigRegex;
+pub const OnigEncoding = c.OnigEncoding;
+pub const OnigCaseFoldType = c.OnigCaseFoldType;
 
 // Option constants
 pub const OPTION_IGNORECASE = c.ONIG_OPTION_IGNORECASE;
@@ -9,6 +11,22 @@ pub const OPTION_EXTEND = c.ONIG_OPTION_EXTEND;
 pub const OPTION_MULTILINE = c.ONIG_OPTION_MULTILINE;
 
 pub const NORMAL = c.ONIG_NORMAL;
+pub const CASE_UPCASE = c.ONIGENC_CASE_UPCASE;
+pub const CASE_MODIFIED = c.ONIGENC_CASE_MODIFIED;
+pub const CASE_FOLD_TURKISH_AZERI = c.ONIGENC_CASE_FOLD_TURKISH_AZERI;
+pub const CASE_FOLD_LITHUANIAN = c.ONIGENC_CASE_FOLD_LITHUANIAN;
+pub const CASE_ASCII_ONLY = c.ONIGENC_CASE_ASCII_ONLY;
+
+pub const ENCODING_ASCII = c.ONIG_ENCODING_ASCII;
+pub const ENCODING_UTF_8 = c.ONIG_ENCODING_UTF_8;
+pub const ENCODING_UTF_16LE = c.ONIG_ENCODING_UTF_16LE;
+pub const ENCODING_UTF_16BE = c.ONIG_ENCODING_UTF_16BE;
+pub const ENCODING_UTF_32LE = c.ONIG_ENCODING_UTF_32LE;
+pub const ENCODING_UTF_32BE = c.ONIG_ENCODING_UTF_32BE;
+pub const ENCODING_SHIFT_JIS = c.ONIG_ENCODING_SHIFT_JIS;
+pub const ENCODING_EUC_JP = c.ONIG_ENCODING_EUC_JP;
+pub const ENCODING_ISO_8859_9 = c.ONIG_ENCODING_ISO_8859_9;
+pub const ENCODING_ISO_8859_15 = c.ONIG_ENCODING_ISO_8859_15;
 
 pub const CompileError = struct {
     message: [c.ONIG_MAX_ERROR_MESSAGE_LEN]u8 = undefined,
@@ -20,6 +38,17 @@ pub const SearchCaptures = struct {
     match_index: i64,
     begin_offsets: []i64,
     end_offsets: []i64,
+};
+
+pub const CaseMapError = error{
+    OutOfMemory,
+    InvalidByteSequence,
+    UnsupportedEncoding,
+};
+
+pub const CaseMapResult = struct {
+    bytes: []u8,
+    flags: OnigCaseFoldType,
 };
 
 pub fn compile(pattern: [*]const u8, pattern_end: [*]const u8, options: c.OnigOptionType) struct { regex: ?OnigRegex, err: ?CompileError } {
@@ -95,5 +124,47 @@ pub fn searchWithCaptures(allocator: std.mem.Allocator, regex: OnigRegex, text: 
         .match_index = result,
         .begin_offsets = begins,
         .end_offsets = ends,
+    };
+}
+
+pub fn caseMap(
+    allocator: std.mem.Allocator,
+    bytes: []const u8,
+    encoding: OnigEncoding,
+    initial_flags: OnigCaseFoldType,
+) CaseMapError!CaseMapResult {
+    const case_map_fn = encoding.*.case_map orelse return error.UnsupportedEncoding;
+    var flags = initial_flags;
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(allocator);
+
+    const start: [*c]const c.OnigUChar = @ptrCast(bytes.ptr);
+    const end = start + bytes.len;
+    var current = start;
+    while (@intFromPtr(current) < @intFromPtr(end)) {
+        var chunk_capacity: usize = (@intFromPtr(end) - @intFromPtr(current)) * 2 + 32;
+        while (true) {
+            var chunk = allocator.alloc(u8, chunk_capacity) catch return error.OutOfMemory;
+            defer allocator.free(chunk);
+
+            var next = current;
+            const chunk_start: [*c]c.OnigUChar = @ptrCast(chunk.ptr);
+            const chunk_end = chunk_start + chunk.len;
+            const written = case_map_fn(&flags, &next, end, chunk_start, chunk_end, encoding);
+            if (written < 0) return error.InvalidByteSequence;
+            if (@intFromPtr(next) == @intFromPtr(current)) {
+                chunk_capacity *= 2;
+                continue;
+            }
+
+            out.appendSlice(allocator, chunk[0..@intCast(written)]) catch return error.OutOfMemory;
+            current = next;
+            break;
+        }
+    }
+
+    return .{
+        .bytes = out.toOwnedSlice(allocator) catch return error.OutOfMemory,
+        .flags = flags,
     };
 }

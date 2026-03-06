@@ -1,4 +1,5 @@
 const std = @import("std");
+const onigmo = @import("onigmo.zig");
 const Utf8Encoding = @import("encoding/utf8.zig").Utf8Encoding;
 const Ascii8BitEncoding = @import("encoding/ascii_8bit.zig").Ascii8BitEncoding;
 const UsAsciiEncoding = @import("encoding/us_ascii.zig").UsAsciiEncoding;
@@ -163,6 +164,27 @@ pub const TranscodeError = error{
     UndefinedConversion,
 };
 
+pub const CaseMapMode = enum {
+    upcase,
+};
+
+pub const CaseMapOptions = struct {
+    ascii_only: bool = false,
+    turkic: bool = false,
+    lithuanian: bool = false,
+};
+
+pub const CaseMapError = error{
+    OutOfMemory,
+    InvalidByteSequence,
+};
+
+pub const CaseMapResult = struct {
+    bytes: []const u8,
+    modified: bool,
+    encoding: Encoding,
+};
+
 pub fn transcode(
     allocator: std.mem.Allocator,
     bytes: []const u8,
@@ -186,6 +208,55 @@ pub fn transcode(
     }
 
     return out.toOwnedSlice(allocator) catch return error.OutOfMemory;
+}
+
+pub fn caseMap(
+    allocator: std.mem.Allocator,
+    bytes: []const u8,
+    source_encoding: Encoding,
+    mode: CaseMapMode,
+    options: CaseMapOptions,
+) CaseMapError!CaseMapResult {
+    var out_bytes = try allocator.dupe(u8, bytes);
+    var modified = false;
+    errdefer allocator.free(out_bytes);
+    var out_encoding = source_encoding;
+
+    if (mode != .upcase) return .{ .bytes = out_bytes, .modified = false, .encoding = out_encoding };
+
+    const effective_source_encoding: Encoding = if (source_encoding == .us_ascii and !options.ascii_only and (options.turkic or options.lithuanian))
+        .{ .utf8 = .{} }
+    else
+        source_encoding;
+    if (!effective_source_encoding.eql(source_encoding)) {
+        out_encoding = effective_source_encoding;
+    }
+
+    const onig_encoding = mapOnigEncoding(effective_source_encoding);
+    if (onig_encoding) |oe| {
+        var flags: onigmo.OnigCaseFoldType = onigmo.CASE_UPCASE;
+        if (options.ascii_only) flags |= onigmo.CASE_ASCII_ONLY;
+        if (options.turkic) flags |= onigmo.CASE_FOLD_TURKISH_AZERI;
+        if (options.lithuanian) flags |= onigmo.CASE_FOLD_LITHUANIAN;
+
+        const mapped = onigmo.caseMap(allocator, bytes, oe, flags) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.InvalidByteSequence => return error.InvalidByteSequence,
+            error.UnsupportedEncoding => unreachable,
+        };
+        allocator.free(out_bytes);
+        out_bytes = mapped.bytes;
+        modified = (mapped.flags & onigmo.CASE_MODIFIED) != 0;
+        return .{ .bytes = out_bytes, .modified = modified, .encoding = out_encoding };
+    }
+
+    for (out_bytes) |*b| {
+        if (b.* >= 'a' and b.* <= 'z') {
+            b.* -= 32;
+            modified = true;
+        }
+    }
+    return .{ .bytes = out_bytes, .modified = modified, .encoding = out_encoding };
 }
 
 /// Encoding negotiation for string operations.
@@ -232,6 +303,23 @@ pub fn negotiate(enc1: Encoding, str1: []const u8, enc2: Encoding, str2: []const
 
     // Incompatible encodings
     return null;
+}
+
+fn mapOnigEncoding(source_encoding: Encoding) ?onigmo.OnigEncoding {
+    return switch (source_encoding) {
+        .utf8 => onigmo.ENCODING_UTF_8,
+        .ascii_8bit => onigmo.ENCODING_ASCII,
+        .us_ascii => onigmo.ENCODING_ASCII,
+        .shift_jis => onigmo.ENCODING_SHIFT_JIS,
+        .euc_jp => onigmo.ENCODING_EUC_JP,
+        .iso_8859_9 => onigmo.ENCODING_ISO_8859_9,
+        .iso_8859_15 => onigmo.ENCODING_ISO_8859_15,
+        .utf16le => onigmo.ENCODING_UTF_16LE,
+        .utf16be => onigmo.ENCODING_UTF_16BE,
+        .utf32le => onigmo.ENCODING_UTF_32LE,
+        .utf32be => onigmo.ENCODING_UTF_32BE,
+        else => null,
+    };
 }
 
 /// Helper used by multiple encodings - checks if all bytes are ASCII (0-127)

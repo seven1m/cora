@@ -232,6 +232,8 @@ pub fn register(vm: *VM) !void {
 
     const string_upcase_sym = try vm.intern("upcase");
     try vm.string_class.module.methods.put(string_upcase_sym, .{ .method = .{ .builtin = &builtinStringUpcase } });
+    const string_upcase_bang_sym = try vm.intern("upcase!");
+    try vm.string_class.module.methods.put(string_upcase_bang_sym, .{ .method = .{ .builtin = &builtinStringUpcaseBang } });
 
     const string_to_i_sym = try vm.intern("to_i");
     try vm.string_class.module.methods.put(string_to_i_sym, .{ .method = .{ .builtin = &builtinStringToI } });
@@ -1773,15 +1775,32 @@ pub fn builtinStringSplit(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
 }
 
 pub fn builtinStringUpcase(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 0);
+    const options = try parseUpcaseOptions(vm, args);
     const string_obj = receiver.toStringObject();
-    const new_bytes = vm.gc_allocator_atomic.dupe(u8, string_obj.str) catch return error.Fatal;
-    for (new_bytes) |*b| {
-        if (b.* >= 'a' and b.* <= 'z') {
-            b.* -= 32;
-        }
+    const mapped = enc.caseMap(vm.gc_allocator_atomic, string_obj.str, string_obj.encoding, .upcase, options) catch |err| switch (err) {
+        error.OutOfMemory => return error.Fatal,
+        error.InvalidByteSequence => return vm.raiseExceptionFmt(vm.argument_error_class, "input string invalid", .{}),
+    };
+    return try vm.newStringWithEncoding(mapped.bytes, false, mapped.encoding);
+}
+
+pub fn builtinStringUpcaseBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const options = try parseUpcaseOptions(vm, args);
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
     }
-    return try vm.newStringWithEncoding(new_bytes, false, string_obj.encoding);
+    const string_obj = receiver.toStringObject();
+
+    const mapped = enc.caseMap(vm.gc_allocator_atomic, string_obj.str, string_obj.encoding, .upcase, options) catch |err| switch (err) {
+        error.OutOfMemory => return error.Fatal,
+        error.InvalidByteSequence => return vm.raiseExceptionFmt(vm.argument_error_class, "input string invalid", .{}),
+    };
+    if (!mapped.modified) return Value.nil();
+
+    string_obj.str = mapped.bytes;
+    string_obj.encoding = mapped.encoding;
+    string_obj.validity = .unknown;
+    return receiver;
 }
 
 pub fn builtinStringToI(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -2525,6 +2544,56 @@ fn encodeCodepointForEncoding(vm: *VM, cp: i64, encoding: enc.Encoding, out: *[4
         return vm.raiseExceptionFmt(vm.range_error_class, "{d} out of char range", .{cp});
     };
     return out[0..len];
+}
+
+fn parseUpcaseOptions(vm: *VM, args: []Value) VMError!enc.CaseMapOptions {
+    try vm.requireArgCountRange(args, 0, 2);
+    var options: enc.CaseMapOptions = .{};
+    if (args.len == 0) return options;
+
+    const ascii_sym = try vm.intern("ascii");
+    const turkic_sym = try vm.intern("turkic");
+    const lithuanian_sym = try vm.intern("lithuanian");
+    const fold_sym = try vm.intern("fold");
+
+    if (args.len == 1) {
+        const opt = args[0];
+        if (!opt.isSymbol()) return vm.raiseExceptionFmt(vm.argument_error_class, "invalid option", .{});
+
+        const symbol = opt.toSymbolObject();
+        if (symbol == ascii_sym) {
+            options.ascii_only = true;
+            return options;
+        }
+        if (symbol == turkic_sym) {
+            options.turkic = true;
+            return options;
+        }
+        if (symbol == lithuanian_sym) {
+            options.lithuanian = true;
+            return options;
+        }
+        if (symbol == fold_sym) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "option :fold only allowed for downcasing", .{});
+        }
+        return vm.raiseExceptionFmt(vm.argument_error_class, "invalid option", .{});
+    }
+
+    const first = args[0];
+    const second = args[1];
+    if (!first.isSymbol() or !second.isSymbol()) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "invalid option", .{});
+    }
+    const first_sym = first.toSymbolObject();
+    const second_sym = second.toSymbolObject();
+    const turk_lith = (first_sym == turkic_sym and second_sym == lithuanian_sym) or
+        (first_sym == lithuanian_sym and second_sym == turkic_sym);
+    if (!turk_lith) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "invalid second option", .{});
+    }
+    options.turkic = true;
+    options.lithuanian = true;
+    return options;
 }
 
 fn digitValue(c: u8) ?u8 {
