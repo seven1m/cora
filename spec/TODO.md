@@ -2015,7 +2015,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] modulo_spec.rb
 - [x] multiply_spec.rb
 - [x] new_spec.rb
-- [ ] next_spec.rb
+- [x] next_spec.rb
 - [x] oct_spec.rb
 - [x] ord_spec.rb
 - [ ] partition_spec.rb

@@ -157,13 +157,6 @@ Message rules:
   - `Implement regexp numbered references`
   - `Add euc-jp encoding alias`
 
-Commit sequencing guidance:
-
-- Commit method additions first, one method per commit.
-- Then commit method semantic fixes.
-- Then commit spec-only additions that pass as-is.
-- Keep unrelated changes out of each commit.
-
 ## Useful Commands
 
 ```bash
@@ -173,8 +166,11 @@ diff <(ls -1 spec/core/string | sort) <(ls -1 ../ruby_spec/core/string | sort)
 # run one spec file
 zig build run -- spec/core/string/chars_spec.rb
 
-# run aggregate ruby/spec harness
-zig build test -Dtest-filter="ruby/spec"
+# run filtered tests
+zig build test -Dtest-filter="chars_spec|to_i_spec"
+
+# run full test suite
+zig build test
 
 # quick mismatch check for copied files
 diff -q spec/core/string/start_with_spec.rb ../ruby_spec/core/string/start_with_spec.rb

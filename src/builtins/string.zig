@@ -262,6 +262,10 @@ pub fn register(vm: *VM) !void {
     try vm.string_class.module.methods.put(string_downcase_sym, .{ .method = .{ .builtin = &builtinStringDowncase } });
     const string_downcase_bang_sym = try vm.intern("downcase!");
     try vm.string_class.module.methods.put(string_downcase_bang_sym, .{ .method = .{ .builtin = &builtinStringDowncaseBang } });
+    const string_next_sym = try vm.intern("next");
+    try vm.string_class.module.methods.put(string_next_sym, .{ .method = .{ .builtin = &builtinStringNext } });
+    const string_next_bang_sym = try vm.intern("next!");
+    try vm.string_class.module.methods.put(string_next_bang_sym, .{ .method = .{ .builtin = &builtinStringNextBang } });
 
     const string_to_i_sym = try vm.intern("to_i");
     try vm.string_class.module.methods.put(string_to_i_sym, .{ .method = .{ .builtin = &builtinStringToI } });
@@ -2074,6 +2078,128 @@ pub fn builtinStringDowncaseBang(vm: *VM, receiver: Value, args: []Value, _: ?Bl
 
     string_obj.str = mapped.bytes;
     string_obj.encoding = mapped.encoding;
+    string_obj.validity = .unknown;
+    return receiver;
+}
+
+fn isAsciiDigitByte(c: u8) bool {
+    return c >= '0' and c <= '9';
+}
+
+fn isAsciiLowerByte(c: u8) bool {
+    return c >= 'a' and c <= 'z';
+}
+
+fn isAsciiUpperByte(c: u8) bool {
+    return c >= 'A' and c <= 'Z';
+}
+
+fn isAsciiAlnumByte(c: u8) bool {
+    return isAsciiDigitByte(c) or isAsciiLowerByte(c) or isAsciiUpperByte(c);
+}
+
+fn insertByteAt(vm: *VM, bytes: []const u8, at: usize, byte: u8) VMError![]u8 {
+    const out = vm.gc_allocator_atomic.alloc(u8, bytes.len + 1) catch return error.Fatal;
+    @memcpy(out[0..at], bytes[0..at]);
+    out[at] = byte;
+    @memcpy(out[at + 1 ..], bytes[at..]);
+    return out;
+}
+
+fn stringNextBytes(vm: *VM, bytes: []const u8) VMError![]u8 {
+    const out = vm.gc_allocator_atomic.dupe(u8, bytes) catch return error.Fatal;
+    if (out.len == 0) return out;
+
+    var rightmost_alnum: ?usize = null;
+    var idx_find = out.len;
+    while (idx_find > 0) {
+        idx_find -= 1;
+        if (isAsciiAlnumByte(out[idx_find])) {
+            rightmost_alnum = idx_find;
+            break;
+        }
+    }
+
+    if (rightmost_alnum == null) {
+        var carry = true;
+        var i = out.len;
+        while (i > 0 and carry) {
+            i -= 1;
+            if (out[i] == 0xFF) {
+                out[i] = 0;
+            } else {
+                out[i] +%= 1;
+                carry = false;
+            }
+        }
+        if (!carry) return out;
+        return insertByteAt(vm, out, 0, 0x01);
+    }
+
+    var carry = true;
+    var prepend_char: u8 = 0;
+    var prepend_at: usize = rightmost_alnum.?;
+    var idx: isize = @intCast(rightmost_alnum.?);
+
+    while (idx >= 0 and carry) : (idx -= 1) {
+        const uidx: usize = @intCast(idx);
+        const c = out[uidx];
+        if (!isAsciiAlnumByte(c)) continue;
+
+        if (isAsciiDigitByte(c)) {
+            if (c < '9') {
+                out[uidx] = c + 1;
+                carry = false;
+            } else {
+                out[uidx] = '0';
+                prepend_char = '1';
+                prepend_at = uidx;
+            }
+            continue;
+        }
+
+        if (isAsciiLowerByte(c)) {
+            if (c < 'z') {
+                out[uidx] = c + 1;
+                carry = false;
+            } else {
+                out[uidx] = 'a';
+                prepend_char = 'a';
+                prepend_at = uidx;
+            }
+            continue;
+        }
+
+        if (c < 'Z') {
+            out[uidx] = c + 1;
+            carry = false;
+        } else {
+            out[uidx] = 'A';
+            prepend_char = 'A';
+            prepend_at = uidx;
+        }
+    }
+
+    if (!carry) return out;
+    return insertByteAt(vm, out, prepend_at, prepend_char);
+}
+
+pub fn builtinStringNext(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const string_obj = receiver.toStringObject();
+    const next_bytes = try stringNextBytes(vm, string_obj.str);
+    return vm.newStringWithEncoding(next_bytes, false, string_obj.encoding);
+}
+
+pub fn builtinStringNextBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
+    }
+
+    const string_obj = receiver.toStringObject();
+    const next_bytes = try stringNextBytes(vm, string_obj.str);
+    string_obj.str = next_bytes;
     string_obj.validity = .unknown;
     return receiver;
 }
