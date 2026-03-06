@@ -20,6 +20,12 @@ pub fn register(vm: *VM) !void {
     const minus_sym = try vm.intern("-");
     try vm.float_class.module.methods.put(minus_sym, .{ .method = .{ .builtin = &builtinFloatMinus } });
 
+    const unary_plus_sym = try vm.intern("+@");
+    try vm.float_class.module.methods.put(unary_plus_sym, .{ .method = .{ .builtin = &builtinFloatUnaryPlus } });
+
+    const unary_minus_sym = try vm.intern("-@");
+    try vm.float_class.module.methods.put(unary_minus_sym, .{ .method = .{ .builtin = &builtinFloatUnaryMinus } });
+
     const multiply_sym = try vm.intern("*");
     try vm.float_class.module.methods.put(multiply_sym, .{ .method = .{ .builtin = &builtinFloatMultiply } });
 
@@ -75,6 +81,16 @@ pub fn builtinFloatMinus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     const lhs = receiver.toFloatObject().val;
     const rhs = try coerceNumericArg(vm, args[0]);
     return vm.newFloat(lhs - rhs);
+}
+
+pub fn builtinFloatUnaryPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return receiver;
+}
+
+pub fn builtinFloatUnaryMinus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return vm.newFloat(-receiver.toFloatObject().val);
 }
 
 pub fn builtinFloatMultiply(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

@@ -126,7 +126,7 @@ A ported spec is “done” when:
 - Copied files exist locally and match upstream text.
 - The spec passes via `zig build run -- spec/...`.
 - Relevant focused tests pass.
-- `zig build test -Dtest-filter="ruby/spec"` stays green.
+- `zig build test` stays green.
 - The corresponding `spec/TODO.md` entry is marked `[x]`.
 
 ## Commit Style
@@ -167,7 +167,7 @@ diff <(ls -1 spec/core/string | sort) <(ls -1 ../ruby_spec/core/string | sort)
 zig build run -- spec/core/string/chars_spec.rb
 
 # run filtered tests
-zig build test -Dtest-filter="chars_spec|to_i_spec"
+zig build test -Dtest-filter="char|to_i"
 
 # run full test suite
 zig build test

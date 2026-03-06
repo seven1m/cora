@@ -262,12 +262,24 @@ def c_long_size
   64
 end
 
+def pointer_size
+  64
+end
+
 def max_long
   9223372036854775807
 end
 
 def min_long
   -9223372036854775808
+end
+
+def infinity_value
+  1.0 / 0.0
+end
+
+def nan_value
+  0.0 / 0.0
 end
 
 def bignum_value(offset = 0)
@@ -285,6 +297,10 @@ def platform_is(*_args, **kwargs, &block)
   if !requested_size.nil? && requested_size != c_long_size
     return
   end
+  requested_pointer_size = kwargs[:pointer_size]
+  if !requested_pointer_size.nil? && requested_pointer_size != pointer_size
+    return
+  end
   block.call if block
 end
 
@@ -293,7 +309,19 @@ def platform_is_not(*_args, **kwargs, &block)
   if !requested_size.nil? && requested_size == c_long_size
     return
   end
+  requested_pointer_size = kwargs[:pointer_size]
+  if !requested_pointer_size.nil? && requested_pointer_size == pointer_size
+    return
+  end
   block.call if block
+end
+
+def little_endian(&block)
+  block.call if [1].pack("S").unpack("C").first == 1
+end
+
+def big_endian(&block)
+  block.call if [1].pack("S").unpack("C").first != 1
 end
 
 def not_supported_on(*_args, **_kwargs, &block)

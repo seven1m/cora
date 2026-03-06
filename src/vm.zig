@@ -161,6 +161,8 @@ const SymbolKeyContext = struct {
     }
 };
 
+const PackedPointerTargets = std.AutoHashMap(usize, *StringObject);
+
 pub const VM = struct {
     allocator: std.mem.Allocator,
     gc_allocator: std.mem.Allocator,
@@ -175,6 +177,7 @@ pub const VM = struct {
     symbols: std.HashMap(SymbolKey, *SymbolObject, SymbolKeyContext, std.hash_map.default_max_load_percentage),
     globals: std.StringHashMap(Value),
     fstring_cache: std.StringHashMap(Value),
+    packed_pointer_targets: std.AutoHashMap(*StringObject, PackedPointerTargets),
 
     program: *compiler.CompiledProgram,
 
@@ -322,6 +325,7 @@ pub const VM = struct {
             .symbols = std.HashMap(SymbolKey, *SymbolObject, SymbolKeyContext, std.hash_map.default_max_load_percentage).init(gc_allocator),
             .globals = std.StringHashMap(Value).init(gc_allocator),
             .fstring_cache = std.StringHashMap(Value).init(allocator),
+            .packed_pointer_targets = std.AutoHashMap(*StringObject, PackedPointerTargets).init(allocator),
             .loaded_files = std.StringHashMap(void).init(gc_allocator),
             .program = undefined,
             .basic_object_class = undefined,
@@ -1248,6 +1252,11 @@ pub const VM = struct {
             self.allocator.free(key.*);
         }
         self.fstring_cache.deinit();
+        var packed_targets_iter = self.packed_pointer_targets.valueIterator();
+        while (packed_targets_iter.next()) |targets| {
+            targets.deinit();
+        }
+        self.packed_pointer_targets.deinit();
         self.ensure_pending_exceptions.deinit(self.allocator);
         self.at_exit_handlers.deinit(self.gc_allocator);
         self.recursion_guard.deinit(self.allocator);
@@ -6016,6 +6025,35 @@ pub const VM = struct {
             .value = stored,
         };
         return Value.fromObject(big_obj);
+    }
+
+    pub fn registerPackedPointerTarget(self: *VM, packed_str: *StringObject, offset: usize, target: *StringObject) VMError!void {
+        if (self.packed_pointer_targets.getPtr(packed_str)) |targets| {
+            targets.put(offset, target) catch return error.Fatal;
+            return;
+        }
+
+        var targets = PackedPointerTargets.init(self.allocator);
+        errdefer targets.deinit();
+        targets.put(offset, target) catch return error.Fatal;
+        self.packed_pointer_targets.put(packed_str, targets) catch return error.Fatal;
+    }
+
+    pub fn packedPointerTargetAt(self: *VM, packed_str: *StringObject, offset: usize) ?*StringObject {
+        const targets = self.packed_pointer_targets.get(packed_str) orelse return null;
+        return targets.get(offset);
+    }
+
+    pub fn copyPackedPointerTargets(self: *VM, from: *StringObject, to: *StringObject) VMError!void {
+        const src_targets = self.packed_pointer_targets.get(from) orelse return;
+        var copied = PackedPointerTargets.init(self.allocator);
+        errdefer copied.deinit();
+
+        var it = src_targets.iterator();
+        while (it.next()) |entry| {
+            copied.put(entry.key_ptr.*, entry.value_ptr.*) catch return error.Fatal;
+        }
+        self.packed_pointer_targets.put(to, copied) catch return error.Fatal;
     }
 
     pub fn newStringWithEncoding(self: *VM, str: []const u8, frozen: bool, encoding: enc.Encoding) VMError!Value {

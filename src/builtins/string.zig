@@ -1130,6 +1130,8 @@ pub fn builtinStringDup(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
         _ = try vm.callMethodByName(duplicate, "initialize_copy", initialize_copy_args[0..], null);
     }
 
+    try vm.copyPackedPointerTargets(receiver.toStringObject(), duplicate.toStringObject());
+
     return duplicate;
 }
 
@@ -2697,7 +2699,7 @@ pub fn builtinStringUnpack(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     }
 
     const format = try args[0].coerceToStr(vm, "no implicit conversion into String");
-    return pack_runtime.stringUnpack(vm, receiver.toStringObject().str[offset..], format);
+    return pack_runtime.stringUnpack(vm, receiver.toStringObject(), offset, format);
 }
 
 pub fn builtinStringUnpack1(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

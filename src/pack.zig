@@ -22,12 +22,19 @@ pub const DirectiveToken = struct {
     err_msg: ?[]const u8 = null,
 };
 
+const PackedPointerEntry = struct {
+    offset: usize,
+    target: *value.StringObject,
+};
+
 pub fn arrayPack(vm: *VM, items: []Value, format: []const u8) VMError!Value {
     var tokens = try tokenize(vm, format);
     defer tokens.deinit(vm.allocator);
 
     var out: std.ArrayList(u8) = .empty;
     defer out.deinit(vm.allocator);
+    var packed_pointer_entries: std.ArrayList(PackedPointerEntry) = .empty;
+    defer packed_pointer_entries.deinit(vm.allocator);
 
     var arg_index: usize = 0;
     for (tokens.items) |token| {
@@ -59,6 +66,7 @@ pub fn arrayPack(vm: *VM, items: []Value, format: []const u8) VMError!Value {
             'E' => try packFloatDirective(vm, items, &arg_index, token, &out, 8, .little),
             'g' => try packFloatDirective(vm, items, &arg_index, token, &out, 4, .big),
             'G' => try packFloatDirective(vm, items, &arg_index, token, &out, 8, .big),
+            'p', 'P' => try packPointerDirective(vm, items, &arg_index, token, &out, &packed_pointer_entries),
             'x' => {
                 if (!token.star) {
                     const count = token.count orelse 1;
@@ -88,14 +96,20 @@ pub fn arrayPack(vm: *VM, items: []Value, format: []const u8) VMError!Value {
         }
     }
 
-    return try vm.newStringWithEncoding(out.items, false, .{ .ascii_8bit = .{} });
+    const packed_value = try vm.newStringWithEncoding(out.items, false, .{ .ascii_8bit = .{} });
+    const packed_obj = packed_value.toStringObject();
+    for (packed_pointer_entries.items) |entry| {
+        try vm.registerPackedPointerTarget(packed_obj, entry.offset, entry.target);
+    }
+    return packed_value;
 }
 
-pub fn stringUnpack(vm: *VM, bytes: []const u8, format: []const u8) VMError!Value {
+pub fn stringUnpack(vm: *VM, source: *value.StringObject, base_offset: usize, format: []const u8) VMError!Value {
     var tokens = try tokenize(vm, format);
     defer tokens.deinit(vm.allocator);
 
     const out = try vm.createArray();
+    const bytes = source.str[base_offset..];
     var index: usize = 0;
 
     for (tokens.items) |token| {
@@ -109,8 +123,11 @@ pub fn stringUnpack(vm: *VM, bytes: []const u8, format: []const u8) VMError!Valu
             'Z' => try unpackZ(vm, out, bytes, &index, token),
             'B' => try unpackBitString(vm, out, bytes, &index, token, true),
             'b' => try unpackBitString(vm, out, bytes, &index, token, false),
+            'H' => try unpackHexString(vm, out, bytes, &index, token, true),
+            'h' => try unpackHexString(vm, out, bytes, &index, token, false),
             'M' => try unpackQuotedPrintable(vm, out, bytes, &index),
             'm' => try unpackBase64(vm, out, bytes, &index, token),
+            'w' => try unpackBer(vm, out, bytes, &index, token),
             'U' => try unpackUnicodeCodepoints(vm, out, bytes, &index, token),
             'u' => try unpackUu(vm, out, bytes, &index),
             'c' => try unpackInteger(vm, out, bytes, &index, token, 1, true, .native),
@@ -135,23 +152,34 @@ pub fn stringUnpack(vm: *VM, bytes: []const u8, format: []const u8) VMError!Valu
             'E' => try unpackFloat(vm, out, bytes, &index, token, 8, .little),
             'g' => try unpackFloat(vm, out, bytes, &index, token, 4, .big),
             'G' => try unpackFloat(vm, out, bytes, &index, token, 8, .big),
+            'P' => try unpackPointer(vm, out, source, base_offset, bytes, &index, token, true),
+            'p' => try unpackPointer(vm, out, source, base_offset, bytes, &index, token, false),
             'x' => {
-                const count = token.count orelse 1;
-                if (count > bytes.len -| index) {
-                    return vm.raiseExceptionFmt(vm.argument_error_class, "x outside of string", .{});
+                if (token.star) {
+                    index = bytes.len;
+                } else {
+                    const count = token.count orelse 1;
+                    if (count > bytes.len -| index) {
+                        return vm.raiseExceptionFmt(vm.argument_error_class, "x outside of string", .{});
+                    }
+                    index += count;
                 }
-                index += count;
             },
             'X' => {
-                const count = token.count orelse 1;
+                const count = if (token.star) bytes.len -| index else token.count orelse 1;
                 if (count > index) {
                     return vm.raiseExceptionFmt(vm.argument_error_class, "X outside of string", .{});
                 }
                 index -= count;
             },
             '@' => {
-                const count = token.count orelse 1;
-                index = count;
+                if (!token.star) {
+                    const count = token.count orelse 0;
+                    if (count > bytes.len) {
+                        return vm.raiseExceptionFmt(vm.argument_error_class, "@ outside of string", .{});
+                    }
+                    index = count;
+                }
             },
             else => {
                 return raiseUnknownUnpackDirective(vm, token.directive, format);
@@ -394,6 +422,58 @@ fn packStringDirective(
     }
 }
 
+fn packPointerDirective(
+    vm: *VM,
+    items: []Value,
+    arg_index: *usize,
+    token: DirectiveToken,
+    out: *std.ArrayList(u8),
+    packed_pointer_entries: *std.ArrayList(PackedPointerEntry),
+) VMError!void {
+    const pointer_size = @sizeOf(usize);
+    const pointer_count = if (token.directive == 'P')
+        1
+    else if (token.star)
+        items.len - arg_index.*
+    else
+        token.count orelse 1;
+
+    var i: usize = 0;
+    while (i < pointer_count) : (i += 1) {
+        if (arg_index.* >= items.len) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "too few arguments", .{});
+        }
+        const arg = items[arg_index.*];
+        arg_index.* += 1;
+
+        var ptr_value: usize = 0;
+        if (!arg.isNil()) {
+            const str_bytes = try arg.coerceToStr(vm, "no implicit conversion into String");
+            if (token.directive == 'P') {
+                const min_len = token.count orelse 1;
+                if (str_bytes.len < min_len) {
+                    return vm.raiseExceptionFmt(
+                        vm.argument_error_class,
+                        "too short buffer for P({d} for {d})",
+                        .{ str_bytes.len, min_len },
+                    );
+                }
+            }
+
+            const str_obj = arg.toStringObject();
+            ptr_value = @intFromPtr(str_obj.str.ptr);
+            packed_pointer_entries.append(vm.allocator, .{
+                .offset = out.items.len,
+                .target = str_obj,
+            }) catch return error.Fatal;
+        }
+
+        var ptr_buf: [@sizeOf(usize)]u8 = undefined;
+        std.mem.writeInt(usize, &ptr_buf, ptr_value, nativeEndian());
+        out.appendSlice(vm.allocator, ptr_buf[0..pointer_size]) catch return error.Fatal;
+    }
+}
+
 fn unpackInteger(
     vm: *VM,
     out: *value.ArrayObject,
@@ -419,8 +499,77 @@ fn unpackInteger(
         const endian = if (fixed_endianness == .native) nativeOr(token.endianness) else fixed_endianness;
         const slice = bytes[index.* .. index.* + byte_size];
         index.* += byte_size;
-        const val = decodeInteger(slice, signed, endian);
-        out.elements.append(vm.gc_allocator, Value.integer(val)) catch return error.Fatal;
+        const val = if (signed)
+            try integerValueFromSignedDecoded(vm, decodeSignedInteger(slice, endian))
+        else
+            try integerValueFromUnsignedDecoded(vm, decodeUnsignedInteger(slice, endian));
+        out.elements.append(vm.gc_allocator, val) catch return error.Fatal;
+    }
+}
+
+fn unpackPointer(
+    vm: *VM,
+    out: *value.ArrayObject,
+    source: *value.StringObject,
+    base_offset: usize,
+    bytes: []const u8,
+    index: *usize,
+    token: DirectiveToken,
+    packed_mode: bool,
+) VMError!void {
+    const pointer_size = @sizeOf(usize);
+
+    if (packed_mode) {
+        if (index.* + pointer_size > bytes.len) return;
+
+        const assoc_offset = base_offset + index.*;
+        const ptr_slice = bytes[index.* .. index.* + pointer_size];
+        index.* += pointer_size;
+        const ptr_raw: usize = @intCast(decodeUnsignedInteger(ptr_slice, nativeOr(.native)));
+
+        if (ptr_raw == 0) {
+            out.elements.append(vm.gc_allocator, Value.nil()) catch return error.Fatal;
+            return;
+        }
+
+        const associated = vm.packedPointerTargetAt(source, assoc_offset) orelse {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "no associated pointer", .{});
+        };
+        if (ptr_raw != @intFromPtr(associated.str.ptr)) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "non associated pointer", .{});
+        }
+
+        const width = if (token.star) associated.str.len else token.count orelse 1;
+        const read_len = @min(width, associated.str.len);
+        const str = try vm.newStringWithEncoding(associated.str[0..read_len], false, .{ .ascii_8bit = .{} });
+        out.elements.append(vm.gc_allocator, str) catch return error.Fatal;
+        return;
+    }
+
+    const count = if (token.star) (bytes.len -| index.*) / pointer_size else token.count orelse 1;
+    var i: usize = 0;
+    while (i < count) : (i += 1) {
+        if (index.* + pointer_size > bytes.len) break;
+
+        const assoc_offset = base_offset + index.*;
+        const ptr_slice = bytes[index.* .. index.* + pointer_size];
+        index.* += pointer_size;
+        const ptr_raw: usize = @intCast(decodeUnsignedInteger(ptr_slice, nativeOr(.native)));
+
+        if (ptr_raw == 0) {
+            out.elements.append(vm.gc_allocator, Value.nil()) catch return error.Fatal;
+            continue;
+        }
+
+        const associated = vm.packedPointerTargetAt(source, assoc_offset) orelse {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "no associated pointer", .{});
+        };
+        if (ptr_raw != @intFromPtr(associated.str.ptr)) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "non associated pointer", .{});
+        }
+
+        const str = try vm.newStringWithEncoding(associated.str, false, .{ .ascii_8bit = .{} });
+        out.elements.append(vm.gc_allocator, str) catch return error.Fatal;
     }
 }
 
@@ -498,13 +647,17 @@ fn unpacka(vm: *VM, out: *value.ArrayObject, bytes: []const u8, index: *usize, t
 
 fn unpackZ(vm: *VM, out: *value.ArrayObject, bytes: []const u8, index: *usize, token: DirectiveToken) VMError!void {
     const start = @min(index.*, bytes.len);
-    const width = if (token.star)
-        bytes.len - start
-    else if (token.count) |count|
-        count
-    else
-        bytes.len - start;
+    if (token.star) {
+        var i = start;
+        while (i < bytes.len and bytes[i] != 0) : (i += 1) {}
+        const nul_found = i < bytes.len and bytes[i] == 0;
+        index.* = if (nul_found) i + 1 else bytes.len;
+        const str = try vm.newStringWithEncoding(bytes[start..i], false, .{ .ascii_8bit = .{} });
+        out.elements.append(vm.gc_allocator, str) catch return error.Fatal;
+        return;
+    }
 
+    const width = token.count orelse 1;
     const end = @min(start + width, bytes.len);
     var nul_pos = end;
     var i = start;
@@ -558,6 +711,49 @@ fn unpackBitString(
 
     index.* = start + bytes_to_consume;
     const str = try vm.newStringWithEncoding(out_bits.items, false, .{ .us_ascii = .{} });
+    out.elements.append(vm.gc_allocator, str) catch return error.Fatal;
+}
+
+fn unpackHexString(
+    vm: *VM,
+    out: *value.ArrayObject,
+    bytes: []const u8,
+    index: *usize,
+    token: DirectiveToken,
+    high_nibble_first: bool,
+) VMError!void {
+    const start = @min(index.*, bytes.len);
+    const nibbles_requested: usize = if (token.star)
+        (bytes.len - start) * 2
+    else
+        token.count orelse 1;
+    const bytes_to_consume = if (token.star)
+        bytes.len - start
+    else
+        (nibbles_requested + 1) / 2;
+    const available_bytes = @min(bytes_to_consume, bytes.len - start);
+    const available_nibbles = @min(nibbles_requested, available_bytes * 2);
+
+    var out_hex: std.ArrayList(u8) = .empty;
+    defer out_hex.deinit(vm.allocator);
+    out_hex.ensureTotalCapacity(vm.allocator, available_nibbles) catch return error.Fatal;
+
+    var nibble_i: usize = 0;
+    while (nibble_i < available_nibbles) : (nibble_i += 1) {
+        const byte_off = nibble_i / 2;
+        const nibble_off = nibble_i % 2;
+        const b = bytes[start + byte_off];
+        const nibble: u8 = if (high_nibble_first)
+            if (nibble_off == 0) (b >> 4) & 0x0F else b & 0x0F
+        else if (nibble_off == 0)
+            b & 0x0F
+        else
+            (b >> 4) & 0x0F;
+        out_hex.appendAssumeCapacity("0123456789abcdef"[nibble]);
+    }
+
+    index.* = start + bytes_to_consume;
+    const str = try vm.newStringWithEncoding(out_hex.items, false, .{ .us_ascii = .{} });
     out.elements.append(vm.gc_allocator, str) catch return error.Fatal;
 }
 
@@ -691,6 +887,64 @@ fn unpackBase64(vm: *VM, out: *value.ArrayObject, bytes: []const u8, index: *usi
     out.elements.append(vm.gc_allocator, str) catch return error.Fatal;
 }
 
+fn unpackBer(vm: *VM, out: *value.ArrayObject, bytes: []const u8, index: *usize, token: DirectiveToken) VMError!void {
+    const count = if (token.star) std.math.maxInt(usize) else token.count orelse 1;
+
+    var i: usize = 0;
+    while (i < count) : (i += 1) {
+        const maybe = try unpackOneBerInteger(vm, bytes, index);
+        if (maybe) |val| {
+            out.elements.append(vm.gc_allocator, val) catch return error.Fatal;
+            continue;
+        }
+
+        if (token.star) break;
+        out.elements.append(vm.gc_allocator, Value.nil()) catch return error.Fatal;
+    }
+}
+
+fn unpackOneBerInteger(vm: *VM, bytes: []const u8, index: *usize) VMError!?Value {
+    if (index.* >= bytes.len) return null;
+
+    var acc_u64: u64 = 0;
+    var acc_big: ?std.math.big.int.Managed = null;
+    defer if (acc_big) |*b| b.deinit();
+    var base_big = std.math.big.int.Managed.initSet(vm.allocator, @as(i64, 128)) catch return error.Fatal;
+    defer base_big.deinit();
+
+    while (true) {
+        if (index.* >= bytes.len) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "malformed BER compressed integer", .{});
+        }
+
+        const b = bytes[index.*];
+        index.* += 1;
+        const payload: u8 = b & 0x7F;
+
+        if (acc_big) |*big| {
+            big.mul(big, &base_big) catch return error.Fatal;
+            big.addScalar(big, payload) catch return error.Fatal;
+        } else {
+            const mul, const mul_overflow = @mulWithOverflow(acc_u64, 128);
+            const sum, const sum_overflow = @addWithOverflow(mul, @as(u64, payload));
+            if (mul_overflow != 0 or sum_overflow != 0) {
+                acc_big = std.math.big.int.Managed.initSet(vm.allocator, acc_u64) catch return error.Fatal;
+                acc_big.?.mul(&acc_big.?, &base_big) catch return error.Fatal;
+                acc_big.?.addScalar(&acc_big.?, payload) catch return error.Fatal;
+            } else {
+                acc_u64 = sum;
+            }
+        }
+
+        if ((b & 0x80) == 0) break;
+    }
+
+    if (acc_big) |*big| {
+        return try vm.valueFromManagedInteger(big);
+    }
+    return try integerValueFromUnsignedDecoded(vm, acc_u64);
+}
+
 fn decodeBase64(vm: *VM, bytes: []const u8, strict: bool) VMError![]u8 {
     var filtered: std.ArrayList(u8) = .empty;
     defer filtered.deinit(vm.allocator);
@@ -774,7 +1028,7 @@ fn raiseUnknownUnpackDirective(vm: *VM, directive: u8, format: []const u8) VMErr
     );
 }
 
-fn decodeInteger(slice: []const u8, signed: bool, endian: Endianness) i64 {
+fn decodeUnsignedInteger(slice: []const u8, endian: Endianness) u64 {
     var buf: [8]u8 = [_]u8{0} ** 8;
 
     if (endian == .big) {
@@ -786,13 +1040,11 @@ fn decodeInteger(slice: []const u8, signed: bool, endian: Endianness) i64 {
         @memcpy(buf[0..slice.len], slice);
     }
 
-    const raw = std.mem.readInt(u64, &buf, .little);
-    if (!signed) {
-        if (raw > std.math.maxInt(i64)) {
-            return @bitCast(raw);
-        }
-        return @intCast(raw);
-    }
+    return std.mem.readInt(u64, &buf, .little);
+}
+
+fn decodeSignedInteger(slice: []const u8, endian: Endianness) i64 {
+    const raw = decodeUnsignedInteger(slice, endian);
 
     const bits = slice.len * 8;
     if (bits == 0) return 0;
@@ -803,6 +1055,23 @@ fn decodeInteger(slice: []const u8, signed: bool, endian: Endianness) i64 {
 
     const mask: u64 = ~(@as(u64, 0)) << @intCast(bits);
     return @bitCast(raw | mask);
+}
+
+fn integerValueFromSignedDecoded(vm: *VM, n: i64) VMError!Value {
+    if (std.math.cast(i63, n)) |small| {
+        return Value.integer(@as(i64, small));
+    }
+    return vm.newBigIntegerFromI64(n);
+}
+
+fn integerValueFromUnsignedDecoded(vm: *VM, n: u64) VMError!Value {
+    if (std.math.cast(i63, n)) |small| {
+        return Value.integer(@as(i64, small));
+    }
+
+    var managed = std.math.big.int.Managed.initSet(vm.allocator, n) catch return error.Fatal;
+    defer managed.deinit();
+    return vm.valueFromManagedInteger(&managed);
 }
 
 fn appendZeros(vm: *VM, out: *std.ArrayList(u8), count: usize) VMError!void {
