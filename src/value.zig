@@ -132,6 +132,7 @@ pub const ObjectType = enum {
 pub const ClassObject = struct {
     module: ModuleObject,
     superclass: ?*ClassObject,
+    attached_object: ?Value = null,
     object_type: ObjectType = .instance,
     prepended_modules: std.ArrayList(*ModuleObject) = .empty,
     included_modules: std.ArrayList(*ModuleObject) = .empty,

@@ -22,34 +22,26 @@ describe "Module#to_s" do
   end
 
   it 'for the singleton class of an object of an anonymous class' do
-    CORAFIXME "singleton class stringification needs attached-object formatting", exception: SpecFailedException do
-      klass = Class.new
-      obj = klass.new
-      sclass = obj.singleton_class
-      sclass.to_s.should == "#<Class:#{obj}>"
-      sclass.to_s.start_with?("#<Class:#<").should == true
-      sclass.to_s.end_with?(">>").should == true
-    end
+    klass = Class.new
+    obj = klass.new
+    sclass = obj.singleton_class
+    sclass.to_s.should == "#<Class:#{obj}>"
+    sclass.to_s.start_with?("#<Class:#<").should == true
+    sclass.to_s.end_with?(">>").should == true
   end
 
   it 'for a singleton class of a module includes the module name' do
-    CORAFIXME "singleton class stringification for modules is not implemented yet", exception: SpecFailedException do
-      ModuleSpecs.singleton_class.to_s.should == '#<Class:ModuleSpecs>'
-    end
+    ModuleSpecs.singleton_class.to_s.should == '#<Class:ModuleSpecs>'
   end
 
   it 'for a metaclass includes the class name' do
-    CORAFIXME "singleton class stringification for classes is not implemented yet", exception: SpecFailedException do
-      ModuleSpecs::NamedClass.singleton_class.to_s.should == '#<Class:ModuleSpecs::NamedClass>'
-    end
+    ModuleSpecs::NamedClass.singleton_class.to_s.should == '#<Class:ModuleSpecs::NamedClass>'
   end
 
   it 'for objects includes class name and object ID' do
-    CORAFIXME "singleton class stringification for instances is not implemented yet", exception: SpecFailedException do
-      obj = ModuleSpecs::NamedClass.new
-      obj.singleton_class.to_s.start_with?("#<Class:#<ModuleSpecs::NamedClass:0x").should == true
-      obj.singleton_class.to_s.end_with?(">>").should == true
-    end
+    obj = ModuleSpecs::NamedClass.new
+    obj.singleton_class.to_s.start_with?("#<Class:#<ModuleSpecs::NamedClass:0x").should == true
+    obj.singleton_class.to_s.end_with?(">>").should == true
   end
 
   it "always show the refinement name, even if the module is named" do
@@ -67,19 +59,17 @@ describe "Module#to_s" do
   end
 
   it 'does not call #inspect or #to_s for singleton classes' do
-    CORAFIXME "singleton class stringification should ignore overridden #inspect/#to_s", exception: SpecFailedException do
-      klass = Class.new
-      obj = klass.new
-      def obj.to_s
-        "to_s"
-      end
-      def obj.inspect
-        "inspect"
-      end
-      sclass = obj.singleton_class
-      sclass.to_s.start_with?("#<Class:#<").should == true
-      sclass.to_s.include?(":0x").should == true
-      sclass.to_s.end_with?(">>").should == true
+    klass = Class.new
+    obj = klass.new
+    def obj.to_s
+      "to_s"
     end
+    def obj.inspect
+      "inspect"
+    end
+    sclass = obj.singleton_class
+    sclass.to_s.start_with?("#<Class:#<").should == true
+    sclass.to_s.include?(":0x").should == true
+    sclass.to_s.end_with?(">>").should == true
   end
 end

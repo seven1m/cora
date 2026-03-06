@@ -5507,6 +5507,7 @@ pub const VM = struct {
         const singleton_class = self.gc_allocator.create(ClassObject) catch return error.Fatal;
         singleton_class.* = .{
             .superclass = singleton_superclass,
+            .attached_object = obj_val,
             .object_type = singleton_superclass.object_type,
             .module = .{
                 .object = .{
@@ -5625,6 +5626,7 @@ pub const VM = struct {
         const class_obj = self.gc_allocator.create(ClassObject) catch return error.Fatal;
         class_obj.* = .{
             .superclass = superclass,
+            .attached_object = null,
             .object_type = object_type,
             .module = .{
                 .object = .{ .type_tag = .class, .flags = 0, .class = self.class_class, .singleton_class = null, .instance_variables = null },

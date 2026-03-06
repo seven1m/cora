@@ -142,11 +142,32 @@ fn findConstantPathFromObject(vm: *VM, target: Value) VMError!?[]const u8 {
 }
 
 fn publicModuleName(vm: *VM, receiver: Value) VMError!?[]const u8 {
+    if (receiver.isClass() and receiver.toClassObject().attached_object != null) return null;
     const stored_name = storedModuleName(receiver);
     if (isSyntheticSingletonName(stored_name)) return null;
     if (try findConstantPathFromObject(vm, receiver)) |path| return path;
     if (isAnonymousStoredName(stored_name)) return null;
     return stored_name;
+}
+
+fn basicObjectToS(vm: *VM, receiver: Value) VMError!Value {
+    const class_val = Value.fromObject(vm.getClass(receiver));
+    const class_name_val = try builtinModuleToS(vm, class_val, &[_]Value{}, null);
+    if (!class_name_val.isString()) return error.Fatal;
+
+    const text = std.fmt.allocPrint(
+        vm.gc_allocator,
+        "#<{s}:0x{x}>",
+        .{ class_name_val.toStringObject().str, receiver.objectId() },
+    ) catch return error.Fatal;
+    return try vm.newString(text, false);
+}
+
+fn singletonAttachedObjectToS(vm: *VM, attached_object: Value) VMError!Value {
+    if (attached_object.isClass() or attached_object.isModule()) {
+        return builtinModuleToS(vm, attached_object, &[_]Value{}, null);
+    }
+    return basicObjectToS(vm, attached_object);
 }
 
 fn classIncludesModule(class_obj: *ClassObject, target: *value.ModuleObject) bool {
@@ -538,6 +559,20 @@ pub fn builtinModuleName(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
 
 pub fn builtinModuleToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
+    if (receiver.isClass()) {
+        if (receiver.toClassObject().attached_object) |attached_object| {
+            const attached_str_val = try singletonAttachedObjectToS(vm, attached_object);
+            if (!attached_str_val.isString()) return error.Fatal;
+
+            const text = std.fmt.allocPrint(
+                vm.gc_allocator,
+                "#<Class:{s}>",
+                .{attached_str_val.toStringObject().str},
+            ) catch return error.Fatal;
+            return try vm.newString(text, false);
+        }
+    }
+
     if (try publicModuleName(vm, receiver)) |name| {
         return try vm.newString(name, false);
     }

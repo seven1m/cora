@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 const method_reflection = @import("method_reflection.zig");
+const module_builtin = @import("module.zig");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -622,12 +623,12 @@ pub fn builtinKernelInstanceVariableSet(vm: *VM, receiver: Value, args: []Value,
 }
 
 pub fn builtinKernelToS(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
-    const class = vm.getClass(receiver);
-    const class_name = class.module.name.name;
+    const class_name_val = try module_builtin.builtinModuleToS(vm, Value.fromObject(vm.getClass(receiver)), &[_]Value{}, null);
+    if (!class_name_val.isString()) return error.Fatal;
 
     const object_id = receiver.objectId();
 
-    const str = std.fmt.allocPrint(vm.gc_allocator, "#<{s}:0x{x}>", .{ class_name, object_id }) catch return error.Fatal;
+    const str = std.fmt.allocPrint(vm.gc_allocator, "#<{s}:0x{x}>", .{ class_name_val.toStringObject().str, object_id }) catch return error.Fatal;
     return try vm.newString(str, false);
 }
 
