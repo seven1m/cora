@@ -69,6 +69,9 @@ pub const StringObject = struct {
     str: []const u8,
     encoding: Encoding = .{ .utf8 = .{} },
     validity: ValidityState = .unknown,
+    // TODO: Fold this into a unified string-flags bitfield if/when more string state flags are added.
+    chilled_literal: bool = false,
+    symbol_to_s_source: ?*SymbolObject = null,
 };
 
 pub const BigIntegerObject = struct {

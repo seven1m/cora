@@ -386,10 +386,10 @@ pub fn builtinStringToStr(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
 
 pub fn builtinStringUnaryPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    if (!receiver.isFrozen()) {
+    const string_obj = receiver.toStringObject();
+    if (!receiver.isFrozen() and !string_obj.chilled_literal) {
         return receiver;
     }
-    const string_obj = receiver.toStringObject();
     return try vm.newStringWithEncoding(string_obj.str, false, string_obj.encoding);
 }
 
@@ -1987,9 +1987,11 @@ pub fn builtinStringUpcaseBang(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
     };
     if (!mapped.modified) return Value.nil();
 
+    try warnSymbolToSMutation(vm, string_obj);
     string_obj.str = mapped.bytes;
     string_obj.encoding = mapped.encoding;
     string_obj.validity = .unknown;
+    string_obj.symbol_to_s_source = null;
     return receiver;
 }
 
@@ -2676,6 +2678,20 @@ fn concatBytes(vm: *VM, left: []const u8, right: []const u8) VMError![]const u8 
     @memcpy(out[0..left.len], left);
     @memcpy(out[left.len..], right);
     return out;
+}
+
+fn warnSymbolToSMutation(vm: *VM, string_obj: *value.StringObject) VMError!void {
+    const sym = string_obj.symbol_to_s_source orelse return;
+    if (!vm.warning_deprecated_enabled) return;
+    const stderr_target = vm.globals.get("$stderr") orelse return;
+    const warning_text = std.fmt.allocPrint(
+        vm.gc_allocator,
+        "warning: string returned by :{s}.to_s will be frozen in the future\n",
+        .{sym.name},
+    ) catch return error.Fatal;
+    const warning_val = try vm.newString(warning_text, false);
+    var args = [_]Value{warning_val};
+    _ = try vm.callMethodByName(stderr_target, "write", args[0..], null);
 }
 
 const ConcatSelfSnapshot = struct {

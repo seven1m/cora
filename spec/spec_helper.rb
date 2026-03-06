@@ -190,10 +190,6 @@ class ScratchPad
   end
 end
 
-def cora_ruby_version
-  "3.3"
-end
-
 def parse_version_segments(version)
   version.to_s.split('.').map { |segment| segment.to_i }
 end
@@ -220,13 +216,13 @@ def ruby_version_is(*args, **_kwargs, &block)
   if requirement.is_a?(Range)
     begin_ver = requirement.begin
     end_ver = requirement.end
-    lower_ok = begin_ver.nil? || begin_ver == "" || compare_versions(cora_ruby_version, begin_ver) >= 0
-    upper_cmp = compare_versions(cora_ruby_version, end_ver)
+    lower_ok = begin_ver.nil? || begin_ver == "" || compare_versions(RUBY_VERSION, begin_ver) >= 0
+    upper_cmp = compare_versions(RUBY_VERSION, end_ver)
     upper_ok = requirement.exclude_end? ? upper_cmp < 0 : upper_cmp <= 0
     block.call if lower_ok && upper_ok
     return
   end
-  if requirement.nil? || compare_versions(cora_ruby_version, requirement) >= 0
+  if requirement.nil? || compare_versions(RUBY_VERSION, requirement) >= 0
     block.call
   end
 end

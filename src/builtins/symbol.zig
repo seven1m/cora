@@ -43,7 +43,9 @@ pub fn builtinSymbolEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
 pub fn builtinSymbolToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const sym = receiver.toSymbolObject();
-    return try vm.newStringWithEncoding(sym.name, false, sym.encoding);
+    const out = try vm.newStringWithEncoding(sym.name, false, sym.encoding);
+    out.toStringObject().symbol_to_s_source = sym;
+    return out;
 }
 
 pub fn builtinSymbolInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

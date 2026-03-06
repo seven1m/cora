@@ -165,7 +165,14 @@ pub const Compiler = struct {
                 const str_val = string_node.unescaped;
                 const str_slice = str_val.source[0..str_val.length];
                 const idx = try self.current_chunk.addConstant(.{ .string = str_slice });
-                try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(idx), line);
+                const flags = string_node.base.flags;
+                if ((flags & prism.STRING_FLAGS_FROZEN) != 0) {
+                    try self.current_chunk.emitOpU16(.PUSH_FSTRING, @intCast(idx), line);
+                } else if ((flags & prism.STRING_FLAGS_MUTABLE) != 0) {
+                    try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(idx), line);
+                } else {
+                    try self.current_chunk.emitOpU16(.PUSH_CSTRING, @intCast(idx), line);
+                }
             },
 
             .symbol => |symbol_node| {

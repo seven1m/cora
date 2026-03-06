@@ -204,6 +204,8 @@ pub const VM = struct {
     false_class: *value.ClassObject,
     kernel_module: *value.ModuleObject,
     process_module: *value.ModuleObject,
+    warning_module: *value.ModuleObject,
+    warning_deprecated_enabled: bool = true,
     process_status_class: *value.ClassObject,
     main_self: Value,
     main_fiber: *value.FiberObject,
@@ -345,6 +347,7 @@ pub const VM = struct {
             .false_class = undefined,
             .kernel_module = undefined,
             .process_module = undefined,
+            .warning_module = undefined,
             .process_status_class = undefined,
             .main_fiber = undefined,
             .current_fiber = undefined,
@@ -540,6 +543,10 @@ pub const VM = struct {
         const process_module_val = try self.newModule(process_name_sym);
         self.process_module = process_module_val.toModuleObject();
 
+        const warning_name_sym = try self.intern("Warning");
+        const warning_module_val = try self.newModule(warning_name_sym);
+        self.warning_module = warning_module_val.toModuleObject();
+
         const comparable_name_sym = try self.intern("Comparable");
         const comparable_module_val = try self.newModule(comparable_name_sym);
 
@@ -707,6 +714,7 @@ pub const VM = struct {
         self.object_class.module.constants.put(false_class_name_sym, false_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(kernel_name_sym, kernel_module_val) catch return error.Fatal;
         self.object_class.module.constants.put(process_name_sym, process_module_val) catch return error.Fatal;
+        self.object_class.module.constants.put(warning_name_sym, warning_module_val) catch return error.Fatal;
         self.object_class.module.constants.put(comparable_name_sym, comparable_module_val) catch return error.Fatal;
         self.object_class.module.constants.put(exception_name_sym, exception_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(standard_error_name_sym, standard_error_class_val) catch return error.Fatal;
@@ -2633,11 +2641,52 @@ pub const VM = struct {
                 try self.push(val);
             },
 
+            .PUSH_CSTRING => {
+                const idx = readU16From(frame, operands, &operand_cursor);
+                const constant = constants[idx];
+                switch (constant) {
+                    .string => |s| {
+                        const val = try self.newStringWithEncoding(s, false, literalStringEncodingForChunk(frame.chunk.source_encoding, s));
+                        val.toStringObject().chilled_literal = true;
+                        try self.push(val);
+                    },
+                    else => return error.Fatal,
+                }
+            },
+
             .PUSH_FSTRING => {
                 const idx = readU16From(frame, operands, &operand_cursor);
                 const constant = constants[idx];
                 switch (constant) {
-                    .string => |s| try self.push(try self.getOrCreateFrozenStringLiteral(s)),
+                    .string => |s| {
+                        const literal_encoding = literalStringEncodingForChunk(frame.chunk.source_encoding, s);
+                        const encoding_tag: u8 = @intFromEnum(std.meta.activeTag(literal_encoding));
+                        const source_marker = frame.chunk.source_file orelse frame.chunk.name;
+                        var source_hasher = std.hash.Wyhash.init(0);
+                        source_hasher.update(source_marker);
+                        const source_hash = source_hasher.final();
+                        var hasher = std.hash.Wyhash.init(0);
+                        hasher.update(s);
+                        const content_hash = hasher.final();
+                        var key_buf: [64]u8 = undefined;
+                        const key = std.fmt.bufPrint(
+                            &key_buf,
+                            "{x}:{x}:{d}",
+                            .{ source_hash, content_hash, encoding_tag },
+                        ) catch return error.Fatal;
+                        if (self.fstring_cache.get(key)) |cached| {
+                            try self.push(cached);
+                        } else {
+                            const frozen = try self.newStringWithEncoding(
+                                s,
+                                true,
+                                literal_encoding,
+                            );
+                            const owned_key = self.allocator.dupe(u8, key) catch return error.Fatal;
+                            self.fstring_cache.put(owned_key, frozen) catch return error.Fatal;
+                            try self.push(frozen);
+                        }
+                    },
                     else => return error.Fatal,
                 }
             },
