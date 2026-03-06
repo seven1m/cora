@@ -1958,7 +1958,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/string/bytesize_spec.rb
 - [x] core/string/byteslice_spec.rb
 - [ ] core/string/bytesplice_spec.rb
-- [ ] core/string/capitalize_spec.rb
+- [x] core/string/capitalize_spec.rb
 - [x] core/string/case_compare_spec.rb
 - [ ] core/string/casecmp_spec.rb
 - [ ] core/string/center_spec.rb

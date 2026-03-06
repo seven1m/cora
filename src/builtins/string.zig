@@ -262,6 +262,10 @@ pub fn register(vm: *VM) !void {
     try vm.string_class.module.methods.put(string_downcase_sym, .{ .method = .{ .builtin = &builtinStringDowncase } });
     const string_downcase_bang_sym = try vm.intern("downcase!");
     try vm.string_class.module.methods.put(string_downcase_bang_sym, .{ .method = .{ .builtin = &builtinStringDowncaseBang } });
+    const string_capitalize_sym = try vm.intern("capitalize");
+    try vm.string_class.module.methods.put(string_capitalize_sym, .{ .method = .{ .builtin = &builtinStringCapitalize } });
+    const string_capitalize_bang_sym = try vm.intern("capitalize!");
+    try vm.string_class.module.methods.put(string_capitalize_bang_sym, .{ .method = .{ .builtin = &builtinStringCapitalizeBang } });
     const string_next_sym = try vm.intern("next");
     try vm.string_class.module.methods.put(string_next_sym, .{ .method = .{ .builtin = &builtinStringNext } });
     const string_next_bang_sym = try vm.intern("next!");
@@ -2084,6 +2088,90 @@ pub fn builtinStringDowncaseBang(vm: *VM, receiver: Value, args: []Value, _: ?Bl
     return receiver;
 }
 
+fn mapStringCapitalize(
+    vm: *VM,
+    bytes: []const u8,
+    source_encoding: enc.Encoding,
+    options: enc.CaseMapOptions,
+) VMError!enc.CaseMapResult {
+    if (bytes.len == 0) {
+        const dup = vm.gc_allocator_atomic.dupe(u8, bytes) catch return error.Fatal;
+        return .{ .bytes = dup, .modified = false, .encoding = source_encoding };
+    }
+
+    var first_end: usize = 0;
+    const first_char = source_encoding.nextChar(bytes, &first_end);
+    if (first_char.len == 0) {
+        const dup = vm.gc_allocator_atomic.dupe(u8, bytes) catch return error.Fatal;
+        return .{ .bytes = dup, .modified = false, .encoding = source_encoding };
+    }
+
+    const first_up = enc.caseMap(
+        vm.gc_allocator_atomic,
+        bytes[0..first_end],
+        source_encoding,
+        .upcase,
+        options,
+    ) catch |err| switch (err) {
+        error.OutOfMemory => return error.Fatal,
+        error.InvalidByteSequence => return vm.raiseExceptionFmt(vm.argument_error_class, "input string invalid", .{}),
+    };
+
+    var first_up_first_end: usize = 0;
+    const first_up_first_char = first_up.encoding.nextChar(first_up.bytes, &first_up_first_end);
+    if (first_up_first_char.len == 0) {
+        const dup = vm.gc_allocator_atomic.dupe(u8, bytes) catch return error.Fatal;
+        return .{ .bytes = dup, .modified = false, .encoding = source_encoding };
+    }
+
+    const prefix = first_up.bytes[0..first_up_first_end];
+    const first_up_tail = first_up.bytes[first_up_first_end..];
+    const original_rest = bytes[first_end..];
+
+    const downcase_input = blk: {
+        if (first_up_tail.len == 0) break :blk original_rest;
+        if (original_rest.len == 0) break :blk first_up_tail;
+        break :blk try concatBytes(vm, first_up_tail, original_rest);
+    };
+
+    const down_tail = enc.caseMap(
+        vm.gc_allocator_atomic,
+        downcase_input,
+        first_up.encoding,
+        .downcase,
+        options,
+    ) catch |err| switch (err) {
+        error.OutOfMemory => return error.Fatal,
+        error.InvalidByteSequence => return vm.raiseExceptionFmt(vm.argument_error_class, "input string invalid", .{}),
+    };
+
+    const result_bytes = try concatBytes(vm, prefix, down_tail.bytes);
+    const modified = !std.mem.eql(u8, result_bytes, bytes) or !down_tail.encoding.eql(source_encoding);
+    return .{ .bytes = result_bytes, .modified = modified, .encoding = down_tail.encoding };
+}
+
+pub fn builtinStringCapitalize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const options = try parseCaseMapOptions(vm, args, .capitalize);
+    const string_obj = receiver.toStringObject();
+    const mapped = try mapStringCapitalize(vm, string_obj.str, string_obj.encoding, options);
+    return try vm.newStringWithEncoding(mapped.bytes, false, mapped.encoding);
+}
+
+pub fn builtinStringCapitalizeBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const options = try parseCaseMapOptions(vm, args, .capitalize);
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
+    }
+    const string_obj = receiver.toStringObject();
+    const mapped = try mapStringCapitalize(vm, string_obj.str, string_obj.encoding, options);
+    if (!mapped.modified) return Value.nil();
+
+    string_obj.str = mapped.bytes;
+    string_obj.encoding = mapped.encoding;
+    string_obj.validity = .unknown;
+    return receiver;
+}
+
 fn isAsciiDigitByte(c: u8) bool {
     return c >= '0' and c <= '9';
 }
@@ -3015,6 +3103,7 @@ fn encodeCodepointForEncoding(vm: *VM, cp: i64, encoding: enc.Encoding, out: *[4
 const CaseOperation = enum {
     upcase,
     downcase,
+    capitalize,
 };
 
 fn parseCaseMapOptions(vm: *VM, args: []Value, operation: CaseOperation) VMError!enc.CaseMapOptions {
