@@ -295,6 +295,9 @@ pub fn register(vm: *VM) !void {
 
     const unpack_sym = try vm.intern("unpack");
     try vm.string_class.module.methods.put(unpack_sym, .{ .method = .{ .builtin = &builtinStringUnpack } });
+
+    const unpack1_sym = try vm.intern("unpack1");
+    try vm.string_class.module.methods.put(unpack1_sym, .{ .method = .{ .builtin = &builtinStringUnpack1 } });
 }
 
 pub fn builtinStringTryConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -2558,6 +2561,13 @@ pub fn builtinStringUnpack(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 
     const format = try args[0].coerceToStr(vm, "no implicit conversion into String");
     return pack_runtime.stringUnpack(vm, receiver.toStringObject().str[offset..], format);
+}
+
+pub fn builtinStringUnpack1(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const unpacked = try builtinStringUnpack(vm, receiver, args, null);
+    const unpacked_array = unpacked.toArrayObject();
+    if (unpacked_array.elements.items.len == 0) return Value.nil();
+    return unpacked_array.elements.items[0];
 }
 
 fn charSliceByRange(

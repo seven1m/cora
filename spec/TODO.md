@@ -2083,7 +2083,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] z_spec.rb
 
 ### core/string
-- [ ] unpack1_spec.rb
+- [-] unpack1_spec.rb
 - [x] unpack_spec.rb
 - [x] upcase_spec.rb
 - [x] uplus_spec.rb
