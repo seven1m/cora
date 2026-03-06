@@ -646,9 +646,7 @@ pub fn builtinArrayToA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
 pub fn builtinArrayReplace(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     if (receiver.isFrozen()) {
-        const exc = try vm.createException(vm.runtime_error_class, "can't modify frozen Array");
-        vm.pending_exception = exc;
-        return error.Unwind;
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
     }
 
     const replacement = if (args[0].isArray())
