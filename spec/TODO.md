@@ -192,7 +192,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/array/select_spec.rb
 - [ ] core/array/shift_spec.rb
 - [ ] core/array/shuffle_spec.rb
-- [ ] core/array/size_spec.rb
+- [x] core/array/size_spec.rb
 - [ ] core/array/slice_spec.rb
 - [ ] core/array/sort_by_spec.rb
 - [ ] core/array/sort_spec.rb
