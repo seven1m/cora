@@ -382,6 +382,52 @@ test "Kernel#enum_for block is deferred and used by Enumerator#size" {
     try std.testing.expectEqual(@as(i64, 1), result.toArrayObject().elements.items[2].toInteger());
 }
 
+test "Kernel#eval returns expression result" {
+    const result = try evalCode("eval(\"1 + 2\")");
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 3), result.toInteger());
+}
+
+test "Kernel#eval uses caller self" {
+    const result = try evalCode(
+        \\obj = Object.new
+        \\obj.instance_variable_set(:@x, 41)
+        \\def obj.read_x
+        \\  eval("@x + 1")
+        \\end
+        \\obj.read_x
+    );
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
+}
+
+test "Kernel#eval parses endless range literals" {
+    const result = try evalCode(
+        \\r = eval("(2..)")
+        \\[r.begin, r.end.nil?, r.exclude_end?]
+    );
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(i64, 2), result.toArrayObject().elements.items[0].toInteger());
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[1].toBool());
+    try std.testing.expectEqual(false, result.toArrayObject().elements.items[2].toBool());
+}
+
+test "Kernel#eval raises TypeError when source is not String-like" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+    const bad = evalCodeWithOutput("eval(Object.new)", &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.UnhandledException, bad.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "TypeError") != null);
+}
+
+test "Kernel#eval raises SyntaxError for invalid source" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+    const bad = evalCodeWithOutput("eval(\"def\")", &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.UnhandledException, bad.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "SyntaxError") != null);
+}
+
 test "Kernel#__dir__ returns dot for eval code" {
     const result = try evalCode("__dir__");
     try std.testing.expect(result.isString());

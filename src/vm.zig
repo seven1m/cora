@@ -228,6 +228,7 @@ pub const VM = struct {
     exception_class: *value.ClassObject,
     standard_error_class: *value.ClassObject,
     runtime_error_class: *value.ClassObject,
+    syntax_error_class: *value.ClassObject,
     frozen_error_class: *value.ClassObject,
     argument_error_class: *value.ClassObject,
     type_error_class: *value.ClassObject,
@@ -358,6 +359,7 @@ pub const VM = struct {
             .exception_class = undefined,
             .standard_error_class = undefined,
             .runtime_error_class = undefined,
+            .syntax_error_class = undefined,
             .frozen_error_class = undefined,
             .argument_error_class = undefined,
             .type_error_class = undefined,
@@ -558,6 +560,10 @@ pub const VM = struct {
         const runtime_error_class_val = try self.newClass(runtime_error_name_sym, self.standard_error_class);
         self.runtime_error_class = runtime_error_class_val.toClassObject();
 
+        const syntax_error_name_sym = try self.intern("SyntaxError");
+        const syntax_error_class_val = try self.newClass(syntax_error_name_sym, self.standard_error_class);
+        self.syntax_error_class = syntax_error_class_val.toClassObject();
+
         const not_implemented_error_name_sym = try self.intern("NotImplementedError");
         const not_implemented_error_class_val = try self.newClass(not_implemented_error_name_sym, self.standard_error_class);
 
@@ -705,6 +711,7 @@ pub const VM = struct {
         self.object_class.module.constants.put(exception_name_sym, exception_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(standard_error_name_sym, standard_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(runtime_error_name_sym, runtime_error_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(syntax_error_name_sym, syntax_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(not_implemented_error_name_sym, not_implemented_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(frozen_error_name_sym, frozen_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(argument_error_name_sym, argument_error_class_val) catch return error.Fatal;
@@ -6459,28 +6466,89 @@ pub const VM = struct {
         try self.executeChunk(&program.main_chunk);
     }
 
+    pub fn evalSource(self: *VM, source: []const u8, source_file: ?[]const u8) VMError!Value {
+        var parser = prism.Parser.init(self.allocator, source, source_file) catch {
+            return self.raiseExceptionFmt(self.syntax_error_class, "{s}: syntax error", .{source_file orelse "(eval)"});
+        };
+        defer parser.deinit();
+
+        var eval_program = compiler.Compiler.compile(self.allocator, &parser, self.next_chunk_id) catch {
+            return self.raiseExceptionFmt(self.syntax_error_class, "{s}: syntax error", .{source_file orelse "(eval)"});
+        };
+        defer eval_program.main_chunk.deinit();
+        defer eval_program.child_chunks.deinit();
+
+        self.next_chunk_id = eval_program.next_chunk_id;
+
+        try self.buildChunkCallsiteDescriptors(&eval_program.main_chunk);
+        var iter = eval_program.child_chunks.valueIterator();
+        while (iter.next()) |chunk_ptr| {
+            try self.buildChunkCallsiteDescriptors(chunk_ptr.*);
+        }
+
+        var ownership_iter = eval_program.child_chunks.iterator();
+        while (ownership_iter.next()) |entry| {
+            self.program.child_chunks.put(entry.key_ptr.*, entry.value_ptr.*) catch return error.Fatal;
+        }
+
+        if (self.frames.items.len > 0) {
+            const current_frame = self.currentFrame();
+            return self.executeChunkInContext(
+                &eval_program.main_chunk,
+                current_frame.self_value,
+                current_frame.ep,
+                self.current_lexical_scope,
+            );
+        }
+
+        return self.executeChunkInContext(
+            &eval_program.main_chunk,
+            self.main_self,
+            null,
+            self.current_lexical_scope,
+        );
+    }
+
     fn executeChunk(self: *VM, target_chunk: *Chunk) VMError!void {
-        const env = try self.createStackEnvironment(null, target_chunk.lexical_scope orelse self.current_lexical_scope);
+        _ = try self.executeChunkInContext(
+            target_chunk,
+            self.main_self,
+            null,
+            target_chunk.lexical_scope orelse self.current_lexical_scope,
+        );
+    }
+
+    fn executeChunkInContext(
+        self: *VM,
+        target_chunk: *Chunk,
+        self_value: Value,
+        parent_env: ?*Environment,
+        lexical_scope: ?*LexicalScope,
+    ) VMError!Value {
+        const env = try self.createStackEnvironment(parent_env, lexical_scope);
+        const saved_stack_len = self.stack.items.len;
+        const caller_frame_depth = self.frames.items.len;
 
         self.frames.append(self.gc_allocator, CallFrame{
             .chunk = target_chunk,
             .ip = 0,
             .stack_base = self.stack.items.len,
-            .self_value = self.main_self,
+            .self_value = self_value,
             .ep = env,
             .block = null,
             .frame_type = .method,
         }) catch return error.Fatal;
 
-        if (target_chunk.lexical_scope) |scope| {
+        if (lexical_scope) |scope| {
             self.current_lexical_scope = scope;
         }
 
-        // Execute instructions until this frame completes (uses fast dispatch loop).
-        // Uses bounded unwinding so that unrescued exceptions in loaded files
-        // don't unwind past the caller's frames.
-        const target_frame_depth = self.frames.items.len;
-        try self.executeFastLoop(target_frame_depth, true, target_frame_depth - 1);
+        try self.executeUntilReturn(caller_frame_depth);
+
+        return if (self.stack.items.len > saved_stack_len)
+            self.pop()
+        else
+            Value.nil();
     }
 
     // ===== Exception Handling Methods =====

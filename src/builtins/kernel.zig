@@ -57,6 +57,9 @@ pub fn register(vm: *VM) !void {
     const print_sym = try vm.intern("print");
     try vm.kernel_module.methods.put(print_sym, .{ .method = .{ .builtin = &builtinKernelPrint } });
 
+    const eval_sym = try vm.intern("eval");
+    try vm.kernel_module.methods.put(eval_sym, .{ .method = .{ .builtin = &builtinKernelEval } });
+
     const proc_sym = try vm.intern("proc");
     try vm.kernel_module.methods.put(proc_sym, .{ .method = .{ .builtin = &builtinKernelProc } });
 
@@ -194,6 +197,12 @@ pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
     };
 
     return Value.boolean(true);
+}
+
+pub fn builtinKernelEval(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const source = try args[0].coerceToStr(vm, "no implicit conversion into String");
+    return vm.evalSource(source, "(eval)");
 }
 
 pub fn builtinKernelRequireRelative(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

@@ -262,36 +262,6 @@ def ruby_exe(script_path)
   `#{cora_bin_path} "#{script_path}"`
 end
 
-def eval(source)
-  if source.is_a?(String)
-    if source =~ /\A\s*\((-?\d+)\.\.(\.?)\)\s*\z/
-      begin_value = $1.to_i
-      exclude_end = $2 == "."
-      return Range.new(begin_value, nil, exclude_end)
-    end
-  end
-
-  marker = "CORA_EVAL_EOF"
-  script_path = "/tmp/cora_eval_spec.rb"
-  command = "cat <<'#{marker}' > #{script_path}\n"
-  command += "result = begin\n"
-  command += source.to_s
-  command += "\nend\n"
-  command += "if result == true\n"
-  command += "  print \"true\"\n"
-  command += "elsif result == false\n"
-  command += "  print \"false\"\n"
-  command += "else\n"
-  command += "  print result.to_s\n"
-  command += "end\n"
-  command += "#{marker}\n"
-  command += "#{cora_bin_path} #{script_path}"
-  output = `#{command}`
-  return true if output == "true"
-  return false if output == "false"
-  output
-end
-
 def c_long_size
   64
 end
