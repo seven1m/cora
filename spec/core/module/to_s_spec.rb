@@ -1,0 +1,85 @@
+require_relative '../../spec_helper'
+require_relative 'fixtures/classes'
+
+describe "Module#to_s" do
+  it 'returns the name of the module if it has a name' do
+    Enumerable.to_s.should == 'Enumerable'
+    String.to_s.should == 'String'
+  end
+
+  it "returns the full constant path leading to the module" do
+    ModuleSpecs::LookupMod.to_s.should == "ModuleSpecs::LookupMod"
+  end
+
+  it "works with an anonymous module" do
+    m = Module.new
+    m.to_s.should =~ /\A#<Module:0x\h+>\z/
+  end
+
+  it "works with an anonymous class" do
+    c = Class.new
+    c.to_s.should =~ /\A#<Class:0x\h+>\z/
+  end
+
+  it 'for the singleton class of an object of an anonymous class' do
+    CORAFIXME "singleton class stringification needs attached-object formatting", exception: SpecFailedException do
+      klass = Class.new
+      obj = klass.new
+      sclass = obj.singleton_class
+      sclass.to_s.should == "#<Class:#{obj}>"
+      sclass.to_s.start_with?("#<Class:#<").should == true
+      sclass.to_s.end_with?(">>").should == true
+    end
+  end
+
+  it 'for a singleton class of a module includes the module name' do
+    CORAFIXME "singleton class stringification for modules is not implemented yet", exception: SpecFailedException do
+      ModuleSpecs.singleton_class.to_s.should == '#<Class:ModuleSpecs>'
+    end
+  end
+
+  it 'for a metaclass includes the class name' do
+    CORAFIXME "singleton class stringification for classes is not implemented yet", exception: SpecFailedException do
+      ModuleSpecs::NamedClass.singleton_class.to_s.should == '#<Class:ModuleSpecs::NamedClass>'
+    end
+  end
+
+  it 'for objects includes class name and object ID' do
+    CORAFIXME "singleton class stringification for instances is not implemented yet", exception: SpecFailedException do
+      obj = ModuleSpecs::NamedClass.new
+      obj.singleton_class.to_s.start_with?("#<Class:#<ModuleSpecs::NamedClass:0x").should == true
+      obj.singleton_class.to_s.end_with?(">>").should == true
+    end
+  end
+
+  it "always show the refinement name, even if the module is named" do
+    CORAFIXME "refinements are not implemented yet", exception: NoMethodError, message: /undefined method '(refine|remove_const)'/ do
+      module ModuleSpecs::RefinementInspect
+        R = refine String do
+        end
+      end
+
+      ModuleSpecs::RefinementInspect::R.name.should == 'ModuleSpecs::RefinementInspect::R'
+      ModuleSpecs::RefinementInspect::R.to_s.should == '#<refinement:String@ModuleSpecs::RefinementInspect>'
+    ensure
+      ModuleSpecs.send(:remove_const, :RefinementInspect)
+    end
+  end
+
+  it 'does not call #inspect or #to_s for singleton classes' do
+    CORAFIXME "singleton class stringification should ignore overridden #inspect/#to_s", exception: SpecFailedException do
+      klass = Class.new
+      obj = klass.new
+      def obj.to_s
+        "to_s"
+      end
+      def obj.inspect
+        "inspect"
+      end
+      sclass = obj.singleton_class
+      sclass.to_s.start_with?("#<Class:#<").should == true
+      sclass.to_s.include?(":0x").should == true
+      sclass.to_s.end_with?(">>").should == true
+    end
+  end
+end

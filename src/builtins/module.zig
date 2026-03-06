@@ -64,6 +64,91 @@ fn collectOwnConstantSymbols(
     }
 }
 
+fn constantsTable(receiver: Value) ?*std.AutoHashMap(*SymbolObject, Value) {
+    if (receiver.isClass()) return &receiver.toClassObject().module.constants;
+    if (receiver.isModule()) return &receiver.toModuleObject().constants;
+    return null;
+}
+
+fn storedModuleName(receiver: Value) []const u8 {
+    return if (receiver.isClass()) receiver.toClassObject().module.name.name else receiver.toModuleObject().name.name;
+}
+
+fn isSyntheticSingletonName(name: []const u8) bool {
+    return std.mem.startsWith(u8, name, "#<Class:#");
+}
+
+fn isAnonymousStoredName(name: []const u8) bool {
+    return std.mem.eql(u8, name, "<anonymous>");
+}
+
+fn findNestedConstantPath(
+    vm: *VM,
+    owner: Value,
+    owner_path: []const u8,
+    target: Value,
+    seen: *std.AutoHashMap(usize, void),
+) VMError!?[]const u8 {
+    const constants = constantsTable(owner) orelse return null;
+    const owner_key: usize = @intCast(owner.raw);
+    if (seen.contains(owner_key)) return null;
+    seen.put(owner_key, {}) catch return error.Fatal;
+
+    var it = constants.iterator();
+    while (it.next()) |entry| {
+        const child = entry.value_ptr.*;
+        if (!child.isModule() and !child.isClass()) continue;
+
+        const path = std.fmt.allocPrint(vm.gc_allocator, "{s}::{s}", .{ owner_path, entry.key_ptr.*.name }) catch return error.Fatal;
+        if (child.raw == target.raw) return path;
+    }
+
+    it = constants.iterator();
+    while (it.next()) |entry| {
+        const child = entry.value_ptr.*;
+        if (!child.isModule() and !child.isClass()) continue;
+
+        const path = std.fmt.allocPrint(vm.gc_allocator, "{s}::{s}", .{ owner_path, entry.key_ptr.*.name }) catch return error.Fatal;
+        if (try findNestedConstantPath(vm, child, path, target, seen)) |found| return found;
+    }
+
+    return null;
+}
+
+fn findConstantPathFromObject(vm: *VM, target: Value) VMError!?[]const u8 {
+    var seen = std.AutoHashMap(usize, void).init(vm.allocator);
+    defer seen.deinit();
+
+    var it = vm.object_class.module.constants.iterator();
+    while (it.next()) |entry| {
+        const child = entry.value_ptr.*;
+        if (!child.isModule() and !child.isClass()) continue;
+
+        const path = entry.key_ptr.*.name;
+        if (child.raw == target.raw) return path;
+    }
+
+    it = vm.object_class.module.constants.iterator();
+    while (it.next()) |entry| {
+        const child = entry.value_ptr.*;
+        if (!child.isModule() and !child.isClass()) continue;
+        if (child.raw == Value.fromObject(vm.object_class).raw) continue;
+
+        const path = entry.key_ptr.*.name;
+        if (try findNestedConstantPath(vm, child, path, target, &seen)) |found| return found;
+    }
+
+    return null;
+}
+
+fn publicModuleName(vm: *VM, receiver: Value) VMError!?[]const u8 {
+    const stored_name = storedModuleName(receiver);
+    if (isSyntheticSingletonName(stored_name)) return null;
+    if (try findConstantPathFromObject(vm, receiver)) |path| return path;
+    if (isAnonymousStoredName(stored_name)) return null;
+    return stored_name;
+}
+
 fn classIncludesModule(class_obj: *ClassObject, target: *value.ModuleObject) bool {
     var current: ?*ClassObject = class_obj;
     while (current) |klass| {
@@ -289,6 +374,15 @@ pub fn register(vm: *VM) !void {
 
     const method_defined_sym = try vm.intern("method_defined?");
     try vm.module_class.module.methods.put(method_defined_sym, .{ .method = .{ .builtin = &builtinModuleMethodDefined } });
+
+    const name_sym = try vm.intern("name");
+    try vm.module_class.module.methods.put(name_sym, .{ .method = .{ .builtin = &builtinModuleName } });
+
+    const to_s_sym = try vm.intern("to_s");
+    try vm.module_class.module.methods.put(to_s_sym, .{ .method = .{ .builtin = &builtinModuleToS } });
+
+    const inspect_sym = try vm.intern("inspect");
+    try vm.module_class.module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinModuleToS } });
 }
 
 pub fn builtinModuleCaseEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -432,6 +526,25 @@ pub fn builtinModuleMethodDefined(vm: *VM, receiver: Value, args: []Value, _: ?B
         }
     }
     return Value.boolean(false);
+}
+
+pub fn builtinModuleName(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    if (try publicModuleName(vm, receiver)) |name| {
+        return try vm.newString(name, true);
+    }
+    return Value.nil();
+}
+
+pub fn builtinModuleToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    if (try publicModuleName(vm, receiver)) |name| {
+        return try vm.newString(name, false);
+    }
+
+    const type_name = if (receiver.isClass()) "Class" else "Module";
+    const text = std.fmt.allocPrint(vm.gc_allocator, "#<{s}:0x{x}>", .{ type_name, receiver.objectId() }) catch return error.Fatal;
+    return try vm.newString(text, false);
 }
 
 pub fn builtinModuleIncludeQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

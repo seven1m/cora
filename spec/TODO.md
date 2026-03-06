@@ -1470,7 +1470,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/module/ruby2_keywords_spec.rb
 - [ ] core/module/set_temporary_name_spec.rb
 - [ ] core/module/singleton_class_spec.rb
-- [ ] core/module/to_s_spec.rb
+- [-] core/module/to_s_spec.rb
 - [ ] core/module/undef_method_spec.rb
 - [ ] core/module/undefined_instance_methods_spec.rb
 - [ ] core/module/used_refinements_spec.rb
