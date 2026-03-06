@@ -431,7 +431,7 @@ fn printTerminalOutcome(
     test_name: []const u8,
     result: TestRunResult,
 ) void {
-    if (have_tty) {
+    if (have_tty and !verbose) {
         switch (result.outcome) {
             .skip => std.debug.print("\r{d}/{d} specs {s}...SKIP\n", .{
                 completed_specs,
@@ -481,7 +481,7 @@ fn deinitTestRunResult(allocator: std.mem.Allocator, result: *TestRunResult) voi
 }
 
 fn printParallelProgressStatus(have_tty: bool, summary: RunSummary, active_workers: usize) void {
-    if (!have_tty) return;
+    if (!have_tty or verbose) return;
     std.debug.print(
         "\r{d}/{d} specs complete ({d} workers active)      ",
         .{ summary.completed_specs, summary.known_total_specs, active_workers },
@@ -502,7 +502,7 @@ fn runProcessWorkerQueue(
     };
     const total_tests = test_fns.len + ruby_spec_tests.len;
     if (total_tests == 0) return summary;
-    defer if (have_tty) std.debug.print("\n", .{});
+    defer if (have_tty and !verbose) std.debug.print("\n", .{});
 
     var active_workers: std.ArrayList(ActiveWorker) = .empty;
     defer {
@@ -871,7 +871,7 @@ fn mainTerminal() void {
         };
         defer allocator.free(child_exe_path);
 
-        const have_tty = std.fs.File.stderr().isTty();
+        const interactive_tty = std.fs.File.stderr().isTty() and !verbose;
         const summary = runProcessWorkerQueue(
             allocator,
             child_exe_path,
@@ -879,7 +879,7 @@ fn mainTerminal() void {
             worker_count,
             test_fn_list,
             ruby_spec_tests.items,
-            have_tty,
+            interactive_tty,
         );
 
         if (summary.ok_count == total_tests) {
@@ -910,11 +910,11 @@ fn mainTerminal() void {
     var summary = RunSummary{
         .known_total_specs = test_fn_list.len,
     };
-    const root_node = if (builtin.fuzz) std.Progress.Node.none else std.Progress.start(.{
+    const root_node = if (builtin.fuzz or verbose) std.Progress.Node.none else std.Progress.start(.{
         .root_name = "Test",
         .estimated_total_items = total_tests,
     });
-    const have_tty = std.fs.File.stderr().isTty();
+    const have_tty = std.fs.File.stderr().isTty() and !verbose;
 
     var async_frame_buffer: []align(builtin.target.stackAlignment()) u8 = undefined;
     async_frame_buffer = &[_]u8{};
