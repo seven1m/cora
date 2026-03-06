@@ -63,18 +63,6 @@ test "Range to_a beginless raises" {
     try std.testing.expect(std.mem.startsWith(u8, result.stderr, "Unhandled exception: RangeError: cannot convert beginless range to an array\n"));
 }
 
-test "Range to_a type error" {
-    var stdout_buf: [8192]u8 = undefined;
-    var stderr_buf: [8192]u8 = undefined;
-
-    const result = evalCodeWithOutput(
-        \\(1.."3").to_a
-    , &stdout_buf, &stderr_buf);
-
-    try std.testing.expect(result.err != null);
-    try std.testing.expect(std.mem.startsWith(u8, result.stderr, "Unhandled exception: TypeError: wrong argument type"));
-}
-
 test "Range inspect" {
     const inclusive = try evalCode("(1..3).inspect");
     try std.testing.expect(inclusive.isString());

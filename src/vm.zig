@@ -3741,6 +3741,16 @@ pub const VM = struct {
                 const end_val = self.pop();
                 const begin_val = self.pop();
 
+                if (!begin_val.isNil() and !end_val.isNil()) {
+                    var cmp_args = [_]Value{end_val};
+                    const comparable = try self.callMethodByName(begin_val, "<=>", cmp_args[0..], null);
+                    if (comparable.isNil()) {
+                        const exc = try self.createException(self.argument_error_class, "bad value for range");
+                        self.pending_exception = exc;
+                        return error.Unwind;
+                    }
+                }
+
                 const range_val = try self.newRange(self.range_class);
                 const range_obj = range_val.toRangeObject();
                 range_obj.begin = begin_val;
@@ -6817,14 +6827,14 @@ pub const VM = struct {
         }
 
         if (target_chunk.keyword_rest_index) |rest_idx| {
-                    const kw_hash = self.gc_allocator.create(value.HashObject) catch return error.Fatal;
-                    kw_hash.* = .{
-                        .object = .{ .type_tag = .hash, .flags = 0, .class = self.hash_class, .singleton_class = null, .instance_variables = null },
-                        .map = std.AutoHashMap(u64, usize).init(self.gc_allocator),
-                        .entries = .empty,
-                        .default_value = null,
-                        .default_proc = null,
-                    };
+            const kw_hash = self.gc_allocator.create(value.HashObject) catch return error.Fatal;
+            kw_hash.* = .{
+                .object = .{ .type_tag = .hash, .flags = 0, .class = self.hash_class, .singleton_class = null, .instance_variables = null },
+                .map = std.AutoHashMap(u64, usize).init(self.gc_allocator),
+                .entries = .empty,
+                .default_value = null,
+                .default_proc = null,
+            };
 
             for (kw_values, 0..) |kw_value, i| {
                 if (!matched[i]) {

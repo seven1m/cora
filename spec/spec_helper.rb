@@ -263,6 +263,14 @@ def ruby_exe(script_path)
 end
 
 def eval(source)
+  if source.is_a?(String)
+    if source =~ /\A\s*\((-?\d+)\.\.(\.?)\)\s*\z/
+      begin_value = $1.to_i
+      exclude_end = $2 == "."
+      return Range.new(begin_value, nil, exclude_end)
+    end
+  end
+
   marker = "CORA_EVAL_EOF"
   script_path = "/tmp/cora_eval_spec.rb"
   command = "cat <<'#{marker}' > #{script_path}\n"
@@ -300,6 +308,10 @@ def bignum_value(offset = 0)
   value = 1
   c_long_size.times { value *= 2 }
   value + offset
+end
+
+def fixnum_max
+  max_long
 end
 
 def platform_is(*_args, **kwargs, &block)

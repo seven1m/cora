@@ -179,8 +179,14 @@ pub fn register(vm: *VM) !void {
     const string_bracket_sym = try vm.intern("[]");
     try vm.string_class.module.methods.put(string_bracket_sym, .{ .method = .{ .builtin = &builtinStringBracket } });
 
+    const string_slice_sym = try vm.intern("slice");
+    try vm.string_class.module.methods.put(string_slice_sym, .{ .method = .{ .builtin = &builtinStringSlice } });
+
     const string_bracket_set_sym = try vm.intern("[]=");
     try vm.string_class.module.methods.put(string_bracket_set_sym, .{ .method = .{ .builtin = &builtinStringBracketSet } });
+
+    const string_byteslice_sym = try vm.intern("byteslice");
+    try vm.string_class.module.methods.put(string_byteslice_sym, .{ .method = .{ .builtin = &builtinStringByteSlice } });
 
     const string_chars_sym = try vm.intern("chars");
     try vm.string_class.module.methods.put(string_chars_sym, .{ .method = .{ .builtin = &builtinStringChars } });
@@ -1112,6 +1118,64 @@ pub fn builtinStringBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     } else {
         return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Integer", .{});
     }
+}
+
+pub fn builtinStringSlice(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    return builtinStringBracket(vm, receiver, args, block);
+}
+
+pub fn builtinStringByteSlice(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+    const string_obj = receiver.toStringObject();
+    const bytes = string_obj.str;
+    const byte_len_i64: i64 = @intCast(bytes.len);
+
+    if (args.len == 1) {
+        if (args[0].isRange()) {
+            const range_obj = args[0].toRangeObject();
+            const slice = try byteSliceByRange(vm, bytes, range_obj.begin, range_obj.end, range_obj.exclude_end);
+            if (slice == null) return Value.nil();
+            return try vm.newStringWithEncoding(slice.?, false, string_obj.encoding);
+        }
+
+        var index = try args[0].coerceToI64ViaToInt(
+            vm,
+            "no implicit conversion into Integer",
+            "no implicit conversion into Integer",
+            "bignum too big to convert into `long`",
+        );
+        if (index < 0) index += byte_len_i64;
+        if (index < 0 or index >= byte_len_i64) return Value.nil();
+        const start: usize = @intCast(index);
+        return try vm.newStringWithEncoding(bytes[start .. start + 1], false, string_obj.encoding);
+    }
+
+    if (args[0].isRange()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion of Range into Integer", .{});
+    }
+
+    var index = try args[0].coerceToI64ViaToInt(
+        vm,
+        "no implicit conversion into Integer",
+        "no implicit conversion into Integer",
+        "bignum too big to convert into `long`",
+    );
+    const length = try args[1].coerceToI64ViaToInt(
+        vm,
+        "no implicit conversion into Integer",
+        "no implicit conversion into Integer",
+        "bignum too big to convert into `long`",
+    );
+
+    if (index < 0) index += byte_len_i64;
+    if (index < 0 or index > byte_len_i64) return Value.nil();
+    if (length < 0) return Value.nil();
+
+    const clamped_len = byte_len_i64 - index;
+    const normalized_len = if (length > clamped_len) clamped_len else length;
+    const start: usize = @intCast(index);
+    const finish: usize = @intCast(index + normalized_len);
+    return try vm.newStringWithEncoding(bytes[start..finish], false, string_obj.encoding);
 }
 
 pub fn builtinStringBracketSet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -2242,6 +2306,58 @@ fn charSliceByRange(
 
     const start_byte = encoding.byteOffsetForCharIndex(bytes, @intCast(start_idx)) orelse bytes.len;
     const end_byte = encoding.byteOffsetForCharIndex(bytes, @intCast(finish_exclusive)) orelse bytes.len;
+    return bytes[start_byte..end_byte];
+}
+
+fn byteSliceByRange(
+    vm: *VM,
+    bytes: []const u8,
+    begin_val: Value,
+    end_val: Value,
+    exclude_end: bool,
+) VMError!?[]const u8 {
+    const byte_len_i64: i64 = @intCast(bytes.len);
+
+    const begin_i64: i64 = if (begin_val.isNil())
+        0
+    else
+        try begin_val.coerceToI64ViaToInt(
+            vm,
+            "no implicit conversion into Integer",
+            "no implicit conversion into Integer",
+            "bignum too big to convert into `long`",
+        );
+
+    var start_idx = begin_i64;
+    if (start_idx < 0) start_idx += byte_len_i64;
+    if (start_idx < 0 or start_idx > byte_len_i64) return null;
+
+    var finish_exclusive: i64 = if (end_val.isNil())
+        byte_len_i64
+    else blk: {
+        var end_i64 = try end_val.coerceToI64ViaToInt(
+            vm,
+            "no implicit conversion into Integer",
+            "no implicit conversion into Integer",
+            "bignum too big to convert into `long`",
+        );
+        if (end_i64 < 0) end_i64 += byte_len_i64;
+        if (exclude_end or end_i64 == std.math.maxInt(i64)) {
+            break :blk end_i64;
+        }
+        break :blk end_i64 + 1;
+    };
+
+    if (finish_exclusive < start_idx) {
+        const start_byte: usize = @intCast(start_idx);
+        return bytes[start_byte..start_byte];
+    }
+
+    if (finish_exclusive < 0) finish_exclusive = 0;
+    if (finish_exclusive > byte_len_i64) finish_exclusive = byte_len_i64;
+
+    const start_byte: usize = @intCast(start_idx);
+    const end_byte: usize = @intCast(finish_exclusive);
     return bytes[start_byte..end_byte];
 }
 
