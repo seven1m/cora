@@ -471,6 +471,12 @@ pub const VM = struct {
         const symbol_name_sym = try self.intern("Symbol");
         const symbol_class_val = try self.newClass(symbol_name_sym, self.object_class);
         self.symbol_class = symbol_class_val.toClassObject();
+        {
+            var it = self.symbols.valueIterator();
+            while (it.next()) |sym_obj| {
+                sym_obj.*.object.class = self.symbol_class;
+            }
+        }
 
         const io_name_sym = try self.intern("IO");
         const io_class_val = try self.newClassWithType(io_name_sym, self.object_class, .io);
@@ -5400,8 +5406,7 @@ pub const VM = struct {
         // Determine singleton's superclass
         const singleton_superclass: *ClassObject = blk: {
             if (!obj_val.isObject()) unreachable; // Primitives can't have singleton classes
-            const tag = obj_val.objectTypeTag();
-            switch (tag) {
+            switch (obj_val.objectTypeTag()) {
                 .class => {
                     const c = obj_val.toClassObject();
                     if (c.superclass) |super| {
@@ -5410,40 +5415,7 @@ pub const VM = struct {
                         break :blk self.class_class;
                     }
                 },
-                .instance => {
-                    const inst_ptr: *value.Object = @ptrFromInt(obj_val.raw);
-                    break :blk inst_ptr.class.?;
-                },
-                .module => break :blk self.module_class,
-                .string => {
-                    const str_obj_ptr: *value.Object = @ptrFromInt(obj_val.raw);
-                    break :blk str_obj_ptr.class.?;
-                },
-                .symbol => break :blk self.symbol_class,
-                .array => {
-                    const array_obj_ptr: *value.Object = @ptrFromInt(obj_val.raw);
-                    break :blk array_obj_ptr.class orelse self.array_class;
-                },
-                .hash => {
-                    const hash_obj_ptr: *value.Object = @ptrFromInt(obj_val.raw);
-                    break :blk hash_obj_ptr.class orelse self.hash_class;
-                },
-                .range => break :blk self.range_class,
-                .exception => break :blk self.exception_class,
-                .encoding_obj => break :blk self.encoding_class,
-                .proc => break :blk self.proc_class,
-                .fiber => break :blk self.fiber_class,
-                .io => break :blk self.io_class,
-                .match_data => break :blk self.match_data_class,
-                .regexp => break :blk self.regexp_class,
-                .enumerator => break :blk self.enumerator_class,
-                .yielder => break :blk self.yielder_class,
-                .big_integer => break :blk self.integer_class,
-                .float => break :blk self.float_class,
-                .thread => {
-                    const thread_obj_ptr: *value.Object = @ptrFromInt(obj_val.raw);
-                    break :blk thread_obj_ptr.class.?;
-                },
+                else => break :blk obj_ptr.class.?,
             }
         };
 
