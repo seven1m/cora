@@ -132,6 +132,10 @@ pub fn register(vm: *VM) !void {
 
     const string_compare_sym = try vm.intern("<=>");
     try vm.string_class.module.methods.put(string_compare_sym, .{ .method = .{ .builtin = &builtinStringCompare } });
+    const string_casecmp_sym = try vm.intern("casecmp");
+    try vm.string_class.module.methods.put(string_casecmp_sym, .{ .method = .{ .builtin = &builtinStringCasecmp } });
+    const string_casecmp_pred_sym = try vm.intern("casecmp?");
+    try vm.string_class.module.methods.put(string_casecmp_pred_sym, .{ .method = .{ .builtin = &builtinStringCasecmpQ } });
 
     const string_encoding_sym = try vm.intern("encoding");
     try vm.string_class.module.methods.put(string_encoding_sym, .{ .method = .{ .builtin = &builtinStringEncoding } });
@@ -694,6 +698,77 @@ fn tryCoerceToStringForCompare(vm: *VM, other: Value) VMError!?Value {
     }
 
     return coerced;
+}
+
+fn casecmpOrder(
+    vm: *VM,
+    lhs: *const value.StringObject,
+    rhs: *const value.StringObject,
+    fold: bool,
+) VMError!?i64 {
+    if (enc.negotiate(lhs.encoding, lhs.str, rhs.encoding, rhs.str) == null) {
+        return null;
+    }
+
+    const order = if (!fold) blk: {
+        const lhs_mapped = vm.gc_allocator_atomic.dupe(u8, lhs.str) catch return error.Fatal;
+        const rhs_mapped = vm.gc_allocator_atomic.dupe(u8, rhs.str) catch return error.Fatal;
+        for (lhs_mapped) |*b| {
+            if (b.* >= 'A' and b.* <= 'Z') b.* += 32;
+        }
+        for (rhs_mapped) |*b| {
+            if (b.* >= 'A' and b.* <= 'Z') b.* += 32;
+        }
+        break :blk std.mem.order(u8, lhs_mapped, rhs_mapped);
+    } else blk: {
+        const options: enc.CaseMapOptions = .{
+            .fold = true,
+        };
+        const lhs_mapped = enc.caseMap(vm.gc_allocator_atomic, lhs.str, lhs.encoding, .downcase, options) catch |err| switch (err) {
+            error.OutOfMemory => return error.Fatal,
+            error.InvalidByteSequence => return vm.raiseExceptionFmt(vm.argument_error_class, "input string invalid", .{}),
+        };
+        const rhs_mapped = enc.caseMap(vm.gc_allocator_atomic, rhs.str, rhs.encoding, .downcase, options) catch |err| switch (err) {
+            error.OutOfMemory => return error.Fatal,
+            error.InvalidByteSequence => return vm.raiseExceptionFmt(vm.argument_error_class, "input string invalid", .{}),
+        };
+        break :blk std.mem.order(u8, lhs_mapped.bytes, rhs_mapped.bytes);
+    };
+    return switch (order) {
+        .lt => -1,
+        .eq => 0,
+        .gt => 1,
+    };
+}
+
+pub fn builtinStringCasecmp(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const lhs = receiver.toStringObject();
+    const other = args[0];
+
+    const rhs_value = if (other.isString())
+        other
+    else
+        (try tryCoerceToStringForCompare(vm, other) orelse return Value.nil());
+    const rhs = rhs_value.toStringObject();
+
+    const order = try casecmpOrder(vm, lhs, rhs, false) orelse return Value.nil();
+    return Value.integer(order);
+}
+
+pub fn builtinStringCasecmpQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const lhs = receiver.toStringObject();
+    const other = args[0];
+
+    const rhs_value = if (other.isString())
+        other
+    else
+        (try tryCoerceToStringForCompare(vm, other) orelse return Value.nil());
+    const rhs = rhs_value.toStringObject();
+
+    const order = try casecmpOrder(vm, lhs, rhs, true) orelse return Value.nil();
+    return Value.boolean(order == 0);
 }
 pub fn builtinStringEncoding(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);

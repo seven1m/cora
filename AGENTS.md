@@ -140,6 +140,11 @@ Use "unmanaged" ArrayList: `field: ArrayList(*Value) = .empty` (allocator passed
 - Do not parse exception messages (for example `"undefined method 'to_str'"`) to detect missing methods. Use `checkCallMethodByName` or explicit method lookup + dispatch rules.
 - Use normal `callMethodByName` (not check-call) when you must always perform the call or preserve side effects.
 
+### Builtin naming conventions
+- For Ruby `!` methods, name Zig builtin handlers with a `Bang` suffix (for example `String#upcase!` → `builtinStringUpcaseBang`).
+- For Ruby `?` methods, prefer descriptive names without punctuation (for example `builtinStringEmpty`, `builtinKernelRespondTo`).
+- If a `?` method has a non-`?` sibling with the same stem, use a `Q` suffix to disambiguate (for example `include`/`include?` → `builtinModuleInclude`/`builtinModuleIncludeQ`, `casecmp`/`casecmp?` → `builtinStringCasecmp`/`builtinStringCasecmpQ`).
+
 ### String coercion conventions
 - Canonical implicit String coercion lives in `Value.coerceToStringValue` (`src/value.zig`). Prefer this for Ruby APIs that require String-like arguments via `to_str` and should raise `TypeError` on failure.
 - Use `Value.coerceToStr` when you need `[]const u8` bytes after the same implicit coercion semantics.
