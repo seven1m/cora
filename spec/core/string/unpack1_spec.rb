@@ -3,25 +3,15 @@ require_relative '../../spec_helper'
 describe "String#unpack1" do
   it "returns the first value of #unpack" do
     "ABCD".unpack1('x3C').should == "ABCD".unpack('x3C')[0]
-    CORAFIXME "String#unpack does not support U directive yet", message: /is not supported/ do
-      "\u{3042 3044 3046}".unpack1("U*").should == 0x3042
-    end
-    CORAFIXME "String#unpack does not support m directive yet", message: /is not supported/ do
-      "aG9nZWZ1Z2E=".unpack1("m").should == "hogefuga"
-    end
-    CORAFIXME "String#unpack does not support B directive yet", message: /is not supported/ do
-      "A".unpack1("B*").should == "01000001"
-    end
+    "\u{3042 3044 3046}".unpack1("U*").should == 0x3042
+    "aG9nZWZ1Z2E=".unpack1("m").should == "hogefuga"
+    "A".unpack1("B*").should == "01000001"
   end
 
   it "starts unpacking from the given offset" do
     "ZZABCD".unpack1('x3C', offset: 2).should == "ABCD".unpack('x3C')[0]
-    CORAFIXME "String#unpack does not support m directive yet", message: /is not supported/ do
-      "ZZZZaG9nZWZ1Z2E=".unpack1("m", offset: 4).should == "hogefuga"
-    end
-    CORAFIXME "String#unpack does not support B directive yet", message: /is not supported/ do
-      "ZA".unpack1("B*", offset: 1).should == "01000001"
-    end
+    "ZZZZaG9nZWZ1Z2E=".unpack1("m", offset: 4).should == "hogefuga"
+    "ZA".unpack1("B*", offset: 1).should == "01000001"
   end
 
   it "traits offset as a bytes offset" do
@@ -47,9 +37,7 @@ describe "String#unpack1" do
     # which is why we repeat the tests for unpack("m0") here.
 
     it "decodes base64" do
-      CORAFIXME "String#unpack does not support m directive yet", message: /is not supported/ do
-        "dGVzdA==".unpack1("m0").should == "test"
-      end
+      "dGVzdA==".unpack1("m0").should == "test"
     end
 
     it "raises an ArgumentError for an invalid base64 character" do

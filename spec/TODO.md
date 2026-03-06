@@ -2059,7 +2059,7 @@ Source baseline: ../ruby_spec compared to local spec/
 ### core/string/unpack
 - [ ] a_spec.rb
 - [ ] at_spec.rb
-- [ ] b_spec.rb
+- [x] b_spec.rb
 - [ ] c_spec.rb
 - [ ] comment_spec.rb
 - [ ] d_spec.rb
@@ -2070,20 +2070,20 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] i_spec.rb
 - [ ] j_spec.rb
 - [ ] l_spec.rb
-- [ ] m_spec.rb
+- [x] m_spec.rb
 - [ ] n_spec.rb
 - [ ] p_spec.rb
 - [ ] percent_spec.rb
 - [ ] q_spec.rb
 - [ ] s_spec.rb
-- [ ] u_spec.rb
+- [x] u_spec.rb
 - [ ] v_spec.rb
 - [ ] w_spec.rb
 - [ ] x_spec.rb
 - [ ] z_spec.rb
 
 ### core/string
-- [-] unpack1_spec.rb
+- [x] unpack1_spec.rb
 - [x] unpack_spec.rb
 - [x] upcase_spec.rb
 - [x] uplus_spec.rb

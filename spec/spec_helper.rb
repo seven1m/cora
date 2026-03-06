@@ -649,8 +649,9 @@ class BeComputedByMatcher
     actual.each do |tuple|
       return false unless tuple.is_a?(Array) && tuple.length >= 2
       receiver = tuple[0]
-      expected = tuple[1]
-      result = receiver.send(@method_name, *@extra_args)
+      expected = tuple[-1]
+      method_args = tuple[1...-1] || []
+      result = receiver.send(@method_name, *method_args, *@extra_args)
       return false unless result == expected
     end
     true
