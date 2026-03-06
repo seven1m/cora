@@ -200,6 +200,9 @@ pub fn register(vm: *VM) !void {
     const string_bytes_sym = try vm.intern("bytes");
     try vm.string_class.module.methods.put(string_bytes_sym, .{ .method = .{ .builtin = &builtinStringBytes } });
 
+    const string_each_byte_sym = try vm.intern("each_byte");
+    try vm.string_class.module.methods.put(string_each_byte_sym, .{ .method = .{ .builtin = &builtinStringEachByte } });
+
     const string_getbyte_sym = try vm.intern("getbyte");
     try vm.string_class.module.methods.put(string_getbyte_sym, .{ .method = .{ .builtin = &builtinStringGetbyte } });
 
@@ -238,6 +241,11 @@ pub fn register(vm: *VM) !void {
 
     const string_split_sym = try vm.intern("split");
     try vm.string_class.module.methods.put(string_split_sym, .{ .method = .{ .builtin = &builtinStringSplit } });
+
+    const string_reverse_sym = try vm.intern("reverse");
+    try vm.string_class.module.methods.put(string_reverse_sym, .{ .method = .{ .builtin = &builtinStringReverse } });
+    const string_reverse_bang_sym = try vm.intern("reverse!");
+    try vm.string_class.module.methods.put(string_reverse_bang_sym, .{ .method = .{ .builtin = &builtinStringReverseBang } });
 
     const string_upcase_sym = try vm.intern("upcase");
     try vm.string_class.module.methods.put(string_upcase_sym, .{ .method = .{ .builtin = &builtinStringUpcase } });
@@ -1458,6 +1466,28 @@ pub fn builtinStringBytes(vm: *VM, receiver: Value, args: []Value, block: ?Block
     return Value.fromObject(array_obj);
 }
 
+pub fn builtinStringEachByte(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    if (block == null) {
+        const size_value = Value.integer(@intCast(receiver.toStringObject().str.len));
+        return vm.createMethodEnumeratorWithSize(receiver, try vm.intern("each_byte"), &.{}, size_value);
+    }
+
+    var i: usize = 0;
+    while (true) {
+        const bytes = receiver.toStringObject().str;
+        if (i >= bytes.len) break;
+        const yield_args = [_]Value{Value.integer(bytes[i])};
+        i += 1;
+        const yield_result = try vm.yieldToBlock(block.?, &yield_args);
+        if (yield_result.break_occurred) {
+            return yield_result.value;
+        }
+    }
+
+    return receiver;
+}
+
 pub fn builtinStringGetbyte(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     try vm.requireIntegerArg(args, 0, "Integer");
@@ -1826,6 +1856,51 @@ pub fn builtinStringSplit(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     const tail_val = try vm.newStringWithEncoding(tail, false, string_obj.encoding);
     array_obj.elements.append(vm.gc_allocator, tail_val) catch return error.Fatal;
     return Value.fromObject(array_obj);
+}
+
+fn reverseStringChars(vm: *VM, bytes: []const u8, string_encoding: enc.Encoding) VMError![]const u8 {
+    var chars: std.ArrayList([]const u8) = .empty;
+    defer chars.deinit(vm.allocator);
+
+    var i: usize = 0;
+    while (i < bytes.len) {
+        const start = i;
+        const char_result = string_encoding.nextChar(bytes, &i);
+        if (char_result.len == 0) break;
+        chars.append(vm.allocator, bytes[start .. start + char_result.len]) catch return error.Fatal;
+    }
+
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(vm.gc_allocator_atomic);
+    out.ensureTotalCapacityPrecise(vm.gc_allocator_atomic, bytes.len) catch return error.Fatal;
+
+    var idx = chars.items.len;
+    while (idx > 0) {
+        idx -= 1;
+        out.appendSlice(vm.gc_allocator_atomic, chars.items[idx]) catch return error.Fatal;
+    }
+
+    return out.toOwnedSlice(vm.gc_allocator_atomic) catch return error.Fatal;
+}
+
+pub fn builtinStringReverse(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const string_obj = receiver.toStringObject();
+    const reversed = try reverseStringChars(vm, string_obj.str, string_obj.encoding);
+    return vm.newStringWithEncoding(reversed, false, string_obj.encoding);
+}
+
+pub fn builtinStringReverseBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
+    }
+
+    const string_obj = receiver.toStringObject();
+    const reversed = try reverseStringChars(vm, string_obj.str, string_obj.encoding);
+    string_obj.str = reversed;
+    string_obj.validity = .unknown;
+    return receiver;
 }
 
 pub fn builtinStringUpcase(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
