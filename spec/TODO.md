@@ -118,7 +118,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/array/fill_spec.rb
 - [ ] core/array/filter_spec.rb
 - [ ] core/array/find_index_spec.rb
-- [ ] core/array/first_spec.rb
+- [x] core/array/first_spec.rb
 - [ ] core/array/flatten_spec.rb
 - [ ] core/array/frozen_spec.rb
 - [ ] core/array/hash_spec.rb

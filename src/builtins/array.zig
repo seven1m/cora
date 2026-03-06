@@ -9,6 +9,12 @@ const Block = vm_mod.Block;
 const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
+    const array_class_val = Value.fromObject(vm.array_class);
+    const array_singleton = try vm.getOrCreateSingletonClass(array_class_val);
+
+    const class_bracket_sym = try vm.intern("[]");
+    try array_singleton.module.methods.put(class_bracket_sym, .{ .method = .{ .builtin = &builtinArrayClassBracket } });
+
     const initialize_sym = try vm.intern("initialize");
     try vm.array_class.module.methods.put(initialize_sym, .{
         .method = .{ .builtin = &builtinArrayInitialize },
@@ -77,6 +83,9 @@ pub fn register(vm: *VM) !void {
 
     const to_a_sym = try vm.intern("to_a");
     try vm.array_class.module.methods.put(to_a_sym, .{ .method = .{ .builtin = &builtinArrayToA } });
+
+    const replace_sym = try vm.intern("replace");
+    try vm.array_class.module.methods.put(replace_sym, .{ .method = .{ .builtin = &builtinArrayReplace } });
 
     const all_sym = try vm.intern("all?");
     try vm.array_class.module.methods.put(all_sym, .{ .method = .{ .builtin = &builtinArrayAll } });
@@ -507,11 +516,44 @@ pub fn builtinArrayMultiply(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     return Value.fromObject(out);
 }
 
+pub fn builtinArrayClassBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    if (!receiver.isClass()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Class", .{});
+    }
+
+    const out = try vm.newObjectForClass(receiver.toClassObject());
+    const array = out.toArrayObject();
+    for (args) |arg| {
+        array.elements.append(vm.gc_allocator, arg) catch return error.Fatal;
+    }
+    return out;
+}
+
 pub fn builtinArrayFirst(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 0);
     const array = receiver.toArrayObject();
-    if (array.elements.items.len == 0) return Value.nil();
-    return array.elements.items[0];
+
+    if (args.len == 0) {
+        if (array.elements.items.len == 0) return Value.nil();
+        return array.elements.items[0];
+    }
+
+    try vm.requireArgCount(args, 1);
+    const count = try args[0].coerceToI64ViaToInt(
+        vm,
+        "no implicit conversion into Integer",
+        "no implicit conversion into Integer",
+        "bignum too big to convert into `long`",
+    );
+    if (count < 0) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "negative array size", .{});
+    }
+
+    const out = try vm.createArray();
+    const clamped_count: usize = @intCast(@min(count, @as(i64, @intCast(array.elements.items.len))));
+    for (array.elements.items[0..clamped_count]) |elem| {
+        out.elements.append(vm.gc_allocator, elem) catch return error.Fatal;
+    }
+    return Value.fromObject(out);
 }
 
 pub fn builtinArrayLast(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -599,6 +641,33 @@ pub fn builtinArrayToA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
         out.elements.append(vm.gc_allocator, elem) catch return error.Fatal;
     }
     return Value.fromObject(out);
+}
+
+pub fn builtinArrayReplace(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (receiver.isFrozen()) {
+        const exc = try vm.createException(vm.runtime_error_class, "can't modify frozen Array");
+        vm.pending_exception = exc;
+        return error.Unwind;
+    }
+
+    const replacement = if (args[0].isArray())
+        args[0]
+    else
+        try vm.callMethodByName(args[0], "to_ary", &[_]Value{}, null);
+    if (!replacement.isArray()) {
+        const exc = try vm.createException(vm.type_error_class, "can't convert to Array (to_ary gives non-Array)");
+        vm.pending_exception = exc;
+        return error.Unwind;
+    }
+
+    const target = receiver.toArrayObject();
+    const source = replacement.toArrayObject();
+    target.elements.clearRetainingCapacity();
+    for (source.elements.items) |elem| {
+        target.elements.append(vm.gc_allocator, elem) catch return error.Fatal;
+    }
+    return receiver;
 }
 
 pub fn builtinArrayAll(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
