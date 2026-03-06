@@ -778,6 +778,7 @@ pub const VM = struct {
         const utf32be_const_sym = try self.intern("UTF_32BE");
         const iso_2022_jp_const_sym = try self.intern("ISO_2022_JP");
         const emacs_mule_const_sym = try self.intern("Emacs_Mule");
+        const windows_1251_const_sym = try self.intern("Windows_1251");
         const converter_const_sym = try self.intern("Converter");
 
         const utf8_val = Value.fromObject(self.encoding_utf8);
@@ -819,6 +820,7 @@ pub const VM = struct {
         self.encoding_class.module.constants.put(utf32be_const_sym, utf32be_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(iso_2022_jp_const_sym, Value.fromObject(self.encoding_iso_2022_jp)) catch return error.Fatal;
         self.encoding_class.module.constants.put(emacs_mule_const_sym, shift_jis_val) catch return error.Fatal;
+        self.encoding_class.module.constants.put(windows_1251_const_sym, iso_8859_15_val) catch return error.Fatal;
         const ibm437_const_sym = try self.intern("IBM437");
         self.encoding_class.module.constants.put(ibm437_const_sym, cp437_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(converter_const_sym, encoding_converter_class_val) catch return error.Fatal;
