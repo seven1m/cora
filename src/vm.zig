@@ -6047,14 +6047,14 @@ pub const VM = struct {
         self: *VM,
         kind: value.EnumeratorObject.Kind,
         method_args: ?*value.ArrayObject,
-        size_proc: ?*value.ProcObject,
+        size: ?Value,
     ) VMError!Value {
         const enum_obj = self.gc_allocator.create(value.EnumeratorObject) catch return error.Fatal;
         enum_obj.* = .{
             .object = .{ .type_tag = .enumerator, .flags = 0, .class = self.enumerator_class, .singleton_class = null, .instance_variables = null },
             .kind = kind,
             .method_args = method_args,
-            .size_proc = size_proc,
+            .size = size,
             .fiber = null,
             .lookahead_values = null,
             .has_lookahead_values = false,
@@ -6080,7 +6080,7 @@ pub const VM = struct {
         receiver: Value,
         method_name: *SymbolObject,
         args: []const Value,
-        size_proc: ?*value.ProcObject,
+        size: ?Value,
     ) VMError!Value {
         var method_args: ?*value.ArrayObject = null;
         if (args.len > 0) {
@@ -6090,7 +6090,7 @@ pub const VM = struct {
             }
             method_args = arr;
         }
-        return self.newEnumerator(.{ .method = .{ .receiver = receiver, .method_name = method_name } }, method_args, size_proc);
+        return self.newEnumerator(.{ .method = .{ .receiver = receiver, .method_name = method_name } }, method_args, size);
     }
 
     fn moduleAffectsInteger(self: *VM, module: *value.ModuleObject) bool {

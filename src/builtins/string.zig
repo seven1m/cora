@@ -194,6 +194,9 @@ pub fn register(vm: *VM) !void {
     const string_chars_sym = try vm.intern("chars");
     try vm.string_class.module.methods.put(string_chars_sym, .{ .method = .{ .builtin = &builtinStringChars } });
 
+    const string_each_char_sym = try vm.intern("each_char");
+    try vm.string_class.module.methods.put(string_each_char_sym, .{ .method = .{ .builtin = &builtinStringEachChar } });
+
     const string_bytes_sym = try vm.intern("bytes");
     try vm.string_class.module.methods.put(string_bytes_sym, .{ .method = .{ .builtin = &builtinStringBytes } });
 
@@ -205,6 +208,9 @@ pub fn register(vm: *VM) !void {
 
     const string_codepoints_sym = try vm.intern("codepoints");
     try vm.string_class.module.methods.put(string_codepoints_sym, .{ .method = .{ .builtin = &builtinStringCodepoints } });
+
+    const string_each_codepoint_sym = try vm.intern("each_codepoint");
+    try vm.string_class.module.methods.put(string_each_codepoint_sym, .{ .method = .{ .builtin = &builtinStringEachCodepoint } });
 
     const string_start_with_sym = try vm.intern("start_with?");
     try vm.string_class.module.methods.put(string_start_with_sym, .{ .method = .{ .builtin = &builtinStringStartWith } });
@@ -1420,6 +1426,16 @@ pub fn builtinStringChars(vm: *VM, receiver: Value, args: []Value, block: ?Block
     return Value.fromObject(array_obj);
 }
 
+pub fn builtinStringEachChar(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    if (block == null) {
+        const string_obj = receiver.toStringObject();
+        const size_value = Value.integer(@intCast(string_obj.encoding.charCount(string_obj.str)));
+        return vm.createMethodEnumeratorWithSize(receiver, try vm.intern("each_char"), &.{}, size_value);
+    }
+    return builtinStringChars(vm, receiver, args, block);
+}
+
 pub fn builtinStringBytes(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const bytes = receiver.toStringObject().str;
@@ -1533,6 +1549,16 @@ pub fn builtinStringCodepoints(vm: *VM, receiver: Value, args: []Value, block: ?
     }
 
     return Value.fromObject(array_obj);
+}
+
+pub fn builtinStringEachCodepoint(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    if (block == null) {
+        const string_obj = receiver.toStringObject();
+        const size_value = Value.integer(@intCast(string_obj.encoding.charCount(string_obj.str)));
+        return vm.createMethodEnumeratorWithSize(receiver, try vm.intern("each_codepoint"), &.{}, size_value);
+    }
+    return builtinStringCodepoints(vm, receiver, args, block);
 }
 
 pub fn builtinStringStartWith(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

@@ -559,12 +559,12 @@ fn kernelEnumForCommon(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
         try vm.coerceToMethodNameSymbol(args[0]);
     const method_args = if (args.len == 0) &[_]Value{} else args[1..];
 
-    const size_proc = if (block) |blk|
-        (try vm.newProc(blk)).toProcObject()
+    const size = if (block) |blk|
+        try vm.newProc(blk)
     else
         null;
 
-    return vm.createMethodEnumeratorWithSize(receiver, method_name, method_args, size_proc);
+    return vm.createMethodEnumeratorWithSize(receiver, method_name, method_args, size);
 }
 
 pub fn builtinKernelToEnum(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {

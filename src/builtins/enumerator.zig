@@ -91,10 +91,10 @@ fn builtinEnumeratorEach(vm: *VM, receiver: Value, args: []Value, block: ?Block)
                 for (args) |arg| {
                     merged_args.elements.append(vm.gc_allocator, arg) catch return error.Fatal;
                 }
-                return vm.newEnumerator(enum_obj.kind, merged_args, enum_obj.size_proc);
+                return vm.newEnumerator(enum_obj.kind, merged_args, enum_obj.size);
             },
             .generator => {
-                return vm.newEnumerator(enum_obj.kind, null, enum_obj.size_proc);
+                return vm.newEnumerator(enum_obj.kind, null, enum_obj.size);
             },
         }
     };
@@ -192,8 +192,11 @@ fn builtinEnumeratorSize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     try vm.requireArgCount(args, 0);
     const enum_obj = receiver.toEnumeratorObject();
 
-    if (enum_obj.size_proc) |size_proc| {
-        return vm.callProcObject(size_proc, &[_]Value{}, null, null);
+    if (enum_obj.size) |size| {
+        if (size.isProc()) {
+            return vm.callProcObject(size.toProcObject(), &[_]Value{}, null, null);
+        }
+        return size;
     }
 
     return Value.nil();
