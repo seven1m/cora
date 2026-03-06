@@ -3482,14 +3482,30 @@ pub const VM = struct {
                 const constant = constants[name_idx];
                 if (constant == .string) {
                     const name_sym = try self.intern(constant.string);
-                    const module_val = try self.newModule(name_sym);
-
-                    // Store constant in current lexical scope (or Object if no scope)
+                    var existing_module: ?Value = null;
                     if (frame.ep.lexical_scope) |scope| {
-                        scope.getModule().constants.put(name_sym, module_val) catch return error.Fatal;
-                    } else {
-                        self.object_class.module.constants.put(name_sym, module_val) catch return error.Fatal;
+                        existing_module = try self.findConstantInLexicalScope(scope, name_sym);
                     }
+                    if (existing_module == null) {
+                        existing_module = self.object_class.module.constants.get(name_sym);
+                    }
+
+                    const module_val = blk: {
+                        if (existing_module) |em| {
+                            if (em.isModule()) break :blk em;
+                            const exc = try self.createException(self.type_error_class, "constant is not a module");
+                            self.pending_exception = exc;
+                            return error.Unwind;
+                        }
+
+                        const fresh_module = try self.newModule(name_sym);
+                        if (frame.ep.lexical_scope) |scope| {
+                            scope.getModule().constants.put(name_sym, fresh_module) catch return error.Fatal;
+                        } else {
+                            self.object_class.module.constants.put(name_sym, fresh_module) catch return error.Fatal;
+                        }
+                        break :blk fresh_module;
+                    };
 
                     // Execute module body if it exists
                     if (body_chunk_id != 0) {

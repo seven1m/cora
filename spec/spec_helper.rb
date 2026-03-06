@@ -980,6 +980,10 @@ def complain(expected = nil, opts = nil)
   ComplainMatcher.new(expected, opts)
 end
 
+def suppress_warning
+  yield
+end
+
 def raise_error(expected = nil, expected_message = nil, &verifier)
   expected_class = nil
   message = expected_message

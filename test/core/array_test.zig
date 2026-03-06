@@ -162,16 +162,6 @@ test "Array#include?" {
     try std.testing.expectEqual(false, result.toBool());
 }
 
-test "Array#join" {
-    var result = try evalCode("[1, 2, 3].join");
-    try std.testing.expect(result.isString());
-    try std.testing.expectEqualSlices(u8, "123", result.toStringObject().str);
-
-    result = try evalCode("[1, 2, 3].join('-')");
-    try std.testing.expect(result.isString());
-    try std.testing.expectEqualSlices(u8, "1-2-3", result.toStringObject().str);
-}
-
 test "Array#[]= set and extend" {
     var result = try evalCode("a = [1, 2, 3]; a[1] = 9; a");
     try std.testing.expect(result.isArray());

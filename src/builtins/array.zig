@@ -1,4 +1,5 @@
 const std = @import("std");
+const enc = @import("../encoding.zig");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 const pack_runtime = @import("../pack.zig");
@@ -7,6 +8,138 @@ const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
 const Block = vm_mod.Block;
 const Value = value.Value;
+
+const JoinState = struct {
+    bytes: std.ArrayList(u8) = .empty,
+    encoding: enc.Encoding = .{ .us_ascii = .{} },
+};
+
+fn arrayJoinConcatBytes(vm: *VM, left: []const u8, right: []const u8) VMError![]const u8 {
+    const out = vm.gc_allocator_atomic.alloc(u8, left.len + right.len) catch return error.Fatal;
+    @memcpy(out[0..left.len], left);
+    @memcpy(out[left.len..], right);
+    return out;
+}
+
+fn arrayJoinResolveEncoding(
+    lhs_encoding: enc.Encoding,
+    lhs_bytes: []const u8,
+    rhs_encoding: enc.Encoding,
+    rhs_bytes: []const u8,
+) ?enc.Encoding {
+    if (lhs_encoding.eql(rhs_encoding)) return lhs_encoding;
+    if (rhs_bytes.len == 0) return lhs_encoding;
+    if (lhs_bytes.len == 0) return rhs_encoding;
+    if (!lhs_encoding.isAsciiCompatible() or !rhs_encoding.isAsciiCompatible()) return null;
+
+    const lhs_ascii_only = enc.isAsciiOnly(lhs_bytes);
+    const rhs_ascii_only = enc.isAsciiOnly(rhs_bytes);
+
+    if (lhs_ascii_only and !rhs_ascii_only) return rhs_encoding;
+    if (!lhs_ascii_only and rhs_ascii_only) return lhs_encoding;
+    if (lhs_ascii_only and rhs_ascii_only) return lhs_encoding;
+
+    return null;
+}
+
+fn arrayJoinAppendString(vm: *VM, state: *JoinState, str_value: Value) VMError!void {
+    const str_obj = str_value.toStringObject();
+    const result_encoding = arrayJoinResolveEncoding(state.encoding, state.bytes.items, str_obj.encoding, str_obj.str) orelse {
+        return vm.raiseExceptionFmt(
+            vm.encoding_compatibility_error_class,
+            "incompatible character encodings: {s} and {s}",
+            .{ state.encoding.name(), str_obj.encoding.name() },
+        );
+    };
+
+    state.bytes.appendSlice(vm.allocator, str_obj.str) catch return error.Fatal;
+    state.encoding = result_encoding;
+}
+
+fn arrayJoinWarnDefaultSeparator(vm: *VM) VMError!void {
+    const stderr_target = vm.globals.get("$stderr") orelse return;
+    const warning_text = "warning: $, is set to non-nil value\n";
+    const warning_val = try vm.newString(warning_text, false);
+    var write_args = [_]Value{warning_val};
+    _ = try vm.callMethodByName(stderr_target, "write", write_args[0..], null);
+}
+
+fn arrayJoinAppendElement(
+    vm: *VM,
+    state: *JoinState,
+    elem: Value,
+    separator: ?Value,
+    seen: *std.AutoHashMap(usize, void),
+) VMError!void {
+    if (elem.isArray()) {
+        try arrayJoinAppendArray(vm, state, elem.toArrayObject(), separator, seen);
+        return;
+    }
+
+    if (try vm.checkCallMethodByName(elem, "to_str", &[_]Value{}, null)) |to_str_value| {
+        if (!to_str_value.isNil()) {
+            if (!to_str_value.isString()) {
+                const exc = try vm.createException(vm.type_error_class, "no implicit conversion into String");
+                vm.pending_exception = exc;
+                return error.Unwind;
+            }
+            try arrayJoinAppendString(vm, state, to_str_value);
+            return;
+        }
+    }
+
+    if (try vm.checkCallMethodByName(elem, "to_ary", &[_]Value{}, null)) |to_ary_value| {
+        if (!to_ary_value.isNil()) {
+            if (!to_ary_value.isArray()) {
+                const exc = try vm.createException(vm.type_error_class, "can't convert to Array (to_ary must return Array or nil)");
+                vm.pending_exception = exc;
+                return error.Unwind;
+            }
+            try arrayJoinAppendArray(vm, state, to_ary_value.toArrayObject(), separator, seen);
+            return;
+        }
+    }
+
+    const to_s_sym = try vm.intern("to_s");
+    _ = try vm.findMethod(elem, to_s_sym) orelse {
+        return vm.raiseExceptionFmt(
+            vm.no_method_error_class,
+            "undefined method 'to_s'",
+            .{},
+        );
+    };
+    const to_s_value = try vm.callMethodByName(elem, "to_s", &[_]Value{}, null);
+    if (!to_s_value.isString()) {
+        const exc = try vm.createException(vm.type_error_class, "to_s did not return String");
+        vm.pending_exception = exc;
+        return error.Unwind;
+    }
+    try arrayJoinAppendString(vm, state, to_s_value);
+}
+
+fn arrayJoinAppendArray(
+    vm: *VM,
+    state: *JoinState,
+    array: *value.ArrayObject,
+    separator: ?Value,
+    seen: *std.AutoHashMap(usize, void),
+) VMError!void {
+    const key = @intFromPtr(array);
+    if (seen.contains(key)) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "recursive array join", .{});
+    }
+    seen.put(key, {}) catch return error.Fatal;
+    defer _ = seen.remove(key);
+
+    for (array.elements.items, 0..) |elem, idx| {
+        if (idx > 0) {
+            if (separator) |sep| {
+                try arrayJoinAppendString(vm, state, sep);
+            }
+        }
+        try arrayJoinAppendElement(vm, state, elem, separator, seen);
+    }
+}
 
 pub fn register(vm: *VM) !void {
     const array_class_val = Value.fromObject(vm.array_class);
@@ -468,26 +601,37 @@ pub fn builtinArrayEmpty(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
 
 pub fn builtinArrayJoin(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
-    const sep = if (args.len == 1) try args[0].coerceToStr(vm, "no implicit conversion into String") else "";
 
     const array = receiver.toArrayObject();
-    var buf: std.ArrayList(u8) = .empty;
-    const writer = buf.writer(vm.allocator);
+    const uses_default_separator = args.len == 0 or args[0].isNil();
+    const global_separator = if (uses_default_separator) vm.globals.get("$,") orelse Value.nil() else Value.nil();
 
-    for (array.elements.items, 0..) |elem, idx| {
-        if (idx > 0) writer.writeAll(sep) catch return error.Fatal;
-        const elem_str = try vm.callMethodByName(elem, "to_s", &[_]Value{}, null);
-        if (!elem_str.isString()) {
-            const exc = try vm.createException(vm.type_error_class, "to_s did not return String");
-            vm.pending_exception = exc;
-            return error.Unwind;
+    if (array.elements.items.len == 0) {
+        if (uses_default_separator and !global_separator.isNil()) {
+            try arrayJoinWarnDefaultSeparator(vm);
         }
-        writer.writeAll(elem_str.toStringObject().str) catch return error.Fatal;
+        return try vm.newStringWithEncoding("", false, .{ .us_ascii = .{} });
     }
 
-    const str = buf.toOwnedSlice(vm.allocator) catch return error.Fatal;
-    defer vm.allocator.free(str);
-    return try vm.newString(str, false);
+    const separator = blk: {
+        if (!uses_default_separator) {
+            break :blk try args[0].coerceToStringValue(vm, "no implicit conversion into String");
+        }
+        if (global_separator.isNil()) break :blk null;
+        try arrayJoinWarnDefaultSeparator(vm);
+        break :blk try global_separator.coerceToStringValue(vm, "no implicit conversion into String");
+    };
+
+    var seen = std.AutoHashMap(usize, void).init(vm.allocator);
+    defer seen.deinit();
+
+    var state = JoinState{};
+    defer state.bytes.deinit(vm.allocator);
+
+    try arrayJoinAppendArray(vm, &state, array, separator, &seen);
+    const out = state.bytes.toOwnedSlice(vm.allocator) catch return error.Fatal;
+    defer vm.allocator.free(out);
+    return try vm.newStringWithEncoding(out, false, state.encoding);
 }
 
 pub fn builtinArrayMultiply(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

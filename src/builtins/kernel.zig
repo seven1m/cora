@@ -210,10 +210,15 @@ pub fn builtinKernelRequireRelative(vm: *VM, _: Value, args: []Value, _: ?Block)
     try vm.requireArgCount(args, 1);
     const relative_path = try vm.coerceToPath(args[0], "no implicit conversion into String");
 
-    const current_file = vm.current_loading_file orelse {
-        const exc = vm.createException(vm.load_error_class, "cannot infer basepath") catch return error.Fatal;
-        vm.pending_exception = exc;
-        return error.Unwind;
+    const current_file = blk: {
+        if (vm.frames.items.len > 0) {
+            if (vm.currentFrame().chunk.source_file) |source_file| break :blk source_file;
+        }
+        break :blk vm.current_loading_file orelse {
+            const exc = vm.createException(vm.load_error_class, "cannot infer basepath") catch return error.Fatal;
+            vm.pending_exception = exc;
+            return error.Unwind;
+        };
     };
 
     const current_dir = std.fs.path.dirname(current_file) orelse ".";
