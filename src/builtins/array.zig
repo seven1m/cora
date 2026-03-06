@@ -86,6 +86,9 @@ pub fn register(vm: *VM) !void {
 
     const pack_sym = try vm.intern("pack");
     try vm.array_class.module.methods.put(pack_sym, .{ .method = .{ .builtin = &builtinArrayPack } });
+
+    const multiply_sym = try vm.intern("*");
+    try vm.array_class.module.methods.put(multiply_sym, .{ .method = .{ .builtin = &builtinArrayMultiply } });
 }
 
 pub fn builtinArrayPush(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -467,6 +470,32 @@ pub fn builtinArrayJoin(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     const str = buf.toOwnedSlice(vm.allocator) catch return error.Fatal;
     defer vm.allocator.free(str);
     return try vm.newString(str, false);
+}
+
+pub fn builtinArrayMultiply(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+
+    const count = try args[0].coerceToI64ViaToInt(
+        vm,
+        "no implicit conversion into Integer",
+        "no implicit conversion into Integer",
+        "bignum too big to convert into `long`",
+    );
+    if (count < 0) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "negative argument", .{});
+    }
+
+    const array = receiver.toArrayObject();
+    const out = try vm.createArray();
+
+    var i: i64 = 0;
+    while (i < count) : (i += 1) {
+        for (array.elements.items) |elem| {
+            out.elements.append(vm.gc_allocator, elem) catch return error.Fatal;
+        }
+    }
+
+    return Value.fromObject(out);
 }
 
 pub fn builtinArrayFirst(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
