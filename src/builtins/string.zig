@@ -234,6 +234,10 @@ pub fn register(vm: *VM) !void {
     try vm.string_class.module.methods.put(string_upcase_sym, .{ .method = .{ .builtin = &builtinStringUpcase } });
     const string_upcase_bang_sym = try vm.intern("upcase!");
     try vm.string_class.module.methods.put(string_upcase_bang_sym, .{ .method = .{ .builtin = &builtinStringUpcaseBang } });
+    const string_downcase_sym = try vm.intern("downcase");
+    try vm.string_class.module.methods.put(string_downcase_sym, .{ .method = .{ .builtin = &builtinStringDowncase } });
+    const string_downcase_bang_sym = try vm.intern("downcase!");
+    try vm.string_class.module.methods.put(string_downcase_bang_sym, .{ .method = .{ .builtin = &builtinStringDowncaseBang } });
 
     const string_to_i_sym = try vm.intern("to_i");
     try vm.string_class.module.methods.put(string_to_i_sym, .{ .method = .{ .builtin = &builtinStringToI } });
@@ -1775,7 +1779,7 @@ pub fn builtinStringSplit(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
 }
 
 pub fn builtinStringUpcase(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    const options = try parseUpcaseOptions(vm, args);
+    const options = try parseCaseMapOptions(vm, args, .upcase);
     const string_obj = receiver.toStringObject();
     const mapped = enc.caseMap(vm.gc_allocator_atomic, string_obj.str, string_obj.encoding, .upcase, options) catch |err| switch (err) {
         error.OutOfMemory => return error.Fatal,
@@ -1785,13 +1789,42 @@ pub fn builtinStringUpcase(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 }
 
 pub fn builtinStringUpcaseBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    const options = try parseUpcaseOptions(vm, args);
+    const options = try parseCaseMapOptions(vm, args, .upcase);
     if (receiver.isFrozen()) {
         return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
     }
     const string_obj = receiver.toStringObject();
 
     const mapped = enc.caseMap(vm.gc_allocator_atomic, string_obj.str, string_obj.encoding, .upcase, options) catch |err| switch (err) {
+        error.OutOfMemory => return error.Fatal,
+        error.InvalidByteSequence => return vm.raiseExceptionFmt(vm.argument_error_class, "input string invalid", .{}),
+    };
+    if (!mapped.modified) return Value.nil();
+
+    string_obj.str = mapped.bytes;
+    string_obj.encoding = mapped.encoding;
+    string_obj.validity = .unknown;
+    return receiver;
+}
+
+pub fn builtinStringDowncase(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const options = try parseCaseMapOptions(vm, args, .downcase);
+    const string_obj = receiver.toStringObject();
+    const mapped = enc.caseMap(vm.gc_allocator_atomic, string_obj.str, string_obj.encoding, .downcase, options) catch |err| switch (err) {
+        error.OutOfMemory => return error.Fatal,
+        error.InvalidByteSequence => return vm.raiseExceptionFmt(vm.argument_error_class, "input string invalid", .{}),
+    };
+    return try vm.newStringWithEncoding(mapped.bytes, false, mapped.encoding);
+}
+
+pub fn builtinStringDowncaseBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const options = try parseCaseMapOptions(vm, args, .downcase);
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
+    }
+    const string_obj = receiver.toStringObject();
+
+    const mapped = enc.caseMap(vm.gc_allocator_atomic, string_obj.str, string_obj.encoding, .downcase, options) catch |err| switch (err) {
         error.OutOfMemory => return error.Fatal,
         error.InvalidByteSequence => return vm.raiseExceptionFmt(vm.argument_error_class, "input string invalid", .{}),
     };
@@ -2546,7 +2579,12 @@ fn encodeCodepointForEncoding(vm: *VM, cp: i64, encoding: enc.Encoding, out: *[4
     return out[0..len];
 }
 
-fn parseUpcaseOptions(vm: *VM, args: []Value) VMError!enc.CaseMapOptions {
+const CaseOperation = enum {
+    upcase,
+    downcase,
+};
+
+fn parseCaseMapOptions(vm: *VM, args: []Value, operation: CaseOperation) VMError!enc.CaseMapOptions {
     try vm.requireArgCountRange(args, 0, 2);
     var options: enc.CaseMapOptions = .{};
     if (args.len == 0) return options;
@@ -2574,6 +2612,10 @@ fn parseUpcaseOptions(vm: *VM, args: []Value) VMError!enc.CaseMapOptions {
             return options;
         }
         if (symbol == fold_sym) {
+            if (operation == .downcase) {
+                options.fold = true;
+                return options;
+            }
             return vm.raiseExceptionFmt(vm.argument_error_class, "option :fold only allowed for downcasing", .{});
         }
         return vm.raiseExceptionFmt(vm.argument_error_class, "invalid option", .{});

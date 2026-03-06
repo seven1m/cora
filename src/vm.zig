@@ -5895,7 +5895,7 @@ pub const VM = struct {
 
     fn literalStringEncodingForChunk(source_encoding: enc.Encoding, bytes: []const u8) enc.Encoding {
         if (enc.isAsciiOnly(bytes)) {
-            return .{ .us_ascii = .{} };
+            return source_encoding;
         }
         if (source_encoding == .us_ascii or source_encoding == .ascii_8bit) {
             const utf8_encoding = enc.Encoding{ .utf8 = .{} };

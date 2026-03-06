@@ -166,12 +166,14 @@ pub const TranscodeError = error{
 
 pub const CaseMapMode = enum {
     upcase,
+    downcase,
 };
 
 pub const CaseMapOptions = struct {
     ascii_only: bool = false,
     turkic: bool = false,
     lithuanian: bool = false,
+    fold: bool = false,
 };
 
 pub const CaseMapError = error{
@@ -222,7 +224,7 @@ pub fn caseMap(
     errdefer allocator.free(out_bytes);
     var out_encoding = source_encoding;
 
-    if (mode != .upcase) return .{ .bytes = out_bytes, .modified = false, .encoding = out_encoding };
+    if (mode != .upcase and mode != .downcase) return .{ .bytes = out_bytes, .modified = false, .encoding = out_encoding };
 
     const effective_source_encoding: Encoding = if (source_encoding == .us_ascii and !options.ascii_only and (options.turkic or options.lithuanian))
         .{ .utf8 = .{} }
@@ -234,10 +236,14 @@ pub fn caseMap(
 
     const onig_encoding = mapOnigEncoding(effective_source_encoding);
     if (onig_encoding) |oe| {
-        var flags: onigmo.OnigCaseFoldType = onigmo.CASE_UPCASE;
+        var flags: onigmo.OnigCaseFoldType = switch (mode) {
+            .upcase => onigmo.CASE_UPCASE,
+            .downcase => onigmo.CASE_DOWNCASE,
+        };
         if (options.ascii_only) flags |= onigmo.CASE_ASCII_ONLY;
         if (options.turkic) flags |= onigmo.CASE_FOLD_TURKISH_AZERI;
         if (options.lithuanian) flags |= onigmo.CASE_FOLD_LITHUANIAN;
+        if (options.fold) flags |= onigmo.CASE_FOLD;
 
         const mapped = onigmo.caseMap(allocator, bytes, oe, flags) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
@@ -251,9 +257,19 @@ pub fn caseMap(
     }
 
     for (out_bytes) |*b| {
-        if (b.* >= 'a' and b.* <= 'z') {
-            b.* -= 32;
-            modified = true;
+        switch (mode) {
+            .upcase => {
+                if (b.* >= 'a' and b.* <= 'z') {
+                    b.* -= 32;
+                    modified = true;
+                }
+            },
+            .downcase => {
+                if (b.* >= 'A' and b.* <= 'Z') {
+                    b.* += 32;
+                    modified = true;
+                }
+            },
         }
     }
     return .{ .bytes = out_bytes, .modified = modified, .encoding = out_encoding };
