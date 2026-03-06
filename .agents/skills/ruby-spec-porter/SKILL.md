@@ -20,9 +20,23 @@ Use this skill to add one or more specs from `../ruby_spec` into `spec/`, keep t
 - Preserve mspec compatibility (not rspec APIs).
 - Work on specs pauses if you find any fundamental issues with the Cora runtime. Memory errors/leaks, data corruption, and MRI-incompatibility take center stage when you find it.
 
+## TODO Tracking
+
+- Use `spec/TODO.md` as the canonical tracker for ruby/spec porting status.
+- Before selecting work, check `spec/TODO.md` for unchecked entries (`[ ]` or `[-]`).
+- Keep status markers consistent:
+  - `[ ]` Missing spec
+  - `[-]` Partial-passing spec (not byte-for-byte matching upstream spec)
+  - `[x]` Fully-passing spec
+- When you begin porting a spec, keep it as `[ ]` until the file exists locally.
+- After copying and getting partial progress (for example temporary `CORAFIXME` wrappers), update the entry to `[-]`.
+- Once the spec is passing and byte-for-byte matching the upstream spec, update the entry to `[x]`.
+- If it's not possible to fully match the upstream spec, then leave the entry as `[-]`.
+
 ## Workflow
 
 1. Pick a candidate spec.
+- Start from `spec/TODO.md` and choose an entry marked `[ ]` (or `[-]` if finishing partial work).
 - Start with low-risk, high-signal specs in `../ruby_spec/core/*`.
 - Prefer specs that map to existing builtins/opcodes and require incremental behavior.
 - Avoid immediately choosing specs known to require broad missing subsystems.
@@ -82,6 +96,11 @@ diff -q spec/shared/string/<shared>.rb ../ruby_spec/shared/string/<shared>.rb
 ```
 - If divergence is unavoidable, keep it minimal and document the exact blocker.
 
+7. Update `spec/TODO.md`.
+- Mark the spec `[-]` if it remains partial.
+- Mark the spec `[x]` when it is fully passing.
+- Keep entries sorted/grouped exactly as the file already organizes them.
+
 ## Candidate Selection Heuristics
 
 These are heuristics, not hard gates. If a spec in String, Integer, Array, or another core class is the logical next step, take it.
@@ -108,6 +127,7 @@ A ported spec is “done” when:
 - The spec passes via `zig build run -- spec/...`.
 - Relevant focused tests pass.
 - `zig build test -Dtest-filter="ruby/spec"` stays green.
+- The corresponding `spec/TODO.md` entry is marked `[x]`.
 
 ## Commit Style
 
