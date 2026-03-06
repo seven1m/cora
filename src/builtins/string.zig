@@ -266,6 +266,9 @@ pub fn register(vm: *VM) !void {
     const string_to_i_sym = try vm.intern("to_i");
     try vm.string_class.module.methods.put(string_to_i_sym, .{ .method = .{ .builtin = &builtinStringToI } });
 
+    const string_oct_sym = try vm.intern("oct");
+    try vm.string_class.module.methods.put(string_oct_sym, .{ .method = .{ .builtin = &builtinStringOct } });
+
     const string_hex_sym = try vm.intern("hex");
     try vm.string_class.module.methods.put(string_hex_sym, .{ .method = .{ .builtin = &builtinStringHex } });
 
@@ -2075,24 +2078,12 @@ pub fn builtinStringDowncaseBang(vm: *VM, receiver: Value, args: []Value, _: ?Bl
     return receiver;
 }
 
-pub fn builtinStringToI(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCountRange(args, 0, 1);
-
-    var requested_base: i64 = 10;
-    if (args.len == 1) {
-        requested_base = try args[0].coerceToI64ViaToInt(
-            vm,
-            "no implicit conversion of Object into Integer",
-            "can't convert Object to Integer (Object#to_int gives Object)",
-            "base is too large",
-        );
-        if ((requested_base < 2 or requested_base > 36) and requested_base != 0) {
-            return vm.raiseExceptionFmt(vm.argument_error_class, "invalid radix {d}", .{requested_base});
-        }
+fn parseStringToInteger(vm: *VM, s: []const u8, requested_base: i64, default_base_when_zero: u8) VMError!Value {
+    if ((requested_base < 2 or requested_base > 36) and requested_base != 0) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "invalid radix {d}", .{requested_base});
     }
 
-    var base: u8 = if (requested_base == 0) 10 else @intCast(requested_base);
-    const s = receiver.toStringObject().str;
+    var base: u8 = if (requested_base == 0) default_base_when_zero else @intCast(requested_base);
     var i: usize = 0;
     while (i < s.len and std.ascii.isWhitespace(s[i])) : (i += 1) {}
 
@@ -2198,10 +2189,30 @@ pub fn builtinStringToI(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     }
 }
 
+pub fn builtinStringToI(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+
+    var requested_base: i64 = 10;
+    if (args.len == 1) {
+        requested_base = try args[0].coerceToI64ViaToInt(
+            vm,
+            "no implicit conversion of Object into Integer",
+            "can't convert Object to Integer (Object#to_int gives Object)",
+            "base is too large",
+        );
+    }
+
+    return parseStringToInteger(vm, receiver.toStringObject().str, requested_base, 10);
+}
+
+pub fn builtinStringOct(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return parseStringToInteger(vm, receiver.toStringObject().str, 0, 8);
+}
+
 pub fn builtinStringHex(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    var base_arg = [_]Value{Value.integer(16)};
-    return builtinStringToI(vm, receiver, base_arg[0..], null);
+    return parseStringToInteger(vm, receiver.toStringObject().str, 16, 10);
 }
 
 fn appendSymbolErrorEscapedBytes(writer: anytype, input: []const u8) !void {
