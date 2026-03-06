@@ -177,7 +177,12 @@ pub const Compiler = struct {
 
             .regular_expression => |regexp_node| {
                 const pattern = regexp_node.unescaped;
-                const pattern_slice = pattern.source[0..pattern.length];
+                const pattern_slice: []const u8 = if (pattern.length == 0)
+                    ""
+                else if (pattern.source) |source|
+                    source[0..pattern.length]
+                else
+                    "";
                 const idx = try self.current_chunk.addConstant(.{ .string = pattern_slice });
                 // Map Prism flags to Onigmo option bits
                 const flags = regexp_node.base.flags;

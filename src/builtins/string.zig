@@ -248,6 +248,9 @@ pub fn register(vm: *VM) !void {
     const match_op_sym = try vm.intern("=~");
     try vm.string_class.module.methods.put(match_op_sym, .{ .method = .{ .builtin = &builtinStringMatchOp } });
 
+    const match_sym = try vm.intern("match");
+    try vm.string_class.module.methods.put(match_sym, .{ .method = .{ .builtin = &builtinStringMatch } });
+
     const scan_sym = try vm.intern("scan");
     try vm.string_class.module.methods.put(scan_sym, .{ .method = .{ .builtin = &builtinStringScan } });
 
@@ -2017,49 +2020,154 @@ pub fn builtinStringMatchOp(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     return regexp_builtin.regexpMatchOp(vm, args[0].toRegexpObject(), receiver);
 }
 
-pub fn builtinStringScan(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+pub fn builtinStringMatch(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     if (!args[0].isRegexp()) {
         return vm.raiseExceptionFmt(vm.type_error_class, "wrong argument type", .{});
     }
 
-    const regexp_obj = args[0].toRegexpObject();
-    const string_obj = receiver.toStringObject();
+    const match_idx = try regexp_builtin.regexpMatchOp(vm, args[0].toRegexpObject(), receiver);
+    if (match_idx.isNil()) return Value.nil();
 
+    const md_val = vm.globals.get("$~") orelse Value.nil();
+    if (block) |blk| {
+        const yielded = try vm.yieldToBlock(blk, &[_]Value{md_val});
+        if (yielded.break_occurred) return yielded.value;
+        return yielded.value;
+    }
+    return md_val;
+}
+
+fn escapeRegexpLiteral(vm: *VM, bytes: []const u8) VMError![]u8 {
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(vm.allocator);
+
+    for (bytes) |b| {
+        switch (b) {
+            '\\', '.', '^', '$', '|', '?', '*', '+', '(', ')', '[', ']', '{', '}' => {
+                out.append(vm.allocator, '\\') catch return error.Fatal;
+                out.append(vm.allocator, b) catch return error.Fatal;
+            },
+            else => out.append(vm.allocator, b) catch return error.Fatal,
+        }
+    }
+
+    return out.toOwnedSlice(vm.allocator) catch return error.Fatal;
+}
+
+pub fn builtinStringScan(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const string_obj = receiver.toStringObject();
     const out = if (block == null) try vm.createArray() else null;
     var offset: usize = 0;
+    var last_success_md: ?*value.MatchDataObject = null;
 
-    while (offset <= string_obj.str.len) {
-        const sub = try vm.newStringWithEncoding(string_obj.str[offset..], false, string_obj.encoding);
-        const match_idx = try regexp_builtin.regexpMatchOp(vm, regexp_obj, sub);
-        if (match_idx.isNil()) break;
+    if (args[0].isRegexp()) {
+        const regexp_obj = args[0].toRegexpObject();
 
-        const last_match = vm.globals.get("$~") orelse Value.nil();
-        if (!last_match.isMatchData()) break;
-        const md = last_match.toMatchDataObject();
+        while (offset <= string_obj.str.len) {
+            const base_offset = offset;
+            const sub = try vm.newStringWithEncoding(string_obj.str[base_offset..], false, string_obj.encoding);
+            const match_idx = try regexp_builtin.regexpMatchOp(vm, regexp_obj, sub);
+            if (match_idx.isNil()) break;
 
-        const yielded_value = if (md.captures.items.len <= 1)
-            md.captures.items[0]
-        else if (md.captures.items.len == 2)
-            md.captures.items[1]
-        else blk: {
-            const captures = try vm.createArray();
-            for (md.captures.items[1..]) |capture| {
-                captures.elements.append(vm.gc_allocator, capture) catch return error.Fatal;
+            const last_match = vm.globals.get("$~") orelse Value.nil();
+            if (!last_match.isMatchData()) break;
+            const md = last_match.toMatchDataObject();
+
+            const base_i64: i64 = @intCast(base_offset);
+            for (md.begin_byte_offsets.items) |*begin_pos| {
+                if (begin_pos.* >= 0) begin_pos.* += base_i64;
             }
-            break :blk Value.fromObject(captures);
-        };
+            for (md.end_byte_offsets.items) |*end_pos| {
+                if (end_pos.* >= 0) end_pos.* += base_i64;
+            }
+            md.source = string_obj;
+            try vm.setLastMatch(md);
+            last_success_md = md;
 
-        if (block) |blk| {
-            const yielded = try vm.yieldToBlock(blk, &[_]Value{yielded_value});
-            if (yielded.break_occurred) return yielded.value;
-        } else {
-            out.?.elements.append(vm.gc_allocator, yielded_value) catch return error.Fatal;
+            const yielded_value = if (md.captures.items.len <= 1)
+                md.captures.items[0]
+            else blk: {
+                const captures = try vm.createArray();
+                for (md.captures.items[1..]) |capture| {
+                    captures.elements.append(vm.gc_allocator, capture) catch return error.Fatal;
+                }
+                break :blk Value.fromObject(captures);
+            };
+
+            if (block) |blk| {
+                const yielded = try vm.yieldToBlock(blk, &[_]Value{yielded_value});
+                if (yielded.break_occurred) return yielded.value;
+                try vm.setLastMatch(md);
+            } else {
+                out.?.elements.append(vm.gc_allocator, yielded_value) catch return error.Fatal;
+            }
+
+            const end_offset_i64 = if (md.end_byte_offsets.items.len > 0) md.end_byte_offsets.items[0] else -1;
+            const end_offset: usize = if (end_offset_i64 >= 0) @intCast(end_offset_i64) else base_offset;
+            if (end_offset <= base_offset) {
+                if (base_offset >= string_obj.str.len) {
+                    offset = string_obj.str.len + 1;
+                } else {
+                    var next = base_offset;
+                    const ch = string_obj.encoding.nextChar(string_obj.str, &next);
+                    offset = if (ch.len > 0 and next > base_offset) next else base_offset + 1;
+                }
+            } else {
+                offset = end_offset;
+            }
         }
+    } else {
+        const pattern_value = try args[0].coerceToStringValue(vm, "wrong argument type");
+        const pattern = pattern_value.toStringObject().str;
+        const escaped_pattern = try escapeRegexpLiteral(vm, pattern);
+        defer vm.allocator.free(escaped_pattern);
+        const pattern_regexp = (try vm.newRegexp(escaped_pattern, 0)).toRegexpObject();
 
-        const end_offset_i64 = if (md.end_byte_offsets.items.len > 0) md.end_byte_offsets.items[0] else 0;
-        const end_offset: usize = if (end_offset_i64 > 0) @intCast(end_offset_i64) else 0;
-        offset += if (end_offset > 0) end_offset else 1;
+        while (offset <= string_obj.str.len) {
+            const base_offset = offset;
+            const match_start = if (pattern.len == 0)
+                base_offset
+            else
+                std.mem.indexOfPos(u8, string_obj.str, base_offset, pattern) orelse break;
+            const match_end = match_start + pattern.len;
+
+            const match_str = try vm.newStringWithEncoding(string_obj.str[match_start..match_end], false, string_obj.encoding);
+            const captures = [_]Value{match_str};
+            const begins = [_]i64{@intCast(match_start)};
+            const ends = [_]i64{@intCast(match_end)};
+            const md_val = try vm.newMatchData(pattern_regexp, string_obj, captures[0..], begins[0..], ends[0..]);
+            const md = md_val.toMatchDataObject();
+            try vm.setLastMatch(md);
+            last_success_md = md;
+
+            if (block) |blk| {
+                const yielded = try vm.yieldToBlock(blk, &[_]Value{match_str});
+                if (yielded.break_occurred) return yielded.value;
+                try vm.setLastMatch(md);
+            } else {
+                out.?.elements.append(vm.gc_allocator, match_str) catch return error.Fatal;
+            }
+
+            if (match_end <= base_offset) {
+                if (base_offset >= string_obj.str.len) {
+                    offset = string_obj.str.len + 1;
+                } else {
+                    var next = base_offset;
+                    const ch = string_obj.encoding.nextChar(string_obj.str, &next);
+                    offset = if (ch.len > 0 and next > base_offset) next else base_offset + 1;
+                }
+            } else {
+                offset = match_end;
+            }
+        }
+    }
+
+    if (last_success_md) |md| {
+        try vm.setLastMatch(md);
+    } else {
+        try vm.clearLastMatch();
     }
 
     if (block != null) return receiver;
