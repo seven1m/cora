@@ -168,6 +168,9 @@ pub fn register(vm: *VM) !void {
     const compare_sym = try vm.intern("<=>");
     try vm.integer_class.module.methods.put(compare_sym, .{ .method = .{ .builtin = &builtinIntegerCompare } });
 
+    const left_shift_sym = try vm.intern("<<");
+    try vm.integer_class.module.methods.put(left_shift_sym, .{ .method = .{ .builtin = &builtinIntegerLeftShift } });
+
     const power_sym = try vm.intern("**");
     try vm.integer_class.module.methods.put(power_sym, .{ .method = .{ .builtin = &builtinIntegerPower } });
 
@@ -263,6 +266,36 @@ pub fn builtinIntegerMultiply(vm: *VM, receiver: Value, args: []Value, _: ?Block
         .integer => |i| try mulIntegers(vm, receiver, i),
         .float => |f| try vm.newFloat(receiver.integerToF64() * f),
     };
+}
+
+pub fn builtinIntegerLeftShift(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    try receiver.ensureInteger(vm);
+
+    const shift_count = try args[0].coerceToI64ViaToInt(
+        vm,
+        "no implicit conversion into Integer",
+        "no implicit conversion into Integer",
+        "bignum too big to convert into `long`",
+    );
+
+    if (shift_count == 0) return receiver;
+
+    var result = receiver;
+    if (shift_count > 0) {
+        var i: i64 = 0;
+        while (i < shift_count) : (i += 1) {
+            result = try mulIntegers(vm, result, Value.integer(2));
+        }
+        return result;
+    }
+
+    var i: i64 = 0;
+    const right_shift_count = -shift_count;
+    while (i < right_shift_count) : (i += 1) {
+        result = try divFloorIntegers(vm, result, Value.integer(2));
+    }
+    return result;
 }
 
 pub fn builtinIntegerDivide(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
