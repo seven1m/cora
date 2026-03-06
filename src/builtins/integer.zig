@@ -165,6 +165,9 @@ pub fn register(vm: *VM) !void {
     const modulo_sym = try vm.intern("%");
     try vm.integer_class.module.methods.put(modulo_sym, .{ .method = .{ .builtin = &builtinIntegerModulo } });
 
+    const compare_sym = try vm.intern("<=>");
+    try vm.integer_class.module.methods.put(compare_sym, .{ .method = .{ .builtin = &builtinIntegerCompare } });
+
     const power_sym = try vm.intern("**");
     try vm.integer_class.module.methods.put(power_sym, .{ .method = .{ .builtin = &builtinIntegerPower } });
 
@@ -299,6 +302,28 @@ pub fn builtinIntegerModulo(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     }
 
     return modIntegers(vm, receiver, args[0]);
+}
+
+pub fn builtinIntegerCompare(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    try receiver.ensureInteger(vm);
+    const rhs = args[0];
+
+    if (rhs.isFloat()) {
+        const lhs_f = receiver.integerToF64();
+        const rhs_f = rhs.toFloatObject().val;
+        if (lhs_f < rhs_f) return Value.integer(-1);
+        if (lhs_f > rhs_f) return Value.integer(1);
+        return Value.integer(0);
+    }
+
+    if (!rhs.isInteger() and !rhs.isBigInteger()) return Value.nil();
+    const order = try compareIntegers(vm, receiver, rhs);
+    return switch (order) {
+        .lt => Value.integer(-1),
+        .eq => Value.integer(0),
+        .gt => Value.integer(1),
+    };
 }
 
 pub fn builtinIntegerPower(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
