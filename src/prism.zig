@@ -58,6 +58,7 @@ pub const StatementsNode = c.pm_statements_node_t;
 pub const StringNode = c.pm_string_node_t;
 pub const SymbolNode = c.pm_symbol_node_t;
 pub const TrueNode = c.pm_true_node_t;
+pub const UndefNode = c.pm_undef_node_t;
 pub const WhenNode = c.pm_when_node_t;
 pub const YieldNode = c.pm_yield_node_t;
 pub const WhileNode = c.pm_while_node_t;
@@ -173,6 +174,7 @@ pub const Node = union(enum) {
     string: *StringNode,
     symbol: *SymbolNode,
     true_node: *TrueNode,
+    undef_node: *UndefNode,
     when_node: *WhenNode,
     yield: *YieldNode,
     while_node: *WhileNode,
@@ -650,6 +652,10 @@ pub const Parser = struct {
 
         if (node_type == c.PM_ALIAS_METHOD_NODE) {
             return Node{ .alias_method = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_UNDEF_NODE) {
+            return Node{ .undef_node = @ptrCast(raw) };
         }
 
         if (node_type == c.PM_MULTI_WRITE_NODE) {

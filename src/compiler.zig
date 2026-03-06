@@ -836,6 +836,10 @@ pub const Compiler = struct {
                 try self.compileAliasMethod(alias_node, line);
             },
 
+            .undef_node => |undef_node| {
+                try self.compileUndefMethod(undef_node, line);
+            },
+
             else => {
                 std.debug.print("Error: unsupported node type: {}\n", .{node});
                 return error.UnsupportedNode;
@@ -2324,6 +2328,16 @@ pub const Compiler = struct {
         const old_name_idx = try self.current_chunk.addConstant(.{ .string = old_name });
 
         try self.current_chunk.emitOpU16U16(.ALIAS_METHOD, @intCast(new_name_idx), @intCast(old_name_idx), line);
+    }
+
+    fn compileUndefMethod(self: *Compiler, undef_node: *prism.UndefNode, line: u32) anyerror!void {
+        var i: usize = 0;
+        while (i < undef_node.names.size) : (i += 1) {
+            const name_node = try self.parser.asNode(undef_node.names.nodes[i]);
+            try self.compileNode(name_node, line);
+        }
+
+        try self.current_chunk.emitOpU8(.UNDEF_METHOD, @intCast(undef_node.names.size), line);
     }
 
     fn compileModule(self: *Compiler, module_node: *prism.ModuleNode, line: u32) anyerror!void {

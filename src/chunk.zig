@@ -561,6 +561,12 @@ pub const Chunk = struct {
                 try writer.print("\n", .{});
             },
 
+            .UNDEF_METHOD => {
+                const argc = self.code.items[ip];
+                ip += 1;
+                try writer.print("{s} {d}\n", .{ bytecode.opcodeName(op), argc });
+            },
+
             .DEF_CLASS => {
                 const name_idx = readU16(self.code.items, &ip);
                 const body_chunk_id = readU16(self.code.items, &ip);

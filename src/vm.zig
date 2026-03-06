@@ -4032,6 +4032,53 @@ pub const VM = struct {
                 try self.push(Value.NIL);
             },
 
+            .UNDEF_METHOD => {
+                const argc = operands[operand_cursor];
+                operand_cursor += 1;
+
+                var args: [256]Value = undefined;
+                var i: usize = argc;
+                while (i > 0) {
+                    i -= 1;
+                    args[i] = self.pop();
+                }
+
+                const current_self = frame.self_value;
+                const methods = current_self.getModuleMethods() orelse &self.object_class.module.methods;
+                const target_is_class = current_self.isClass();
+                const target_is_module = current_self.isModule();
+
+                for (args[0..argc]) |arg| {
+                    const name_sym = try self.coerceToMethodNameSymbol(arg);
+                    const exists = if (target_is_class)
+                        self.lookupMethod(current_self.toClassObject(), name_sym) != null
+                    else if (target_is_module)
+                        blk: {
+                            const entry = methods.get(name_sym) orelse break :blk false;
+                            break :blk entry.method != .undefined;
+                        }
+                    else
+                        self.lookupMethod(self.object_class, name_sym) != null;
+
+                    if (!exists) {
+                        const msg = std.fmt.allocPrint(
+                            self.gc_allocator,
+                            "undefined method '{s}'",
+                            .{name_sym.name},
+                        ) catch return error.Fatal;
+                        const exc = try self.createException(self.name_error_class, msg);
+                        self.pending_exception = exc;
+                        return error.Unwind;
+                    }
+
+                    methods.put(name_sym, .{ .method = .{ .undefined = {} } }) catch return error.Fatal;
+                }
+
+                self.markIntegerChangedForReceiver(current_self);
+                self.bumpMethodStateVersion();
+                try self.push(Value.NIL);
+            },
+
             .MULTI_ASSIGN_PREPARE => {
                 const receiver = self.pop();
 

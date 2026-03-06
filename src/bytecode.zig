@@ -103,6 +103,7 @@ pub const OpCode = enum(u8) {
 
     // Aliasing
     ALIAS_METHOD, // Operands: u16 (new_name constant index), u16 (old_name constant index)
+    UNDEF_METHOD, // Operand: u8 (argc) - method names are on the stack
 
     // Multi-assignment
     MULTI_ASSIGN_PREPARE, // No operands
@@ -163,7 +164,7 @@ pub fn opcodeOperandSize(op: OpCode) usize {
 
         // 1-byte operands
         .GET_LOCAL, .SET_LOCAL, .DUP_N, .YIELD, .RETURN,
-        .PUSH_RANGE, .INTERPOLATE_STRING, .RAISE, .CATCH_START, .PUSH_I8,
+        .PUSH_RANGE, .INTERPOLATE_STRING, .RAISE, .CATCH_START, .PUSH_I8, .UNDEF_METHOD,
         => 1,
 
         // 2-byte operands (u16)
@@ -284,6 +285,7 @@ pub fn opcodeName(op: OpCode) []const u8 {
         .FORWARDING_SUPER => "FORWARDING_SUPER",
         .PUSH_REGEXP => "PUSH_REGEXP",
         .ALIAS_METHOD => "ALIAS_METHOD",
+        .UNDEF_METHOD => "UNDEF_METHOD",
         .MULTI_ASSIGN_PREPARE => "MULTI_ASSIGN_PREPARE",
     };
 }
