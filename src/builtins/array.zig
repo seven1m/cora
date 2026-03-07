@@ -234,6 +234,9 @@ pub fn register(vm: *VM) !void {
 
     const multiply_sym = try vm.intern("*");
     try vm.array_class.module.methods.put(multiply_sym, .{ .method = .{ .builtin = &builtinArrayMultiply } });
+
+    const clear_sym = try vm.intern("clear");
+    try vm.array_class.module.methods.put(clear_sym, .{ .method = .{ .builtin = &builtinArrayClear } });
 }
 
 pub fn builtinArrayPush(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -767,6 +770,17 @@ pub fn builtinArrayIntersection(vm: *VM, receiver: Value, args: []Value, _: ?Blo
     }
 
     return Value.fromObject(result);
+}
+
+pub fn builtinArrayClear(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
+    }
+
+    const array = receiver.toArrayObject();
+    array.elements.clearRetainingCapacity();
+    return receiver;
 }
 
 pub fn builtinArrayUnion(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
