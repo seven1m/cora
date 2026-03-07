@@ -237,6 +237,9 @@ pub fn register(vm: *VM) !void {
 
     const clear_sym = try vm.intern("clear");
     try vm.array_class.module.methods.put(clear_sym, .{ .method = .{ .builtin = &builtinArrayClear } });
+
+    const shift_sym = try vm.intern("shift");
+    try vm.array_class.module.methods.put(shift_sym, .{ .method = .{ .builtin = &builtinArrayShift } });
 }
 
 pub fn builtinArrayPush(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -781,6 +784,37 @@ pub fn builtinArrayClear(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     const array = receiver.toArrayObject();
     array.elements.clearRetainingCapacity();
     return receiver;
+}
+
+pub fn builtinArrayShift(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
+    }
+
+    const array = receiver.toArrayObject();
+    if (args.len == 0) {
+        if (array.elements.items.len == 0) return Value.nil();
+        return array.elements.orderedRemove(0);
+    }
+
+    const count = try args[0].coerceToI64ViaToInt(
+        vm,
+        "no implicit conversion into Integer",
+        "no implicit conversion into Integer",
+        "bignum too big to convert into `long`",
+    );
+    if (count < 0) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "negative array size", .{});
+    }
+
+    const out = try vm.createArray();
+    const shift_count: usize = @intCast(@min(count, @as(i64, @intCast(array.elements.items.len))));
+    var i: usize = 0;
+    while (i < shift_count) : (i += 1) {
+        out.elements.append(vm.gc_allocator, array.elements.orderedRemove(0)) catch return error.Fatal;
+    }
+    return Value.fromObject(out);
 }
 
 pub fn builtinArrayUnion(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
