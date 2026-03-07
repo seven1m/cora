@@ -227,6 +227,15 @@ def ruby_version_is(*args, **_kwargs, &block)
   end
 end
 
+def ruby_bug(_id, *args, **kwargs, &block)
+  return unless block
+  if args.empty?
+    block.call
+  else
+    ruby_version_is(*args, **kwargs, &block)
+  end
+end
+
 def fixture(spec_file, fixture_name)
   path = spec_file.to_s
   absolute = path.length > 0 && path[0] == "/"

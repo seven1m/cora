@@ -22,7 +22,9 @@ fn handleMissingConverter(
     from_encoding: enc.Encoding,
     target_encoding: enc.Encoding,
 ) VMError!?Value {
-    if (isTag(from_encoding, .ascii_8bit) and isTag(target_encoding, .shift_jis)) {
+    const effective_target = enc.effectiveTranscodeTargetEncoding(target_encoding);
+
+    if (isTag(from_encoding, .ascii_8bit) and isTag(effective_target, .shift_jis)) {
         // Mirror MRI behavior for missing generic converter: 7-bit data round-trips
         // unchanged, non-ASCII raises ConverterNotFoundError.
         if (enc.isAsciiOnly(source_bytes)) {
@@ -31,7 +33,7 @@ fn handleMissingConverter(
         return vm.raiseExceptionFmt(vm.encoding_converter_not_found_error_class, "code converter not found", .{});
     }
 
-    if (isTag(from_encoding, .shift_jis) and isTag(target_encoding, .ascii_8bit)) {
+    if (isTag(from_encoding, .shift_jis) and isTag(effective_target, .ascii_8bit)) {
         return vm.raiseExceptionFmt(vm.encoding_converter_not_found_error_class, "code converter not found", .{});
     }
 
@@ -903,14 +905,16 @@ fn transcodeWithEncodeOptions(
     kw_fallback: ?Value,
     xml_mode: EncodeXmlMode,
 ) VMError![]u8 {
-    if (isTag(target_encoding, .iso_2022_jp) and
+    const effective_target_encoding = enc.effectiveTranscodeTargetEncoding(target_encoding);
+
+    if (isTag(effective_target_encoding, .iso_2022_jp) and
         kw_invalid == null and
         kw_undef == null and
         kw_replace == null and
         kw_fallback == null and
         xml_mode == .none)
     {
-        return transcodeToIso2022JpSimple(vm, source_bytes, from_encoding, target_encoding);
+        return transcodeToIso2022JpSimple(vm, source_bytes, from_encoding, effective_target_encoding);
     }
 
     var out: std.ArrayList(u8) = .empty;
@@ -929,9 +933,9 @@ fn transcodeWithEncodeOptions(
         if (!parsed.valid) {
             if (invalid_replace) {
                 if (kw_replace != null) {
-                    try appendReplacementForEncode(vm, &out, replacement, target_encoding);
+                    try appendReplacementForEncode(vm, &out, replacement, effective_target_encoding);
                 } else {
-                    try appendDefaultReplacementForEncode(vm, &out, target_encoding);
+                    try appendDefaultReplacementForEncode(vm, &out, effective_target_encoding);
                 }
                 continue;
             }
@@ -940,39 +944,39 @@ fn transcodeWithEncodeOptions(
 
         if (xml_mode != .none) {
             if (parsed.codepoint == '&') {
-                try appendXmlEntity(vm, &out, "&amp;", target_encoding);
+                try appendXmlEntity(vm, &out, "&amp;", effective_target_encoding);
                 continue;
             }
             if (parsed.codepoint == '<') {
-                try appendXmlEntity(vm, &out, "&lt;", target_encoding);
+                try appendXmlEntity(vm, &out, "&lt;", effective_target_encoding);
                 continue;
             }
             if (parsed.codepoint == '>') {
-                try appendXmlEntity(vm, &out, "&gt;", target_encoding);
+                try appendXmlEntity(vm, &out, "&gt;", effective_target_encoding);
                 continue;
             }
             if (xml_mode == .attr and parsed.codepoint == '"') {
-                try appendXmlEntity(vm, &out, "&quot;", target_encoding);
+                try appendXmlEntity(vm, &out, "&quot;", effective_target_encoding);
                 continue;
             }
         }
 
         var encoded: [4]u8 = undefined;
-        if (target_encoding.fromUnicodeCodepoint(parsed.codepoint, &encoded)) |encoded_len| {
+        if (effective_target_encoding.fromUnicodeCodepoint(parsed.codepoint, &encoded)) |encoded_len| {
             out.appendSlice(vm.gc_allocator_atomic, encoded[0..encoded_len]) catch return error.Fatal;
             continue;
         }
 
         if (xml_mode != .none) {
-            try appendXmlNumericCharRef(vm, &out, parsed.codepoint, target_encoding);
+            try appendXmlNumericCharRef(vm, &out, parsed.codepoint, effective_target_encoding);
             continue;
         }
 
         if (undef_replace) {
             if (kw_replace != null) {
-                try appendReplacementForEncode(vm, &out, replacement, target_encoding);
+                try appendReplacementForEncode(vm, &out, replacement, effective_target_encoding);
             } else {
-                try appendDefaultReplacementForEncode(vm, &out, target_encoding);
+                try appendDefaultReplacementForEncode(vm, &out, effective_target_encoding);
             }
             continue;
         }
@@ -991,17 +995,17 @@ fn transcodeWithEncodeOptions(
             }
 
             if (fallback_result == null or fallback_result.?.isNil()) {
-                return raiseUndefinedConversionForCodepoint(vm, parsed.codepoint, from_encoding, target_encoding);
+                return raiseUndefinedConversionForCodepoint(vm, parsed.codepoint, from_encoding, effective_target_encoding);
             }
 
             const fallback_str = fallback_result.?.coerceToStringValue(vm, "no implicit conversion of Object into String") catch {
                 return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion of Object into String", .{});
             };
-            try appendReplacementForEncode(vm, &out, fallback_str, target_encoding);
+            try appendReplacementForEncode(vm, &out, fallback_str, effective_target_encoding);
             continue;
         }
 
-        return raiseUndefinedConversionForCodepoint(vm, parsed.codepoint, from_encoding, target_encoding);
+        return raiseUndefinedConversionForCodepoint(vm, parsed.codepoint, from_encoding, effective_target_encoding);
     }
 
     return out.toOwnedSlice(vm.gc_allocator_atomic) catch return error.Fatal;
@@ -2483,6 +2487,80 @@ fn parseStringToInteger(vm: *VM, s: []const u8, requested_base: i64, default_bas
     }
 }
 
+fn parseStringToFloat(vm: *VM, s: []const u8) VMError!f64 {
+    var normalized: std.ArrayList(u8) = .empty;
+    defer normalized.deinit(vm.allocator);
+
+    var i: usize = 0;
+    if (i < s.len and (s[i] == '+' or s[i] == '-')) {
+        normalized.append(vm.allocator, s[i]) catch return error.Fatal;
+        i += 1;
+    }
+
+    var saw_mantissa_digit = false;
+    var saw_dot = false;
+    var saw_exponent = false;
+    var saw_exponent_digit = false;
+
+    while (i < s.len) {
+        const c = s[i];
+
+        if (isAsciiDigitByte(c)) {
+            normalized.append(vm.allocator, c) catch return error.Fatal;
+            if (saw_exponent) {
+                saw_exponent_digit = true;
+            } else {
+                saw_mantissa_digit = true;
+            }
+            i += 1;
+            continue;
+        }
+
+        if (c == '_') {
+            const prev_is_digit = normalized.items.len > 0 and isAsciiDigitByte(normalized.items[normalized.items.len - 1]);
+            const next_is_digit = i + 1 < s.len and isAsciiDigitByte(s[i + 1]);
+            if (prev_is_digit and next_is_digit) {
+                i += 1;
+                continue;
+            }
+            break;
+        }
+
+        if (c == '.' and !saw_dot and !saw_exponent) {
+            normalized.append(vm.allocator, c) catch return error.Fatal;
+            saw_dot = true;
+            i += 1;
+            continue;
+        }
+
+        if ((c == 'e' or c == 'E') and !saw_exponent and saw_mantissa_digit) {
+            var exponent_start = i + 1;
+            var exponent_sign: ?u8 = null;
+            if (exponent_start < s.len and (s[exponent_start] == '+' or s[exponent_start] == '-')) {
+                exponent_sign = s[exponent_start];
+                exponent_start += 1;
+            }
+
+            if (exponent_start < s.len and isAsciiDigitByte(s[exponent_start])) {
+                normalized.append(vm.allocator, 'e') catch return error.Fatal;
+                if (exponent_sign) |sign| {
+                    normalized.append(vm.allocator, sign) catch return error.Fatal;
+                }
+                saw_exponent = true;
+                i = exponent_start;
+                continue;
+            }
+            break;
+        }
+
+        break;
+    }
+
+    if (!saw_mantissa_digit) return 0.0;
+    if (saw_exponent and !saw_exponent_digit) return 0.0;
+    return std.fmt.parseFloat(f64, normalized.items) catch 0.0;
+}
+
 pub fn builtinStringToI(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
 
@@ -2512,7 +2590,7 @@ pub fn builtinStringToF(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     }
 
     const trimmed = std.mem.trim(u8, string_obj.str, " \t\n\r\x0B\x0C");
-    const parsed = std.fmt.parseFloat(f64, trimmed) catch return vm.newFloat(0.0);
+    const parsed = try parseStringToFloat(vm, trimmed);
     return vm.newFloat(parsed);
 }
 

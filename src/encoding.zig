@@ -187,12 +187,21 @@ pub const CaseMapResult = struct {
     encoding: Encoding,
 };
 
+pub fn effectiveTranscodeTargetEncoding(target: Encoding) Encoding {
+    return switch (target) {
+        .utf16 => .{ .utf16be = .{} },
+        .utf32 => .{ .utf32be = .{} },
+        else => target,
+    };
+}
+
 pub fn transcode(
     allocator: std.mem.Allocator,
     bytes: []const u8,
     source: Encoding,
     target: Encoding,
 ) TranscodeError![]u8 {
+    const effective_target = effectiveTranscodeTargetEncoding(target);
     var out: std.ArrayList(u8) = .empty;
     defer out.deinit(allocator);
 
@@ -203,7 +212,7 @@ pub fn transcode(
         if (!parsed.valid) return error.InvalidByteSequence;
 
         var encoded: [4]u8 = undefined;
-        const encoded_len = target.fromUnicodeCodepoint(parsed.codepoint, &encoded) orelse {
+        const encoded_len = effective_target.fromUnicodeCodepoint(parsed.codepoint, &encoded) orelse {
             return error.UndefinedConversion;
         };
         out.appendSlice(allocator, encoded[0..encoded_len]) catch return error.OutOfMemory;
