@@ -2038,7 +2038,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/string/string_spec.rb
 - [ ] core/string/strip_spec.rb
 - [ ] core/string/sub_spec.rb
-- [ ] core/string/succ_spec.rb
+- [x] core/string/succ_spec.rb
 - [ ] core/string/sum_spec.rb
 - [ ] core/string/swapcase_spec.rb
 - [ ] core/string/to_c_spec.rb

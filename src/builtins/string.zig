@@ -272,6 +272,10 @@ pub fn register(vm: *VM) !void {
     try vm.string_class.module.methods.put(string_capitalize_sym, .{ .method = .{ .builtin = &builtinStringCapitalize } });
     const string_capitalize_bang_sym = try vm.intern("capitalize!");
     try vm.string_class.module.methods.put(string_capitalize_bang_sym, .{ .method = .{ .builtin = &builtinStringCapitalizeBang } });
+    const string_succ_sym = try vm.intern("succ");
+    try vm.string_class.module.methods.put(string_succ_sym, .{ .method = .{ .builtin = &builtinStringNext } });
+    const string_succ_bang_sym = try vm.intern("succ!");
+    try vm.string_class.module.methods.put(string_succ_bang_sym, .{ .method = .{ .builtin = &builtinStringNextBang } });
     const string_next_sym = try vm.intern("next");
     try vm.string_class.module.methods.put(string_next_sym, .{ .method = .{ .builtin = &builtinStringNext } });
     const string_next_bang_sym = try vm.intern("next!");
