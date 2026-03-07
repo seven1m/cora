@@ -163,6 +163,10 @@ const SymbolKeyContext = struct {
 
 const PackedPointerTargets = std.AutoHashMap(usize, *StringObject);
 
+fn encodingKey(encoding_value: enc.Encoding) SymbolEncodingTag {
+    return std.meta.activeTag(encoding_value);
+}
+
 pub const VM = struct {
     allocator: std.mem.Allocator,
     gc_allocator: std.mem.Allocator,
@@ -177,6 +181,7 @@ pub const VM = struct {
     symbols: std.HashMap(SymbolKey, *SymbolObject, SymbolKeyContext, std.hash_map.default_max_load_percentage),
     globals: std.StringHashMap(Value),
     fstring_cache: std.StringHashMap(Value),
+    canonical_fstrings: std.ArrayList(Value) = .empty,
     packed_pointer_targets: std.AutoHashMap(*StringObject, PackedPointerTargets),
 
     program: *compiler.CompiledProgram,
@@ -325,6 +330,7 @@ pub const VM = struct {
             .symbols = std.HashMap(SymbolKey, *SymbolObject, SymbolKeyContext, std.hash_map.default_max_load_percentage).init(gc_allocator),
             .globals = std.StringHashMap(Value).init(gc_allocator),
             .fstring_cache = std.StringHashMap(Value).init(allocator),
+            .canonical_fstrings = .empty,
             .packed_pointer_targets = std.AutoHashMap(*StringObject, PackedPointerTargets).init(allocator),
             .loaded_files = std.StringHashMap(void).init(gc_allocator),
             .program = undefined,
@@ -1256,6 +1262,7 @@ pub const VM = struct {
             self.allocator.free(key.*);
         }
         self.fstring_cache.deinit();
+        self.canonical_fstrings.deinit(self.allocator);
         var packed_targets_iter = self.packed_pointer_targets.valueIterator();
         while (packed_targets_iter.next()) |targets| {
             targets.deinit();
@@ -2688,16 +2695,18 @@ pub const VM = struct {
                             .{ source_hash, content_hash, encoding_tag },
                         ) catch return error.Fatal;
                         if (self.fstring_cache.get(key)) |cached| {
-                            try self.push(cached);
+                            const canonical = try self.getOrCreateCanonicalFStringValue(cached);
+                            try self.push(canonical);
                         } else {
                             const frozen = try self.newStringWithEncoding(
                                 s,
                                 true,
                                 literal_encoding,
                             );
+                            const canonical = try self.getOrCreateCanonicalFStringValue(frozen);
                             const owned_key = self.allocator.dupe(u8, key) catch return error.Fatal;
-                            self.fstring_cache.put(owned_key, frozen) catch return error.Fatal;
-                            try self.push(frozen);
+                            self.fstring_cache.put(owned_key, canonical) catch return error.Fatal;
+                            try self.push(canonical);
                         }
                     },
                     else => return error.Fatal,
@@ -6006,6 +6015,32 @@ pub const VM = struct {
         const status_obj = try self.newInstance(self.process_status_class);
         try self.setInstanceVariable(status_obj, "@exitstatus", Value.integer(exitstatus));
         try self.setGlobal("$?", status_obj);
+    }
+
+    pub fn getOrCreateCanonicalFString(self: *VM, str: []const u8, encoding: enc.Encoding) VMError!Value {
+        for (self.canonical_fstrings.items) |existing| {
+            const existing_obj = existing.toStringObject();
+            if (encodingKey(existing_obj.encoding) == encodingKey(encoding) and std.mem.eql(u8, existing_obj.str, str)) {
+                return existing;
+            }
+        }
+
+        const frozen = try self.newStringWithEncoding(str, true, encoding);
+        self.canonical_fstrings.append(self.allocator, frozen) catch return error.Fatal;
+        return frozen;
+    }
+
+    pub fn getOrCreateCanonicalFStringValue(self: *VM, string_value: Value) VMError!Value {
+        const string_obj = string_value.toStringObject();
+        for (self.canonical_fstrings.items) |existing| {
+            const existing_obj = existing.toStringObject();
+            if (encodingKey(existing_obj.encoding) == encodingKey(string_obj.encoding) and std.mem.eql(u8, existing_obj.str, string_obj.str)) {
+                return existing;
+            }
+        }
+
+        self.canonical_fstrings.append(self.allocator, string_value) catch return error.Fatal;
+        return string_value;
     }
 
     fn getOrCreateFrozenStringLiteral(self: *VM, str: []const u8) VMError!Value {

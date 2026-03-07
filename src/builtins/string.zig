@@ -102,6 +102,8 @@ pub fn register(vm: *VM) !void {
 
     const string_uplus_sym = try vm.intern("+@");
     try vm.string_class.module.methods.put(string_uplus_sym, .{ .method = .{ .builtin = &builtinStringUnaryPlus } });
+    const string_uminus_sym = try vm.intern("-@");
+    try vm.string_class.module.methods.put(string_uminus_sym, .{ .method = .{ .builtin = &builtinStringDedup } });
 
     const string_plus_sym = try vm.intern("+");
     try vm.string_class.module.methods.put(string_plus_sym, .{ .method = .{ .builtin = &builtinStringPlus } });
@@ -159,6 +161,8 @@ pub fn register(vm: *VM) !void {
 
     const string_b_sym = try vm.intern("b");
     try vm.string_class.module.methods.put(string_b_sym, .{ .method = .{ .builtin = &builtinStringB } });
+    const string_dedup_sym = try vm.intern("dedup");
+    try vm.string_class.module.methods.put(string_dedup_sym, .{ .method = .{ .builtin = &builtinStringDedup } });
 
     const string_dup_sym = try vm.intern("dup");
     try vm.string_class.module.methods.put(string_dup_sym, .{ .method = .{ .builtin = &builtinStringDup } });
@@ -1196,6 +1200,37 @@ pub fn builtinStringB(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
     const string_obj = receiver.toStringObject();
     // Return a new string with ASCII-8BIT encoding
     return try vm.newStringWithEncoding(string_obj.str, false, .{ .ascii_8bit = .{} });
+}
+
+pub fn builtinStringDedup(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
+    const string_obj = receiver.toStringObject();
+    const object = receiver.getObjectPointer().?;
+    const bare_string =
+        vm.getClass(receiver) == vm.string_class and
+        object.instance_variables == null;
+
+    if (bare_string) {
+        if (receiver.isFrozen()) {
+            return try vm.getOrCreateCanonicalFStringValue(receiver);
+        }
+        return try vm.getOrCreateCanonicalFString(string_obj.str, string_obj.encoding);
+    }
+
+    var result = receiver;
+    if (!receiver.isFrozen()) {
+        result = try builtinStringDup(vm, receiver, &.{}, null);
+    }
+
+    const canonical = try vm.getOrCreateCanonicalFString(string_obj.str, string_obj.encoding);
+    const result_obj = result.toStringObject();
+    const canonical_obj = canonical.toStringObject();
+    result_obj.str = canonical_obj.str;
+    result_obj.encoding = canonical_obj.encoding;
+    result_obj.validity = canonical_obj.validity;
+    result.freeze();
+    return result;
 }
 
 pub fn builtinStringDup(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

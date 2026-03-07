@@ -648,6 +648,14 @@ pub fn builtinKernelNil(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Val
 
 pub fn builtinKernelFreeze(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
+    if (receiver.isString()) {
+        const string_obj = receiver.toStringObject();
+        const object = receiver.getObjectPointer().?;
+        const bare_string = vm.getClass(receiver) == vm.string_class and object.instance_variables == null;
+        if (string_obj.chilled_literal and bare_string) {
+            _ = try vm.getOrCreateCanonicalFStringValue(receiver);
+        }
+    }
     var mutable_receiver = receiver;
     mutable_receiver.freeze();
     return receiver;

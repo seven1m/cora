@@ -1974,7 +1974,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/string/concat_spec.rb
 - [ ] core/string/count_spec.rb
 - [ ] core/string/crypt_spec.rb
-- [ ] core/string/dedup_spec.rb
+- [x] core/string/dedup_spec.rb
 - [x] core/string/delete_prefix_spec.rb
 - [ ] core/string/delete_spec.rb
 - [x] core/string/delete_suffix_spec.rb
@@ -2051,7 +2051,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/string/tr_s_spec.rb
 - [ ] core/string/tr_spec.rb
 - [x] core/string/try_convert_spec.rb
-- [ ] core/string/uminus_spec.rb
+- [x] core/string/uminus_spec.rb
 - [ ] core/string/undump_spec.rb
 - [ ] core/string/unicode_normalize_spec.rb
 - [ ] core/string/unicode_normalized_spec.rb
