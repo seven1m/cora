@@ -202,6 +202,9 @@ pub fn register(vm: *VM) !void {
     const last_sym = try vm.intern("last");
     try vm.array_class.module.methods.put(last_sym, .{ .method = .{ .builtin = &builtinArrayLast } });
 
+    const at_sym = try vm.intern("at");
+    try vm.array_class.module.methods.put(at_sym, .{ .method = .{ .builtin = &builtinArrayAt } });
+
     const intersection_sym = try vm.intern("&");
     try vm.array_class.module.methods.put(intersection_sym, .{ .method = .{ .builtin = &builtinArrayIntersection } });
 
@@ -726,6 +729,28 @@ pub fn builtinArrayLast(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
         out.elements.append(vm.gc_allocator, elem) catch return error.Fatal;
     }
     return Value.fromObject(out);
+}
+
+pub fn builtinArrayAt(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+
+    const index = try args[0].coerceToI64ViaToInt(
+        vm,
+        "no implicit conversion into Integer",
+        "no implicit conversion into Integer",
+        "bignum too big to convert into `long`",
+    );
+
+    const array = receiver.toArrayObject();
+    const len: i64 = @intCast(array.elements.items.len);
+    var actual_index = index;
+    if (actual_index < 0) actual_index += len;
+
+    if (actual_index < 0 or actual_index >= len) {
+        return Value.nil();
+    }
+
+    return array.elements.items[@intCast(actual_index)];
 }
 
 pub fn builtinArrayIntersection(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
