@@ -81,7 +81,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/array/all_spec.rb
 - [ ] core/array/allocate_spec.rb
 - [ ] core/array/any_spec.rb
-- [ ] core/array/append_spec.rb
+- [x] core/array/append_spec.rb
 - [ ] core/array/array_spec.rb
 - [ ] core/array/assoc_spec.rb
 - [x] core/array/at_spec.rb
@@ -178,7 +178,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/array/pop_spec.rb
 - [ ] core/array/prepend_spec.rb
 - [ ] core/array/product_spec.rb
-- [ ] core/array/push_spec.rb
+- [x] core/array/push_spec.rb
 - [ ] core/array/rassoc_spec.rb
 - [ ] core/array/reject_spec.rb
 - [ ] core/array/repeated_combination_spec.rb

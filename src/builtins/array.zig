@@ -157,6 +157,12 @@ pub fn register(vm: *VM) !void {
     const push_sym = try vm.intern("<<");
     try vm.array_class.module.methods.put(push_sym, .{ .method = .{ .builtin = &builtinArrayPush } });
 
+    const append_sym = try vm.intern("append");
+    try vm.array_class.module.methods.put(append_sym, .{ .method = .{ .builtin = &builtinArrayAppend } });
+
+    const push_method_sym = try vm.intern("push");
+    try vm.array_class.module.methods.put(push_method_sym, .{ .method = .{ .builtin = &builtinArrayAppend } });
+
     const each_sym = try vm.intern("each");
     try vm.array_class.module.methods.put(each_sym, .{ .method = .{ .builtin = &builtinArrayEach } });
 
@@ -244,8 +250,24 @@ pub fn register(vm: *VM) !void {
 
 pub fn builtinArrayPush(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
+    }
     const array = receiver.toArrayObject();
     array.elements.append(vm.gc_allocator, args[0]) catch return error.Fatal;
+
+    return receiver;
+}
+
+pub fn builtinArrayAppend(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
+    }
+
+    const array = receiver.toArrayObject();
+    for (args) |arg| {
+        array.elements.append(vm.gc_allocator, arg) catch return error.Fatal;
+    }
 
     return receiver;
 }
