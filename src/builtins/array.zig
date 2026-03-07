@@ -527,6 +527,7 @@ pub fn builtinArrayToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
     try vm.requireArgCount(args, 0);
     const array = receiver.toArrayObject();
     var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(vm.allocator);
     const writer = buf.writer(vm.allocator);
 
     writer.writeAll("[") catch return error.Fatal;
