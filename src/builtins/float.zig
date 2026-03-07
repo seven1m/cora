@@ -1,4 +1,5 @@
 const std = @import("std");
+const enc = @import("../encoding.zig");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 
@@ -7,10 +8,49 @@ const VMError = vm_mod.VMError;
 const Block = vm_mod.Block;
 const Value = value.Value;
 
+extern fn dtoa(
+    dd: f64,
+    mode: c_int,
+    ndigits: c_int,
+    decpt: *c_int,
+    sign: *c_int,
+    rve: *?[*]u8,
+) [*:0]u8;
+extern fn freedtoa(s: [*]u8) void;
+
+const max_fixed_decimal_digits: c_int = 15;
+
 fn coerceNumericArg(vm: *VM, arg: Value) VMError!f64 {
     if (arg.isFloat()) return arg.toFloatObject().val;
     if (arg.isInteger()) return @floatFromInt(arg.toInteger());
     return vm.raiseExceptionFmt(vm.type_error_class, "argument is not numeric", .{});
+}
+
+fn appendExponent(writer: anytype, exponent: c_int) VMError!void {
+    writer.writeByte('e') catch return error.Fatal;
+    if (exponent < 0) {
+        writer.writeByte('-') catch return error.Fatal;
+    } else {
+        writer.writeByte('+') catch return error.Fatal;
+    }
+
+    const abs_exponent: c_int = @intCast(@abs(exponent));
+    if (abs_exponent < 10) {
+        writer.writeByte('0') catch return error.Fatal;
+    }
+    writer.print("{d}", .{abs_exponent}) catch return error.Fatal;
+}
+
+fn appendScientificMantissa(writer: anytype, digits: []const u8) VMError!void {
+    if (digits.len > 1) {
+        writer.writeByte(digits[0]) catch return error.Fatal;
+        writer.writeByte('.') catch return error.Fatal;
+        writer.writeAll(digits[1..]) catch return error.Fatal;
+        return;
+    }
+
+    writer.writeAll(digits) catch return error.Fatal;
+    writer.writeAll(".0") catch return error.Fatal;
 }
 
 pub fn register(vm: *VM) !void {
@@ -194,17 +234,62 @@ pub fn builtinFloatToInt(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
 
 fn floatToString(vm: *VM, value_f: f64) VMError!Value {
     if (std.math.isNan(value_f)) {
-        return vm.newString("NaN", false);
+        return vm.newStringWithEncoding("NaN", false, .{ .us_ascii = .{} });
     }
     if (std.math.isPositiveInf(value_f)) {
-        return vm.newString("Infinity", false);
+        return vm.newStringWithEncoding("Infinity", false, .{ .us_ascii = .{} });
     }
     if (std.math.isNegativeInf(value_f)) {
-        return vm.newString("-Infinity", false);
+        return vm.newStringWithEncoding("-Infinity", false, .{ .us_ascii = .{} });
     }
 
-    const str = std.fmt.allocPrint(vm.gc_allocator, "{d}", .{value_f}) catch return error.Fatal;
-    return vm.newString(str, false);
+    var decpt: c_int = 0;
+    var sign: c_int = 0;
+    var end_ptr: ?[*]u8 = null;
+    const dtoa_result = dtoa(value_f, 0, 0, &decpt, &sign, &end_ptr);
+    defer freedtoa(@ptrCast(dtoa_result));
+
+    const digits = std.mem.span(dtoa_result);
+
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(vm.allocator);
+    const writer = buf.writer(vm.allocator);
+
+    if (sign != 0) {
+        writer.writeByte('-') catch return error.Fatal;
+    }
+
+    if (decpt > 0) {
+        if (decpt < digits.len) {
+            const split: usize = @intCast(decpt);
+            writer.writeAll(digits[0..split]) catch return error.Fatal;
+            writer.writeByte('.') catch return error.Fatal;
+            writer.writeAll(digits[split..]) catch return error.Fatal;
+        } else if (decpt <= max_fixed_decimal_digits) {
+            writer.writeAll(digits) catch return error.Fatal;
+            var i: usize = digits.len;
+            const decpt_usize: usize = @intCast(decpt);
+            while (i < decpt_usize) : (i += 1) {
+                writer.writeByte('0') catch return error.Fatal;
+            }
+            writer.writeAll(".0") catch return error.Fatal;
+        } else {
+            try appendScientificMantissa(writer, digits);
+            try appendExponent(writer, decpt - 1);
+        }
+    } else if (decpt > -4) {
+        writer.writeAll("0.") catch return error.Fatal;
+        var zero_count: c_int = -decpt;
+        while (zero_count > 0) : (zero_count -= 1) {
+            writer.writeByte('0') catch return error.Fatal;
+        }
+        writer.writeAll(digits) catch return error.Fatal;
+    } else {
+        try appendScientificMantissa(writer, digits);
+        try appendExponent(writer, decpt - 1);
+    }
+
+    return vm.newStringWithEncoding(buf.items, false, enc.Encoding{ .us_ascii = .{} });
 }
 
 pub fn builtinFloatToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

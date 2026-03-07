@@ -82,6 +82,7 @@ pub fn build(b: *std.Build) void {
     exe.addIncludePath(b.path("zig-out/prism/include"));
     exe.addObjectFile(b.path("zig-out/onigmo/.libs/libonigmo.a"));
     exe.addIncludePath(b.path("zig-out/onigmo/"));
+    exe.addCSourceFile(.{ .file = b.path("ext/dtoa.c") });
 
     exe.linkLibC();
 
@@ -161,6 +162,7 @@ pub fn build(b: *std.Build) void {
     test_exe.addIncludePath(b.path("zig-out/prism/include"));
     test_exe.addObjectFile(b.path("zig-out/onigmo/.libs/libonigmo.a"));
     test_exe.addIncludePath(b.path("zig-out/onigmo/"));
+    test_exe.addCSourceFile(.{ .file = b.path("ext/dtoa.c") });
     test_exe.linkLibC();
 
     test_exe.root_module.addImport("bdwgc", bdwgc.module("bdwgc"));

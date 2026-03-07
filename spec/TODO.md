@@ -867,7 +867,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/float/gte_spec.rb
 - [ ] core/float/hash_spec.rb
 - [ ] core/float/infinite_spec.rb
-- [ ] core/float/inspect_spec.rb
+- [x] core/float/inspect_spec.rb
 - [ ] core/float/lt_spec.rb
 - [ ] core/float/lte_spec.rb
 - [ ] core/float/magnitude_spec.rb
@@ -889,7 +889,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/float/to_i_spec.rb
 - [ ] core/float/to_int_spec.rb
 - [ ] core/float/to_r_spec.rb
-- [ ] core/float/to_s_spec.rb
+- [x] core/float/to_s_spec.rb
 - [ ] core/float/truncate_spec.rb
 - [ ] core/float/uminus_spec.rb
 - [ ] core/float/uplus_spec.rb
