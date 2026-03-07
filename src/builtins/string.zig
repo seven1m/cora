@@ -278,6 +278,9 @@ pub fn register(vm: *VM) !void {
     const string_to_i_sym = try vm.intern("to_i");
     try vm.string_class.module.methods.put(string_to_i_sym, .{ .method = .{ .builtin = &builtinStringToI } });
 
+    const string_to_f_sym = try vm.intern("to_f");
+    try vm.string_class.module.methods.put(string_to_f_sym, .{ .method = .{ .builtin = &builtinStringToF } });
+
     const string_oct_sym = try vm.intern("oct");
     try vm.string_class.module.methods.put(string_oct_sym, .{ .method = .{ .builtin = &builtinStringOct } });
 
@@ -2494,6 +2497,23 @@ pub fn builtinStringToI(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     }
 
     return parseStringToInteger(vm, receiver.toStringObject().str, requested_base, 10);
+}
+
+pub fn builtinStringToF(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
+    const string_obj = receiver.toStringObject();
+    if (!string_obj.encoding.isAsciiCompatible()) {
+        return vm.raiseExceptionFmt(
+            vm.encoding_compatibility_error_class,
+            "ASCII incompatible encoding: {s}",
+            .{string_obj.encoding.name()},
+        );
+    }
+
+    const trimmed = std.mem.trim(u8, string_obj.str, " \t\n\r\x0B\x0C");
+    const parsed = std.fmt.parseFloat(f64, trimmed) catch return vm.newFloat(0.0);
+    return vm.newFloat(parsed);
 }
 
 pub fn builtinStringOct(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
