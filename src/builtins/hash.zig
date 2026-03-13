@@ -41,6 +41,9 @@ pub fn register(vm: *VM) !void {
     const inspect_sym = try vm.intern("inspect");
     try vm.hash_class.module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinHashInspect } });
 
+    const equal_sym = try vm.intern("==");
+    try vm.hash_class.module.methods.put(equal_sym, .{ .method = .{ .builtin = &builtinHashEqual } });
+
     const fetch_sym = try vm.intern("fetch");
     try vm.hash_class.module.methods.put(fetch_sym, .{ .method = .{ .builtin = &builtinHashFetch } });
 
@@ -331,6 +334,24 @@ pub fn builtinHashToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
     const final_str = buf.toOwnedSlice(vm.allocator) catch return error.Fatal;
     defer vm.allocator.free(final_str);
     return try vm.newString(final_str, false);
+}
+
+pub fn builtinHashEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (!args[0].isHash()) return Value.boolean(false);
+
+    const lhs = receiver.toHashObject();
+    const rhs = args[0].toHashObject();
+    if (lhs.entries.items.len != rhs.entries.items.len) return Value.boolean(false);
+
+    for (lhs.entries.items) |entry| {
+        const rhs_idx = rhs.map.get(entry.key.hash()) orelse return Value.boolean(false);
+        const rhs_entry = rhs.entries.items[rhs_idx];
+        if (!rhs_entry.key.eql(entry.key)) return Value.boolean(false);
+        if (!rhs_entry.value.eql(entry.value)) return Value.boolean(false);
+    }
+
+    return Value.boolean(true);
 }
 
 pub fn builtinHashInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
