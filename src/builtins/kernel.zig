@@ -88,6 +88,9 @@ pub fn register(vm: *VM) !void {
     const inspect_sym = try vm.intern("inspect");
     try vm.kernel_module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinKernelInspect } });
 
+    const hash_sym = try vm.intern("hash");
+    try vm.kernel_module.methods.put(hash_sym, .{ .method = .{ .builtin = &builtinKernelHash } });
+
     const p_sym = try vm.intern("p");
     try vm.kernel_module.methods.put(p_sym, .{ .method = .{ .builtin = &builtinKernelP } });
 
@@ -639,6 +642,12 @@ pub fn builtinKernelToS(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError
 
 pub fn builtinKernelInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     return builtinKernelToS(vm, receiver, args, null);
+}
+
+pub fn builtinKernelHash(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const hash_value: i64 = @bitCast(receiver.hash());
+    return Value.integer(hash_value);
 }
 
 pub fn builtinKernelNil(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
