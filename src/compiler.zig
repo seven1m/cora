@@ -684,6 +684,10 @@ pub const Compiler = struct {
                 try self.compileGlobalAndWrite(var_write, line);
             },
 
+            .global_variable_operator_write => |var_write| {
+                try self.compileGlobalOperatorWrite(var_write, line);
+            },
+
             .global_variable_or_write => |var_write| {
                 try self.compileGlobalOrWrite(var_write, line);
             },
@@ -1066,6 +1070,7 @@ pub const Compiler = struct {
             .local_variable_operator_write,
             .global_variable_write,
             .global_variable_and_write,
+            .global_variable_operator_write,
             .global_variable_or_write,
             .instance_variable_write,
             .instance_variable_and_write,
@@ -2251,6 +2256,23 @@ pub const Compiler = struct {
         try self.current_chunk.emitOpU16(.SET_GLOBAL, @intCast(name_idx), line);
 
         try self.current_chunk.patchJump(jump_end);
+    }
+
+    fn compileGlobalOperatorWrite(self: *Compiler, var_write: *prism.GlobalVariableOperatorWriteNode, line: u32) !void {
+        const var_name = try self.parser.getConstantName(@intCast(var_write.name));
+        const name_idx = try self.current_chunk.addConstant(.{ .string = var_name });
+
+        try self.current_chunk.emitOpU16(.GET_GLOBAL, @intCast(name_idx), line);
+
+        const value_node = try self.parser.asNode(@ptrCast(var_write.value));
+        try self.compileNode(value_node, line);
+
+        const operator_name = try self.parser.getConstantName(@intCast(var_write.binary_operator));
+        const method_idx = try self.current_chunk.addConstant(.{ .string = operator_name });
+        const receiver_style: u8 = @intFromEnum(bytecode.ReceiverCallStyle.explicit);
+        try self.current_chunk.emitCall(@intCast(method_idx), 1, receiver_style, 0, line);
+
+        try self.current_chunk.emitOpU16(.SET_GLOBAL, @intCast(name_idx), line);
     }
 
     fn compileInstanceVariableAndWrite(self: *Compiler, var_write: *prism.InstanceVariableAndWriteNode, line: u32) !void {

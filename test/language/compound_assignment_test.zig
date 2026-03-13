@@ -137,6 +137,13 @@ test "global compound assignment" {
         \\$h
     );
     try std.testing.expect(result.isBool() and !result.toBool());
+
+    result = try evalCode(
+        \\$i = 1
+        \\$i += 2
+        \\$i
+    );
+    try std.testing.expectEqual(@as(i64, 3), result.toInteger());
 }
 
 test "instance variable compound assignment" {

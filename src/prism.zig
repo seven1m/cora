@@ -75,6 +75,7 @@ pub const GlobalVariableReadNode = c.pm_global_variable_read_node_t;
 pub const BackReferenceReadNode = c.pm_back_reference_read_node_t;
 pub const NumberedReferenceReadNode = c.pm_numbered_reference_read_node_t;
 pub const GlobalVariableAndWriteNode = c.pm_global_variable_and_write_node_t;
+pub const GlobalVariableOperatorWriteNode = c.pm_global_variable_operator_write_node_t;
 pub const GlobalVariableOrWriteNode = c.pm_global_variable_or_write_node_t;
 pub const GlobalVariableWriteNode = c.pm_global_variable_write_node_t;
 pub const InstanceVariableReadNode = c.pm_instance_variable_read_node_t;
@@ -191,6 +192,7 @@ pub const Node = union(enum) {
     back_reference_read: *BackReferenceReadNode,
     numbered_reference_read: *NumberedReferenceReadNode,
     global_variable_and_write: *GlobalVariableAndWriteNode,
+    global_variable_operator_write: *GlobalVariableOperatorWriteNode,
     global_variable_or_write: *GlobalVariableOrWriteNode,
     global_variable_write: *GlobalVariableWriteNode,
     instance_variable_read: *InstanceVariableReadNode,
@@ -575,6 +577,9 @@ pub const Parser = struct {
         }
         if (node_type == c.PM_GLOBAL_VARIABLE_AND_WRITE_NODE) {
             return Node{ .global_variable_and_write = @ptrCast(raw) };
+        }
+        if (node_type == c.PM_GLOBAL_VARIABLE_OPERATOR_WRITE_NODE) {
+            return Node{ .global_variable_operator_write = @ptrCast(raw) };
         }
         if (node_type == c.PM_GLOBAL_VARIABLE_OR_WRITE_NODE) {
             return Node{ .global_variable_or_write = @ptrCast(raw) };

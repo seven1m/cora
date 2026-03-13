@@ -162,7 +162,7 @@ def run_spec_blocks(group_desc, label, blocks)
 end
 
 def run_spec_example(example)
-  $__examples_total = $__examples_total + 1
+  $__examples_total += 1
   group_desc = example.context.full_description
   if example.skipped?
     $__skipped << [group_desc, example.description]
@@ -196,7 +196,7 @@ def run_spec_example(example)
   if error
     record_failure(group_desc, example.description, error)
   else
-    $__passes = $__passes + 1
+    $__passes += 1
   end
 end
 
