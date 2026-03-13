@@ -412,6 +412,26 @@ test "Kernel#eval parses endless range literals" {
     try std.testing.expectEqual(false, result.toArrayObject().elements.items[2].toBool());
 }
 
+test "Kernel#eval preserves non-UTF-8 source encoding" {
+    const result = try evalCode(
+        \\external = Encoding.default_external
+        \\Encoding.default_external = Encoding::Windows_31J
+        \\sjis_hash = "{\x87]: 1}".dup.force_encoding("sjis")
+        \\begin
+        \\  h = eval(sjis_hash)
+        \\  key = h.keys[0]
+        \\  [key.encoding.name, h.inspect == sjis_hash, h.inspect.encoding.name]
+        \\ensure
+        \\  Encoding.default_external = external
+        \\end
+    );
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(usize, 3), result.toArrayObject().elements.items.len);
+    try std.testing.expectEqualSlices(u8, "Windows-31J", result.toArrayObject().elements.items[0].toStringObject().str);
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[1].toBool());
+    try std.testing.expectEqualSlices(u8, "Windows-31J", result.toArrayObject().elements.items[2].toStringObject().str);
+}
+
 test "Kernel#eval raises TypeError when source is not String-like" {
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;

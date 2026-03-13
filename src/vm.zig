@@ -6683,7 +6683,11 @@ pub const VM = struct {
     }
 
     pub fn evalSource(self: *VM, source: []const u8, source_file: ?[]const u8) VMError!Value {
-        var parser = prism.Parser.init(self.allocator, source, source_file) catch {
+        return self.evalSourceWithEncoding(source, source_file, null);
+    }
+
+    pub fn evalSourceWithEncoding(self: *VM, source: []const u8, source_file: ?[]const u8, source_encoding: ?enc.Encoding) VMError!Value {
+        var parser = prism.Parser.initWithEncoding(self.allocator, source, source_file, source_encoding) catch {
             return self.raiseExceptionFmt(self.syntax_error_class, "{s}: syntax error", .{source_file orelse "(eval)"});
         };
         defer parser.deinit();

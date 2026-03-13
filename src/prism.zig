@@ -1,4 +1,5 @@
 const std = @import("std");
+const enc = @import("encoding.zig");
 
 const c = @cImport(@cInclude("prism.h"));
 
@@ -237,8 +238,26 @@ pub const Parser = struct {
 
     /// Initialize parser with source code
     pub fn init(allocator: std.mem.Allocator, source: []const u8, source_file: ?[]const u8) !Parser {
+        return initWithEncoding(allocator, source, source_file, null);
+    }
+
+    /// Initialize parser with source code and optional explicit source encoding.
+    pub fn initWithEncoding(
+        allocator: std.mem.Allocator,
+        source: []const u8,
+        source_file: ?[]const u8,
+        source_encoding: ?enc.Encoding,
+    ) !Parser {
         var parser: c.pm_parser_t = undefined;
-        c.pm_parser_init(&parser, source.ptr, source.len, null);
+        var options: c.pm_options_t = std.mem.zeroes(c.pm_options_t);
+        defer c.pm_options_free(&options);
+
+        if (source_encoding) |encoding| {
+            c.pm_options_encoding_set(&options, encoding.name().ptr);
+            c.pm_options_encoding_locked_set(&options, true);
+        }
+
+        c.pm_parser_init(&parser, source.ptr, source.len, &options);
 
         const ast = c.pm_parse(&parser);
         if (ast == null) {

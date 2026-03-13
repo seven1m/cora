@@ -115,10 +115,8 @@ describe :hash_to_s, shared: true do
       eval(utf8_hash).inspect.should == utf8_hash
 
       Encoding.default_external = Encoding::Windows_31J
-      CORAFIXME "eval does not preserve non-UTF-8 source encoding yet" do
-        sjis_hash = "{\x87]: 1}".dup.force_encoding('sjis')
-        eval(sjis_hash).inspect.should == sjis_hash
-      end
+      sjis_hash = "{\x87]: 1}".dup.force_encoding('sjis')
+      eval(sjis_hash).inspect.should == sjis_hash
     ensure
       Encoding.default_external = external
     end

@@ -348,18 +348,17 @@ pub fn negotiate(enc1: Encoding, str1: []const u8, enc2: Encoding, str2: []const
         return enc1;
     }
 
-    // US-ASCII is compatible with UTF-8 (US-ASCII is a subset)
+    // US-ASCII is compatible with any ASCII-compatible encoding because its
+    // contents are necessarily ASCII-only.
     const enc1_is_ascii = (enc1 == .us_ascii);
     const enc2_is_ascii = (enc2 == .us_ascii);
-    const enc1_is_utf8 = (enc1 == .utf8);
-    const enc2_is_utf8 = (enc2 == .utf8);
 
-    if (enc1_is_ascii and enc2_is_utf8) {
-        return enc2; // UTF-8
+    if (enc1_is_ascii and enc2.isAsciiCompatible()) {
+        return enc2;
     }
 
-    if (enc2_is_ascii and enc1_is_utf8) {
-        return enc1; // UTF-8
+    if (enc2_is_ascii and enc1.isAsciiCompatible()) {
+        return enc1;
     }
 
     // If both strings are ASCII-only, they're compatible regardless of encoding

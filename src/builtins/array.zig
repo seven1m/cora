@@ -621,10 +621,16 @@ pub fn builtinArrayAny(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
 pub fn builtinArrayPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
 
-    const rhs_value = if (args[0].isArray())
-        args[0]
-    else
-        try vm.callMethodByName(args[0], "to_ary", &[_]Value{}, null);
+    const rhs_value = if (args[0].isArray()) blk: {
+        break :blk args[0];
+    } else blk: {
+        const maybe_array = try vm.checkCallMethodByName(args[0], "to_ary", &[_]Value{}, null);
+        break :blk maybe_array orelse {
+            const exc = try vm.createException(vm.type_error_class, "no implicit conversion into Array");
+            vm.pending_exception = exc;
+            return error.Unwind;
+        };
+    };
     if (!rhs_value.isArray()) {
         const exc = try vm.createException(vm.type_error_class, "can't convert to Array (to_ary gives non-Array)");
         vm.pending_exception = exc;
@@ -948,10 +954,16 @@ pub fn builtinArrayReplace(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
         return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
     }
 
-    const replacement = if (args[0].isArray())
-        args[0]
-    else
-        try vm.callMethodByName(args[0], "to_ary", &[_]Value{}, null);
+    const replacement = if (args[0].isArray()) blk: {
+        break :blk args[0];
+    } else blk: {
+        const maybe_array = try vm.checkCallMethodByName(args[0], "to_ary", &[_]Value{}, null);
+        break :blk maybe_array orelse {
+            const exc = try vm.createException(vm.type_error_class, "no implicit conversion into Array");
+            vm.pending_exception = exc;
+            return error.Unwind;
+        };
+    };
     if (!replacement.isArray()) {
         const exc = try vm.createException(vm.type_error_class, "can't convert to Array (to_ary gives non-Array)");
         vm.pending_exception = exc;
