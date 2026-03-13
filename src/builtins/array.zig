@@ -530,29 +530,7 @@ pub fn builtinArrayEachWithIndex(vm: *VM, receiver: Value, args: []Value, block:
 }
 
 pub fn builtinArrayToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 0);
-    const array = receiver.toArrayObject();
-    var buf: std.ArrayList(u8) = .empty;
-    defer buf.deinit(vm.allocator);
-    const writer = buf.writer(vm.allocator);
-
-    writer.writeAll("[") catch return error.Fatal;
-    for (array.elements.items, 0..) |elem, idx| {
-        if (idx > 0) writer.writeAll(", ") catch return error.Fatal;
-
-        const elem_str = try vm.callMethodByName(elem, "to_s", &[_]Value{}, null);
-        if (!elem_str.isString()) {
-            const exc = try vm.createException(vm.type_error_class, "to_s did not return String");
-            vm.pending_exception = exc;
-            return error.Unwind;
-        }
-        writer.writeAll(elem_str.toStringObject().str) catch return error.Fatal;
-    }
-    writer.writeAll("]") catch return error.Fatal;
-
-    const str = buf.toOwnedSlice(vm.allocator) catch return error.Fatal;
-    defer vm.allocator.free(str);
-    return try vm.newString(str, false);
+    return builtinArrayInspect(vm, receiver, args, null);
 }
 
 pub fn builtinArrayLength(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -908,31 +886,46 @@ pub fn builtinArrayUnion(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
 pub fn builtinArrayInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     if (try vm.enterRecursionGuard(.array_inspect, receiver, Value.nil())) {
-        return try vm.newString("[...]", false);
+        return try vm.newStringWithEncoding("[...]", false, .{ .us_ascii = .{} });
     }
     defer vm.leaveRecursionGuard(.array_inspect, receiver, Value.nil());
 
     const array = receiver.toArrayObject();
+    if (array.elements.items.len == 0) {
+        return try vm.newStringWithEncoding("[]", false, .{ .us_ascii = .{} });
+    }
+
     var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(vm.allocator);
     const writer = buf.writer(vm.allocator);
+    var output_encoding: enc.Encoding = .{ .us_ascii = .{} };
 
     writer.writeAll("[") catch return error.Fatal;
     for (array.elements.items, 0..) |elem, idx| {
-        if (idx > 0) writer.writeAll(", ") catch return error.Fatal;
-
-        const elem_inspected = try vm.callMethodByName(elem, "inspect", &[_]Value{}, null);
-        if (!elem_inspected.isString()) {
-            const exc = try vm.createException(vm.type_error_class, "inspect did not return String");
-            vm.pending_exception = exc;
-            return error.Unwind;
+        if (idx > 0) {
+            writer.writeAll(", ") catch return error.Fatal;
         }
-        writer.writeAll(elem_inspected.toStringObject().str) catch return error.Fatal;
+
+        const inspected = try elem.inspect(vm);
+        const inspected_obj = inspected.toStringObject();
+        if (idx == 0) {
+            output_encoding = inspected_obj.encoding;
+        } else {
+            output_encoding = arrayJoinResolveEncoding(output_encoding, buf.items, inspected_obj.encoding, inspected_obj.str) orelse {
+                return vm.raiseExceptionFmt(
+                    vm.encoding_compatibility_error_class,
+                    "incompatible character encodings: {s} and {s}",
+                    .{ output_encoding.name(), inspected_obj.encoding.name() },
+                );
+            };
+        }
+        writer.writeAll(inspected_obj.str) catch return error.Fatal;
     }
     writer.writeAll("]") catch return error.Fatal;
 
-    const str = buf.toOwnedSlice(vm.allocator) catch return error.Fatal;
-    defer vm.allocator.free(str);
-    return try vm.newString(str, false);
+    const out = buf.toOwnedSlice(vm.allocator) catch return error.Fatal;
+    defer vm.allocator.free(out);
+    return try vm.newStringWithEncoding(out, false, output_encoding);
 }
 
 pub fn builtinArrayToA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

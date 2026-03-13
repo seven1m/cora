@@ -5,6 +5,7 @@ const chunk = @import("chunk.zig");
 const compiler = @import("compiler.zig");
 const enc = @import("encoding.zig");
 const fixed_buffer_list = @import("fixed_buffer_list.zig");
+const inspect_util = @import("inspect.zig");
 const onigmo = @import("onigmo.zig");
 const recursion_guard = @import("recursion_guard.zig");
 const value = @import("value.zig");
@@ -6179,6 +6180,13 @@ pub const VM = struct {
             .encoding = encoding,
         };
         return Value.fromObject(string_obj);
+    }
+
+    pub fn inspectTargetEncoding(self: *VM) enc.Encoding {
+        return inspect_util.targetEncoding(
+            if (self.default_internal_encoding) |encoding_obj| encoding_obj.encoding else null,
+            self.default_external_encoding.encoding,
+        );
     }
 
     pub fn encodingToValue(self: *VM, encoding_value: enc.Encoding) Value {

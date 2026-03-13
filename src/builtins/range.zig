@@ -189,15 +189,11 @@ pub fn builtinRangeInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     const range_obj = receiver.toRangeObject();
 
     var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(vm.allocator);
     const writer = buf.writer(vm.allocator);
 
     if (!range_obj.begin.isNil()) {
-        const begin_inspected = try vm.callMethodByName(range_obj.begin, "inspect", &[_]Value{}, null);
-        if (!begin_inspected.isString()) {
-            const exc = try vm.createException(vm.type_error_class, "inspect did not return String");
-            vm.pending_exception = exc;
-            return error.Unwind;
-        }
+        const begin_inspected = try range_obj.begin.inspect(vm);
         writer.writeAll(begin_inspected.toStringObject().str) catch return error.Fatal;
     }
 
@@ -208,12 +204,7 @@ pub fn builtinRangeInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     }
 
     if (!range_obj.end.isNil()) {
-        const end_inspected = try vm.callMethodByName(range_obj.end, "inspect", &[_]Value{}, null);
-        if (!end_inspected.isString()) {
-            const exc = try vm.createException(vm.type_error_class, "inspect did not return String");
-            vm.pending_exception = exc;
-            return error.Unwind;
-        }
+        const end_inspected = try range_obj.end.inspect(vm);
         writer.writeAll(end_inspected.toStringObject().str) catch return error.Fatal;
     }
 

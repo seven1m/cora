@@ -138,18 +138,18 @@ def it(desc, &block)
   begin
     run_before_each_hooks
     block.call
-  rescue => e
+  rescue Exception => e
     error = e
   ensure
     begin
       $__active_mocks.each { |m| m.verify_expectations! }
-    rescue => e
+    rescue Exception => e
       error = e if error.nil?
     end
 
     begin
       run_after_each_hooks
-    rescue => e
+    rescue Exception => e
       error = e if error.nil?
     end
 
@@ -856,7 +856,7 @@ class RaiseErrorMatcher
       actual.call
       @actual_exception = nil
       return false
-    rescue => e
+    rescue Exception => e
       @actual_exception = e
     end
 
@@ -1234,8 +1234,6 @@ class MockObject
     @wrapped_methods = {}
   end
 end
-
-SpecMock = MockObject
 
 class SpecUnboundMethod
   def initialize(owner, method_name)

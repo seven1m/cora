@@ -324,23 +324,13 @@ pub fn builtinHashToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
             writer.writeAll(": ") catch return error.Fatal;
         } else {
             // Call inspect on non-symbol keys
-            const key_val = try vm.callMethodByName(entry.key, "inspect", &.{}, null);
-            if (!key_val.isString()) {
-                const exc = try vm.createException(vm.type_error_class, "inspect did not return String");
-                vm.pending_exception = exc;
-                return error.Unwind;
-            }
+            const key_val = try entry.key.inspect(vm);
             writer.writeAll(key_val.toStringObject().str) catch return error.Fatal;
             writer.writeAll(" => ") catch return error.Fatal;
         }
 
         // Call inspect on value
-        const value_val = try vm.callMethodByName(entry.value, "inspect", &.{}, null);
-        if (!value_val.isString()) {
-            const exc = try vm.createException(vm.type_error_class, "inspect did not return String");
-            vm.pending_exception = exc;
-            return error.Unwind;
-        }
+        const value_val = try entry.value.inspect(vm);
         writer.writeAll(value_val.toStringObject().str) catch return error.Fatal;
     }
     writer.writeAll("}") catch return error.Fatal;
@@ -404,14 +394,7 @@ pub fn builtinHashFetch(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
         return args[1];
     } else {
         // Raise KeyError - need to format the key
-        const key_str = try vm.callMethodByName(key, "inspect", &.{}, null);
-        if (!key_str.isString()) {
-            return vm.raiseExceptionFmt(
-                vm.type_error_class,
-                "inspect did not return String",
-                .{},
-            );
-        }
+        const key_str = try key.inspect(vm);
 
         return vm.raiseExceptionFmt(
             vm.runtime_error_class,

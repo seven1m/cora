@@ -12,6 +12,7 @@ const FiberFrameStack = vm_mod.FiberFrameStack;
 const FiberEnvironmentStack = vm_mod.FiberEnvironmentStack;
 const FiberCoro = vm_mod.FiberCoro;
 const onigmo = @import("onigmo.zig");
+const inspect_util = @import("inspect.zig");
 
 const encoding = @import("encoding.zig");
 const Encoding = encoding.Encoding;
@@ -733,6 +734,28 @@ pub const Value = struct {
         if (self.isString()) return self;
         if (self.isSymbol()) return try vm_instance.newString(self.toSymbolObject().name, false);
         return try self.coerceToStringValue(vm_instance, "no implicit conversion into String");
+    }
+
+    pub fn inspect(self: Value, vm_instance: *VM) VMError!Value {
+        const raw = try vm_instance.callMethodByName(self, "inspect", &.{}, null);
+        const string_value = if (raw.isString()) raw else blk: {
+            const to_s_value = try vm_instance.callMethodByName(raw, "to_s", &.{}, null);
+            if (to_s_value.isString()) break :blk to_s_value;
+
+            const class_name = vm_instance.getClass(raw).module.name.name;
+            const text = std.fmt.allocPrint(vm_instance.gc_allocator, "#<{s}:0x{x}>", .{ class_name, raw.objectId() }) catch return error.Fatal;
+            break :blk try vm_instance.newString(text, false);
+        };
+
+        const string_obj = string_value.toStringObject();
+        const target_encoding = vm_instance.inspectTargetEncoding();
+        if (string_obj.encoding.isAsciiOnlyString(string_obj.str) or string_obj.encoding.eql(target_encoding)) {
+            return string_value;
+        }
+
+        const escaped = inspect_util.escapeStringBytes(vm_instance.allocator, string_obj.str, string_obj.encoding) catch return error.Fatal;
+        defer vm_instance.allocator.free(escaped);
+        return try vm_instance.newStringWithEncoding(escaped, false, .{ .us_ascii = .{} });
     }
 
     // -- Display --

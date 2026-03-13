@@ -715,13 +715,7 @@ pub fn builtinKernelP(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value
     }
 
     for (args) |arg| {
-        const inspected = try vm.callMethodByName(arg, "inspect", &[_]Value{}, null);
-        if (!inspected.isString()) {
-            const exc = try vm.createException(vm.type_error_class, "inspect did not return String");
-            vm.pending_exception = exc;
-            return error.Unwind;
-        }
-
+        const inspected = try arg.inspect(vm);
         var put_args: [1]Value = .{inspected};
         _ = try vm.callMethodByName(stdout_target, "puts", &put_args, null);
     }

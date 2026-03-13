@@ -126,7 +126,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/array/index_spec.rb
 - [ ] core/array/initialize_spec.rb
 - [ ] core/array/insert_spec.rb
-- [ ] core/array/inspect_spec.rb
+- [x] core/array/inspect_spec.rb
 - [ ] core/array/intersect_spec.rb
 - [ ] core/array/intersection_spec.rb
 - [x] core/array/join_spec.rb
@@ -202,7 +202,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/array/to_a_spec.rb
 - [ ] core/array/to_ary_spec.rb
 - [ ] core/array/to_h_spec.rb
-- [ ] core/array/to_s_spec.rb
+- [x] core/array/to_s_spec.rb
 - [ ] core/array/transpose_spec.rb
 - [ ] core/array/try_convert_spec.rb
 - [ ] core/array/union_spec.rb

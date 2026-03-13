@@ -83,6 +83,23 @@ pub const Encoding = union(enum) {
         };
     }
 
+    pub fn isUnicode(self: Encoding) bool {
+        return switch (self) {
+            .utf8, .utf16, .utf32, .utf16le, .utf16be, .utf32le, .utf32be => true,
+            else => false,
+        };
+    }
+
+    pub fn isAsciiOnlyString(self: Encoding, bytes: []const u8) bool {
+        var i: usize = 0;
+        while (i < bytes.len) {
+            const parsed = self.nextCodepoint(bytes, &i);
+            if (parsed.len == 0 or !parsed.valid) return false;
+            if (parsed.codepoint > 0x7F) return false;
+        }
+        return true;
+    }
+
     pub fn isSingleByte(self: Encoding) bool {
         return switch (self) {
             inline else => |enc| enc.isSingleByte(),
