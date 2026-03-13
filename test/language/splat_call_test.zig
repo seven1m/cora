@@ -81,17 +81,29 @@ test "super with splat forwards args" {
     try expectIntArray(result, &.{ 1, 2, 3 });
 }
 
-test "splat argument must be Array" {
-    var stdout_buf: [8192]u8 = undefined;
-    var stderr_buf: [8192]u8 = undefined;
-
-    const result = evalCodeWithOutput(
+test "splat call wraps scalars, nil, and respects to_a" {
+    var result = try evalCode(
         \\def f(*a); a; end
         \\f(*1)
-    , &stdout_buf, &stderr_buf);
+    );
+    try expectIntArray(result, &.{1});
 
-    try std.testing.expectEqual(@as(?anyerror, error.UnhandledException), result.err);
-    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "TypeError") != null);
+    result = try evalCode(
+        \\def f(*a); a; end
+        \\f(*nil)
+    );
+    try expectIntArray(result, &.{});
+
+    result = try evalCode(
+        \\class X
+        \\  def to_a
+        \\    [1, 2]
+        \\  end
+        \\end
+        \\def f(*a); a; end
+        \\f(*X.new)
+    );
+    try expectIntArray(result, &.{ 1, 2 });
 }
 
 test "keyword splat basic and mixed with splat args" {

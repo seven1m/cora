@@ -2,11 +2,7 @@ describe :enumeratorized_with_unknown_size, shared: true do
   describe "when no block is given" do
     describe "returned Enumerator" do
       it "size returns nil" do
-        if @method.is_a?(Array)
-          @object.send(*@method).size.should == nil
-        else
-          @object.send(@method).size.should == nil
-        end
+        @object.send(*@method).size.should == nil
       end
     end
   end
@@ -16,11 +12,7 @@ describe :enumeratorized_with_origin_size, shared: true do
   describe "when no block is given" do
     describe "returned Enumerator" do
       it "size returns the enumerable size" do
-        if @method.is_a?(Array)
-          @object.send(*@method).size.should == @object.size
-        else
-          @object.send(@method).size.should == @object.size
-        end
+        @object.send(*@method).size.should == @object.size
       end
     end
   end

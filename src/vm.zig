@@ -3191,12 +3191,7 @@ pub const VM = struct {
                 var positional_argc: usize = 0;
                 var receiver: Value = undefined;
                 if (args_array_mode) {
-                    const positional = self.pop();
-                    if (!positional.isArray()) {
-                        const exc = try self.createException(self.type_error_class, "splat argument is not an Array");
-                        self.pending_exception = exc;
-                        return error.Unwind;
-                    }
+                    const positional = try self.expandSplatValue(self.pop());
                     const elems = positional.toArrayObject().elements.items;
                     if (elems.len > args.len) {
                         const exc = try self.createException(self.argument_error_class, "too many arguments");
@@ -3384,12 +3379,7 @@ pub const VM = struct {
                         effective_kwargc = kwargc;
                     }
                     const positional = self.pop();
-                    if (!positional.isArray()) {
-                        const exc = try self.createException(self.type_error_class, "splat argument is not an Array");
-                        self.pending_exception = exc;
-                        return error.Unwind;
-                    }
-                    const elems = positional.toArrayObject().elements.items;
+                    const elems = (try self.expandSplatValue(positional)).toArrayObject().elements.items;
                     if (elems.len > args.len) {
                         const exc = try self.createException(self.argument_error_class, "too many arguments");
                         self.pending_exception = exc;
@@ -3759,12 +3749,8 @@ pub const VM = struct {
                     self.pending_exception = exc;
                     return error.Unwind;
                 }
-                if (!other.isArray()) {
-                    const exc = try self.createException(self.type_error_class, "splat argument is not an Array");
-                    self.pending_exception = exc;
-                    return error.Unwind;
-                }
-                for (other.toArrayObject().elements.items) |elem| {
+                const other_array = try self.expandSplatValue(other);
+                for (other_array.toArrayObject().elements.items) |elem| {
                     array_val.toArrayObject().elements.append(self.gc_allocator, elem) catch return error.Fatal;
                 }
                 try self.push(array_val);
@@ -3953,12 +3939,7 @@ pub const VM = struct {
             },
 
             .YIELD_SPLAT => {
-                const args_array_val = self.pop();
-                if (!args_array_val.isArray()) {
-                    const exc = try self.createException(self.type_error_class, "splat argument is not an Array");
-                    self.pending_exception = exc;
-                    return error.Unwind;
-                }
+                const args_array_val = try self.expandSplatValue(self.pop());
 
                 const block = frame.block orelse {
                     const exc = try self.createException(
@@ -4252,12 +4233,7 @@ pub const VM = struct {
                 var args: [256]Value = undefined;
                 var positional_argc: usize = 0;
                 if (args_array_mode) {
-                    const positional = self.pop();
-                    if (!positional.isArray()) {
-                        const exc = try self.createException(self.type_error_class, "splat argument is not an Array");
-                        self.pending_exception = exc;
-                        return error.Unwind;
-                    }
+                    const positional = try self.expandSplatValue(self.pop());
                     const elems = positional.toArrayObject().elements.items;
                     if (elems.len > args.len) {
                         const exc = try self.createException(self.argument_error_class, "too many arguments");
@@ -6474,6 +6450,30 @@ pub const VM = struct {
                 .{ self.className(arg), self.className(arg) },
             ),
         };
+    }
+
+    pub fn expandSplatValue(self: *VM, arg: Value) VMError!Value {
+        if (arg.isArray()) return arg;
+        if (arg.isNil()) return Value.fromObject(try self.createArray());
+
+        if (try self.checkCallMethodByName(arg, "to_a", &[_]Value{}, null)) |coerced| {
+            if (coerced.isNil()) {
+                const wrapped = try self.createArray();
+                wrapped.elements.append(self.gc_allocator, arg) catch return error.Fatal;
+                return Value.fromObject(wrapped);
+            }
+            if (coerced.isArray()) return coerced;
+
+            return self.raiseExceptionFmt(
+                self.type_error_class,
+                "can't convert {s} to Array ({s}#to_a gives {s})",
+                .{ self.className(arg), self.className(arg), self.className(coerced) },
+            );
+        }
+
+        const wrapped = try self.createArray();
+        wrapped.elements.append(self.gc_allocator, arg) catch return error.Fatal;
+        return Value.fromObject(wrapped);
     }
 
     pub fn coerceToPath(self: *VM, arg: Value, type_error_message: []const u8) VMError![]const u8 {

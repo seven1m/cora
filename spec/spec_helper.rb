@@ -1,158 +1,191 @@
 $__failures = []
 $__passes = 0
 $__examples_total = 0
-$__describe = ""
 $__shared_examples = {}
 $__skipped = []
 $__active_mocks = []
-$__context_stack = [
-  {
-    description: nil,
-    before_each: [],
-    before_all: [],
-    after_each: [],
-    after_all: [],
-    before_all_done: true,
-  },
-]
+$__root_contexts = []
+$__current_context = nil
+$__spec_main = self
 
-def record_failure(it_desc, error)
+class SpecContextState
+  attr_reader :description, :parent, :children, :examples, :entries
+
+  def initialize(description, shared: false)
+    @description = description.to_s
+    @shared = shared
+    @parent = nil
+    @children = []
+    @examples = []
+    @entries = []
+    @before = { all: [], each: [] }
+    @after = { all: [], each: [] }
+  end
+
+  def shared?
+    @shared
+  end
+
+  def parent=(parent)
+    @parent = parent
+  end
+
+  def add_child(child)
+    child.parent = self
+    @children << child
+    @entries << [:context, child]
+  end
+
+  def add_example(example)
+    example.context = self
+    @examples << example
+    @entries << [:example, example]
+  end
+
+  def before(scope = :each, &block)
+    return @before[scope] unless block
+    @before[scope] << block
+  end
+
+  def after(scope = :each, &block)
+    return @after[scope] unless block
+    @after[scope] << block
+  end
+
+  def hooks(kind, scope)
+    own = (kind == :before ? @before : @after)[scope]
+    return own if @parent.nil?
+
+    if kind == :before
+      @parent.hooks(kind, scope) + own
+    else
+      reverse_blocks(own) + @parent.hooks(kind, scope)
+    end
+  end
+
+  def full_description
+    return @description if @parent.nil? || @parent.full_description == ""
+    return @parent.full_description if @description == ""
+    @parent.full_description + " " + @description
+  end
+
+  def include_shared(shared)
+    shared.before(:all).each { |hook| before(:all, &hook) }
+    shared.before(:each).each { |hook| before(:each, &hook) }
+    shared.after(:each).each { |hook| after(:each, &hook) }
+    shared.after(:all).each { |hook| after(:all, &hook) }
+
+    shared.entries.each do |entry_kind, entry|
+      case entry_kind
+      when :example
+        add_example(entry.dup)
+      when :context
+        add_child(entry.deep_dup)
+      end
+    end
+  end
+
+  def deep_dup
+    copy = SpecContextState.new(@description, shared: false)
+    @before[:all].each { |hook| copy.before(:all, &hook) }
+    @before[:each].each { |hook| copy.before(:each, &hook) }
+    @after[:each].each { |hook| copy.after(:each, &hook) }
+    @after[:all].each { |hook| copy.after(:all, &hook) }
+
+    @entries.each do |entry_kind, entry|
+      case entry_kind
+      when :example
+        copy.add_example(entry.dup)
+      when :context
+        copy.add_child(entry.deep_dup)
+      end
+    end
+
+    copy
+  end
+
+  private
+
+  def reverse_blocks(list)
+    out = []
+    i = list.length - 1
+    while i >= 0
+      out << list[i]
+      i -= 1
+    end
+    out
+  end
+end
+
+class SpecExampleState
+  attr_accessor :context
+  attr_reader :description, :block
+
+  def initialize(description, block, skipped: false)
+    @description = description
+    @block = block
+    @skipped = skipped
+    @context = nil
+  end
+
+  def skipped?
+    @skipped
+  end
+
+  def dup
+    SpecExampleState.new(@description, @block, skipped: @skipped)
+  end
+end
+
+def current_context
+  $__current_context
+end
+
+def record_failure(group_desc, it_desc, error)
   message = error.message
   if error.respond_to?(:class) && error.class
     message = "#{error.class}: #{message}"
   end
-  $__failures << [$__describe, it_desc, message]
+  $__failures << [group_desc, it_desc, message]
 end
 
-def full_description
-  parts = []
-  $__context_stack.each do |ctx|
-    if ctx[:description]
-      parts << ctx[:description]
+def run_spec_blocks(group_desc, label, blocks)
+  blocks.each do |block|
+    begin
+      block.call
+    rescue Exception => e
+      record_failure(group_desc, label, e)
+      return false
     end
   end
-  parts.join(" ")
+  true
 end
 
-def current_context
-  $__context_stack[$__context_stack.length - 1]
-end
-
-def run_before_all_hooks
-  $__context_stack.each do |ctx|
-    if !ctx[:before_all_done]
-      ctx[:before_all].each { |hook| hook.call }
-      ctx[:before_all_done] = true
-    end
-  end
-end
-
-def run_before_each_hooks
-  $__context_stack.each do |ctx|
-    ctx[:before_each].each { |hook| hook.call }
-  end
-end
-
-def run_after_each_hooks
-  i = $__context_stack.length - 1
-  while i >= 0
-    $__context_stack[i][:after_each].each { |hook| hook.call }
-    i -= 1
-  end
-end
-
-def run_after_all_hooks(ctx)
-  ctx[:after_all].each { |hook| hook.call }
-end
-
-def describe(desc, shared: false, &block)
-  if shared
-    $__shared_examples[desc] = block
-    return
-  end
-
-  ctx = {
-    description: desc.to_s,
-    before_each: [],
-    before_all: [],
-    after_each: [],
-    after_all: [],
-    before_all_done: false,
-  }
-  $__context_stack << ctx
-  previous = $__describe
-  $__describe = full_description
-  block.call
-  run_after_all_hooks(ctx)
-ensure
-  $__context_stack = $__context_stack[0, $__context_stack.length - 1]
-  $__describe = previous
-end
-
-def context(desc, &block)
-  describe(desc, &block)
-end
-
-def before(scope = :each, &block)
-  ctx = current_context
-  if scope == :all
-    ctx[:before_all] << block
-  else
-    ctx[:before_each] << block
-  end
-end
-
-def after(scope = :each, &block)
-  ctx = current_context
-  if scope == :all
-    ctx[:after_all] << block
-  else
-    ctx[:after_each] << block
-  end
-end
-
-def it_behaves_like(name, *args)
-  shared = $__shared_examples[name]
-  raise "Shared examples not found: #{name}" unless shared
-
-  prev_method = @method
-  prev_object = @object
-  @method = args[0] if args.length > 0
-  @object = args[1] if args.length > 1
-  shared.call
-ensure
-  @method = prev_method
-  @object = prev_object
-end
-
-def it_should_behave_like(name, *args)
-  it_behaves_like(name, *args)
-end
-
-def it(desc, &block)
+def run_spec_example(example)
   $__examples_total = $__examples_total + 1
-  if block.nil?
-    $__skipped << [$__describe, desc]
+  group_desc = example.context.full_description
+  if example.skipped?
+    $__skipped << [group_desc, example.description]
     return
   end
 
-  run_before_all_hooks
   error = nil
 
   begin
-    run_before_each_hooks
-    block.call
+    example.context.hooks(:before, :all).each { |hook| hook.call }
+    example.context.hooks(:before, :each).each { |hook| hook.call }
+    example.block.call
   rescue Exception => e
     error = e
   ensure
     begin
-      $__active_mocks.each { |m| m.verify_expectations! }
+      $__active_mocks.each { |mock| mock.verify_expectations! }
     rescue Exception => e
       error = e if error.nil?
     end
 
     begin
-      run_after_each_hooks
+      example.context.hooks(:after, :each).each { |hook| hook.call }
     rescue Exception => e
       error = e if error.nil?
     end
@@ -161,15 +194,95 @@ def it(desc, &block)
   end
 
   if error
-    record_failure(desc, error)
+    record_failure(group_desc, example.description, error)
   else
     $__passes = $__passes + 1
   end
 end
 
+def run_spec_context(context)
+  context.entries.each do |entry_kind, entry|
+    case entry_kind
+    when :example
+      run_spec_example(entry)
+    when :context
+      run_spec_context(entry)
+    end
+  end
+
+  run_spec_blocks(context.full_description, "after :all", context.after(:all))
+end
+
+def run_spec_suite
+  $__root_contexts.each do |context|
+    run_spec_context(context)
+  end
+end
+
+def describe(desc, shared: false, &block)
+  ctx = SpecContextState.new(desc, shared: shared)
+  if shared
+    previous = $__current_context
+    $__current_context = ctx
+    block.call if block
+    $__shared_examples[desc.to_s] = ctx
+    $__current_context = previous
+    return
+  end
+
+  if $__current_context.nil?
+    $__root_contexts << ctx
+  else
+    $__current_context.add_child(ctx)
+  end
+
+  previous = $__current_context
+  $__current_context = ctx
+  block.call if block
+ensure
+  $__current_context = previous
+end
+
+def context(desc, &block)
+  describe(desc, &block)
+end
+
+def before(scope = :each, &block)
+  current_context.before(scope, &block)
+end
+
+def after(scope = :each, &block)
+  current_context.after(scope, &block)
+end
+
+def it_behaves_like(name, *args)
+  meth = args[0]
+  obj = args[1]
+  before(:all) do
+    @method = meth
+    @object = obj
+  end
+  after(:all) do
+    @method = nil
+    @object = nil
+  end
+  it_should_behave_like(name)
+end
+
+def it_should_behave_like(name, *args)
+  raise ArgumentError, "it_should_behave_like does not accept arguments" unless args.empty?
+  shared = $__shared_examples[name.to_s]
+  raise "Shared examples not found: #{name}" unless shared
+
+  current_context.include_shared(shared)
+end
+
+def it(desc, &block)
+  current_context.add_example(SpecExampleState.new(desc, block, skipped: block.nil?))
+end
+
 def xit(desc)
-  $__examples_total = $__examples_total + 1
-  $__skipped << [$__describe, desc]
+  current_context.add_example(SpecExampleState.new(desc, nil, skipped: true))
 end
 
 class ScratchPad
@@ -1454,4 +1567,7 @@ def report_results
   end
 end
 
-at_exit { report_results }
+at_exit do
+  run_spec_suite
+  report_results
+end

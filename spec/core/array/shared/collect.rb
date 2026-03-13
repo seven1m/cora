@@ -43,7 +43,7 @@ describe :array_collect, shared: true do
     }.should raise_error(ArgumentError)
   end
 
-  before do
+  before :all do
     @object = [1, 2, 3, 4]
   end
   it_should_behave_like :enumeratorized_with_origin_size
@@ -132,7 +132,7 @@ describe :array_collect_b, shared: true do
     a.should == [-1, -2, 3, 4]
   end
 
-  before do
+  before :all do
     @object = [1, 2, 3, 4]
   end
   it_should_behave_like :enumeratorized_with_origin_size
