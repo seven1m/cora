@@ -794,6 +794,7 @@ pub const VM = struct {
         const shift_jis_const_sym = try self.intern("SHIFT_JIS");
         const shift_jis_mixed_const_sym = try self.intern("Shift_JIS");
         const sjis_const_sym = try self.intern("SJIS");
+        const windows_31j_const_sym = try self.intern("Windows_31J");
         const euc_jp_const_sym = try self.intern("EUC_JP");
         const iso_8859_1_const_sym = try self.intern("ISO_8859_1");
         const iso_8859_9_const_sym = try self.intern("ISO_8859_9");
@@ -836,6 +837,7 @@ pub const VM = struct {
         self.encoding_class.module.constants.put(shift_jis_const_sym, shift_jis_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(shift_jis_mixed_const_sym, shift_jis_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(sjis_const_sym, shift_jis_val) catch return error.Fatal;
+        self.encoding_class.module.constants.put(windows_31j_const_sym, shift_jis_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(euc_jp_const_sym, euc_jp_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(iso_8859_1_const_sym, iso_8859_15_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(iso_8859_9_const_sym, iso_8859_9_val) catch return error.Fatal;

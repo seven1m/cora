@@ -1,5 +1,6 @@
 const std = @import("std");
 const enc = @import("encoding.zig");
+const value = @import("value.zig");
 
 fn appendHexByte(writer: anytype, b: u8) !void {
     try std.fmt.format(writer, "\\x{X:0>2}", .{b});
@@ -64,6 +65,38 @@ fn escapedInspectControl(codepoint: u32) ?[]const u8 {
     };
 }
 
+fn isIdentifierStart(codepoint: u32) bool {
+    return codepoint == '_' or (codepoint <= 0x7F and std.ascii.isAlphabetic(@intCast(codepoint))) or codepoint > 0x7F;
+}
+
+fn isIdentifierPart(codepoint: u32) bool {
+    return isIdentifierStart(codepoint) or (codepoint <= 0x7F and std.ascii.isDigit(@intCast(codepoint)));
+}
+
+pub fn isBareInspectableSymbolName(bytes: []const u8, encoding: enc.Encoding) bool {
+    if (bytes.len == 0) return false;
+
+    var i: usize = 0;
+    const first = encoding.nextCodepoint(bytes, &i);
+    if (first.len == 0 or !first.valid or !isIdentifierStart(first.codepoint)) return false;
+
+    while (i < bytes.len) {
+        const parsed = encoding.nextCodepoint(bytes, &i);
+        if (parsed.len == 0 or !parsed.valid) return false;
+        if (i == bytes.len and (parsed.codepoint == '!' or parsed.codepoint == '?')) {
+            return true;
+        }
+        if (!isIdentifierPart(parsed.codepoint)) return false;
+    }
+
+    return true;
+}
+
+pub fn isBareHashKeySymbol(sym: *value.SymbolObject, target_encoding: enc.Encoding) bool {
+    if (!isBareInspectableSymbolName(sym.name, sym.encoding)) return false;
+    return sym.encoding.isAsciiOnlyString(sym.name) or sym.encoding.eql(target_encoding);
+}
+
 pub fn targetEncoding(default_internal: ?enc.Encoding, default_external: enc.Encoding) enc.Encoding {
     const selected = default_internal orelse default_external;
     if (!selected.isAsciiCompatible()) return .{ .us_ascii = .{} };
@@ -122,7 +155,7 @@ pub fn inspectStringBytes(
     const writer = buf.writer(allocator);
 
     const unicode_encoding = input_encoding.isUnicode();
-    const use_hex_braces_for_non_ascii = input_encoding.isAsciiCompatible() and !input_encoding.eql(result_encoding);
+    const use_hex_braces_for_non_ascii = input_encoding.isAsciiCompatible() and !unicode_encoding and !input_encoding.eql(result_encoding);
 
     try writer.writeAll("\"");
     var i: usize = 0;
@@ -178,6 +211,11 @@ pub fn inspectStringBytes(
                 }
 
                 if (!input_encoding.isAsciiCompatible()) {
+                    try appendUnicodeEscape(writer, codepoint);
+                    continue;
+                }
+
+                if (!input_encoding.eql(result_encoding)) {
                     try appendUnicodeEscape(writer, codepoint);
                     continue;
                 }

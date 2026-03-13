@@ -211,20 +211,20 @@ def compare_versions(lhs, rhs)
 end
 
 def ruby_version_is(*args, **_kwargs, &block)
-  return unless block
   requirement = args[0]
+  matches = false
   if requirement.is_a?(Range)
     begin_ver = requirement.begin
     end_ver = requirement.end
     lower_ok = begin_ver.nil? || begin_ver == "" || compare_versions(RUBY_VERSION, begin_ver) >= 0
     upper_cmp = compare_versions(RUBY_VERSION, end_ver)
     upper_ok = requirement.exclude_end? ? upper_cmp < 0 : upper_cmp <= 0
-    block.call if lower_ok && upper_ok
-    return
+    matches = lower_ok && upper_ok
+  else
+    matches = requirement.nil? || compare_versions(RUBY_VERSION, requirement) >= 0
   end
-  if requirement.nil? || compare_versions(RUBY_VERSION, requirement) >= 0
-    block.call
-  end
+  block.call if matches && block
+  matches
 end
 
 def ruby_bug(_id, *args, **kwargs, &block)

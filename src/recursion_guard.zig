@@ -6,6 +6,8 @@ const Value = value.Value;
 pub const Kind = enum {
     string_compare_fallback,
     array_inspect,
+    hash_inspect,
+    range_inspect,
     array_equal,
 };
 

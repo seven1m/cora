@@ -72,6 +72,9 @@ pub fn register(vm: *VM) !void {
     const divide_sym = try vm.intern("/");
     try vm.float_class.module.methods.put(divide_sym, .{ .method = .{ .builtin = &builtinFloatDivide } });
 
+    const compare_sym = try vm.intern("<=>");
+    try vm.float_class.module.methods.put(compare_sym, .{ .method = .{ .builtin = &builtinFloatCompare } });
+
     const equal_sym = try vm.intern("==");
     try vm.float_class.module.methods.put(equal_sym, .{ .method = .{ .builtin = &builtinFloatEqual } });
 
@@ -158,6 +161,17 @@ pub fn builtinFloatEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
         return err;
     };
     return Value.boolean(lhs == rhs);
+}
+
+pub fn builtinFloatCompare(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const lhs = receiver.toFloatObject().val;
+    const rhs_f = try coerceNumericArg(vm, args[0]);
+
+    if (std.math.isNan(lhs) or std.math.isNan(rhs_f)) return Value.nil();
+    if (lhs < rhs_f) return Value.integer(-1);
+    if (lhs > rhs_f) return Value.integer(1);
+    return Value.integer(0);
 }
 
 pub fn builtinFloatEql(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

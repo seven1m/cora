@@ -102,6 +102,13 @@ pub const ShiftJisEncoding = struct {
             return 2;
         }
 
+        // Roman numeral ten (Windows-31J extension)
+        if (codepoint == 0x2169) {
+            out[0] = 0x87;
+            out[1] = 0x5D;
+            return 2;
+        }
+
         return null;
     }
 
@@ -134,6 +141,9 @@ pub const ShiftJisEncoding = struct {
         }
         if (b0 == 0x81 and b1 == 0xE0) {
             return 0x2020;
+        }
+        if (b0 == 0x87 and b1 == 0x5D) {
+            return 0x2169;
         }
         return null;
     }

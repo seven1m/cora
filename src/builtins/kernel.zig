@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const enc = @import("../encoding.zig");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 const method_reflection = @import("method_reflection.zig");
@@ -205,8 +206,19 @@ pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
 
 pub fn builtinKernelEval(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const source = try args[0].coerceToStr(vm, "no implicit conversion into String");
-    return vm.evalSource(source, "(eval)");
+    const source_value = try args[0].coerceToStringValue(vm, "no implicit conversion into String");
+    const source_obj = source_value.toStringObject();
+
+    if (source_obj.encoding.eql(.{ .utf8 = .{} })) {
+        return vm.evalSource(source_obj.str, "(eval)");
+    }
+
+    const utf8_source = enc.transcode(vm.allocator, source_obj.str, source_obj.encoding, .{ .utf8 = .{} }) catch |err| switch (err) {
+        error.OutOfMemory => return error.Fatal,
+        else => return vm.raiseExceptionFmt(vm.syntax_error_class, "{s}: syntax error", .{"(eval)"}),
+    };
+    defer vm.allocator.free(utf8_source);
+    return vm.evalSource(utf8_source, "(eval)");
 }
 
 pub fn builtinKernelRequireRelative(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

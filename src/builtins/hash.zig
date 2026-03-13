@@ -1,4 +1,6 @@
 const std = @import("std");
+const enc = @import("../encoding.zig");
+const inspect_util = @import("../inspect.zig");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 
@@ -305,10 +307,18 @@ pub fn builtinHashEachPair(vm: *VM, receiver: Value, args: []Value, block: ?Bloc
 
 pub fn builtinHashToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
+    if (try vm.enterRecursionGuard(.hash_inspect, receiver, Value.nil())) {
+        return try vm.newStringWithEncoding("{...}", false, .{ .us_ascii = .{} });
+    }
+    defer vm.leaveRecursionGuard(.hash_inspect, receiver, Value.nil());
+
     const hash_obj = receiver.toHashObject();
     var buf: std.ArrayList(u8) = .empty;
     defer buf.deinit(vm.allocator);
     const writer = buf.writer(vm.allocator);
+    var output_encoding: enc.Encoding = .{ .us_ascii = .{} };
+    var has_dynamic_part = false;
+    const target_encoding = vm.inspectTargetEncoding();
 
     writer.writeAll("{") catch return error.Fatal;
     for (hash_obj.entries.items, 0..) |entry, idx| {
@@ -318,26 +328,71 @@ pub fn builtinHashToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
 
         // Check if key is a symbol - use shorthand syntax
         if (entry.key.isSymbol()) {
-            // Write symbol name without the : prefix
             const sym = entry.key.toSymbolObject();
-            writer.writeAll(sym.name) catch return error.Fatal;
+            const quote_symbol = !inspect_util.isBareHashKeySymbol(sym, target_encoding);
+            const key_bytes = if (quote_symbol)
+                inspect_util.inspectStringBytes(vm.allocator, sym.name, sym.encoding, target_encoding) catch return error.Fatal
+            else
+                sym.name;
+            defer if (quote_symbol) vm.allocator.free(key_bytes);
+            const key_encoding = if (quote_symbol) target_encoding else sym.encoding;
+
+            if (!has_dynamic_part) {
+                output_encoding = key_encoding;
+                has_dynamic_part = true;
+            } else {
+                output_encoding = enc.negotiate(output_encoding, buf.items, key_encoding, key_bytes) orelse {
+                    return vm.raiseExceptionFmt(
+                        vm.encoding_compatibility_error_class,
+                        "incompatible character encodings: {s} and {s}",
+                        .{ output_encoding.name(), key_encoding.name() },
+                    );
+                };
+            }
+            writer.writeAll(key_bytes) catch return error.Fatal;
             writer.writeAll(": ") catch return error.Fatal;
         } else {
             // Call inspect on non-symbol keys
             const key_val = try entry.key.inspect(vm);
+            const key_obj = key_val.toStringObject();
+            if (!has_dynamic_part) {
+                output_encoding = key_obj.encoding;
+                has_dynamic_part = true;
+            } else {
+                output_encoding = enc.negotiate(output_encoding, buf.items, key_obj.encoding, key_obj.str) orelse {
+                    return vm.raiseExceptionFmt(
+                        vm.encoding_compatibility_error_class,
+                        "incompatible character encodings: {s} and {s}",
+                        .{ output_encoding.name(), key_obj.encoding.name() },
+                    );
+                };
+            }
             writer.writeAll(key_val.toStringObject().str) catch return error.Fatal;
             writer.writeAll(" => ") catch return error.Fatal;
         }
 
         // Call inspect on value
         const value_val = try entry.value.inspect(vm);
-        writer.writeAll(value_val.toStringObject().str) catch return error.Fatal;
+        const value_obj = value_val.toStringObject();
+        if (!has_dynamic_part) {
+            output_encoding = value_obj.encoding;
+            has_dynamic_part = true;
+        } else {
+            output_encoding = enc.negotiate(output_encoding, buf.items, value_obj.encoding, value_obj.str) orelse {
+                return vm.raiseExceptionFmt(
+                    vm.encoding_compatibility_error_class,
+                    "incompatible character encodings: {s} and {s}",
+                    .{ output_encoding.name(), value_obj.encoding.name() },
+                );
+            };
+        }
+        writer.writeAll(value_obj.str) catch return error.Fatal;
     }
     writer.writeAll("}") catch return error.Fatal;
 
     const final_str = buf.toOwnedSlice(vm.allocator) catch return error.Fatal;
     defer vm.allocator.free(final_str);
-    return try vm.newString(final_str, false);
+    return try vm.newStringWithEncoding(final_str, false, output_encoding);
 }
 
 pub fn builtinHashEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

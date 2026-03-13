@@ -955,7 +955,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/hash/hash_spec.rb
 - [ ] core/hash/include_spec.rb
 - [ ] core/hash/initialize_spec.rb
-- [ ] core/hash/inspect_spec.rb
+- [-] core/hash/inspect_spec.rb
 - [ ] core/hash/invert_spec.rb
 - [ ] core/hash/keep_if_spec.rb
 - [ ] core/hash/key_spec.rb
@@ -1772,7 +1772,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/range/hash_spec.rb
 - [ ] core/range/include_spec.rb
 - [ ] core/range/initialize_spec.rb
-- [ ] core/range/inspect_spec.rb
+- [x] core/range/inspect_spec.rb
 - [ ] core/range/last_spec.rb
 - [ ] core/range/max_spec.rb
 - [ ] core/range/member_spec.rb

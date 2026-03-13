@@ -1,4 +1,5 @@
 const std = @import("std");
+const enc = @import("../encoding.zig");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 
@@ -185,16 +186,29 @@ pub fn builtinRangeInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     if (!receiver.isRange()) {
         return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Range", .{});
     }
+    if (try vm.enterRecursionGuard(.range_inspect, receiver, Value.nil())) {
+        return try vm.newStringWithEncoding(
+            if (receiver.toRangeObject().exclude_end) "(... ... ...)" else "(... .. ...)",
+            false,
+            .{ .us_ascii = .{} },
+        );
+    }
+    defer vm.leaveRecursionGuard(.range_inspect, receiver, Value.nil());
 
     const range_obj = receiver.toRangeObject();
 
     var buf: std.ArrayList(u8) = .empty;
     defer buf.deinit(vm.allocator);
     const writer = buf.writer(vm.allocator);
+    var output_encoding: enc.Encoding = .{ .us_ascii = .{} };
+    var has_dynamic_part = false;
 
-    if (!range_obj.begin.isNil()) {
+    if (!range_obj.begin.isNil() or range_obj.end.isNil()) {
         const begin_inspected = try range_obj.begin.inspect(vm);
-        writer.writeAll(begin_inspected.toStringObject().str) catch return error.Fatal;
+        const begin_obj = begin_inspected.toStringObject();
+        output_encoding = begin_obj.encoding;
+        has_dynamic_part = true;
+        writer.writeAll(begin_obj.str) catch return error.Fatal;
     }
 
     if (range_obj.exclude_end) {
@@ -203,14 +217,27 @@ pub fn builtinRangeInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
         writer.writeAll("..") catch return error.Fatal;
     }
 
-    if (!range_obj.end.isNil()) {
+    if (range_obj.begin.isNil() or !range_obj.end.isNil()) {
         const end_inspected = try range_obj.end.inspect(vm);
-        writer.writeAll(end_inspected.toStringObject().str) catch return error.Fatal;
+        const end_obj = end_inspected.toStringObject();
+        if (!has_dynamic_part) {
+            output_encoding = end_obj.encoding;
+            has_dynamic_part = true;
+        } else {
+            output_encoding = enc.negotiate(output_encoding, buf.items, end_obj.encoding, end_obj.str) orelse {
+                return vm.raiseExceptionFmt(
+                    vm.encoding_compatibility_error_class,
+                    "incompatible character encodings: {s} and {s}",
+                    .{ output_encoding.name(), end_obj.encoding.name() },
+                );
+            };
+        }
+        writer.writeAll(end_obj.str) catch return error.Fatal;
     }
 
     const str = buf.toOwnedSlice(vm.allocator) catch return error.Fatal;
     defer vm.allocator.free(str);
-    return try vm.newString(str, false);
+    return try vm.newStringWithEncoding(str, false, output_encoding);
 }
 
 pub fn builtinRangeCaseEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
