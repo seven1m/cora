@@ -270,7 +270,14 @@ fn setVisibility(vm: *VM, receiver: Value, args: []Value, visibility: MethodVisi
     };
 
     for (names.items) |name_sym| {
-        const entry = getOwnDefinedMethodEntry(methods, name_sym) orelse {
+        const entry = if (receiver.isClass())
+            blk: {
+                const resolved = vm.lookupMethod(receiver.toClassObject(), name_sym) orelse break :blk null;
+                break :blk resolved.entry;
+            }
+        else
+            getOwnDefinedMethodEntry(methods, name_sym);
+        const method_entry = entry orelse {
             const msg = std.fmt.allocPrint(
                 vm.gc_allocator,
                 "undefined method '{s}'",
@@ -280,7 +287,7 @@ fn setVisibility(vm: *VM, receiver: Value, args: []Value, visibility: MethodVisi
             vm.pending_exception = exc;
             return error.Unwind;
         };
-        var updated = entry;
+        var updated = method_entry;
         updated.visibility = visibility;
         methods.put(name_sym, updated) catch return error.Fatal;
     }
