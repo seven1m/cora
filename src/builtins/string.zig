@@ -18,30 +18,6 @@ fn isTag(encoding: enc.Encoding, comptime tag: std.meta.Tag(enc.Encoding)) bool 
     return std.meta.activeTag(encoding) == tag;
 }
 
-fn handleMissingConverter(
-    vm: *VM,
-    source_bytes: []const u8,
-    from_encoding: enc.Encoding,
-    target_encoding: enc.Encoding,
-) VMError!?Value {
-    const effective_target = enc.effectiveTranscodeTargetEncoding(target_encoding);
-
-    if (isTag(from_encoding, .ascii_8bit) and (isTag(effective_target, .shift_jis) or isTag(effective_target, .windows_31j))) {
-        // Mirror MRI behavior for missing generic converter: 7-bit data round-trips
-        // unchanged, non-ASCII raises ConverterNotFoundError.
-        if (enc.isAsciiOnly(source_bytes)) {
-            return try vm.newStringWithEncoding(source_bytes, false, from_encoding);
-        }
-        return vm.raiseExceptionFmt(vm.encoding_converter_not_found_error_class, "code converter not found", .{});
-    }
-
-    if ((isTag(from_encoding, .shift_jis) or isTag(from_encoding, .windows_31j)) and isTag(effective_target, .ascii_8bit)) {
-        return vm.raiseExceptionFmt(vm.encoding_converter_not_found_error_class, "code converter not found", .{});
-    }
-
-    return null;
-}
-
 fn transcodeToIso2022JpSimple(
     vm: *VM,
     source_bytes: []const u8,
@@ -1156,10 +1132,17 @@ pub fn builtinStringEncode(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
         break :blk string_obj.str;
     };
 
-    if (std.meta.activeTag(from_encoding) != std.meta.activeTag(target_encoding)) {
-        if (try handleMissingConverter(vm, source_bytes, from_encoding, target_encoding)) |result| {
-            return result;
-        }
+    switch (enc.converterAvailability(from_encoding, target_encoding)) {
+        .available => {},
+        .ascii_only_passthrough => {
+            if (enc.isAsciiOnly(source_bytes)) {
+                return try vm.newStringWithEncoding(source_bytes, false, from_encoding);
+            }
+            return vm.raiseExceptionFmt(vm.encoding_converter_not_found_error_class, "code converter not found", .{});
+        },
+        .unavailable => {
+            return vm.raiseExceptionFmt(vm.encoding_converter_not_found_error_class, "code converter not found", .{});
+        },
     }
 
     const transcoded = try transcodeWithEncodeOptions(

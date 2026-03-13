@@ -176,6 +176,23 @@ test "Windows_31J accepts CP932 extension bytes that Shift_JIS cannot transcode"
     try std.testing.expectEqualSlices(u8, "undefined", result.toArrayObject().elements.items[1].toSymbolObject().name);
 }
 
+test "Encoding::Converter.new succeeds for supported conversions" {
+    const result = try evalCode("Encoding::Converter.new(Encoding::EUC_JP, Encoding::UTF_8)");
+    try std.testing.expect(result.isObject());
+}
+
+test "Encoding::Converter.new raises for missing converter paths" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+    const result = evalCodeWithOutput(
+        "Encoding::Converter.new(Encoding::Windows_31J, Encoding::BINARY)",
+        &stdout_buf,
+        &stderr_buf,
+    );
+    try std.testing.expectEqual(error.UnhandledException, result.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "ConverterNotFoundError") != null);
+}
+
 test "Encoding.find supports UTF-16/UTF-32 aliases" {
     const result_utf16 = try evalCode("Encoding.find('utf16').name");
     try std.testing.expect(result_utf16.isString());

@@ -183,6 +183,12 @@ pub const TranscodeError = error{
     UndefinedConversion,
 };
 
+pub const ConverterAvailability = enum {
+    available,
+    ascii_only_passthrough,
+    unavailable,
+};
+
 pub const CaseMapMode = enum {
     upcase,
     downcase,
@@ -212,6 +218,21 @@ pub fn effectiveTranscodeTargetEncoding(target: Encoding) Encoding {
         .utf32 => .{ .utf32be = .{} },
         else => target,
     };
+}
+
+pub fn converterAvailability(from: Encoding, to: Encoding) ConverterAvailability {
+    const effective_target = effectiveTranscodeTargetEncoding(to);
+    if (from.eql(effective_target)) return .available;
+
+    if (from == .ascii_8bit and (effective_target == .shift_jis or effective_target == .windows_31j)) {
+        return .ascii_only_passthrough;
+    }
+
+    if ((from == .shift_jis or from == .windows_31j) and effective_target == .ascii_8bit) {
+        return .unavailable;
+    }
+
+    return .available;
 }
 
 pub fn transcode(
