@@ -91,16 +91,12 @@ fn arrayJoinAppendElement(
         }
     }
 
-    if (try vm.checkCallMethodByName(elem, "to_ary", &[_]Value{}, null)) |to_ary_value| {
-        if (!to_ary_value.isNil()) {
-            if (!to_ary_value.isArray()) {
-                const exc = try vm.createException(vm.type_error_class, "can't convert to Array (to_ary must return Array or nil)");
-                vm.pending_exception = exc;
-                return error.Unwind;
-            }
-            try arrayJoinAppendArray(vm, state, to_ary_value.toArrayObject(), separator, seen);
+    switch (try vm.probeToAry(elem)) {
+        .array => |array_value| {
+            try arrayJoinAppendArray(vm, state, array_value.toArrayObject(), separator, seen);
             return;
-        }
+        },
+        .missing, .nil_result => {},
     }
 
     const to_s_sym = try vm.intern("to_s");
@@ -621,21 +617,7 @@ pub fn builtinArrayAny(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
 pub fn builtinArrayPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
 
-    const rhs_value = if (args[0].isArray()) blk: {
-        break :blk args[0];
-    } else blk: {
-        const maybe_array = try vm.checkCallMethodByName(args[0], "to_ary", &[_]Value{}, null);
-        break :blk maybe_array orelse {
-            const exc = try vm.createException(vm.type_error_class, "no implicit conversion into Array");
-            vm.pending_exception = exc;
-            return error.Unwind;
-        };
-    };
-    if (!rhs_value.isArray()) {
-        const exc = try vm.createException(vm.type_error_class, "can't convert to Array (to_ary gives non-Array)");
-        vm.pending_exception = exc;
-        return error.Unwind;
-    }
+    const rhs_value = try vm.coerceToArrayValue(args[0]);
 
     const lhs = receiver.toArrayObject();
     const rhs = rhs_value.toArrayObject();
@@ -954,21 +936,7 @@ pub fn builtinArrayReplace(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
         return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
     }
 
-    const replacement = if (args[0].isArray()) blk: {
-        break :blk args[0];
-    } else blk: {
-        const maybe_array = try vm.checkCallMethodByName(args[0], "to_ary", &[_]Value{}, null);
-        break :blk maybe_array orelse {
-            const exc = try vm.createException(vm.type_error_class, "no implicit conversion into Array");
-            vm.pending_exception = exc;
-            return error.Unwind;
-        };
-    };
-    if (!replacement.isArray()) {
-        const exc = try vm.createException(vm.type_error_class, "can't convert to Array (to_ary gives non-Array)");
-        vm.pending_exception = exc;
-        return error.Unwind;
-    }
+    const replacement = try vm.coerceToArrayValue(args[0]);
 
     const target = receiver.toArrayObject();
     const source = replacement.toArrayObject();

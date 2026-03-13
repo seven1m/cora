@@ -4114,25 +4114,11 @@ pub const VM = struct {
             .MULTI_ASSIGN_PREPARE => {
                 const receiver = self.pop();
 
-                // If already an array, just push it back
-                if (receiver.isArray()) {
-                    try self.push(receiver);
-                    return;
-                }
-
-                // Try to_ary protocol
-                const to_ary_sym = try self.intern("to_ary");
-
-                // Check if receiver responds to :to_ary (including private methods)
-                var respond_args = [_]Value{ Value.fromObject(to_ary_sym), Value.boolean(true) };
-                const responds = try self.callMethodByName(receiver, "respond_to?", &respond_args, null);
-
-                if (responds.isBool() and responds.toBool()) {
-                    // Call to_ary
-                    const to_ary_result = try self.callMethodByName(receiver, "to_ary", &[_]Value{}, null);
-
-                    if (to_ary_result.isNil()) {
-                        // to_ary returned nil -> wrap receiver in array
+                switch (try self.probeToAry(receiver)) {
+                    .array => |array| {
+                        try self.push(array);
+                    },
+                    .missing, .nil_result => {
                         const array_obj = self.gc_allocator.create(value.ArrayObject) catch return error.Fatal;
                         array_obj.* = .{
                             .object = .{ .type_tag = .array, .flags = 0, .class = self.array_class, .singleton_class = null, .instance_variables = null },
@@ -4140,24 +4126,7 @@ pub const VM = struct {
                         };
                         array_obj.elements.append(self.gc_allocator, receiver) catch return error.Fatal;
                         try self.push(Value.fromObject(array_obj));
-                    } else if (to_ary_result.isArray()) {
-                        // to_ary returned an array -> use it
-                        try self.push(to_ary_result);
-                    } else {
-                        // to_ary returned non-array/non-nil -> TypeError
-                        const exc = try self.createException(self.type_error_class, "can't convert to Array (to_ary must return Array or nil)");
-                        self.pending_exception = exc;
-                        return error.Unwind;
-                    }
-                } else {
-                    // Doesn't respond to to_ary -> wrap receiver in array
-                    const array_obj = self.gc_allocator.create(value.ArrayObject) catch return error.Fatal;
-                    array_obj.* = .{
-                        .object = .{ .type_tag = .array, .flags = 0, .class = self.array_class, .singleton_class = null, .instance_variables = null },
-                        .elements = .empty,
-                    };
-                    array_obj.elements.append(self.gc_allocator, receiver) catch return error.Fatal;
-                    try self.push(Value.fromObject(array_obj));
+                    },
                 }
             },
 
@@ -6468,6 +6437,43 @@ pub const VM = struct {
     ) VMError!void {
         try self.requireArgCount(args, 1);
         try self.requireArgType(args, 0, arg_tag, type_name);
+    }
+
+    pub const ToAryResult = union(enum) {
+        array: Value,
+        missing,
+        nil_result,
+    };
+
+    pub fn probeToAry(self: *VM, arg: Value) VMError!ToAryResult {
+        if (arg.isArray()) return .{ .array = arg };
+
+        const maybe_array = try self.checkCallMethodByName(arg, "to_ary", &[_]Value{}, null);
+        const coerced = maybe_array orelse return .missing;
+        if (coerced.isNil()) return .nil_result;
+        if (coerced.isArray()) return .{ .array = coerced };
+
+        return self.raiseExceptionFmt(
+            self.type_error_class,
+            "can't convert {s} to Array ({s}#to_ary gives {s})",
+            .{ self.className(arg), self.className(arg), self.className(coerced) },
+        );
+    }
+
+    pub fn coerceToArrayValue(self: *VM, arg: Value) VMError!Value {
+        return switch (try self.probeToAry(arg)) {
+            .array => |array| array,
+            .missing => self.raiseExceptionFmt(
+                self.type_error_class,
+                "no implicit conversion of {s} into Array",
+                .{self.className(arg)},
+            ),
+            .nil_result => self.raiseExceptionFmt(
+                self.type_error_class,
+                "can't convert {s} to Array ({s}#to_ary gives NilClass)",
+                .{ self.className(arg), self.className(arg) },
+            ),
+        };
     }
 
     pub fn coerceToPath(self: *VM, arg: Value, type_error_message: []const u8) VMError![]const u8 {
