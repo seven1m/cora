@@ -3,6 +3,7 @@ const enc = @import("../encoding.zig");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 const pack_runtime = @import("../pack.zig");
+const warning_builtin = @import("warning.zig");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -57,11 +58,13 @@ fn arrayJoinAppendString(vm: *VM, state: *JoinState, str_value: Value) VMError!v
 }
 
 fn arrayJoinWarnDefaultSeparator(vm: *VM) VMError!void {
-    const stderr_target = vm.globals.get("$stderr") orelse return;
-    const warning_text = "warning: $, is set to non-nil value\n";
-    const warning_val = try vm.newString(warning_text, false);
-    var write_args = [_]Value{warning_val};
-    _ = try vm.callMethodByName(stderr_target, "write", write_args[0..], null);
+    try warning_builtin.writeWarning(vm, "warning: $, is set to non-nil value\n");
+}
+
+fn arrayPatternMatches(vm: *VM, pattern: Value, element: Value) VMError!bool {
+    var match_args = [_]Value{element};
+    const result = try vm.callMethodByName(pattern, "===", match_args[0..], null);
+    return result.is_truthy();
 }
 
 fn arrayJoinAppendElement(
@@ -598,11 +601,28 @@ pub fn builtinArrayMapBang(vm: *VM, receiver: Value, args: []Value, block: ?Bloc
 }
 
 pub fn builtinArrayAny(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 0);
+    try vm.requireArgCountRange(args, 0, 1);
     const array = receiver.toArrayObject();
+    const pattern = if (args.len == 1) args[0] else null;
+
+    if (pattern != null and block != null) {
+        try warning_builtin.warnBlockUnused(vm);
+    }
+
+    if (pattern) |pat| {
+        var idx: usize = 0;
+        while (idx < array.elements.items.len) : (idx += 1) {
+            if (try arrayPatternMatches(vm, pat, array.elements.items[idx])) {
+                return Value.boolean(true);
+            }
+        }
+        return Value.boolean(false);
+    }
 
     if (block) |blk| {
-        for (array.elements.items) |element| {
+        var idx: usize = 0;
+        while (idx < array.elements.items.len) : (idx += 1) {
+            const element = array.elements.items[idx];
             const yield_args = [_]Value{element};
             const yielded = try vm.yieldToBlock(blk, &yield_args);
             if (yielded.break_occurred) {
@@ -613,8 +633,9 @@ pub fn builtinArrayAny(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
         return Value.boolean(false);
     }
 
-    for (array.elements.items) |element| {
-        if (element.is_truthy()) return Value.boolean(true);
+    var idx: usize = 0;
+    while (idx < array.elements.items.len) : (idx += 1) {
+        if (array.elements.items[idx].is_truthy()) return Value.boolean(true);
     }
     return Value.boolean(false);
 }
@@ -954,11 +975,26 @@ pub fn builtinArrayReplace(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 }
 
 pub fn builtinArrayAll(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 0);
+    try vm.requireArgCountRange(args, 0, 1);
     const array_obj = receiver.toArrayObject();
+    const pattern = if (args.len == 1) args[0] else null;
+
+    if (pattern != null and block != null) {
+        try warning_builtin.warnBlockUnused(vm);
+    }
+
+    if (pattern) |pat| {
+        var idx: usize = 0;
+        while (idx < array_obj.elements.items.len) : (idx += 1) {
+            if (!try arrayPatternMatches(vm, pat, array_obj.elements.items[idx])) return Value.boolean(false);
+        }
+        return Value.boolean(true);
+    }
 
     if (block) |blk| {
-        for (array_obj.elements.items) |element| {
+        var idx: usize = 0;
+        while (idx < array_obj.elements.items.len) : (idx += 1) {
+            const element = array_obj.elements.items[idx];
             const yield_args = [_]Value{element};
             const result = try vm.yieldToBlock(blk, &yield_args);
             if (result.break_occurred) {
@@ -970,8 +1006,9 @@ pub fn builtinArrayAll(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
         return Value.boolean(true);
     }
 
-    for (array_obj.elements.items) |element| {
-        if (!element.is_truthy()) return Value.boolean(false);
+    var idx: usize = 0;
+    while (idx < array_obj.elements.items.len) : (idx += 1) {
+        if (!array_obj.elements.items[idx].is_truthy()) return Value.boolean(false);
     }
 
     return Value.boolean(true);

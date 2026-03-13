@@ -139,6 +139,13 @@ Use "unmanaged" ArrayList: `field: ArrayList(*Value) = .empty` (allocator passed
 - Prefer `VM.checkCallMethodByName(receiver, "method", args, block)` for optional conversion/probe calls that should gracefully treat missing methods as "not supported" (MRI-style check-call behavior).
 - Do not parse exception messages (for example `"undefined method 'to_str'"`) to detect missing methods. Use `checkCallMethodByName` or explicit method lookup + dispatch rules.
 - Use normal `callMethodByName` (not check-call) when you must always perform the call or preserve side effects.
+- If you add or discover a reusable builtin helper, document it in this file when it is broadly useful for future builtin work.
+
+### General builtin helpers
+- `VM.requireArgCount`, `VM.requireArgCountRange`, and related helpers are the canonical path for builtin arity validation.
+- `VM.checkCallMethodByName` is the preferred probe/optional-conversion helper when missing methods should be treated as unsupported rather than exceptional.
+- `VM.callMethodByName` is the normal dispatch path when the call must happen or its side effects must be preserved.
+- `src/builtins/warning.zig` exposes shared warning helpers such as `writeWarning` and `warnBlockUnused`; prefer these over per-builtin `$stderr` warning writers.
 
 ### Builtin naming conventions
 - For Ruby `!` methods, name Zig builtin handlers with a `Bang` suffix (for example `String#upcase!` → `builtinStringUpcaseBang`).

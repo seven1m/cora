@@ -34,6 +34,17 @@ pub fn builtinWarningSet(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
     return args[1];
 }
 
+pub fn writeWarning(vm: *VM, message: []const u8) VMError!void {
+    const stderr_target = vm.globals.get("$stderr") orelse return;
+    const warning_val = try vm.newString(message, false);
+    var args = [_]Value{warning_val};
+    _ = try vm.callMethodByName(stderr_target, "write", args[0..], null);
+}
+
+pub fn warnBlockUnused(vm: *VM) VMError!void {
+    try writeWarning(vm, "warning: given block not used\n");
+}
+
 fn isDeprecatedCategory(category: Value) bool {
     if (!category.isSymbol()) return false;
     return std.mem.eql(u8, category.toSymbolObject().name, "deprecated");

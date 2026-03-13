@@ -4,6 +4,7 @@ const value = @import("../value.zig");
 const enc = @import("../encoding.zig");
 const encoding_builtin = @import("encoding.zig");
 const regexp_builtin = @import("regexp.zig");
+const warning_builtin = @import("warning.zig");
 const pack_runtime = @import("../pack.zig");
 
 const VM = vm_mod.VM;
@@ -3180,15 +3181,12 @@ fn concatBytes(vm: *VM, left: []const u8, right: []const u8) VMError![]const u8 
 fn warnSymbolToSMutation(vm: *VM, string_obj: *value.StringObject) VMError!void {
     const sym = string_obj.symbol_to_s_source orelse return;
     if (!vm.warning_deprecated_enabled) return;
-    const stderr_target = vm.globals.get("$stderr") orelse return;
     const warning_text = std.fmt.allocPrint(
         vm.gc_allocator,
         "warning: string returned by :{s}.to_s will be frozen in the future\n",
         .{sym.name},
     ) catch return error.Fatal;
-    const warning_val = try vm.newString(warning_text, false);
-    var args = [_]Value{warning_val};
-    _ = try vm.callMethodByName(stderr_target, "write", args[0..], null);
+    try warning_builtin.writeWarning(vm, warning_text);
 }
 
 fn integerLeastSignificantByte(vm: *VM, arg: Value) VMError!u8 {

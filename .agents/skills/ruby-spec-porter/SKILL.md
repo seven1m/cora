@@ -89,6 +89,8 @@ end
 - Remove any local Zig tests that now duplicate the same behavior covered by the ported Ruby spec.
 - Re-run focused regression tests (language/core tests affected by the change).
 - Run ruby/spec aggregate filter to ensure no regressions in existing ported specs.
+- If new helper code is generated, verify it's not reinventing a helper we already have.
+  Combine or generalize (and co-locate) helpers when possible.
 
 6. Verify upstream alignment.
 - Diff each copied spec/shared fixture against upstream and remove local drift.
