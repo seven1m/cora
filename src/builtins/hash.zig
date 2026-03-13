@@ -191,14 +191,28 @@ pub fn builtinHashBracketSet(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     return new_value;
 }
 
-pub fn builtinHashDelete(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+pub fn builtinHashDelete(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Hash", .{});
+    }
+
     const hash_obj = receiver.toHashObject();
     const key = args[0];
     const key_hash = key.hash();
 
-    const idx = hash_obj.map.get(key_hash) orelse return Value.nil();
+    const idx = hash_obj.map.get(key_hash) orelse {
+        if (block) |blk| {
+            const yielded = try vm.yieldToBlock(blk, &.{});
+            return yielded.value;
+        }
+        return Value.nil();
+    };
     if (!hash_obj.entries.items[idx].key.eql(key)) {
+        if (block) |blk| {
+            const yielded = try vm.yieldToBlock(blk, &.{});
+            return yielded.value;
+        }
         return Value.nil();
     }
 
