@@ -217,6 +217,9 @@ pub fn register(vm: *VM) !void {
     const union_sym = try vm.intern("|");
     try vm.array_class.module.methods.put(union_sym, .{ .method = .{ .builtin = &builtinArrayUnion } });
 
+    const plus_sym = try vm.intern("+");
+    try vm.array_class.module.methods.put(plus_sym, .{ .method = .{ .builtin = &builtinArrayPlus } });
+
     const to_s_sym = try vm.intern("to_s");
     try vm.array_class.module.methods.put(to_s_sym, .{ .method = .{ .builtin = &builtinArrayToS } });
 
@@ -614,6 +617,27 @@ pub fn builtinArrayAny(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
         if (element.is_truthy()) return Value.boolean(true);
     }
     return Value.boolean(false);
+}
+
+pub fn builtinArrayPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+
+    const rhs_value = if (args[0].isArray())
+        args[0]
+    else
+        try vm.callMethodByName(args[0], "to_ary", &[_]Value{}, null);
+    if (!rhs_value.isArray()) {
+        const exc = try vm.createException(vm.type_error_class, "can't convert to Array (to_ary gives non-Array)");
+        vm.pending_exception = exc;
+        return error.Unwind;
+    }
+
+    const lhs = receiver.toArrayObject();
+    const rhs = rhs_value.toArrayObject();
+    const out = try vm.createArray();
+    out.elements.appendSlice(vm.gc_allocator, lhs.elements.items) catch return error.Fatal;
+    out.elements.appendSlice(vm.gc_allocator, rhs.elements.items) catch return error.Fatal;
+    return Value.fromObject(out);
 }
 
 pub fn builtinArrayInclude(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
