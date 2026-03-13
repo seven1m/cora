@@ -32,6 +32,9 @@ pub fn register(vm: *VM) !void {
     const each_sym = try vm.intern("each");
     try vm.hash_class.module.methods.put(each_sym, .{ .method = .{ .builtin = &builtinHashEach } });
 
+    const each_pair_sym = try vm.intern("each_pair");
+    try vm.hash_class.module.methods.put(each_pair_sym, .{ .method = .{ .builtin = &builtinHashEachPair } });
+
     const to_s_sym = try vm.intern("to_s");
     try vm.hash_class.module.methods.put(to_s_sym, .{ .method = .{ .builtin = &builtinHashToS } });
 
@@ -254,6 +257,27 @@ pub fn builtinHashEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
         const result = try vm.yieldToBlock(blk, &yield_args);
 
         // If break occurred, return immediately
+        if (result.break_occurred) {
+            return result.value;
+        }
+    }
+
+    return receiver;
+}
+
+pub fn builtinHashEachPair(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const blk = block orelse {
+        return try vm.createMethodEnumerator(receiver, try vm.intern("each_pair"), &.{});
+    };
+    const hash_obj = receiver.toHashObject();
+    const snapshot = vm.allocator.alloc(value.HashEntry, hash_obj.entries.items.len) catch return error.Fatal;
+    defer vm.allocator.free(snapshot);
+    @memcpy(snapshot, hash_obj.entries.items);
+
+    for (snapshot) |entry| {
+        const yield_args = [_]Value{ entry.key, entry.value };
+        const result = try vm.yieldToBlock(blk, &yield_args);
         if (result.break_occurred) {
             return result.value;
         }
