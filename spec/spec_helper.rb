@@ -125,6 +125,10 @@ ensure
   @object = prev_object
 end
 
+def it_should_behave_like(name, *args)
+  it_behaves_like(name, *args)
+end
+
 def it(desc, &block)
   $__examples_total = $__examples_total + 1
   if block.nil?

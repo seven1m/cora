@@ -133,7 +133,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/array/keep_if_spec.rb
 - [x] core/array/last_spec.rb
 - [x] core/array/length_spec.rb
-- [ ] core/array/map_spec.rb
+- [-] core/array/map_spec.rb
 - [ ] core/array/max_spec.rb
 - [ ] core/array/min_spec.rb
 - [ ] core/array/minmax_spec.rb

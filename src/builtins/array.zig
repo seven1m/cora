@@ -538,12 +538,15 @@ pub fn builtinArrayLength(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
 pub fn builtinArrayMap(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const blk = block orelse {
-        return try vm.createMethodEnumerator(receiver, try vm.intern("map"), &.{});
+        const size_value = Value.integer(@intCast(receiver.toArrayObject().elements.items.len));
+        return try vm.createMethodEnumeratorWithSize(receiver, try vm.intern("map"), &.{}, size_value);
     };
     const source = receiver.toArrayObject();
     const result = try vm.createArray();
 
-    for (source.elements.items) |element| {
+    var idx: usize = 0;
+    while (idx < source.elements.items.len) : (idx += 1) {
+        const element = source.elements.items[idx];
         const yield_args = [_]Value{element};
         const yielded = try vm.yieldToBlock(blk, &yield_args);
         if (yielded.break_occurred) {
@@ -558,11 +561,17 @@ pub fn builtinArrayMap(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
 pub fn builtinArrayMapBang(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const blk = block orelse {
-        return try vm.createMethodEnumerator(receiver, try vm.intern("map!"), &.{});
+        const size_value = Value.integer(@intCast(receiver.toArrayObject().elements.items.len));
+        return try vm.createMethodEnumeratorWithSize(receiver, try vm.intern("map!"), &.{}, size_value);
     };
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
+    }
     const array = receiver.toArrayObject();
 
-    for (array.elements.items, 0..) |element, idx| {
+    var idx: usize = 0;
+    while (idx < array.elements.items.len) : (idx += 1) {
+        const element = array.elements.items[idx];
         const yield_args = [_]Value{element};
         const yielded = try vm.yieldToBlock(blk, &yield_args);
         if (yielded.break_occurred) {
