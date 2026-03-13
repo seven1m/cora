@@ -8,6 +8,9 @@ const Block = vm_mod.Block;
 const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
+    const initialize_sym = try vm.intern("initialize");
+    try vm.hash_class.module.methods.put(initialize_sym, .{ .method = .{ .builtin = &builtinHashInitialize } });
+
     const bracket_sym = try vm.intern("[]");
     try vm.hash_class.module.methods.put(bracket_sym, .{ .method = .{ .builtin = &builtinHashBracket } });
 
@@ -58,6 +61,26 @@ pub fn register(vm: *VM) !void {
 
     const default_proc_set_sym = try vm.intern("default_proc=");
     try vm.hash_class.module.methods.put(default_proc_set_sym, .{ .method = .{ .builtin = &builtinHashDefaultProcSet } });
+}
+
+pub fn builtinHashInitialize(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    if (args.len == 1 and block != null) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "wrong number of arguments (given 1, expected 0)", .{});
+    }
+
+    const hash_obj = receiver.toHashObject();
+    hash_obj.default_value = null;
+    hash_obj.default_proc = null;
+
+    if (block) |blk| {
+        const proc_val = try vm.newProc(blk);
+        hash_obj.default_proc = proc_val.toProcObject();
+    } else if (args.len == 1) {
+        hash_obj.default_value = args[0];
+    }
+
+    return receiver;
 }
 
 pub fn builtinHashBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
