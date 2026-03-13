@@ -855,9 +855,9 @@ pub const Compiler = struct {
         if (std.ascii.eqlIgnoreCase(name, "US-ASCII")) return .{ .us_ascii = .{} };
         if (std.ascii.eqlIgnoreCase(name, "ASCII-8BIT")) return .{ .ascii_8bit = .{} };
         if (std.ascii.eqlIgnoreCase(name, "UTF-8")) return .{ .utf8 = .{} };
-        if (std.ascii.eqlIgnoreCase(name, "Shift_JIS") or std.ascii.eqlIgnoreCase(name, "Windows-31J") or std.ascii.eqlIgnoreCase(name, "EUC-JP")) {
-            return .{ .shift_jis = .{} };
-        }
+        if (std.ascii.eqlIgnoreCase(name, "Shift_JIS")) return .{ .shift_jis = .{} };
+        if (std.ascii.eqlIgnoreCase(name, "Windows-31J")) return .{ .windows_31j = .{} };
+        if (std.ascii.eqlIgnoreCase(name, "EUC-JP")) return .{ .euc_jp = .{} };
         if (std.ascii.eqlIgnoreCase(name, "ISO-8859-9")) return .{ .iso_8859_9 = .{} };
         if (std.ascii.eqlIgnoreCase(name, "ISO-8859-15")) return .{ .iso_8859_15 = .{} };
         if (std.ascii.eqlIgnoreCase(name, "UTF-7")) return .{ .utf7 = .{} };

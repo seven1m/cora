@@ -24,6 +24,11 @@ test "Encoding::SHIFT_JIS exists" {
     try std.testing.expect(result.isEncoding());
 }
 
+test "Encoding::Windows_31J exists" {
+    const result = try evalCode("Encoding::Windows_31J");
+    try std.testing.expect(result.isEncoding());
+}
+
 test "Encoding::UTF_7 exists" {
     const result = try evalCode("Encoding::UTF_7");
     try std.testing.expect(result.isEncoding());
@@ -145,7 +150,30 @@ test "Encoding.find normalizes name" {
 test "Encoding.find supports SHIFT_JIS aliases" {
     const result = try evalCode("Encoding.find('sjis').name");
     try std.testing.expect(result.isString());
-    try std.testing.expectEqualSlices(u8, "Shift_JIS", result.toStringObject().str);
+    try std.testing.expectEqualSlices(u8, "Windows-31J", result.toStringObject().str);
+}
+
+test "Windows_31J is distinct from Shift_JIS" {
+    const result = try evalCode("Encoding::Windows_31J == Encoding::Shift_JIS");
+    try std.testing.expect(result.isBool());
+    try std.testing.expectEqual(false, result.toBool());
+}
+
+test "Windows_31J accepts CP932 extension bytes that Shift_JIS cannot transcode" {
+    const result = try evalCode(
+        \\[
+        \\  "\x87]".dup.force_encoding(Encoding::Windows_31J).encode("UTF-8"),
+        \\  begin
+        \\    "\x87]".dup.force_encoding(Encoding::Shift_JIS).encode("UTF-8")
+        \\  rescue Encoding::UndefinedConversionError
+        \\    :undefined
+        \\  end
+        \\]
+    );
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqualSlices(u8, "Ⅹ", result.toArrayObject().elements.items[0].toStringObject().str);
+    try std.testing.expect(result.toArrayObject().elements.items[1].isSymbol());
+    try std.testing.expectEqualSlices(u8, "undefined", result.toArrayObject().elements.items[1].toSymbolObject().name);
 }
 
 test "Encoding.find supports UTF-16/UTF-32 aliases" {

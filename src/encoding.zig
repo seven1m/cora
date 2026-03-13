@@ -4,6 +4,7 @@ const Utf8Encoding = @import("encoding/utf8.zig").Utf8Encoding;
 const Ascii8BitEncoding = @import("encoding/ascii_8bit.zig").Ascii8BitEncoding;
 const UsAsciiEncoding = @import("encoding/us_ascii.zig").UsAsciiEncoding;
 const ShiftJisEncoding = @import("encoding/shift_jis.zig").ShiftJisEncoding;
+const Windows31JEncoding = @import("encoding/windows_31j.zig").Windows31JEncoding;
 const EucJpEncoding = @import("encoding/euc_jp.zig").EucJpEncoding;
 const Cp437Encoding = @import("encoding/cp437.zig").Cp437Encoding;
 const Iso2022JpEncoding = @import("encoding/iso_2022_jp.zig").Iso2022JpEncoding;
@@ -39,6 +40,7 @@ pub const Encoding = union(enum) {
     ascii_8bit: Ascii8BitEncoding,
     us_ascii: UsAsciiEncoding,
     shift_jis: ShiftJisEncoding,
+    windows_31j: Windows31JEncoding,
     euc_jp: EucJpEncoding,
     cp437: Cp437Encoding,
     iso_2022_jp: Iso2022JpEncoding,
@@ -224,12 +226,16 @@ pub fn transcode(
 
     var i: usize = 0;
     while (i < bytes.len) {
-        const parsed = source.nextCodepoint(bytes, &i);
+        const start = i;
+        const parsed = source.nextChar(bytes, &i);
         if (parsed.len == 0) break;
         if (!parsed.valid) return error.InvalidByteSequence;
+        const codepoint = source.toUnicodeCodepoint(bytes[start .. start + parsed.len]) orelse {
+            return error.UndefinedConversion;
+        };
 
         var encoded: [4]u8 = undefined;
-        const encoded_len = effective_target.fromUnicodeCodepoint(parsed.codepoint, &encoded) orelse {
+        const encoded_len = effective_target.fromUnicodeCodepoint(codepoint, &encoded) orelse {
             return error.UndefinedConversion;
         };
         out.appendSlice(allocator, encoded[0..encoded_len]) catch return error.OutOfMemory;
@@ -353,6 +359,7 @@ fn mapOnigEncoding(source_encoding: Encoding) ?onigmo.OnigEncoding {
         .ascii_8bit => onigmo.ENCODING_ASCII,
         .us_ascii => onigmo.ENCODING_ASCII,
         .shift_jis => onigmo.ENCODING_SHIFT_JIS,
+        .windows_31j => onigmo.ENCODING_WINDOWS_31J,
         .euc_jp => onigmo.ENCODING_EUC_JP,
         .iso_8859_9 => onigmo.ENCODING_ISO_8859_9,
         .iso_8859_15 => onigmo.ENCODING_ISO_8859_15,

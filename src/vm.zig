@@ -269,6 +269,7 @@ pub const VM = struct {
     encoding_ascii_8bit: *value.EncodingObject,
     encoding_us_ascii: *value.EncodingObject,
     encoding_shift_jis: *value.EncodingObject,
+    encoding_windows_31j: *value.EncodingObject,
     encoding_euc_jp: *value.EncodingObject,
     encoding_cp437: *value.EncodingObject,
     encoding_iso_2022_jp: *value.EncodingObject,
@@ -400,6 +401,7 @@ pub const VM = struct {
             .encoding_ascii_8bit = undefined,
             .encoding_us_ascii = undefined,
             .encoding_shift_jis = undefined,
+            .encoding_windows_31j = undefined,
             .encoding_euc_jp = undefined,
             .encoding_cp437 = undefined,
             .encoding_iso_2022_jp = undefined,
@@ -686,6 +688,7 @@ pub const VM = struct {
         self.encoding_ascii_8bit = try self.createEncodingObject(.{ .ascii_8bit = .{} });
         self.encoding_us_ascii = try self.createEncodingObject(.{ .us_ascii = .{} });
         self.encoding_shift_jis = try self.createEncodingObject(.{ .shift_jis = .{} });
+        self.encoding_windows_31j = try self.createEncodingObject(.{ .windows_31j = .{} });
         self.encoding_euc_jp = try self.createEncodingObject(.{ .euc_jp = .{} });
         self.encoding_cp437 = try self.createEncodingObject(.{ .cp437 = .{} });
         self.encoding_iso_2022_jp = try self.createEncodingObject(.{ .iso_2022_jp = .{} });
@@ -816,6 +819,7 @@ pub const VM = struct {
         const ascii_8bit_val = Value.fromObject(self.encoding_ascii_8bit);
         const us_ascii_val = Value.fromObject(self.encoding_us_ascii);
         const shift_jis_val = Value.fromObject(self.encoding_shift_jis);
+        const windows_31j_val = Value.fromObject(self.encoding_windows_31j);
         const euc_jp_val = Value.fromObject(self.encoding_euc_jp);
         const cp437_val = Value.fromObject(self.encoding_cp437);
         const iso_8859_9_val = Value.fromObject(self.encoding_iso_8859_9);
@@ -836,8 +840,8 @@ pub const VM = struct {
         self.encoding_class.module.constants.put(ascii_const_sym, us_ascii_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(shift_jis_const_sym, shift_jis_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(shift_jis_mixed_const_sym, shift_jis_val) catch return error.Fatal;
-        self.encoding_class.module.constants.put(sjis_const_sym, shift_jis_val) catch return error.Fatal;
-        self.encoding_class.module.constants.put(windows_31j_const_sym, shift_jis_val) catch return error.Fatal;
+        self.encoding_class.module.constants.put(sjis_const_sym, windows_31j_val) catch return error.Fatal;
+        self.encoding_class.module.constants.put(windows_31j_const_sym, windows_31j_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(euc_jp_const_sym, euc_jp_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(iso_8859_1_const_sym, iso_8859_15_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(iso_8859_9_const_sym, iso_8859_9_val) catch return error.Fatal;
@@ -851,7 +855,7 @@ pub const VM = struct {
         self.encoding_class.module.constants.put(utf32le_const_sym, utf32le_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(utf32be_const_sym, utf32be_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(iso_2022_jp_const_sym, Value.fromObject(self.encoding_iso_2022_jp)) catch return error.Fatal;
-        self.encoding_class.module.constants.put(emacs_mule_const_sym, shift_jis_val) catch return error.Fatal;
+        self.encoding_class.module.constants.put(emacs_mule_const_sym, windows_31j_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(windows_1251_const_sym, iso_8859_15_val) catch return error.Fatal;
         const ibm437_const_sym = try self.intern("IBM437");
         self.encoding_class.module.constants.put(ibm437_const_sym, cp437_val) catch return error.Fatal;
@@ -6197,6 +6201,7 @@ pub const VM = struct {
             .ascii_8bit => Value.fromObject(self.encoding_ascii_8bit),
             .us_ascii => Value.fromObject(self.encoding_us_ascii),
             .shift_jis => Value.fromObject(self.encoding_shift_jis),
+            .windows_31j => Value.fromObject(self.encoding_windows_31j),
             .euc_jp => Value.fromObject(self.encoding_euc_jp),
             .cp437 => Value.fromObject(self.encoding_cp437),
             .iso_2022_jp => Value.fromObject(self.encoding_iso_2022_jp),

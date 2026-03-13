@@ -26,7 +26,7 @@ fn handleMissingConverter(
 ) VMError!?Value {
     const effective_target = enc.effectiveTranscodeTargetEncoding(target_encoding);
 
-    if (isTag(from_encoding, .ascii_8bit) and isTag(effective_target, .shift_jis)) {
+    if (isTag(from_encoding, .ascii_8bit) and (isTag(effective_target, .shift_jis) or isTag(effective_target, .windows_31j))) {
         // Mirror MRI behavior for missing generic converter: 7-bit data round-trips
         // unchanged, non-ASCII raises ConverterNotFoundError.
         if (enc.isAsciiOnly(source_bytes)) {
@@ -35,7 +35,7 @@ fn handleMissingConverter(
         return vm.raiseExceptionFmt(vm.encoding_converter_not_found_error_class, "code converter not found", .{});
     }
 
-    if (isTag(from_encoding, .shift_jis) and isTag(effective_target, .ascii_8bit)) {
+    if ((isTag(from_encoding, .shift_jis) or isTag(from_encoding, .windows_31j)) and isTag(effective_target, .ascii_8bit)) {
         return vm.raiseExceptionFmt(vm.encoding_converter_not_found_error_class, "code converter not found", .{});
     }
 
@@ -952,33 +952,75 @@ fn transcodeWithEncodeOptions(
             return vm.raiseExceptionFmt(vm.encoding_invalid_byte_sequence_error_class, "invalid byte sequence in {s}", .{from_encoding.name()});
         }
 
+        const unicode_codepoint = from_encoding.toUnicodeCodepoint(source_bytes[start..i]);
+
         if (xml_mode != .none) {
-            if (parsed.codepoint == '&') {
+            const codepoint = unicode_codepoint orelse {
+                return raiseUndefinedConversionForCodepoint(vm, parsed.codepoint, from_encoding, effective_target_encoding);
+            };
+            if (codepoint == '&') {
                 try appendXmlEntity(vm, &out, "&amp;", effective_target_encoding);
                 continue;
             }
-            if (parsed.codepoint == '<') {
+            if (codepoint == '<') {
                 try appendXmlEntity(vm, &out, "&lt;", effective_target_encoding);
                 continue;
             }
-            if (parsed.codepoint == '>') {
+            if (codepoint == '>') {
                 try appendXmlEntity(vm, &out, "&gt;", effective_target_encoding);
                 continue;
             }
-            if (xml_mode == .attr and parsed.codepoint == '"') {
+            if (xml_mode == .attr and codepoint == '"') {
                 try appendXmlEntity(vm, &out, "&quot;", effective_target_encoding);
                 continue;
             }
         }
 
+        const codepoint = unicode_codepoint orelse {
+            if (undef_replace) {
+                if (kw_replace != null) {
+                    try appendReplacementForEncode(vm, &out, replacement, effective_target_encoding);
+                } else {
+                    try appendDefaultReplacementForEncode(vm, &out, effective_target_encoding);
+                }
+                continue;
+            }
+
+            if (kw_fallback) |fallback| {
+                const char_val = try vm.newStringWithEncoding(source_bytes[start..i], false, from_encoding);
+                var fallback_result: ?Value = null;
+                var fallback_args = [_]Value{char_val};
+
+                if (fallback.isProc()) {
+                    fallback_result = try vm.callProcObject(fallback.toProcObject(), fallback_args[0..], null, null);
+                } else if (try vm.checkCallMethodByName(fallback, "call", fallback_args[0..], null)) |result| {
+                    fallback_result = result;
+                } else if (try vm.checkCallMethodByName(fallback, "[]", fallback_args[0..], null)) |result| {
+                    fallback_result = result;
+                }
+
+                if (fallback_result == null or fallback_result.?.isNil()) {
+                    return raiseUndefinedConversionForCodepoint(vm, parsed.codepoint, from_encoding, effective_target_encoding);
+                }
+
+                const fallback_str = fallback_result.?.coerceToStringValue(vm, "no implicit conversion of Object into String") catch {
+                    return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion of Object into String", .{});
+                };
+                try appendReplacementForEncode(vm, &out, fallback_str, effective_target_encoding);
+                continue;
+            }
+
+            return raiseUndefinedConversionForCodepoint(vm, parsed.codepoint, from_encoding, effective_target_encoding);
+        };
+
         var encoded: [4]u8 = undefined;
-        if (effective_target_encoding.fromUnicodeCodepoint(parsed.codepoint, &encoded)) |encoded_len| {
+        if (effective_target_encoding.fromUnicodeCodepoint(codepoint, &encoded)) |encoded_len| {
             out.appendSlice(vm.gc_allocator_atomic, encoded[0..encoded_len]) catch return error.Fatal;
             continue;
         }
 
         if (xml_mode != .none) {
-            try appendXmlNumericCharRef(vm, &out, parsed.codepoint, effective_target_encoding);
+            try appendXmlNumericCharRef(vm, &out, codepoint, effective_target_encoding);
             continue;
         }
 
@@ -1005,7 +1047,7 @@ fn transcodeWithEncodeOptions(
             }
 
             if (fallback_result == null or fallback_result.?.isNil()) {
-                return raiseUndefinedConversionForCodepoint(vm, parsed.codepoint, from_encoding, effective_target_encoding);
+                return raiseUndefinedConversionForCodepoint(vm, codepoint, from_encoding, effective_target_encoding);
             }
 
             const fallback_str = fallback_result.?.coerceToStringValue(vm, "no implicit conversion of Object into String") catch {
@@ -1015,7 +1057,7 @@ fn transcodeWithEncodeOptions(
             continue;
         }
 
-        return raiseUndefinedConversionForCodepoint(vm, parsed.codepoint, from_encoding, effective_target_encoding);
+        return raiseUndefinedConversionForCodepoint(vm, codepoint, from_encoding, effective_target_encoding);
     }
 
     return out.toOwnedSlice(vm.gc_allocator_atomic) catch return error.Fatal;
