@@ -677,7 +677,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/false/inspect_spec.rb
 - [ ] core/false/or_spec.rb
 - [ ] core/false/singleton_method_spec.rb
-- [ ] core/false/to_s_spec.rb
+- [x] core/false/to_s_spec.rb
 - [ ] core/false/xor_spec.rb
 
 ### core/fiber
@@ -2326,7 +2326,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/true/inspect_spec.rb
 - [ ] core/true/or_spec.rb
 - [ ] core/true/singleton_method_spec.rb
-- [ ] core/true/to_s_spec.rb
+- [x] core/true/to_s_spec.rb
 - [ ] core/true/trueclass_spec.rb
 - [ ] core/true/xor_spec.rb
 

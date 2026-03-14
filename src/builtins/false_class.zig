@@ -20,7 +20,7 @@ pub fn register(vm: *VM) !void {
 pub fn builtinFalseClassToS(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
 
-    return try vm.newString("false", false);
+    return try vm.getOrCreateCanonicalFString("false", .{ .utf8 = .{} });
 }
 
 pub fn builtinFalseClassInspect(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
