@@ -168,9 +168,9 @@ test "Hash fetch raises error when key not found" {
     try std.testing.expectError(error.UnhandledException, result);
 }
 
-test "Hash fetch raises error with both default and block" {
-    const result = evalCode("h = {a: 1}\nh.fetch(:b, 99) { 42 }");
-    try std.testing.expectError(error.UnhandledException, result);
+test "Hash fetch uses block when both default and block are given" {
+    const result = try evalCode("h = {a: 1}\nh.fetch(:b, 99) { 42 }");
+    try std.testing.expectEqual(42, result.toInteger());
 }
 
 test "Hash dig with single key" {

@@ -169,6 +169,8 @@ pub const ExceptionObject = struct {
     message: *StringObject,
     backtrace: ?*ArrayObject,
     cause: ?*ExceptionObject,
+    receiver: ?Value = null,
+    key: ?Value = null,
 };
 
 pub const ProcObject = struct {

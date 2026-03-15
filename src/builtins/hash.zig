@@ -3,6 +3,7 @@ const enc = @import("../encoding.zig");
 const inspect_util = @import("../inspect.zig");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
+const warning_builtin = @import("warning.zig");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -422,11 +423,7 @@ pub fn builtinHashFetch(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
     try vm.requireArgCountRange(args, 1, 2);
 
     if (args.len == 2 and block != null) {
-        return vm.raiseExceptionFmt(
-            vm.argument_error_class,
-            "block supersedes default value argument",
-            .{},
-        );
+        try warning_builtin.writeWarning(vm, "warning: block supersedes default value argument\n");
     }
 
     const hash_obj = receiver.toHashObject();
@@ -448,14 +445,15 @@ pub fn builtinHashFetch(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
     } else if (args.len == 2) {
         return args[1];
     } else {
-        // Raise KeyError - need to format the key
         const key_str = try key.inspect(vm);
-
-        return vm.raiseExceptionFmt(
-            vm.runtime_error_class,
-            "key not found: {s}",
-            .{key_str.toStringObject().str},
+        const exc = try vm.createException(
+            vm.key_error_class,
+            std.fmt.allocPrint(vm.gc_allocator, "key not found: {s}", .{key_str.toStringObject().str}) catch return error.Fatal,
         );
+        exc.receiver = receiver;
+        exc.key = key;
+        vm.pending_exception = exc;
+        return error.Unwind;
     }
 }
 

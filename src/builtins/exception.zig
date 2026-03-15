@@ -12,6 +12,12 @@ pub fn register(vm: *VM) !void {
 
     const message_sym = try vm.intern("message");
     try vm.exception_class.module.methods.put(message_sym, .{ .method = .{ .builtin = &builtinExceptionMessage } });
+
+    const receiver_sym = try vm.intern("receiver");
+    try vm.key_error_class.module.methods.put(receiver_sym, .{ .method = .{ .builtin = &builtinKeyErrorReceiver } });
+
+    const key_sym = try vm.intern("key");
+    try vm.key_error_class.module.methods.put(key_sym, .{ .method = .{ .builtin = &builtinKeyErrorKey } });
 }
 
 pub fn builtinExceptionInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -29,4 +35,18 @@ pub fn builtinExceptionMessage(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
 
     const exc = receiver.toExceptionObject();
     return Value.fromObject(exc.message);
+}
+
+pub fn builtinKeyErrorReceiver(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
+    const exc = receiver.toExceptionObject();
+    return exc.receiver orelse Value.nil();
+}
+
+pub fn builtinKeyErrorKey(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
+    const exc = receiver.toExceptionObject();
+    return exc.key orelse Value.nil();
 }

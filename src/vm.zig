@@ -244,6 +244,7 @@ pub const VM = struct {
     not_implemented_error_class: *value.ClassObject,
     frozen_error_class: *value.ClassObject,
     argument_error_class: *value.ClassObject,
+    key_error_class: *value.ClassObject,
     type_error_class: *value.ClassObject,
     zero_division_error_class: *value.ClassObject,
     name_error_class: *value.ClassObject,
@@ -381,6 +382,7 @@ pub const VM = struct {
             .not_implemented_error_class = undefined,
             .frozen_error_class = undefined,
             .argument_error_class = undefined,
+            .key_error_class = undefined,
             .type_error_class = undefined,
             .zero_division_error_class = undefined,
             .name_error_class = undefined,
@@ -675,6 +677,10 @@ pub const VM = struct {
         const index_error_class_val = try self.newClass(index_error_name_sym, self.standard_error_class);
         self.index_error_class = index_error_class_val.toClassObject();
 
+        const key_error_name_sym = try self.intern("KeyError");
+        const key_error_class_val = try self.newClass(key_error_name_sym, self.index_error_class);
+        self.key_error_class = key_error_class_val.toClassObject();
+
         const stop_iteration_name_sym = try self.intern("StopIteration");
         const stop_iteration_class_val = try self.newClass(stop_iteration_name_sym, self.index_error_class);
         self.stop_iteration_class = stop_iteration_class_val.toClassObject();
@@ -751,6 +757,7 @@ pub const VM = struct {
         self.object_class.module.constants.put(not_implemented_error_name_sym, not_implemented_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(frozen_error_name_sym, frozen_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(argument_error_name_sym, argument_error_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(key_error_name_sym, key_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(type_error_name_sym, type_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(zero_division_error_name_sym, zero_division_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(name_error_name_sym, name_error_class_val) catch return error.Fatal;
@@ -7195,6 +7202,8 @@ pub const VM = struct {
             .message = msg_str.toStringObject(),
             .backtrace = backtrace,
             .cause = self.pending_exception,
+            .receiver = null,
+            .key = null,
         };
 
         return exc;
