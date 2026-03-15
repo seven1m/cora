@@ -189,6 +189,12 @@ pub fn register(vm: *VM) !void {
     const map_bang_sym = try vm.intern("map!");
     try vm.array_class.module.methods.put(map_bang_sym, .{ .method = .{ .builtin = &builtinArrayMapBang } });
 
+    const select_sym = try vm.intern("select");
+    try vm.array_class.module.methods.put(select_sym, .{ .method = .{ .builtin = &builtinArraySelect } });
+
+    const select_bang_sym = try vm.intern("select!");
+    try vm.array_class.module.methods.put(select_bang_sym, .{ .method = .{ .builtin = &builtinArraySelectBang } });
+
     const any_sym = try vm.intern("any?");
     try vm.array_class.module.methods.put(any_sym, .{ .method = .{ .builtin = &builtinArrayAny } });
 
@@ -248,6 +254,9 @@ pub fn register(vm: *VM) !void {
 
     const shift_sym = try vm.intern("shift");
     try vm.array_class.module.methods.put(shift_sym, .{ .method = .{ .builtin = &builtinArrayShift } });
+
+    const dup_sym = try vm.intern("dup");
+    try vm.array_class.module.methods.put(dup_sym, .{ .method = .{ .builtin = &builtinArrayDup } });
 }
 
 pub fn builtinArrayPush(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -583,6 +592,68 @@ pub fn builtinArrayMapBang(vm: *VM, receiver: Value, args: []Value, block: ?Bloc
     return receiver;
 }
 
+pub fn builtinArraySelect(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const blk = block orelse {
+        const size_value = Value.integer(@intCast(receiver.toArrayObject().elements.items.len));
+        return try vm.createMethodEnumeratorWithSize(receiver, try vm.intern("select"), &.{}, size_value);
+    };
+    const source = receiver.toArrayObject();
+    const result = try vm.createArray();
+
+    var idx: usize = 0;
+    while (idx < source.elements.items.len) : (idx += 1) {
+        const element = source.elements.items[idx];
+        const yield_args = [_]Value{element};
+        const yielded = try vm.yieldToBlock(blk, &yield_args);
+        if (yielded.break_occurred) {
+            return yielded.value;
+        }
+        if (yielded.value.is_truthy()) {
+            result.elements.append(vm.gc_allocator, element) catch return error.Fatal;
+        }
+    }
+
+    return Value.fromObject(result);
+}
+
+pub fn builtinArraySelectBang(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const blk = block orelse {
+        const size_value = Value.integer(@intCast(receiver.toArrayObject().elements.items.len));
+        return try vm.createMethodEnumeratorWithSize(receiver, try vm.intern("select!"), &.{}, size_value);
+    };
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
+    }
+
+    const array = receiver.toArrayObject();
+    var processed_len: usize = 0;
+    var kept_len: usize = 0;
+
+    while (processed_len < array.elements.items.len) {
+        const element = array.elements.items[processed_len];
+        const yield_args = [_]Value{element};
+        const yielded = vm.yieldToBlock(blk, &yield_args) catch |err| {
+            _ = try arraySelectBangFinalize(vm, receiver, array, processed_len, kept_len);
+            return err;
+        };
+        if (yielded.break_occurred) {
+            _ = try arraySelectBangFinalize(vm, receiver, array, processed_len, kept_len);
+            return yielded.value;
+        }
+        if (yielded.value.is_truthy()) {
+            if (processed_len != kept_len) {
+                array.elements.items[kept_len] = element;
+            }
+            kept_len += 1;
+        }
+        processed_len += 1;
+    }
+
+    return try arraySelectBangFinalize(vm, receiver, array, processed_len, kept_len);
+}
+
 pub fn builtinArrayAny(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
     const array = receiver.toArrayObject();
@@ -860,6 +931,16 @@ pub fn builtinArrayShift(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     return Value.fromObject(out);
 }
 
+pub fn builtinArrayDup(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
+    const out = try vm.newObjectForClass(vm.getClass(receiver));
+    const source = receiver.toArrayObject();
+    const duplicate = out.toArrayObject();
+    duplicate.elements.appendSlice(vm.gc_allocator, source.elements.items) catch return error.Fatal;
+    return out;
+}
+
 pub fn builtinArrayUnion(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireSingleArg(args, .array, "Array");
     const left = receiver.toArrayObject();
@@ -1030,6 +1111,35 @@ fn arrayContainsEquivalent(vm: *VM, haystack: []Value, needle: Value) VMError!bo
         if (try vm.valueEquals(item, needle)) return true;
     }
     return false;
+}
+
+fn arraySelectBangFinalize(
+    vm: *VM,
+    receiver: Value,
+    target: *value.ArrayObject,
+    processed_len: usize,
+    kept_len: usize,
+) VMError!Value {
+    const current_len = target.elements.items.len;
+
+    if (kept_len < current_len and kept_len < processed_len) {
+        if (receiver.isFrozen()) {
+            return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
+        }
+
+        const tail_len = if (processed_len < current_len) current_len - processed_len else 0;
+        if (tail_len > 0) {
+            std.mem.copyForwards(
+                Value,
+                target.elements.items[kept_len .. kept_len + tail_len],
+                target.elements.items[processed_len .. processed_len + tail_len],
+            );
+        }
+        target.elements.items.len = kept_len + tail_len;
+    }
+
+    if (processed_len == kept_len) return Value.nil();
+    return receiver;
 }
 
 fn arrayValueLessThan(vm: *VM, lhs: Value, rhs: Value) VMError!bool {

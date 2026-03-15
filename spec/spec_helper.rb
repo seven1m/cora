@@ -420,19 +420,13 @@ end
 
 def current_platform_tags
   platform = RUBY_PLATFORM.to_s
-  tags = []
-
   if platform.include?("mingw") || platform.include?("mswin") || platform.include?("windows")
-    tags << :windows
+    [:windows]
   else
-    tags << :unix
-    tags << :linux if platform.include?("linux")
-    tags << :darwin if platform.include?("darwin")
-    tags << :openbsd if platform.include?("openbsd")
-    tags << :freebsd if platform.include?("freebsd")
+    [:unix, :linux, :darwin, :openbsd, :freebsd].select do |tag|
+      tag == :unix || platform.include?(tag.to_s)
+    end
   end
-
-  tags
 end
 
 def platform_is(*args, **kwargs, &block)

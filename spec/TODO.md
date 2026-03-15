@@ -189,7 +189,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/array/rindex_spec.rb
 - [ ] core/array/rotate_spec.rb
 - [ ] core/array/sample_spec.rb
-- [ ] core/array/select_spec.rb
+- [x] core/array/select_spec.rb
 - [x] core/array/shift_spec.rb
 - [ ] core/array/shuffle_spec.rb
 - [x] core/array/size_spec.rb
