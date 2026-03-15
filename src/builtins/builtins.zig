@@ -10,6 +10,7 @@ const enumerator = @import("enumerator.zig");
 const env = @import("env.zig");
 const exception = @import("exception.zig");
 const false_class = @import("false_class.zig");
+const dir = @import("dir.zig");
 const file = @import("file.zig");
 const float = @import("float.zig");
 const hash = @import("hash.zig");
@@ -43,6 +44,7 @@ pub fn registerAll(vm: *VM) !void {
     try hash.register(vm);
     try io.register(vm);
     try file.register(vm);
+    try dir.register(vm);
     try env.register(vm);
     try process.register(vm);
     try warning.register(vm);

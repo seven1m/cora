@@ -119,3 +119,116 @@ test "write on closed File raises IOError" {
     try std.testing.expectEqual(error.UnhandledException, result.err.?);
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, "IOError") != null);
 }
+
+test "Dir.pwd returns the current working directory" {
+    const cwd = try std.process.getCwdAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(cwd);
+
+    const result = try evalCode("Dir.pwd");
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, cwd, result.toStringObject().str);
+}
+
+test "Dir.home follows HOME and supports the current USER" {
+    const passwd = std.c.getpwuid(std.posix.getuid()) orelse return error.SkipZigTest;
+    const current_user = std.mem.span(passwd.name orelse return error.SkipZigTest);
+    const source = try std.fmt.allocPrint(
+        std.testing.allocator,
+        \\old_home = ENV["HOME"]
+        \\old_user = ENV["USER"]
+        \\ENV["HOME"] = "/tmp/cora_home"
+        \\ENV["USER"] = "{s}"
+        \\begin
+        \\  [Dir.home, Dir.home("{s}")]
+        \\ensure
+        \\  ENV["HOME"] = old_home
+        \\  ENV["USER"] = old_user
+        \\end
+    , .{ current_user, current_user });
+    defer std.testing.allocator.free(source);
+
+    const result = try evalCode(source);
+
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqualSlices(u8, "/tmp/cora_home", result.toArrayObject().elements.items[0].toStringObject().str);
+    try std.testing.expect(result.toArrayObject().elements.items[1].isString());
+}
+
+test "Dir.home rejects a non-current user" {
+    var stdout_buf: [1024]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+    const result = evalCodeWithOutput(
+        \\old_home = ENV["HOME"]
+        \\old_user = ENV["USER"]
+        \\ENV["HOME"] = "/tmp/cora_home"
+        \\ENV["USER"] = "cora_spec_user"
+        \\begin
+        \\  Dir.home("other_user")
+        \\ensure
+        \\  ENV["HOME"] = old_home
+        \\  ENV["USER"] = old_user
+        \\end
+    , &stdout_buf, &stderr_buf);
+
+    try std.testing.expectEqual(error.UnhandledException, result.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "ArgumentError") != null);
+}
+
+test "File.join and File.dirname provide minimal Unix path helpers" {
+    const result = try evalCode("[File.join('/tmp', 'a', 'b'), File.dirname('/tmp/a/b')]");
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqualSlices(u8, "/tmp/a/b", result.toArrayObject().elements.items[0].toStringObject().str);
+    try std.testing.expectEqualSlices(u8, "/tmp/a", result.toArrayObject().elements.items[1].toStringObject().str);
+}
+
+test "File.expand_path handles relative and home-based paths" {
+    const cwd = try std.process.getCwdAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(cwd);
+
+    const source = try std.fmt.allocPrint(
+        std.testing.allocator,
+        \\old_home = ENV["HOME"]
+        \\ENV["HOME"] = "/tmp/cora_home"
+        \\begin
+        \\  [
+        \\    File.expand_path("a"),
+        \\    File.expand_path("../bin", "tmp/x"),
+        \\    File.expand_path("~/lib")
+        \\  ]
+        \\ensure
+        \\  ENV["HOME"] = old_home
+        \\end
+    , .{});
+    defer std.testing.allocator.free(source);
+
+    const result = try evalCode(source);
+    try std.testing.expect(result.isArray());
+
+    const expected_a = try std.fmt.allocPrint(std.testing.allocator, "{s}/a", .{cwd});
+    defer std.testing.allocator.free(expected_a);
+    const expected_bin = try std.fmt.allocPrint(std.testing.allocator, "{s}/tmp/bin", .{cwd});
+    defer std.testing.allocator.free(expected_bin);
+
+    try std.testing.expectEqualSlices(u8, expected_a, result.toArrayObject().elements.items[0].toStringObject().str);
+    try std.testing.expectEqualSlices(u8, expected_bin, result.toArrayObject().elements.items[1].toStringObject().str);
+    try std.testing.expectEqualSlices(u8, "/tmp/cora_home/lib", result.toArrayObject().elements.items[2].toStringObject().str);
+}
+
+test "Dir.home and File.expand_path fall back to passwd lookup when HOME is unset" {
+    const passwd_home = std.mem.span((std.c.getpwuid(std.posix.getuid()) orelse return error.SkipZigTest).dir orelse return error.SkipZigTest);
+
+    const result = try evalCode(
+        \\old_home = ENV["HOME"]
+        \\begin
+        \\  ENV.delete("HOME")
+        \\  [Dir.home, File.expand_path("~"), File.expand_path("~/")]
+        \\ensure
+        \\  ENV["HOME"] = old_home
+        \\end
+    );
+
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqualSlices(u8, passwd_home, result.toArrayObject().elements.items[0].toStringObject().str);
+    try std.testing.expectEqualSlices(u8, passwd_home, result.toArrayObject().elements.items[1].toStringObject().str);
+    try std.testing.expectEqualSlices(u8, passwd_home, result.toArrayObject().elements.items[2].toStringObject().str);
+}

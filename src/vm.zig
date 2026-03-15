@@ -203,6 +203,7 @@ pub const VM = struct {
     array_class: *value.ClassObject,
     hash_class: *value.ClassObject,
     file_class: *value.ClassObject,
+    dir_class: *value.ClassObject,
     range_class: *value.ClassObject,
     proc_class: *value.ClassObject,
     fiber_class: *value.ClassObject,
@@ -240,6 +241,7 @@ pub const VM = struct {
     standard_error_class: *value.ClassObject,
     runtime_error_class: *value.ClassObject,
     syntax_error_class: *value.ClassObject,
+    not_implemented_error_class: *value.ClassObject,
     frozen_error_class: *value.ClassObject,
     argument_error_class: *value.ClassObject,
     type_error_class: *value.ClassObject,
@@ -349,6 +351,7 @@ pub const VM = struct {
             .array_class = undefined,
             .hash_class = undefined,
             .file_class = undefined,
+            .dir_class = undefined,
             .range_class = undefined,
             .proc_class = undefined,
             .fiber_class = undefined,
@@ -375,6 +378,7 @@ pub const VM = struct {
             .standard_error_class = undefined,
             .runtime_error_class = undefined,
             .syntax_error_class = undefined,
+            .not_implemented_error_class = undefined,
             .frozen_error_class = undefined,
             .argument_error_class = undefined,
             .type_error_class = undefined,
@@ -512,6 +516,10 @@ pub const VM = struct {
         const file_class_val = try self.newClassWithType(file_name_sym, self.io_class, .io);
         self.file_class = file_class_val.toClassObject();
 
+        const dir_name_sym = try self.intern("Dir");
+        const dir_class_val = try self.newClass(dir_name_sym, self.object_class);
+        self.dir_class = dir_class_val.toClassObject();
+
         const range_name_sym = try self.intern("Range");
         const range_class_val = try self.newClassWithType(range_name_sym, self.object_class, .range);
         self.range_class = range_class_val.toClassObject();
@@ -589,6 +597,7 @@ pub const VM = struct {
 
         const not_implemented_error_name_sym = try self.intern("NotImplementedError");
         const not_implemented_error_class_val = try self.newClass(not_implemented_error_name_sym, self.standard_error_class);
+        self.not_implemented_error_class = not_implemented_error_class_val.toClassObject();
 
         const frozen_error_name_sym = try self.intern("FrozenError");
         const frozen_error_class_val = try self.newClass(frozen_error_name_sym, self.runtime_error_class);
@@ -720,6 +729,7 @@ pub const VM = struct {
         self.object_class.module.constants.put(array_name_sym, array_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(hash_name_sym, hash_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(file_name_sym, file_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(dir_name_sym, dir_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(range_name_sym, range_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(proc_name_sym, proc_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(fiber_name_sym, fiber_class_val) catch return error.Fatal;
@@ -1155,7 +1165,7 @@ pub const VM = struct {
         self.object_class.module.constants.put(argv_sym, Value.fromObject(argv_array)) catch return error.Fatal;
     }
 
-    fn allocCStringZ(self: *VM, bytes: []const u8) VMError![:0]u8 {
+    pub fn allocCStringZ(self: *VM, bytes: []const u8) VMError![:0]u8 {
         const out = self.allocator.allocSentinel(u8, bytes.len, 0) catch return error.Fatal;
         @memcpy(out[0..bytes.len], bytes);
         return out;

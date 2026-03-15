@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const enc = @import("../encoding.zig");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 
@@ -7,6 +8,33 @@ const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
 const Block = vm_mod.Block;
 const Value = value.Value;
+const Encoding = enc.Encoding;
+
+fn passwdDir(passwd: *const std.c.passwd) ?[]const u8 {
+    const dir_z = passwd.dir orelse return null;
+    return std.mem.span(dir_z);
+}
+
+fn homeFromPasswdByUid(vm: *VM) VMError!?[]const u8 {
+    const passwd = std.c.getpwuid(std.posix.getuid()) orelse return null;
+    const dir = passwdDir(passwd) orelse return null;
+    if (!std.fs.path.isAbsolute(dir)) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "non-absolute home", .{});
+    }
+    return dir;
+}
+
+fn homeFromPasswdByName(vm: *VM, username: []const u8) VMError!?[]const u8 {
+    const username_z = try vm.allocCStringZ(username);
+    defer vm.allocator.free(username_z);
+
+    const passwd = std.c.getpwnam(username_z.ptr) orelse return null;
+    const dir = passwdDir(passwd) orelse return null;
+    if (!std.fs.path.isAbsolute(dir)) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "non-absolute home", .{});
+    }
+    return dir;
+}
 
 const FileMode = struct {
     read: bool,
@@ -31,6 +59,18 @@ pub fn register(vm: *VM) !void {
 
     const write_sym = try vm.intern("write");
     try file_singleton.module.methods.put(write_sym, .{ .method = .{ .builtin = &builtinFileWrite } });
+
+    const expand_path_sym = try vm.intern("expand_path");
+    try file_singleton.module.methods.put(expand_path_sym, .{ .method = .{ .builtin = &builtinFileExpandPath } });
+
+    const join_sym = try vm.intern("join");
+    try file_singleton.module.methods.put(join_sym, .{ .method = .{ .builtin = &builtinFileJoin } });
+
+    const dirname_sym = try vm.intern("dirname");
+    try file_singleton.module.methods.put(dirname_sym, .{ .method = .{ .builtin = &builtinFileDirname } });
+
+    const directory_sym = try vm.intern("directory?");
+    try file_singleton.module.methods.put(directory_sym, .{ .method = .{ .builtin = &builtinFileDirectory } });
 }
 
 fn parseMode(vm: *VM, mode_str: []const u8) VMError!FileMode {
@@ -79,6 +119,167 @@ fn pathAndMode(vm: *VM, args: []Value) VMError!struct { path: []const u8, mode: 
     return .{ .path = path, .mode = mode };
 }
 
+fn currentHome(vm: *VM) VMError![]const u8 {
+    const home_z = std.posix.getenv("HOME") orelse {
+        return (try homeFromPasswdByUid(vm)) orelse vm.raiseExceptionFmt(
+            vm.argument_error_class,
+            "couldn't find HOME environment -- expanding `~'",
+            .{},
+        );
+    };
+    const home = home_z[0..home_z.len];
+    if (home.len == 0) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "couldn't find HOME environment -- expanding `~'", .{});
+    }
+    if (!std.fs.path.isAbsolute(home)) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "non-absolute home", .{});
+    }
+    return home;
+}
+
+fn currentWorkingDir(vm: *VM) VMError![]u8 {
+    return std.process.getCwdAlloc(vm.allocator) catch return error.Fatal;
+}
+
+fn coerceToPathValue(vm: *VM, arg: Value) VMError!Value {
+    const maybe_candidate = try vm.checkCallMethodByName(arg, "to_path", &[_]Value{}, null);
+    const candidate = maybe_candidate orelse arg;
+    return candidate.coerceToStringValue(vm, "no implicit conversion into String");
+}
+
+fn joinPathPartsAlloc(allocator: std.mem.Allocator, base: []const u8, tail: []const u8) ![]u8 {
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(allocator);
+
+    if (base.len == 0) {
+        out.appendSlice(allocator, tail) catch return error.OutOfMemory;
+    } else if (tail.len == 0) {
+        out.appendSlice(allocator, base) catch return error.OutOfMemory;
+    } else {
+        out.appendSlice(allocator, base) catch return error.OutOfMemory;
+        if (out.items[out.items.len - 1] != '/') {
+            out.append(allocator, '/') catch return error.OutOfMemory;
+        }
+        var start: usize = 0;
+        while (start < tail.len and tail[start] == '/') : (start += 1) {}
+        out.appendSlice(allocator, tail[start..]) catch return error.OutOfMemory;
+    }
+
+    return allocator.dupe(u8, out.items);
+}
+
+fn normalizeAbsolutePathAlloc(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
+    var leading_slashes: usize = 0;
+    while (leading_slashes < path.len and path[leading_slashes] == '/') : (leading_slashes += 1) {}
+    if (leading_slashes == 0) return error.InvalidArgument;
+
+    var segments: std.ArrayList([]const u8) = .empty;
+    defer segments.deinit(allocator);
+
+    var i: usize = leading_slashes;
+    while (i <= path.len) {
+        const start = i;
+        while (i < path.len and path[i] != '/') : (i += 1) {}
+        const segment = path[start..i];
+        if (segment.len > 0 and !std.mem.eql(u8, segment, ".")) {
+            if (std.mem.eql(u8, segment, "..")) {
+                if (segments.items.len > 0) _ = segments.pop();
+            } else {
+                segments.append(allocator, segment) catch return error.OutOfMemory;
+            }
+        }
+        i += 1;
+    }
+
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(allocator);
+    for (0..leading_slashes) |_| {
+        out.append(allocator, '/') catch return error.OutOfMemory;
+    }
+
+    for (segments.items, 0..) |segment, idx| {
+        if (idx > 0) out.append(allocator, '/') catch return error.OutOfMemory;
+        out.appendSlice(allocator, segment) catch return error.OutOfMemory;
+    }
+
+    return allocator.dupe(u8, out.items);
+}
+
+fn expandUserPathAlloc(vm: *VM, path: []const u8) VMError![]u8 {
+    std.debug.assert(path.len > 0 and path[0] == '~');
+    var split: usize = 1;
+    while (split < path.len and path[split] != '/') : (split += 1) {}
+    const username = path[1..split];
+    const rest = path[split..];
+
+    const home = if (username.len == 0)
+        try currentHome(vm)
+    else
+        (try homeFromPasswdByName(vm, username)) orelse {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "user {s} doesn't exist", .{username});
+        };
+    if (rest.len == 0 or (rest.len == 1 and rest[0] == '/')) {
+        return vm.allocator.dupe(u8, home) catch return error.Fatal;
+    }
+
+    return joinPathPartsAlloc(vm.allocator, home, rest[1..]) catch return error.Fatal;
+}
+
+fn expandBaseDirAlloc(vm: *VM, base_opt: ?[]const u8) VMError![]u8 {
+    const base = base_opt orelse {
+        return currentWorkingDir(vm);
+    };
+
+    if (base.len > 0 and base[0] == '~') {
+        const expanded = try expandUserPathAlloc(vm, base);
+        defer vm.allocator.free(expanded);
+        return normalizeAbsolutePathAlloc(vm.allocator, expanded) catch return error.Fatal;
+    }
+
+    if (base.len > 0 and base[0] == '/') {
+        return normalizeAbsolutePathAlloc(vm.allocator, base) catch return error.Fatal;
+    }
+
+    const cwd = try currentWorkingDir(vm);
+    defer vm.allocator.free(cwd);
+    const joined = joinPathPartsAlloc(vm.allocator, cwd, base) catch return error.Fatal;
+    defer vm.allocator.free(joined);
+    return normalizeAbsolutePathAlloc(vm.allocator, joined) catch return error.Fatal;
+}
+
+fn expandPathAlloc(vm: *VM, path: []const u8, base_opt: ?[]const u8) VMError![]u8 {
+    if (path.len > 0 and path[0] == '~') {
+        const expanded = try expandUserPathAlloc(vm, path);
+        defer vm.allocator.free(expanded);
+        return normalizeAbsolutePathAlloc(vm.allocator, expanded) catch return error.Fatal;
+    }
+
+    if (path.len > 0 and path[0] == '/') {
+        return normalizeAbsolutePathAlloc(vm.allocator, path) catch return error.Fatal;
+    }
+
+    const base = try expandBaseDirAlloc(vm, base_opt);
+    defer vm.allocator.free(base);
+
+    const joined = joinPathPartsAlloc(vm.allocator, base, path) catch return error.Fatal;
+    defer vm.allocator.free(joined);
+    return normalizeAbsolutePathAlloc(vm.allocator, joined) catch return error.Fatal;
+}
+
+fn dirnameBytesAlloc(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
+    if (path.len == 0) return allocator.dupe(u8, ".");
+
+    var end = path.len;
+    while (end > 1 and path[end - 1] == '/') : (end -= 1) {}
+    const trimmed = path[0..end];
+
+    if (std.mem.eql(u8, trimmed, "/")) return allocator.dupe(u8, "/");
+
+    const last_slash = std.mem.lastIndexOfScalar(u8, trimmed, '/') orelse return allocator.dupe(u8, ".");
+    if (last_slash == 0) return allocator.dupe(u8, "/");
+    return allocator.dupe(u8, trimmed[0..last_slash]);
+}
+
 pub fn builtinFileNew(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     const parsed = try pathAndMode(vm, args);
     return openFileWithMode(vm, parsed.path, parsed.mode);
@@ -115,4 +316,90 @@ pub fn builtinFileWrite(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Val
     const file_val = try openFileWithMode(vm, path, .{ .read = false, .write = true, .append = false, .create = true, .truncate = true });
     defer _ = vm.callMethodByName(file_val, "close", &[_]Value{}, null) catch {};
     return vm.callMethodByName(file_val, "write", args[1..2], null);
+}
+
+pub fn builtinFileExpandPath(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "File.expand_path is not implemented on Windows", .{});
+    }
+
+    const path_value = try coerceToPathValue(vm, args[0]);
+    const path_obj = path_value.toStringObject();
+
+    const base: ?[]const u8 = if (args.len == 2 and !args[1].isNil()) blk: {
+        const base_value = try coerceToPathValue(vm, args[1]);
+        break :blk base_value.toStringObject().str;
+    } else null;
+
+    const expanded = try expandPathAlloc(vm, path_obj.str, base);
+    defer vm.allocator.free(expanded);
+    return try vm.newStringWithEncoding(expanded, false, path_obj.encoding);
+}
+
+pub fn builtinFileJoin(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "File.join is not implemented on Windows", .{});
+    }
+
+    var result: std.ArrayList(u8) = .empty;
+    defer result.deinit(vm.allocator);
+
+    var output_encoding: Encoding = .{ .utf8 = .{} };
+    var have_encoding = false;
+
+    for (args, 0..) |arg, idx| {
+        const part_value = try coerceToPathValue(vm, arg);
+        const part_obj = part_value.toStringObject();
+        if (!have_encoding) {
+            output_encoding = part_obj.encoding;
+            have_encoding = true;
+        }
+
+        if (idx == 0) {
+            result.appendSlice(vm.allocator, part_obj.str) catch return error.Fatal;
+            continue;
+        }
+
+        if (part_obj.str.len > 0 and part_obj.str[0] == '/') {
+            result.clearRetainingCapacity();
+            result.appendSlice(vm.allocator, part_obj.str) catch return error.Fatal;
+            continue;
+        }
+
+        if (result.items.len > 0 and result.items[result.items.len - 1] != '/') {
+            result.append(vm.allocator, '/') catch return error.Fatal;
+        }
+
+        var start: usize = 0;
+        while (start < part_obj.str.len and part_obj.str[start] == '/') : (start += 1) {}
+        result.appendSlice(vm.allocator, part_obj.str[start..]) catch return error.Fatal;
+    }
+
+    return try vm.newStringWithEncoding(result.items, false, output_encoding);
+}
+
+pub fn builtinFileDirname(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "File.dirname is not implemented on Windows", .{});
+    }
+
+    const path_value = try coerceToPathValue(vm, args[0]);
+    const path_obj = path_value.toStringObject();
+    const dir = dirnameBytesAlloc(vm.allocator, path_obj.str) catch return error.Fatal;
+    defer vm.allocator.free(dir);
+    return try vm.newStringWithEncoding(dir, false, path_obj.encoding);
+}
+
+pub fn builtinFileDirectory(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "File.directory? is not implemented on Windows", .{});
+    }
+
+    const path = try vm.coerceToPath(args[0], "no implicit conversion into String");
+    var dir = std.fs.cwd().openDir(path, .{}) catch return Value.boolean(false);
+    defer dir.close();
+    return Value.boolean(true);
 }

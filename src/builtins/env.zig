@@ -16,6 +16,9 @@ pub fn register(vm: *VM) !void {
     const bracket_set_sym = try vm.intern("[]=");
     try env_singleton.module.methods.put(bracket_set_sym, .{ .method = .{ .builtin = &builtinEnvBracketSet } });
 
+    const delete_sym = try vm.intern("delete");
+    try env_singleton.module.methods.put(delete_sym, .{ .method = .{ .builtin = &builtinEnvDelete } });
+
     const to_h_sym = try vm.intern("to_h");
     try env_singleton.module.methods.put(to_h_sym, .{ .method = .{ .builtin = &builtinEnvToH } });
 }
@@ -36,6 +39,14 @@ pub fn builtinEnvBracketSet(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
 
     const value_str = try args[1].coerceToStr(vm, "no implicit conversion into String");
     return vm.envSetString(key, value_str, true);
+}
+
+pub fn builtinEnvDelete(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const key = try args[0].coerceToStr(vm, "no implicit conversion into String");
+    const old_value = try vm.envGet(key);
+    _ = try vm.envUnset(key, true);
+    return old_value;
 }
 
 pub fn builtinEnvToH(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

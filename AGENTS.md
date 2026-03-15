@@ -145,6 +145,7 @@ Use "unmanaged" ArrayList: `field: ArrayList(*Value) = .empty` (allocator passed
 - `VM.requireArgCount`, `VM.requireArgCountRange`, and related helpers are the canonical path for builtin arity validation.
 - `VM.checkCallMethodByName` is the preferred probe/optional-conversion helper when missing methods should be treated as unsupported rather than exceptional.
 - `VM.callMethodByName` is the normal dispatch path when the call must happen or its side effects must be preserved.
+- `VM.allocCStringZ` is the shared helper for temporary NUL-terminated C strings when builtins need libc APIs; prefer it over per-builtin duplicate allocators.
 - `VM.probeToAry` centralizes low-level `to_ary` coercion semantics. It returns array/missing/nil-result distinctly and raises `TypeError` when `to_ary` returns a non-Array.
 - `VM.coerceToArrayValue` is the strict array-like coercion helper for APIs such as `Array#+`/`Array#replace`; it raises MRI-style `TypeError` messages for missing `to_ary` and `nil`/wrong-type `to_ary` results.
 - `src/builtins/warning.zig` exposes shared warning helpers such as `writeWarning` and `warnBlockUnused`; prefer these over per-builtin `$stderr` warning writers.

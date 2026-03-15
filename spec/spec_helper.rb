@@ -418,7 +418,43 @@ def fixnum_max
   max_long
 end
 
-def platform_is(*_args, **kwargs, &block)
+def current_platform_tags
+  platform = RUBY_PLATFORM.to_s
+  tags = []
+
+  if platform.include?("mingw") || platform.include?("mswin") || platform.include?("windows")
+    tags << :windows
+  else
+    tags << :unix
+    tags << :linux if platform.include?("linux")
+    tags << :darwin if platform.include?("darwin")
+    tags << :openbsd if platform.include?("openbsd")
+    tags << :freebsd if platform.include?("freebsd")
+  end
+
+  tags
+end
+
+def platform_is(*args, **kwargs, &block)
+  if !args.empty?
+    matched = false
+    saw_symbol = false
+    i = 0
+    while i < args.length
+      arg = args[i]
+      if arg.is_a?(Symbol)
+        saw_symbol = true
+        if current_platform_tags.include?(arg)
+          matched = true
+          break
+        end
+      end
+      i += 1
+    end
+    if saw_symbol && !matched
+      return
+    end
+  end
   requested_size = kwargs[:c_long_size]
   if !requested_size.nil? && requested_size != c_long_size
     return
@@ -430,7 +466,17 @@ def platform_is(*_args, **kwargs, &block)
   block.call if block
 end
 
-def platform_is_not(*_args, **kwargs, &block)
+def platform_is_not(*args, **kwargs, &block)
+  if !args.empty?
+    i = 0
+    while i < args.length
+      arg = args[i]
+      if arg.is_a?(Symbol) && current_platform_tags.include?(arg)
+        return
+      end
+      i += 1
+    end
+  end
   requested_size = kwargs[:c_long_size]
   if !requested_size.nil? && requested_size == c_long_size
     return
@@ -1377,6 +1423,12 @@ def mock(name = nil)
   m = MockObject.new(name)
   $__active_mocks << m
   m
+end
+
+def mock_to_path(path)
+  obj = Object.new
+  obj.define_singleton_method(:to_path) { path }
+  obj
 end
 
 class ExpectationTarget
