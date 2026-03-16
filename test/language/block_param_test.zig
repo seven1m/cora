@@ -328,6 +328,24 @@ test "&argument calls to_proc when present" {
     try std.testing.expectEqualStrings("2", result.toArrayObject().elements.items[1].toStringObject().str);
 }
 
+test "&argument honors respond_to_missing? when coercing to_proc" {
+    const result = try evalCode(
+        \\obj = Object.new
+        \\def obj.respond_to_missing?(name, include_private = false)
+        \\  name == :to_proc || super
+        \\end
+        \\def obj.method_missing(name, *args, &block)
+        \\  return proc { |x| x * 3 } if name == :to_proc
+        \\  super
+        \\end
+        \\[1, 2].map(&obj)
+    );
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(usize, 2), result.toArrayObject().elements.items.len);
+    try std.testing.expectEqual(@as(i64, 3), result.toArrayObject().elements.items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 6), result.toArrayObject().elements.items[1].toInteger());
+}
+
 test "&argument to_proc returning non-Proc raises TypeError" {
     try std.testing.expectError(error.UnhandledException, evalCode(
         \\class M

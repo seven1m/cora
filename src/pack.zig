@@ -1094,12 +1094,10 @@ fn coerceToFloat(vm: *VM, arg: Value) VMError!f64 {
     if (arg.isFloat()) return arg.toFloatObject().val;
     if (arg.isInteger()) return @floatFromInt(arg.toInteger());
 
-    const to_f_sym = try vm.intern("to_f");
-    const has_to_f = (try vm.findMethod(arg, to_f_sym)) != null;
-    if (!has_to_f) {
+    const maybe_coerced = try vm.checkCallMethodByName(arg, "to_f", &[_]Value{}, null);
+    const coerced = maybe_coerced orelse {
         return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Float", .{});
-    }
-    const coerced = try vm.callMethodByName(arg, "to_f", &[_]Value{}, null);
+    };
     if (coerced.isFloat()) return coerced.toFloatObject().val;
     if (coerced.isInteger()) return @floatFromInt(coerced.toInteger());
     return vm.raiseExceptionFmt(vm.type_error_class, "can't convert to Float (to_f gives non-Float)", .{});

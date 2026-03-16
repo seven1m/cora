@@ -1715,15 +1715,14 @@ pub const VM = struct {
             }
 
             if (!proc_val.isProc()) {
-                const to_proc_sym = try self.intern("to_proc");
-                if ((try self.findMethod(proc_val, to_proc_sym)) == null) {
+                const maybe_proc = try self.checkCallMethodByName(proc_val, "to_proc", &[_]Value{}, null);
+                proc_val = maybe_proc orelse {
                     return self.raiseExceptionFmt(
                         self.type_error_class,
                         "wrong argument type {s} (expected Proc)",
                         .{self.className(proc_val)},
                     );
-                }
-                proc_val = try self.callMethodByName(proc_val, "to_proc", &[_]Value{}, null);
+                };
                 if (!proc_val.isProc()) {
                     return self.raiseExceptionFmt(
                         self.type_error_class,

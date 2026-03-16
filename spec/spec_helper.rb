@@ -1287,8 +1287,9 @@ class SpecMockExpectation
 end
 
 class MockObject
-  def initialize(name = nil)
+  def initialize(name = nil, options = {})
     @name = name || "mock"
+    @null = options[:null_object]
     @forbidden_calls = {}
     @expected_calls = {}
     @wrapped_methods = {}
@@ -1322,20 +1323,11 @@ class MockObject
   end
 
   def method_missing(name, *args, &block)
-    sym = name.to_sym
-
-    if @forbidden_calls[sym]
-      raise SpecFailedException, "Expected #{@name} not to receive #{name}"
-    end
-
-    exp = @expected_calls[sym]
-    return exp.invoke(args, block) if exp
-
-    nil
+    @null ? self : super
   end
 
-  def respond_to_missing?(_name, _include_private = false)
-    true
+  def respond_to_missing?(name, include_private = false)
+    (@null && !@expected_calls.key?(name.to_sym) && !@forbidden_calls.key?(name.to_sym)) || super
   end
 
   private
@@ -1349,15 +1341,14 @@ class MockObject
     end
     return if already_wrapped
 
-    singleton = class << self; self; end
-    unless singleton.instance_methods.include?(method_name)
-      @wrapped_methods[method_name] = nil
-      return
+    original = nil
+    begin
+      original = method(method_name)
+    rescue NameError
+      original = nil
     end
 
-    original_name = "__spec_mock_original_#{object_id}_#{method_name}".to_sym
-    singleton.send(:alias_method, original_name, method_name)
-    @wrapped_methods[method_name] = original_name
+    @wrapped_methods[method_name] = original
 
     define_singleton_method(method_name) do |*args, &block|
       if @forbidden_calls[method_name]
@@ -1367,7 +1358,10 @@ class MockObject
       exp = @expected_calls[method_name]
       return exp.invoke(args, block) if exp
 
-      send(original_name, *args, &block)
+      return original.call(*args, &block) unless original.nil?
+      return self if @null
+
+      raise NoMethodError, "undefined method '#{method_name}' for #{inspect}"
     end
   end
 
@@ -1377,13 +1371,16 @@ class MockObject
     i = 0
     while i < method_names.length
       method_name = method_names[i]
-      original_name = @wrapped_methods[method_name]
-      if !original_name.nil?
-        singleton.send(:alias_method, method_name, original_name)
+      original = @wrapped_methods[method_name]
+      if original.nil?
         begin
-          singleton.send(:remove_method, original_name)
+          singleton.send(:remove_method, method_name)
         rescue NameError
           nil
+        end
+      else
+        define_singleton_method(method_name) do |*args, &block|
+          original.call(*args, &block)
         end
       end
       i += 1
@@ -1413,8 +1410,8 @@ class Module
   end
 end
 
-def mock(name = nil)
-  m = MockObject.new(name)
+def mock(name = nil, options = {})
+  m = MockObject.new(name, options)
   $__active_mocks << m
   m
 end

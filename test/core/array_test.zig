@@ -212,6 +212,22 @@ test "Array#pack integer directives" {
     try std.testing.expectEqualSlices(u8, "[18, 52]", result.toStringObject().str);
 }
 
+test "Array#pack float directives honor respond_to_missing? for to_f" {
+    const result = try evalCode(
+        \\obj = Object.new
+        \\def obj.respond_to_missing?(name, include_private = false)
+        \\  name == :to_f || super
+        \\end
+        \\def obj.method_missing(name, *args, &block)
+        \\  return 3.5 if name == :to_f
+        \\  super
+        \\end
+        \\[obj].pack('G').bytesize
+    );
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 8), result.toInteger());
+}
+
 test "Array#pack string directives" {
     var result = try evalCode("['ab'].pack('A4')");
     try std.testing.expect(result.isString());
