@@ -950,20 +950,20 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/hash/flatten_spec.rb
 - [ ] core/hash/gt_spec.rb
 - [ ] core/hash/gte_spec.rb
-- [ ] core/hash/has_key_spec.rb
+- [x] core/hash/has_key_spec.rb
 - [ ] core/hash/has_value_spec.rb
 - [ ] core/hash/hash_spec.rb
-- [ ] core/hash/include_spec.rb
+- [x] core/hash/include_spec.rb
 - [ ] core/hash/initialize_spec.rb
 - [-] core/hash/inspect_spec.rb
 - [ ] core/hash/invert_spec.rb
 - [ ] core/hash/keep_if_spec.rb
-- [ ] core/hash/key_spec.rb
+- [x] core/hash/key_spec.rb
 - [x] core/hash/keys_spec.rb
 - [ ] core/hash/length_spec.rb
 - [ ] core/hash/lt_spec.rb
 - [ ] core/hash/lte_spec.rb
-- [ ] core/hash/member_spec.rb
+- [x] core/hash/member_spec.rb
 - [ ] core/hash/merge_spec.rb
 - [ ] core/hash/new_spec.rb
 - [ ] core/hash/rassoc_spec.rb

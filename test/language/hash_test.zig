@@ -238,6 +238,66 @@ test "Hash select without block returns Enumerator" {
     try std.testing.expect(result.isEnumerator());
 }
 
+test "Hash#include? and aliases check key presence" {
+    var result = try evalCode("h = {a: 1}; [h.include?(:a), h.has_key?(:a), h.member?(:a), h.key?(:a), h.include?(:b)]");
+    try std.testing.expect(result.isArray());
+
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expect(items[0].toBool());
+    try std.testing.expect(items[1].toBool());
+    try std.testing.expect(items[2].toBool());
+    try std.testing.expect(items[3].toBool());
+    try std.testing.expect(!items[4].toBool());
+}
+
+test "Hash#key returns the first matching key by ==" {
+    var result = try evalCode("h = {a: 1, b: 2, c: 1}; h.key(1)");
+    try std.testing.expect(result.isSymbol());
+    try std.testing.expectEqualSlices(u8, "a", result.toSymbolObject().name);
+
+    result = try evalCode("Hash.new(5).key(5)");
+    try std.testing.expect(result.isNil());
+}
+
+test "Hash uses Ruby-level hash and eql? for object keys" {
+    const result = try evalCode(
+        \\class HashKeySemantics
+        \\  attr_reader :n
+        \\  def initialize(n)
+        \\    @n = n
+        \\  end
+        \\  def hash
+        \\    1
+        \\  end
+        \\  def eql?(other)
+        \\    HashKeySemantics === other && @n == other.n
+        \\  end
+        \\end
+        \\a = HashKeySemantics.new(1)
+        \\b = HashKeySemantics.new(2)
+        \\h = { a => :x, b => :y }
+        \\[h[HashKeySemantics.new(1)], h[HashKeySemantics.new(2)], h.size]
+    );
+    try std.testing.expect(result.isArray());
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqualSlices(u8, "x", items[0].toSymbolObject().name);
+    try std.testing.expectEqualSlices(u8, "y", items[1].toSymbolObject().name);
+    try std.testing.expectEqual(@as(i64, 2), items[2].toInteger());
+}
+
+test "Hash propagates exceptions from key hash dispatch" {
+    const result = evalCode(
+        \\class HashBoom
+        \\  def hash
+        \\    raise "boom"
+        \\  end
+        \\end
+        \\h = {}
+        \\h[HashBoom.new] = 1
+    );
+    try std.testing.expectError(error.UnhandledException, result);
+}
+
 test "Hash literal evaluates pairs left-to-right" {
     const result = try evalCode(
         \\class HashEvalOrder

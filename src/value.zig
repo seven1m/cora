@@ -1,6 +1,7 @@
 const std = @import("std");
 const prism = @import("prism.zig");
 const bdwgc = @import("bdwgc");
+const hash_map = @import("hash_map.zig");
 const vm_mod = @import("vm.zig");
 const Chunk = @import("chunk.zig").Chunk;
 const VM = vm_mod.VM;
@@ -149,9 +150,25 @@ pub const HashEntry = struct {
     value: Value,
 };
 
+pub const HashContext = struct {
+    vm: *VM,
+
+    pub const Error = VMError;
+
+    pub fn hash(self: @This(), key: Value) VMError!u64 {
+        return self.vm.hashKeyHash(key);
+    }
+
+    pub fn eql(self: @This(), a: Value, b: Value) VMError!bool {
+        return self.vm.hashKeysEqual(a, b);
+    }
+};
+
+pub const HashMapType = hash_map.HashMap(Value, usize, HashContext, hash_map.default_max_load_percentage);
+
 pub const HashObject = struct {
     object: Object,
-    map: std.AutoHashMap(u64, usize),
+    map: HashMapType,
     entries: std.ArrayList(HashEntry) = .empty,
     default_value: ?Value = null,
     default_proc: ?*ProcObject = null,

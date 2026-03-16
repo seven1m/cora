@@ -75,6 +75,21 @@ pub fn register(vm: *VM) !void {
     const values_sym = try vm.intern("values");
     try vm.hash_class.module.methods.put(values_sym, .{ .method = .{ .builtin = &builtinHashValues } });
 
+    const include_sym = try vm.intern("include?");
+    try vm.hash_class.module.methods.put(include_sym, .{ .method = .{ .builtin = &builtinHashIncludeQ } });
+
+    const has_key_sym = try vm.intern("has_key?");
+    try vm.hash_class.module.methods.put(has_key_sym, .{ .method = .{ .builtin = &builtinHashIncludeQ } });
+
+    const member_sym = try vm.intern("member?");
+    try vm.hash_class.module.methods.put(member_sym, .{ .method = .{ .builtin = &builtinHashIncludeQ } });
+
+    const key_query_sym = try vm.intern("key?");
+    try vm.hash_class.module.methods.put(key_query_sym, .{ .method = .{ .builtin = &builtinHashIncludeQ } });
+
+    const key_sym = try vm.intern("key");
+    try vm.hash_class.module.methods.put(key_sym, .{ .method = .{ .builtin = &builtinHashKey } });
+
     const size_sym = try vm.intern("size");
     try vm.hash_class.module.methods.put(size_sym, .{ .method = .{ .builtin = &builtinHashSize } });
 
@@ -121,6 +136,11 @@ pub fn register(vm: *VM) !void {
     try vm.hash_class.module.methods.put(default_proc_set_sym, .{ .method = .{ .builtin = &builtinHashDefaultProcSet } });
 }
 
+fn hashGetValue(hash_obj: *value.HashObject, vm: *VM, key: Value) VMError!?Value {
+    const entry = (try vm.hashGetEntry(hash_obj, key)) orelse return null;
+    return entry.value;
+}
+
 pub fn builtinHashInitialize(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
     if (args.len == 1 and block != null) {
@@ -145,12 +165,8 @@ pub fn builtinHashBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     try vm.requireArgCount(args, 1);
     const hash_obj = receiver.toHashObject();
     const key = args[0];
-    const key_hash = key.hash();
-
-    if (hash_obj.map.get(key_hash)) |idx| {
-        if (hash_obj.entries.items[idx].key.eql(key)) {
-            return hash_obj.entries.items[idx].value;
-        }
+    if (try hashGetValue(hash_obj, vm, key)) |found| {
+        return found;
     }
 
     if (hash_obj.default_proc) |default_proc| {
@@ -225,21 +241,8 @@ pub fn builtinHashBracketSet(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     }
 
     const hash_obj = receiver.toHashObject();
-    const key = args[0];
     const new_value = args[1];
-    const key_hash = key.hash();
-
-    if (hash_obj.map.get(key_hash)) |idx| {
-        if (hash_obj.entries.items[idx].key.eql(key)) {
-            hash_obj.entries.items[idx].value = new_value;
-            return new_value;
-        }
-    }
-
-    const new_idx = hash_obj.entries.items.len;
-    hash_obj.entries.append(vm.gc_allocator, .{ .key = key, .value = new_value }) catch return error.Fatal;
-    hash_obj.map.put(key_hash, new_idx) catch return error.Fatal;
-
+    try vm.hashSetEntry(hash_obj, args[0], new_value);
     return new_value;
 }
 
@@ -250,29 +253,13 @@ pub fn builtinHashDelete(vm: *VM, receiver: Value, args: []Value, block: ?Block)
     }
 
     const hash_obj = receiver.toHashObject();
-    const key = args[0];
-    const key_hash = key.hash();
-
-    const idx = hash_obj.map.get(key_hash) orelse {
+    const deleted = try vm.hashDeleteEntry(hash_obj, args[0]) orelse {
         if (block) |blk| {
             const yielded = try vm.yieldToBlock(blk, &.{});
             return yielded.value;
         }
         return Value.nil();
     };
-    if (!hash_obj.entries.items[idx].key.eql(key)) {
-        if (block) |blk| {
-            const yielded = try vm.yieldToBlock(blk, &.{});
-            return yielded.value;
-        }
-        return Value.nil();
-    }
-
-    const deleted = hash_obj.entries.orderedRemove(idx).value;
-    hash_obj.map.clearRetainingCapacity();
-    for (hash_obj.entries.items, 0..) |entry, i| {
-        hash_obj.map.put(entry.key.hash(), i) catch return error.Fatal;
-    }
     return deleted;
 }
 
@@ -306,6 +293,25 @@ pub fn builtinHashValues(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     }
 
     return Value.fromObject(array_obj);
+}
+
+pub fn builtinHashIncludeQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    return Value.boolean((try vm.hashFindEntryIndex(receiver.toHashObject(), args[0])) != null);
+}
+
+pub fn builtinHashKey(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const needle = args[0];
+    const hash_obj = receiver.toHashObject();
+
+    for (hash_obj.entries.items) |entry| {
+        if (try vm.valueEquals(entry.value, needle)) {
+            return entry.key;
+        }
+    }
+
+    return Value.nil();
 }
 
 pub fn builtinHashSize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -454,9 +460,7 @@ pub fn builtinHashEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     if (lhs.entries.items.len != rhs.entries.items.len) return Value.boolean(false);
 
     for (lhs.entries.items) |entry| {
-        const rhs_idx = rhs.map.get(entry.key.hash()) orelse return Value.boolean(false);
-        const rhs_entry = rhs.entries.items[rhs_idx];
-        if (!rhs_entry.key.eql(entry.key)) return Value.boolean(false);
+        const rhs_entry = (try vm.hashGetEntry(rhs, entry.key)) orelse return Value.boolean(false);
         if (!rhs_entry.value.eql(entry.value)) return Value.boolean(false);
     }
 
@@ -477,13 +481,9 @@ pub fn builtinHashFetch(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
 
     const hash_obj = receiver.toHashObject();
     const key = args[0];
-    const key_hash = key.hash();
 
-    // Try to find the key
-    if (hash_obj.map.get(key_hash)) |idx| {
-        if (hash_obj.entries.items[idx].key.eql(key)) {
-            return hash_obj.entries.items[idx].value;
-        }
+    if (try hashGetValue(hash_obj, vm, key)) |found| {
+        return found;
     }
 
     // Key not found - use default value or block
@@ -558,11 +558,7 @@ pub fn builtinHashSelect(vm: *VM, receiver: Value, args: []Value, block: ?Block)
         const is_truthy = result.value.is_truthy();
 
         if (is_truthy) {
-            // Add this entry to the result hash
-            const key_hash = entry.key.hash();
-            const new_idx = result_hash.entries.items.len;
-            result_hash.entries.append(vm.gc_allocator, .{ .key = entry.key, .value = entry.value }) catch return error.Fatal;
-            result_hash.map.put(key_hash, new_idx) catch return error.Fatal;
+            try vm.hashSetEntry(result_hash, entry.key, entry.value);
         }
     }
 

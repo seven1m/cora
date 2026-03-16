@@ -1238,8 +1238,7 @@ pub const VM = struct {
         while (iter.next()) |entry| {
             const key_val = try self.newString(entry.key_ptr.*, false);
             const value_val = try self.newString(entry.value_ptr.*, false);
-            hash_obj.entries.append(self.gc_allocator, .{ .key = key_val, .value = value_val }) catch return error.Fatal;
-            hash_obj.map.put(key_val.hash(), hash_obj.entries.items.len - 1) catch return error.Fatal;
+            try self.hashSetEntry(hash_obj, key_val, value_val);
         }
 
         return Value.fromObject(hash_obj);
@@ -3788,22 +3787,7 @@ pub const VM = struct {
                 while (i < pair_count) : (i += 1) {
                     const key = pairs[i * 2];
                     const val = pairs[i * 2 + 1];
-
-                    const key_hash = key.hash();
-
-                    if (hash_obj.map.get(key_hash)) |existing_idx| {
-                        if (hash_obj.entries.items[existing_idx].key.eql(key)) {
-                            hash_obj.entries.items[existing_idx].value = val;
-                            continue;
-                        }
-                    }
-
-                    const new_idx = hash_obj.entries.items.len;
-                    hash_obj.entries.append(self.gc_allocator, .{
-                        .key = key,
-                        .value = val,
-                    }) catch return error.Fatal;
-                    hash_obj.map.put(key_hash, new_idx) catch return error.Fatal;
+                    try self.hashSetEntry(hash_obj, key, val);
                 }
                 self.stack.items.len = start;
 
@@ -4778,7 +4762,7 @@ pub const VM = struct {
                     const kw_hash = self.gc_allocator.create(value.HashObject) catch return error.Fatal;
                     kw_hash.* = .{
                         .object = .{ .type_tag = .hash, .flags = 0, .class = self.hash_class, .singleton_class = null, .instance_variables = null },
-                        .map = std.AutoHashMap(u64, usize).init(self.gc_allocator),
+                        .map = value.HashMapType.initContext(self.gc_allocator, .{ .vm = self }),
                         .entries = .empty,
                         .default_value = null,
                         .default_proc = null,
@@ -5923,7 +5907,7 @@ pub const VM = struct {
                         .singleton_class = null,
                         .instance_variables = null,
                     },
-                    .map = std.AutoHashMap(u64, usize).init(self.gc_allocator),
+                    .map = value.HashMapType.initContext(self.gc_allocator, .{ .vm = self }),
                     .entries = .empty,
                     .default_value = null,
                     .default_proc = null,
@@ -6828,7 +6812,7 @@ pub const VM = struct {
                 .singleton_class = null,
                 .instance_variables = null,
             },
-            .map = std.AutoHashMap(u64, usize).init(self.gc_allocator),
+            .map = value.HashMapType.initContext(self.gc_allocator, .{ .vm = self }),
             .entries = .empty,
             .default_value = null,
             .default_proc = null,
@@ -7003,18 +6987,74 @@ pub const VM = struct {
         env.variables_len = @max(@as(u8, @intCast(local_idx)), env.variables_len);
     }
 
-    fn hashSetEntry(self: *VM, hash_obj: *value.HashObject, key: Value, new_value: Value) VMError!void {
-        const key_hash = key.hash();
-        if (hash_obj.map.get(key_hash)) |idx| {
-            if (hash_obj.entries.items[idx].key.eql(key)) {
-                hash_obj.entries.items[idx].value = new_value;
-                return;
+    pub fn hashKeyHash(self: *VM, key: Value) VMError!u64 {
+        var args = [_]Value{};
+        const hash_value = try self.callMethodByName(key, "hash", args[0..], null);
+        const coerced = try hash_value.coerceToIntegerValue(
+            self,
+            "can't convert hash result to Integer",
+            "can't convert hash result to Integer",
+        );
+        return coerced.hash();
+    }
+
+    pub fn hashKeysEqual(self: *VM, lookup_key: Value, stored_key: Value) VMError!bool {
+        if (lookup_key.raw == stored_key.raw) return true;
+        var args = [_]Value{stored_key};
+        const result = self.callMethodByName(lookup_key, "eql?", args[0..], null) catch |err| {
+            if (err == error.Unwind and
+                self.pending_exception != null and
+                self.pending_exception.?.object.class == self.no_method_error_class)
+            {
+                self.pending_exception = null;
+                return lookup_key.eql(stored_key);
             }
+            return err;
+        };
+        return result.is_truthy();
+    }
+
+    pub fn hashFindEntryIndex(_: *VM, hash_obj: *value.HashObject, key: Value) VMError!?usize {
+        return try hash_obj.map.get(key);
+    }
+
+    pub fn hashGetEntry(self: *VM, hash_obj: *value.HashObject, key: Value) VMError!?*value.HashEntry {
+        const idx = (try self.hashFindEntryIndex(hash_obj, key)) orelse return null;
+        return &hash_obj.entries.items[idx];
+    }
+
+    pub fn hashRebuildIndexes(self: *VM, hash_obj: *value.HashObject) VMError!void {
+        hash_obj.map.clearRetainingCapacity();
+        for (hash_obj.entries.items, 0..) |entry, idx| {
+            hash_obj.map.put(entry.key, idx) catch |err| {
+                if (err == error.OutOfMemory) return error.Fatal;
+                return @errorCast(err);
+            };
+        }
+        _ = self;
+    }
+
+    pub fn hashSetEntry(self: *VM, hash_obj: *value.HashObject, key: Value, new_value: Value) VMError!void {
+        const gop = hash_obj.map.getOrPut(key) catch |err| {
+            if (err == error.OutOfMemory) return error.Fatal;
+            return @errorCast(err);
+        };
+        if (gop.found_existing) {
+            hash_obj.entries.items[gop.value_ptr.*].value = new_value;
+            return;
         }
 
         const new_idx = hash_obj.entries.items.len;
         hash_obj.entries.append(self.gc_allocator, .{ .key = key, .value = new_value }) catch return error.Fatal;
-        hash_obj.map.put(key_hash, new_idx) catch return error.Fatal;
+        gop.value_ptr.* = new_idx;
+    }
+
+    pub fn hashDeleteEntry(self: *VM, hash_obj: *value.HashObject, key: Value) VMError!?Value {
+        const removed = try hash_obj.map.fetchRemove(key);
+        const idx = removed orelse return null;
+        const deleted = hash_obj.entries.orderedRemove(idx.value).value;
+        try self.hashRebuildIndexes(hash_obj);
+        return deleted;
     }
 
     fn coerceKwSplatToHash(self: *VM, kw_val: Value) VMError!?*value.HashObject {
@@ -7072,7 +7112,7 @@ pub const VM = struct {
         const kw_hash = self.gc_allocator.create(value.HashObject) catch return error.Fatal;
         kw_hash.* = .{
             .object = .{ .type_tag = .hash, .flags = 0, .class = self.hash_class, .singleton_class = null, .instance_variables = null },
-            .map = std.AutoHashMap(u64, usize).init(self.gc_allocator),
+            .map = value.HashMapType.initContext(self.gc_allocator, .{ .vm = self }),
             .entries = .empty,
             .default_value = null,
             .default_proc = null,
@@ -7147,7 +7187,7 @@ pub const VM = struct {
             const kw_hash = self.gc_allocator.create(value.HashObject) catch return error.Fatal;
             kw_hash.* = .{
                 .object = .{ .type_tag = .hash, .flags = 0, .class = self.hash_class, .singleton_class = null, .instance_variables = null },
-                .map = std.AutoHashMap(u64, usize).init(self.gc_allocator),
+                .map = value.HashMapType.initContext(self.gc_allocator, .{ .vm = self }),
                 .entries = .empty,
                 .default_value = null,
                 .default_proc = null,
