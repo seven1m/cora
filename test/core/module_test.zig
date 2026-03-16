@@ -119,6 +119,20 @@ test "Module define_method with string name" {
     try std.testing.expectEqual(@as(i64, 8), result.toInteger());
 }
 
+test "Module define_method forwards blocks to proc-backed methods" {
+    const result = try evalCode(
+        \\class Foo
+        \\  define_method(:wrap) do |value, &block|
+        \\    [block.call(value), block.call(value + 1)]
+        \\  end
+        \\end
+        \\Foo.new.wrap(4) { |n| n + 10 }
+    );
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(i64, 14), result.toArrayObject().elements.items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 15), result.toArrayObject().elements.items[1].toInteger());
+}
+
 test "Module attr_reader coerces names via to_str" {
     const result = try evalCode(
         \\class AttrNameObj

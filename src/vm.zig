@@ -4969,6 +4969,21 @@ pub const VM = struct {
         return self.invokeResolvedMethodWithKeywords(resolved, receiver, args, block, null);
     }
 
+    fn bindMethodBlockParam(self: *VM, method_chunk: *Chunk, frame: *CallFrame, block: ?Block) VMError!void {
+        if (method_chunk.block_param_index) |block_idx| {
+            if (block) |blk| {
+                const proc_val = try self.newProc(blk);
+                frame.ep.variables[block_idx] = proc_val;
+            } else {
+                frame.ep.variables[block_idx] = Value.nil();
+            }
+
+            if (block_idx >= frame.ep.variables_len) {
+                frame.ep.variables_len = block_idx + 1;
+            }
+        }
+    }
+
     fn invokeMethodMissing(
         self: *VM,
         receiver: Value,
@@ -5136,6 +5151,7 @@ pub const VM = struct {
 
                 const current_frame = self.currentFrame();
                 try self.copyArgumentsWithRestParam(chunk_blk.chunk, current_frame.ep, args, .strict);
+                try self.bindMethodBlockParam(chunk_blk.chunk, current_frame, block);
 
                 const saved_frame_count = self.frames.items.len - 1;
                 try self.executeUntilReturn(saved_frame_count);
@@ -5324,6 +5340,7 @@ pub const VM = struct {
 
                         const current_frame = self.currentFrame();
                         try self.copyArgumentsWithRestParam(chunk_blk.chunk, current_frame.ep, args[0..argc], .strict);
+                        try self.bindMethodBlockParam(chunk_blk.chunk, current_frame, block);
                     },
                     .symbol => |sym| {
                         const result = try self.invokeSymbolProc(sym, args[0..argc], block);

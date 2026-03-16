@@ -188,6 +188,19 @@ test "Object#define_singleton_method supports super dispatch" {
     try std.testing.expectEqual(@as(i64, 4), result.toInteger());
 }
 
+test "Object#define_singleton_method forwards blocks to proc-backed methods" {
+    const result = try evalCode(
+        \\obj = Object.new
+        \\obj.define_singleton_method(:wrap) do |value, &block|
+        \\  [block.call(value), block.call(value + 1)]
+        \\end
+        \\obj.wrap(3) { |n| n * 2 }
+    );
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(i64, 6), result.toArrayObject().elements.items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 8), result.toArrayObject().elements.items[1].toInteger());
+}
+
 test "singleton_class.remove_method removes singleton override and falls back to class method" {
     const result = try evalCode(
         \\class Greeter
