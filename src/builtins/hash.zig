@@ -10,6 +10,55 @@ const VMError = vm_mod.VMError;
 const Block = vm_mod.Block;
 const Value = value.Value;
 
+fn coerceToProcForHashDefault(vm: *VM, proc_like: Value) VMError!*value.ProcObject {
+    var proc_val = proc_like;
+
+    if (!proc_val.isProc()) {
+        proc_val = (try vm.checkCallMethodByName(proc_val, "to_proc", &.{}, null)) orelse {
+            return vm.raiseExceptionFmt(
+                vm.type_error_class,
+                "wrong argument type {s} (expected Proc)",
+                .{vm.className(proc_val)},
+            );
+        };
+        if (!proc_val.isProc()) {
+            return vm.raiseExceptionFmt(
+                vm.type_error_class,
+                "can't convert {s} to Proc ({s}#to_proc gives {s})",
+                .{
+                    vm.className(proc_like),
+                    vm.className(proc_like),
+                    vm.className(proc_val),
+                },
+            );
+        }
+    }
+
+    return proc_val.toProcObject();
+}
+
+fn validateHashDefaultProc(vm: *VM, proc_obj: *value.ProcObject) VMError!void {
+    switch (proc_obj.block.kind) {
+        .chunk => |chunk_blk| {
+            const chunk_ptr = chunk_blk.chunk;
+            if (chunk_ptr.is_lambda) {
+                if (chunk_ptr.arity != 2 or
+                    chunk_ptr.optional_params.items.len != 0 or
+                    chunk_ptr.rest_param_index != null or
+                    chunk_ptr.post_required_count != 0)
+                {
+                    return vm.raiseExceptionFmt(
+                        vm.type_error_class,
+                        "default_proc takes two arguments (2 for {d})",
+                        .{chunk_ptr.arity},
+                    );
+                }
+            }
+        },
+        else => {},
+    }
+}
+
 pub fn register(vm: *VM) !void {
     const initialize_sym = try vm.intern("initialize");
     try vm.hash_class.module.methods.put(initialize_sym, .{ .method = .{ .builtin = &builtinHashInitialize } });
@@ -158,11 +207,11 @@ pub fn builtinHashDefaultProcSet(vm: *VM, receiver: Value, args: []Value, _: ?Bl
         hash_obj.default_proc = null;
         return Value.nil();
     }
-    if (!args[0].isProc()) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "wrong argument type (expected Proc)", .{});
-    }
 
-    hash_obj.default_proc = args[0].toProcObject();
+    const proc_obj = try coerceToProcForHashDefault(vm, args[0]);
+    try validateHashDefaultProc(vm, proc_obj);
+
+    hash_obj.default_proc = proc_obj;
     hash_obj.default_value = null;
     return args[0];
 }

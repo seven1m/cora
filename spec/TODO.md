@@ -929,7 +929,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/hash/compare_by_identity_spec.rb
 - [ ] core/hash/constructor_spec.rb
 - [ ] core/hash/deconstruct_keys_spec.rb
-- [ ] core/hash/default_proc_spec.rb
+- [x] core/hash/default_proc_spec.rb
 - [x] core/hash/default_spec.rb
 - [ ] core/hash/delete_if_spec.rb
 - [x] core/hash/delete_spec.rb
