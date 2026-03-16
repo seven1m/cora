@@ -126,7 +126,7 @@ pub fn builtinHashDefault(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
 pub fn builtinHashDefaultSet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     if (receiver.isFrozen()) {
-        const exc = try vm.createException(vm.runtime_error_class, "can't modify frozen Hash");
+        const exc = try vm.createException(vm.frozen_error_class, "can't modify frozen Hash");
         vm.pending_exception = exc;
         return error.Unwind;
     }
@@ -148,7 +148,7 @@ pub fn builtinHashDefaultProc(vm: *VM, receiver: Value, args: []Value, _: ?Block
 pub fn builtinHashDefaultProcSet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     if (receiver.isFrozen()) {
-        const exc = try vm.createException(vm.runtime_error_class, "can't modify frozen Hash");
+        const exc = try vm.createException(vm.frozen_error_class, "can't modify frozen Hash");
         vm.pending_exception = exc;
         return error.Unwind;
     }
@@ -170,7 +170,7 @@ pub fn builtinHashDefaultProcSet(vm: *VM, receiver: Value, args: []Value, _: ?Bl
 pub fn builtinHashBracketSet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 2);
     if (receiver.isFrozen()) {
-        const exc = try vm.createException(vm.runtime_error_class, "can't modify frozen Hash");
+        const exc = try vm.createException(vm.frozen_error_class, "can't modify frozen Hash");
         vm.pending_exception = exc;
         return error.Unwind;
     }
