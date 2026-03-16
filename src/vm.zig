@@ -133,9 +133,11 @@ pub const FiberEnvironmentStack = FixedBufferList(Environment, MAX_FIBER_ENVS);
 pub const FiberCoro = zio.coro.Coroutine;
 pub const FiberCoroContext = zio.coro.Context;
 
-const BuiltinKeywordContext = struct {
-    kw_keys: []const Value,
-    kw_values: []const Value,
+pub const BuiltinKeywordContext = struct {
+    kw_keys_storage: [256]Value = undefined,
+    kw_values_storage: [256]Value = undefined,
+    kw_keys: []const Value = &.{},
+    kw_values: []const Value = &.{},
     consumed: [MAX_BUILTIN_KEYWORDS]bool = [_]bool{false} ** MAX_BUILTIN_KEYWORDS,
     cached_hash: ?Value = null,
     hash_materialized: bool = false,
@@ -5296,13 +5298,17 @@ pub const VM = struct {
                     }
                 }
 
-                var keyword_ctx: BuiltinKeywordContext = undefined;
                 const maybe_keyword_ctx: ?*BuiltinKeywordContext = if (kwargc > 0) blk: {
-                    keyword_ctx = .{
-                        .kw_keys = kw_keys.?[0..kwargc],
-                        .kw_values = kw_values.?[0..kwargc],
+                    const keyword_ctx = self.gc_allocator.create(BuiltinKeywordContext) catch return error.Fatal;
+                    keyword_ctx.* = .{
+                        .kw_keys_storage = undefined,
+                        .kw_values_storage = undefined,
                     };
-                    break :blk &keyword_ctx;
+                    @memcpy(keyword_ctx.kw_keys_storage[0..kwargc], kw_keys.?[0..kwargc]);
+                    @memcpy(keyword_ctx.kw_values_storage[0..kwargc], kw_values.?[0..kwargc]);
+                    keyword_ctx.kw_keys = keyword_ctx.kw_keys_storage[0..kwargc];
+                    keyword_ctx.kw_values = keyword_ctx.kw_values_storage[0..kwargc];
+                    break :blk keyword_ctx;
                 } else null;
 
                 const result = try self.invokeBuiltinMethod(fun_ptr, receiver, args[0..argc], block, maybe_keyword_ctx);
