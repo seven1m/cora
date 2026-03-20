@@ -209,6 +209,12 @@ pub fn register(vm: *VM) !void {
     const any_sym = try vm.intern("any?");
     try vm.array_class.module.methods.put(any_sym, .{ .method = .{ .builtin = &builtinArrayAny } });
 
+    const none_sym = try vm.intern("none?");
+    try vm.array_class.module.methods.put(none_sym, .{ .method = .{ .builtin = &builtinArrayNone } });
+
+    const one_sym = try vm.intern("one?");
+    try vm.array_class.module.methods.put(one_sym, .{ .method = .{ .builtin = &builtinArrayOne } });
+
     const include_sym = try vm.intern("include?");
     try vm.array_class.module.methods.put(include_sym, .{ .method = .{ .builtin = &builtinArrayInclude } });
 
@@ -788,6 +794,94 @@ pub fn builtinArrayAny(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
         if (array.elements.items[idx].is_truthy()) return Value.boolean(true);
     }
     return Value.boolean(false);
+}
+
+pub fn builtinArrayNone(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const array = receiver.toArrayObject();
+    const pattern = if (args.len == 1) args[0] else null;
+
+    if (pattern != null and block != null) {
+        try warning_builtin.warnBlockUnused(vm);
+    }
+
+    if (pattern) |pat| {
+        var idx: usize = 0;
+        while (idx < array.elements.items.len) : (idx += 1) {
+            if (try arrayPatternMatches(vm, pat, array.elements.items[idx])) {
+                return Value.boolean(false);
+            }
+        }
+        return Value.boolean(true);
+    }
+
+    if (block) |blk| {
+        var idx: usize = 0;
+        while (idx < array.elements.items.len) : (idx += 1) {
+            const element = array.elements.items[idx];
+            const yield_args = [_]Value{element};
+            const yielded = try vm.yieldToBlock(blk, &yield_args);
+            if (yielded.break_occurred) {
+                return yielded.value;
+            }
+            if (yielded.value.is_truthy()) return Value.boolean(false);
+        }
+        return Value.boolean(true);
+    }
+
+    var idx: usize = 0;
+    while (idx < array.elements.items.len) : (idx += 1) {
+        if (array.elements.items[idx].is_truthy()) return Value.boolean(false);
+    }
+    return Value.boolean(true);
+}
+
+pub fn builtinArrayOne(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const array = receiver.toArrayObject();
+    const pattern = if (args.len == 1) args[0] else null;
+    var matched: usize = 0;
+
+    if (pattern != null and block != null) {
+        try warning_builtin.warnBlockUnused(vm);
+    }
+
+    if (pattern) |pat| {
+        var idx: usize = 0;
+        while (idx < array.elements.items.len) : (idx += 1) {
+            if (try arrayPatternMatches(vm, pat, array.elements.items[idx])) {
+                matched += 1;
+                if (matched > 1) return Value.boolean(false);
+            }
+        }
+        return Value.boolean(matched == 1);
+    }
+
+    if (block) |blk| {
+        var idx: usize = 0;
+        while (idx < array.elements.items.len) : (idx += 1) {
+            const element = array.elements.items[idx];
+            const yield_args = [_]Value{element};
+            const yielded = try vm.yieldToBlock(blk, &yield_args);
+            if (yielded.break_occurred) {
+                return yielded.value;
+            }
+            if (yielded.value.is_truthy()) {
+                matched += 1;
+                if (matched > 1) return Value.boolean(false);
+            }
+        }
+        return Value.boolean(matched == 1);
+    }
+
+    var idx: usize = 0;
+    while (idx < array.elements.items.len) : (idx += 1) {
+        if (array.elements.items[idx].is_truthy()) {
+            matched += 1;
+            if (matched > 1) return Value.boolean(false);
+        }
+    }
+    return Value.boolean(matched == 1);
 }
 
 pub fn builtinArrayPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

@@ -140,8 +140,8 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/array/minus_spec.rb
 - [ ] core/array/multiply_spec.rb
 - [x] core/array/new_spec.rb
-- [ ] core/array/none_spec.rb
-- [ ] core/array/one_spec.rb
+- [x] core/array/none_spec.rb
+- [x] core/array/one_spec.rb
 
 ### core/array/pack
 - [ ] core/array/pack/a_spec.rb
