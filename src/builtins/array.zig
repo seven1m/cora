@@ -1091,7 +1091,7 @@ pub fn builtinArrayAll(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
     return Value.boolean(true);
 }
 
-pub fn builtinArraySort(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+pub fn builtinArraySort(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const source = receiver.toArrayObject();
     const result = try vm.createArray();
@@ -1104,7 +1104,14 @@ pub fn builtinArraySort(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
         var j = i;
         while (j > 0) {
             const prev = result.elements.items[j - 1];
-            if (!(try arrayValueLessThan(vm, key, prev))) break;
+            const less_than = if (block) |blk| blk: {
+                const cmp_result = try arraySortBlockLessThan(vm, blk, key, prev);
+                switch (cmp_result) {
+                    .less_than => |lt| break :blk lt,
+                    .break_value => |value_to_return| return value_to_return,
+                }
+            } else try arrayValueLessThan(vm, key, prev);
+            if (!less_than) break;
             result.elements.items[j] = prev;
             j -= 1;
         }
@@ -1174,5 +1181,49 @@ fn arrayValueLessThan(vm: *VM, lhs: Value, rhs: Value) VMError!bool {
         vm.argument_error_class,
         "comparison of {s} with {s} failed",
         .{ vm.className(lhs), vm.className(rhs) },
+    );
+}
+
+const SortBlockCompareResult = union(enum) {
+    less_than: bool,
+    break_value: Value,
+};
+
+fn arraySortBlockLessThan(vm: *VM, blk: Block, lhs: Value, rhs: Value) VMError!SortBlockCompareResult {
+    const yield_args = [_]Value{ lhs, rhs };
+    const result = try vm.yieldToBlock(blk, &yield_args);
+    if (result.break_occurred) {
+        return .{ .break_value = result.value };
+    }
+
+    const cmp = try arraySortBlockResultSign(vm, result.value);
+    return .{ .less_than = cmp < 0 };
+}
+
+fn arraySortBlockResultSign(vm: *VM, cmp_value: Value) VMError!i8 {
+    if (cmp_value.isInteger()) {
+        const n = cmp_value.toInteger();
+        return if (n < 0) -1 else if (n > 0) 1 else 0;
+    }
+    if (cmp_value.isFloat()) {
+        const n = cmp_value.toFloatObject().val;
+        return if (n < 0) -1 else if (n > 0) 1 else 0;
+    }
+
+    var zero_arg = [_]Value{Value.integer(0)};
+    const cmp = try vm.callMethodByName(cmp_value, "<=>", zero_arg[0..], null);
+    if (cmp.isInteger()) {
+        const n = cmp.toInteger();
+        return if (n < 0) -1 else if (n > 0) 1 else 0;
+    }
+    if (cmp.isFloat()) {
+        const n = cmp.toFloatObject().val;
+        return if (n < 0) -1 else if (n > 0) 1 else 0;
+    }
+
+    return vm.raiseExceptionFmt(
+        vm.argument_error_class,
+        "comparison of {s} with 0 failed",
+        .{vm.className(cmp_value)},
     );
 }
