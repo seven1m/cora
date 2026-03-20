@@ -938,6 +938,20 @@ pub fn builtinArrayDup(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
     const source = receiver.toArrayObject();
     const duplicate = out.toArrayObject();
     duplicate.elements.appendSlice(vm.gc_allocator, source.elements.items) catch return error.Fatal;
+
+    const src_obj = receiver.getObjectPointer().?;
+    const dst_obj = out.getObjectPointer().?;
+    if (src_obj.instance_variables) |*src_ivars| {
+        var copied_ivars = std.AutoHashMap(*value.SymbolObject, Value).init(vm.gc_allocator);
+        var iter = src_ivars.iterator();
+        while (iter.next()) |entry| {
+            copied_ivars.put(entry.key_ptr.*, entry.value_ptr.*) catch return error.Fatal;
+        }
+        dst_obj.instance_variables = copied_ivars;
+    }
+
+    var initialize_dup_args = [_]Value{receiver};
+    _ = try vm.callMethodByName(out, "initialize_dup", initialize_dup_args[0..], null);
     return out;
 }
 

@@ -228,6 +228,54 @@ test "Array#pack float directives honor respond_to_missing? for to_f" {
     try std.testing.expectEqual(@as(i64, 8), result.toInteger());
 }
 
+test "Array#dup dispatches initialize_dup and initialize_copy overrides" {
+    var result = try evalCode(
+        \\class ArrayDupHookSpec < Array
+        \\  def initialize_dup(other)
+        \\    @hook = :dup
+        \\    super
+        \\  end
+        \\
+        \\  def initialize_copy(other)
+        \\    @copy = other[0]
+        \\    super
+        \\  end
+        \\end
+        \\
+        \\source = ArrayDupHookSpec[7]
+        \\source.instance_variable_set(:@kept, 9)
+        \\duped = source.dup
+        \\[duped.instance_variable_get(:@hook), duped.instance_variable_get(:@copy), duped.instance_variable_get(:@kept), duped[0], duped.class == ArrayDupHookSpec]
+    );
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqualSlices(u8, "dup", result.toArrayObject().elements.items[0].toSymbolObject().name);
+    try std.testing.expectEqual(@as(i64, 7), result.toArrayObject().elements.items[1].toInteger());
+    try std.testing.expectEqual(@as(i64, 9), result.toArrayObject().elements.items[2].toInteger());
+    try std.testing.expectEqual(@as(i64, 7), result.toArrayObject().elements.items[3].toInteger());
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[4].toBool());
+}
+
+test "Array#dup can reach method_missing for initialize_copy after undef_method" {
+    const result = try evalCode(
+        \\class ArrayDupMissingSpec < Array
+        \\  undef_method :initialize_copy
+        \\
+        \\  def respond_to_missing?(name, include_private = false)
+        \\    name == :initialize_copy
+        \\  end
+        \\
+        \\  def method_missing(name, *args)
+        \\    replace([:mm])
+        \\    self
+        \\  end
+        \\end
+        \\
+        \\ArrayDupMissingSpec[1, 2].dup == [:mm]
+    );
+    try std.testing.expect(result.isBool());
+    try std.testing.expectEqual(true, result.toBool());
+}
+
 test "Array#pack string directives" {
     var result = try evalCode("['ab'].pack('A4')");
     try std.testing.expect(result.isString());
