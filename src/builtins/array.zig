@@ -264,6 +264,9 @@ pub fn register(vm: *VM) !void {
     const shift_sym = try vm.intern("shift");
     try vm.array_class.module.methods.put(shift_sym, .{ .method = .{ .builtin = &builtinArrayShift } });
 
+    const pop_sym = try vm.intern("pop");
+    try vm.array_class.module.methods.put(pop_sym, .{ .method = .{ .builtin = &builtinArrayPop } });
+
     const dup_sym = try vm.intern("dup");
     try vm.array_class.module.methods.put(dup_sym, .{ .method = .{ .builtin = &builtinArrayDup } });
 }
@@ -963,6 +966,38 @@ pub fn builtinArrayShift(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     while (i < shift_count) : (i += 1) {
         out.elements.append(vm.gc_allocator, array.elements.orderedRemove(0)) catch return error.Fatal;
     }
+    return Value.fromObject(out);
+}
+
+pub fn builtinArrayPop(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
+    }
+
+    const array = receiver.toArrayObject();
+    if (args.len == 0) {
+        if (array.elements.items.len == 0) return Value.nil();
+        return array.elements.pop().?;
+    }
+
+    const count = try args[0].coerceToI64ViaToInt(
+        vm,
+        "no implicit conversion into Integer",
+        "no implicit conversion into Integer",
+        "bignum too big to convert into `long`",
+    );
+    if (count < 0) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "negative array size", .{});
+    }
+
+    const out = try vm.createArray();
+    const pop_count: usize = @intCast(@min(count, @as(i64, @intCast(array.elements.items.len))));
+    const start = array.elements.items.len - pop_count;
+    for (array.elements.items[start..]) |element| {
+        out.elements.append(vm.gc_allocator, element) catch return error.Fatal;
+    }
+    array.elements.shrinkRetainingCapacity(start);
     return Value.fromObject(out);
 }
 
