@@ -96,6 +96,9 @@ pub fn register(vm: *VM) !void {
     const length_sym = try vm.intern("length");
     try vm.hash_class.module.methods.put(length_sym, .{ .method = .{ .builtin = &builtinHashSize } });
 
+    const empty_sym = try vm.intern("empty?");
+    try vm.hash_class.module.methods.put(empty_sym, .{ .method = .{ .builtin = &builtinHashEmpty } });
+
     const each_sym = try vm.intern("each");
     try vm.hash_class.module.methods.put(each_sym, .{ .method = .{ .builtin = &builtinHashEach } });
 
@@ -317,6 +320,11 @@ pub fn builtinHashKey(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
 pub fn builtinHashSize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return Value.integer(@intCast(receiver.toHashObject().entries.items.len));
+}
+
+pub fn builtinHashEmpty(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return Value.boolean(receiver.toHashObject().entries.items.len == 0);
 }
 
 pub fn builtinHashEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
