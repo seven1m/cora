@@ -318,20 +318,68 @@ pub fn builtinArrayInitialize(vm: *VM, receiver: Value, args: []Value, block: ?B
     array.elements.clearRetainingCapacity();
 
     if (args.len == 0) {
+        if (block != null) {
+            try warning_builtin.warnBlockUnused(vm);
+        }
         return receiver;
     }
 
-    const size = try args[0].coerceToI64ViaToInt(
+    if (args.len == 1) {
+        if (args[0].isArray()) {
+            const source = args[0].toArrayObject();
+            for (source.elements.items) |elem| {
+                array.elements.append(vm.gc_allocator, elem) catch return error.Fatal;
+            }
+            return receiver;
+        }
+
+        switch (try vm.probeToAry(args[0])) {
+            .array => |array_value| {
+                const source = array_value.toArrayObject();
+                for (source.elements.items) |elem| {
+                    array.elements.append(vm.gc_allocator, elem) catch return error.Fatal;
+                }
+                return receiver;
+            },
+            .missing, .nil_result => {},
+        }
+    } else {
+        if (args[0].isArray()) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion of Array into Integer", .{});
+        }
+
+        switch (try vm.probeToAry(args[0])) {
+            .array => {
+                return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion of Array into Integer", .{});
+            },
+            .missing, .nil_result => {},
+        }
+    }
+
+    const size = args[0].coerceToI64ViaToInt(
         vm,
         "no implicit conversion into Integer",
         "no implicit conversion into Integer",
         "bignum too big to convert into `long`",
-    );
+    ) catch |err| switch (err) {
+        error.Unwind => {
+            if (vm.pending_exception) |exc| {
+                if (exc.object.class == vm.range_error_class) {
+                    return vm.raiseExceptionFmt(vm.argument_error_class, "array size too big", .{});
+                }
+            }
+            return err;
+        },
+        else => return err,
+    };
     if (size < 0) {
         return vm.raiseExceptionFmt(vm.argument_error_class, "negative array size", .{});
     }
 
     var i: i64 = 0;
+    if (block != null and args.len == 2) {
+        try warning_builtin.writeWarning(vm, "warning: block supersedes default value argument\n");
+    }
     if (block) |blk| {
         while (i < size) : (i += 1) {
             const yield_args = [_]Value{Value.integer(i)};

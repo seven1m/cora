@@ -1142,7 +1142,7 @@ def output_to_fd(expected_output = nil, fd = nil)
   OutputMatcher.new(expected_output, nil, fd || 1)
 end
 
-def complain(expected = nil, opts = nil)
+def complain(expected = nil, **opts)
   ComplainMatcher.new(expected, opts)
 end
 

@@ -1,5 +1,6 @@
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
+const array_builtin = @import("array.zig");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -98,6 +99,14 @@ pub fn builtinClassNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
 
     // OtherClass.new(...) instantiates OtherClass and calls initialize.
     const instance = try vm.newObjectForClass(class_ptr);
+
+    const initialize_sym = try vm.intern("initialize");
+    if (try vm.findMethod(instance, initialize_sym)) |resolved| {
+        if (resolved.entry.method == .builtin and resolved.entry.method.builtin == &array_builtin.builtinArrayInitialize) {
+            return try resolved.entry.method.builtin(vm, instance, args, block);
+        }
+    }
+
     _ = try vm.callMethodByNameForwardingKeywords(instance, "initialize", args, block);
     return instance;
 }
