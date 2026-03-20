@@ -275,6 +275,76 @@ test "Kernel#respond_to? include_private controls respond_to_missing? fallback" 
     try std.testing.expectEqual(false, result.toArrayObject().elements.items[5].toBool());
 }
 
+test "BasicObject#initialize is private and Class#new dispatches through method_missing after undef_method" {
+    var result = try evalCode("Object.new.respond_to?(:initialize, true)");
+    try std.testing.expect(result.isBool());
+    try std.testing.expectEqual(true, result.toBool());
+
+    result = try evalCode("Object.new.send(:initialize).nil?");
+    try std.testing.expect(result.isBool());
+    try std.testing.expectEqual(true, result.toBool());
+
+    result = try evalCode(
+        \\$init_calls = nil
+        \\class ConstructorMissingSpec
+        \\  undef_method :initialize
+        \\
+        \\  def respond_to_missing?(name, include_private = false)
+        \\    name == :initialize
+        \\  end
+        \\
+        \\  def method_missing(name, *args)
+        \\    $init_calls = [name, args]
+        \\  end
+        \\end
+        \\
+        \\obj = ConstructorMissingSpec.new(1, 2)
+        \\[$init_calls[0], $init_calls[1][0], $init_calls[1][1], obj.class == ConstructorMissingSpec]
+    );
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqualSlices(u8, "initialize", result.toArrayObject().elements.items[0].toSymbolObject().name);
+    try std.testing.expectEqual(@as(i64, 1), result.toArrayObject().elements.items[1].toInteger());
+    try std.testing.expectEqual(@as(i64, 2), result.toArrayObject().elements.items[2].toInteger());
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[3].toBool());
+}
+
+test "Kernel lifecycle copy helpers match default dispatch behavior" {
+    var result = try evalCode(
+        \\obj = Object.new
+        \\obj.send(:initialize_copy, obj).equal?(obj)
+    );
+    try std.testing.expect(result.isBool());
+    try std.testing.expectEqual(true, result.toBool());
+
+    result = try evalCode(
+        \\obj = Object.new
+        \\other = Object.new
+        \\[obj.send(:initialize_dup, other).equal?(obj), obj.send(:initialize_clone, other, freeze: true).equal?(obj)]
+    );
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[0].toBool());
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[1].toBool());
+
+    var stdout_buf: [4096]u8 = undefined;
+    var stderr_buf: [4096]u8 = undefined;
+
+    var bad = evalCodeWithOutput(
+        \\Object.new.freeze.send(:initialize_copy, Object.new)
+    , &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.UnhandledException, bad.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "FrozenError") != null);
+
+    bad = evalCodeWithOutput(
+        \\class A
+        \\end
+        \\class B < A
+        \\end
+        \\A.new.send(:initialize_copy, B.new)
+    , &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.UnhandledException, bad.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "TypeError") != null);
+}
+
 test "Array literal preserves side effects across respond_to? calls" {
     const result = try evalCode(
         \\class RespondToMissingHookSpec

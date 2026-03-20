@@ -1,21 +1,28 @@
 ## Lifecycle method dispatch gap
 
-- `initialize` and `initialize_copy` do not currently behave like MRI when the real method has been removed and behavior is supplied through `respond_to_missing?` / `method_missing`.
-- During the dispatch audit, removing `findMethod` prechecks from object construction and dup/copy paths exposed a deeper runtime issue instead of a simple guard bug.
+- Follow-up lifecycle work remains, but the core runtime gap is smaller now.
+- Default private lifecycle methods now exist for normal Ruby dispatch:
+- `BasicObject#initialize`
+- `Kernel#initialize_copy`
+- `Kernel#initialize_dup`
+- `Kernel#initialize_clone`
+- `String#initialize_copy`
+- `Object.new`, `Class#new`, and `String#dup` now dispatch through the normal call path, so `undef_method` plus `respond_to_missing?` / `method_missing` works for those entry points.
 
-### What was observed
+### What was fixed
 
-- `Object.new` and `Class#new` currently rely on explicit method presence checks before calling `initialize`.
-- `String#dup` and similar copy paths rely on explicit method presence checks before calling `initialize_copy`.
-- If those guards are removed, Cora still does not match MRI because the default private lifecycle methods are not properly exposed to normal Ruby dispatch.
-- In the failing cases, `send(:initialize)` / `send(:initialize_copy, ...)` can raise `NameError` in Cora where MRI dispatches successfully.
-- After `undef_method :initialize` or `undef_method :initialize_copy`, MRI can still reach `method_missing` when `respond_to_missing?` advertises the method, but Cora currently does not.
+- `send(:initialize)` now dispatches successfully through the default private method instead of raising `NameError`.
+- `send(:initialize_copy, ...)` now dispatches successfully for default object behavior and for `String`.
+- After `undef_method :initialize`, constructor dispatch can now reach `method_missing` when `respond_to_missing?` advertises the method.
+- After `undef_method :initialize_copy`, `String#dup` can now reach `method_missing` when `respond_to_missing?` advertises the method.
 
-### MRI-aligned behavior to implement later
+### Remaining follow-up
 
-- Add correct default private `Kernel#initialize`.
-- Add correct default private `Kernel#initialize_copy`.
-- Revisit constructor and dup/clone/copy call sites after those defaults exist, and remove any remaining `findMethod` gates that incorrectly bypass dynamic dispatch.
+- Revisit other dup/clone/copy call sites beyond `String#dup` and remove any remaining `findMethod` gates that still bypass dynamic dispatch.
+- Port and run the missing lifecycle specs that cover the newly-added defaults:
+- `../ruby_spec/core/kernel/initialize_copy_spec.rb`
+- `../ruby_spec/core/kernel/initialize_dup_spec.rb`
+- `../ruby_spec/core/kernel/initialize_clone_spec.rb`
 - Verify behavior against `../ruby` for:
 - `Object.new`
 - `Class#new`
@@ -28,4 +35,4 @@
 
 - The earlier mock/stub mismatch in `spec_helper.rb` caused us to audit `findMethod`-based prechecks across the runtime.
 - Some of those sites were genuine bugs and have already been fixed in committed work.
-- The lifecycle-method sites are different: they reveal missing runtime semantics, not just a bad probe-vs-dispatch choice.
+- The remaining lifecycle-method sites are still worth auditing because they can silently bypass Ruby dispatch even after the default methods exist.

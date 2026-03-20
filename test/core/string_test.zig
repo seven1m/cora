@@ -52,6 +52,37 @@ test "String#to_str" {
     try std.testing.expectEqualSlices(u8, "hello", result.toStringObject().str);
 }
 
+test "String#initialize_copy is private and String#dup dispatches through method_missing after undef_method" {
+    var result = try evalCode("\"x\".respond_to?(:initialize_copy, true)");
+    try std.testing.expect(result.isBool());
+    try std.testing.expectEqual(true, result.toBool());
+
+    result = try evalCode("\"x\".send(:initialize_copy, \"y\") == \"y\"");
+    try std.testing.expect(result.isBool());
+    try std.testing.expectEqual(true, result.toBool());
+
+    result = try evalCode(
+        \\class InitCopyMissingString < String
+        \\  undef_method :initialize_copy
+        \\
+        \\  def respond_to_missing?(name, include_private = false)
+        \\    name == :initialize_copy
+        \\  end
+        \\
+        \\  def method_missing(name, *args)
+        \\    replace("mm")
+        \\  end
+        \\end
+        \\
+        \\source = InitCopyMissingString.new("x")
+        \\duped = source.dup
+        \\[duped == "mm", duped.class == InitCopyMissingString]
+    );
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[0].toBool());
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[1].toBool());
+}
+
 test "String#<=> inverse fallback recursion is pair-specific" {
     const result = try evalCode(
         \\$other = Object.new

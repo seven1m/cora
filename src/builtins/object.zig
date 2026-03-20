@@ -27,15 +27,7 @@ pub fn builtinObjectNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
     const class_ptr = receiver.toClassObject();
     const instance = try vm.newObjectForClass(class_ptr);
 
-    // Call initialize if it exists
-    const init_sym = try vm.intern("initialize");
-    if (try vm.findMethod(instance, init_sym)) |_| {
-        // Use callMethodByName which handles dispatch properly
-        _ = try vm.callMethodByNameForwardingKeywords(instance, "initialize", args, block);
-    } else if (args.len != 0) {
-        // No initialize method but arguments were passed
-        try vm.requireArgCount(args, 0);
-    }
+    _ = try vm.callMethodByNameForwardingKeywords(instance, "initialize", args, block);
 
     return instance;
 }

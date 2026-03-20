@@ -78,6 +78,12 @@ pub fn register(vm: *VM) !void {
         .visibility = .private,
     });
 
+    const initialize_copy_sym = try vm.intern("initialize_copy");
+    try vm.string_class.module.methods.put(initialize_copy_sym, .{
+        .method = .{ .builtin = &builtinStringInitializeCopy },
+        .visibility = .private,
+    });
+
     const string_uplus_sym = try vm.intern("+@");
     try vm.string_class.module.methods.put(string_uplus_sym, .{ .method = .{ .builtin = &builtinStringUnaryPlus } });
     const string_uminus_sym = try vm.intern("-@");
@@ -388,6 +394,24 @@ pub fn builtinStringInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
     string_obj.str = vm.gc_allocator_atomic.dupe(u8, replacement.str) catch return error.Fatal;
     string_obj.encoding = final_encoding;
     string_obj.validity = .unknown;
+    return receiver;
+}
+
+pub fn builtinStringInitializeCopy(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
+    }
+
+    const replacement_val = try args[0].coerceToStringValue(vm, "no implicit conversion into String");
+    const replacement = replacement_val.toStringObject();
+    const string_obj = receiver.toStringObject();
+
+    string_obj.str = vm.gc_allocator_atomic.dupe(u8, replacement.str) catch return error.Fatal;
+    string_obj.encoding = replacement.encoding;
+    string_obj.validity = .unknown;
+    try vm.copyPackedPointerTargets(replacement, string_obj);
     return receiver;
 }
 
@@ -1276,11 +1300,8 @@ pub fn builtinStringDup(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
         dst_obj.instance_variables = copied_ivars;
     }
 
-    const initialize_copy_sym = try vm.intern("initialize_copy");
-    if (try vm.findMethod(duplicate, initialize_copy_sym)) |_| {
-        var initialize_copy_args = [_]Value{receiver};
-        _ = try vm.callMethodByName(duplicate, "initialize_copy", initialize_copy_args[0..], null);
-    }
+    var initialize_copy_args = [_]Value{receiver};
+    _ = try vm.callMethodByName(duplicate, "initialize_copy", initialize_copy_args[0..], null);
 
     try vm.copyPackedPointerTargets(receiver.toStringObject(), duplicate.toStringObject());
 
