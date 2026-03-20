@@ -112,6 +112,24 @@ pub fn register(vm: *VM) !void {
         .visibility = .private,
     });
 
+    const initialize_copy_sym = try vm.intern("initialize_copy");
+    try vm.kernel_module.methods.put(initialize_copy_sym, .{
+        .method = .{ .builtin = &builtinKernelInitializeCopy },
+        .visibility = .private,
+    });
+
+    const initialize_dup_sym = try vm.intern("initialize_dup");
+    try vm.kernel_module.methods.put(initialize_dup_sym, .{
+        .method = .{ .builtin = &builtinKernelInitializeDup },
+        .visibility = .private,
+    });
+
+    const initialize_clone_sym = try vm.intern("initialize_clone");
+    try vm.kernel_module.methods.put(initialize_clone_sym, .{
+        .method = .{ .builtin = &builtinKernelInitializeClone },
+        .visibility = .private,
+    });
+
     const block_given_sym = try vm.intern("block_given?");
     try vm.kernel_module.methods.put(block_given_sym, .{ .method = .{ .builtin = &builtinKernelBlockGiven } });
 
@@ -437,6 +455,40 @@ pub fn builtinKernelRespondToMissing(vm: *VM, _: Value, args: []Value, _: ?Block
 
     _ = try vm.coerceToMethodNameSymbol(args[0]);
     return Value.boolean(false);
+}
+
+pub fn builtinKernelInitializeCopy(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+
+    if (receiver.objectId() == args[0].objectId()) {
+        return receiver;
+    }
+
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen {s}", .{vm.className(receiver)});
+    }
+
+    if (vm.getClass(receiver) != vm.getClass(args[0])) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "initialize_copy should take same class object", .{});
+    }
+
+    return receiver;
+}
+
+pub fn builtinKernelInitializeDup(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    _ = try vm.callMethodByName(receiver, "initialize_copy", args[0..1], null);
+    return receiver;
+}
+
+pub fn builtinKernelInitializeClone(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+
+    _ = try vm.consumeKeywordArg("freeze");
+    try vm.validateKeywordArgsConsumed();
+
+    _ = try vm.callMethodByName(receiver, "initialize_copy", args[0..1], null);
+    return receiver;
 }
 
 pub fn builtinKernelBlockGiven(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
