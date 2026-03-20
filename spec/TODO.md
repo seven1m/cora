@@ -2142,7 +2142,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/symbol/equal_value_spec.rb
 - [ ] core/symbol/id2name_spec.rb
 - [ ] core/symbol/inspect_spec.rb
-- [ ] core/symbol/intern_spec.rb
+- [x] core/symbol/intern_spec.rb
 - [x] core/symbol/length_spec.rb
 - [ ] core/symbol/match_spec.rb
 - [ ] core/symbol/name_spec.rb

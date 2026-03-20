@@ -17,6 +17,9 @@ pub fn register(vm: *VM) !void {
     const to_sym_sym = try vm.intern("to_sym");
     try vm.symbol_class.module.methods.put(to_sym_sym, .{ .method = .{ .builtin = &builtinSymbolToSym } });
 
+    const intern_sym = try vm.intern("intern");
+    try vm.symbol_class.module.methods.put(intern_sym, .{ .method = .{ .builtin = &builtinSymbolToSym } });
+
     const inspect_sym = try vm.intern("inspect");
     try vm.symbol_class.module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinSymbolInspect } });
 
