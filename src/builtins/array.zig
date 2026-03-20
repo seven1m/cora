@@ -164,6 +164,8 @@ pub fn register(vm: *VM) !void {
 
     const unshift_sym = try vm.intern("unshift");
     try vm.array_class.module.methods.put(unshift_sym, .{ .method = .{ .builtin = &builtinArrayUnshift } });
+    const prepend_sym = try vm.intern("prepend");
+    try vm.array_class.module.methods.put(prepend_sym, .{ .method = .{ .builtin = &builtinArrayUnshift } });
 
     const each_sym = try vm.intern("each");
     try vm.array_class.module.methods.put(each_sym, .{ .method = .{ .builtin = &builtinArrayEach } });
