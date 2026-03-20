@@ -162,6 +162,9 @@ pub fn register(vm: *VM) !void {
     const push_method_sym = try vm.intern("push");
     try vm.array_class.module.methods.put(push_method_sym, .{ .method = .{ .builtin = &builtinArrayAppend } });
 
+    const unshift_sym = try vm.intern("unshift");
+    try vm.array_class.module.methods.put(unshift_sym, .{ .method = .{ .builtin = &builtinArrayUnshift } });
+
     const each_sym = try vm.intern("each");
     try vm.array_class.module.methods.put(each_sym, .{ .method = .{ .builtin = &builtinArrayEach } });
 
@@ -284,6 +287,19 @@ pub fn builtinArrayAppend(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     const array = receiver.toArrayObject();
     for (args) |arg| {
         array.elements.append(vm.gc_allocator, arg) catch return error.Fatal;
+    }
+
+    return receiver;
+}
+
+pub fn builtinArrayUnshift(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
+    }
+
+    const array = receiver.toArrayObject();
+    for (args, 0..) |arg, idx| {
+        array.elements.insert(vm.gc_allocator, idx, arg) catch return error.Fatal;
     }
 
     return receiver;
@@ -508,12 +524,9 @@ pub fn builtinArrayEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
     };
     const array_obj = receiver.toArrayObject();
 
-    // Iterate over array elements
     for (array_obj.elements.items) |element| {
         const yield_args = [_]Value{element};
         const result = try vm.yieldToBlock(blk, &yield_args);
-
-        // If break occurred, return immediately
         if (result.break_occurred) {
             return result.value;
         }
