@@ -948,6 +948,7 @@ pub const VM = struct {
         try self.clearLastMatch();
 
         try self.includeModule(self.object_class, self.kernel_module);
+        try self.includeModule(self.array_class, enumerable_module_val.toModuleObject());
         try self.includeModule(self.string_class, comparable_module_val.toModuleObject());
         try self.includeModule(self.symbol_class, comparable_module_val.toModuleObject());
 
