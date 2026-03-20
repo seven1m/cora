@@ -52,6 +52,32 @@ test "Array each with strings" {
     try std.testing.expectEqualSlices(u8, "\"hello\"\n\"world\"\n", result.stdout);
 }
 
+test "nested Array#each calls do not exhaust the native stack" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+
+    const result = evalCodeWithOutput(
+        \\a = [1]
+        \\a.each do
+        \\  a.each do
+        \\    a.each do
+        \\      a.each do
+        \\        a.each do
+        \\          a.each do
+        \\            puts :ok
+        \\          end
+        \\        end
+        \\      end
+        \\    end
+        \\  end
+        \\end
+    , &stdout_buf, &stderr_buf);
+
+    try std.testing.expect(result.err == null);
+    try std.testing.expectEqualSlices(u8, "ok\n", result.stdout);
+    try std.testing.expectEqualSlices(u8, "", result.stderr);
+}
+
 test "Array to_s method" {
     const result = try evalCode("[1, 2, 3].to_s");
     try std.testing.expect(result.isString());

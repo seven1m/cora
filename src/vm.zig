@@ -41,6 +41,7 @@ const MAX_FIBER_STACK_SIZE: usize = 4096;
 const MAX_FIBER_FRAMES: usize = 2048;
 const MAX_FIBER_ENVS: usize = 2048;
 const MAX_BUILTIN_KEYWORDS: usize = 256;
+const SMALL_CALL_VALUES: usize = 16;
 const DEFAULT_THREAD_PREEMPT_QUANTUM_OPS: u32 = 10_000;
 
 fn parseThreadPreemptQuantumOps() u32 {
@@ -141,6 +142,60 @@ pub const BuiltinKeywordContext = struct {
     consumed: [MAX_BUILTIN_KEYWORDS]bool = [_]bool{false} ** MAX_BUILTIN_KEYWORDS,
     cached_hash: ?Value = null,
     hash_materialized: bool = false,
+};
+
+const TempValueSlice = struct {
+    small: [SMALL_CALL_VALUES]Value = undefined,
+    heap: ?[]Value = null,
+    slice: []Value = &.{},
+
+    fn initUninitialized(self: *TempValueSlice, vm: *VM, len: usize) VMError![]Value {
+        if (len <= SMALL_CALL_VALUES) {
+            self.slice = self.small[0..len];
+            return self.slice;
+        }
+
+        const buf = vm.allocator.alloc(Value, len) catch return error.Fatal;
+        self.heap = buf;
+        self.slice = buf;
+        return buf;
+    }
+
+    fn copyFrom(self: *TempValueSlice, vm: *VM, values: []const Value) VMError![]Value {
+        const out = try self.initUninitialized(vm, values.len);
+        if (values.len > 0) {
+            @memcpy(out, values);
+        }
+        return out;
+    }
+
+    fn deinit(self: *TempValueSlice, allocator: std.mem.Allocator) void {
+        if (self.heap) |buf| allocator.free(buf);
+        self.heap = null;
+        self.slice = &.{};
+    }
+};
+
+const TempKeywordPairs = struct {
+    keys: TempValueSlice = .{},
+    values: TempValueSlice = .{},
+
+    fn initUninitialized(self: *TempKeywordPairs, vm: *VM, len: usize) VMError!void {
+        _ = try self.keys.initUninitialized(vm, len);
+        errdefer self.keys.deinit(vm.allocator);
+        _ = try self.values.initUninitialized(vm, len);
+    }
+
+    fn initFromHash(self: *TempKeywordPairs, vm: *VM, kw_hash: Value) VMError!void {
+        const len = kw_hash.toHashObject().entries.items.len;
+        try self.initUninitialized(vm, len);
+        _ = try vm.extractKeywordPairsFromHash(kw_hash, self.keys.slice, self.values.slice);
+    }
+
+    fn deinit(self: *TempKeywordPairs, allocator: std.mem.Allocator) void {
+        self.keys.deinit(allocator);
+        self.values.deinit(allocator);
+    }
 };
 
 const SymbolEncodingTag = std.meta.Tag(enc.Encoding);
@@ -3205,21 +3260,14 @@ pub const VM = struct {
                 else
                     try self.resolveBlock(block_chunk_id, frame);
 
-                var args: [256]Value = undefined;
-                var positional_argc: usize = 0;
+                var args_temp: TempValueSlice = .{};
+                defer args_temp.deinit(self.allocator);
+                var args: []Value = &.{};
                 var receiver: Value = undefined;
                 if (args_array_mode) {
                     const positional = try self.expandSplatValue(self.pop());
                     const elems = positional.toArrayObject().elements.items;
-                    if (elems.len > args.len) {
-                        const exc = try self.createException(self.argument_error_class, "too many arguments");
-                        self.pending_exception = exc;
-                        return error.Unwind;
-                    }
-                    for (elems, 0..) |elem, i| {
-                        args[i] = elem;
-                    }
-                    positional_argc = elems.len;
+                    args = try args_temp.copyFrom(self, elems);
                     receiver = self.pop();
                 } else {
                     if (self.stack.items.len < argc + 1) {
@@ -3326,17 +3374,14 @@ pub const VM = struct {
                         }
                     }
 
-                    if (argc > 0) {
-                        @memcpy(
-                            args[0..argc],
-                            self.stack.items[(receiver_index + 1)..(receiver_index + 1 + argc)],
-                        );
-                    }
+                    args = try args_temp.copyFrom(
+                        self,
+                        self.stack.items[(receiver_index + 1)..(receiver_index + 1 + argc)],
+                    );
                     self.stack.shrinkRetainingCapacity(receiver_index);
-                    positional_argc = argc;
                 }
 
-                try self.callMethodHelperForExecuteInstruction(frame, callsite_byte_offset, method_name_sym, call_style, receiver, &args, positional_argc, null, null, 0, block);
+                try self.callMethodHelperForExecuteInstruction(frame, callsite_byte_offset, method_name_sym, call_style, receiver, args, null, null, block);
             },
 
             .CALL_KW => {
@@ -3363,23 +3408,30 @@ pub const VM = struct {
                     try self.resolveBlock(block_chunk_id, frame);
 
                 // Pop keyword values
-                var kw_keys: [256]Value = undefined;
-                var kw_values: [256]Value = undefined;
+                var kw_pairs_temp: TempKeywordPairs = .{};
+                defer kw_pairs_temp.deinit(self.allocator);
                 var i: usize = 0;
-                var effective_kwargc: usize = 0;
+                var kw_key_slice: ?[]Value = null;
+                var kw_value_slice: ?[]Value = null;
 
-                var args: [256]Value = undefined;
-                var positional_argc: usize = 0;
+                var args_temp: TempValueSlice = .{};
+                defer args_temp.deinit(self.allocator);
+                var args: []Value = &.{};
                 var receiver: Value = undefined;
                 if (args_array_mode) {
                     if (kw_hash_mode) {
                         const kw_hash = self.pop();
-                        effective_kwargc = try self.extractKeywordPairsFromHash(kw_hash, &kw_keys, &kw_values);
+                        try kw_pairs_temp.initFromHash(self, kw_hash);
+                        kw_key_slice = kw_pairs_temp.keys.slice;
+                        kw_value_slice = kw_pairs_temp.values.slice;
                     } else {
+                        try kw_pairs_temp.initUninitialized(self, kwargc);
+                        kw_key_slice = kw_pairs_temp.keys.slice;
+                        kw_value_slice = kw_pairs_temp.values.slice;
                         i = kwargc;
                         while (i > 0) {
                             i -= 1;
-                            kw_values[i] = self.pop();
+                            kw_value_slice.?[i] = self.pop();
                         }
                         if (kwargc > 0) {
                             const kw_metadata = frame.chunk.keyword_metadata.items[kw_metadata_idx];
@@ -3391,22 +3443,13 @@ pub const VM = struct {
                                     else => return error.Fatal,
                                 };
                                 const key_sym = try self.intern(key_name);
-                                kw_keys[idx] = Value.fromObject(key_sym);
+                                kw_key_slice.?[idx] = Value.fromObject(key_sym);
                             }
                         }
-                        effective_kwargc = kwargc;
                     }
                     const positional = self.pop();
                     const elems = (try self.expandSplatValue(positional)).toArrayObject().elements.items;
-                    if (elems.len > args.len) {
-                        const exc = try self.createException(self.argument_error_class, "too many arguments");
-                        self.pending_exception = exc;
-                        return error.Unwind;
-                    }
-                    for (elems, 0..) |elem, idx| {
-                        args[idx] = elem;
-                    }
-                    positional_argc = elems.len;
+                    args = try args_temp.copyFrom(self, elems);
                     receiver = self.pop();
                 } else {
                     const stack_kw_items: usize = if (kw_hash_mode) 1 else kwargc;
@@ -3416,18 +3459,21 @@ pub const VM = struct {
                     const receiver_index = self.stack.items.len - (argc + stack_kw_items + 1);
                     receiver = self.stack.items[receiver_index];
 
-                    if (argc > 0) {
-                        @memcpy(
-                            args[0..argc],
-                            self.stack.items[(receiver_index + 1)..(receiver_index + 1 + argc)],
-                        );
-                    }
+                    args = try args_temp.copyFrom(
+                        self,
+                        self.stack.items[(receiver_index + 1)..(receiver_index + 1 + argc)],
+                    );
                     if (kw_hash_mode) {
                         const kw_hash = self.stack.items[receiver_index + 1 + argc];
-                        effective_kwargc = try self.extractKeywordPairsFromHash(kw_hash, &kw_keys, &kw_values);
+                        try kw_pairs_temp.initFromHash(self, kw_hash);
+                        kw_key_slice = kw_pairs_temp.keys.slice;
+                        kw_value_slice = kw_pairs_temp.values.slice;
                     } else if (kwargc > 0) {
+                        try kw_pairs_temp.initUninitialized(self, kwargc);
+                        kw_key_slice = kw_pairs_temp.keys.slice;
+                        kw_value_slice = kw_pairs_temp.values.slice;
                         @memcpy(
-                            kw_values[0..kwargc],
+                            kw_value_slice.?,
                             self.stack.items[(receiver_index + 1 + argc)..(receiver_index + 1 + argc + kwargc)],
                         );
                         const kw_metadata = frame.chunk.keyword_metadata.items[kw_metadata_idx];
@@ -3439,16 +3485,14 @@ pub const VM = struct {
                                 else => return error.Fatal,
                             };
                             const key_sym = try self.intern(key_name);
-                            kw_keys[idx] = Value.fromObject(key_sym);
+                            kw_key_slice.?[idx] = Value.fromObject(key_sym);
                         }
-                        effective_kwargc = kwargc;
                     }
                     self.stack.shrinkRetainingCapacity(receiver_index);
-                    positional_argc = argc;
                 }
 
                 // Call method with keywords
-                try self.callMethodHelperForExecuteInstruction(frame, callsite_byte_offset, method_name_sym, call_style, receiver, &args, positional_argc, &kw_keys, &kw_values, effective_kwargc, block);
+                try self.callMethodHelperForExecuteInstruction(frame, callsite_byte_offset, method_name_sym, call_style, receiver, args, kw_key_slice, kw_value_slice, block);
             },
 
             .RETURN => {
@@ -5230,18 +5274,17 @@ pub const VM = struct {
         method_name_sym: *SymbolObject,
         call_style: ReceiverCallStyle,
         receiver: Value,
-        args: *[256]Value,
-        argc: usize,
-        kw_keys: ?*[256]Value,
-        kw_values: ?*[256]Value,
-        kwargc: usize,
+        args: []const Value,
+        kw_keys: ?[]Value,
+        kw_values: ?[]Value,
         block: ?Block,
     ) VMError!void {
         const resolved = try self.resolveMethodForCallSite(frame, callsite_byte_offset, receiver, method_name_sym);
         const should_fallback = resolved == null or !self.isMethodCallable(receiver, resolved.?, call_style);
+        const kwargc: usize = if (kw_values) |vals| vals.len else 0;
         if (should_fallback) {
-            const kw_hash = if (kwargc > 0) try self.createHashFromKeywordPairs(kw_keys.?[0..kwargc], kw_values.?[0..kwargc]) else null;
-            const result = try self.invokeMethodMissing(receiver, method_name_sym, args[0..argc], kw_hash, block);
+            const kw_hash = if (kwargc > 0) try self.createHashFromKeywordPairs(kw_keys.?, kw_values.?) else null;
+            const result = try self.invokeMethodMissing(receiver, method_name_sym, @constCast(args), kw_hash, block);
             try self.push(result);
             return;
         }
@@ -5250,15 +5293,12 @@ pub const VM = struct {
 
         switch (method.entry.method) {
             .chunk => |method_chunk| {
-                const has_keywords = kwargc > 0;
-                const kw_key_slice: ?[]const Value = if (has_keywords) kw_keys.?[0..kwargc] else null;
-                const kw_slice: ?[]const Value = if (has_keywords) kw_values.?[0..kwargc] else null;
                 try self.setupChunkCallFrame(
                     method_chunk,
                     receiver,
-                    args[0..argc],
-                    kw_key_slice,
-                    kw_slice,
+                    args,
+                    if (kw_keys) |keys| keys else null,
+                    if (kw_values) |vals| vals else null,
                     method.name.name,
                     method.owner_class,
                     block,
@@ -5276,7 +5316,7 @@ pub const VM = struct {
                                 const proc_env = self.createStackEnvironment(real_defining_ep, chunk_blk.chunk.lexical_scope orelse self.current_lexical_scope) catch return error.Fatal;
 
                                 const mode: ArityMode = if (chunk_blk.chunk.is_lambda) .strict else .lenient;
-                                try self.copyArgumentsWithRestParam(chunk_blk.chunk, proc_env, args[0..argc], mode);
+                                try self.copyArgumentsWithRestParam(chunk_blk.chunk, proc_env, args, mode);
 
                                 if (chunk_blk.chunk.lexical_scope) |scope| {
                                     self.current_lexical_scope = scope;
@@ -5304,14 +5344,14 @@ pub const VM = struct {
                         .kw_keys_storage = undefined,
                         .kw_values_storage = undefined,
                     };
-                    @memcpy(keyword_ctx.kw_keys_storage[0..kwargc], kw_keys.?[0..kwargc]);
-                    @memcpy(keyword_ctx.kw_values_storage[0..kwargc], kw_values.?[0..kwargc]);
+                    @memcpy(keyword_ctx.kw_keys_storage[0..kwargc], kw_keys.?);
+                    @memcpy(keyword_ctx.kw_values_storage[0..kwargc], kw_values.?);
                     keyword_ctx.kw_keys = keyword_ctx.kw_keys_storage[0..kwargc];
                     keyword_ctx.kw_values = keyword_ctx.kw_values_storage[0..kwargc];
                     break :blk keyword_ctx;
                 } else null;
 
-                const result = try self.invokeBuiltinMethod(fun_ptr, receiver, args[0..argc], block, maybe_keyword_ctx);
+                const result = try self.invokeBuiltinMethod(fun_ptr, receiver, @constCast(args), block, maybe_keyword_ctx);
                 try self.push(result);
             },
             .proc => |proc_obj| {
@@ -5339,15 +5379,15 @@ pub const VM = struct {
                         }) catch return error.Fatal;
 
                         const current_frame = self.currentFrame();
-                        try self.copyArgumentsWithRestParam(chunk_blk.chunk, current_frame.ep, args[0..argc], .strict);
+                        try self.copyArgumentsWithRestParam(chunk_blk.chunk, current_frame.ep, args, .strict);
                         try self.bindMethodBlockParam(chunk_blk.chunk, current_frame, block);
                     },
                     .symbol => |sym| {
-                        const result = try self.invokeSymbolProc(sym, args[0..argc], block);
+                        const result = try self.invokeSymbolProc(sym, args, block);
                         try self.push(result);
                     },
                     .builtin => |func| {
-                        const result = try func(self, args[0..argc]);
+                        const result = try func(self, @constCast(args));
                         try self.push(result);
                     },
                 }
@@ -7104,15 +7144,15 @@ pub const VM = struct {
     fn extractKeywordPairsFromHash(
         self: *VM,
         kw_hash_value: Value,
-        out_keys: *[256]Value,
-        out_values: *[256]Value,
+        out_keys: []Value,
+        out_values: []Value,
     ) VMError!usize {
         _ = self;
         if (!kw_hash_value.isHash()) {
             return error.Fatal;
         }
         const entries = kw_hash_value.toHashObject().entries.items;
-        if (entries.len > out_keys.len) {
+        if (entries.len > out_keys.len or entries.len > out_values.len) {
             return error.Fatal;
         }
 
