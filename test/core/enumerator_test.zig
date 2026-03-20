@@ -184,9 +184,10 @@ test "Enumerator#inspect for method-based" {
     try std.testing.expect(std.mem.indexOf(u8, str, "each") != null);
 }
 
-test "Enumerator#size returns nil when no size proc was provided" {
+test "Array#each Enumerator#size returns enumerable size" {
     const result = try evalCode("[1, 2, 3].each.size");
-    try std.testing.expect(result.isNil());
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 3), result.toInteger());
 }
 
 test "to_enum next exposes multi-arg yields as arrays" {

@@ -526,11 +526,14 @@ pub fn builtinArrayEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
 pub fn builtinArrayEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const blk = block orelse {
-        return try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
+        const size_value = Value.integer(@intCast(receiver.toArrayObject().elements.items.len));
+        return try vm.createMethodEnumeratorWithSize(receiver, try vm.intern("each"), &.{}, size_value);
     };
     const array_obj = receiver.toArrayObject();
 
-    for (array_obj.elements.items) |element| {
+    var idx: usize = 0;
+    while (idx < array_obj.elements.items.len) : (idx += 1) {
+        const element = array_obj.elements.items[idx];
         const yield_args = [_]Value{element};
         const result = try vm.yieldToBlock(blk, &yield_args);
         if (result.break_occurred) {
