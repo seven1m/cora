@@ -242,6 +242,8 @@ pub fn register(vm: *VM) !void {
 
     const to_a_sym = try vm.intern("to_a");
     try vm.array_class.module.methods.put(to_a_sym, .{ .method = .{ .builtin = &builtinArrayToA } });
+    const to_ary_sym = try vm.intern("to_ary");
+    try vm.array_class.module.methods.put(to_ary_sym, .{ .method = .{ .builtin = &builtinArrayToAry } });
 
     const replace_sym = try vm.intern("replace");
     try vm.array_class.module.methods.put(replace_sym, .{ .method = .{ .builtin = &builtinArrayReplace } });
@@ -1173,6 +1175,11 @@ pub fn builtinArrayToA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
         out.elements.append(vm.gc_allocator, elem) catch return error.Fatal;
     }
     return Value.fromObject(out);
+}
+
+pub fn builtinArrayToAry(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return receiver;
 }
 
 pub fn builtinArrayReplace(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
