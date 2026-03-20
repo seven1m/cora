@@ -186,8 +186,14 @@ pub fn register(vm: *VM) !void {
     const map_sym = try vm.intern("map");
     try vm.array_class.module.methods.put(map_sym, .{ .method = .{ .builtin = &builtinArrayMap } });
 
+    const collect_sym = try vm.intern("collect");
+    try vm.array_class.module.methods.put(collect_sym, .{ .method = .{ .builtin = &builtinArrayCollect } });
+
     const map_bang_sym = try vm.intern("map!");
     try vm.array_class.module.methods.put(map_bang_sym, .{ .method = .{ .builtin = &builtinArrayMapBang } });
+
+    const collect_bang_sym = try vm.intern("collect!");
+    try vm.array_class.module.methods.put(collect_bang_sym, .{ .method = .{ .builtin = &builtinArrayCollectBang } });
 
     const select_sym = try vm.intern("select");
     try vm.array_class.module.methods.put(select_sym, .{ .method = .{ .builtin = &builtinArraySelect } });
@@ -545,10 +551,18 @@ pub fn builtinArrayLength(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
 }
 
 pub fn builtinArrayMap(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    return arrayMapShared(vm, receiver, args, block, "map");
+}
+
+pub fn builtinArrayCollect(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    return arrayMapShared(vm, receiver, args, block, "collect");
+}
+
+fn arrayMapShared(vm: *VM, receiver: Value, args: []Value, block: ?Block, method_name: []const u8) VMError!Value {
     try vm.requireArgCount(args, 0);
     const blk = block orelse {
         const size_value = Value.integer(@intCast(receiver.toArrayObject().elements.items.len));
-        return try vm.createMethodEnumeratorWithSize(receiver, try vm.intern("map"), &.{}, size_value);
+        return try vm.createMethodEnumeratorWithSize(receiver, try vm.intern(method_name), &.{}, size_value);
     };
     const source = receiver.toArrayObject();
     const result = try vm.createArray();
@@ -568,10 +582,18 @@ pub fn builtinArrayMap(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
 }
 
 pub fn builtinArrayMapBang(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    return arrayMapBangShared(vm, receiver, args, block, "map!");
+}
+
+pub fn builtinArrayCollectBang(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    return arrayMapBangShared(vm, receiver, args, block, "collect!");
+}
+
+fn arrayMapBangShared(vm: *VM, receiver: Value, args: []Value, block: ?Block, method_name: []const u8) VMError!Value {
     try vm.requireArgCount(args, 0);
     const blk = block orelse {
         const size_value = Value.integer(@intCast(receiver.toArrayObject().elements.items.len));
-        return try vm.createMethodEnumeratorWithSize(receiver, try vm.intern("map!"), &.{}, size_value);
+        return try vm.createMethodEnumeratorWithSize(receiver, try vm.intern(method_name), &.{}, size_value);
     };
     if (receiver.isFrozen()) {
         return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
