@@ -7,6 +7,12 @@ const Block = vm_mod.Block;
 const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
+    const initialize_sym = try vm.intern("initialize");
+    try vm.basic_object_class.module.methods.put(initialize_sym, .{
+        .method = .{ .builtin = &builtinBasicObjectInitialize },
+        .visibility = .private,
+    });
+
     const op_equal_sym = try vm.intern("==");
     try vm.basic_object_class.module.methods.put(op_equal_sym, .{ .method = .{ .builtin = &builtinBasicObjectEqual } });
 
@@ -24,6 +30,11 @@ pub fn register(vm: *VM) !void {
         .method = .{ .builtin = &builtinBasicObjectMethodMissing },
         .visibility = .private,
     });
+}
+
+pub fn builtinBasicObjectInitialize(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return Value.nil();
 }
 
 pub fn builtinBasicObjectEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
