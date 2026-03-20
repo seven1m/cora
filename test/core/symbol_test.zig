@@ -54,6 +54,19 @@ test "Symbol#to_sym returns self" {
     try std.testing.expectEqualSlices(u8, "foo", result.toStringObject().str);
 }
 
+test "Symbol#name returns canonical frozen string" {
+    const result = try evalCode("[ :ruby_3.name.equal?(:ruby_3.name), :\"ruby_#{1+2}\".name.equal?(:ruby_3.name), :symbol.name.frozen? ]");
+    try std.testing.expect(result.isArray());
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 3), items.len);
+    try std.testing.expect(items[0].isBool());
+    try std.testing.expectEqual(true, items[0].toBool());
+    try std.testing.expect(items[1].isBool());
+    try std.testing.expectEqual(true, items[1].toBool());
+    try std.testing.expect(items[2].isBool());
+    try std.testing.expectEqual(true, items[2].toBool());
+}
+
 test "Symbol#== compares symbol identity/value" {
     var result = try evalCode(":foo == :foo");
     try std.testing.expect(result.isBool());

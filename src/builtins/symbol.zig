@@ -20,6 +20,9 @@ pub fn register(vm: *VM) !void {
     const intern_sym = try vm.intern("intern");
     try vm.symbol_class.module.methods.put(intern_sym, .{ .method = .{ .builtin = &builtinSymbolToSym } });
 
+    const name_sym = try vm.intern("name");
+    try vm.symbol_class.module.methods.put(name_sym, .{ .method = .{ .builtin = &builtinSymbolName } });
+
     const inspect_sym = try vm.intern("inspect");
     try vm.symbol_class.module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinSymbolInspect } });
 
@@ -61,6 +64,12 @@ pub fn builtinSymbolInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 pub fn builtinSymbolToSym(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return receiver;
+}
+
+pub fn builtinSymbolName(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const sym = receiver.toSymbolObject();
+    return vm.getOrCreateCanonicalFString(sym.name, sym.encoding);
 }
 
 pub fn builtinSymbolToProc(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
