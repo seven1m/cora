@@ -267,6 +267,9 @@ pub fn register(vm: *VM) !void {
     const pop_sym = try vm.intern("pop");
     try vm.array_class.module.methods.put(pop_sym, .{ .method = .{ .builtin = &builtinArrayPop } });
 
+    const delete_at_sym = try vm.intern("delete_at");
+    try vm.array_class.module.methods.put(delete_at_sym, .{ .method = .{ .builtin = &builtinArrayDeleteAt } });
+
     const dup_sym = try vm.intern("dup");
     try vm.array_class.module.methods.put(dup_sym, .{ .method = .{ .builtin = &builtinArrayDup } });
 }
@@ -999,6 +1002,23 @@ pub fn builtinArrayPop(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
     }
     array.elements.shrinkRetainingCapacity(start);
     return Value.fromObject(out);
+}
+
+pub fn builtinArrayDeleteAt(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
+    }
+
+    const index_value = try args[0].coerceToIntegerValue(vm, "no implicit conversion to Integer", "can't convert to Integer");
+    const index = try index_value.integerToI64(vm, "index too big");
+    const array = receiver.toArrayObject();
+    const len: i64 = @intCast(array.elements.items.len);
+    var actual_index = index;
+    if (actual_index < 0) actual_index += len;
+    if (actual_index < 0 or actual_index >= len) return Value.nil();
+
+    return array.elements.orderedRemove(@intCast(actual_index));
 }
 
 pub fn builtinArrayDup(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
