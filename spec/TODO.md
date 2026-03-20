@@ -79,7 +79,7 @@ Source baseline: ../ruby_spec compared to local spec/
 
 ### core/array
 - [x] core/array/all_spec.rb
-- [ ] core/array/allocate_spec.rb
+- [x] core/array/allocate_spec.rb
 - [x] core/array/any_spec.rb
 - [x] core/array/append_spec.rb
 - [x] core/array/array_spec.rb
