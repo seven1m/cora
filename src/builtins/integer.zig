@@ -186,6 +186,11 @@ pub fn uptoStopToI64(vm: *VM, stop: Value) VMError!i64 {
 }
 
 pub fn register(vm: *VM) !void {
+    const integer_class_val = Value.fromObject(vm.integer_class);
+    const integer_singleton = try vm.getOrCreateSingletonClass(integer_class_val);
+    const try_convert_sym = try vm.intern("try_convert");
+    try integer_singleton.module.methods.put(try_convert_sym, .{ .method = .{ .builtin = &builtinIntegerTryConvert } });
+
     const plus_sym = try vm.intern("+");
     try vm.integer_class.module.methods.put(plus_sym, .{ .method = .{ .builtin = &builtinIntegerPlus } });
 
@@ -300,6 +305,23 @@ pub fn builtinIntegerPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
         .integer => |i| try addIntegers(vm, receiver, i),
         .float => |f| try vm.newFloat(receiver.integerToF64() + f),
     };
+}
+
+pub fn builtinIntegerTryConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const arg = args[0];
+    if (arg.isInteger() or arg.isBigInteger()) return arg;
+
+    const maybe_converted = try vm.checkCallMethodByName(arg, "to_int", &[_]Value{}, null);
+    const converted = maybe_converted orelse return Value.nil();
+    if (converted.isNil()) return Value.nil();
+    if (converted.isInteger() or converted.isBigInteger()) return converted;
+
+    return vm.raiseExceptionFmt(
+        vm.type_error_class,
+        "can't convert {s} to Integer ({s}#to_int gives {s})",
+        .{ vm.className(arg), vm.className(arg), vm.className(converted) },
+    );
 }
 
 pub fn builtinIntegerUnaryPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
