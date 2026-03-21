@@ -198,6 +198,9 @@ pub fn register(vm: *VM) !void {
     const to_s_sym = try vm.intern("to_s");
     try vm.integer_class.module.methods.put(to_s_sym, .{ .method = .{ .builtin = &builtinIntegerToS } });
 
+    const to_i_sym = try vm.intern("to_i");
+    try vm.integer_class.module.methods.put(to_i_sym, .{ .method = .{ .builtin = &builtinIntegerToI } });
+
     const inspect_sym = try vm.intern("inspect");
     try vm.integer_class.module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinIntegerInspect } });
 
@@ -531,6 +534,12 @@ pub fn builtinIntegerToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
 
         return try vm.newStringWithEncoding(str, false, .{ .us_ascii = .{} });
     } else unreachable;
+}
+
+pub fn builtinIntegerToI(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    try receiver.ensureInteger(vm);
+    return receiver;
 }
 
 pub fn builtinIntegerInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
