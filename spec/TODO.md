@@ -1046,7 +1046,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/integer/round_spec.rb
 - [ ] core/integer/size_spec.rb
 - [ ] core/integer/sqrt_spec.rb
-- [ ] core/integer/succ_spec.rb
+- [x] core/integer/succ_spec.rb
 - [x] core/integer/times_spec.rb
 - [ ] core/integer/to_f_spec.rb
 - [ ] core/integer/to_i_spec.rb

@@ -213,6 +213,9 @@ pub fn register(vm: *VM) !void {
     const next_sym = try vm.intern("next");
     try vm.integer_class.module.methods.put(next_sym, .{ .method = .{ .builtin = &builtinIntegerNext } });
 
+    const succ_sym = try vm.intern("succ");
+    try vm.integer_class.module.methods.put(succ_sym, .{ .method = .{ .builtin = &builtinIntegerNext } });
+
     const times_sym = try vm.intern("times");
     try vm.integer_class.module.methods.put(times_sym, .{ .method = .{ .builtin = &builtinIntegerTimes } });
 
