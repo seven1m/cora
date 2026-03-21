@@ -1015,7 +1015,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/integer/dup_spec.rb
 - [ ] core/integer/element_reference_spec.rb
 - [ ] core/integer/equal_value_spec.rb
-- [ ] core/integer/even_spec.rb
+- [x] core/integer/even_spec.rb
 - [ ] core/integer/exponent_spec.rb
 - [ ] core/integer/fdiv_spec.rb
 - [ ] core/integer/floor_spec.rb
