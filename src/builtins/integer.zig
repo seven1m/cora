@@ -201,6 +201,9 @@ pub fn register(vm: *VM) !void {
     const to_i_sym = try vm.intern("to_i");
     try vm.integer_class.module.methods.put(to_i_sym, .{ .method = .{ .builtin = &builtinIntegerToI } });
 
+    const to_int_sym = try vm.intern("to_int");
+    try vm.integer_class.module.methods.put(to_int_sym, .{ .method = .{ .builtin = &builtinIntegerToI } });
+
     const inspect_sym = try vm.intern("inspect");
     try vm.integer_class.module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinIntegerInspect } });
 
