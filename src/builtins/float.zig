@@ -17,6 +17,7 @@ extern fn dtoa(
     rve: *?[*]u8,
 ) [*:0]u8;
 extern fn freedtoa(s: [*]u8) void;
+extern fn pow(x: f64, y: f64) f64;
 
 const max_fixed_decimal_digits: c_int = 15;
 
@@ -68,6 +69,9 @@ pub fn register(vm: *VM) !void {
 
     const multiply_sym = try vm.intern("*");
     try vm.float_class.module.methods.put(multiply_sym, .{ .method = .{ .builtin = &builtinFloatMultiply } });
+
+    const exponent_sym = try vm.intern("**");
+    try vm.float_class.module.methods.put(exponent_sym, .{ .method = .{ .builtin = &builtinFloatExponent } });
 
     const divide_sym = try vm.intern("/");
     try vm.float_class.module.methods.put(divide_sym, .{ .method = .{ .builtin = &builtinFloatDivide } });
@@ -141,6 +145,13 @@ pub fn builtinFloatMultiply(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     const lhs = receiver.toFloatObject().val;
     const rhs = try coerceNumericArg(vm, args[0]);
     return vm.newFloat(lhs * rhs);
+}
+
+pub fn builtinFloatExponent(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const lhs = receiver.toFloatObject().val;
+    const rhs = try coerceNumericArg(vm, args[0]);
+    return vm.newFloat(pow(lhs, rhs));
 }
 
 pub fn builtinFloatDivide(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
