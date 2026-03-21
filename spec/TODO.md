@@ -960,7 +960,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/hash/keep_if_spec.rb
 - [x] core/hash/key_spec.rb
 - [x] core/hash/keys_spec.rb
-- [ ] core/hash/length_spec.rb
+- [x] core/hash/length_spec.rb
 - [ ] core/hash/lt_spec.rb
 - [ ] core/hash/lte_spec.rb
 - [x] core/hash/member_spec.rb
@@ -973,7 +973,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/hash/ruby2_keywords_hash_spec.rb
 - [ ] core/hash/select_spec.rb
 - [ ] core/hash/shift_spec.rb
-- [ ] core/hash/size_spec.rb
+- [x] core/hash/size_spec.rb
 - [ ] core/hash/slice_spec.rb
 - [ ] core/hash/sort_spec.rb
 - [ ] core/hash/store_spec.rb
