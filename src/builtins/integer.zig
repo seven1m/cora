@@ -557,17 +557,16 @@ pub fn builtinIntegerEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     try vm.requireArgCount(args, 1);
     try receiver.ensureInteger(vm);
 
-    const rhs = coerceNumericArg(vm, args[0]) catch |err| {
-        if (err == error.Unwind) {
-            vm.pending_exception = null;
-            return Value.boolean(false);
-        }
-        return err;
-    };
-    return switch (rhs) {
-        .float => |f| Value.boolean(receiver.integerToF64() == f),
-        .integer => |i| Value.boolean((try compareIntegers(vm, receiver, i)) == .eq),
-    };
+    if (args[0].isFloat()) {
+        return Value.boolean(receiver.integerToF64() == args[0].toFloatObject().val);
+    }
+    if (args[0].isInteger() or args[0].isBigInteger()) {
+        return Value.boolean((try compareIntegers(vm, receiver, args[0])) == .eq);
+    }
+
+    var reverse_args = [_]Value{receiver};
+    const result = try vm.callMethodByName(args[0], "==", reverse_args[0..], null);
+    return Value.boolean(result.is_truthy());
 }
 
 pub fn builtinIntegerEql(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
