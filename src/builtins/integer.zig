@@ -210,6 +210,9 @@ pub fn register(vm: *VM) !void {
     const even_sym = try vm.intern("even?");
     try vm.integer_class.module.methods.put(even_sym, .{ .method = .{ .builtin = &builtinIntegerEven } });
 
+    const odd_sym = try vm.intern("odd?");
+    try vm.integer_class.module.methods.put(odd_sym, .{ .method = .{ .builtin = &builtinIntegerOdd } });
+
     const next_sym = try vm.intern("next");
     try vm.integer_class.module.methods.put(next_sym, .{ .method = .{ .builtin = &builtinIntegerNext } });
 
@@ -570,6 +573,18 @@ pub fn builtinIntegerEven(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
         const remainder = try modIntegers(vm, receiver, Value.integer(2));
         if (remainder.isInteger()) return Value.boolean(remainder.toInteger() == 0);
         return Value.boolean(remainder.toBigIntegerObject().value.eqlZero());
+    }
+    unreachable;
+}
+
+pub fn builtinIntegerOdd(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    try receiver.ensureInteger(vm);
+    if (receiver.isInteger()) return Value.boolean(@mod(receiver.toInteger(), 2) != 0);
+    if (receiver.isBigInteger()) {
+        const remainder = try modIntegers(vm, receiver, Value.integer(2));
+        if (remainder.isInteger()) return Value.boolean(remainder.toInteger() != 0);
+        return Value.boolean(!remainder.toBigIntegerObject().value.eqlZero());
     }
     unreachable;
 }
