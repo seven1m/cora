@@ -764,6 +764,12 @@ test "Kernel#method returns callable bound method wrapper" {
     try std.testing.expectEqualStrings("hi kim", result.toArrayObject().elements.items[1].toStringObject().str);
 }
 
+test "Kernel#method owner returns the defining class" {
+    const result = try evalCode("42.method(:zero?).owner == Integer");
+    try std.testing.expect(result.isBool());
+    try std.testing.expectEqual(true, result.toBool());
+}
+
 test "Kernel#method raises NameError for missing method" {
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;

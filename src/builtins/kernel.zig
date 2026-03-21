@@ -578,6 +578,18 @@ fn builtinKernelBoundMethodCall(vm: *VM, receiver: Value, args: []Value, block: 
     return vm.callMethodByNameForwardingKeywords(target, method_name_val.toSymbolObject().name, args, block);
 }
 
+fn builtinKernelBoundMethodOwner(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const target = try vm.getInstanceVariable(receiver, "@__method_receiver");
+    const method_name_val = try vm.getInstanceVariable(receiver, "@__method_name");
+    if (!method_name_val.isSymbol()) return error.Fatal;
+
+    const resolved = (try vm.findMethod(target, method_name_val.toSymbolObject())) orelse {
+        return vm.raiseExceptionFmt(vm.name_error_class, "undefined method '{s}'", .{method_name_val.toSymbolObject().name});
+    };
+    return Value.fromObject(resolved.owner_class);
+}
+
 fn builtinKernelBoundMethodToProc(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return receiver;
@@ -603,6 +615,11 @@ pub fn builtinKernelMethod(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     const call_sym = try vm.intern("call");
     singleton.module.methods.put(call_sym, .{
         .method = .{ .builtin = &builtinKernelBoundMethodCall },
+    }) catch return error.Fatal;
+
+    const owner_sym = try vm.intern("owner");
+    singleton.module.methods.put(owner_sym, .{
+        .method = .{ .builtin = &builtinKernelBoundMethodOwner },
     }) catch return error.Fatal;
 
     const to_proc_sym = try vm.intern("to_proc");
