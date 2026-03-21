@@ -87,3 +87,22 @@ test "while loop - break returns expression value" {
     );
     try std.testing.expectEqual(@as(i64, 15), result.toInteger());
 }
+
+test "while loop - next skips to the next iteration" {
+    const result = try evalCode(
+        \\i = 0
+        \\out = []
+        \\while i < 4
+        \\  i = i + 1
+        \\  next if i == 2
+        \\  out << i
+        \\end
+        \\out
+    );
+    try std.testing.expect(result.isArray());
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 3), values.len);
+    try std.testing.expectEqual(@as(i64, 1), values[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 3), values[1].toInteger());
+    try std.testing.expectEqual(@as(i64, 4), values[2].toInteger());
+}

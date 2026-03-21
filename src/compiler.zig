@@ -35,6 +35,7 @@ const Local = struct {
 const LoopContext = struct {
     loop_type: enum { while_loop, until_loop, block },
     break_jumps: std.ArrayList(usize),
+    continue_target: usize,
 };
 
 pub const Compiler = struct {
@@ -627,6 +628,10 @@ pub const Compiler = struct {
                 }
                 // Emit RETURN opcode (explicit return)
                 try self.current_chunk.emitOpU8(.RETURN, 1, line);
+            },
+
+            .next_node => |next_node| {
+                try self.compileNextStatement(next_node, line);
             },
 
             .rescue_modifier => |rescue_modifier_node| {
@@ -2860,6 +2865,7 @@ pub const Compiler = struct {
         try self.loop_stack.append(self.allocator, .{
             .loop_type = .block,
             .break_jumps = .empty,
+            .continue_target = 0,
         });
 
         defer {
@@ -2955,6 +2961,7 @@ pub const Compiler = struct {
         try self.loop_stack.append(self.allocator, .{
             .loop_type = .block,
             .break_jumps = .empty,
+            .continue_target = 0,
         });
 
         defer {
@@ -3355,9 +3362,43 @@ pub const Compiler = struct {
         }
     }
 
+    fn compileNextStatement(self: *Compiler, next_node: *prism.NextNode, line: u32) !void {
+        if (self.loop_stack.items.len == 0) {
+            return error.NextOutsideLoop;
+        }
+
+        const current_loop = &self.loop_stack.items[self.loop_stack.items.len - 1];
+
+        if (next_node.arguments) |args_ptr| {
+            const args = @as(*prism.ArgumentsNode, @ptrCast(args_ptr));
+            if (args.arguments.size > 0) {
+                const arg_node = try self.parser.asNode(args.arguments.nodes[0]);
+                try self.compileNode(arg_node, line);
+            } else {
+                try self.current_chunk.emitOp(.PUSH_NIL, line);
+            }
+        } else {
+            try self.current_chunk.emitOp(.PUSH_NIL, line);
+        }
+
+        switch (current_loop.loop_type) {
+            .block => {
+                try self.current_chunk.emitOpU8(.RETURN, 0, line);
+            },
+            .while_loop, .until_loop => {
+                try self.current_chunk.emitOp(.POP, line);
+                try self.current_chunk.emitBackwardJump(.JUMP, current_loop.continue_target, line);
+            },
+        }
+    }
+
     fn compileWhileStatement(self: *Compiler, while_node: *prism.WhileNode, line: u32) anyerror!void {
         const loop_idx = self.loop_stack.items.len;
-        try self.loop_stack.append(self.allocator, .{ .loop_type = .while_loop, .break_jumps = .empty });
+        try self.loop_stack.append(self.allocator, .{
+            .loop_type = .while_loop,
+            .break_jumps = .empty,
+            .continue_target = 0,
+        });
 
         defer {
             var ctx = &self.loop_stack.items[loop_idx];
@@ -3367,6 +3408,7 @@ pub const Compiler = struct {
 
         // Mark loop start position for backward jump
         const loop_start_ip = self.current_chunk.currentOffset();
+        self.loop_stack.items[loop_idx].continue_target = loop_start_ip;
 
         // 1. Compile condition expression
         const condition = try self.parser.asNode(@ptrCast(while_node.predicate));
@@ -3401,7 +3443,11 @@ pub const Compiler = struct {
 
     fn compileUntilStatement(self: *Compiler, until_node: *prism.UntilNode, line: u32) anyerror!void {
         const loop_idx = self.loop_stack.items.len;
-        try self.loop_stack.append(self.allocator, .{ .loop_type = .until_loop, .break_jumps = .empty });
+        try self.loop_stack.append(self.allocator, .{
+            .loop_type = .until_loop,
+            .break_jumps = .empty,
+            .continue_target = 0,
+        });
 
         defer {
             var ctx = &self.loop_stack.items[loop_idx];
@@ -3411,6 +3457,7 @@ pub const Compiler = struct {
 
         // Mark loop start position for backward jump
         const loop_start_ip = self.current_chunk.currentOffset();
+        self.loop_stack.items[loop_idx].continue_target = loop_start_ip;
 
         // 1. Compile condition expression
         const condition = try self.parser.asNode(@ptrCast(until_node.predicate));

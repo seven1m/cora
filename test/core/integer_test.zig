@@ -96,6 +96,22 @@ test "Integer#times returns break value" {
     try std.testing.expectEqualSlices(u8, "done", result.toSymbolObject().name);
 }
 
+test "Integer#times next skips the current iteration" {
+    const result = try evalCode(
+        \\a = []
+        \\3.times do |i|
+        \\  next if i == 1
+        \\  a << i
+        \\end
+        \\a
+    );
+    try std.testing.expect(result.isArray());
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 2), values.len);
+    try std.testing.expectEqual(@as(i64, 0), values[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 2), values[1].toInteger());
+}
+
 test "Integer#times for non-positive receiver does not yield" {
     var result = try evalCode(
         \\count = 0

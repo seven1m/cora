@@ -52,6 +52,7 @@ pub const RescueNode = c.pm_rescue_node_t;
 pub const RescueModifierNode = c.pm_rescue_modifier_node_t;
 pub const RetryNode = c.pm_retry_node_t;
 pub const ReturnNode = c.pm_return_node_t;
+pub const NextNode = c.pm_next_node_t;
 pub const SelfNode = c.pm_self_node_t;
 pub const SourceFileNode = c.pm_source_file_node_t;
 pub const SourceEncodingNode = c.pm_source_encoding_node_t;
@@ -169,6 +170,7 @@ pub const Node = union(enum) {
     rescue_modifier: *RescueModifierNode,
     retry: *RetryNode,
     return_node: *ReturnNode,
+    next_node: *NextNode,
     self: *SelfNode,
     source_encoding: *SourceEncodingNode,
     source_file: *SourceFileNode,
@@ -529,6 +531,10 @@ pub const Parser = struct {
 
         if (node_type == c.PM_RETURN_NODE) {
             return Node{ .return_node = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_NEXT_NODE) {
+            return Node{ .next_node = @ptrCast(raw) };
         }
 
         if (node_type == c.PM_WHILE_NODE) {
