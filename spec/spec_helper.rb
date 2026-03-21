@@ -418,6 +418,10 @@ def fixnum_max
   max_long
 end
 
+def fixnum_min
+  min_long
+end
+
 def current_platform_tags
   platform = RUBY_PLATFORM.to_s
   if platform.include?("mingw") || platform.include?("mswin") || platform.include?("windows")

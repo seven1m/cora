@@ -1055,7 +1055,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/integer/to_s_spec.rb
 - [ ] core/integer/truncate_spec.rb
 - [ ] core/integer/try_convert_spec.rb
-- [ ] core/integer/uminus_spec.rb
+- [x] core/integer/uminus_spec.rb
 - [ ] core/integer/upto_spec.rb
 - [x] core/integer/zero_spec.rb
 
