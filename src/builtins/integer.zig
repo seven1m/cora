@@ -177,6 +177,9 @@ pub fn register(vm: *VM) !void {
     const equal_sym = try vm.intern("==");
     try vm.integer_class.module.methods.put(equal_sym, .{ .method = .{ .builtin = &builtinIntegerEqual } });
 
+    const eql_sym = try vm.intern("eql?");
+    try vm.integer_class.module.methods.put(eql_sym, .{ .method = .{ .builtin = &builtinIntegerEql } });
+
     const not_equal_sym = try vm.intern("!=");
     try vm.integer_class.module.methods.put(not_equal_sym, .{ .method = .{ .builtin = &builtinIntegerNotEqual } });
 
@@ -218,6 +221,9 @@ pub fn register(vm: *VM) !void {
 
     const succ_sym = try vm.intern("succ");
     try vm.integer_class.module.methods.put(succ_sym, .{ .method = .{ .builtin = &builtinIntegerNext } });
+
+    const pred_sym = try vm.intern("pred");
+    try vm.integer_class.module.methods.put(pred_sym, .{ .method = .{ .builtin = &builtinIntegerPred } });
 
     const times_sym = try vm.intern("times");
     try vm.integer_class.module.methods.put(times_sym, .{ .method = .{ .builtin = &builtinIntegerTimes } });
@@ -437,6 +443,13 @@ pub fn builtinIntegerEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     };
 }
 
+pub fn builtinIntegerEql(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    try receiver.ensureInteger(vm);
+    if (!args[0].isInteger() and !args[0].isBigInteger()) return Value.boolean(false);
+    return Value.boolean((try compareIntegers(vm, receiver, args[0])) == .eq);
+}
+
 pub fn builtinIntegerNotEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     const equal = try builtinIntegerEqual(vm, receiver, args, null);
     return Value.boolean(!equal.is_truthy());
@@ -593,6 +606,12 @@ pub fn builtinIntegerNext(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     try vm.requireArgCount(args, 0);
     try receiver.ensureInteger(vm);
     return addIntegers(vm, receiver, Value.integer(1));
+}
+
+pub fn builtinIntegerPred(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    try receiver.ensureInteger(vm);
+    return subIntegers(vm, receiver, Value.integer(1));
 }
 
 pub fn builtinIntegerTimes(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
