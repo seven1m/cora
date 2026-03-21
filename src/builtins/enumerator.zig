@@ -211,6 +211,15 @@ fn builtinEnumeratorSize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
                 if (start > stop) return Value.integer(0);
                 return Value.integer(stop - start + 1);
             }
+            if ((m.receiver.isInteger() or m.receiver.isBigInteger()) and std.mem.eql(u8, m.method_name.name, "downto")) {
+                const method_args = enum_obj.method_args orelse return Value.nil();
+                if (method_args.elements.items.len != 1) return Value.nil();
+
+                const start = try m.receiver.integerToI64(vm, "integer is too large to iterate");
+                const stop = try integer_builtin.downtoStopToI64(vm, method_args.elements.items[0]);
+                if (start < stop) return Value.integer(0);
+                return Value.integer(start - stop + 1);
+            }
         },
         .generator => {},
     }

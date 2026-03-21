@@ -185,6 +185,25 @@ pub fn uptoStopToI64(vm: *VM, stop: Value) VMError!i64 {
     return vm.raiseExceptionFmt(vm.argument_error_class, "bad value for range", .{});
 }
 
+pub fn downtoStopToI64(vm: *VM, stop: Value) VMError!i64 {
+    if (stop.isInteger() or stop.isBigInteger()) {
+        return stop.integerToI64(vm, "integer is too large to iterate");
+    }
+    if (stop.isFloat()) {
+        const ceiled = @ceil(stop.toFloatObject().val);
+        if (std.math.isNan(ceiled) or std.math.isInf(ceiled)) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "bad value for range", .{});
+        }
+        const max_i64 = @as(f64, @floatFromInt(std.math.maxInt(i64)));
+        const min_i64 = @as(f64, @floatFromInt(std.math.minInt(i64)));
+        if (ceiled > max_i64 or ceiled < min_i64) {
+            return vm.raiseExceptionFmt(vm.range_error_class, "integer is too large to iterate", .{});
+        }
+        return @intFromFloat(ceiled);
+    }
+    return vm.raiseExceptionFmt(vm.argument_error_class, "bad value for range", .{});
+}
+
 pub fn register(vm: *VM) !void {
     const integer_class_val = Value.fromObject(vm.integer_class);
     const integer_singleton = try vm.getOrCreateSingletonClass(integer_class_val);
@@ -298,6 +317,9 @@ pub fn register(vm: *VM) !void {
 
     const upto_sym = try vm.intern("upto");
     try vm.integer_class.module.methods.put(upto_sym, .{ .method = .{ .builtin = &builtinIntegerUpto } });
+
+    const downto_sym = try vm.intern("downto");
+    try vm.integer_class.module.methods.put(downto_sym, .{ .method = .{ .builtin = &builtinIntegerDownto } });
 
     const chr_sym = try vm.intern("chr");
     try vm.integer_class.module.methods.put(chr_sym, .{ .method = .{ .builtin = &builtinIntegerChr } });
@@ -795,6 +817,31 @@ pub fn builtinIntegerUpto(vm: *VM, receiver: Value, args: []Value, block: ?Block
 
     var i = start;
     while (i <= stop) : (i += 1) {
+        const yield_args = [_]Value{Value.integer(i)};
+        const yield_result = try vm.yieldToBlock(blk, &yield_args);
+        if (yield_result.break_occurred) {
+            return yield_result.value;
+        }
+    }
+
+    return receiver;
+}
+
+pub fn builtinIntegerDownto(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    try receiver.ensureInteger(vm);
+    const blk = block orelse {
+        return try vm.createMethodEnumerator(receiver, try vm.intern("downto"), args);
+    };
+
+    const start = try receiver.integerToI64(vm, "integer is too large to iterate");
+    const stop = try downtoStopToI64(vm, args[0]);
+    if (start < stop) {
+        return receiver;
+    }
+
+    var i = start;
+    while (i >= stop) : (i -= 1) {
         const yield_args = [_]Value{Value.integer(i)};
         const yield_result = try vm.yieldToBlock(blk, &yield_args);
         if (yield_result.break_occurred) {
