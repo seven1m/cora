@@ -166,6 +166,25 @@ inline fn compareIntegers(vm: *VM, lhs: Value, rhs: Value) VMError!std.math.Orde
     return BigInt.order(a, b);
 }
 
+pub fn uptoStopToI64(vm: *VM, stop: Value) VMError!i64 {
+    if (stop.isInteger() or stop.isBigInteger()) {
+        return stop.integerToI64(vm, "integer is too large to iterate");
+    }
+    if (stop.isFloat()) {
+        const floored = @floor(stop.toFloatObject().val);
+        if (std.math.isNan(floored) or std.math.isInf(floored)) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "bad value for range", .{});
+        }
+        const max_i64 = @as(f64, @floatFromInt(std.math.maxInt(i64)));
+        const min_i64 = @as(f64, @floatFromInt(std.math.minInt(i64)));
+        if (floored > max_i64 or floored < min_i64) {
+            return vm.raiseExceptionFmt(vm.range_error_class, "integer is too large to iterate", .{});
+        }
+        return @intFromFloat(floored);
+    }
+    return vm.raiseExceptionFmt(vm.argument_error_class, "bad value for range", .{});
+}
+
 pub fn register(vm: *VM) !void {
     const plus_sym = try vm.intern("+");
     try vm.integer_class.module.methods.put(plus_sym, .{ .method = .{ .builtin = &builtinIntegerPlus } });
@@ -717,13 +736,12 @@ pub fn builtinIntegerTimes(vm: *VM, receiver: Value, args: []Value, block: ?Bloc
 pub fn builtinIntegerUpto(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     try receiver.ensureInteger(vm);
-    try args[0].ensureInteger(vm);
     const blk = block orelse {
         return try vm.createMethodEnumerator(receiver, try vm.intern("upto"), args);
     };
 
     const start = try receiver.integerToI64(vm, "integer is too large to iterate");
-    const stop = try args[0].integerToI64(vm, "integer is too large to iterate");
+    const stop = try uptoStopToI64(vm, args[0]);
     if (start > stop) {
         return receiver;
     }
