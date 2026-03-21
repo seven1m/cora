@@ -991,7 +991,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/hash/values_spec.rb
 
 ### core/integer
-- [ ] core/integer/abs_spec.rb
+- [x] core/integer/abs_spec.rb
 - [ ] core/integer/allbits_spec.rb
 - [ ] core/integer/anybits_spec.rb
 - [ ] core/integer/bit_and_spec.rb
@@ -1057,7 +1057,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/integer/try_convert_spec.rb
 - [ ] core/integer/uminus_spec.rb
 - [ ] core/integer/upto_spec.rb
-- [ ] core/integer/zero_spec.rb
+- [x] core/integer/zero_spec.rb
 
 ### core/io
 - [ ] core/io/advise_spec.rb
