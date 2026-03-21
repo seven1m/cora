@@ -210,6 +210,9 @@ pub fn register(vm: *VM) !void {
     const even_sym = try vm.intern("even?");
     try vm.integer_class.module.methods.put(even_sym, .{ .method = .{ .builtin = &builtinIntegerEven } });
 
+    const next_sym = try vm.intern("next");
+    try vm.integer_class.module.methods.put(next_sym, .{ .method = .{ .builtin = &builtinIntegerNext } });
+
     const times_sym = try vm.intern("times");
     try vm.integer_class.module.methods.put(times_sym, .{ .method = .{ .builtin = &builtinIntegerTimes } });
 
@@ -566,6 +569,12 @@ pub fn builtinIntegerEven(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
         return Value.boolean(remainder.toBigIntegerObject().value.eqlZero());
     }
     unreachable;
+}
+
+pub fn builtinIntegerNext(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    try receiver.ensureInteger(vm);
+    return addIntegers(vm, receiver, Value.integer(1));
 }
 
 pub fn builtinIntegerTimes(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
