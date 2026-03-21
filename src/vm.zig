@@ -6264,6 +6264,7 @@ pub const VM = struct {
         kind: value.EnumeratorObject.Kind,
         method_args: ?*value.ArrayObject,
         size: ?Value,
+        size_fn: ?value.EnumeratorObject.SizeFn,
     ) VMError!Value {
         const enum_obj = self.gc_allocator.create(value.EnumeratorObject) catch return error.Fatal;
         enum_obj.* = .{
@@ -6271,6 +6272,7 @@ pub const VM = struct {
             .kind = kind,
             .method_args = method_args,
             .size = size,
+            .size_fn = size_fn,
             .fiber = null,
             .lookahead_values = null,
             .has_lookahead_values = false,
@@ -6288,7 +6290,7 @@ pub const VM = struct {
     }
 
     pub fn createMethodEnumerator(self: *VM, receiver: Value, method_name: *SymbolObject, args: []const Value) VMError!Value {
-        return self.createMethodEnumeratorWithSize(receiver, method_name, args, null);
+        return self.createMethodEnumeratorWithSizeAndCallback(receiver, method_name, args, null, null);
     }
 
     pub fn createMethodEnumeratorWithSize(
@@ -6298,6 +6300,27 @@ pub const VM = struct {
         args: []const Value,
         size: ?Value,
     ) VMError!Value {
+        return self.createMethodEnumeratorWithSizeAndCallback(receiver, method_name, args, size, null);
+    }
+
+    pub fn createMethodEnumeratorWithSizeFn(
+        self: *VM,
+        receiver: Value,
+        method_name: *SymbolObject,
+        args: []const Value,
+        size_fn: ?value.EnumeratorObject.SizeFn,
+    ) VMError!Value {
+        return self.createMethodEnumeratorWithSizeAndCallback(receiver, method_name, args, null, size_fn);
+    }
+
+    fn createMethodEnumeratorWithSizeAndCallback(
+        self: *VM,
+        receiver: Value,
+        method_name: *SymbolObject,
+        args: []const Value,
+        size: ?Value,
+        size_fn: ?value.EnumeratorObject.SizeFn,
+    ) VMError!Value {
         var method_args: ?*value.ArrayObject = null;
         if (args.len > 0) {
             const arr = try self.createArray();
@@ -6306,7 +6329,7 @@ pub const VM = struct {
             }
             method_args = arr;
         }
-        return self.newEnumerator(.{ .method = .{ .receiver = receiver, .method_name = method_name } }, method_args, size);
+        return self.newEnumerator(.{ .method = .{ .receiver = receiver, .method_name = method_name } }, method_args, size, size_fn);
     }
 
     fn moduleAffectsInteger(self: *VM, module: *value.ModuleObject) bool {

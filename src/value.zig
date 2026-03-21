@@ -291,9 +291,12 @@ pub const EnumeratorObject = struct {
     kind: Kind,
     method_args: ?*ArrayObject,
     size: ?Value,
+    size_fn: ?SizeFn,
     fiber: ?*FiberObject,
     lookahead_values: ?*ArrayObject,
     has_lookahead_values: bool,
+
+    pub const SizeFn = *const fn (vm: *VM, receiver: Value, method_args: ?*ArrayObject) VMError!Value;
 
     pub const Kind = union(enum) {
         method: struct {

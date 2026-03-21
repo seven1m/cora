@@ -204,6 +204,26 @@ pub fn downtoStopToI64(vm: *VM, stop: Value) VMError!i64 {
     return vm.raiseExceptionFmt(vm.argument_error_class, "bad value for range", .{});
 }
 
+pub fn uptoEnumeratorSize(vm: *VM, receiver: Value, method_args: ?*value.ArrayObject) VMError!Value {
+    const args = method_args orelse return Value.nil();
+    if (args.elements.items.len != 1) return Value.nil();
+
+    const start = try receiver.integerToI64(vm, "integer is too large to iterate");
+    const stop = try uptoStopToI64(vm, args.elements.items[0]);
+    if (start > stop) return Value.integer(0);
+    return Value.integer(stop - start + 1);
+}
+
+pub fn downtoEnumeratorSize(vm: *VM, receiver: Value, method_args: ?*value.ArrayObject) VMError!Value {
+    const args = method_args orelse return Value.nil();
+    if (args.elements.items.len != 1) return Value.nil();
+
+    const start = try receiver.integerToI64(vm, "integer is too large to iterate");
+    const stop = try downtoStopToI64(vm, args.elements.items[0]);
+    if (start < stop) return Value.integer(0);
+    return Value.integer(start - stop + 1);
+}
+
 pub fn register(vm: *VM) !void {
     const integer_class_val = Value.fromObject(vm.integer_class);
     const integer_singleton = try vm.getOrCreateSingletonClass(integer_class_val);
@@ -806,7 +826,7 @@ pub fn builtinIntegerUpto(vm: *VM, receiver: Value, args: []Value, block: ?Block
     try vm.requireArgCount(args, 1);
     try receiver.ensureInteger(vm);
     const blk = block orelse {
-        return try vm.createMethodEnumerator(receiver, try vm.intern("upto"), args);
+        return try vm.createMethodEnumeratorWithSizeFn(receiver, try vm.intern("upto"), args, &uptoEnumeratorSize);
     };
 
     const start = try receiver.integerToI64(vm, "integer is too large to iterate");
@@ -831,7 +851,7 @@ pub fn builtinIntegerDownto(vm: *VM, receiver: Value, args: []Value, block: ?Blo
     try vm.requireArgCount(args, 1);
     try receiver.ensureInteger(vm);
     const blk = block orelse {
-        return try vm.createMethodEnumerator(receiver, try vm.intern("downto"), args);
+        return try vm.createMethodEnumeratorWithSizeFn(receiver, try vm.intern("downto"), args, &downtoEnumeratorSize);
     };
 
     const start = try receiver.integerToI64(vm, "integer is too large to iterate");

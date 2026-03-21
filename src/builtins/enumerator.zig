@@ -1,7 +1,6 @@
 const std = @import("std");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
-const integer_builtin = @import("integer.zig");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -68,7 +67,7 @@ fn builtinEnumeratorNew(vm: *VM, _: Value, args: []Value, block: ?Block) VMError
 
     // Wrap the block as a ProcObject
     const proc_val = try vm.newProc(blk);
-    return vm.newEnumerator(.{ .generator = .{ .proc = proc_val.toProcObject() } }, null, null);
+    return vm.newEnumerator(.{ .generator = .{ .proc = proc_val.toProcObject() } }, null, null, null);
 }
 
 // --- Enumerator instance methods ---
@@ -92,10 +91,10 @@ fn builtinEnumeratorEach(vm: *VM, receiver: Value, args: []Value, block: ?Block)
                 for (args) |arg| {
                     merged_args.elements.append(vm.gc_allocator, arg) catch return error.Fatal;
                 }
-                return vm.newEnumerator(enum_obj.kind, merged_args, enum_obj.size);
+                return vm.newEnumerator(enum_obj.kind, merged_args, enum_obj.size, enum_obj.size_fn);
             },
             .generator => {
-                return vm.newEnumerator(enum_obj.kind, null, enum_obj.size);
+                return vm.newEnumerator(enum_obj.kind, null, enum_obj.size, enum_obj.size_fn);
             },
         }
     };
@@ -199,29 +198,11 @@ fn builtinEnumeratorSize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
         }
         return size;
     }
-
-    switch (enum_obj.kind) {
-        .method => |m| {
-            if ((m.receiver.isInteger() or m.receiver.isBigInteger()) and std.mem.eql(u8, m.method_name.name, "upto")) {
-                const method_args = enum_obj.method_args orelse return Value.nil();
-                if (method_args.elements.items.len != 1) return Value.nil();
-
-                const start = try m.receiver.integerToI64(vm, "integer is too large to iterate");
-                const stop = try integer_builtin.uptoStopToI64(vm, method_args.elements.items[0]);
-                if (start > stop) return Value.integer(0);
-                return Value.integer(stop - start + 1);
-            }
-            if ((m.receiver.isInteger() or m.receiver.isBigInteger()) and std.mem.eql(u8, m.method_name.name, "downto")) {
-                const method_args = enum_obj.method_args orelse return Value.nil();
-                if (method_args.elements.items.len != 1) return Value.nil();
-
-                const start = try m.receiver.integerToI64(vm, "integer is too large to iterate");
-                const stop = try integer_builtin.downtoStopToI64(vm, method_args.elements.items[0]);
-                if (start < stop) return Value.integer(0);
-                return Value.integer(start - stop + 1);
-            }
-        },
-        .generator => {},
+    if (enum_obj.size_fn) |size_fn| {
+        switch (enum_obj.kind) {
+            .method => |m| return size_fn(vm, m.receiver, enum_obj.method_args),
+            .generator => return Value.nil(),
+        }
     }
 
     return Value.nil();
