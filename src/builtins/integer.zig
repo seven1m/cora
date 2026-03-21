@@ -260,6 +260,9 @@ pub fn register(vm: *VM) !void {
     const denominator_sym = try vm.intern("denominator");
     try vm.integer_class.module.methods.put(denominator_sym, .{ .method = .{ .builtin = &builtinIntegerDenominator } });
 
+    const size_sym = try vm.intern("size");
+    try vm.integer_class.module.methods.put(size_sym, .{ .method = .{ .builtin = &builtinIntegerSize } });
+
     const truncate_sym = try vm.intern("truncate");
     try vm.integer_class.module.methods.put(truncate_sym, .{ .method = .{ .builtin = &builtinIntegerTruncate } });
 
@@ -637,6 +640,19 @@ pub fn builtinIntegerDenominator(vm: *VM, receiver: Value, args: []Value, _: ?Bl
     try vm.requireArgCount(args, 0);
     try receiver.ensureInteger(vm);
     return Value.integer(1);
+}
+
+pub fn builtinIntegerSize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    try receiver.ensureInteger(vm);
+
+    if (receiver.isInteger()) {
+        return Value.integer(@sizeOf(c_long));
+    }
+
+    const bit_count = receiver.toBigIntegerObject().value.bitCountAbs();
+    const byte_count = if (bit_count == 0) 1 else @divFloor(bit_count + 7, 8);
+    return Value.integer(@intCast(byte_count));
 }
 
 pub fn builtinIntegerTruncate(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
