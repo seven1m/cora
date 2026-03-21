@@ -257,6 +257,9 @@ pub fn register(vm: *VM) !void {
     const ord_sym = try vm.intern("ord");
     try vm.integer_class.module.methods.put(ord_sym, .{ .method = .{ .builtin = &builtinIntegerOrd } });
 
+    const denominator_sym = try vm.intern("denominator");
+    try vm.integer_class.module.methods.put(denominator_sym, .{ .method = .{ .builtin = &builtinIntegerDenominator } });
+
     const truncate_sym = try vm.intern("truncate");
     try vm.integer_class.module.methods.put(truncate_sym, .{ .method = .{ .builtin = &builtinIntegerTruncate } });
 
@@ -628,6 +631,12 @@ pub fn builtinIntegerOrd(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     try vm.requireArgCount(args, 0);
     try receiver.ensureInteger(vm);
     return receiver;
+}
+
+pub fn builtinIntegerDenominator(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    try receiver.ensureInteger(vm);
+    return Value.integer(1);
 }
 
 pub fn builtinIntegerTruncate(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
