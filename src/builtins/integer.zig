@@ -572,7 +572,7 @@ pub fn builtinIntegerTimes(vm: *VM, receiver: Value, args: []Value, block: ?Bloc
     try vm.requireArgCount(args, 0);
     try receiver.ensureInteger(vm);
     const blk = block orelse {
-        return try vm.createMethodEnumerator(receiver, try vm.intern("times"), &.{});
+        return try vm.createMethodEnumeratorWithSize(receiver, try vm.intern("times"), &.{}, receiver);
     };
 
     const count = try receiver.integerToI64(vm, "integer is too large to iterate");
