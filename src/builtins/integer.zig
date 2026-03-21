@@ -207,6 +207,9 @@ pub fn register(vm: *VM) !void {
     const to_f_sym = try vm.intern("to_f");
     try vm.integer_class.module.methods.put(to_f_sym, .{ .method = .{ .builtin = &builtinIntegerToF } });
 
+    const ord_sym = try vm.intern("ord");
+    try vm.integer_class.module.methods.put(ord_sym, .{ .method = .{ .builtin = &builtinIntegerOrd } });
+
     const inspect_sym = try vm.intern("inspect");
     try vm.integer_class.module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinIntegerInspect } });
 
@@ -552,6 +555,12 @@ pub fn builtinIntegerToF(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     try vm.requireArgCount(args, 0);
     try receiver.ensureInteger(vm);
     return vm.newFloat(receiver.integerToF64());
+}
+
+pub fn builtinIntegerOrd(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    try receiver.ensureInteger(vm);
+    return receiver;
 }
 
 pub fn builtinIntegerInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
