@@ -101,6 +101,29 @@ inline fn divFloorIntegers(vm: *VM, lhs: Value, rhs: Value) VMError!Value {
     return vm.valueFromManagedInteger(&quot);
 }
 
+inline fn divTruncIntegers(vm: *VM, lhs: Value, rhs: Value) VMError!Value {
+    if (lhs.isInteger() and rhs.isInteger()) {
+        const li: i63 = @intCast(lhs.toInteger());
+        const ri: i63 = @intCast(rhs.toInteger());
+        if (std.math.divTrunc(i63, li, ri)) |quot| {
+            return Value.integer(@as(i64, quot));
+        } else |_| {}
+    }
+
+    var a = try lhs.integerToManaged(vm);
+    defer a.deinit();
+    var b = try rhs.integerToManaged(vm);
+    defer b.deinit();
+
+    var quot = BigInt.init(vm.allocator) catch return error.Fatal;
+    defer quot.deinit();
+    var rem = BigInt.init(vm.allocator) catch return error.Fatal;
+    defer rem.deinit();
+
+    quot.divTrunc(&rem, &a, &b) catch return error.Fatal;
+    return vm.valueFromManagedInteger(&quot);
+}
+
 inline fn modIntegers(vm: *VM, lhs: Value, rhs: Value) VMError!Value {
     if (lhs.isInteger() and rhs.isInteger()) {
         const li = lhs.toInteger();
@@ -209,6 +232,9 @@ pub fn register(vm: *VM) !void {
 
     const ord_sym = try vm.intern("ord");
     try vm.integer_class.module.methods.put(ord_sym, .{ .method = .{ .builtin = &builtinIntegerOrd } });
+
+    const truncate_sym = try vm.intern("truncate");
+    try vm.integer_class.module.methods.put(truncate_sym, .{ .method = .{ .builtin = &builtinIntegerTruncate } });
 
     const inspect_sym = try vm.intern("inspect");
     try vm.integer_class.module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinIntegerInspect } });
@@ -561,6 +587,26 @@ pub fn builtinIntegerOrd(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     try vm.requireArgCount(args, 0);
     try receiver.ensureInteger(vm);
     return receiver;
+}
+
+pub fn builtinIntegerTruncate(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    try receiver.ensureInteger(vm);
+
+    if (args.len == 0) return receiver;
+
+    const ndigits = try args[0].integerArgToI64(vm, "argument is not an Integer", "ndigits is too large");
+    if (ndigits >= 0) return receiver;
+
+    const abs_ndigits: u64 = @intCast(-ndigits);
+    var factor = Value.integer(1);
+    var i: u64 = 0;
+    while (i < abs_ndigits) : (i += 1) {
+        factor = try mulIntegers(vm, factor, Value.integer(10));
+    }
+
+    const quotient = try divTruncIntegers(vm, receiver, factor);
+    return mulIntegers(vm, quotient, factor);
 }
 
 pub fn builtinIntegerInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
