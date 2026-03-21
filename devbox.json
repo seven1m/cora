@@ -2,7 +2,8 @@
   "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/0.16.0/.schema/devbox.schema.json",
   "packages": [
     "zig@latest",
-    "ruby@3.4"
+    "ruby@3.4",
+    "kcov@latest"
   ],
   "shell": {
     "init_hook": [],
@@ -12,6 +13,9 @@
       ],
       "test": [
         "zig build test --summary all"
+      ],
+      "test:coverage": [
+        "zig build test -Dcoverage --summary all"
       ]
     }
   }

@@ -59,6 +59,8 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const test_verbose = b.option(bool, "test-verbose", "Print each test name") orelse false;
     const test_jobs = b.option(i32, "test-jobs", "Number of test worker processes (<=0 auto)") orelse 0;
+    const coverage = b.option(bool, "coverage", "Run tests under kcov and generate an HTML coverage report") orelse false;
+    const coverage_output_dir = b.option([]const u8, "coverage-output-dir", "Directory for kcov output") orelse "zig-out/kcov";
     const options = b.addOptions();
     options.addOption(bool, "test_verbose", test_verbose);
     options.addOption(i32, "test_jobs", test_jobs);
@@ -154,6 +156,7 @@ pub fn build(b: *std.Build) void {
         }),
         .filters = test_filters,
         .test_runner = .{ .path = b.path("src/test_runner.zig"), .mode = .simple },
+        .use_llvm = if (coverage) true else null,
     });
 
     test_exe.step.dependOn(prism_build_step);
@@ -189,13 +192,29 @@ pub fn build(b: *std.Build) void {
     ruby_spec_runner_mod.addImport("bdwgc", bdwgc.module("bdwgc"));
     test_exe.root_module.addImport("ruby_spec_runner", ruby_spec_runner_mod);
 
-    const test_run = b.addRunArtifact(test_exe);
+    const test_run = blk: {
+        if (coverage) {
+            const include_pattern = b.fmt("{s}/", .{b.build_root.path orelse "."});
+            const run = b.addSystemCommand(&.{
+                "kcov",
+                "--clean",
+                "--exclude-pattern=/nix/store,.zig-cache,zig-out/ext,zig-out/prism,zig-out/onigmo",
+                b.fmt("--include-pattern={s}", .{include_pattern}),
+                coverage_output_dir,
+            });
+            run.setName("kcov test");
+            run.addArtifactArg(test_exe);
+            if (b.args) |args| {
+                run.addArgs(args);
+            }
+            break :blk run;
+        }
+
+        break :blk b.addRunArtifact(test_exe);
+    };
     test_run.step.dependOn(prism_build_step);
     test_run.step.dependOn(onigmo_build_step);
     test_run.step.dependOn(b.getInstallStep());
-    if (b.args) |args| {
-        test_run.addArgs(args);
-    }
 
     const test_step = b.step("test", "Run tests");
     test_step.dependOn(&test_run.step);
