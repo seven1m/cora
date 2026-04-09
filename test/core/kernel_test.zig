@@ -383,6 +383,15 @@ test "Kernel#send coerces method name via to_str" {
     try std.testing.expectEqual(@as(i64, 42), result.toInteger());
 }
 
+test "BasicObject#__send__ dispatches methods without Kernel" {
+    const result = try evalCode(
+        \\obj = Object.new
+        \\obj.__send__(:equal?, obj)
+    );
+    try std.testing.expect(result.isBool());
+    try std.testing.expectEqual(true, result.toBool());
+}
+
 test "Kernel#to_enum and #enum_for return Enumerator and default to #each" {
     var result = try evalCode("[1, 2].to_enum");
     try std.testing.expect(result.isEnumerator());

@@ -13,6 +13,9 @@ pub fn register(vm: *VM) !void {
         .visibility = .private,
     });
 
+    const send_sym = try vm.intern("__send__");
+    try vm.basic_object_class.module.methods.put(send_sym, .{ .method = .{ .builtin = &builtinBasicObjectSend } });
+
     const instance_eval_sym = try vm.intern("instance_eval");
     try vm.basic_object_class.module.methods.put(instance_eval_sym, .{ .method = .{ .builtin = &builtinBasicObjectInstanceEval } });
 
@@ -41,6 +44,13 @@ pub fn register(vm: *VM) !void {
 pub fn builtinBasicObjectInitialize(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return Value.nil();
+}
+
+pub fn builtinBasicObjectSend(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireMinArgCount(args, 1);
+    const name_str = try vm.coerceToMethodNameString(args[0]);
+    const call_args = args[1..];
+    return vm.callMethodByNameForwardingKeywords(receiver, name_str, call_args, block);
 }
 
 pub fn builtinBasicObjectInstanceEval(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
