@@ -13,6 +13,9 @@ pub fn register(vm: *VM) !void {
         .visibility = .private,
     });
 
+    const instance_eval_sym = try vm.intern("instance_eval");
+    try vm.basic_object_class.module.methods.put(instance_eval_sym, .{ .method = .{ .builtin = &builtinBasicObjectInstanceEval } });
+
     const id_sym = try vm.intern("__id__");
     try vm.basic_object_class.module.methods.put(id_sym, .{ .method = .{ .builtin = &builtinBasicObjectId } });
 
@@ -38,6 +41,13 @@ pub fn register(vm: *VM) !void {
 pub fn builtinBasicObjectInitialize(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return Value.nil();
+}
+
+pub fn builtinBasicObjectInstanceEval(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const blk = try vm.requireBlock(block);
+    const proc_obj = (try vm.newProc(blk)).toProcObject();
+    return vm.callProcObject(proc_obj, &.{}, null, receiver);
 }
 
 pub fn builtinBasicObjectId(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
