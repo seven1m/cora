@@ -458,48 +458,44 @@ pub fn builtinArrayBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 
     if (args.len == 1) {
         // Single argument: arr[index] or arr[range]
-        if (args[0].isInteger()) {
-            const index = args[0].toInteger();
-
-            // Handle negative indices (count from end)
-            var actual_index: i64 = index;
-            if (index < 0) {
-                actual_index = len + index;
-            }
-
-            // Return nil for out of bounds
-            if (actual_index < 0 or actual_index >= len) {
-                return Value.nil();
-            }
-
-            return array.elements.items[@intCast(actual_index)];
-        }
-
         if (args[0].isRange()) {
             const range_obj = args[0].toRangeObject();
-            if (!range_obj.begin.isInteger() or !range_obj.end.isInteger()) {
-                return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion of Range into Integer", .{});
+            var actual_start: i64 = 0;
+            if (!range_obj.begin.isNil()) {
+                const start = try range_obj.begin.coerceToI64ViaToInt(
+                    vm,
+                    "no implicit conversion into Integer",
+                    "no implicit conversion into Integer",
+                    "bignum too big to convert into `long`",
+                );
+                actual_start = start;
+                if (actual_start < 0) actual_start += len;
             }
-
-            var start = range_obj.begin.toInteger();
-            if (start < 0) start += len;
-            if (start < 0 or start > len) {
+            if (actual_start < 0 or actual_start > len) {
                 return Value.nil();
             }
 
-            var finish = range_obj.end.toInteger();
-            if (finish < 0) finish += len;
-            if (!range_obj.exclude_end) finish += 1;
+            var finish: i64 = len;
+            if (!range_obj.end.isNil()) {
+                finish = try range_obj.end.coerceToI64ViaToInt(
+                    vm,
+                    "no implicit conversion into Integer",
+                    "no implicit conversion into Integer",
+                    "bignum too big to convert into `long`",
+                );
+                if (finish < 0) finish += len;
+                if (!range_obj.exclude_end) finish += 1;
+            }
 
-            if (finish < start) {
+            if (finish < actual_start) {
                 const empty = try vm.createArray();
                 return Value.fromObject(empty);
             }
 
-            const clamped_end = @max(start, @min(finish, len));
+            const clamped_end = @max(actual_start, @min(finish, len));
 
             const result_array = try vm.createArray();
-            var i: i64 = start;
+            var i: i64 = actual_start;
             while (i < clamped_end) : (i += 1) {
                 const idx: usize = @intCast(i);
                 result_array.elements.append(vm.gc_allocator, array.elements.items[idx]) catch return error.Fatal;
@@ -507,14 +503,37 @@ pub fn builtinArrayBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
             return Value.fromObject(result_array);
         }
 
-        return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion of {s} into Integer", .{vm.className(args[0])});
+        const index = try args[0].coerceToI64ViaToInt(
+            vm,
+            "no implicit conversion into Integer",
+            "no implicit conversion into Integer",
+            "bignum too big to convert into `long`",
+        );
+
+        var actual_index: i64 = index;
+        if (actual_index < 0) {
+            actual_index = len + actual_index;
+        }
+
+        if (actual_index < 0 or actual_index >= len) {
+            return Value.nil();
+        }
+
+        return array.elements.items[@intCast(actual_index)];
     } else if (args.len == 2) {
         // Two arguments: arr[start, length] - array slicing
-        try vm.requireIntegerArg(args, 0, "Integer");
-        try vm.requireIntegerArg(args, 1, "Integer");
-
-        const start = args[0].toInteger();
-        const length = args[1].toInteger();
+        const start = try args[0].coerceToI64ViaToInt(
+            vm,
+            "no implicit conversion into Integer",
+            "no implicit conversion into Integer",
+            "bignum too big to convert into `long`",
+        );
+        const length = try args[1].coerceToI64ViaToInt(
+            vm,
+            "no implicit conversion into Integer",
+            "no implicit conversion into Integer",
+            "bignum too big to convert into `long`",
+        );
 
         // Handle negative start index
         var actual_start: i64 = start;

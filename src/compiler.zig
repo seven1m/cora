@@ -557,6 +557,30 @@ pub const Compiler = struct {
                 try self.current_chunk.emitOpU16(.PUSH_HASH, pair_count, line);
             },
 
+            .keyword_hash => |hash_node| {
+                if (hash_node.elements.size > std.math.maxInt(u16)) {
+                    return error.TooManyHashPairs;
+                }
+                const pair_count: u16 = @intCast(hash_node.elements.size);
+
+                var i: usize = 0;
+                while (i < hash_node.elements.size) : (i += 1) {
+                    const assoc_raw = hash_node.elements.nodes[i];
+                    const assoc_node = try self.parser.asNode(assoc_raw);
+                    if (assoc_node != .assoc) {
+                        return error.ExpectedAssocNode;
+                    }
+
+                    const key_node = try self.parser.asNode(@ptrCast(assoc_node.assoc.key));
+                    try self.compileNode(key_node, line);
+
+                    const value_node = try self.parser.asNode(@ptrCast(assoc_node.assoc.value));
+                    try self.compileNode(value_node, line);
+                }
+
+                try self.current_chunk.emitOpU16(.PUSH_HASH, pair_count, line);
+            },
+
             .yield => |yield_node| {
                 // Compile yield arguments
                 var argc: u8 = 0;
@@ -1296,7 +1320,29 @@ pub const Compiler = struct {
 
                         if (arg_node == .keyword_hash) {
                             const kw_hash = arg_node.keyword_hash;
+                            var all_symbol_keys = true;
                             var j: usize = 0;
+                            while (j < kw_hash.elements.size) : (j += 1) {
+                                const elem = try self.parser.asNode(kw_hash.elements.nodes[j]);
+                                if (elem != .assoc) {
+                                    all_symbol_keys = false;
+                                    break;
+                                }
+                                const assoc = elem.assoc;
+                                const key_node = try self.parser.asNode(@ptrCast(assoc.key));
+                                if (key_node != .symbol) {
+                                    all_symbol_keys = false;
+                                    break;
+                                }
+                            }
+
+                            if (!all_symbol_keys) {
+                                try self.compileNode(arg_node, line);
+                                result.argc += 1;
+                                continue;
+                            }
+
+                            j = 0;
                             while (j < kw_hash.elements.size) : (j += 1) {
                                 const elem = try self.parser.asNode(kw_hash.elements.nodes[j]);
                                 const assoc = elem.assoc;
@@ -1328,9 +1374,35 @@ pub const Compiler = struct {
                         const arg_node = try self.parser.asNode(arg);
 
                         if (arg_node == .keyword_hash) {
-                            seen_keyword_hash = true;
                             const kw_hash = arg_node.keyword_hash;
+                            var all_symbol_keys = true;
                             var j: usize = 0;
+                            while (j < kw_hash.elements.size) : (j += 1) {
+                                const elem = try self.parser.asNode(kw_hash.elements.nodes[j]);
+                                if (elem != .assoc) {
+                                    all_symbol_keys = false;
+                                    break;
+                                }
+                                const assoc = elem.assoc;
+                                const key_node = try self.parser.asNode(@ptrCast(assoc.key));
+                                if (key_node != .symbol) {
+                                    all_symbol_keys = false;
+                                    break;
+                                }
+                            }
+
+                            if (!all_symbol_keys) {
+                                if (seen_keyword_hash) {
+                                    std.debug.print("Error: positional arguments after keyword args with splat are not supported\n", .{});
+                                    return error.UnsupportedNode;
+                                }
+                                try self.compileNode(arg_node, line);
+                                try self.current_chunk.emitOp(.ARRAY_APPEND, line);
+                                continue;
+                            }
+
+                            seen_keyword_hash = true;
+                            j = 0;
                             while (j < kw_hash.elements.size) : (j += 1) {
                                 const elem = try self.parser.asNode(kw_hash.elements.nodes[j]);
                                 const assoc = elem.assoc;

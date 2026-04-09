@@ -108,7 +108,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/array/dup_spec.rb
 - [ ] core/array/each_index_spec.rb
 - [x] core/array/each_spec.rb
-- [ ] core/array/element_reference_spec.rb
+- [-] core/array/element_reference_spec.rb
 - [ ] core/array/element_set_spec.rb
 - [x] core/array/empty_spec.rb
 - [ ] core/array/eql_spec.rb

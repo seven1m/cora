@@ -248,9 +248,9 @@ pub fn builtinFloatToInt(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     }
 
     const truncated = @trunc(f);
-    const max_i64 = @as(f64, @floatFromInt(std.math.maxInt(i64)));
-    const min_i64 = @as(f64, @floatFromInt(std.math.minInt(i64)));
-    if (truncated > max_i64 or truncated < min_i64) {
+    const min_i64 = -0x1.0p63;
+    const max_exclusive_i64 = 0x1.0p63;
+    if (truncated >= max_exclusive_i64 or truncated < min_i64) {
         return vm.raiseExceptionFmt(vm.range_error_class, "float out of range of integer", .{});
     }
 
