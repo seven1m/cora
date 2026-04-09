@@ -149,6 +149,7 @@ Use "unmanaged" ArrayList: `field: ArrayList(*Value) = .empty` (allocator passed
 - `VM.probeToAry` centralizes low-level `to_ary` coercion semantics. It returns array/missing/nil-result distinctly and raises `TypeError` when `to_ary` returns a non-Array.
 - `VM.coerceToArrayValue` is the strict array-like coercion helper for APIs such as `Array#+`/`Array#replace`; it raises MRI-style `TypeError` messages for missing `to_ary` and `nil`/wrong-type `to_ary` results.
 - `VM.raiseEncodingCompatibilityError` centralizes `Encoding::CompatibilityError` formatting for the common `"incompatible character encodings: ..."` case.
+- `VM.coerceToPath` is the canonical path-bytes coercion helper (`to_path` then String coercion); use `VM.coerceToPathValue` when callers must preserve the resulting String object's encoding/value.
 - `src/builtins/warning.zig` exposes shared warning helpers such as `writeWarning` and `warnBlockUnused`; prefer these over per-builtin `$stderr` warning writers.
 
 ### Builtin naming conventions

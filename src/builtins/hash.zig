@@ -147,7 +147,7 @@ fn hashGetValue(hash_obj: *value.HashObject, vm: *VM, key: Value) VMError!?Value
 pub fn builtinHashInitialize(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
     if (args.len == 1 and block != null) {
-        return vm.raiseExceptionFmt(vm.argument_error_class, "wrong number of arguments (given 1, expected 0)", .{});
+        return vm.raiseArgumentErrorWrongArgCount(args.len, 0);
     }
 
     const hash_obj = receiver.toHashObject();

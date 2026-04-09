@@ -141,12 +141,6 @@ fn currentWorkingDir(vm: *VM) VMError![]u8 {
     return std.process.getCwdAlloc(vm.allocator) catch return error.Fatal;
 }
 
-fn coerceToPathValue(vm: *VM, arg: Value) VMError!Value {
-    const maybe_candidate = try vm.checkCallMethodByName(arg, "to_path", &[_]Value{}, null);
-    const candidate = maybe_candidate orelse arg;
-    return candidate.coerceToStringValue(vm, "no implicit conversion into String");
-}
-
 fn joinPathPartsAlloc(allocator: std.mem.Allocator, base: []const u8, tail: []const u8) ![]u8 {
     var out: std.ArrayList(u8) = .empty;
     defer out.deinit(allocator);
@@ -324,11 +318,11 @@ pub fn builtinFileExpandPath(vm: *VM, _: Value, args: []Value, _: ?Block) VMErro
         return vm.raiseExceptionFmt(vm.not_implemented_error_class, "File.expand_path is not implemented on Windows", .{});
     }
 
-    const path_value = try coerceToPathValue(vm, args[0]);
+    const path_value = try vm.coerceToPathValue(args[0], "no implicit conversion into String");
     const path_obj = path_value.toStringObject();
 
     const base: ?[]const u8 = if (args.len == 2 and !args[1].isNil()) blk: {
-        const base_value = try coerceToPathValue(vm, args[1]);
+        const base_value = try vm.coerceToPathValue(args[1], "no implicit conversion into String");
         break :blk base_value.toStringObject().str;
     } else null;
 
@@ -349,7 +343,7 @@ pub fn builtinFileJoin(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
     var have_encoding = false;
 
     for (args, 0..) |arg, idx| {
-        const part_value = try coerceToPathValue(vm, arg);
+        const part_value = try vm.coerceToPathValue(arg, "no implicit conversion into String");
         const part_obj = part_value.toStringObject();
         if (!have_encoding) {
             output_encoding = part_obj.encoding;
@@ -385,7 +379,7 @@ pub fn builtinFileDirname(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
         return vm.raiseExceptionFmt(vm.not_implemented_error_class, "File.dirname is not implemented on Windows", .{});
     }
 
-    const path_value = try coerceToPathValue(vm, args[0]);
+    const path_value = try vm.coerceToPathValue(args[0], "no implicit conversion into String");
     const path_obj = path_value.toStringObject();
     const dir = dirnameBytesAlloc(vm.allocator, path_obj.str) catch return error.Fatal;
     defer vm.allocator.free(dir);

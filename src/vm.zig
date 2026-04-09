@@ -6571,6 +6571,13 @@ pub const VM = struct {
         return candidate.coerceToStr(self, type_error_message);
     }
 
+    pub fn coerceToPathValue(self: *VM, arg: Value, type_error_message: []const u8) VMError!Value {
+        const maybe_candidate = try self.checkCallMethodByName(arg, "to_path", &[_]Value{}, null);
+        const candidate = maybe_candidate orelse arg;
+
+        return candidate.coerceToStringValue(self, type_error_message);
+    }
+
     pub fn coerceToMethodNameString(self: *VM, arg: Value) VMError![]const u8 {
         if (arg.isSymbol()) return arg.toSymbolObject().name;
         return arg.coerceToStr(self, "not a symbol nor a string");
