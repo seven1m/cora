@@ -842,7 +842,15 @@ class HaveInstanceMethodMatcher
     when :protected then actual.protected_instance_methods(@include_super)
     else actual.instance_methods(@include_super)
     end
-    list.include?(@name)
+    return true if list.include?(@name)
+
+    alternate =
+      case @name
+      when String then @name.to_sym
+      when Symbol then @name.to_s
+      end
+
+    alternate && list.include?(alternate)
   end
 
   def failure_message(actual)
