@@ -5094,14 +5094,18 @@ pub const VM = struct {
         return self.callMethodByNameInternal(receiver, method_name, args, block, self.builtin_keyword_ctx);
     }
 
+    pub fn respondsToMethodByName(self: *VM, receiver: Value, method_name: []const u8) VMError!bool {
+        const method_name_sym = try self.intern(method_name);
+        var respond_args: [1]Value = .{Value.fromObject(method_name_sym)};
+        const responds = try self.callMethodByName(receiver, "respond_to?", respond_args[0..], null);
+        return responds.is_truthy();
+    }
+
     /// MRI-like check-call helper for optional conversion/probe calls.
     /// Returns null when receiver does not respond to the method.
     /// If receiver responds, performs a normal call (including method_missing behavior).
     pub fn checkCallMethodByName(self: *VM, receiver: Value, method_name: []const u8, args: []Value, block: ?Block) VMError!?Value {
-        const method_name_sym = try self.intern(method_name);
-        var respond_args: [1]Value = .{Value.fromObject(method_name_sym)};
-        const responds = try self.callMethodByName(receiver, "respond_to?", respond_args[0..], null);
-        if (!responds.is_truthy()) return null;
+        if (!try self.respondsToMethodByName(receiver, method_name)) return null;
         return try self.callMethodByName(receiver, method_name, args, block);
     }
 

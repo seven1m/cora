@@ -582,10 +582,7 @@ pub fn builtinStringEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
         return builtinStringEql(vm, receiver, args, null);
     }
 
-    const to_str_sym = try vm.intern("to_str");
-    var respond_args = [_]Value{Value.fromObject(to_str_sym)};
-    const responds_to_to_str = try vm.callMethodByName(other, "respond_to?", respond_args[0..], null);
-    if (responds_to_to_str.is_truthy()) {
+    if (try vm.respondsToMethodByName(other, "to_str")) {
         var reverse_args = [_]Value{receiver};
         return try vm.callMethodByName(other, "==", reverse_args[0..], null);
     }
