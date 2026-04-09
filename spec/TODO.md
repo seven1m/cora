@@ -1965,7 +1965,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/string/chars_spec.rb
 - [ ] core/string/chilled_string_spec.rb
 - [ ] core/string/chomp_spec.rb
-- [ ] core/string/chop_spec.rb
+- [x] core/string/chop_spec.rb
 - [x] core/string/chr_spec.rb
 - [x] core/string/clear_spec.rb
 - [x] core/string/clone_spec.rb

@@ -2399,19 +2399,25 @@ pub fn builtinStringSplit(vm: *VM, receiver: Value, args: []Value, block: ?Block
 
 fn stringChopEnd(bytes: []const u8, encoding: enc.Encoding) usize {
     if (bytes.len == 0) return 0;
-    if (bytes.len >= 2 and bytes[bytes.len - 2] == '\r' and bytes[bytes.len - 1] == '\n') {
-        return bytes.len - 2;
-    }
 
     var i: usize = 0;
+    var second_last_start: ?usize = null;
     var last_start: usize = 0;
     while (i < bytes.len) {
+        second_last_start = last_start;
         last_start = i;
         const parsed = encoding.nextChar(bytes, &i);
         if (parsed.len == 0 or i <= last_start) {
             i = last_start + 1;
         }
     }
+
+    if (second_last_start) |prev_start| {
+        const last_codepoint = encoding.toUnicodeCodepoint(bytes[last_start..]) orelse return last_start;
+        const prev_codepoint = encoding.toUnicodeCodepoint(bytes[prev_start..last_start]) orelse return last_start;
+        if (prev_codepoint == '\r' and last_codepoint == '\n') return prev_start;
+    }
+
     return last_start;
 }
 
