@@ -61,7 +61,10 @@ fn validateHashDefaultProc(vm: *VM, proc_obj: *value.ProcObject) VMError!void {
 
 pub fn register(vm: *VM) !void {
     const initialize_sym = try vm.intern("initialize");
-    try vm.hash_class.module.methods.put(initialize_sym, .{ .method = .{ .builtin = &builtinHashInitialize } });
+    try vm.hash_class.module.methods.put(initialize_sym, .{
+        .method = .{ .builtin = &builtinHashInitialize },
+        .visibility = .private,
+    });
 
     const bracket_sym = try vm.intern("[]");
     try vm.hash_class.module.methods.put(bracket_sym, .{ .method = .{ .builtin = &builtinHashBracket } });
@@ -151,6 +154,9 @@ pub fn builtinHashInitialize(vm: *VM, receiver: Value, args: []Value, block: ?Bl
     try vm.requireArgCountRange(args, 0, 1);
     if (args.len == 1 and block != null) {
         return vm.raiseArgumentErrorWrongArgCount(args.len, 0);
+    }
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Hash", .{});
     }
 
     const hash_obj = receiver.toHashObject();
