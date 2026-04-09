@@ -158,6 +158,9 @@ pub fn register(vm: *VM) !void {
     const push_method_sym = try vm.intern("push");
     try vm.array_class.module.methods.put(push_method_sym, .{ .method = .{ .builtin = &builtinArrayAppend } });
 
+    const concat_sym = try vm.intern("concat");
+    try vm.array_class.module.methods.put(concat_sym, .{ .method = .{ .builtin = &builtinArrayConcat } });
+
     const unshift_sym = try vm.intern("unshift");
     try vm.array_class.module.methods.put(unshift_sym, .{ .method = .{ .builtin = &builtinArrayUnshift } });
     const prepend_sym = try vm.intern("prepend");
@@ -299,6 +302,44 @@ pub fn builtinArrayAppend(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     const array = receiver.toArrayObject();
     for (args) |arg| {
         array.elements.append(vm.gc_allocator, arg) catch return error.Fatal;
+    }
+
+    return receiver;
+}
+
+pub fn builtinArrayConcat(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
+    }
+
+    if (args.len == 0) return receiver;
+
+    const array = receiver.toArrayObject();
+    const coerced_args = vm.allocator.alloc(Value, args.len) catch return error.Fatal;
+    defer vm.allocator.free(coerced_args);
+
+    var needs_self_snapshot = false;
+    for (args, 0..) |arg, i| {
+        const coerced = try vm.coerceToArrayValue(arg);
+        coerced_args[i] = coerced;
+        if (coerced.toArrayObject() == array) needs_self_snapshot = true;
+    }
+
+    var self_snapshot_storage: ?[]Value = null;
+    defer if (self_snapshot_storage) |snapshot| vm.allocator.free(snapshot);
+
+    var self_elements: []const Value = array.elements.items;
+    if (needs_self_snapshot) {
+        const snapshot = vm.allocator.alloc(Value, array.elements.items.len) catch return error.Fatal;
+        @memcpy(snapshot, array.elements.items);
+        self_snapshot_storage = snapshot;
+        self_elements = snapshot;
+    }
+
+    for (coerced_args) |coerced| {
+        const other = coerced.toArrayObject();
+        const elements = if (other == array) self_elements else other.elements.items;
+        array.elements.appendSlice(vm.gc_allocator, elements) catch return error.Fatal;
     }
 
     return receiver;
