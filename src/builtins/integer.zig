@@ -21,6 +21,47 @@ fn coerceNumericArg(vm: *VM, arg: Value) VMError!NumericArg {
     return vm.raiseExceptionFmt(vm.type_error_class, "argument is not numeric", .{});
 }
 
+fn compareIntegerRelational(vm: *VM, receiver: Value, arg: Value, op_name: []const u8) VMError!Value {
+    if (arg.isInteger() or arg.isBigInteger() or arg.isFloat()) {
+        const rhs = try coerceNumericArg(vm, arg);
+        return switch (rhs) {
+            .integer => |i| {
+                const ord = try compareIntegers(vm, receiver, i);
+                if (std.mem.eql(u8, op_name, "<")) return Value.boolean(ord == .lt);
+                if (std.mem.eql(u8, op_name, "<=")) return Value.boolean(ord == .lt or ord == .eq);
+                if (std.mem.eql(u8, op_name, ">")) return Value.boolean(ord == .gt);
+                if (std.mem.eql(u8, op_name, ">=")) return Value.boolean(ord == .gt or ord == .eq);
+                unreachable;
+            },
+            .float => |f| {
+                const lhs = receiver.integerToF64();
+                if (std.mem.eql(u8, op_name, "<")) return Value.boolean(lhs < f);
+                if (std.mem.eql(u8, op_name, "<=")) return Value.boolean(lhs <= f);
+                if (std.mem.eql(u8, op_name, ">")) return Value.boolean(lhs > f);
+                if (std.mem.eql(u8, op_name, ">=")) return Value.boolean(lhs >= f);
+                unreachable;
+            },
+        };
+    }
+
+    var coerce_args = [_]Value{receiver};
+    const maybe_coerced = try vm.checkCallMethodByName(arg, "coerce", coerce_args[0..], null);
+    const coerced = maybe_coerced orelse {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "comparison of Integer with {s} failed", .{vm.className(arg)});
+    };
+    if (!coerced.isArray()) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "comparison of Integer with {s} failed", .{vm.className(arg)});
+    }
+
+    const coerced_items = coerced.toArrayObject().elements.items;
+    if (coerced_items.len != 2) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "comparison of Integer with {s} failed", .{vm.className(arg)});
+    }
+
+    var compare_args = [_]Value{coerced_items[1]};
+    return vm.callMethodByName(coerced_items[0], op_name, compare_args[0..], null);
+}
+
 inline fn addIntegers(vm: *VM, lhs: Value, rhs: Value) VMError!Value {
     if (lhs.isInteger() and rhs.isInteger()) {
         const li: i63 = @intCast(lhs.toInteger());
@@ -584,47 +625,25 @@ pub fn builtinIntegerNotEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block
 pub fn builtinIntegerLessThan(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     try receiver.ensureInteger(vm);
-    const rhs = try coerceNumericArg(vm, args[0]);
-    return switch (rhs) {
-        .integer => |i| Value.boolean((try compareIntegers(vm, receiver, i)) == .lt),
-        .float => |f| Value.boolean(receiver.integerToF64() < f),
-    };
+    return compareIntegerRelational(vm, receiver, args[0], "<");
 }
 
 pub fn builtinIntegerLessThanOrEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     try receiver.ensureInteger(vm);
-    const rhs = try coerceNumericArg(vm, args[0]);
-    return switch (rhs) {
-        .integer => |i| {
-            const ord = try compareIntegers(vm, receiver, i);
-            return Value.boolean(ord == .lt or ord == .eq);
-        },
-        .float => |f| Value.boolean(receiver.integerToF64() <= f),
-    };
+    return compareIntegerRelational(vm, receiver, args[0], "<=");
 }
 
 pub fn builtinIntegerGreaterThan(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     try receiver.ensureInteger(vm);
-    const rhs = try coerceNumericArg(vm, args[0]);
-    return switch (rhs) {
-        .integer => |i| Value.boolean((try compareIntegers(vm, receiver, i)) == .gt),
-        .float => |f| Value.boolean(receiver.integerToF64() > f),
-    };
+    return compareIntegerRelational(vm, receiver, args[0], ">");
 }
 
 pub fn builtinIntegerGreaterThanOrEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     try receiver.ensureInteger(vm);
-    const rhs = try coerceNumericArg(vm, args[0]);
-    return switch (rhs) {
-        .integer => |i| {
-            const ord = try compareIntegers(vm, receiver, i);
-            return Value.boolean(ord == .gt or ord == .eq);
-        },
-        .float => |f| Value.boolean(receiver.integerToF64() >= f),
-    };
+    return compareIntegerRelational(vm, receiver, args[0], ">=");
 }
 
 pub fn builtinIntegerToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
