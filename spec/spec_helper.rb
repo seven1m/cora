@@ -395,7 +395,15 @@ def ruby_exe(script_path, options: nil, args: nil, exit_status: nil, env: nil)
 
   command << shell_escape(cora_bin_path)
   command << options.to_s unless options.nil? || options == ""
-  command << shell_escape(script_path) unless script_path.nil?
+  unless script_path.nil?
+    inline_code = script_path.include?("\n") || script_path.include?(";") || script_path.include?(" ")
+    if inline_code
+      command << "-e"
+      command << shell_escape(script_path)
+    else
+      command << shell_escape(script_path)
+    end
+  end
   command << args.to_s unless args.nil? || args == ""
 
   result = `#{command.join(" ")}`
