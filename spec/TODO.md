@@ -954,7 +954,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/hash/has_value_spec.rb
 - [ ] core/hash/hash_spec.rb
 - [x] core/hash/include_spec.rb
-- [ ] core/hash/initialize_spec.rb
+- [x] core/hash/initialize_spec.rb
 - [-] core/hash/inspect_spec.rb
 - [ ] core/hash/invert_spec.rb
 - [ ] core/hash/keep_if_spec.rb
