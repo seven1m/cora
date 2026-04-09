@@ -53,3 +53,31 @@ test "VM.setArgv sets ARGV constant to provided arguments" {
     try std.testing.expectEqualSlices(u8, "beta", argv[1].toStringObject().str);
     try std.testing.expectEqualSlices(u8, "gamma", argv[2].toStringObject().str);
 }
+
+test "VM.setInputRecordSeparator updates $/ and $-0" {
+    bdwgc.init();
+    defer bdwgc.deinit();
+
+    const allocator = getAllocator();
+    var parser = try prism.Parser.init(allocator, "", null);
+    defer parser.deinit();
+
+    var vm = VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic);
+    defer vm.deinit();
+
+    var program = try compiler.Compiler.compile(allocator, &parser, 1);
+    defer program.deinit();
+
+    try vm.prepare(&program);
+    try vm.setInputRecordSeparator(":", true);
+
+    const input_record_separator = vm.globals.get("$/") orelse return error.TestExpectedEqual;
+    const dash_zero = vm.globals.get("$-0") orelse return error.TestExpectedEqual;
+
+    try std.testing.expect(input_record_separator.isString());
+    try std.testing.expect(dash_zero.isString());
+    try std.testing.expectEqualSlices(u8, ":", input_record_separator.toStringObject().str);
+    try std.testing.expectEqualSlices(u8, ":", dash_zero.toStringObject().str);
+    try std.testing.expect(input_record_separator.isFrozen());
+    try std.testing.expect(dash_zero.isFrozen());
+}

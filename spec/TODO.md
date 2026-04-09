@@ -9,7 +9,7 @@ Source baseline: ../ruby_spec compared to local spec/
 ## Specs
 ### command_line
 - [x] command_line/backtrace_limit_spec.rb
-- [ ] command_line/dash_0_spec.rb
+- [x] command_line/dash_0_spec.rb
 - [ ] command_line/dash_a_spec.rb
 - [ ] command_line/dash_c_spec.rb
 - [ ] command_line/dash_d_spec.rb

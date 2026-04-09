@@ -857,6 +857,8 @@ pub const VM = struct {
         try self.setGlobal("$stdin", stdin_obj);
         try self.setGlobal("$stdout", stdout_obj);
         try self.setGlobal("$stderr", stderr_obj);
+        try self.setGlobal("$/", try self.newString("\n", false));
+        try self.setGlobal("$-0", Value.nil());
 
         const env_obj = try self.newInstance(self.object_class);
         self.env_object = env_obj;
@@ -1230,6 +1232,12 @@ pub const VM = struct {
 
         const argv_sym = try self.intern("ARGV");
         self.object_class.module.constants.put(argv_sym, Value.fromObject(argv_array)) catch return error.Fatal;
+    }
+
+    pub fn setInputRecordSeparator(self: *VM, separator: []const u8, frozen: bool) VMError!void {
+        const separator_value = try self.newString(separator, frozen);
+        try self.setGlobal("$/", separator_value);
+        try self.setGlobal("$-0", separator_value);
     }
 
     pub fn allocCStringZ(self: *VM, bytes: []const u8) VMError![:0]u8 {

@@ -5,6 +5,21 @@ const compiler = @import("compiler.zig");
 const vm = @import("vm.zig");
 const bdwgc = @import("bdwgc");
 
+fn parseDashZeroSeparator(arg: []const u8, storage: *[1]u8) ![]const u8 {
+    const suffix = arg[2..];
+    const parsed = if (suffix.len == 0)
+        @as(u8, 0)
+    else blk: {
+        const value = try std.fmt.parseUnsigned(u16, suffix, 8);
+        if (value > 0xff) {
+            return error.InvalidDashZeroValue;
+        }
+        break :blk @as(u8, @intCast(value));
+    };
+    storage[0] = parsed;
+    return storage[0..1];
+}
+
 pub fn main() !void {
     bdwgc.init();
     defer bdwgc.deinit();
@@ -24,6 +39,8 @@ pub fn main() !void {
     var print_ast = false;
     var dump_bytecode = false;
     var backtrace_limit: ?usize = null;
+    var input_record_separator: ?[]const u8 = null;
+    var input_record_separator_storage: [1]u8 = undefined;
     var source_file: ?[]const u8 = null;
     var source_file_buffer: ?[]u8 = null;
     var script_args: std.ArrayList([]const u8) = .empty;
@@ -44,6 +61,11 @@ pub fn main() !void {
                 std.debug.print("Error: -e requires an argument\n", .{});
                 return;
             }
+        } else if (std.mem.startsWith(u8, args[i], "-0")) {
+            input_record_separator = parseDashZeroSeparator(args[i], &input_record_separator_storage) catch {
+                std.debug.print("Error: -0 requires an octal byte value between 000 and 377\n", .{});
+                return;
+            };
         } else if (std.mem.startsWith(u8, args[i], "--backtrace-limit=")) {
             backtrace_limit = std.fmt.parseUnsigned(usize, args[i]["--backtrace-limit=".len..], 10) catch {
                 std.debug.print("Error: --backtrace-limit requires a non-negative integer\n", .{});
@@ -135,6 +157,9 @@ pub fn main() !void {
     defer virtual_machine.deinit();
     virtual_machine.setBacktraceLimit(backtrace_limit);
     try virtual_machine.setArgv(script_args.items);
+    if (input_record_separator) |separator| {
+        try virtual_machine.setInputRecordSeparator(separator, true);
+    }
 
     const result = virtual_machine.run();
 
