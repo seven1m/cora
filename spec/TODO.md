@@ -920,7 +920,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/gc/total_time_spec.rb
 
 ### core/hash
-- [ ] core/hash/allocate_spec.rb
+- [x] core/hash/allocate_spec.rb
 - [ ] core/hash/any_spec.rb
 - [ ] core/hash/assoc_spec.rb
 - [ ] core/hash/clear_spec.rb
