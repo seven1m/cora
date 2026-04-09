@@ -1,0 +1,779 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: script/spec-port-loop [options]
+
+Drive a repeatable Codex workflow for ruby/spec porting in this repo.
+Suspicious porter/cleanup outcomes trigger a lightweight Codex judge pass.
+
+Options:
+  --target PATH                 Port a specific spec path from spec/TODO.md instead of auto-picking.
+  --max-ports N                 Stop after N porter attempts, including failed ones. Default: unlimited.
+  --cleanup-every-commits N     Run cleanup after N real Git commits since the last cleanup anchor. Default: 10.
+  --resume-last                 Use `codex exec resume --last` after the first successful run.
+  --dry-run                     Print the next actions without invoking Codex.
+  --codex-bin PATH              Codex executable. Default: codex.
+  --codex-arg ARG               Extra argument passed through to every Codex invocation. Repeatable.
+  -h, --help                    Show this help.
+
+Examples:
+  script/spec-port-loop --max-ports 3 --codex-arg --full-auto
+  script/spec-port-loop --resume-last --cleanup-every-commits 12
+  script/spec-port-loop --target core/array/assoc_spec.rb --dry-run
+EOF
+}
+
+die() {
+  printf 'error: %s\n' "$*" >&2
+  exit 1
+}
+
+quote_args() {
+  local out="" arg
+  for arg in "$@"; do
+    out+=" $(printf '%q' "$arg")"
+  done
+  printf '%s\n' "${out# }"
+}
+
+current_head() {
+  git -C "$repo_root" rev-parse HEAD
+}
+
+count_commits_since() {
+  local anchor=$1
+  git -C "$repo_root" rev-list --count "${anchor}..HEAD"
+}
+
+run_and_log() {
+  local label=$1
+  local log_file=$2
+  local stdin_file=$3
+  local status_text=$4
+  shift 4
+
+  {
+    printf '==> %s\n' "$label"
+    printf 'cmd: %s\n' "$(quote_args "$@")"
+  } > "$log_file"
+
+  if [[ "$stdin_file" != "-" ]]; then
+    "$@" < "$stdin_file" >> "$log_file" 2>&1 &
+  else
+    "$@" >> "$log_file" 2>&1 &
+  fi
+
+  local cmd_pid=$!
+  local spinner='-\|/'
+  local i=0
+
+  while kill -0 "$cmd_pid" 2>/dev/null; do
+    printf '\r[%s] %s %c' "$label" "$status_text" "${spinner:i++%${#spinner}:1}"
+    sleep 0.15
+  done
+
+  wait "$cmd_pid"
+  local status=$?
+  printf '\r[%s] %s %s\n' "$label" "$status_text" "$( [[ "$status" -eq 0 ]] && printf 'done' || printf 'failed' )"
+  printf 'exit: %s\n' "$status" >> "$log_file"
+  return "$status"
+}
+
+log_has_limit_error() {
+  local log_file=$1
+  [[ -f "$log_file" ]] || return 1
+  rg -qi 'rate limit|usage limit|quota|5.?hour|weekly limit|try again later|too many requests|429' "$log_file"
+}
+
+next_missing_spec() {
+  local todo_file=$1
+  awk '
+    /^\- \[ \] / {
+      path = $0
+      sub(/^\- \[ \] /, "", path)
+      print path
+      exit
+    }
+  ' "$todo_file"
+}
+
+hash_file() {
+  local file=$1
+  sha256sum "$file" | awk '{print $1}'
+}
+
+capture_status() {
+  git -C "$repo_root" status --short
+}
+
+capture_recent_commits() {
+  local before_head=$1
+  git -C "$repo_root" log --format='%H %s' "${before_head}..HEAD"
+}
+
+capture_name_status() {
+  local before_head=$1
+  git -C "$repo_root" diff --name-status "${before_head}..HEAD"
+}
+
+capture_todo_diff() {
+  local before_head=$1
+  git -C "$repo_root" diff --no-ext-diff "${before_head}..HEAD" -- spec/TODO.md
+  git -C "$repo_root" diff --no-ext-diff -- spec/TODO.md
+}
+
+ensure_clean_worktree() {
+  local status
+  status=$(capture_status)
+  if [[ -n "$status" ]]; then
+    die "worktree must be clean before running spec-port-loop"
+  fi
+}
+
+rollback_to_stage_start() {
+  local rollback_head=$1
+  printf 'Rolling back repo to %s\n' "$rollback_head" >&2
+  git -C "$repo_root" reset --hard "$rollback_head" >/dev/null
+  git -C "$repo_root" clean -fd >/dev/null
+}
+
+run_verification_command() {
+  local label=$1
+  local status_text=$2
+  shift 2
+  local timestamp log_file
+
+  timestamp="$(date +%Y%m%d-%H%M%S)-$$-$RANDOM"
+  log_file="$runs_dir/$timestamp-$label.log"
+
+  if [[ "$dry_run" -eq 1 ]]; then
+    printf '[dry-run] %s\n' "$label"
+    printf '[dry-run] cmd: %s\n' "$(quote_args "$@")"
+    return 0
+  fi
+
+  run_and_log "$label" "$log_file" "-" "$status_text" "$@"
+}
+
+run_porter_verification_with_retry() {
+  local rollback_head=$1
+  local porter_prompt=$2
+  local use_resume=$3
+  local attempt=${4:-0}
+
+  if run_verification_command "post-porter-zig-build-test" "running zig build test" zig build test; then
+    return 0
+  fi
+
+  if [[ "$dry_run" -eq 1 ]]; then
+    return 0
+  fi
+
+  if [[ "$attempt" -ge 1 ]]; then
+    printf 'Post-porter verification failed after one retry; rolling back porter attempt.\n' >&2
+    rollback_to_stage_start "$rollback_head"
+    STAGE_RESULT="rolled_back_failure"
+    return 0
+  fi
+
+  printf 'Post-porter verification failed; retrying porter once from current state.\n' >&2
+  STAGE_RESULT="success"
+  run_stage_with_judge "porter" "$porter_prompt" "$use_resume" 1 1 "$rollback_head" || return 1
+  if [[ "$STAGE_RESULT" == "rolled_back_failure" ]]; then
+    return 0
+  fi
+
+  run_porter_verification_with_retry "$rollback_head" "$porter_prompt" "$use_resume" $((attempt + 1))
+}
+
+repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+todo_file="$repo_root/spec/TODO.md"
+[[ -f "$todo_file" ]] || die "missing $todo_file"
+
+codex_bin="codex"
+target_spec=""
+max_ports=0
+cleanup_every_commits=10
+resume_last=0
+dry_run=0
+codex_args=()
+has_explicit_color=0
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --target)
+      [[ $# -ge 2 ]] || die "--target requires a value"
+      target_spec=$2
+      shift 2
+      ;;
+    --max-ports)
+      [[ $# -ge 2 ]] || die "--max-ports requires a value"
+      max_ports=$2
+      shift 2
+      ;;
+    --cleanup-every-commits)
+      [[ $# -ge 2 ]] || die "--cleanup-every-commits requires a value"
+      cleanup_every_commits=$2
+      shift 2
+      ;;
+    --resume-last)
+      resume_last=1
+      shift
+      ;;
+    --dry-run)
+      dry_run=1
+      shift
+      ;;
+    --codex-bin)
+      [[ $# -ge 2 ]] || die "--codex-bin requires a value"
+      codex_bin=$2
+      shift 2
+      ;;
+    --codex-arg)
+      [[ $# -ge 2 ]] || die "--codex-arg requires a value"
+      codex_args+=("$2")
+      if [[ "$2" == "--color" || "$2" == --color=* ]]; then
+        has_explicit_color=1
+      fi
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      die "unknown option: $1"
+      ;;
+  esac
+done
+
+[[ "$max_ports" =~ ^[0-9]+$ ]] || die "--max-ports must be an integer"
+[[ "$cleanup_every_commits" =~ ^[0-9]+$ ]] || die "--cleanup-every-commits must be an integer"
+
+if [[ "$has_explicit_color" -eq 0 ]]; then
+  codex_args=(--color never "${codex_args[@]}")
+fi
+
+state_dir="$repo_root/.codex-loop/spec-port-loop"
+runs_dir="$state_dir/runs"
+mkdir -p "$runs_dir"
+state_file="$state_dir/state.env"
+
+if [[ "$dry_run" -eq 0 ]]; then
+  ensure_clean_worktree
+fi
+
+successful_ports=0
+cleanup_runs=0
+successful_runs=0
+cleanup_anchor_commit=$(current_head)
+
+if [[ -f "$state_file" ]]; then
+  # shellcheck disable=SC1090
+  source "$state_file"
+fi
+
+save_state() {
+  cat > "$state_file" <<EOF
+successful_ports=$successful_ports
+cleanup_runs=$cleanup_runs
+successful_runs=$successful_runs
+cleanup_anchor_commit=$cleanup_anchor_commit
+EOF
+}
+
+persist_state() {
+  if [[ "$dry_run" -eq 0 ]]; then
+    save_state
+  fi
+}
+
+join_by() {
+  local sep=$1
+  shift
+  local first=1 item
+  for item in "$@"; do
+    if [[ "$first" -eq 1 ]]; then
+      printf '%s' "$item"
+      first=0
+    else
+      printf '%s%s' "$sep" "$item"
+    fi
+  done
+}
+
+build_porter_prompt() {
+  if [[ -n "${1:-}" ]]; then
+    local spec_path=$1
+    cat <<EOF
+Use \$ruby-spec-porter.
+
+Port exactly \`$spec_path\` from \`../ruby_spec\` into this repo. Follow \`AGENTS.md\` and the skill instructions closely.
+
+Requirements:
+- Choose this exact spec; do not switch to a different spec.
+- Complete the work end-to-end when feasible: copy upstream spec/shared/fixtures, make the spec pass, run relevant tests, and update \`spec/TODO.md\`.
+- Keep copied spec files byte-for-byte aligned with upstream whenever possible.
+- Make commits non-interactively. If there is supporting work and main spec-compliance work, commit the supporting work first, then the main spec-compliance work.
+- Stop and explain clearly only if blocked by a fundamental runtime issue that should not be papered over.
+
+Before finishing, report:
+- the spec path
+- whether it is now [x] or [-] in \`spec/TODO.md\`
+- the tests/spec commands you ran
+- the commit(s) you created
+EOF
+    return
+  fi
+
+  cat <<EOF
+Use \$ruby-spec-porter.
+
+Choose the next best single spec to port from \`spec/TODO.md\`, following the skill's normal candidate-selection heuristics. Follow \`AGENTS.md\` and the skill instructions closely.
+
+Requirements:
+- Pick exactly one unchecked TODO entry yourself; do not ask the outer loop to choose for you.
+- Favor the next-easiest, highest-signal spec that fits the skill guidance and current repo state.
+- Complete that one spec end-to-end when feasible: copy upstream spec/shared/fixtures, make the spec pass, run relevant tests, and update \`spec/TODO.md\`.
+- Run \`zig build test\` before finishing; the outer loop will verify this separately too.
+- Keep copied spec files byte-for-byte aligned with upstream whenever possible.
+- Make commits non-interactively. If there is supporting work and main spec-compliance work, commit the supporting work first, then the main spec-compliance work.
+- Stop and explain clearly only if blocked by a fundamental runtime issue that should not be papered over.
+
+Before finishing, report:
+- the spec path you chose and why it was the next-best pick
+- whether it is now [x] or [-] in \`spec/TODO.md\`
+- the tests/spec commands you ran
+- the commit(s) you created
+EOF
+}
+
+build_cleanup_prompt() {
+  cat <<EOF
+Use \$refactor-cleanup.
+
+Do one behavior-preserving cleanup pass in this repo after recent ruby/spec porting work. Focus on consolidating duplication or ad hoc helpers introduced by recent spec-porting changes, keep the diff scoped, run focused verification, and commit the cleanup separately.
+
+Requirements:
+- Do not mix in new feature work unless it is the minimum needed to keep behavior unchanged.
+- Prefer canonical helpers already documented in \`AGENTS.md\`.
+- Make one non-interactive cleanup commit.
+
+Before finishing, report:
+- the area you cleaned up
+- the tests you ran
+- the cleanup commit you created
+EOF
+}
+
+build_selector_prompt() {
+  cat <<EOF
+Use \$ruby-spec-porter.
+
+Choose exactly one unchecked entry from \`spec/TODO.md\` as the next best spec to port now, following the skill's normal candidate-selection heuristics and the current repo state.
+
+Return exactly this format and nothing else:
+SPEC: path/to/spec.rb
+REASON: one sentence
+
+If there is no suitable unchecked entry left, return:
+SPEC: NONE
+REASON: one sentence
+EOF
+}
+
+build_codex_command() {
+  local prompt=$1
+  local prompt_file=$2
+  local message_file=$3
+  local use_resume=$4
+
+  local cmd=("$codex_bin")
+  if [[ "$use_resume" -eq 1 ]]; then
+    cmd+=(exec resume --last)
+  else
+    cmd+=(exec)
+  fi
+  cmd+=(--cd "$repo_root")
+  if [[ ${#codex_args[@]} -gt 0 ]]; then
+    cmd+=("${codex_args[@]}")
+  fi
+  cmd+=(-o "$message_file")
+  cmd+=(-)
+  printf '%s\0' "${cmd[@]}" > "$prompt_file.cmd"
+  printf '%s' "$prompt" > "$prompt_file"
+}
+
+invoke_codex() {
+  local label=$1
+  local prompt=$2
+  local use_resume=$3
+  local status_text=$4
+  local timestamp log_file prompt_file message_file
+
+  timestamp="$(date +%Y%m%d-%H%M%S)-$$-$RANDOM"
+  log_file="$runs_dir/$timestamp-$label.log"
+  prompt_file="$runs_dir/$timestamp-$label.prompt.txt"
+  message_file="$runs_dir/$timestamp-$label.last-message.txt"
+
+  build_codex_command "$prompt" "$prompt_file" "$message_file" "$use_resume"
+
+  local -a cmd=()
+  while IFS= read -r -d '' item; do
+    cmd+=("$item")
+  done < "$prompt_file.cmd"
+
+  LAST_LOG_FILE=$log_file
+  LAST_PROMPT_FILE=$prompt_file
+  LAST_MESSAGE_FILE=$message_file
+
+  if [[ "$dry_run" -eq 1 ]]; then
+    printf '[dry-run] %s\n' "$label"
+    printf '[dry-run] cmd: %s < %s\n' "$(quote_args "${cmd[@]}")" "$prompt_file"
+    printf '[dry-run] prompt preview:\n%s\n' "$prompt"
+    return 0
+  fi
+
+  if ! run_and_log "$label" "$log_file" "$prompt_file" "$status_text" "${cmd[@]}"; then
+    if log_has_limit_error "$log_file"; then
+      printf 'Codex stopped on a usage/rate limit during %s. Exiting without retry. Log: %s\n' \
+        "$label" "$log_file" >&2
+      LAST_INVOKE_LIMIT_ERROR=1
+    else
+      printf 'Codex failed during %s. Exiting without retry. Log: %s\n' \
+        "$label" "$log_file" >&2
+      LAST_INVOKE_LIMIT_ERROR=0
+    fi
+    return 1
+  fi
+
+  LAST_INVOKE_LIMIT_ERROR=0
+}
+
+choose_next_spec_with_codex() {
+  local use_resume=$1
+  local selector_prompt
+
+  selector_prompt=$(build_selector_prompt)
+  invoke_codex "choose-spec" "$selector_prompt" "$use_resume" "choosing next spec" || return 1
+
+  if [[ "$dry_run" -eq 1 ]]; then
+    CHOSEN_SPEC=$(next_missing_spec "$todo_file")
+    CHOSEN_REASON="dry-run fallback"
+    return 0
+  fi
+
+  CHOSEN_SPEC=$(sed -n 's/^SPEC:[[:space:]]*//p' "$LAST_MESSAGE_FILE" | head -n 1)
+  CHOSEN_REASON=$(sed -n 's/^REASON:[[:space:]]*//p' "$LAST_MESSAGE_FILE" | head -n 1)
+
+  if [[ -z "$CHOSEN_SPEC" ]]; then
+    die "could not parse selected spec from $LAST_MESSAGE_FILE"
+  fi
+  if [[ "$CHOSEN_SPEC" == "NONE" ]]; then
+    return 2
+  fi
+}
+
+build_judge_prompt() {
+  local stage=$1
+  local run_status=$2
+  local suspicion_reasons=$3
+  local before_head=$4
+  local after_head=$5
+  local before_todo_hash=$6
+  local after_todo_hash=$7
+  local before_status=$8
+  local after_status=$9
+  local recent_commits=${10}
+  local name_status=${11}
+  local todo_diff=${12}
+  local final_message=${13}
+  local log_tail=${14}
+
+  cat <<EOF
+Judge the result of a Codex supervisor stage in the Cora repo.
+
+You are evaluating whether the outer loop should accept the run, retry the same stage once, stop, or escalate for human review.
+
+Return exactly this format:
+DECISION: accept|retry|stop|escalate
+REASON: one sentence
+
+Rules:
+- Prefer \`accept\` if the run appears successful enough for the loop to continue.
+- Use \`retry\` only for likely transient or recoverable issues where rerunning the same stage once is reasonable.
+- Use \`stop\` when a human should inspect before continuing.
+- Use \`escalate\` only for contradictory or unsafe repo state.
+- Do not suggest more than one retry.
+
+Stage: $stage
+Codex exit status: $run_status
+Suspicion reasons: $suspicion_reasons
+
+Repo state:
+- HEAD before: $before_head
+- HEAD after: $after_head
+- spec/TODO.md hash before: $before_todo_hash
+- spec/TODO.md hash after: $after_todo_hash
+
+Git status before:
+$before_status
+
+Git status after:
+$after_status
+
+Commits since stage start:
+$recent_commits
+
+Changed files in committed diff:
+$name_status
+
+TODO diff:
+$todo_diff
+
+Codex final message:
+$final_message
+
+Codex log tail:
+$log_tail
+EOF
+}
+
+invoke_judge() {
+  local stage=$1
+  local run_status=$2
+  local suspicion_reasons=$3
+  local before_head=$4
+  local after_head=$5
+  local before_todo_hash=$6
+  local after_todo_hash=$7
+  local before_status=$8
+  local after_status=$9
+  local recent_commits=${10}
+  local name_status=${11}
+  local todo_diff=${12}
+  local final_message=${13}
+  local log_tail=${14}
+
+  local prompt
+  prompt=$(build_judge_prompt \
+    "$stage" "$run_status" "$suspicion_reasons" "$before_head" "$after_head" \
+    "$before_todo_hash" "$after_todo_hash" "$before_status" "$after_status" \
+    "$recent_commits" "$name_status" "$todo_diff" "$final_message" "$log_tail")
+
+  invoke_codex "judge-$stage" "$prompt" 0 "judging $stage" || return 1
+
+  if [[ "$dry_run" -eq 1 ]]; then
+    JUDGE_DECISION="accept"
+    JUDGE_REASON="dry-run"
+    return 0
+  fi
+
+  JUDGE_DECISION=$(sed -n 's/^DECISION:[[:space:]]*//p' "$LAST_MESSAGE_FILE" | head -n 1 | tr '[:upper:]' '[:lower:]')
+  JUDGE_REASON=$(sed -n 's/^REASON:[[:space:]]*//p' "$LAST_MESSAGE_FILE" | head -n 1)
+
+  case "$JUDGE_DECISION" in
+    accept|retry|stop|escalate) ;;
+    *)
+      JUDGE_DECISION="stop"
+      JUDGE_REASON="Judge output was not parseable"
+      ;;
+  esac
+}
+
+run_stage_with_judge() {
+  local stage=$1
+  local prompt=$2
+  local use_resume=$3
+  local expect_todo_change=$4
+  local attempt=${5:-0}
+  local rollback_head=${6:-}
+  local before_head before_todo_hash before_status after_head after_todo_hash after_status
+  local run_status recent_commits name_status todo_diff final_message log_tail
+  local suspicion_list=()
+  local suspicion_reasons
+  local stage_status_text
+
+  before_head=$(current_head)
+  if [[ -z "$rollback_head" ]]; then
+    rollback_head=$before_head
+  fi
+  before_todo_hash=$(hash_file "$todo_file")
+  before_status=$(capture_status)
+
+  if [[ "$stage" == "porter" ]]; then
+    stage_status_text="porting ${CURRENT_SPEC:-spec}"
+  elif [[ "$stage" == "cleanup" ]]; then
+    stage_status_text="running cleanup"
+  else
+    stage_status_text="running $stage"
+  fi
+
+  run_status=0
+  if ! invoke_codex "$stage" "$prompt" "$use_resume" "$stage_status_text"; then
+    run_status=1
+    if [[ "${LAST_INVOKE_LIMIT_ERROR:-0}" -eq 1 ]]; then
+      return 1
+    fi
+    suspicion_list+=("codex exited non-zero")
+  fi
+
+  if [[ "$dry_run" -eq 1 ]]; then
+    return 0
+  fi
+
+  after_head=$(current_head)
+  after_todo_hash=$(hash_file "$todo_file")
+  after_status=$(capture_status)
+
+  if [[ "$after_head" == "$before_head" ]]; then
+    suspicion_list+=("no new commit was created")
+  fi
+  if [[ "$expect_todo_change" -eq 1 && "$after_todo_hash" == "$before_todo_hash" ]]; then
+    suspicion_list+=("spec/TODO.md did not change")
+  fi
+  if [[ "$after_status" != "$before_status" ]]; then
+    suspicion_list+=("git status changed across the run")
+  fi
+
+  if [[ "${#suspicion_list[@]}" -eq 0 ]]; then
+    return 0
+  fi
+
+  recent_commits=$(capture_recent_commits "$before_head")
+  name_status=$(capture_name_status "$before_head")
+  todo_diff=$(capture_todo_diff "$before_head")
+  final_message=$(cat "$LAST_MESSAGE_FILE" 2>/dev/null || true)
+  log_tail=$(tail -n 80 "$LAST_LOG_FILE" 2>/dev/null || true)
+  suspicion_reasons=$(join_by '; ' "${suspicion_list[@]}")
+
+  printf 'Suspicious %s result; invoking judge. Reasons: %s\n' "$stage" "$suspicion_reasons" >&2
+  invoke_judge \
+    "$stage" "$run_status" "$suspicion_reasons" "$before_head" "$after_head" \
+    "$before_todo_hash" "$after_todo_hash" "$before_status" "$after_status" \
+    "$recent_commits" "$name_status" "$todo_diff" "$final_message" "$log_tail" \
+    || die "judge failed for $stage"
+
+  printf 'Judge decision for %s: %s (%s)\n' "$stage" "$JUDGE_DECISION" "$JUDGE_REASON" >&2
+
+  case "$JUDGE_DECISION" in
+    accept)
+      if [[ "$run_status" -ne 0 ]]; then
+        die "$stage failed and judge accept is unsafe"
+      fi
+      return 0
+      ;;
+    retry)
+      if [[ "$attempt" -ge 1 ]]; then
+        if [[ "$stage" == "porter" ]]; then
+          rollback_to_stage_start "$rollback_head"
+          STAGE_RESULT="rolled_back_failure"
+          return 0
+        fi
+        die "$stage already retried once; judge requested another retry"
+      fi
+      printf 'Retrying %s once based on judge decision.\n' "$stage" >&2
+      run_stage_with_judge "$stage" "$prompt" "$use_resume" "$expect_todo_change" $((attempt + 1)) "$rollback_head"
+      return
+      ;;
+    stop)
+      if [[ "$stage" == "porter" && "$attempt" -ge 1 ]]; then
+        rollback_to_stage_start "$rollback_head"
+        STAGE_RESULT="rolled_back_failure"
+        return 0
+      fi
+      die "$stage stopped by judge: $JUDGE_REASON"
+      ;;
+    escalate)
+      if [[ "$stage" == "porter" && "$attempt" -ge 1 ]]; then
+        rollback_to_stage_start "$rollback_head"
+        STAGE_RESULT="rolled_back_failure"
+        return 0
+      fi
+      die "$stage escalated by judge: $JUDGE_REASON"
+      ;;
+  esac
+}
+
+port_count_this_invocation=0
+manual_target_consumed=0
+
+while :; do
+  porter_start_head=$(current_head)
+  if [[ "$max_ports" -gt 0 && "$port_count_this_invocation" -ge "$max_ports" ]]; then
+    printf 'Reached max porter attempts: %s\n' "$max_ports"
+    break
+  fi
+
+  if [[ -n "$target_spec" && "$manual_target_consumed" -eq 1 ]]; then
+    break
+  fi
+
+  use_resume=0
+  if [[ "$resume_last" -eq 1 && "$successful_runs" -gt 0 ]]; then
+    use_resume=1
+  fi
+
+  if [[ -n "$target_spec" ]]; then
+    CURRENT_SPEC=$target_spec
+  else
+    choose_next_spec_with_codex "$use_resume" || {
+      selector_status=$?
+      if [[ "$selector_status" -eq 2 ]]; then
+        printf 'No unchecked specs remain in %s\n' "$todo_file"
+        break
+      fi
+      die "spec selection failed"
+    }
+    CURRENT_SPEC=$CHOSEN_SPEC
+  fi
+
+  porter_prompt=$(build_porter_prompt "$CURRENT_SPEC")
+  port_count_this_invocation=$((port_count_this_invocation + 1))
+  STAGE_RESULT="success"
+  run_stage_with_judge "porter" "$porter_prompt" "$use_resume" 1 || die "porter run failed for $CURRENT_SPEC"
+
+  if [[ "$STAGE_RESULT" == "rolled_back_failure" ]]; then
+    printf 'Porter attempt failed after retry and was rolled back to clean state.\n' >&2
+    if [[ -n "$target_spec" ]]; then
+      break
+    fi
+    continue
+  fi
+
+  run_porter_verification_with_retry "$porter_start_head" "$porter_prompt" "$use_resume" || die "post-porter verification handling failed"
+
+  if [[ "$STAGE_RESULT" == "rolled_back_failure" ]]; then
+    printf 'Porter attempt failed verification after retry and was rolled back to clean state.\n' >&2
+    if [[ -n "$target_spec" ]]; then
+      break
+    fi
+    continue
+  fi
+
+  successful_ports=$((successful_ports + 1))
+  successful_runs=$((successful_runs + 1))
+  manual_target_consumed=1
+  persist_state
+
+  commits_since_cleanup=$(count_commits_since "$cleanup_anchor_commit")
+  if [[ "$cleanup_every_commits" -gt 0 && "$commits_since_cleanup" -ge "$cleanup_every_commits" ]]; then
+    cleanup_prompt=$(build_cleanup_prompt)
+    run_stage_with_judge "cleanup" "$cleanup_prompt" "$use_resume" 0 || die "cleanup run failed"
+
+    cleanup_runs=$((cleanup_runs + 1))
+    successful_runs=$((successful_runs + 1))
+    cleanup_anchor_commit=$(current_head)
+    persist_state
+  fi
+
+  if [[ -n "$target_spec" ]]; then
+    break
+  fi
+done
+
+printf 'successful_ports=%s cleanup_runs=%s commits_since_cleanup=%s\n' \
+  "$successful_ports" "$cleanup_runs" "$(count_commits_since "$cleanup_anchor_commit")"
