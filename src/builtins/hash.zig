@@ -406,11 +406,7 @@ pub fn builtinHashToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
                 has_dynamic_part = true;
             } else {
                 output_encoding = enc.negotiate(output_encoding, buf.items, key_encoding, key_bytes) orelse {
-                    return vm.raiseExceptionFmt(
-                        vm.encoding_compatibility_error_class,
-                        "incompatible character encodings: {s} and {s}",
-                        .{ output_encoding.name(), key_encoding.name() },
-                    );
+                    return vm.raiseEncodingCompatibilityError(output_encoding, key_encoding);
                 };
             }
             writer.writeAll(key_bytes) catch return error.Fatal;
@@ -424,11 +420,7 @@ pub fn builtinHashToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
                 has_dynamic_part = true;
             } else {
                 output_encoding = enc.negotiate(output_encoding, buf.items, key_obj.encoding, key_obj.str) orelse {
-                    return vm.raiseExceptionFmt(
-                        vm.encoding_compatibility_error_class,
-                        "incompatible character encodings: {s} and {s}",
-                        .{ output_encoding.name(), key_obj.encoding.name() },
-                    );
+                    return vm.raiseEncodingCompatibilityError(output_encoding, key_obj.encoding);
                 };
             }
             writer.writeAll(key_val.toStringObject().str) catch return error.Fatal;
@@ -443,11 +435,7 @@ pub fn builtinHashToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
             has_dynamic_part = true;
         } else {
             output_encoding = enc.negotiate(output_encoding, buf.items, value_obj.encoding, value_obj.str) orelse {
-                return vm.raiseExceptionFmt(
-                    vm.encoding_compatibility_error_class,
-                    "incompatible character encodings: {s} and {s}",
-                    .{ output_encoding.name(), value_obj.encoding.name() },
-                );
+                return vm.raiseEncodingCompatibilityError(output_encoding, value_obj.encoding);
             };
         }
         writer.writeAll(value_obj.str) catch return error.Fatal;

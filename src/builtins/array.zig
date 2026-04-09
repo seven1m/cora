@@ -46,11 +46,7 @@ fn arrayJoinResolveEncoding(
 fn arrayJoinAppendString(vm: *VM, state: *JoinState, str_value: Value) VMError!void {
     const str_obj = str_value.toStringObject();
     const result_encoding = arrayJoinResolveEncoding(state.encoding, state.bytes.items, str_obj.encoding, str_obj.str) orelse {
-        return vm.raiseExceptionFmt(
-            vm.encoding_compatibility_error_class,
-            "incompatible character encodings: {s} and {s}",
-            .{ state.encoding.name(), str_obj.encoding.name() },
-        );
+        return vm.raiseEncodingCompatibilityError(state.encoding, str_obj.encoding);
     };
 
     state.bytes.appendSlice(vm.allocator, str_obj.str) catch return error.Fatal;
@@ -1243,11 +1239,7 @@ pub fn builtinArrayInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
             output_encoding = inspected_obj.encoding;
         } else {
             output_encoding = arrayJoinResolveEncoding(output_encoding, buf.items, inspected_obj.encoding, inspected_obj.str) orelse {
-                return vm.raiseExceptionFmt(
-                    vm.encoding_compatibility_error_class,
-                    "incompatible character encodings: {s} and {s}",
-                    .{ output_encoding.name(), inspected_obj.encoding.name() },
-                );
+                return vm.raiseEncodingCompatibilityError(output_encoding, inspected_obj.encoding);
             };
         }
         writer.writeAll(inspected_obj.str) catch return error.Fatal;

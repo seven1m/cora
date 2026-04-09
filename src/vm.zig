@@ -6646,6 +6646,14 @@ pub const VM = struct {
         return self.raiseExceptionFmt(self.argument_error_class, "wrong number of arguments", .{});
     }
 
+    pub fn raiseEncodingCompatibilityError(self: *VM, lhs: enc.Encoding, rhs: enc.Encoding) VMError {
+        return self.raiseExceptionFmt(
+            self.encoding_compatibility_error_class,
+            "incompatible character encodings: {s} and {s}",
+            .{ lhs.name(), rhs.name() },
+        );
+    }
+
     pub fn raiseFromArgs(self: *VM, args: []const Value, no_current_exception_message: []const u8) VMError {
         if (args.len == 0) {
             if (self.pending_exception) |exc| {

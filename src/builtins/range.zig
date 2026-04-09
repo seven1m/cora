@@ -225,11 +225,7 @@ pub fn builtinRangeInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
             has_dynamic_part = true;
         } else {
             output_encoding = enc.negotiate(output_encoding, buf.items, end_obj.encoding, end_obj.str) orelse {
-                return vm.raiseExceptionFmt(
-                    vm.encoding_compatibility_error_class,
-                    "incompatible character encodings: {s} and {s}",
-                    .{ output_encoding.name(), end_obj.encoding.name() },
-                );
+                return vm.raiseEncodingCompatibilityError(output_encoding, end_obj.encoding);
             };
         }
         writer.writeAll(end_obj.str) catch return error.Fatal;
