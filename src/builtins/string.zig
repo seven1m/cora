@@ -168,6 +168,10 @@ pub fn register(vm: *VM) !void {
 
     const string_clear_sym = try vm.intern("clear");
     try vm.string_class.module.methods.put(string_clear_sym, .{ .method = .{ .builtin = &builtinStringClear } });
+    const string_chop_sym = try vm.intern("chop");
+    try vm.string_class.module.methods.put(string_chop_sym, .{ .method = .{ .builtin = &builtinStringChop } });
+    const string_chop_bang_sym = try vm.intern("chop!");
+    try vm.string_class.module.methods.put(string_chop_bang_sym, .{ .method = .{ .builtin = &builtinStringChopBang } });
 
     const string_ord_sym = try vm.intern("ord");
     try vm.string_class.module.methods.put(string_ord_sym, .{ .method = .{ .builtin = &builtinStringOrd } });
@@ -2108,6 +2112,46 @@ pub fn builtinStringPrepend(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     }
 
     string_obj.str = result;
+    return receiver;
+}
+
+fn stringChopEnd(bytes: []const u8, encoding: enc.Encoding) usize {
+    if (bytes.len == 0) return 0;
+    if (bytes.len >= 2 and bytes[bytes.len - 2] == '\r' and bytes[bytes.len - 1] == '\n') {
+        return bytes.len - 2;
+    }
+
+    var i: usize = 0;
+    var last_start: usize = 0;
+    while (i < bytes.len) {
+        last_start = i;
+        const parsed = encoding.nextChar(bytes, &i);
+        if (parsed.len == 0 or i <= last_start) {
+            i = last_start + 1;
+        }
+    }
+    return last_start;
+}
+
+pub fn builtinStringChop(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const string_obj = receiver.toStringObject();
+    const chop_end = stringChopEnd(string_obj.str, string_obj.encoding);
+    return vm.newStringWithEncoding(string_obj.str[0..chop_end], false, string_obj.encoding);
+}
+
+pub fn builtinStringChopBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
+    }
+
+    const string_obj = receiver.toStringObject();
+    if (string_obj.str.len == 0) return Value.nil();
+
+    const chop_end = stringChopEnd(string_obj.str, string_obj.encoding);
+    string_obj.str = string_obj.str[0..chop_end];
+    string_obj.validity = .unknown;
     return receiver;
 }
 
