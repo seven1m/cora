@@ -317,7 +317,7 @@ Requirements:
 - Choose this exact spec; do not switch to a different spec.
 - Complete the work end-to-end when feasible: copy upstream spec/shared/fixtures, make the spec pass, run relevant tests, and update \`spec/TODO.md\`.
 - Keep copied spec files byte-for-byte aligned with upstream whenever possible.
-- Make commits non-interactively. If there is supporting work and main spec-compliance work, commit the supporting work first, then the main spec-compliance work.
+- Make commits non-interactively. Keep work directly required for this target spec in the same commit series as the spec itself. Only split out separate supporting commits when they are adjacent or incidental changes not directly part of making this target spec pass.
 - Stop and explain clearly only if blocked by a fundamental runtime issue that should not be papered over.
 
 Before finishing, report:
@@ -340,7 +340,7 @@ Requirements:
 - Complete that one spec end-to-end when feasible: copy upstream spec/shared/fixtures, make the spec pass, run relevant tests, and update \`spec/TODO.md\`.
 - Run \`zig build test\` before finishing; the outer loop will verify this separately too.
 - Keep copied spec files byte-for-byte aligned with upstream whenever possible.
-- Make commits non-interactively. If there is supporting work and main spec-compliance work, commit the supporting work first, then the main spec-compliance work.
+- Make commits non-interactively. Keep work directly required for the chosen spec in the same commit series as the spec itself. Only split out separate supporting commits when they are adjacent or incidental changes not directly part of making that target spec pass.
 - Stop and explain clearly only if blocked by a fundamental runtime issue that should not be papered over.
 
 Before finishing, report:
