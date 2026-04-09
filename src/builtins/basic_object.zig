@@ -13,6 +13,9 @@ pub fn register(vm: *VM) !void {
         .visibility = .private,
     });
 
+    const id_sym = try vm.intern("__id__");
+    try vm.basic_object_class.module.methods.put(id_sym, .{ .method = .{ .builtin = &builtinBasicObjectId } });
+
     const op_equal_sym = try vm.intern("==");
     try vm.basic_object_class.module.methods.put(op_equal_sym, .{ .method = .{ .builtin = &builtinBasicObjectEqual } });
 
@@ -35,6 +38,11 @@ pub fn register(vm: *VM) !void {
 pub fn builtinBasicObjectInitialize(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return Value.nil();
+}
+
+pub fn builtinBasicObjectId(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return Value.integer(receiver.objectId());
 }
 
 pub fn builtinBasicObjectEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

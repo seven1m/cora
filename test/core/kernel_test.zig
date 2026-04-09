@@ -668,6 +668,16 @@ test "Kernel#methods(false) returns only singleton methods" {
     try std.testing.expectEqual(false, result.toArrayObject().elements.items[1].toBool());
 }
 
+test "BasicObject#__id__ returns stable object identity" {
+    const result = try evalCode(
+        \\obj = Object.new
+        \\[obj.__id__ == obj.object_id, [].dup.__id__ == [].dup.__id__]
+    );
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[0].toBool());
+    try std.testing.expectEqual(false, result.toArrayObject().elements.items[1].toBool());
+}
+
 test "Kernel#private_methods includes inherited private methods by default" {
     const result = try evalCode(
         \\class PrivateBaseForMethods
