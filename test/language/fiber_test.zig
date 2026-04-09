@@ -99,7 +99,7 @@ test "Fiber.yield from main fiber raises FiberError" {
     var stderr_buf: [8192]u8 = undefined;
     const result = evalCodeWithOutput("Fiber.yield", &stdout_buf, &stderr_buf);
     try std.testing.expect(result.err != null);
-    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "Unhandled exception: FiberError: can't yield from root fiber") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "can't yield from root fiber (FiberError)") != null);
 }
 
 test "Fiber terminates after unhandled exception" {
@@ -127,7 +127,7 @@ test "Fiber.resume on self raises FiberError" {
         \\f.resume
     , &stdout_buf, &stderr_buf);
     try std.testing.expect(result.err != null);
-    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "Unhandled exception: FiberError: attempt to resume the current fiber") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "attempt to resume the current fiber (FiberError)") != null);
 }
 
 test "return inside Fiber raises LocalJumpError" {

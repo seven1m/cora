@@ -48,7 +48,7 @@ test "Range to_a endless raises" {
     , &stdout_buf, &stderr_buf);
 
     try std.testing.expect(result.err != null);
-    try std.testing.expect(std.mem.startsWith(u8, result.stderr, "Unhandled exception: RangeError: cannot convert endless range to an array\n"));
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "cannot convert endless range to an array (RangeError)") != null);
 }
 
 test "Range to_a beginless raises" {
@@ -60,7 +60,7 @@ test "Range to_a beginless raises" {
     , &stdout_buf, &stderr_buf);
 
     try std.testing.expect(result.err != null);
-    try std.testing.expect(std.mem.startsWith(u8, result.stderr, "Unhandled exception: RangeError: cannot convert beginless range to an array\n"));
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "cannot convert beginless range to an array (RangeError)") != null);
 }
 
 test "Range inspect" {

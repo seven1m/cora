@@ -69,7 +69,7 @@ test "Raise with string message creates RuntimeError" {
     // Check stderr contains exception info
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, "RuntimeError") != null);
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, "something went wrong") != null);
-    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "Backtrace:") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "in '<main>'") != null);
 }
 
 test "Raise with exception class and message" {

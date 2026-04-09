@@ -233,7 +233,7 @@ test "Rescue with invalid exception type raises TypeError" {
     , &stdout_buf, &stderr_buf);
 
     try std.testing.expectEqual(error.UnhandledException, result.err.?);
-    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "TypeError: class or module required for rescue clause") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "class or module required for rescue clause (TypeError)") != null);
 }
 
 test "Rescue with variable binding works" {

@@ -13,6 +13,12 @@ pub fn register(vm: *VM) !void {
     const message_sym = try vm.intern("message");
     try vm.exception_class.module.methods.put(message_sym, .{ .method = .{ .builtin = &builtinExceptionMessage } });
 
+    const backtrace_sym = try vm.intern("backtrace");
+    try vm.exception_class.module.methods.put(backtrace_sym, .{ .method = .{ .builtin = &builtinExceptionBacktrace } });
+
+    const full_message_sym = try vm.intern("full_message");
+    try vm.exception_class.module.methods.put(full_message_sym, .{ .method = .{ .builtin = &builtinExceptionFullMessage } });
+
     const receiver_sym = try vm.intern("receiver");
     try vm.key_error_class.module.methods.put(receiver_sym, .{ .method = .{ .builtin = &builtinKeyErrorReceiver } });
 
@@ -35,6 +41,21 @@ pub fn builtinExceptionMessage(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
 
     const exc = receiver.toExceptionObject();
     return Value.fromObject(exc.message);
+}
+
+pub fn builtinExceptionBacktrace(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
+    const exc = receiver.toExceptionObject();
+    if (exc.backtrace) |backtrace| {
+        return Value.fromObject(backtrace);
+    }
+    return Value.nil();
+}
+
+pub fn builtinExceptionFullMessage(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return try vm.exceptionFullMessage(receiver.toExceptionObject());
 }
 
 pub fn builtinKeyErrorReceiver(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

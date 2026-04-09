@@ -348,6 +348,7 @@ pub const VM = struct {
     // Exception handling state
     pending_exception: ?*value.ExceptionObject = null,
     ensure_pending_exceptions: std.ArrayList(?*value.ExceptionObject) = .empty,
+    backtrace_limit: ?usize = null,
     retry_point: ?struct {
         frame_idx: usize,
         byte_offset: usize,
@@ -1373,6 +1374,10 @@ pub const VM = struct {
         try self.pushFrame(&self.program.main_chunk, self.main_self, null);
         try self.executeFastLoop(1, false, 0);
         return self.pop();
+    }
+
+    pub fn setBacktraceLimit(self: *VM, limit: ?usize) void {
+        self.backtrace_limit = limit;
     }
 
     pub fn runAtExitHandlers(self: *VM) VMError!void {
@@ -7375,24 +7380,74 @@ pub const VM = struct {
             i -= 1;
             const frame = &self.frames.items[i];
 
-            // Get line number for current IP (byte offset)
-            const line = if (frame.chunk.line_info.items.len > 0)
-                frame.chunk.getLine(frame.ip)
+            const line = self.backtraceLineForFrame(frame);
+            const source = frame.chunk.source_file orelse frame.chunk.name;
+            const backtrace_str = if (frame.method_name) |method_name|
+                std.fmt.allocPrint(
+                    self.gc_allocator,
+                    "{s}:{d}:in '{s}#{s}'",
+                    .{ source, line, self.getClass(frame.self_value).module.name.name, method_name },
+                ) catch return error.Fatal
             else
-                0;
-
-            // Format: "chunk_name:line"
-            const backtrace_str = std.fmt.allocPrint(
-                self.gc_allocator,
-                "{s}:{d}",
-                .{ frame.chunk.name, line },
-            ) catch return error.Fatal;
+                std.fmt.allocPrint(
+                    self.gc_allocator,
+                    "{s}:{d}:in '<main>'",
+                    .{ source, line },
+                ) catch return error.Fatal;
 
             const str_val = try self.newString(backtrace_str, false);
             array_obj.elements.append(self.gc_allocator, str_val) catch return error.Fatal;
         }
 
         return array_obj;
+    }
+
+    fn backtraceLineForFrame(_: *VM, frame: *const CallFrame) u32 {
+        if (frame.chunk.line_info.items.len == 0) return 1;
+        const ip = if (frame.ip == 0) 0 else frame.ip - 1;
+        const line = frame.chunk.getLine(ip);
+        return if (line == 0) 1 else line;
+    }
+
+    fn writeFormattedException(_: *VM, writer: anytype, exc: *value.ExceptionObject, limit: ?usize) VMError!void {
+        const class_name = exc.object.class.?.module.name.name;
+
+        if (exc.backtrace == null or exc.backtrace.?.elements.items.len == 0) {
+            writer.print("{s} ({s})\n", .{ exc.message.str, class_name }) catch return error.Fatal;
+            return;
+        }
+
+        const lines = exc.backtrace.?.elements.items;
+        writer.print("{s}: {s} ({s})\n", .{ lines[0].toStringObject().str, exc.message.str, class_name }) catch return error.Fatal;
+
+        const total_tail = lines.len - 1;
+        const shown_tail = if (limit) |tail_limit|
+            @min(total_tail, tail_limit)
+        else
+            total_tail;
+
+        var i: usize = 0;
+        while (i < shown_tail) : (i += 1) {
+            writer.print("\tfrom {s}\n", .{lines[i + 1].toStringObject().str}) catch return error.Fatal;
+        }
+
+        if (limit) |tail_limit| {
+            if (total_tail > tail_limit) {
+                writer.print("\t ... {d} levels...\n", .{total_tail - tail_limit}) catch return error.Fatal;
+            }
+        }
+    }
+
+    pub fn exceptionFullMessage(self: *VM, exc: *value.ExceptionObject) VMError!Value {
+        var buf: std.ArrayList(u8) = .empty;
+        defer buf.deinit(self.allocator);
+
+        const writer = buf.writer(self.allocator);
+        try self.writeFormattedException(&writer, exc, self.backtrace_limit);
+
+        const full_message = buf.toOwnedSlice(self.allocator) catch return error.Fatal;
+        defer self.allocator.free(full_message);
+        return try self.newString(full_message, false);
     }
 
     /// Unwind the call stack looking for exception handlers
@@ -7606,21 +7661,7 @@ pub const VM = struct {
     pub fn printUnhandledException(self: *VM) void {
         const writer = self.stderr.?;
         if (self.pending_exception) |exc| {
-            // Print exception class and message
-            writer.print("Unhandled exception: {s}: {s}\n", .{
-                exc.object.class.?.module.name.name,
-                exc.message.str,
-            }) catch {};
-
-            // Print backtrace if available
-            if (exc.backtrace) |bt| {
-                writer.print("Backtrace:\n", .{}) catch {};
-                for (bt.elements.items) |line| {
-                    if (line.isString()) {
-                        writer.print("  {s}\n", .{line.toStringObject().str}) catch {};
-                    }
-                }
-            }
+            self.writeFormattedException(writer, exc, self.backtrace_limit) catch {};
             _ = writer.flush() catch {};
         } else {
             // Someone forgot to set pending_exception.

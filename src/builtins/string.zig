@@ -107,6 +107,9 @@ pub fn register(vm: *VM) !void {
     const string_replace_sym = try vm.intern("replace");
     try vm.string_class.module.methods.put(string_replace_sym, .{ .method = .{ .builtin = &builtinStringReplace } });
 
+    const string_gsub_sym = try vm.intern("gsub");
+    try vm.string_class.module.methods.put(string_gsub_sym, .{ .method = .{ .builtin = &builtinStringGsub } });
+
     const string_equal_sym = try vm.intern("==");
     try vm.string_class.module.methods.put(string_equal_sym, .{ .method = .{ .builtin = &builtinStringEqual } });
 
@@ -418,6 +421,36 @@ pub fn builtinStringInitializeCopy(vm: *VM, receiver: Value, args: []Value, _: ?
     string_obj.validity = .unknown;
     try vm.copyPackedPointerTargets(replacement, string_obj);
     return receiver;
+}
+
+pub fn builtinStringGsub(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 2);
+
+    const string_obj = receiver.toStringObject();
+    const pattern_value = try args[0].coerceToStringValue(vm, "no implicit conversion into String");
+    const replacement_value = try args[1].coerceToStringValue(vm, "no implicit conversion into String");
+    const pattern = pattern_value.toStringObject().str;
+    const replacement = replacement_value.toStringObject().str;
+
+    if (pattern.len == 0) {
+        return try vm.newStringWithEncoding(string_obj.str, false, string_obj.encoding);
+    }
+
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(vm.allocator);
+
+    var start: usize = 0;
+    while (true) {
+        const idx = std.mem.indexOfPos(u8, string_obj.str, start, pattern) orelse break;
+        out.appendSlice(vm.allocator, string_obj.str[start..idx]) catch return error.Fatal;
+        out.appendSlice(vm.allocator, replacement) catch return error.Fatal;
+        start = idx + pattern.len;
+    }
+    out.appendSlice(vm.allocator, string_obj.str[start..]) catch return error.Fatal;
+
+    const replaced = out.toOwnedSlice(vm.allocator) catch return error.Fatal;
+    defer vm.allocator.free(replaced);
+    return try vm.newStringWithEncoding(replaced, false, string_obj.encoding);
 }
 
 pub fn builtinStringToStr(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

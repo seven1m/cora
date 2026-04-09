@@ -107,8 +107,8 @@ pub const Compiler = struct {
         }
 
         const root = try parser.root();
-        try compiler.compileNode(root, 0);
-        try compiler.current_chunk.emitOp(.HALT, 0);
+        try compiler.compileNode(root, 1);
+        try compiler.current_chunk.emitOp(.HALT, 1);
 
         return CompiledProgram{
             .allocator = allocator,
@@ -118,7 +118,20 @@ pub const Compiler = struct {
         };
     }
 
-    fn compileNode(self: *Compiler, node: prism.Node, line: u32) anyerror!void {
+    fn nodeLine(self: *Compiler, node: prism.Node) u32 {
+        const ptr: *anyopaque = switch (node) {
+            inline else => |raw_ptr| @ptrCast(raw_ptr),
+        };
+        const raw: *prism.RawNode = @ptrCast(@alignCast(ptr));
+        const start = raw.location.start orelse return 1;
+        const offset = @intFromPtr(start) - @intFromPtr(self.parser.source.ptr);
+        return @as(u32, @intCast(std.mem.count(u8, self.parser.source[0..offset], "\n"))) + 1;
+    }
+
+    fn compileNode(self: *Compiler, node: prism.Node, inherited_line: u32) anyerror!void {
+        const effective_line = self.nodeLine(node);
+        const line = if (effective_line == 0) inherited_line else effective_line;
+
         switch (node) {
             .program => |program_node| {
                 if (program_node.statements != null) {

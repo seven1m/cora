@@ -23,7 +23,9 @@ pub fn main() !void {
     var filename: ?[]const u8 = null;
     var print_ast = false;
     var dump_bytecode = false;
+    var backtrace_limit: ?usize = null;
     var source_file: ?[]const u8 = null;
+    var source_file_buffer: ?[]u8 = null;
     var script_args: std.ArrayList([]const u8) = .empty;
     defer script_args.deinit(allocator);
 
@@ -42,6 +44,11 @@ pub fn main() !void {
                 std.debug.print("Error: -e requires an argument\n", .{});
                 return;
             }
+        } else if (std.mem.startsWith(u8, args[i], "--backtrace-limit=")) {
+            backtrace_limit = std.fmt.parseUnsigned(usize, args[i]["--backtrace-limit=".len..], 10) catch {
+                std.debug.print("Error: --backtrace-limit requires a non-negative integer\n", .{});
+                return;
+            };
         } else if (std.mem.eql(u8, args[i], "--ast")) {
             print_ast = true;
         } else if (std.mem.eql(u8, args[i], "--dump-bytecode")) {
@@ -62,11 +69,13 @@ pub fn main() !void {
 
     var code_buffer: ?[]u8 = null;
     defer if (code_buffer) |buf| allocator.free(buf);
+    defer if (source_file_buffer) |buf| allocator.free(buf);
 
     const code = if (ruby_code) |code|
         code
     else if (filename) |file| blk: {
-        source_file = file;
+        source_file_buffer = std.fs.cwd().realpathAlloc(allocator, file) catch null;
+        source_file = source_file_buffer orelse file;
         const file_handle = std.fs.cwd().openFile(file, .{}) catch |err| {
             std.debug.print("Error: Could not open file '{s}': {}\n", .{ file, err });
             return;
@@ -124,6 +133,7 @@ pub fn main() !void {
 
     var virtual_machine = try vm.VM.init(allocator, bdwgc.allocator, bdwgc.allocator_atomic, &program);
     defer virtual_machine.deinit();
+    virtual_machine.setBacktraceLimit(backtrace_limit);
     try virtual_machine.setArgv(script_args.items);
 
     const result = virtual_machine.run();

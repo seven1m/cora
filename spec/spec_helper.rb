@@ -380,8 +380,27 @@ def cora_bin_path
   "#{__dir__}/../zig-out/bin/cora"
 end
 
-def ruby_exe(script_path)
-  `#{cora_bin_path} "#{script_path}"`
+def shell_escape(str)
+  "'" + str.to_s.gsub("'", %q('\\'')) + "'"
+end
+
+def ruby_exe(script_path, options: nil, args: nil, exit_status: nil, env: nil)
+  command = []
+
+  if env
+    env.each do |key, value|
+      command << "#{key}=#{shell_escape(value)}"
+    end
+  end
+
+  command << shell_escape(cora_bin_path)
+  command << options.to_s unless options.nil? || options == ""
+  command << shell_escape(script_path) unless script_path.nil?
+  command << args.to_s unless args.nil? || args == ""
+
+  result = `#{command.join(" ")}`
+  exit_status
+  result
 end
 
 def c_long_size

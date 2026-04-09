@@ -38,7 +38,7 @@ test "Kernel#at_exit continues after handler exception and surfaces it" {
 
     try std.testing.expect(result.err != null);
     try std.testing.expectEqualSlices(u8, "body\nsecond\nfirst\n", result.stdout);
-    try std.testing.expect(std.mem.startsWith(u8, result.stderr, "Unhandled exception: RuntimeError: boom\n"));
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "boom (RuntimeError)") != null);
 }
 
 test "Kernel#at_exit can run nested Array#each blocks" {

@@ -57,7 +57,7 @@ test "instance_variable_set rejects symbol without @ prefix" {
         \\Foo.new.test_ivar
     , &stdout_buf, &stderr_buf);
     try std.testing.expect(result.err != null);
-    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "NameError: 'foo' is not allowed as an instance variable name") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "'foo' is not allowed as an instance variable name (NameError)") != null);
 }
 
 test "instance_variable_set rejects string without @ prefix" {
@@ -72,7 +72,7 @@ test "instance_variable_set rejects string without @ prefix" {
         \\Foo.new.test_ivar
     , &stdout_buf, &stderr_buf);
     try std.testing.expect(result.err != null);
-    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "NameError: 'foo' is not allowed as an instance variable name") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "'foo' is not allowed as an instance variable name (NameError)") != null);
 }
 
 test "instance_variable_set rejects string with only '@'" {
@@ -87,5 +87,5 @@ test "instance_variable_set rejects string with only '@'" {
         \\Foo.new.test_ivar
     , &stdout_buf, &stderr_buf);
     try std.testing.expect(result.err != null);
-    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "NameError: '@' is not allowed as an instance variable name") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "'@' is not allowed as an instance variable name (NameError)") != null);
 }
