@@ -990,6 +990,20 @@ pub fn builtinArrayJoin(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
 pub fn builtinArrayMultiply(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
 
+    const maybe_separator = try vm.checkCallMethodByName(args[0], "to_str", &[_]Value{}, null);
+    if (maybe_separator) |separator| {
+        if (!separator.isNil()) {
+            if (!separator.isString()) {
+                const exc = try vm.createException(vm.type_error_class, "no implicit conversion into String");
+                vm.pending_exception = exc;
+                return error.Unwind;
+            }
+
+            var join_args = [_]Value{separator};
+            return builtinArrayJoin(vm, receiver, join_args[0..], null);
+        }
+    }
+
     const count = try args[0].coerceToI64ViaToInt(
         vm,
         "no implicit conversion into Integer",
