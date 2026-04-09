@@ -3,6 +3,7 @@ const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 const enc = @import("../encoding.zig");
 const inspect_util = @import("../inspect.zig");
+const onigmo = @import("../onigmo.zig");
 const encoding_builtin = @import("encoding.zig");
 const regexp_builtin = @import("regexp.zig");
 const warning_builtin = @import("warning.zig");
@@ -2115,6 +2116,287 @@ pub fn builtinStringPrepend(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     return receiver;
 }
 
+fn splitAppendBytes(vm: *VM, array_obj: *value.ArrayObject, bytes: []const u8, encoding: enc.Encoding) VMError!void {
+    const str_value = try vm.newStringWithEncoding(bytes, false, encoding);
+    array_obj.elements.append(vm.gc_allocator, str_value) catch return error.Fatal;
+}
+
+fn splitAppendCaptureValues(vm: *VM, array_obj: *value.ArrayObject, source_obj: *value.StringObject, begins: []const i64, ends: []const i64) VMError!void {
+    var capture_index: usize = 1;
+    while (capture_index < begins.len and capture_index < ends.len) : (capture_index += 1) {
+        const begin_i64 = begins[capture_index];
+        const end_i64 = ends[capture_index];
+        if (begin_i64 < 0 or end_i64 < 0) continue;
+
+        const begin_usize: usize = @intCast(begin_i64);
+        const end_usize: usize = @intCast(end_i64);
+        if (begin_usize > source_obj.str.len or end_usize > source_obj.str.len or begin_usize > end_usize) {
+            return error.Fatal;
+        }
+        try splitAppendBytes(vm, array_obj, source_obj.str[begin_usize..end_usize], source_obj.encoding);
+    }
+}
+
+fn splitTrimTrailingEmptyFields(array_obj: *value.ArrayObject) void {
+    while (array_obj.elements.items.len > 0) {
+        const last = array_obj.elements.items[array_obj.elements.items.len - 1];
+        if (!last.isString()) break;
+        if (last.toStringObject().str.len != 0) break;
+        _ = array_obj.elements.pop();
+    }
+}
+
+fn splitYieldOrReturn(vm: *VM, receiver: Value, array_obj: *value.ArrayObject, block: ?Block) VMError!Value {
+    if (block) |blk| {
+        for (array_obj.elements.items) |item| {
+            const yielded = try vm.yieldToBlock(blk, &[_]Value{item});
+            if (yielded.break_occurred) return yielded.value;
+        }
+        return receiver;
+    }
+    return Value.fromObject(array_obj);
+}
+
+fn splitRaiseInvalidSource(vm: *VM, encoding: enc.Encoding) VMError!Value {
+    return vm.raiseExceptionFmt(vm.argument_error_class, "invalid byte sequence in {s}", .{encoding.name()});
+}
+
+fn splitParseLimit(vm: *VM, args: []Value) VMError!i64 {
+    if (args.len < 2) return 0;
+
+    const limit = try args[1].coerceToI64ViaToInt(
+        vm,
+        "no implicit conversion into Integer",
+        "no implicit conversion into Integer",
+        "bignum too big to convert into `long`",
+    );
+    if (limit > std.math.maxInt(i32) or limit < std.math.minInt(i32)) {
+        return vm.raiseExceptionFmt(vm.range_error_class, "bignum too big to convert into `long`", .{});
+    }
+    return limit;
+}
+
+fn splitNextCharBoundary(bytes: []const u8, encoding: enc.Encoding, offset: usize) usize {
+    if (offset >= bytes.len) return bytes.len;
+
+    var next = offset;
+    const parsed = encoding.nextChar(bytes, &next);
+    if (parsed.len > 0 and next > offset) return next;
+    return offset + 1;
+}
+
+fn splitDefaultWhitespace(vm: *VM, array_obj: *value.ArrayObject, source_obj: *value.StringObject, limit: i64) VMError!void {
+    const source = source_obj.str;
+    if (!source_obj.encoding.isValid(source)) {
+        _ = try splitRaiseInvalidSource(vm, source_obj.encoding);
+        return;
+    }
+
+    if (limit == 1) {
+        try splitAppendBytes(vm, array_obj, source, source_obj.encoding);
+        return;
+    }
+
+    var i: usize = 0;
+    while (i < source.len and std.ascii.isWhitespace(source[i])) : (i += 1) {}
+
+    while (i < source.len) {
+        if (limit > 0 and array_obj.elements.items.len == @as(usize, @intCast(limit - 1))) {
+            try splitAppendBytes(vm, array_obj, source[i..], source_obj.encoding);
+            return;
+        }
+
+        const token_start = i;
+        while (i < source.len and !std.ascii.isWhitespace(source[i])) : (i += 1) {}
+        try splitAppendBytes(vm, array_obj, source[token_start..i], source_obj.encoding);
+
+        var saw_separator = false;
+        while (i < source.len and std.ascii.isWhitespace(source[i])) : (i += 1) {
+            saw_separator = true;
+        }
+        if (i >= source.len and saw_separator and (limit < 0 or (limit > 0 and array_obj.elements.items.len < @as(usize, @intCast(limit))))) {
+            try splitAppendBytes(vm, array_obj, "", source_obj.encoding);
+        }
+    }
+}
+
+fn splitByCharacters(vm: *VM, array_obj: *value.ArrayObject, source_obj: *value.StringObject, limit: i64) VMError!void {
+    const source = source_obj.str;
+    if (!source_obj.encoding.isValid(source)) {
+        _ = try splitRaiseInvalidSource(vm, source_obj.encoding);
+        return;
+    }
+
+    if (limit == 1) {
+        try splitAppendBytes(vm, array_obj, source, source_obj.encoding);
+        return;
+    }
+
+    var i: usize = 0;
+    while (i < source.len) {
+        if (limit > 0 and array_obj.elements.items.len == @as(usize, @intCast(limit - 1))) {
+            try splitAppendBytes(vm, array_obj, source[i..], source_obj.encoding);
+            return;
+        }
+
+        const start = i;
+        i = splitNextCharBoundary(source, source_obj.encoding, i);
+        try splitAppendBytes(vm, array_obj, source[start..i], source_obj.encoding);
+    }
+
+    if (array_obj.elements.items.len > 0 and (limit < 0 or limit > @as(i64, @intCast(array_obj.elements.items.len)))) {
+        try splitAppendBytes(vm, array_obj, "", source_obj.encoding);
+    }
+}
+
+fn splitByLiteral(vm: *VM, array_obj: *value.ArrayObject, source_obj: *value.StringObject, separator_obj: *value.StringObject, limit: i64) VMError!void {
+    const source = source_obj.str;
+    const separator = separator_obj.str;
+
+    if (!source_obj.encoding.isValid(source)) {
+        _ = try splitRaiseInvalidSource(vm, source_obj.encoding);
+        return;
+    }
+    if (!separator_obj.encoding.isValid(separator)) {
+        _ = try splitRaiseInvalidSource(vm, separator_obj.encoding);
+        return;
+    }
+
+    if (separator.len == 0) {
+        try splitByCharacters(vm, array_obj, source_obj, limit);
+        return;
+    }
+    if (limit == 1) {
+        try splitAppendBytes(vm, array_obj, source, source_obj.encoding);
+        return;
+    }
+    if (separator.len == 1 and separator[0] == ' ') {
+        try splitDefaultWhitespace(vm, array_obj, source_obj, limit);
+        return;
+    }
+
+    var start: usize = 0;
+    while (true) {
+        if (limit > 0 and array_obj.elements.items.len == @as(usize, @intCast(limit - 1))) break;
+
+        const idx = std.mem.indexOfPos(u8, source, start, separator) orelse break;
+        try splitAppendBytes(vm, array_obj, source[start..idx], source_obj.encoding);
+        start = idx + separator.len;
+    }
+
+    try splitAppendBytes(vm, array_obj, source[start..], source_obj.encoding);
+    if (limit == 0) splitTrimTrailingEmptyFields(array_obj);
+}
+
+fn splitByRegexp(vm: *VM, array_obj: *value.ArrayObject, source_obj: *value.StringObject, regexp_obj: *value.RegexpObject, limit: i64) VMError!void {
+    const source = source_obj.str;
+    if (!source_obj.encoding.isValid(source)) {
+        _ = try splitRaiseInvalidSource(vm, source_obj.encoding);
+        return;
+    }
+    if (source.len == 0) return;
+
+    if (limit == 1) {
+        try splitAppendBytes(vm, array_obj, source, source_obj.encoding);
+        return;
+    }
+
+    var start: usize = 0;
+    var search_offset: usize = 0;
+    var field_count: usize = 0;
+
+    while (search_offset <= source.len) {
+        if (limit > 0 and field_count == @as(usize, @intCast(limit - 1))) break;
+
+        const search_result = onigmo.searchWithCaptures(vm.gc_allocator, regexp_obj.regex, source[search_offset..]) catch return error.Fatal;
+        defer vm.gc_allocator.free(search_result.begin_offsets);
+        defer vm.gc_allocator.free(search_result.end_offsets);
+        if (!search_result.matched) break;
+
+        for (search_result.begin_offsets, search_result.end_offsets) |*begin_pos, *end_pos| {
+            if (begin_pos.* >= 0) begin_pos.* += @as(i64, @intCast(search_offset));
+            if (end_pos.* >= 0) end_pos.* += @as(i64, @intCast(search_offset));
+        }
+
+        if (search_result.begin_offsets.len == 0 or search_result.end_offsets.len == 0) return error.Fatal;
+
+        const match_start_i64 = search_result.begin_offsets[0];
+        const match_end_i64 = search_result.end_offsets[0];
+        if (match_start_i64 < 0 or match_end_i64 < 0) return error.Fatal;
+
+        const match_start: usize = @intCast(match_start_i64);
+        const match_end: usize = @intCast(match_end_i64);
+        if (match_start > source.len or match_end > source.len or match_start > match_end) return error.Fatal;
+
+        if (match_start == match_end) {
+            if (match_start == source.len) {
+                if (limit == 0) break;
+                if (limit > 0 and field_count == @as(usize, @intCast(limit - 1))) break;
+            }
+            if (match_start == 0 and start == 0) {
+                search_offset = splitNextCharBoundary(source, source_obj.encoding, match_start);
+                continue;
+            }
+            if (match_start == start) {
+                search_offset = splitNextCharBoundary(source, source_obj.encoding, match_start);
+                continue;
+            }
+        }
+
+        try splitAppendBytes(vm, array_obj, source[start..match_start], source_obj.encoding);
+        field_count += 1;
+        try splitAppendCaptureValues(vm, array_obj, source_obj, search_result.begin_offsets, search_result.end_offsets);
+        start = match_end;
+        search_offset = if (match_start == match_end and match_end == source.len)
+            source.len + 1
+        else if (match_start == match_end)
+            splitNextCharBoundary(source, source_obj.encoding, match_end)
+        else
+            match_end;
+    }
+
+    try splitAppendBytes(vm, array_obj, source[start..], source_obj.encoding);
+    field_count += 1;
+    if (limit == 0) splitTrimTrailingEmptyFields(array_obj);
+}
+
+pub fn builtinStringSplit(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 2);
+
+    const string_obj = receiver.toStringObject();
+    const result = try vm.createArray();
+    const limit = try splitParseLimit(vm, args);
+
+    var effective_separator: Value = Value.nil();
+    var use_default_separator = false;
+
+    if (args.len == 0 or args[0].isNil()) {
+        const field_separator = vm.globals.get("$;") orelse Value.nil();
+        if (!field_separator.isNil()) {
+            try warning_builtin.writeWarning(vm, "warning: $; is set to non-nil value\n");
+            effective_separator = field_separator;
+        } else {
+            use_default_separator = true;
+        }
+    } else {
+        effective_separator = args[0];
+    }
+
+    if (use_default_separator) {
+        try splitDefaultWhitespace(vm, result, string_obj, limit);
+        return splitYieldOrReturn(vm, receiver, result, block);
+    }
+
+    if (effective_separator.isRegexp()) {
+        try splitByRegexp(vm, result, string_obj, effective_separator.toRegexpObject(), limit);
+        return splitYieldOrReturn(vm, receiver, result, block);
+    }
+
+    const separator_value = try effective_separator.coerceToStringValue(vm, "no implicit conversion into String");
+    try splitByLiteral(vm, result, string_obj, separator_value.toStringObject(), limit);
+    return splitYieldOrReturn(vm, receiver, result, block);
+}
+
 fn stringChopEnd(bytes: []const u8, encoding: enc.Encoding) usize {
     if (bytes.len == 0) return 0;
     if (bytes.len >= 2 and bytes[bytes.len - 2] == '\r' and bytes[bytes.len - 1] == '\n') {
@@ -2153,47 +2435,6 @@ pub fn builtinStringChopBang(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     string_obj.str = string_obj.str[0..chop_end];
     string_obj.validity = .unknown;
     return receiver;
-}
-
-pub fn builtinStringSplit(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCountRange(args, 0, 2);
-    const string_obj = receiver.toStringObject();
-    const source = string_obj.str;
-    const array_obj = try vm.createArray();
-
-    if (args.len == 0 or args[0].isNil()) {
-        var i: usize = 0;
-        while (i < source.len) {
-            while (i < source.len and std.ascii.isWhitespace(source[i])) : (i += 1) {}
-            if (i >= source.len) break;
-            const start = i;
-            while (i < source.len and !std.ascii.isWhitespace(source[i])) : (i += 1) {}
-            const token = source[start..i];
-            const token_val = try vm.newStringWithEncoding(token, false, string_obj.encoding);
-            array_obj.elements.append(vm.gc_allocator, token_val) catch return error.Fatal;
-        }
-        return Value.fromObject(array_obj);
-    }
-
-    const sep = try args[0].coerceToStr(vm, "no implicit conversion into String");
-    if (sep.len == 0) {
-        return vm.raiseExceptionFmt(vm.argument_error_class, "empty separator", .{});
-    }
-
-    var start: usize = 0;
-    while (true) {
-        const idx_opt = std.mem.indexOfPos(u8, source, start, sep);
-        if (idx_opt == null) break;
-        const idx = idx_opt.?;
-        const part = source[start..idx];
-        const part_val = try vm.newStringWithEncoding(part, false, string_obj.encoding);
-        array_obj.elements.append(vm.gc_allocator, part_val) catch return error.Fatal;
-        start = idx + sep.len;
-    }
-    const tail = source[start..];
-    const tail_val = try vm.newStringWithEncoding(tail, false, string_obj.encoding);
-    array_obj.elements.append(vm.gc_allocator, tail_val) catch return error.Fatal;
-    return Value.fromObject(array_obj);
 }
 
 fn reverseStringChars(vm: *VM, bytes: []const u8, string_encoding: enc.Encoding) VMError![]const u8 {
