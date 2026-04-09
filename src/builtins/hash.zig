@@ -150,24 +150,42 @@ fn hashGetValue(hash_obj: *value.HashObject, vm: *VM, key: Value) VMError!?Value
     return entry.value;
 }
 
+fn ensureMutableHash(vm: *VM, receiver: Value) VMError!void {
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Hash", .{});
+    }
+}
+
+fn clearHashDefaultBehavior(hash_obj: *value.HashObject) void {
+    hash_obj.default_value = null;
+    hash_obj.default_proc = null;
+}
+
+fn setHashDefaultValue(hash_obj: *value.HashObject, default_value: Value) void {
+    hash_obj.default_value = default_value;
+    hash_obj.default_proc = null;
+}
+
+fn setHashDefaultProc(hash_obj: *value.HashObject, proc_obj: *value.ProcObject) void {
+    hash_obj.default_proc = proc_obj;
+    hash_obj.default_value = null;
+}
+
 pub fn builtinHashInitialize(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
     if (args.len == 1 and block != null) {
         return vm.raiseArgumentErrorWrongArgCount(args.len, 0);
     }
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Hash", .{});
-    }
+    try ensureMutableHash(vm, receiver);
 
     const hash_obj = receiver.toHashObject();
-    hash_obj.default_value = null;
-    hash_obj.default_proc = null;
+    clearHashDefaultBehavior(hash_obj);
 
     if (block) |blk| {
         const proc_val = try vm.newProc(blk);
-        hash_obj.default_proc = proc_val.toProcObject();
+        setHashDefaultProc(hash_obj, proc_val.toProcObject());
     } else if (args.len == 1) {
-        hash_obj.default_value = args[0];
+        setHashDefaultValue(hash_obj, args[0]);
     }
 
     return receiver;
@@ -202,14 +220,9 @@ pub fn builtinHashDefault(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
 
 pub fn builtinHashDefaultSet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    if (receiver.isFrozen()) {
-        const exc = try vm.createException(vm.frozen_error_class, "can't modify frozen Hash");
-        vm.pending_exception = exc;
-        return error.Unwind;
-    }
+    try ensureMutableHash(vm, receiver);
     const hash_obj = receiver.toHashObject();
-    hash_obj.default_value = args[0];
-    hash_obj.default_proc = null;
+    setHashDefaultValue(hash_obj, args[0]);
     return args[0];
 }
 
@@ -224,11 +237,7 @@ pub fn builtinHashDefaultProc(vm: *VM, receiver: Value, args: []Value, _: ?Block
 
 pub fn builtinHashDefaultProcSet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    if (receiver.isFrozen()) {
-        const exc = try vm.createException(vm.frozen_error_class, "can't modify frozen Hash");
-        vm.pending_exception = exc;
-        return error.Unwind;
-    }
+    try ensureMutableHash(vm, receiver);
 
     const hash_obj = receiver.toHashObject();
     if (args[0].isNil()) {
@@ -239,18 +248,13 @@ pub fn builtinHashDefaultProcSet(vm: *VM, receiver: Value, args: []Value, _: ?Bl
     const proc_obj = try coerceToProcForHashDefault(vm, args[0]);
     try validateHashDefaultProc(vm, proc_obj);
 
-    hash_obj.default_proc = proc_obj;
-    hash_obj.default_value = null;
+    setHashDefaultProc(hash_obj, proc_obj);
     return args[0];
 }
 
 pub fn builtinHashBracketSet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 2);
-    if (receiver.isFrozen()) {
-        const exc = try vm.createException(vm.frozen_error_class, "can't modify frozen Hash");
-        vm.pending_exception = exc;
-        return error.Unwind;
-    }
+    try ensureMutableHash(vm, receiver);
 
     const hash_obj = receiver.toHashObject();
     const new_value = args[1];
