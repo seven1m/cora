@@ -276,6 +276,40 @@ test "Array#dup can reach method_missing for initialize_copy after undef_method"
     try std.testing.expectEqual(true, result.toBool());
 }
 
+test "Array#clone dispatches initialize_clone, preserves frozen state, and copies singleton methods" {
+    const result = try evalCode(
+        \\class ArrayCloneHookSpec < Array
+        \\  def initialize_clone(other)
+        \\    @hook = :clone
+        \\    super
+        \\  end
+        \\end
+        \\
+        \\source = ArrayCloneHookSpec[7]
+        \\source.instance_variable_set(:@kept, 9)
+        \\def source.special
+        \\  :singleton
+        \\end
+        \\source.freeze
+        \\cloned = source.clone
+        \\[
+        \\  cloned.instance_variable_get(:@hook),
+        \\  cloned.instance_variable_get(:@kept),
+        \\  cloned[0],
+        \\  cloned.class == ArrayCloneHookSpec,
+        \\  cloned.frozen?,
+        \\  cloned.special
+        \\]
+    );
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqualSlices(u8, "clone", result.toArrayObject().elements.items[0].toSymbolObject().name);
+    try std.testing.expectEqual(@as(i64, 9), result.toArrayObject().elements.items[1].toInteger());
+    try std.testing.expectEqual(@as(i64, 7), result.toArrayObject().elements.items[2].toInteger());
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[3].toBool());
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[4].toBool());
+    try std.testing.expectEqualSlices(u8, "singleton", result.toArrayObject().elements.items[5].toSymbolObject().name);
+}
+
 test "Array#pack string directives" {
     var result = try evalCode("['ab'].pack('A4')");
     try std.testing.expect(result.isString());
