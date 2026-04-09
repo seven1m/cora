@@ -75,6 +75,9 @@ pub fn register(vm: *VM) !void {
     const values_sym = try vm.intern("values");
     try vm.hash_class.module.methods.put(values_sym, .{ .method = .{ .builtin = &builtinHashValues } });
 
+    const to_a_sym = try vm.intern("to_a");
+    try vm.hash_class.module.methods.put(to_a_sym, .{ .method = .{ .builtin = &builtinHashToA } });
+
     const include_sym = try vm.intern("include?");
     try vm.hash_class.module.methods.put(include_sym, .{ .method = .{ .builtin = &builtinHashIncludeQ } });
 
@@ -293,6 +296,21 @@ pub fn builtinHashValues(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
 
     for (hash_obj.entries.items) |entry| {
         array_obj.elements.append(vm.gc_allocator, entry.value) catch return error.Fatal;
+    }
+
+    return Value.fromObject(array_obj);
+}
+
+pub fn builtinHashToA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const hash_obj = receiver.toHashObject();
+    const array_obj = try vm.createArray();
+
+    for (hash_obj.entries.items) |entry| {
+        const pair_obj = try vm.createArray();
+        pair_obj.elements.append(vm.gc_allocator, entry.key) catch return error.Fatal;
+        pair_obj.elements.append(vm.gc_allocator, entry.value) catch return error.Fatal;
+        array_obj.elements.append(vm.gc_allocator, Value.fromObject(pair_obj)) catch return error.Fatal;
     }
 
     return Value.fromObject(array_obj);
