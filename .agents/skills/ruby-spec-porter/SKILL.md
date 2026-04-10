@@ -137,29 +137,27 @@ A ported spec is “done” when:
 
 Match this repository's commit style for spec-porting work.
 
-- Use one commit per Ruby method implemented or changed.
-- If one spec requires multiple new methods, split into multiple commits.
+- Default to one commit per spec port.
+- Keep runtime/compiler/parser work directly required for that spec in the same commit as the spec and `spec/TODO.md` update.
+- Split into multiple commits only when there is clearly separate foundational or incidental work that should stand alone even without the target spec.
 - Keep commit messages short, imperative, no body.
 - Prefer non-interactive commits (`git add ... && git commit -m ...`).
 
 Message rules:
 
-1. New method added:
-- `Add Hash#delete`
-- `Add String#replace`
+1. Spec port with required behavior changes:
+- `Make Hash#delete spec-compliant` (if fully compliant)
+- `Make Array#[] more spec-compliant` (partial compliance improvement)
 
-2. Method already existed; behavior adjusted for spec semantics:
-- `Make String#start_with? spec-compliant`
-- `Make String#length more spec-compliant`
-
-3. Spec added and passes without changing method behavior:
+2. Spec added and passes without changing method behavior:
 - `Add String#ascii_only? spec`
 - `Add String#b spec`
 
-4. Non-method foundational work needed to unblock specs:
+3. Non-spec foundational work that truly should stand alone:
 - Use concise imperative summaries, e.g.:
   - `Implement regexp numbered references`
   - `Add euc-jp encoding alias`
+  - `Add Hash#delete` (not focused on spec compliance, but some basic version of the method was required by the spec under port)
 
 ## Useful Commands
 
