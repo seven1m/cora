@@ -48,6 +48,484 @@ count_commits_since() {
   git -C "$repo_root" rev-list --count "${anchor}..HEAD"
 }
 
+dashboard_enabled=0
+dashboard_goal_specs=25000
+dashboard_total_specs=0
+dashboard_total_specs_known=0
+dashboard_current_label="idle"
+dashboard_current_status="booting"
+dashboard_current_spec=""
+dashboard_current_log_file=""
+dashboard_current_log_line=0
+dashboard_spinner_index=0
+dashboard_last_commit_refresh=0
+dashboard_commits_since_cleanup=0
+dashboard_recent_commits_text="Loading git log --stat..."
+dashboard_recent_commits_lines=()
+dashboard_activity_lines=()
+dashboard_last_render_lines=0
+dashboard_probe_active=0
+dashboard_probe_fd=""
+dashboard_probe_pid=""
+dashboard_probe_fallback_total=0
+dashboard_probe_started_at=0
+dashboard_usage_text="Usage: loading..."
+dashboard_last_usage_refresh=0
+codex_sessions_dir="${HOME}/.codex/sessions"
+
+dashboard_repeat() {
+  local count=$1
+  local char=${2:-" "}
+  local out=""
+
+  if ((count <= 0)); then
+    return 0
+  fi
+
+  printf -v out '%*s' "$count" ''
+  printf '%s' "${out// /$char}"
+}
+
+dashboard_plain() {
+  local text=$1
+  local width=$2
+
+  if ((width <= 0)); then
+    return 0
+  fi
+
+  if ((${#text} > width)); then
+    if ((width == 1)); then
+      printf '%s' "${text:0:1}"
+    else
+      printf '%s' "${text:0:width-1}~"
+    fi
+    return
+  fi
+
+  printf '%-*s' "$width" "$text"
+}
+
+dashboard_record_activity() {
+  local line=${1//$'\r'/}
+  dashboard_activity_lines+=("$line")
+  if ((${#dashboard_activity_lines[@]} > 400)); then
+    dashboard_activity_lines=("${dashboard_activity_lines[@]: -400}")
+  fi
+}
+
+dashboard_note() {
+  local message=$1
+  if [[ "$dashboard_enabled" -eq 1 ]]; then
+    dashboard_record_activity "$message"
+  else
+    printf '%s\n' "$message" >&2
+  fi
+}
+
+dashboard_update_total_specs_from_line() {
+  local line=$1
+
+  if [[ "$line" =~ ^[[:space:]]*[0-9]+/([0-9]+)[[:space:]]+specs[[:space:]] ]]; then
+    dashboard_total_specs=${BASH_REMATCH[1]}
+    dashboard_probe_fallback_total=${BASH_REMATCH[1]}
+    dashboard_total_specs_known=1
+    return
+  fi
+
+  if [[ "$line" =~ ^Executed[[:space:]]+([0-9]+)[[:space:]]+specs\. ]]; then
+    dashboard_total_specs=${BASH_REMATCH[1]}
+    dashboard_total_specs_known=1
+    dashboard_probe_active=0
+  fi
+}
+
+dashboard_set_log_source() {
+  dashboard_current_log_file=$1
+  dashboard_current_log_line=0
+}
+
+dashboard_poll_log_source() {
+  local total_lines new_lines line
+
+  if [[ -z "$dashboard_current_log_file" || ! -f "$dashboard_current_log_file" ]]; then
+    return 0
+  fi
+
+  total_lines=$(wc -l <"$dashboard_current_log_file")
+  if ((total_lines <= dashboard_current_log_line)); then
+    return 0
+  fi
+
+  new_lines=$(sed -n "$((dashboard_current_log_line + 1)),$total_lines"p "$dashboard_current_log_file")
+  while IFS= read -r line; do
+    dashboard_record_activity "$line"
+    dashboard_update_total_specs_from_line "$line"
+  done <<<"$new_lines"
+  dashboard_current_log_line=$total_lines
+}
+
+dashboard_refresh_recent_commits() {
+  local now line sha subject stat
+  local commit_subject_width=44
+  now=$(date +%s)
+  if ((now - dashboard_last_commit_refresh < 3)); then
+    return
+  fi
+
+  dashboard_recent_commits_lines=()
+  while IFS=$'\t' read -r sha subject stat; do
+    printf -v line '%-7s  %-*.*s  %s' \
+      "$sha" "$commit_subject_width" "$commit_subject_width" "$subject" "$stat"
+    dashboard_recent_commits_lines+=("$line")
+  done < <(
+    git -C "$repo_root" log -n 10 --shortstat --pretty=format:'%h%x09%s' 2>/dev/null | \
+      awk '
+        BEGIN { FS = "\t"; sha = ""; subject = ""; stat = "" }
+        /^[0-9a-f]{7}\t/ {
+          if (sha != "") {
+            printf "%s\t%s\t%s\n", sha, subject, stat
+          }
+          sha = $1
+          subject = $2
+          stat = ""
+          next
+        }
+        /file changed|files changed/ {
+          gsub(/^[[:space:]]+/, "", $0)
+          stat = $0
+        }
+        END {
+          if (sha != "") {
+            printf "%s\t%s\t%s\n", sha, subject, stat
+          }
+        }
+      '
+  )
+  if (( ${#dashboard_recent_commits_lines[@]} == 0 )); then
+    dashboard_recent_commits_lines=("git log unavailable")
+  fi
+  dashboard_commits_since_cleanup=$(count_commits_since "$cleanup_anchor_commit")
+  dashboard_last_commit_refresh=$now
+}
+
+dashboard_refresh_usage() {
+  local now
+  local usage_raw primary_used secondary_used primary_window secondary_window
+  now=$(date +%s)
+  if ((now - dashboard_last_usage_refresh < 5)); then
+    return 0
+  fi
+
+  usage_raw=$(
+    python3 - <<'PY' 2>/dev/null
+import glob, json, os
+
+sessions_dir = os.path.join(os.environ.get('HOME', ''), '.codex', 'sessions')
+files = sorted(glob.glob(os.path.join(sessions_dir, '**', '*.jsonl'), recursive=True), key=os.path.getmtime, reverse=True)
+for path in files:
+    latest = None
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            for line in f:
+                try:
+                    obj = json.loads(line)
+                except Exception:
+                    continue
+                if obj.get('type') != 'event_msg':
+                    continue
+                payload = obj.get('payload') or {}
+                if payload.get('type') == 'token_count' and payload.get('rate_limits'):
+                    latest = payload.get('rate_limits') or {}
+        if latest:
+            primary = latest.get('primary') or {}
+            secondary = latest.get('secondary') or {}
+            print(f"{primary.get('used_percent','')}|{primary.get('window_minutes','')}|{secondary.get('used_percent','')}|{secondary.get('window_minutes','')}")
+            break
+    except Exception:
+        continue
+PY
+  )
+
+  if [[ -n "$usage_raw" ]]; then
+    IFS='|' read -r primary_used primary_window secondary_used secondary_window <<< "$usage_raw"
+    if [[ -n "$primary_used" && -n "$secondary_used" ]]; then
+      dashboard_usage_text=$(printf 'Usage: %d%% left / %sh, %d%% left / week' \
+        "$((100 - ${primary_used%.*}))" \
+        "$(( ${primary_window:-300} / 60 ))" \
+        "$((100 - ${secondary_used%.*}))")
+    else
+      dashboard_usage_text="Usage: unavailable"
+    fi
+  else
+    dashboard_usage_text="Usage: unavailable"
+  fi
+
+  dashboard_last_usage_refresh=$now
+}
+
+dashboard_start_spec_probe() {
+  local cmd=(zig build test)
+
+  if command -v stdbuf >/dev/null 2>&1; then
+    cmd=(stdbuf -oL -eL zig build test)
+  fi
+
+  coproc SPEC_COUNT_PROBE { "${cmd[@]}" 2>&1; }
+  dashboard_probe_fd=${SPEC_COUNT_PROBE[0]}
+  dashboard_probe_pid=$SPEC_COUNT_PROBE_PID
+  dashboard_probe_active=1
+  dashboard_probe_fallback_total=0
+  dashboard_probe_started_at=$(date +%s)
+  dashboard_note "Started background spec-count probe with zig build test"
+}
+
+dashboard_poll_spec_probe() {
+  local line
+
+  [[ "$dashboard_probe_active" -eq 1 ]] || return 0
+
+  while IFS= read -r -t 0.001 -u "$dashboard_probe_fd" line; do
+    dashboard_update_total_specs_from_line "$line"
+    dashboard_record_activity "[bootstrap] $line"
+  done
+
+  if ! kill -0 "$dashboard_probe_pid" 2>/dev/null; then
+    wait "$dashboard_probe_pid" 2>/dev/null || true
+    dashboard_probe_active=0
+    if [[ "$dashboard_total_specs_known" -eq 1 ]]; then
+      dashboard_note "Captured current total specs: $dashboard_total_specs"
+    elif [[ "$dashboard_probe_fallback_total" -gt 0 ]]; then
+      dashboard_total_specs=$dashboard_probe_fallback_total
+      dashboard_total_specs_known=1
+      dashboard_note "Spec-count probe finished without final summary; using fallback count $dashboard_probe_fallback_total"
+    else
+      dashboard_note "Could not detect total specs from zig build test output"
+    fi
+  fi
+}
+
+dashboard_progress_bar() {
+  local width=$1
+  local current=$2
+  local goal=$3
+  local filled=0
+  local empty
+  local green_limit yellow_limit i
+  local color_green=$'\033[30;42m'
+  local color_yellow=$'\033[30;43m'
+  local color_red=$'\033[30;41m'
+  local color_empty=$'\033[30;100m'
+  local color_reset=$'\033[0m'
+
+  ((width > 0)) || return
+  if ((goal > 0 && current > 0)); then
+    filled=$((current * width / goal))
+  fi
+  ((filled > width)) && filled=$width
+  empty=$((width - filled))
+  green_limit=$((width * 50 / 100))
+  yellow_limit=$((width * 80 / 100))
+
+  printf '['
+  for ((i = 0; i < width; i++)); do
+    if ((i < filled)); then
+      if ((i < green_limit)); then
+        printf '%s %s' "$color_green" "$color_reset"
+      elif ((i < yellow_limit)); then
+        printf '%s %s' "$color_yellow" "$color_reset"
+      else
+        printf '%s %s' "$color_red" "$color_reset"
+      fi
+    else
+      printf '%s %s' "$color_empty" "$color_reset"
+    fi
+  done
+  printf ']'
+}
+
+dashboard_wave_line() {
+  local width=$1
+  local offset=$2
+  local pattern=('▁' '▂' '▃' '▄' '▅' '▆' '▅' '▄' '▃' '▂')
+  local colors=($'\033[38;5;39m' $'\033[38;5;45m' $'\033[38;5;51m' $'\033[38;5;87m')
+  local color_reset=$'\033[0m'
+  local i idx
+
+  for ((i = 0; i < width; i++)); do
+    idx=$(((i + offset) % ${#pattern[@]}))
+    printf '%s%s%s' "${colors[i % ${#colors[@]}]}" "${pattern[idx]}" "$color_reset"
+  done
+}
+
+dashboard_cleanup() {
+  if [[ "$dashboard_enabled" -eq 1 ]]; then
+    printf '\033[0m\033[?25h\033[?1049l'
+    dashboard_enabled=0
+  fi
+}
+
+dashboard_init() {
+  if [[ ! -t 2 || "${TERM:-}" == "dumb" ]]; then
+    return
+  fi
+
+  dashboard_enabled=1
+  trap dashboard_cleanup EXIT
+  printf '\033[?1049h\033[?25l'
+  dashboard_refresh_recent_commits
+}
+
+dashboard_render() {
+  local cols lines art_width left_width top_rows commit_rows activity_rows
+  local color_reset=$'\033[0m'
+  local top_left_lines art_lines progress_pct remaining_specs bar_width
+  local probe_suffix=""
+  local i row start_index
+  local art_ruby=$'\033[38;5;196m'
+  local art_cora=$'\033[38;5;45m'
+  local reset=$color_reset
+
+  if [[ "$dashboard_enabled" -ne 1 ]]; then
+    return 0
+  fi
+
+  dashboard_poll_spec_probe
+  dashboard_poll_log_source
+  dashboard_refresh_recent_commits
+  dashboard_refresh_usage
+
+  cols=$(tput cols 2>/dev/null || printf '120')
+  lines=$(tput lines 2>/dev/null || printf '40')
+  art_width=28
+  if ((cols < 90)); then
+    art_width=22
+  fi
+  left_width=$((cols - art_width - 14))
+  if ((left_width < 40)); then
+    left_width=40
+    art_width=$((cols - left_width - 3))
+    ((art_width < 0)) && art_width=0
+  fi
+
+  if ((dashboard_total_specs_known == 1)); then
+    progress_pct=$((dashboard_total_specs * 100 / dashboard_goal_specs))
+    remaining_specs=$((dashboard_goal_specs - dashboard_total_specs))
+    ((remaining_specs < 0)) && remaining_specs=0
+  else
+    progress_pct=0
+    remaining_specs=$dashboard_goal_specs
+  fi
+
+  if [[ "$dashboard_probe_active" -eq 1 ]]; then
+    probe_suffix="   [counting specs...]"
+  fi
+
+  bar_width=$((left_width - 24))
+  ((bar_width < 10)) && bar_width=10
+
+  top_left_lines=(
+    " Cora Spec Port Loop   stage: ${dashboard_current_label}"
+    " Specs: ${dashboard_total_specs:-0}/${dashboard_goal_specs}   remaining: ${remaining_specs}"
+    " Progress"
+    " Status: ${dashboard_current_status}${probe_suffix}"
+    " Current spec: ${dashboard_current_spec:-auto-selecting next spec}"
+    " ${dashboard_usage_text}"
+    " Ports: ${successful_ports}   Cleanups: ${cleanup_runs}   Runs: ${successful_runs}"
+    " Commits since cleanup: ${dashboard_commits_since_cleanup}"
+  )
+
+  art_lines=(
+    "${art_cora}  ██████  ██████  ██████   █████ ${reset}"
+    "${art_cora} ██      ██    ██ ██   ██ ██   ██${reset}"
+    "${art_cora} ██      ██    ██ ██████  ███████${reset}"
+    "${art_cora} ██      ██    ██ ██  ██  ██   ██${reset}"
+    "${art_cora}  ██████  ██████  ██   ██ ██   ██${reset}"
+    ""
+    "${art_ruby}   ⢀⠞⠉⠉⠉⢩⡏⠉⠉⠉⢹⡍⠉⢹⣦${reset}"
+    "${art_ruby} ⡔⠁⠀⠀  ⢠⡇⠀⠀⠀  ⠀⢸⣆⠀ ⠀⣷${reset}"
+    "${art_ruby} ⠻⣏⠉⠉⠉⠻⡏⠉⠀⠉⠁⠁⠁ ⠀⠉⣹⣿⣿⣿⣿⡿${reset}"
+    "${art_ruby}  ⠘⢷⣆⠀ ⠀⢹⡄⠀⠀ ⠀⠀⢰⣿⣿⣿⣿⠟${reset}"
+    "${art_ruby}    ⠈⠳⣤⠀⠀⠘⣧⠠ ⠀⠄⣾⣿⡿⠋${reset}"
+    "${art_ruby}       ⠑⢥⠀⢹⡆⠀⣼⣿⠟${reset}"
+    "${art_ruby}         ⠑⢾⢿⠟${reset}"
+  )
+
+  top_rows=${#art_lines[@]}
+  if ((${#top_left_lines[@]} > top_rows)); then
+    top_rows=${#top_left_lines[@]}
+  fi
+  commit_rows=$(((lines - top_rows - 7) / 2))
+  ((commit_rows < 8)) && commit_rows=8
+  activity_rows=$((lines - top_rows - commit_rows - 7))
+  ((activity_rows < 8)) && activity_rows=8
+
+  local rendered_lines=0
+
+  printf '\033[H'
+  dashboard_wave_line "$cols" "$dashboard_spinner_index"
+  printf '\n'
+  rendered_lines=$((rendered_lines + 1))
+  for ((row = 0; row < top_rows; row++)); do
+    if ((row == 2)); then
+      local progress_prefix=" Progress "
+      local progress_suffix=" ${progress_pct}%"
+      local progress_visible_width=$(( ${#progress_prefix} + bar_width + 2 + ${#progress_suffix} ))
+      printf '%s' "$progress_prefix"
+      dashboard_progress_bar "$bar_width" "$dashboard_total_specs" "$dashboard_goal_specs"
+      printf '%s' "$progress_suffix"
+      if (( left_width > progress_visible_width )); then
+        dashboard_repeat "$((left_width - progress_visible_width))" ' '
+      fi
+    else
+      dashboard_plain "${top_left_lines[row]:-}" "$left_width"
+    fi
+    printf '   '
+    printf '%s' "${art_lines[row]:-}"
+    printf '\n'
+    rendered_lines=$((rendered_lines + 1))
+  done
+
+  printf '%s\n' "$(dashboard_repeat "$cols" '=')"
+  rendered_lines=$((rendered_lines + 1))
+  printf '\033[38;5;220mRecent Commits\033[0m\n'
+  rendered_lines=$((rendered_lines + 1))
+  for ((row = 0; row < commit_rows; row++)); do
+    dashboard_plain "${dashboard_recent_commits_lines[row]:-}" "$cols"
+    printf '\n'
+    rendered_lines=$((rendered_lines + 1))
+  done
+
+  printf '%s\n' "$(dashboard_repeat "$cols" '=')"
+  rendered_lines=$((rendered_lines + 1))
+  printf '\033[38;5;220mActivity Log\033[0m\n'
+  rendered_lines=$((rendered_lines + 1))
+  start_index=0
+  if ((${#dashboard_activity_lines[@]} > activity_rows)); then
+    start_index=$((${#dashboard_activity_lines[@]} - activity_rows))
+  fi
+  for ((i = 0; i < activity_rows; i++)); do
+    row=$((start_index + i))
+    dashboard_plain "${dashboard_activity_lines[row]:-}" "$cols"
+    printf '\n'
+    rendered_lines=$((rendered_lines + 1))
+  done
+
+  if (( dashboard_last_render_lines > rendered_lines )); then
+    printf '\033[J'
+  else
+    printf '\033[J'
+  fi
+  dashboard_last_render_lines=$rendered_lines
+}
+
+capture_total_specs() {
+  dashboard_current_label="bootstrap"
+  dashboard_current_status="starting background spec-count probe"
+  dashboard_start_spec_probe
+  dashboard_render
+}
+
 run_and_log() {
   local label=$1
   local log_file=$2
@@ -58,27 +536,46 @@ run_and_log() {
   {
     printf '==> %s\n' "$label"
     printf 'cmd: %s\n' "$(quote_args "$@")"
-  } > "$log_file"
+  } >"$log_file"
 
   if [[ "$stdin_file" != "-" ]]; then
-    "$@" < "$stdin_file" >> "$log_file" 2>&1 &
+    "$@" <"$stdin_file" >>"$log_file" 2>&1 &
   else
-    "$@" >> "$log_file" 2>&1 &
+    "$@" >>"$log_file" 2>&1 &
   fi
 
   local cmd_pid=$!
   local spinner='-\|/'
   local i=0
 
+  dashboard_current_label=$label
+  dashboard_current_status=$status_text
+  dashboard_set_log_source "$log_file"
+  dashboard_render
+
   while kill -0 "$cmd_pid" 2>/dev/null; do
-    printf '\r[%s] %s %c' "$label" "$status_text" "${spinner:i++%${#spinner}:1}"
+    if [[ "$dashboard_enabled" -eq 1 ]]; then
+      dashboard_spinner_index=$((dashboard_spinner_index + 1))
+      dashboard_current_label=$label
+      dashboard_current_status=$status_text
+      dashboard_render
+    else
+      printf '\r[%s] %s %c' "$label" "$status_text" "${spinner:i++%${#spinner}:1}"
+    fi
     sleep 0.15
   done
 
   wait "$cmd_pid"
   local status=$?
-  printf '\r[%s] %s %s\n' "$label" "$status_text" "$( [[ "$status" -eq 0 ]] && printf 'done' || printf 'failed' )"
-  printf 'exit: %s\n' "$status" >> "$log_file"
+  dashboard_poll_log_source
+  if [[ "$dashboard_enabled" -eq 1 ]]; then
+    dashboard_note "[$label] $status_text $([[ "$status" -eq 0 ]] && printf 'done' || printf 'failed')"
+    dashboard_current_status="$status_text ($([[ "$status" -eq 0 ]] && printf 'done' || printf 'failed'))"
+    dashboard_render
+  else
+    printf '\r[%s] %s %s\n' "$label" "$status_text" "$([[ "$status" -eq 0 ]] && printf 'done' || printf 'failed')"
+  fi
+  printf 'exit: %s\n' "$status" >>"$log_file"
   return "$status"
 }
 
@@ -135,7 +632,7 @@ ensure_clean_worktree() {
 
 rollback_to_stage_start() {
   local rollback_head=$1
-  printf 'Rolling back repo to %s\n' "$rollback_head" >&2
+  dashboard_note "Rolling back repo to $rollback_head"
   git -C "$repo_root" reset --hard "$rollback_head" >/dev/null
   git -C "$repo_root" clean -fd >/dev/null
 }
@@ -150,8 +647,8 @@ run_verification_command() {
   log_file="$runs_dir/$timestamp-$label.log"
 
   if [[ "$dry_run" -eq 1 ]]; then
-    printf '[dry-run] %s\n' "$label"
-    printf '[dry-run] cmd: %s\n' "$(quote_args "$@")"
+    dashboard_note "[dry-run] $label"
+    dashboard_note "[dry-run] cmd: $(quote_args "$@")"
     return 0
   fi
 
@@ -173,13 +670,13 @@ run_porter_verification_with_retry() {
   fi
 
   if [[ "$attempt" -ge 1 ]]; then
-    printf 'Post-porter verification failed after one retry; rolling back porter attempt.\n' >&2
+    dashboard_note "Post-porter verification failed after one retry; rolling back porter attempt."
     rollback_to_stage_start "$rollback_head"
     STAGE_RESULT="rolled_back_failure"
     return 0
   fi
 
-  printf 'Post-porter verification failed; retrying porter once from current state.\n' >&2
+  dashboard_note "Post-porter verification failed; retrying porter once from current state."
   STAGE_RESULT="success"
   run_stage_with_judge "porter" "$porter_prompt" "$use_resume" 1 1 "$rollback_head" || return 1
   if [[ "$STAGE_RESULT" == "rolled_back_failure" ]]; then
@@ -204,49 +701,49 @@ has_explicit_color=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --target)
-      [[ $# -ge 2 ]] || die "--target requires a value"
-      target_spec=$2
-      shift 2
-      ;;
-    --max-ports)
-      [[ $# -ge 2 ]] || die "--max-ports requires a value"
-      max_ports=$2
-      shift 2
-      ;;
-    --cleanup-every-commits)
-      [[ $# -ge 2 ]] || die "--cleanup-every-commits requires a value"
-      cleanup_every_commits=$2
-      shift 2
-      ;;
-    --resume-last)
-      resume_last=1
-      shift
-      ;;
-    --dry-run)
-      dry_run=1
-      shift
-      ;;
-    --codex-bin)
-      [[ $# -ge 2 ]] || die "--codex-bin requires a value"
-      codex_bin=$2
-      shift 2
-      ;;
-    --codex-arg)
-      [[ $# -ge 2 ]] || die "--codex-arg requires a value"
-      codex_args+=("$2")
-      if [[ "$2" == "--color" || "$2" == --color=* ]]; then
-        has_explicit_color=1
-      fi
-      shift 2
-      ;;
-    -h|--help)
-      usage
-      exit 0
-      ;;
-    *)
-      die "unknown option: $1"
-      ;;
+  --target)
+    [[ $# -ge 2 ]] || die "--target requires a value"
+    target_spec=$2
+    shift 2
+    ;;
+  --max-ports)
+    [[ $# -ge 2 ]] || die "--max-ports requires a value"
+    max_ports=$2
+    shift 2
+    ;;
+  --cleanup-every-commits)
+    [[ $# -ge 2 ]] || die "--cleanup-every-commits requires a value"
+    cleanup_every_commits=$2
+    shift 2
+    ;;
+  --resume-last)
+    resume_last=1
+    shift
+    ;;
+  --dry-run)
+    dry_run=1
+    shift
+    ;;
+  --codex-bin)
+    [[ $# -ge 2 ]] || die "--codex-bin requires a value"
+    codex_bin=$2
+    shift 2
+    ;;
+  --codex-arg)
+    [[ $# -ge 2 ]] || die "--codex-arg requires a value"
+    codex_args+=("$2")
+    if [[ "$2" == "--color" || "$2" == --color=* ]]; then
+      has_explicit_color=1
+    fi
+    shift 2
+    ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  *)
+    die "unknown option: $1"
+    ;;
   esac
 done
 
@@ -276,8 +773,11 @@ if [[ -f "$state_file" ]]; then
   source "$state_file"
 fi
 
+dashboard_init
+capture_total_specs
+
 save_state() {
-  cat > "$state_file" <<EOF
+  cat >"$state_file" <<EOF
 successful_ports=$successful_ports
 cleanup_runs=$cleanup_runs
 successful_runs=$successful_runs
@@ -403,8 +903,8 @@ build_codex_command() {
   fi
   cmd+=(-o "$message_file")
   cmd+=(-)
-  printf '%s\0' "${cmd[@]}" > "$prompt_file.cmd"
-  printf '%s' "$prompt" > "$prompt_file"
+  printf '%s\0' "${cmd[@]}" >"$prompt_file.cmd"
+  printf '%s' "$prompt" >"$prompt_file"
 }
 
 invoke_codex() {
@@ -424,27 +924,28 @@ invoke_codex() {
   local -a cmd=()
   while IFS= read -r -d '' item; do
     cmd+=("$item")
-  done < "$prompt_file.cmd"
+  done <"$prompt_file.cmd"
 
   LAST_LOG_FILE=$log_file
   LAST_PROMPT_FILE=$prompt_file
   LAST_MESSAGE_FILE=$message_file
 
   if [[ "$dry_run" -eq 1 ]]; then
-    printf '[dry-run] %s\n' "$label"
-    printf '[dry-run] cmd: %s < %s\n' "$(quote_args "${cmd[@]}")" "$prompt_file"
-    printf '[dry-run] prompt preview:\n%s\n' "$prompt"
+    dashboard_note "[dry-run] $label"
+    dashboard_note "[dry-run] cmd: $(quote_args "${cmd[@]}") < $prompt_file"
+    dashboard_note "[dry-run] prompt preview follows"
+    while IFS= read -r line; do
+      dashboard_note "$line"
+    done <<<"$prompt"
     return 0
   fi
 
   if ! run_and_log "$label" "$log_file" "$prompt_file" "$status_text" "${cmd[@]}"; then
     if log_has_limit_error "$log_file"; then
-      printf 'Codex stopped on a usage/rate limit during %s. Exiting without retry. Log: %s\n' \
-        "$label" "$log_file" >&2
+      dashboard_note "Codex stopped on a usage/rate limit during $label. Log: $log_file"
       LAST_INVOKE_LIMIT_ERROR=1
     else
-      printf 'Codex failed during %s. Exiting without retry. Log: %s\n' \
-        "$label" "$log_file" >&2
+      dashboard_note "Codex failed during $label. Log: $log_file"
       LAST_INVOKE_LIMIT_ERROR=0
     fi
     return 1
@@ -576,11 +1077,11 @@ invoke_judge() {
   JUDGE_REASON=$(sed -n 's/^REASON:[[:space:]]*//p' "$LAST_MESSAGE_FILE" | head -n 1)
 
   case "$JUDGE_DECISION" in
-    accept|retry|stop|escalate) ;;
-    *)
-      JUDGE_DECISION="stop"
-      JUDGE_REASON="Judge output was not parseable"
-      ;;
+  accept | retry | stop | escalate) ;;
+  *)
+    JUDGE_DECISION="stop"
+    JUDGE_REASON="Judge output was not parseable"
+    ;;
   esac
 }
 
@@ -650,51 +1151,51 @@ run_stage_with_judge() {
   log_tail=$(tail -n 80 "$LAST_LOG_FILE" 2>/dev/null || true)
   suspicion_reasons=$(join_by '; ' "${suspicion_list[@]}")
 
-  printf 'Suspicious %s result; invoking judge. Reasons: %s\n' "$stage" "$suspicion_reasons" >&2
+  dashboard_note "Suspicious $stage result; invoking judge. Reasons: $suspicion_reasons"
   invoke_judge \
     "$stage" "$run_status" "$suspicion_reasons" "$before_head" "$after_head" \
     "$before_todo_hash" "$after_todo_hash" "$before_status" "$after_status" \
-    "$recent_commits" "$name_status" "$todo_diff" "$final_message" "$log_tail" \
-    || die "judge failed for $stage"
+    "$recent_commits" "$name_status" "$todo_diff" "$final_message" "$log_tail" ||
+    die "judge failed for $stage"
 
-  printf 'Judge decision for %s: %s (%s)\n' "$stage" "$JUDGE_DECISION" "$JUDGE_REASON" >&2
+  dashboard_note "Judge decision for $stage: $JUDGE_DECISION ($JUDGE_REASON)"
 
   case "$JUDGE_DECISION" in
-    accept)
-      if [[ "$run_status" -ne 0 ]]; then
-        die "$stage failed and judge accept is unsafe"
+  accept)
+    if [[ "$run_status" -ne 0 ]]; then
+      die "$stage failed and judge accept is unsafe"
+    fi
+    return 0
+    ;;
+  retry)
+    if [[ "$attempt" -ge 1 ]]; then
+      if [[ "$stage" == "porter" ]]; then
+        rollback_to_stage_start "$rollback_head"
+        STAGE_RESULT="rolled_back_failure"
+        return 0
       fi
+      die "$stage already retried once; judge requested another retry"
+    fi
+    dashboard_note "Retrying $stage once based on judge decision."
+    run_stage_with_judge "$stage" "$prompt" "$use_resume" "$expect_todo_change" $((attempt + 1)) "$rollback_head"
+    return
+    ;;
+  stop)
+    if [[ "$stage" == "porter" && "$attempt" -ge 1 ]]; then
+      rollback_to_stage_start "$rollback_head"
+      STAGE_RESULT="rolled_back_failure"
       return 0
-      ;;
-    retry)
-      if [[ "$attempt" -ge 1 ]]; then
-        if [[ "$stage" == "porter" ]]; then
-          rollback_to_stage_start "$rollback_head"
-          STAGE_RESULT="rolled_back_failure"
-          return 0
-        fi
-        die "$stage already retried once; judge requested another retry"
-      fi
-      printf 'Retrying %s once based on judge decision.\n' "$stage" >&2
-      run_stage_with_judge "$stage" "$prompt" "$use_resume" "$expect_todo_change" $((attempt + 1)) "$rollback_head"
-      return
-      ;;
-    stop)
-      if [[ "$stage" == "porter" && "$attempt" -ge 1 ]]; then
-        rollback_to_stage_start "$rollback_head"
-        STAGE_RESULT="rolled_back_failure"
-        return 0
-      fi
-      die "$stage stopped by judge: $JUDGE_REASON"
-      ;;
-    escalate)
-      if [[ "$stage" == "porter" && "$attempt" -ge 1 ]]; then
-        rollback_to_stage_start "$rollback_head"
-        STAGE_RESULT="rolled_back_failure"
-        return 0
-      fi
-      die "$stage escalated by judge: $JUDGE_REASON"
-      ;;
+    fi
+    die "$stage stopped by judge: $JUDGE_REASON"
+    ;;
+  escalate)
+    if [[ "$stage" == "porter" && "$attempt" -ge 1 ]]; then
+      rollback_to_stage_start "$rollback_head"
+      STAGE_RESULT="rolled_back_failure"
+      return 0
+    fi
+    die "$stage escalated by judge: $JUDGE_REASON"
+    ;;
   esac
 }
 
@@ -704,7 +1205,7 @@ manual_target_consumed=0
 while :; do
   porter_start_head=$(current_head)
   if [[ "$max_ports" -gt 0 && "$port_count_this_invocation" -ge "$max_ports" ]]; then
-    printf 'Reached max porter attempts: %s\n' "$max_ports"
+    dashboard_note "Reached max porter attempts: $max_ports"
     break
   fi
 
@@ -723,7 +1224,7 @@ while :; do
     choose_next_spec_with_codex "$use_resume" || {
       selector_status=$?
       if [[ "$selector_status" -eq 2 ]]; then
-        printf 'No unchecked specs remain in %s\n' "$todo_file"
+        dashboard_note "No unchecked specs remain in $todo_file"
         break
       fi
       die "spec selection failed"
@@ -731,13 +1232,15 @@ while :; do
     CURRENT_SPEC=$CHOSEN_SPEC
   fi
 
+  dashboard_current_spec=$CURRENT_SPEC
+  dashboard_note "Starting porter attempt for $CURRENT_SPEC"
   porter_prompt=$(build_porter_prompt "$CURRENT_SPEC")
   port_count_this_invocation=$((port_count_this_invocation + 1))
   STAGE_RESULT="success"
   run_stage_with_judge "porter" "$porter_prompt" "$use_resume" 1 || die "porter run failed for $CURRENT_SPEC"
 
   if [[ "$STAGE_RESULT" == "rolled_back_failure" ]]; then
-    printf 'Porter attempt failed after retry and was rolled back to clean state.\n' >&2
+    dashboard_note "Porter attempt failed after retry and was rolled back to clean state."
     if [[ -n "$target_spec" ]]; then
       break
     fi
@@ -747,7 +1250,7 @@ while :; do
   run_porter_verification_with_retry "$porter_start_head" "$porter_prompt" "$use_resume" || die "post-porter verification handling failed"
 
   if [[ "$STAGE_RESULT" == "rolled_back_failure" ]]; then
-    printf 'Porter attempt failed verification after retry and was rolled back to clean state.\n' >&2
+    dashboard_note "Porter attempt failed verification after retry and was rolled back to clean state."
     if [[ -n "$target_spec" ]]; then
       break
     fi
@@ -761,6 +1264,7 @@ while :; do
 
   commits_since_cleanup=$(count_commits_since "$cleanup_anchor_commit")
   if [[ "$cleanup_every_commits" -gt 0 && "$commits_since_cleanup" -ge "$cleanup_every_commits" ]]; then
+    dashboard_note "Cleanup threshold reached at $commits_since_cleanup commits."
     cleanup_prompt=$(build_cleanup_prompt)
     run_stage_with_judge "cleanup" "$cleanup_prompt" "$use_resume" 0 || die "cleanup run failed"
 
@@ -775,5 +1279,6 @@ while :; do
   fi
 done
 
+dashboard_cleanup
 printf 'successful_ports=%s cleanup_runs=%s commits_since_cleanup=%s\n' \
   "$successful_ports" "$cleanup_runs" "$(count_commits_since "$cleanup_anchor_commit")"
