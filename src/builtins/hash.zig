@@ -175,6 +175,17 @@ fn setHashDefaultProc(hash_obj: *value.HashObject, proc_obj: *value.ProcObject) 
     hash_obj.default_value = null;
 }
 
+fn digIntoValue(vm: *VM, current_value: Value, remaining_args: []Value) VMError!Value {
+    if (remaining_args.len == 0) return current_value;
+    if (current_value.isNil()) return Value.nil();
+
+    if (!try vm.respondsToMethodByName(current_value, "dig")) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "{s} does not have #dig method", .{vm.className(current_value)});
+    }
+
+    return vm.callMethodByName(current_value, "dig", remaining_args, null);
+}
+
 fn yieldHashEntryPair(vm: *VM, blk: Block, entry: value.HashEntry) VMError!HashYieldResult {
     const pair = try vm.createArray();
     pair.elements.append(vm.gc_allocator, entry.key) catch return error.Fatal;
@@ -567,30 +578,8 @@ pub fn builtinHashFetch(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
 
 pub fn builtinHashDig(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireMinArgCount(args, 1);
-
-    var current_value = receiver;
-
-    for (args) |key| {
-        // Check if current value is nil
-        if (current_value.isNil()) {
-            return Value.nil();
-        }
-
-        // Try to call [] on the current value
-        var bracket_args = [_]Value{key};
-        const next_value = vm.callMethodByName(current_value, "[]", &bracket_args, null) catch |err| {
-            if (err == error.Unwind) {
-                // If [] raised an exception (e.g., NoMethodError), return nil instead
-                vm.pending_exception = null;
-                return Value.nil();
-            }
-            return err;
-        };
-
-        current_value = next_value;
-    }
-
-    return current_value;
+    const current_value = try vm.callMethodByName(receiver, "[]", args[0..1], null);
+    return digIntoValue(vm, current_value, args[1..]);
 }
 
 pub fn builtinHashSelect(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {

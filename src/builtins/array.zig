@@ -234,6 +234,9 @@ pub fn register(vm: *VM) !void {
     const at_sym = try vm.intern("at");
     try vm.array_class.module.methods.put(at_sym, .{ .method = .{ .builtin = &builtinArrayAt } });
 
+    const dig_sym = try vm.intern("dig");
+    try vm.array_class.module.methods.put(dig_sym, .{ .method = .{ .builtin = &builtinArrayDig } });
+
     const intersection_sym = try vm.intern("&");
     try vm.array_class.module.methods.put(intersection_sym, .{ .method = .{ .builtin = &builtinArrayIntersection } });
 
@@ -1178,6 +1181,21 @@ pub fn builtinArrayAt(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
     }
 
     return array.elements.items[@intCast(actual_index)];
+}
+
+pub fn builtinArrayDig(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireMinArgCount(args, 1);
+
+    const current_value = try builtinArrayAt(vm, receiver, args[0..1], null);
+    if (args.len == 1 or current_value.isNil()) {
+        return current_value;
+    }
+
+    if (!try vm.respondsToMethodByName(current_value, "dig")) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "{s} does not have #dig method", .{vm.className(current_value)});
+    }
+
+    return vm.callMethodByName(current_value, "dig", args[1..], null);
 }
 
 pub fn builtinArrayIntersection(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

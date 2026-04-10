@@ -173,31 +173,6 @@ test "Hash fetch uses block when both default and block are given" {
     try std.testing.expectEqual(42, result.toInteger());
 }
 
-test "Hash dig with single key" {
-    const result = try evalCode("h = {a: 1, b: 2}\nh.dig(:a)");
-    try std.testing.expectEqual(1, result.toInteger());
-}
-
-test "Hash dig with nested hashes" {
-    const result = try evalCode("h = {a: {b: {c: 42}}}\nh.dig(:a, :b, :c)");
-    try std.testing.expectEqual(42, result.toInteger());
-}
-
-test "Hash dig returns nil for missing key" {
-    const result = try evalCode("h = {a: {b: 2}}\nh.dig(:a, :x, :y)");
-    try std.testing.expect(result.isNil());
-}
-
-test "Hash dig returns nil when intermediate value is nil" {
-    const result = try evalCode("h = {a: nil}\nh.dig(:a, :b)");
-    try std.testing.expect(result.isNil());
-}
-
-test "Hash dig with arrays" {
-    const result = try evalCode("h = {a: [1, 2, 3]}\nh.dig(:a, 1)");
-    try std.testing.expectEqual(2, result.toInteger());
-}
-
 test "Hash select with block" {
     const result = try evalCode("h = {a: 1, b: 2, c: 3, d: 4}\nh.select { |k, v| v > 2 }");
     try std.testing.expect(result.isHash());

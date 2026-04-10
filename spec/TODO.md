@@ -933,7 +933,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/hash/default_spec.rb
 - [ ] core/hash/delete_if_spec.rb
 - [x] core/hash/delete_spec.rb
-- [ ] core/hash/dig_spec.rb
+- [x] core/hash/dig_spec.rb
 - [ ] core/hash/each_key_spec.rb
 - [x] core/hash/each_pair_spec.rb
 - [x] core/hash/each_spec.rb
