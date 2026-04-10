@@ -28,6 +28,14 @@ pub const UsAsciiEncoding = struct {
         return true;
     }
 
+    pub fn isDummy(_: UsAsciiEncoding) bool {
+        return false;
+    }
+
+    pub fn isUnicode(_: UsAsciiEncoding) bool {
+        return false;
+    }
+
     pub fn isSingleByte(_: UsAsciiEncoding) bool {
         return true;
     }

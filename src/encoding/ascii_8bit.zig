@@ -25,6 +25,14 @@ pub const Ascii8BitEncoding = struct {
         return true;
     }
 
+    pub fn isDummy(_: Ascii8BitEncoding) bool {
+        return false;
+    }
+
+    pub fn isUnicode(_: Ascii8BitEncoding) bool {
+        return false;
+    }
+
     pub fn isSingleByte(_: Ascii8BitEncoding) bool {
         return true;
     }

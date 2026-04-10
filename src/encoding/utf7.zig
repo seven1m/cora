@@ -25,6 +25,14 @@ pub const Utf7Encoding = struct {
         return true;
     }
 
+    pub fn isDummy(_: Utf7Encoding) bool {
+        return true;
+    }
+
+    pub fn isUnicode(_: Utf7Encoding) bool {
+        return false;
+    }
+
     pub fn isSingleByte(_: Utf7Encoding) bool {
         return true;
     }

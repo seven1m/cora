@@ -25,6 +25,14 @@ pub const Cp437Encoding = struct {
         return true;
     }
 
+    pub fn isDummy(_: Cp437Encoding) bool {
+        return false;
+    }
+
+    pub fn isUnicode(_: Cp437Encoding) bool {
+        return false;
+    }
+
     pub fn isSingleByte(_: Cp437Encoding) bool {
         return true;
     }

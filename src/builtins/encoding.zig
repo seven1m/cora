@@ -152,10 +152,16 @@ pub fn register(vm: *VM) !void {
     const ascii_compatible_sym = try vm.intern("ascii_compatible?");
     try vm.encoding_class.module.methods.put(ascii_compatible_sym, .{ .method = .{ .builtin = &builtinEncodingAsciiCompatible } });
 
+    const dummy_sym = try vm.intern("dummy?");
+    try vm.encoding_class.module.methods.put(dummy_sym, .{ .method = .{ .builtin = &builtinEncodingDummy } });
+
     const find_sym = try vm.intern("find");
     const encoding_class_val = Value.fromObject(vm.encoding_class);
     const encoding_singleton = try vm.getOrCreateSingletonClass(encoding_class_val);
     try encoding_singleton.module.methods.put(find_sym, .{ .method = .{ .builtin = &builtinEncodingFind } });
+
+    const list_sym = try vm.intern("list");
+    try encoding_singleton.module.methods.put(list_sym, .{ .method = .{ .builtin = &builtinEncodingList } });
 
     const default_internal_sym = try vm.intern("default_internal");
     try encoding_singleton.module.methods.put(default_internal_sym, .{ .method = .{ .builtin = &builtinEncodingDefaultInternal } });
@@ -187,7 +193,12 @@ pub fn builtinEncodingInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block
 pub fn builtinEncodingAsciiCompatible(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const encoding_obj = receiver.toEncodingObject();
-    return Value.boolean(encoding_obj.encoding.isAsciiCompatible());
+    return Value.boolean(!encoding_obj.encoding.isDummy() and encoding_obj.encoding.isAsciiCompatible());
+}
+
+pub fn builtinEncodingDummy(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return Value.boolean(receiver.toEncodingObject().encoding.isDummy());
 }
 
 pub fn builtinEncodingEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -259,6 +270,33 @@ pub fn builtinEncodingFind(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
     }
 
     return vm.raiseExceptionFmt(vm.encoding_converter_not_found_error_class, "unknown encoding name - {s}", .{name_str});
+}
+
+pub fn builtinEncodingList(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
+    const array = try vm.createArray();
+    const encodings = [_]Value{
+        Value.fromObject(vm.encoding_ascii_8bit),
+        Value.fromObject(vm.encoding_us_ascii),
+        Value.fromObject(vm.encoding_utf8),
+        Value.fromObject(vm.encoding_utf7),
+        Value.fromObject(vm.encoding_utf16),
+        Value.fromObject(vm.encoding_utf16le),
+        Value.fromObject(vm.encoding_utf16be),
+        Value.fromObject(vm.encoding_utf32),
+        Value.fromObject(vm.encoding_utf32le),
+        Value.fromObject(vm.encoding_utf32be),
+        Value.fromObject(vm.encoding_shift_jis),
+        Value.fromObject(vm.encoding_windows_31j),
+        Value.fromObject(vm.encoding_euc_jp),
+        Value.fromObject(vm.encoding_iso_2022_jp),
+        Value.fromObject(vm.encoding_iso_8859_9),
+        Value.fromObject(vm.encoding_iso_8859_15),
+        Value.fromObject(vm.encoding_cp437),
+    };
+    array.elements.appendSlice(vm.gc_allocator, &encodings) catch return error.Fatal;
+    return Value.fromObject(array);
 }
 
 pub fn builtinEncodingDefaultInternal(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

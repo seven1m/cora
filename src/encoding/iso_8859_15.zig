@@ -25,6 +25,14 @@ pub const Iso885915Encoding = struct {
         return true;
     }
 
+    pub fn isDummy(_: Iso885915Encoding) bool {
+        return false;
+    }
+
+    pub fn isUnicode(_: Iso885915Encoding) bool {
+        return false;
+    }
+
     pub fn isSingleByte(_: Iso885915Encoding) bool {
         return true;
     }

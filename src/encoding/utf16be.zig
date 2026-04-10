@@ -61,6 +61,14 @@ pub const Utf16BeEncoding = struct {
         return false;
     }
 
+    pub fn isDummy(_: Utf16BeEncoding) bool {
+        return false;
+    }
+
+    pub fn isUnicode(_: Utf16BeEncoding) bool {
+        return true;
+    }
+
     pub fn isSingleByte(_: Utf16BeEncoding) bool {
         return false;
     }

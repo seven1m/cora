@@ -67,6 +67,14 @@ pub const Iso2022JpEncoding = struct {
         return true;
     }
 
+    pub fn isDummy(_: Iso2022JpEncoding) bool {
+        return true;
+    }
+
+    pub fn isUnicode(_: Iso2022JpEncoding) bool {
+        return false;
+    }
+
     pub fn isSingleByte(_: Iso2022JpEncoding) bool {
         return false;
     }

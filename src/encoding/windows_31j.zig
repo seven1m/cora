@@ -59,6 +59,14 @@ pub const Windows31JEncoding = struct {
         return true;
     }
 
+    pub fn isDummy(_: Windows31JEncoding) bool {
+        return false;
+    }
+
+    pub fn isUnicode(_: Windows31JEncoding) bool {
+        return false;
+    }
+
     pub fn isSingleByte(_: Windows31JEncoding) bool {
         return false;
     }

@@ -118,6 +118,14 @@ pub const Utf8Encoding = struct {
         return true;
     }
 
+    pub fn isDummy(_: Utf8Encoding) bool {
+        return false;
+    }
+
+    pub fn isUnicode(_: Utf8Encoding) bool {
+        return true;
+    }
+
     pub fn isSingleByte(_: Utf8Encoding) bool {
         return false;
     }

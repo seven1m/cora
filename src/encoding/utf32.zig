@@ -25,6 +25,14 @@ pub const Utf32Encoding = struct {
         return false;
     }
 
+    pub fn isDummy(_: Utf32Encoding) bool {
+        return true;
+    }
+
+    pub fn isUnicode(_: Utf32Encoding) bool {
+        return true;
+    }
+
     pub fn isSingleByte(_: Utf32Encoding) bool {
         return true;
     }

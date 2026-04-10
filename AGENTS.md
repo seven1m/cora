@@ -135,6 +135,7 @@ Use "unmanaged" ArrayList: `field: ArrayList(*Value) = .empty` (allocator passed
 
 - Prefer importing files at the top of the file. Avoid inline `@import(...)` expressions in function bodies or expressions.
 - Do not expose runtime implementation details to user Ruby code via fake/hidden instance variables or methods (e.g. `@__store`, `__hidden_methods__`). Keep runtime-only state in VM/runtime structures instead.
+- In `src/encoding/*.zig`, keep encoding capability predicates on the concrete encoding structs and have `src/encoding.zig` delegate via `inline else`; avoid hard-coding per-tag switches in the `Encoding` union for flags like `isDummy`/`isUnicode`.
 - Always use VM argument-count helpers (`requireArgCount`, `requireArgCountRange`, etc.) instead of manually constructing "wrong number of arguments" exceptions in builtins.
 - Prefer `VM.checkCallMethodByName(receiver, "method", args, block)` for optional conversion/probe calls that should gracefully treat missing methods as "not supported" (MRI-style check-call behavior).
 - Do not parse exception messages (for example `"undefined method 'to_str'"`) to detect missing methods. Use `checkCallMethodByName` or explicit method lookup + dispatch rules.

@@ -365,7 +365,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/encoding/_dump_spec.rb
 - [ ] core/encoding/_load_spec.rb
 - [ ] core/encoding/aliases_spec.rb
-- [ ] core/encoding/ascii_compatible_spec.rb
+- [x] core/encoding/ascii_compatible_spec.rb
 - [ ] core/encoding/compatible_spec.rb
 
 ### core/encoding/converter

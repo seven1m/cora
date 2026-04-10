@@ -62,6 +62,14 @@ pub const ShiftJisEncoding = struct {
         return true;
     }
 
+    pub fn isDummy(_: ShiftJisEncoding) bool {
+        return false;
+    }
+
+    pub fn isUnicode(_: ShiftJisEncoding) bool {
+        return false;
+    }
+
     pub fn isSingleByte(_: ShiftJisEncoding) bool {
         return false;
     }

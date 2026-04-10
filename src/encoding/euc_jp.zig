@@ -45,6 +45,14 @@ pub const EucJpEncoding = struct {
         return true;
     }
 
+    pub fn isDummy(_: EucJpEncoding) bool {
+        return false;
+    }
+
+    pub fn isUnicode(_: EucJpEncoding) bool {
+        return false;
+    }
+
     pub fn isSingleByte(_: EucJpEncoding) bool {
         return false;
     }

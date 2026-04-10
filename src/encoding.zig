@@ -85,10 +85,15 @@ pub const Encoding = union(enum) {
         };
     }
 
+    pub fn isDummy(self: Encoding) bool {
+        return switch (self) {
+            inline else => |enc| enc.isDummy(),
+        };
+    }
+
     pub fn isUnicode(self: Encoding) bool {
         return switch (self) {
-            .utf8, .utf16, .utf32, .utf16le, .utf16be, .utf32le, .utf32be => true,
-            else => false,
+            inline else => |enc| enc.isUnicode(),
         };
     }
 
