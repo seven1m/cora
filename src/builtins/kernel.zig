@@ -51,6 +51,52 @@ fn collectKernelMethods(vm: *VM, receiver: Value, filter: MethodListFilter, incl
     return Value.fromObject(out);
 }
 
+fn resolveMethodOwnerValue(vm: *VM, receiver: Value, method_name_sym: *SymbolObject) VMError!?Value {
+    const scanClass = struct {
+        fn run(vm_inner: *VM, class_obj: *ClassObject, name_sym: *SymbolObject) ?Value {
+            var current: ?*ClassObject = class_obj;
+            while (current) |klass| {
+                var i = klass.prepended_modules.items.len;
+                while (i > 0) {
+                    i -= 1;
+                    const prepended = klass.prepended_modules.items[i];
+                    if (prepended.methods.get(name_sym)) |entry| {
+                        if (entry.method == .undefined) return null;
+                        return Value.fromObject(prepended);
+                    }
+                }
+
+                if (klass.module.methods.get(name_sym)) |entry| {
+                    if (entry.method == .undefined) return null;
+                    return Value.fromObject(klass);
+                }
+
+                i = klass.included_modules.items.len;
+                while (i > 0) {
+                    i -= 1;
+                    const included = klass.included_modules.items[i];
+                    if (included.methods.get(name_sym)) |entry| {
+                        if (entry.method == .undefined) return null;
+                        return Value.fromObject(included);
+                    }
+                }
+
+                current = klass.superclass;
+            }
+
+            _ = vm_inner;
+            return null;
+        }
+    }.run;
+
+    if (receiver.getObjectPointer() != null) {
+        const singleton_class = try vm.getOrCreateSingletonClass(receiver);
+        if (scanClass(vm, singleton_class, method_name_sym)) |owner| return owner;
+    }
+
+    return scanClass(vm, vm.getClass(receiver), method_name_sym);
+}
+
 pub fn register(vm: *VM) !void {
     const puts_sym = try vm.intern("puts");
     try vm.kernel_module.methods.put(puts_sym, .{ .method = .{ .builtin = &builtinKernelPuts } });
@@ -600,10 +646,10 @@ fn builtinKernelBoundMethodOwner(vm: *VM, receiver: Value, args: []Value, _: ?Bl
     const method_name_val = try vm.getInstanceVariable(receiver, "@__method_name");
     if (!method_name_val.isSymbol()) return error.Fatal;
 
-    const resolved = (try vm.findMethod(target, method_name_val.toSymbolObject())) orelse {
+    const owner = (try resolveMethodOwnerValue(vm, target, method_name_val.toSymbolObject())) orelse {
         return vm.raiseExceptionFmt(vm.name_error_class, "undefined method '{s}'", .{method_name_val.toSymbolObject().name});
     };
-    return Value.fromObject(resolved.owner_class);
+    return owner;
 }
 
 fn builtinKernelBoundMethodToProc(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

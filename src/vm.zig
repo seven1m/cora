@@ -4113,13 +4113,21 @@ pub const VM = struct {
                 const new_name_sym = try self.intern(new_name);
                 const old_name_sym = try self.intern(old_name);
 
-                // Get method table from current self (class/module) or object_class at top-level
                 const current_self = frame.self_value;
                 const methods = current_self.getModuleMethods() orelse &self.object_class.module.methods;
 
-                // Look up the old method
-                if (methods.get(old_name_sym)) |entry| {
-                    methods.put(new_name_sym, entry) catch return error.Fatal;
+                const entry = if (current_self.isClass())
+                    blk: {
+                        const resolved = self.lookupMethod(current_self.toClassObject(), old_name_sym) orelse break :blk null;
+                        break :blk resolved.entry;
+                    }
+                else if (current_self.isModule())
+                    methods.get(old_name_sym)
+                else
+                    methods.get(old_name_sym);
+
+                if (entry) |resolved_entry| {
+                    methods.put(new_name_sym, resolved_entry) catch return error.Fatal;
                     self.markIntegerChangedForReceiver(current_self);
                     self.bumpMethodStateVersion();
                 } else {
@@ -6652,7 +6660,7 @@ pub const VM = struct {
 
     pub fn coerceToMethodNameString(self: *VM, arg: Value) VMError![]const u8 {
         if (arg.isSymbol()) return arg.toSymbolObject().name;
-        return arg.coerceToStr(self, "not a symbol nor a string");
+        return arg.coerceToStr(self, "is not a symbol nor a string");
     }
 
     pub fn coerceToMethodNameSymbol(self: *VM, arg: Value) VMError!*SymbolObject {
@@ -6672,7 +6680,7 @@ pub const VM = struct {
         const name_str = if (arg.isSymbol())
             arg.toSymbolObject().name
         else
-            try arg.coerceToStr(self, "not a symbol nor a string");
+            try arg.coerceToStr(self, "is not a symbol nor a string");
 
         if (!isValidIvarName(name_str)) {
             return self.raiseExceptionFmt(

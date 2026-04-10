@@ -514,18 +514,44 @@ pub const Compiler = struct {
             },
 
             .array => |array_node| {
-                if (array_node.elements.size > std.math.maxInt(u16)) {
-                    return error.TooManyArrayElements;
-                }
-                const element_count: u16 = @intCast(array_node.elements.size);
                 var i: usize = 0;
+                var has_splat = false;
                 while (i < array_node.elements.size) : (i += 1) {
-                    const elem = array_node.elements.nodes[i];
-                    const elem_node = try self.parser.asNode(elem);
-                    try self.compileNode(elem_node, line);
+                    const elem_node = try self.parser.asNode(array_node.elements.nodes[i]);
+                    if (elem_node == .splat) {
+                        has_splat = true;
+                        break;
+                    }
                 }
-                // Emit PUSH_ARRAY with element count
-                try self.current_chunk.emitOpU16(.PUSH_ARRAY, element_count, line);
+
+                if (!has_splat) {
+                    if (array_node.elements.size > std.math.maxInt(u16)) {
+                        return error.TooManyArrayElements;
+                    }
+                    const element_count: u16 = @intCast(array_node.elements.size);
+                    i = 0;
+                    while (i < array_node.elements.size) : (i += 1) {
+                        const elem = array_node.elements.nodes[i];
+                        const elem_node = try self.parser.asNode(elem);
+                        try self.compileNode(elem_node, line);
+                    }
+                    try self.current_chunk.emitOpU16(.PUSH_ARRAY, element_count, line);
+                } else {
+                    try self.current_chunk.emitOpU16(.PUSH_ARRAY, 0, line);
+                    i = 0;
+                    while (i < array_node.elements.size) : (i += 1) {
+                        const elem_node = try self.parser.asNode(array_node.elements.nodes[i]);
+                        if (elem_node == .splat) {
+                            const expr_ptr = elem_node.splat.expression orelse return error.UnsupportedNode;
+                            const expr = try self.parser.asNode(@ptrCast(expr_ptr));
+                            try self.compileNode(expr, line);
+                            try self.current_chunk.emitOp(.ARRAY_CONCAT_ARRAY, line);
+                        } else {
+                            try self.compileNode(elem_node, line);
+                            try self.current_chunk.emitOp(.ARRAY_APPEND, line);
+                        }
+                    }
+                }
             },
 
             .hash => |hash_node| {
