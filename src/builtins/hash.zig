@@ -395,7 +395,12 @@ pub fn builtinHashEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
 pub fn builtinHashEachPair(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const blk = block orelse {
-        return try vm.createMethodEnumerator(receiver, try vm.intern("each_pair"), &.{});
+        return try vm.createMethodEnumeratorWithSize(
+            receiver,
+            try vm.intern("each_pair"),
+            &.{},
+            Value.integer(@intCast(receiver.toHashObject().entries.items.len)),
+        );
     };
     const hash_obj = receiver.toHashObject();
     const snapshot = vm.allocator.alloc(value.HashEntry, hash_obj.entries.items.len) catch return error.Fatal;
@@ -403,8 +408,24 @@ pub fn builtinHashEachPair(vm: *VM, receiver: Value, args: []Value, block: ?Bloc
     @memcpy(snapshot, hash_obj.entries.items);
 
     for (snapshot) |entry| {
-        const yield_args = [_]Value{ entry.key, entry.value };
-        const result = try vm.yieldToBlock(blk, &yield_args);
+        const pair = try vm.createArray();
+        pair.elements.append(vm.gc_allocator, entry.key) catch return error.Fatal;
+        pair.elements.append(vm.gc_allocator, entry.value) catch return error.Fatal;
+        const pair_value = Value.fromObject(pair);
+        const result = switch (blk.kind) {
+            .chunk => |chunk_blk| blk_result: {
+                if (chunk_blk.chunk.is_lambda or chunk_blk.chunk.rest_param_index != null) {
+                    const yield_args = [_]Value{pair_value};
+                    break :blk_result try vm.yieldToBlock(blk, &yield_args);
+                }
+                const yield_args = [_]Value{ entry.key, entry.value };
+                break :blk_result try vm.yieldToBlock(blk, &yield_args);
+            },
+            .symbol, .builtin, .callable => blk_result: {
+                const yield_args = [_]Value{pair_value};
+                break :blk_result try vm.yieldToBlock(blk, &yield_args);
+            },
+        };
         if (result.break_occurred) {
             return result.value;
         }
