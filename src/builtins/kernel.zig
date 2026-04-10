@@ -377,7 +377,7 @@ pub fn builtinKernelLambda(vm: *VM, _: Value, args: []Value, block: ?Block) VMEr
     // Mark bytecode-backed blocks as lambda; symbol procs are already lambda-like.
     switch (blk.kind) {
         .chunk => |chunk_blk| chunk_blk.chunk.is_lambda = true,
-        .symbol, .builtin => {},
+        .symbol, .builtin, .callable => {},
     }
 
     return try vm.newProc(blk);

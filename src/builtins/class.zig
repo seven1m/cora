@@ -52,6 +52,7 @@ pub fn builtinClassNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
                 },
                 .symbol => try vm.yieldToBlock(blk, &[_]Value{}),
                 .builtin => try vm.yieldToBlock(blk, &[_]Value{}),
+                .callable => try vm.yieldToBlock(blk, &[_]Value{}),
             };
             if (yield_result.break_occurred) return yield_result.value;
         }
@@ -90,6 +91,7 @@ pub fn builtinClassNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
                 },
                 .symbol => try vm.yieldToBlock(blk, &[_]Value{}),
                 .builtin => try vm.yieldToBlock(blk, &[_]Value{}),
+                .callable => try vm.yieldToBlock(blk, &[_]Value{}),
             };
             if (yield_result.break_occurred) return yield_result.value;
         }

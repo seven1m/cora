@@ -113,6 +113,7 @@ pub const Block = struct {
         chunk: ChunkData,
         symbol: *SymbolObject,
         builtin: *const fn (*VM, []Value) VMError!Value,
+        callable: Value,
     },
 };
 
@@ -1124,7 +1125,7 @@ pub const VM = struct {
                             chunk_blk.defining_ep = new_env;
                         }
                     },
-                    .symbol, .builtin => {},
+                    .symbol, .builtin, .callable => {},
                 }
             }
         }
@@ -1794,6 +1795,9 @@ pub const VM = struct {
                         .{self.className(proc_val)},
                     );
                 };
+                if (!proc_val.isProc() and try self.respondsToMethodByName(proc_val, "call")) {
+                    return .{ .kind = .{ .callable = proc_val } };
+                }
                 if (!proc_val.isProc()) {
                     return self.raiseExceptionFmt(
                         self.type_error_class,
@@ -2075,6 +2079,14 @@ pub const VM = struct {
                     }
                     return err;
                 };
+                fiber.state = .terminated;
+                fiber.coro_result = result;
+                fiber.coro_event = .returned;
+                if (fiber.coro) |c| c.yield();
+                return;
+            },
+            .callable => |callable| {
+                const result = try self.callMethodByName(callable, "call", fiber.first_resume_args[0..fiber.first_resume_argc], null);
                 fiber.state = .terminated;
                 fiber.coro_result = result;
                 fiber.coro_event = .returned;
@@ -2440,6 +2452,16 @@ pub const VM = struct {
                     }
                     return err;
                 };
+                thread.state = .terminated;
+                thread.result = result;
+                thread.terminated_normally = true;
+                if (thread.coro) |c| c.yield();
+                return;
+            },
+            .callable => |callable| {
+                var empty_args = [_]Value{};
+                const thread_args = thread.args orelse &empty_args;
+                const result = try self.callMethodByName(callable, "call", thread_args, null);
                 thread.state = .terminated;
                 thread.result = result;
                 thread.terminated_normally = true;
@@ -3978,7 +4000,7 @@ pub const VM = struct {
                             .stack_base = self.stack.items.len,
                             .self_value = chunk_blk.defining_self,
                             .ep = block_env,
-                            .block = null,
+                            .block = frame.block,
                         }) catch return error.Fatal;
 
                         if (chunk_blk.chunk.lexical_scope) |scope| {
@@ -3995,6 +4017,10 @@ pub const VM = struct {
                     },
                     .builtin => |func| {
                         const result = try func(self, yield_args[0..argc]);
+                        try self.push(result);
+                    },
+                    .callable => |callable| {
+                        const result = try self.callMethodByName(callable, "call", yield_args[0..argc], null);
                         try self.push(result);
                     },
                 }
@@ -4025,7 +4051,7 @@ pub const VM = struct {
                             .stack_base = self.stack.items.len,
                             .self_value = chunk_blk.defining_self,
                             .ep = block_env,
-                            .block = null,
+                            .block = frame.block,
                         }) catch return error.Fatal;
 
                         if (chunk_blk.chunk.lexical_scope) |scope| {
@@ -4042,6 +4068,10 @@ pub const VM = struct {
                     },
                     .builtin => |func| {
                         const result = try func(self, @constCast(splat_args));
+                        try self.push(result);
+                    },
+                    .callable => |callable| {
+                        const result = try self.callMethodByName(callable, "call", @constCast(splat_args), null);
                         try self.push(result);
                     },
                 }
@@ -5138,19 +5168,23 @@ pub const VM = struct {
                 .value = try func(self, @constCast(yield_args)),
                 .break_occurred = false,
             },
+            .callable => |callable| .{
+                .value = try self.callMethodByName(callable, "call", @constCast(yield_args), null),
+                .break_occurred = false,
+            },
             .chunk => |chunk_blk| blk: {
                 // Dereference defining_ep in case it's a forwarding pointer
                 const real_defining_ep = derefEnvironment(chunk_blk.defining_ep);
                 const block_env = self.createStackEnvironment(real_defining_ep, chunk_blk.chunk.lexical_scope orelse self.current_lexical_scope) catch return error.Fatal;
+                const enclosing_block = if (self.frames.items.len > 0) self.currentFrame().block else null;
 
-                // Push block frame (no nested block for builtin-called blocks)
                 self.frames.append(self.gc_allocator, CallFrame{
                     .chunk = chunk_blk.chunk,
                     .ip = 0,
                     .stack_base = self.stack.items.len,
                     .self_value = chunk_blk.defining_self,
                     .ep = block_env,
-                    .block = null,
+                    .block = enclosing_block,
                 }) catch return error.Fatal;
 
                 // Update current_lexical_scope to the block's scope
@@ -5193,6 +5227,7 @@ pub const VM = struct {
         return switch (proc_obj.block.kind) {
             .symbol => |sym| self.invokeSymbolProc(sym, args, block),
             .builtin => |func| func(self, @constCast(args)),
+            .callable => |callable| self.callMethodByName(callable, "call", @constCast(args), block),
             .chunk => |chunk_blk| blk: {
                 const real_defining_ep = derefEnvironment(chunk_blk.defining_ep);
                 const proc_env = self.createStackEnvironment(real_defining_ep, chunk_blk.chunk.lexical_scope orelse self.current_lexical_scope) catch return error.Fatal;
@@ -5234,6 +5269,7 @@ pub const VM = struct {
         return switch (proc_obj.block.kind) {
             .symbol => |sym| self.invokeSymbolProc(sym, args, block),
             .builtin => |func| func(self, @constCast(args)),
+            .callable => |callable| self.callMethodByName(callable, "call", @constCast(args), block),
             .chunk => |chunk_blk| blk: {
                 const real_defining_ep = derefEnvironment(chunk_blk.defining_ep);
                 const proc_env = self.createStackEnvironment(real_defining_ep, chunk_blk.chunk.lexical_scope orelse self.current_lexical_scope) catch return error.Fatal;
@@ -5404,6 +5440,10 @@ pub const VM = struct {
                     },
                     .builtin => |func| {
                         const result = try func(self, @constCast(args));
+                        try self.push(result);
+                    },
+                    .callable => |callable| {
+                        const result = try self.callMethodByName(callable, "call", @constCast(args), block);
                         try self.push(result);
                     },
                 }
@@ -6268,6 +6308,7 @@ pub const VM = struct {
             .block = switch (block.kind) {
                 .symbol => block,
                 .builtin => block,
+                .callable => block,
                 .chunk => |chunk_blk| .{ .kind = .{ .chunk = .{
                     .chunk = chunk_blk.chunk,
                     .defining_ep = self.promoteEnvironmentToHeap(chunk_blk.defining_ep) catch return error.Fatal,

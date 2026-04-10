@@ -180,6 +180,8 @@ pub fn register(vm: *VM) !void {
 
     const equal_sym = try vm.intern("==");
     try vm.array_class.module.methods.put(equal_sym, .{ .method = .{ .builtin = &builtinArrayEqual } });
+    const cmp_sym = try vm.intern("<=>");
+    try vm.array_class.module.methods.put(cmp_sym, .{ .method = .{ .builtin = &builtinArrayCmp } });
 
     const length_sym = try vm.intern("length");
     try vm.array_class.module.methods.put(length_sym, .{ .method = .{ .builtin = &builtinArrayLength } });
@@ -638,6 +640,46 @@ pub fn builtinArrayEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     }
 
     return Value.boolean(true);
+}
+
+pub fn builtinArrayCmp(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+
+    const other = switch (try vm.probeToAry(args[0])) {
+        .array => |array_value| array_value,
+        .missing, .nil_result => return Value.nil(),
+    };
+
+    const left = receiver.toArrayObject().elements.items;
+    const right = other.toArrayObject().elements.items;
+    const shared_len = @min(left.len, right.len);
+
+    for (0..shared_len) |idx| {
+        var cmp_args = [_]Value{right[idx]};
+        const cmp = try vm.callMethodByName(left[idx], "<=>", cmp_args[0..], null);
+        if (cmp.isNil()) return Value.nil();
+        if (cmp.isInteger()) {
+            const n = cmp.toInteger();
+            if (n < 0) return Value.integer(-1);
+            if (n > 0) return Value.integer(1);
+            continue;
+        }
+        if (cmp.isFloat()) {
+            const n = cmp.toFloatObject().val;
+            if (n < 0) return Value.integer(-1);
+            if (n > 0) return Value.integer(1);
+            continue;
+        }
+        return vm.raiseExceptionFmt(
+            vm.argument_error_class,
+            "comparison of {s} with {s} failed",
+            .{ vm.className(left[idx]), vm.className(right[idx]) },
+        );
+    }
+
+    if (left.len < right.len) return Value.integer(-1);
+    if (left.len > right.len) return Value.integer(1);
+    return Value.integer(0);
 }
 
 pub fn builtinArrayEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
