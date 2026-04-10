@@ -1889,6 +1889,54 @@ pub fn builtinStringEachCodepoint(vm: *VM, receiver: Value, args: []Value, block
     return builtinStringCodepoints(vm, receiver, args, block);
 }
 
+const StringBoundaryKind = enum {
+    prefix,
+    suffix,
+};
+
+const StringBoundaryMatch = struct {
+    matched: bool,
+    start: usize,
+    end: usize,
+};
+
+fn matchStringBoundary(
+    vm: *VM,
+    string_obj: *value.StringObject,
+    arg: Value,
+    kind: StringBoundaryKind,
+) VMError!StringBoundaryMatch {
+    const boundary_val = try arg.coerceToStringValue(vm, "no implicit conversion into String");
+    const boundary_obj = boundary_val.toStringObject();
+    if (enc.negotiate(string_obj.encoding, string_obj.str, boundary_obj.encoding, boundary_obj.str) == null) {
+        return vm.raiseEncodingCompatibilityError(string_obj.encoding, boundary_obj.encoding);
+    }
+
+    return switch (kind) {
+        .prefix => blk: {
+            if (!std.mem.startsWith(u8, string_obj.str, boundary_obj.str)) {
+                break :blk .{ .matched = false, .start = 0, .end = 0 };
+            }
+            break :blk .{
+                .matched = string_obj.encoding.isCharBoundary(string_obj.str, boundary_obj.str.len),
+                .start = 0,
+                .end = boundary_obj.str.len,
+            };
+        },
+        .suffix => blk: {
+            if (!std.mem.endsWith(u8, string_obj.str, boundary_obj.str)) {
+                break :blk .{ .matched = false, .start = 0, .end = 0 };
+            }
+            const start = string_obj.str.len - boundary_obj.str.len;
+            break :blk .{
+                .matched = string_obj.encoding.isCharBoundary(string_obj.str, start),
+                .start = start,
+                .end = string_obj.str.len,
+            };
+        },
+    };
+}
+
 pub fn builtinStringStartWith(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     if (args.len == 0) return Value.boolean(false);
     const string_obj = receiver.toStringObject();
@@ -1903,14 +1951,7 @@ pub fn builtinStringStartWith(vm: *VM, receiver: Value, args: []Value, _: ?Block
             continue;
         }
 
-        const prefix_val = try arg.coerceToStringValue(vm, "no implicit conversion into String");
-        const prefix = prefix_val.toStringObject().str;
-        const prefix_enc = prefix_val.toStringObject().encoding;
-        if (enc.negotiate(string_obj.encoding, string_obj.str, prefix_enc, prefix) == null) {
-            return vm.raiseEncodingCompatibilityError(string_obj.encoding, prefix_enc);
-        }
-        if (!std.mem.startsWith(u8, string_obj.str, prefix)) continue;
-        if (string_obj.encoding.isCharBoundary(string_obj.str, prefix.len)) {
+        if ((try matchStringBoundary(vm, string_obj, arg, .prefix)).matched) {
             return Value.boolean(true);
         }
     }
@@ -1923,15 +1964,7 @@ pub fn builtinStringEndWith(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     const string_obj = receiver.toStringObject();
 
     for (args) |arg| {
-        const suffix_val = try arg.coerceToStringValue(vm, "no implicit conversion into String");
-        const suffix = suffix_val.toStringObject().str;
-        const suffix_enc = suffix_val.toStringObject().encoding;
-        if (enc.negotiate(string_obj.encoding, string_obj.str, suffix_enc, suffix) == null) {
-            return vm.raiseEncodingCompatibilityError(string_obj.encoding, suffix_enc);
-        }
-        if (!std.mem.endsWith(u8, string_obj.str, suffix)) continue;
-        const start = string_obj.str.len - suffix.len;
-        if (string_obj.encoding.isCharBoundary(string_obj.str, start)) {
+        if ((try matchStringBoundary(vm, string_obj, arg, .suffix)).matched) {
             return Value.boolean(true);
         }
     }
@@ -1942,16 +1975,9 @@ pub fn builtinStringEndWith(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 pub fn builtinStringDeletePrefix(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const string_obj = receiver.toStringObject();
-
-    const prefix_val = try args[0].coerceToStringValue(vm, "no implicit conversion into String");
-    const prefix = prefix_val.toStringObject().str;
-    const prefix_enc = prefix_val.toStringObject().encoding;
-    if (enc.negotiate(string_obj.encoding, string_obj.str, prefix_enc, prefix) == null) {
-        return vm.raiseEncodingCompatibilityError(string_obj.encoding, prefix_enc);
-    }
-
-    if (std.mem.startsWith(u8, string_obj.str, prefix) and string_obj.encoding.isCharBoundary(string_obj.str, prefix.len)) {
-        return try vm.newStringWithEncoding(string_obj.str[prefix.len..], false, string_obj.encoding);
+    const match = try matchStringBoundary(vm, string_obj, args[0], .prefix);
+    if (match.matched) {
+        return try vm.newStringWithEncoding(string_obj.str[match.end..], false, string_obj.encoding);
     }
 
     return try vm.newStringWithEncoding(string_obj.str, false, string_obj.encoding);
@@ -1963,22 +1989,15 @@ pub fn builtinStringDeletePrefixBang(vm: *VM, receiver: Value, args: []Value, _:
         return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
     }
     const string_obj = receiver.toStringObject();
-
-    const prefix_val = try args[0].coerceToStringValue(vm, "no implicit conversion into String");
-    const prefix = prefix_val.toStringObject().str;
-    const prefix_enc = prefix_val.toStringObject().encoding;
-    if (enc.negotiate(string_obj.encoding, string_obj.str, prefix_enc, prefix) == null) {
-        return vm.raiseEncodingCompatibilityError(string_obj.encoding, prefix_enc);
-    }
-
-    if (!(std.mem.startsWith(u8, string_obj.str, prefix) and string_obj.encoding.isCharBoundary(string_obj.str, prefix.len))) {
+    const match = try matchStringBoundary(vm, string_obj, args[0], .prefix);
+    if (!match.matched) {
         return Value.nil();
     }
-    if (prefix.len == 0) {
+    if (match.end == match.start) {
         return Value.nil();
     }
 
-    string_obj.str = vm.gc_allocator_atomic.dupe(u8, string_obj.str[prefix.len..]) catch return error.Fatal;
+    string_obj.str = vm.gc_allocator_atomic.dupe(u8, string_obj.str[match.end..]) catch return error.Fatal;
     string_obj.validity = .unknown;
     return receiver;
 }
@@ -1986,19 +2005,9 @@ pub fn builtinStringDeletePrefixBang(vm: *VM, receiver: Value, args: []Value, _:
 pub fn builtinStringDeleteSuffix(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const string_obj = receiver.toStringObject();
-
-    const suffix_val = try args[0].coerceToStringValue(vm, "no implicit conversion into String");
-    const suffix = suffix_val.toStringObject().str;
-    const suffix_enc = suffix_val.toStringObject().encoding;
-    if (enc.negotiate(string_obj.encoding, string_obj.str, suffix_enc, suffix) == null) {
-        return vm.raiseEncodingCompatibilityError(string_obj.encoding, suffix_enc);
-    }
-
-    if (std.mem.endsWith(u8, string_obj.str, suffix)) {
-        const start = string_obj.str.len - suffix.len;
-        if (string_obj.encoding.isCharBoundary(string_obj.str, start)) {
-            return try vm.newStringWithEncoding(string_obj.str[0..start], false, string_obj.encoding);
-        }
+    const match = try matchStringBoundary(vm, string_obj, args[0], .suffix);
+    if (match.matched) {
+        return try vm.newStringWithEncoding(string_obj.str[0..match.start], false, string_obj.encoding);
     }
 
     return try vm.newStringWithEncoding(string_obj.str, false, string_obj.encoding);
@@ -2010,26 +2019,15 @@ pub fn builtinStringDeleteSuffixBang(vm: *VM, receiver: Value, args: []Value, _:
         return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
     }
     const string_obj = receiver.toStringObject();
-
-    const suffix_val = try args[0].coerceToStringValue(vm, "no implicit conversion into String");
-    const suffix = suffix_val.toStringObject().str;
-    const suffix_enc = suffix_val.toStringObject().encoding;
-    if (enc.negotiate(string_obj.encoding, string_obj.str, suffix_enc, suffix) == null) {
-        return vm.raiseEncodingCompatibilityError(string_obj.encoding, suffix_enc);
-    }
-
-    if (!std.mem.endsWith(u8, string_obj.str, suffix)) {
+    const match = try matchStringBoundary(vm, string_obj, args[0], .suffix);
+    if (!match.matched) {
         return Value.nil();
     }
-    if (suffix.len == 0) {
-        return Value.nil();
-    }
-    const start = string_obj.str.len - suffix.len;
-    if (!string_obj.encoding.isCharBoundary(string_obj.str, start)) {
+    if (match.end == match.start) {
         return Value.nil();
     }
 
-    string_obj.str = vm.gc_allocator_atomic.dupe(u8, string_obj.str[0..start]) catch return error.Fatal;
+    string_obj.str = vm.gc_allocator_atomic.dupe(u8, string_obj.str[0..match.start]) catch return error.Fatal;
     string_obj.validity = .unknown;
     return receiver;
 }
