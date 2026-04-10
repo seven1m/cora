@@ -650,6 +650,14 @@ pub fn builtinArrayCmp(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
         .missing, .nil_result => return Value.nil(),
     };
 
+    if (receiver.raw == other.raw) {
+        return Value.integer(0);
+    }
+    if (try vm.enterRecursionGuard(.array_compare, receiver, other)) {
+        return Value.integer(0);
+    }
+    defer vm.leaveRecursionGuard(.array_compare, receiver, other);
+
     const left = receiver.toArrayObject().elements.items;
     const right = other.toArrayObject().elements.items;
     const shared_len = @min(left.len, right.len);
@@ -660,21 +668,15 @@ pub fn builtinArrayCmp(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
         if (cmp.isNil()) return Value.nil();
         if (cmp.isInteger()) {
             const n = cmp.toInteger();
-            if (n < 0) return Value.integer(-1);
-            if (n > 0) return Value.integer(1);
+            if (n != 0) return cmp;
             continue;
         }
         if (cmp.isFloat()) {
             const n = cmp.toFloatObject().val;
-            if (n < 0) return Value.integer(-1);
-            if (n > 0) return Value.integer(1);
+            if (n != 0) return cmp;
             continue;
         }
-        return vm.raiseExceptionFmt(
-            vm.argument_error_class,
-            "comparison of {s} with {s} failed",
-            .{ vm.className(left[idx]), vm.className(right[idx]) },
-        );
+        return cmp;
     }
 
     if (left.len < right.len) return Value.integer(-1);

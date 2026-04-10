@@ -108,6 +108,24 @@ test "Array#inspect recursive" {
     try std.testing.expectEqualSlices(u8, "[1, 2, 3, [...]]", result.toStringObject().str);
 }
 
+test "Array#<=> handles recursive arrays" {
+    var result = try evalCode(
+        \\a = []
+        \\a << a
+        \\a <=> a
+    );
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 0), result.toInteger());
+
+    result = try evalCode(
+        \\a = [1, "two", 3.0]
+        \\5.times { a << a }
+        \\a <=> a
+    );
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 0), result.toInteger());
+}
+
 test "Array#to_s" {
     const result = try evalCode("[1, 2, 3].to_s");
     try std.testing.expect(result.isString());
