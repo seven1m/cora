@@ -147,6 +147,7 @@ Use "unmanaged" ArrayList: `field: ArrayList(*Value) = .empty` (allocator passed
 - `VM.callMethodByName` is the normal dispatch path when the call must happen or its side effects must be preserved.
 - `VM.respondsToMethodByName` is the canonical capability-probe helper for `respond_to?` checks when you need to branch on support without forcing the target method call.
 - `VM.allocCStringZ` is the shared helper for temporary NUL-terminated C strings when builtins need libc APIs; prefer it over per-builtin duplicate allocators.
+- `VM.copyObjectInstanceVariables` centralizes shallow copying of Ruby object instance-variable maps for dup/clone-style object duplication paths.
 - `VM.probeToAry` centralizes low-level `to_ary` coercion semantics. It returns array/missing/nil-result distinctly and raises `TypeError` when `to_ary` returns a non-Array.
 - `VM.coerceToArrayValue` is the strict array-like coercion helper for APIs such as `Array#+`/`Array#replace`; it raises MRI-style `TypeError` messages for missing `to_ary` and `nil`/wrong-type `to_ary` results.
 - `VM.raiseEncodingCompatibilityError` centralizes `Encoding::CompatibilityError` formatting for the common `"incompatible character encodings: ..."` case.

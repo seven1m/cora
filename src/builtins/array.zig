@@ -1253,14 +1253,7 @@ pub fn builtinArrayDup(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
 
     const src_obj = receiver.getObjectPointer().?;
     const dst_obj = out.getObjectPointer().?;
-    if (src_obj.instance_variables) |*src_ivars| {
-        var copied_ivars = std.AutoHashMap(*value.SymbolObject, Value).init(vm.gc_allocator);
-        var iter = src_ivars.iterator();
-        while (iter.next()) |entry| {
-            copied_ivars.put(entry.key_ptr.*, entry.value_ptr.*) catch return error.Fatal;
-        }
-        dst_obj.instance_variables = copied_ivars;
-    }
+    try vm.copyObjectInstanceVariables(src_obj, dst_obj);
 
     var initialize_dup_args = [_]Value{receiver};
     _ = try vm.callMethodByName(out, "initialize_dup", initialize_dup_args[0..], null);
@@ -1277,14 +1270,7 @@ pub fn builtinArrayClone(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
 
     const src_obj = receiver.getObjectPointer().?;
     const dst_obj = out.getObjectPointer().?;
-    if (src_obj.instance_variables) |*src_ivars| {
-        var copied_ivars = std.AutoHashMap(*value.SymbolObject, Value).init(vm.gc_allocator);
-        var iter = src_ivars.iterator();
-        while (iter.next()) |entry| {
-            copied_ivars.put(entry.key_ptr.*, entry.value_ptr.*) catch return error.Fatal;
-        }
-        dst_obj.instance_variables = copied_ivars;
-    }
+    try vm.copyObjectInstanceVariables(src_obj, dst_obj);
 
     var initialize_clone_args = [_]Value{receiver};
     _ = try vm.callMethodByName(out, "initialize_clone", initialize_clone_args[0..], null);

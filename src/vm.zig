@@ -4127,13 +4127,10 @@ pub const VM = struct {
                     const name_sym = try self.coerceToMethodNameSymbol(arg);
                     const exists = if (target_is_class)
                         self.lookupMethod(current_self.toClassObject(), name_sym) != null
-                    else if (target_is_module)
-                        blk: {
-                            const entry = methods.get(name_sym) orelse break :blk false;
-                            break :blk entry.method != .undefined;
-                        }
-                    else
-                        self.lookupMethod(self.object_class, name_sym) != null;
+                    else if (target_is_module) blk: {
+                        const entry = methods.get(name_sym) orelse break :blk false;
+                        break :blk entry.method != .undefined;
+                    } else self.lookupMethod(self.object_class, name_sym) != null;
 
                     if (!exists) {
                         const msg = std.fmt.allocPrint(
@@ -5660,14 +5657,7 @@ pub const VM = struct {
             target_singleton.module.class_variables.put(entry.key_ptr.*, entry.value_ptr.*) catch return error.Fatal;
         }
 
-        if (source_singleton.module.object.instance_variables) |*src_ivars| {
-            var copied_ivars = std.AutoHashMap(*value.SymbolObject, Value).init(self.gc_allocator);
-            var ivars_iter = src_ivars.iterator();
-            while (ivars_iter.next()) |entry| {
-                copied_ivars.put(entry.key_ptr.*, entry.value_ptr.*) catch return error.Fatal;
-            }
-            target_singleton.module.object.instance_variables = copied_ivars;
-        }
+        try self.copyObjectInstanceVariables(&source_singleton.module.object, &target_singleton.module.object);
 
         for (source_singleton.prepended_modules.items) |module_obj| {
             target_singleton.prepended_modules.append(self.gc_allocator, module_obj) catch return error.Fatal;
@@ -5679,6 +5669,17 @@ pub const VM = struct {
 
         target_singleton.module.object.flags |= source_singleton.module.object.flags & value.Object.FROZEN_FLAG;
         self.bumpMethodStateVersion();
+    }
+
+    pub fn copyObjectInstanceVariables(self: *VM, source_obj: *const Object, target_obj: *Object) VMError!void {
+        const src_ivars = source_obj.instance_variables orelse return;
+
+        var copied_ivars = std.AutoHashMap(*value.SymbolObject, Value).init(self.gc_allocator);
+        var iter = src_ivars.iterator();
+        while (iter.next()) |entry| {
+            copied_ivars.put(entry.key_ptr.*, entry.value_ptr.*) catch return error.Fatal;
+        }
+        target_obj.instance_variables = copied_ivars;
     }
 
     pub fn intern(self: *VM, str: []const u8) VMError!*SymbolObject {
