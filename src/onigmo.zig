@@ -130,6 +130,20 @@ pub fn searchWithCaptures(allocator: std.mem.Allocator, regex: OnigRegex, text: 
     };
 }
 
+pub fn nameToBackrefNumber(regex: OnigRegex, text: []const u8, name: []const u8) i32 {
+    const region = c.onig_region_new() orelse return -1;
+    defer c.onig_region_free(region, 1);
+
+    const start_ptr: [*c]const c.OnigUChar = @ptrCast(text.ptr);
+    const end_ptr = start_ptr + text.len;
+    const result = c.onig_search(regex, start_ptr, end_ptr, start_ptr, end_ptr, region, 0);
+    if (result == c.ONIG_MISMATCH) return -1;
+
+    const name_ptr: [*c]const c.OnigUChar = @ptrCast(name.ptr);
+    const name_end = name_ptr + name.len;
+    return c.onig_name_to_backref_number(regex, name_ptr, name_end, region);
+}
+
 pub fn caseMap(
     allocator: std.mem.Allocator,
     bytes: []const u8,

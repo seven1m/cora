@@ -1408,22 +1408,8 @@ pub fn builtinStringChr(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
 }
 
 pub fn builtinStringBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 1);
-    const string_obj = receiver.toStringObject();
-
-    if (args[0].isInteger()) {
-        const idx = args[0].toInteger();
-        const slice = string_obj.encoding.charSliceAtIndex(string_obj.str, idx);
-        if (slice == null) return Value.nil();
-        return try vm.newStringWithEncoding(slice.?, false, string_obj.encoding);
-    } else if (args[0].isRange()) {
-        const range_obj = args[0].toRangeObject();
-        const slice = try charSliceByRange(vm, string_obj.str, string_obj.encoding, range_obj.begin, range_obj.end, range_obj.exclude_end);
-        if (slice == null) return Value.nil();
-        return try vm.newStringWithEncoding(slice.?, false, string_obj.encoding);
-    } else {
-        return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Integer", .{});
-    }
+    const selection = try stringSliceSelection(vm, receiver, args);
+    return selection.value;
 }
 
 pub fn builtinStringSlice(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -1432,18 +1418,16 @@ pub fn builtinStringSlice(vm: *VM, receiver: Value, args: []Value, block: ?Block
 
 pub fn builtinStringSliceBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 1, 2);
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
+    }
 
-    const removed = try builtinStringBracket(vm, receiver, args, null);
-    if (removed.isNil()) return Value.nil();
+    const selection = try stringSliceSelection(vm, receiver, args);
+    if (selection.start_byte == null or selection.end_byte == null) return Value.nil();
 
     const replacement = try vm.newStringWithEncoding("", false, receiver.toStringObject().encoding);
-    var set_args: [3]Value = undefined;
-    for (args, 0..) |arg, idx| {
-        set_args[idx] = arg;
-    }
-    set_args[args.len] = replacement;
-    _ = try builtinStringBracketSet(vm, receiver, set_args[0 .. args.len + 1], null);
-    return removed;
+    try spliceStringBytes(vm, receiver, selection.start_byte.?, selection.end_byte.?, replacement);
+    return selection.value;
 }
 
 pub fn builtinStringByteSlice(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -3227,31 +3211,246 @@ fn charSliceByRange(
     end_val: Value,
     exclude_end: bool,
 ) VMError!?[]const u8 {
+    const span = try charSpanByRange(vm, bytes, encoding, begin_val, end_val, exclude_end);
+    if (span == null) return null;
+    return bytes[span.?.start_byte..span.?.end_byte];
+}
+
+const StringSliceSelection = struct {
+    value: Value,
+    start_byte: ?usize = null,
+    end_byte: ?usize = null,
+};
+
+const ByteSpan = struct {
+    start_byte: usize,
+    end_byte: usize,
+};
+
+fn stringSliceSelection(vm: *VM, receiver: Value, args: []Value) VMError!StringSliceSelection {
+    try vm.requireArgCountRange(args, 1, 2);
+    const string_obj = receiver.toStringObject();
+    const bytes = string_obj.str;
+    const encoding = string_obj.encoding;
+
+    if (args.len == 1) {
+        if (args[0].isRange()) {
+            const range_obj = args[0].toRangeObject();
+            const span = try charSpanByRange(vm, bytes, encoding, range_obj.begin, range_obj.end, range_obj.exclude_end);
+            return sliceSelectionFromOptionalSpan(vm, string_obj, span);
+        }
+        if (args[0].isRegexp()) {
+            return regexpSliceSelection(vm, receiver, args[0].toRegexpObject(), null);
+        }
+        if (args[0].isString()) {
+            return stringNeedleSliceSelection(vm, string_obj, args[0].toStringObject().str);
+        }
+        return charIndexSliceSelection(vm, string_obj, args[0]);
+    }
+
+    if (args[0].isRange()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion of Range into Integer", .{});
+    }
+
+    if (args[0].isRegexp()) {
+        return regexpSliceSelection(vm, receiver, args[0].toRegexpObject(), args[1]);
+    }
+
+    return charIndexLengthSliceSelection(vm, string_obj, args[0], args[1]);
+}
+
+fn sliceSelectionFromOptionalSpan(
+    vm: *VM,
+    string_obj: *value.StringObject,
+    span: ?ByteSpan,
+) VMError!StringSliceSelection {
+    if (span == null) {
+        return .{ .value = Value.nil() };
+    }
+
+    const actual = span.?;
+    const slice_value = try vm.newStringWithEncoding(string_obj.str[actual.start_byte..actual.end_byte], false, string_obj.encoding);
+    return .{
+        .value = slice_value,
+        .start_byte = actual.start_byte,
+        .end_byte = actual.end_byte,
+    };
+}
+
+fn charIndexSliceSelection(vm: *VM, string_obj: *value.StringObject, index_arg: Value) VMError!StringSliceSelection {
+    var index = try index_arg.coerceToI64ViaToInt(
+        vm,
+        "no implicit conversion into Integer",
+        "no implicit conversion into Integer",
+        "bignum too big to convert into `long`",
+    );
+    const char_len_i64: i64 = @intCast(string_obj.encoding.charCount(string_obj.str));
+    if (index < 0) index += char_len_i64;
+    if (index < 0 or index >= char_len_i64) {
+        return .{ .value = Value.nil() };
+    }
+
+    const start_byte = string_obj.encoding.byteOffsetForCharIndex(string_obj.str, @intCast(index)) orelse string_obj.str.len;
+    const end_byte = string_obj.encoding.byteOffsetForCharIndex(string_obj.str, @intCast(index + 1)) orelse string_obj.str.len;
+    return sliceSelectionFromOptionalSpan(vm, string_obj, .{ .start_byte = start_byte, .end_byte = end_byte });
+}
+
+fn charIndexLengthSliceSelection(vm: *VM, string_obj: *value.StringObject, index_arg: Value, length_arg: Value) VMError!StringSliceSelection {
+    var index = try index_arg.coerceToI64ViaToInt(
+        vm,
+        "no implicit conversion into Integer",
+        "no implicit conversion into Integer",
+        "bignum too big to convert into `long`",
+    );
+    const length = try length_arg.coerceToI64ViaToInt(
+        vm,
+        "no implicit conversion into Integer",
+        "no implicit conversion into Integer",
+        "bignum too big to convert into `long`",
+    );
+
+    const char_len_i64: i64 = @intCast(string_obj.encoding.charCount(string_obj.str));
+    if (index < 0) index += char_len_i64;
+    if (index < 0 or index > char_len_i64 or length < 0) {
+        return .{ .value = Value.nil() };
+    }
+
+    const finish = @min(index + length, char_len_i64);
+    const start_byte = string_obj.encoding.byteOffsetForCharIndex(string_obj.str, @intCast(index)) orelse string_obj.str.len;
+    const end_byte = string_obj.encoding.byteOffsetForCharIndex(string_obj.str, @intCast(finish)) orelse string_obj.str.len;
+    return sliceSelectionFromOptionalSpan(vm, string_obj, .{ .start_byte = start_byte, .end_byte = end_byte });
+}
+
+fn stringNeedleSliceSelection(vm: *VM, string_obj: *value.StringObject, needle: []const u8) VMError!StringSliceSelection {
+    const start = std.mem.indexOf(u8, string_obj.str, needle) orelse return .{ .value = Value.nil() };
+    return sliceSelectionFromOptionalSpan(vm, string_obj, .{ .start_byte = start, .end_byte = start + needle.len });
+}
+
+fn regexpSliceSelection(
+    vm: *VM,
+    receiver: Value,
+    regexp: *value.RegexpObject,
+    capture_arg: ?Value,
+) VMError!StringSliceSelection {
+    const string_obj = receiver.toStringObject();
+    const match_index = try regexp_builtin.regexpMatchOp(vm, regexp, receiver);
+    if (match_index.isNil()) {
+        return .{ .value = Value.nil() };
+    }
+
+    const md_val = vm.globals.get("$~") orelse return error.Fatal;
+    if (!md_val.isMatchData()) return error.Fatal;
+    const md = md_val.toMatchDataObject();
+
+    const capture_index = if (capture_arg) |arg|
+        try resolveRegexpCaptureIndex(vm, md, arg)
+    else
+        0;
+    if (capture_index == null) {
+        return .{ .value = Value.nil() };
+    }
+
+    const idx = capture_index.?;
+    if (idx >= md.captures.items.len or idx >= md.begin_byte_offsets.items.len or idx >= md.end_byte_offsets.items.len) {
+        return .{ .value = Value.nil() };
+    }
+
+    const begin_i64 = md.begin_byte_offsets.items[idx];
+    const end_i64 = md.end_byte_offsets.items[idx];
+    if (begin_i64 < 0 or end_i64 < 0) {
+        return .{ .value = Value.nil() };
+    }
+
+    const begin: usize = @intCast(begin_i64);
+    const end_: usize = @intCast(end_i64);
+    if (begin > string_obj.str.len or end_ > string_obj.str.len or begin > end_) return error.Fatal;
+
+    return .{
+        .value = md.captures.items[idx],
+        .start_byte = begin,
+        .end_byte = end_,
+    };
+}
+
+fn resolveRegexpCaptureIndex(vm: *VM, md: *value.MatchDataObject, capture_arg: Value) VMError!?usize {
+    if (capture_arg.isString()) {
+        const name = capture_arg.toStringObject().str;
+        if (name.len == 0) {
+            return vm.raiseExceptionFmt(vm.index_error_class, "undefined group name reference: ", .{});
+        }
+
+        const backref = onigmo.nameToBackrefNumber(md.regexp.regex, md.source.str, name);
+        if (backref < 0) {
+            return vm.raiseExceptionFmt(vm.index_error_class, "undefined group name reference: {s}", .{name});
+        }
+        return @intCast(backref);
+    }
+
+    const capture_ref = try capture_arg.coerceToI64ViaToInt(
+        vm,
+        "no implicit conversion into Integer",
+        "no implicit conversion into Integer",
+        "bignum too big to convert into `long`",
+    );
+
+    const captures_total_i64: i64 = @intCast(md.captures.items.len);
+    if (captures_total_i64 == 0) return null;
+    const capture_groups_i64 = captures_total_i64 - 1;
+
+    var capture_idx = capture_ref;
+    if (capture_idx > 0) {
+        if (capture_idx > capture_groups_i64) return null;
+    } else if (capture_idx < 0) {
+        capture_idx = capture_groups_i64 + capture_idx + 1;
+        if (capture_idx <= 0 or capture_idx > capture_groups_i64) return null;
+    } else {
+        capture_idx = 0;
+    }
+
+    if (capture_idx < 0 or capture_idx >= captures_total_i64) return null;
+    return @intCast(capture_idx);
+}
+
+fn charSpanByRange(
+    vm: *VM,
+    bytes: []const u8,
+    encoding: enc.Encoding,
+    begin_val: Value,
+    end_val: Value,
+    exclude_end: bool,
+) VMError!?ByteSpan {
     const char_len_i64: i64 = @intCast(encoding.charCount(bytes));
 
-    const begin_i64: i64 = if (begin_val.isInteger())
-        begin_val.toInteger()
-    else if (begin_val.isNil())
+    const begin_i64: i64 = if (begin_val.isNil())
         0
     else
-        return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Integer", .{});
+        try begin_val.coerceToI64ViaToInt(
+            vm,
+            "no implicit conversion into Integer",
+            "no implicit conversion into Integer",
+            "bignum too big to convert into `long`",
+        );
 
     var start_idx = begin_i64;
     if (start_idx < 0) start_idx += char_len_i64;
     if (start_idx < 0 or start_idx > char_len_i64) return null;
 
-    var finish_exclusive: i64 = if (end_val.isInteger()) blk: {
-        var end_i64 = end_val.toInteger();
+    var finish_exclusive: i64 = if (end_val.isNil())
+        char_len_i64
+    else blk: {
+        var end_i64 = try end_val.coerceToI64ViaToInt(
+            vm,
+            "no implicit conversion into Integer",
+            "no implicit conversion into Integer",
+            "bignum too big to convert into `long`",
+        );
         if (end_i64 < 0) end_i64 += char_len_i64;
         break :blk if (exclude_end) end_i64 else end_i64 + 1;
-    } else if (end_val.isNil())
-        char_len_i64
-    else
-        return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Integer", .{});
+    };
 
     if (finish_exclusive < start_idx) {
         const start_byte = encoding.byteOffsetForCharIndex(bytes, @intCast(start_idx)) orelse bytes.len;
-        return bytes[start_byte..start_byte];
+        return .{ .start_byte = start_byte, .end_byte = start_byte };
     }
 
     if (finish_exclusive < 0) finish_exclusive = 0;
@@ -3259,7 +3458,7 @@ fn charSliceByRange(
 
     const start_byte = encoding.byteOffsetForCharIndex(bytes, @intCast(start_idx)) orelse bytes.len;
     const end_byte = encoding.byteOffsetForCharIndex(bytes, @intCast(finish_exclusive)) orelse bytes.len;
-    return bytes[start_byte..end_byte];
+    return .{ .start_byte = start_byte, .end_byte = end_byte };
 }
 
 fn byteSliceByRange(

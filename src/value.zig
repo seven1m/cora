@@ -678,7 +678,11 @@ pub const Value = struct {
         if (self.isInteger() or self.isBigInteger()) return self;
 
         const to_int_sym = try vm_instance.intern("to_int");
-        const has_to_int = (try vm_instance.findMethod(self, to_int_sym)) != null;
+        var respond_args: [2]Value = .{
+            Value.fromObject(to_int_sym),
+            Value.boolean(true),
+        };
+        const has_to_int = (try vm_instance.callMethodByName(self, "respond_to?", &respond_args, null)).is_truthy();
         const coerced = if (has_to_int)
             try vm_instance.callMethodByName(self, "to_int", &[_]Value{}, null)
         else
