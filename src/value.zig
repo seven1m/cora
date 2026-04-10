@@ -677,12 +677,7 @@ pub const Value = struct {
     ) VMError!Value {
         if (self.isInteger() or self.isBigInteger()) return self;
 
-        const to_int_sym = try vm_instance.intern("to_int");
-        var respond_args: [2]Value = .{
-            Value.fromObject(to_int_sym),
-            Value.boolean(true),
-        };
-        const has_to_int = (try vm_instance.callMethodByName(self, "respond_to?", &respond_args, null)).is_truthy();
+        const has_to_int = try vm_instance.respondsToMethodByName(self, "to_int", true);
         const coerced = if (has_to_int)
             try vm_instance.callMethodByName(self, "to_int", &[_]Value{}, null)
         else
@@ -732,7 +727,7 @@ pub const Value = struct {
     pub fn coerceToStringValue(self: Value, vm_instance: *VM, type_error_message: []const u8) VMError!Value {
         if (self.isString()) return self;
 
-        const maybe_coerced = try vm_instance.checkCallMethodByName(self, "to_str", &[_]Value{}, null);
+        const maybe_coerced = try vm_instance.checkCallMethodByName(self, "to_str", false, &[_]Value{}, null);
         const coerced = maybe_coerced orelse {
             const exc = try vm_instance.createException(vm_instance.type_error_class, type_error_message);
             vm_instance.pending_exception = exc;

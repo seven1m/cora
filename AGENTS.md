@@ -137,16 +137,16 @@ Use "unmanaged" ArrayList: `field: ArrayList(*Value) = .empty` (allocator passed
 - Do not expose runtime implementation details to user Ruby code via fake/hidden instance variables or methods (e.g. `@__store`, `__hidden_methods__`). Keep runtime-only state in VM/runtime structures instead.
 - In `src/encoding/*.zig`, keep encoding capability predicates on the concrete encoding structs and have `src/encoding.zig` delegate via `inline else`; avoid hard-coding per-tag switches in the `Encoding` union for flags like `isDummy`/`isUnicode`.
 - Always use VM argument-count helpers (`requireArgCount`, `requireArgCountRange`, etc.) instead of manually constructing "wrong number of arguments" exceptions in builtins.
-- Prefer `VM.checkCallMethodByName(receiver, "method", args, block)` for optional conversion/probe calls that should gracefully treat missing methods as "not supported" (MRI-style check-call behavior).
+- Prefer `VM.checkCallMethodByName(receiver, "method", include_private, args, block)` for optional conversion/probe calls that should gracefully treat missing methods as "not supported" (MRI-style check-call behavior). Pass `true` only when the Ruby semantics must treat private methods as eligible for the probe.
 - Do not parse exception messages (for example `"undefined method 'to_str'"`) to detect missing methods. Use `checkCallMethodByName` or explicit method lookup + dispatch rules.
 - Use normal `callMethodByName` (not check-call) when you must always perform the call or preserve side effects.
 - If you add or discover a reusable builtin helper, document it in this file when it is broadly useful for future builtin work.
 
 ### General builtin helpers
 - `VM.requireArgCount`, `VM.requireArgCountRange`, and related helpers are the canonical path for builtin arity validation.
-- `VM.checkCallMethodByName` is the preferred probe/optional-conversion helper when missing methods should be treated as unsupported rather than exceptional.
+- `VM.checkCallMethodByName` is the preferred probe/optional-conversion helper when missing methods should be treated as unsupported rather than exceptional; pass the appropriate `include_private` flag for the Ruby semantic you need.
 - `VM.callMethodByName` is the normal dispatch path when the call must happen or its side effects must be preserved.
-- `VM.respondsToMethodByName` is the canonical capability-probe helper for `respond_to?` checks when you need to branch on support without forcing the target method call.
+- `VM.respondsToMethodByName` is the canonical capability-probe helper for `respond_to?` checks when you need to branch on support without forcing the target method call; pass the appropriate `include_private` flag for the Ruby semantic you need.
 - `VM.allocCStringZ` is the shared helper for temporary NUL-terminated C strings when builtins need libc APIs; prefer it over per-builtin duplicate allocators.
 - `VM.copyObjectInstanceVariables` centralizes shallow copying of Ruby object instance-variable maps for dup/clone-style object duplication paths.
 - `VM.probeToAry` centralizes low-level `to_ary` coercion semantics. It returns array/missing/nil-result distinctly and raises `TypeError` when `to_ary` returns a non-Array.
@@ -163,7 +163,7 @@ Use "unmanaged" ArrayList: `field: ArrayList(*Value) = .empty` (allocator passed
 ### String coercion conventions
 - Canonical implicit String coercion lives in `Value.coerceToStringValue` (`src/value.zig`). Prefer this for Ruby APIs that require String-like arguments via `to_str` and should raise `TypeError` on failure.
 - Use `Value.coerceToStr` when you need `[]const u8` bytes after the same implicit coercion semantics.
-- Use `VM.checkCallMethodByName(..., "to_str", ...)` for optional/cooperative conversions (for example `String.try_convert`) where missing method should map to `nil`/fallback instead of raising.
+- Use `VM.checkCallMethodByName(..., "to_str", false, ...)` for optional/cooperative conversions (for example `String.try_convert`) where missing method should map to `nil`/fallback instead of raising.
 - If you only need capability probing (for example `String#==` checking whether `to_str` is supported before reverse-dispatch), use `respond_to?` semantics rather than forcing a coercion call.
 - Use `VM.coerceToPath` for path arguments (`to_path` then String coercion), rather than open-coding path coercion in builtins.
 - Avoid per-builtin ad hoc `to_str` coercion helpers unless semantics intentionally differ from the canonical paths; if they do differ, document why near the helper.

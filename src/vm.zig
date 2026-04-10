@@ -1787,7 +1787,7 @@ pub const VM = struct {
             }
 
             if (!proc_val.isProc()) {
-                const maybe_proc = try self.checkCallMethodByName(proc_val, "to_proc", &[_]Value{}, null);
+                const maybe_proc = try self.checkCallMethodByName(proc_val, "to_proc", false, &[_]Value{}, null);
                 proc_val = maybe_proc orelse {
                     return self.raiseExceptionFmt(
                         self.type_error_class,
@@ -1795,7 +1795,7 @@ pub const VM = struct {
                         .{self.className(proc_val)},
                     );
                 };
-                if (!proc_val.isProc() and try self.respondsToMethodByName(proc_val, "call")) {
+                if (!proc_val.isProc() and try self.respondsToMethodByName(proc_val, "call", false)) {
                     return .{ .kind = .{ .callable = proc_val } };
                 }
                 if (!proc_val.isProc()) {
@@ -5143,9 +5143,12 @@ pub const VM = struct {
         return self.callMethodByNameInternal(receiver, method_name, args, block, self.builtin_keyword_ctx);
     }
 
-    pub fn respondsToMethodByName(self: *VM, receiver: Value, method_name: []const u8) VMError!bool {
+    pub fn respondsToMethodByName(self: *VM, receiver: Value, method_name: []const u8, include_private: bool) VMError!bool {
         const method_name_sym = try self.intern(method_name);
-        var respond_args: [1]Value = .{Value.fromObject(method_name_sym)};
+        var respond_args: [2]Value = .{
+            Value.fromObject(method_name_sym),
+            Value.boolean(include_private),
+        };
         const responds = try self.callMethodByName(receiver, "respond_to?", respond_args[0..], null);
         return responds.is_truthy();
     }
@@ -5153,8 +5156,8 @@ pub const VM = struct {
     /// MRI-like check-call helper for optional conversion/probe calls.
     /// Returns null when receiver does not respond to the method.
     /// If receiver responds, performs a normal call (including method_missing behavior).
-    pub fn checkCallMethodByName(self: *VM, receiver: Value, method_name: []const u8, args: []Value, block: ?Block) VMError!?Value {
-        if (!try self.respondsToMethodByName(receiver, method_name)) return null;
+    pub fn checkCallMethodByName(self: *VM, receiver: Value, method_name: []const u8, include_private: bool, args: []Value, block: ?Block) VMError!?Value {
+        if (!try self.respondsToMethodByName(receiver, method_name, include_private)) return null;
         return try self.callMethodByName(receiver, method_name, args, block);
     }
 
@@ -6592,7 +6595,7 @@ pub const VM = struct {
     pub fn probeToAry(self: *VM, arg: Value) VMError!ToAryResult {
         if (arg.isArray()) return .{ .array = arg };
 
-        const maybe_array = try self.checkCallMethodByName(arg, "to_ary", &[_]Value{}, null);
+        const maybe_array = try self.checkCallMethodByName(arg, "to_ary", false, &[_]Value{}, null);
         const coerced = maybe_array orelse return .missing;
         if (coerced.isNil()) return .nil_result;
         if (coerced.isArray()) return .{ .array = coerced };
@@ -6624,7 +6627,7 @@ pub const VM = struct {
         if (arg.isArray()) return arg;
         if (arg.isNil()) return Value.fromObject(try self.createArray());
 
-        if (try self.checkCallMethodByName(arg, "to_a", &[_]Value{}, null)) |coerced| {
+        if (try self.checkCallMethodByName(arg, "to_a", false, &[_]Value{}, null)) |coerced| {
             if (coerced.isNil()) {
                 const wrapped = try self.createArray();
                 wrapped.elements.append(self.gc_allocator, arg) catch return error.Fatal;
@@ -6645,14 +6648,14 @@ pub const VM = struct {
     }
 
     pub fn coerceToPath(self: *VM, arg: Value, type_error_message: []const u8) VMError![]const u8 {
-        const maybe_candidate = try self.checkCallMethodByName(arg, "to_path", &[_]Value{}, null);
+        const maybe_candidate = try self.checkCallMethodByName(arg, "to_path", false, &[_]Value{}, null);
         const candidate = maybe_candidate orelse arg;
 
         return candidate.coerceToStr(self, type_error_message);
     }
 
     pub fn coerceToPathValue(self: *VM, arg: Value, type_error_message: []const u8) VMError!Value {
-        const maybe_candidate = try self.checkCallMethodByName(arg, "to_path", &[_]Value{}, null);
+        const maybe_candidate = try self.checkCallMethodByName(arg, "to_path", false, &[_]Value{}, null);
         const candidate = maybe_candidate orelse arg;
 
         return candidate.coerceToStringValue(self, type_error_message);
@@ -7238,7 +7241,7 @@ pub const VM = struct {
         if (kw_val.isHash()) return kw_val.toHashObject();
 
         const empty_args = [_]Value{};
-        const maybe_hash = try self.checkCallMethodByName(kw_val, "to_hash", empty_args[0..], null);
+        const maybe_hash = try self.checkCallMethodByName(kw_val, "to_hash", false, empty_args[0..], null);
         if (maybe_hash == null) {
             const exc = try self.createException(self.type_error_class, "no implicit conversion into Hash");
             self.pending_exception = exc;

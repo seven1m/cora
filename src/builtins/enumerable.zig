@@ -26,7 +26,7 @@ fn builtinEnumerableMap(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
     try vm.requireArgCount(args, 0);
     const blk = block orelse {
         const method_name = try vm.intern("map");
-        if (try vm.checkCallMethodByName(receiver, "size", &.{}, null)) |size| {
+        if (try vm.checkCallMethodByName(receiver, "size", false, &.{}, null)) |size| {
             return vm.createMethodEnumeratorWithSize(receiver, method_name, &.{}, size);
         }
         return vm.createMethodEnumerator(receiver, method_name, &.{});

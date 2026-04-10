@@ -18,7 +18,7 @@ fn coerceToProcForHashDefault(vm: *VM, proc_like: Value) VMError!*value.ProcObje
     var proc_val = proc_like;
 
     if (!proc_val.isProc()) {
-        proc_val = (try vm.checkCallMethodByName(proc_val, "to_proc", &.{}, null)) orelse {
+        proc_val = (try vm.checkCallMethodByName(proc_val, "to_proc", false, &.{}, null)) orelse {
             return vm.raiseExceptionFmt(
                 vm.type_error_class,
                 "wrong argument type {s} (expected Proc)",
@@ -179,7 +179,7 @@ fn digIntoValue(vm: *VM, current_value: Value, remaining_args: []Value) VMError!
     if (remaining_args.len == 0) return current_value;
     if (current_value.isNil()) return Value.nil();
 
-    if (!try vm.respondsToMethodByName(current_value, "dig")) {
+    if (!try vm.respondsToMethodByName(current_value, "dig", false)) {
         return vm.raiseExceptionFmt(vm.type_error_class, "{s} does not have #dig method", .{vm.className(current_value)});
     }
 

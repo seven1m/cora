@@ -325,7 +325,7 @@ pub fn builtinStringTryConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMEr
     const arg = args[0];
     if (arg.isString()) return arg;
 
-    const maybe_converted = try vm.checkCallMethodByName(arg, "to_str", &[_]Value{}, null);
+    const maybe_converted = try vm.checkCallMethodByName(arg, "to_str", false, &[_]Value{}, null);
     const converted = maybe_converted orelse return Value.nil();
     if (converted.isNil()) return Value.nil();
     if (converted.isString()) return converted;
@@ -615,7 +615,7 @@ pub fn builtinStringEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
         return builtinStringEql(vm, receiver, args, null);
     }
 
-    if (try vm.respondsToMethodByName(other, "to_str")) {
+    if (try vm.respondsToMethodByName(other, "to_str", false)) {
         var reverse_args = [_]Value{receiver};
         return try vm.callMethodByName(other, "==", reverse_args[0..], null);
     }
@@ -686,7 +686,7 @@ pub fn builtinStringCompare(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     defer vm.leaveRecursionGuard(.string_compare_fallback, receiver, other);
 
     var reverse_args = [_]Value{receiver};
-    const maybe_reversed = try vm.checkCallMethodByName(other, "<=>", reverse_args[0..], null);
+    const maybe_reversed = try vm.checkCallMethodByName(other, "<=>", false, reverse_args[0..], null);
     const reversed = maybe_reversed orelse return Value.nil();
 
     if (reversed.isNil()) return Value.nil();
@@ -728,7 +728,7 @@ fn compareStringObjects(lhs: *const value.StringObject, rhs: *const value.String
 }
 
 fn tryCoerceToStringForCompare(vm: *VM, other: Value) VMError!?Value {
-    const maybe_coerced = try vm.checkCallMethodByName(other, "to_str", &[_]Value{}, null);
+    const maybe_coerced = try vm.checkCallMethodByName(other, "to_str", false, &[_]Value{}, null);
     const coerced = maybe_coerced orelse return null;
 
     if (coerced.isNil()) {
@@ -1024,9 +1024,9 @@ fn transcodeWithEncodeOptions(
 
                 if (fallback.isProc()) {
                     fallback_result = try vm.callProcObject(fallback.toProcObject(), fallback_args[0..], null, null);
-                } else if (try vm.checkCallMethodByName(fallback, "call", fallback_args[0..], null)) |result| {
+                } else if (try vm.checkCallMethodByName(fallback, "call", false, fallback_args[0..], null)) |result| {
                     fallback_result = result;
-                } else if (try vm.checkCallMethodByName(fallback, "[]", fallback_args[0..], null)) |result| {
+                } else if (try vm.checkCallMethodByName(fallback, "[]", false, fallback_args[0..], null)) |result| {
                     fallback_result = result;
                 }
 
@@ -1071,9 +1071,9 @@ fn transcodeWithEncodeOptions(
 
             if (fallback.isProc()) {
                 fallback_result = try vm.callProcObject(fallback.toProcObject(), fallback_args[0..], null, null);
-            } else if (try vm.checkCallMethodByName(fallback, "call", fallback_args[0..], null)) |result| {
+            } else if (try vm.checkCallMethodByName(fallback, "call", false, fallback_args[0..], null)) |result| {
                 fallback_result = result;
-            } else if (try vm.checkCallMethodByName(fallback, "[]", fallback_args[0..], null)) |result| {
+            } else if (try vm.checkCallMethodByName(fallback, "[]", false, fallback_args[0..], null)) |result| {
                 fallback_result = result;
             }
 

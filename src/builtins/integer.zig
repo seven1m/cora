@@ -45,7 +45,7 @@ fn compareIntegerRelational(vm: *VM, receiver: Value, arg: Value, op_name: []con
     }
 
     var coerce_args = [_]Value{receiver};
-    const maybe_coerced = try vm.checkCallMethodByName(arg, "coerce", coerce_args[0..], null);
+    const maybe_coerced = try vm.checkCallMethodByName(arg, "coerce", false, coerce_args[0..], null);
     const coerced = maybe_coerced orelse {
         return vm.raiseExceptionFmt(vm.argument_error_class, "comparison of Integer with {s} failed", .{vm.className(arg)});
     };
@@ -401,7 +401,7 @@ pub fn builtinIntegerTryConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VME
     const arg = args[0];
     if (arg.isInteger() or arg.isBigInteger()) return arg;
 
-    const maybe_converted = try vm.checkCallMethodByName(arg, "to_int", &[_]Value{}, null);
+    const maybe_converted = try vm.checkCallMethodByName(arg, "to_int", false, &[_]Value{}, null);
     const converted = maybe_converted orelse return Value.nil();
     if (converted.isNil()) return Value.nil();
     if (converted.isInteger() or converted.isBigInteger()) return converted;

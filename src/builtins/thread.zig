@@ -611,7 +611,7 @@ fn symbolArg(vm: *VM, arg: Value) VMError!*value.SymbolObject {
     if (arg.isSymbol()) return arg.toSymbolObject();
     if (arg.isString()) return try vm.intern(arg.toStringObject().str);
 
-    const maybe_coerced = try vm.checkCallMethodByName(arg, "to_str", &[_]Value{}, null);
+    const maybe_coerced = try vm.checkCallMethodByName(arg, "to_str", false, &[_]Value{}, null);
     if (maybe_coerced) |coerced| {
         if (coerced.isString()) return try vm.intern(coerced.toStringObject().str);
     }
