@@ -9,6 +9,10 @@ const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
 const Block = vm_mod.Block;
 const Value = value.Value;
+const HashYieldResult = struct {
+    value: Value,
+    break_occurred: bool,
+};
 
 fn coerceToProcForHashDefault(vm: *VM, proc_like: Value) VMError!*value.ProcObject {
     var proc_val = proc_like;
@@ -169,6 +173,34 @@ fn setHashDefaultValue(hash_obj: *value.HashObject, default_value: Value) void {
 fn setHashDefaultProc(hash_obj: *value.HashObject, proc_obj: *value.ProcObject) void {
     hash_obj.default_proc = proc_obj;
     hash_obj.default_value = null;
+}
+
+fn yieldHashEntryPair(vm: *VM, blk: Block, entry: value.HashEntry) VMError!HashYieldResult {
+    const pair = try vm.createArray();
+    pair.elements.append(vm.gc_allocator, entry.key) catch return error.Fatal;
+    pair.elements.append(vm.gc_allocator, entry.value) catch return error.Fatal;
+    const pair_value = Value.fromObject(pair);
+
+    const yielded = switch (blk.kind) {
+        .chunk => |chunk_blk| blk_result: {
+            if (chunk_blk.chunk.is_lambda or chunk_blk.chunk.rest_param_index != null) {
+                const yield_args = [_]Value{pair_value};
+                break :blk_result try vm.yieldToBlock(blk, &yield_args);
+            }
+
+            const yield_args = [_]Value{ entry.key, entry.value };
+            break :blk_result try vm.yieldToBlock(blk, &yield_args);
+        },
+        .symbol, .builtin, .callable => blk_result: {
+            const yield_args = [_]Value{pair_value};
+            break :blk_result try vm.yieldToBlock(blk, &yield_args);
+        },
+    };
+
+    return .{
+        .value = yielded.value,
+        .break_occurred = yielded.break_occurred,
+    };
 }
 
 pub fn builtinHashInitialize(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -364,24 +396,7 @@ pub fn builtinHashEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
 
     // Iterate in insertion order
     for (hash_obj.entries.items) |entry| {
-        const pair = try vm.createArray();
-        pair.elements.append(vm.gc_allocator, entry.key) catch return error.Fatal;
-        pair.elements.append(vm.gc_allocator, entry.value) catch return error.Fatal;
-        const pair_value = Value.fromObject(pair);
-        const result = switch (blk.kind) {
-            .chunk => |chunk_blk| blk_result: {
-                if (chunk_blk.chunk.is_lambda or chunk_blk.chunk.rest_param_index != null) {
-                    const yield_args = [_]Value{pair_value};
-                    break :blk_result try vm.yieldToBlock(blk, &yield_args);
-                }
-                const yield_args = [_]Value{ entry.key, entry.value };
-                break :blk_result try vm.yieldToBlock(blk, &yield_args);
-            },
-            .symbol, .builtin, .callable => blk_result: {
-                const yield_args = [_]Value{pair_value};
-                break :blk_result try vm.yieldToBlock(blk, &yield_args);
-            },
-        };
+        const result = try yieldHashEntryPair(vm, blk, entry);
 
         // If break occurred, return immediately
         if (result.break_occurred) {
@@ -408,24 +423,7 @@ pub fn builtinHashEachPair(vm: *VM, receiver: Value, args: []Value, block: ?Bloc
     @memcpy(snapshot, hash_obj.entries.items);
 
     for (snapshot) |entry| {
-        const pair = try vm.createArray();
-        pair.elements.append(vm.gc_allocator, entry.key) catch return error.Fatal;
-        pair.elements.append(vm.gc_allocator, entry.value) catch return error.Fatal;
-        const pair_value = Value.fromObject(pair);
-        const result = switch (blk.kind) {
-            .chunk => |chunk_blk| blk_result: {
-                if (chunk_blk.chunk.is_lambda or chunk_blk.chunk.rest_param_index != null) {
-                    const yield_args = [_]Value{pair_value};
-                    break :blk_result try vm.yieldToBlock(blk, &yield_args);
-                }
-                const yield_args = [_]Value{ entry.key, entry.value };
-                break :blk_result try vm.yieldToBlock(blk, &yield_args);
-            },
-            .symbol, .builtin, .callable => blk_result: {
-                const yield_args = [_]Value{pair_value};
-                break :blk_result try vm.yieldToBlock(blk, &yield_args);
-            },
-        };
+        const result = try yieldHashEntryPair(vm, blk, entry);
         if (result.break_occurred) {
             return result.value;
         }
