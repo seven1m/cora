@@ -124,6 +124,9 @@ pub fn register(vm: *VM) !void {
         .visibility = .private,
     });
 
+    const dup_sym = try vm.intern("dup");
+    try vm.kernel_module.methods.put(dup_sym, .{ .method = .{ .builtin = &builtinKernelDup } });
+
     const initialize_clone_sym = try vm.intern("initialize_clone");
     try vm.kernel_module.methods.put(initialize_clone_sym, .{
         .method = .{ .builtin = &builtinKernelInitializeClone },
@@ -479,6 +482,19 @@ pub fn builtinKernelInitializeDup(vm: *VM, receiver: Value, args: []Value, _: ?B
     try vm.requireArgCount(args, 1);
     _ = try vm.callMethodByName(receiver, "initialize_copy", args[0..1], null);
     return receiver;
+}
+
+pub fn builtinKernelDup(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
+    const duplicate = try vm.newObjectForClass(vm.getClass(receiver));
+    const src_obj = receiver.getObjectPointer() orelse return receiver;
+    const dst_obj = duplicate.getObjectPointer() orelse return error.Fatal;
+    try vm.copyObjectInstanceVariables(src_obj, dst_obj);
+
+    var initialize_dup_args = [_]Value{receiver};
+    _ = try vm.callMethodByName(duplicate, "initialize_dup", initialize_dup_args[0..], null);
+    return duplicate;
 }
 
 pub fn builtinKernelInitializeClone(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

@@ -531,12 +531,28 @@ end
 
 def quarantine!(*_args); end
 
-def guard(*_args, **_kwargs, &block)
-  block.call if block
+def guard(*args, **_kwargs, &block)
+  condition = args[0]
+  allowed = if condition.respond_to?(:call)
+              condition.call
+            elsif condition.nil?
+              true
+            else
+              condition
+            end
+  block.call if block && allowed
 end
 
-def guard_not(*_args, **_kwargs, &block)
-  block.call if block
+def guard_not(*args, **_kwargs, &block)
+  condition = args[0]
+  allowed = if condition.respond_to?(:call)
+              !condition.call
+            elsif condition.nil?
+              true
+            else
+              !condition
+            end
+  block.call if block && allowed
 end
 
 def flunk(message = "Flunked")

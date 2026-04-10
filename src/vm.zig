@@ -5722,6 +5722,18 @@ pub const VM = struct {
         target_obj.instance_variables = copied_ivars;
     }
 
+    pub fn objectIdValue(self: *VM, receiver: Value) VMError!Value {
+        if (receiver.isInteger()) {
+            var managed = std.math.big.int.Managed.initSet(self.allocator, receiver.toInteger()) catch return error.Fatal;
+            defer managed.deinit();
+            managed.shiftLeft(&managed, 1) catch return error.Fatal;
+            managed.addScalar(&managed, 1) catch return error.Fatal;
+            return self.valueFromManagedInteger(&managed);
+        }
+
+        return Value.integer(receiver.objectId());
+    }
+
     pub fn intern(self: *VM, str: []const u8) VMError!*SymbolObject {
         return self.internWithEncoding(str, .{ .us_ascii = .{} });
     }

@@ -109,6 +109,9 @@ pub fn register(vm: *VM) !void {
     const to_int_sym = try vm.intern("to_int");
     try vm.float_class.module.methods.put(to_int_sym, .{ .method = .{ .builtin = &builtinFloatToInt } });
 
+    const to_i_sym = try vm.intern("to_i");
+    try vm.float_class.module.methods.put(to_i_sym, .{ .method = .{ .builtin = &builtinFloatToInt } });
+
     const to_s_sym = try vm.intern("to_s");
     try vm.float_class.module.methods.put(to_s_sym, .{ .method = .{ .builtin = &builtinFloatToS } });
 
@@ -247,14 +250,32 @@ pub fn builtinFloatToInt(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
         return vm.raiseExceptionFmt(vm.range_error_class, "float out of range of integer", .{});
     }
 
-    const truncated = @trunc(f);
-    const min_i64 = -0x1.0p63;
-    const max_exclusive_i64 = 0x1.0p63;
-    if (truncated >= max_exclusive_i64 or truncated < min_i64) {
-        return vm.raiseExceptionFmt(vm.range_error_class, "float out of range of integer", .{});
+    const bits: u64 = @bitCast(f);
+    const sign = (bits >> 63) != 0;
+    const exponent_bits: u16 = @intCast((bits >> 52) & 0x7ff);
+    const fraction_bits = bits & 0x000f_ffff_ffff_ffff;
+
+    if (exponent_bits == 0) {
+        return Value.integer(0);
     }
 
-    return Value.integer(@intFromFloat(truncated));
+    const exponent: i32 = @as(i32, exponent_bits) - 1023;
+    if (exponent < 0) {
+        return Value.integer(0);
+    }
+
+    const significand: u64 = fraction_bits | (@as(u64, 1) << 52);
+    if (exponent <= 52) {
+        const shift: u6 = @intCast(52 - exponent);
+        const magnitude: i64 = @intCast(significand >> shift);
+        return Value.integer(if (sign) -magnitude else magnitude);
+    }
+
+    var managed = std.math.big.int.Managed.initSet(vm.allocator, @as(i64, @intCast(significand))) catch return error.Fatal;
+    defer managed.deinit();
+    managed.shiftLeft(&managed, @intCast(exponent - 52)) catch return error.Fatal;
+    if (sign) managed.negate();
+    return vm.valueFromManagedInteger(&managed);
 }
 
 fn floatToString(vm: *VM, value_f: f64) VMError!Value {

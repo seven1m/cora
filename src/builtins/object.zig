@@ -34,8 +34,7 @@ pub fn builtinObjectNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
 
 pub fn builtinObjectObjectId(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const object_id: i64 = receiver.objectId();
-    return Value.integer(object_id);
+    return vm.objectIdValue(receiver);
 }
 
 pub fn builtinObjectClass(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
