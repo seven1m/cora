@@ -102,7 +102,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/array/delete_if_spec.rb
 - [ ] core/array/delete_spec.rb
 - [ ] core/array/difference_spec.rb
-- [ ] core/array/dig_spec.rb
+- [x] core/array/dig_spec.rb
 - [ ] core/array/drop_spec.rb
 - [ ] core/array/drop_while_spec.rb
 - [x] core/array/dup_spec.rb
