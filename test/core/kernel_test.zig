@@ -518,6 +518,61 @@ test "Kernel#eval raises SyntaxError for invalid source" {
     try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "SyntaxError") != null);
 }
 
+test "Kernel#eval returns nil for __dir__ with top-level binding" {
+    const result = try evalCode("eval(\"__dir__\", binding)");
+    try std.testing.expect(result.isNil());
+}
+
+test "File.realpath resolves the executing file directory" {
+    const allocator = std.testing.allocator;
+    const dir_path = try std.fmt.allocPrint(allocator, "/tmp/cora-file-realpath-{d}", .{std.time.nanoTimestamp()});
+    defer allocator.free(dir_path);
+    try std.fs.makeDirAbsolute(dir_path);
+    defer std.fs.deleteTreeAbsolute(dir_path) catch {};
+
+    const file_path = try std.fmt.allocPrint(allocator, "{s}/realpath.rb", .{dir_path});
+    defer allocator.free(file_path);
+
+    const file = try std.fs.createFileAbsolute(file_path, .{ .truncate = true });
+    defer file.close();
+    try file.writeAll("File.realpath(File.dirname(__FILE__))\n");
+
+    var stdout_buf: [1024]u8 = undefined;
+    var stderr_buf: [1024]u8 = undefined;
+    const result = evalFile(file_path, &stdout_buf, &stderr_buf);
+    if (result.err) |err| return err;
+
+    const expected = try std.fs.realpathAlloc(allocator, dir_path);
+    defer allocator.free(expected);
+
+    try std.testing.expect(result.value.isString());
+    try std.testing.expectEqualStrings(expected, result.value.toStringObject().str);
+}
+
+test "Dir.chdir restores cwd after block" {
+    const allocator = std.testing.allocator;
+    const original = try std.process.getCwdAlloc(allocator);
+    defer allocator.free(original);
+
+    const dir_path = try std.fmt.allocPrint(allocator, "/tmp/cora-dir-chdir-{d}", .{std.time.nanoTimestamp()});
+    defer allocator.free(dir_path);
+    try std.fs.makeDirAbsolute(dir_path);
+    defer std.fs.deleteTreeAbsolute(dir_path) catch {};
+
+    const ruby_code = try std.fmt.allocPrint(
+        allocator,
+        "before = Dir.pwd; inside = nil; after = nil; Dir.chdir(\"{s}\") {{ inside = Dir.pwd }}; after = Dir.pwd; [before, inside, after]",
+        .{dir_path},
+    );
+    defer allocator.free(ruby_code);
+
+    const result = try evalCode(ruby_code);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqualStrings(original, result.toArrayObject().elements.items[0].toStringObject().str);
+    try std.testing.expectEqualStrings(dir_path, result.toArrayObject().elements.items[1].toStringObject().str);
+    try std.testing.expectEqualStrings(original, result.toArrayObject().elements.items[2].toStringObject().str);
+}
+
 test "Kernel#__dir__ returns dot for eval code" {
     const result = try evalCode("__dir__");
     try std.testing.expect(result.isString());

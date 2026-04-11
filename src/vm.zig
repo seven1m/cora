@@ -127,6 +127,7 @@ pub const CallFrame = struct {
     frame_type: enum { method, lambda, proc, fiber } = .method,
     method_name: ?[]const u8 = null,
     super_defining_class: ?*ClassObject = null,
+    dir_returns_nil: bool = false,
 };
 
 pub const FiberValueStack = FixedBufferList(Value, MAX_FIBER_STACK_SIZE);
@@ -262,6 +263,7 @@ pub const VM = struct {
     hash_class: *value.ClassObject,
     file_class: *value.ClassObject,
     dir_class: *value.ClassObject,
+    binding_class: *value.ClassObject,
     range_class: *value.ClassObject,
     proc_class: *value.ClassObject,
     fiber_class: *value.ClassObject,
@@ -412,6 +414,7 @@ pub const VM = struct {
             .hash_class = undefined,
             .file_class = undefined,
             .dir_class = undefined,
+            .binding_class = undefined,
             .range_class = undefined,
             .proc_class = undefined,
             .fiber_class = undefined,
@@ -580,6 +583,10 @@ pub const VM = struct {
         const dir_name_sym = try self.intern("Dir");
         const dir_class_val = try self.newClass(dir_name_sym, self.object_class);
         self.dir_class = dir_class_val.toClassObject();
+
+        const binding_name_sym = try self.intern("Binding");
+        const binding_class_val = try self.newClass(binding_name_sym, self.object_class);
+        self.binding_class = binding_class_val.toClassObject();
 
         const range_name_sym = try self.intern("Range");
         const range_class_val = try self.newClassWithType(range_name_sym, self.object_class, .range);
@@ -795,6 +802,7 @@ pub const VM = struct {
         self.object_class.module.constants.put(hash_name_sym, hash_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(file_name_sym, file_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(dir_name_sym, dir_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(binding_name_sym, binding_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(range_name_sym, range_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(proc_name_sym, proc_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(fiber_name_sym, fiber_class_val) catch return error.Fatal;
@@ -6694,6 +6702,7 @@ pub const VM = struct {
         const arg = args[index];
         const matches = switch (expected_tag) {
             .instance => arg.isInstance(),
+            .binding => arg.isBinding(),
             .string => arg.isString(),
             .symbol => arg.isSymbol(),
             .array => arg.isArray(),
@@ -7047,6 +7056,23 @@ pub const VM = struct {
     }
 
     pub fn evalSourceWithEncoding(self: *VM, source: []const u8, source_file: ?[]const u8, source_encoding: ?enc.Encoding) VMError!Value {
+        return self.evalSourceWithEncodingAndContext(source, source_file, source_encoding, null);
+    }
+
+    pub const EvalContext = struct {
+        self_value: Value,
+        parent_env: ?*Environment,
+        lexical_scope: ?*LexicalScope,
+        dir_returns_nil: bool = false,
+    };
+
+    pub fn evalSourceWithEncodingAndContext(
+        self: *VM,
+        source: []const u8,
+        source_file: ?[]const u8,
+        source_encoding: ?enc.Encoding,
+        context: ?EvalContext,
+    ) VMError!Value {
         var parser = prism.Parser.initWithEncoding(self.allocator, source, source_file, source_encoding) catch {
             return self.raiseExceptionFmt(self.syntax_error_class, "{s}: syntax error", .{source_file orelse "(eval)"});
         };
@@ -7069,6 +7095,16 @@ pub const VM = struct {
         var ownership_iter = eval_program.child_chunks.iterator();
         while (ownership_iter.next()) |entry| {
             self.program.child_chunks.put(entry.key_ptr.*, entry.value_ptr.*) catch return error.Fatal;
+        }
+
+        if (context) |ctx| {
+            return self.executeChunkInContextWithOptions(
+                &eval_program.main_chunk,
+                ctx.self_value,
+                ctx.parent_env,
+                ctx.lexical_scope,
+                ctx.dir_returns_nil,
+            );
         }
 
         if (self.frames.items.len > 0) {
@@ -7105,6 +7141,17 @@ pub const VM = struct {
         parent_env: ?*Environment,
         lexical_scope: ?*LexicalScope,
     ) VMError!Value {
+        return self.executeChunkInContextWithOptions(target_chunk, self_value, parent_env, lexical_scope, false);
+    }
+
+    fn executeChunkInContextWithOptions(
+        self: *VM,
+        target_chunk: *Chunk,
+        self_value: Value,
+        parent_env: ?*Environment,
+        lexical_scope: ?*LexicalScope,
+        dir_returns_nil: bool,
+    ) VMError!Value {
         const env = try self.createStackEnvironment(parent_env, lexical_scope);
         const saved_stack_len = self.stack.items.len;
         const caller_frame_depth = self.frames.items.len;
@@ -7117,6 +7164,7 @@ pub const VM = struct {
             .ep = env,
             .block = null,
             .frame_type = .method,
+            .dir_returns_nil = dir_returns_nil,
         }) catch return error.Fatal;
 
         if (lexical_scope) |scope| {
@@ -7165,6 +7213,23 @@ pub const VM = struct {
             .default_proc = null,
         };
         return hash_ptr;
+    }
+
+    pub fn createBinding(self: *VM, self_value: Value, env: ?*Environment, lexical_scope: ?*LexicalScope) VMError!*value.BindingObject {
+        const binding_ptr = self.gc_allocator.create(value.BindingObject) catch return error.Fatal;
+        binding_ptr.* = value.BindingObject{
+            .object = .{
+                .type_tag = .binding,
+                .flags = 0,
+                .class = self.binding_class,
+                .singleton_class = null,
+                .instance_variables = null,
+            },
+            .self_value = self_value,
+            .env = env,
+            .lexical_scope = lexical_scope,
+        };
+        return binding_ptr;
     }
 
     pub const ArityMode = enum { strict, lenient };

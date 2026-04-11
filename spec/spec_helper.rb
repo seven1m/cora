@@ -357,7 +357,7 @@ def ruby_bug(_id, *args, **kwargs, &block)
 end
 
 def fixture(spec_file, fixture_name)
-  path = spec_file.to_s
+  path = File.expand_path(spec_file.to_s)
   absolute = path.length > 0 && path[0] == "/"
   parts = path.split("/")
   base = ""
@@ -383,6 +383,16 @@ def cora_bin_path
   "#{__dir__}/../zig-out/bin/cora"
 end
 
+def cora_repo_root
+  File.expand_path("..", __dir__)
+end
+
+def cora_lib_dir
+  match = `find "#{cora_repo_root}/.zig-cache" -name 'libgc.so.*' -print | head -n 1 | tr -d '\n'`
+  return nil if match.empty?
+  File.dirname(match)
+end
+
 def shell_escape(str)
   "'" + str.to_s.gsub("'", %q('\\'')) + "'"
 end
@@ -394,6 +404,11 @@ def ruby_exe(script_path, options: nil, args: nil, exit_status: nil, env: nil)
     env.each do |key, value|
       command << "#{key}=#{shell_escape(value)}"
     end
+  end
+
+  lib_dir = cora_lib_dir
+  if lib_dir
+    command << "LD_LIBRARY_PATH=#{shell_escape(lib_dir)}"
   end
 
   command << shell_escape(cora_bin_path)

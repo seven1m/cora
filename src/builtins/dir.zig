@@ -61,6 +61,9 @@ pub fn register(vm: *VM) !void {
 
     const home_sym = try vm.intern("home");
     try dir_singleton.module.methods.put(home_sym, .{ .method = .{ .builtin = &builtinDirHome } });
+
+    const chdir_sym = try vm.intern("chdir");
+    try dir_singleton.module.methods.put(chdir_sym, .{ .method = .{ .builtin = &builtinDirChdir } });
 }
 
 pub fn builtinDirPwd(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -89,4 +92,28 @@ pub fn builtinDirHome(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value
     }
 
     return try vm.newString(try currentHome(vm), false);
+}
+
+pub fn builtinDirChdir(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "Dir.chdir is not implemented on Windows", .{});
+    }
+
+    const target = try vm.coerceToPath(args[0], "no implicit conversion into String");
+    const previous = std.process.getCwdAlloc(vm.allocator) catch return error.Fatal;
+    defer vm.allocator.free(previous);
+
+    std.posix.chdir(target) catch {
+        return vm.raiseExceptionFmt(vm.io_error_class, "No such file or directory @ dir_s_chdir - {s}", .{target});
+    };
+
+    if (block) |blk| {
+        defer std.posix.chdir(previous) catch {};
+        const yielded = try vm.yieldToBlock(blk, &[_]Value{});
+        if (yielded.break_occurred) return yielded.value;
+        return yielded.value;
+    }
+
+    return Value.integer(0);
 }

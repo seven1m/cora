@@ -107,6 +107,12 @@ pub fn register(vm: *VM) !void {
     const eval_sym = try vm.intern("eval");
     try vm.kernel_module.methods.put(eval_sym, .{ .method = .{ .builtin = &builtinKernelEval } });
 
+    const binding_sym = try vm.intern("binding");
+    try vm.kernel_module.methods.put(binding_sym, .{
+        .method = .{ .builtin = &builtinKernelBinding },
+        .visibility = .private,
+    });
+
     const proc_sym = try vm.intern("proc");
     try vm.kernel_module.methods.put(proc_sym, .{ .method = .{ .builtin = &builtinKernelProc } });
 
@@ -274,10 +280,47 @@ pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
 }
 
 pub fn builtinKernelEval(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 1);
+    try vm.requireArgCountRange(args, 1, 4);
     const source_value = try args[0].coerceToStringValue(vm, "no implicit conversion into String");
     const source_obj = source_value.toStringObject();
-    return vm.evalSourceWithEncoding(source_obj.str, "(eval)", source_obj.encoding);
+
+    const binding_arg = if (args.len >= 2) args[1] else Value.nil();
+    const filename: ?[]const u8 = if (args.len >= 3 and !args[2].isNil())
+        try args[2].coerceToStr(vm, "no implicit conversion into String")
+    else
+        null;
+
+    if (binding_arg.isNil()) {
+        return vm.evalSourceWithEncoding(source_obj.str, filename orelse "(eval)", source_obj.encoding);
+    }
+
+    if (!binding_arg.isBinding()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "wrong argument type {s} (expected Binding)", .{vm.className(binding_arg)});
+    }
+
+    const binding_obj = binding_arg.toBindingObject();
+    return vm.evalSourceWithEncodingAndContext(
+        source_obj.str,
+        filename,
+        source_obj.encoding,
+        .{
+            .self_value = binding_obj.self_value,
+            .parent_env = binding_obj.env,
+            .lexical_scope = binding_obj.lexical_scope,
+            .dir_returns_nil = filename == null,
+        },
+    );
+}
+
+pub fn builtinKernelBinding(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
+    if (vm.frames.items.len > 0) {
+        const frame = vm.currentFrame();
+        return Value.fromObject(try vm.createBinding(frame.self_value, frame.ep, vm.current_lexical_scope));
+    }
+
+    return Value.fromObject(try vm.createBinding(receiver, null, vm.current_lexical_scope));
 }
 
 pub fn builtinKernelRequireRelative(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -841,16 +884,25 @@ pub fn builtinKernelSingletonClass(vm: *VM, receiver: Value, args: []Value, _: ?
 pub fn builtinKernelDir(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
 
+    if (vm.frames.items.len > 0 and vm.currentFrame().dir_returns_nil) {
+        return Value.nil();
+    }
+
     const current_file = if (vm.frames.items.len > 0)
         vm.currentFrame().chunk.source_file
     else
         vm.current_loading_file;
 
     if (current_file) |path| {
-        const abs_path = vm.resolveAbsolutePath(path) catch return error.Fatal;
-        defer vm.allocator.free(abs_path);
+        if (std.fs.path.isAbsolute(path) or vm.fileExists(path)) {
+            const abs_path = vm.resolveAbsolutePath(path) catch return error.Fatal;
+            defer vm.allocator.free(abs_path);
 
-        const dir = std.fs.path.dirname(abs_path) orelse ".";
+            const abs_dir = std.fs.path.dirname(abs_path) orelse ".";
+            return try vm.newString(abs_dir, false);
+        }
+
+        const dir = std.fs.path.dirname(path) orelse ".";
         return try vm.newString(dir, false);
     }
 

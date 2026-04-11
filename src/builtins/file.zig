@@ -63,6 +63,9 @@ pub fn register(vm: *VM) !void {
     const expand_path_sym = try vm.intern("expand_path");
     try file_singleton.module.methods.put(expand_path_sym, .{ .method = .{ .builtin = &builtinFileExpandPath } });
 
+    const realpath_sym = try vm.intern("realpath");
+    try file_singleton.module.methods.put(realpath_sym, .{ .method = .{ .builtin = &builtinFileRealpath } });
+
     const join_sym = try vm.intern("join");
     try file_singleton.module.methods.put(join_sym, .{ .method = .{ .builtin = &builtinFileJoin } });
 
@@ -329,6 +332,31 @@ pub fn builtinFileExpandPath(vm: *VM, _: Value, args: []Value, _: ?Block) VMErro
     const expanded = try expandPathAlloc(vm, path_obj.str, base);
     defer vm.allocator.free(expanded);
     return try vm.newStringWithEncoding(expanded, false, path_obj.encoding);
+}
+
+pub fn builtinFileRealpath(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "File.realpath is not implemented on Windows", .{});
+    }
+
+    const path_value = try vm.coerceToPathValue(args[0], "no implicit conversion into String");
+    const path_obj = path_value.toStringObject();
+
+    const base: ?[]const u8 = if (args.len == 2 and !args[1].isNil()) blk: {
+        const base_value = try vm.coerceToPathValue(args[1], "no implicit conversion into String");
+        break :blk base_value.toStringObject().str;
+    } else null;
+
+    const expanded = try expandPathAlloc(vm, path_obj.str, base);
+    defer vm.allocator.free(expanded);
+
+    const resolved = std.fs.cwd().realpathAlloc(vm.allocator, expanded) catch {
+        return vm.raiseExceptionFmt(vm.io_error_class, "No such file or directory @ rb_check_realpath_internal - {s}", .{path_obj.str});
+    };
+    defer vm.allocator.free(resolved);
+
+    return try vm.newStringWithEncoding(resolved, false, path_obj.encoding);
 }
 
 pub fn builtinFileJoin(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

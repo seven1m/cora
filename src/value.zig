@@ -29,6 +29,7 @@ pub const MethodVisibility = enum {
 // Used to identify the concrete type of a heap pointer stored in a Value.
 pub const ObjectTypeTag = enum(u8) {
     instance,
+    binding,
     string,
     symbol,
     array,
@@ -143,6 +144,13 @@ pub const ClassObject = struct {
 pub const ArrayObject = struct {
     object: Object,
     elements: std.ArrayList(Value) = .empty,
+};
+
+pub const BindingObject = struct {
+    object: Object,
+    self_value: Value,
+    env: ?*vm_mod.Environment,
+    lexical_scope: ?*LexicalScope,
 };
 
 pub const HashEntry = struct {
@@ -418,6 +426,10 @@ pub const Value = struct {
         return self.isObject() and self.objectTypeTag() == .string;
     }
 
+    pub inline fn isBinding(self: Value) bool {
+        return self.isObject() and self.objectTypeTag() == .binding;
+    }
+
     pub inline fn isSymbol(self: Value) bool {
         return self.isObject() and self.objectTypeTag() == .symbol;
     }
@@ -505,6 +517,10 @@ pub const Value = struct {
     }
 
     pub inline fn toArrayObject(self: Value) *ArrayObject {
+        return @ptrFromInt(self.raw);
+    }
+
+    pub inline fn toBindingObject(self: Value) *BindingObject {
         return @ptrFromInt(self.raw);
     }
 
@@ -791,6 +807,7 @@ pub const Value = struct {
         } else if (self.isObject()) {
             const tag = self.objectTypeTag();
             switch (tag) {
+                .binding => try writer.print("#<Binding:0x{x}>", .{self.raw}),
                 .string => try writer.print("\"{s}\"", .{self.toStringObject().str}),
                 .symbol => try writer.print(":{s}", .{self.toSymbolObject().name}),
                 .module => try writer.print("<Module {s}>", .{self.toModuleObject().name.name}),

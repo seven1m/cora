@@ -42,7 +42,6 @@ pub fn main() !void {
     var input_record_separator: ?[]const u8 = null;
     var input_record_separator_storage: [1]u8 = undefined;
     var source_file: ?[]const u8 = null;
-    var source_file_buffer: ?[]u8 = null;
     var script_args: std.ArrayList([]const u8) = .empty;
     defer script_args.deinit(allocator);
 
@@ -91,13 +90,11 @@ pub fn main() !void {
 
     var code_buffer: ?[]u8 = null;
     defer if (code_buffer) |buf| allocator.free(buf);
-    defer if (source_file_buffer) |buf| allocator.free(buf);
 
     const code = if (ruby_code) |code|
         code
     else if (filename) |file| blk: {
-        source_file_buffer = std.fs.cwd().realpathAlloc(allocator, file) catch null;
-        source_file = source_file_buffer orelse file;
+        source_file = file;
         const file_handle = std.fs.cwd().openFile(file, .{}) catch |err| {
             std.debug.print("Error: Could not open file '{s}': {}\n", .{ file, err });
             return;
