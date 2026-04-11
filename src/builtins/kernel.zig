@@ -623,7 +623,11 @@ pub fn builtinKernelSleep(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
 
 pub fn builtinKernelTap(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const blk = try vm.requireBlock(block);
+    const blk = block orelse {
+        const exc = try vm.createException(vm.local_jump_error_class, "no block given");
+        vm.pending_exception = exc;
+        return error.Unwind;
+    };
     const result = try vm.yieldToBlock(blk, &[_]Value{receiver});
     if (result.break_occurred) return result.value;
     return receiver;

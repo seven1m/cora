@@ -1269,7 +1269,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/kernel/system_spec.rb
 - [ ] core/kernel/taint_spec.rb
 - [ ] core/kernel/tainted_spec.rb
-- [ ] core/kernel/tap_spec.rb
+- [-] core/kernel/tap_spec.rb
 - [ ] core/kernel/test_spec.rb
 - [ ] core/kernel/then_spec.rb
 - [ ] core/kernel/throw_spec.rb

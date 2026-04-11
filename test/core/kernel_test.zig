@@ -740,13 +740,13 @@ test "Kernel#tap yields self and returns self" {
     try std.testing.expectEqual(true, result.toArrayObject().elements.items[1].toBool());
 }
 
-test "Kernel#tap raises ArgumentError when no block is given" {
+test "Kernel#tap raises LocalJumpError when no block is given" {
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;
 
     const bad = evalCodeWithOutput("Object.new.tap", &stdout_buf, &stderr_buf);
     try std.testing.expectEqual(error.UnhandledException, bad.err.?);
-    try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "ArgumentError") != null);
+    try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "LocalJumpError") != null);
 }
 
 test "Kernel#tap validates arg count" {
