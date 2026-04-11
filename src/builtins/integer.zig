@@ -21,6 +21,25 @@ fn coerceNumericArg(vm: *VM, arg: Value) VMError!NumericArg {
     return vm.raiseExceptionFmt(vm.type_error_class, "argument is not numeric", .{});
 }
 
+fn coerceAndCallIntegerArithmetic(vm: *VM, receiver: Value, arg: Value, op_name: []const u8) VMError!Value {
+    var coerce_args = [_]Value{receiver};
+    const maybe_coerced = try vm.checkCallMethodByName(arg, "coerce", true, coerce_args[0..], null);
+    const coerced = maybe_coerced orelse {
+        return vm.raiseExceptionFmt(vm.type_error_class, "argument is not numeric", .{});
+    };
+    if (!coerced.isArray()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "coerce must return [x, y]", .{});
+    }
+
+    const coerced_items = coerced.toArrayObject().elements.items;
+    if (coerced_items.len != 2) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "coerce must return [x, y]", .{});
+    }
+
+    var op_args = [_]Value{coerced_items[1]};
+    return vm.callMethodByName(coerced_items[0], op_name, op_args[0..], null);
+}
+
 fn compareIntegerRelational(vm: *VM, receiver: Value, arg: Value, op_name: []const u8) VMError!Value {
     if (arg.isInteger() or arg.isBigInteger() or arg.isFloat()) {
         const rhs = try coerceNumericArg(vm, arg);
@@ -389,6 +408,9 @@ pub fn register(vm: *VM) !void {
 pub fn builtinIntegerPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     try receiver.ensureInteger(vm);
+    if (!args[0].isInteger() and !args[0].isBigInteger() and !args[0].isFloat()) {
+        return coerceAndCallIntegerArithmetic(vm, receiver, args[0], "+");
+    }
     const rhs = try coerceNumericArg(vm, args[0]);
     return switch (rhs) {
         .integer => |i| try addIntegers(vm, receiver, i),

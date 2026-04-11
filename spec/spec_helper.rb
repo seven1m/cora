@@ -8,6 +8,9 @@ $__root_contexts = []
 $__current_context = nil
 $__spec_main = self
 
+TOLERANCE = 0.00003 unless defined?(TOLERANCE)
+TIME_TOLERANCE = 20.0 unless defined?(TIME_TOLERANCE)
+
 class SpecContextState
   attr_reader :description, :parent, :children, :examples, :entries
 
