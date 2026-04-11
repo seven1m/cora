@@ -1986,7 +1986,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/string/each_codepoint_spec.rb
 - [ ] core/string/each_grapheme_cluster_spec.rb
 - [ ] core/string/each_line_spec.rb
-- [ ] core/string/element_reference_spec.rb
+- [x] core/string/element_reference_spec.rb
 - [x] core/string/element_set_spec.rb
 - [x] core/string/empty_spec.rb
 - [x] core/string/encode_spec.rb
