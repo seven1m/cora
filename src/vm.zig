@@ -3586,29 +3586,18 @@ pub const VM = struct {
 
                 const constant = constants[name_idx];
                 if (constant == .string) {
-                    const name_sym = try self.intern(constant.string);
-                    var existing_module: ?Value = null;
-                    if (frame.ep.lexical_scope) |scope| {
-                        existing_module = try self.findConstantInLexicalScope(scope, name_sym);
-                    }
-                    if (existing_module == null) {
-                        existing_module = self.object_class.module.constants.get(name_sym);
-                    }
+                    const target = try self.resolveDefinitionTarget(frame.ep.lexical_scope, constant.string);
 
                     const module_val = blk: {
-                        if (existing_module) |em| {
+                        if (target.existing_value) |em| {
                             if (em.isModule()) break :blk em;
                             const exc = try self.createException(self.type_error_class, "constant is not a module");
                             self.pending_exception = exc;
                             return error.Unwind;
                         }
 
-                        const fresh_module = try self.newModule(name_sym);
-                        if (frame.ep.lexical_scope) |scope| {
-                            scope.getModule().constants.put(name_sym, fresh_module) catch return error.Fatal;
-                        } else {
-                            self.object_class.module.constants.put(name_sym, fresh_module) catch return error.Fatal;
-                        }
+                        const fresh_module = try self.newModule(target.name_sym);
+                        target.owner_module.constants.put(target.name_sym, fresh_module) catch return error.Fatal;
                         break :blk fresh_module;
                     };
 
@@ -3650,19 +3639,10 @@ pub const VM = struct {
 
                 const constant = constants[name_idx];
                 if (constant == .string) {
-                    const name_sym = try self.intern(constant.string);
-
-                    // Check if class already exists (for reopening)
-                    var existing_class: ?Value = null;
-                    if (frame.ep.lexical_scope) |scope| {
-                        existing_class = try self.findConstantInLexicalScope(scope, name_sym);
-                    }
-                    if (existing_class == null) {
-                        existing_class = self.object_class.module.constants.get(name_sym);
-                    }
+                    const target = try self.resolveDefinitionTarget(frame.ep.lexical_scope, constant.string);
 
                     var class_val: Value = undefined;
-                    if (existing_class) |ec| {
+                    if (target.existing_value) |ec| {
                         if (ec.isClass()) {
                             // Reopen existing class
                             class_val = ec;
@@ -3674,14 +3654,8 @@ pub const VM = struct {
                         }
                     } else {
                         // Create new class
-                        class_val = try self.newClass(name_sym, superclass);
-
-                        // Store constant in current lexical scope (or Object if no scope)
-                        if (frame.ep.lexical_scope) |scope| {
-                            scope.getModule().constants.put(name_sym, class_val) catch return error.Fatal;
-                        } else {
-                            self.object_class.module.constants.put(name_sym, class_val) catch return error.Fatal;
-                        }
+                        class_val = try self.newClass(target.name_sym, superclass);
+                        target.owner_module.constants.put(target.name_sym, class_val) catch return error.Fatal;
                     }
 
                     // Execute class body if it exists
@@ -4116,12 +4090,10 @@ pub const VM = struct {
                 const current_self = frame.self_value;
                 const methods = current_self.getModuleMethods() orelse &self.object_class.module.methods;
 
-                const entry = if (current_self.isClass())
-                    blk: {
-                        const resolved = self.lookupMethod(current_self.toClassObject(), old_name_sym) orelse break :blk null;
-                        break :blk resolved.entry;
-                    }
-                else if (current_self.isModule())
+                const entry = if (current_self.isClass()) blk: {
+                    const resolved = self.lookupMethod(current_self.toClassObject(), old_name_sym) orelse break :blk null;
+                    break :blk resolved.entry;
+                } else if (current_self.isModule())
                     methods.get(old_name_sym)
                 else
                     methods.get(old_name_sym);
@@ -5491,6 +5463,101 @@ pub const VM = struct {
         };
     }
 
+    fn resolveConstantPathFrom(
+        self: *VM,
+        start_scope: ?*LexicalScope,
+        path: []const u8,
+        prefer_lexical_for_first_segment: bool,
+    ) VMError!?Value {
+        var segments = std.mem.splitSequence(u8, path, "::");
+        const first = segments.next() orelse return null;
+        if (first.len == 0) return null;
+
+        const first_sym = try self.intern(first);
+        var current = blk: {
+            if (prefer_lexical_for_first_segment) {
+                if (start_scope) |scope| {
+                    if (try self.findConstantInLexicalScope(scope, first_sym)) |val| break :blk val;
+                }
+            }
+            break :blk self.object_class.module.constants.get(first_sym) orelse return null;
+        };
+
+        while (segments.next()) |segment| {
+            if (segment.len == 0) continue;
+            if (!current.isClass() and !current.isModule()) return null;
+
+            const segment_sym = try self.intern(segment);
+            const module_obj = if (current.isClass())
+                &current.toClassObject().module
+            else
+                current.toModuleObject();
+            current = module_obj.constants.get(segment_sym) orelse return null;
+        }
+
+        return current;
+    }
+
+    fn resolveDefinitionTarget(
+        self: *VM,
+        lexical_scope: ?*LexicalScope,
+        raw_name: []const u8,
+    ) VMError!struct {
+        owner_module: *value.ModuleObject,
+        existing_value: ?Value,
+        name_sym: *value.SymbolObject,
+    } {
+        if (std.mem.lastIndexOf(u8, raw_name, "::")) |sep| {
+            const owner_path = raw_name[0..sep];
+            const child_name = raw_name[sep + 2 ..];
+            const prefer_lexical = owner_path.len == 0 or owner_path[0] != ':';
+            const normalized_owner_path = if (std.mem.startsWith(u8, owner_path, "::")) owner_path[2..] else owner_path;
+
+            const owner_val = if (normalized_owner_path.len == 0)
+                Value.fromObject(self.object_class)
+            else
+                (try self.resolveConstantPathFrom(lexical_scope, normalized_owner_path, prefer_lexical)) orelse {
+                    const msg = std.fmt.allocPrint(
+                        self.gc_allocator,
+                        "uninitialized constant {s}",
+                        .{normalized_owner_path},
+                    ) catch return error.Fatal;
+                    const exc = try self.createException(self.name_error_class, msg);
+                    self.pending_exception = exc;
+                    return error.Unwind;
+                };
+
+            if (!owner_val.isClass() and !owner_val.isModule()) {
+                const exc = try self.createException(self.type_error_class, "constant path does not refer to class/module");
+                self.pending_exception = exc;
+                return error.Unwind;
+            }
+
+            const owner_module = if (owner_val.isClass())
+                &owner_val.toClassObject().module
+            else
+                owner_val.toModuleObject();
+            const name_sym = try self.intern(child_name);
+            return .{
+                .owner_module = owner_module,
+                .existing_value = owner_module.constants.get(name_sym),
+                .name_sym = name_sym,
+            };
+        }
+
+        const name_sym = try self.intern(raw_name);
+        const existing_value = if (lexical_scope) |scope|
+            try self.findConstantInLexicalScope(scope, name_sym)
+        else
+            null;
+
+        return .{
+            .owner_module = if (lexical_scope) |scope| scope.getModule() else &self.object_class.module,
+            .existing_value = existing_value orelse self.object_class.module.constants.get(name_sym),
+            .name_sym = name_sym,
+        };
+    }
+
     /// Get the defining class for super lookup from the current frame's lexical scope
     fn getDefiningClassForSuper(_: *VM, frame_chunk: *Chunk) ?*ClassObject {
         const lexical_scope = frame_chunk.lexical_scope orelse return null;
@@ -5508,6 +5575,101 @@ pub const VM = struct {
         // Start from the superclass, not the defining class itself
         const start_class = defining_class.superclass orelse return null;
         return self.lookupMethod(start_class, method_name);
+    }
+
+    fn lookupMethodForSuperFromIncludedModule(
+        self: *VM,
+        receiver_class: *ClassObject,
+        defining_module: *value.ModuleObject,
+        method_name: *value.SymbolObject,
+    ) ?ResolvedMethod {
+        var current_class: ?*ClassObject = receiver_class;
+        var found_owner = false;
+
+        while (current_class) |klass| {
+            var i = klass.prepended_modules.items.len;
+            while (i > 0) {
+                i -= 1;
+                const module_obj = klass.prepended_modules.items[i];
+                if (!found_owner) {
+                    if (module_obj == defining_module) found_owner = true;
+                    continue;
+                }
+                if (module_obj.methods.get(method_name)) |entry| {
+                    return switch (self.resolveLookupEntry(method_name, klass, entry)) {
+                        .found => |resolved| resolved,
+                        .undefined, .not_found => null,
+                    };
+                }
+            }
+
+            if (found_owner) {
+                if (klass.module.methods.get(method_name)) |entry| {
+                    return switch (self.resolveLookupEntry(method_name, klass, entry)) {
+                        .found => |resolved| resolved,
+                        .undefined, .not_found => null,
+                    };
+                }
+            } else if (&klass.module == defining_module) {
+                found_owner = true;
+            }
+
+            i = klass.included_modules.items.len;
+            while (i > 0) {
+                i -= 1;
+                const module_obj = klass.included_modules.items[i];
+                if (!found_owner) {
+                    if (module_obj == defining_module) found_owner = true;
+                    continue;
+                }
+                if (module_obj.methods.get(method_name)) |entry| {
+                    return switch (self.resolveLookupEntry(method_name, klass, entry)) {
+                        .found => |resolved| resolved,
+                        .undefined, .not_found => null,
+                    };
+                }
+            }
+
+            current_class = klass.superclass;
+        }
+
+        return null;
+    }
+
+    pub fn methodArityValue(self: *VM, resolved: ResolvedMethod) VMError!Value {
+        _ = self;
+        return switch (resolved.entry.method) {
+            .chunk => |method_chunk| blk: {
+                const required = method_chunk.arity + method_chunk.post_required_count;
+                if (method_chunk.rest_param_index != null or method_chunk.optional_params.items.len > 0) {
+                    break :blk Value.integer(-@as(i64, @intCast(required)) - 1);
+                }
+                break :blk Value.integer(@intCast(required));
+            },
+            .proc => |proc_obj| switch (proc_obj.block.kind) {
+                .chunk => |chunk_blk| blk: {
+                    const required = chunk_blk.chunk.arity + chunk_blk.chunk.post_required_count;
+                    if (chunk_blk.chunk.rest_param_index != null or chunk_blk.chunk.optional_params.items.len > 0) {
+                        break :blk Value.integer(-@as(i64, @intCast(required)) - 1);
+                    }
+                    break :blk Value.integer(@intCast(required));
+                },
+                .symbol, .builtin, .callable => Value.integer(-1),
+            },
+            .builtin => blk: {
+                if (std.mem.eql(u8, resolved.name.name, "send") or
+                    std.mem.eql(u8, resolved.name.name, "__send__") or
+                    std.mem.eql(u8, resolved.name.name, "raise") or
+                    std.mem.eql(u8, resolved.name.name, "fail") or
+                    std.mem.eql(u8, resolved.name.name, "to_enum") or
+                    std.mem.eql(u8, resolved.name.name, "enum_for"))
+                {
+                    break :blk Value.integer(-1);
+                }
+                break :blk Value.integer(0);
+            },
+            .undefined => unreachable,
+        };
     }
 
     /// Copy forwarding arguments into the provided buffer.
@@ -5554,19 +5716,25 @@ pub const VM = struct {
         const method_name = frame.method_name orelse frame.chunk.name;
         const method_name_sym = try self.intern(method_name);
 
-        // Get the defining class from frame metadata when available, else from lexical scope.
-        const defining_class = frame.super_defining_class orelse self.getDefiningClassForSuper(frame.chunk) orelse {
-            const exc = try self.createException(self.no_method_error_class, "super called outside of method");
-            self.pending_exception = exc;
-            return error.Unwind;
-        };
+        const lexical_scope = frame.chunk.lexical_scope;
+        const maybe_resolved = if (lexical_scope) |scope|
+            switch (scope.scope_module) {
+                .module => |defining_module| self.lookupMethodForSuperFromIncludedModule(self.getClass(frame.self_value), defining_module, method_name_sym),
+                .class => |defining_class| if (frame.super_defining_class) |explicit_defining_class|
+                    self.lookupMethodForSuper(explicit_defining_class, method_name_sym)
+                else
+                    self.lookupMethodForSuper(defining_class, method_name_sym),
+            }
+        else if (frame.super_defining_class) |defining_class|
+            self.lookupMethodForSuper(defining_class, method_name_sym)
+        else
+            null;
 
-        // Look up method in superclass chain
-        const resolved = self.lookupMethodForSuper(defining_class, method_name_sym) orelse {
+        const resolved = maybe_resolved orelse {
             const msg = std.fmt.allocPrint(
                 self.gc_allocator,
                 "super: no superclass method '{s}' for {s}",
-                .{ method_name, defining_class.module.name.name },
+                .{ method_name, self.getClass(frame.self_value).module.name.name },
             ) catch return error.Fatal;
             const exc = try self.createException(self.no_method_error_class, msg);
             self.pending_exception = exc;

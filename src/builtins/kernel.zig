@@ -143,6 +143,9 @@ pub fn register(vm: *VM) !void {
     const raise_sym = try vm.intern("raise");
     try vm.kernel_module.methods.put(raise_sym, .{ .method = .{ .builtin = &builtinKernelRaise } });
 
+    const fail_sym = try vm.intern("fail");
+    try vm.kernel_module.methods.put(fail_sym, .{ .method = .{ .builtin = &builtinKernelRaise } });
+
     const is_a_sym = try vm.intern("is_a?");
     try vm.kernel_module.methods.put(is_a_sym, .{ .method = .{ .builtin = &builtinKernelIsA } });
 
@@ -657,21 +660,27 @@ fn builtinKernelBoundMethodToProc(vm: *VM, receiver: Value, args: []Value, _: ?B
     return receiver;
 }
 
+fn builtinKernelBoundMethodArity(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return try vm.getInstanceVariable(receiver, "@__method_arity");
+}
+
 pub fn builtinKernelMethod(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const method_name = try vm.coerceToMethodNameSymbol(args[0]);
 
-    if ((try vm.findMethod(receiver, method_name)) == null) {
+    const resolved = (try vm.findMethod(receiver, method_name)) orelse {
         return vm.raiseExceptionFmt(
             vm.name_error_class,
             "undefined method '{s}'",
             .{method_name.name},
         );
-    }
+    };
 
     const method_obj = try vm.newInstance(vm.object_class);
     try vm.setInstanceVariable(method_obj, "@__method_receiver", receiver);
     try vm.setInstanceVariable(method_obj, "@__method_name", Value.fromObject(method_name));
+    try vm.setInstanceVariable(method_obj, "@__method_arity", try vm.methodArityValue(resolved));
 
     const singleton = try vm.getOrCreateSingletonClass(method_obj);
     const call_sym = try vm.intern("call");
@@ -687,6 +696,11 @@ pub fn builtinKernelMethod(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     const to_proc_sym = try vm.intern("to_proc");
     singleton.module.methods.put(to_proc_sym, .{
         .method = .{ .builtin = &builtinKernelBoundMethodToProc },
+    }) catch return error.Fatal;
+
+    const arity_sym = try vm.intern("arity");
+    singleton.module.methods.put(arity_sym, .{
+        .method = .{ .builtin = &builtinKernelBoundMethodArity },
     }) catch return error.Fatal;
 
     vm.bumpMethodStateVersion();

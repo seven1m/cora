@@ -2479,8 +2479,11 @@ pub const Compiler = struct {
     }
 
     fn compileModule(self: *Compiler, module_node: *prism.ModuleNode, line: u32) anyerror!void {
-        // Get the module name
-        const module_name = try self.parser.getConstantName(module_node.name);
+        // Preserve constant paths for definitions like A::B.
+        const module_name = if (module_node.constant_path) |path|
+            self.constantPathNameForDefinition(try self.parser.asNode(@ptrCast(path)))
+        else
+            try self.parser.getConstantName(module_node.name);
 
         // Add the module name as a constant
         const idx = try self.current_chunk.addConstant(.{ .string = module_name });
@@ -2521,8 +2524,11 @@ pub const Compiler = struct {
     }
 
     fn compileClass(self: *Compiler, class_node: *prism.ClassNode, line: u32) anyerror!void {
-        // Get the class name
-        const class_name = try self.parser.getConstantName(class_node.name);
+        // Preserve constant paths for definitions like A::B.
+        const class_name = if (class_node.constant_path) |path|
+            self.constantPathNameForDefinition(try self.parser.asNode(@ptrCast(path)))
+        else
+            try self.parser.getConstantName(class_node.name);
 
         // Add the class name as a constant
         const idx = try self.current_chunk.addConstant(.{ .string = class_name });
@@ -2569,6 +2575,31 @@ pub const Compiler = struct {
 
         // Emit DEF_CLASS instruction with the body chunk ID
         try self.current_chunk.emitOpU16U16(.DEF_CLASS, @intCast(idx), body_chunk_id, line);
+    }
+
+    fn constantPathNameForDefinition(self: *Compiler, node: prism.Node) []const u8 {
+        switch (node) {
+            .constant_read => |const_read| {
+                return self.parser.getConstantName(const_read.name) catch unreachable;
+            },
+            .constant_path => |const_path| {
+                _ = const_path;
+                return self.nodeSourceSlice(node);
+            },
+            else => unreachable,
+        }
+    }
+
+    fn nodeSourceSlice(self: *Compiler, node: prism.Node) []const u8 {
+        const ptr: *anyopaque = switch (node) {
+            inline else => |raw_ptr| @ptrCast(raw_ptr),
+        };
+        const raw: *prism.RawNode = @ptrCast(@alignCast(ptr));
+        const start = raw.location.start orelse unreachable;
+        const finish = raw.location.end orelse unreachable;
+        const start_off = @intFromPtr(start) - @intFromPtr(self.parser.source.ptr);
+        const end_off = @intFromPtr(finish) - @intFromPtr(self.parser.source.ptr);
+        return self.parser.source[start_off..end_off];
     }
 
     fn compileSingletonClass(self: *Compiler, singleton_class_node: *prism.SingletonClassNode, line: u32) anyerror!void {
