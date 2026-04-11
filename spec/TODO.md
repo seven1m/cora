@@ -222,7 +222,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/basicobject/instance_exec_spec.rb
 - [ ] core/basicobject/method_missing_spec.rb
 - [ ] core/basicobject/not_equal_spec.rb
-- [ ] core/basicobject/not_spec.rb
+- [x] core/basicobject/not_spec.rb
 - [ ] core/basicobject/singleton_method_added_spec.rb
 - [ ] core/basicobject/singleton_method_removed_spec.rb
 - [ ] core/basicobject/singleton_method_undefined_spec.rb
