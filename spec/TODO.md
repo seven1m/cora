@@ -1253,7 +1253,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/kernel/require_relative_spec.rb
 - [ ] core/kernel/require_spec.rb
 - [ ] core/kernel/respond_to_missing_spec.rb
-- [-] core/kernel/respond_to_spec.rb
+- [x] core/kernel/respond_to_spec.rb
 - [ ] core/kernel/select_spec.rb
 - [ ] core/kernel/send_spec.rb
 - [ ] core/kernel/set_trace_func_spec.rb
