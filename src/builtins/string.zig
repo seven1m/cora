@@ -328,19 +328,7 @@ pub fn register(vm: *VM) !void {
 
 pub fn builtinStringTryConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const arg = args[0];
-    if (arg.isString()) return arg;
-
-    const maybe_converted = try vm.checkCallMethodByName(arg, "to_str", false, &[_]Value{}, null);
-    const converted = maybe_converted orelse return Value.nil();
-    if (converted.isNil()) return Value.nil();
-    if (converted.isString()) return converted;
-
-    return vm.raiseExceptionFmt(
-        vm.type_error_class,
-        "can't convert {s} to String ({s}#to_str gives {s})",
-        .{ vm.className(arg), vm.className(arg), vm.className(converted) },
-    );
+    return try tryCoerceToStringValue(vm, args[0]) orelse Value.nil();
 }
 
 pub fn builtinStringToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -683,7 +671,7 @@ pub fn builtinStringCompare(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
         return compareStringObjects(lhs, other.toStringObject());
     }
 
-    const coerced = try tryCoerceToStringForCompare(vm, other);
+    const coerced = try tryCoerceToStringValue(vm, other);
     if (coerced) |coerced_value| {
         return compareStringObjects(lhs, coerced_value.toStringObject());
     }
@@ -733,23 +721,48 @@ fn compareStringObjects(lhs: *const value.StringObject, rhs: *const value.String
     return Value.integer(0);
 }
 
-fn tryCoerceToStringForCompare(vm: *VM, other: Value) VMError!?Value {
-    const maybe_coerced = try vm.checkCallMethodByName(other, "to_str", false, &[_]Value{}, null);
+fn tryCoerceToStringValue(vm: *VM, arg: Value) VMError!?Value {
+    if (arg.isString()) return arg;
+
+    const maybe_coerced = try vm.checkCallMethodByName(arg, "to_str", false, &[_]Value{}, null);
     const coerced = maybe_coerced orelse return null;
 
-    if (coerced.isNil()) {
-        return null;
-    }
+    if (coerced.isNil()) return null;
+    if (coerced.isString()) return coerced;
 
-    if (!coerced.isString()) {
-        return vm.raiseExceptionFmt(
-            vm.type_error_class,
-            "can't convert {s} to String ({s}#to_str gives {s})",
-            .{ vm.className(other), vm.className(other), vm.className(coerced) },
-        );
-    }
+    return vm.raiseExceptionFmt(
+        vm.type_error_class,
+        "can't convert {s} to String ({s}#to_str gives {s})",
+        .{ vm.className(arg), vm.className(arg), vm.className(coerced) },
+    );
+}
 
-    return coerced;
+fn coerceStringMatchPattern(vm: *VM, pattern: Value) VMError!Value {
+    if (pattern.isRegexp()) return pattern;
+
+    const pattern_value = try pattern.coerceToStringValue(vm, "wrong argument type");
+    return try vm.newRegexp(pattern_value.toStringObject().str, 0);
+}
+
+fn stringMatchArgs(receiver: Value, args: []Value, match_args: *[2]Value) []Value {
+    match_args.* = .{ receiver, Value.nil() };
+    if (args.len == 2) {
+        match_args[1] = args[1];
+        return match_args[0..2];
+    }
+    return match_args[0..1];
+}
+
+fn callStringMatch(
+    vm: *VM,
+    receiver: Value,
+    args: []Value,
+    method_name: []const u8,
+    block: ?Block,
+) VMError!Value {
+    const pattern_receiver = try coerceStringMatchPattern(vm, args[0]);
+    var match_args: [2]Value = undefined;
+    return vm.callMethodByName(pattern_receiver, method_name, stringMatchArgs(receiver, args, &match_args), block);
 }
 
 fn casecmpOrder(
@@ -801,7 +814,7 @@ pub fn builtinStringCasecmp(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     const rhs_value = if (other.isString())
         other
     else
-        (try tryCoerceToStringForCompare(vm, other) orelse return Value.nil());
+        (try tryCoerceToStringValue(vm, other) orelse return Value.nil());
     const rhs = rhs_value.toStringObject();
 
     const order = try casecmpOrder(vm, lhs, rhs, false) orelse return Value.nil();
@@ -816,7 +829,7 @@ pub fn builtinStringCasecmpQ(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     const rhs_value = if (other.isString())
         other
     else
-        (try tryCoerceToStringForCompare(vm, other) orelse return Value.nil());
+        (try tryCoerceToStringValue(vm, other) orelse return Value.nil());
     const rhs = rhs_value.toStringObject();
 
     const order = try casecmpOrder(vm, lhs, rhs, true) orelse return Value.nil();
@@ -3021,40 +3034,12 @@ pub fn builtinStringMatchOp(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 
 pub fn builtinStringMatch(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 1, 2);
-
-    const pattern_receiver = if (args[0].isRegexp())
-        args[0]
-    else blk: {
-        const pattern_value = try args[0].coerceToStringValue(vm, "wrong argument type");
-        break :blk try vm.newRegexp(pattern_value.toStringObject().str, 0);
-    };
-
-    var match_args: [2]Value = .{ receiver, Value.nil() };
-    const match_arg_slice = if (args.len == 2) blk: {
-        match_args[1] = args[1];
-        break :blk match_args[0..2];
-    } else match_args[0..1];
-
-    return vm.callMethodByName(pattern_receiver, "match", match_arg_slice, block);
+    return callStringMatch(vm, receiver, args, "match", block);
 }
 
 pub fn builtinStringMatchQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 1, 2);
-
-    const pattern_receiver = if (args[0].isRegexp())
-        args[0]
-    else blk: {
-        const pattern_value = try args[0].coerceToStringValue(vm, "wrong argument type");
-        break :blk try vm.newRegexp(pattern_value.toStringObject().str, 0);
-    };
-
-    var match_args: [2]Value = .{ receiver, Value.nil() };
-    const match_arg_slice = if (args.len == 2) blk: {
-        match_args[1] = args[1];
-        break :blk match_args[0..2];
-    } else match_args[0..1];
-
-    return vm.callMethodByName(pattern_receiver, "match?", match_arg_slice, null);
+    return callStringMatch(vm, receiver, args, "match?", null);
 }
 
 pub fn builtinStringIndex(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
