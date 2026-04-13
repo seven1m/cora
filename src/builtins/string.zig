@@ -245,6 +245,9 @@ pub fn register(vm: *VM) !void {
     const string_include_sym = try vm.intern("include?");
     try vm.string_class.module.methods.put(string_include_sym, .{ .method = .{ .builtin = &builtinStringInclude } });
 
+    const string_index_sym = try vm.intern("index");
+    try vm.string_class.module.methods.put(string_index_sym, .{ .method = .{ .builtin = &builtinStringIndex } });
+
     const string_prepend_sym = try vm.intern("prepend");
     try vm.string_class.module.methods.put(string_prepend_sym, .{ .method = .{ .builtin = &builtinStringPrepend } });
 
@@ -309,6 +312,9 @@ pub fn register(vm: *VM) !void {
 
     const match_sym = try vm.intern("match");
     try vm.string_class.module.methods.put(match_sym, .{ .method = .{ .builtin = &builtinStringMatch } });
+
+    const match_q_sym = try vm.intern("match?");
+    try vm.string_class.module.methods.put(match_q_sym, .{ .method = .{ .builtin = &builtinStringMatchQ } });
 
     const scan_sym = try vm.intern("scan");
     try vm.string_class.module.methods.put(scan_sym, .{ .method = .{ .builtin = &builtinStringScan } });
@@ -3006,28 +3012,85 @@ pub fn builtinStringInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 
 pub fn builtinStringMatchOp(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    if (!args[0].isRegexp()) {
+    if (args[0].isString()) {
         return vm.raiseExceptionFmt(vm.type_error_class, "type mismatch: String given", .{});
     }
-    return regexp_builtin.regexpMatchOp(vm, args[0].toRegexpObject(), receiver);
+    var match_args = [_]Value{receiver};
+    return vm.callMethodByName(args[0], "=~", match_args[0..], null);
 }
 
 pub fn builtinStringMatch(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 1);
-    if (!args[0].isRegexp()) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "wrong argument type", .{});
+    try vm.requireArgCountRange(args, 1, 2);
+
+    const pattern_receiver = if (args[0].isRegexp())
+        args[0]
+    else blk: {
+        const pattern_value = try args[0].coerceToStringValue(vm, "wrong argument type");
+        break :blk try vm.newRegexp(pattern_value.toStringObject().str, 0);
+    };
+
+    var match_args: [2]Value = .{ receiver, Value.nil() };
+    const match_arg_slice = if (args.len == 2) blk: {
+        match_args[1] = args[1];
+        break :blk match_args[0..2];
+    } else match_args[0..1];
+
+    return vm.callMethodByName(pattern_receiver, "match", match_arg_slice, block);
+}
+
+pub fn builtinStringMatchQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+
+    const pattern_receiver = if (args[0].isRegexp())
+        args[0]
+    else blk: {
+        const pattern_value = try args[0].coerceToStringValue(vm, "wrong argument type");
+        break :blk try vm.newRegexp(pattern_value.toStringObject().str, 0);
+    };
+
+    var match_args: [2]Value = .{ receiver, Value.nil() };
+    const match_arg_slice = if (args.len == 2) blk: {
+        match_args[1] = args[1];
+        break :blk match_args[0..2];
+    } else match_args[0..1];
+
+    return vm.callMethodByName(pattern_receiver, "match?", match_arg_slice, null);
+}
+
+pub fn builtinStringIndex(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+    const string_obj = receiver.toStringObject();
+
+    const start_byte = if (args.len == 2) blk: {
+        var start_pos = try args[1].coerceToI64ViaToInt(
+            vm,
+            "no implicit conversion into Integer",
+            "no implicit conversion into Integer",
+            "bignum too big to convert into `long`",
+        );
+        const char_len_i64: i64 = @intCast(string_obj.encoding.charCount(string_obj.str));
+        if (start_pos < 0) start_pos += char_len_i64;
+        if (start_pos < 0 or start_pos > char_len_i64) return Value.nil();
+        break :blk string_obj.encoding.byteOffsetForCharIndex(string_obj.str, @intCast(start_pos)) orelse return Value.nil();
+    } else 0;
+
+    if (args[0].isRegexp()) {
+        const start_pos = if (args.len == 2)
+            try args[1].coerceToI64ViaToInt(
+                vm,
+                "no implicit conversion into Integer",
+                "no implicit conversion into Integer",
+                "bignum too big to convert into `long`",
+            )
+        else
+            null;
+        return regexp_builtin.regexpMatchOpAt(vm, args[0].toRegexpObject(), receiver, start_pos, true);
     }
 
-    const match_idx = try regexp_builtin.regexpMatchOp(vm, args[0].toRegexpObject(), receiver);
-    if (match_idx.isNil()) return Value.nil();
-
-    const md_val = vm.globals.get("$~") orelse Value.nil();
-    if (block) |blk| {
-        const yielded = try vm.yieldToBlock(blk, &[_]Value{md_val});
-        if (yielded.break_occurred) return yielded.value;
-        return yielded.value;
-    }
-    return md_val;
+    const needle_value = try args[0].coerceToStringValue(vm, "no implicit conversion into String");
+    const needle = needle_value.toStringObject().str;
+    const found = std.mem.indexOfPos(u8, string_obj.str, start_byte, needle) orelse return Value.nil();
+    return Value.integer(@intCast(string_obj.encoding.charCount(string_obj.str[0..found])));
 }
 
 fn escapeRegexpLiteral(vm: *VM, bytes: []const u8) VMError![]u8 {

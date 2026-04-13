@@ -631,8 +631,8 @@ pub const Value = struct {
         if (self.isInteger() or self.isNil() or self.isBool()) return true;
         if (!self.isObject()) return true;
         const tag = self.objectTypeTag();
-        // Encoding objects and regexps are always frozen
-        if (tag == .encoding_obj or tag == .regexp) return true;
+        // Encoding objects are always frozen singletons.
+        if (tag == .encoding_obj) return true;
         const obj = self.getObjectPointer().?;
         return (obj.flags & Object.FROZEN_FLAG) != 0;
     }

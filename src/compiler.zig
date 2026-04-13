@@ -7,6 +7,66 @@ const enc = @import("encoding.zig");
 
 const Chunk = chunk.Chunk;
 
+fn appendUtf8Codepoint(out: *std.ArrayList(u8), allocator: std.mem.Allocator, codepoint: u21) !void {
+    var buf: [4]u8 = undefined;
+    const len = try std.unicode.utf8Encode(codepoint, &buf);
+    try out.appendSlice(allocator, buf[0..len]);
+}
+
+fn decodeRegexpUnicodeEscapes(allocator: std.mem.Allocator, pattern: []const u8) ![]const u8 {
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(allocator);
+
+    var i: usize = 0;
+    while (i < pattern.len) {
+        if (pattern[i] == '\\' and i + 2 < pattern.len and pattern[i + 1] == 'u') {
+            if (pattern[i + 2] == '{') {
+                var j = i + 3;
+                var decoded_any = false;
+                while (j < pattern.len and pattern[j] != '}') {
+                    while (j < pattern.len and pattern[j] == ' ') : (j += 1) {}
+                    if (j >= pattern.len or pattern[j] == '}') break;
+
+                    const start = j;
+                    while (j < pattern.len and std.ascii.isHex(pattern[j])) : (j += 1) {}
+                    if (start == j) break;
+
+                    const codepoint = std.fmt.parseInt(u21, pattern[start..j], 16) catch break;
+                    try appendUtf8Codepoint(&out, allocator, codepoint);
+                    decoded_any = true;
+
+                    while (j < pattern.len and pattern[j] == ' ') : (j += 1) {}
+                }
+
+                if (decoded_any and j < pattern.len and pattern[j] == '}') {
+                    i = j + 1;
+                    continue;
+                }
+            } else if (i + 6 <= pattern.len) {
+                const digits = pattern[i + 2 .. i + 6];
+                var valid = true;
+                for (digits) |digit| {
+                    if (!std.ascii.isHex(digit)) {
+                        valid = false;
+                        break;
+                    }
+                }
+                if (valid) {
+                    const codepoint = try std.fmt.parseInt(u21, digits, 16);
+                    try appendUtf8Codepoint(&out, allocator, codepoint);
+                    i += 6;
+                    continue;
+                }
+            }
+        }
+
+        try out.append(allocator, pattern[i]);
+        i += 1;
+    }
+
+    return out.toOwnedSlice(allocator);
+}
+
 pub const CompiledProgram = struct {
     allocator: std.mem.Allocator,
     main_chunk: Chunk,
@@ -204,7 +264,9 @@ pub const Compiler = struct {
                     source[0..pattern.length]
                 else
                     "";
-                const idx = try self.current_chunk.addConstant(.{ .string = pattern_slice });
+                const decoded_pattern = try decodeRegexpUnicodeEscapes(self.allocator, pattern_slice);
+                defer self.allocator.free(decoded_pattern);
+                const idx = try self.current_chunk.addConstant(.{ .string = decoded_pattern });
                 // Map Prism flags to Onigmo option bits
                 const flags = regexp_node.base.flags;
                 var options: u16 = 0;

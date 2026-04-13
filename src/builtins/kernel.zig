@@ -579,6 +579,19 @@ pub fn builtinKernelInitializeDup(vm: *VM, receiver: Value, args: []Value, _: ?B
 pub fn builtinKernelDup(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
 
+    if (receiver.isRegexp()) {
+        const regexp = receiver.toRegexpObject();
+        const duplicate = try vm.newRegexp(regexp.pattern, regexp.options);
+        duplicate.toRegexpObject().object.class = vm.getClass(receiver);
+        duplicate.toRegexpObject().object.flags &= ~@as(u32, value.Object.FROZEN_FLAG);
+
+        const src_obj = receiver.getObjectPointer() orelse return error.Fatal;
+        const dst_obj = duplicate.getObjectPointer() orelse return error.Fatal;
+        try vm.copyObjectInstanceVariables(src_obj, dst_obj);
+        duplicate.toRegexpObject().object.flags = 0;
+        return duplicate;
+    }
+
     const duplicate = try vm.newObjectForClass(vm.getClass(receiver));
     const src_obj = receiver.getObjectPointer() orelse return receiver;
     const dst_obj = duplicate.getObjectPointer() orelse return error.Fatal;

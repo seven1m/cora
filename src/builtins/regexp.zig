@@ -33,6 +33,18 @@ pub fn register(vm: *VM) !void {
     const match_op_sym = try vm.intern("=~");
     try vm.regexp_class.module.methods.put(match_op_sym, .{ .method = .{ .builtin = &builtinRegexpMatchOp } });
 
+    const match_sym = try vm.intern("match");
+    try vm.regexp_class.module.methods.put(match_sym, .{ .method = .{ .builtin = &builtinRegexpMatch } });
+
+    const match_q_sym = try vm.intern("match?");
+    try vm.regexp_class.module.methods.put(match_q_sym, .{ .method = .{ .builtin = &builtinRegexpMatchQ } });
+
+    const dup_sym = try vm.intern("dup");
+    try vm.regexp_class.module.methods.put(dup_sym, .{ .method = .{ .builtin = &builtinRegexpDup } });
+
+    const clone_sym = try vm.intern("clone");
+    try vm.regexp_class.module.methods.put(clone_sym, .{ .method = .{ .builtin = &builtinRegexpClone } });
+
     const regexp_class_val = Value.fromObject(vm.regexp_class);
     const regexp_singleton = try vm.getOrCreateSingletonClass(regexp_class_val);
     const last_match_sym = try vm.intern("last_match");
@@ -145,35 +157,76 @@ fn matchDataAt(md: *value.MatchDataObject, index: i64) Value {
     return md.captures.items[@intCast(actual)];
 }
 
-pub fn regexpMatchOp(vm: *VM, regexp_obj: *value.RegexpObject, arg: Value) VMError!Value {
+const RegexpSearchResult = struct {
+    char_index: i64,
+    match_data: *value.MatchDataObject,
+};
+
+fn searchRegexp(
+    vm: *VM,
+    regexp_obj: *value.RegexpObject,
+    arg: Value,
+    start_pos: ?i64,
+    update_last_match: bool,
+) VMError!?RegexpSearchResult {
     const source_val_opt = try arg.coerceToMatchSource(vm);
     if (source_val_opt == null) {
-        try vm.clearLastMatch();
-        return Value.nil();
+        if (update_last_match) try vm.clearLastMatch();
+        return null;
     }
     const source_val = source_val_opt.?;
     const source_obj = source_val.toStringObject();
 
-    const search_result = onigmo.searchWithCaptures(vm.gc_allocator, regexp_obj.regex, source_obj.str) catch return error.Fatal;
+    var start_byte: usize = 0;
+    if (start_pos) |raw_start| {
+        const char_len_i64: i64 = @intCast(source_obj.encoding.charCount(source_obj.str));
+        var normalized_start = raw_start;
+        if (normalized_start < 0) normalized_start += char_len_i64;
+        if (normalized_start < 0 or normalized_start > char_len_i64) {
+            if (update_last_match) try vm.clearLastMatch();
+            return null;
+        }
+
+        start_byte = source_obj.encoding.byteOffsetForCharIndex(source_obj.str, @intCast(normalized_start)) orelse {
+            if (update_last_match) try vm.clearLastMatch();
+            return null;
+        };
+    }
+
+    const search_bytes = source_obj.str[start_byte..];
+    const search_result = onigmo.searchWithCaptures(vm.gc_allocator, regexp_obj.regex, search_bytes) catch return error.Fatal;
     defer vm.gc_allocator.free(search_result.begin_offsets);
     defer vm.gc_allocator.free(search_result.end_offsets);
 
     if (!search_result.matched) {
-        try vm.clearLastMatch();
-        return Value.nil();
+        if (update_last_match) try vm.clearLastMatch();
+        return null;
     }
 
     var captures: std.ArrayList(Value) = .empty;
     defer captures.deinit(vm.gc_allocator);
 
-    for (search_result.begin_offsets, search_result.end_offsets) |beg, end_| {
+    const base_i64: i64 = @intCast(start_byte);
+    var begins = vm.gc_allocator.alloc(i64, search_result.begin_offsets.len) catch return error.Fatal;
+    defer vm.gc_allocator.free(begins);
+    var ends = vm.gc_allocator.alloc(i64, search_result.end_offsets.len) catch return error.Fatal;
+    defer vm.gc_allocator.free(ends);
+
+    for (search_result.begin_offsets, search_result.end_offsets, 0..) |beg, end_, idx| {
         if (beg < 0 or end_ < 0) {
+            begins[idx] = beg;
+            ends[idx] = end_;
             captures.append(vm.gc_allocator, Value.nil()) catch return error.Fatal;
             continue;
         }
 
-        const begin_usize: usize = @intCast(beg);
-        const end_usize: usize = @intCast(end_);
+        const absolute_begin = beg + base_i64;
+        const absolute_end = end_ + base_i64;
+        begins[idx] = absolute_begin;
+        ends[idx] = absolute_end;
+
+        const begin_usize: usize = @intCast(absolute_begin);
+        const end_usize: usize = @intCast(absolute_end);
         if (begin_usize > source_obj.str.len or end_usize > source_obj.str.len or begin_usize > end_usize) {
             return error.Fatal;
         }
@@ -186,11 +239,33 @@ pub fn regexpMatchOp(vm: *VM, regexp_obj: *value.RegexpObject, arg: Value) VMErr
         regexp_obj,
         source_obj,
         captures.items,
-        search_result.begin_offsets,
-        search_result.end_offsets,
+        begins,
+        ends,
     );
-    try vm.setLastMatch(md_val.toMatchDataObject());
-    return Value.integer(search_result.match_index);
+    const md = md_val.toMatchDataObject();
+    if (update_last_match) try vm.setLastMatch(md);
+
+    const absolute_match_index: usize = start_byte + @as(usize, @intCast(search_result.match_index));
+    return .{
+        .char_index = @intCast(source_obj.encoding.charCount(source_obj.str[0..absolute_match_index])),
+        .match_data = md,
+    };
+}
+
+pub fn regexpMatchOpAt(
+    vm: *VM,
+    regexp_obj: *value.RegexpObject,
+    arg: Value,
+    start_pos: ?i64,
+    update_last_match: bool,
+) VMError!Value {
+    const result = try searchRegexp(vm, regexp_obj, arg, start_pos, update_last_match);
+    if (result == null) return Value.nil();
+    return Value.integer(result.?.char_index);
+}
+
+pub fn regexpMatchOp(vm: *VM, regexp_obj: *value.RegexpObject, arg: Value) VMError!Value {
+    return regexpMatchOpAt(vm, regexp_obj, arg, null, true);
 }
 
 fn builtinRegexpMatchOp(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -199,6 +274,71 @@ fn builtinRegexpMatchOp(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
         return vm.raiseExceptionFmt(vm.type_error_class, "uninitialized Regexp", .{});
     }
     return regexpMatchOp(vm, receiver.toRegexpObject(), args[0]);
+}
+
+fn builtinRegexpMatch(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+    const start_pos = if (args.len == 2)
+        try args[1].coerceToI64ViaToInt(
+            vm,
+            "no implicit conversion into Integer",
+            "no implicit conversion into Integer",
+            "bignum too big to convert into `long`",
+        )
+    else
+        null;
+
+    const result = try searchRegexp(vm, receiver.toRegexpObject(), args[0], start_pos, true);
+    if (result == null) return Value.nil();
+
+    const md_val = Value.fromObject(result.?.match_data);
+    if (block) |blk| {
+        const yielded = try vm.yieldToBlock(blk, &[_]Value{md_val});
+        if (yielded.break_occurred) return yielded.value;
+        return yielded.value;
+    }
+    return md_val;
+}
+
+fn builtinRegexpMatchQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+    const start_pos = if (args.len == 2)
+        try args[1].coerceToI64ViaToInt(
+            vm,
+            "no implicit conversion into Integer",
+            "no implicit conversion into Integer",
+            "bignum too big to convert into `long`",
+        )
+    else
+        null;
+
+    const result = try searchRegexp(vm, receiver.toRegexpObject(), args[0], start_pos, false);
+    return Value.boolean(result != null);
+}
+
+fn builtinRegexpDup(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
+    const regexp = receiver.toRegexpObject();
+    const duplicate = try vm.newRegexp(regexp.pattern, regexp.options);
+    duplicate.toRegexpObject().object.class = vm.getClass(receiver);
+    duplicate.toRegexpObject().object.flags &= ~@as(u32, value.Object.FROZEN_FLAG);
+
+    const src_obj = receiver.getObjectPointer() orelse return error.Fatal;
+    const dst_obj = duplicate.getObjectPointer() orelse return error.Fatal;
+    try vm.copyObjectInstanceVariables(src_obj, dst_obj);
+    duplicate.toRegexpObject().object.flags = 0;
+    return duplicate;
+}
+
+fn builtinRegexpClone(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const duplicate = try builtinRegexpDup(vm, receiver, args, null);
+    if (receiver.isFrozen()) {
+        var mutable_duplicate = duplicate;
+        mutable_duplicate.freeze();
+    }
+    try vm.copySingletonClassMetadata(receiver, duplicate);
+    return duplicate;
 }
 
 fn builtinRegexpLastMatch(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
