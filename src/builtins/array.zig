@@ -241,6 +241,9 @@ pub fn register(vm: *VM) !void {
     const assoc_sym = try vm.intern("assoc");
     try vm.array_class.module.methods.put(assoc_sym, .{ .method = .{ .builtin = &builtinArrayAssoc } });
 
+    const rassoc_sym = try vm.intern("rassoc");
+    try vm.array_class.module.methods.put(rassoc_sym, .{ .method = .{ .builtin = &builtinArrayRassoc } });
+
     const dig_sym = try vm.intern("dig");
     try vm.array_class.module.methods.put(dig_sym, .{ .method = .{ .builtin = &builtinArrayDig } });
 
@@ -1280,6 +1283,27 @@ pub fn builtinArrayAssoc(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
 
         var eq_args = [_]Value{key};
         const equal = try vm.callMethodByName(pair.elements.items[0], "==", eq_args[0..], null);
+        if (equal.is_truthy()) return Value.fromObject(pair);
+    }
+
+    return Value.nil();
+}
+
+pub fn builtinArrayRassoc(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+
+    const key = args[0];
+    const array = receiver.toArrayObject();
+    for (array.elements.items) |element| {
+        const pair = switch (try vm.probeToAry(element)) {
+            .array => |pair| pair.toArrayObject(),
+            .missing, .nil_result => continue,
+        };
+
+        if (pair.elements.items.len < 2) continue;
+
+        var eq_args = [_]Value{key};
+        const equal = try vm.callMethodByName(pair.elements.items[1], "==", eq_args[0..], null);
         if (equal.is_truthy()) return Value.fromObject(pair);
     }
 
