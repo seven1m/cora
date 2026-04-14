@@ -246,6 +246,8 @@ pub fn register(vm: *VM) !void {
 
     const index_sym = try vm.intern("index");
     try vm.array_class.module.methods.put(index_sym, .{ .method = .{ .builtin = &builtinArrayIndex } });
+    const find_index_sym = try vm.intern("find_index");
+    try vm.array_class.module.methods.put(find_index_sym, .{ .method = .{ .builtin = &builtinArrayIndex } });
 
     const dig_sym = try vm.intern("dig");
     try vm.array_class.module.methods.put(dig_sym, .{ .method = .{ .builtin = &builtinArrayDig } });
