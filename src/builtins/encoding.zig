@@ -10,6 +10,7 @@ const Value = value.Value;
 
 const EncodingLookup = enum {
     utf8,
+    cesu8,
     ascii_8bit,
     us_ascii,
     shift_jis,
@@ -31,6 +32,8 @@ const EncodingLookup = enum {
 const encoding_name_map = std.StaticStringMap(EncodingLookup).initComptime(.{
     .{ "UTF_8", .utf8 },
     .{ "UTF8", .utf8 },
+    .{ "CESU_8", .cesu8 },
+    .{ "CESU8", .cesu8 },
     .{ "ASCII_8BIT", .ascii_8bit },
     .{ "BINARY", .ascii_8bit },
     .{ "US_ASCII", .us_ascii },
@@ -250,6 +253,7 @@ pub fn builtinEncodingFind(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
     if (encoding_name_map.get(lookup)) |enc_name| {
         return switch (enc_name) {
             .utf8 => Value.fromObject(vm.encoding_utf8),
+            .cesu8 => Value.fromObject(vm.encoding_cesu8),
             .ascii_8bit => Value.fromObject(vm.encoding_ascii_8bit),
             .us_ascii => Value.fromObject(vm.encoding_us_ascii),
             .shift_jis => Value.fromObject(vm.encoding_shift_jis),
@@ -280,6 +284,7 @@ pub fn builtinEncodingList(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
         Value.fromObject(vm.encoding_ascii_8bit),
         Value.fromObject(vm.encoding_us_ascii),
         Value.fromObject(vm.encoding_utf8),
+        Value.fromObject(vm.encoding_cesu8),
         Value.fromObject(vm.encoding_utf7),
         Value.fromObject(vm.encoding_utf16),
         Value.fromObject(vm.encoding_utf16le),

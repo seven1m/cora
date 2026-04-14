@@ -9,6 +9,11 @@ test "Encoding::UTF_8 exists" {
     try std.testing.expect(result.isEncoding());
 }
 
+test "Encoding::CESU_8 exists" {
+    const result = try evalCode("Encoding::CESU_8");
+    try std.testing.expect(result.isEncoding());
+}
+
 test "Encoding::ASCII_8BIT exists" {
     const result = try evalCode("Encoding::ASCII_8BIT");
     try std.testing.expect(result.isEncoding());

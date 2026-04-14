@@ -329,6 +329,7 @@ pub const VM = struct {
     // Encoding infrastructure
     encoding_class: *value.ClassObject,
     encoding_utf8: *value.EncodingObject,
+    encoding_cesu8: *value.EncodingObject,
     encoding_ascii_8bit: *value.EncodingObject,
     encoding_us_ascii: *value.EncodingObject,
     encoding_shift_jis: *value.EncodingObject,
@@ -466,6 +467,7 @@ pub const VM = struct {
             .yielder_class = undefined,
             .encoding_class = undefined,
             .encoding_utf8 = undefined,
+            .encoding_cesu8 = undefined,
             .encoding_ascii_8bit = undefined,
             .encoding_us_ascii = undefined,
             .encoding_shift_jis = undefined,
@@ -766,6 +768,7 @@ pub const VM = struct {
 
         // Create singleton encoding objects
         self.encoding_utf8 = try self.createEncodingObject(.{ .utf8 = .{} });
+        self.encoding_cesu8 = try self.createEncodingObject(.{ .cesu8 = .{} });
         self.encoding_ascii_8bit = try self.createEncodingObject(.{ .ascii_8bit = .{} });
         self.encoding_us_ascii = try self.createEncodingObject(.{ .us_ascii = .{} });
         self.encoding_shift_jis = try self.createEncodingObject(.{ .shift_jis = .{} });
@@ -876,6 +879,7 @@ pub const VM = struct {
 
         // Register encoding constants on Encoding class
         const utf8_const_sym = try self.intern("UTF_8");
+        const cesu8_const_sym = try self.intern("CESU_8");
         const ascii_8bit_const_sym = try self.intern("ASCII_8BIT");
         const binary_const_sym = try self.intern("BINARY");
         const us_ascii_const_sym = try self.intern("US_ASCII");
@@ -902,6 +906,7 @@ pub const VM = struct {
         const converter_const_sym = try self.intern("Converter");
 
         const utf8_val = Value.fromObject(self.encoding_utf8);
+        const cesu8_val = Value.fromObject(self.encoding_cesu8);
         const ascii_8bit_val = Value.fromObject(self.encoding_ascii_8bit);
         const us_ascii_val = Value.fromObject(self.encoding_us_ascii);
         const shift_jis_val = Value.fromObject(self.encoding_shift_jis);
@@ -920,6 +925,7 @@ pub const VM = struct {
         const encoding_converter_class_val = try self.newClass(converter_const_sym, self.object_class);
 
         self.encoding_class.module.constants.put(utf8_const_sym, utf8_val) catch return error.Fatal;
+        self.encoding_class.module.constants.put(cesu8_const_sym, cesu8_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(ascii_8bit_const_sym, ascii_8bit_val) catch return error.Fatal;
         self.encoding_class.module.constants.put(binary_const_sym, ascii_8bit_val) catch return error.Fatal; // BINARY is alias for ASCII_8BIT
         self.encoding_class.module.constants.put(us_ascii_const_sym, us_ascii_val) catch return error.Fatal;
@@ -6466,6 +6472,7 @@ pub const VM = struct {
     pub fn encodingToValue(self: *VM, encoding_value: enc.Encoding) Value {
         return switch (encoding_value) {
             .utf8 => Value.fromObject(self.encoding_utf8),
+            .cesu8 => Value.fromObject(self.encoding_cesu8),
             .ascii_8bit => Value.fromObject(self.encoding_ascii_8bit),
             .us_ascii => Value.fromObject(self.encoding_us_ascii),
             .shift_jis => Value.fromObject(self.encoding_shift_jis),

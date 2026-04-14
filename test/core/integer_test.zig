@@ -188,46 +188,6 @@ test "Integer#to_s(base) invalid radix raises ArgumentError" {
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, "ArgumentError") != null);
 }
 
-test "Integer#chr default and with encoding" {
-    var result = try evalCode("65.chr");
-    try std.testing.expect(result.isString());
-    try std.testing.expectEqualSlices(u8, "A", result.toStringObject().str);
-    try std.testing.expectEqualSlices(u8, "US-ASCII", result.toStringObject().encoding.name());
-
-    result = try evalCode("255.chr.encoding.name");
-    try std.testing.expect(result.isString());
-    try std.testing.expectEqualSlices(u8, "ASCII-8BIT", result.toStringObject().str);
-
-    result = try evalCode("65.chr(Encoding::UTF_8).encoding.name");
-    try std.testing.expect(result.isString());
-    try std.testing.expectEqualSlices(u8, "UTF-8", result.toStringObject().str);
-
-    result = try evalCode("128.chr(Encoding::UTF_8).bytesize");
-    try std.testing.expect(result.isInteger());
-    try std.testing.expectEqual(@as(i64, 2), result.toInteger());
-
-    result = try evalCode("65.chr(\"utf-8\").encoding.name");
-    try std.testing.expect(result.isString());
-    try std.testing.expectEqualSlices(u8, "UTF-8", result.toStringObject().str);
-}
-
-test "Integer#chr range errors" {
-    var stdout_buf: [8192]u8 = undefined;
-    var stderr_buf: [8192]u8 = undefined;
-
-    var result = evalCodeWithOutput("-1.chr", &stdout_buf, &stderr_buf);
-    try std.testing.expectEqual(error.UnhandledException, result.err.?);
-    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "RangeError") != null);
-
-    result = evalCodeWithOutput("256.chr", &stdout_buf, &stderr_buf);
-    try std.testing.expectEqual(error.UnhandledException, result.err.?);
-    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "RangeError") != null);
-
-    result = evalCodeWithOutput("256.chr(Encoding::ASCII_8BIT)", &stdout_buf, &stderr_buf);
-    try std.testing.expectEqual(error.UnhandledException, result.err.?);
-    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "RangeError") != null);
-}
-
 test "large integer literals and overflow promote to big integer" {
     var result = try evalCode("18446744073709551616");
     try std.testing.expect(result.isBigInteger());

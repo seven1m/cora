@@ -916,13 +916,24 @@ pub fn builtinIntegerChr(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     try vm.requireArgCountRange(args, 0, 1);
     try receiver.ensureInteger(vm);
 
-    const codepoint = try receiver.integerToI64(vm, "integer is too large to convert into char");
+    const codepoint: i64 = if (receiver.isInteger())
+        receiver.toInteger()
+    else
+        receiver.toBigIntegerObject().value.toInt(i64) catch
+            return vm.raiseExceptionFmt(vm.range_error_class, "bignum out of char range", .{});
     if (codepoint < 0) {
         return vm.raiseExceptionFmt(vm.range_error_class, "{d} out of char range", .{codepoint});
     }
 
     const target_encoding: enc.Encoding = if (args.len == 0)
-        if (codepoint <= 127) .{ .us_ascii = .{} } else .{ .ascii_8bit = .{} }
+        if (codepoint <= 127)
+            .{ .us_ascii = .{} }
+        else if (codepoint <= 255)
+            .{ .ascii_8bit = .{} }
+        else if (vm.default_internal_encoding) |internal|
+            internal.encoding
+        else
+            return vm.raiseExceptionFmt(vm.range_error_class, "{d} out of char range", .{codepoint})
     else if (args[0].isEncoding())
         args[0].toEncodingObject().encoding
     else blk: {
@@ -931,13 +942,76 @@ pub fn builtinIntegerChr(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     };
 
     const cp: u32 = @intCast(codepoint);
-    var buf: [4]u8 = undefined;
-    const encoded_len = target_encoding.fromUnicodeCodepoint(cp, &buf) orelse {
+    var buf: [8]u8 = undefined;
+    const encoded_len = encodeIntegerChrBytes(target_encoding, cp, &buf) orelse {
         return vm.raiseExceptionFmt(vm.range_error_class, "{d} out of char range", .{codepoint});
     };
     const bytes = buf[0..encoded_len];
 
     return try vm.newStringWithEncoding(bytes, false, target_encoding);
+}
+
+fn encodeIntegerChrBytes(target_encoding: enc.Encoding, codepoint: u32, out: *[8]u8) ?usize {
+    switch (target_encoding) {
+        .cesu8 => return encodeCesu8Codepoint(codepoint, out),
+        .shift_jis, .windows_31j, .euc_jp, .iso_2022_jp => return encodeEncodedCharValue(target_encoding, codepoint, out),
+        else => {
+            var narrow: [4]u8 = undefined;
+            const len = target_encoding.fromUnicodeCodepoint(codepoint, &narrow) orelse return null;
+            @memcpy(out[0..len], narrow[0..len]);
+            return len;
+        },
+    }
+}
+
+fn encodeEncodedCharValue(target_encoding: enc.Encoding, codepoint: u32, out: *[8]u8) ?usize {
+    if (codepoint == 0) {
+        out[0] = 0;
+        return 1;
+    }
+
+    var tmp: [4]u8 = undefined;
+    var tmp_len: usize = 0;
+    var value_left = codepoint;
+    while (value_left > 0) : (value_left >>= 8) {
+        if (tmp_len >= tmp.len) return null;
+        tmp[tmp_len] = @intCast(value_left & 0xFF);
+        tmp_len += 1;
+    }
+
+    var i: usize = 0;
+    while (i < tmp_len) : (i += 1) {
+        out[i] = tmp[tmp_len - 1 - i];
+    }
+
+    var index: usize = 0;
+    const parsed = target_encoding.nextChar(out[0..tmp_len], &index);
+    if (!parsed.valid or parsed.len != tmp_len or index != tmp_len) return null;
+    return tmp_len;
+}
+
+fn encodeCesu8Codepoint(codepoint: u32, out: *[8]u8) ?usize {
+    var utf8_buf: [4]u8 = undefined;
+    if (codepoint <= 0xFFFF) {
+        const len = (enc.Encoding{ .utf8 = .{} }).fromUnicodeCodepoint(codepoint, &utf8_buf) orelse return null;
+        @memcpy(out[0..len], utf8_buf[0..len]);
+        return len;
+    }
+    if (codepoint > 0x10FFFF) return null;
+
+    const n = codepoint - 0x10000;
+    const high = 0xD800 + ((n >> 10) & 0x3FF);
+    const low = 0xDC00 + (n & 0x3FF);
+
+    encodeUtf8ThreeByteUnit(@intCast(high), out[0..3]);
+    encodeUtf8ThreeByteUnit(@intCast(low), out[3..6]);
+    return 6;
+}
+
+fn encodeUtf8ThreeByteUnit(unit: u16, out: []u8) void {
+    out[0] = 0xE0 | @as(u8, @intCast(unit >> 12));
+    out[1] = 0x80 | @as(u8, @intCast((unit >> 6) & 0x3F));
+    out[2] = 0x80 | @as(u8, @intCast(unit & 0x3F));
 }
 
 fn integerToBaseString(number: i64, base: u8, out: *[65]u8) []const u8 {

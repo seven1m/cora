@@ -1,6 +1,7 @@
 const std = @import("std");
 const onigmo = @import("onigmo.zig");
 const Utf8Encoding = @import("encoding/utf8.zig").Utf8Encoding;
+const Cesu8Encoding = @import("encoding/cesu8.zig").Cesu8Encoding;
 const Ascii8BitEncoding = @import("encoding/ascii_8bit.zig").Ascii8BitEncoding;
 const UsAsciiEncoding = @import("encoding/us_ascii.zig").UsAsciiEncoding;
 const ShiftJisEncoding = @import("encoding/shift_jis.zig").ShiftJisEncoding;
@@ -37,6 +38,7 @@ pub const ValidityState = enum(u2) {
 
 pub const Encoding = union(enum) {
     utf8: Utf8Encoding,
+    cesu8: Cesu8Encoding,
     ascii_8bit: Ascii8BitEncoding,
     us_ascii: UsAsciiEncoding,
     shift_jis: ShiftJisEncoding,

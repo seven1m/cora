@@ -637,6 +637,14 @@ class SpecExpectation
     end
   end
 
+  def !=(expected)
+    if @actual != expected
+      :noop
+    else
+      raise SpecFailedException, "Expected value not to equal: #{expected.inspect}"
+    end
+  end
+
   def match(matcher)
     if matcher.matches?(@actual)
       :noop
@@ -669,6 +677,14 @@ class SpecNegatedExpectation
       :noop
     else
       raise SpecFailedException, "Expected value not to equal: #{expected.inspect}"
+    end
+  end
+
+  def !=(expected)
+    if @actual == expected
+      :noop
+    else
+      raise SpecFailedException, "Expected: #{expected.inspect}\nActual: #{@actual.inspect}"
     end
   end
 
