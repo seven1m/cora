@@ -289,6 +289,9 @@ pub fn register(vm: *VM) !void {
 
     const clone_sym = try vm.intern("clone");
     try vm.array_class.module.methods.put(clone_sym, .{ .method = .{ .builtin = &builtinArrayClone } });
+
+    const uniq_sym = try vm.intern("uniq");
+    try vm.array_class.module.methods.put(uniq_sym, .{ .method = .{ .builtin = &builtinArrayUniq } });
 }
 
 pub fn builtinArrayPush(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -1104,6 +1107,28 @@ pub fn builtinArrayClassBracket(vm: *VM, receiver: Value, args: []Value, _: ?Blo
         array.elements.append(vm.gc_allocator, arg) catch return error.Fatal;
     }
     return out;
+}
+
+pub fn builtinArrayUniq(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
+    const input = receiver.toArrayObject();
+    const out = try vm.createArray();
+
+    for (input.elements.items) |candidate| {
+        var seen = false;
+        for (out.elements.items) |existing| {
+            if (try vm.hashKeysEqual(candidate, existing)) {
+                seen = true;
+                break;
+            }
+        }
+        if (!seen) {
+            out.elements.append(vm.gc_allocator, candidate) catch return error.Fatal;
+        }
+    }
+
+    return Value.fromObject(out);
 }
 
 pub fn builtinArrayFirst(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

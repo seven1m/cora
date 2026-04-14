@@ -1,4 +1,5 @@
 const std = @import("std");
+const enc = @import("../encoding.zig");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 const onigmo = @import("../onigmo.zig");
@@ -9,6 +10,12 @@ const Block = vm_mod.Block;
 const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
+    const initialize_sym = try vm.intern("initialize");
+    try vm.regexp_class.module.methods.put(initialize_sym, .{
+        .method = .{ .builtin = &builtinRegexpInitialize },
+        .visibility = .private,
+    });
+
     const source_sym = try vm.intern("source");
     try vm.regexp_class.module.methods.put(source_sym, .{ .method = .{ .builtin = &builtinRegexpSource } });
 
@@ -47,8 +54,64 @@ pub fn register(vm: *VM) !void {
 
     const regexp_class_val = Value.fromObject(vm.regexp_class);
     const regexp_singleton = try vm.getOrCreateSingletonClass(regexp_class_val);
+    const new_sym = try vm.intern("new");
+    try regexp_singleton.module.methods.put(new_sym, .{ .method = .{ .builtin = &builtinRegexpNew } });
+    const escape_sym = try vm.intern("escape");
+    try regexp_singleton.module.methods.put(escape_sym, .{ .method = .{ .builtin = &builtinRegexpEscape } });
     const last_match_sym = try vm.intern("last_match");
     try regexp_singleton.module.methods.put(last_match_sym, .{ .method = .{ .builtin = &builtinRegexpLastMatch } });
+}
+
+fn builtinRegexpInitialize(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+    return Value.nil();
+}
+
+fn builtinRegexpNew(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+
+    if (args[0].isRegexp() and args.len == 1) {
+        const regexp = args[0].toRegexpObject();
+        return try vm.newRegexpWithEncoding(regexp.pattern, regexp.options, regexp.encoding);
+    }
+
+    const pattern_value = try args[0].coerceToStringValue(vm, "no implicit conversion into String");
+    const pattern_obj = pattern_value.toStringObject();
+    const options: u16 = if (args.len == 2)
+        @intCast(try args[1].coerceToI64ViaToInt(
+            vm,
+            "no implicit conversion into Integer",
+            "no implicit conversion into Integer",
+            "bignum too big to convert into `long`",
+        ))
+    else
+        0;
+
+    return try vm.newRegexpWithEncoding(pattern_obj.str, options, pattern_obj.encoding);
+}
+
+fn builtinRegexpEscape(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+
+    const string_value = try args[0].coerceToStringValue(vm, "no implicit conversion into String");
+    const string_obj = string_value.toStringObject();
+
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(vm.allocator);
+
+    for (string_obj.str) |b| {
+        switch (b) {
+            '\\', '.', '^', '$', '|', '?', '*', '+', '(', ')', '[', ']', '{', '}' => {
+                out.append(vm.allocator, '\\') catch return error.Fatal;
+                out.append(vm.allocator, b) catch return error.Fatal;
+            },
+            else => out.append(vm.allocator, b) catch return error.Fatal,
+        }
+    }
+
+    const escaped = out.toOwnedSlice(vm.allocator) catch return error.Fatal;
+    defer vm.allocator.free(escaped);
+    return try vm.newStringWithEncoding(escaped, false, string_obj.encoding);
 }
 
 fn builtinRegexpSource(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -176,6 +239,14 @@ fn searchRegexp(
     }
     const source_val = source_val_opt.?;
     const source_obj = source_val.toStringObject();
+
+    if (enc.negotiate(source_obj.encoding, source_obj.str, regexp_obj.encoding, regexp_obj.pattern) == null) {
+        return vm.raiseExceptionFmt(
+            vm.encoding_compatibility_error_class,
+            "incompatible encoding regexp match ({s} regexp with {s} string)",
+            .{ regexp_obj.encoding.name(), source_obj.encoding.name() },
+        );
+    }
 
     var start_byte: usize = 0;
     if (start_pos) |raw_start| {

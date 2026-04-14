@@ -281,6 +281,7 @@ pub const IoObject = struct {
 pub const RegexpObject = struct {
     object: Object,
     pattern: []const u8,
+    encoding: Encoding,
     options: u16,
     regex: onigmo.OnigRegex,
 };

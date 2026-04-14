@@ -54,7 +54,12 @@ pub const CaseMapResult = struct {
     flags: OnigCaseFoldType,
 };
 
-pub fn compile(pattern: [*]const u8, pattern_end: [*]const u8, options: c.OnigOptionType) struct { regex: ?OnigRegex, err: ?CompileError } {
+pub fn compileWithEncoding(
+    pattern: [*]const u8,
+    pattern_end: [*]const u8,
+    options: c.OnigOptionType,
+    encoding: OnigEncoding,
+) struct { regex: ?OnigRegex, err: ?CompileError } {
     var regex: OnigRegex = undefined;
     var einfo: c.OnigErrorInfo = undefined;
 
@@ -63,7 +68,7 @@ pub fn compile(pattern: [*]const u8, pattern_end: [*]const u8, options: c.OnigOp
         pattern,
         pattern_end,
         options,
-        c.ONIG_ENCODING_UTF_8,
+        encoding,
         c.ONIG_SYNTAX_RUBY,
         &einfo,
     );
@@ -76,6 +81,10 @@ pub fn compile(pattern: [*]const u8, pattern_end: [*]const u8, options: c.OnigOp
     }
 
     return .{ .regex = regex, .err = null };
+}
+
+pub fn compile(pattern: [*]const u8, pattern_end: [*]const u8, options: c.OnigOptionType) struct { regex: ?OnigRegex, err: ?CompileError } {
+    return compileWithEncoding(pattern, pattern_end, options, c.ONIG_ENCODING_UTF_8);
 }
 
 pub fn free(regex: OnigRegex) void {

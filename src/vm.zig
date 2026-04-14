@@ -6069,14 +6069,30 @@ pub const VM = struct {
         return Value.fromObject(range_obj);
     }
 
-    pub fn newRegexp(self: *VM, pattern: []const u8, options: u16) VMError!Value {
+    pub fn newRegexpWithEncoding(self: *VM, pattern: []const u8, options: u16, encoding: enc.Encoding) VMError!Value {
         // Map our option bits to Onigmo options
         var onig_options: u32 = 0;
         if ((options & 1) != 0) onig_options |= onigmo.OPTION_IGNORECASE;
         if ((options & 2) != 0) onig_options |= onigmo.OPTION_EXTEND;
         if ((options & 4) != 0) onig_options |= onigmo.OPTION_MULTILINE;
 
-        const result = onigmo.compile(pattern.ptr, pattern.ptr + pattern.len, onig_options);
+        const onig_encoding = switch (encoding) {
+            .utf8 => onigmo.ENCODING_UTF_8,
+            .ascii_8bit => onigmo.ENCODING_ASCII,
+            .us_ascii => onigmo.ENCODING_ASCII,
+            .shift_jis => onigmo.ENCODING_SHIFT_JIS,
+            .windows_31j => onigmo.ENCODING_WINDOWS_31J,
+            .euc_jp => onigmo.ENCODING_EUC_JP,
+            .iso_8859_9 => onigmo.ENCODING_ISO_8859_9,
+            .iso_8859_15 => onigmo.ENCODING_ISO_8859_15,
+            .utf16le => onigmo.ENCODING_UTF_16LE,
+            .utf16be => onigmo.ENCODING_UTF_16BE,
+            .utf32le => onigmo.ENCODING_UTF_32LE,
+            .utf32be => onigmo.ENCODING_UTF_32BE,
+            else => onigmo.ENCODING_UTF_8,
+        };
+
+        const result = onigmo.compileWithEncoding(pattern.ptr, pattern.ptr + pattern.len, onig_options, onig_encoding);
 
         if (result.err) |err| {
             return self.raiseExceptionFmt(
@@ -6099,10 +6115,15 @@ pub const VM = struct {
                 .instance_variables = null,
             },
             .pattern = pattern_copy,
+            .encoding = encoding,
             .options = options,
             .regex = result.regex.?,
         };
         return Value.fromObject(regexp_obj);
+    }
+
+    pub fn newRegexp(self: *VM, pattern: []const u8, options: u16) VMError!Value {
+        return self.newRegexpWithEncoding(pattern, options, .{ .utf8 = .{} });
     }
 
     pub fn newMatchData(
@@ -6935,6 +6956,12 @@ pub const VM = struct {
             "wrong number of arguments (given {d}, expected {d}+)",
             .{ given, min },
         );
+    }
+
+    pub fn requireArgCountAtLeast(self: *VM, args: []const Value, min: usize) VMError!void {
+        if (args.len < min) {
+            return self.raiseArgumentErrorWrongArgCountAtLeast(args.len, min);
+        }
     }
 
     pub fn raiseArgumentErrorWrongArgCountGeneric(self: *VM) VMError {

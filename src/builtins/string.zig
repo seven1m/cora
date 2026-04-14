@@ -242,6 +242,9 @@ pub fn register(vm: *VM) !void {
     const string_delete_suffix_bang_sym = try vm.intern("delete_suffix!");
     try vm.string_class.module.methods.put(string_delete_suffix_bang_sym, .{ .method = .{ .builtin = &builtinStringDeleteSuffixBang } });
 
+    const string_delete_sym = try vm.intern("delete");
+    try vm.string_class.module.methods.put(string_delete_sym, .{ .method = .{ .builtin = &builtinStringDelete } });
+
     const string_include_sym = try vm.intern("include?");
     try vm.string_class.module.methods.put(string_include_sym, .{ .method = .{ .builtin = &builtinStringInclude } });
 
@@ -2038,6 +2041,62 @@ pub fn builtinStringDeleteSuffixBang(vm: *VM, receiver: Value, args: []Value, _:
     return receiver;
 }
 
+fn stringDeleteSelectorMatches(encoding: enc.Encoding, selector: []const u8, char_bytes: []const u8) bool {
+    var selector_index: usize = 0;
+    while (selector_index < selector.len) {
+        const start = selector_index;
+        const parsed = encoding.nextChar(selector, &selector_index);
+        if (parsed.len == 0) break;
+        if (parsed.len == char_bytes.len and std.mem.eql(u8, selector[start..selector_index], char_bytes)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+pub fn builtinStringDelete(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountAtLeast(args, 1);
+    const string_obj = receiver.toStringObject();
+
+    const selectors = vm.allocator.alloc(Value, args.len) catch return error.Fatal;
+    defer vm.allocator.free(selectors);
+
+    for (args, 0..) |arg, i| {
+        const selector = try arg.coerceToStringValue(vm, "no implicit conversion into String");
+        const selector_obj = selector.toStringObject();
+        if (enc.negotiate(string_obj.encoding, string_obj.str, selector_obj.encoding, selector_obj.str) == null) {
+            return vm.raiseEncodingCompatibilityError(string_obj.encoding, selector_obj.encoding);
+        }
+        selectors[i] = selector;
+    }
+
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(vm.allocator);
+
+    var index: usize = 0;
+    while (index < string_obj.str.len) {
+        const start = index;
+        const parsed = string_obj.encoding.nextChar(string_obj.str, &index);
+        if (parsed.len == 0) break;
+
+        const char_bytes = string_obj.str[start..index];
+        var matched = false;
+        for (selectors) |selector| {
+            if (stringDeleteSelectorMatches(selector.toStringObject().encoding, selector.toStringObject().str, char_bytes)) {
+                matched = true;
+                break;
+            }
+        }
+        if (!matched) {
+            out.appendSlice(vm.allocator, char_bytes) catch return error.Fatal;
+        }
+    }
+
+    const result = out.toOwnedSlice(vm.allocator) catch return error.Fatal;
+    defer vm.allocator.free(result);
+    return try vm.newStringWithEncoding(result, false, string_obj.encoding);
+}
+
 pub fn builtinStringInclude(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const string_obj = receiver.toStringObject();
@@ -3033,36 +3092,63 @@ pub fn builtinStringIndex(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     try vm.requireArgCountRange(args, 1, 2);
     const string_obj = receiver.toStringObject();
 
-    const start_byte = if (args.len == 2) blk: {
-        var start_pos = try args[1].coerceToI64ViaToInt(
+    const start_pos = if (args.len == 2)
+        try args[1].coerceToI64ViaToInt(
             vm,
             "no implicit conversion into Integer",
             "no implicit conversion into Integer",
             "bignum too big to convert into `long`",
-        );
-        const char_len_i64: i64 = @intCast(string_obj.encoding.charCount(string_obj.str));
-        if (start_pos < 0) start_pos += char_len_i64;
-        if (start_pos < 0 or start_pos > char_len_i64) return Value.nil();
-        break :blk string_obj.encoding.byteOffsetForCharIndex(string_obj.str, @intCast(start_pos)) orelse return Value.nil();
-    } else 0;
+        )
+    else
+        null;
+
+    const char_len_i64: i64 = @intCast(string_obj.encoding.charCount(string_obj.str));
+    const normalized_start_pos = blk: {
+        var pos = start_pos orelse 0;
+        if (pos < 0) pos += char_len_i64;
+        if (pos < 0 or pos > char_len_i64) {
+            if (args[0].isRegexp()) try vm.clearLastMatch();
+            return Value.nil();
+        }
+        break :blk pos;
+    };
+
+    const start_byte = string_obj.encoding.byteOffsetForCharIndex(string_obj.str, @intCast(normalized_start_pos)) orelse {
+        if (args[0].isRegexp()) try vm.clearLastMatch();
+        return Value.nil();
+    };
 
     if (args[0].isRegexp()) {
-        const start_pos = if (args.len == 2)
-            try args[1].coerceToI64ViaToInt(
-                vm,
-                "no implicit conversion into Integer",
-                "no implicit conversion into Integer",
-                "bignum too big to convert into `long`",
-            )
-        else
-            null;
-        return regexp_builtin.regexpMatchOpAt(vm, args[0].toRegexpObject(), receiver, start_pos, true);
+        return regexp_builtin.regexpMatchOpAt(vm, args[0].toRegexpObject(), receiver, normalized_start_pos, true);
     }
 
     const needle_value = try args[0].coerceToStringValue(vm, "no implicit conversion into String");
-    const needle = needle_value.toStringObject().str;
-    const found = std.mem.indexOfPos(u8, string_obj.str, start_byte, needle) orelse return Value.nil();
-    return Value.integer(@intCast(string_obj.encoding.charCount(string_obj.str[0..found])));
+    const needle_obj = needle_value.toStringObject();
+    const needle = needle_obj.str;
+
+    if (enc.negotiate(string_obj.encoding, string_obj.str, needle_obj.encoding, needle) == null) {
+        return vm.raiseEncodingCompatibilityError(string_obj.encoding, needle_obj.encoding);
+    }
+
+    if (needle.len == 0) {
+        return Value.integer(normalized_start_pos);
+    }
+
+    if (needle.len > string_obj.str.len or start_byte > string_obj.str.len - needle.len) {
+        return Value.nil();
+    }
+
+    var pos = start_byte;
+    while (pos <= string_obj.str.len - needle.len) {
+        const found = std.mem.indexOfPos(u8, string_obj.str, pos, needle) orelse return Value.nil();
+        const end = found + needle.len;
+        if (string_obj.encoding.isCharBoundary(string_obj.str, found) and string_obj.encoding.isCharBoundary(string_obj.str, end)) {
+            return Value.integer(@intCast(string_obj.encoding.charCount(string_obj.str[0..found])));
+        }
+        pos = found + 1;
+    }
+
+    return Value.nil();
 }
 
 fn escapeRegexpLiteral(vm: *VM, bytes: []const u8) VMError![]u8 {

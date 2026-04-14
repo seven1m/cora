@@ -2002,7 +2002,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/string/hash_spec.rb
 - [x] core/string/hex_spec.rb
 - [x] core/string/include_spec.rb
-- [ ] core/string/index_spec.rb
+- [x] core/string/index_spec.rb
 - [x] core/string/initialize_spec.rb
 - [x] core/string/insert_spec.rb
 - [x] core/string/inspect_spec.rb

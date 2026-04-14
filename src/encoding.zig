@@ -343,6 +343,11 @@ pub fn negotiate(enc1: Encoding, str1: []const u8, enc2: Encoding, str2: []const
         return enc1;
     }
 
+    // Dummy encodings do not implicitly negotiate with different encodings.
+    if (enc1.isDummy() or enc2.isDummy()) {
+        return null;
+    }
+
     // ASCII-8BIT (binary) with ASCII-only content is compatible with ASCII-compatible encodings
     const enc1_is_binary = (enc1 == .ascii_8bit);
     const enc2_is_binary = (enc2 == .ascii_8bit);
