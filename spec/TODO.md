@@ -217,7 +217,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/basicobject/basicobject_spec.rb
 - [x] core/basicobject/equal_spec.rb
 - [x] core/basicobject/equal_value_spec.rb
-- [ ] core/basicobject/initialize_spec.rb
+- [x] core/basicobject/initialize_spec.rb
 - [ ] core/basicobject/instance_eval_spec.rb
 - [ ] core/basicobject/instance_exec_spec.rb
 - [ ] core/basicobject/method_missing_spec.rb
