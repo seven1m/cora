@@ -151,6 +151,7 @@ Use "unmanaged" ArrayList: `field: ArrayList(*Value) = .empty` (allocator passed
 - `VM.copyObjectInstanceVariables` centralizes shallow copying of Ruby object instance-variable maps for dup/clone-style object duplication paths.
 - `VM.probeToAry` centralizes low-level `to_ary` coercion semantics. It returns array/missing/nil-result distinctly and raises `TypeError` when `to_ary` returns a non-Array.
 - `VM.coerceToArrayValue` is the strict array-like coercion helper for APIs such as `Array#+`/`Array#replace`; it raises MRI-style `TypeError` messages for missing `to_ary` and `nil`/wrong-type `to_ary` results.
+- `VM.probeToStringValue` centralizes low-level `to_str` probe semantics. It returns string/missing/nil-result distinctly and raises `TypeError` when `to_str` returns a non-String.
 - `VM.raiseEncodingCompatibilityError` centralizes `Encoding::CompatibilityError` formatting for the common `"incompatible character encodings: ..."` case.
 - `VM.coerceToPath` is the canonical path-bytes coercion helper (`to_path` then String coercion); use `VM.coerceToPathValue` when callers must preserve the resulting String object's encoding/value.
 - `src/builtins/warning.zig` exposes shared warning helpers such as `writeWarning` and `warnBlockUnused`; prefer these over per-builtin `$stderr` warning writers.
@@ -163,7 +164,8 @@ Use "unmanaged" ArrayList: `field: ArrayList(*Value) = .empty` (allocator passed
 ### String coercion conventions
 - Canonical implicit String coercion lives in `Value.coerceToStringValue` (`src/value.zig`). Prefer this for Ruby APIs that require String-like arguments via `to_str` and should raise `TypeError` on failure.
 - Use `Value.coerceToStr` when you need `[]const u8` bytes after the same implicit coercion semantics.
-- Use `VM.checkCallMethodByName(..., "to_str", false, ...)` for optional/cooperative conversions (for example `String.try_convert`) where missing method should map to `nil`/fallback instead of raising.
+- Use `VM.probeToStringValue` for optional/cooperative `to_str` probing where missing `to_str` or `nil` should map to fallback behavior instead of immediate failure.
+- Use `VM.checkCallMethodByName(..., "to_str", false, ...)` only when no shared `to_str` probe helper fits the semantics; prefer `VM.probeToStringValue` for the common optional-conversion path.
 - If you only need capability probing (for example `String#==` checking whether `to_str` is supported before reverse-dispatch), use `respond_to?` semantics rather than forcing a coercion call.
 - Use `VM.coerceToPath` for path arguments (`to_path` then String coercion), rather than open-coding path coercion in builtins.
 - Avoid per-builtin ad hoc `to_str` coercion helpers unless semantics intentionally differ from the canonical paths; if they do differ, document why near the helper.

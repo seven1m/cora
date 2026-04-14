@@ -328,7 +328,10 @@ pub fn register(vm: *VM) !void {
 
 pub fn builtinStringTryConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    return try tryCoerceToStringValue(vm, args[0]) orelse Value.nil();
+    return switch (try vm.probeToStringValue(args[0])) {
+        .string => |string_value| string_value,
+        .missing, .nil_result => Value.nil(),
+    };
 }
 
 pub fn builtinStringToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -671,9 +674,9 @@ pub fn builtinStringCompare(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
         return compareStringObjects(lhs, other.toStringObject());
     }
 
-    const coerced = try tryCoerceToStringValue(vm, other);
-    if (coerced) |coerced_value| {
-        return compareStringObjects(lhs, coerced_value.toStringObject());
+    switch (try vm.probeToStringValue(other)) {
+        .string => |coerced_value| return compareStringObjects(lhs, coerced_value.toStringObject()),
+        .missing, .nil_result => {},
     }
 
     if (try vm.enterRecursionGuard(.string_compare_fallback, receiver, other)) return Value.nil();
@@ -719,22 +722,6 @@ fn compareStringObjects(lhs: *const value.StringObject, rhs: *const value.String
     if (lhs_tag < rhs_tag) return Value.integer(-1);
     if (lhs_tag > rhs_tag) return Value.integer(1);
     return Value.integer(0);
-}
-
-fn tryCoerceToStringValue(vm: *VM, arg: Value) VMError!?Value {
-    if (arg.isString()) return arg;
-
-    const maybe_coerced = try vm.checkCallMethodByName(arg, "to_str", false, &[_]Value{}, null);
-    const coerced = maybe_coerced orelse return null;
-
-    if (coerced.isNil()) return null;
-    if (coerced.isString()) return coerced;
-
-    return vm.raiseExceptionFmt(
-        vm.type_error_class,
-        "can't convert {s} to String ({s}#to_str gives {s})",
-        .{ vm.className(arg), vm.className(arg), vm.className(coerced) },
-    );
 }
 
 fn coerceStringMatchPattern(vm: *VM, pattern: Value) VMError!Value {
@@ -811,10 +798,10 @@ pub fn builtinStringCasecmp(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     const lhs = receiver.toStringObject();
     const other = args[0];
 
-    const rhs_value = if (other.isString())
-        other
-    else
-        (try tryCoerceToStringValue(vm, other) orelse return Value.nil());
+    const rhs_value = if (other.isString()) other else switch (try vm.probeToStringValue(other)) {
+        .string => |string_value| string_value,
+        .missing, .nil_result => return Value.nil(),
+    };
     const rhs = rhs_value.toStringObject();
 
     const order = try casecmpOrder(vm, lhs, rhs, false) orelse return Value.nil();
@@ -826,10 +813,10 @@ pub fn builtinStringCasecmpQ(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     const lhs = receiver.toStringObject();
     const other = args[0];
 
-    const rhs_value = if (other.isString())
-        other
-    else
-        (try tryCoerceToStringValue(vm, other) orelse return Value.nil());
+    const rhs_value = if (other.isString()) other else switch (try vm.probeToStringValue(other)) {
+        .string => |string_value| string_value,
+        .missing, .nil_result => return Value.nil(),
+    };
     const rhs = rhs_value.toStringObject();
 
     const order = try casecmpOrder(vm, lhs, rhs, true) orelse return Value.nil();

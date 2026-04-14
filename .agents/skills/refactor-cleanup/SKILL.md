@@ -39,7 +39,10 @@ Before keeping or adding a helper, check whether an existing shared helper alrea
 - Optional conversion/probe calls: prefer `VM.checkCallMethodByName`.
 - Required dispatch: prefer `VM.callMethodByName`.
 - `to_ary` behavior: prefer `VM.probeToAry` or `VM.coerceToArrayValue`, depending on strictness.
-- String coercion: prefer `Value.coerceToStringValue`, `Value.coerceToStr`, or `VM.coerceToPath` as appropriate.
+- String coercion:
+  - Required implicit `to_str` coercion that should raise belongs on `Value` via `Value.coerceToStringValue` / `Value.coerceToStr`.
+  - Optional `to_str` probing that may fall back on missing/nil belongs in `src/vm.zig` via `VM.probeToStringValue`.
+  - Path coercion belongs in `src/vm.zig` via `VM.coerceToPath` / `VM.coerceToPathValue`.
 - Warning output: prefer shared helpers in `src/builtins/warning.zig`.
 
 If none fit, add a new helper only when at least one of these is true:
@@ -86,6 +89,9 @@ If you add a broadly reusable helper, document it in `AGENTS.md`.
   - VM-wide Ruby semantics belong in `src/vm.zig`.
   - Cross-builtin helpers belong in shared builtin support files.
   - Type-specific behavior belongs with that builtin/class.
+  - For coercions specifically:
+    - Required single-value coercions usually belong on `Value`.
+    - Optional probe-style coercions and multi-step coercion workflows usually belong on `VM`.
 - Prefer deleting stale comments over rewriting them into longer stale comments.
 
 ## Completion Criteria

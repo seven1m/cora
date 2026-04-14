@@ -91,6 +91,11 @@ end
 - Run ruby/spec aggregate filter to ensure no regressions in existing ported specs.
 - If new helper code is generated, verify it's not reinventing a helper we already have.
   Combine or generalize (and co-locate) helpers when possible.
+  Helper placement rules:
+  - Required implicit String coercion belongs in `src/value.zig` (`Value.coerceToStringValue` / `Value.coerceToStr`).
+  - Optional `to_str` probing with fallback-on-missing/nil belongs in `src/vm.zig` (`VM.probeToStringValue`).
+  - Optional `to_ary` probing belongs in `src/vm.zig` (`VM.probeToAry`), with strict array coercion built on top.
+  - Path coercion belongs in `src/vm.zig` (`VM.coerceToPath` / `VM.coerceToPathValue`).
 
 6. Verify upstream alignment.
 - Diff each copied spec/shared fixture against upstream and remove local drift.

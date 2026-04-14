@@ -6769,6 +6769,27 @@ pub const VM = struct {
         nil_result,
     };
 
+    pub const ToStringResult = union(enum) {
+        string: Value,
+        missing,
+        nil_result,
+    };
+
+    pub fn probeToStringValue(self: *VM, arg: Value) VMError!ToStringResult {
+        if (arg.isString()) return .{ .string = arg };
+
+        const maybe_string = try self.checkCallMethodByName(arg, "to_str", false, &[_]Value{}, null);
+        const coerced = maybe_string orelse return .missing;
+        if (coerced.isNil()) return .nil_result;
+        if (coerced.isString()) return .{ .string = coerced };
+
+        return self.raiseExceptionFmt(
+            self.type_error_class,
+            "can't convert {s} to String ({s}#to_str gives {s})",
+            .{ self.className(arg), self.className(arg), self.className(coerced) },
+        );
+    }
+
     pub fn probeToAry(self: *VM, arg: Value) VMError!ToAryResult {
         if (arg.isArray()) return .{ .array = arg };
 

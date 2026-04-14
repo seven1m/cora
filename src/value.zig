@@ -741,22 +741,14 @@ pub const Value = struct {
     /// Canonical implicit String coercion (`to_str`).
     /// Use this for APIs that require String-like objects and should raise TypeError on failure.
     pub fn coerceToStringValue(self: Value, vm_instance: *VM, type_error_message: []const u8) VMError!Value {
-        if (self.isString()) return self;
-
-        const maybe_coerced = try vm_instance.checkCallMethodByName(self, "to_str", false, &[_]Value{}, null);
-        const coerced = maybe_coerced orelse {
-            const exc = try vm_instance.createException(vm_instance.type_error_class, type_error_message);
-            vm_instance.pending_exception = exc;
-            return error.Unwind;
+        return switch (try vm_instance.probeToStringValue(self)) {
+            .string => |coerced| coerced,
+            .missing, .nil_result => {
+                const exc = try vm_instance.createException(vm_instance.type_error_class, type_error_message);
+                vm_instance.pending_exception = exc;
+                return error.Unwind;
+            },
         };
-
-        if (!coerced.isString()) {
-            const exc = try vm_instance.createException(vm_instance.type_error_class, type_error_message);
-            vm_instance.pending_exception = exc;
-            return error.Unwind;
-        }
-
-        return coerced;
     }
 
     /// Byte-slice variant of `coerceToStringValue`.

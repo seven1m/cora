@@ -609,11 +609,9 @@ fn optionalTimeoutArg(vm: *VM, args: []Value) VMError!?f64 {
 
 fn symbolArg(vm: *VM, arg: Value) VMError!*value.SymbolObject {
     if (arg.isSymbol()) return arg.toSymbolObject();
-    if (arg.isString()) return try vm.intern(arg.toStringObject().str);
-
-    const maybe_coerced = try vm.checkCallMethodByName(arg, "to_str", false, &[_]Value{}, null);
-    if (maybe_coerced) |coerced| {
-        if (coerced.isString()) return try vm.intern(coerced.toStringObject().str);
+    switch (try vm.probeToStringValue(arg)) {
+        .string => |coerced| return try vm.intern(coerced.toStringObject().str),
+        .missing, .nil_result => {},
     }
 
     return raiseNotSymbolTypeError(vm, arg);
