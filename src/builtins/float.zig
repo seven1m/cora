@@ -167,14 +167,16 @@ pub fn builtinFloatDivide(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
 pub fn builtinFloatEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const lhs = receiver.toFloatObject().val;
-    const rhs = coerceNumericArg(vm, args[0]) catch |err| {
-        if (err == error.Unwind) {
-            vm.pending_exception = null;
-            return Value.boolean(false);
-        }
-        return err;
-    };
-    return Value.boolean(lhs == rhs);
+    if (args[0].isFloat()) {
+        return Value.boolean(lhs == args[0].toFloatObject().val);
+    }
+    if (args[0].isInteger()) {
+        return Value.boolean(lhs == @as(f64, @floatFromInt(args[0].toInteger())));
+    }
+
+    var reverse_args = [_]Value{receiver};
+    const result = try vm.callMethodByName(args[0], "==", reverse_args[0..], null);
+    return Value.boolean(result.is_truthy());
 }
 
 pub fn builtinFloatCompare(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

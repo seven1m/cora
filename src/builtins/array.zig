@@ -244,6 +244,9 @@ pub fn register(vm: *VM) !void {
     const rassoc_sym = try vm.intern("rassoc");
     try vm.array_class.module.methods.put(rassoc_sym, .{ .method = .{ .builtin = &builtinArrayRassoc } });
 
+    const index_sym = try vm.intern("index");
+    try vm.array_class.module.methods.put(index_sym, .{ .method = .{ .builtin = &builtinArrayIndex } });
+
     const dig_sym = try vm.intern("dig");
     try vm.array_class.module.methods.put(dig_sym, .{ .method = .{ .builtin = &builtinArrayDig } });
 
@@ -1307,6 +1310,42 @@ pub fn builtinArrayRassoc(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
         if (equal.is_truthy()) return Value.fromObject(pair);
     }
 
+    return Value.nil();
+}
+
+pub fn builtinArrayIndex(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+
+    const size_value = Value.integer(@intCast(receiver.toArrayObject().elements.items.len));
+    if (args.len == 0 and block == null) {
+        return try vm.createMethodEnumeratorWithSize(receiver, try vm.intern("index"), &.{}, size_value);
+    }
+
+    if (args.len == 1 and block != null) {
+        try warning_builtin.warnBlockUnused(vm);
+    }
+
+    const array = receiver.toArrayObject();
+    var idx: usize = 0;
+
+    if (args.len == 1) {
+        const needle = args[0];
+        while (idx < array.elements.items.len) : (idx += 1) {
+            var eq_args = [_]Value{needle};
+            const equal = try vm.callMethodByName(array.elements.items[idx], "==", eq_args[0..], null);
+            if (equal.is_truthy()) {
+                return Value.integer(@intCast(idx));
+            }
+        }
+        return Value.nil();
+    }
+
+    const blk = block.?;
+    while (idx < array.elements.items.len) : (idx += 1) {
+        const yielded = try vm.yieldToBlock(blk, &[_]Value{array.elements.items[idx]});
+        if (yielded.break_occurred) return yielded.value;
+        if (yielded.value.is_truthy()) return Value.integer(@intCast(idx));
+    }
     return Value.nil();
 }
 

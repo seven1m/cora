@@ -123,7 +123,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/array/frozen_spec.rb
 - [ ] core/array/hash_spec.rb
 - [x] core/array/include_spec.rb
-- [ ] core/array/index_spec.rb
+- [x] core/array/index_spec.rb
 - [ ] core/array/initialize_spec.rb
 - [ ] core/array/insert_spec.rb
 - [x] core/array/inspect_spec.rb
