@@ -244,6 +244,8 @@ pub fn register(vm: *VM) !void {
 
     const string_delete_sym = try vm.intern("delete");
     try vm.string_class.module.methods.put(string_delete_sym, .{ .method = .{ .builtin = &builtinStringDelete } });
+    const string_delete_bang_sym = try vm.intern("delete!");
+    try vm.string_class.module.methods.put(string_delete_bang_sym, .{ .method = .{ .builtin = &builtinStringDeleteBang } });
 
     const string_include_sym = try vm.intern("include?");
     try vm.string_class.module.methods.put(string_include_sym, .{ .method = .{ .builtin = &builtinStringInclude } });
@@ -2041,60 +2043,184 @@ pub fn builtinStringDeleteSuffixBang(vm: *VM, receiver: Value, args: []Value, _:
     return receiver;
 }
 
-fn stringDeleteSelectorMatches(encoding: enc.Encoding, selector: []const u8, char_bytes: []const u8) bool {
-    var selector_index: usize = 0;
-    while (selector_index < selector.len) {
-        const start = selector_index;
-        const parsed = encoding.nextChar(selector, &selector_index);
-        if (parsed.len == 0) break;
-        if (parsed.len == char_bytes.len and std.mem.eql(u8, selector[start..selector_index], char_bytes)) {
-            return true;
-        }
+const StringDeleteRange = struct {
+    start: u32,
+    end: u32,
+};
+
+const StringDeleteSelector = struct {
+    negated: bool = false,
+    ranges: std.ArrayList(StringDeleteRange) = .empty,
+
+    fn deinit(self: *StringDeleteSelector, allocator: std.mem.Allocator) void {
+        self.ranges.deinit(allocator);
     }
-    return false;
+};
+
+fn stringDeleteParseChar(
+    vm: *VM,
+    encoding: enc.Encoding,
+    selector: []const u8,
+    index: *usize,
+    escaped: *bool,
+) VMError!?u32 {
+    if (index.* >= selector.len) return null;
+
+    if (selector[index.*] == '\\') {
+        index.* += 1;
+        if (index.* >= selector.len) {
+            escaped.* = false;
+            return '\\';
+        }
+        escaped.* = true;
+        const parsed = encoding.nextCodepoint(selector, index);
+        if (parsed.len == 0 or !parsed.valid) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "invalid character set", .{});
+        }
+        return parsed.codepoint;
+    }
+
+    escaped.* = false;
+    const parsed = encoding.nextCodepoint(selector, index);
+    if (parsed.len == 0 or !parsed.valid) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "invalid character set", .{});
+    }
+    return parsed.codepoint;
 }
 
-pub fn builtinStringDelete(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCountAtLeast(args, 1);
-    const string_obj = receiver.toStringObject();
+fn stringDeleteParseSelector(
+    vm: *VM,
+    selector_value: Value,
+) VMError!StringDeleteSelector {
+    const selector_obj = selector_value.toStringObject();
+    const selector = selector_obj.str;
+    const encoding = selector_obj.encoding;
 
-    const selectors = vm.allocator.alloc(Value, args.len) catch return error.Fatal;
+    var parsed_selector = StringDeleteSelector{};
+    errdefer parsed_selector.deinit(vm.allocator);
+
+    var index: usize = 0;
+    if (selector.len > 0 and selector[0] == '^') {
+        parsed_selector.negated = true;
+        index = 1;
+    }
+
+    while (index < selector.len) {
+        var first_escaped = false;
+        const first = (try stringDeleteParseChar(vm, encoding, selector, &index, &first_escaped)) orelse break;
+
+        if (!first_escaped and index < selector.len and selector[index] == '-' and index + 1 < selector.len) {
+            index += 1;
+            var last_escaped = false;
+            const last = (try stringDeleteParseChar(vm, encoding, selector, &index, &last_escaped)) orelse {
+                parsed_selector.ranges.append(vm.allocator, .{ .start = first, .end = first }) catch return error.Fatal;
+                parsed_selector.ranges.append(vm.allocator, .{ .start = '-', .end = '-' }) catch return error.Fatal;
+                break;
+            };
+            if (first > last) {
+                return vm.raiseExceptionFmt(vm.argument_error_class, "invalid range in string transliteration", .{});
+            }
+            parsed_selector.ranges.append(vm.allocator, .{ .start = first, .end = last }) catch return error.Fatal;
+            continue;
+        }
+
+        parsed_selector.ranges.append(vm.allocator, .{ .start = first, .end = first }) catch return error.Fatal;
+    }
+
+    return parsed_selector;
+}
+
+fn stringDeleteSelectorContains(selector: StringDeleteSelector, codepoint: u32) bool {
+    if (selector.negated and selector.ranges.items.len == 0) return false;
+    const matched = for (selector.ranges.items) |range| {
+        if (codepoint >= range.start and codepoint <= range.end) break true;
+    } else false;
+
+    return if (selector.negated) !matched else matched;
+}
+
+const StringDeleteResult = struct {
+    bytes: []const u8,
+    modified: bool,
+};
+
+fn stringDeleteCompute(vm: *VM, string_obj: *value.StringObject, args: []Value) VMError!StringDeleteResult {
+    const selectors = vm.allocator.alloc(StringDeleteSelector, args.len) catch return error.Fatal;
     defer vm.allocator.free(selectors);
+    var selector_count: usize = 0;
+    defer {
+        for (selectors[0..selector_count]) |*selector| {
+            selector.deinit(vm.allocator);
+        }
+    }
 
-    for (args, 0..) |arg, i| {
+    for (args) |arg| {
         const selector = try arg.coerceToStringValue(vm, "no implicit conversion into String");
         const selector_obj = selector.toStringObject();
         if (enc.negotiate(string_obj.encoding, string_obj.str, selector_obj.encoding, selector_obj.str) == null) {
             return vm.raiseEncodingCompatibilityError(string_obj.encoding, selector_obj.encoding);
         }
-        selectors[i] = selector;
+        selectors[selector_count] = try stringDeleteParseSelector(vm, selector);
+        selector_count += 1;
     }
 
     var out: std.ArrayList(u8) = .empty;
-    defer out.deinit(vm.allocator);
+    defer out.deinit(vm.gc_allocator_atomic);
 
+    var modified = false;
     var index: usize = 0;
     while (index < string_obj.str.len) {
         const start = index;
-        const parsed = string_obj.encoding.nextChar(string_obj.str, &index);
+        const parsed = string_obj.encoding.nextCodepoint(string_obj.str, &index);
         if (parsed.len == 0) break;
+        if (!parsed.valid) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "invalid byte sequence in {s}", .{string_obj.encoding.name()});
+        }
 
         const char_bytes = string_obj.str[start..index];
-        var matched = false;
-        for (selectors) |selector| {
-            if (stringDeleteSelectorMatches(selector.toStringObject().encoding, selector.toStringObject().str, char_bytes)) {
-                matched = true;
+        var matched_all = true;
+        for (selectors[0..selector_count]) |selector| {
+            if (!stringDeleteSelectorContains(selector, parsed.codepoint)) {
+                matched_all = false;
                 break;
             }
         }
-        if (!matched) {
-            out.appendSlice(vm.allocator, char_bytes) catch return error.Fatal;
+
+        if (matched_all) {
+            modified = true;
+            continue;
         }
+        out.appendSlice(vm.gc_allocator_atomic, char_bytes) catch return error.Fatal;
     }
 
-    const result = out.toOwnedSlice(vm.allocator) catch return error.Fatal;
-    defer vm.allocator.free(result);
-    return try vm.newStringWithEncoding(result, false, string_obj.encoding);
+    return .{
+        .bytes = out.toOwnedSlice(vm.gc_allocator_atomic) catch return error.Fatal,
+        .modified = modified,
+    };
+}
+
+pub fn builtinStringDelete(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountAtLeast(args, 1);
+    const string_obj = receiver.toStringObject();
+    const result = try stringDeleteCompute(vm, string_obj, args);
+    return try vm.newStringWithEncoding(result.bytes, false, string_obj.encoding);
+}
+
+pub fn builtinStringDeleteBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountAtLeast(args, 1);
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
+    }
+
+    const string_obj = receiver.toStringObject();
+    const result = try stringDeleteCompute(vm, string_obj, args);
+    if (!result.modified) return Value.nil();
+
+    try warnSymbolToSMutation(vm, string_obj);
+    string_obj.str = result.bytes;
+    string_obj.validity = .unknown;
+    string_obj.symbol_to_s_source = null;
+    return receiver;
 }
 
 pub fn builtinStringInclude(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

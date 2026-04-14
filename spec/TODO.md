@@ -1976,7 +1976,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/string/crypt_spec.rb
 - [x] core/string/dedup_spec.rb
 - [x] core/string/delete_prefix_spec.rb
-- [ ] core/string/delete_spec.rb
+- [x] core/string/delete_spec.rb
 - [x] core/string/delete_suffix_spec.rb
 - [x] core/string/downcase_spec.rb
 - [ ] core/string/dump_spec.rb
