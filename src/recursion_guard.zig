@@ -9,7 +9,9 @@ pub const Kind = enum {
     hash_inspect,
     range_inspect,
     array_equal,
+    array_eql,
     array_compare,
+    array_hash,
 };
 
 const Entry = struct {

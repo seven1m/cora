@@ -147,6 +147,79 @@ test "Hash with boolean key" {
     try std.testing.expectEqualSlices(u8, "t", result.toStringObject().str);
 }
 
+test "Hash lookup finds structurally equal array keys" {
+    const result = try evalCode("h = { [] => 'baz' }\nh[[]]");
+    try std.testing.expectEqualSlices(u8, "baz", result.toStringObject().str);
+}
+
+test "Hash#[] uses overridden default implementations on subclasses" {
+    const result = try evalCode(
+        \\class HashDefaultSubclass < Hash
+        \\  def default(key)
+        \\    100
+        \\  end
+        \\end
+        \\HashDefaultSubclass.new[:missing]
+    );
+    try std.testing.expectEqual(@as(i64, 100), result.toInteger());
+}
+
+test "Hash#[] default proc can use kind_of? checks" {
+    const result = try evalCode(
+        \\h = Hash.new { |hsh, k| k.kind_of?(Numeric) ? hsh[k] = k + 2 : hsh[k] = k }
+        \\[h[1], h["this"], h]
+    );
+    try std.testing.expect(result.isArray());
+
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 3), items[0].toInteger());
+    try std.testing.expectEqualSlices(u8, "this", items[1].toStringObject().str);
+    try std.testing.expect(items[2].isHash());
+    try std.testing.expectEqual(@as(usize, 2), items[2].toHashObject().entries.items.len);
+}
+
+test "Hash lookup does not dispatch hash for scalar builtins" {
+    const result = try evalCode(
+        \\class TrueClass
+        \\  def hash
+        \\    raise "TrueClass#hash should not be called"
+        \\  end
+        \\end
+        \\class FalseClass
+        \\  def hash
+        \\    raise "FalseClass#hash should not be called"
+        \\  end
+        \\end
+        \\class Integer
+        \\  def hash
+        \\    raise "Integer#hash should not be called"
+        \\  end
+        \\end
+        \\class Float
+        \\  def hash
+        \\    raise "Float#hash should not be called"
+        \\  end
+        \\end
+        \\class String
+        \\  def hash
+        \\    raise "String#hash should not be called"
+        \\  end
+        \\end
+        \\class Symbol
+        \\  def hash
+        \\    raise "Symbol#hash should not be called"
+        \\  end
+        \\end
+        \\hash = { true => 42, false => 42, 1 => 42, 2.0 => 42, "hello" => 42, :ok => 42 }
+        \\[hash[true], hash[false], hash[1], hash[2.0], hash["hello"], hash[:ok]]
+    );
+    try std.testing.expect(result.isArray());
+    const items = result.toArrayObject().elements.items;
+    for (items) |item| {
+        try std.testing.expectEqual(@as(i64, 42), item.toInteger());
+    }
+}
+
 test "Hash fetch with existing key" {
     const result = try evalCode("h = {a: 1, b: 2}\nh.fetch(:a)");
     try std.testing.expectEqual(1, result.toInteger());

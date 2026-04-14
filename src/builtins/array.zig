@@ -180,6 +180,10 @@ pub fn register(vm: *VM) !void {
 
     const equal_sym = try vm.intern("==");
     try vm.array_class.module.methods.put(equal_sym, .{ .method = .{ .builtin = &builtinArrayEqual } });
+    const eql_sym = try vm.intern("eql?");
+    try vm.array_class.module.methods.put(eql_sym, .{ .method = .{ .builtin = &builtinArrayEql } });
+    const hash_sym = try vm.intern("hash");
+    try vm.array_class.module.methods.put(hash_sym, .{ .method = .{ .builtin = &builtinArrayHash } });
     const cmp_sym = try vm.intern("<=>");
     try vm.array_class.module.methods.put(cmp_sym, .{ .method = .{ .builtin = &builtinArrayCmp } });
 
@@ -646,6 +650,56 @@ pub fn builtinArrayEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     }
 
     return Value.boolean(true);
+}
+
+pub fn builtinArrayEql(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const other = args[0];
+    if (!other.isArray()) {
+        return Value.boolean(false);
+    }
+
+    const left = receiver.toArrayObject();
+    const right = other.toArrayObject();
+
+    if (left == right) {
+        return Value.boolean(true);
+    }
+    if (try vm.enterRecursionGuard(.array_eql, receiver, other)) {
+        return Value.boolean(true);
+    }
+    defer vm.leaveRecursionGuard(.array_eql, receiver, other);
+
+    if (left.elements.items.len != right.elements.items.len) {
+        return Value.boolean(false);
+    }
+
+    for (left.elements.items, 0..) |elem, idx| {
+        if (!(try vm.hashKeysEqual(elem, right.elements.items[idx]))) {
+            return Value.boolean(false);
+        }
+    }
+
+    return Value.boolean(true);
+}
+
+pub fn builtinArrayHash(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
+    if (try vm.enterRecursionGuard(.array_hash, receiver, Value.nil())) {
+        return Value.integer(0);
+    }
+    defer vm.leaveRecursionGuard(.array_hash, receiver, Value.nil());
+
+    const array = receiver.toArrayObject();
+    var hasher = std.hash.Wyhash.init(0);
+    for (array.elements.items) |elem| {
+        const elem_hash = try vm.hashKeyHash(elem);
+        hasher.update(std.mem.asBytes(&elem_hash));
+    }
+
+    const hash_value: i64 = @bitCast(hasher.final());
+    return Value.integer(hash_value);
 }
 
 pub fn builtinArrayCmp(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

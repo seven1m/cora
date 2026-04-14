@@ -242,11 +242,8 @@ pub fn builtinHashBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
         return found;
     }
 
-    if (hash_obj.default_proc) |default_proc| {
-        const call_args = [_]Value{ receiver, key };
-        return vm.callProcObject(default_proc, call_args[0..], null, null);
-    }
-    return hash_obj.default_value orelse Value.nil();
+    var default_args = [_]Value{key};
+    return vm.callMethodByName(receiver, "default", default_args[0..], null);
 }
 
 pub fn builtinHashDefault(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

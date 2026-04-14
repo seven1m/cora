@@ -7455,6 +7455,16 @@ pub const VM = struct {
     }
 
     pub fn hashKeyHash(self: *VM, key: Value) VMError!u64 {
+        if (key.isNil() or
+            key.isBool() or
+            key.isInteger() or
+            key.isFloat() or
+            key.isString() or
+            key.isSymbol())
+        {
+            return key.hash();
+        }
+
         var args = [_]Value{};
         const hash_value = try self.callMethodByName(key, "hash", args[0..], null);
         const coerced = try hash_value.coerceToIntegerValue(

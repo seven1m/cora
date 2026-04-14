@@ -155,6 +155,9 @@ pub fn register(vm: *VM) !void {
     const is_a_sym = try vm.intern("is_a?");
     try vm.kernel_module.methods.put(is_a_sym, .{ .method = .{ .builtin = &builtinKernelIsA } });
 
+    const kind_of_sym = try vm.intern("kind_of?");
+    try vm.kernel_module.methods.put(kind_of_sym, .{ .method = .{ .builtin = &builtinKernelIsA } });
+
     const instance_of_sym = try vm.intern("instance_of?");
     try vm.kernel_module.methods.put(instance_of_sym, .{ .method = .{ .builtin = &builtinKernelInstanceOf } });
 
