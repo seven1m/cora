@@ -238,6 +238,9 @@ pub fn register(vm: *VM) !void {
     const at_sym = try vm.intern("at");
     try vm.array_class.module.methods.put(at_sym, .{ .method = .{ .builtin = &builtinArrayAt } });
 
+    const assoc_sym = try vm.intern("assoc");
+    try vm.array_class.module.methods.put(assoc_sym, .{ .method = .{ .builtin = &builtinArrayAssoc } });
+
     const dig_sym = try vm.intern("dig");
     try vm.array_class.module.methods.put(dig_sym, .{ .method = .{ .builtin = &builtinArrayDig } });
 
@@ -1260,6 +1263,27 @@ pub fn builtinArrayAt(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
     }
 
     return array.elements.items[@intCast(actual_index)];
+}
+
+pub fn builtinArrayAssoc(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+
+    const key = args[0];
+    const array = receiver.toArrayObject();
+    for (array.elements.items) |element| {
+        const pair = switch (try vm.probeToAry(element)) {
+            .array => |pair| pair.toArrayObject(),
+            .missing, .nil_result => continue,
+        };
+
+        if (pair.elements.items.len == 0) continue;
+
+        var eq_args = [_]Value{key};
+        const equal = try vm.callMethodByName(pair.elements.items[0], "==", eq_args[0..], null);
+        if (equal.is_truthy()) return Value.fromObject(pair);
+    }
+
+    return Value.nil();
 }
 
 pub fn builtinArrayDig(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
