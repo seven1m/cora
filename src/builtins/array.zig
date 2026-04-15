@@ -63,6 +63,26 @@ fn arrayPatternMatches(vm: *VM, pattern: Value, element: Value) VMError!bool {
     return result.is_truthy();
 }
 
+fn arrayProbePairElement(vm: *VM, element: Value, pair_index: usize) VMError!?struct { pair: *value.ArrayObject, item: Value } {
+    const pair = switch (try vm.probeToAry(element)) {
+        .array => |pair_value| pair_value.toArrayObject(),
+        .missing, .nil_result => return null,
+    };
+    if (pair.elements.items.len <= pair_index) return null;
+
+    return .{
+        .pair = pair,
+        .item = pair.elements.items[pair_index],
+    };
+}
+
+fn arrayFindIndexByEquality(vm: *VM, elements: []Value, needle: Value) VMError!?usize {
+    for (elements, 0..) |element, idx| {
+        if (try vm.valueEquals(element, needle)) return idx;
+    }
+    return null;
+}
+
 fn arrayJoinAppendElement(
     vm: *VM,
     state: *JoinState,
@@ -1279,16 +1299,8 @@ pub fn builtinArrayAssoc(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     const key = args[0];
     const array = receiver.toArrayObject();
     for (array.elements.items) |element| {
-        const pair = switch (try vm.probeToAry(element)) {
-            .array => |pair| pair.toArrayObject(),
-            .missing, .nil_result => continue,
-        };
-
-        if (pair.elements.items.len == 0) continue;
-
-        var eq_args = [_]Value{key};
-        const equal = try vm.callMethodByName(pair.elements.items[0], "==", eq_args[0..], null);
-        if (equal.is_truthy()) return Value.fromObject(pair);
+        const match = (try arrayProbePairElement(vm, element, 0)) orelse continue;
+        if (try vm.valueEquals(match.item, key)) return Value.fromObject(match.pair);
     }
 
     return Value.nil();
@@ -1300,16 +1312,8 @@ pub fn builtinArrayRassoc(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     const key = args[0];
     const array = receiver.toArrayObject();
     for (array.elements.items) |element| {
-        const pair = switch (try vm.probeToAry(element)) {
-            .array => |pair| pair.toArrayObject(),
-            .missing, .nil_result => continue,
-        };
-
-        if (pair.elements.items.len < 2) continue;
-
-        var eq_args = [_]Value{key};
-        const equal = try vm.callMethodByName(pair.elements.items[1], "==", eq_args[0..], null);
-        if (equal.is_truthy()) return Value.fromObject(pair);
+        const match = (try arrayProbePairElement(vm, element, 1)) orelse continue;
+        if (try vm.valueEquals(match.item, key)) return Value.fromObject(match.pair);
     }
 
     return Value.nil();
@@ -1328,21 +1332,16 @@ pub fn builtinArrayIndex(vm: *VM, receiver: Value, args: []Value, block: ?Block)
     }
 
     const array = receiver.toArrayObject();
-    var idx: usize = 0;
 
     if (args.len == 1) {
-        const needle = args[0];
-        while (idx < array.elements.items.len) : (idx += 1) {
-            var eq_args = [_]Value{needle};
-            const equal = try vm.callMethodByName(array.elements.items[idx], "==", eq_args[0..], null);
-            if (equal.is_truthy()) {
-                return Value.integer(@intCast(idx));
-            }
+        if (try arrayFindIndexByEquality(vm, array.elements.items, args[0])) |idx| {
+            return Value.integer(@intCast(idx));
         }
         return Value.nil();
     }
 
     const blk = block.?;
+    var idx: usize = 0;
     while (idx < array.elements.items.len) : (idx += 1) {
         const yielded = try vm.yieldToBlock(blk, &[_]Value{array.elements.items[idx]});
         if (yielded.break_occurred) return yielded.value;
