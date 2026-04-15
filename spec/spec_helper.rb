@@ -376,6 +376,9 @@ def fixture(spec_file, fixture_name)
   elsif absolute
     base = "/#{base}"
   end
+  if base.end_with?("/shared")
+    base = base[0...-"/shared".length]
+  end
   "#{base}/fixtures/#{fixture_name}"
 end
 
@@ -1499,8 +1502,17 @@ class Module
   end
 end
 
-def mock(name = nil, options = {})
-  m = MockObject.new(name, options)
+def mock(name = nil, options = nil, **kwargs)
+  merged_options = {}
+  unless options.nil?
+    options.each do |key, value|
+      merged_options[key] = value
+    end
+  end
+  kwargs.each do |key, value|
+    merged_options[key] = value
+  end
+  m = MockObject.new(name, merged_options)
   $__active_mocks << m
   m
 end

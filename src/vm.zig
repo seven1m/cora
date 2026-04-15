@@ -7500,6 +7500,20 @@ pub const VM = struct {
         return &hash_obj.entries.items[idx];
     }
 
+    fn normalizeHashKeyForStorage(self: *VM, key: Value) VMError!Value {
+        if (!key.isString()) return key;
+        if (key.isFrozen()) return key;
+
+        const string_obj = key.toStringObject();
+        var stored_key = try self.newStringForClassWithEncoding(self.getClass(key), string_obj.str, false, string_obj.encoding);
+        const src_obj = key.getObjectPointer().?;
+        const dst_obj = stored_key.getObjectPointer().?;
+        try self.copyObjectInstanceVariables(src_obj, dst_obj);
+        try self.copyPackedPointerTargets(string_obj, stored_key.toStringObject());
+        stored_key.freeze();
+        return stored_key;
+    }
+
     pub fn hashRebuildIndexes(self: *VM, hash_obj: *value.HashObject) VMError!void {
         hash_obj.map.clearRetainingCapacity();
         for (hash_obj.entries.items, 0..) |entry, idx| {
@@ -7512,7 +7526,8 @@ pub const VM = struct {
     }
 
     pub fn hashSetEntry(self: *VM, hash_obj: *value.HashObject, key: Value, new_value: Value) VMError!void {
-        const gop = hash_obj.map.getOrPut(key) catch |err| {
+        const stored_key = try self.normalizeHashKeyForStorage(key);
+        const gop = hash_obj.map.getOrPut(stored_key) catch |err| {
             if (err == error.OutOfMemory) return error.Fatal;
             return @errorCast(err);
         };
@@ -7522,7 +7537,7 @@ pub const VM = struct {
         }
 
         const new_idx = hash_obj.entries.items.len;
-        hash_obj.entries.append(self.gc_allocator, .{ .key = key, .value = new_value }) catch return error.Fatal;
+        hash_obj.entries.append(self.gc_allocator, .{ .key = stored_key, .value = new_value }) catch return error.Fatal;
         gop.value_ptr.* = new_idx;
     }
 

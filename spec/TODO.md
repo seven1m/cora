@@ -939,7 +939,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/hash/each_spec.rb
 - [ ] core/hash/each_value_spec.rb
 - [x] core/hash/element_reference_spec.rb
-- [ ] core/hash/element_set_spec.rb
+- [x] core/hash/element_set_spec.rb
 - [x] core/hash/empty_spec.rb
 - [ ] core/hash/eql_spec.rb
 - [ ] core/hash/equal_value_spec.rb
