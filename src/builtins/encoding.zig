@@ -189,7 +189,13 @@ pub fn builtinEncodingName(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 pub fn builtinEncodingInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const encoding_obj = receiver.toEncodingObject();
-    const str = std.fmt.allocPrint(vm.gc_allocator, "#<Encoding:{s}>", .{encoding_obj.encoding.name()}) catch return error.Fatal;
+    const name = encoding_obj.encoding.name();
+    const str = if (std.mem.eql(u8, name, "ASCII-8BIT"))
+        std.fmt.allocPrint(vm.gc_allocator, "#<Encoding:BINARY ({s})>", .{name}) catch return error.Fatal
+    else if (encoding_obj.encoding.isDummy())
+        std.fmt.allocPrint(vm.gc_allocator, "#<Encoding:{s} (dummy)>", .{name}) catch return error.Fatal
+    else
+        std.fmt.allocPrint(vm.gc_allocator, "#<Encoding:{s}>", .{name}) catch return error.Fatal;
     return try vm.newString(str, false);
 }
 

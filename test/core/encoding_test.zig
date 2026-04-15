@@ -116,10 +116,22 @@ test "Encoding#to_s returns encoding name" {
     try std.testing.expectEqualSlices(u8, "UTF-8\n", result.stdout);
 }
 
-test "Encoding#inspect returns #<Encoding:name>" {
+test "Encoding#inspect returns #<Encoding:name> for non-dummy encodings" {
     const result = try evalCode("Encoding::UTF_8.inspect");
     try std.testing.expect(result.isString());
     try std.testing.expectEqualSlices(u8, "#<Encoding:UTF-8>", result.toStringObject().str);
+}
+
+test "Encoding#inspect returns BINARY alias for ASCII-8BIT" {
+    const result = try evalCode("Encoding::ASCII_8BIT.inspect");
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "#<Encoding:BINARY (ASCII-8BIT)>", result.toStringObject().str);
+}
+
+test "Encoding#inspect marks dummy encodings" {
+    const result = try evalCode("Encoding::UTF_7.inspect");
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "#<Encoding:UTF-7 (dummy)>", result.toStringObject().str);
 }
 
 test "Encoding#ascii_compatible? returns true for UTF-8" {

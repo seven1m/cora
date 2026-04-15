@@ -391,7 +391,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/encoding/default_internal_spec.rb
 - [ ] core/encoding/dummy_spec.rb
 - [ ] core/encoding/find_spec.rb
-- [ ] core/encoding/inspect_spec.rb
+- [x] core/encoding/inspect_spec.rb
 
 ### core/encoding/invalid_byte_sequence_error
 - [ ] core/encoding/invalid_byte_sequence_error/destination_encoding_name_spec.rb
