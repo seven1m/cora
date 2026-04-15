@@ -444,6 +444,9 @@ pub fn builtinIntegerUnaryPlus(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
 pub fn builtinIntegerMinus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     try receiver.ensureInteger(vm);
+    if (!args[0].isInteger() and !args[0].isBigInteger() and !args[0].isFloat()) {
+        return coerceAndCallIntegerArithmetic(vm, receiver, args[0], "-");
+    }
     const rhs = try coerceNumericArg(vm, args[0]);
     return switch (rhs) {
         .integer => |i| try subIntegers(vm, receiver, i),
