@@ -409,7 +409,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/encoding/name_spec.rb
 - [ ] core/encoding/names_spec.rb
 - [ ] core/encoding/replicate_spec.rb
-- [ ] core/encoding/to_s_spec.rb
+- [x] core/encoding/to_s_spec.rb
 
 ### core/encoding/undefined_conversion_error
 - [ ] core/encoding/undefined_conversion_error/destination_encoding_name_spec.rb
