@@ -47,20 +47,6 @@ test "Mixed Integer and Float arithmetic" {
     try std.testing.expectApproxEqAbs(@as(f64, 0.5), result.toFloatObject().val, 0.0000000001);
 }
 
-test "Float nan? and infinite?" {
-    var result = try evalCode("(0 / 0.0).nan?");
-    try std.testing.expectEqual(true, result.toBool());
-
-    result = try evalCode("(1 / 0.0).infinite?");
-    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
-
-    result = try evalCode("(-1 / 0.0).infinite?");
-    try std.testing.expectEqual(@as(i64, -1), result.toInteger());
-
-    result = try evalCode("(1.0).infinite?");
-    try std.testing.expect(result.isNil());
-}
-
 test "Float abs" {
     var result = try evalCode("(-1.5).abs");
     try std.testing.expect(result.isFloat());
