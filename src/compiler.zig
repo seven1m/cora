@@ -276,6 +276,26 @@ pub const Compiler = struct {
                 try self.current_chunk.emitOpU16U16(.PUSH_REGEXP, @intCast(idx), options, line);
             },
 
+            .interpolated_regular_expression => |interp_regexp_node| {
+                const regexp_const_idx = try self.current_chunk.addConstant(.{ .string = "Regexp" });
+                try self.current_chunk.emitOpU16(.GET_CONST, @intCast(regexp_const_idx), line);
+
+                const part_count = try self.compileInterpolatedParts(interp_regexp_node.parts, line);
+                try self.current_chunk.emitOpU8(.INTERPOLATE_STRING, part_count, line);
+
+                var options: i64 = 0;
+                const flags = interp_regexp_node.base.flags;
+                if ((flags & prism.REGEXP_FLAGS_IGNORE_CASE) != 0) options |= 1; // ONIG_OPTION_IGNORECASE
+                if ((flags & prism.REGEXP_FLAGS_EXTENDED) != 0) options |= 2; // ONIG_OPTION_EXTEND
+                if ((flags & prism.REGEXP_FLAGS_MULTI_LINE) != 0) options |= 4; // ONIG_OPTION_MULTILINE
+                const options_idx = try self.current_chunk.addConstant(.{ .integer = options });
+                try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(options_idx), line);
+
+                const new_idx = try self.current_chunk.addConstant(.{ .string = "new" });
+                const call_flags = bytecode.encodeCallFlags(.explicit, false);
+                try self.current_chunk.emitCall(@intCast(new_idx), 2, call_flags, 0, line);
+            },
+
             .interpolated_string => |interp_node| {
                 const part_count = try self.compileInterpolatedParts(interp_node.parts, line);
                 try self.current_chunk.emitOpU8(.INTERPOLATE_STRING, part_count, line);
@@ -324,6 +344,11 @@ pub const Compiler = struct {
             .source_file => {
                 const source_file = self.parser.source_file orelse "(eval)";
                 const idx = try self.current_chunk.addConstant(.{ .string = source_file });
+                try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(idx), line);
+            },
+
+            .source_line => {
+                const idx = try self.current_chunk.addConstant(.{ .integer = line });
                 try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(idx), line);
             },
 

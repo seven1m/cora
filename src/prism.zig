@@ -55,6 +55,7 @@ pub const ReturnNode = c.pm_return_node_t;
 pub const NextNode = c.pm_next_node_t;
 pub const SelfNode = c.pm_self_node_t;
 pub const SourceFileNode = c.pm_source_file_node_t;
+pub const SourceLineNode = c.pm_source_line_node_t;
 pub const SourceEncodingNode = c.pm_source_encoding_node_t;
 pub const StatementsNode = c.pm_statements_node_t;
 pub const StringNode = c.pm_string_node_t;
@@ -90,6 +91,7 @@ pub const LocalVariableOperatorWriteNode = c.pm_local_variable_operator_write_no
 pub const BlockArgumentNode = c.pm_block_argument_node_t;
 pub const EmbeddedStatementsNode = c.pm_embedded_statements_node_t;
 pub const EmbeddedVariableNode = c.pm_embedded_variable_node_t;
+pub const InterpolatedRegularExpressionNode = c.pm_interpolated_regular_expression_node_t;
 pub const InterpolatedStringNode = c.pm_interpolated_string_node_t;
 pub const InterpolatedSymbolNode = c.pm_interpolated_symbol_node_t;
 pub const XStringNode = c.pm_x_string_node_t;
@@ -174,6 +176,7 @@ pub const Node = union(enum) {
     self: *SelfNode,
     source_encoding: *SourceEncodingNode,
     source_file: *SourceFileNode,
+    source_line: *SourceLineNode,
     statements: *StatementsNode,
     string: *StringNode,
     symbol: *SymbolNode,
@@ -205,6 +208,7 @@ pub const Node = union(enum) {
     block_argument: *BlockArgumentNode,
     embedded_statements: *EmbeddedStatementsNode,
     embedded_variable: *EmbeddedVariableNode,
+    interpolated_regular_expression: *InterpolatedRegularExpressionNode,
     interpolated_string: *InterpolatedStringNode,
     interpolated_symbol: *InterpolatedSymbolNode,
     x_string: *XStringNode,
@@ -449,6 +453,10 @@ pub const Parser = struct {
             return Node{ .source_file = @ptrCast(raw) };
         }
 
+        if (node_type == c.PM_SOURCE_LINE_NODE) {
+            return Node{ .source_line = @ptrCast(raw) };
+        }
+
         if (node_type == c.PM_SOURCE_ENCODING_NODE) {
             return Node{ .source_encoding = @ptrCast(raw) };
         }
@@ -618,6 +626,10 @@ pub const Parser = struct {
 
         if (node_type == c.PM_EMBEDDED_VARIABLE_NODE) {
             return Node{ .embedded_variable = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_INTERPOLATED_REGULAR_EXPRESSION_NODE) {
+            return Node{ .interpolated_regular_expression = @ptrCast(raw) };
         }
 
         if (node_type == c.PM_INTERPOLATED_STRING_NODE) {

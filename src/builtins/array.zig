@@ -407,6 +407,10 @@ pub fn builtinArrayUnshift(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 pub fn builtinArrayInitialize(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 2);
 
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
+    }
+
     const array = receiver.toArrayObject();
     array.elements.clearRetainingCapacity();
 
@@ -426,7 +430,7 @@ pub fn builtinArrayInitialize(vm: *VM, receiver: Value, args: []Value, block: ?B
             return receiver;
         }
 
-        switch (try vm.probeToAry(args[0])) {
+        switch (try probeToAryForInitialize(vm, args[0])) {
             .array => |array_value| {
                 const source = array_value.toArrayObject();
                 for (source.elements.items) |elem| {
@@ -441,7 +445,7 @@ pub fn builtinArrayInitialize(vm: *VM, receiver: Value, args: []Value, block: ?B
             return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion of Array into Integer", .{});
         }
 
-        switch (try vm.probeToAry(args[0])) {
+        switch (try probeToAryForInitialize(vm, args[0])) {
             .array => {
                 return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion of Array into Integer", .{});
             },
@@ -491,6 +495,21 @@ pub fn builtinArrayInitialize(vm: *VM, receiver: Value, args: []Value, block: ?B
     }
 
     return receiver;
+}
+
+fn probeToAryForInitialize(vm: *VM, arg: Value) VMError!VM.ToAryResult {
+    if (arg.isArray()) return .{ .array = arg };
+
+    const maybe_array = try vm.checkCallMethodByName(arg, "to_ary", true, &[_]Value{}, null);
+    const coerced = maybe_array orelse return .missing;
+    if (coerced.isNil()) return .nil_result;
+    if (coerced.isArray()) return .{ .array = coerced };
+
+    return vm.raiseExceptionFmt(
+        vm.type_error_class,
+        "can't convert {s} to Array ({s}#to_ary gives {s})",
+        .{ vm.className(arg), vm.className(arg), vm.className(coerced) },
+    );
 }
 
 pub fn builtinArrayBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
