@@ -1,4 +1,5 @@
 const std = @import("std");
+const inspect_util = @import("../inspect.zig");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 
@@ -60,8 +61,18 @@ pub fn builtinSymbolToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
 pub fn builtinSymbolInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
 
-    const str = std.fmt.allocPrint(vm.gc_allocator, ":{s}", .{receiver.toSymbolObject().name}) catch return error.Fatal;
-    return try vm.newString(str, false);
+    const sym = receiver.toSymbolObject();
+    const target_encoding = vm.inspectTargetEncoding();
+    if (inspect_util.isBareInspectableSymbol(sym, target_encoding)) {
+        const str = std.fmt.allocPrint(vm.gc_allocator, ":{s}", .{sym.name}) catch return error.Fatal;
+        return try vm.newStringWithEncoding(str, false, sym.encoding);
+    }
+
+    const inspected = inspect_util.inspectSymbolBytes(vm.allocator, sym.name, sym.encoding, target_encoding) catch return error.Fatal;
+    defer vm.allocator.free(inspected);
+
+    const str = std.fmt.allocPrint(vm.gc_allocator, ":{s}", .{inspected}) catch return error.Fatal;
+    return try vm.newStringWithEncoding(str, false, target_encoding);
 }
 
 pub fn builtinSymbolToSym(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

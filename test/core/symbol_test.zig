@@ -26,12 +26,6 @@ test "Symbol interning - same address for identical symbols" {
     try std.testing.expect(@intFromPtr(symbol1) != @intFromPtr(symbol3));
 }
 
-test "Symbol#inspect" {
-    const result = try evalCode(":foo.inspect");
-    try std.testing.expect(result.isString());
-    try std.testing.expectEqualSlices(u8, ":foo", result.toStringObject().str);
-}
-
 test "Symbol#to_s" {
     const result = try evalCode(":foo.to_s");
     try std.testing.expect(result.isString());

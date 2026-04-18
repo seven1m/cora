@@ -3179,7 +3179,7 @@ pub fn builtinStringToSym(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
         return vm.raiseExceptionFmt(vm.encoding_error_class, "invalid symbol in encoding {s} :\"{s}\"", .{ string_obj.encoding.name(), escaped });
     }
 
-    const symbol_encoding: enc.Encoding = if (string_obj.encoding.isAsciiCompatible() and enc.isAsciiOnly(string_obj.str))
+    const symbol_encoding: enc.Encoding = if (!string_obj.encoding.isDummy() and string_obj.encoding.isAsciiCompatible() and enc.isAsciiOnly(string_obj.str))
         .{ .us_ascii = .{} }
     else
         string_obj.encoding;
