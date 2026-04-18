@@ -3,6 +3,7 @@ const enc = @import("../encoding.zig");
 const inspect_util = @import("../inspect.zig");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
+const aggregate_hash = @import("aggregate_hash.zig");
 const warning_builtin = @import("warning.zig");
 
 const VM = vm_mod.VM;
@@ -123,6 +124,9 @@ pub fn register(vm: *VM) !void {
 
     const equal_sym = try vm.intern("==");
     try vm.hash_class.module.methods.put(equal_sym, .{ .method = .{ .builtin = &builtinHashEqual } });
+
+    const hash_sym = try vm.intern("hash");
+    try vm.hash_class.module.methods.put(hash_sym, .{ .method = .{ .builtin = &builtinHashHash } });
 
     const fetch_sym = try vm.intern("fetch");
     try vm.hash_class.module.methods.put(fetch_sym, .{ .method = .{ .builtin = &builtinHashFetch } });
@@ -532,6 +536,12 @@ pub fn builtinHashEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     }
 
     return Value.boolean(true);
+}
+
+pub fn builtinHashHash(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const result = try aggregate_hash.structuralHashHash(vm, receiver);
+    return Value.integer(@bitCast(result.hash));
 }
 
 pub fn builtinHashInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

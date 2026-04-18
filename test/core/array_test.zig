@@ -126,6 +126,39 @@ test "Array#<=> handles recursive arrays" {
     try std.testing.expectEqual(@as(i64, 0), result.toInteger());
 }
 
+test "Array#hash matches eql? recursive array shapes" {
+    const result = try evalCode(
+        \\rec = []
+        \\rec << rec
+        \\[rec.hash, [rec].hash, [[rec]].hash]
+    );
+    try std.testing.expect(result.isArray());
+    const hashes = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 3), hashes.len);
+    try std.testing.expectEqual(hashes[0].toInteger(), hashes[1].toInteger());
+    try std.testing.expectEqual(hashes[0].toInteger(), hashes[2].toInteger());
+}
+
+test "Array#hash matches through recursive hashes" {
+    const result = try evalCode(
+        \\h = {}
+        \\rec = [h]
+        \\h[:x] = rec
+        \\[rec.hash, [h].hash, [{x: rec}].hash]
+    );
+    try std.testing.expect(result.isArray());
+    const hashes = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 3), hashes.len);
+    try std.testing.expectEqual(hashes[0].toInteger(), hashes[1].toInteger());
+    try std.testing.expectEqual(hashes[0].toInteger(), hashes[2].toInteger());
+}
+
+test "Array#fill supports range form used by hash spec" {
+    const result = try evalCode("[1, 2, 3, 4].fill('a', 0..2).inspect");
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "[\"a\", \"a\", \"a\", 4]", result.toStringObject().str);
+}
+
 test "Array#to_s" {
     const result = try evalCode("[1, 2, 3].to_s");
     try std.testing.expect(result.isString());

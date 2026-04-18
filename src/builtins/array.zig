@@ -3,6 +3,7 @@ const enc = @import("../encoding.zig");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 const pack_runtime = @import("../pack.zig");
+const aggregate_hash = @import("aggregate_hash.zig");
 const warning_builtin = @import("warning.zig");
 
 const VM = vm_mod.VM;
@@ -171,6 +172,96 @@ fn arrayJoinAppendArray(
     }
 }
 
+const ArrayFillPlan = struct {
+    start: i64,
+    count: i64,
+};
+
+fn coerceFillIndex(vm: *VM, value_to_coerce: Value) VMError!i64 {
+    return try value_to_coerce.coerceToI64ViaToInt(
+        vm,
+        "no implicit conversion into Integer",
+        "no implicit conversion into Integer",
+        "bignum too big to convert into `long`",
+    );
+}
+
+fn planArrayFillFromStartLength(
+    vm: *VM,
+    array_len: i64,
+    raw_start: i64,
+    raw_length: ?i64,
+) VMError!ArrayFillPlan {
+    var start = raw_start;
+    if (start < 0) start += array_len;
+    if (start < 0) start = 0;
+
+    const count = raw_length orelse blk: {
+        if (start >= array_len) break :blk 0;
+        break :blk array_len - start;
+    };
+    if (count <= 0) {
+        return .{ .start = start, .count = 0 };
+    }
+
+    const fill_end = std.math.add(i64, start, count) catch {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "argument too big", .{});
+    };
+    _ = fill_end;
+    return .{ .start = start, .count = count };
+}
+
+fn planArrayFillFromRange(vm: *VM, array_len: i64, range: *value.RangeObject) VMError!ArrayFillPlan {
+    var start = if (range.begin.isNil()) 0 else try coerceFillIndex(vm, range.begin);
+    if (start < 0) start += array_len;
+    if (start < 0) {
+        return vm.raiseExceptionFmt(vm.range_error_class, "{d}..{d} out of range", .{ start, start });
+    }
+
+    var finish = if (range.end.isNil())
+        array_len
+    else
+        try coerceFillIndex(vm, range.end);
+    if (!range.end.isNil() and finish < 0) finish += array_len;
+    if (!range.exclude_end) finish += 1;
+
+    if (finish <= start) {
+        return .{ .start = start, .count = 0 };
+    }
+
+    const count = std.math.sub(i64, finish, start) catch return error.Fatal;
+    return .{ .start = start, .count = count };
+}
+
+fn ensureArrayFillCapacity(vm: *VM, array: *value.ArrayObject, target_len: i64) VMError!void {
+    while (@as(i64, @intCast(array.elements.items.len)) < target_len) {
+        array.elements.append(vm.gc_allocator, Value.nil()) catch return error.Fatal;
+    }
+}
+
+fn performArrayFill(vm: *VM, receiver: Value, plan: ArrayFillPlan, fill_value: ?Value, block: ?Block) VMError!Value {
+    if (plan.count <= 0) return receiver;
+
+    const array = receiver.toArrayObject();
+    const fill_end = std.math.add(i64, plan.start, plan.count) catch {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "argument too big", .{});
+    };
+    try ensureArrayFillCapacity(vm, array, fill_end);
+
+    var idx = plan.start;
+    while (idx < fill_end) : (idx += 1) {
+        const replacement = if (block) |blk| blk: {
+            const yield_args = [_]Value{Value.integer(idx)};
+            const yielded = try vm.yieldToBlock(blk, &yield_args);
+            if (yielded.break_occurred) return yielded.value;
+            break :blk yielded.value;
+        } else fill_value.?;
+        array.elements.items[@intCast(idx)] = replacement;
+    }
+
+    return receiver;
+}
+
 pub fn register(vm: *VM) !void {
     const array_class_val = Value.fromObject(vm.array_class);
     const array_singleton = try vm.getOrCreateSingletonClass(array_class_val);
@@ -327,6 +418,9 @@ pub fn register(vm: *VM) !void {
 
     const clear_sym = try vm.intern("clear");
     try vm.array_class.module.methods.put(clear_sym, .{ .method = .{ .builtin = &builtinArrayClear } });
+
+    const fill_sym = try vm.intern("fill");
+    try vm.array_class.module.methods.put(fill_sym, .{ .method = .{ .builtin = &builtinArrayFill } });
 
     const shift_sym = try vm.intern("shift");
     try vm.array_class.module.methods.put(shift_sym, .{ .method = .{ .builtin = &builtinArrayShift } });
@@ -753,21 +847,55 @@ pub fn builtinArrayEql(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
 
 pub fn builtinArrayHash(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
+    const result = try aggregate_hash.structuralArrayHash(vm, receiver);
+    return Value.integer(@bitCast(result.hash));
+}
 
-    if (try vm.enterRecursionGuard(.array_hash, receiver, Value.nil())) {
-        return Value.integer(0);
-    }
-    defer vm.leaveRecursionGuard(.array_hash, receiver, Value.nil());
-
-    const array = receiver.toArrayObject();
-    var hasher = std.hash.Wyhash.init(0);
-    for (array.elements.items) |elem| {
-        const elem_hash = try vm.hashKeyHash(elem);
-        hasher.update(std.mem.asBytes(&elem_hash));
+pub fn builtinArrayFill(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
     }
 
-    const hash_value: i64 = @bitCast(hasher.final());
-    return Value.integer(hash_value);
+    if (block == null) {
+        try vm.requireArgCountRange(args, 1, 3);
+    } else {
+        try vm.requireArgCountRange(args, 0, 2);
+    }
+
+    const array_len: i64 = @intCast(receiver.toArrayObject().elements.items.len);
+
+    if (block) |blk| {
+        var plan = ArrayFillPlan{ .start = 0, .count = array_len };
+        if (args.len == 1) {
+            if (args[0].isRange()) {
+                plan = try planArrayFillFromRange(vm, array_len, args[0].toRangeObject());
+            } else {
+                const start = try coerceFillIndex(vm, args[0]);
+                plan = try planArrayFillFromStartLength(vm, array_len, start, null);
+            }
+        } else if (args.len == 2) {
+            const start = try coerceFillIndex(vm, args[0]);
+            const length = if (args[1].isNil()) null else try coerceFillIndex(vm, args[1]);
+            plan = try planArrayFillFromStartLength(vm, array_len, start, length);
+        }
+        return try performArrayFill(vm, receiver, plan, null, blk);
+    }
+
+    var plan = ArrayFillPlan{ .start = 0, .count = array_len };
+    if (args.len >= 2) {
+        if (args[1].isRange()) {
+            if (args.len == 3) {
+                return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion of Integer into Range", .{});
+            }
+            plan = try planArrayFillFromRange(vm, array_len, args[1].toRangeObject());
+        } else {
+            const start = try coerceFillIndex(vm, args[1]);
+            const length = if (args.len == 2 or args[2].isNil()) null else try coerceFillIndex(vm, args[2]);
+            plan = try planArrayFillFromStartLength(vm, array_len, start, length);
+        }
+    }
+
+    return try performArrayFill(vm, receiver, plan, args[0], null);
 }
 
 pub fn builtinArrayCmp(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

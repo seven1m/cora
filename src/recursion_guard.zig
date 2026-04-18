@@ -12,6 +12,7 @@ pub const Kind = enum {
     array_eql,
     array_compare,
     array_hash,
+    hash_hash,
 };
 
 const Entry = struct {
