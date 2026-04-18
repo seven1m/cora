@@ -83,6 +83,25 @@ fn arrayFindIndexByEquality(vm: *VM, elements: []Value, needle: Value) VMError!?
     return null;
 }
 
+const ArrayToStrResult = union(enum) {
+    string: Value,
+    missing,
+    nil_result,
+};
+
+fn arrayProbeToStr(vm: *VM, arg: Value) VMError!ArrayToStrResult {
+    if (arg.isString()) return .{ .string = arg };
+
+    const maybe_string = try vm.checkCallMethodByName(arg, "to_str", false, &[_]Value{}, null);
+    const coerced = maybe_string orelse return .missing;
+    if (coerced.isNil()) return .nil_result;
+    if (coerced.isString()) return .{ .string = coerced };
+
+    const exc = try vm.createException(vm.type_error_class, "no implicit conversion into String");
+    vm.pending_exception = exc;
+    return error.Unwind;
+}
+
 fn arrayJoinAppendElement(
     vm: *VM,
     state: *JoinState,
@@ -95,16 +114,12 @@ fn arrayJoinAppendElement(
         return;
     }
 
-    if (try vm.checkCallMethodByName(elem, "to_str", false, &[_]Value{}, null)) |to_str_value| {
-        if (!to_str_value.isNil()) {
-            if (!to_str_value.isString()) {
-                const exc = try vm.createException(vm.type_error_class, "no implicit conversion into String");
-                vm.pending_exception = exc;
-                return error.Unwind;
-            }
-            try arrayJoinAppendString(vm, state, to_str_value);
+    switch (try arrayProbeToStr(vm, elem)) {
+        .string => |string_value| {
+            try arrayJoinAppendString(vm, state, string_value);
             return;
-        }
+        },
+        .missing, .nil_result => {},
     }
 
     switch (try vm.probeToAry(elem)) {
@@ -1191,18 +1206,12 @@ pub fn builtinArrayJoin(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
 pub fn builtinArrayMultiply(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
 
-    const maybe_separator = try vm.checkCallMethodByName(args[0], "to_str", false, &[_]Value{}, null);
-    if (maybe_separator) |separator| {
-        if (!separator.isNil()) {
-            if (!separator.isString()) {
-                const exc = try vm.createException(vm.type_error_class, "no implicit conversion into String");
-                vm.pending_exception = exc;
-                return error.Unwind;
-            }
-
+    switch (try arrayProbeToStr(vm, args[0])) {
+        .string => |separator| {
             var join_args = [_]Value{separator};
             return builtinArrayJoin(vm, receiver, join_args[0..], null);
-        }
+        },
+        .missing, .nil_result => {},
     }
 
     const count = try args[0].coerceToI64ViaToInt(
