@@ -87,23 +87,6 @@ test "Array#each_with_index without block returns Enumerator" {
     try std.testing.expect(result.isEnumerator());
 }
 
-// --- Peek ---
-
-test "Enumerator#peek" {
-    var stdout_buf: [8192]u8 = undefined;
-    var stderr_buf: [8192]u8 = undefined;
-    const result = evalCodeWithOutput(
-        \\e = [1, 2, 3].each
-        \\puts e.peek
-        \\puts e.peek
-        \\puts e.next
-        \\puts e.peek
-        \\puts e.next
-    , &stdout_buf, &stderr_buf);
-    try std.testing.expect(result.err == null);
-    try std.testing.expectEqualStrings("1\n1\n1\n2\n2\n", result.stdout);
-}
-
 // --- Rewind ---
 
 test "Enumerator#rewind" {

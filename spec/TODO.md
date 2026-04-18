@@ -555,7 +555,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/enumerator/new_spec.rb
 - [ ] core/enumerator/next_spec.rb
 - [x] core/enumerator/next_values_spec.rb
-- [ ] core/enumerator/peek_spec.rb
+- [x] core/enumerator/peek_spec.rb
 - [x] core/enumerator/peek_values_spec.rb
 - [ ] core/enumerator/plus_spec.rb
 - [ ] core/enumerator/produce_spec.rb
