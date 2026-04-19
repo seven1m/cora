@@ -554,9 +554,14 @@ test "Dir.chdir restores cwd after block" {
     const original = try std.process.getCwdAlloc(allocator);
     defer allocator.free(original);
 
-    const dir_path = try std.fmt.allocPrint(allocator, "/tmp/cora-dir-chdir-{d}", .{std.time.nanoTimestamp()});
+    const dir_path_raw = try std.fmt.allocPrint(allocator, "/tmp/cora-dir-chdir-{d}", .{std.time.nanoTimestamp()});
+    defer allocator.free(dir_path_raw);
+    try std.fs.makeDirAbsolute(dir_path_raw);
+
+    var buf: [1024]u8 = undefined;
+    const real_path_slice = try std.fs.realpath(dir_path_raw, &buf);
+    const dir_path = try allocator.dupe(u8, real_path_slice);
     defer allocator.free(dir_path);
-    try std.fs.makeDirAbsolute(dir_path);
     defer std.fs.deleteTreeAbsolute(dir_path) catch {};
 
     const ruby_code = try std.fmt.allocPrint(
@@ -600,7 +605,9 @@ test "Kernel#__dir__ returns absolute directory for file execution" {
     if (result.err) |err| return err;
 
     try std.testing.expect(result.value.isString());
-    try std.testing.expectEqualSlices(u8, "/tmp", result.value.toStringObject().str);
+    var buf: [1024]u8 = undefined;
+    const real_tmp = try std.fs.realpath("/tmp", &buf);
+    try std.testing.expectEqualSlices(u8, real_tmp, result.value.toStringObject().str);
 }
 
 test "Kernel#instance_variable_get coerces name via to_str and invalid names raise NameError" {
