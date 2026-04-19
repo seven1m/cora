@@ -558,7 +558,7 @@ test "Dir.chdir restores cwd after block" {
     defer allocator.free(dir_path_raw);
     try std.fs.makeDirAbsolute(dir_path_raw);
 
-    var buf: [1024]u8 = undefined;
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
     const real_path_slice = try std.fs.realpath(dir_path_raw, &buf);
     const dir_path = try allocator.dupe(u8, real_path_slice);
     defer allocator.free(dir_path);
@@ -605,7 +605,7 @@ test "Kernel#__dir__ returns absolute directory for file execution" {
     if (result.err) |err| return err;
 
     try std.testing.expect(result.value.isString());
-    var buf: [1024]u8 = undefined;
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
     const real_tmp = try std.fs.realpath("/tmp", &buf);
     try std.testing.expectEqualSlices(u8, real_tmp, result.value.toStringObject().str);
 }
