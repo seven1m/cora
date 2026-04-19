@@ -19,6 +19,12 @@ pub fn register(vm: *VM) !void {
     const delete_sym = try vm.intern("delete");
     try env_singleton.module.methods.put(delete_sym, .{ .method = .{ .builtin = &builtinEnvDelete } });
 
+    const size_sym = try vm.intern("size");
+    try env_singleton.module.methods.put(size_sym, .{ .method = .{ .builtin = &builtinEnvSize } });
+
+    const to_a_sym = try vm.intern("to_a");
+    try env_singleton.module.methods.put(to_a_sym, .{ .method = .{ .builtin = &builtinEnvToA } });
+
     const to_h_sym = try vm.intern("to_h");
     try env_singleton.module.methods.put(to_h_sym, .{ .method = .{ .builtin = &builtinEnvToH } });
 }
@@ -47,6 +53,16 @@ pub fn builtinEnvDelete(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Val
     const old_value = try vm.envGet(key);
     _ = try vm.envUnset(key, true);
     return old_value;
+}
+
+pub fn builtinEnvSize(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return vm.envSize();
+}
+
+pub fn builtinEnvToA(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return vm.envToArray();
 }
 
 pub fn builtinEnvToH(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

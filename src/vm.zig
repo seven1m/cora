@@ -1326,6 +1326,37 @@ pub const VM = struct {
         return Value.fromObject(hash_obj);
     }
 
+    pub fn envToArray(self: *VM) VMError!Value {
+        const array_obj = try self.createArray();
+        var env_map = std.process.getEnvMap(self.allocator) catch return error.Fatal;
+        defer env_map.deinit();
+
+        var iter = env_map.iterator();
+        while (iter.next()) |entry| {
+            const pair = try self.createArray();
+            const key_val = try self.newString(entry.key_ptr.*, false);
+            const value_val = try self.newString(entry.value_ptr.*, false);
+            pair.elements.append(self.gc_allocator, key_val) catch return error.Fatal;
+            pair.elements.append(self.gc_allocator, value_val) catch return error.Fatal;
+            array_obj.elements.append(self.gc_allocator, Value.fromObject(pair)) catch return error.Fatal;
+        }
+
+        return Value.fromObject(array_obj);
+    }
+
+    pub fn envSize(self: *VM) VMError!Value {
+        var env_map = std.process.getEnvMap(self.allocator) catch return error.Fatal;
+        defer env_map.deinit();
+
+        var count: usize = 0;
+        var iter = env_map.iterator();
+        while (iter.next()) |_| {
+            count += 1;
+        }
+
+        return Value.integer(@intCast(count));
+    }
+
     pub fn deinit(self: *VM) void {
         if (self.gc_vm_root_registered) {
             self.unregisterVmRootForGc();
