@@ -1229,7 +1229,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/kernel/match_spec.rb
 - [ ] core/kernel/method_spec.rb
 - [ ] core/kernel/methods_spec.rb
-- [ ] core/kernel/nil_spec.rb
+- [x] core/kernel/nil_spec.rb
 - [ ] core/kernel/not_match_spec.rb
 - [ ] core/kernel/object_id_spec.rb
 - [ ] core/kernel/open_spec.rb
