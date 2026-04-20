@@ -63,6 +63,12 @@ pub fn register(vm: *VM) !void {
 
     const capitalize_sym = try vm.intern("capitalize");
     try vm.symbol_class.module.methods.put(capitalize_sym, .{ .method = .{ .builtin = &builtinSymbolCapitalize } });
+
+    const casecmp_sym = try vm.intern("casecmp");
+    try vm.symbol_class.module.methods.put(casecmp_sym, .{ .method = .{ .builtin = &builtinSymbolCasecmp } });
+
+    const casecmp_q_sym = try vm.intern("casecmp?");
+    try vm.symbol_class.module.methods.put(casecmp_q_sym, .{ .method = .{ .builtin = &builtinSymbolCasecmpQ } });
 }
 
 pub fn builtinSymbolEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -170,4 +176,40 @@ pub fn builtinSymbolCapitalize(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
     const mapped = try string_builtin.mapStringCase(vm, sym.name, sym.encoding, args, .capitalize);
     const mapped_sym = try vm.internWithEncoding(mapped.bytes, mapped.encoding);
     return Value.fromObject(mapped_sym);
+}
+
+fn symbolCasecmpOrder(vm: *VM, lhs: *const value.SymbolObject, rhs: *const value.SymbolObject, fold: bool) VMError!?i64 {
+    const lhs_string = value.StringObject{
+        .object = undefined,
+        .str = lhs.name,
+        .encoding = lhs.encoding,
+    };
+    const rhs_string = value.StringObject{
+        .object = undefined,
+        .str = rhs.name,
+        .encoding = rhs.encoding,
+    };
+    return string_builtin.casecmpOrder(vm, &lhs_string, &rhs_string, fold);
+}
+
+pub fn builtinSymbolCasecmp(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const lhs = receiver.toSymbolObject();
+    const other = args[0];
+    if (!other.isSymbol()) return Value.nil();
+
+    const rhs = other.toSymbolObject();
+    const order = try symbolCasecmpOrder(vm, lhs, rhs, false) orelse return Value.nil();
+    return Value.integer(order);
+}
+
+pub fn builtinSymbolCasecmpQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const lhs = receiver.toSymbolObject();
+    const other = args[0];
+    if (!other.isSymbol()) return Value.nil();
+
+    const rhs = other.toSymbolObject();
+    const order = try symbolCasecmpOrder(vm, lhs, rhs, true) orelse return Value.nil();
+    return Value.boolean(order == 0);
 }

@@ -761,7 +761,7 @@ fn callStringMatch(
     return vm.callMethodByName(pattern_receiver, method_name, stringMatchArgs(receiver, args, &match_args), block);
 }
 
-fn casecmpOrder(
+pub fn casecmpOrder(
     vm: *VM,
     lhs: *const value.StringObject,
     rhs: *const value.StringObject,
