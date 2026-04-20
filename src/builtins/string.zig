@@ -1913,44 +1913,50 @@ const StringBoundaryMatch = struct {
 
 fn matchStringBoundary(
     vm: *VM,
-    string_obj: *value.StringObject,
+    receiver_bytes: []const u8,
+    receiver_encoding: enc.Encoding,
     arg: Value,
     kind: StringBoundaryKind,
 ) VMError!StringBoundaryMatch {
     const boundary_val = try arg.coerceToStringValue(vm, "no implicit conversion into String");
     const boundary_obj = boundary_val.toStringObject();
-    if (enc.negotiate(string_obj.encoding, string_obj.str, boundary_obj.encoding, boundary_obj.str) == null) {
-        return vm.raiseEncodingCompatibilityError(string_obj.encoding, boundary_obj.encoding);
+    if (enc.negotiate(receiver_encoding, receiver_bytes, boundary_obj.encoding, boundary_obj.str) == null) {
+        return vm.raiseEncodingCompatibilityError(receiver_encoding, boundary_obj.encoding);
     }
 
     return switch (kind) {
         .prefix => blk: {
-            if (!std.mem.startsWith(u8, string_obj.str, boundary_obj.str)) {
+            if (!std.mem.startsWith(u8, receiver_bytes, boundary_obj.str)) {
                 break :blk .{ .matched = false, .start = 0, .end = 0 };
             }
             break :blk .{
-                .matched = string_obj.encoding.isCharBoundary(string_obj.str, boundary_obj.str.len),
+                .matched = receiver_encoding.isCharBoundary(receiver_bytes, boundary_obj.str.len),
                 .start = 0,
                 .end = boundary_obj.str.len,
             };
         },
         .suffix => blk: {
-            if (!std.mem.endsWith(u8, string_obj.str, boundary_obj.str)) {
+            if (!std.mem.endsWith(u8, receiver_bytes, boundary_obj.str)) {
                 break :blk .{ .matched = false, .start = 0, .end = 0 };
             }
-            const start = string_obj.str.len - boundary_obj.str.len;
+            const start = receiver_bytes.len - boundary_obj.str.len;
             break :blk .{
-                .matched = string_obj.encoding.isCharBoundary(string_obj.str, start),
+                .matched = receiver_encoding.isCharBoundary(receiver_bytes, start),
                 .start = start,
-                .end = string_obj.str.len,
+                .end = receiver_bytes.len,
             };
         },
     };
 }
 
-pub fn builtinStringStartWith(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+pub fn stringLikeStartWith(
+    vm: *VM,
+    receiver: Value,
+    receiver_bytes: []const u8,
+    receiver_encoding: enc.Encoding,
+    args: []Value,
+) VMError!Value {
     if (args.len == 0) return Value.boolean(false);
-    const string_obj = receiver.toStringObject();
 
     for (args) |arg| {
         if (arg.isRegexp()) {
@@ -1962,7 +1968,7 @@ pub fn builtinStringStartWith(vm: *VM, receiver: Value, args: []Value, _: ?Block
             continue;
         }
 
-        if ((try matchStringBoundary(vm, string_obj, arg, .prefix)).matched) {
+        if ((try matchStringBoundary(vm, receiver_bytes, receiver_encoding, arg, .prefix)).matched) {
             return Value.boolean(true);
         }
     }
@@ -1970,23 +1976,37 @@ pub fn builtinStringStartWith(vm: *VM, receiver: Value, args: []Value, _: ?Block
     return Value.boolean(false);
 }
 
-pub fn builtinStringEndWith(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+pub fn stringLikeEndWith(
+    vm: *VM,
+    receiver_bytes: []const u8,
+    receiver_encoding: enc.Encoding,
+    args: []Value,
+) VMError!Value {
     if (args.len == 0) return Value.boolean(false);
-    const string_obj = receiver.toStringObject();
 
     for (args) |arg| {
-        if ((try matchStringBoundary(vm, string_obj, arg, .suffix)).matched) {
+        if ((try matchStringBoundary(vm, receiver_bytes, receiver_encoding, arg, .suffix)).matched) {
             return Value.boolean(true);
         }
     }
 
     return Value.boolean(false);
+}
+
+pub fn builtinStringStartWith(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const string_obj = receiver.toStringObject();
+    return stringLikeStartWith(vm, receiver, string_obj.str, string_obj.encoding, args);
+}
+
+pub fn builtinStringEndWith(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const string_obj = receiver.toStringObject();
+    return stringLikeEndWith(vm, string_obj.str, string_obj.encoding, args);
 }
 
 pub fn builtinStringDeletePrefix(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const string_obj = receiver.toStringObject();
-    const match = try matchStringBoundary(vm, string_obj, args[0], .prefix);
+    const match = try matchStringBoundary(vm, string_obj.str, string_obj.encoding, args[0], .prefix);
     if (match.matched) {
         return try vm.newStringWithEncoding(string_obj.str[match.end..], false, string_obj.encoding);
     }
@@ -2000,7 +2020,7 @@ pub fn builtinStringDeletePrefixBang(vm: *VM, receiver: Value, args: []Value, _:
         return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
     }
     const string_obj = receiver.toStringObject();
-    const match = try matchStringBoundary(vm, string_obj, args[0], .prefix);
+    const match = try matchStringBoundary(vm, string_obj.str, string_obj.encoding, args[0], .prefix);
     if (!match.matched) {
         return Value.nil();
     }
@@ -2016,7 +2036,7 @@ pub fn builtinStringDeletePrefixBang(vm: *VM, receiver: Value, args: []Value, _:
 pub fn builtinStringDeleteSuffix(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const string_obj = receiver.toStringObject();
-    const match = try matchStringBoundary(vm, string_obj, args[0], .suffix);
+    const match = try matchStringBoundary(vm, string_obj.str, string_obj.encoding, args[0], .suffix);
     if (match.matched) {
         return try vm.newStringWithEncoding(string_obj.str[0..match.start], false, string_obj.encoding);
     }
@@ -2030,7 +2050,7 @@ pub fn builtinStringDeleteSuffixBang(vm: *VM, receiver: Value, args: []Value, _:
         return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
     }
     const string_obj = receiver.toStringObject();
-    const match = try matchStringBoundary(vm, string_obj, args[0], .suffix);
+    const match = try matchStringBoundary(vm, string_obj.str, string_obj.encoding, args[0], .suffix);
     if (!match.matched) {
         return Value.nil();
     }

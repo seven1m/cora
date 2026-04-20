@@ -112,11 +112,13 @@ pub fn builtinSymbolLength(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 }
 
 pub fn builtinSymbolStartWith(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
-    const string_value = try builtinSymbolToS(vm, receiver, &.{}, block);
-    return string_builtin.builtinStringStartWith(vm, string_value, args, block);
+    _ = block;
+    const sym = receiver.toSymbolObject();
+    return string_builtin.stringLikeStartWith(vm, receiver, sym.name, sym.encoding, args);
 }
 
 pub fn builtinSymbolEndWith(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
-    const string_value = try builtinSymbolToS(vm, receiver, &.{}, block);
-    return string_builtin.builtinStringEndWith(vm, string_value, args, block);
+    _ = block;
+    const sym = receiver.toSymbolObject();
+    return string_builtin.stringLikeEndWith(vm, sym.name, sym.encoding, args);
 }
