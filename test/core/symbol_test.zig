@@ -61,20 +61,6 @@ test "Symbol#name returns canonical frozen string" {
     try std.testing.expectEqual(true, items[2].toBool());
 }
 
-test "Symbol#== compares symbol identity/value" {
-    var result = try evalCode(":foo == :foo");
-    try std.testing.expect(result.isBool());
-    try std.testing.expectEqual(true, result.toBool());
-
-    result = try evalCode(":foo == :bar");
-    try std.testing.expect(result.isBool());
-    try std.testing.expectEqual(false, result.toBool());
-
-    result = try evalCode(":foo == 'foo'");
-    try std.testing.expect(result.isBool());
-    try std.testing.expectEqual(false, result.toBool());
-}
-
 test "Symbol#to_proc creates callable proc" {
     const result = try evalCode(":upcase.to_proc.call('tim')");
     try std.testing.expect(result.isString());
