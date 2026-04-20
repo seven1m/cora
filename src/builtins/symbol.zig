@@ -57,6 +57,9 @@ pub fn register(vm: *VM) !void {
 
     const upcase_sym = try vm.intern("upcase");
     try vm.symbol_class.module.methods.put(upcase_sym, .{ .method = .{ .builtin = &builtinSymbolUpcase } });
+
+    const capitalize_sym = try vm.intern("capitalize");
+    try vm.symbol_class.module.methods.put(capitalize_sym, .{ .method = .{ .builtin = &builtinSymbolCapitalize } });
 }
 
 pub fn builtinSymbolEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -148,6 +151,13 @@ pub fn builtinSymbolUpcase(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 pub fn builtinSymbolDowncase(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     const sym = receiver.toSymbolObject();
     const mapped = try string_builtin.mapStringCase(vm, sym.name, sym.encoding, args, .downcase);
+    const mapped_sym = try vm.internWithEncoding(mapped.bytes, mapped.encoding);
+    return Value.fromObject(mapped_sym);
+}
+
+pub fn builtinSymbolCapitalize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const sym = receiver.toSymbolObject();
+    const mapped = try string_builtin.mapStringCase(vm, sym.name, sym.encoding, args, .capitalize);
     const mapped_sym = try vm.internWithEncoding(mapped.bytes, mapped.encoding);
     return Value.fromObject(mapped_sym);
 }
