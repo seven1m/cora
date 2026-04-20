@@ -4027,6 +4027,27 @@ fn parseCaseMapOptions(vm: *VM, args: []Value, operation: CaseOperation) VMError
     return options;
 }
 
+pub fn mapStringCase(
+    vm: *VM,
+    bytes: []const u8,
+    source_encoding: enc.Encoding,
+    args: []Value,
+    operation: CaseOperation,
+) VMError!enc.CaseMapResult {
+    const options = try parseCaseMapOptions(vm, args, operation);
+    return switch (operation) {
+        .upcase => enc.caseMap(vm.gc_allocator_atomic, bytes, source_encoding, .upcase, options) catch |err| switch (err) {
+            error.OutOfMemory => error.Fatal,
+            error.InvalidByteSequence => vm.raiseExceptionFmt(vm.argument_error_class, "input string invalid", .{}),
+        },
+        .downcase => enc.caseMap(vm.gc_allocator_atomic, bytes, source_encoding, .downcase, options) catch |err| switch (err) {
+            error.OutOfMemory => error.Fatal,
+            error.InvalidByteSequence => vm.raiseExceptionFmt(vm.argument_error_class, "input string invalid", .{}),
+        },
+        .capitalize => mapStringCapitalize(vm, bytes, source_encoding, options),
+    };
+}
+
 fn digitValue(c: u8) ?u8 {
     if (c >= '0' and c <= '9') return c - '0';
     if (c >= 'a' and c <= 'z') return c - 'a' + 10;

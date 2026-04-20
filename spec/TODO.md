@@ -2156,7 +2156,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/symbol/to_proc_spec.rb
 - [x] core/symbol/to_s_spec.rb
 - [x] core/symbol/to_sym_spec.rb
-- [ ] core/symbol/upcase_spec.rb
+- [x] core/symbol/upcase_spec.rb
 
 ### core/systemexit
 - [ ] core/systemexit/initialize_spec.rb
