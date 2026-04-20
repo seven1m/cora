@@ -1,6 +1,7 @@
 const std = @import("std");
 const inspect_util = @import("../inspect.zig");
 const vm_mod = @import("../vm.zig");
+const string_builtin = @import("string.zig");
 const value = @import("../value.zig");
 
 const VM = vm_mod.VM;
@@ -41,6 +42,9 @@ pub fn register(vm: *VM) !void {
 
     const size_sym = try vm.intern("size");
     try vm.symbol_class.module.methods.put(size_sym, .{ .method = .{ .builtin = &builtinSymbolLength } });
+
+    const end_with_sym = try vm.intern("end_with?");
+    try vm.symbol_class.module.methods.put(end_with_sym, .{ .method = .{ .builtin = &builtinSymbolEndWith } });
 }
 
 pub fn builtinSymbolEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -102,4 +106,9 @@ pub fn builtinSymbolLength(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     try vm.requireArgCount(args, 0);
     const sym = receiver.toSymbolObject();
     return Value.integer(@intCast(sym.encoding.charCount(sym.name)));
+}
+
+pub fn builtinSymbolEndWith(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    const string_value = try builtinSymbolToS(vm, receiver, &.{}, block);
+    return string_builtin.builtinStringEndWith(vm, string_value, args, block);
 }
