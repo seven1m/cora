@@ -199,6 +199,7 @@ pub const ConverterAvailability = enum {
 pub const CaseMapMode = enum {
     upcase,
     downcase,
+    swapcase,
 };
 
 pub const CaseMapOptions = struct {
@@ -284,7 +285,9 @@ pub fn caseMap(
     errdefer allocator.free(out_bytes);
     var out_encoding = source_encoding;
 
-    if (mode != .upcase and mode != .downcase) return .{ .bytes = out_bytes, .modified = false, .encoding = out_encoding };
+    if (mode != .upcase and mode != .downcase and mode != .swapcase) {
+        return .{ .bytes = out_bytes, .modified = false, .encoding = out_encoding };
+    }
 
     const effective_source_encoding: Encoding = if (source_encoding == .us_ascii and !options.ascii_only and (options.turkic or options.lithuanian))
         .{ .utf8 = .{} }
@@ -299,6 +302,7 @@ pub fn caseMap(
         var flags: onigmo.OnigCaseFoldType = switch (mode) {
             .upcase => onigmo.CASE_UPCASE,
             .downcase => onigmo.CASE_DOWNCASE,
+            .swapcase => onigmo.CASE_UPCASE | onigmo.CASE_DOWNCASE,
         };
         if (options.ascii_only) flags |= onigmo.CASE_ASCII_ONLY;
         if (options.turkic) flags |= onigmo.CASE_FOLD_TURKISH_AZERI;
@@ -326,6 +330,15 @@ pub fn caseMap(
             },
             .downcase => {
                 if (b.* >= 'A' and b.* <= 'Z') {
+                    b.* += 32;
+                    modified = true;
+                }
+            },
+            .swapcase => {
+                if (b.* >= 'a' and b.* <= 'z') {
+                    b.* -= 32;
+                    modified = true;
+                } else if (b.* >= 'A' and b.* <= 'Z') {
                     b.* += 32;
                     modified = true;
                 }

@@ -2040,7 +2040,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/string/sub_spec.rb
 - [x] core/string/succ_spec.rb
 - [ ] core/string/sum_spec.rb
-- [ ] core/string/swapcase_spec.rb
+- [x] core/string/swapcase_spec.rb
 - [ ] core/string/to_c_spec.rb
 - [x] core/string/to_f_spec.rb
 - [x] core/string/to_i_spec.rb
