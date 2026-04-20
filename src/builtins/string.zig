@@ -2673,12 +2673,8 @@ pub fn builtinStringReverseBang(vm: *VM, receiver: Value, args: []Value, _: ?Blo
 }
 
 pub fn builtinStringUpcase(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    const options = try parseCaseMapOptions(vm, args, .upcase);
     const string_obj = receiver.toStringObject();
-    const mapped = enc.caseMap(vm.gc_allocator_atomic, string_obj.str, string_obj.encoding, .upcase, options) catch |err| switch (err) {
-        error.OutOfMemory => return error.Fatal,
-        error.InvalidByteSequence => return vm.raiseExceptionFmt(vm.argument_error_class, "input string invalid", .{}),
-    };
+    const mapped = try mapStringCase(vm, string_obj.str, string_obj.encoding, args, .upcase);
     return try vm.newStringWithEncoding(mapped.bytes, false, mapped.encoding);
 }
 
@@ -2688,28 +2684,13 @@ pub fn builtinStringUpcaseBang(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
         return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
     }
     const string_obj = receiver.toStringObject();
-
-    const mapped = enc.caseMap(vm.gc_allocator_atomic, string_obj.str, string_obj.encoding, .upcase, options) catch |err| switch (err) {
-        error.OutOfMemory => return error.Fatal,
-        error.InvalidByteSequence => return vm.raiseExceptionFmt(vm.argument_error_class, "input string invalid", .{}),
-    };
-    if (!mapped.modified) return Value.nil();
-
-    try warnSymbolToSMutation(vm, string_obj);
-    string_obj.str = mapped.bytes;
-    string_obj.encoding = mapped.encoding;
-    string_obj.validity = .unknown;
-    string_obj.symbol_to_s_source = null;
-    return receiver;
+    const mapped = try mapStringCaseWithOptions(vm, string_obj.str, string_obj.encoding, options, .upcase);
+    return applyMappedStringCaseBang(vm, receiver, string_obj, mapped, true);
 }
 
 pub fn builtinStringDowncase(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    const options = try parseCaseMapOptions(vm, args, .downcase);
     const string_obj = receiver.toStringObject();
-    const mapped = enc.caseMap(vm.gc_allocator_atomic, string_obj.str, string_obj.encoding, .downcase, options) catch |err| switch (err) {
-        error.OutOfMemory => return error.Fatal,
-        error.InvalidByteSequence => return vm.raiseExceptionFmt(vm.argument_error_class, "input string invalid", .{}),
-    };
+    const mapped = try mapStringCase(vm, string_obj.str, string_obj.encoding, args, .downcase);
     return try vm.newStringWithEncoding(mapped.bytes, false, mapped.encoding);
 }
 
@@ -2719,26 +2700,13 @@ pub fn builtinStringDowncaseBang(vm: *VM, receiver: Value, args: []Value, _: ?Bl
         return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
     }
     const string_obj = receiver.toStringObject();
-
-    const mapped = enc.caseMap(vm.gc_allocator_atomic, string_obj.str, string_obj.encoding, .downcase, options) catch |err| switch (err) {
-        error.OutOfMemory => return error.Fatal,
-        error.InvalidByteSequence => return vm.raiseExceptionFmt(vm.argument_error_class, "input string invalid", .{}),
-    };
-    if (!mapped.modified) return Value.nil();
-
-    string_obj.str = mapped.bytes;
-    string_obj.encoding = mapped.encoding;
-    string_obj.validity = .unknown;
-    return receiver;
+    const mapped = try mapStringCaseWithOptions(vm, string_obj.str, string_obj.encoding, options, .downcase);
+    return applyMappedStringCaseBang(vm, receiver, string_obj, mapped, false);
 }
 
 pub fn builtinStringSwapcase(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    const options = try parseCaseMapOptions(vm, args, .swapcase);
     const string_obj = receiver.toStringObject();
-    const mapped = enc.caseMap(vm.gc_allocator_atomic, string_obj.str, string_obj.encoding, .swapcase, options) catch |err| switch (err) {
-        error.OutOfMemory => return error.Fatal,
-        error.InvalidByteSequence => return vm.raiseExceptionFmt(vm.argument_error_class, "input string invalid", .{}),
-    };
+    const mapped = try mapStringCase(vm, string_obj.str, string_obj.encoding, args, .swapcase);
     return try vm.newStringWithEncoding(mapped.bytes, false, mapped.encoding);
 }
 
@@ -2748,17 +2716,8 @@ pub fn builtinStringSwapcaseBang(vm: *VM, receiver: Value, args: []Value, _: ?Bl
         return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
     }
     const string_obj = receiver.toStringObject();
-
-    const mapped = enc.caseMap(vm.gc_allocator_atomic, string_obj.str, string_obj.encoding, .swapcase, options) catch |err| switch (err) {
-        error.OutOfMemory => return error.Fatal,
-        error.InvalidByteSequence => return vm.raiseExceptionFmt(vm.argument_error_class, "input string invalid", .{}),
-    };
-    if (!mapped.modified) return Value.nil();
-
-    string_obj.str = mapped.bytes;
-    string_obj.encoding = mapped.encoding;
-    string_obj.validity = .unknown;
-    return receiver;
+    const mapped = try mapStringCaseWithOptions(vm, string_obj.str, string_obj.encoding, options, .swapcase);
+    return applyMappedStringCaseBang(vm, receiver, string_obj, mapped, false);
 }
 
 fn mapStringCapitalize(
@@ -2824,9 +2783,8 @@ fn mapStringCapitalize(
 }
 
 pub fn builtinStringCapitalize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    const options = try parseCaseMapOptions(vm, args, .capitalize);
     const string_obj = receiver.toStringObject();
-    const mapped = try mapStringCapitalize(vm, string_obj.str, string_obj.encoding, options);
+    const mapped = try mapStringCase(vm, string_obj.str, string_obj.encoding, args, .capitalize);
     return try vm.newStringWithEncoding(mapped.bytes, false, mapped.encoding);
 }
 
@@ -2836,8 +2794,23 @@ pub fn builtinStringCapitalizeBang(vm: *VM, receiver: Value, args: []Value, _: ?
         return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
     }
     const string_obj = receiver.toStringObject();
-    const mapped = try mapStringCapitalize(vm, string_obj.str, string_obj.encoding, options);
+    const mapped = try mapStringCaseWithOptions(vm, string_obj.str, string_obj.encoding, options, .capitalize);
+    return applyMappedStringCaseBang(vm, receiver, string_obj, mapped, false);
+}
+
+fn applyMappedStringCaseBang(
+    vm: *VM,
+    receiver: Value,
+    string_obj: *value.StringObject,
+    mapped: enc.CaseMapResult,
+    clear_symbol_to_s_source: bool,
+) VMError!Value {
     if (!mapped.modified) return Value.nil();
+
+    if (clear_symbol_to_s_source) {
+        try warnSymbolToSMutation(vm, string_obj);
+        string_obj.symbol_to_s_source = null;
+    }
 
     string_obj.str = mapped.bytes;
     string_obj.encoding = mapped.encoding;
@@ -4069,6 +4042,16 @@ pub fn mapStringCase(
     operation: CaseOperation,
 ) VMError!enc.CaseMapResult {
     const options = try parseCaseMapOptions(vm, args, operation);
+    return mapStringCaseWithOptions(vm, bytes, source_encoding, options, operation);
+}
+
+fn mapStringCaseWithOptions(
+    vm: *VM,
+    bytes: []const u8,
+    source_encoding: enc.Encoding,
+    options: enc.CaseMapOptions,
+    operation: CaseOperation,
+) VMError!enc.CaseMapResult {
     return switch (operation) {
         .upcase => enc.caseMap(vm.gc_allocator_atomic, bytes, source_encoding, .upcase, options) catch |err| switch (err) {
             error.OutOfMemory => error.Fatal,
