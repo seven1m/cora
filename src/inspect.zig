@@ -60,7 +60,6 @@ fn escapedInspectControl(codepoint: u32) ?[]const u8 {
         0x0C => "\\f",
         0x0D => "\\r",
         0x1B => "\\e",
-        0x7F => "\\c?",
         else => null,
     };
 }
@@ -212,6 +211,46 @@ pub fn inspectStringBytes(
     input_encoding: enc.Encoding,
     result_encoding: enc.Encoding,
 ) ![]u8 {
+    if (input_encoding == .ascii_8bit) {
+        var buf: std.ArrayList(u8) = .empty;
+        defer buf.deinit(allocator);
+        const writer = buf.writer(allocator);
+        try writer.writeAll("\"");
+
+        for (input, 0..) |b, idx| {
+            switch (b) {
+                '"' => try writer.writeAll("\\\""),
+                '\\' => try writer.writeAll("\\\\"),
+                '#' => {
+                    const next_byte = if (idx + 1 < input.len) input[idx + 1] else 0;
+                    if (next_byte == '$' or next_byte == '@' or next_byte == '{') {
+                        try writer.writeAll("\\#");
+                    } else {
+                        try writer.writeByte('#');
+                    }
+                },
+                0x07 => try writer.writeAll("\\a"),
+                0x08 => try writer.writeAll("\\b"),
+                0x09 => try writer.writeAll("\\t"),
+                0x0A => try writer.writeAll("\\n"),
+                0x0B => try writer.writeAll("\\v"),
+                0x0C => try writer.writeAll("\\f"),
+                0x0D => try writer.writeAll("\\r"),
+                0x1B => try writer.writeAll("\\e"),
+                else => {
+                    if ((b < 0x20) or (b >= 0x7F)) {
+                        try appendHexByte(writer, b);
+                    } else {
+                        try writer.writeByte(b);
+                    }
+                },
+            }
+        }
+
+        try writer.writeAll("\"");
+        return buf.toOwnedSlice(allocator);
+    }
+
     var buf: std.ArrayList(u8) = .empty;
     defer buf.deinit(allocator);
     const writer = buf.writer(allocator);

@@ -2883,6 +2883,7 @@ pub const VM = struct {
                     .big_integer_decimal => |digits| try self.newBigIntegerFromDecimalString(digits),
                     .float => |f| try self.newFloat(f),
                     .string => |s| try self.newStringWithEncoding(s, false, literalStringEncodingForChunk(frame.chunk.source_encoding, s)),
+                    .encoded_string => |s| try self.newStringWithEncoding(s.bytes, false, s.encoding),
                     .symbol => |s| Value.fromObject(s),
                 };
                 try self.push(val);
@@ -2894,6 +2895,11 @@ pub const VM = struct {
                 switch (constant) {
                     .string => |s| {
                         const val = try self.newStringWithEncoding(s, false, literalStringEncodingForChunk(frame.chunk.source_encoding, s));
+                        val.toStringObject().chilled_literal = true;
+                        try self.push(val);
+                    },
+                    .encoded_string => |s| {
+                        const val = try self.newStringWithEncoding(s.bytes, false, s.encoding);
                         val.toStringObject().chilled_literal = true;
                         try self.push(val);
                     },
@@ -2936,6 +2942,36 @@ pub const VM = struct {
                             try self.push(canonical);
                         }
                     },
+                    .encoded_string => |s| {
+                        const encoding_tag: u8 = @intFromEnum(std.meta.activeTag(s.encoding));
+                        const source_marker = frame.chunk.source_file orelse frame.chunk.name;
+                        var source_hasher = std.hash.Wyhash.init(0);
+                        source_hasher.update(source_marker);
+                        const source_hash = source_hasher.final();
+                        var hasher = std.hash.Wyhash.init(0);
+                        hasher.update(s.bytes);
+                        const content_hash = hasher.final();
+                        var key_buf: [64]u8 = undefined;
+                        const key = std.fmt.bufPrint(
+                            &key_buf,
+                            "{x}:{x}:{d}",
+                            .{ source_hash, content_hash, encoding_tag },
+                        ) catch return error.Fatal;
+                        if (self.fstring_cache.get(key)) |cached| {
+                            const canonical = try self.getOrCreateCanonicalFStringValue(cached);
+                            try self.push(canonical);
+                        } else {
+                            const frozen = try self.newStringWithEncoding(
+                                s.bytes,
+                                true,
+                                s.encoding,
+                            );
+                            const canonical = try self.getOrCreateCanonicalFStringValue(frozen);
+                            const owned_key = self.allocator.dupe(u8, key) catch return error.Fatal;
+                            self.fstring_cache.put(owned_key, canonical) catch return error.Fatal;
+                            try self.push(canonical);
+                        }
+                    },
                     else => return error.Fatal,
                 }
             },
@@ -2952,6 +2988,9 @@ pub const VM = struct {
                     .string => |name| {
                         const symbol_encoding = literalSymbolEncodingForChunk(frame.chunk.source_encoding, name);
                         try self.push(Value.fromObject(try self.internWithEncoding(name, symbol_encoding)));
+                    },
+                    .encoded_string => |name| {
+                        try self.push(Value.fromObject(try self.internWithEncoding(name.bytes, name.encoding)));
                     },
                     .symbol => |sym| try self.push(Value.fromObject(sym)),
                     else => return error.Fatal,
@@ -6455,13 +6494,13 @@ pub const VM = struct {
         if (enc.isAsciiOnly(bytes)) {
             return source_encoding;
         }
-        if (source_encoding == .us_ascii or source_encoding == .ascii_8bit) {
+        if (source_encoding == .ascii_8bit) {
+            return .{ .ascii_8bit = .{} };
+        }
+        if (source_encoding == .us_ascii) {
             const utf8_encoding = enc.Encoding{ .utf8 = .{} };
             if (utf8_encoding.isValid(bytes)) {
                 return .{ .utf8 = .{} };
-            }
-            if (source_encoding == .us_ascii) {
-                return .{ .ascii_8bit = .{} };
             }
             return .{ .ascii_8bit = .{} };
         }

@@ -18,10 +18,16 @@ pub const BLOCK_ARG_ON_STACK: ChunkId = std.math.maxInt(ChunkId);
 pub const MAX_CHUNK_ID: ChunkId = BLOCK_ARG_ON_STACK - 1;
 
 pub const Constant = union(enum) {
+    pub const EncodedString = struct {
+        bytes: []const u8,
+        encoding: enc.Encoding,
+    };
+
     integer: i64,
     big_integer_decimal: []const u8,
     float: f64,
     string: []const u8,
+    encoded_string: EncodedString,
     symbol: *SymbolObject,
 };
 
@@ -141,6 +147,7 @@ pub const Chunk = struct {
         for (self.constants.items) |constant| {
             switch (constant) {
                 .string => |s| self.allocator.free(s),
+                .encoded_string => |s| self.allocator.free(s.bytes),
                 .big_integer_decimal => |digits| self.allocator.free(digits),
                 else => {},
             }
@@ -192,6 +199,10 @@ pub const Chunk = struct {
     pub fn addConstant(self: *Chunk, const_val: Constant) !u32 {
         const owned = switch (const_val) {
             .string => |s| Constant{ .string = try self.allocator.dupe(u8, s) },
+            .encoded_string => |s| Constant{ .encoded_string = .{
+                .bytes = try self.allocator.dupe(u8, s.bytes),
+                .encoding = s.encoding,
+            } },
             .big_integer_decimal => |s| Constant{ .big_integer_decimal = try self.allocator.dupe(u8, s) },
             else => const_val,
         };
@@ -444,6 +455,7 @@ pub const Chunk = struct {
                     .big_integer_decimal => |digits| try writer.print("{s}", .{digits}),
                     .float => |float_val| try writer.print("{d}", .{float_val}),
                     .string => |str| try writer.print("\"{s}\"", .{str}),
+                    .encoded_string => |str| try writer.print("\"{s}\"[{s}]", .{ str.bytes, str.encoding.name() }),
                     .symbol => |sym| try writer.print(":\"{s}\"(interned)", .{sym.name}),
                 }
             }
@@ -510,6 +522,7 @@ pub const Chunk = struct {
                         .big_integer_decimal => |digits| try writer.print(" ({s})", .{digits}),
                         .float => |f| try writer.print(" ({d})", .{f}),
                         .string => |s| try writer.print(" (\"{s}\")", .{s}),
+                        .encoded_string => |s| try writer.print(" (\"{s}\"[{s}])", .{ s.bytes, s.encoding.name() }),
                         .symbol => |s| try writer.print(" (:{s})", .{s.name}),
                     }
                 }

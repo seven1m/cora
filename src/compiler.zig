@@ -73,6 +73,16 @@ fn prismStringSlice(str_val: anytype) []const u8 {
     return "";
 }
 
+fn literalStringConstant(bytes: []const u8, flags: u16) chunk.Constant {
+    if ((flags & prism.STRING_FLAGS_FORCED_UTF8_ENCODING) != 0) {
+        return .{ .encoded_string = .{ .bytes = bytes, .encoding = .{ .utf8 = .{} } } };
+    }
+    if ((flags & prism.STRING_FLAGS_FORCED_BINARY_ENCODING) != 0) {
+        return .{ .encoded_string = .{ .bytes = bytes, .encoding = .{ .ascii_8bit = .{} } } };
+    }
+    return .{ .string = bytes };
+}
+
 pub const CompiledProgram = struct {
     allocator: std.mem.Allocator,
     main_chunk: Chunk,
@@ -244,8 +254,8 @@ pub const Compiler = struct {
             .string => |string_node| {
                 const str_val = string_node.unescaped;
                 const str_slice = prismStringSlice(str_val);
-                const idx = try self.current_chunk.addConstant(.{ .string = str_slice });
                 const flags = string_node.base.flags;
+                const idx = try self.current_chunk.addConstant(literalStringConstant(str_slice, flags));
                 if ((flags & prism.STRING_FLAGS_FROZEN) != 0) {
                     try self.current_chunk.emitOpU16(.PUSH_FSTRING, @intCast(idx), line);
                 } else if ((flags & prism.STRING_FLAGS_MUTABLE) != 0) {
@@ -258,7 +268,7 @@ pub const Compiler = struct {
             .symbol => |symbol_node| {
                 const symbol_val = symbol_node.unescaped;
                 const symbol_slice = prismStringSlice(symbol_val);
-                const idx = try self.current_chunk.addConstant(.{ .string = symbol_slice });
+                const idx = try self.current_chunk.addConstant(literalStringConstant(symbol_slice, symbol_node.base.flags));
                 try self.current_chunk.emitOpU16(.PUSH_SYMBOL, @intCast(idx), line);
             },
 
@@ -319,7 +329,7 @@ pub const Compiler = struct {
                 try self.current_chunk.emitOp(.PUSH_SELF, line);
                 const str_val = xstring_node.unescaped;
                 const str_slice = prismStringSlice(str_val);
-                const idx = try self.current_chunk.addConstant(.{ .string = str_slice });
+                const idx = try self.current_chunk.addConstant(literalStringConstant(str_slice, xstring_node.base.flags));
                 try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(idx), line);
                 try self.emitBacktickCall(line);
             },
