@@ -107,6 +107,7 @@ pub const Block = struct {
         chunk: *Chunk,
         defining_ep: *Environment,
         defining_self: Value,
+        return_target_ep: ?*Environment,
     };
 
     kind: union(enum) {
@@ -118,13 +119,16 @@ pub const Block = struct {
 };
 
 pub const CallFrame = struct {
+    pub const FrameType = enum { method, lambda, proc, fiber };
+
     chunk: *Chunk,
     ip: usize,
     stack_base: usize,
     self_value: Value,
     ep: *Environment,
     block: ?Block = null,
-    frame_type: enum { method, lambda, proc, fiber } = .method,
+    frame_type: FrameType = .method,
+    return_target_ep: ?*Environment = null,
     method_name: ?[]const u8 = null,
     super_defining_class: ?*ClassObject = null,
     dir_returns_nil: bool = false,
@@ -1081,6 +1085,63 @@ pub const VM = struct {
         }
     }
 
+    fn currentNonLocalReturnTarget(self: *VM) ?*Environment {
+        if (self.frames.items.len == 0) return null;
+
+        var frame_idx = self.frames.items.len;
+        while (frame_idx > 0) {
+            frame_idx -= 1;
+            const frame = self.frames.items[frame_idx];
+            if (frame.frame_type != .method) continue;
+            if (frame.method_name == null) continue;
+            return derefEnvironment(frame.ep);
+        }
+
+        return null;
+    }
+
+    fn findActiveReturnTargetMethodFrameIndex(self: *VM, target_ep: *Environment) ?usize {
+        if (self.frames.items.len == 0) return null;
+
+        const real_target = derefEnvironment(target_ep);
+        var frame_idx = self.frames.items.len;
+        while (frame_idx > 0) {
+            frame_idx -= 1;
+            const frame = self.frames.items[frame_idx];
+            if (frame.frame_type != .method) continue;
+            if (derefEnvironment(frame.ep) == real_target) return frame_idx;
+        }
+
+        return null;
+    }
+
+    fn handleNonLocalReturn(self: *VM, frame_type: CallFrame.FrameType, return_target_ep: ?*Environment, result: Value) VMError!void {
+        if (frame_type == .fiber) {
+            const exc = try self.createException(self.local_jump_error_class, "return from fiber");
+            self.pending_exception = exc;
+            return error.Unwind;
+        }
+
+        const target_ep = return_target_ep orelse {
+            const exc = try self.createException(self.local_jump_error_class, "unexpected return");
+            self.pending_exception = exc;
+            return error.Unwind;
+        };
+        const target_frame_idx = self.findActiveReturnTargetMethodFrameIndex(target_ep) orelse {
+            const exc = try self.createException(self.local_jump_error_class, "unexpected return");
+            self.pending_exception = exc;
+            return error.Unwind;
+        };
+
+        while (self.frames.items.len > target_frame_idx) {
+            const unwind_stack_base = self.frames.items[self.frames.items.len - 1].stack_base;
+            try self.popFrame();
+            self.stack.shrinkRetainingCapacity(unwind_stack_base);
+        }
+
+        try self.push(result);
+    }
+
     fn promoteEnvironmentToHeap(self: *VM, stack_env: *Environment) VMError!*Environment {
         // 1. Idempotent check - if already on heap or promoted
         if (stack_env.heap_forwarding_ptr) |heap_env| {
@@ -1137,6 +1198,9 @@ pub const VM = struct {
                     .chunk => |*chunk_blk| {
                         if (chunk_blk.defining_ep == old_env) {
                             chunk_blk.defining_ep = new_env;
+                        }
+                        if (chunk_blk.return_target_ep == old_env) {
+                            chunk_blk.return_target_ep = new_env;
                         }
                     },
                     .symbol, .builtin, .callable => {},
@@ -1868,6 +1932,7 @@ pub const VM = struct {
                         .chunk = bc,
                         .defining_ep = defining_ep,
                         .defining_self = frame.self_value,
+                        .return_target_ep = self.currentNonLocalReturnTarget(),
                     } },
                 };
             } else {
@@ -3581,10 +3646,12 @@ pub const VM = struct {
                 const is_explicit = readByteFrom(frame, operands, &operand_cursor);
                 const current_frame = self.currentFrame();
                 const frame_stack_base = current_frame.stack_base;
+                const frame_type = current_frame.frame_type;
+                const return_target_ep = current_frame.return_target_ep;
                 const result = self.pop();
 
                 // Fast path: implicit return or explicit return from method/lambda
-                if (is_explicit == 0 or (current_frame.frame_type != .fiber and current_frame.frame_type != .proc)) {
+                if (is_explicit == 0 or (frame_type != .fiber and frame_type != .proc)) {
                     self.stack.shrinkRetainingCapacity(frame_stack_base);
                     // Inline fast popFrame: just decrement frame and env stack lengths
                     const new_frame_len = self.frames.items.len - 1;
@@ -3598,30 +3665,8 @@ pub const VM = struct {
                         self.current_lexical_scope = prev_ep.lexical_scope;
                     }
                     try self.push(result);
-                } else if (current_frame.frame_type == .fiber) {
-                    const exc = try self.createException(self.local_jump_error_class, "return from fiber");
-                    self.pending_exception = exc;
-                    return error.Unwind;
                 } else {
-                    // Proc explicit return: walk back to enclosing method and exit it
-                    try self.popFrame(); // Pop proc frame
-
-                    var found_method = false;
-                    if (self.frames.items.len > 1) {
-                        while (self.frames.items.len > 0) {
-                            const frame_type = self.frames.items[self.frames.items.len - 1].frame_type;
-                            if (frame_type == .method) {
-                                try self.popFrame();
-                                found_method = true;
-                                break;
-                            }
-                            try self.popFrame();
-                        }
-                    }
-
-                    if (self.frames.items.len > 0 or !found_method) {
-                        try self.push(result);
-                    }
+                    try self.handleNonLocalReturn(frame_type, return_target_ep, result);
                 }
             },
 
@@ -4020,6 +4065,8 @@ pub const VM = struct {
                             .self_value = chunk_blk.defining_self,
                             .ep = block_env,
                             .block = frame.block,
+                            .frame_type = if (chunk_blk.chunk.is_lambda) .lambda else .proc,
+                            .return_target_ep = chunk_blk.return_target_ep,
                         }) catch return error.Fatal;
 
                         if (chunk_blk.chunk.lexical_scope) |scope| {
@@ -4071,6 +4118,8 @@ pub const VM = struct {
                             .self_value = chunk_blk.defining_self,
                             .ep = block_env,
                             .block = frame.block,
+                            .frame_type = if (chunk_blk.chunk.is_lambda) .lambda else .proc,
+                            .return_target_ep = chunk_blk.return_target_ep,
                         }) catch return error.Fatal;
 
                         if (chunk_blk.chunk.lexical_scope) |scope| {
@@ -4106,6 +4155,7 @@ pub const VM = struct {
                         .chunk = lambda_chunk,
                         .defining_ep = frame.ep,
                         .defining_self = frame.self_value,
+                        .return_target_ep = self.currentNonLocalReturnTarget(),
                     } },
                 };
 
@@ -5182,6 +5232,7 @@ pub const VM = struct {
     const YieldResult = struct {
         value: Value,
         break_occurred: bool,
+        non_local_return_occurred: bool,
     };
 
     /// Yield to a block with arguments, handling break and exceptions
@@ -5191,14 +5242,17 @@ pub const VM = struct {
             .symbol => |sym| .{
                 .value = try self.invokeSymbolProc(sym, yield_args, null),
                 .break_occurred = false,
+                .non_local_return_occurred = false,
             },
             .builtin => |func| .{
                 .value = try func(self, @constCast(yield_args)),
                 .break_occurred = false,
+                .non_local_return_occurred = false,
             },
             .callable => |callable| .{
                 .value = try self.callMethodByName(callable, "call", @constCast(yield_args), null),
                 .break_occurred = false,
+                .non_local_return_occurred = false,
             },
             .chunk => |chunk_blk| blk: {
                 // Dereference defining_ep in case it's a forwarding pointer
@@ -5213,6 +5267,8 @@ pub const VM = struct {
                     .self_value = chunk_blk.defining_self,
                     .ep = block_env,
                     .block = enclosing_block,
+                    .frame_type = if (chunk_blk.chunk.is_lambda) .lambda else .proc,
+                    .return_target_ep = chunk_blk.return_target_ep,
                 }) catch return error.Fatal;
 
                 // Update current_lexical_scope to the block's scope
@@ -5232,11 +5288,13 @@ pub const VM = struct {
                 if (break_occurred) {
                     self.break_occurred = false;
                 }
+                const non_local_return_occurred = self.frames.items.len < saved_frame_count;
 
                 const result = if (self.stack.items.len > 0) self.pop() else Value.nil();
                 break :blk YieldResult{
                     .value = result,
                     .break_occurred = break_occurred,
+                    .non_local_return_occurred = non_local_return_occurred,
                 };
             },
         };
@@ -5317,6 +5375,7 @@ pub const VM = struct {
                     .ep = proc_env,
                     .block = block,
                     .frame_type = if (chunk_blk.chunk.is_lambda) .lambda else .proc,
+                    .return_target_ep = chunk_blk.return_target_ep,
                 }) catch return error.Fatal;
 
                 const saved_frame_count = self.frames.items.len - 1;
@@ -5410,6 +5469,7 @@ pub const VM = struct {
                                     .ep = proc_env,
                                     .block = null,
                                     .frame_type = if (chunk_blk.chunk.is_lambda) .lambda else .proc,
+                                    .return_target_ep = chunk_blk.return_target_ep,
                                 }) catch return error.Fatal;
                                 return;
                             }
@@ -6567,11 +6627,15 @@ pub const VM = struct {
                 .symbol => block,
                 .builtin => block,
                 .callable => block,
-                .chunk => |chunk_blk| .{ .kind = .{ .chunk = .{
-                    .chunk = chunk_blk.chunk,
-                    .defining_ep = self.promoteEnvironmentToHeap(chunk_blk.defining_ep) catch return error.Fatal,
-                    .defining_self = chunk_blk.defining_self,
-                } } },
+            .chunk => |chunk_blk| .{ .kind = .{ .chunk = .{
+                .chunk = chunk_blk.chunk,
+                .defining_ep = self.promoteEnvironmentToHeap(chunk_blk.defining_ep) catch return error.Fatal,
+                .defining_self = chunk_blk.defining_self,
+                .return_target_ep = if (chunk_blk.return_target_ep) |target_ep|
+                    self.promoteEnvironmentToHeap(target_ep) catch return error.Fatal
+                else
+                    null,
+            } } },
             },
         };
         return Value.fromObject(proc_obj);

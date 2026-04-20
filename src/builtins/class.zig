@@ -46,6 +46,7 @@ pub fn builtinClassNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
                             .chunk = chunk_blk.chunk,
                             .defining_ep = chunk_blk.defining_ep,
                             .defining_self = module_val,
+                            .return_target_ep = chunk_blk.return_target_ep,
                         } },
                     };
                     break :chunk_blk_result try vm.yieldToBlock(module_body_block, &[_]Value{});
@@ -85,6 +86,7 @@ pub fn builtinClassNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
                             .chunk = chunk_blk.chunk,
                             .defining_ep = chunk_blk.defining_ep,
                             .defining_self = class_val,
+                            .return_target_ep = chunk_blk.return_target_ep,
                         } },
                     };
                     break :chunk_blk_result try vm.yieldToBlock(class_body_block, &[_]Value{});

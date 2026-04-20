@@ -13,6 +13,7 @@ const Value = value.Value;
 const HashYieldResult = struct {
     value: Value,
     break_occurred: bool,
+    non_local_return_occurred: bool,
 };
 
 fn coerceToProcForHashDefault(vm: *VM, proc_like: Value) VMError!*value.ProcObject {
@@ -215,6 +216,7 @@ fn yieldHashEntryPair(vm: *VM, blk: Block, entry: value.HashEntry) VMError!HashY
     return .{
         .value = yielded.value,
         .break_occurred = yielded.break_occurred,
+        .non_local_return_occurred = yielded.non_local_return_occurred,
     };
 }
 
@@ -409,6 +411,9 @@ pub fn builtinHashEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
     // Iterate in insertion order
     for (hash_obj.entries.items) |entry| {
         const result = try yieldHashEntryPair(vm, blk, entry);
+        if (result.non_local_return_occurred) {
+            return result.value;
+        }
 
         // If break occurred, return immediately
         if (result.break_occurred) {
@@ -436,6 +441,9 @@ pub fn builtinHashEachPair(vm: *VM, receiver: Value, args: []Value, block: ?Bloc
 
     for (snapshot) |entry| {
         const result = try yieldHashEntryPair(vm, blk, entry);
+        if (result.non_local_return_occurred) {
+            return result.value;
+        }
         if (result.break_occurred) {
             return result.value;
         }
@@ -603,6 +611,9 @@ pub fn builtinHashSelect(vm: *VM, receiver: Value, args: []Value, block: ?Block)
     for (hash_obj.entries.items) |entry| {
         const yield_args = [_]Value{ entry.key, entry.value };
         const result = try vm.yieldToBlock(blk, &yield_args);
+        if (result.non_local_return_occurred) {
+            return result.value;
+        }
 
         // If break occurred, return immediately
         if (result.break_occurred) {

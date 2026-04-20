@@ -953,6 +953,9 @@ pub fn builtinArrayEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
         const element = array_obj.elements.items[idx];
         const yield_args = [_]Value{element};
         const result = try vm.yieldToBlock(blk, &yield_args);
+        if (result.non_local_return_occurred) {
+            return result.value;
+        }
         if (result.break_occurred) {
             return result.value;
         }
@@ -971,6 +974,9 @@ pub fn builtinArrayEachWithIndex(vm: *VM, receiver: Value, args: []Value, block:
     for (array_obj.elements.items, 0..) |element, idx| {
         const yield_args = [_]Value{ element, Value.integer(@intCast(idx)) };
         const result = try vm.yieldToBlock(blk, &yield_args);
+        if (result.non_local_return_occurred) {
+            return result.value;
+        }
         if (result.break_occurred) {
             return result.value;
         }
@@ -1011,6 +1017,9 @@ fn arrayMapShared(vm: *VM, receiver: Value, args: []Value, block: ?Block, method
         const element = source.elements.items[idx];
         const yield_args = [_]Value{element};
         const yielded = try vm.yieldToBlock(blk, &yield_args);
+        if (yielded.non_local_return_occurred) {
+            return yielded.value;
+        }
         if (yielded.break_occurred) {
             return yielded.value;
         }

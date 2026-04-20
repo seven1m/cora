@@ -224,6 +224,23 @@ test "Nested procs: inner explicit return exits method from inside" {
     try std.testing.expectEqual(@as(i64, 5), result.toInteger());
 }
 
+test "Proc explicit return raises LocalJumpError after enclosing method has returned" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+
+    const result = evalCodeWithOutput(
+        \\def make_proc
+        \\  Proc.new { return :late }
+        \\end
+        \\
+        \\p = make_proc
+        \\p.call
+    , &stdout_buf, &stderr_buf);
+
+    try std.testing.expectEqual(error.UnhandledException, result.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "LocalJumpError") != null);
+}
+
 test "deep recursive Proc#call (stack depth stress test)" {
     const result = try evalCode(
         \\f = proc { |n| n > 0 ? f.call(n - 1) : 0 }

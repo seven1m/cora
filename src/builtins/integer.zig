@@ -860,6 +860,9 @@ pub fn builtinIntegerTimes(vm: *VM, receiver: Value, args: []Value, block: ?Bloc
     while (i < count) : (i += 1) {
         const yield_args = [_]Value{Value.integer(i)};
         const yield_result = try vm.yieldToBlock(blk, &yield_args);
+        if (yield_result.non_local_return_occurred) {
+            return yield_result.value;
+        }
         if (yield_result.break_occurred) {
             return yield_result.value;
         }
@@ -885,6 +888,9 @@ pub fn builtinIntegerUpto(vm: *VM, receiver: Value, args: []Value, block: ?Block
     while (i <= stop) : (i += 1) {
         const yield_args = [_]Value{Value.integer(i)};
         const yield_result = try vm.yieldToBlock(blk, &yield_args);
+        if (yield_result.non_local_return_occurred) {
+            return yield_result.value;
+        }
         if (yield_result.break_occurred) {
             return yield_result.value;
         }
@@ -910,6 +916,9 @@ pub fn builtinIntegerDownto(vm: *VM, receiver: Value, args: []Value, block: ?Blo
     while (i >= stop) : (i -= 1) {
         const yield_args = [_]Value{Value.integer(i)};
         const yield_result = try vm.yieldToBlock(blk, &yield_args);
+        if (yield_result.non_local_return_occurred) {
+            return yield_result.value;
+        }
         if (yield_result.break_occurred) {
             return yield_result.value;
         }

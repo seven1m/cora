@@ -221,6 +221,37 @@ test "Closure: deep nesting (3 levels)" {
     try std.testing.expectEqual(@as(i64, 111), result.toInteger());
 }
 
+test "block return unwinds enclosing method" {
+    const result = try evalCode(
+        \\def foo
+        \\  [1, 2, 3].each do |i|
+        \\    return i if i == 2
+        \\  end
+        \\  :fallthrough
+        \\end
+        \\foo
+    );
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 2), result.toInteger());
+}
+
+test "block return unwinds through nested blocks" {
+    const result = try evalCode(
+        \\def foo
+        \\  [1].each do
+        \\    [2].each do
+        \\      return :inner
+        \\    end
+        \\    :unreached
+        \\  end
+        \\  :fallthrough
+        \\end
+        \\foo
+    );
+    try std.testing.expect(result.isSymbol());
+    try std.testing.expectEqualStrings("inner", result.toSymbolObject().name);
+}
+
 test "Closure: shadowing with block parameter" {
     const result = try evalCode(
         \\def test_closure

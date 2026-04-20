@@ -45,6 +45,9 @@ fn builtinEnumerableMap(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
         };
         const yielded = next_values.toArrayObject().elements.items;
         const result = try vm.yieldToBlock(blk, yielded);
+        if (result.non_local_return_occurred) {
+            return result.value;
+        }
         if (result.break_occurred) {
             return result.value;
         }
