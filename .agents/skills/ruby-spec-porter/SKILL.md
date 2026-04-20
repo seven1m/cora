@@ -150,19 +150,42 @@ Match this repository's commit style for spec-porting work.
 
 Message rules:
 
-1. Spec port with required behavior changes:
+1. Adding a new method, either fully spec-compliant or not:
+- `Add Hash#delete`
+
+2. Updating an existing method:
 - `Make Hash#delete spec-compliant` (if fully compliant)
 - `Make Array#[] more spec-compliant` (partial compliance improvement)
 
-2. Spec added and passes without changing method behavior:
+3. Spec added and passes without changing method behavior:
 - `Add String#ascii_only? spec`
 - `Add String#b spec`
 
-3. Non-spec foundational work that truly should stand alone:
+4. Non-spec foundational work that truly should stand alone:
 - Use concise imperative summaries, e.g.:
   - `Implement regexp numbered references`
   - `Add euc-jp encoding alias`
   - `Add Hash#delete` (not focused on spec compliance, but some basic version of the method was required by the spec under port)
+
+Decision rule:
+
+- If the commit changes runtime/compiler/parser/mspec-lite behavior, do not use the `Add ... spec` form.
+- Use `Add ... spec` only when the commit is genuinely spec-only, plus required `spec/TODO.md` tracking updates.
+- If the commit adds a missing method or builtin implementation needed by the spec, prefer `Add Class#method`.
+- If the commit changes semantics of an already-existing method, prefer `Make Class#method spec-compliant` or `Make Class#method more spec-compliant`.
+- When in doubt, describe the behavioral/runtime change, not just the spec file that was copied.
+
+Examples:
+
+- `Add Symbol#upcase`
+- `Add Symbol#downcase`
+- `Make Symbol#end_with? spec-compliant`
+- `Add String#ascii_only? spec`
+
+Anti-examples:
+
+- Do not use `Add Symbol#upcase spec` if the same commit also changes `src/` files.
+- Do not use `Add Foo#bar spec` when the commit introduced or modified the implementation of `Foo#bar`.
 
 ## Useful Commands
 
