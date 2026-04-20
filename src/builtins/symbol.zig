@@ -43,6 +43,9 @@ pub fn register(vm: *VM) !void {
     const size_sym = try vm.intern("size");
     try vm.symbol_class.module.methods.put(size_sym, .{ .method = .{ .builtin = &builtinSymbolLength } });
 
+    const empty_sym = try vm.intern("empty?");
+    try vm.symbol_class.module.methods.put(empty_sym, .{ .method = .{ .builtin = &builtinSymbolEmpty } });
+
     const start_with_sym = try vm.intern("start_with?");
     try vm.symbol_class.module.methods.put(start_with_sym, .{ .method = .{ .builtin = &builtinSymbolStartWith } });
 
@@ -109,6 +112,12 @@ pub fn builtinSymbolLength(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     try vm.requireArgCount(args, 0);
     const sym = receiver.toSymbolObject();
     return Value.integer(@intCast(sym.encoding.charCount(sym.name)));
+}
+
+pub fn builtinSymbolEmpty(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const sym = receiver.toSymbolObject();
+    return Value.boolean(sym.encoding.charCount(sym.name) == 0);
 }
 
 pub fn builtinSymbolStartWith(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {

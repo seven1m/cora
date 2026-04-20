@@ -67,6 +67,12 @@ fn decodeRegexpUnicodeEscapes(allocator: std.mem.Allocator, pattern: []const u8)
     return out.toOwnedSlice(allocator);
 }
 
+fn prismStringSlice(str_val: anytype) []const u8 {
+    if (str_val.length == 0) return "";
+    if (str_val.source) |source| return source[0..str_val.length];
+    return "";
+}
+
 pub const CompiledProgram = struct {
     allocator: std.mem.Allocator,
     main_chunk: Chunk,
@@ -237,7 +243,7 @@ pub const Compiler = struct {
 
             .string => |string_node| {
                 const str_val = string_node.unescaped;
-                const str_slice = str_val.source[0..str_val.length];
+                const str_slice = prismStringSlice(str_val);
                 const idx = try self.current_chunk.addConstant(.{ .string = str_slice });
                 const flags = string_node.base.flags;
                 if ((flags & prism.STRING_FLAGS_FROZEN) != 0) {
@@ -251,7 +257,7 @@ pub const Compiler = struct {
 
             .symbol => |symbol_node| {
                 const symbol_val = symbol_node.unescaped;
-                const symbol_slice = symbol_val.source[0..symbol_val.length];
+                const symbol_slice = prismStringSlice(symbol_val);
                 const idx = try self.current_chunk.addConstant(.{ .string = symbol_slice });
                 try self.current_chunk.emitOpU16(.PUSH_SYMBOL, @intCast(idx), line);
             },
@@ -312,7 +318,7 @@ pub const Compiler = struct {
             .x_string => |xstring_node| {
                 try self.current_chunk.emitOp(.PUSH_SELF, line);
                 const str_val = xstring_node.unescaped;
-                const str_slice = str_val.source[0..str_val.length];
+                const str_slice = prismStringSlice(str_val);
                 const idx = try self.current_chunk.addConstant(.{ .string = str_slice });
                 try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(idx), line);
                 try self.emitBacktickCall(line);
@@ -1046,7 +1052,7 @@ pub const Compiler = struct {
 
         const string_node = receiver_node.string;
         const str_val = string_node.unescaped;
-        const str_slice = str_val.source[0..str_val.length];
+        const str_slice = prismStringSlice(str_val);
         const idx = try self.current_chunk.addConstant(.{ .string = str_slice });
         try self.current_chunk.emitOpU16(.PUSH_FSTRING, @intCast(idx), line);
         return true;
@@ -1344,7 +1350,7 @@ pub const Compiler = struct {
             switch (part_node) {
                 .string => |string_node| {
                     const str_val = string_node.unescaped;
-                    const str_slice = str_val.source[0..str_val.length];
+                    const str_slice = prismStringSlice(str_val);
                     const idx = try self.current_chunk.addConstant(.{ .string = str_slice });
                     try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(idx), line);
                 },
@@ -1461,7 +1467,7 @@ pub const Compiler = struct {
                                 const assoc = elem.assoc;
                                 const key_node = try self.parser.asNode(@ptrCast(assoc.key));
                                 const symbol_val = key_node.symbol.unescaped;
-                                const symbol_name = symbol_val.source[0..symbol_val.length];
+                                const symbol_name = prismStringSlice(symbol_val);
                                 const symbol_idx = try self.current_chunk.addConstant(.{ .string = symbol_name });
                                 try kw_names.append(self.allocator, @intCast(symbol_idx));
 
@@ -1521,7 +1527,7 @@ pub const Compiler = struct {
                                 const assoc = elem.assoc;
                                 const key_node = try self.parser.asNode(@ptrCast(assoc.key));
                                 const symbol_val = key_node.symbol.unescaped;
-                                const symbol_name = symbol_val.source[0..symbol_val.length];
+                                const symbol_name = prismStringSlice(symbol_val);
                                 const symbol_idx = try self.current_chunk.addConstant(.{ .string = symbol_name });
                                 try kw_names.append(self.allocator, @intCast(symbol_idx));
 
@@ -1597,7 +1603,7 @@ pub const Compiler = struct {
                                         return error.UnsupportedNode;
                                     }
                                     const symbol_val = key_node.symbol.unescaped;
-                                    const symbol_name = symbol_val.source[0..symbol_val.length];
+                                    const symbol_name = prismStringSlice(symbol_val);
                                     const symbol_idx = try self.current_chunk.addConstant(.{ .string = symbol_name });
 
                                     const value_node = try self.parser.asNode(@ptrCast(assoc.value));
@@ -2545,11 +2551,11 @@ pub const Compiler = struct {
     fn compileAliasMethod(self: *Compiler, alias_node: *prism.AliasMethodNode, line: u32) anyerror!void {
         // Both new_name and old_name are SymbolNodes in `alias new_name old_name`
         const new_name_node: *prism.SymbolNode = @ptrCast(alias_node.new_name);
-        const new_name = new_name_node.unescaped.source[0..new_name_node.unescaped.length];
+        const new_name = prismStringSlice(new_name_node.unescaped);
         const new_name_idx = try self.current_chunk.addConstant(.{ .string = new_name });
 
         const old_name_node: *prism.SymbolNode = @ptrCast(alias_node.old_name);
-        const old_name = old_name_node.unescaped.source[0..old_name_node.unescaped.length];
+        const old_name = prismStringSlice(old_name_node.unescaped);
         const old_name_idx = try self.current_chunk.addConstant(.{ .string = old_name });
 
         try self.current_chunk.emitOpU16U16(.ALIAS_METHOD, @intCast(new_name_idx), @intCast(old_name_idx), line);
