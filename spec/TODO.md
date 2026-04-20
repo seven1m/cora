@@ -2149,7 +2149,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/symbol/next_spec.rb
 - [x] core/symbol/size_spec.rb
 - [ ] core/symbol/slice_spec.rb
-- [ ] core/symbol/start_with_spec.rb
+- [x] core/symbol/start_with_spec.rb
 - [ ] core/symbol/succ_spec.rb
 - [ ] core/symbol/swapcase_spec.rb
 - [x] core/symbol/symbol_spec.rb
