@@ -391,9 +391,15 @@ def cora_repo_root
 end
 
 def cora_lib_dir
-  match = `find "#{cora_repo_root}/.zig-cache" -name 'libgc.so.*' -print | head -n 1 | tr -d '\n'`
-  return nil if match.empty?
-  File.dirname(match)
+  patterns = (RUBY_PLATFORM.to_s.include?("darwin") || RUBY_PLATFORM.to_s.include?("macos")) ? ["libgc.*.dylib", "libgc.dylib"] : ["libgc.so.*"]
+  i = 0
+  while i < patterns.length
+    pattern = patterns[i]
+    match = `find "#{cora_repo_root}/.zig-cache" -name '#{pattern}' -print | head -n 1 | tr -d '\n'`
+    return File.dirname(match) unless match.empty?
+    i += 1
+  end
+  nil
 end
 
 def shell_escape(str)
@@ -411,7 +417,11 @@ def ruby_exe(script_path, options: nil, args: nil, exit_status: nil, env: nil)
 
   lib_dir = cora_lib_dir
   if lib_dir
-    command << "LD_LIBRARY_PATH=#{shell_escape(lib_dir)}"
+    if (RUBY_PLATFORM.to_s.include?("darwin") || RUBY_PLATFORM.to_s.include?("macos"))
+      command << "DYLD_LIBRARY_PATH=#{shell_escape(lib_dir)}"
+    else
+      command << "LD_LIBRARY_PATH=#{shell_escape(lib_dir)}"
+    end
   end
 
   command << shell_escape(cora_bin_path)
