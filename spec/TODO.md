@@ -2133,7 +2133,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/symbol/case_compare_spec.rb
 - [ ] core/symbol/casecmp_spec.rb
 - [ ] core/symbol/comparison_spec.rb
-- [ ] core/symbol/downcase_spec.rb
+- [x] core/symbol/downcase_spec.rb
 - [ ] core/symbol/dup_spec.rb
 - [ ] core/symbol/element_reference_spec.rb
 - [x] core/symbol/empty_spec.rb

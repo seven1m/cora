@@ -52,6 +52,9 @@ pub fn register(vm: *VM) !void {
     const end_with_sym = try vm.intern("end_with?");
     try vm.symbol_class.module.methods.put(end_with_sym, .{ .method = .{ .builtin = &builtinSymbolEndWith } });
 
+    const downcase_sym = try vm.intern("downcase");
+    try vm.symbol_class.module.methods.put(downcase_sym, .{ .method = .{ .builtin = &builtinSymbolDowncase } });
+
     const upcase_sym = try vm.intern("upcase");
     try vm.symbol_class.module.methods.put(upcase_sym, .{ .method = .{ .builtin = &builtinSymbolUpcase } });
 }
@@ -138,6 +141,13 @@ pub fn builtinSymbolEndWith(vm: *VM, receiver: Value, args: []Value, block: ?Blo
 pub fn builtinSymbolUpcase(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     const sym = receiver.toSymbolObject();
     const mapped = try string_builtin.mapStringCase(vm, sym.name, sym.encoding, args, .upcase);
+    const mapped_sym = try vm.internWithEncoding(mapped.bytes, mapped.encoding);
+    return Value.fromObject(mapped_sym);
+}
+
+pub fn builtinSymbolDowncase(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const sym = receiver.toSymbolObject();
+    const mapped = try string_builtin.mapStringCase(vm, sym.name, sym.encoding, args, .downcase);
     const mapped_sym = try vm.internWithEncoding(mapped.bytes, mapped.encoding);
     return Value.fromObject(mapped_sym);
 }
