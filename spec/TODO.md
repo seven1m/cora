@@ -2130,7 +2130,7 @@ Source baseline: ../ruby_spec compared to local spec/
 ### core/symbol
 - [ ] core/symbol/all_symbols_spec.rb
 - [x] core/symbol/capitalize_spec.rb
-- [ ] core/symbol/case_compare_spec.rb
+- [x] core/symbol/case_compare_spec.rb
 - [x] core/symbol/casecmp_spec.rb
 - [ ] core/symbol/comparison_spec.rb
 - [x] core/symbol/downcase_spec.rb
