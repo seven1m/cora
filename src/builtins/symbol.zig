@@ -55,6 +55,9 @@ pub fn register(vm: *VM) !void {
     const downcase_sym = try vm.intern("downcase");
     try vm.symbol_class.module.methods.put(downcase_sym, .{ .method = .{ .builtin = &builtinSymbolDowncase } });
 
+    const swapcase_sym = try vm.intern("swapcase");
+    try vm.symbol_class.module.methods.put(swapcase_sym, .{ .method = .{ .builtin = &builtinSymbolSwapcase } });
+
     const upcase_sym = try vm.intern("upcase");
     try vm.symbol_class.module.methods.put(upcase_sym, .{ .method = .{ .builtin = &builtinSymbolUpcase } });
 
@@ -151,6 +154,13 @@ pub fn builtinSymbolUpcase(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 pub fn builtinSymbolDowncase(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     const sym = receiver.toSymbolObject();
     const mapped = try string_builtin.mapStringCase(vm, sym.name, sym.encoding, args, .downcase);
+    const mapped_sym = try vm.internWithEncoding(mapped.bytes, mapped.encoding);
+    return Value.fromObject(mapped_sym);
+}
+
+pub fn builtinSymbolSwapcase(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const sym = receiver.toSymbolObject();
+    const mapped = try string_builtin.mapStringCase(vm, sym.name, sym.encoding, args, .swapcase);
     const mapped_sym = try vm.internWithEncoding(mapped.bytes, mapped.encoding);
     return Value.fromObject(mapped_sym);
 }
