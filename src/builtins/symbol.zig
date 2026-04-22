@@ -49,6 +49,9 @@ pub fn register(vm: *VM) !void {
     const size_sym = try vm.intern("size");
     try vm.symbol_class.module.methods.put(size_sym, .{ .method = .{ .builtin = &builtinSymbolLength } });
 
+    const element_reference_sym = try vm.intern("[]");
+    try vm.symbol_class.module.methods.put(element_reference_sym, .{ .method = .{ .builtin = &builtinSymbolElementReference } });
+
     const empty_sym = try vm.intern("empty?");
     try vm.symbol_class.module.methods.put(empty_sym, .{ .method = .{ .builtin = &builtinSymbolEmpty } });
 
@@ -162,6 +165,25 @@ pub fn builtinSymbolLength(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     try vm.requireArgCount(args, 0);
     const sym = receiver.toSymbolObject();
     return Value.integer(@intCast(sym.encoding.charCount(sym.name)));
+}
+
+pub fn builtinSymbolElementReference(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const sym = receiver.toSymbolObject();
+    var string_view = value.StringObject{
+        .object = .{
+            .type_tag = .string,
+            .flags = 0,
+            .class = vm.string_class,
+            .singleton_class = null,
+            .instance_variables = null,
+        },
+        .str = sym.name,
+        .encoding = sym.encoding,
+        .validity = .unknown,
+        .chilled_literal = false,
+        .symbol_to_s_source = sym,
+    };
+    return string_builtin.builtinStringSlice(vm, Value.fromObject(&string_view), args, null);
 }
 
 pub fn builtinSymbolEmpty(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
