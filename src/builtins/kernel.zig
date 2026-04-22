@@ -247,6 +247,9 @@ pub fn register(vm: *VM) !void {
 
     const exitstatus_sym = try vm.intern("exitstatus");
     try vm.process_status_class.module.methods.put(exitstatus_sym, .{ .method = .{ .builtin = &builtinProcessStatusExitstatus } });
+
+    const fork_sym = try vm.intern("fork");
+    try vm.kernel_module.methods.put(fork_sym, .{ .method = .{ .builtin = &builtinKernelFork } });
 }
 
 pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -1011,4 +1014,42 @@ fn sleepSecondsArg(vm: *VM, arg: Value) VMError!f64 {
     if (arg.isInteger()) return arg.integerToF64();
     if (arg.isFloat()) return arg.toFloatObject().val;
     return vm.raiseExceptionFmt(vm.type_error_class, "can't convert into Float", .{});
+}
+
+pub fn builtinKernelFork(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "fork is not implemented on Windows", .{});
+    }
+
+    // Flush buffered stdout/stderr before forking so both processes start with empty buffers.
+    vm.setupOutput();
+    if (vm.stdout) |out| _ = out.flush() catch {};
+    if (vm.stderr) |err_out| _ = err_out.flush() catch {};
+
+    const rc = std.c.fork();
+    if (rc < 0) {
+        return vm.raiseExceptionFmt(vm.runtime_error_class, "fork failed", .{});
+    }
+
+    if (rc > 0) {
+        // parent
+        return Value.integer(@intCast(rc));
+    }
+
+    // child
+    if (block) |blk| {
+        const result = vm.yieldToBlock(blk, &[_]Value{}) catch {
+            if (vm.stdout) |out| _ = out.flush() catch {};
+            if (vm.stderr) |err_out| _ = err_out.flush() catch {};
+            std.c._exit(1);
+        };
+        _ = result;
+        if (vm.stdout) |out| _ = out.flush() catch {};
+        if (vm.stderr) |err_out| _ = err_out.flush() catch {};
+        std.c._exit(0);
+    }
+
+    return Value.nil();
 }
