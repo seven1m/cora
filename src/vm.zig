@@ -1282,12 +1282,14 @@ pub const VM = struct {
 
     pub fn setupOutput(self: *VM) void {
         if (self.stdout == null) {
-            self.stdout_writer = std.fs.File.stdout().writer(&self.stdout_buffer);
+            // Use streaming mode: stdout is typically a pipe/tty where pwritev
+            // fails (Unseekable), and positional mode handles that poorly across fork().
+            self.stdout_writer = std.fs.File.stdout().writerStreaming(&self.stdout_buffer);
             self.stdout = &self.stdout_writer.?.interface;
         }
 
         if (self.stderr == null) {
-            self.stderr_writer = std.fs.File.stderr().writer(&self.stderr_buffer);
+            self.stderr_writer = std.fs.File.stderr().writerStreaming(&self.stderr_buffer);
             self.stderr = &self.stderr_writer.?.interface;
         }
     }
