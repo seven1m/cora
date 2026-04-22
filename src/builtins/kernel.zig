@@ -146,6 +146,9 @@ pub fn register(vm: *VM) !void {
     const p_sym = try vm.intern("p");
     try vm.kernel_module.methods.put(p_sym, .{ .method = .{ .builtin = &builtinKernelP } });
 
+    const rand_sym = try vm.intern("rand");
+    try vm.kernel_module.methods.put(rand_sym, .{ .method = .{ .builtin = &builtinKernelRand } });
+
     const raise_sym = try vm.intern("raise");
     try vm.kernel_module.methods.put(raise_sym, .{ .method = .{ .builtin = &builtinKernelRaise } });
 
@@ -1023,6 +1026,27 @@ pub fn builtinKernelBacktick(vm: *VM, _: Value, args: []Value, _: ?Block) VMErro
 pub fn builtinProcessStatusExitstatus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return vm.getInstanceVariable(receiver, "@exitstatus");
+}
+
+pub fn builtinKernelRand(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+
+    if (args.len == 0) {
+        const n = std.crypto.random.int(u53);
+        return try vm.newFloat(@as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(std.math.maxInt(u53))));
+    }
+
+    if (!args[0].isInteger()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Integer", .{});
+    }
+
+    const limit = args[0].toInteger();
+    if (limit <= 0) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "invalid argument - {d}", .{limit});
+    }
+
+    const random_value = std.crypto.random.intRangeLessThan(u64, 0, @intCast(limit));
+    return Value.integer(@intCast(random_value));
 }
 
 fn sleepSecondsArg(vm: *VM, arg: Value) VMError!f64 {

@@ -10,6 +10,12 @@ const Block = vm_mod.Block;
 const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
+    const symbol_class_val = Value.fromObject(vm.symbol_class);
+    const symbol_singleton = try vm.getOrCreateSingletonClass(symbol_class_val);
+
+    const all_symbols_sym = try vm.intern("all_symbols");
+    try symbol_singleton.module.methods.put(all_symbols_sym, .{ .method = .{ .builtin = &builtinSymbolAllSymbols } });
+
     const equal_sym = try vm.intern("==");
     try vm.symbol_class.module.methods.put(equal_sym, .{ .method = .{ .builtin = &builtinSymbolEqual } });
 
@@ -96,6 +102,18 @@ pub fn register(vm: *VM) !void {
 
     const casecmp_q_sym = try vm.intern("casecmp?");
     try vm.symbol_class.module.methods.put(casecmp_q_sym, .{ .method = .{ .builtin = &builtinSymbolCasecmpQ } });
+}
+
+pub fn builtinSymbolAllSymbols(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
+    const out = try vm.createArray();
+    var it = vm.symbols.valueIterator();
+    while (it.next()) |symbol_obj| {
+        out.elements.append(vm.gc_allocator, Value.fromObject(symbol_obj.*)) catch return error.Fatal;
+    }
+
+    return Value.fromObject(out);
 }
 
 pub fn builtinSymbolEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

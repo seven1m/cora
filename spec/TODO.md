@@ -2128,7 +2128,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/struct/values_spec.rb
 
 ### core/symbol
-- [ ] core/symbol/all_symbols_spec.rb
+- [x] core/symbol/all_symbols_spec.rb
 - [x] core/symbol/capitalize_spec.rb
 - [x] core/symbol/case_compare_spec.rb
 - [x] core/symbol/casecmp_spec.rb

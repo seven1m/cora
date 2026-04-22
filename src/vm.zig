@@ -1006,6 +1006,7 @@ pub const VM = struct {
         self.zio_main_context = undefined;
 
         try self.buildProgramCallsiteDescriptors();
+        try self.internProgramLiteralSymbols();
         try self.captureMainGcStackBase();
         self.registerVmRootForGc();
     }
@@ -1639,6 +1640,41 @@ pub const VM = struct {
         var chunk_iter = self.program.child_chunks.valueIterator();
         while (chunk_iter.next()) |chunk_ptr| {
             try self.buildChunkCallsiteDescriptors(chunk_ptr.*);
+        }
+    }
+
+    fn internLiteralSymbolsInChunk(self: *VM, ch: *Chunk) VMError!void {
+        if (ch.code.items.len == 0) return;
+
+        var ip: usize = 0;
+        while (ip < ch.code.items.len) {
+            const op: bytecode.OpCode = @enumFromInt(ch.code.items[ip]);
+            const operands = ch.code.items[ip + 1 ..];
+            if (op == .PUSH_SYMBOL) {
+                const idx = readU16At(operands, 0);
+                if (idx >= ch.constants.items.len) return error.Fatal;
+                switch (ch.constants.items[idx]) {
+                    .string => |name| {
+                        const symbol_encoding = literalSymbolEncodingForChunk(ch.source_encoding, name);
+                        _ = try self.internWithEncoding(name, symbol_encoding);
+                    },
+                    .encoded_string => |name| {
+                        _ = try self.internWithEncoding(name.bytes, name.encoding);
+                    },
+                    .symbol => {},
+                    else => return error.Fatal,
+                }
+            }
+            ip += 1 + bytecode.opcodeOperandSize(op);
+        }
+    }
+
+    fn internProgramLiteralSymbols(self: *VM) VMError!void {
+        try self.internLiteralSymbolsInChunk(&self.program.main_chunk);
+
+        var chunk_iter = self.program.child_chunks.valueIterator();
+        while (chunk_iter.next()) |chunk_ptr| {
+            try self.internLiteralSymbolsInChunk(chunk_ptr.*);
         }
     }
 
