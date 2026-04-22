@@ -74,6 +74,9 @@ pub fn register(vm: *VM) !void {
 
     const directory_sym = try vm.intern("directory?");
     try file_singleton.module.methods.put(directory_sym, .{ .method = .{ .builtin = &builtinFileDirectory } });
+
+    const file_sym = try vm.intern("file?");
+    try file_singleton.module.methods.put(file_sym, .{ .method = .{ .builtin = &builtinFileFile } });
 }
 
 fn parseMode(vm: *VM, mode_str: []const u8) VMError!FileMode {
@@ -424,4 +427,19 @@ pub fn builtinFileDirectory(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
     var dir = std.fs.cwd().openDir(path, .{}) catch return Value.boolean(false);
     defer dir.close();
     return Value.boolean(true);
+}
+
+pub fn builtinFileFile(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "File.file? is not implemented on Windows", .{});
+    }
+
+    const path = try vm.coerceToPath(args[0], "no implicit conversion into String");
+    const path_z = try vm.allocCStringZ(path);
+    defer vm.allocator.free(path_z);
+    var st: std.posix.Stat = undefined;
+    const rc = std.c.stat(path_z.ptr, &st);
+    if (rc != 0) return Value.boolean(false);
+    return Value.boolean(std.posix.S.ISREG(st.mode));
 }
