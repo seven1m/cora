@@ -91,6 +91,7 @@ pub fn build(b: *std.Build) void {
     const bdwgc = b.dependency("bdwgc_zig", .{
         .target = target,
         .optimize = optimize,
+        .linkage = .static,
     });
     const zio = b.dependency("zio", .{
         .target = target,
