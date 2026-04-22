@@ -34,6 +34,9 @@ pub fn register(vm: *VM) !void {
     const inspect_sym = try vm.intern("inspect");
     try vm.symbol_class.module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinSymbolInspect } });
 
+    const dup_sym = try vm.intern("dup");
+    try vm.symbol_class.module.methods.put(dup_sym, .{ .method = .{ .builtin = &builtinSymbolDup } });
+
     const to_proc_sym = try vm.intern("to_proc");
     try vm.symbol_class.module.methods.put(to_proc_sym, .{ .method = .{ .builtin = &builtinSymbolToProc } });
 
@@ -124,6 +127,11 @@ pub fn builtinSymbolInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 
     const str = std.fmt.allocPrint(vm.gc_allocator, ":{s}", .{inspected}) catch return error.Fatal;
     return try vm.newStringWithEncoding(str, false, target_encoding);
+}
+
+pub fn builtinSymbolDup(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return receiver;
 }
 
 pub fn builtinSymbolToSym(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
