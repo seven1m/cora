@@ -61,6 +61,9 @@ pub fn register(vm: *VM) !void {
     const succ_sym = try vm.intern("succ");
     try vm.symbol_class.module.methods.put(succ_sym, .{ .method = .{ .builtin = &builtinSymbolSucc } });
 
+    const next_sym = try vm.intern("next");
+    try vm.symbol_class.module.methods.put(next_sym, .{ .method = .{ .builtin = &builtinSymbolSucc } });
+
     const downcase_sym = try vm.intern("downcase");
     try vm.symbol_class.module.methods.put(downcase_sym, .{ .method = .{ .builtin = &builtinSymbolDowncase } });
 
