@@ -711,7 +711,7 @@ pub fn builtinStringCompare(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     return Value.nil();
 }
 
-fn compareStringObjects(lhs: *const value.StringObject, rhs: *const value.StringObject) Value {
+pub fn compareStringObjects(lhs: *const value.StringObject, rhs: *const value.StringObject) Value {
     const order = std.mem.order(u8, lhs.str, rhs.str);
     if (order == .lt) return Value.integer(-1);
     if (order == .gt) return Value.integer(1);

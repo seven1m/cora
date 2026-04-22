@@ -13,6 +13,9 @@ pub fn register(vm: *VM) !void {
     const equal_sym = try vm.intern("==");
     try vm.symbol_class.module.methods.put(equal_sym, .{ .method = .{ .builtin = &builtinSymbolEqual } });
 
+    const compare_sym = try vm.intern("<=>");
+    try vm.symbol_class.module.methods.put(compare_sym, .{ .method = .{ .builtin = &builtinSymbolCompare } });
+
     const to_s_sym = try vm.intern("to_s");
     try vm.symbol_class.module.methods.put(to_s_sym, .{ .method = .{ .builtin = &builtinSymbolToS } });
 
@@ -76,6 +79,26 @@ pub fn builtinSymbolEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     const other = args[0];
     if (!other.isSymbol()) return Value.boolean(false);
     return Value.boolean(receiver.toSymbolObject() == other.toSymbolObject());
+}
+
+pub fn builtinSymbolCompare(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const other = args[0];
+    if (!other.isSymbol()) return Value.nil();
+
+    const lhs = receiver.toSymbolObject();
+    const rhs = other.toSymbolObject();
+    const lhs_string = value.StringObject{
+        .object = undefined,
+        .str = lhs.name,
+        .encoding = lhs.encoding,
+    };
+    const rhs_string = value.StringObject{
+        .object = undefined,
+        .str = rhs.name,
+        .encoding = rhs.encoding,
+    };
+    return string_builtin.compareStringObjects(&lhs_string, &rhs_string);
 }
 
 pub fn builtinSymbolToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
