@@ -34,6 +34,15 @@ pub fn register(vm: *VM) !void {
     const inspect_sym = try vm.intern("inspect");
     try vm.symbol_class.module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinSymbolInspect } });
 
+    const match_op_sym = try vm.intern("=~");
+    try vm.symbol_class.module.methods.put(match_op_sym, .{ .method = .{ .builtin = &builtinSymbolMatchOp } });
+
+    const match_sym = try vm.intern("match");
+    try vm.symbol_class.module.methods.put(match_sym, .{ .method = .{ .builtin = &builtinSymbolMatch } });
+
+    const match_q_sym = try vm.intern("match?");
+    try vm.symbol_class.module.methods.put(match_q_sym, .{ .method = .{ .builtin = &builtinSymbolMatchQ } });
+
     const dup_sym = try vm.intern("dup");
     try vm.symbol_class.module.methods.put(dup_sym, .{ .method = .{ .builtin = &builtinSymbolIdentity } });
 
@@ -141,6 +150,23 @@ pub fn builtinSymbolInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     return try vm.newStringWithEncoding(str, false, target_encoding);
 }
 
+fn symbolStringView(vm: *VM, sym: *value.SymbolObject) value.StringObject {
+    return .{
+        .object = .{
+            .type_tag = .string,
+            .flags = 0,
+            .class = vm.string_class,
+            .singleton_class = null,
+            .instance_variables = null,
+        },
+        .str = sym.name,
+        .encoding = sym.encoding,
+        .validity = .unknown,
+        .chilled_literal = false,
+        .symbol_to_s_source = sym,
+    };
+}
+
 pub fn builtinSymbolIdentity(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return receiver;
@@ -172,20 +198,7 @@ pub fn builtinSymbolLength(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 
 pub fn builtinSymbolElementReference(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     const sym = receiver.toSymbolObject();
-    var string_view = value.StringObject{
-        .object = .{
-            .type_tag = .string,
-            .flags = 0,
-            .class = vm.string_class,
-            .singleton_class = null,
-            .instance_variables = null,
-        },
-        .str = sym.name,
-        .encoding = sym.encoding,
-        .validity = .unknown,
-        .chilled_literal = false,
-        .symbol_to_s_source = sym,
-    };
+    var string_view = symbolStringView(vm, sym);
     return string_builtin.builtinStringSlice(vm, Value.fromObject(&string_view), args, null);
 }
 
@@ -205,6 +218,25 @@ pub fn builtinSymbolEndWith(vm: *VM, receiver: Value, args: []Value, block: ?Blo
     _ = block;
     const sym = receiver.toSymbolObject();
     return string_builtin.stringLikeEndWith(vm, sym.name, sym.encoding, args);
+}
+
+pub fn builtinSymbolMatchOp(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    const sym = receiver.toSymbolObject();
+    var string_view = symbolStringView(vm, sym);
+    return string_builtin.builtinStringMatchOp(vm, Value.fromObject(&string_view), args, block);
+}
+
+pub fn builtinSymbolMatch(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    const sym = receiver.toSymbolObject();
+    var string_view = symbolStringView(vm, sym);
+    return string_builtin.builtinStringMatch(vm, Value.fromObject(&string_view), args, block);
+}
+
+pub fn builtinSymbolMatchQ(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    _ = block;
+    const sym = receiver.toSymbolObject();
+    var string_view = symbolStringView(vm, sym);
+    return string_builtin.builtinStringMatchQ(vm, Value.fromObject(&string_view), args, null);
 }
 
 pub fn builtinSymbolSucc(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
