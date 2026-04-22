@@ -52,6 +52,9 @@ pub fn register(vm: *VM) !void {
     const element_reference_sym = try vm.intern("[]");
     try vm.symbol_class.module.methods.put(element_reference_sym, .{ .method = .{ .builtin = &builtinSymbolElementReference } });
 
+    const slice_sym = try vm.intern("slice");
+    try vm.symbol_class.module.methods.put(slice_sym, .{ .method = .{ .builtin = &builtinSymbolElementReference } });
+
     const empty_sym = try vm.intern("empty?");
     try vm.symbol_class.module.methods.put(empty_sym, .{ .method = .{ .builtin = &builtinSymbolEmpty } });
 
