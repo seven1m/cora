@@ -2842,7 +2842,7 @@ fn insertByteAt(vm: *VM, bytes: []const u8, at: usize, byte: u8) VMError![]u8 {
     return out;
 }
 
-fn stringNextBytes(vm: *VM, bytes: []const u8) VMError![]u8 {
+pub fn stringNextBytes(vm: *VM, bytes: []const u8) VMError![]u8 {
     const out = vm.gc_allocator_atomic.dupe(u8, bytes) catch return error.Fatal;
     if (out.len == 0) return out;
 
