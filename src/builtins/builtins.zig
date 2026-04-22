@@ -29,6 +29,7 @@ const thread = @import("thread.zig");
 const warning = @import("warning.zig");
 const range = @import("range.zig");
 const regexp = @import("regexp.zig");
+const socket = @import("socket.zig");
 const string = @import("string.zig");
 const symbol = @import("symbol.zig");
 const true_class = @import("true_class.zig");
@@ -55,6 +56,7 @@ pub fn registerAll(vm: *VM) !void {
     try thread.register(vm);
     try range.register(vm);
     try regexp.register(vm);
+    try socket.register(vm);
     try match_data.register(vm);
     try string.register(vm);
     try symbol.register(vm);

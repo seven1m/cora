@@ -256,6 +256,21 @@ pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
     try vm.requireArgCount(args, 1);
     const feature = try vm.coerceToPath(args[0], "no implicit conversion into String");
 
+    // Builtin libraries whose classes are registered at VM startup:
+    // `require 'name'` is a no-op after the first call, matching Ruby's "already loaded" semantics.
+    const builtin_libs = [_][]const u8{"socket"};
+    for (builtin_libs) |lib| {
+        if (std.mem.eql(u8, feature, lib)) {
+            const key = vm.allocator.dupe(u8, lib) catch return error.Fatal;
+            if (vm.loaded_files.contains(key)) {
+                vm.allocator.free(key);
+                return Value.boolean(false);
+            }
+            vm.loaded_files.put(key, {}) catch return error.Fatal;
+            return Value.boolean(true);
+        }
+    }
+
     const absolute_path = vm.searchLoadPath(feature) catch {
         const msg = std.fmt.allocPrint(vm.allocator, "cannot load such file -- {s}", .{feature}) catch return error.Fatal;
         const exc = vm.createException(vm.load_error_class, msg) catch return error.Fatal;
