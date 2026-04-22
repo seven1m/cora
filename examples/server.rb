@@ -40,6 +40,7 @@ pids = []
       while (h = client.gets) && h != "\r\n"
       end
 
+      target = target.split('?', 2).first
       target = '/index.html' if target == '/'
       path = ROOT + target
 
