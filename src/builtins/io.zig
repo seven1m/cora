@@ -32,6 +32,31 @@ pub fn register(vm: *VM) !void {
 
     const fileno_sym = try vm.intern("fileno");
     try vm.io_class.module.methods.put(fileno_sym, .{ .method = .{ .builtin = &builtinIoFileno } });
+
+    const gets_sym = try vm.intern("gets");
+    try vm.io_class.module.methods.put(gets_sym, .{ .method = .{ .builtin = &builtinIoGets } });
+}
+
+pub fn builtinIoGets(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const io = try requireIoReceiver(vm, receiver);
+    try ensureIoReadable(vm, io);
+
+    const fd: std.posix.fd_t = @intCast(io.fd);
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(vm.allocator);
+
+    var byte: [1]u8 = undefined;
+    while (true) {
+        const n = std.posix.read(fd, &byte) catch return vm.raiseExceptionFmt(vm.io_error_class, "read failed", .{});
+        if (n == 0) {
+            if (out.items.len == 0) return Value.nil();
+            break;
+        }
+        out.append(vm.allocator, byte[0]) catch return error.Fatal;
+        if (byte[0] == '\n') break;
+    }
+    return vm.newString(out.items, false);
 }
 
 fn requireIoReceiver(vm: *VM, receiver: Value) VMError!*IoObject {
