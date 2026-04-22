@@ -23,10 +23,10 @@ pub fn register(vm: *VM) !void {
     try vm.symbol_class.module.methods.put(id2name_sym, .{ .method = .{ .builtin = &builtinSymbolToS } });
 
     const to_sym_sym = try vm.intern("to_sym");
-    try vm.symbol_class.module.methods.put(to_sym_sym, .{ .method = .{ .builtin = &builtinSymbolToSym } });
+    try vm.symbol_class.module.methods.put(to_sym_sym, .{ .method = .{ .builtin = &builtinSymbolIdentity } });
 
     const intern_sym = try vm.intern("intern");
-    try vm.symbol_class.module.methods.put(intern_sym, .{ .method = .{ .builtin = &builtinSymbolToSym } });
+    try vm.symbol_class.module.methods.put(intern_sym, .{ .method = .{ .builtin = &builtinSymbolIdentity } });
 
     const name_sym = try vm.intern("name");
     try vm.symbol_class.module.methods.put(name_sym, .{ .method = .{ .builtin = &builtinSymbolName } });
@@ -35,7 +35,7 @@ pub fn register(vm: *VM) !void {
     try vm.symbol_class.module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinSymbolInspect } });
 
     const dup_sym = try vm.intern("dup");
-    try vm.symbol_class.module.methods.put(dup_sym, .{ .method = .{ .builtin = &builtinSymbolDup } });
+    try vm.symbol_class.module.methods.put(dup_sym, .{ .method = .{ .builtin = &builtinSymbolIdentity } });
 
     const to_proc_sym = try vm.intern("to_proc");
     try vm.symbol_class.module.methods.put(to_proc_sym, .{ .method = .{ .builtin = &builtinSymbolToProc } });
@@ -129,12 +129,7 @@ pub fn builtinSymbolInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     return try vm.newStringWithEncoding(str, false, target_encoding);
 }
 
-pub fn builtinSymbolDup(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 0);
-    return receiver;
-}
-
-pub fn builtinSymbolToSym(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+pub fn builtinSymbolIdentity(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return receiver;
 }
@@ -182,29 +177,29 @@ pub fn builtinSymbolEndWith(vm: *VM, receiver: Value, args: []Value, block: ?Blo
 }
 
 pub fn builtinSymbolUpcase(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    const sym = receiver.toSymbolObject();
-    const mapped = try string_builtin.mapStringCase(vm, sym.name, sym.encoding, args, .upcase);
-    const mapped_sym = try vm.internWithEncoding(mapped.bytes, mapped.encoding);
-    return Value.fromObject(mapped_sym);
+    return mapSymbolCase(vm, receiver, args, .upcase);
 }
 
 pub fn builtinSymbolDowncase(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    const sym = receiver.toSymbolObject();
-    const mapped = try string_builtin.mapStringCase(vm, sym.name, sym.encoding, args, .downcase);
-    const mapped_sym = try vm.internWithEncoding(mapped.bytes, mapped.encoding);
-    return Value.fromObject(mapped_sym);
+    return mapSymbolCase(vm, receiver, args, .downcase);
 }
 
 pub fn builtinSymbolSwapcase(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    const sym = receiver.toSymbolObject();
-    const mapped = try string_builtin.mapStringCase(vm, sym.name, sym.encoding, args, .swapcase);
-    const mapped_sym = try vm.internWithEncoding(mapped.bytes, mapped.encoding);
-    return Value.fromObject(mapped_sym);
+    return mapSymbolCase(vm, receiver, args, .swapcase);
 }
 
 pub fn builtinSymbolCapitalize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    return mapSymbolCase(vm, receiver, args, .capitalize);
+}
+
+fn mapSymbolCase(
+    vm: *VM,
+    receiver: Value,
+    args: []Value,
+    operation: string_builtin.CaseOperation,
+) VMError!Value {
     const sym = receiver.toSymbolObject();
-    const mapped = try string_builtin.mapStringCase(vm, sym.name, sym.encoding, args, .capitalize);
+    const mapped = try string_builtin.mapStringCase(vm, sym.name, sym.encoding, args, operation);
     const mapped_sym = try vm.internWithEncoding(mapped.bytes, mapped.encoding);
     return Value.fromObject(mapped_sym);
 }

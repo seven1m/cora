@@ -3973,7 +3973,7 @@ fn encodeCodepointForEncoding(vm: *VM, cp: i64, encoding: enc.Encoding, out: *[4
     return out[0..len];
 }
 
-const CaseOperation = enum {
+pub const CaseOperation = enum {
     upcase,
     downcase,
     swapcase,
