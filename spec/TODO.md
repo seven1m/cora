@@ -1226,7 +1226,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/kernel/load_spec.rb
 - [ ] core/kernel/local_variables_spec.rb
 - [ ] core/kernel/loop_spec.rb
-- [ ] core/kernel/match_spec.rb
+- [x] core/kernel/match_spec.rb
 - [ ] core/kernel/method_spec.rb
 - [ ] core/kernel/methods_spec.rb
 - [x] core/kernel/nil_spec.rb
