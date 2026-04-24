@@ -1189,7 +1189,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/kernel/catch_spec.rb
 - [ ] core/kernel/chomp_spec.rb
 - [ ] core/kernel/chop_spec.rb
-- [ ] core/kernel/class_spec.rb
+- [x] core/kernel/class_spec.rb
 - [ ] core/kernel/clone_spec.rb
 - [ ] core/kernel/comparison_spec.rb
 - [ ] core/kernel/define_singleton_method_spec.rb
