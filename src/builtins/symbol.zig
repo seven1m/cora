@@ -130,16 +130,8 @@ pub fn builtinSymbolCompare(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 
     const lhs = receiver.toSymbolObject();
     const rhs = other.toSymbolObject();
-    const lhs_string = value.StringObject{
-        .object = undefined,
-        .str = lhs.name,
-        .encoding = lhs.encoding,
-    };
-    const rhs_string = value.StringObject{
-        .object = undefined,
-        .str = rhs.name,
-        .encoding = rhs.encoding,
-    };
+    var lhs_string = symbolStringView(vm, lhs);
+    var rhs_string = symbolStringView(vm, rhs);
     return string_builtin.compareStringObjects(&lhs_string, &rhs_string);
 }
 
@@ -294,16 +286,8 @@ fn mapSymbolCase(
 }
 
 fn symbolCasecmpOrder(vm: *VM, lhs: *const value.SymbolObject, rhs: *const value.SymbolObject, fold: bool) VMError!?i64 {
-    const lhs_string = value.StringObject{
-        .object = undefined,
-        .str = lhs.name,
-        .encoding = lhs.encoding,
-    };
-    const rhs_string = value.StringObject{
-        .object = undefined,
-        .str = rhs.name,
-        .encoding = rhs.encoding,
-    };
+    var lhs_string = symbolStringView(vm, @constCast(lhs));
+    var rhs_string = symbolStringView(vm, @constCast(rhs));
     return string_builtin.casecmpOrder(vm, &lhs_string, &rhs_string, fold);
 }
 
