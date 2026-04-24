@@ -186,6 +186,30 @@ fn coerceFillIndex(vm: *VM, value_to_coerce: Value) VMError!i64 {
     );
 }
 
+fn coerceFetchIndex(vm: *VM, value_to_coerce: Value) VMError!i64 {
+    if (value_to_coerce.isInteger() or value_to_coerce.isBigInteger()) {
+        return value_to_coerce.integerToI64(vm, "bignum too big to convert into `long`");
+    }
+
+    const maybe_index = try vm.checkCallMethodByName(value_to_coerce, "to_int", false, &[_]Value{}, null);
+    const coerced = maybe_index orelse {
+        return vm.raiseExceptionFmt(
+            vm.type_error_class,
+            "no implicit conversion of {s} into Integer",
+            .{vm.className(value_to_coerce)},
+        );
+    };
+    if (!coerced.isInteger() and !coerced.isBigInteger()) {
+        return vm.raiseExceptionFmt(
+            vm.type_error_class,
+            "can't convert {s} to Integer ({s}#to_int gives {s})",
+            .{ vm.className(value_to_coerce), vm.className(value_to_coerce), vm.className(coerced) },
+        );
+    }
+
+    return coerced.integerToI64(vm, "bignum too big to convert into `long`");
+}
+
 fn planArrayFillFromStartLength(
     vm: *VM,
     array_len: i64,
@@ -366,6 +390,9 @@ pub fn register(vm: *VM) !void {
 
     const at_sym = try vm.intern("at");
     try vm.array_class.module.methods.put(at_sym, .{ .method = .{ .builtin = &builtinArrayAt } });
+
+    const fetch_sym = try vm.intern("fetch");
+    try vm.array_class.module.methods.put(fetch_sym, .{ .method = .{ .builtin = &builtinArrayFetch } });
 
     const assoc_sym = try vm.intern("assoc");
     try vm.array_class.module.methods.put(assoc_sym, .{ .method = .{ .builtin = &builtinArrayAssoc } });
@@ -1481,6 +1508,41 @@ pub fn builtinArrayAt(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
 
     if (actual_index < 0 or actual_index >= len) {
         return Value.nil();
+    }
+
+    return array.elements.items[@intCast(actual_index)];
+}
+
+pub fn builtinArrayFetch(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+
+    if (args.len == 2 and block != null) {
+        try warning_builtin.writeWarning(vm, "warning: block supersedes default value argument\n");
+    }
+
+    const index_value = args[0];
+    const index = try coerceFetchIndex(vm, index_value);
+
+    const array = receiver.toArrayObject();
+    const len: i64 = @intCast(array.elements.items.len);
+    var actual_index = index;
+    if (actual_index < 0) actual_index += len;
+
+    if (actual_index < 0 or actual_index >= len) {
+        if (block) |blk| {
+            const yielded = try vm.yieldToBlock(blk, &[_]Value{index_value});
+            if (yielded.break_occurred) return yielded.value;
+            return yielded.value;
+        }
+
+        if (args.len == 2) return args[1];
+
+        const lower_bound: i64 = if (len == 0) 0 else -len;
+        return vm.raiseExceptionFmt(
+            vm.index_error_class,
+            "index {d} outside of array bounds: {d}...{d}",
+            .{ index, lower_bound, len },
+        );
     }
 
     return array.elements.items[@intCast(actual_index)];
