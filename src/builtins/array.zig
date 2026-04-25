@@ -355,6 +355,12 @@ pub fn register(vm: *VM) !void {
     const collect_bang_sym = try vm.intern("collect!");
     try vm.array_class.module.methods.put(collect_bang_sym, .{ .method = .{ .builtin = &builtinArrayCollectBang } });
 
+    const compact_sym = try vm.intern("compact");
+    try vm.array_class.module.methods.put(compact_sym, .{ .method = .{ .builtin = &builtinArrayCompact } });
+
+    const compact_bang_sym = try vm.intern("compact!");
+    try vm.array_class.module.methods.put(compact_bang_sym, .{ .method = .{ .builtin = &builtinArrayCompactBang } });
+
     const select_sym = try vm.intern("select");
     try vm.array_class.module.methods.put(select_sym, .{ .method = .{ .builtin = &builtinArraySelect } });
 
@@ -1174,6 +1180,45 @@ pub fn builtinArraySelectBang(vm: *VM, receiver: Value, args: []Value, block: ?B
     }
 
     return try arraySelectBangFinalize(vm, receiver, array, processed_len, kept_len);
+}
+
+pub fn builtinArrayCompact(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
+    const source = receiver.toArrayObject();
+    const out = try vm.createArray();
+    for (source.elements.items) |element| {
+        if (!element.isNil()) {
+            out.elements.append(vm.gc_allocator, element) catch return error.Fatal;
+        }
+    }
+
+    return Value.fromObject(out);
+}
+
+pub fn builtinArrayCompactBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
+    }
+
+    const array = receiver.toArrayObject();
+    var write_idx: usize = 0;
+    for (array.elements.items, 0..) |element, read_idx| {
+        if (!element.isNil()) {
+            if (write_idx != read_idx) {
+                array.elements.items[write_idx] = element;
+            }
+            write_idx += 1;
+        }
+    }
+
+    if (write_idx == array.elements.items.len) {
+        return Value.nil();
+    }
+
+    array.elements.items.len = write_idx;
+    return receiver;
 }
 
 pub fn builtinArrayAny(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
