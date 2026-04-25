@@ -443,6 +443,12 @@ pub fn register(vm: *VM) !void {
     const sort_sym = try vm.intern("sort");
     try vm.array_class.module.methods.put(sort_sym, .{ .method = .{ .builtin = &builtinArraySort } });
 
+    const reverse_sym = try vm.intern("reverse");
+    try vm.array_class.module.methods.put(reverse_sym, .{ .method = .{ .builtin = &builtinArrayReverse } });
+
+    const reverse_bang_sym = try vm.intern("reverse!");
+    try vm.array_class.module.methods.put(reverse_bang_sym, .{ .method = .{ .builtin = &builtinArrayReverseBang } });
+
     const pack_sym = try vm.intern("pack");
     try vm.array_class.module.methods.put(pack_sym, .{ .method = .{ .builtin = &builtinArrayPack } });
 
@@ -1978,6 +1984,28 @@ pub fn builtinArraySort(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
     }
 
     return Value.fromObject(result);
+}
+
+pub fn builtinArrayReverse(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
+    const source = receiver.toArrayObject();
+    const out = try vm.createArray();
+    out.elements.appendSlice(vm.gc_allocator, source.elements.items) catch return error.Fatal;
+    std.mem.reverse(Value, out.elements.items);
+
+    return Value.fromObject(out);
+}
+
+pub fn builtinArrayReverseBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
+    }
+
+    const array = receiver.toArrayObject();
+    std.mem.reverse(Value, array.elements.items);
+    return receiver;
 }
 
 pub fn builtinArrayPack(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
