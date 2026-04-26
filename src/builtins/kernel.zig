@@ -1064,6 +1064,43 @@ fn sleepSecondsArg(vm: *VM, arg: Value) VMError!f64 {
     return vm.raiseExceptionFmt(vm.type_error_class, "can't convert into Float", .{});
 }
 
+fn flushForkChildOutputs(vm: *VM) void {
+    if (vm.stdout) |out| _ = out.flush() catch {};
+    if (vm.stderr) |err_out| _ = err_out.flush() catch {};
+}
+
+fn exitForkChild(vm: *VM, status: u8) noreturn {
+    flushForkChildOutputs(vm);
+    std.c._exit(status);
+}
+
+fn finishForkChild(vm: *VM, block_err: ?anyerror) noreturn {
+    const at_exit_result = vm.runAtExitHandlers();
+    if (at_exit_result) |_| {
+        // at_exit handlers completed
+    } else |err| switch (err) {
+        error.UnhandledException => {
+            vm.printUnhandledException();
+            exitForkChild(vm, 1);
+        },
+        else => exitForkChild(vm, 1),
+    }
+
+    if (block_err) |err| {
+        switch (err) {
+            error.Unwind, error.UnhandledException => {
+                if (vm.pending_exception != null) {
+                    vm.printUnhandledException();
+                }
+            },
+            else => {},
+        }
+        exitForkChild(vm, 1);
+    }
+
+    exitForkChild(vm, 0);
+}
+
 pub fn builtinKernelFork(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
 
@@ -1088,15 +1125,11 @@ pub fn builtinKernelFork(vm: *VM, _: Value, args: []Value, block: ?Block) VMErro
 
     // child
     if (block) |blk| {
-        const result = vm.yieldToBlock(blk, &[_]Value{}) catch {
-            if (vm.stdout) |out| _ = out.flush() catch {};
-            if (vm.stderr) |err_out| _ = err_out.flush() catch {};
-            std.c._exit(1);
+        const result = vm.yieldToBlock(blk, &[_]Value{}) catch |err| {
+            finishForkChild(vm, err);
         };
         _ = result;
-        if (vm.stdout) |out| _ = out.flush() catch {};
-        if (vm.stderr) |err_out| _ = err_out.flush() catch {};
-        std.c._exit(0);
+        finishForkChild(vm, null);
     }
 
     return Value.nil();
