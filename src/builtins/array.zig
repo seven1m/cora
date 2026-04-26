@@ -306,6 +306,9 @@ pub fn register(vm: *VM) !void {
     const each_with_index_sym = try vm.intern("each_with_index");
     try vm.array_class.module.methods.put(each_with_index_sym, .{ .method = .{ .builtin = &builtinArrayEachWithIndex } });
 
+    const each_index_sym = try vm.intern("each_index");
+    try vm.array_class.module.methods.put(each_index_sym, .{ .method = .{ .builtin = &builtinArrayEachIndex } });
+
     const bracket_sym = try vm.intern("[]");
     try vm.array_class.module.methods.put(bracket_sym, .{ .method = .{ .builtin = &builtinArrayBracket } });
 
@@ -1025,6 +1028,29 @@ pub fn builtinArrayEachWithIndex(vm: *VM, receiver: Value, args: []Value, block:
 
     for (array_obj.elements.items, 0..) |element, idx| {
         const yield_args = [_]Value{ element, Value.integer(@intCast(idx)) };
+        const result = try vm.yieldToBlock(blk, &yield_args);
+        if (result.non_local_return_occurred) {
+            return result.value;
+        }
+        if (result.break_occurred) {
+            return result.value;
+        }
+    }
+
+    return receiver;
+}
+
+pub fn builtinArrayEachIndex(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const blk = block orelse {
+        const size_value = Value.integer(@intCast(receiver.toArrayObject().elements.items.len));
+        return try vm.createMethodEnumeratorWithSize(receiver, try vm.intern("each_index"), &.{}, size_value);
+    };
+    const array_obj = receiver.toArrayObject();
+
+    var idx: usize = 0;
+    while (idx < array_obj.elements.items.len) : (idx += 1) {
+        const yield_args = [_]Value{Value.integer(@intCast(idx))};
         const result = try vm.yieldToBlock(blk, &yield_args);
         if (result.non_local_return_occurred) {
             return result.value;
