@@ -319,6 +319,9 @@ pub fn register(vm: *VM) !void {
     const each_sym = try vm.intern("each");
     try vm.array_class.module.methods.put(each_sym, .{ .method = .{ .builtin = &builtinArrayEach } });
 
+    const reverse_each_sym = try vm.intern("reverse_each");
+    try vm.array_class.module.methods.put(reverse_each_sym, .{ .method = .{ .builtin = &builtinArrayReverseEach } });
+
     const each_with_index_sym = try vm.intern("each_with_index");
     try vm.array_class.module.methods.put(each_with_index_sym, .{ .method = .{ .builtin = &builtinArrayEachWithIndex } });
 
@@ -989,6 +992,31 @@ pub fn builtinArrayEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
 
     var idx: usize = 0;
     while (idx < array_obj.elements.items.len) : (idx += 1) {
+        const element = array_obj.elements.items[idx];
+        const yield_args = [_]Value{element};
+        const result = try vm.yieldToBlock(blk, &yield_args);
+        if (result.non_local_return_occurred) {
+            return result.value;
+        }
+        if (result.break_occurred) {
+            return result.value;
+        }
+    }
+
+    return receiver;
+}
+
+pub fn builtinArrayReverseEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const blk = block orelse {
+        const size_value = Value.integer(@intCast(receiver.toArrayObject().elements.items.len));
+        return try vm.createMethodEnumeratorWithSize(receiver, try vm.intern("reverse_each"), &.{}, size_value);
+    };
+    const array_obj = receiver.toArrayObject();
+
+    var idx = array_obj.elements.items.len;
+    while (idx > 0) {
+        idx -= 1;
         const element = array_obj.elements.items[idx];
         const yield_args = [_]Value{element};
         const result = try vm.yieldToBlock(blk, &yield_args);
