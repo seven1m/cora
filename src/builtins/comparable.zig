@@ -14,6 +14,11 @@ const ComparableOp = enum {
     greater_than_or_equal,
 };
 
+const ComparisonMode = enum {
+    ordered,
+    equality,
+};
+
 fn comparableComparisonFailed(vm: *VM, receiver: Value, other: Value) VMError!void {
     const inspected_other = try other.inspect(vm);
     vm.pending_exception = try vm.createException(
@@ -30,6 +35,40 @@ fn comparableComparisonFailed(vm: *VM, receiver: Value, other: Value) VMError!vo
 fn compareAgainstOther(vm: *VM, receiver: Value, other: Value) VMError!?Value {
     var args = [_]Value{other};
     return try vm.checkCallMethodByName(receiver, "<=>", false, args[0..], null);
+}
+
+fn comparableSign(vm: *VM, receiver: Value, other: Value, mode: ComparisonMode) VMError!?i8 {
+    const maybe_cmp = compareAgainstOther(vm, receiver, other) catch |err| switch (err) {
+        error.Unwind => {
+            if (mode == .equality) {
+                if (vm.pending_exception) |exc| {
+                    if (exc.object.class == vm.no_method_error_class) {
+                        vm.pending_exception = null;
+                        return null;
+                    }
+                }
+            }
+            return error.Unwind;
+        },
+        else => return err,
+    };
+    const cmp = maybe_cmp orelse switch (mode) {
+        .ordered => {
+            try comparableComparisonFailed(vm, receiver, other);
+            unreachable;
+        },
+        .equality => return null,
+    };
+    if (cmp.isNil()) {
+        return switch (mode) {
+            .ordered => {
+                try comparableComparisonFailed(vm, receiver, other);
+                unreachable;
+            },
+            .equality => null,
+        };
+    }
+    return try compareSign(vm, receiver, other, cmp);
 }
 
 fn compareSign(vm: *VM, receiver: Value, other: Value, cmp_value: Value) VMError!i8 {
@@ -55,13 +94,7 @@ fn comparablePredicate(vm: *VM, receiver: Value, other: Value, op: ComparableOp)
         };
     }
 
-    const maybe_cmp = try compareAgainstOther(vm, receiver, other);
-    const cmp = maybe_cmp orelse {
-        try comparableComparisonFailed(vm, receiver, other);
-        unreachable;
-    };
-
-    const sign = try compareSign(vm, receiver, other, cmp);
+    const sign = (try comparableSign(vm, receiver, other, .ordered)).?;
     return switch (op) {
         .less_than => Value.boolean(sign < 0),
         .less_than_or_equal => Value.boolean(sign <= 0),
@@ -115,40 +148,16 @@ pub fn builtinComparableEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block
     const other = args[0];
     if (receiver.raw == other.raw) return Value.boolean(true);
 
-    const maybe_cmp = compareAgainstOther(vm, receiver, other) catch |err| switch (err) {
-        error.Unwind => {
-            if (vm.pending_exception) |exc| {
-                if (exc.object.class == vm.no_method_error_class) {
-                    vm.pending_exception = null;
-                    return Value.boolean(false);
-                }
-            }
-            return error.Unwind;
-        },
-        else => return err,
-    };
-    const cmp = maybe_cmp orelse return Value.boolean(false);
-    if (cmp.isNil()) return Value.boolean(false);
-    const sign = try compareSign(vm, receiver, other, cmp);
+    const sign = (try comparableSign(vm, receiver, other, .equality)) orelse return Value.boolean(false);
     return Value.boolean(sign == 0);
 }
 
 pub fn builtinComparableBetween(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 2);
 
-    const low_cmp = try compareAgainstOther(vm, receiver, args[0]);
-    const low = low_cmp orelse {
-        try comparableComparisonFailed(vm, receiver, args[0]);
-        unreachable;
-    };
-    const low_sign = try compareSign(vm, receiver, args[0], low);
+    const low_sign = (try comparableSign(vm, receiver, args[0], .ordered)).?;
     if (low_sign < 0) return Value.boolean(false);
 
-    const high_cmp = try compareAgainstOther(vm, receiver, args[1]);
-    const high = high_cmp orelse {
-        try comparableComparisonFailed(vm, receiver, args[1]);
-        unreachable;
-    };
-    const high_sign = try compareSign(vm, receiver, args[1], high);
+    const high_sign = (try comparableSign(vm, receiver, args[1], .ordered)).?;
     return Value.boolean(high_sign <= 0);
 }
