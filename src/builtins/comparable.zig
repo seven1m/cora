@@ -115,7 +115,18 @@ pub fn builtinComparableEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block
     const other = args[0];
     if (receiver.raw == other.raw) return Value.boolean(true);
 
-    const maybe_cmp = try compareAgainstOther(vm, receiver, other);
+    const maybe_cmp = compareAgainstOther(vm, receiver, other) catch |err| switch (err) {
+        error.Unwind => {
+            if (vm.pending_exception) |exc| {
+                if (exc.object.class == vm.no_method_error_class) {
+                    vm.pending_exception = null;
+                    return Value.boolean(false);
+                }
+            }
+            return error.Unwind;
+        },
+        else => return err,
+    };
     const cmp = maybe_cmp orelse return Value.boolean(false);
     if (cmp.isNil()) return Value.boolean(false);
     const sign = try compareSign(vm, receiver, other, cmp);
