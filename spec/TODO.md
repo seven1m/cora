@@ -258,7 +258,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/comparable/gt_spec.rb
 - [x] core/comparable/gte_spec.rb
 - [x] core/comparable/lt_spec.rb
-- [ ] core/comparable/lte_spec.rb
+- [x] core/comparable/lte_spec.rb
 
 ### core/complex
 - [ ] core/complex/abs2_spec.rb
