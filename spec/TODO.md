@@ -186,7 +186,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/array/replace_spec.rb
 - [x] core/array/reverse_each_spec.rb
 - [x] core/array/reverse_spec.rb
-- [ ] core/array/rindex_spec.rb
+- [x] core/array/rindex_spec.rb
 - [ ] core/array/rotate_spec.rb
 - [ ] core/array/sample_spec.rb
 - [x] core/array/select_spec.rb

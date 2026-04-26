@@ -392,8 +392,12 @@ pub fn register(vm: *VM) !void {
 
     const index_sym = try vm.intern("index");
     try vm.array_class.module.methods.put(index_sym, .{ .method = .{ .builtin = &builtinArrayIndex } });
+    const rindex_sym = try vm.intern("rindex");
+    try vm.array_class.module.methods.put(rindex_sym, .{ .method = .{ .builtin = &builtinArrayRindex } });
     const find_index_sym = try vm.intern("find_index");
     try vm.array_class.module.methods.put(find_index_sym, .{ .method = .{ .builtin = &builtinArrayIndex } });
+    const bsearch_sym = try vm.intern("bsearch");
+    try vm.array_class.module.methods.put(bsearch_sym, .{ .method = .{ .builtin = &builtinArrayBsearch } });
 
     const dig_sym = try vm.intern("dig");
     try vm.array_class.module.methods.put(dig_sym, .{ .method = .{ .builtin = &builtinArrayDig } });
@@ -1663,6 +1667,55 @@ pub fn builtinArrayIndex(vm: *VM, receiver: Value, args: []Value, block: ?Block)
         if (yielded.value.is_truthy()) return Value.integer(@intCast(idx));
     }
     return Value.nil();
+}
+
+pub fn builtinArrayRindex(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+
+    const size_value = Value.integer(@intCast(receiver.toArrayObject().elements.items.len));
+    if (args.len == 0 and block == null) {
+        return try vm.createMethodEnumeratorWithSize(receiver, try vm.intern("rindex"), &.{}, size_value);
+    }
+
+    if (args.len == 1 and block != null) {
+        try warning_builtin.warnBlockUnused(vm);
+    }
+
+    const array = receiver.toArrayObject();
+
+    if (args.len == 1) {
+        var idx = array.elements.items.len;
+        while (idx > 0) {
+            if (try vm.valueEquals(array.elements.items[idx - 1], args[0])) {
+                return Value.integer(@intCast(idx - 1));
+            }
+            idx -= 1;
+        }
+        return Value.nil();
+    }
+
+    const blk = block.?;
+    var idx: usize = array.elements.items.len;
+    while (idx > 0) {
+        const current_len = array.elements.items.len;
+        if (idx > current_len) idx = current_len;
+        if (idx == 0) break;
+
+        idx -= 1;
+        const yielded = try vm.yieldToBlock(blk, &[_]Value{array.elements.items[idx]});
+        if (yielded.break_occurred) return yielded.value;
+        if (yielded.value.is_truthy()) return Value.integer(@intCast(idx));
+    }
+    return Value.nil();
+}
+
+pub fn builtinArrayBsearch(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    if (block == null) {
+        return try vm.createMethodEnumerator(receiver, try vm.intern("bsearch"), &.{});
+    }
+
+    return vm.raiseExceptionFmt(vm.runtime_error_class, "Array#bsearch is not implemented yet", .{});
 }
 
 pub fn builtinArrayDig(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
