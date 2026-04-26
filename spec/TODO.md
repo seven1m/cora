@@ -252,7 +252,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/class/superclass_spec.rb
 
 ### core/comparable
-- [ ] core/comparable/between_spec.rb
+- [x] core/comparable/between_spec.rb
 - [ ] core/comparable/clamp_spec.rb
 - [ ] core/comparable/equal_value_spec.rb
 - [ ] core/comparable/gt_spec.rb
