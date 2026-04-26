@@ -15,12 +15,13 @@ const ComparableOp = enum {
 };
 
 fn comparableComparisonFailed(vm: *VM, receiver: Value, other: Value) VMError!void {
+    const inspected_other = try other.inspect(vm);
     vm.pending_exception = try vm.createException(
         vm.argument_error_class,
         std.fmt.allocPrint(
             vm.gc_allocator,
             "comparison of {s} with {s} failed",
-            .{ vm.className(receiver), vm.className(other) },
+            .{ vm.className(receiver), inspected_other.toStringObject().str },
         ) catch return error.Fatal,
     );
     return error.Unwind;

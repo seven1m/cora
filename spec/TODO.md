@@ -257,7 +257,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/comparable/equal_value_spec.rb
 - [x] core/comparable/gt_spec.rb
 - [x] core/comparable/gte_spec.rb
-- [ ] core/comparable/lt_spec.rb
+- [x] core/comparable/lt_spec.rb
 - [ ] core/comparable/lte_spec.rb
 
 ### core/complex
