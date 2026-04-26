@@ -18,6 +18,7 @@ CONTENT_TYPES = {
   'jpg'  => 'image/jpeg',
   'jpeg' => 'image/jpeg',
   'json' => 'application/json',
+  'md'  => 'text/plain',
   'txt'  => 'text/plain',
 }
 
