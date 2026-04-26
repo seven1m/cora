@@ -65,7 +65,31 @@ fn validateHashDefaultProc(vm: *VM, proc_obj: *value.ProcObject) VMError!void {
     }
 }
 
+fn builtinHashTryConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+
+    const arg = args[0];
+    if (arg.isHash()) return arg;
+
+    const maybe_hash = try vm.checkCallMethodByName(arg, "to_hash", false, &[_]Value{}, null);
+    const coerced = maybe_hash orelse return Value.nil();
+    if (coerced.isNil()) return Value.nil();
+    if (coerced.isHash()) return coerced;
+
+    return vm.raiseExceptionFmt(
+        vm.type_error_class,
+        "can't convert {s} to Hash ({s}#to_hash gives {s})",
+        .{ vm.className(arg), vm.className(arg), vm.className(coerced) },
+    );
+}
+
 pub fn register(vm: *VM) !void {
+    const hash_class_val = Value.fromObject(vm.hash_class);
+    const hash_singleton = try vm.getOrCreateSingletonClass(hash_class_val);
+
+    const try_convert_sym = try vm.intern("try_convert");
+    try hash_singleton.module.methods.put(try_convert_sym, .{ .method = .{ .builtin = &builtinHashTryConvert } });
+
     const initialize_sym = try vm.intern("initialize");
     try vm.hash_class.module.methods.put(initialize_sym, .{
         .method = .{ .builtin = &builtinHashInitialize },
