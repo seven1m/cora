@@ -5,7 +5,8 @@
 require 'socket'
 
 PORT = (ARGV[0] || 3000).to_i
-ROOT = ARGV[1] || Dir.pwd
+ROOT = File.expand_path(ARGV[1] || Dir.pwd)
+ROOT_PREFIX = ROOT.end_with?('/') ? ROOT : ROOT + '/'
 
 CONTENT_TYPES = {
   'html' => 'text/html',
@@ -42,9 +43,10 @@ pids = []
 
       target = target.split('?', 2).first
       target = '/index.html' if target == '/'
-      path = ROOT + target
+      path = File.expand_path('.' + target, ROOT)
+      in_root = path == ROOT || path.start_with?(ROOT_PREFIX)
 
-      if method == 'GET' && File.file?(path)
+      if method == 'GET' && in_root && File.file?(path)
         ext = target.split('.').last
         ct  = CONTENT_TYPES.fetch(ext, 'application/octet-stream')
         body = File.read(path)
