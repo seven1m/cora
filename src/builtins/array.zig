@@ -267,12 +267,24 @@ fn performArrayFill(vm: *VM, receiver: Value, plan: ArrayFillPlan, fill_value: ?
     return receiver;
 }
 
+fn builtinArrayTryConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+
+    return switch (try vm.probeToAry(args[0])) {
+        .array => |array| array,
+        .missing, .nil_result => Value.nil(),
+    };
+}
+
 pub fn register(vm: *VM) !void {
     const array_class_val = Value.fromObject(vm.array_class);
     const array_singleton = try vm.getOrCreateSingletonClass(array_class_val);
 
     const class_bracket_sym = try vm.intern("[]");
     try array_singleton.module.methods.put(class_bracket_sym, .{ .method = .{ .builtin = &builtinArrayClassBracket } });
+
+    const try_convert_sym = try vm.intern("try_convert");
+    try array_singleton.module.methods.put(try_convert_sym, .{ .method = .{ .builtin = &builtinArrayTryConvert } });
 
     const initialize_sym = try vm.intern("initialize");
     try vm.array_class.module.methods.put(initialize_sym, .{
