@@ -19,6 +19,11 @@ const ComparisonMode = enum {
     equality,
 };
 
+const ClampBounds = struct {
+    min: Value,
+    max: Value,
+};
+
 fn comparableComparisonFailed(vm: *VM, receiver: Value, other: Value) VMError!void {
     const inspected_other = try other.inspect(vm);
     vm.pending_exception = try vm.createException(
@@ -103,6 +108,48 @@ fn comparablePredicate(vm: *VM, receiver: Value, other: Value, op: ComparableOp)
     };
 }
 
+fn validateClampBounds(vm: *VM, min: Value, max: Value) VMError!void {
+    if (min.isNil() or max.isNil()) return;
+
+    const sign = (try comparableSign(vm, min, max, .ordered)).?;
+    if (sign > 0) {
+        return vm.raiseExceptionFmt(
+            vm.argument_error_class,
+            "min argument must be less than or equal to max argument",
+            .{},
+        );
+    }
+}
+
+fn clampBoundsFromArgs(vm: *VM, args: []Value) VMError!ClampBounds {
+    try vm.requireArgCountRange(args, 1, 2);
+
+    if (args.len == 1) {
+        if (!args[0].isRange()) {
+            return vm.raiseExceptionFmt(
+                vm.type_error_class,
+                "wrong argument type {s} (expected Range)",
+                .{vm.className(args[0])},
+            );
+        }
+
+        const range_obj = args[0].toRangeObject();
+        if (range_obj.exclude_end and !range_obj.end.isNil()) {
+            return vm.raiseExceptionFmt(
+                vm.argument_error_class,
+                "cannot clamp with an exclusive range",
+                .{},
+            );
+        }
+
+        try validateClampBounds(vm, range_obj.begin, range_obj.end);
+        return .{ .min = range_obj.begin, .max = range_obj.end };
+    }
+
+    try validateClampBounds(vm, args[0], args[1]);
+    return .{ .min = args[0], .max = args[1] };
+}
+
 pub fn register(vm: *VM, comparable_module: *value.ModuleObject) !void {
     const less_than_sym = try vm.intern("<");
     try comparable_module.methods.put(less_than_sym, .{ .method = .{ .builtin = &builtinComparableLessThan } });
@@ -121,6 +168,9 @@ pub fn register(vm: *VM, comparable_module: *value.ModuleObject) !void {
 
     const between_sym = try vm.intern("between?");
     try comparable_module.methods.put(between_sym, .{ .method = .{ .builtin = &builtinComparableBetween } });
+
+    const clamp_sym = try vm.intern("clamp");
+    try comparable_module.methods.put(clamp_sym, .{ .method = .{ .builtin = &builtinComparableClamp } });
 }
 
 pub fn builtinComparableLessThan(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -160,4 +210,20 @@ pub fn builtinComparableBetween(vm: *VM, receiver: Value, args: []Value, _: ?Blo
 
     const high_sign = (try comparableSign(vm, receiver, args[1], .ordered)).?;
     return Value.boolean(high_sign <= 0);
+}
+
+pub fn builtinComparableClamp(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const bounds = try clampBoundsFromArgs(vm, args);
+
+    if (!bounds.min.isNil()) {
+        const low_sign = (try comparableSign(vm, receiver, bounds.min, .ordered)).?;
+        if (low_sign < 0) return bounds.min;
+    }
+
+    if (!bounds.max.isNil()) {
+        const high_sign = (try comparableSign(vm, receiver, bounds.max, .ordered)).?;
+        if (high_sign > 0) return bounds.max;
+    }
+
+    return receiver;
 }
