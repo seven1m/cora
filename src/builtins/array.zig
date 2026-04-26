@@ -350,12 +350,16 @@ pub fn register(vm: *VM) !void {
 
     const select_sym = try vm.intern("select");
     try vm.array_class.module.methods.put(select_sym, .{ .method = .{ .builtin = &builtinArraySelect } });
+    const filter_sym = try vm.intern("filter");
+    try vm.array_class.module.methods.put(filter_sym, .{ .method = .{ .builtin = &builtinArraySelect } });
 
     const reject_sym = try vm.intern("reject");
     try vm.array_class.module.methods.put(reject_sym, .{ .method = .{ .builtin = &builtinArrayReject } });
 
     const select_bang_sym = try vm.intern("select!");
     try vm.array_class.module.methods.put(select_bang_sym, .{ .method = .{ .builtin = &builtinArraySelectBang } });
+    const filter_bang_sym = try vm.intern("filter!");
+    try vm.array_class.module.methods.put(filter_bang_sym, .{ .method = .{ .builtin = &builtinArraySelectBang } });
 
     const keep_if_sym = try vm.intern("keep_if");
     try vm.array_class.module.methods.put(keep_if_sym, .{ .method = .{ .builtin = &builtinArrayKeepIf } });
