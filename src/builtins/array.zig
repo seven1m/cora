@@ -357,6 +357,9 @@ pub fn register(vm: *VM) !void {
     const select_bang_sym = try vm.intern("select!");
     try vm.array_class.module.methods.put(select_bang_sym, .{ .method = .{ .builtin = &builtinArraySelectBang } });
 
+    const keep_if_sym = try vm.intern("keep_if");
+    try vm.array_class.module.methods.put(keep_if_sym, .{ .method = .{ .builtin = &builtinArrayKeepIf } });
+
     const any_sym = try vm.intern("any?");
     try vm.array_class.module.methods.put(any_sym, .{ .method = .{ .builtin = &builtinArrayAny } });
 
@@ -1208,11 +1211,11 @@ pub fn builtinArraySelectBang(vm: *VM, receiver: Value, args: []Value, block: ?B
         const element = array.elements.items[processed_len];
         const yield_args = [_]Value{element};
         const yielded = vm.yieldToBlock(blk, &yield_args) catch |err| {
-            _ = try arraySelectBangFinalize(vm, receiver, array, processed_len, kept_len);
+            _ = try arrayFilterBangFinalize(vm, receiver, array, processed_len, kept_len, true);
             return err;
         };
         if (yielded.break_occurred) {
-            _ = try arraySelectBangFinalize(vm, receiver, array, processed_len, kept_len);
+            _ = try arrayFilterBangFinalize(vm, receiver, array, processed_len, kept_len, true);
             return yielded.value;
         }
         if (yielded.value.is_truthy()) {
@@ -1224,7 +1227,44 @@ pub fn builtinArraySelectBang(vm: *VM, receiver: Value, args: []Value, block: ?B
         processed_len += 1;
     }
 
-    return try arraySelectBangFinalize(vm, receiver, array, processed_len, kept_len);
+    return try arrayFilterBangFinalize(vm, receiver, array, processed_len, kept_len, true);
+}
+
+pub fn builtinArrayKeepIf(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const blk = block orelse {
+        const size_value = Value.integer(@intCast(receiver.toArrayObject().elements.items.len));
+        return try vm.createMethodEnumeratorWithSize(receiver, try vm.intern("keep_if"), &.{}, size_value);
+    };
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
+    }
+
+    const array = receiver.toArrayObject();
+    var processed_len: usize = 0;
+    var kept_len: usize = 0;
+
+    while (processed_len < array.elements.items.len) {
+        const element = array.elements.items[processed_len];
+        const yield_args = [_]Value{element};
+        const yielded = vm.yieldToBlock(blk, &yield_args) catch |err| {
+            _ = try arrayFilterBangFinalize(vm, receiver, array, processed_len, kept_len, false);
+            return err;
+        };
+        if (yielded.break_occurred) {
+            _ = try arrayFilterBangFinalize(vm, receiver, array, processed_len, kept_len, false);
+            return yielded.value;
+        }
+        if (yielded.value.is_truthy()) {
+            if (processed_len != kept_len) {
+                array.elements.items[kept_len] = element;
+            }
+            kept_len += 1;
+        }
+        processed_len += 1;
+    }
+
+    return try arrayFilterBangFinalize(vm, receiver, array, processed_len, kept_len, false);
 }
 
 pub fn builtinArrayCompact(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -2109,12 +2149,13 @@ fn arrayContainsEquivalent(vm: *VM, haystack: []Value, needle: Value) VMError!bo
     return false;
 }
 
-fn arraySelectBangFinalize(
+fn arrayFilterBangFinalize(
     vm: *VM,
     receiver: Value,
     target: *value.ArrayObject,
     processed_len: usize,
     kept_len: usize,
+    return_nil_if_unchanged: bool,
 ) VMError!Value {
     const current_len = target.elements.items.len;
 
@@ -2134,7 +2175,7 @@ fn arraySelectBangFinalize(
         target.elements.items.len = kept_len + tail_len;
     }
 
-    if (processed_len == kept_len) return Value.nil();
+    if (return_nil_if_unchanged and processed_len == kept_len) return Value.nil();
     return receiver;
 }
 
