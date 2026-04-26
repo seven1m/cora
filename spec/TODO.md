@@ -99,7 +99,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/array/cycle_spec.rb
 - [ ] core/array/deconstruct_spec.rb
 - [x] core/array/delete_at_spec.rb
-- [ ] core/array/delete_if_spec.rb
+- [x] core/array/delete_if_spec.rb
 - [ ] core/array/delete_spec.rb
 - [ ] core/array/difference_spec.rb
 - [x] core/array/dig_spec.rb

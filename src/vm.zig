@@ -11,6 +11,7 @@ const recursion_guard = @import("recursion_guard.zig");
 const value = @import("value.zig");
 const prism = @import("prism.zig");
 const builtins = @import("builtins/builtins.zig");
+const comparable_builtin = @import("builtins/comparable.zig");
 const zio = @import("zio");
 const bdwgc = @import("bdwgc");
 
@@ -963,6 +964,7 @@ pub const VM = struct {
 
         // --- Stage 5: Register built-in methods ---
         builtins.registerAll(self) catch return error.Fatal;
+        comparable_builtin.register(self, comparable_module_val.toModuleObject()) catch return error.Fatal;
         self.integer_changed = false;
 
         // Initialize last process status global.
