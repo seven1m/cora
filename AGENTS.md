@@ -15,6 +15,7 @@ Prism AST -> bytecode -> VM execution.
 ## Task Routing
 
 - Compiler, VM, runtime model, memory model: `.agents/reference/architecture.md`
+- TinyCC JIT, eligibility rules, and debug workflow: `.agents/reference/jit.md`
 - Builtins and Ruby-facing conventions: `.agents/reference/builtins.md`
 - Testing, CLI usage, and debug workflow: `.agents/reference/testing.md`
 - Ruby spec workflow: `.agents/reference/ruby-specs.md`
@@ -24,6 +25,7 @@ Prism AST -> bytecode -> VM execution.
 - Parsing: Prism C library parses Ruby source and stores the AST on `Parser.ast`.
 - Compilation: `Compiler.compile()` walks the Prism AST and emits bytecode chunks.
 - Execution: `VM.run()` interprets bytecode with a stack-based VM.
+- TinyCC JIT is optional at build time and compiles eligible method chunks lazily on first call.
 - Locals live in `Environment`, not `CallFrame`.
 - Chunks represent module/class bodies, methods, blocks, procs, and lambdas.
 - GC owns Ruby heap objects. Parser strings and constant-pool strings are generally borrowed from the AST.
