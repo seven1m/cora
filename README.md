@@ -45,6 +45,7 @@ Useful CLI flags:
 - `-e` - run a code string
 - `--ast` - dump the Prism AST
 - `--dump-bytecode` - dump compiled bytecode
+- `--dump-jit-source` - dump generated TinyCC JIT C source when built with `-Dtcc-jit=true`
 
 ## Testing
 
@@ -72,6 +73,12 @@ Build an optimized release binary with:
 
 ```bash
 zig build -Doptimize=ReleaseFast
+```
+
+Build with the optional TinyCC JIT enabled:
+
+```bash
+zig build -Doptimize=ReleaseFast -Dtcc-jit=true
 ```
 
 If you want extra runtime safety checks in an optimized build, use:
