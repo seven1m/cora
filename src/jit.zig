@@ -226,6 +226,7 @@ pub fn compileState(
     state: *State,
     ch: *chunk_mod.Chunk,
     method_state_version: u64,
+    dump_writer: ?*std.Io.Writer,
 ) !void {
     if (!available) return error.Unavailable;
 
@@ -241,6 +242,11 @@ pub fn compileState(
     const generated = try generateChunk(allocator, ch);
     defer allocator.free(generated.symbol_name);
     defer allocator.free(generated.source_code);
+
+    if (dump_writer) |writer| {
+        try writer.print("== jit {s} ==\n{s}\n", .{ generated.symbol_name, generated.source_code });
+        try writer.flush();
+    }
 
     var errors = tcc.initErrorCollector();
     const symbols = [_]tcc.ExternalSymbol{

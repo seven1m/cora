@@ -39,6 +39,7 @@ pub fn main() !void {
     var filename: ?[]const u8 = null;
     var print_ast = false;
     var dump_bytecode = false;
+    var dump_jit_source = false;
     var jit_tcc = false;
     var backtrace_limit: ?usize = null;
     var input_record_separator: ?[]const u8 = null;
@@ -76,6 +77,8 @@ pub fn main() !void {
             print_ast = true;
         } else if (std.mem.eql(u8, args[i], "--dump-bytecode")) {
             dump_bytecode = true;
+        } else if (std.mem.eql(u8, args[i], "--dump-jit-source")) {
+            dump_jit_source = true;
         } else if (std.mem.eql(u8, args[i], "--jit-tcc")) {
             jit_tcc = true;
         } else if (!std.mem.startsWith(u8, args[i], "-")) {
@@ -88,12 +91,16 @@ pub fn main() !void {
     }
 
     if (ruby_code == null and filename == null) {
-        std.debug.print("Usage: cora [--ast] [--dump-bytecode] [--jit-tcc] (-e <ruby code> | <filename>)\n", .{});
+        std.debug.print("Usage: cora [--ast] [--dump-bytecode] [--jit-tcc] [--dump-jit-source] (-e <ruby code> | <filename>)\n", .{});
         return;
     }
 
     if (jit_tcc and !build_options.tcc_jit) {
         std.debug.print("Error: --jit-tcc requires building with -Dtcc-jit=true\n", .{});
+        return;
+    }
+    if (dump_jit_source and !jit_tcc) {
+        std.debug.print("Error: --dump-jit-source requires --jit-tcc\n", .{});
         return;
     }
 
@@ -162,6 +169,7 @@ pub fn main() !void {
     var virtual_machine = try vm.VM.init(allocator, bdwgc.allocator, bdwgc.allocator_atomic, &program);
     defer virtual_machine.deinit();
     virtual_machine.setTccJitEnabled(jit_tcc);
+    virtual_machine.setDumpJitSource(dump_jit_source);
     virtual_machine.setBacktraceLimit(backtrace_limit);
     try virtual_machine.setArgv(script_args.items);
     if (input_record_separator) |separator| {

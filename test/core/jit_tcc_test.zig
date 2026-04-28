@@ -81,3 +81,44 @@ test "TinyCC JIT rejects default-arg chunk" {
 
     return error.TestUnexpectedResult;
 }
+
+test "TinyCC JIT generated source includes labels and helper calls" {
+    if (!build_options.tcc_jit) return error.SkipZigTest;
+
+    const source =
+        \\def fib(n)
+        \\  if n == 0
+        \\    0
+        \\  elsif n == 1
+        \\    1
+        \\  else
+        \\    fib(n - 1) + fib(n - 2)
+        \\  end
+        \\end
+    ;
+
+    const allocator = std.testing.allocator;
+    var parser = try prism.Parser.init(allocator, source, null);
+    defer parser.deinit();
+
+    var program = try compiler.Compiler.compile(allocator, &parser, 1);
+    defer program.deinit();
+
+    var fib_chunk = @as(?*cora.chunk.Chunk, null);
+    var iter = program.child_chunks.iterator();
+    while (iter.next()) |entry| {
+        if (std.mem.eql(u8, entry.value_ptr.*.name, "fib")) {
+            fib_chunk = entry.value_ptr.*;
+            break;
+        }
+    }
+    try std.testing.expect(fib_chunk != null);
+
+    const generated = try jit.generateChunk(allocator, fib_chunk.?);
+    defer allocator.free(generated.symbol_name);
+    defer allocator.free(generated.source_code);
+
+    try std.testing.expect(std.mem.indexOf(u8, generated.source_code, "goto L") != null);
+    try std.testing.expect(std.mem.indexOf(u8, generated.source_code, "cora_jit_sub") != null);
+    try std.testing.expect(std.mem.indexOf(u8, generated.source_code, "cora_jit_add") != null);
+}

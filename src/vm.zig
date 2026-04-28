@@ -383,6 +383,7 @@ pub const VM = struct {
     integer_changed: bool = false,
     recursion_guard: RecursionGuard = .{},
     tcc_jit_enabled: bool = false,
+    dump_jit_source: bool = false,
     jit_chunk_states: JitChunkStates,
 
     // Buffered writers for production
@@ -507,6 +508,7 @@ pub const VM = struct {
             .lexical_scopes = .empty,
             .builtin_keyword_ctx = null,
             .tcc_jit_enabled = false,
+            .dump_jit_source = false,
             .jit_chunk_states = JitChunkStates.init(allocator),
         };
     }
@@ -1519,6 +1521,10 @@ pub const VM = struct {
         self.tcc_jit_enabled = enabled;
     }
 
+    pub fn setDumpJitSource(self: *VM, enabled: bool) void {
+        self.dump_jit_source = enabled;
+    }
+
     pub fn runAtExitHandlers(self: *VM) VMError!void {
         if (self.at_exit_handlers.items.len == 0) return;
 
@@ -1803,7 +1809,12 @@ pub const VM = struct {
         const state = try self.getOrCreateJitState(method_chunk);
         if (state.compiled_method_state_version != self.method_state_version or state.entry == null) {
             if (state.failed_method_state_version == self.method_state_version) return null;
-            jit.compileState(self.allocator, state, method_chunk, self.method_state_version) catch return null;
+            const dump_writer = blk: {
+                if (!self.dump_jit_source) break :blk null;
+                self.setupOutput();
+                break :blk self.stderr;
+            };
+            jit.compileState(self.allocator, state, method_chunk, self.method_state_version, dump_writer) catch return null;
         }
 
         const entry = state.entry orelse return null;
