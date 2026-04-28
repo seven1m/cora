@@ -22,11 +22,13 @@ You need:
 - a C toolchain
 - autotools for the bundled Onigmo build, including `autoreconf`
 
-If you use [Devbox](https://www.jetify.com/devbox/), the repo includes a `devbox.json` with the needed prerequisites already:
+If you have the [Nix](https://nixos.org/download/) package manager, you can fetch all the dependencies easily with:
 
 ```bash
-devbox shell
+nix-shell
 ```
+
+If you have [direnv](https://direnv.net/), it will automatically load the nix shell when you `cd` into the cora directory.
 
 ## Build
 
