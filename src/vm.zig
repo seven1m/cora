@@ -4922,10 +4922,18 @@ pub const VM = struct {
 
     /// Find a method on a receiver, checking singleton class first, then regular class
     pub fn findMethod(self: *VM, receiver: Value, method_name_sym: *SymbolObject) VMError!?ResolvedMethod {
-        // First, check singleton class
-        if (receiver.getObjectPointer() != null) {
-            const singleton_class = self.getOrCreateSingletonClass(receiver) catch return error.Fatal;
-            switch (self.lookupMethodDetailed(singleton_class, method_name_sym)) {
+        // Ordinary object lookup should not materialize singleton classes just to check for
+        // singleton methods. Class/module receivers are the exception because class methods
+        // inherit through the eigenclass chain.
+        const singleton_class = if (receiver.getSingletonClass()) |existing|
+            existing
+        else if (receiver.isClass() or receiver.isModule())
+            self.getOrCreateSingletonClass(receiver) catch return error.Fatal
+        else
+            null;
+
+        if (singleton_class) |sc| {
+            switch (self.lookupMethodDetailed(sc, method_name_sym)) {
                 .found => |resolved| return resolved,
                 .undefined => return null,
                 .not_found => {},
