@@ -12,6 +12,7 @@ const core_exception_test = @import("core/exception_test.zig");
 const core_false_test = @import("core/false_test.zig");
 const core_float_test = @import("core/float_test.zig");
 const core_integer_test = @import("core/integer_test.zig");
+const core_jit_tcc_test = @import("core/jit_tcc_test.zig");
 const core_io_file_test = @import("core/io_file_test.zig");
 const core_kernel_test = @import("core/kernel_test.zig");
 const core_module_test = @import("core/module_test.zig");
@@ -79,6 +80,7 @@ comptime {
     _ = core_false_test;
     _ = core_float_test;
     _ = core_integer_test;
+    _ = core_jit_tcc_test;
     _ = core_io_file_test;
     _ = core_kernel_test;
     _ = core_module_test;

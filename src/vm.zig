@@ -6,6 +6,7 @@ const compiler = @import("compiler.zig");
 const enc = @import("encoding.zig");
 const fixed_buffer_list = @import("fixed_buffer_list.zig");
 const inspect_util = @import("inspect.zig");
+const jit = @import("jit.zig");
 const onigmo = @import("onigmo.zig");
 const recursion_guard = @import("recursion_guard.zig");
 const value = @import("value.zig");
@@ -33,6 +34,7 @@ const BigInt = std.math.big.int.Managed;
 const FixedBufferList = fixed_buffer_list.FixedBufferList;
 const RecursionGuard = recursion_guard.RecursionGuard;
 pub const RecursionGuardKind = recursion_guard.Kind;
+const JitChunkStates = std.AutoHashMap(*Chunk, jit.State);
 
 extern "c" fn getenv(name: [*:0]const u8) ?[*:0]u8;
 extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
@@ -380,6 +382,8 @@ pub const VM = struct {
     method_state_version: u64 = 1,
     integer_changed: bool = false,
     recursion_guard: RecursionGuard = .{},
+    tcc_jit_enabled: bool = false,
+    jit_chunk_states: JitChunkStates,
 
     // Buffered writers for production
     stdout_buffer: [4096]u8 = undefined,
@@ -502,6 +506,8 @@ pub const VM = struct {
             .method_state_version = 1,
             .lexical_scopes = .empty,
             .builtin_keyword_ctx = null,
+            .tcc_jit_enabled = false,
+            .jit_chunk_states = JitChunkStates.init(allocator),
         };
     }
 
@@ -1478,6 +1484,11 @@ pub const VM = struct {
         self.ensure_pending_exceptions.deinit(self.allocator);
         self.at_exit_handlers.deinit(self.gc_allocator);
         self.recursion_guard.deinit(self.allocator);
+        var jit_iter = self.jit_chunk_states.valueIterator();
+        while (jit_iter.next()) |state| {
+            state.deinit(self.allocator);
+        }
+        self.jit_chunk_states.deinit();
         for (self.io_objects.items) |io_obj| {
             if (io_obj.owns_fd and !io_obj.closed and io_obj.fd >= 0) {
                 std.posix.close(@intCast(io_obj.fd));
@@ -1502,6 +1513,10 @@ pub const VM = struct {
 
     pub fn setBacktraceLimit(self: *VM, limit: ?usize) void {
         self.backtrace_limit = limit;
+    }
+
+    pub fn setTccJitEnabled(self: *VM, enabled: bool) void {
+        self.tcc_jit_enabled = enabled;
     }
 
     pub fn runAtExitHandlers(self: *VM) VMError!void {
@@ -1766,6 +1781,36 @@ pub const VM = struct {
 
         ch.callsite_descriptors.items[callsite_byte_offset] = desc;
         return &ch.callsite_descriptors.items[callsite_byte_offset].?;
+    }
+
+    fn getOrCreateJitState(self: *VM, ch: *Chunk) VMError!*jit.State {
+        const entry = self.jit_chunk_states.getOrPut(ch) catch return error.Fatal;
+        if (!entry.found_existing) {
+            entry.value_ptr.* = .{};
+        }
+        return entry.value_ptr;
+    }
+
+    fn maybeCallJittedChunk(
+        self: *VM,
+        method_chunk: *Chunk,
+        receiver: Value,
+        args: []const Value,
+    ) VMError!?Value {
+        if (!self.tcc_jit_enabled or !jit.available) return null;
+        if (self.integer_changed or args.len != 1 or !args[0].isInteger()) return null;
+
+        const state = try self.getOrCreateJitState(method_chunk);
+        if (state.compiled_method_state_version != self.method_state_version or state.entry == null) {
+            if (state.failed_method_state_version == self.method_state_version) return null;
+            jit.compileState(self.allocator, state, method_chunk, self.method_state_version) catch return null;
+        }
+
+        const entry = state.entry orelse return null;
+        var ok: u8 = 1;
+        const raw = entry(receiver.raw, args[0].raw, &ok);
+        if (ok == 0) return null;
+        return Value{ .raw = raw };
     }
 
     fn resolveCallMethodSymbolFromDescriptor(
@@ -3517,6 +3562,11 @@ pub const VM = struct {
                                     // Cache hit - use cached method directly
                                     switch (cached.entry.method) {
                                         .chunk => |method_chunk| {
+                                            if (try self.maybeCallJittedChunk(method_chunk, receiver, self.stack.items[(receiver_index + 1)..(receiver_index + 1 + argc)])) |jit_result| {
+                                                self.stack.storage[receiver_index] = jit_result;
+                                                self.stack.items = self.stack.storage[0 .. receiver_index + 1];
+                                                return;
+                                            }
                                             if (block == null and method_chunk.is_simple_positional and
                                                 argc == method_chunk.arity and
                                                 self.frames.items.len < self.frames.capacity and
@@ -3580,6 +3630,11 @@ pub const VM = struct {
                             if (self.isMethodCallable(receiver, method, call_style)) {
                                 switch (method.entry.method) {
                                     .chunk => |method_chunk| {
+                                        if (try self.maybeCallJittedChunk(method_chunk, receiver, self.stack.items[(receiver_index + 1)..(receiver_index + 1 + argc)])) |jit_result| {
+                                            self.stack.storage[receiver_index] = jit_result;
+                                            self.stack.items = self.stack.storage[0 .. receiver_index + 1];
+                                            return;
+                                        }
                                         try self.setupChunkCallFrame(
                                             method_chunk,
                                             receiver,
@@ -4762,6 +4817,11 @@ pub const VM = struct {
                                     {
                                         switch (cached.entry.method) {
                                             .chunk => |method_chunk| {
+                                                if (try self.maybeCallJittedChunk(method_chunk, call_receiver, self.stack.items[(receiver_index + 1)..(receiver_index + 1 + argc)])) |jit_result| {
+                                                    self.stack.storage[receiver_index] = jit_result;
+                                                    self.stack.items = self.stack.storage[0 .. receiver_index + 1];
+                                                    continue;
+                                                }
                                                 if (method_chunk.is_simple_positional and
                                                     argc == method_chunk.arity and
                                                     self.frames.items.len < self.frames.capacity and
@@ -6706,15 +6766,15 @@ pub const VM = struct {
                 .symbol => block,
                 .builtin => block,
                 .callable => block,
-            .chunk => |chunk_blk| .{ .kind = .{ .chunk = .{
-                .chunk = chunk_blk.chunk,
-                .defining_ep = self.promoteEnvironmentToHeap(chunk_blk.defining_ep) catch return error.Fatal,
-                .defining_self = chunk_blk.defining_self,
-                .return_target_ep = if (chunk_blk.return_target_ep) |target_ep|
-                    self.promoteEnvironmentToHeap(target_ep) catch return error.Fatal
-                else
-                    null,
-            } } },
+                .chunk => |chunk_blk| .{ .kind = .{ .chunk = .{
+                    .chunk = chunk_blk.chunk,
+                    .defining_ep = self.promoteEnvironmentToHeap(chunk_blk.defining_ep) catch return error.Fatal,
+                    .defining_self = chunk_blk.defining_self,
+                    .return_target_ep = if (chunk_blk.return_target_ep) |target_ep|
+                        self.promoteEnvironmentToHeap(target_ep) catch return error.Fatal
+                    else
+                        null,
+                } } },
             },
         };
         return Value.fromObject(proc_obj);

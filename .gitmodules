@@ -4,3 +4,6 @@
 [submodule "ext/onigmo"]
 	path = ext/onigmo
 	url = https://github.com/k-takata/Onigmo
+[submodule "ext/tinycc"]
+	path = ext/tinycc
+	url = https://github.com/TinyCC/tinycc

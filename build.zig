@@ -54,6 +54,29 @@ fn buildPrism(b: *std.Build) *std.Build.Step {
     return prism_build_step;
 }
 
+fn buildTinyCC(b: *std.Build) *std.Build.Step {
+    const tinycc_build_step = b.step("tinycc", "Build TinyCC library");
+
+    const libtcc_path = "zig-out/tinycc/libtcc.a";
+
+    const libtcc_exists = std.fs.cwd().statFile(libtcc_path) != std.fs.File.OpenError.FileNotFound;
+
+    if (!libtcc_exists) {
+        const copy_step = b.addSystemCommand(&.{ "sh", "-c", "mkdir -p zig-out/tinycc && cp -r ext/tinycc/* zig-out/tinycc/" });
+        tinycc_build_step.dependOn(&copy_step.step);
+
+        const configure_step = b.addSystemCommand(&.{ "sh", "-c", "cd zig-out/tinycc && ./configure --with-pic" });
+        configure_step.step.dependOn(&copy_step.step);
+        tinycc_build_step.dependOn(&configure_step.step);
+
+        const make_step = b.addSystemCommand(&.{ "make", "-C", "zig-out/tinycc" });
+        make_step.step.dependOn(&configure_step.step);
+        tinycc_build_step.dependOn(&make_step.step);
+    }
+
+    return tinycc_build_step;
+}
+
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
@@ -61,12 +84,16 @@ pub fn build(b: *std.Build) void {
     const test_jobs = b.option(i32, "test-jobs", "Number of test worker processes (<=0 auto)") orelse 0;
     const coverage = b.option(bool, "coverage", "Run tests under kcov and generate an HTML coverage report") orelse false;
     const coverage_output_dir = b.option([]const u8, "coverage-output-dir", "Directory for kcov output") orelse "zig-out/kcov";
+    const tcc_jit = b.option(bool, "tcc-jit", "Build TinyCC-backed proof-of-concept JIT support") orelse false;
     const options = b.addOptions();
     options.addOption(bool, "test_verbose", test_verbose);
     options.addOption(i32, "test_jobs", test_jobs);
+    options.addOption(bool, "tcc_jit", tcc_jit);
+    const build_options_mod = options.createModule();
 
     const prism_build_step = buildPrism(b);
     const onigmo_build_step = buildOnigmo(b);
+    const tinycc_build_step = buildTinyCC(b);
 
     const exe = b.addExecutable(.{
         .name = "cora",
@@ -79,12 +106,20 @@ pub fn build(b: *std.Build) void {
 
     exe.step.dependOn(prism_build_step);
     exe.step.dependOn(onigmo_build_step);
+    if (tcc_jit) {
+        exe.step.dependOn(tinycc_build_step);
+    }
 
     exe.addObjectFile(b.path("zig-out/prism/build/libprism.a"));
     exe.addIncludePath(b.path("zig-out/prism/include"));
     exe.addObjectFile(b.path("zig-out/onigmo/.libs/libonigmo.a"));
     exe.addIncludePath(b.path("zig-out/onigmo/"));
     exe.addCSourceFile(.{ .file = b.path("ext/dtoa.c") });
+    if (tcc_jit) {
+        exe.addObjectFile(b.path("zig-out/tinycc/libtcc.a"));
+        exe.addIncludePath(b.path("zig-out/tinycc"));
+        exe.root_module.addIncludePath(b.path("zig-out/tinycc"));
+    }
 
     exe.linkLibC();
 
@@ -98,6 +133,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     exe.root_module.addImport("bdwgc", bdwgc.module("bdwgc"));
+    exe.root_module.addImport("build_options", build_options_mod);
     exe.root_module.addImport("zio", zio.module("zio"));
 
     b.installArtifact(exe);
@@ -162,26 +198,38 @@ pub fn build(b: *std.Build) void {
 
     test_exe.step.dependOn(prism_build_step);
     test_exe.step.dependOn(onigmo_build_step);
+    if (tcc_jit) {
+        test_exe.step.dependOn(tinycc_build_step);
+    }
     test_exe.addObjectFile(b.path("zig-out/prism/build/libprism.a"));
     test_exe.addIncludePath(b.path("zig-out/prism/include"));
     test_exe.addObjectFile(b.path("zig-out/onigmo/.libs/libonigmo.a"));
     test_exe.addIncludePath(b.path("zig-out/onigmo/"));
     test_exe.addCSourceFile(.{ .file = b.path("ext/dtoa.c") });
+    if (tcc_jit) {
+        test_exe.addObjectFile(b.path("zig-out/tinycc/libtcc.a"));
+        test_exe.addIncludePath(b.path("zig-out/tinycc"));
+        test_exe.root_module.addIncludePath(b.path("zig-out/tinycc"));
+    }
     test_exe.linkLibC();
 
     test_exe.root_module.addImport("bdwgc", bdwgc.module("bdwgc"));
+    test_exe.root_module.addImport("build_options", build_options_mod);
     test_exe.root_module.addImport("zio", zio.module("zio"));
-    test_exe.root_module.addImport("build_options", options.createModule());
     const cora_mod = b.createModule(.{
         .root_source_file = b.path("src/lib.zig"),
         .target = target,
         .optimize = optimize,
     });
     cora_mod.addImport("bdwgc", bdwgc.module("bdwgc"));
+    cora_mod.addImport("build_options", build_options_mod);
     cora_mod.addImport("zio", zio.module("zio"));
     cora_mod.addIncludePath(b.path("zig-out/prism/include"));
     cora_mod.addIncludePath(b.path("zig-out/onigmo/"));
     cora_mod.addObjectFile(b.path("zig-out/onigmo/.libs/libonigmo.a"));
+    if (tcc_jit) {
+        cora_mod.addIncludePath(b.path("zig-out/tinycc"));
+    }
     test_exe.root_module.addImport("cora", cora_mod);
 
     const ruby_spec_runner_mod = b.createModule(.{
