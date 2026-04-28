@@ -18,8 +18,6 @@ The goal is to get a working Ruby interpreter that can pass most or all of [ruby
 You need:
 
 - Zig
-- Ruby
-- `rake`
 - `make`
 - a C toolchain
 - autotools for the bundled Onigmo build, including `autoreconf`

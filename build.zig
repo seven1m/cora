@@ -42,12 +42,12 @@ fn buildPrism(b: *std.Build) *std.Build.Step {
         const copy_step = b.addSystemCommand(&.{ "sh", "-c", "mkdir -p zig-out/prism && cp -r ext/prism/* zig-out/prism/" });
         prism_build_step.dependOn(&copy_step.step);
 
-        const templates_step = b.addSystemCommand(&.{ "sh", "-c", "cd zig-out/prism && PRISM_FFI_BACKEND=true rake templates" });
-        templates_step.step.dependOn(&copy_step.step);
-        prism_build_step.dependOn(&templates_step.step);
+        const overlay_step = b.addSystemCommand(&.{ "sh", "-c", "cp -r ext/prism-templates/* zig-out/prism/" });
+        overlay_step.step.dependOn(&copy_step.step);
+        prism_build_step.dependOn(&overlay_step.step);
 
         const make_step = b.addSystemCommand(&.{ "make", "-C", "zig-out/prism", "static" });
-        make_step.step.dependOn(&templates_step.step);
+        make_step.step.dependOn(&overlay_step.step);
         prism_build_step.dependOn(&make_step.step);
     }
 
