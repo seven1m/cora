@@ -299,9 +299,9 @@ fn floatToString(vm: *VM, value_f: f64) VMError!Value {
 
     const digits = std.mem.span(dtoa_result);
 
-    var buf: std.ArrayList(u8) = .empty;
-    defer buf.deinit(vm.allocator);
-    const writer = buf.writer(vm.allocator);
+    var buf: std.Io.Writer.Allocating = .init(vm.allocator);
+    defer buf.deinit();
+    const writer = &buf.writer;
 
     if (sign != 0) {
         writer.writeByte('-') catch return error.Fatal;
@@ -337,7 +337,7 @@ fn floatToString(vm: *VM, value_f: f64) VMError!Value {
         try appendExponent(writer, decpt - 1);
     }
 
-    return vm.newStringWithEncoding(buf.items, false, enc.Encoding{ .us_ascii = .{} });
+    return vm.newStringWithEncoding(buf.written(), false, enc.Encoding{ .us_ascii = .{} });
 }
 
 pub fn builtinFloatToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

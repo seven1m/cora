@@ -994,37 +994,27 @@ pub fn builtinKernelBacktick(vm: *VM, _: Value, args: []Value, _: ?Block) VMErro
     else
         [_][]const u8{ "/bin/sh", "-c", command };
 
-    var child = std.process.Child.init(&argv, vm.allocator);
-    child.stdin_behavior = .Close;
-    child.stdout_behavior = .Pipe;
-    child.stderr_behavior = .Ignore;
-
-    child.spawn() catch |err| {
+    var env_map = try vm.currentEnvMap();
+    defer env_map.deinit();
+    const run_result = std.process.run(vm.allocator, vm.io, .{
+        .argv = &argv,
+        .environ_map = &env_map,
+        .stderr_limit = .limited(16 * 1024 * 1024),
+        .stdout_limit = .limited(16 * 1024 * 1024),
+    }) catch |err| {
         const msg = std.fmt.allocPrint(vm.gc_allocator, "failed to execute command: {s}", .{@errorName(err)}) catch return error.Fatal;
         const exc = try vm.createException(vm.runtime_error_class, msg);
         vm.pending_exception = exc;
         return error.Unwind;
     };
+    defer vm.allocator.free(run_result.stdout);
+    defer vm.allocator.free(run_result.stderr);
+    const stdout_bytes = run_result.stdout;
 
-    const stdout_bytes = child.stdout.?.readToEndAlloc(vm.allocator, 16 * 1024 * 1024) catch |err| {
-        const msg = std.fmt.allocPrint(vm.gc_allocator, "failed to read command output: {s}", .{@errorName(err)}) catch return error.Fatal;
-        const exc = try vm.createException(vm.runtime_error_class, msg);
-        vm.pending_exception = exc;
-        return error.Unwind;
-    };
-    defer vm.allocator.free(stdout_bytes);
-
-    const term = child.wait() catch |err| {
-        const msg = std.fmt.allocPrint(vm.gc_allocator, "failed to wait for command: {s}", .{@errorName(err)}) catch return error.Fatal;
-        const exc = try vm.createException(vm.runtime_error_class, msg);
-        vm.pending_exception = exc;
-        return error.Unwind;
-    };
-
-    const exitstatus: i64 = switch (term) {
-        .Exited => |code| @intCast(code),
-        .Signal => |sig| 128 + @as(i64, @intCast(sig)),
-        .Stopped => |sig| 128 + @as(i64, @intCast(sig)),
+    const exitstatus: i64 = switch (run_result.term) {
+        .exited => |code| @intCast(code),
+        .signal => |sig| 128 + @as(i64, @intCast(@intFromEnum(sig))),
+        .stopped => |sig| 128 + @as(i64, @intCast(@intFromEnum(sig))),
         else => 1,
     };
     try vm.setLastProcessStatus(exitstatus);
@@ -1041,7 +1031,8 @@ pub fn builtinKernelRand(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
     try vm.requireArgCountRange(args, 0, 1);
 
     if (args.len == 0) {
-        const n = std.crypto.random.int(u53);
+        var prng = std.Random.DefaultPrng.init(@intCast(std.Io.Clock.boot.now(vm.io).nanoseconds));
+        const n = prng.random().int(u53);
         return try vm.newFloat(@as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(std.math.maxInt(u53))));
     }
 
@@ -1054,7 +1045,8 @@ pub fn builtinKernelRand(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
         return vm.raiseExceptionFmt(vm.argument_error_class, "invalid argument - {d}", .{limit});
     }
 
-    const random_value = std.crypto.random.intRangeLessThan(u64, 0, @intCast(limit));
+    var prng = std.Random.DefaultPrng.init(@intCast(std.Io.Clock.boot.now(vm.io).nanoseconds));
+    const random_value = prng.random().intRangeLessThan(u64, 0, @intCast(limit));
     return Value.integer(@intCast(random_value));
 }
 

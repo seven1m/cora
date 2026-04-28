@@ -1,11 +1,23 @@
 const std = @import("std");
 
+fn pathExists(b: *std.Build, sub_path: []const u8) bool {
+    const io = b.graph.io;
+    const cwd: std.Io.Dir = .cwd();
+
+    cwd.access(io, sub_path, .{}) catch |err| switch (err) {
+        error.FileNotFound => return false,
+        else => std.debug.panic("failed to access '{s}': {s}", .{ sub_path, @errorName(err) }),
+    };
+
+    return true;
+}
+
 fn buildOnigmo(b: *std.Build) *std.Build.Step {
     const onigmo_build_step = b.step("onigmo", "Build Onigmo library");
 
     const libonigmo_path = "zig-out/onigmo/.libs/libonigmo.a";
 
-    const libonigmo_exists = std.fs.cwd().statFile(libonigmo_path) != std.fs.File.OpenError.FileNotFound;
+    const libonigmo_exists = pathExists(b, libonigmo_path);
 
     if (!libonigmo_exists) {
         const copy_step = b.addSystemCommand(&.{ "sh", "-c", "mkdir -p zig-out/onigmo && cp -r ext/onigmo/* zig-out/onigmo/" });
@@ -36,7 +48,7 @@ fn buildPrism(b: *std.Build) *std.Build.Step {
 
     const libprism_path = "zig-out/prism/build/libprism.a";
 
-    const libprism_exists = std.fs.cwd().statFile(libprism_path) != std.fs.File.OpenError.FileNotFound;
+    const libprism_exists = pathExists(b, libprism_path);
 
     if (!libprism_exists) {
         const copy_step = b.addSystemCommand(&.{ "sh", "-c", "mkdir -p zig-out/prism && cp -r ext/prism/* zig-out/prism/" });
@@ -59,7 +71,7 @@ fn buildTinyCC(b: *std.Build) *std.Build.Step {
 
     const libtcc_path = "zig-out/tinycc/libtcc.a";
 
-    const libtcc_exists = std.fs.cwd().statFile(libtcc_path) != std.fs.File.OpenError.FileNotFound;
+    const libtcc_exists = pathExists(b, libtcc_path);
 
     if (!libtcc_exists) {
         const copy_step = b.addSystemCommand(&.{ "sh", "-c", "mkdir -p zig-out/tinycc && cp -r ext/tinycc/* zig-out/tinycc/" });
@@ -110,18 +122,18 @@ pub fn build(b: *std.Build) void {
         exe.step.dependOn(tinycc_build_step);
     }
 
-    exe.addObjectFile(b.path("zig-out/prism/build/libprism.a"));
-    exe.addIncludePath(b.path("zig-out/prism/include"));
-    exe.addObjectFile(b.path("zig-out/onigmo/.libs/libonigmo.a"));
-    exe.addIncludePath(b.path("zig-out/onigmo/"));
-    exe.addCSourceFile(.{ .file = b.path("ext/dtoa.c") });
+    exe.root_module.addObjectFile(b.path("zig-out/prism/build/libprism.a"));
+    exe.root_module.addIncludePath(b.path("zig-out/prism/include"));
+    exe.root_module.addObjectFile(b.path("zig-out/onigmo/.libs/libonigmo.a"));
+    exe.root_module.addIncludePath(b.path("zig-out/onigmo/"));
+    exe.root_module.addCSourceFile(.{ .file = b.path("ext/dtoa.c") });
     if (tcc_jit) {
-        exe.addObjectFile(b.path("zig-out/tinycc/libtcc.a"));
-        exe.addIncludePath(b.path("zig-out/tinycc"));
+        exe.root_module.addObjectFile(b.path("zig-out/tinycc/libtcc.a"));
+        exe.root_module.addIncludePath(b.path("zig-out/tinycc"));
         exe.root_module.addIncludePath(b.path("zig-out/tinycc"));
     }
 
-    exe.linkLibC();
+    exe.root_module.link_libc = true;
 
     const bdwgc = b.dependency("bdwgc_zig", .{
         .target = target,
@@ -177,17 +189,17 @@ pub fn build(b: *std.Build) void {
     if (tcc_jit) {
         test_exe.step.dependOn(tinycc_build_step);
     }
-    test_exe.addObjectFile(b.path("zig-out/prism/build/libprism.a"));
-    test_exe.addIncludePath(b.path("zig-out/prism/include"));
-    test_exe.addObjectFile(b.path("zig-out/onigmo/.libs/libonigmo.a"));
-    test_exe.addIncludePath(b.path("zig-out/onigmo/"));
-    test_exe.addCSourceFile(.{ .file = b.path("ext/dtoa.c") });
+    test_exe.root_module.addObjectFile(b.path("zig-out/prism/build/libprism.a"));
+    test_exe.root_module.addIncludePath(b.path("zig-out/prism/include"));
+    test_exe.root_module.addObjectFile(b.path("zig-out/onigmo/.libs/libonigmo.a"));
+    test_exe.root_module.addIncludePath(b.path("zig-out/onigmo/"));
+    test_exe.root_module.addCSourceFile(.{ .file = b.path("ext/dtoa.c") });
     if (tcc_jit) {
-        test_exe.addObjectFile(b.path("zig-out/tinycc/libtcc.a"));
-        test_exe.addIncludePath(b.path("zig-out/tinycc"));
+        test_exe.root_module.addObjectFile(b.path("zig-out/tinycc/libtcc.a"));
+        test_exe.root_module.addIncludePath(b.path("zig-out/tinycc"));
         test_exe.root_module.addIncludePath(b.path("zig-out/tinycc"));
     }
-    test_exe.linkLibC();
+    test_exe.root_module.link_libc = true;
 
     test_exe.root_module.addImport("bdwgc", bdwgc.module("bdwgc"));
     test_exe.root_module.addImport("build_options", build_options_mod);

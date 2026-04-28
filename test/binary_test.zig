@@ -1,25 +1,20 @@
 const std = @import("std");
 
 test "binary: simple puts" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
+    var threaded: std.Io.Threaded = .init(allocator, .{});
+    defer threaded.deinit();
 
-    var child = std.process.Child.init(&.{ "zig-out/bin/cora", "-e", "puts 1" }, allocator);
+    const result = try std.process.run(allocator, threaded.io(), .{
+        .argv = &.{ "zig-out/bin/cora", "-e", "puts 1" },
+        .stdout_limit = .limited(1024 * 1024),
+        .stderr_limit = .limited(1024 * 1024),
+    });
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
 
-    child.stdout_behavior = .Pipe;
-    child.stderr_behavior = .Pipe;
-
-    try child.spawn();
-
-    const stdout = try child.stdout.?.readToEndAlloc(allocator, 1024 * 1024);
-    defer allocator.free(stdout);
-
-    const stderr = try child.stderr.?.readToEndAlloc(allocator, 1024 * 1024);
-    defer allocator.free(stderr);
-
-    const term = try child.wait();
-
-    try std.testing.expect(term == .Exited and term.Exited == 0);
-    try std.testing.expectEqualSlices(u8, "1\n", stdout);
+    try std.testing.expect(result.term == .exited and result.term.exited == 0);
+    try std.testing.expectEqualSlices(u8, "1\n", result.stdout);
 }

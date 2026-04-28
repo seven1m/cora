@@ -197,9 +197,9 @@ pub fn builtinRangeInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 
     const range_obj = receiver.toRangeObject();
 
-    var buf: std.ArrayList(u8) = .empty;
-    defer buf.deinit(vm.allocator);
-    const writer = buf.writer(vm.allocator);
+    var buf: std.Io.Writer.Allocating = .init(vm.allocator);
+    defer buf.deinit();
+    const writer = &buf.writer;
     var output_encoding: enc.Encoding = .{ .us_ascii = .{} };
     var has_dynamic_part = false;
 
@@ -224,14 +224,14 @@ pub fn builtinRangeInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
             output_encoding = end_obj.encoding;
             has_dynamic_part = true;
         } else {
-            output_encoding = enc.negotiate(output_encoding, buf.items, end_obj.encoding, end_obj.str) orelse {
+            output_encoding = enc.negotiate(output_encoding, buf.written(), end_obj.encoding, end_obj.str) orelse {
                 return vm.raiseEncodingCompatibilityError(output_encoding, end_obj.encoding);
             };
         }
         writer.writeAll(end_obj.str) catch return error.Fatal;
     }
 
-    const str = buf.toOwnedSlice(vm.allocator) catch return error.Fatal;
+    const str = buf.toOwnedSlice() catch return error.Fatal;
     defer vm.allocator.free(str);
     return try vm.newStringWithEncoding(str, false, output_encoding);
 }

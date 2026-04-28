@@ -15,7 +15,7 @@ test "Symbol interning - same address for identical symbols" {
 
     const allocator = getAllocator();
 
-    var vm = VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic);
+    var vm = VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic, std.testing.io, std.testing.environ);
     defer vm.deinit();
 
     const symbol1 = try vm.intern("foo");

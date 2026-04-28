@@ -11,6 +11,6 @@ pkgs.mkShell {
     m4
     pkg-config
     stdenv.cc
-    zig_0_15
+    zig_0_16
   ];
 }

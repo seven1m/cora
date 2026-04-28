@@ -101,9 +101,10 @@ fn ioWriteBytes(vm: *VM, io: *IoObject, bytes: []const u8) VMError!usize {
     const fd: std.posix.fd_t = @intCast(io.fd);
     var total: usize = 0;
     while (total < bytes.len) {
-        const n = std.posix.write(fd, bytes[total..]) catch return vm.raiseExceptionFmt(vm.io_error_class, "write failed", .{});
+        const n = std.c.write(fd, bytes[total..].ptr, bytes[total..].len);
+        if (n < 0) return vm.raiseExceptionFmt(vm.io_error_class, "write failed", .{});
         if (n == 0) break;
-        total += n;
+        total += @intCast(n);
     }
     return total;
 }
@@ -239,7 +240,7 @@ pub fn builtinIoClose(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
     if (io.closed) return Value.nil();
 
     if (io.owns_fd and io.fd >= 0) {
-        std.posix.close(@intCast(io.fd));
+        _ = std.c.close(@intCast(io.fd));
     }
     io.closed = true;
     return Value.nil();

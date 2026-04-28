@@ -20,6 +20,7 @@ var fba = std.heap.FixedBufferAllocator.init(&fba_buffer);
 var fba_buffer: [8192]u8 = undefined;
 var stdin_buffer: [4096]u8 = undefined;
 var stdout_buffer: [4096]u8 = undefined;
+var process_io: std.Io = std.testing.io;
 
 const ZigTestFn = @TypeOf(builtin.test_functions[0]);
 const worker_result_prefix = "__cora_worker_result__ ";
@@ -219,7 +220,7 @@ fn executeTestAtIndex(test_fns: []const ZigTestFn, ruby_spec_tests: []const Ruby
                 result.outcome = .fail;
                 result.err_name = @errorName(err);
                 if (@errorReturnTrace()) |trace| {
-                    std.debug.dumpStackTrace(trace.*);
+                    std.debug.dumpErrorReturnTrace(trace);
                 }
             },
         }
@@ -263,10 +264,10 @@ fn emitWorkerJsonResult(result: TestRunResult) void {
     };
     defer allocator.free(json);
 
-    const stdout = std.fs.File.stdout();
-    stdout.writeAll(worker_result_prefix) catch {};
-    stdout.writeAll(json) catch {};
-    stdout.writeAll("\n") catch {};
+    const stdout = std.Io.File.stdout();
+    stdout.writeStreamingAll(process_io, worker_result_prefix) catch {};
+    stdout.writeStreamingAll(process_io, json) catch {};
+    stdout.writeStreamingAll(process_io, "\n") catch {};
 }
 
 fn findWorkerJson(stdout_data: []const u8) ?[]const u8 {
@@ -309,7 +310,7 @@ fn parseWorkerResult(allocator: std.mem.Allocator, term: std.process.Child.Term,
     }
 
     switch (term) {
-        .Exited => |code| {
+        .exited => |code| {
             return .{
                 .outcome = .fail,
                 .err_name = if (code == 0) "WorkerMissingJsonResult" else "WorkerExitedNonZero",
@@ -325,7 +326,6 @@ fn parseWorkerResult(allocator: std.mem.Allocator, term: std.process.Child.Term,
 }
 
 fn spawnWorkerProcess(
-    allocator: std.mem.Allocator,
     exe_path: []const u8,
     seed: u32,
     test_index: usize,
@@ -341,11 +341,12 @@ fn spawnWorkerProcess(
         test_arg,
     };
 
-    var child = std.process.Child.init(&argv, allocator);
-    child.stdin_behavior = .Ignore;
-    child.stdout_behavior = .Pipe;
-    child.stderr_behavior = .Pipe;
-    try child.spawn();
+    const child = try std.process.spawn(process_io, .{
+        .argv = &argv,
+        .stdin = .ignore,
+        .stdout = .pipe,
+        .stderr = .pipe,
+    });
 
     return .{
         .child = child,
@@ -368,12 +369,17 @@ fn drainWorkerStream(allocator: std.mem.Allocator, worker: *ActiveWorker, stream
     switch (stream) {
         .stdout => {
             if (worker.child.stdout) |*pipe| {
-                const bytes_read = pipe.read(&read_buf) catch |err| switch (err) {
+                const bytes_read = pipe.readStreaming(process_io, &.{read_buf[0..]}) catch |err| switch (err) {
+                    error.EndOfStream => {
+                        pipe.close(process_io);
+                        worker.child.stdout = null;
+                        return;
+                    },
                     error.WouldBlock => return,
                     else => return err,
                 };
                 if (bytes_read == 0) {
-                    pipe.close();
+                    pipe.close(process_io);
                     worker.child.stdout = null;
                     return;
                 }
@@ -382,12 +388,17 @@ fn drainWorkerStream(allocator: std.mem.Allocator, worker: *ActiveWorker, stream
         },
         .stderr => {
             if (worker.child.stderr) |*pipe| {
-                const bytes_read = pipe.read(&read_buf) catch |err| switch (err) {
+                const bytes_read = pipe.readStreaming(process_io, &.{read_buf[0..]}) catch |err| switch (err) {
+                    error.EndOfStream => {
+                        pipe.close(process_io);
+                        worker.child.stderr = null;
+                        return;
+                    },
                     error.WouldBlock => return,
                     else => return err,
                 };
                 if (bytes_read == 0) {
-                    pipe.close();
+                    pipe.close(process_io);
                     worker.child.stderr = null;
                     return;
                 }
@@ -515,7 +526,7 @@ fn runProcessWorkerQueue(
     var next_index: usize = 0;
     while (next_index < total_tests or active_workers.items.len > 0) {
         while (next_index < total_tests and active_workers.items.len < worker_count) {
-            const worker = spawnWorkerProcess(allocator, exe_path, seed, next_index) catch |err| {
+            const worker = spawnWorkerProcess(exe_path, seed, next_index) catch |err| {
                 const failure = TestRunResult{
                     .outcome = .fail,
                     .err_name = @errorName(err),
@@ -610,7 +621,7 @@ fn runProcessWorkerQueue(
             const worker_stderr = finished_worker.stderr_buffer.items;
 
             var result: TestRunResult = undefined;
-            if (finished_worker.child.wait()) |term| {
+            if (finished_worker.child.wait(process_io)) |term| {
                 result = parseWorkerResult(allocator, term, worker_stdout);
             } else |err| {
                 result = .{
@@ -644,8 +655,9 @@ const crippled = switch (builtin.zig_backend) {
     else => false,
 };
 
-pub fn main() void {
+pub fn main(init: std.process.Init) void {
     @disableInstrumentation();
+    process_io = init.io;
 
     if (builtin.cpu.arch.isSpirV()) {
         // SPIR-V needs an special test-runner
@@ -656,7 +668,7 @@ pub fn main() void {
         return mainSimple() catch @panic("test failure\n");
     }
 
-    const args = std.process.argsAlloc(fba.allocator()) catch
+    const args = init.minimal.args.toSlice(fba.allocator()) catch
         @panic("unable to parse command line args");
     const cli_options = parseCliOptions(args);
 
@@ -677,8 +689,8 @@ pub fn main() void {
 
 fn mainServer() !void {
     @disableInstrumentation();
-    var stdin_reader = std.fs.File.stdin().readerStreaming(&stdin_buffer);
-    var stdout_writer = std.fs.File.stdout().writerStreaming(&stdout_buffer);
+    var stdin_reader = std.Io.File.stdin().readerStreaming(process_io, &stdin_buffer);
+    var stdout_writer = std.Io.File.stdout().writerStreaming(process_io, &stdout_buffer);
     var server = try std.zig.Server.init(.{
         .in = &stdin_reader.interface,
         .out = &stdout_writer.interface,
@@ -756,7 +768,7 @@ fn mainServer() !void {
                         else => {
                             fail = true;
                             if (@errorReturnTrace()) |trace| {
-                                std.debug.dumpStackTrace(trace.*);
+                                std.debug.dumpErrorReturnTrace(trace);
                             }
                         },
                     };
@@ -771,7 +783,7 @@ fn mainServer() !void {
                     if (ruby_result.outcome == .fail) {
                         fail = true;
                         if (@errorReturnTrace()) |trace| {
-                            std.debug.dumpStackTrace(trace.*);
+                            std.debug.dumpErrorReturnTrace(trace);
                         }
                     }
                     deinitRubySpecTests(testing.allocator, &ruby_spec_tests);
@@ -781,14 +793,13 @@ fn mainServer() !void {
                 try server.serveTestResults(.{
                     .index = index,
                     .flags = .{
-                        .fail = fail,
-                        .skip = skip,
-                        .leak = leak,
+                        .status = if (skip) .skip else if (fail) .fail else .pass,
                         .fuzz = is_fuzz_test,
                         .log_err_count = std.math.lossyCast(
                             @FieldType(std.zig.Server.Message.TestResults.Flags, "log_err_count"),
                             log_err_count,
                         ),
+                        .leak_count = if (leak) 1 else 0,
                     },
                 });
             },
@@ -805,7 +816,7 @@ fn mainServer() !void {
                     error.SkipZigTest => return,
                     else => {
                         if (@errorReturnTrace()) |trace| {
-                            std.debug.dumpStackTrace(trace.*);
+                            std.debug.dumpErrorReturnTrace(trace);
                         }
                         std.debug.print("failed with error.{s}\n", .{@errorName(err)});
                         std.process.exit(1);
@@ -865,13 +876,13 @@ fn mainTerminal() void {
 
     if (worker_count > 1) {
         const allocator = std.heap.page_allocator;
-        const child_exe_path = std.fs.selfExePathAlloc(allocator) catch |err| {
+        const child_exe_path = std.process.executablePathAlloc(process_io, allocator) catch |err| {
             std.debug.print("Failed to resolve test runner executable path: {s}\n", .{@errorName(err)});
             std.process.exit(1);
         };
         defer allocator.free(child_exe_path);
 
-        const interactive_tty = std.fs.File.stderr().isTty() and !verbose;
+        const interactive_tty = (std.Io.File.stderr().isTty(process_io) catch false) and !verbose;
         const summary = runProcessWorkerQueue(
             allocator,
             child_exe_path,
@@ -910,11 +921,11 @@ fn mainTerminal() void {
     var summary = RunSummary{
         .known_total_specs = test_fn_list.len,
     };
-    const root_node = if (builtin.fuzz or verbose) std.Progress.Node.none else std.Progress.start(.{
+    const root_node = if (builtin.fuzz or verbose) std.Progress.Node.none else std.Progress.start(process_io, .{
         .root_name = "Test",
         .estimated_total_items = total_tests,
     });
-    const have_tty = std.fs.File.stderr().isTty() and !verbose;
+    const have_tty = (std.Io.File.stderr().isTty(process_io) catch false) and !verbose;
 
     var async_frame_buffer: []align(builtin.target.stackAlignment()) u8 = undefined;
     async_frame_buffer = &[_]u8{};
@@ -960,7 +971,7 @@ fn mainTerminal() void {
 
 pub fn log(
     comptime message_level: std.log.Level,
-    comptime scope: @Type(.enum_literal),
+    comptime scope: @TypeOf(.foo),
     comptime format: []const u8,
     args: anytype,
 ) void {
@@ -996,23 +1007,23 @@ pub fn mainSimple() anyerror!void {
     var failed: u64 = 0;
 
     // we don't want to bring in File and Writer if the backend doesn't support it
-    const stdout = if (enable_write) std.fs.File.stdout() else {};
+    const stdout = if (enable_write) std.Io.File.stdout() else {};
 
     for (builtin.test_functions) |test_fn| {
         if (enable_write) {
-            stdout.writeAll(test_fn.name) catch {};
-            stdout.writeAll("... ") catch {};
+            stdout.writeStreamingAll(process_io, test_fn.name) catch {};
+            stdout.writeStreamingAll(process_io, "... ") catch {};
         }
         if (test_fn.func()) |_| {
-            if (enable_write) stdout.writeAll("PASS\n") catch {};
+            if (enable_write) stdout.writeStreamingAll(process_io, "PASS\n") catch {};
         } else |err| {
             if (err != error.SkipZigTest) {
-                if (enable_write) stdout.writeAll("FAIL\n") catch {};
+                if (enable_write) stdout.writeStreamingAll(process_io, "FAIL\n") catch {};
                 failed += 1;
                 if (!enable_write) return err;
                 continue;
             }
-            if (enable_write) stdout.writeAll("SKIP\n") catch {};
+            if (enable_write) stdout.writeStreamingAll(process_io, "SKIP\n") catch {};
             skipped += 1;
             continue;
         }
@@ -1086,7 +1097,7 @@ pub fn fuzz(
                 error.SkipZigTest => return,
                 else => {
                     std.debug.lockStdErr();
-                    if (@errorReturnTrace()) |trace| std.debug.dumpStackTrace(trace.*);
+                    if (@errorReturnTrace()) |trace| std.debug.dumpErrorReturnTrace(trace);
                     std.debug.print("failed with error.{s}\n", .{@errorName(err)});
                     std.process.exit(1);
                 },

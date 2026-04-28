@@ -32,7 +32,7 @@ pub fn builtinProcessUid(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
         return vm.raiseExceptionFmt(vm.runtime_error_class, "Process.uid is not implemented on Windows", .{});
     }
 
-    const uid = std.posix.getuid();
+    const uid = std.c.getuid();
     return Value.integer(@intCast(uid));
 }
 
@@ -43,7 +43,7 @@ pub fn builtinProcessEuid(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
         return vm.raiseExceptionFmt(vm.runtime_error_class, "Process.euid is not implemented on Windows", .{});
     }
 
-    const euid = std.posix.geteuid();
+    const euid = std.c.geteuid();
     return Value.integer(@intCast(euid));
 }
 

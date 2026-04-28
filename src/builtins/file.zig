@@ -16,7 +16,7 @@ fn passwdDir(passwd: *const std.c.passwd) ?[]const u8 {
 }
 
 fn homeFromPasswdByUid(vm: *VM) VMError!?[]const u8 {
-    const passwd = std.c.getpwuid(std.posix.getuid()) orelse return null;
+    const passwd = std.c.getpwuid(std.c.getuid()) orelse return null;
     const dir = passwdDir(passwd) orelse return null;
     if (!std.fs.path.isAbsolute(dir)) {
         return vm.raiseExceptionFmt(vm.argument_error_class, "non-absolute home", .{});
@@ -98,7 +98,7 @@ fn openFileWithMode(vm: *VM, path: []const u8, mode: FileMode) VMError!Value {
         return vm.raiseExceptionFmt(vm.runtime_error_class, "File is not implemented on Windows", .{});
     }
 
-    const flags: std.posix.O = .{
+    const flags: std.c.O = .{
         .ACCMODE = if (mode.read and mode.write) .RDWR else if (mode.write) .WRONLY else .RDONLY,
         .CLOEXEC = true,
         .CREAT = mode.create,
@@ -106,9 +106,12 @@ fn openFileWithMode(vm: *VM, path: []const u8, mode: FileMode) VMError!Value {
         .APPEND = mode.append,
     };
 
-    const fd = std.posix.open(path, flags, 0o666) catch {
+    const path_z = try vm.allocCStringZ(path);
+    defer vm.allocator.free(path_z);
+    const fd = std.c.open(path_z.ptr, flags, @as(std.c.mode_t, 0o666));
+    if (fd < 0) {
         return vm.raiseExceptionFmt(vm.io_error_class, "failed to open file: {s}", .{path});
-    };
+    }
 
     return vm.newIo(vm.file_class, @intCast(fd), true, mode.read, mode.write, mode.append);
 }
@@ -126,14 +129,14 @@ fn pathAndMode(vm: *VM, args: []Value) VMError!struct { path: []const u8, mode: 
 }
 
 fn currentHome(vm: *VM) VMError![]const u8 {
-    const home_z = std.posix.getenv("HOME") orelse {
+    const home_z = std.c.getenv("HOME") orelse {
         return (try homeFromPasswdByUid(vm)) orelse vm.raiseExceptionFmt(
             vm.argument_error_class,
             "couldn't find HOME environment -- expanding `~'",
             .{},
         );
     };
-    const home = home_z[0..home_z.len];
+    const home = std.mem.span(home_z);
     if (home.len == 0) {
         return vm.raiseExceptionFmt(vm.argument_error_class, "couldn't find HOME environment -- expanding `~'", .{});
     }
@@ -144,7 +147,7 @@ fn currentHome(vm: *VM) VMError![]const u8 {
 }
 
 fn currentWorkingDir(vm: *VM) VMError![]u8 {
-    return std.process.getCwdAlloc(vm.allocator) catch return error.Fatal;
+    return std.process.currentPathAlloc(vm.io, vm.allocator) catch return error.Fatal;
 }
 
 fn joinPathPartsAlloc(allocator: std.mem.Allocator, base: []const u8, tail: []const u8) ![]u8 {
@@ -354,7 +357,7 @@ pub fn builtinFileRealpath(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
     const expanded = try expandPathAlloc(vm, path_obj.str, base);
     defer vm.allocator.free(expanded);
 
-    const resolved = std.fs.cwd().realpathAlloc(vm.allocator, expanded) catch {
+    const resolved = std.Io.Dir.cwd().realPathFileAlloc(vm.io, expanded, vm.allocator) catch {
         return vm.raiseExceptionFmt(vm.io_error_class, "No such file or directory @ rb_check_realpath_internal - {s}", .{path_obj.str});
     };
     defer vm.allocator.free(resolved);
@@ -424,8 +427,8 @@ pub fn builtinFileDirectory(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
     }
 
     const path = try vm.coerceToPath(args[0], "no implicit conversion into String");
-    var dir = std.fs.cwd().openDir(path, .{}) catch return Value.boolean(false);
-    defer dir.close();
+    var dir = std.Io.Dir.cwd().openDir(vm.io, path, .{}) catch return Value.boolean(false);
+    defer dir.close(vm.io);
     return Value.boolean(true);
 }
 
@@ -436,10 +439,6 @@ pub fn builtinFileFile(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
     }
 
     const path = try vm.coerceToPath(args[0], "no implicit conversion into String");
-    const path_z = try vm.allocCStringZ(path);
-    defer vm.allocator.free(path_z);
-    var st: std.posix.Stat = undefined;
-    const rc = std.c.stat(path_z.ptr, &st);
-    if (rc != 0) return Value.boolean(false);
-    return Value.boolean(std.posix.S.ISREG(st.mode));
+    const st = std.Io.Dir.cwd().statFile(vm.io, path, .{}) catch return Value.boolean(false);
+    return Value.boolean(st.kind == .file);
 }

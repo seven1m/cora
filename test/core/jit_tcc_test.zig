@@ -46,7 +46,7 @@ test "TinyCC JIT accepts fib-like chunk and executes it" {
     try std.testing.expect(fib_chunk != null);
     try jit.validateChunk(fib_chunk.?);
 
-    var vm = VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic);
+    var vm = VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic, std.testing.io, std.testing.environ);
     defer vm.deinit();
     try vm.prepare(&program);
     vm.setTccJitEnabled(true);

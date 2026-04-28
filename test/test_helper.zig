@@ -6,13 +6,14 @@ const VM = cora.vm.VM;
 const Value = cora.value.Value;
 const bdwgc = @import("bdwgc");
 
-var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+var gpa: std.heap.DebugAllocator(.{}) = .init;
 pub fn getAllocator() std.mem.Allocator {
     return gpa.allocator();
 }
 
 pub const TestWriter = struct {
-    fbs: *std.io.FixedBufferStream([]u8),
+    buffer: []u8,
+    used: usize = 0,
     interface: std.Io.Writer,
 
     const vtable: std.Io.Writer.VTable = .{
@@ -20,9 +21,9 @@ pub const TestWriter = struct {
         .sendFile = std.Io.Writer.unimplementedSendFile,
     };
 
-    pub fn init(fbs: *std.io.FixedBufferStream([]u8)) TestWriter {
+    pub fn init(buffer: []u8) TestWriter {
         return .{
-            .fbs = fbs,
+            .buffer = buffer,
             .interface = .{
                 .vtable = &vtable,
                 .buffer = &.{}, // unbuffered - writes go directly to fbs
@@ -30,11 +31,17 @@ pub const TestWriter = struct {
         };
     }
 
+    pub fn written(self: *const TestWriter) []const u8 {
+        return self.buffer[0..self.used];
+    }
+
     fn drain(io_w: *std.Io.Writer, data: []const []const u8, _: usize) std.Io.Writer.Error!usize {
         const w: *TestWriter = @alignCast(@fieldParentPtr("interface", io_w));
         var total: usize = 0;
         for (data) |slice| {
-            w.fbs.writer().writeAll(slice) catch return error.WriteFailed;
+            if (w.used + slice.len > w.buffer.len) return error.WriteFailed;
+            @memcpy(w.buffer[w.used..][0..slice.len], slice);
+            w.used += slice.len;
             total += slice.len;
         }
         return total;
@@ -62,9 +69,12 @@ pub fn evalCodeWithOutput(ruby_code: []const u8, stdout_buf: []u8, stderr_buf: [
 
 pub fn evalFile(path: []const u8, stdout_buf: []u8, stderr_buf: []u8) EvalResult {
     const allocator = getAllocator();
+    var threaded: std.Io.Threaded = .init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
 
     // Get absolute path for require_relative resolution
-    const abs_path = std.fs.cwd().realpathAlloc(allocator, path) catch {
+    const abs_path = std.Io.Dir.cwd().realPathFileAlloc(io, path, allocator) catch {
         return .{
             .value = Value.nil(),
             .stdout = "",
@@ -74,22 +84,12 @@ pub fn evalFile(path: []const u8, stdout_buf: []u8, stderr_buf: []u8) EvalResult
     };
 
     // Read file contents
-    const file = std.fs.cwd().openFile(path, .{}) catch {
+    const ruby_code = std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(1024 * 1024)) catch {
         return .{
             .value = Value.nil(),
             .stdout = "",
             .stderr = "",
-            .err = error.FileNotFound,
-        };
-    };
-    defer file.close();
-
-    const ruby_code = file.readToEndAlloc(allocator, 1024 * 1024) catch {
-        return .{
-            .value = Value.nil(),
-            .stdout = "",
-            .stderr = "",
-            .err = error.FileNotFound,
+            .err = error.FileReadFailed,
         };
     };
     defer allocator.free(ruby_code);
@@ -113,7 +113,10 @@ pub fn evalCodeWithOutputAndPath(ruby_code: []const u8, stdout_buf: []u8, stderr
     };
     defer parser.deinit();
 
-    var vm = VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic);
+    var threaded: std.Io.Threaded = .init(allocator, .{});
+    defer threaded.deinit();
+
+    var vm = VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic, threaded.io(), std.testing.environ);
     defer vm.deinit();
 
     var program = compiler.Compiler.compile(allocator, &parser, 1) catch |err| {
@@ -136,13 +139,11 @@ pub fn evalCodeWithOutputAndPath(ruby_code: []const u8, stdout_buf: []u8, stderr
     };
 
     // Set up stdout capture
-    var stdout_fbs = std.io.fixedBufferStream(stdout_buf);
-    var stdout_writer = TestWriter.init(&stdout_fbs);
+    var stdout_writer = TestWriter.init(stdout_buf);
     vm.stdout = &stdout_writer.interface;
 
     // Set up stderr capture
-    var stderr_fbs = std.io.fixedBufferStream(stderr_buf);
-    var stderr_writer = TestWriter.init(&stderr_fbs);
+    var stderr_writer = TestWriter.init(stderr_buf);
     vm.stderr = &stderr_writer.interface;
 
     const run_result = vm.run();
@@ -156,8 +157,8 @@ pub fn evalCodeWithOutputAndPath(ruby_code: []const u8, stdout_buf: []u8, stderr
         }
         return .{
             .value = Value.nil(),
-            .stdout = stdout_fbs.getWritten(),
-            .stderr = stderr_fbs.getWritten(),
+            .stdout = stdout_writer.written(),
+            .stderr = stderr_writer.written(),
             .err = err,
         };
     }
@@ -165,8 +166,8 @@ pub fn evalCodeWithOutputAndPath(ruby_code: []const u8, stdout_buf: []u8, stderr
     if (run_result) |result| {
         return .{
             .value = result,
-            .stdout = stdout_fbs.getWritten(),
-            .stderr = stderr_fbs.getWritten(),
+            .stdout = stdout_writer.written(),
+            .stderr = stderr_writer.written(),
             .err = null,
         };
     } else |err| {
@@ -175,8 +176,8 @@ pub fn evalCodeWithOutputAndPath(ruby_code: []const u8, stdout_buf: []u8, stderr
         }
         return .{
             .value = Value.nil(),
-            .stdout = stdout_fbs.getWritten(),
-            .stderr = stderr_fbs.getWritten(),
+            .stdout = stdout_writer.written(),
+            .stderr = stderr_writer.written(),
             .err = err,
         };
     }

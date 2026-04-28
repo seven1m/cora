@@ -385,22 +385,32 @@ pub const VM = struct {
     tcc_jit_enabled: bool = false,
     dump_jit_source: bool = false,
     jit_chunk_states: JitChunkStates,
+    io: std.Io,
+    environ: std.process.Environ,
 
     // Buffered writers for production
     stdout_buffer: [4096]u8 = undefined,
     stderr_buffer: [4096]u8 = undefined,
-    stdout_writer: ?std.fs.File.Writer = null,
-    stderr_writer: ?std.fs.File.Writer = null,
+    stdout_writer: ?std.Io.File.Writer = null,
+    stderr_writer: ?std.Io.File.Writer = null,
 
     // Type-erased writers (tests can override these)
     stdout: ?*std.Io.Writer = null,
     stderr: ?*std.Io.Writer = null,
 
-    pub fn initEmpty(allocator: std.mem.Allocator, gc_allocator: std.mem.Allocator, gc_allocator_atomic: std.mem.Allocator) VM {
+    pub fn initEmpty(
+        allocator: std.mem.Allocator,
+        gc_allocator: std.mem.Allocator,
+        gc_allocator_atomic: std.mem.Allocator,
+        io: std.Io,
+        environ: std.process.Environ,
+    ) VM {
         return VM{
             .allocator = allocator,
             .gc_allocator = gc_allocator,
             .gc_allocator_atomic = gc_allocator_atomic,
+            .io = io,
+            .environ = environ,
             .stack = undefined,
             .frames = undefined,
             .env_stack = undefined,
@@ -1295,12 +1305,12 @@ pub const VM = struct {
         if (self.stdout == null) {
             // Use streaming mode: stdout is typically a pipe/tty where pwritev
             // fails (Unseekable), and positional mode handles that poorly across fork().
-            self.stdout_writer = std.fs.File.stdout().writerStreaming(&self.stdout_buffer);
+            self.stdout_writer = std.Io.File.stdout().writerStreaming(self.io, &self.stdout_buffer);
             self.stdout = &self.stdout_writer.?.interface;
         }
 
         if (self.stderr == null) {
-            self.stderr_writer = std.fs.File.stderr().writerStreaming(&self.stderr_buffer);
+            self.stderr_writer = std.Io.File.stderr().writerStreaming(self.io, &self.stderr_buffer);
             self.stderr = &self.stderr_writer.?.interface;
         }
     }
@@ -1309,9 +1319,11 @@ pub const VM = struct {
         allocator: std.mem.Allocator,
         gc_allocator: std.mem.Allocator,
         gc_allocator_atomic: std.mem.Allocator,
+        io: std.Io,
+        environ: std.process.Environ,
         program: *compiler.CompiledProgram,
     ) VMError!VM {
-        var vm = initEmpty(allocator, gc_allocator, gc_allocator_atomic);
+        var vm = initEmpty(allocator, gc_allocator, gc_allocator_atomic, io, environ);
         vm.prepare(program) catch return error.Fatal;
         return vm;
     }
@@ -1333,6 +1345,23 @@ pub const VM = struct {
         try self.setGlobal("$-0", separator_value);
     }
 
+    pub fn currentEnvMap(self: *VM) VMError!std.process.Environ.Map {
+        if (builtin.link_libc and builtin.os.tag != .windows) {
+            var env_map = std.process.Environ.Map.init(self.allocator);
+            errdefer env_map.deinit();
+
+            var i: usize = 0;
+            while (std.c.environ[i]) |entry| : (i += 1) {
+                const key_value = std.mem.span(entry);
+                const equal_index = std.mem.indexOfScalar(u8, key_value, '=') orelse continue;
+                env_map.put(key_value[0..equal_index], key_value[equal_index + 1 ..]) catch return error.Fatal;
+            }
+            return env_map;
+        }
+
+        return std.process.Environ.createMap(self.environ, self.allocator) catch return error.Fatal;
+    }
+
     pub fn allocCStringZ(self: *VM, bytes: []const u8) VMError![:0]u8 {
         const out = self.allocator.allocSentinel(u8, bytes.len, 0) catch return error.Fatal;
         @memcpy(out[0..bytes.len], bytes);
@@ -1340,10 +1369,10 @@ pub const VM = struct {
     }
 
     pub fn envGet(self: *VM, key: []const u8) VMError!Value {
-        const key_z = try self.allocCStringZ(key);
-        defer self.allocator.free(key_z);
-        const value_z = getenv(key_z.ptr) orelse return Value.nil();
-        return self.newString(std.mem.span(value_z), false);
+        var env_map = try self.currentEnvMap();
+        defer env_map.deinit();
+        const value_str = env_map.get(key) orelse return Value.nil();
+        return self.newString(value_str, false);
     }
 
     pub fn syncHostEnvSet(self: *VM, key: []const u8, value_str: []const u8) VMError!void {
@@ -1390,7 +1419,7 @@ pub const VM = struct {
 
     pub fn envToHash(self: *VM) VMError!Value {
         const hash_obj = try self.createHash();
-        var env_map = std.process.getEnvMap(self.allocator) catch return error.Fatal;
+        var env_map = try self.currentEnvMap();
         defer env_map.deinit();
 
         var iter = env_map.iterator();
@@ -1405,7 +1434,7 @@ pub const VM = struct {
 
     pub fn envToArray(self: *VM) VMError!Value {
         const array_obj = try self.createArray();
-        var env_map = std.process.getEnvMap(self.allocator) catch return error.Fatal;
+        var env_map = try self.currentEnvMap();
         defer env_map.deinit();
 
         var iter = env_map.iterator();
@@ -1422,7 +1451,7 @@ pub const VM = struct {
     }
 
     pub fn envSize(self: *VM) VMError!Value {
-        var env_map = std.process.getEnvMap(self.allocator) catch return error.Fatal;
+        var env_map = try self.currentEnvMap();
         defer env_map.deinit();
 
         var count: usize = 0;
@@ -1493,7 +1522,7 @@ pub const VM = struct {
         self.jit_chunk_states.deinit();
         for (self.io_objects.items) |io_obj| {
             if (io_obj.owns_fd and !io_obj.closed and io_obj.fd >= 0) {
-                std.posix.close(@intCast(io_obj.fd));
+                _ = std.c.close(@intCast(io_obj.fd));
                 io_obj.closed = true;
             }
         }
@@ -4146,9 +4175,9 @@ pub const VM = struct {
             .INTERPOLATE_STRING => {
                 const part_count = readByteFrom(frame, operands, &operand_cursor);
 
-                var buf: std.ArrayList(u8) = .empty;
-                defer buf.deinit(self.allocator);
-                const writer = buf.writer(self.allocator);
+                var buf: std.Io.Writer.Allocating = .init(self.allocator);
+                defer buf.deinit();
+                const writer = &buf.writer;
                 if (self.stack.items.len < part_count) return error.Fatal;
                 const start = self.stack.items.len - part_count;
                 var i: usize = 0;
@@ -4169,7 +4198,7 @@ pub const VM = struct {
                 }
                 self.stack.items.len = start;
 
-                const final_str = buf.toOwnedSlice(self.allocator) catch return error.Fatal;
+                const final_str = buf.toOwnedSlice() catch return error.Fatal;
                 defer self.allocator.free(final_str);
                 try self.push(try self.newString(final_str, false));
             },
@@ -7272,18 +7301,18 @@ pub const VM = struct {
 
     pub fn resolveAbsolutePath(self: *VM, path: []const u8) VMError![]const u8 {
         var path_buffer: [4096]u8 = undefined;
-        const absolute = std.fs.cwd().realpath(path, &path_buffer) catch {
+        const absolute_len = std.Io.Dir.cwd().realPathFile(self.io, path, &path_buffer) catch {
             if (std.fs.path.isAbsolute(path)) {
                 return self.allocator.dupe(u8, path) catch return error.Fatal;
             }
             return error.Fatal;
         };
-        return self.allocator.dupe(u8, absolute) catch return error.Fatal;
+        return self.allocator.dupe(u8, path_buffer[0..absolute_len]) catch return error.Fatal;
     }
 
-    pub fn fileExists(_: *VM, path: []const u8) bool {
-        const file = std.fs.cwd().openFile(path, .{}) catch return false;
-        file.close();
+    pub fn fileExists(self: *VM, path: []const u8) bool {
+        const file = std.Io.Dir.cwd().openFile(self.io, path, .{}) catch return false;
+        file.close(self.io);
         return true;
     }
 
@@ -7320,14 +7349,7 @@ pub const VM = struct {
     }
 
     pub fn loadFile(self: *VM, absolute_path: []const u8) VMError!void {
-        const file_handle = std.fs.cwd().openFile(absolute_path, .{}) catch return error.Fatal;
-        defer file_handle.close();
-
-        const file_size = file_handle.getEndPos() catch return error.Fatal;
-        const code_buffer = self.gc_allocator_atomic.alloc(u8, file_size) catch return error.Fatal;
-
-        const bytes_read = file_handle.readAll(code_buffer) catch return error.Fatal;
-        if (bytes_read != file_size) return error.Fatal;
+        const code_buffer = std.Io.Dir.cwd().readFileAlloc(self.io, absolute_path, self.gc_allocator_atomic, .limited(std.math.maxInt(usize))) catch return error.Fatal;
 
         var parser = prism.Parser.init(self.allocator, code_buffer, absolute_path) catch return error.Fatal;
         defer parser.deinit();
@@ -8053,12 +8075,12 @@ pub const VM = struct {
         const class_name = exc.object.class.?.module.name.name;
 
         if (exc.backtrace == null or exc.backtrace.?.elements.items.len == 0) {
-            writer.print("{s} ({s})\n", .{ exc.message.str, class_name }) catch return error.Fatal;
+            writer.*.print("{s} ({s})\n", .{ exc.message.str, class_name }) catch return error.Fatal;
             return;
         }
 
         const lines = exc.backtrace.?.elements.items;
-        writer.print("{s}: {s} ({s})\n", .{ lines[0].toStringObject().str, exc.message.str, class_name }) catch return error.Fatal;
+        writer.*.print("{s}: {s} ({s})\n", .{ lines[0].toStringObject().str, exc.message.str, class_name }) catch return error.Fatal;
 
         const total_tail = lines.len - 1;
         const shown_tail = if (limit) |tail_limit|
@@ -8068,24 +8090,24 @@ pub const VM = struct {
 
         var i: usize = 0;
         while (i < shown_tail) : (i += 1) {
-            writer.print("\tfrom {s}\n", .{lines[i + 1].toStringObject().str}) catch return error.Fatal;
+            writer.*.print("\tfrom {s}\n", .{lines[i + 1].toStringObject().str}) catch return error.Fatal;
         }
 
         if (limit) |tail_limit| {
             if (total_tail > tail_limit) {
-                writer.print("\t ... {d} levels...\n", .{total_tail - tail_limit}) catch return error.Fatal;
+                writer.*.print("\t ... {d} levels...\n", .{total_tail - tail_limit}) catch return error.Fatal;
             }
         }
     }
 
     pub fn exceptionFullMessage(self: *VM, exc: *value.ExceptionObject) VMError!Value {
-        var buf: std.ArrayList(u8) = .empty;
-        defer buf.deinit(self.allocator);
+        var buf: std.Io.Writer.Allocating = .init(self.allocator);
+        defer buf.deinit();
 
-        const writer = buf.writer(self.allocator);
+        const writer = &buf.writer;
         try self.writeFormattedException(&writer, exc, self.backtrace_limit);
 
-        const full_message = buf.toOwnedSlice(self.allocator) catch return error.Fatal;
+        const full_message = buf.toOwnedSlice() catch return error.Fatal;
         defer self.allocator.free(full_message);
         return try self.newString(full_message, false);
     }

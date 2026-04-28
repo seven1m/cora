@@ -2,7 +2,7 @@ const std = @import("std");
 const Parser = @import("cora").prism.Parser;
 
 test "Parser.init provides ProgramNode AST for invalid code" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
@@ -16,7 +16,7 @@ test "Parser.init provides ProgramNode AST for invalid code" {
 }
 
 test "Parser.init provides ProgramNode AST for valid code" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 

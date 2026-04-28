@@ -3,14 +3,14 @@ const enc = @import("encoding.zig");
 const value = @import("value.zig");
 
 fn appendHexByte(writer: anytype, b: u8) !void {
-    try std.fmt.format(writer, "\\x{X:0>2}", .{b});
+    try writer.print("\\x{X:0>2}", .{b});
 }
 
 fn appendUnicodeEscape(writer: anytype, codepoint: u32) !void {
     if (codepoint <= 0xFFFF) {
-        try std.fmt.format(writer, "\\u{X:0>4}", .{codepoint});
+        try writer.print("\\u{X:0>4}", .{codepoint});
     } else {
-        try std.fmt.format(writer, "\\u{{{X}}}", .{codepoint});
+        try writer.print("\\u{{{X}}}", .{codepoint});
     }
 }
 
@@ -21,9 +21,9 @@ fn appendEscapedCodepoint(writer: anytype, codepoint: u32, unicode_encoding: boo
     }
 
     if (codepoint <= 0xFF) {
-        try std.fmt.format(writer, "\\x{X:0>2}", .{codepoint});
+        try writer.print("\\x{X:0>2}", .{codepoint});
     } else {
-        try std.fmt.format(writer, "\\x{{{X}}}", .{codepoint});
+        try writer.print("\\x{{{X}}}", .{codepoint});
     }
 }
 
@@ -169,9 +169,9 @@ pub fn escapeStringBytes(
     input: []const u8,
     input_encoding: enc.Encoding,
 ) ![]u8 {
-    var buf: std.ArrayList(u8) = .empty;
-    defer buf.deinit(allocator);
-    const writer = buf.writer(allocator);
+    var buf: std.Io.Writer.Allocating = .init(allocator);
+    defer buf.deinit();
+    const writer = &buf.writer;
     const unicode_encoding = input_encoding.isUnicode();
 
     var i: usize = 0;
@@ -202,7 +202,7 @@ pub fn escapeStringBytes(
         try appendEscapedCodepoint(writer, codepoint, unicode_encoding);
     }
 
-    return buf.toOwnedSlice(allocator);
+    return buf.toOwnedSlice();
 }
 
 pub fn inspectStringBytes(
@@ -212,9 +212,9 @@ pub fn inspectStringBytes(
     result_encoding: enc.Encoding,
 ) ![]u8 {
     if (input_encoding == .ascii_8bit) {
-        var buf: std.ArrayList(u8) = .empty;
-        defer buf.deinit(allocator);
-        const writer = buf.writer(allocator);
+        var buf: std.Io.Writer.Allocating = .init(allocator);
+        defer buf.deinit();
+        const writer = &buf.writer;
         try writer.writeAll("\"");
 
         for (input, 0..) |b, idx| {
@@ -248,12 +248,12 @@ pub fn inspectStringBytes(
         }
 
         try writer.writeAll("\"");
-        return buf.toOwnedSlice(allocator);
+        return buf.toOwnedSlice();
     }
 
-    var buf: std.ArrayList(u8) = .empty;
-    defer buf.deinit(allocator);
-    const writer = buf.writer(allocator);
+    var buf: std.Io.Writer.Allocating = .init(allocator);
+    defer buf.deinit();
+    const writer = &buf.writer;
 
     const unicode_encoding = input_encoding.isUnicode();
     const use_hex_braces_for_non_ascii = input_encoding.isAsciiCompatible() and !unicode_encoding and !input_encoding.eql(result_encoding);
@@ -300,7 +300,7 @@ pub fn inspectStringBytes(
                 if (codepoint > 0x7F and use_hex_braces_for_non_ascii) {
                     try writer.writeAll("\\x{");
                     for (char_bytes) |b| {
-                        try std.fmt.format(writer, "{X:0>2}", .{b});
+                        try writer.print("{X:0>2}", .{b});
                     }
                     try writer.writeAll("}");
                     continue;
@@ -334,7 +334,7 @@ pub fn inspectStringBytes(
     }
     try writer.writeAll("\"");
 
-    return buf.toOwnedSlice(allocator);
+    return buf.toOwnedSlice();
 }
 
 pub fn inspectSymbolBytes(
@@ -344,21 +344,21 @@ pub fn inspectSymbolBytes(
     result_encoding: enc.Encoding,
 ) ![]u8 {
     if (input_encoding.isDummy()) {
-        var buf: std.ArrayList(u8) = .empty;
-        defer buf.deinit(allocator);
-        const writer = buf.writer(allocator);
+        var buf: std.Io.Writer.Allocating = .init(allocator);
+        defer buf.deinit();
+        const writer = &buf.writer;
         try writer.writeAll("\"");
         for (input) |b| {
             try appendHexByte(writer, b);
         }
         try writer.writeAll("\"");
-        return buf.toOwnedSlice(allocator);
+        return buf.toOwnedSlice();
     }
 
     if (input_encoding == .ascii_8bit) {
-        var buf: std.ArrayList(u8) = .empty;
-        defer buf.deinit(allocator);
-        const writer = buf.writer(allocator);
+        var buf: std.Io.Writer.Allocating = .init(allocator);
+        defer buf.deinit();
+        const writer = &buf.writer;
         try writer.writeAll("\"");
 
         for (input, 0..) |b, idx| {
@@ -392,7 +392,7 @@ pub fn inspectSymbolBytes(
         }
 
         try writer.writeAll("\"");
-        return buf.toOwnedSlice(allocator);
+        return buf.toOwnedSlice();
     }
 
     return inspectStringBytes(allocator, input, input_encoding, result_encoding);

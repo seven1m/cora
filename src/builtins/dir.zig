@@ -14,7 +14,7 @@ fn passwdDir(passwd: *const std.c.passwd) ?[]const u8 {
 }
 
 fn homeFromPasswdByUid(vm: *VM) VMError!?[]const u8 {
-    const passwd = std.c.getpwuid(std.posix.getuid()) orelse return null;
+    const passwd = std.c.getpwuid(std.c.getuid()) orelse return null;
     const dir = passwdDir(passwd) orelse return null;
     if (!std.fs.path.isAbsolute(dir)) {
         return vm.raiseExceptionFmt(vm.argument_error_class, "non-absolute home", .{});
@@ -35,14 +35,14 @@ fn homeFromPasswdByName(vm: *VM, username: []const u8) VMError!?[]const u8 {
 }
 
 fn currentHome(vm: *VM) VMError![]const u8 {
-    const home_z = std.posix.getenv("HOME") orelse {
+    const home_z = std.c.getenv("HOME") orelse {
         return (try homeFromPasswdByUid(vm)) orelse vm.raiseExceptionFmt(
             vm.argument_error_class,
             "couldn't find HOME environment -- expanding `~'",
             .{},
         );
     };
-    const home = home_z[0..home_z.len];
+    const home = std.mem.span(home_z);
     if (home.len == 0) {
         return vm.raiseExceptionFmt(vm.argument_error_class, "couldn't find HOME environment -- expanding `~'", .{});
     }
@@ -72,7 +72,7 @@ pub fn builtinDirPwd(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value 
         return vm.raiseExceptionFmt(vm.not_implemented_error_class, "Dir.pwd is not implemented on Windows", .{});
     }
 
-    const cwd = std.process.getCwdAlloc(vm.allocator) catch return error.Fatal;
+    const cwd = std.process.currentPathAlloc(vm.io, vm.allocator) catch return error.Fatal;
     defer vm.allocator.free(cwd);
     return try vm.newString(cwd, false);
 }
@@ -101,15 +101,19 @@ pub fn builtinDirChdir(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!
     }
 
     const target = try vm.coerceToPath(args[0], "no implicit conversion into String");
-    const previous = std.process.getCwdAlloc(vm.allocator) catch return error.Fatal;
+    const previous = std.process.currentPathAlloc(vm.io, vm.allocator) catch return error.Fatal;
     defer vm.allocator.free(previous);
+    const target_z = try vm.allocCStringZ(target);
+    defer vm.allocator.free(target_z);
 
-    std.posix.chdir(target) catch {
+    if (std.c.chdir(target_z.ptr) != 0) {
         return vm.raiseExceptionFmt(vm.io_error_class, "No such file or directory @ dir_s_chdir - {s}", .{target});
-    };
+    }
 
     if (block) |blk| {
-        defer std.posix.chdir(previous) catch {};
+        const previous_z = try vm.allocCStringZ(previous);
+        defer vm.allocator.free(previous_z);
+        defer _ = std.c.chdir(previous_z.ptr);
         const yielded = try vm.yieldToBlock(blk, &[_]Value{});
         if (yielded.break_occurred) return yielded.value;
         return yielded.value;

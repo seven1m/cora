@@ -3,12 +3,12 @@
     .version = "0.1.0",
     .dependencies = .{
         .bdwgc_zig = .{
-            .url = "git+https://github.com/bdwgc/bdwgc-zig#d412e7728d59b74fd956991d6ce738304133556b",
-            .hash = "bdwgc_zig-0.1.0-ffcEgaR7AABxDBCeXXTiufs5o4MMAHgoZADlUh9xK1tw",
+            .url = "git+https://github.com/bdwgc/bdwgc-zig#946159a3e470a9f0df6cf53697ab290eda47409d",
+            .hash = "bdwgc_zig-0.1.0-ffcEgZp8AAAt9ub7vBOnk0hGK5XB-ocp5o0ofTb7wDCt",
         },
         .zio = .{
-            .url = "git+https://github.com/lalinsky/zio?ref=v0.8.0#d7e56167f37bfedbd0dd470f56e01620e69a0d4a",
-            .hash = "zio-0.8.0-xHbVVHtnGACrWEGWxWvXl2rYDp9qDmJ-UO4hynM9cibA",
+            .url = "git+https://github.com/lalinsky/zio#76a4090ddd9e0ab524d434394557cb3a3654e81e",
+            .hash = "zio-0.7.0-xHbVVD7FGQDXMyxvzreZF98sQuKyhEsBTgKZv6gVfVRx",
         },
     },
     .paths = .{""},

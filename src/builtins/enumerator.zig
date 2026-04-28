@@ -81,7 +81,7 @@ fn builtinEnumeratorEach(vm: *VM, receiver: Value, args: []Value, block: ?Block)
         }
 
         switch (enum_obj.kind) {
-            .method => |_| {
+            .method => {
                 var merged_args = try vm.createArray();
                 if (enum_obj.method_args) |method_args| {
                     for (method_args.elements.items) |arg| {

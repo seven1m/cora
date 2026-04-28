@@ -1936,9 +1936,9 @@ pub fn builtinArrayInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
         return try vm.newStringWithEncoding("[]", false, .{ .us_ascii = .{} });
     }
 
-    var buf: std.ArrayList(u8) = .empty;
-    defer buf.deinit(vm.allocator);
-    const writer = buf.writer(vm.allocator);
+    var buf: std.Io.Writer.Allocating = .init(vm.allocator);
+    defer buf.deinit();
+    const writer = &buf.writer;
     var output_encoding: enc.Encoding = .{ .us_ascii = .{} };
 
     writer.writeAll("[") catch return error.Fatal;
@@ -1952,7 +1952,7 @@ pub fn builtinArrayInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
         if (idx == 0) {
             output_encoding = inspected_obj.encoding;
         } else {
-            output_encoding = arrayJoinResolveEncoding(output_encoding, buf.items, inspected_obj.encoding, inspected_obj.str) orelse {
+            output_encoding = arrayJoinResolveEncoding(output_encoding, buf.written(), inspected_obj.encoding, inspected_obj.str) orelse {
                 return vm.raiseEncodingCompatibilityError(output_encoding, inspected_obj.encoding);
             };
         }
@@ -1960,7 +1960,7 @@ pub fn builtinArrayInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     }
     writer.writeAll("]") catch return error.Fatal;
 
-    const out = buf.toOwnedSlice(vm.allocator) catch return error.Fatal;
+    const out = buf.toOwnedSlice() catch return error.Fatal;
     defer vm.allocator.free(out);
     return try vm.newStringWithEncoding(out, false, output_encoding);
 }

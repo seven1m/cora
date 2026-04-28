@@ -484,9 +484,9 @@ pub fn builtinHashToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
     defer vm.leaveRecursionGuard(.hash_inspect, receiver, Value.nil());
 
     const hash_obj = receiver.toHashObject();
-    var buf: std.ArrayList(u8) = .empty;
-    defer buf.deinit(vm.allocator);
-    const writer = buf.writer(vm.allocator);
+    var buf: std.Io.Writer.Allocating = .init(vm.allocator);
+    defer buf.deinit();
+    const writer = &buf.writer;
     var output_encoding: enc.Encoding = .{ .us_ascii = .{} };
     var has_dynamic_part = false;
     const target_encoding = vm.inspectTargetEncoding();
@@ -512,7 +512,7 @@ pub fn builtinHashToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
                 output_encoding = key_encoding;
                 has_dynamic_part = true;
             } else {
-                output_encoding = enc.negotiate(output_encoding, buf.items, key_encoding, key_bytes) orelse {
+                output_encoding = enc.negotiate(output_encoding, buf.written(), key_encoding, key_bytes) orelse {
                     return vm.raiseEncodingCompatibilityError(output_encoding, key_encoding);
                 };
             }
@@ -526,7 +526,7 @@ pub fn builtinHashToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
                 output_encoding = key_obj.encoding;
                 has_dynamic_part = true;
             } else {
-                output_encoding = enc.negotiate(output_encoding, buf.items, key_obj.encoding, key_obj.str) orelse {
+                output_encoding = enc.negotiate(output_encoding, buf.written(), key_obj.encoding, key_obj.str) orelse {
                     return vm.raiseEncodingCompatibilityError(output_encoding, key_obj.encoding);
                 };
             }
@@ -541,7 +541,7 @@ pub fn builtinHashToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
             output_encoding = value_obj.encoding;
             has_dynamic_part = true;
         } else {
-            output_encoding = enc.negotiate(output_encoding, buf.items, value_obj.encoding, value_obj.str) orelse {
+            output_encoding = enc.negotiate(output_encoding, buf.written(), value_obj.encoding, value_obj.str) orelse {
                 return vm.raiseEncodingCompatibilityError(output_encoding, value_obj.encoding);
             };
         }
@@ -549,7 +549,7 @@ pub fn builtinHashToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
     }
     writer.writeAll("}") catch return error.Fatal;
 
-    const final_str = buf.toOwnedSlice(vm.allocator) catch return error.Fatal;
+    const final_str = buf.toOwnedSlice() catch return error.Fatal;
     defer vm.allocator.free(final_str);
     return try vm.newStringWithEncoding(final_str, false, output_encoding);
 }

@@ -21,19 +21,12 @@ fn parseDashZeroSeparator(arg: []const u8, storage: *[1]u8) ![]const u8 {
     return storage[0..1];
 }
 
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
     bdwgc.init();
     defer bdwgc.deinit();
 
-    var gpa = if (std.debug.runtime_safety)
-        std.heap.DebugAllocator(.{}){}
-    else
-        std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
+    const allocator = init.gpa;
+    const args = try init.minimal.args.toSlice(init.arena.allocator());
 
     var ruby_code: ?[]const u8 = null;
     var filename: ?[]const u8 = null;
@@ -103,20 +96,10 @@ pub fn main() !void {
         code
     else if (filename) |file| blk: {
         source_file = file;
-        const file_handle = std.fs.cwd().openFile(file, .{}) catch |err| {
-            std.debug.print("Error: Could not open file '{s}': {}\n", .{ file, err });
+        code_buffer = std.Io.Dir.cwd().readFileAlloc(init.io, file, allocator, .limited(std.math.maxInt(usize))) catch |err| {
+            std.debug.print("Error: Could not read file '{s}': {}\n", .{ file, err });
             return;
         };
-        defer file_handle.close();
-
-        const file_size = try file_handle.getEndPos();
-        code_buffer = try allocator.alloc(u8, file_size);
-        const bytes_read = try file_handle.readAll(code_buffer.?);
-
-        if (bytes_read != file_size) {
-            std.debug.print("Error: Could not read entire file\n", .{});
-            return;
-        }
 
         break :blk code_buffer.?;
     } else unreachable;
@@ -139,7 +122,7 @@ pub fn main() !void {
     if (dump_bytecode) {
         // Print bytecode disassembly to stdout
         var stdout_buffer: [8192]u8 = undefined;
-        var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+        var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
         const stdout = &stdout_writer.interface;
 
         // Print main chunk disassembly
@@ -158,7 +141,7 @@ pub fn main() !void {
         return;
     }
 
-    var virtual_machine = try vm.VM.init(allocator, bdwgc.allocator, bdwgc.allocator_atomic, &program);
+    var virtual_machine = try vm.VM.init(allocator, bdwgc.allocator, bdwgc.allocator_atomic, init.io, init.minimal.environ, &program);
     defer virtual_machine.deinit();
     virtual_machine.setTccJitEnabled(build_options.tcc_jit);
     virtual_machine.setDumpJitSource(dump_jit_source);

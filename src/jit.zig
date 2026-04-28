@@ -108,10 +108,10 @@ pub fn generateChunk(allocator: std.mem.Allocator, ch: *chunk_mod.Chunk) !Genera
     const symbol_name = try dupeZ(allocator, try std.fmt.allocPrint(allocator, "cora_jit_chunk_{d}", .{ch.chunk_id orelse 0}));
     errdefer allocator.free(symbol_name);
 
-    var source = std.ArrayList(u8).empty;
-    defer source.deinit(allocator);
+    var source: std.Io.Writer.Allocating = .init(allocator);
+    defer source.deinit();
 
-    const writer = source.writer(allocator);
+    const writer = &source.writer;
     try writer.writeAll(
         \\typedef unsigned long long u64;
         \\typedef unsigned char u8;
@@ -217,7 +217,7 @@ pub fn generateChunk(allocator: std.mem.Allocator, ch: *chunk_mod.Chunk) !Genera
 
     return .{
         .symbol_name = symbol_name,
-        .source_code = try allocator.dupeZ(u8, source.items),
+        .source_code = try source.toOwnedSliceSentinel(0),
     };
 }
 

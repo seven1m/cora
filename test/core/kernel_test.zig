@@ -5,6 +5,10 @@ const evalCode = test_helper.evalCode;
 const evalCodeWithOutput = test_helper.evalCodeWithOutput;
 const evalFile = test_helper.evalFile;
 
+fn uniqueId() u64 {
+    return @intCast(std.Io.Clock.boot.now(std.testing.io).nanoseconds);
+}
+
 test "p with no arguments" {
     var stdout_buf: [1024]u8 = undefined;
     var stderr_buf: [1024]u8 = undefined;
@@ -525,24 +529,24 @@ test "Kernel#eval returns nil for __dir__ with top-level binding" {
 
 test "File.realpath resolves the executing file directory" {
     const allocator = std.testing.allocator;
-    const dir_path = try std.fmt.allocPrint(allocator, "/tmp/cora-file-realpath-{d}", .{std.time.nanoTimestamp()});
+    const dir_path = try std.fmt.allocPrint(allocator, "/tmp/cora-file-realpath-{d}", .{uniqueId()});
     defer allocator.free(dir_path);
-    try std.fs.makeDirAbsolute(dir_path);
-    defer std.fs.deleteTreeAbsolute(dir_path) catch {};
+    try std.Io.Dir.createDirAbsolute(std.testing.io, dir_path, .default_dir);
+    defer std.Io.Dir.cwd().deleteTree(std.testing.io, dir_path) catch {};
 
     const file_path = try std.fmt.allocPrint(allocator, "{s}/realpath.rb", .{dir_path});
     defer allocator.free(file_path);
 
-    const file = try std.fs.createFileAbsolute(file_path, .{ .truncate = true });
-    defer file.close();
-    try file.writeAll("File.realpath(File.dirname(__FILE__))\n");
+    const file = try std.Io.Dir.createFileAbsolute(std.testing.io, file_path, .{ .truncate = true });
+    defer file.close(std.testing.io);
+    try file.writeStreamingAll(std.testing.io, "File.realpath(File.dirname(__FILE__))\n");
 
     var stdout_buf: [1024]u8 = undefined;
     var stderr_buf: [1024]u8 = undefined;
     const result = evalFile(file_path, &stdout_buf, &stderr_buf);
     if (result.err) |err| return err;
 
-    const expected = try std.fs.realpathAlloc(allocator, dir_path);
+    const expected = try std.Io.Dir.cwd().realPathFileAlloc(std.testing.io, dir_path, allocator);
     defer allocator.free(expected);
 
     try std.testing.expect(result.value.isString());
@@ -551,18 +555,19 @@ test "File.realpath resolves the executing file directory" {
 
 test "Dir.chdir restores cwd after block" {
     const allocator = std.testing.allocator;
-    const original = try std.process.getCwdAlloc(allocator);
+    const original = try std.process.currentPathAlloc(std.testing.io, allocator);
     defer allocator.free(original);
 
-    const dir_path_raw = try std.fmt.allocPrint(allocator, "/tmp/cora-dir-chdir-{d}", .{std.time.nanoTimestamp()});
+    const dir_path_raw = try std.fmt.allocPrint(allocator, "/tmp/cora-dir-chdir-{d}", .{uniqueId()});
     defer allocator.free(dir_path_raw);
-    try std.fs.makeDirAbsolute(dir_path_raw);
+    try std.Io.Dir.createDirAbsolute(std.testing.io, dir_path_raw, .default_dir);
 
     var buf: [std.fs.max_path_bytes]u8 = undefined;
-    const real_path_slice = try std.fs.realpath(dir_path_raw, &buf);
+    const real_path_len = try std.Io.Dir.cwd().realPathFile(std.testing.io, dir_path_raw, &buf);
+    const real_path_slice = buf[0..real_path_len];
     const dir_path = try allocator.dupe(u8, real_path_slice);
     defer allocator.free(dir_path);
-    defer std.fs.deleteTreeAbsolute(dir_path) catch {};
+    defer std.Io.Dir.cwd().deleteTree(std.testing.io, dir_path) catch {};
 
     const ruby_code = try std.fmt.allocPrint(
         allocator,
@@ -589,24 +594,25 @@ test "Kernel#__dir__ returns absolute directory for file execution" {
     const file_path = try std.fmt.allocPrint(
         allocator,
         "/tmp/cora-kernel-dir-{d}.rb",
-        .{std.time.nanoTimestamp()},
+        .{uniqueId()},
     );
     defer allocator.free(file_path);
 
-    const file = try std.fs.createFileAbsolute(file_path, .{ .truncate = true });
-    defer file.close();
-    try file.writeAll("__dir__\n");
+    const file = try std.Io.Dir.createFileAbsolute(std.testing.io, file_path, .{ .truncate = true });
+    defer file.close(std.testing.io);
+    try file.writeStreamingAll(std.testing.io, "__dir__\n");
 
     var stdout_buf: [1024]u8 = undefined;
     var stderr_buf: [1024]u8 = undefined;
     const result = evalFile(file_path, &stdout_buf, &stderr_buf);
-    defer std.fs.deleteFileAbsolute(file_path) catch {};
+    defer std.Io.Dir.deleteFileAbsolute(std.testing.io, file_path) catch {};
 
     if (result.err) |err| return err;
 
     try std.testing.expect(result.value.isString());
     var buf: [std.fs.max_path_bytes]u8 = undefined;
-    const real_tmp = try std.fs.realpath("/tmp", &buf);
+    const real_tmp_len = try std.Io.Dir.cwd().realPathFile(std.testing.io, "/tmp", &buf);
+    const real_tmp = buf[0..real_tmp_len];
     try std.testing.expectEqualSlices(u8, real_tmp, result.value.toStringObject().str);
 }
 

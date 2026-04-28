@@ -771,7 +771,9 @@ pub const Parser = struct {
         }
 
         var stdout_buffer: [8192]u8 = undefined;
-        var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+        var threaded: std.Io.Threaded = .init(std.heap.page_allocator, .{});
+        defer threaded.deinit();
+        var stdout_writer = std.Io.File.stdout().writer(threaded.io(), &stdout_buffer);
         const stdout = &stdout_writer.interface;
         try self.prettyPrintNode(raw, stdout);
         try stdout.flush();

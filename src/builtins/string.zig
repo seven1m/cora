@@ -3182,7 +3182,7 @@ fn appendSymbolErrorEscapedBytes(writer: anytype, input: []const u8) !void {
             '\x00' => try writer.writeAll("\\0"),
             else => {
                 if (c < 32 or c > 126) {
-                    try std.fmt.format(writer, "\\x{X:0>2}", .{c});
+                    try writer.print("\\x{X:0>2}", .{c});
                 } else {
                     try writer.writeByte(c);
                 }
@@ -3196,11 +3196,11 @@ pub fn builtinStringToSym(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     const string_obj = receiver.toStringObject();
 
     if (!string_obj.encoding.isValid(string_obj.str)) {
-        var escaped_bytes: std.ArrayList(u8) = .empty;
-        defer escaped_bytes.deinit(vm.allocator);
-        const writer = escaped_bytes.writer(vm.allocator);
+        var escaped_bytes: std.Io.Writer.Allocating = .init(vm.allocator);
+        defer escaped_bytes.deinit();
+        const writer = &escaped_bytes.writer;
         appendSymbolErrorEscapedBytes(writer, string_obj.str) catch return error.Fatal;
-        const escaped = escaped_bytes.toOwnedSlice(vm.allocator) catch return error.Fatal;
+        const escaped = escaped_bytes.toOwnedSlice() catch return error.Fatal;
         defer vm.allocator.free(escaped);
         return vm.raiseExceptionFmt(vm.encoding_error_class, "invalid symbol in encoding {s} :\"{s}\"", .{ string_obj.encoding.name(), escaped });
     }

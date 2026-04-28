@@ -5,7 +5,7 @@ const evalCode = test_helper.evalCode;
 const evalCodeWithOutput = test_helper.evalCodeWithOutput;
 
 fn uniquePath(buf: *[128]u8) ![]const u8 {
-    return std.fmt.bufPrint(buf, "/tmp/cora_io_{d}.txt", .{std.time.nanoTimestamp()});
+    return std.fmt.bufPrint(buf, "/tmp/cora_io_{d}.txt", .{@as(i128, @intCast(std.Io.Clock.boot.now(std.testing.io).nanoseconds))});
 }
 
 test "STDIN/STDOUT/STDERR constants mirror $stdin/$stdout/$stderr" {
@@ -121,7 +121,7 @@ test "write on closed File raises IOError" {
 }
 
 test "Dir.pwd returns the current working directory" {
-    const cwd = try std.process.getCwdAlloc(std.testing.allocator);
+    const cwd = try std.process.currentPathAlloc(std.testing.io, std.testing.allocator);
     defer std.testing.allocator.free(cwd);
 
     const result = try evalCode("Dir.pwd");
@@ -130,7 +130,7 @@ test "Dir.pwd returns the current working directory" {
 }
 
 test "Dir.home follows HOME and supports the current USER" {
-    const passwd = std.c.getpwuid(std.posix.getuid()) orelse return error.SkipZigTest;
+    const passwd = std.c.getpwuid(std.c.getuid()) orelse return error.SkipZigTest;
     const current_user = std.mem.span(passwd.name orelse return error.SkipZigTest);
     const source = try std.fmt.allocPrint(
         std.testing.allocator,
@@ -182,7 +182,7 @@ test "File.join and File.dirname provide minimal Unix path helpers" {
 }
 
 test "File.expand_path handles relative and home-based paths" {
-    const cwd = try std.process.getCwdAlloc(std.testing.allocator);
+    const cwd = try std.process.currentPathAlloc(std.testing.io, std.testing.allocator);
     defer std.testing.allocator.free(cwd);
 
     const source = try std.fmt.allocPrint(
@@ -215,7 +215,7 @@ test "File.expand_path handles relative and home-based paths" {
 }
 
 test "Dir.home and File.expand_path fall back to passwd lookup when HOME is unset" {
-    const passwd_home = std.mem.span((std.c.getpwuid(std.posix.getuid()) orelse return error.SkipZigTest).dir orelse return error.SkipZigTest);
+    const passwd_home = std.mem.span((std.c.getpwuid(std.c.getuid()) orelse return error.SkipZigTest).dir orelse return error.SkipZigTest);
 
     const result = try evalCode(
         \\old_home = ENV["HOME"]

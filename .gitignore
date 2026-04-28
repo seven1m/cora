@@ -1,5 +1,6 @@
 .zig-cache
 zig-out
+zig-pkg
 .codex-loop/
 
 # I'm playing around with local per-project customization of OpenCode, but I'm not ready to commit this.

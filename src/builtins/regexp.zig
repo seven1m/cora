@@ -128,8 +128,9 @@ fn builtinRegexpInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     try vm.requireArgCount(args, 0);
     const r = receiver.toRegexpObject();
 
-    var buf: std.ArrayList(u8) = .empty;
-    const writer = buf.writer(vm.allocator);
+    var buf: std.Io.Writer.Allocating = .init(vm.allocator);
+    defer buf.deinit();
+    const writer = &buf.writer;
     writer.writeByte('/') catch return error.Fatal;
     writer.writeAll(r.pattern) catch return error.Fatal;
     writer.writeByte('/') catch return error.Fatal;
@@ -137,7 +138,7 @@ fn builtinRegexpInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     if ((r.options & 2) != 0) writer.writeByte('x') catch return error.Fatal;
     if ((r.options & 4) != 0) writer.writeByte('m') catch return error.Fatal;
 
-    const str = buf.toOwnedSlice(vm.allocator) catch return error.Fatal;
+    const str = buf.toOwnedSlice() catch return error.Fatal;
     defer vm.allocator.free(str);
     return try vm.newString(str, false);
 }
@@ -146,8 +147,9 @@ fn builtinRegexpToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!
     try vm.requireArgCount(args, 0);
     const r = receiver.toRegexpObject();
 
-    var buf: std.ArrayList(u8) = .empty;
-    const writer = buf.writer(vm.allocator);
+    var buf: std.Io.Writer.Allocating = .init(vm.allocator);
+    defer buf.deinit();
+    const writer = &buf.writer;
     writer.writeAll("(?") catch return error.Fatal;
     if ((r.options & 1) != 0) writer.writeByte('i') catch return error.Fatal;
     if ((r.options & 4) != 0) writer.writeByte('m') catch return error.Fatal;
@@ -179,7 +181,7 @@ fn builtinRegexpToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!
     writer.writeAll(r.pattern) catch return error.Fatal;
     writer.writeByte(')') catch return error.Fatal;
 
-    const str = buf.toOwnedSlice(vm.allocator) catch return error.Fatal;
+    const str = buf.toOwnedSlice() catch return error.Fatal;
     defer vm.allocator.free(str);
     return try vm.newString(str, false);
 }

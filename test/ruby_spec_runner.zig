@@ -38,7 +38,8 @@ pub const EvalResult = struct {
 };
 
 pub const TestWriter = struct {
-    fbs: *std.io.FixedBufferStream([]u8),
+    buffer: []u8,
+    used: usize = 0,
     interface: std.Io.Writer,
 
     const vtable: std.Io.Writer.VTable = .{
@@ -46,9 +47,9 @@ pub const TestWriter = struct {
         .sendFile = std.Io.Writer.unimplementedSendFile,
     };
 
-    pub fn init(fbs: *std.io.FixedBufferStream([]u8)) TestWriter {
+    pub fn init(buffer: []u8) TestWriter {
         return .{
-            .fbs = fbs,
+            .buffer = buffer,
             .interface = .{
                 .vtable = &vtable,
                 .buffer = &.{},
@@ -56,11 +57,17 @@ pub const TestWriter = struct {
         };
     }
 
+    pub fn written(self: *const TestWriter) []const u8 {
+        return self.buffer[0..self.used];
+    }
+
     fn drain(io_w: *std.Io.Writer, data: []const []const u8, _: usize) std.Io.Writer.Error!usize {
         const w: *TestWriter = @alignCast(@fieldParentPtr("interface", io_w));
         var total: usize = 0;
         for (data) |slice| {
-            w.fbs.writer().writeAll(slice) catch return error.WriteFailed;
+            if (w.used + slice.len > w.buffer.len) return error.WriteFailed;
+            @memcpy(w.buffer[w.used..][0..slice.len], slice);
+            w.used += slice.len;
             total += slice.len;
         }
         return total;
@@ -80,14 +87,14 @@ pub fn deinitSpecCases(allocator: std.mem.Allocator, specs: *std.ArrayList(SpecC
 }
 
 pub fn collectSpecCases(allocator: std.mem.Allocator, dir_path: []const u8, specs: *std.ArrayList(SpecCase)) !void {
-    var dir = std.fs.cwd().openDir(dir_path, .{ .iterate = true }) catch |err| {
+    var dir = std.Io.Dir.cwd().openDir(std.testing.io, dir_path, .{ .iterate = true }) catch |err| {
         if (err == error.FileNotFound) return;
         return err;
     };
-    defer dir.close();
+    defer dir.close(std.testing.io);
 
     var iter = dir.iterate();
-    while (try iter.next()) |entry| {
+    while (try iter.next(std.testing.io)) |entry| {
         const full_path = try std.fs.path.join(allocator, &[_][]const u8{ dir_path, entry.name });
 
         if (entry.kind == .directory) {
@@ -164,10 +171,10 @@ fn parseSpecStats(stdout: []const u8) ?SpecStats {
 
 fn setSpecStatsEnv() ?[]u8 {
     const allocator = std.heap.page_allocator;
-    const previous = std.process.getEnvVarOwned(allocator, "CORA_SPEC_STATS") catch |err| switch (err) {
-        error.EnvironmentVariableNotFound => null,
-        else => null,
-    };
+    const previous = if (std.c.getenv("CORA_SPEC_STATS")) |value_z|
+        allocator.dupe(u8, std.mem.span(value_z)) catch null
+    else
+        null;
 
     const key_z = allocator.dupeZ(u8, "CORA_SPEC_STATS") catch {
         if (previous) |value| allocator.free(value);
@@ -234,8 +241,11 @@ pub fn runSpec(path: []const u8) RunSpecResult {
 
 pub fn evalFile(path: []const u8, stdout_buf: []u8, stderr_buf: []u8) EvalResult {
     const allocator = std.heap.page_allocator;
+    var threaded: std.Io.Threaded = .init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
 
-    const abs_path = std.fs.cwd().realpathAlloc(allocator, path) catch {
+    const abs_path = std.Io.Dir.cwd().realPathFileAlloc(io, path, allocator) catch {
         return .{
             .stdout = "",
             .stderr = "",
@@ -244,16 +254,7 @@ pub fn evalFile(path: []const u8, stdout_buf: []u8, stderr_buf: []u8) EvalResult
     };
     defer allocator.free(abs_path);
 
-    const file = std.fs.cwd().openFile(path, .{}) catch {
-        return .{
-            .stdout = "",
-            .stderr = "",
-            .err = error.FileNotFound,
-        };
-    };
-    defer file.close();
-
-    const ruby_code = file.readToEndAlloc(allocator, 1024 * 1024) catch {
+    const ruby_code = std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(1024 * 1024)) catch {
         return .{
             .stdout = "",
             .stderr = "",
@@ -280,7 +281,10 @@ fn evalCodeWithOutputAndPath(ruby_code: []const u8, stdout_buf: []u8, stderr_buf
     };
     defer parser.deinit();
 
-    var vm = VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic);
+    var threaded: std.Io.Threaded = .init(allocator, .{});
+    defer threaded.deinit();
+
+    var vm = VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic, threaded.io(), std.testing.environ);
     defer vm.deinit();
 
     var program = compiler.Compiler.compile(allocator, &parser, 1) catch |err| {
@@ -300,12 +304,10 @@ fn evalCodeWithOutputAndPath(ruby_code: []const u8, stdout_buf: []u8, stderr_buf
         };
     };
 
-    var stdout_fbs = std.io.fixedBufferStream(stdout_buf);
-    var stdout_writer = TestWriter.init(&stdout_fbs);
+    var stdout_writer = TestWriter.init(stdout_buf);
     vm.stdout = &stdout_writer.interface;
 
-    var stderr_fbs = std.io.fixedBufferStream(stderr_buf);
-    var stderr_writer = TestWriter.init(&stderr_fbs);
+    var stderr_writer = TestWriter.init(stderr_buf);
     vm.stderr = &stderr_writer.interface;
 
     const run_result = vm.run();
@@ -318,16 +320,16 @@ fn evalCodeWithOutputAndPath(ruby_code: []const u8, stdout_buf: []u8, stderr_buf
             vm.printUnhandledException();
         }
         return .{
-            .stdout = stdout_fbs.getWritten(),
-            .stderr = stderr_fbs.getWritten(),
+            .stdout = stdout_writer.written(),
+            .stderr = stderr_writer.written(),
             .err = err,
         };
     }
 
     if (run_result) |_| {
         return .{
-            .stdout = stdout_fbs.getWritten(),
-            .stderr = stderr_fbs.getWritten(),
+            .stdout = stdout_writer.written(),
+            .stderr = stderr_writer.written(),
             .err = null,
         };
     } else |err| {
@@ -335,8 +337,8 @@ fn evalCodeWithOutputAndPath(ruby_code: []const u8, stdout_buf: []u8, stderr_buf
             vm.printUnhandledException();
         }
         return .{
-            .stdout = stdout_fbs.getWritten(),
-            .stderr = stderr_fbs.getWritten(),
+            .stdout = stdout_writer.written(),
+            .stderr = stderr_writer.written(),
             .err = err,
         };
     }

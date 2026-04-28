@@ -31,7 +31,7 @@ test "VM.setArgv sets ARGV constant to provided arguments" {
     var parser = try prism.Parser.init(allocator, "", null);
     defer parser.deinit();
 
-    var vm = VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic);
+    var vm = VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic, std.testing.io, std.testing.environ);
     defer vm.deinit();
 
     var program = try compiler.Compiler.compile(allocator, &parser, 1);
@@ -62,7 +62,7 @@ test "VM.setInputRecordSeparator updates $/ and $-0" {
     var parser = try prism.Parser.init(allocator, "", null);
     defer parser.deinit();
 
-    var vm = VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic);
+    var vm = VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic, std.testing.io, std.testing.environ);
     defer vm.deinit();
 
     var program = try compiler.Compiler.compile(allocator, &parser, 1);
