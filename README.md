@@ -5,6 +5,14 @@ This is both an exploration of Zig and an LLM's ability to write code where the 
 
 The goal is to get a working Ruby interpreter that can pass most or all of [ruby/spec](https://github.com/ruby/spec).
 
+
+## Features
+
+- Uses the [Prism](https://github.com/ruby/prism) parser
+- Bytecode compiler
+- Stack VM
+- Experimental JIT compiler using [TinyCC](https://bellard.org/tcc/)
+
 ## Prerequisites
 
 You need:
