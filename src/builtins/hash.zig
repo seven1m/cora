@@ -111,6 +111,9 @@ pub fn register(vm: *VM) !void {
     const to_a_sym = try vm.intern("to_a");
     try vm.hash_class.module.methods.put(to_a_sym, .{ .method = .{ .builtin = &builtinHashToA } });
 
+    const to_hash_sym = try vm.intern("to_hash");
+    try vm.hash_class.module.methods.put(to_hash_sym, .{ .method = .{ .builtin = &builtinHashToHash } });
+
     const include_sym = try vm.intern("include?");
     try vm.hash_class.module.methods.put(include_sym, .{ .method = .{ .builtin = &builtinHashIncludeQ } });
 
@@ -394,6 +397,11 @@ pub fn builtinHashToA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
     }
 
     return Value.fromObject(array_obj);
+}
+
+pub fn builtinHashToHash(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return receiver;
 }
 
 pub fn builtinHashIncludeQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
