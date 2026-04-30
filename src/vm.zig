@@ -416,7 +416,7 @@ pub const VM = struct {
             .env_stack = undefined,
             .symbols = std.HashMap(SymbolKey, *SymbolObject, SymbolKeyContext, std.hash_map.default_max_load_percentage).init(gc_allocator),
             .globals = std.StringHashMap(Value).init(gc_allocator),
-            .fstring_cache = std.StringHashMap(Value).init(allocator),
+            .fstring_cache = std.StringHashMap(Value).init(gc_allocator),
             .canonical_fstrings = .empty,
             .packed_pointer_targets = std.AutoHashMap(*StringObject, PackedPointerTargets).init(allocator),
             .loaded_files = std.StringHashMap(void).init(gc_allocator),
@@ -525,6 +525,8 @@ pub const VM = struct {
 
     pub fn prepare(self: *VM, program: *compiler.CompiledProgram) VMError!void {
         self.program = program;
+        try self.captureMainGcStackBase();
+        self.registerVmRootForGc();
         self.zio_coroutines = .empty;
         zio.coro.setupStackGrowth() catch return error.Fatal;
         self.zio_stack_growth_ready = true;
@@ -1027,8 +1029,6 @@ pub const VM = struct {
 
         try self.buildProgramCallsiteDescriptors();
         try self.internProgramLiteralSymbols();
-        try self.captureMainGcStackBase();
-        self.registerVmRootForGc();
     }
 
     pub fn createLexicalScope(self: *VM, scope_module_val: Value, parent: ?*LexicalScope) VMError!*LexicalScope {
@@ -1506,7 +1506,7 @@ pub const VM = struct {
             self.allocator.free(key.*);
         }
         self.fstring_cache.deinit();
-        self.canonical_fstrings.deinit(self.allocator);
+        self.canonical_fstrings.deinit(self.gc_allocator);
         var packed_targets_iter = self.packed_pointer_targets.valueIterator();
         while (packed_targets_iter.next()) |targets| {
             targets.deinit();
@@ -6606,7 +6606,7 @@ pub const VM = struct {
         }
 
         const frozen = try self.newStringWithEncoding(str, true, encoding);
-        self.canonical_fstrings.append(self.allocator, frozen) catch return error.Fatal;
+        self.canonical_fstrings.append(self.gc_allocator, frozen) catch return error.Fatal;
         return frozen;
     }
 
@@ -6619,7 +6619,7 @@ pub const VM = struct {
             }
         }
 
-        self.canonical_fstrings.append(self.allocator, string_value) catch return error.Fatal;
+        self.canonical_fstrings.append(self.gc_allocator, string_value) catch return error.Fatal;
         return string_value;
     }
 
