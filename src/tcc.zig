@@ -1,10 +1,16 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const build_options = @import("build_options");
 
 pub const available = build_options.tcc_jit;
 
 const c = if (available) @cImport({
     @cInclude("libtcc.h");
+    if (builtin.os.tag == .linux) {
+        @cDefine("_GNU_SOURCE", "1");
+        @cInclude("dlfcn.h");
+        @cInclude("stdlib.h");
+    }
 }) else struct {};
 
 pub const State = if (available) c.TCCState else opaque {};
@@ -62,6 +68,28 @@ fn errorCallback(userdata: ?*anyopaque, msg: [*c]const u8) callconv(.c) void {
     collector.append(std.mem.span(msg));
 }
 
+fn addRuntimeLibcPath(state: *State) CompileError!void {
+    if (!available) return;
+    if (comptime builtin.os.tag != .linux) return;
+
+    var info: c.Dl_info = undefined;
+    if (c.dladdr(@ptrCast(&c.malloc), &info) == 0 or info.dli_fname == null) {
+        return;
+    }
+
+    const libc_path = std.mem.span(info.dli_fname);
+    const libc_dir = std.fs.path.dirname(libc_path) orelse return;
+    if (libc_dir.len >= std.fs.max_path_bytes) return;
+
+    var libc_dir_z: [std.fs.max_path_bytes:0]u8 = undefined;
+    @memcpy(libc_dir_z[0..libc_dir.len], libc_dir);
+    libc_dir_z[libc_dir.len] = 0;
+
+    if (c.tcc_add_library_path(state, &libc_dir_z) < 0) {
+        return error.ConfigureFailed;
+    }
+}
+
 pub fn initErrorCollector() ErrorCollector {
     return .{};
 }
@@ -80,6 +108,7 @@ pub fn compile(
 
     c.tcc_set_error_func(state, error_collector, errorCallback);
     c.tcc_set_lib_path(state, lib_path.ptr);
+    try addRuntimeLibcPath(state);
     _ = c.tcc_set_options(state, "-O2");
 
     if (c.tcc_set_output_type(state, c.TCC_OUTPUT_MEMORY) < 0) {
