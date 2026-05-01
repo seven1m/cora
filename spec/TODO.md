@@ -201,7 +201,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/array/take_while_spec.rb
 - [x] core/array/to_a_spec.rb
 - [x] core/array/to_ary_spec.rb
-- [ ] core/array/to_h_spec.rb
+- [x] core/array/to_h_spec.rb
 - [x] core/array/to_s_spec.rb
 - [ ] core/array/transpose_spec.rb
 - [x] core/array/try_convert_spec.rb

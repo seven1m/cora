@@ -77,6 +77,30 @@ fn arrayProbePairElement(vm: *VM, element: Value, pair_index: usize) VMError!?st
     };
 }
 
+fn arrayToHashPair(vm: *VM, source: Value, index: usize) VMError!struct { key: Value, value: Value } {
+    const pair_value = switch (try vm.probeToAry(source)) {
+        .array => |array_value| array_value,
+        .missing, .nil_result => {
+            return vm.raiseExceptionFmt(
+                vm.type_error_class,
+                "wrong element type {s} at {d} (expected array)",
+                .{ vm.className(source), index },
+            );
+        },
+    };
+
+    const pair = pair_value.toArrayObject().elements.items;
+    if (pair.len != 2) {
+        return vm.raiseExceptionFmt(
+            vm.argument_error_class,
+            "wrong array length at {d} (expected 2, was {d})",
+            .{ index, pair.len },
+        );
+    }
+
+    return .{ .key = pair[0], .value = pair[1] };
+}
+
 fn arrayFindIndexByEquality(vm: *VM, elements: []Value, needle: Value) VMError!?usize {
     for (elements, 0..) |element, idx| {
         if (try vm.valueEquals(element, needle)) return idx;
@@ -449,6 +473,8 @@ pub fn register(vm: *VM) !void {
     try vm.array_class.module.methods.put(to_a_sym, .{ .method = .{ .builtin = &builtinArrayToA } });
     const to_ary_sym = try vm.intern("to_ary");
     try vm.array_class.module.methods.put(to_ary_sym, .{ .method = .{ .builtin = &builtinArrayToAry } });
+    const to_h_sym = try vm.intern("to_h");
+    try vm.array_class.module.methods.put(to_h_sym, .{ .method = .{ .builtin = &builtinArrayToH } });
 
     const replace_sym = try vm.intern("replace");
     try vm.array_class.module.methods.put(replace_sym, .{ .method = .{ .builtin = &builtinArrayReplace } });
@@ -1972,6 +1998,28 @@ pub fn builtinArrayToA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
 pub fn builtinArrayToAry(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return receiver;
+}
+
+pub fn builtinArrayToH(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
+    const array = receiver.toArrayObject();
+    const hash = try vm.createHash();
+
+    var idx: usize = 0;
+    while (idx < array.elements.items.len) : (idx += 1) {
+        const source = if (block) |blk| blk: {
+            const yield_args = [_]Value{array.elements.items[idx]};
+            const yielded = try vm.yieldToBlock(blk, &yield_args);
+            if (yielded.controlFlowValue()) |return_value| return return_value;
+            break :blk yielded.value;
+        } else array.elements.items[idx];
+
+        const pair = try arrayToHashPair(vm, source, idx);
+        try vm.hashSetEntry(hash, pair.key, pair.value);
+    }
+
+    return Value.fromObject(hash);
 }
 
 pub fn builtinArrayReplace(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
