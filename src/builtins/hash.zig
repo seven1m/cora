@@ -122,6 +122,12 @@ pub fn register(vm: *VM) !void {
     const key_query_sym = try vm.intern("key?");
     try vm.hash_class.module.methods.put(key_query_sym, .{ .method = .{ .builtin = &builtinHashIncludeQ } });
 
+    const has_value_sym = try vm.intern("has_value?");
+    try vm.hash_class.module.methods.put(has_value_sym, .{ .method = .{ .builtin = &builtinHashHasValueQ } });
+
+    const value_query_sym = try vm.intern("value?");
+    try vm.hash_class.module.methods.put(value_query_sym, .{ .method = .{ .builtin = &builtinHashHasValueQ } });
+
     const key_sym = try vm.intern("key");
     try vm.hash_class.module.methods.put(key_sym, .{ .method = .{ .builtin = &builtinHashKey } });
 
@@ -403,6 +409,20 @@ pub fn builtinHashToHash(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
 pub fn builtinHashIncludeQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     return Value.boolean((try vm.hashFindEntryIndex(receiver.toHashObject(), args[0])) != null);
+}
+
+pub fn builtinHashHasValueQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const hash_obj = receiver.toHashObject();
+    const needle = args[0];
+
+    for (hash_obj.entries.items) |entry| {
+        if (try vm.valueEquals(entry.value, needle)) {
+            return Value.boolean(true);
+        }
+    }
+
+    return Value.boolean(false);
 }
 
 pub fn builtinHashKey(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
