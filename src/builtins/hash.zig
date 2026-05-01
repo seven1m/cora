@@ -90,6 +90,12 @@ pub fn register(vm: *VM) !void {
         .visibility = .private,
     });
 
+    const initialize_copy_sym = try vm.intern("initialize_copy");
+    try vm.hash_class.module.methods.put(initialize_copy_sym, .{
+        .method = .{ .builtin = &builtinHashInitializeCopy },
+        .visibility = .private,
+    });
+
     const bracket_sym = try vm.intern("[]");
     try vm.hash_class.module.methods.put(bracket_sym, .{ .method = .{ .builtin = &builtinHashBracket } });
 
@@ -170,6 +176,12 @@ pub fn register(vm: *VM) !void {
 
     const select_sym = try vm.intern("select");
     try vm.hash_class.module.methods.put(select_sym, .{ .method = .{ .builtin = &builtinHashSelect } });
+
+    const reject_sym = try vm.intern("reject");
+    try vm.hash_class.module.methods.put(reject_sym, .{ .method = .{ .builtin = &builtinHashReject } });
+
+    const reject_bang_sym = try vm.intern("reject!");
+    try vm.hash_class.module.methods.put(reject_bang_sym, .{ .method = .{ .builtin = &builtinHashRejectBang } });
 
     const delete_sym = try vm.intern("delete");
     try vm.hash_class.module.methods.put(delete_sym, .{ .method = .{ .builtin = &builtinHashDelete } });
@@ -379,6 +391,32 @@ pub fn builtinHashInitialize(vm: *VM, receiver: Value, args: []Value, block: ?Bl
     return receiver;
 }
 
+pub fn builtinHashInitializeCopy(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+
+    if (receiver.objectId() == args[0].objectId()) {
+        return receiver;
+    }
+
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Hash", .{});
+    }
+
+    const source = args[0].toHashObject();
+    const target = receiver.toHashObject();
+    target.entries.clearRetainingCapacity();
+    target.map.clearRetainingCapacity();
+    clearHashDefaultBehavior(target);
+    target.compare_by_identity = source.compare_by_identity;
+    if (source.default_proc) |default_proc| {
+        setHashDefaultProc(target, default_proc);
+    } else if (source.default_value) |default_value| {
+        setHashDefaultValue(target, default_value);
+    }
+    try copyHashEntries(vm, target, source);
+    return receiver;
+}
+
 pub fn builtinHashBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const hash_obj = receiver.toHashObject();
@@ -476,11 +514,19 @@ pub fn builtinHashDelete(vm: *VM, receiver: Value, args: []Value, block: ?Block)
     return deleted;
 }
 
-pub fn builtinHashDeleteIf(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+fn hashFilterBangShared(
+    vm: *VM,
+    receiver: Value,
+    args: []Value,
+    block: ?Block,
+    method_name: []const u8,
+    delete_if_truthy: bool,
+    return_nil_if_unchanged: bool,
+) VMError!Value {
     try vm.requireArgCount(args, 0);
     const blk = block orelse {
         const size_value = Value.integer(@intCast(receiver.toHashObject().entries.items.len));
-        return try vm.createMethodEnumeratorWithSize(receiver, try vm.intern("delete_if"), &.{}, size_value);
+        return try vm.createMethodEnumeratorWithSize(receiver, try vm.intern(method_name), &.{}, size_value);
     };
     try ensureMutableHash(vm, receiver);
 
@@ -489,43 +535,36 @@ pub fn builtinHashDeleteIf(vm: *VM, receiver: Value, args: []Value, block: ?Bloc
     defer vm.allocator.free(snapshot);
     @memcpy(snapshot, hash_obj.entries.items);
 
+    var changed = false;
     for (snapshot) |entry| {
         const yield_args = [_]Value{ entry.key, entry.value };
         const yielded = try vm.yieldToBlock(blk, &yield_args);
         if (yielded.controlFlowValue()) |return_value| return return_value;
 
-        if (yielded.value.is_truthy()) {
+        const should_delete = if (delete_if_truthy) yielded.value.is_truthy() else !yielded.value.is_truthy();
+        if (should_delete) {
             _ = try vm.hashDeleteEntry(hash_obj, entry.key);
+            changed = true;
         }
+    }
+
+    if (return_nil_if_unchanged and !changed) {
+        return Value.nil();
     }
 
     return receiver;
 }
 
+pub fn builtinHashDeleteIf(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    return hashFilterBangShared(vm, receiver, args, block, "delete_if", true, false);
+}
+
 pub fn builtinHashKeepIf(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 0);
-    const blk = block orelse {
-        const size_value = Value.integer(@intCast(receiver.toHashObject().entries.items.len));
-        return try vm.createMethodEnumeratorWithSize(receiver, try vm.intern("keep_if"), &.{}, size_value);
-    };
-    try ensureMutableHash(vm, receiver);
+    return hashFilterBangShared(vm, receiver, args, block, "keep_if", false, false);
+}
 
-    const hash_obj = receiver.toHashObject();
-    const snapshot = vm.allocator.alloc(value.HashEntry, hash_obj.entries.items.len) catch return error.Fatal;
-    defer vm.allocator.free(snapshot);
-    @memcpy(snapshot, hash_obj.entries.items);
-
-    for (snapshot) |entry| {
-        const yield_args = [_]Value{ entry.key, entry.value };
-        const yielded = try vm.yieldToBlock(blk, &yield_args);
-        if (yielded.controlFlowValue()) |return_value| return return_value;
-
-        if (!yielded.value.is_truthy()) {
-            _ = try vm.hashDeleteEntry(hash_obj, entry.key);
-        }
-    }
-
-    return receiver;
+pub fn builtinHashRejectBang(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    return hashFilterBangShared(vm, receiver, args, block, "reject!", true, true);
 }
 
 pub fn builtinHashClear(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -870,6 +909,41 @@ pub fn builtinHashSelect(vm: *VM, receiver: Value, args: []Value, block: ?Block)
         if (is_truthy) {
             try vm.hashSetEntry(result_hash, entry.key, entry.value);
         }
+    }
+
+    return Value.fromObject(result_hash);
+}
+
+pub fn builtinHashReject(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const blk = block orelse {
+        return try vm.createMethodEnumeratorWithSize(
+            receiver,
+            try vm.intern("reject"),
+            &.{},
+            Value.integer(@intCast(receiver.toHashObject().entries.items.len)),
+        );
+    };
+    const hash_obj = receiver.toHashObject();
+    const keep_entries = vm.allocator.alloc(value.HashEntry, hash_obj.entries.items.len) catch return error.Fatal;
+    defer vm.allocator.free(keep_entries);
+    var keep_count: usize = 0;
+
+    for (hash_obj.entries.items) |entry| {
+        const yield_args = [_]Value{ entry.key, entry.value };
+        const result = try vm.yieldToBlock(blk, &yield_args);
+        if (result.controlFlowValue()) |return_value| return return_value;
+
+        if (!result.value.is_truthy()) {
+            keep_entries[keep_count] = entry;
+            keep_count += 1;
+        }
+    }
+
+    const result_hash = try vm.createHash();
+    result_hash.compare_by_identity = hash_obj.compare_by_identity;
+    for (keep_entries[0..keep_count]) |entry| {
+        try vm.hashSetEntry(result_hash, entry.key, entry.value);
     }
 
     return Value.fromObject(result_hash);
