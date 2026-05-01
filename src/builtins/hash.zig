@@ -147,6 +147,9 @@ pub fn register(vm: *VM) !void {
     const each_pair_sym = try vm.intern("each_pair");
     try vm.hash_class.module.methods.put(each_pair_sym, .{ .method = .{ .builtin = &builtinHashEachPair } });
 
+    const each_key_sym = try vm.intern("each_key");
+    try vm.hash_class.module.methods.put(each_key_sym, .{ .method = .{ .builtin = &builtinHashEachKey } });
+
     const to_s_sym = try vm.intern("to_s");
     try vm.hash_class.module.methods.put(to_s_sym, .{ .method = .{ .builtin = &builtinHashToS } });
 
@@ -634,6 +637,30 @@ pub fn builtinHashEachPair(vm: *VM, receiver: Value, args: []Value, block: ?Bloc
 
     for (snapshot) |entry| {
         const result = try yieldHashEntryPair(vm, blk, entry);
+        if (result.controlFlowValue()) |return_value| return return_value;
+    }
+
+    return receiver;
+}
+
+pub fn builtinHashEachKey(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const blk = block orelse {
+        return try vm.createMethodEnumeratorWithSize(
+            receiver,
+            try vm.intern("each_key"),
+            &.{},
+            Value.integer(@intCast(receiver.toHashObject().entries.items.len)),
+        );
+    };
+    const hash_obj = receiver.toHashObject();
+    const snapshot = vm.allocator.alloc(value.HashEntry, hash_obj.entries.items.len) catch return error.Fatal;
+    defer vm.allocator.free(snapshot);
+    @memcpy(snapshot, hash_obj.entries.items);
+
+    for (snapshot) |entry| {
+        const yield_args = [_]Value{entry.key};
+        const result = try vm.yieldToBlock(blk, &yield_args);
         if (result.controlFlowValue()) |return_value| return return_value;
     }
 
