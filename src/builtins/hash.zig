@@ -176,6 +176,9 @@ pub fn register(vm: *VM) !void {
     const delete_sym = try vm.intern("delete");
     try vm.hash_class.module.methods.put(delete_sym, .{ .method = .{ .builtin = &builtinHashDelete } });
 
+    const clear_sym = try vm.intern("clear");
+    try vm.hash_class.module.methods.put(clear_sym, .{ .method = .{ .builtin = &builtinHashClear } });
+
     const default_sym = try vm.intern("default");
     try vm.hash_class.module.methods.put(default_sym, .{ .method = .{ .builtin = &builtinHashDefault } });
 
@@ -471,6 +474,16 @@ pub fn builtinHashDelete(vm: *VM, receiver: Value, args: []Value, block: ?Block)
         return Value.nil();
     };
     return deleted;
+}
+
+pub fn builtinHashClear(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    try ensureMutableHash(vm, receiver);
+
+    const hash_obj = receiver.toHashObject();
+    hash_obj.entries.clearRetainingCapacity();
+    hash_obj.map.clearRetainingCapacity();
+    return receiver;
 }
 
 pub fn builtinHashKeys(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
