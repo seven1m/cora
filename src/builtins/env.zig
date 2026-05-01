@@ -25,6 +25,9 @@ pub fn register(vm: *VM) !void {
     const to_a_sym = try vm.intern("to_a");
     try env_singleton.module.methods.put(to_a_sym, .{ .method = .{ .builtin = &builtinEnvToA } });
 
+    const to_hash_sym = try vm.intern("to_hash");
+    try env_singleton.module.methods.put(to_hash_sym, .{ .method = .{ .builtin = &builtinEnvToH } });
+
     const to_h_sym = try vm.intern("to_h");
     try env_singleton.module.methods.put(to_h_sym, .{ .method = .{ .builtin = &builtinEnvToH } });
 }
