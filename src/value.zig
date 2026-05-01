@@ -180,6 +180,7 @@ pub const HashObject = struct {
     entries: std.ArrayList(HashEntry) = .empty,
     default_value: ?Value = null,
     default_proc: ?*ProcObject = null,
+    compare_by_identity: bool = false,
 };
 
 pub const RangeObject = struct {

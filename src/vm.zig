@@ -5121,6 +5121,7 @@ pub const VM = struct {
                         .entries = .empty,
                         .default_value = null,
                         .default_proc = null,
+                        .compare_by_identity = false,
                     };
                     const f = &self.frames.items[self.frames.items.len - 1];
                     f.ep.variables[rest_idx] = Value.fromObject(kw_hash);
@@ -5254,7 +5255,7 @@ pub const VM = struct {
 
     pub fn consumeKeywordArgHash(self: *VM) VMError!?Value {
         const ctx = self.builtin_keyword_ctx orelse return null;
-        return self.materializeKeywordHashForContext(ctx);
+        return try self.materializeKeywordHashForContext(ctx);
     }
 
     pub fn validateKeywordArgsConsumed(self: *VM) VMError!void {
@@ -6539,6 +6540,7 @@ pub const VM = struct {
                     .entries = .empty,
                     .default_value = null,
                     .default_proc = null,
+                    .compare_by_identity = false,
                 };
                 break :blk Value.fromObject(hash_obj);
             },
@@ -7573,6 +7575,7 @@ pub const VM = struct {
             .entries = .empty,
             .default_value = null,
             .default_proc = null,
+            .compare_by_identity = false,
         };
         return hash_ptr;
     }
@@ -7799,6 +7802,12 @@ pub const VM = struct {
     }
 
     pub fn hashFindEntryIndex(_: *VM, hash_obj: *value.HashObject, key: Value) VMError!?usize {
+        if (hash_obj.compare_by_identity) {
+            for (hash_obj.entries.items, 0..) |entry, idx| {
+                if (entry.key.raw == key.raw) return idx;
+            }
+            return null;
+        }
         return try hash_obj.map.get(key);
     }
 
@@ -7833,6 +7842,17 @@ pub const VM = struct {
     }
 
     pub fn hashSetEntry(self: *VM, hash_obj: *value.HashObject, key: Value, new_value: Value) VMError!void {
+        if (hash_obj.compare_by_identity) {
+            for (hash_obj.entries.items) |*entry| {
+                if (entry.key.raw == key.raw) {
+                    entry.value = new_value;
+                    return;
+                }
+            }
+            hash_obj.entries.append(self.gc_allocator, .{ .key = key, .value = new_value }) catch return error.Fatal;
+            return;
+        }
+
         const stored_key = try self.normalizeHashKeyForStorage(key);
         const gop = hash_obj.map.getOrPut(stored_key) catch |err| {
             if (err == error.OutOfMemory) return error.Fatal;
@@ -7849,6 +7869,11 @@ pub const VM = struct {
     }
 
     pub fn hashDeleteEntry(self: *VM, hash_obj: *value.HashObject, key: Value) VMError!?Value {
+        if (hash_obj.compare_by_identity) {
+            const idx = (try self.hashFindEntryIndex(hash_obj, key)) orelse return null;
+            return hash_obj.entries.orderedRemove(idx).value;
+        }
+
         const removed = try hash_obj.map.fetchRemove(key);
         const idx = removed orelse return null;
         const deleted = hash_obj.entries.orderedRemove(idx.value).value;
@@ -7918,6 +7943,7 @@ pub const VM = struct {
             .entries = .empty,
             .default_value = null,
             .default_proc = null,
+            .compare_by_identity = false,
         };
 
         for (kw_values, 0..) |kw_value, i| {
@@ -7993,6 +8019,7 @@ pub const VM = struct {
                 .entries = .empty,
                 .default_value = null,
                 .default_proc = null,
+                .compare_by_identity = false,
             };
 
             for (kw_values, 0..) |kw_value, i| {

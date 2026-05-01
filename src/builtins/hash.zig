@@ -86,6 +86,9 @@ pub fn register(vm: *VM) !void {
     const try_convert_sym = try vm.intern("try_convert");
     try hash_singleton.module.methods.put(try_convert_sym, .{ .method = .{ .builtin = &builtinHashTryConvert } });
 
+    const singleton_bracket_sym = try vm.intern("[]");
+    try hash_singleton.module.methods.put(singleton_bracket_sym, .{ .method = .{ .builtin = &builtinHashConstructor } });
+
     const initialize_sym = try vm.intern("initialize");
     try vm.hash_class.module.methods.put(initialize_sym, .{
         .method = .{ .builtin = &builtinHashInitialize },
@@ -181,6 +184,12 @@ pub fn register(vm: *VM) !void {
 
     const default_proc_set_sym = try vm.intern("default_proc=");
     try vm.hash_class.module.methods.put(default_proc_set_sym, .{ .method = .{ .builtin = &builtinHashDefaultProcSet } });
+
+    const compare_by_identity_sym = try vm.intern("compare_by_identity");
+    try vm.hash_class.module.methods.put(compare_by_identity_sym, .{ .method = .{ .builtin = &builtinHashCompareByIdentity } });
+
+    const compare_by_identity_q_sym = try vm.intern("compare_by_identity?");
+    try vm.hash_class.module.methods.put(compare_by_identity_q_sym, .{ .method = .{ .builtin = &builtinHashCompareByIdentityQ } });
 }
 
 fn hashGetValue(hash_obj: *value.HashObject, vm: *VM, key: Value) VMError!?Value {
@@ -207,6 +216,101 @@ fn setHashDefaultValue(hash_obj: *value.HashObject, default_value: Value) void {
 fn setHashDefaultProc(hash_obj: *value.HashObject, proc_obj: *value.ProcObject) void {
     hash_obj.default_proc = proc_obj;
     hash_obj.default_value = null;
+}
+
+fn copyHashEntries(vm: *VM, target: *value.HashObject, source: *value.HashObject) VMError!void {
+    for (source.entries.items) |entry| {
+        try vm.hashSetEntry(target, entry.key, entry.value);
+    }
+}
+
+fn hashConstructorElementTypeName(vm: *VM, element: Value) []const u8 {
+    if (element.isNil()) return "nil";
+    return vm.className(element);
+}
+
+fn populateHashFromPairsArray(vm: *VM, target: *value.HashObject, array_obj: *value.ArrayObject) VMError!void {
+    for (array_obj.elements.items, 0..) |element, idx| {
+        const pair_value = switch (try vm.probeToAry(element)) {
+            .array => |array| array,
+            .missing, .nil_result => {
+                return vm.raiseExceptionFmt(
+                    vm.argument_error_class,
+                    "wrong element type {s} at {d} (expected array)",
+                    .{ hashConstructorElementTypeName(vm, element), idx },
+                );
+            },
+        };
+
+        const pair = pair_value.toArrayObject().elements.items;
+        if (pair.len < 1 or pair.len > 2) {
+            return vm.raiseExceptionFmt(
+                vm.argument_error_class,
+                "invalid number of elements ({d} for 1..2)",
+                .{pair.len},
+            );
+        }
+
+        const value_to_set = if (pair.len == 2) pair[1] else Value.nil();
+        try vm.hashSetEntry(target, pair[0], value_to_set);
+    }
+}
+
+pub fn builtinHashConstructor(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    if (!receiver.isClass()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Class", .{});
+    }
+
+    const result = try vm.newObjectForClass(receiver.toClassObject());
+    const hash_obj = result.toHashObject();
+
+    if (args.len == 0) {
+        if (try vm.consumeKeywordArgHash()) |keyword_hash| {
+            try copyHashEntries(vm, hash_obj, keyword_hash.toHashObject());
+        }
+        return result;
+    }
+
+    if (args.len == 1) {
+        switch (try vm.probeToHash(args[0])) {
+            .hash => |source_hash| {
+                try copyHashEntries(vm, hash_obj, source_hash.toHashObject());
+                return result;
+            },
+            .non_hash => |coerced| {
+                return vm.raiseExceptionFmt(
+                    vm.type_error_class,
+                    "can't convert {s} to Hash ({s}#to_hash gives {s})",
+                    .{ vm.className(args[0]), vm.className(args[0]), vm.className(coerced) },
+                );
+            },
+            .missing, .nil_result => {},
+        }
+
+        switch (try vm.probeToAry(args[0])) {
+            .array => |array_value| {
+                try populateHashFromPairsArray(vm, hash_obj, array_value.toArrayObject());
+                return result;
+            },
+            .missing, .nil_result => {
+                return vm.raiseExceptionFmt(
+                    vm.type_error_class,
+                    "can't convert {s} into Hash",
+                    .{vm.className(args[0])},
+                );
+            },
+        }
+    }
+
+    if (args.len % 2 != 0) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "odd number of arguments for Hash", .{});
+    }
+
+    var i: usize = 0;
+    while (i < args.len) : (i += 2) {
+        try vm.hashSetEntry(hash_obj, args[i], args[i + 1]);
+    }
+    return result;
 }
 
 fn digIntoValue(vm: *VM, current_value: Value, remaining_args: []Value) VMError!Value {
@@ -325,6 +429,18 @@ pub fn builtinHashDefaultProcSet(vm: *VM, receiver: Value, args: []Value, _: ?Bl
 
     setHashDefaultProc(hash_obj, proc_obj);
     return args[0];
+}
+
+pub fn builtinHashCompareByIdentity(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    try ensureMutableHash(vm, receiver);
+    receiver.toHashObject().compare_by_identity = true;
+    return receiver;
+}
+
+pub fn builtinHashCompareByIdentityQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return Value.boolean(receiver.toHashObject().compare_by_identity);
 }
 
 pub fn builtinHashBracketSet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -588,7 +704,7 @@ pub fn builtinHashEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
 
     for (lhs.entries.items) |entry| {
         const rhs_entry = (try vm.hashGetEntry(rhs, entry.key)) orelse return Value.boolean(false);
-        if (!rhs_entry.value.eql(entry.value)) return Value.boolean(false);
+        if (!(try vm.valueEquals(entry.value, rhs_entry.value))) return Value.boolean(false);
     }
 
     return Value.boolean(true);
