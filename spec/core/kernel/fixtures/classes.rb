@@ -22,6 +22,26 @@ module KernelSpecs
     end
   end
 
+  class RespondViaMissing
+    def respond_to_missing?(method, priv=false)
+      case method
+      when :handled_publicly
+        true
+      when :handled_privately
+        priv
+      when :not_handled
+        false
+      else
+        raise "Typo in method name: #{method.inspect}"
+      end
+    end
+
+    def method_missing(method, *args)
+      raise "the method name should be a Symbol" unless Symbol === method
+      "Done #{method}(#{args})"
+    end
+  end
+
   class Foo
     def bar
       'done'
