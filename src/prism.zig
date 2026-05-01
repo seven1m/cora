@@ -115,6 +115,7 @@ pub const ClassVariableAndWriteNode = c.pm_class_variable_and_write_node_t;
 pub const ClassVariableOrWriteNode = c.pm_class_variable_or_write_node_t;
 pub const ClassVariableOperatorWriteNode = c.pm_class_variable_operator_write_node_t;
 pub const IndexTargetNode = c.pm_index_target_node_t;
+pub const IndexOrWriteNode = c.pm_index_or_write_node_t;
 pub const IndexOperatorWriteNode = c.pm_index_operator_write_node_t;
 pub const CallTargetNode = c.pm_call_target_node_t;
 
@@ -234,6 +235,7 @@ pub const Node = union(enum) {
     class_variable_or_write: *ClassVariableOrWriteNode,
     class_variable_operator_write: *ClassVariableOperatorWriteNode,
     index_target: *IndexTargetNode,
+    index_or_write: *IndexOrWriteNode,
     index_operator_write: *IndexOperatorWriteNode,
     call_target: *CallTargetNode,
 };
@@ -760,6 +762,10 @@ pub const Parser = struct {
 
         if (node_type == c.PM_INDEX_TARGET_NODE) {
             return Node{ .index_target = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_INDEX_OR_WRITE_NODE) {
+            return Node{ .index_or_write = @ptrCast(raw) };
         }
 
         if (node_type == c.PM_INDEX_OPERATOR_WRITE_NODE) {

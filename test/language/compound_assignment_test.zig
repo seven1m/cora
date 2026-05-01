@@ -123,6 +123,34 @@ test "index operator assignment supports splatted index arguments" {
     try std.testing.expectEqual(@as(i64, 27), result.toInteger());
 }
 
+test "index ||= caches existing value and evaluates rhs once" {
+    const result = try evalCode(
+        \\$builds = 0
+        \\
+        \\class Foo
+        \\  def initialize
+        \\    @cache = {}
+        \\  end
+        \\
+        \\  def fetch(key)
+        \\    @cache[key] ||= begin
+        \\      $builds += 1
+        \\      key.upcase
+        \\    end
+        \\  end
+        \\end
+        \\
+        \\foo = Foo.new
+        \\[foo.fetch("a"), foo.fetch("a"), $builds]
+    );
+
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(usize, 3), result.toArrayObject().elements.items.len);
+    try std.testing.expectEqualStrings("A", result.toArrayObject().elements.items[0].toStringObject().str);
+    try std.testing.expectEqualStrings("A", result.toArrayObject().elements.items[1].toStringObject().str);
+    try std.testing.expectEqual(@as(i64, 1), result.toArrayObject().elements.items[2].toInteger());
+}
+
 test "global compound assignment" {
     var result = try evalCode(
         \\$g = nil

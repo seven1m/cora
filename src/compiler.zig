@@ -920,6 +920,10 @@ pub const Compiler = struct {
                 try self.compileInstanceVariableOperatorWrite(var_write, line);
             },
 
+            .index_or_write => |index_write| {
+                try self.compileIndexOrWrite(index_write, line);
+            },
+
             .index_operator_write => |index_write| {
                 try self.compileIndexOperatorWrite(index_write, line);
             },
@@ -1256,6 +1260,7 @@ pub const Compiler = struct {
             .constant_write,
             .constant_and_write,
             .constant_or_write,
+            .index_or_write,
             .index_operator_write,
             .multi_write,
             => {
@@ -2445,6 +2450,62 @@ pub const Compiler = struct {
         const bracket_eq_idx = try self.current_chunk.addConstant(.{ .string = "[]=" });
         const write_argc: u8 = if (compiled_args.args_array_mode) 0 else compiled_args.argc + 1;
         try self.current_chunk.emitCall(@intCast(bracket_eq_idx), write_argc, write_call_flags, 0, line);
+    }
+
+    fn compileIndexOrWrite(self: *Compiler, index_write: *prism.IndexOrWriteNode, line: u32) !void {
+        // Lower `receiver[idx] ||= value` to:
+        //   receiver, args_array
+        //   DUP_N(2)
+        //   current = receiver.[](*args_array)
+        //   if current is truthy, discard receiver/args_array and return current
+        //   else receiver.[]=(*args_array, value)
+        // while evaluating receiver and indices exactly once and without
+        // introducing compiler-only locals into the Ruby environment.
+        if (index_write.receiver == null) return error.UnsupportedNode;
+        if (index_write.arguments == null) return error.UnsupportedNode;
+        const args_node = @as(*prism.ArgumentsNode, @ptrCast(index_write.arguments.?));
+
+        const receiver_node = try self.parser.asNode(@ptrCast(index_write.receiver.?));
+        try self.compileNode(receiver_node, line);
+
+        const compiled_args = try self.compileCallArguments(args_node, line);
+        if (compiled_args.kwargc > 0 or compiled_args.kw_hash_mode) {
+            std.debug.print("Index ||= with keyword index args is not yet supported\n", .{});
+            return error.UnsupportedNode;
+        }
+
+        if (!compiled_args.args_array_mode) {
+            try self.current_chunk.emitOpU16(.PUSH_ARRAY, compiled_args.argc, line);
+        }
+
+        try self.current_chunk.emitOpU8(.DUP_N, 2, line);
+
+        const bracket_idx = try self.current_chunk.addConstant(.{ .string = "[]" });
+        const read_call_flags = bytecode.encodeCallFlags(.explicit, true);
+        try self.current_chunk.emitCall(@intCast(bracket_idx), 0, read_call_flags, 0, line);
+
+        try self.current_chunk.emitOp(.DUP, line);
+        const jump_existing = try self.current_chunk.emitJump(.JUMP_IF_TRUE, line);
+
+        try self.current_chunk.emitOp(.POP, line);
+
+        const value_node = try self.parser.asNode(@ptrCast(index_write.value));
+        try self.compileNode(value_node, line);
+
+        const write_call_flags = bytecode.encodeCallFlags(.explicit, true);
+        try self.current_chunk.emitOp(.ARRAY_APPEND, line);
+
+        const bracket_eq_idx = try self.current_chunk.addConstant(.{ .string = "[]=" });
+        try self.current_chunk.emitCall(@intCast(bracket_eq_idx), 0, write_call_flags, 0, line);
+        const jump_end = try self.current_chunk.emitJump(.JUMP, line);
+
+        try self.current_chunk.patchJump(jump_existing);
+        try self.current_chunk.emitOp(.SWAP, line);
+        try self.current_chunk.emitOp(.POP, line);
+        try self.current_chunk.emitOp(.SWAP, line);
+        try self.current_chunk.emitOp(.POP, line);
+
+        try self.current_chunk.patchJump(jump_end);
     }
 
     fn compileGlobalAndWrite(self: *Compiler, var_write: *prism.GlobalVariableAndWriteNode, line: u32) !void {
