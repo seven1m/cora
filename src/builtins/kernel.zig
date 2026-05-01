@@ -10,8 +10,14 @@ const VMError = vm_mod.VMError;
 const Block = vm_mod.Block;
 const Value = value.Value;
 const ClassObject = value.ClassObject;
+const MethodEntry = value.MethodEntry;
 const SymbolObject = value.SymbolObject;
 const MethodListFilter = method_reflection.MethodListFilter;
+
+const BoundMethodLookup = struct {
+    resolved: vm_mod.ResolvedMethod,
+    owner: Value,
+};
 
 fn collectKernelMethods(vm: *VM, receiver: Value, filter: MethodListFilter, include_super: bool) VMError!Value {
     var names: std.ArrayList(*SymbolObject) = .empty;
@@ -95,6 +101,51 @@ fn resolveMethodOwnerValue(vm: *VM, receiver: Value, method_name_sym: *SymbolObj
     }
 
     return scanClass(vm, vm.getClass(receiver), method_name_sym);
+}
+
+fn resolveMethodEntry(
+    method_name: *SymbolObject,
+    owner_class: *ClassObject,
+    owner: Value,
+    entry: MethodEntry,
+) ?BoundMethodLookup {
+    return switch (entry.method) {
+        .undefined => null,
+        else => .{
+            .resolved = .{
+                .name = method_name,
+                .owner_class = owner_class,
+                .entry = entry,
+            },
+            .owner = owner,
+        },
+    };
+}
+
+fn lookupSingletonMethodOnly(singleton_class: *ClassObject, method_name: *SymbolObject) ?BoundMethodLookup {
+    var i = singleton_class.prepended_modules.items.len;
+    while (i > 0) {
+        i -= 1;
+        const prepended = singleton_class.prepended_modules.items[i];
+        if (prepended.methods.get(method_name)) |entry| {
+            return resolveMethodEntry(method_name, singleton_class, Value.fromObject(prepended), entry);
+        }
+    }
+
+    if (singleton_class.module.methods.get(method_name)) |entry| {
+        return resolveMethodEntry(method_name, singleton_class, Value.fromObject(singleton_class), entry);
+    }
+
+    i = singleton_class.included_modules.items.len;
+    while (i > 0) {
+        i -= 1;
+        const included = singleton_class.included_modules.items[i];
+        if (included.methods.get(method_name)) |entry| {
+            return resolveMethodEntry(method_name, singleton_class, Value.fromObject(included), entry);
+        }
+    }
+
+    return null;
 }
 
 pub fn register(vm: *VM) !void {
@@ -217,6 +268,9 @@ pub fn register(vm: *VM) !void {
 
     const method_sym = try vm.intern("method");
     try vm.kernel_module.methods.put(method_sym, .{ .method = .{ .builtin = &builtinKernelMethod } });
+
+    const singleton_method_sym = try vm.intern("singleton_method");
+    try vm.kernel_module.methods.put(singleton_method_sym, .{ .method = .{ .builtin = &builtinKernelSingletonMethod } });
 
     const to_enum_sym = try vm.intern("to_enum");
     try vm.kernel_module.methods.put(to_enum_sym, .{ .method = .{ .builtin = &builtinKernelToEnum } });
@@ -738,6 +792,9 @@ fn builtinKernelBoundMethodCall(vm: *VM, receiver: Value, args: []Value, block: 
 
 fn builtinKernelBoundMethodOwner(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
+    const stored_owner = try vm.getInstanceVariable(receiver, "@__method_owner");
+    if (!stored_owner.isNil()) return stored_owner;
+
     const target = try vm.getInstanceVariable(receiver, "@__method_receiver");
     const method_name_val = try vm.getInstanceVariable(receiver, "@__method_name");
     if (!method_name_val.isSymbol()) return error.Fatal;
@@ -758,22 +815,12 @@ fn builtinKernelBoundMethodArity(vm: *VM, receiver: Value, args: []Value, _: ?Bl
     return try vm.getInstanceVariable(receiver, "@__method_arity");
 }
 
-pub fn builtinKernelMethod(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 1);
-    const method_name = try vm.coerceToMethodNameSymbol(args[0]);
-
-    const resolved = (try vm.findMethod(receiver, method_name)) orelse {
-        return vm.raiseExceptionFmt(
-            vm.name_error_class,
-            "undefined method '{s}'",
-            .{method_name.name},
-        );
-    };
-
-    const method_obj = try vm.newInstance(vm.object_class);
+fn createBoundMethodObject(vm: *VM, receiver: Value, method_name: *SymbolObject, resolved: vm_mod.ResolvedMethod, owner: Value) VMError!Value {
+    const method_obj = try vm.newInstance(vm.method_class);
     try vm.setInstanceVariable(method_obj, "@__method_receiver", receiver);
     try vm.setInstanceVariable(method_obj, "@__method_name", Value.fromObject(method_name));
     try vm.setInstanceVariable(method_obj, "@__method_arity", try vm.methodArityValue(resolved));
+    try vm.setInstanceVariable(method_obj, "@__method_owner", owner);
 
     const singleton = try vm.getOrCreateSingletonClass(method_obj);
     const call_sym = try vm.intern("call");
@@ -798,6 +845,44 @@ pub fn builtinKernelMethod(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 
     vm.bumpMethodStateVersion();
     return method_obj;
+}
+
+pub fn builtinKernelMethod(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const method_name = try vm.coerceToMethodNameSymbol(args[0]);
+
+    const resolved = (try vm.findMethod(receiver, method_name)) orelse {
+        return vm.raiseExceptionFmt(
+            vm.name_error_class,
+            "undefined method '{s}'",
+            .{method_name.name},
+        );
+    };
+
+    const owner = (try resolveMethodOwnerValue(vm, receiver, method_name)) orelse Value.fromObject(resolved.owner_class);
+    return createBoundMethodObject(vm, receiver, method_name, resolved, owner);
+}
+
+pub fn builtinKernelSingletonMethod(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const method_name = try vm.coerceToMethodNameSymbol(args[0]);
+    const singleton_class = receiver.getSingletonClass() orelse {
+        return vm.raiseExceptionFmt(
+            vm.name_error_class,
+            "undefined method '{s}'",
+            .{method_name.name},
+        );
+    };
+
+    const lookup = lookupSingletonMethodOnly(singleton_class, method_name) orelse {
+        return vm.raiseExceptionFmt(
+            vm.name_error_class,
+            "undefined method '{s}'",
+            .{method_name.name},
+        );
+    };
+
+    return createBoundMethodObject(vm, receiver, method_name, lookup.resolved, lookup.owner);
 }
 
 fn kernelEnumForCommon(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {

@@ -332,6 +332,7 @@ pub const VM = struct {
 
     enumerator_class: *value.ClassObject,
     yielder_class: *value.ClassObject,
+    method_class: *value.ClassObject,
 
     // Encoding infrastructure
     encoding_class: *value.ClassObject,
@@ -485,6 +486,7 @@ pub const VM = struct {
             .stop_iteration_class = undefined,
             .enumerator_class = undefined,
             .yielder_class = undefined,
+            .method_class = undefined,
             .encoding_class = undefined,
             .encoding_utf8 = undefined,
             .encoding_cesu8 = undefined,
@@ -622,6 +624,10 @@ pub const VM = struct {
         const proc_name_sym = try self.intern("Proc");
         const proc_class_val = try self.newClass(proc_name_sym, self.object_class);
         self.proc_class = proc_class_val.toClassObject();
+
+        const method_name_sym = try self.intern("Method");
+        const method_class_val = try self.newClass(method_name_sym, self.object_class);
+        self.method_class = method_class_val.toClassObject();
 
         const fiber_name_sym = try self.intern("Fiber");
         const fiber_class_val = try self.newClassWithType(fiber_name_sym, self.object_class, .fiber);
@@ -833,6 +839,7 @@ pub const VM = struct {
         self.object_class.module.constants.put(binding_name_sym, binding_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(range_name_sym, range_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(proc_name_sym, proc_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(method_name_sym, method_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(fiber_name_sym, fiber_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(thread_name_sym, thread_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(regexp_name_sym, regexp_class_val) catch return error.Fatal;
