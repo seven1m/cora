@@ -176,6 +176,9 @@ pub fn register(vm: *VM) !void {
     const delete_sym = try vm.intern("delete");
     try vm.hash_class.module.methods.put(delete_sym, .{ .method = .{ .builtin = &builtinHashDelete } });
 
+    const delete_if_sym = try vm.intern("delete_if");
+    try vm.hash_class.module.methods.put(delete_if_sym, .{ .method = .{ .builtin = &builtinHashDeleteIf } });
+
     const clear_sym = try vm.intern("clear");
     try vm.hash_class.module.methods.put(clear_sym, .{ .method = .{ .builtin = &builtinHashClear } });
 
@@ -474,6 +477,37 @@ pub fn builtinHashDelete(vm: *VM, receiver: Value, args: []Value, block: ?Block)
         return Value.nil();
     };
     return deleted;
+}
+
+pub fn builtinHashDeleteIf(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const blk = block orelse {
+        const size_value = Value.integer(@intCast(receiver.toHashObject().entries.items.len));
+        return try vm.createMethodEnumeratorWithSize(receiver, try vm.intern("delete_if"), &.{}, size_value);
+    };
+    try ensureMutableHash(vm, receiver);
+
+    const hash_obj = receiver.toHashObject();
+    const snapshot = vm.allocator.alloc(value.HashEntry, hash_obj.entries.items.len) catch return error.Fatal;
+    defer vm.allocator.free(snapshot);
+    @memcpy(snapshot, hash_obj.entries.items);
+
+    for (snapshot) |entry| {
+        const yield_args = [_]Value{ entry.key, entry.value };
+        const yielded = try vm.yieldToBlock(blk, &yield_args);
+        if (yielded.non_local_return_occurred) {
+            return yielded.value;
+        }
+        if (yielded.break_occurred) {
+            return yielded.value;
+        }
+
+        if (yielded.value.is_truthy()) {
+            _ = try vm.hashDeleteEntry(hash_obj, entry.key);
+        }
+    }
+
+    return receiver;
 }
 
 pub fn builtinHashClear(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
