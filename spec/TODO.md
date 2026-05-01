@@ -1170,7 +1170,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/kernel/Array_spec.rb
 - [ ] core/kernel/Complex_spec.rb
 - [ ] core/kernel/Float_spec.rb
-- [ ] core/kernel/Hash_spec.rb
+- [x] core/kernel/Hash_spec.rb
 - [ ] core/kernel/Integer_spec.rb
 - [ ] core/kernel/Rational_spec.rb
 - [ ] core/kernel/String_spec.rb

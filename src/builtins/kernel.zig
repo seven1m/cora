@@ -251,6 +251,16 @@ pub fn register(vm: *VM) !void {
     const inspect_sym = try vm.intern("inspect");
     try vm.kernel_module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinKernelInspect } });
 
+    const kernel_hash_convert_sym = try vm.intern("Hash");
+    try vm.kernel_module.methods.put(kernel_hash_convert_sym, .{
+        .method = .{ .builtin = &builtinKernelHashConvert },
+        .visibility = .private,
+    });
+
+    const kernel_module_val = Value.fromObject(vm.kernel_module);
+    const kernel_singleton = try vm.getOrCreateSingletonClass(kernel_module_val);
+    try kernel_singleton.module.methods.put(kernel_hash_convert_sym, .{ .method = .{ .builtin = &builtinKernelHashConvert } });
+
     const hash_sym = try vm.intern("hash");
     try vm.kernel_module.methods.put(hash_sym, .{ .method = .{ .builtin = &builtinKernelHash } });
 
@@ -1132,6 +1142,33 @@ pub fn builtinKernelHash(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     try vm.requireArgCount(args, 0);
     const hash_value: i64 = @bitCast(receiver.hash());
     return Value.integer(hash_value);
+}
+
+fn builtinKernelHashConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+
+    const arg = args[0];
+    if (arg.isNil()) {
+        return Value.fromObject(try vm.createHash());
+    }
+
+    if (arg.isArray() and arg.toArrayObject().elements.items.len == 0) {
+        return Value.fromObject(try vm.createHash());
+    }
+
+    return switch (try vm.probeToHash(arg)) {
+        .hash => |hash| hash,
+        .missing, .nil_result => vm.raiseExceptionFmt(
+            vm.type_error_class,
+            "can't convert {s} into Hash",
+            .{vm.className(arg)},
+        ),
+        .non_hash => |coerced| vm.raiseExceptionFmt(
+            vm.type_error_class,
+            "can't convert {s} to Hash ({s}#to_hash gives {s})",
+            .{ vm.className(arg), vm.className(arg), vm.className(coerced) },
+        ),
+    };
 }
 
 pub fn builtinKernelNil(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

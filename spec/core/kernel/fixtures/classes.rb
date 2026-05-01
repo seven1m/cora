@@ -1,4 +1,12 @@
 module KernelSpecs
+  def self.Hash_function(arg)
+    Hash(arg)
+  end
+
+  def self.Hash_method(arg)
+    Kernel.Hash(arg)
+  end
+
   class A
     # There is Kernel#public_method, so we don't want this one to clash
     def pub_method; :public_method; end
