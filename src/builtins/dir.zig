@@ -115,7 +115,7 @@ pub fn builtinDirChdir(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!
         defer vm.allocator.free(previous_z);
         defer _ = std.c.chdir(previous_z.ptr);
         const yielded = try vm.yieldToBlock(blk, &[_]Value{});
-        if (yielded.break_occurred) return yielded.value;
+        if (yielded.controlFlowValue()) |return_value| return return_value;
         return yielded.value;
     }
 

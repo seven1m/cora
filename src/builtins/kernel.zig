@@ -793,7 +793,7 @@ pub fn builtinKernelLoop(vm: *VM, _: Value, args: []Value, block: ?Block) VMErro
 
     while (true) {
         const result = try vm.yieldToBlock(blk, &[_]Value{});
-        if (result.break_occurred) return result.value;
+        if (result.controlFlowValue()) |return_value| return return_value;
         try vm.maybePreemptCurrentThread(true);
     }
 }
@@ -845,7 +845,7 @@ pub fn builtinKernelTap(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
         return error.Unwind;
     };
     const result = try vm.yieldToBlock(blk, &[_]Value{receiver});
-    if (result.break_occurred) return result.value;
+    if (result.controlFlowValue()) |return_value| return return_value;
     return receiver;
 }
 

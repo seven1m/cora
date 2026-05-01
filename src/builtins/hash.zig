@@ -10,11 +10,6 @@ const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
 const Block = vm_mod.Block;
 const Value = value.Value;
-const HashYieldResult = struct {
-    value: Value,
-    break_occurred: bool,
-    non_local_return_occurred: bool,
-};
 
 fn coerceToProcForHashDefault(vm: *VM, proc_like: Value) VMError!*value.ProcObject {
     var proc_val = proc_like;
@@ -333,7 +328,7 @@ fn digIntoValue(vm: *VM, current_value: Value, remaining_args: []Value) VMError!
     return vm.callMethodByName(current_value, "dig", remaining_args, null);
 }
 
-fn yieldHashEntryPair(vm: *VM, blk: Block, entry: value.HashEntry) VMError!HashYieldResult {
+fn yieldHashEntryPair(vm: *VM, blk: Block, entry: value.HashEntry) VMError!VM.YieldResult {
     const pair = try vm.createArray();
     pair.elements.append(vm.gc_allocator, entry.key) catch return error.Fatal;
     pair.elements.append(vm.gc_allocator, entry.value) catch return error.Fatal;
@@ -355,11 +350,7 @@ fn yieldHashEntryPair(vm: *VM, blk: Block, entry: value.HashEntry) VMError!HashY
         },
     };
 
-    return .{
-        .value = yielded.value,
-        .break_occurred = yielded.break_occurred,
-        .non_local_return_occurred = yielded.non_local_return_occurred,
-    };
+    return yielded;
 }
 
 pub fn builtinHashInitialize(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -495,12 +486,7 @@ pub fn builtinHashDeleteIf(vm: *VM, receiver: Value, args: []Value, block: ?Bloc
     for (snapshot) |entry| {
         const yield_args = [_]Value{ entry.key, entry.value };
         const yielded = try vm.yieldToBlock(blk, &yield_args);
-        if (yielded.non_local_return_occurred) {
-            return yielded.value;
-        }
-        if (yielded.break_occurred) {
-            return yielded.value;
-        }
+        if (yielded.controlFlowValue()) |return_value| return return_value;
 
         if (yielded.value.is_truthy()) {
             _ = try vm.hashDeleteEntry(hash_obj, entry.key);
@@ -625,14 +611,7 @@ pub fn builtinHashEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
     // Iterate in insertion order
     for (hash_obj.entries.items) |entry| {
         const result = try yieldHashEntryPair(vm, blk, entry);
-        if (result.non_local_return_occurred) {
-            return result.value;
-        }
-
-        // If break occurred, return immediately
-        if (result.break_occurred) {
-            return result.value;
-        }
+        if (result.controlFlowValue()) |return_value| return return_value;
     }
 
     return receiver;
@@ -655,12 +634,7 @@ pub fn builtinHashEachPair(vm: *VM, receiver: Value, args: []Value, block: ?Bloc
 
     for (snapshot) |entry| {
         const result = try yieldHashEntryPair(vm, blk, entry);
-        if (result.non_local_return_occurred) {
-            return result.value;
-        }
-        if (result.break_occurred) {
-            return result.value;
-        }
+        if (result.controlFlowValue()) |return_value| return return_value;
     }
 
     return receiver;

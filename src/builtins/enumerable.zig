@@ -45,12 +45,7 @@ fn builtinEnumerableMap(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
         };
         const yielded = next_values.toArrayObject().elements.items;
         const result = try vm.yieldToBlock(blk, yielded);
-        if (result.non_local_return_occurred) {
-            return result.value;
-        }
-        if (result.break_occurred) {
-            return result.value;
-        }
+        if (result.controlFlowValue()) |return_value| return return_value;
         out.elements.append(vm.gc_allocator, result.value) catch return error.Fatal;
     }
 

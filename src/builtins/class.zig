@@ -55,7 +55,7 @@ pub fn builtinClassNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
                 .builtin => try vm.yieldToBlock(blk, &[_]Value{}),
                 .callable => try vm.yieldToBlock(blk, &[_]Value{}),
             };
-            if (yield_result.break_occurred) return yield_result.value;
+            if (yield_result.controlFlowValue()) |return_value| return return_value;
         }
 
         return module_val;
@@ -95,7 +95,7 @@ pub fn builtinClassNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
                 .builtin => try vm.yieldToBlock(blk, &[_]Value{}),
                 .callable => try vm.yieldToBlock(blk, &[_]Value{}),
             };
-            if (yield_result.break_occurred) return yield_result.value;
+            if (yield_result.controlFlowValue()) |return_value| return return_value;
         }
 
         return class_val;

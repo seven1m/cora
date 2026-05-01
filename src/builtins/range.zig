@@ -164,7 +164,7 @@ pub fn builtinRangeEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
         while (current < end_i) : (current += 1) {
             const yield_args = [_]Value{Value.integer(current)};
             const result = try vm.yieldToBlock(blk, &yield_args);
-            if (result.break_occurred) return result.value;
+            if (result.controlFlowValue()) |return_value| return return_value;
             if (current == std.math.maxInt(i64)) break;
         }
     } else {
@@ -172,7 +172,7 @@ pub fn builtinRangeEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
         while (current <= end_i) : (current += 1) {
             const yield_args = [_]Value{Value.integer(current)};
             const result = try vm.yieldToBlock(blk, &yield_args);
-            if (result.break_occurred) return result.value;
+            if (result.controlFlowValue()) |return_value| return return_value;
             if (current == std.math.maxInt(i64)) break;
         }
     }

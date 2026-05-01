@@ -387,7 +387,7 @@ fn builtinRegexpMatch(vm: *VM, receiver: Value, args: []Value, block: ?Block) VM
     const md_val = Value.fromObject(result.?.match_data);
     if (block) |blk| {
         const yielded = try vm.yieldToBlock(blk, &[_]Value{md_val});
-        if (yielded.break_occurred) return yielded.value;
+        if (yielded.controlFlowValue()) |return_value| return return_value;
         return yielded.value;
     }
     return md_val;

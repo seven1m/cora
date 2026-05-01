@@ -1690,9 +1690,7 @@ pub fn builtinStringChars(vm: *VM, receiver: Value, args: []Value, block: ?Block
             const char_val = try vm.newStringWithEncoding(slice, false, encoding);
             const yield_args = [_]Value{char_val};
             const yield_result = try vm.yieldToBlock(blk, &yield_args);
-            if (yield_result.break_occurred) {
-                return yield_result.value;
-            }
+            if (yield_result.controlFlowValue()) |return_value| return return_value;
         }
         return receiver;
     }
@@ -1729,9 +1727,7 @@ pub fn builtinStringBytes(vm: *VM, receiver: Value, args: []Value, block: ?Block
         for (bytes) |b| {
             const yield_args = [_]Value{Value.integer(b)};
             const yield_result = try vm.yieldToBlock(blk, &yield_args);
-            if (yield_result.break_occurred) {
-                return yield_result.value;
-            }
+            if (yield_result.controlFlowValue()) |return_value| return return_value;
         }
         return receiver;
     }
@@ -1757,9 +1753,7 @@ pub fn builtinStringEachByte(vm: *VM, receiver: Value, args: []Value, block: ?Bl
         const yield_args = [_]Value{Value.integer(bytes[i])};
         i += 1;
         const yield_result = try vm.yieldToBlock(block.?, &yield_args);
-        if (yield_result.break_occurred) {
-            return yield_result.value;
-        }
+        if (yield_result.controlFlowValue()) |return_value| return return_value;
     }
 
     return receiver;
@@ -1873,9 +1867,7 @@ pub fn builtinStringCodepoints(vm: *VM, receiver: Value, args: []Value, block: ?
 
             const yield_args = [_]Value{Value.integer(parsed.codepoint)};
             const yield_result = try vm.yieldToBlock(blk, &yield_args);
-            if (yield_result.break_occurred) {
-                return yield_result.value;
-            }
+            if (yield_result.controlFlowValue()) |return_value| return return_value;
         }
         return receiver;
     }
@@ -2334,7 +2326,7 @@ fn splitYieldOrReturn(vm: *VM, receiver: Value, array_obj: *value.ArrayObject, b
     if (block) |blk| {
         for (array_obj.elements.items) |item| {
             const yielded = try vm.yieldToBlock(blk, &[_]Value{item});
-            if (yielded.break_occurred) return yielded.value;
+            if (yielded.controlFlowValue()) |return_value| return return_value;
         }
         return receiver;
     }
@@ -3363,7 +3355,7 @@ pub fn builtinStringScan(vm: *VM, receiver: Value, args: []Value, block: ?Block)
 
             if (block) |blk| {
                 const yielded = try vm.yieldToBlock(blk, &[_]Value{yielded_value});
-                if (yielded.break_occurred) return yielded.value;
+                if (yielded.controlFlowValue()) |return_value| return return_value;
                 try vm.setLastMatch(md);
             } else {
                 out.?.elements.append(vm.gc_allocator, yielded_value) catch return error.Fatal;
@@ -3409,7 +3401,7 @@ pub fn builtinStringScan(vm: *VM, receiver: Value, args: []Value, block: ?Block)
 
             if (block) |blk| {
                 const yielded = try vm.yieldToBlock(blk, &[_]Value{match_str});
-                if (yielded.break_occurred) return yielded.value;
+                if (yielded.controlFlowValue()) |return_value| return return_value;
                 try vm.setLastMatch(md);
             } else {
                 out.?.elements.append(vm.gc_allocator, match_str) catch return error.Fatal;

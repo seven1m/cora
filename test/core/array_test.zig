@@ -189,6 +189,38 @@ test "Array#each propagates break value" {
     try std.testing.expect(result.isNil());
 }
 
+test "Array iteration methods propagate non-local return from blocks" {
+    var result = try evalCode(
+        \\def foo
+        \\  [3, 2, 1].reverse_each do |i|
+        \\    return i * 2 if i == 2
+        \\  end
+        \\end
+        \\foo
+    );
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 4), result.toInteger());
+
+    result = try evalCode(
+        \\def foo
+        \\  [1, 2].select { |i| return 9 if i == 1 }
+        \\end
+        \\foo
+    );
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 9), result.toInteger());
+
+    result = try evalCode(
+        \\def foo
+        \\  a = [1, 2, 3]
+        \\  a.select! { |i| return 7 if i == 2; i.odd? }
+        \\end
+        \\foo
+    );
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 7), result.toInteger());
+}
+
 test "Array#any?" {
     var result = try evalCode("[nil, false, 1].any?");
     try std.testing.expect(result.isBool());

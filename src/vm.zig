@@ -5462,10 +5462,15 @@ pub const VM = struct {
     }
 
     /// Result from yielding to a block
-    const YieldResult = struct {
+    pub const YieldResult = struct {
         value: Value,
         break_occurred: bool,
         non_local_return_occurred: bool,
+
+        pub fn controlFlowValue(self: YieldResult) ?Value {
+            if (self.non_local_return_occurred or self.break_occurred) return self.value;
+            return null;
+        }
     };
 
     /// Yield to a block with arguments, handling break and exceptions

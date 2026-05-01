@@ -243,7 +243,7 @@ fn builtinEnumeratorMap(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
         };
 
         const mapped = try vm.yieldToBlock(blk, &[_]Value{next_val});
-        if (mapped.break_occurred) return mapped.value;
+        if (mapped.controlFlowValue()) |return_value| return return_value;
         out.elements.append(vm.gc_allocator, mapped.value) catch return error.Fatal;
     }
 
@@ -257,7 +257,8 @@ fn builtinYielderPush(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
     const yielder_obj = receiver.toYielderObject();
 
     const yield_args = [_]Value{args[0]};
-    _ = try vm.yieldToBlock(yielder_obj.block, &yield_args);
+    const result = try vm.yieldToBlock(yielder_obj.block, &yield_args);
+    if (result.controlFlowValue()) |return_value| return return_value;
 
     // Return self for chaining (y << 1 << 2 << 3)
     return receiver;
@@ -266,6 +267,7 @@ fn builtinYielderPush(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
 fn builtinYielderYield(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     const yielder_obj = receiver.toYielderObject();
     const result = try vm.yieldToBlock(yielder_obj.block, args);
+    if (result.controlFlowValue()) |return_value| return return_value;
     return result.value;
 }
 
