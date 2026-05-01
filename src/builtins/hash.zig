@@ -68,19 +68,15 @@ fn validateHashDefaultProc(vm: *VM, proc_obj: *value.ProcObject) VMError!void {
 fn builtinHashTryConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
 
-    const arg = args[0];
-    if (arg.isHash()) return arg;
-
-    const maybe_hash = try vm.checkCallMethodByName(arg, "to_hash", false, &[_]Value{}, null);
-    const coerced = maybe_hash orelse return Value.nil();
-    if (coerced.isNil()) return Value.nil();
-    if (coerced.isHash()) return coerced;
-
-    return vm.raiseExceptionFmt(
-        vm.type_error_class,
-        "can't convert {s} to Hash ({s}#to_hash gives {s})",
-        .{ vm.className(arg), vm.className(arg), vm.className(coerced) },
-    );
+    return switch (try vm.probeToHash(args[0])) {
+        .hash => |hash| hash,
+        .missing, .nil_result => Value.nil(),
+        .non_hash => |coerced| vm.raiseExceptionFmt(
+            vm.type_error_class,
+            "can't convert {s} to Hash ({s}#to_hash gives {s})",
+            .{ vm.className(args[0]), vm.className(args[0]), vm.className(coerced) },
+        ),
+    };
 }
 
 pub fn register(vm: *VM) !void {

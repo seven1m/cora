@@ -22,6 +22,7 @@
 
 - `VM.probeToAry` centralizes low-level `to_ary` coercion. It distinguishes array, missing method, and nil result, and raises `TypeError` when `to_ary` returns a non-Array.
 - `VM.coerceToArrayValue` is the strict array-like coercion helper for APIs like `Array#+` and `Array#replace`.
+- `VM.probeToHash` centralizes optional `to_hash` probing. It distinguishes Hash, missing method, nil result, and non-Hash result so callers can preserve context-specific error messages.
 - `Value.coerceToStringValue` in `src/value.zig` is the canonical implicit String coercion path for `to_str` semantics that should raise `TypeError` on failure.
 - `Value.coerceToStr` should be used when you need `[]const u8` bytes after the same implicit coercion.
 - `VM.probeToStringValue` is the preferred optional/cooperative `to_str` probe helper when missing `to_str` or nil should map to fallback behavior.

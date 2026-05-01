@@ -7079,6 +7079,13 @@ pub const VM = struct {
         nil_result,
     };
 
+    pub const ToHashResult = union(enum) {
+        hash: Value,
+        missing,
+        nil_result,
+        non_hash: Value,
+    };
+
     pub const ToStringResult = union(enum) {
         string: Value,
         missing,
@@ -7113,6 +7120,16 @@ pub const VM = struct {
             "can't convert {s} to Array ({s}#to_ary gives {s})",
             .{ self.className(arg), self.className(arg), self.className(coerced) },
         );
+    }
+
+    pub fn probeToHash(self: *VM, arg: Value) VMError!ToHashResult {
+        if (arg.isHash()) return .{ .hash = arg };
+
+        const maybe_hash = try self.checkCallMethodByName(arg, "to_hash", false, &[_]Value{}, null);
+        const coerced = maybe_hash orelse return .missing;
+        if (coerced.isNil()) return .nil_result;
+        if (coerced.isHash()) return .{ .hash = coerced };
+        return .{ .non_hash = coerced };
     }
 
     pub fn coerceToArrayValue(self: *VM, arg: Value) VMError!Value {
@@ -7826,22 +7843,25 @@ pub const VM = struct {
 
     fn coerceKwSplatToHash(self: *VM, kw_val: Value) VMError!?*value.HashObject {
         if (kw_val.isNil()) return null;
-        if (kw_val.isHash()) return kw_val.toHashObject();
 
-        const empty_args = [_]Value{};
-        const maybe_hash = try self.checkCallMethodByName(kw_val, "to_hash", false, empty_args[0..], null);
-        if (maybe_hash == null) {
-            const exc = try self.createException(self.type_error_class, "no implicit conversion into Hash");
-            self.pending_exception = exc;
-            return error.Unwind;
-        }
-        if (!maybe_hash.?.isHash()) {
-            const exc = try self.createException(self.type_error_class, "can't convert to Hash");
-            self.pending_exception = exc;
-            return error.Unwind;
-        }
-
-        return maybe_hash.?.toHashObject();
+        return switch (try self.probeToHash(kw_val)) {
+            .hash => |hash| hash.toHashObject(),
+            .missing => {
+                const exc = try self.createException(self.type_error_class, "no implicit conversion into Hash");
+                self.pending_exception = exc;
+                return error.Unwind;
+            },
+            .nil_result => {
+                const exc = try self.createException(self.type_error_class, "can't convert to Hash");
+                self.pending_exception = exc;
+                return error.Unwind;
+            },
+            .non_hash => {
+                const exc = try self.createException(self.type_error_class, "can't convert to Hash");
+                self.pending_exception = exc;
+                return error.Unwind;
+            },
+        };
     }
 
     fn mergeKwSplatInto(self: *VM, target_hash: *value.HashObject, source_value: Value) VMError!void {
