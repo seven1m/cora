@@ -47,24 +47,7 @@ fn collectKernelMethods(vm: *VM, receiver: Value, filter: MethodListFilter, incl
         }
     }
 
-    method_reflection.sortSymbolsByName(names.items);
-
-    const out = try vm.createArray();
-    for (names.items) |name_sym| {
-        out.elements.append(vm.gc_allocator, Value.fromObject(name_sym)) catch return error.Fatal;
-    }
-
-    return Value.fromObject(out);
-}
-
-fn appendSortedSymbolsArray(vm: *VM, names: []*SymbolObject) VMError!Value {
-    method_reflection.sortSymbolsByName(names);
-
-    const out = try vm.createArray();
-    for (names) |name_sym| {
-        out.elements.append(vm.gc_allocator, Value.fromObject(name_sym)) catch return error.Fatal;
-    }
-    return Value.fromObject(out);
+    return method_reflection.sortedSymbolArray(vm, names.items);
 }
 
 fn collectSingletonMethods(vm: *VM, receiver: Value, include_super: bool) VMError!Value {
@@ -77,7 +60,7 @@ fn collectSingletonMethods(vm: *VM, receiver: Value, include_super: bool) VMErro
     var blocked: std.AutoHashMap(*SymbolObject, void) = std.AutoHashMap(*SymbolObject, void).init(vm.gc_allocator);
     defer blocked.deinit();
 
-    const singleton_class = receiver.getSingletonClass() orelse return appendSortedSymbolsArray(vm, names.items);
+    const singleton_class = receiver.getSingletonClass() orelse return method_reflection.sortedSymbolArray(vm, names.items);
 
     if (include_super) {
         var current: ?*ClassObject = singleton_class;
@@ -105,7 +88,7 @@ fn collectSingletonMethods(vm: *VM, receiver: Value, include_super: bool) VMErro
         );
     }
 
-    return appendSortedSymbolsArray(vm, names.items);
+    return method_reflection.sortedSymbolArray(vm, names.items);
 }
 
 fn resolveMethodOwnerValue(vm: *VM, receiver: Value, method_name_sym: *SymbolObject) VMError!?Value {

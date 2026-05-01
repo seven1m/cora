@@ -4,6 +4,7 @@ const value = @import("../value.zig");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
+const Value = value.Value;
 const SymbolObject = value.SymbolObject;
 const ClassObject = value.ClassObject;
 
@@ -130,4 +131,14 @@ pub fn sortSymbolsByName(symbols: []*SymbolObject) void {
             return std.mem.order(u8, a.name, b.name) == .lt;
         }
     }.lessThan);
+}
+
+pub fn sortedSymbolArray(vm: *VM, symbols: []*SymbolObject) VMError!Value {
+    sortSymbolsByName(symbols);
+
+    const out = try vm.createArray();
+    for (symbols) |name_sym| {
+        out.elements.append(vm.gc_allocator, Value.fromObject(name_sym)) catch return error.Fatal;
+    }
+    return Value.fromObject(out);
 }

@@ -241,13 +241,7 @@ fn collectInstanceMethods(
         return error.Unwind;
     }
 
-    method_reflection.sortSymbolsByName(names.items);
-
-    const out = try vm.createArray();
-    for (names.items) |name_sym| {
-        out.elements.append(vm.gc_allocator, Value.fromObject(name_sym)) catch return error.Fatal;
-    }
-    return Value.fromObject(out);
+    return method_reflection.sortedSymbolArray(vm, names.items);
 }
 
 fn setVisibility(vm: *VM, receiver: Value, args: []Value, visibility: MethodVisibility) VMError!Value {
