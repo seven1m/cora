@@ -173,16 +173,16 @@ fn singletonAttachedObjectToS(vm: *VM, attached_object: Value) VMError!Value {
 fn classIncludesModule(class_obj: *ClassObject, target: *value.ModuleObject) bool {
     var current: ?*ClassObject = class_obj;
     while (current) |klass| {
-        var i = klass.prepended_modules.items.len;
+        var i = klass.module.prepended_modules.items.len;
         while (i > 0) {
             i -= 1;
-            if (klass.prepended_modules.items[i] == target) return true;
+            if (klass.module.prepended_modules.items[i] == target) return true;
         }
 
-        var j = klass.included_modules.items.len;
+        var j = klass.module.included_modules.items.len;
         while (j > 0) {
             j -= 1;
-            if (klass.included_modules.items[j] == target) return true;
+            if (klass.module.included_modules.items[j] == target) return true;
         }
 
         current = klass.superclass;
@@ -213,10 +213,10 @@ fn collectInstanceMethods(
         var current: ?*ClassObject = class_obj;
         while (current) |klass| {
             if (include_super) {
-                var i = klass.prepended_modules.items.len;
+                var i = klass.module.prepended_modules.items.len;
                 while (i > 0) {
                     i -= 1;
-                    const prepended = klass.prepended_modules.items[i];
+                    const prepended = klass.module.prepended_modules.items[i];
                     try method_reflection.collectMethodsFromTable(vm, &prepended.methods, filter, &names, &seen, &blocked);
                 }
             }
@@ -224,10 +224,10 @@ fn collectInstanceMethods(
             try method_reflection.collectMethodsFromTable(vm, &klass.module.methods, filter, &names, &seen, &blocked);
 
             if (include_super) {
-                var j = klass.included_modules.items.len;
+                var j = klass.module.included_modules.items.len;
                 while (j > 0) {
                     j -= 1;
-                    const included = klass.included_modules.items[j];
+                    const included = klass.module.included_modules.items[j];
                     try method_reflection.collectMethodsFromTable(vm, &included.methods, filter, &names, &seen, &blocked);
                 }
             }
@@ -320,16 +320,10 @@ fn copyMethodToModuleSingleton(vm: *VM, module_receiver: Value, name_sym: *Symbo
 
 pub fn register(vm: *VM) !void {
     const include_sym = try vm.intern("include");
-    try vm.module_class.module.methods.put(include_sym, .{
-        .method = .{ .builtin = &builtinModuleInclude },
-        .visibility = .private,
-    });
+    try vm.module_class.module.methods.put(include_sym, .{ .method = .{ .builtin = &builtinModuleInclude } });
 
     const prepend_sym = try vm.intern("prepend");
-    try vm.module_class.module.methods.put(prepend_sym, .{
-        .method = .{ .builtin = &builtinModulePrepend },
-        .visibility = .private,
-    });
+    try vm.module_class.module.methods.put(prepend_sym, .{ .method = .{ .builtin = &builtinModulePrepend } });
 
     const define_method_sym = try vm.intern("define_method");
     try vm.module_class.module.methods.put(define_method_sym, .{ .method = .{ .builtin = &builtinModuleDefineMethod } });
@@ -431,10 +425,10 @@ pub fn builtinModuleCaseEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block
     while (current) |c| {
         if (&c.module == receiver_module) return Value.boolean(true);
 
-        for (c.prepended_modules.items) |m| {
+        for (c.module.prepended_modules.items) |m| {
             if (m == receiver_module) return Value.boolean(true);
         }
-        for (c.included_modules.items) |m| {
+        for (c.module.included_modules.items) |m| {
             if (m == receiver_module) return Value.boolean(true);
         }
 
@@ -490,19 +484,19 @@ pub fn builtinModuleAncestors(vm: *VM, receiver: Value, args: []Value, _: ?Block
     } else if (receiver.isClass()) {
         var current: ?*ClassObject = receiver.toClassObject();
         while (current) |klass| {
-            var i = klass.prepended_modules.items.len;
+            var i = klass.module.prepended_modules.items.len;
             while (i > 0) {
                 i -= 1;
-                const prepended = klass.prepended_modules.items[i];
+                const prepended = klass.module.prepended_modules.items[i];
                 out.elements.append(vm.gc_allocator, Value.fromObject(prepended)) catch return error.Fatal;
             }
 
             out.elements.append(vm.gc_allocator, Value.fromObject(klass)) catch return error.Fatal;
 
-            var j = klass.included_modules.items.len;
+            var j = klass.module.included_modules.items.len;
             while (j > 0) {
                 j -= 1;
-                const included = klass.included_modules.items[j];
+                const included = klass.module.included_modules.items[j];
                 out.elements.append(vm.gc_allocator, Value.fromObject(included)) catch return error.Fatal;
             }
 
@@ -608,20 +602,28 @@ pub fn builtinModuleIncludeQ(vm: *VM, receiver: Value, args: []Value, _: ?Block)
 
 pub fn builtinModuleInclude(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireSingleArg(args, .module, "Module");
-    const class = receiver.toClassObject();
+    const target = receiver.getModuleObject() orelse {
+        const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
+        vm.pending_exception = exc;
+        return error.Unwind;
+    };
     const module = args[0].toModuleObject();
 
-    vm.includeModule(class, module) catch return error.Fatal;
+    vm.includeModule(target, module) catch return error.Fatal;
 
     return receiver;
 }
 
 pub fn builtinModulePrepend(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireSingleArg(args, .module, "Module");
-    const class = receiver.toClassObject();
+    const target = receiver.getModuleObject() orelse {
+        const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
+        vm.pending_exception = exc;
+        return error.Unwind;
+    };
     const module = args[0].toModuleObject();
 
-    vm.prependModule(class, module) catch return error.Fatal;
+    vm.prependModule(target, module) catch return error.Fatal;
 
     return receiver;
 }

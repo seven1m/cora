@@ -463,8 +463,10 @@ pub const Compiler = struct {
                     const parent_node = try self.parser.asNode(@ptrCast(parent));
                     try self.compileNode(parent_node, line);
                 } else {
-                    // No parent means ::X (top-level constant), not yet implemented
-                    return error.TopLevelConstantPath;
+                    const const_name = try self.parser.getConstantName(const_path.name);
+                    const idx = try self.current_chunk.addConstant(.{ .string = const_name });
+                    try self.current_chunk.emitOpU16(.GET_CONST, @intCast(idx), line);
+                    return;
                 }
 
                 // Get the constant name to look up

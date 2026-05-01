@@ -59,6 +59,34 @@ pub fn collectMethodsFromTable(
     }
 }
 
+pub fn collectModuleAncestryMethods(
+    vm: *VM,
+    module_obj: *value.ModuleObject,
+    filter: MethodListFilter,
+    include_mixin_ancestors: bool,
+    out: *std.ArrayList(*SymbolObject),
+    seen: *std.AutoHashMap(*SymbolObject, usize),
+    blocked: *std.AutoHashMap(*SymbolObject, void),
+) VMError!void {
+    if (include_mixin_ancestors) {
+        var i = module_obj.prepended_modules.items.len;
+        while (i > 0) {
+            i -= 1;
+            try collectModuleAncestryMethods(vm, module_obj.prepended_modules.items[i], filter, true, out, seen, blocked);
+        }
+    }
+
+    try collectMethodsFromTable(vm, &module_obj.methods, filter, out, seen, blocked);
+
+    if (include_mixin_ancestors) {
+        var j = module_obj.included_modules.items.len;
+        while (j > 0) {
+            j -= 1;
+            try collectModuleAncestryMethods(vm, module_obj.included_modules.items[j], filter, true, out, seen, blocked);
+        }
+    }
+}
+
 pub fn collectClassChainMethods(
     vm: *VM,
     start_class: *ClassObject,
@@ -72,22 +100,22 @@ pub fn collectClassChainMethods(
     var current: ?*ClassObject = start_class;
     while (current) |klass| {
         if (include_mixin_ancestors) {
-            var i = klass.prepended_modules.items.len;
+            var i = klass.module.prepended_modules.items.len;
             while (i > 0) {
                 i -= 1;
-                const prepended = klass.prepended_modules.items[i];
-                try collectMethodsFromTable(vm, &prepended.methods, filter, out, seen, blocked);
+                const prepended = klass.module.prepended_modules.items[i];
+                try collectModuleAncestryMethods(vm, prepended, filter, true, out, seen, blocked);
             }
         }
 
         try collectMethodsFromTable(vm, &klass.module.methods, filter, out, seen, blocked);
 
         if (include_mixin_ancestors) {
-            var j = klass.included_modules.items.len;
+            var j = klass.module.included_modules.items.len;
             while (j > 0) {
                 j -= 1;
-                const included = klass.included_modules.items[j];
-                try collectMethodsFromTable(vm, &included.methods, filter, out, seen, blocked);
+                const included = klass.module.included_modules.items[j];
+                try collectModuleAncestryMethods(vm, included, filter, true, out, seen, blocked);
             }
         }
 

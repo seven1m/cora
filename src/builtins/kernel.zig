@@ -57,15 +57,66 @@ fn collectKernelMethods(vm: *VM, receiver: Value, filter: MethodListFilter, incl
     return Value.fromObject(out);
 }
 
+fn appendSortedSymbolsArray(vm: *VM, names: []*SymbolObject) VMError!Value {
+    method_reflection.sortSymbolsByName(names);
+
+    const out = try vm.createArray();
+    for (names) |name_sym| {
+        out.elements.append(vm.gc_allocator, Value.fromObject(name_sym)) catch return error.Fatal;
+    }
+    return Value.fromObject(out);
+}
+
+fn collectSingletonMethods(vm: *VM, receiver: Value, include_super: bool) VMError!Value {
+    var names: std.ArrayList(*SymbolObject) = .empty;
+    defer names.deinit(vm.gc_allocator);
+
+    var seen: std.AutoHashMap(*SymbolObject, usize) = std.AutoHashMap(*SymbolObject, usize).init(vm.gc_allocator);
+    defer seen.deinit();
+
+    var blocked: std.AutoHashMap(*SymbolObject, void) = std.AutoHashMap(*SymbolObject, void).init(vm.gc_allocator);
+    defer blocked.deinit();
+
+    const singleton_class = receiver.getSingletonClass() orelse return appendSortedSymbolsArray(vm, names.items);
+
+    if (include_super) {
+        var current: ?*ClassObject = singleton_class;
+        while (current) |klass| {
+            if (klass.attached_object == null) break;
+            try method_reflection.collectModuleAncestryMethods(
+                vm,
+                &klass.module,
+                .public_and_protected,
+                true,
+                &names,
+                &seen,
+                &blocked,
+            );
+            current = klass.superclass;
+        }
+    } else {
+        try method_reflection.collectMethodsFromTable(
+            vm,
+            &singleton_class.module.methods,
+            .public_and_protected,
+            &names,
+            &seen,
+            &blocked,
+        );
+    }
+
+    return appendSortedSymbolsArray(vm, names.items);
+}
+
 fn resolveMethodOwnerValue(vm: *VM, receiver: Value, method_name_sym: *SymbolObject) VMError!?Value {
     const scanClass = struct {
         fn run(vm_inner: *VM, class_obj: *ClassObject, name_sym: *SymbolObject) ?Value {
             var current: ?*ClassObject = class_obj;
             while (current) |klass| {
-                var i = klass.prepended_modules.items.len;
+                var i = klass.module.prepended_modules.items.len;
                 while (i > 0) {
                     i -= 1;
-                    const prepended = klass.prepended_modules.items[i];
+                    const prepended = klass.module.prepended_modules.items[i];
                     if (prepended.methods.get(name_sym)) |entry| {
                         if (entry.method == .undefined) return null;
                         return Value.fromObject(prepended);
@@ -77,10 +128,10 @@ fn resolveMethodOwnerValue(vm: *VM, receiver: Value, method_name_sym: *SymbolObj
                     return Value.fromObject(klass);
                 }
 
-                i = klass.included_modules.items.len;
+                i = klass.module.included_modules.items.len;
                 while (i > 0) {
                     i -= 1;
-                    const included = klass.included_modules.items[i];
+                    const included = klass.module.included_modules.items[i];
                     if (included.methods.get(name_sym)) |entry| {
                         if (entry.method == .undefined) return null;
                         return Value.fromObject(included);
@@ -123,10 +174,10 @@ fn resolveMethodEntry(
 }
 
 fn lookupSingletonMethodOnly(singleton_class: *ClassObject, method_name: *SymbolObject) ?BoundMethodLookup {
-    var i = singleton_class.prepended_modules.items.len;
+    var i = singleton_class.module.prepended_modules.items.len;
     while (i > 0) {
         i -= 1;
-        const prepended = singleton_class.prepended_modules.items[i];
+        const prepended = singleton_class.module.prepended_modules.items[i];
         if (prepended.methods.get(method_name)) |entry| {
             return resolveMethodEntry(method_name, singleton_class, Value.fromObject(prepended), entry);
         }
@@ -136,10 +187,10 @@ fn lookupSingletonMethodOnly(singleton_class: *ClassObject, method_name: *Symbol
         return resolveMethodEntry(method_name, singleton_class, Value.fromObject(singleton_class), entry);
     }
 
-    i = singleton_class.included_modules.items.len;
+    i = singleton_class.module.included_modules.items.len;
     while (i > 0) {
         i -= 1;
-        const included = singleton_class.included_modules.items[i];
+        const included = singleton_class.module.included_modules.items[i];
         if (included.methods.get(method_name)) |entry| {
             return resolveMethodEntry(method_name, singleton_class, Value.fromObject(included), entry);
         }
@@ -290,8 +341,14 @@ pub fn register(vm: *VM) !void {
     const define_singleton_method_sym = try vm.intern("define_singleton_method");
     try vm.kernel_module.methods.put(define_singleton_method_sym, .{ .method = .{ .builtin = &builtinKernelDefineSingletonMethod } });
 
+    const extend_sym = try vm.intern("extend");
+    try vm.kernel_module.methods.put(extend_sym, .{ .method = .{ .builtin = &builtinKernelExtend } });
+
     const methods_sym = try vm.intern("methods");
     try vm.kernel_module.methods.put(methods_sym, .{ .method = .{ .builtin = &builtinKernelMethods } });
+
+    const singleton_methods_sym = try vm.intern("singleton_methods");
+    try vm.kernel_module.methods.put(singleton_methods_sym, .{ .method = .{ .builtin = &builtinKernelSingletonMethods } });
 
     const private_methods_sym = try vm.intern("private_methods");
     try vm.kernel_module.methods.put(private_methods_sym, .{ .method = .{ .builtin = &builtinKernelPrivateMethods } });
@@ -589,10 +646,10 @@ pub fn builtinKernelIsA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
         var current: ?*ClassObject = vm.getClass(receiver);
         while (current) |c| {
             if (&c.module == mod) return Value.boolean(true);
-            for (c.prepended_modules.items) |m| {
+            for (c.module.prepended_modules.items) |m| {
                 if (m == mod) return Value.boolean(true);
             }
-            for (c.included_modules.items) |m| {
+            for (c.module.included_modules.items) |m| {
                 if (m == mod) return Value.boolean(true);
             }
             current = c.superclass;
@@ -1004,10 +1061,35 @@ pub fn builtinKernelDefineSingletonMethod(vm: *VM, receiver: Value, args: []Valu
     return Value.fromObject(name_sym);
 }
 
+pub fn builtinKernelExtend(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireMinArgCount(args, 1);
+
+    const singleton_class = try vm.getOrCreateSingletonClass(receiver);
+    if ((singleton_class.module.object.flags & value.Object.FROZEN_FLAG) != 0) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen {s}", .{vm.className(receiver)});
+    }
+
+    for (args) |arg| {
+        if (!arg.isModule()) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "wrong argument type {s} (expected Module)", .{vm.className(arg)});
+        }
+        try vm.includeModule(&singleton_class.module, arg.toModuleObject());
+    }
+
+    vm.markIntegerChangedForReceiver(receiver);
+    return receiver;
+}
+
 pub fn builtinKernelMethods(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
     const include_super = if (args.len == 1) args[0].is_truthy() else true;
     return collectKernelMethods(vm, receiver, .public_and_protected, include_super);
+}
+
+pub fn builtinKernelSingletonMethods(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const include_super = if (args.len == 1) args[0].is_truthy() else true;
+    return collectSingletonMethods(vm, receiver, include_super);
 }
 
 pub fn builtinKernelPrivateMethods(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

@@ -566,6 +566,7 @@ pub const VM = struct {
         const module_name_sym = try self.intern("Module");
         const module_class_val = try self.newClass(module_name_sym, self.object_class);
         self.module_class = module_class_val.toClassObject();
+        self.class_class.superclass = self.module_class;
 
         const numeric_name_sym = try self.intern("Numeric");
         const numeric_class_val = try self.newClass(numeric_name_sym, self.object_class);
@@ -998,11 +999,11 @@ pub const VM = struct {
         try self.setGlobal("$?", Value.nil());
         try self.clearLastMatch();
 
-        try self.includeModule(self.object_class, self.kernel_module);
-        try self.includeModule(self.array_class, enumerable_module_val.toModuleObject());
-        try self.includeModule(self.hash_class, enumerable_module_val.toModuleObject());
-        try self.includeModule(self.string_class, comparable_module_val.toModuleObject());
-        try self.includeModule(self.symbol_class, comparable_module_val.toModuleObject());
+        try self.includeModule(&self.object_class.module, self.kernel_module);
+        try self.includeModule(&self.array_class.module, enumerable_module_val.toModuleObject());
+        try self.includeModule(&self.hash_class.module, enumerable_module_val.toModuleObject());
+        try self.includeModule(&self.string_class.module, comparable_module_val.toModuleObject());
+        try self.includeModule(&self.symbol_class.module, comparable_module_val.toModuleObject());
 
         // Create top-level self (Ruby "main" object)
         self.main_self = try self.newInstance(self.object_class);
@@ -5000,16 +5001,51 @@ pub const VM = struct {
         };
     }
 
+    fn lookupModuleMethodDetailed(
+        self: *VM,
+        owner_class: *ClassObject,
+        module_obj: *value.ModuleObject,
+        method_name: *value.SymbolObject,
+    ) LookupMethodResult {
+        var i = module_obj.prepended_modules.items.len;
+        while (i > 0) {
+            i -= 1;
+            switch (self.lookupModuleMethodDetailed(owner_class, module_obj.prepended_modules.items[i], method_name)) {
+                .found => |resolved| return .{ .found = resolved },
+                .undefined => return .undefined,
+                .not_found => {},
+            }
+        }
+
+        if (module_obj.methods.get(method_name)) |entry| {
+            return self.resolveLookupEntry(method_name, owner_class, entry);
+        }
+
+        i = module_obj.included_modules.items.len;
+        while (i > 0) {
+            i -= 1;
+            switch (self.lookupModuleMethodDetailed(owner_class, module_obj.included_modules.items[i], method_name)) {
+                .found => |resolved| return .{ .found = resolved },
+                .undefined => return .undefined,
+                .not_found => {},
+            }
+        }
+
+        return .not_found;
+    }
+
     pub fn lookupMethodDetailed(self: *VM, class: *ClassObject, method_name: *value.SymbolObject) LookupMethodResult {
         var current_class: ?*ClassObject = class;
         while (current_class) |c| {
             // 1. Check prepended modules first (in reverse order - most recently prepended at highest index is checked first)
-            var i = c.prepended_modules.items.len;
+            var i = c.module.prepended_modules.items.len;
             while (i > 0) {
                 i -= 1;
-                const module = c.prepended_modules.items[i];
-                if (module.methods.get(method_name)) |entry| {
-                    return self.resolveLookupEntry(method_name, c, entry);
+                const module = c.module.prepended_modules.items[i];
+                switch (self.lookupModuleMethodDetailed(c, module, method_name)) {
+                    .found => |resolved| return .{ .found = resolved },
+                    .undefined => return .undefined,
+                    .not_found => {},
                 }
             }
 
@@ -5019,12 +5055,14 @@ pub const VM = struct {
             }
 
             // 3. Check included modules (in reverse order - most recently included at highest index is checked first)
-            i = c.included_modules.items.len;
+            i = c.module.included_modules.items.len;
             while (i > 0) {
                 i -= 1;
-                const module = c.included_modules.items[i];
-                if (module.methods.get(method_name)) |entry| {
-                    return self.resolveLookupEntry(method_name, c, entry);
+                const module = c.module.included_modules.items[i];
+                switch (self.lookupModuleMethodDetailed(c, module, method_name)) {
+                    .found => |resolved| return .{ .found = resolved },
+                    .undefined => return .undefined,
+                    .not_found => {},
                 }
             }
 
@@ -5887,10 +5925,10 @@ pub const VM = struct {
         var found_owner = false;
 
         while (current_class) |klass| {
-            var i = klass.prepended_modules.items.len;
+            var i = klass.module.prepended_modules.items.len;
             while (i > 0) {
                 i -= 1;
-                const module_obj = klass.prepended_modules.items[i];
+                const module_obj = klass.module.prepended_modules.items[i];
                 if (!found_owner) {
                     if (module_obj == defining_module) found_owner = true;
                     continue;
@@ -5914,10 +5952,10 @@ pub const VM = struct {
                 found_owner = true;
             }
 
-            i = klass.included_modules.items.len;
+            i = klass.module.included_modules.items.len;
             while (i > 0) {
                 i -= 1;
-                const module_obj = klass.included_modules.items[i];
+                const module_obj = klass.module.included_modules.items[i];
                 if (!found_owner) {
                     if (module_obj == defining_module) found_owner = true;
                     continue;
@@ -6178,12 +6216,12 @@ pub const VM = struct {
 
         try self.copyObjectInstanceVariables(&source_singleton.module.object, &target_singleton.module.object);
 
-        for (source_singleton.prepended_modules.items) |module_obj| {
-            target_singleton.prepended_modules.append(self.gc_allocator, module_obj) catch return error.Fatal;
+        for (source_singleton.module.prepended_modules.items) |module_obj| {
+            target_singleton.module.prepended_modules.append(self.gc_allocator, module_obj) catch return error.Fatal;
         }
 
-        for (source_singleton.included_modules.items) |module_obj| {
-            target_singleton.included_modules.append(self.gc_allocator, module_obj) catch return error.Fatal;
+        for (source_singleton.module.included_modules.items) |module_obj| {
+            target_singleton.module.included_modules.append(self.gc_allocator, module_obj) catch return error.Fatal;
         }
 
         target_singleton.module.object.flags |= source_singleton.module.object.flags & value.Object.FROZEN_FLAG;
@@ -6920,10 +6958,10 @@ pub const VM = struct {
 
     fn moduleAffectsInteger(self: *VM, module: *value.ModuleObject) bool {
         if (module == &self.integer_class.module) return true;
-        for (self.integer_class.prepended_modules.items) |prepended| {
+        for (self.integer_class.module.prepended_modules.items) |prepended| {
             if (prepended == module) return true;
         }
-        for (self.integer_class.included_modules.items) |included| {
+        for (self.integer_class.module.included_modules.items) |included| {
             if (included == module) return true;
         }
         return false;
@@ -6943,17 +6981,17 @@ pub const VM = struct {
         }
     }
 
-    pub fn includeModule(self: *VM, class: *value.ClassObject, module: *value.ModuleObject) VMError!void {
-        class.included_modules.append(self.gc_allocator, module) catch return error.Fatal;
-        if (class == self.integer_class) {
+    pub fn includeModule(self: *VM, target: *value.ModuleObject, module: *value.ModuleObject) VMError!void {
+        target.included_modules.append(self.gc_allocator, module) catch return error.Fatal;
+        if (target == &self.integer_class.module) {
             self.integer_changed = true;
         }
         self.bumpMethodStateVersion();
     }
 
-    pub fn prependModule(self: *VM, class: *value.ClassObject, module: *value.ModuleObject) VMError!void {
-        class.prepended_modules.append(self.gc_allocator, module) catch return error.Fatal;
-        if (class == self.integer_class) {
+    pub fn prependModule(self: *VM, target: *value.ModuleObject, module: *value.ModuleObject) VMError!void {
+        target.prepended_modules.append(self.gc_allocator, module) catch return error.Fatal;
+        if (target == &self.integer_class.module) {
             self.integer_changed = true;
         }
         self.bumpMethodStateVersion();
@@ -8272,10 +8310,10 @@ pub const VM = struct {
                 if (&class.module == type_module) {
                     return true;
                 }
-                for (class.prepended_modules.items) |module| {
+                for (class.module.prepended_modules.items) |module| {
                     if (module == type_module) return true;
                 }
-                for (class.included_modules.items) |module| {
+                for (class.module.included_modules.items) |module| {
                     if (module == type_module) return true;
                 }
                 current_class = class.superclass;

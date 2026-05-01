@@ -1259,7 +1259,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/kernel/set_trace_func_spec.rb
 - [-] core/kernel/singleton_class_spec.rb
 - [x] core/kernel/singleton_method_spec.rb
-- [ ] core/kernel/singleton_methods_spec.rb
+- [x] core/kernel/singleton_methods_spec.rb
 - [ ] core/kernel/sleep_spec.rb
 - [ ] core/kernel/spawn_spec.rb
 - [ ] core/kernel/sprintf_spec.rb

@@ -115,6 +115,8 @@ pub const ModuleObject = struct {
     methods: std.AutoHashMap(*SymbolObject, MethodEntry),
     constants: std.AutoHashMap(*SymbolObject, Value),
     class_variables: std.AutoHashMap(*SymbolObject, Value),
+    prepended_modules: std.ArrayList(*ModuleObject) = .empty,
+    included_modules: std.ArrayList(*ModuleObject) = .empty,
 };
 
 pub const MethodEntry = struct {
@@ -137,8 +139,6 @@ pub const ClassObject = struct {
     superclass: ?*ClassObject,
     attached_object: ?Value = null,
     object_type: ObjectType = .instance,
-    prepended_modules: std.ArrayList(*ModuleObject) = .empty,
-    included_modules: std.ArrayList(*ModuleObject) = .empty,
 };
 
 pub const ArrayObject = struct {
