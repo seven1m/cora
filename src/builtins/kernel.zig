@@ -922,6 +922,9 @@ pub fn builtinKernelSingletonClass(vm: *VM, receiver: Value, args: []Value, _: ?
     if (receiver.isInteger() or receiver.isFloat() or receiver.isSymbol()) {
         return vm.raiseExceptionFmt(vm.type_error_class, "can't define singleton", .{});
     }
+    if (vm.isCanonicalFStringValue(receiver)) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "can't define singleton", .{});
+    }
 
     const singleton_class = try vm.getOrCreateSingletonClass(receiver);
     return Value.fromObject(singleton_class);

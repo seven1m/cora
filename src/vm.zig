@@ -6623,6 +6623,14 @@ pub const VM = struct {
         return string_value;
     }
 
+    pub fn isCanonicalFStringValue(self: *VM, string_value: Value) bool {
+        if (!string_value.isString()) return false;
+        for (self.canonical_fstrings.items) |existing| {
+            if (existing.raw == string_value.raw) return true;
+        }
+        return false;
+    }
+
     fn getOrCreateFrozenStringLiteral(self: *VM, str: []const u8) VMError!Value {
         if (self.fstring_cache.get(str)) |cached| {
             return cached;
