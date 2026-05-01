@@ -7392,7 +7392,7 @@ pub const VM = struct {
     }
 
     pub fn fileExists(self: *VM, path: []const u8) bool {
-        const file = std.Io.Dir.cwd().openFile(self.io, path, .{}) catch return false;
+        const file = std.Io.Dir.cwd().openFile(self.io, path, .{ .allow_directory = false }) catch return false;
         file.close(self.io);
         return true;
     }
