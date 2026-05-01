@@ -198,6 +198,12 @@ pub fn register(vm: *VM) !void {
         .visibility = .private,
     });
 
+    const kernel_string_convert_sym = try vm.intern("String");
+    try vm.kernel_module.methods.put(kernel_string_convert_sym, .{
+        .method = .{ .builtin = &builtinKernelStringConvert },
+        .visibility = .private,
+    });
+
     const puts_sym = try vm.intern("puts");
     try vm.kernel_module.methods.put(puts_sym, .{ .method = .{ .builtin = &builtinKernelPuts } });
 
@@ -249,6 +255,7 @@ pub fn register(vm: *VM) !void {
     const kernel_module_val = Value.fromObject(vm.kernel_module);
     const kernel_singleton = try vm.getOrCreateSingletonClass(kernel_module_val);
     try kernel_singleton.module.methods.put(kernel_array_convert_sym, .{ .method = .{ .builtin = &builtinKernelArrayConvert } });
+    try kernel_singleton.module.methods.put(kernel_string_convert_sym, .{ .method = .{ .builtin = &builtinKernelStringConvert } });
     try kernel_singleton.module.methods.put(kernel_hash_convert_sym, .{ .method = .{ .builtin = &builtinKernelHashConvert } });
 
     const hash_sym = try vm.intern("hash");
@@ -1165,6 +1172,43 @@ fn builtinKernelArrayConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMErro
     const wrapped = try vm.createArray();
     wrapped.elements.append(vm.gc_allocator, arg) catch return error.Fatal;
     return Value.fromObject(wrapped);
+}
+
+fn builtinKernelStringConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+
+    const arg = args[0];
+    if (arg.isString()) return arg;
+
+    if (!try vm.respondsToMethodByName(arg, "to_s", false)) {
+        const to_s_sym = try vm.intern("to_s");
+        if (try vm.findMethod(arg, to_s_sym) != null) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into String", .{vm.className(arg)});
+        }
+    }
+
+    const converted = vm.callMethodByName(arg, "to_s", &[_]Value{}, null) catch |err| switch (err) {
+        error.Unwind => {
+            if (vm.pending_exception) |exc| {
+                if (exc.object.class == vm.no_method_error_class) {
+                    vm.pending_exception = null;
+                    return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into String", .{vm.className(arg)});
+                }
+            }
+            return error.Unwind;
+        },
+        else => return err,
+    };
+
+    if (!converted.isString()) {
+        return vm.raiseExceptionFmt(
+            vm.type_error_class,
+            "can't convert {s} to String ({s}#to_s gives {s})",
+            .{ vm.className(arg), vm.className(arg), vm.className(converted) },
+        );
+    }
+
+    return converted;
 }
 
 fn builtinKernelHashConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
