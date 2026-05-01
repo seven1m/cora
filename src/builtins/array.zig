@@ -379,6 +379,9 @@ pub fn register(vm: *VM) !void {
     const delete_if_sym = try vm.intern("delete_if");
     try vm.array_class.module.methods.put(delete_if_sym, .{ .method = .{ .builtin = &builtinArrayDeleteIf } });
 
+    const delete_sym = try vm.intern("delete");
+    try vm.array_class.module.methods.put(delete_sym, .{ .method = .{ .builtin = &builtinArrayDelete } });
+
     const any_sym = try vm.intern("any?");
     try vm.array_class.module.methods.put(any_sym, .{ .method = .{ .builtin = &builtinArrayAny } });
 
@@ -1178,6 +1181,43 @@ pub fn builtinArrayKeepIf(vm: *VM, receiver: Value, args: []Value, block: ?Block
 
 pub fn builtinArrayDeleteIf(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     return arrayFilterBangShared(vm, receiver, args, block, "delete_if", false, false);
+}
+
+pub fn builtinArrayDelete(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+
+    const array = receiver.toArrayObject();
+    const kept = vm.allocator.alloc(Value, array.elements.items.len) catch return error.Fatal;
+    defer vm.allocator.free(kept);
+
+    var kept_len: usize = 0;
+    var deleted = false;
+    for (array.elements.items) |element| {
+        if (try vm.valueEquals(element, args[0])) {
+            deleted = true;
+            continue;
+        }
+
+        kept[kept_len] = element;
+        kept_len += 1;
+    }
+
+    if (!deleted) {
+        if (block) |blk| {
+            const yielded = try vm.yieldToBlock(blk, &[_]Value{});
+            if (yielded.controlFlowValue()) |return_value| return return_value;
+            return yielded.value;
+        }
+        return Value.nil();
+    }
+
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
+    }
+
+    std.mem.copyForwards(Value, array.elements.items[0..kept_len], kept[0..kept_len]);
+    array.elements.items.len = kept_len;
+    return args[0];
 }
 
 pub fn builtinArrayCompact(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
