@@ -101,6 +101,9 @@ pub fn register(vm: *VM) !void {
     const bracket_set_sym = try vm.intern("[]=");
     try vm.hash_class.module.methods.put(bracket_set_sym, .{ .method = .{ .builtin = &builtinHashBracketSet } });
 
+    const store_sym = try vm.intern("store");
+    try vm.hash_class.module.methods.put(store_sym, .{ .method = .{ .builtin = &builtinHashBracketSet } });
+
     const keys_sym = try vm.intern("keys");
     try vm.hash_class.module.methods.put(keys_sym, .{ .method = .{ .builtin = &builtinHashKeys } });
 
