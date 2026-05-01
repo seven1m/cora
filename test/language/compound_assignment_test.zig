@@ -151,6 +151,41 @@ test "index ||= caches existing value and evaluates rhs once" {
     try std.testing.expectEqual(@as(i64, 1), result.toArrayObject().elements.items[2].toInteger());
 }
 
+test "index &&= short-circuits falsey values without evaluating rhs" {
+    const result = try evalCode(
+        \\$builds = 0
+        \\a = [nil]
+        \\x = (a[0] &&= begin
+        \\  $builds += 1
+        \\  7
+        \\end)
+        \\[x, a[0], $builds]
+    );
+
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(usize, 3), result.toArrayObject().elements.items.len);
+    try std.testing.expect(result.toArrayObject().elements.items[0].isNil());
+    try std.testing.expect(result.toArrayObject().elements.items[1].isNil());
+    try std.testing.expectEqual(@as(i64, 0), result.toArrayObject().elements.items[2].toInteger());
+}
+
+test "index &&= updates truthy values and evaluates receiver once" {
+    const result = try evalCode(
+        \\$calls = 0
+        \\def make_array
+        \\  $calls += 1
+        \\  [1]
+        \\end
+        \\x = (make_array[0] &&= 9)
+        \\[x, $calls]
+    );
+
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(usize, 2), result.toArrayObject().elements.items.len);
+    try std.testing.expectEqual(@as(i64, 9), result.toArrayObject().elements.items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 1), result.toArrayObject().elements.items[1].toInteger());
+}
+
 test "global compound assignment" {
     var result = try evalCode(
         \\$g = nil
