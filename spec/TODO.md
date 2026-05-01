@@ -1192,7 +1192,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/kernel/class_spec.rb
 - [ ] core/kernel/clone_spec.rb
 - [ ] core/kernel/comparison_spec.rb
-- [ ] core/kernel/define_singleton_method_spec.rb
+- [-] core/kernel/define_singleton_method_spec.rb
 - [ ] core/kernel/display_spec.rb
 - [ ] core/kernel/dup_spec.rb
 - [x] core/kernel/enum_for_spec.rb
