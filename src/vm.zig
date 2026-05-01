@@ -7162,10 +7162,10 @@ pub const VM = struct {
         );
     }
 
-    pub fn probeToAry(self: *VM, arg: Value) VMError!ToAryResult {
+    pub fn probeToAryWithVisibility(self: *VM, arg: Value, include_private: bool) VMError!ToAryResult {
         if (arg.isArray()) return .{ .array = arg };
 
-        const maybe_array = try self.checkCallMethodByName(arg, "to_ary", false, &[_]Value{}, null);
+        const maybe_array = try self.checkCallMethodByName(arg, "to_ary", include_private, &[_]Value{}, null);
         const coerced = maybe_array orelse return .missing;
         if (coerced.isNil()) return .nil_result;
         if (coerced.isArray()) return .{ .array = coerced };
@@ -7175,6 +7175,10 @@ pub const VM = struct {
             "can't convert {s} to Array ({s}#to_ary gives {s})",
             .{ self.className(arg), self.className(arg), self.className(coerced) },
         );
+    }
+
+    pub fn probeToAry(self: *VM, arg: Value) VMError!ToAryResult {
+        return self.probeToAryWithVisibility(arg, false);
     }
 
     pub fn probeToHash(self: *VM, arg: Value) VMError!ToHashResult {

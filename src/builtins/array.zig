@@ -662,18 +662,7 @@ pub fn builtinArrayInitialize(vm: *VM, receiver: Value, args: []Value, block: ?B
 }
 
 fn probeToAryForInitialize(vm: *VM, arg: Value) VMError!VM.ToAryResult {
-    if (arg.isArray()) return .{ .array = arg };
-
-    const maybe_array = try vm.checkCallMethodByName(arg, "to_ary", true, &[_]Value{}, null);
-    const coerced = maybe_array orelse return .missing;
-    if (coerced.isNil()) return .nil_result;
-    if (coerced.isArray()) return .{ .array = coerced };
-
-    return vm.raiseExceptionFmt(
-        vm.type_error_class,
-        "can't convert {s} to Array ({s}#to_ary gives {s})",
-        .{ vm.className(arg), vm.className(arg), vm.className(coerced) },
-    );
+    return vm.probeToAryWithVisibility(arg, true);
 }
 
 pub fn builtinArrayBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

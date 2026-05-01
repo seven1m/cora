@@ -1,4 +1,12 @@
 module KernelSpecs
+  def self.Array_function(arg)
+    Array(arg)
+  end
+
+  def self.Array_method(arg)
+    Kernel.Array(arg)
+  end
+
   def self.Hash_function(arg)
     Hash(arg)
   end
@@ -47,6 +55,26 @@ module KernelSpecs
     def method_missing(method, *args)
       raise "the method name should be a Symbol" unless Symbol === method
       "Done #{method}(#{args})"
+    end
+  end
+
+  class PrivateToAry
+    private
+
+    def to_ary
+      [1, 2]
+    end
+
+    def to_a
+      [3, 4]
+    end
+  end
+
+  class PrivateToA
+    private
+
+    def to_a
+      [3, 4]
     end
   end
 

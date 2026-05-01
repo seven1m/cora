@@ -1167,7 +1167,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/io/write_spec.rb
 
 ### core/kernel
-- [ ] core/kernel/Array_spec.rb
+- [x] core/kernel/Array_spec.rb
 - [ ] core/kernel/Complex_spec.rb
 - [ ] core/kernel/Float_spec.rb
 - [x] core/kernel/Hash_spec.rb

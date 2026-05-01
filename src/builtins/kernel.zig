@@ -192,6 +192,12 @@ fn isClassOrSubclassOf(class: *ClassObject, candidate_ancestor: *ClassObject) bo
 }
 
 pub fn register(vm: *VM) !void {
+    const kernel_array_convert_sym = try vm.intern("Array");
+    try vm.kernel_module.methods.put(kernel_array_convert_sym, .{
+        .method = .{ .builtin = &builtinKernelArrayConvert },
+        .visibility = .private,
+    });
+
     const puts_sym = try vm.intern("puts");
     try vm.kernel_module.methods.put(puts_sym, .{ .method = .{ .builtin = &builtinKernelPuts } });
 
@@ -242,6 +248,7 @@ pub fn register(vm: *VM) !void {
 
     const kernel_module_val = Value.fromObject(vm.kernel_module);
     const kernel_singleton = try vm.getOrCreateSingletonClass(kernel_module_val);
+    try kernel_singleton.module.methods.put(kernel_array_convert_sym, .{ .method = .{ .builtin = &builtinKernelArrayConvert } });
     try kernel_singleton.module.methods.put(kernel_hash_convert_sym, .{ .method = .{ .builtin = &builtinKernelHashConvert } });
 
     const hash_sym = try vm.intern("hash");
@@ -1125,6 +1132,39 @@ pub fn builtinKernelHash(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     try vm.requireArgCount(args, 0);
     const hash_value: i64 = @bitCast(receiver.hash());
     return Value.integer(hash_value);
+}
+
+fn builtinKernelArrayConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+
+    const arg = args[0];
+    if (arg.isNil()) {
+        return Value.fromObject(try vm.createArray());
+    }
+
+    switch (try vm.probeToAryWithVisibility(arg, true)) {
+        .array => |array| return array,
+        .missing, .nil_result => {},
+    }
+
+    if (try vm.checkCallMethodByName(arg, "to_a", true, &[_]Value{}, null)) |coerced| {
+        if (coerced.isNil()) {
+            const wrapped = try vm.createArray();
+            wrapped.elements.append(vm.gc_allocator, arg) catch return error.Fatal;
+            return Value.fromObject(wrapped);
+        }
+        if (coerced.isArray()) return coerced;
+
+        return vm.raiseExceptionFmt(
+            vm.type_error_class,
+            "can't convert {s} to Array ({s}#to_a gives {s})",
+            .{ vm.className(arg), vm.className(arg), vm.className(coerced) },
+        );
+    }
+
+    const wrapped = try vm.createArray();
+    wrapped.elements.append(vm.gc_allocator, arg) catch return error.Fatal;
+    return Value.fromObject(wrapped);
 }
 
 fn builtinKernelHashConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
