@@ -54,6 +54,8 @@ pub fn register(vm: *VM) !void {
 
     const regexp_class_val = Value.fromObject(vm.regexp_class);
     const regexp_singleton = try vm.getOrCreateSingletonClass(regexp_class_val);
+    const try_convert_sym = try vm.intern("try_convert");
+    try regexp_singleton.module.methods.put(try_convert_sym, .{ .method = .{ .builtin = &builtinRegexpTryConvert } });
     const new_sym = try vm.intern("new");
     try regexp_singleton.module.methods.put(new_sym, .{ .method = .{ .builtin = &builtinRegexpNew } });
     const escape_sym = try vm.intern("escape");
@@ -65,6 +67,24 @@ pub fn register(vm: *VM) !void {
 fn builtinRegexpInitialize(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 1, 2);
     return Value.nil();
+}
+
+fn builtinRegexpTryConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+
+    const arg = args[0];
+    if (arg.isRegexp()) return arg;
+
+    const maybe_converted = try vm.checkCallMethodByName(arg, "to_regexp", false, &[_]Value{}, null);
+    const converted = maybe_converted orelse return Value.nil();
+    if (converted.isNil()) return Value.nil();
+    if (converted.isRegexp()) return converted;
+
+    return vm.raiseExceptionFmt(
+        vm.type_error_class,
+        "can't convert {s} to Regexp ({s}#to_regexp gives {s})",
+        .{ vm.className(arg), vm.className(arg), vm.className(converted) },
+    );
 }
 
 fn builtinRegexpNew(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
