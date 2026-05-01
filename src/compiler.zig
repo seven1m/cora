@@ -1360,7 +1360,7 @@ pub const Compiler = struct {
         if (parts.size > 255) {
             return error.TooManyInterpolationParts;
         }
-        const part_count: u8 = @intCast(parts.size);
+        var part_count: u8 = @intCast(parts.size);
 
         if (part_count == 0) return 0;
 
@@ -1388,6 +1388,15 @@ pub const Compiler = struct {
                 .embedded_variable => |embed_var| {
                     const var_node = try self.parser.asNode(@ptrCast(embed_var.variable));
                     try self.compileNode(var_node, line);
+                },
+                .interpolated_string => |interp_node| {
+                    part_count += try self.compileInterpolatedParts(interp_node.parts, line);
+                },
+                .interpolated_symbol => |interp_node| {
+                    part_count += try self.compileInterpolatedParts(interp_node.parts, line);
+                },
+                .interpolated_x_string => |interp_node| {
+                    part_count += try self.compileInterpolatedParts(interp_node.parts, line);
                 },
                 else => {
                     std.debug.print("Error: unexpected node type in interpolated string/xstring\n", .{});
