@@ -111,6 +111,9 @@ pub fn register(vm: *VM) !void {
     const values_sym = try vm.intern("values");
     try vm.hash_class.module.methods.put(values_sym, .{ .method = .{ .builtin = &builtinHashValues } });
 
+    const values_at_sym = try vm.intern("values_at");
+    try vm.hash_class.module.methods.put(values_at_sym, .{ .method = .{ .builtin = &builtinHashValuesAt } });
+
     const to_a_sym = try vm.intern("to_a");
     try vm.hash_class.module.methods.put(to_a_sym, .{ .method = .{ .builtin = &builtinHashToA } });
 
@@ -604,6 +607,23 @@ pub fn builtinHashValues(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
 
     for (hash_obj.entries.items) |entry| {
         array_obj.elements.append(vm.gc_allocator, entry.value) catch return error.Fatal;
+    }
+
+    return Value.fromObject(array_obj);
+}
+
+pub fn builtinHashValuesAt(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const hash_obj = receiver.toHashObject();
+    const array_obj = try vm.createArray();
+
+    for (args) |arg| {
+        const value_at_key = if (try hashGetValue(hash_obj, vm, arg)) |found|
+            found
+        else blk: {
+            var default_args = [_]Value{arg};
+            break :blk try vm.callMethodByName(receiver, "default", default_args[0..], null);
+        };
+        array_obj.elements.append(vm.gc_allocator, value_at_key) catch return error.Fatal;
     }
 
     return Value.fromObject(array_obj);
