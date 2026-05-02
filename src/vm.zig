@@ -299,6 +299,7 @@ pub const VM = struct {
     kernel_module: *value.ModuleObject,
     process_module: *value.ModuleObject,
     warning_module: *value.ModuleObject,
+    marshal_module: *value.ModuleObject,
     warning_deprecated_enabled: bool = true,
     process_status_class: *value.ClassObject,
     main_self: Value,
@@ -465,6 +466,7 @@ pub const VM = struct {
             .kernel_module = undefined,
             .process_module = undefined,
             .warning_module = undefined,
+            .marshal_module = undefined,
             .process_status_class = undefined,
             .main_fiber = undefined,
             .current_fiber = undefined,
@@ -687,6 +689,10 @@ pub const VM = struct {
         const warning_module_val = try self.newModule(warning_name_sym);
         self.warning_module = warning_module_val.toModuleObject();
 
+        const marshal_name_sym = try self.intern("Marshal");
+        const marshal_module_val = try self.newModule(marshal_name_sym);
+        self.marshal_module = marshal_module_val.toModuleObject();
+
         const comparable_name_sym = try self.intern("Comparable");
         const comparable_module_val = try self.newModule(comparable_name_sym);
 
@@ -868,6 +874,7 @@ pub const VM = struct {
         self.object_class.module.constants.put(kernel_name_sym, kernel_module_val) catch return error.Fatal;
         self.object_class.module.constants.put(process_name_sym, process_module_val) catch return error.Fatal;
         self.object_class.module.constants.put(warning_name_sym, warning_module_val) catch return error.Fatal;
+        self.object_class.module.constants.put(marshal_name_sym, marshal_module_val) catch return error.Fatal;
         self.object_class.module.constants.put(comparable_name_sym, comparable_module_val) catch return error.Fatal;
         self.object_class.module.constants.put(enumerable_name_sym, enumerable_module_val) catch return error.Fatal;
         self.object_class.module.constants.put(exception_name_sym, exception_class_val) catch return error.Fatal;
@@ -900,6 +907,8 @@ pub const VM = struct {
         const ruby_platform_sym = try self.intern("RUBY_PLATFORM");
         const ruby_patchlevel_sym = try self.intern("RUBY_PATCHLEVEL");
         const ruby_description_sym = try self.intern("RUBY_DESCRIPTION");
+        const marshal_major_version_sym = try self.intern("MAJOR_VERSION");
+        const marshal_minor_version_sym = try self.intern("MINOR_VERSION");
         const rbconfig_sym = try self.intern("RbConfig");
         const config_sym = try self.intern("CONFIG");
         const topdir_sym = try self.intern("TOPDIR");
@@ -914,6 +923,8 @@ pub const VM = struct {
         self.object_class.module.constants.put(ruby_platform_sym, ruby_platform_val) catch return error.Fatal;
         self.object_class.module.constants.put(ruby_patchlevel_sym, Value.integer(0)) catch return error.Fatal;
         self.object_class.module.constants.put(ruby_description_sym, ruby_description_val) catch return error.Fatal;
+        self.marshal_module.constants.put(marshal_major_version_sym, Value.integer(4)) catch return error.Fatal;
+        self.marshal_module.constants.put(marshal_minor_version_sym, Value.integer(8)) catch return error.Fatal;
 
         const rbconfig_val = try self.newModule(rbconfig_sym);
         const rbconfig_module = rbconfig_val.toModuleObject();

@@ -22,3 +22,10 @@ test "RUBY_PLATFORM matches build target arch-os" {
     const expected = comptime std.fmt.comptimePrint("{s}-{s}", .{ @tagName(builtin.cpu.arch), @tagName(builtin.os.tag) });
     try std.testing.expectEqualSlices(u8, expected, result.toStringObject().str);
 }
+
+test "Marshal version constants are available" {
+    const result = try evalCode("[Marshal::MAJOR_VERSION, Marshal::MINOR_VERSION]");
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(i64, 4), result.toArrayObject().elements.items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 8), result.toArrayObject().elements.items[1].toInteger());
+}
