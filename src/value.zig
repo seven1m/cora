@@ -114,6 +114,7 @@ pub const ModuleObject = struct {
     name: *SymbolObject,
     methods: std.AutoHashMap(*SymbolObject, MethodEntry),
     constants: std.AutoHashMap(*SymbolObject, Value),
+    private_constants: std.AutoHashMap(*SymbolObject, void),
     class_variables: std.AutoHashMap(*SymbolObject, Value),
     prepended_modules: std.ArrayList(*ModuleObject) = .empty,
     included_modules: std.ArrayList(*ModuleObject) = .empty,

@@ -60,6 +60,7 @@ fn collectOwnConstantSymbols(
 ) VMError!void {
     var it = module_obj.constants.iterator();
     while (it.next()) |entry| {
+        if (module_obj.private_constants.contains(entry.key_ptr.*)) continue;
         try appendConstantSymbolUnique(vm, out, seen, entry.key_ptr.*);
     }
 }
@@ -67,6 +68,12 @@ fn collectOwnConstantSymbols(
 fn constantsTable(receiver: Value) ?*std.AutoHashMap(*SymbolObject, Value) {
     if (receiver.isClass()) return &receiver.toClassObject().module.constants;
     if (receiver.isModule()) return &receiver.toModuleObject().constants;
+    return null;
+}
+
+fn privateConstantsTable(receiver: Value) ?*std.AutoHashMap(*SymbolObject, void) {
+    if (receiver.isClass()) return &receiver.toClassObject().module.private_constants;
+    if (receiver.isModule()) return &receiver.toModuleObject().private_constants;
     return null;
 }
 
@@ -367,6 +374,11 @@ pub fn register(vm: *VM) !void {
         .visibility = .private,
     });
 
+    const private_constant_sym = try vm.intern("private_constant");
+    try vm.module_class.module.methods.put(private_constant_sym, .{ .method = .{ .builtin = &builtinModulePrivateConstant } });
+
+    const public_constant_sym = try vm.intern("public_constant");
+    try vm.module_class.module.methods.put(public_constant_sym, .{ .method = .{ .builtin = &builtinModulePublicConstant } });
     const case_equal_sym = try vm.intern("===");
     try vm.module_class.module.methods.put(case_equal_sym, .{ .method = .{ .builtin = &builtinModuleCaseEqual } });
 
@@ -889,6 +901,49 @@ pub fn builtinModuleProtected(vm: *VM, receiver: Value, args: []Value, _: ?Block
     return setVisibility(vm, receiver, args, .protected);
 }
 
+fn setConstantVisibility(vm: *VM, receiver: Value, args: []Value, private: bool) VMError!Value {
+    try vm.requireMinArgCount(args, 1);
+
+    const constants = constantsTable(receiver) orelse {
+        const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
+        vm.pending_exception = exc;
+        return error.Unwind;
+    };
+    const private_constants = privateConstantsTable(receiver) orelse unreachable;
+
+    var names: std.ArrayList(*SymbolObject) = .empty;
+    defer names.deinit(vm.gc_allocator);
+    try normalizeVisibilityArgs(vm, args, &names);
+
+    for (names.items) |name_sym| {
+        if (!constants.contains(name_sym)) {
+            const msg = std.fmt.allocPrint(
+                vm.gc_allocator,
+                "constant {s}::{s} not defined",
+                .{ storedModuleName(receiver), name_sym.name },
+            ) catch return error.Fatal;
+            const exc = try vm.createException(vm.name_error_class, msg);
+            vm.pending_exception = exc;
+            return error.Unwind;
+        }
+
+        if (private) {
+            private_constants.put(name_sym, {}) catch return error.Fatal;
+        } else {
+            _ = private_constants.remove(name_sym);
+        }
+    }
+
+    return receiver;
+}
+
+pub fn builtinModulePrivateConstant(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    return setConstantVisibility(vm, receiver, args, true);
+}
+
+pub fn builtinModulePublicConstant(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    return setConstantVisibility(vm, receiver, args, false);
+}
 pub fn builtinModuleFunction(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     if (args.len == 0) {
         if (vm.current_lexical_scope) |scope| {

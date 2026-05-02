@@ -6243,6 +6243,7 @@ pub const VM = struct {
                 .name = singleton_name_sym,
                 .methods = std.AutoHashMap(*value.SymbolObject, MethodEntry).init(self.gc_allocator),
                 .constants = std.AutoHashMap(*value.SymbolObject, value.Value).init(self.gc_allocator),
+                .private_constants = std.AutoHashMap(*value.SymbolObject, void).init(self.gc_allocator),
                 .class_variables = std.AutoHashMap(*value.SymbolObject, value.Value).init(self.gc_allocator),
             },
         };
@@ -6351,6 +6352,7 @@ pub const VM = struct {
             .name = name,
             .methods = std.AutoHashMap(*SymbolObject, MethodEntry).init(self.gc_allocator),
             .constants = std.AutoHashMap(*SymbolObject, Value).init(self.gc_allocator),
+            .private_constants = std.AutoHashMap(*SymbolObject, void).init(self.gc_allocator),
             .class_variables = std.AutoHashMap(*SymbolObject, Value).init(self.gc_allocator),
         };
         return Value.fromObject(module_obj);
@@ -6372,6 +6374,7 @@ pub const VM = struct {
                 .name = name,
                 .methods = std.AutoHashMap(*SymbolObject, MethodEntry).init(self.gc_allocator),
                 .constants = std.AutoHashMap(*SymbolObject, Value).init(self.gc_allocator),
+                .private_constants = std.AutoHashMap(*SymbolObject, void).init(self.gc_allocator),
                 .class_variables = std.AutoHashMap(*SymbolObject, Value).init(self.gc_allocator),
             },
         };
