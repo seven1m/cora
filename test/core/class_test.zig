@@ -59,6 +59,33 @@ test "Class inheritance" {
     try std.testing.expectEqualSlices(u8, "bar", result.toStringObject().str);
 }
 
+test "class definition target does not reuse Object constant inside module" {
+    const result = try evalCode(
+        \\module M
+        \\  class LoadError < ::LoadError
+        \\  end
+        \\end
+        \\M::LoadError.name
+    );
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "M::LoadError", result.toStringObject().str);
+}
+
+test "class definition target does not reuse outer lexical constant" {
+    const result = try evalCode(
+        \\module A
+        \\  class C
+        \\  end
+        \\  module B
+        \\    class C
+        \\    end
+        \\    A::B::C == A::C
+        \\  end
+        \\end
+    );
+    try std.testing.expect(!result.toBool());
+}
+
 test "Class hierarchy is set up correctly" {
     bdwgc.init();
     defer bdwgc.deinit();

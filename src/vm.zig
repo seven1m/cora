@@ -5946,14 +5946,11 @@ pub const VM = struct {
         }
 
         const name_sym = try self.intern(raw_name);
-        const existing_value = if (lexical_scope) |scope|
-            try self.findConstantInLexicalScope(scope, name_sym)
-        else
-            null;
+        const owner_module = if (lexical_scope) |scope| scope.getModule() else &self.object_class.module;
 
         return .{
-            .owner_module = if (lexical_scope) |scope| scope.getModule() else &self.object_class.module,
-            .existing_value = existing_value orelse self.object_class.module.constants.get(name_sym),
+            .owner_module = owner_module,
+            .existing_value = owner_module.constants.get(name_sym),
             .name_sym = name_sym,
         };
     }
