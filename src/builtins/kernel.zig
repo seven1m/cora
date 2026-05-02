@@ -381,6 +381,9 @@ pub fn register(vm: *VM) !void {
     const exitstatus_sym = try vm.intern("exitstatus");
     try vm.process_status_class.module.methods.put(exitstatus_sym, .{ .method = .{ .builtin = &builtinProcessStatusExitstatus } });
 
+    const success_sym = try vm.intern("success?");
+    try vm.process_status_class.module.methods.put(success_sym, .{ .method = .{ .builtin = &builtinProcessStatusSuccess } });
+
     const fork_sym = try vm.intern("fork");
     try vm.kernel_module.methods.put(fork_sym, .{ .method = .{ .builtin = &builtinKernelFork } });
 }
@@ -1377,6 +1380,12 @@ pub fn builtinKernelBacktick(vm: *VM, _: Value, args: []Value, _: ?Block) VMErro
 pub fn builtinProcessStatusExitstatus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return vm.getInstanceVariable(receiver, "@exitstatus");
+}
+
+pub fn builtinProcessStatusSuccess(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const exitstatus = try vm.getInstanceVariable(receiver, "@exitstatus");
+    return Value.boolean(exitstatus.isInteger() and exitstatus.toInteger() == 0);
 }
 
 pub fn builtinKernelRand(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
