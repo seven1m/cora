@@ -271,13 +271,10 @@ fn setVisibility(vm: *VM, receiver: Value, args: []Value, visibility: MethodVisi
     };
 
     for (names.items) |name_sym| {
-        const entry = if (receiver.isClass())
-            blk: {
-                const resolved = vm.lookupMethod(receiver.toClassObject(), name_sym) orelse break :blk null;
-                break :blk resolved.entry;
-            }
-        else
-            getOwnDefinedMethodEntry(methods, name_sym);
+        const entry = if (receiver.isClass()) blk: {
+            const resolved = vm.lookupMethod(receiver.toClassObject(), name_sym) orelse break :blk null;
+            break :blk resolved.entry;
+        } else getOwnDefinedMethodEntry(methods, name_sym);
         const method_entry = entry orelse {
             const msg = std.fmt.allocPrint(
                 vm.gc_allocator,
@@ -302,6 +299,53 @@ fn setVisibility(vm: *VM, receiver: Value, args: []Value, visibility: MethodVisi
     if (args.len == 1 and args[0].isArray()) {
         return args[0];
     }
+
+    const arr = try vm.createArray();
+    for (names.items) |name_sym| {
+        arr.elements.append(vm.gc_allocator, Value.fromObject(name_sym)) catch return error.Fatal;
+    }
+    return Value.fromObject(arr);
+}
+
+fn raiseUndefinedMethodName(vm: *VM, name_sym: *SymbolObject) VMError!Value {
+    const msg = std.fmt.allocPrint(
+        vm.gc_allocator,
+        "undefined method '{s}'",
+        .{name_sym.name},
+    ) catch return error.Fatal;
+    const exc = try vm.createException(vm.name_error_class, msg);
+    vm.pending_exception = exc;
+    return error.Unwind;
+}
+
+fn setClassMethodVisibility(vm: *VM, receiver: Value, args: []Value, visibility: MethodVisibility) VMError!Value {
+    if (args.len == 0) return Value.nil();
+
+    if (!receiver.isClass() and !receiver.isModule()) {
+        const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
+        vm.pending_exception = exc;
+        return error.Unwind;
+    }
+
+    var names: std.ArrayList(*SymbolObject) = .empty;
+    defer names.deinit(vm.gc_allocator);
+    try normalizeVisibilityArgs(vm, args, &names);
+
+    const singleton_class = try vm.getOrCreateSingletonClass(receiver);
+    for (names.items) |name_sym| {
+        const resolved = switch (vm.lookupMethodDetailed(singleton_class, name_sym)) {
+            .found => |found| found,
+            .undefined, .not_found => return raiseUndefinedMethodName(vm, name_sym),
+        };
+        var updated = resolved.entry;
+        updated.visibility = visibility;
+        singleton_class.module.methods.put(name_sym, updated) catch return error.Fatal;
+    }
+    vm.markIntegerChangedForReceiver(receiver);
+    vm.bumpMethodStateVersion();
+
+    if (args.len == 1 and !args[0].isArray()) return Value.fromObject(names.items[0]);
+    if (args.len == 1 and args[0].isArray()) return args[0];
 
     const arr = try vm.createArray();
     for (names.items) |name_sym| {
@@ -374,11 +418,18 @@ pub fn register(vm: *VM) !void {
         .visibility = .private,
     });
 
+    const private_class_method_sym = try vm.intern("private_class_method");
+    try vm.module_class.module.methods.put(private_class_method_sym, .{ .method = .{ .builtin = &builtinModulePrivateClassMethod } });
+
+    const public_class_method_sym = try vm.intern("public_class_method");
+    try vm.module_class.module.methods.put(public_class_method_sym, .{ .method = .{ .builtin = &builtinModulePublicClassMethod } });
+
     const private_constant_sym = try vm.intern("private_constant");
     try vm.module_class.module.methods.put(private_constant_sym, .{ .method = .{ .builtin = &builtinModulePrivateConstant } });
 
     const public_constant_sym = try vm.intern("public_constant");
     try vm.module_class.module.methods.put(public_constant_sym, .{ .method = .{ .builtin = &builtinModulePublicConstant } });
+
     const case_equal_sym = try vm.intern("===");
     try vm.module_class.module.methods.put(case_equal_sym, .{ .method = .{ .builtin = &builtinModuleCaseEqual } });
 
@@ -901,6 +952,14 @@ pub fn builtinModuleProtected(vm: *VM, receiver: Value, args: []Value, _: ?Block
     return setVisibility(vm, receiver, args, .protected);
 }
 
+pub fn builtinModulePrivateClassMethod(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    return setClassMethodVisibility(vm, receiver, args, .private);
+}
+
+pub fn builtinModulePublicClassMethod(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    return setClassMethodVisibility(vm, receiver, args, .public);
+}
+
 fn setConstantVisibility(vm: *VM, receiver: Value, args: []Value, private: bool) VMError!Value {
     try vm.requireMinArgCount(args, 1);
 
@@ -944,6 +1003,7 @@ pub fn builtinModulePrivateConstant(vm: *VM, receiver: Value, args: []Value, _: 
 pub fn builtinModulePublicConstant(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     return setConstantVisibility(vm, receiver, args, false);
 }
+
 pub fn builtinModuleFunction(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     if (args.len == 0) {
         if (vm.current_lexical_scope) |scope| {

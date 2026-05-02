@@ -1448,7 +1448,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/module/prepend_features_spec.rb
 - [ ] core/module/prepend_spec.rb
 - [ ] core/module/prepended_spec.rb
-- [ ] core/module/private_class_method_spec.rb
+- [-] core/module/private_class_method_spec.rb
 - [ ] core/module/private_constant_spec.rb
 - [ ] core/module/private_instance_methods_spec.rb
 - [ ] core/module/private_method_defined_spec.rb
@@ -1456,7 +1456,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/module/protected_instance_methods_spec.rb
 - [ ] core/module/protected_method_defined_spec.rb
 - [ ] core/module/protected_spec.rb
-- [ ] core/module/public_class_method_spec.rb
+- [-] core/module/public_class_method_spec.rb
 - [ ] core/module/public_constant_spec.rb
 - [ ] core/module/public_instance_method_spec.rb
 - [ ] core/module/public_instance_methods_spec.rb
