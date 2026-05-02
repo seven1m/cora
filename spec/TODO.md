@@ -3534,7 +3534,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/random/formatter/alphanumeric_spec.rb
 
 ### library/rbconfig
-- [ ] library/rbconfig/rbconfig_spec.rb
+- [x] library/rbconfig/rbconfig_spec.rb
 
 ### library/rbconfig/sizeof
 - [ ] library/rbconfig/sizeof/limits_spec.rb

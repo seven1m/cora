@@ -390,6 +390,20 @@ def cora_repo_root
   File.expand_path("..", __dir__)
 end
 
+def tmp(name)
+  path = "#{cora_repo_root}/tmp"
+  `mkdir -p #{shell_escape(path)}`
+  "#{path}/#{name}"
+end
+
+def cp(source, destination)
+  `cp #{shell_escape(source)} #{shell_escape(destination)}`
+end
+
+def rm_r(path)
+  `rm -rf #{shell_escape(path)}`
+end
+
 def cora_lib_dir
   patterns = (RUBY_PLATFORM.to_s.include?("darwin") || RUBY_PLATFORM.to_s.include?("macos")) ? ["libgc.*.dylib", "libgc.dylib"] : ["libgc.so.*"]
   i = 0
