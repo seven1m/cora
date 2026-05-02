@@ -54,6 +54,23 @@ fn parseThreadPreemptQuantumOps() u32 {
     return if (parsed == 0) DEFAULT_THREAD_PREEMPT_QUANTUM_OPS else parsed;
 }
 
+fn rbConfigHostOs() []const u8 {
+    return switch (builtin.os.tag) {
+        .linux => "linux",
+        .macos => "darwin",
+        .windows => "mswin",
+        else => @tagName(builtin.os.tag),
+    };
+}
+
+fn rbConfigSharedLibraryExtension() []const u8 {
+    return switch (builtin.os.tag) {
+        .windows => "dll",
+        .macos => "bundle",
+        else => "so",
+    };
+}
+
 pub const VMError = error{
     // Unhandled Ruby exception returned by VM.run()
     // Exception object is in pending_exception.
@@ -881,13 +898,53 @@ pub const VM = struct {
         const ruby_engine_sym = try self.intern("RUBY_ENGINE");
         const ruby_version_sym = try self.intern("RUBY_VERSION");
         const ruby_platform_sym = try self.intern("RUBY_PLATFORM");
+        const ruby_patchlevel_sym = try self.intern("RUBY_PATCHLEVEL");
+        const ruby_description_sym = try self.intern("RUBY_DESCRIPTION");
+        const rbconfig_sym = try self.intern("RbConfig");
+        const config_sym = try self.intern("CONFIG");
+        const topdir_sym = try self.intern("TOPDIR");
         const ruby_engine_val = try self.newString("cora", false);
         const ruby_version_val = try self.newString("4.0.0", false);
         const ruby_platform = comptime std.fmt.comptimePrint("{s}-{s}", .{ @tagName(builtin.cpu.arch), @tagName(builtin.os.tag) });
         const ruby_platform_val = try self.newString(ruby_platform, false);
+        const ruby_description = comptime std.fmt.comptimePrint("cora 4.0.0p0 ({s}-{s})", .{ @tagName(builtin.cpu.arch), @tagName(builtin.os.tag) });
+        const ruby_description_val = try self.newString(ruby_description, false);
         self.object_class.module.constants.put(ruby_engine_sym, ruby_engine_val) catch return error.Fatal;
         self.object_class.module.constants.put(ruby_version_sym, ruby_version_val) catch return error.Fatal;
         self.object_class.module.constants.put(ruby_platform_sym, ruby_platform_val) catch return error.Fatal;
+        self.object_class.module.constants.put(ruby_patchlevel_sym, Value.integer(0)) catch return error.Fatal;
+        self.object_class.module.constants.put(ruby_description_sym, ruby_description_val) catch return error.Fatal;
+
+        const rbconfig_val = try self.newModule(rbconfig_sym);
+        const rbconfig_module = rbconfig_val.toModuleObject();
+        const rbconfig_config_val = Value.fromObject(try self.createHash());
+        const rbconfig_config = rbconfig_config_val.toHashObject();
+        try self.hashSetEntry(rbconfig_config, try self.newString("MAJOR", false), try self.newString("4", false));
+        try self.hashSetEntry(rbconfig_config, try self.newString("MINOR", false), try self.newString("0", false));
+        try self.hashSetEntry(rbconfig_config, try self.newString("TEENY", false), try self.newString("0", false));
+        try self.hashSetEntry(rbconfig_config, try self.newString("PATCHLEVEL", false), try self.newString("0", false));
+        try self.hashSetEntry(rbconfig_config, try self.newString("host_cpu", false), try self.newString(@tagName(builtin.cpu.arch), false));
+        try self.hashSetEntry(rbconfig_config, try self.newString("host_os", false), try self.newString(rbConfigHostOs(), false));
+        try self.hashSetEntry(rbconfig_config, try self.newString("host_vendor", false), try self.newString("unknown", false));
+        try self.hashSetEntry(rbconfig_config, try self.newString("arch", false), try self.newString(ruby_platform, false));
+        try self.hashSetEntry(rbconfig_config, try self.newString("DLEXT", false), try self.newString(rbConfigSharedLibraryExtension(), false));
+        try self.hashSetEntry(rbconfig_config, try self.newString("ENABLE_SHARED", false), try self.newString("no", false));
+        try self.hashSetEntry(rbconfig_config, try self.newString("LIBRUBY", false), try self.newString("libcora-static.a", false));
+        try self.hashSetEntry(rbconfig_config, try self.newString("LIBRUBY_SO", false), try self.newString("libcora.so", false));
+        try self.hashSetEntry(rbconfig_config, try self.newString("LIBPATHENV", false), try self.newString("LD_LIBRARY_PATH", false));
+        try self.hashSetEntry(rbconfig_config, try self.newString("libdirname", false), try self.newString("libdir", false));
+        try self.hashSetEntry(rbconfig_config, try self.newString("libdir", false), try self.newString("/usr/lib", false));
+        try self.hashSetEntry(rbconfig_config, try self.newString("bindir", false), try self.newString("/usr/bin", false));
+        try self.hashSetEntry(rbconfig_config, try self.newString("prefix", false), try self.newString("/usr", false));
+        try self.hashSetEntry(rbconfig_config, try self.newString("ruby_version", false), try self.newString("4.0.0", false));
+        try self.hashSetEntry(rbconfig_config, try self.newString("rubylibdir", false), try self.newString("", false));
+        try self.hashSetEntry(rbconfig_config, try self.newString("archdir", false), try self.newString("", false));
+        try self.hashSetEntry(rbconfig_config, try self.newString("sitelibdir", false), try self.newString("", false));
+        try self.hashSetEntry(rbconfig_config, try self.newString("AR", false), try self.newString("ar", false));
+        try self.hashSetEntry(rbconfig_config, try self.newString("STRIP", false), try self.newString("strip", false));
+        rbconfig_module.constants.put(config_sym, rbconfig_config_val) catch return error.Fatal;
+        rbconfig_module.constants.put(topdir_sym, Value.nil()) catch return error.Fatal;
+        self.object_class.module.constants.put(rbconfig_sym, rbconfig_val) catch return error.Fatal;
         try self.setArgv(&[_][]const u8{});
 
         const stdin_sym = try self.intern("STDIN");
