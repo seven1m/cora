@@ -8,6 +8,8 @@ $__root_contexts = []
 $__current_context = nil
 $__spec_main = self
 
+require_relative 'core/thread/fixtures/classes'
+
 TOLERANCE = 0.00003 unless defined?(TOLERANCE)
 TIME_TOLERANCE = 20.0 unless defined?(TIME_TOLERANCE)
 
@@ -1110,6 +1112,42 @@ class ComplainMatcher
   def failure_message(_actual)
     "Expected warning output to match #{@expected.inspect}, got #{@actual.inspect}"
   end
+end
+
+class BlockingMatcher
+  def matches?(block)
+    t = Thread.new do
+      block.call
+    end
+
+    loop do
+      case t.status
+      when "sleep"
+        t.kill
+        t.join
+        return true
+      when false
+        t.join
+        return false
+      when nil
+        t.value
+      else
+        Thread.pass
+      end
+    end
+  end
+
+  def failure_message
+    ['Expected the given Proc', 'to block the caller']
+  end
+
+  def negative_failure_message
+    ['Expected the given Proc', 'to not block the caller']
+  end
+end
+
+def block_caller
+  BlockingMatcher.new
 end
 
 class RaiseErrorMatcher

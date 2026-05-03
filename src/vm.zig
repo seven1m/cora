@@ -306,12 +306,15 @@ pub const VM = struct {
     main_fiber: *value.FiberObject,
     current_fiber: *value.FiberObject,
     thread_class: *value.ClassObject,
+    mutex_class: *value.ClassObject,
     thread_error_class: *value.ClassObject,
     thread_kill_exception_class: *value.ClassObject,
     main_thread: ?*value.ThreadObject = null,
     current_thread: ?*value.ThreadObject = null,
     thread_list: std.ArrayList(*value.ThreadObject) = .empty,
     runnable_queue: std.ArrayList(*value.ThreadObject) = .empty,
+    thread_owned_mutexes: std.AutoHashMap(*value.ThreadObject, std.ArrayList(*value.MutexObject)) = undefined,
+    mutex_waiters: std.AutoHashMap(*value.MutexObject, std.ArrayList(*value.ThreadObject)) = undefined,
     thread_preempt_quantum_ops: u32 = DEFAULT_THREAD_PREEMPT_QUANTUM_OPS,
     gc_thread_handle: ?*anyopaque = null,
     main_stack_base: ?*anyopaque = null,
@@ -471,12 +474,15 @@ pub const VM = struct {
             .main_fiber = undefined,
             .current_fiber = undefined,
             .thread_class = undefined,
+            .mutex_class = undefined,
             .thread_error_class = undefined,
             .thread_kill_exception_class = undefined,
             .main_thread = null,
             .current_thread = null,
             .thread_list = .empty,
             .runnable_queue = .empty,
+            .thread_owned_mutexes = std.AutoHashMap(*value.ThreadObject, std.ArrayList(*value.MutexObject)).init(allocator),
+            .mutex_waiters = std.AutoHashMap(*value.MutexObject, std.ArrayList(*value.ThreadObject)).init(allocator),
             .thread_preempt_quantum_ops = DEFAULT_THREAD_PREEMPT_QUANTUM_OPS,
             .exception_class = undefined,
             .standard_error_class = undefined,
@@ -656,6 +662,10 @@ pub const VM = struct {
         const thread_name_sym = try self.intern("Thread");
         const thread_class_val = try self.newClass(thread_name_sym, self.object_class);
         self.thread_class = thread_class_val.toClassObject();
+
+        const mutex_name_sym = try self.intern("Mutex");
+        const mutex_class_val = try self.newClass(mutex_name_sym, self.object_class);
+        self.mutex_class = mutex_class_val.toClassObject();
 
         const regexp_name_sym = try self.intern("Regexp");
         const regexp_class_val = try self.newClass(regexp_name_sym, self.object_class);
@@ -866,6 +876,9 @@ pub const VM = struct {
         self.object_class.module.constants.put(method_name_sym, method_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(fiber_name_sym, fiber_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(thread_name_sym, thread_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(mutex_name_sym, mutex_class_val) catch return error.Fatal;
+        // Register Thread::Mutex alias
+        thread_class_val.toClassObject().module.constants.put(mutex_name_sym, mutex_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(regexp_name_sym, regexp_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(match_data_name_sym, match_data_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(nil_class_name_sym, nil_class_val) catch return error.Fatal;
@@ -1607,6 +1620,16 @@ pub const VM = struct {
             self.allocator.destroy(scope);
         }
         self.lexical_scopes.deinit(self.allocator);
+        var owned_mutexes_iter = self.thread_owned_mutexes.valueIterator();
+        while (owned_mutexes_iter.next()) |owned_mutexes| {
+            owned_mutexes.deinit(self.allocator);
+        }
+        self.thread_owned_mutexes.deinit();
+        var mutex_waiters_iter = self.mutex_waiters.valueIterator();
+        while (mutex_waiters_iter.next()) |waiters| {
+            waiters.deinit(self.allocator);
+        }
+        self.mutex_waiters.deinit();
         self.runnable_queue.deinit(self.allocator);
         self.thread_list.deinit(self.allocator);
     }
@@ -2581,6 +2604,16 @@ pub const VM = struct {
         return main_thread_obj;
     }
 
+    pub fn newMutex(self: *VM, class_val: Value) VMError!*value.MutexObject {
+        _ = class_val;
+        const mutex_obj = self.gc_allocator.create(value.MutexObject) catch return error.Fatal;
+        mutex_obj.object = .{ .type_tag = .mutex, .flags = 0, .class = self.mutex_class, .singleton_class = null, .instance_variables = null };
+        mutex_obj.state = .unlocked;
+        mutex_obj.owner_thread = null;
+        mutex_obj.owner_fiber = null;
+        return mutex_obj;
+    }
+
     pub fn newThreadUnstarted(self: *VM, class_obj: *value.ClassObject) VMError!*value.ThreadObject {
         _ = try self.ensureMainThread();
         const thread_obj = self.gc_allocator.create(value.ThreadObject) catch return error.Fatal;
@@ -2646,6 +2679,34 @@ pub const VM = struct {
         self.runnable_queue.append(self.allocator, thread_obj) catch return error.Fatal;
     }
 
+    pub fn releaseThreadOwnedMutexes(self: *VM, thread: *value.ThreadObject) void {
+        if (self.thread_owned_mutexes.getPtr(thread)) |owned_mutexes| {
+            while (owned_mutexes.items.len > 0) {
+                const mutex = owned_mutexes.pop() orelse break;
+                mutex.state = .unlocked;
+                mutex.owner_thread = null;
+                mutex.owner_fiber = null;
+                self.wakeNextMutexWaiter(mutex);
+            }
+        }
+    }
+
+    pub fn wakeNextMutexWaiter(self: *VM, mutex: *value.MutexObject) void {
+        if (self.mutex_waiters.getPtr(mutex)) |waiters| {
+            while (waiters.items.len > 0) {
+                const waiter = waiters.orderedRemove(0);
+                if (!self.isKnownThread(waiter)) continue;
+                if (waiter.state == .terminated) continue;
+                waiter.state = .running;
+                for (self.runnable_queue.items) |thread| {
+                    if (thread == waiter) return;
+                }
+                self.runnable_queue.append(self.allocator, waiter) catch {};
+                return;
+            }
+        }
+    }
+
     pub fn newThread(self: *VM, class_obj: *value.ClassObject, block: Block, args: []Value) VMError!*value.ThreadObject {
         const thread_obj = try self.newThreadUnstarted(class_obj);
         try self.configureThread(thread_obj, block, args);
@@ -2689,6 +2750,7 @@ pub const VM = struct {
         runThreadCoroutine(thread) catch |err| {
             const self = thread.owner_vm;
             thread.state = .terminated;
+            self.releaseThreadOwnedMutexes(thread);
             switch (err) {
                 error.UnhandledException => {
                     if (self.pending_exception) |exc| {
@@ -2747,6 +2809,7 @@ pub const VM = struct {
                 thread.state = .terminated;
                 thread.result = result;
                 thread.terminated_normally = true;
+                self.releaseThreadOwnedMutexes(thread);
                 if (thread.coro) |c| c.yield();
                 return;
             },
@@ -2758,6 +2821,7 @@ pub const VM = struct {
                         thread.state = .terminated;
                         thread.exception = self.pending_exception;
                         thread.terminated_normally = false;
+                        self.releaseThreadOwnedMutexes(thread);
                         if (thread.coro) |c| c.yield();
                         return;
                     }
@@ -2766,6 +2830,7 @@ pub const VM = struct {
                 thread.state = .terminated;
                 thread.result = result;
                 thread.terminated_normally = true;
+                self.releaseThreadOwnedMutexes(thread);
                 if (thread.coro) |c| c.yield();
                 return;
             },
@@ -2776,6 +2841,7 @@ pub const VM = struct {
                 thread.state = .terminated;
                 thread.result = result;
                 thread.terminated_normally = true;
+                self.releaseThreadOwnedMutexes(thread);
                 if (thread.coro) |c| c.yield();
                 return;
             },
@@ -2818,6 +2884,7 @@ pub const VM = struct {
                 thread.state = .terminated;
                 thread.result = self.pop();
                 thread.terminated_normally = true;
+                self.releaseThreadOwnedMutexes(thread);
                 if (thread.coro) |c| c.yield();
                 return;
             }
@@ -7160,6 +7227,7 @@ pub const VM = struct {
             .class => arg.isClass(),
             .float => arg.isFloat(),
             .thread => arg.isThread(),
+            .mutex => arg.isMutex(),
         };
         if (!matches) {
             const msg = std.fmt.allocPrint(

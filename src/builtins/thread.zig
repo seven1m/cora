@@ -363,6 +363,7 @@ fn builtinThreadRaise(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
     thread.exception = exc;
     thread.terminated_normally = false;
     thread.state = .terminated;
+    vm.releaseThreadOwnedMutexes(thread);
     removeFromRunnable(vm, thread);
     return Value.nil();
 }

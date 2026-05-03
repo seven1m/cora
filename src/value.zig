@@ -49,6 +49,7 @@ pub const ObjectTypeTag = enum(u8) {
     class,
     float,
     thread,
+    mutex,
 };
 
 pub const Object = struct {
@@ -268,6 +269,18 @@ pub const ThreadObject = struct {
     main_fiber: ?*FiberObject = null,
     current_fiber: ?*FiberObject = null,
     owner_vm: *VM,
+};
+
+pub const MutexObject = struct {
+    object: Object,
+    state: State = .unlocked,
+    owner_thread: ?*ThreadObject = null,
+    owner_fiber: ?*FiberObject = null,
+
+    pub const State = enum {
+        unlocked,
+        locked,
+    };
 };
 
 pub const IoObject = struct {
@@ -509,6 +522,10 @@ pub const Value = struct {
         return self.isObject() and self.objectTypeTag() == .thread;
     }
 
+    pub inline fn isMutex(self: Value) bool {
+        return self.isObject() and self.objectTypeTag() == .mutex;
+    }
+
     // -- Convenience extractors for heap types --
 
     pub inline fn toStringObject(self: Value) *StringObject {
@@ -588,6 +605,10 @@ pub const Value = struct {
     }
 
     pub inline fn toThreadObject(self: Value) *ThreadObject {
+        return @ptrFromInt(self.raw);
+    }
+
+    pub inline fn toMutexObject(self: Value) *MutexObject {
         return @ptrFromInt(self.raw);
     }
 
@@ -851,6 +872,7 @@ pub const Value = struct {
                 .big_integer => try writer.print("{}", .{self.toBigIntegerObject().value}),
                 .float => try writer.print("{d}", .{self.toFloatObject().val}),
                 .thread => try writer.print("#<Thread:0x{x}>", .{self.raw}),
+                .mutex => try writer.print("#<Mutex:0x{x}>", .{self.raw}),
             }
         } else {
             try writer.print("<unknown>", .{});

@@ -1477,13 +1477,13 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/module/using_spec.rb
 
 ### core/mutex
-- [ ] core/mutex/lock_spec.rb
-- [ ] core/mutex/locked_spec.rb
-- [ ] core/mutex/owned_spec.rb
-- [ ] core/mutex/sleep_spec.rb
-- [ ] core/mutex/synchronize_spec.rb
-- [ ] core/mutex/try_lock_spec.rb
-- [ ] core/mutex/unlock_spec.rb
+- [x] core/mutex/lock_spec.rb
+- [x] core/mutex/locked_spec.rb
+- [x] core/mutex/owned_spec.rb
+- [-] core/mutex/sleep_spec.rb
+- [x] core/mutex/synchronize_spec.rb
+- [x] core/mutex/try_lock_spec.rb
+- [x] core/mutex/unlock_spec.rb
 
 ### core/nil
 - [ ] core/nil/and_spec.rb
