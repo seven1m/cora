@@ -8,6 +8,25 @@ $__root_contexts = []
 $__current_context = nil
 $__spec_main = self
 
+module SpecMatchers
+  private
+
+  def include(*expected)
+    IncludeMatcher.new(*expected)
+  end
+end
+
+class SpecEnv
+  include SpecMatchers
+end
+
+$__spec_env = SpecEnv.new
+
+def $__spec_main.include(*modules)
+  Object.send(:include, *modules)
+end
+$__spec_main.singleton_class.send(:private, :include)
+
 TOLERANCE = 0.00003 unless defined?(TOLERANCE)
 TIME_TOLERANCE = 20.0 unless defined?(TIME_TOLERANCE)
 
@@ -227,7 +246,7 @@ def describe(desc, shared: false, &block)
   if shared
     previous = $__current_context
     $__current_context = ctx
-    block.call if block
+    $__spec_env.instance_eval(&block) if block
     $__shared_examples[desc.to_s] = ctx
     $__current_context = previous
     return
@@ -241,7 +260,7 @@ def describe(desc, shared: false, &block)
 
   previous = $__current_context
   $__current_context = ctx
-  block.call if block
+  $__spec_env.instance_eval(&block) if block
 ensure
   $__current_context = previous
 end
@@ -785,6 +804,10 @@ class IncludeMatcher
   end
 end
 
+class Module
+  include SpecMatchers
+end
+
 class KindOfMatcher
   def initialize(expected_class)
     @expected_class = expected_class
@@ -1212,10 +1235,6 @@ end
 
 def eql(expected)
   EqlMatcher.new(expected)
-end
-
-def include(*expected)
-  IncludeMatcher.new(*expected)
 end
 
 def be_kind_of(expected_class)

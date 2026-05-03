@@ -321,4 +321,4 @@ module ConstantSpecsTwo
   Foo = :cs_two_foo
 end
 
-Object.send(:include, ConstantSpecs::ModuleA)
+include ConstantSpecs::ModuleA
