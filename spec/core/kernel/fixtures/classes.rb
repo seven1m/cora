@@ -102,4 +102,24 @@ module KernelSpecs
   class Grandchild < Child
     undef_method :parent_mixin_method
   end
+
+  module AutoloadMethod
+    def setup_autoload(file)
+      autoload :AutoloadFromIncludedModule, file
+    end
+  end
+
+  class AutoloadMethodIncluder
+    include AutoloadMethod
+  end
+
+  module AutoloadMethod2
+    def setup_autoload(file)
+      Kernel.autoload :AutoloadFromIncludedModule2, file
+    end
+  end
+
+  class AutoloadMethodIncluder2
+    include AutoloadMethod2
+  end
 end

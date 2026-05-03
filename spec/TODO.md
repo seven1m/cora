@@ -1179,7 +1179,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/kernel/__method___spec.rb
 - [ ] core/kernel/abort_spec.rb
 - [ ] core/kernel/at_exit_spec.rb
-- [ ] core/kernel/autoload_spec.rb
+- [-] core/kernel/autoload_spec.rb
 - [ ] core/kernel/backtick_spec.rb
 - [ ] core/kernel/binding_spec.rb
 - [ ] core/kernel/block_given_spec.rb
@@ -1399,7 +1399,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/module/attr_reader_spec.rb
 - [ ] core/module/attr_spec.rb
 - [ ] core/module/attr_writer_spec.rb
-- [ ] core/module/autoload_spec.rb
+- [-] core/module/autoload_spec.rb
 - [ ] core/module/case_compare_spec.rb
 - [ ] core/module/class_eval_spec.rb
 - [ ] core/module/class_exec_spec.rb

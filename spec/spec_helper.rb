@@ -1550,8 +1550,16 @@ class MockObject
           nil
         end
       else
-        define_singleton_method(method_name) do |*args, &block|
-          original.call(*args, &block)
+        if original.owner == singleton
+          define_singleton_method(method_name) do |*args, &block|
+            original.call(*args, &block)
+          end
+        else
+          begin
+            singleton.send(:remove_method, method_name)
+          rescue NameError
+            nil
+          end
         end
       end
       i += 1
@@ -1681,8 +1689,16 @@ class Object
           nil
         end
       else
-        define_singleton_method(name) do |*args, &block|
-          original.call(*args, &block)
+        if original.owner == singleton
+          define_singleton_method(name) do |*args, &block|
+            original.call(*args, &block)
+          end
+        else
+          begin
+            singleton.__send__(:remove_method, name)
+          rescue NameError
+            nil
+          end
         end
       end
     end

@@ -33,4 +33,39 @@ module ModuleSpecs
       include Internal
     end
   end
+
+  module Autoload
+    def self.use_ex1
+      begin
+        begin
+          raise "test exception"
+        rescue ModuleSpecs::Autoload::EX1
+        end
+      rescue RuntimeError
+        return :good
+      end
+    end
+
+    class Parent
+    end
+
+    class Child < Parent
+    end
+
+    module FromThread
+      module A
+        autoload :B, fixture(__FILE__, "autoload_empty.rb")
+
+        class B
+          autoload :C, fixture(__FILE__, "autoload_abc.rb")
+
+          def self.foo
+            C.foo
+          end
+        end
+      end
+
+      class D < A::B; end
+    end
+  end
 end

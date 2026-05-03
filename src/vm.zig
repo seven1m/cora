@@ -399,7 +399,7 @@ pub const VM = struct {
     // File loading infrastructure
     loaded_files: std.StringHashMap(void) = undefined,
     loaded_paths: std.ArrayList([]const u8) = .empty,
-    load_path: std.ArrayList([]const u8) = .empty,
+    load_path: ?*value.ArrayObject = null,
     current_loading_file: ?[]const u8 = null,
     env_object: ?Value = null,
     next_chunk_id: u16 = 1,
@@ -565,15 +565,15 @@ pub const VM = struct {
         // Initialize file loading infrastructure
         self.loaded_files = std.StringHashMap(void).init(self.allocator);
         self.loaded_paths = .empty;
-        self.load_path = .empty;
-        const dot = self.allocator.dupe(u8, ".") catch return error.Fatal;
-        self.load_path.append(self.allocator, dot) catch return error.Fatal;
+        self.load_path = try self.createArray();
+        self.load_path.?.elements.append(self.gc_allocator, try self.newString(".", false)) catch return error.Fatal;
         self.next_chunk_id = program.next_chunk_id;
         self.thread_preempt_quantum_ops = parseThreadPreemptQuantumOps();
 
         if (program.main_chunk.source_file) |main_file| {
             const abs_path = try self.resolveAbsolutePath(main_file);
-            self.loaded_files.put(abs_path, {}) catch return error.Fatal;
+            try self.insertLoadedFile(abs_path);
+            self.loaded_paths.append(self.allocator, abs_path) catch return error.Fatal;
             self.current_loading_file = abs_path;
         }
 
@@ -1094,6 +1094,8 @@ pub const VM = struct {
         // Initialize last process status global.
         try self.setGlobal("$?", Value.nil());
         try self.clearLastMatch();
+        try self.syncLoadedFeaturesGlobals();
+        try self.syncLoadPathGlobals();
 
         try self.includeModule(&self.object_class.module, self.kernel_module);
         try self.includeModule(&self.array_class.module, enumerable_module_val.toModuleObject());
@@ -1106,6 +1108,9 @@ pub const VM = struct {
 
         // --- Stage 6: Initialize top-level lexical scope ---
         self.current_lexical_scope = try self.createLexicalScope(Value.fromObject(self.object_class), null);
+        const toplevel_binding = try self.createBinding(self.main_self, null, self.current_lexical_scope);
+        const toplevel_binding_sym = try self.intern("TOPLEVEL_BINDING");
+        self.object_class.module.constants.put(toplevel_binding_sym, Value.fromObject(toplevel_binding)) catch return error.Fatal;
 
         // --- Stage 7: Initialize main fiber and bind VM state to it ---
         const main_fiber_obj = self.gc_allocator.create(value.FiberObject) catch return error.Fatal;
@@ -1345,15 +1350,85 @@ pub const VM = struct {
         }
     }
 
-    fn findConstantInLexicalScope(_: *VM, scope: *LexicalScope, name: *value.SymbolObject) VMError!?Value {
+    fn autoloadTableForModule(module_obj: *value.ModuleObject) *std.AutoHashMap(*SymbolObject, []const u8) {
+        return &module_obj.autoloads;
+    }
+
+    pub fn autoloadTableForReceiver(self: *VM, receiver: Value) ?*std.AutoHashMap(*SymbolObject, []const u8) {
+        _ = self;
+        if (receiver.isClass()) return &receiver.toClassObject().module.autoloads;
+        if (receiver.isModule()) return &receiver.toModuleObject().autoloads;
+        return null;
+    }
+
+    pub fn registerAutoload(self: *VM, module_obj: *value.ModuleObject, name_sym: *value.SymbolObject, path: []const u8) VMError!void {
+        const stored_path = self.gc_allocator_atomic.dupe(u8, path) catch return error.Fatal;
+        autoloadTableForModule(module_obj).put(name_sym, stored_path) catch return error.Fatal;
+    }
+
+    pub fn clearAutoload(self: *VM, module_obj: *value.ModuleObject, name_sym: *value.SymbolObject) void {
+        _ = self;
+        _ = autoloadTableForModule(module_obj).remove(name_sym);
+    }
+
+    const TriggerAutoloadResult = union(enum) {
+        missing,
+        loaded: Value,
+        attempted,
+    };
+
+    const LexicalConstantLookupResult = struct {
+        value: ?Value = null,
+        object_autoload_attempted: bool = false,
+    };
+
+    fn autoloadRequireReceiver(self: *VM) VMError!Value {
+        if (self.frames.items.len > 0) {
+            const require_sym = try self.intern("require");
+            const frame_self = self.currentFrame().self_value;
+            if ((try self.findMethod(frame_self, require_sym)) != null) {
+                return frame_self;
+            }
+        }
+        return self.main_self;
+    }
+
+    fn triggerAutoload(self: *VM, module_obj: *value.ModuleObject, name_sym: *value.SymbolObject) VMError!TriggerAutoloadResult {
+        const feature = autoloadTableForModule(module_obj).get(name_sym) orelse return .missing;
+        const require_arg = try self.newString(feature, false);
+        var require_args = [_]Value{require_arg};
+        _ = try self.callMethodByName(try self.autoloadRequireReceiver(), "require", require_args[0..], null);
+        if (module_obj.constants.get(name_sym)) |loaded| {
+            self.clearAutoload(module_obj, name_sym);
+            return .{ .loaded = loaded };
+        }
+        return .attempted;
+    }
+
+    fn findConstantInLexicalScope(self: *VM, scope: *LexicalScope, name: *value.SymbolObject) VMError!LexicalConstantLookupResult {
+        var result = LexicalConstantLookupResult{};
         var current_scope: ?*LexicalScope = scope;
         while (current_scope) |s| {
-            if (s.getModule().constants.get(name)) |val| {
-                return val;
+            const module_obj = s.getModule();
+            if (module_obj.constants.get(name)) |val| {
+                result.value = val;
+                return result;
+            }
+            switch (try self.triggerAutoload(module_obj, name)) {
+                .missing => {},
+                .loaded => |val| {
+                    result.value = val;
+                    return result;
+                },
+                .attempted => {
+                    if (module_obj == &self.object_class.module) {
+                        result.object_autoload_attempted = true;
+                    }
+                },
             }
             current_scope = s.parent;
         }
-        return null;
+        return result;
     }
 
     fn resolveClassVariableContext(
@@ -1580,10 +1655,6 @@ pub const VM = struct {
             self.allocator.free(path);
         }
         self.loaded_paths.deinit(self.allocator);
-        for (self.load_path.items) |path| {
-            self.allocator.free(path);
-        }
-        self.load_path.deinit(self.allocator);
 
         self.stack.deinit(self.gc_allocator);
         self.frames.deinit(self.gc_allocator);
@@ -3413,10 +3484,12 @@ pub const VM = struct {
                 const idx = readU16From(frame, operands, &operand_cursor);
                 const constant = constants[idx];
                 const name_sym = try self.intern(constant.string);
+                var lexical_lookup = LexicalConstantLookupResult{};
 
                 // Walk lexical scope chain first
                 if (frame.ep.lexical_scope) |scope| {
-                    if (try self.findConstantInLexicalScope(scope, name_sym)) |val| {
+                    lexical_lookup = try self.findConstantInLexicalScope(scope, name_sym);
+                    if (lexical_lookup.value) |val| {
                         try self.push(val);
                         return;
                     }
@@ -3426,6 +3499,15 @@ pub const VM = struct {
                 if (self.object_class.module.constants.get(name_sym)) |const_val| {
                     try self.push(const_val);
                 } else {
+                    if (!lexical_lookup.object_autoload_attempted) {
+                        switch (try self.triggerAutoload(&self.object_class.module, name_sym)) {
+                            .missing, .attempted => {},
+                            .loaded => |const_val| {
+                                try self.push(const_val);
+                                return;
+                            },
+                        }
+                    }
                     const msg = std.fmt.allocPrint(
                         self.gc_allocator,
                         "uninitialized constant {s}",
@@ -3441,9 +3523,11 @@ pub const VM = struct {
                 const idx = readU16From(frame, operands, &operand_cursor);
                 const constant = constants[idx];
                 const name_sym = try self.intern(constant.string);
+                var lexical_lookup = LexicalConstantLookupResult{};
 
                 if (frame.ep.lexical_scope) |scope| {
-                    if (try self.findConstantInLexicalScope(scope, name_sym)) |val| {
+                    lexical_lookup = try self.findConstantInLexicalScope(scope, name_sym);
+                    if (lexical_lookup.value) |val| {
                         try self.push(val);
                         return;
                     }
@@ -3452,6 +3536,15 @@ pub const VM = struct {
                 if (self.object_class.module.constants.get(name_sym)) |const_val| {
                     try self.push(const_val);
                 } else {
+                    if (!lexical_lookup.object_autoload_attempted) {
+                        switch (try self.triggerAutoload(&self.object_class.module, name_sym)) {
+                            .missing, .attempted => {},
+                            .loaded => |const_val| {
+                                try self.push(const_val);
+                                return;
+                            },
+                        }
+                    }
                     try self.push(Value.nil());
                 }
             },
@@ -3486,6 +3579,13 @@ pub const VM = struct {
                 if (module.constants.get(name_sym)) |const_val| {
                     try self.push(const_val);
                 } else {
+                    switch (try self.triggerAutoload(module, name_sym)) {
+                        .missing, .attempted => {},
+                        .loaded => |const_val| {
+                            try self.push(const_val);
+                            return;
+                        },
+                    }
                     const msg = std.fmt.allocPrint(
                         self.gc_allocator,
                         "uninitialized constant {s}::{s}",
@@ -5981,7 +6081,8 @@ pub const VM = struct {
         var current = blk: {
             if (prefer_lexical_for_first_segment) {
                 if (start_scope) |scope| {
-                    if (try self.findConstantInLexicalScope(scope, first_sym)) |val| break :blk val;
+                    const lexical_lookup = try self.findConstantInLexicalScope(scope, first_sym);
+                    if (lexical_lookup.value) |val| break :blk val;
                 }
             }
             break :blk self.object_class.module.constants.get(first_sym) orelse return null;
@@ -6344,6 +6445,7 @@ pub const VM = struct {
                 .name = singleton_name_sym,
                 .methods = std.AutoHashMap(*value.SymbolObject, MethodEntry).init(self.gc_allocator),
                 .constants = std.AutoHashMap(*value.SymbolObject, value.Value).init(self.gc_allocator),
+                .autoloads = std.AutoHashMap(*value.SymbolObject, []const u8).init(self.gc_allocator),
                 .private_constants = std.AutoHashMap(*value.SymbolObject, void).init(self.gc_allocator),
                 .class_variables = std.AutoHashMap(*value.SymbolObject, value.Value).init(self.gc_allocator),
             },
@@ -6453,6 +6555,7 @@ pub const VM = struct {
             .name = name,
             .methods = std.AutoHashMap(*SymbolObject, MethodEntry).init(self.gc_allocator),
             .constants = std.AutoHashMap(*SymbolObject, Value).init(self.gc_allocator),
+            .autoloads = std.AutoHashMap(*SymbolObject, []const u8).init(self.gc_allocator),
             .private_constants = std.AutoHashMap(*SymbolObject, void).init(self.gc_allocator),
             .class_variables = std.AutoHashMap(*SymbolObject, Value).init(self.gc_allocator),
         };
@@ -6475,6 +6578,7 @@ pub const VM = struct {
                 .name = name,
                 .methods = std.AutoHashMap(*SymbolObject, MethodEntry).init(self.gc_allocator),
                 .constants = std.AutoHashMap(*SymbolObject, Value).init(self.gc_allocator),
+                .autoloads = std.AutoHashMap(*SymbolObject, []const u8).init(self.gc_allocator),
                 .private_constants = std.AutoHashMap(*SymbolObject, void).init(self.gc_allocator),
                 .class_variables = std.AutoHashMap(*SymbolObject, Value).init(self.gc_allocator),
             },
@@ -7541,6 +7645,53 @@ pub const VM = struct {
         return self.raiseArgumentErrorWrongArgCountGeneric();
     }
 
+    pub fn resetLoadedFilesFromGlobal(self: *VM) VMError!void {
+        const loaded_val = self.globals.get("$LOADED_FEATURES") orelse return;
+        if (!loaded_val.isArray()) return;
+
+        var key_iter = self.loaded_files.keyIterator();
+        while (key_iter.next()) |key| {
+            self.allocator.free(key.*);
+        }
+        self.loaded_files.deinit();
+        self.loaded_files = std.StringHashMap(void).init(self.allocator);
+
+        for (loaded_val.toArrayObject().elements.items) |entry| {
+            if (!entry.isString()) continue;
+            const duped = self.allocator.dupe(u8, entry.toStringObject().str) catch return error.Fatal;
+            self.loaded_files.put(duped, {}) catch return error.Fatal;
+        }
+    }
+
+    pub fn insertLoadedFile(self: *VM, path: []const u8) VMError!void {
+        const duped = self.allocator.dupe(u8, path) catch return error.Fatal;
+        errdefer self.allocator.free(duped);
+        self.loaded_files.put(duped, {}) catch return error.Fatal;
+    }
+
+    pub fn removeLoadedFile(self: *VM, path: []const u8) void {
+        if (self.loaded_files.fetchRemove(path)) |entry| {
+            self.allocator.free(entry.key);
+        }
+    }
+
+    pub fn syncLoadedFeaturesGlobals(self: *VM) VMError!void {
+        const loaded = try self.createArray();
+        var key_iter = self.loaded_files.keyIterator();
+        while (key_iter.next()) |key| {
+            loaded.elements.append(self.gc_allocator, try self.newString(key.*, false)) catch return error.Fatal;
+        }
+        const loaded_val = Value.fromObject(loaded);
+        try self.setGlobal("$LOADED_FEATURES", loaded_val);
+        try self.setGlobal("$\"", loaded_val);
+    }
+
+    pub fn syncLoadPathGlobals(self: *VM) VMError!void {
+        const load_path_val = Value.fromObject(self.load_path orelse return error.Fatal);
+        try self.setGlobal("$LOAD_PATH", load_path_val);
+        try self.setGlobal("$:", load_path_val);
+    }
+
     // File loading helper methods
 
     pub fn resolveAbsolutePath(self: *VM, path: []const u8) VMError![]const u8 {
@@ -7565,10 +7716,18 @@ pub const VM = struct {
             if (self.fileExists(feature)) {
                 return try self.resolveAbsolutePath(feature);
             }
+            const with_rb = std.fmt.allocPrint(self.allocator, "{s}.rb", .{feature}) catch return error.Fatal;
+            defer self.allocator.free(with_rb);
+            if (self.fileExists(with_rb)) {
+                return try self.resolveAbsolutePath(with_rb);
+            }
             return null;
         }
 
-        for (self.load_path.items) |dir| {
+        const load_path = self.load_path orelse return error.Fatal;
+        for (load_path.elements.items) |entry| {
+            if (!entry.isString()) continue;
+            const dir = entry.toStringObject().str;
             const full_path = std.fs.path.join(self.allocator, &[_][]const u8{ dir, feature }) catch return error.Fatal;
             defer self.allocator.free(full_path);
 
@@ -7580,7 +7739,9 @@ pub const VM = struct {
         const with_rb = std.fmt.allocPrint(self.allocator, "{s}.rb", .{feature}) catch return error.Fatal;
         defer self.allocator.free(with_rb);
 
-        for (self.load_path.items) |dir| {
+        for (load_path.elements.items) |entry| {
+            if (!entry.isString()) continue;
+            const dir = entry.toStringObject().str;
             const full_path = std.fs.path.join(self.allocator, &[_][]const u8{ dir, with_rb }) catch return error.Fatal;
             defer self.allocator.free(full_path);
 

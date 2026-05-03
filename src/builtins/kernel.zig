@@ -14,6 +14,16 @@ const MethodEntry = value.MethodEntry;
 const SymbolObject = value.SymbolObject;
 const MethodListFilter = method_reflection.MethodListFilter;
 
+fn implicitAutoloadReceiver(vm: *VM) Value {
+    if (vm.current_lexical_scope) |scope| {
+        return switch (scope.scope_module) {
+            .class => |klass| Value.fromObject(klass),
+            .module => |mod| Value.fromObject(mod),
+        };
+    }
+    return Value.fromObject(vm.object_class);
+}
+
 const BoundMethodLookup = struct {
     resolved: vm_mod.ResolvedMethod,
     owner: Value,
@@ -210,6 +220,30 @@ pub fn register(vm: *VM) !void {
     const print_sym = try vm.intern("print");
     try vm.kernel_module.methods.put(print_sym, .{ .method = .{ .builtin = &builtinKernelPrint } });
 
+    const abort_sym = try vm.intern("abort");
+    try vm.kernel_module.methods.put(abort_sym, .{
+        .method = .{ .builtin = &builtinKernelAbort },
+        .visibility = .private,
+    });
+
+    const exit_sym = try vm.intern("exit");
+    try vm.kernel_module.methods.put(exit_sym, .{
+        .method = .{ .builtin = &builtinKernelExit },
+        .visibility = .private,
+    });
+
+    const exit_bang_sym = try vm.intern("exit!");
+    try vm.kernel_module.methods.put(exit_bang_sym, .{
+        .method = .{ .builtin = &builtinKernelExitBang },
+        .visibility = .private,
+    });
+
+    const system_sym = try vm.intern("system");
+    try vm.kernel_module.methods.put(system_sym, .{
+        .method = .{ .builtin = &builtinKernelSystem },
+        .visibility = .private,
+    });
+
     const eval_sym = try vm.intern("eval");
     try vm.kernel_module.methods.put(eval_sym, .{ .method = .{ .builtin = &builtinKernelEval } });
 
@@ -227,6 +261,18 @@ pub fn register(vm: *VM) !void {
 
     const require_sym = try vm.intern("require");
     try vm.kernel_module.methods.put(require_sym, .{ .method = .{ .builtin = &builtinKernelRequire } });
+
+    const autoload_sym = try vm.intern("autoload");
+    try vm.kernel_module.methods.put(autoload_sym, .{
+        .method = .{ .builtin = &builtinKernelAutoload },
+        .visibility = .private,
+    });
+
+    const autoload_q_sym = try vm.intern("autoload?");
+    try vm.kernel_module.methods.put(autoload_q_sym, .{
+        .method = .{ .builtin = &builtinKernelAutoloadQ },
+        .visibility = .private,
+    });
 
     const require_relative_sym = try vm.intern("require_relative");
     try vm.kernel_module.methods.put(require_relative_sym, .{ .method = .{ .builtin = &builtinKernelRequireRelative } });
@@ -257,6 +303,8 @@ pub fn register(vm: *VM) !void {
     try kernel_singleton.module.methods.put(kernel_array_convert_sym, .{ .method = .{ .builtin = &builtinKernelArrayConvert } });
     try kernel_singleton.module.methods.put(kernel_string_convert_sym, .{ .method = .{ .builtin = &builtinKernelStringConvert } });
     try kernel_singleton.module.methods.put(kernel_hash_convert_sym, .{ .method = .{ .builtin = &builtinKernelHashConvert } });
+    try kernel_singleton.module.methods.put(autoload_sym, .{ .method = .{ .builtin = &builtinKernelSingletonAutoload } });
+    try kernel_singleton.module.methods.put(autoload_q_sym, .{ .method = .{ .builtin = &builtinKernelSingletonAutoloadQ } });
 
     const hash_sym = try vm.intern("hash");
     try vm.kernel_module.methods.put(hash_sym, .{ .method = .{ .builtin = &builtinKernelHash } });
@@ -390,6 +438,7 @@ pub fn register(vm: *VM) !void {
 
 pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
+    try vm.resetLoadedFilesFromGlobal();
     const feature = try vm.coerceToPath(args[0], "no implicit conversion into String");
 
     // Builtin libraries whose classes are registered at VM startup:
@@ -397,12 +446,11 @@ pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
     const builtin_libs = [_][]const u8{ "socket", "rbconfig" };
     for (builtin_libs) |lib| {
         if (std.mem.eql(u8, feature, lib)) {
-            const key = vm.allocator.dupe(u8, lib) catch return error.Fatal;
-            if (vm.loaded_files.contains(key)) {
-                vm.allocator.free(key);
+            if (vm.loaded_files.contains(lib)) {
                 return Value.boolean(false);
             }
-            vm.loaded_files.put(key, {}) catch return error.Fatal;
+            try vm.insertLoadedFile(lib);
+            try vm.syncLoadedFeaturesGlobals();
             return Value.boolean(true);
         }
     }
@@ -424,16 +472,36 @@ pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
         return Value.boolean(false);
     }
 
-    vm.loaded_files.put(absolute_path, {}) catch return error.Fatal;
+    try vm.insertLoadedFile(absolute_path);
+    try vm.syncLoadedFeaturesGlobals();
 
     vm.loadFile(absolute_path) catch |err| {
-        _ = vm.loaded_files.remove(absolute_path);
+        vm.removeLoadedFile(absolute_path);
         vm.allocator.free(absolute_path);
+        try vm.syncLoadedFeaturesGlobals();
         if (err == error.Unwind and vm.pending_exception != null) return error.Unwind;
         return error.Fatal;
     };
 
+    try vm.syncLoadedFeaturesGlobals();
+    vm.allocator.free(absolute_path);
     return Value.boolean(true);
+}
+
+pub fn builtinKernelAutoload(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    return module_builtin.builtinModuleAutoload(vm, implicitAutoloadReceiver(vm), args, null);
+}
+
+pub fn builtinKernelAutoloadQ(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    return module_builtin.builtinModuleAutoloadQ(vm, implicitAutoloadReceiver(vm), args, null);
+}
+
+pub fn builtinKernelSingletonAutoload(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    return module_builtin.builtinModuleAutoload(vm, implicitAutoloadReceiver(vm), args, null);
+}
+
+pub fn builtinKernelSingletonAutoloadQ(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    return module_builtin.builtinModuleAutoloadQ(vm, implicitAutoloadReceiver(vm), args, null);
 }
 
 pub fn builtinKernelEval(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -482,6 +550,7 @@ pub fn builtinKernelBinding(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 
 pub fn builtinKernelRequireRelative(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
+    try vm.resetLoadedFilesFromGlobal();
     const relative_path = try vm.coerceToPath(args[0], "no implicit conversion into String");
 
     const current_file = blk: {
@@ -524,14 +593,18 @@ pub fn builtinKernelRequireRelative(vm: *VM, _: Value, args: []Value, _: ?Block)
         return Value.boolean(false);
     }
 
-    vm.loaded_files.put(resolved_path, {}) catch return error.Fatal;
+    try vm.insertLoadedFile(resolved_path);
+    try vm.syncLoadedFeaturesGlobals();
     vm.loadFile(resolved_path) catch |err| {
-        _ = vm.loaded_files.remove(resolved_path);
+        vm.removeLoadedFile(resolved_path);
         vm.allocator.free(resolved_path);
+        try vm.syncLoadedFeaturesGlobals();
         if (err == error.Unwind and vm.pending_exception != null) return error.Unwind;
         return error.Fatal;
     };
 
+    try vm.syncLoadedFeaturesGlobals();
+    vm.allocator.free(resolved_path);
     return Value.boolean(true);
 }
 
@@ -590,6 +663,26 @@ pub fn builtinKernelPuts(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
     const stdout_target = vm.globals.get("$stdout") orelse return error.Fatal;
     _ = try vm.callMethodByName(stdout_target, "puts", args, null);
     return Value.nil();
+}
+
+pub fn builtinKernelAbort(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    return Value.nil();
+}
+
+pub fn builtinKernelExit(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    return Value.nil();
+}
+
+pub fn builtinKernelExitBang(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    return Value.nil();
+}
+
+pub fn builtinKernelSystem(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountAtLeast(args, 1);
+    return Value.boolean(false);
 }
 
 pub fn builtinKernelPrint(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

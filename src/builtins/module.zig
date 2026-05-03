@@ -63,6 +63,12 @@ fn collectOwnConstantSymbols(
         if (module_obj.private_constants.contains(entry.key_ptr.*)) continue;
         try appendConstantSymbolUnique(vm, out, seen, entry.key_ptr.*);
     }
+
+    var autoload_it = module_obj.autoloads.iterator();
+    while (autoload_it.next()) |entry| {
+        if (module_obj.private_constants.contains(entry.key_ptr.*)) continue;
+        try appendConstantSymbolUnique(vm, out, seen, entry.key_ptr.*);
+    }
 }
 
 fn constantsTable(receiver: Value) ?*std.AutoHashMap(*SymbolObject, Value) {
@@ -74,6 +80,12 @@ fn constantsTable(receiver: Value) ?*std.AutoHashMap(*SymbolObject, Value) {
 fn privateConstantsTable(receiver: Value) ?*std.AutoHashMap(*SymbolObject, void) {
     if (receiver.isClass()) return &receiver.toClassObject().module.private_constants;
     if (receiver.isModule()) return &receiver.toModuleObject().private_constants;
+    return null;
+}
+
+fn autoloadTable(receiver: Value) ?*std.AutoHashMap(*SymbolObject, []const u8) {
+    if (receiver.isClass()) return &receiver.toClassObject().module.autoloads;
+    if (receiver.isModule()) return &receiver.toModuleObject().autoloads;
     return null;
 }
 
@@ -96,6 +108,24 @@ fn lookupConstantOnModule(module_obj: *value.ModuleObject, name_sym: *SymbolObje
     while (j > 0) {
         j -= 1;
         if (lookupConstantOnModule(module_obj.included_modules.items[j], name_sym)) |val| return val;
+    }
+
+    return null;
+}
+
+fn lookupAutoloadOnModule(module_obj: *value.ModuleObject, name_sym: *SymbolObject) ?[]const u8 {
+    if (module_obj.autoloads.get(name_sym)) |path| return path;
+
+    var i = module_obj.prepended_modules.items.len;
+    while (i > 0) {
+        i -= 1;
+        if (lookupAutoloadOnModule(module_obj.prepended_modules.items[i], name_sym)) |path| return path;
+    }
+
+    var j = module_obj.included_modules.items.len;
+    while (j > 0) {
+        j -= 1;
+        if (lookupAutoloadOnModule(module_obj.included_modules.items[j], name_sym)) |path| return path;
     }
 
     return null;
@@ -125,6 +155,37 @@ fn lookupConstantOnReceiver(vm: *VM, receiver: Value, name_sym: *SymbolObject, i
         if (lookupConstantOnModule(receiver.toModuleObject(), name_sym)) |val| return val;
         if (inherit) {
             if (lookupConstantOnModule(&vm.object_class.module, name_sym)) |val| return val;
+        }
+        return null;
+    }
+
+    return null;
+}
+
+fn lookupAutoloadOnReceiver(vm: *VM, receiver: Value, name_sym: *SymbolObject, inherit: bool) ?[]const u8 {
+    if (receiver.isClass()) {
+        var current: ?*ClassObject = receiver.toClassObject();
+        var first = true;
+        while (current) |klass| {
+            if (first or inherit) {
+                if (lookupAutoloadOnModule(&klass.module, name_sym)) |path| return path;
+            }
+            if (!inherit and first) {
+                if (klass == vm.object_class) {
+                    if (lookupAutoloadOnModule(&vm.object_class.module, name_sym)) |path| return path;
+                }
+                break;
+            }
+            current = klass.superclass;
+            first = false;
+        }
+        return null;
+    }
+
+    if (receiver.isModule()) {
+        if (lookupAutoloadOnModule(receiver.toModuleObject(), name_sym)) |path| return path;
+        if (inherit) {
+            if (lookupAutoloadOnModule(&vm.object_class.module, name_sym)) |path| return path;
         }
         return null;
     }
@@ -567,6 +628,12 @@ pub fn register(vm: *VM) !void {
     const const_set_sym = try vm.intern("const_set");
     try vm.module_class.module.methods.put(const_set_sym, .{ .method = .{ .builtin = &builtinModuleConstSet } });
 
+    const autoload_sym = try vm.intern("autoload");
+    try vm.module_class.module.methods.put(autoload_sym, .{ .method = .{ .builtin = &builtinModuleAutoload } });
+
+    const autoload_q_sym = try vm.intern("autoload?");
+    try vm.module_class.module.methods.put(autoload_q_sym, .{ .method = .{ .builtin = &builtinModuleAutoloadQ } });
+
     const remove_const_sym = try vm.intern("remove_const");
     try vm.module_class.module.methods.put(remove_const_sym, .{ .method = .{ .builtin = &builtinModuleRemoveConst } });
 
@@ -679,7 +746,10 @@ pub fn builtinModuleConstDefined(vm: *VM, receiver: Value, args: []Value, _: ?Bl
     }
 
     const name_sym = try vm.intern(name);
-    return Value.boolean(lookupConstantOnReceiver(vm, receiver, name_sym, inherit) != null);
+    return Value.boolean(
+        lookupConstantOnReceiver(vm, receiver, name_sym, inherit) != null or
+            lookupAutoloadOnReceiver(vm, receiver, name_sym, inherit) != null,
+    );
 }
 
 pub fn builtinModuleConstSet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -697,7 +767,59 @@ pub fn builtinModuleConstSet(vm: *VM, receiver: Value, args: []Value, _: ?Block)
 
     const name_sym = try vm.intern(name);
     constants.put(name_sym, args[1]) catch return error.Fatal;
+    if (autoloadTable(receiver)) |table| {
+        _ = table.remove(name_sym);
+    }
     return args[1];
+}
+
+pub fn builtinModuleAutoload(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 2);
+
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen {s}", .{vm.className(receiver)});
+    }
+
+    _ = constantsTable(receiver) orelse {
+        const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
+        vm.pending_exception = exc;
+        return error.Unwind;
+    };
+
+    const name = try constantNameString(vm, args[0]);
+    if (!isValidConstantNameSegment(name)) {
+        return vm.raiseExceptionFmt(vm.name_error_class, "wrong constant name {s}", .{name});
+    }
+
+    const path = try vm.coerceToPath(args[1], "no implicit conversion into String");
+    if (path.len == 0) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "empty file name", .{});
+    }
+
+    if (try vm.searchLoadPath(path)) |resolved| {
+        defer vm.allocator.free(resolved);
+        if (vm.loaded_files.contains(resolved)) {
+            return Value.nil();
+        }
+    }
+
+    const name_sym = try vm.intern(name);
+    try vm.registerAutoload(moduleFromValue(receiver).?, name_sym, path);
+    return Value.nil();
+}
+
+pub fn builtinModuleAutoloadQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+
+    const inherit = if (args.len == 2) args[1].is_truthy() else true;
+    const name = try constantNameString(vm, args[0]);
+    if (!isValidConstantNameSegment(name)) {
+        return vm.raiseExceptionFmt(vm.name_error_class, "wrong constant name {s}", .{name});
+    }
+
+    const name_sym = try vm.intern(name);
+    const path = lookupAutoloadOnReceiver(vm, receiver, name_sym, inherit) orelse return Value.nil();
+    return try vm.newString(path, false);
 }
 
 pub fn builtinModuleRemoveConst(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -715,6 +837,13 @@ pub fn builtinModuleRemoveConst(vm: *VM, receiver: Value, args: []Value, _: ?Blo
     }
 
     const name_sym = try vm.intern(name);
+    if (autoloadTable(receiver)) |table| {
+        if (table.fetchRemove(name_sym) != null) {
+            _ = constants.remove(name_sym);
+            _ = private_constants.remove(name_sym);
+            return Value.nil();
+        }
+    }
     const removed = constants.fetchRemove(name_sym) orelse {
         return vm.raiseExceptionFmt(vm.name_error_class, "constant {s}::{s} not defined", .{ storedModuleName(receiver), name });
     };
