@@ -1409,7 +1409,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/module/class_variables_spec.rb
 - [ ] core/module/comparison_spec.rb
 - [ ] core/module/const_added_spec.rb
-- [ ] core/module/const_defined_spec.rb
+- [-] core/module/const_defined_spec.rb
 - [ ] core/module/const_get_spec.rb
 - [ ] core/module/const_missing_spec.rb
 - [ ] core/module/const_set_spec.rb

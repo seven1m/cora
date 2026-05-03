@@ -77,6 +77,131 @@ fn privateConstantsTable(receiver: Value) ?*std.AutoHashMap(*SymbolObject, void)
     return null;
 }
 
+fn moduleFromValue(receiver: Value) ?*value.ModuleObject {
+    if (receiver.isClass()) return &receiver.toClassObject().module;
+    if (receiver.isModule()) return receiver.toModuleObject();
+    return null;
+}
+
+fn lookupConstantOnModule(module_obj: *value.ModuleObject, name_sym: *SymbolObject) ?Value {
+    if (module_obj.constants.get(name_sym)) |val| return val;
+
+    var i = module_obj.prepended_modules.items.len;
+    while (i > 0) {
+        i -= 1;
+        if (lookupConstantOnModule(module_obj.prepended_modules.items[i], name_sym)) |val| return val;
+    }
+
+    var j = module_obj.included_modules.items.len;
+    while (j > 0) {
+        j -= 1;
+        if (lookupConstantOnModule(module_obj.included_modules.items[j], name_sym)) |val| return val;
+    }
+
+    return null;
+}
+
+fn lookupConstantOnReceiver(vm: *VM, receiver: Value, name_sym: *SymbolObject, inherit: bool) ?Value {
+    if (receiver.isClass()) {
+        var current: ?*ClassObject = receiver.toClassObject();
+        var first = true;
+        while (current) |klass| {
+            if (first or inherit) {
+                if (lookupConstantOnModule(&klass.module, name_sym)) |val| return val;
+            }
+            if (!inherit and first) {
+                if (klass == vm.object_class) {
+                    if (lookupConstantOnModule(&vm.object_class.module, name_sym)) |val| return val;
+                }
+                break;
+            }
+            current = klass.superclass;
+            first = false;
+        }
+        return null;
+    }
+
+    if (receiver.isModule()) {
+        if (lookupConstantOnModule(receiver.toModuleObject(), name_sym)) |val| return val;
+        if (inherit) {
+            if (lookupConstantOnModule(&vm.object_class.module, name_sym)) |val| return val;
+        }
+        return null;
+    }
+
+    return null;
+}
+
+fn isValidConstantNameSegment(segment: []const u8) bool {
+    if (segment.len == 0) return false;
+
+    const first = segment[0];
+    if (!std.ascii.isUpper(first)) return false;
+
+    for (segment[1..]) |byte| {
+        if (byte >= 0x80) continue;
+        if (std.ascii.isAlphanumeric(byte) or byte == '_') continue;
+        return false;
+    }
+
+    return true;
+}
+
+fn constantNameString(vm: *VM, arg: Value) VMError![]const u8 {
+    if (arg.isSymbol()) return arg.toSymbolObject().name;
+    switch (try vm.probeToStringValue(arg)) {
+        .string => |coerced| return coerced.toStringObject().str,
+        .missing, .nil_result => {},
+    }
+    return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion of {s} into String", .{vm.className(arg)});
+}
+
+fn splitConstantName(allocator: std.mem.Allocator, name: []const u8, allow_root: bool) !std.ArrayList([]const u8) {
+    var parts: std.ArrayList([]const u8) = .empty;
+    errdefer parts.deinit(allocator);
+
+    var offset: usize = if (allow_root and std.mem.startsWith(u8, name, "::")) 2 else 0;
+    var segment_start = offset;
+
+    while (offset <= name.len) : (offset += 1) {
+        const at_end = offset == name.len;
+        const at_sep = !at_end and offset + 1 < name.len and name[offset] == ':' and name[offset + 1] == ':';
+        if (!at_end and !at_sep) continue;
+
+        const segment = name[segment_start..offset];
+        if (!isValidConstantNameSegment(segment)) return error.InvalidConstName;
+        try parts.append(allocator, segment);
+
+        if (at_sep) {
+            offset += 1;
+            segment_start = offset + 1;
+        }
+    }
+
+    return parts;
+}
+
+fn constantPathDefined(vm: *VM, receiver: Value, name: []const u8, inherit: bool) VMError!bool {
+    const rooted = std.mem.startsWith(u8, name, "::");
+    var parts = splitConstantName(vm.gc_allocator, name, rooted) catch |err| switch (err) {
+        error.InvalidConstName => return vm.raiseExceptionFmt(vm.name_error_class, "wrong constant name {s}", .{name}),
+        else => return error.Fatal,
+    };
+    defer parts.deinit(vm.gc_allocator);
+
+    var current: Value = if (rooted) Value.fromObject(vm.object_class) else receiver;
+    var first = true;
+    for (parts.items) |part| {
+        const name_sym = try vm.intern(part);
+        const use_inherit = if (first and !rooted) inherit else true;
+        _ = moduleFromValue(current) orelse return false;
+        current = lookupConstantOnReceiver(vm, current, name_sym, use_inherit) orelse return false;
+        first = false;
+    }
+
+    return true;
+}
+
 fn storedModuleName(receiver: Value) []const u8 {
     return if (receiver.isClass()) receiver.toClassObject().module.name.name else receiver.toModuleObject().name.name;
 }
@@ -436,6 +561,15 @@ pub fn register(vm: *VM) !void {
     const constants_sym = try vm.intern("constants");
     try vm.module_class.module.methods.put(constants_sym, .{ .method = .{ .builtin = &builtinModuleConstants } });
 
+    const const_defined_sym = try vm.intern("const_defined?");
+    try vm.module_class.module.methods.put(const_defined_sym, .{ .method = .{ .builtin = &builtinModuleConstDefined } });
+
+    const const_set_sym = try vm.intern("const_set");
+    try vm.module_class.module.methods.put(const_set_sym, .{ .method = .{ .builtin = &builtinModuleConstSet } });
+
+    const remove_const_sym = try vm.intern("remove_const");
+    try vm.module_class.module.methods.put(remove_const_sym, .{ .method = .{ .builtin = &builtinModuleRemoveConst } });
+
     const ancestors_sym = try vm.intern("ancestors");
     try vm.module_class.module.methods.put(ancestors_sym, .{ .method = .{ .builtin = &builtinModuleAncestors } });
 
@@ -529,6 +663,63 @@ pub fn builtinModuleConstants(vm: *VM, receiver: Value, args: []Value, _: ?Block
     }
 
     return Value.fromObject(out);
+}
+
+pub fn builtinModuleConstDefined(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+    const inherit = if (args.len == 2) args[1].is_truthy() else true;
+    const name = try constantNameString(vm, args[0]);
+
+    if (std.mem.indexOf(u8, name, "::") != null) {
+        return Value.boolean(try constantPathDefined(vm, receiver, name, inherit));
+    }
+
+    if (!isValidConstantNameSegment(name)) {
+        return vm.raiseExceptionFmt(vm.name_error_class, "wrong constant name {s}", .{name});
+    }
+
+    const name_sym = try vm.intern(name);
+    return Value.boolean(lookupConstantOnReceiver(vm, receiver, name_sym, inherit) != null);
+}
+
+pub fn builtinModuleConstSet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 2);
+    const constants = constantsTable(receiver) orelse {
+        const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
+        vm.pending_exception = exc;
+        return error.Unwind;
+    };
+
+    const name = try constantNameString(vm, args[0]);
+    if (!isValidConstantNameSegment(name)) {
+        return vm.raiseExceptionFmt(vm.name_error_class, "wrong constant name {s}", .{name});
+    }
+
+    const name_sym = try vm.intern(name);
+    constants.put(name_sym, args[1]) catch return error.Fatal;
+    return args[1];
+}
+
+pub fn builtinModuleRemoveConst(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const constants = constantsTable(receiver) orelse {
+        const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
+        vm.pending_exception = exc;
+        return error.Unwind;
+    };
+    const private_constants = privateConstantsTable(receiver) orelse unreachable;
+
+    const name = try constantNameString(vm, args[0]);
+    if (!isValidConstantNameSegment(name)) {
+        return vm.raiseExceptionFmt(vm.name_error_class, "wrong constant name {s}", .{name});
+    }
+
+    const name_sym = try vm.intern(name);
+    const removed = constants.fetchRemove(name_sym) orelse {
+        return vm.raiseExceptionFmt(vm.name_error_class, "constant {s}::{s} not defined", .{ storedModuleName(receiver), name });
+    };
+    _ = private_constants.remove(name_sym);
+    return removed.value;
 }
 
 pub fn builtinModuleAncestors(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

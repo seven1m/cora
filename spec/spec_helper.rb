@@ -897,11 +897,7 @@ class HaveConstantMatcher
   end
 
   def matches?(actual)
-    if actual.respond_to?(:const_defined?)
-      actual.const_defined?(@name)
-    else
-      actual.constants.include?(@name)
-    end
+    actual.const_defined?(@name)
   end
 
   def failure_message(actual)
