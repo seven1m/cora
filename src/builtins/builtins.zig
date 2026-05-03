@@ -27,6 +27,7 @@ const process = @import("process.zig");
 const fiber = @import("fiber.zig");
 const thread = @import("thread.zig");
 const mutex = @import("mutex.zig");
+const queue = @import("queue.zig");
 const warning = @import("warning.zig");
 const range = @import("range.zig");
 const regexp = @import("regexp.zig");
@@ -56,6 +57,7 @@ pub fn registerAll(vm: *VM) !void {
     try fiber.register(vm);
     try thread.register(vm);
     try mutex.register(vm);
+    try queue.register(vm);
     try range.register(vm);
     try regexp.register(vm);
     try socket.register(vm);

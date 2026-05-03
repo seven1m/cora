@@ -50,6 +50,7 @@ pub const ObjectTypeTag = enum(u8) {
     float,
     thread,
     mutex,
+    queue,
 };
 
 pub const Object = struct {
@@ -281,6 +282,14 @@ pub const MutexObject = struct {
         unlocked,
         locked,
     };
+};
+
+pub const QueueObject = struct {
+    object: Object,
+    items: std.ArrayList(Value) = .empty,
+    read_index: usize = 0,
+    waiters: std.ArrayList(*ThreadObject) = .empty,
+    closed: bool = false,
 };
 
 pub const IoObject = struct {
@@ -526,6 +535,10 @@ pub const Value = struct {
         return self.isObject() and self.objectTypeTag() == .mutex;
     }
 
+    pub inline fn isQueue(self: Value) bool {
+        return self.isObject() and self.objectTypeTag() == .queue;
+    }
+
     // -- Convenience extractors for heap types --
 
     pub inline fn toStringObject(self: Value) *StringObject {
@@ -609,6 +622,10 @@ pub const Value = struct {
     }
 
     pub inline fn toMutexObject(self: Value) *MutexObject {
+        return @ptrFromInt(self.raw);
+    }
+
+    pub inline fn toQueueObject(self: Value) *QueueObject {
         return @ptrFromInt(self.raw);
     }
 
@@ -873,6 +890,7 @@ pub const Value = struct {
                 .float => try writer.print("{d}", .{self.toFloatObject().val}),
                 .thread => try writer.print("#<Thread:0x{x}>", .{self.raw}),
                 .mutex => try writer.print("#<Mutex:0x{x}>", .{self.raw}),
+                .queue => try writer.print("#<Thread::Queue:0x{x}>", .{self.raw}),
             }
         } else {
             try writer.print("<unknown>", .{});

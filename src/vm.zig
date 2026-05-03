@@ -307,8 +307,10 @@ pub const VM = struct {
     current_fiber: *value.FiberObject,
     thread_class: *value.ClassObject,
     mutex_class: *value.ClassObject,
+    queue_class: *value.ClassObject,
     thread_error_class: *value.ClassObject,
     thread_kill_exception_class: *value.ClassObject,
+    closed_queue_error_class: *value.ClassObject,
     main_thread: ?*value.ThreadObject = null,
     current_thread: ?*value.ThreadObject = null,
     thread_list: std.ArrayList(*value.ThreadObject) = .empty,
@@ -475,8 +477,10 @@ pub const VM = struct {
             .current_fiber = undefined,
             .thread_class = undefined,
             .mutex_class = undefined,
+            .queue_class = undefined,
             .thread_error_class = undefined,
             .thread_kill_exception_class = undefined,
+            .closed_queue_error_class = undefined,
             .main_thread = null,
             .current_thread = null,
             .thread_list = .empty,
@@ -667,6 +671,10 @@ pub const VM = struct {
         const mutex_class_val = try self.newClass(mutex_name_sym, self.object_class);
         self.mutex_class = mutex_class_val.toClassObject();
 
+        const queue_name_sym = try self.intern("Queue");
+        const queue_class_val = try self.newClass(queue_name_sym, self.object_class);
+        self.queue_class = queue_class_val.toClassObject();
+
         const regexp_name_sym = try self.intern("Regexp");
         const regexp_class_val = try self.newClass(regexp_name_sym, self.object_class);
         self.regexp_class = regexp_class_val.toClassObject();
@@ -778,6 +786,10 @@ pub const VM = struct {
         const thread_kill_class_val = try self.newClass(thread_kill_name_sym, self.exception_class);
         self.thread_kill_exception_class = thread_kill_class_val.toClassObject();
 
+        const closed_queue_error_name_sym = try self.intern("ClosedQueueError");
+        const closed_queue_error_class_val = try self.newClass(closed_queue_error_name_sym, self.standard_error_class);
+        self.closed_queue_error_class = closed_queue_error_class_val.toClassObject();
+
         const load_error_name_sym = try self.intern("LoadError");
         const load_error_class_val = try self.newClass(load_error_name_sym, self.standard_error_class);
         self.load_error_class = load_error_class_val.toClassObject();
@@ -877,8 +889,10 @@ pub const VM = struct {
         self.object_class.module.constants.put(fiber_name_sym, fiber_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(thread_name_sym, thread_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(mutex_name_sym, mutex_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(queue_name_sym, queue_class_val) catch return error.Fatal;
         // Register Thread::Mutex alias
         thread_class_val.toClassObject().module.constants.put(mutex_name_sym, mutex_class_val) catch return error.Fatal;
+        thread_class_val.toClassObject().module.constants.put(queue_name_sym, queue_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(regexp_name_sym, regexp_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(match_data_name_sym, match_data_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(nil_class_name_sym, nil_class_val) catch return error.Fatal;
@@ -906,6 +920,7 @@ pub const VM = struct {
         self.object_class.module.constants.put(io_error_name_sym, io_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(fiber_error_name_sym, fiber_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(thread_error_name_sym, thread_error_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(closed_queue_error_name_sym, closed_queue_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(load_error_name_sym, load_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(encoding_error_name_sym, encoding_error_class_val) catch return error.Fatal;
         self.object_class.module.constants.put(range_error_name_sym, range_error_class_val) catch return error.Fatal;
@@ -2612,6 +2627,17 @@ pub const VM = struct {
         mutex_obj.owner_thread = null;
         mutex_obj.owner_fiber = null;
         return mutex_obj;
+    }
+
+    pub fn newQueue(self: *VM, class_val: Value) VMError!*value.QueueObject {
+        _ = class_val;
+        const queue_obj = self.gc_allocator.create(value.QueueObject) catch return error.Fatal;
+        queue_obj.object = .{ .type_tag = .queue, .flags = 0, .class = self.queue_class, .singleton_class = null, .instance_variables = null };
+        queue_obj.items = .empty;
+        queue_obj.read_index = 0;
+        queue_obj.waiters = .empty;
+        queue_obj.closed = false;
+        return queue_obj;
     }
 
     pub fn newThreadUnstarted(self: *VM, class_obj: *value.ClassObject) VMError!*value.ThreadObject {
@@ -7228,6 +7254,7 @@ pub const VM = struct {
             .float => arg.isFloat(),
             .thread => arg.isThread(),
             .mutex => arg.isMutex(),
+            .queue => arg.isQueue(),
         };
         if (!matches) {
             const msg = std.fmt.allocPrint(

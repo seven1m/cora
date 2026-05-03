@@ -1726,21 +1726,21 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/process/warmup_spec.rb
 
 ### core/queue
-- [ ] core/queue/append_spec.rb
+- [x] core/queue/append_spec.rb
 - [ ] core/queue/clear_spec.rb
-- [ ] core/queue/close_spec.rb
-- [ ] core/queue/closed_spec.rb
-- [ ] core/queue/deq_spec.rb
-- [ ] core/queue/empty_spec.rb
-- [ ] core/queue/enq_spec.rb
+- [x] core/queue/close_spec.rb
+- [x] core/queue/closed_spec.rb
+- [-] core/queue/deq_spec.rb
+- [x] core/queue/empty_spec.rb
+- [x] core/queue/enq_spec.rb
 - [ ] core/queue/freeze_spec.rb
-- [ ] core/queue/initialize_spec.rb
-- [ ] core/queue/length_spec.rb
-- [ ] core/queue/num_waiting_spec.rb
-- [ ] core/queue/pop_spec.rb
-- [ ] core/queue/push_spec.rb
-- [ ] core/queue/shift_spec.rb
-- [ ] core/queue/size_spec.rb
+- [x] core/queue/initialize_spec.rb
+- [x] core/queue/length_spec.rb
+- [x] core/queue/num_waiting_spec.rb
+- [-] core/queue/pop_spec.rb
+- [x] core/queue/push_spec.rb
+- [-] core/queue/shift_spec.rb
+- [x] core/queue/size_spec.rb
 
 ### core/random
 - [ ] core/random/bytes_spec.rb
@@ -3967,7 +3967,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/tempfile/unlink_spec.rb
 
 ### library/thread
-- [ ] library/thread/queue_spec.rb
+- [x] library/thread/queue_spec.rb
 - [ ] library/thread/sizedqueue_spec.rb
 
 ### library/time

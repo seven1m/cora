@@ -8,8 +8,6 @@ $__root_contexts = []
 $__current_context = nil
 $__spec_main = self
 
-require_relative 'core/thread/fixtures/classes'
-
 TOLERANCE = 0.00003 unless defined?(TOLERANCE)
 TIME_TOLERANCE = 20.0 unless defined?(TIME_TOLERANCE)
 
@@ -899,7 +897,11 @@ class HaveConstantMatcher
   end
 
   def matches?(actual)
-    actual.const_defined?(@name)
+    if actual.respond_to?(:const_defined?)
+      actual.const_defined?(@name)
+    else
+      actual.constants.include?(@name)
+    end
   end
 
   def failure_message(actual)
