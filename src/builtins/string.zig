@@ -109,6 +109,10 @@ pub fn register(vm: *VM) !void {
 
     const string_gsub_sym = try vm.intern("gsub");
     try vm.string_class.module.methods.put(string_gsub_sym, .{ .method = .{ .builtin = &builtinStringGsub } });
+    const string_sub_sym = try vm.intern("sub");
+    try vm.string_class.module.methods.put(string_sub_sym, .{ .method = .{ .builtin = &builtinStringSub } });
+    const string_sub_bang_sym = try vm.intern("sub!");
+    try vm.string_class.module.methods.put(string_sub_bang_sym, .{ .method = .{ .builtin = &builtinStringSubBang } });
 
     const string_equal_sym = try vm.intern("==");
     try vm.string_class.module.methods.put(string_equal_sym, .{ .method = .{ .builtin = &builtinStringEqual } });
@@ -457,6 +461,296 @@ pub fn builtinStringGsub(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     const replaced = out.toOwnedSlice(vm.allocator) catch return error.Fatal;
     defer vm.allocator.free(replaced);
     return try vm.newStringWithEncoding(replaced, false, string_obj.encoding);
+}
+
+const StringSubMatch = struct {
+    start_byte: usize,
+    end_byte: usize,
+    matched_string: Value,
+    match_data: *value.MatchDataObject,
+};
+
+fn buildLiteralStringMatchData(
+    vm: *VM,
+    receiver: Value,
+    pattern_obj: *value.StringObject,
+    start_byte: usize,
+    end_byte: usize,
+) VMError!*value.MatchDataObject {
+    const string_obj = receiver.toStringObject();
+    const escaped_pattern = try escapeRegexpLiteral(vm, pattern_obj.str);
+    defer vm.allocator.free(escaped_pattern);
+    const regexp = (try vm.newRegexpWithEncoding(escaped_pattern, 0, pattern_obj.encoding)).toRegexpObject();
+    const match_str = try vm.newStringWithEncoding(string_obj.str[start_byte..end_byte], false, string_obj.encoding);
+    const captures = [_]Value{match_str};
+    const begins = [_]i64{@intCast(start_byte)};
+    const ends = [_]i64{@intCast(end_byte)};
+    return (try vm.newMatchData(regexp, string_obj, captures[0..], begins[0..], ends[0..])).toMatchDataObject();
+}
+
+fn findStringSubLiteralMatch(
+    vm: *VM,
+    receiver: Value,
+    pattern_value: Value,
+) VMError!?StringSubMatch {
+    const string_obj = receiver.toStringObject();
+    const pattern_obj = pattern_value.toStringObject();
+    const pattern = pattern_obj.str;
+
+    if (enc.negotiate(string_obj.encoding, string_obj.str, pattern_obj.encoding, pattern) == null) {
+        try vm.clearLastMatch();
+        return null;
+    }
+
+    var start: usize = 0;
+    var end_: usize = 0;
+    if (pattern.len == 0) {
+        start = 0;
+        end_ = 0;
+    } else if (pattern.len > string_obj.str.len) {
+        try vm.clearLastMatch();
+        return null;
+    } else {
+        var pos: usize = 0;
+        while (pos <= string_obj.str.len - pattern.len) {
+            const found = std.mem.indexOfPos(u8, string_obj.str, pos, pattern) orelse {
+                try vm.clearLastMatch();
+                return null;
+            };
+            const found_end = found + pattern.len;
+            if (string_obj.encoding.isCharBoundary(string_obj.str, found) and string_obj.encoding.isCharBoundary(string_obj.str, found_end)) {
+                start = found;
+                end_ = found_end;
+                break;
+            }
+            pos = found + 1;
+        } else {
+            try vm.clearLastMatch();
+            return null;
+        }
+    }
+
+    const md = try buildLiteralStringMatchData(vm, receiver, pattern_obj, start, end_);
+    try vm.setLastMatch(md);
+    return .{
+        .start_byte = start,
+        .end_byte = end_,
+        .matched_string = md.captures.items[0],
+        .match_data = md,
+    };
+}
+
+fn findStringSubMatch(vm: *VM, receiver: Value, pattern_arg: Value) VMError!?StringSubMatch {
+    if (pattern_arg.isRegexp()) {
+        const match_index = try regexp_builtin.regexpMatchOp(vm, pattern_arg.toRegexpObject(), receiver);
+        if (match_index.isNil()) return null;
+
+        const md_value = vm.globals.get("$~") orelse return error.Fatal;
+        if (!md_value.isMatchData()) return error.Fatal;
+        const md = md_value.toMatchDataObject();
+        if (md.begin_byte_offsets.items.len == 0 or md.end_byte_offsets.items.len == 0 or md.captures.items.len == 0) {
+            return error.Fatal;
+        }
+
+        const begin_i64 = md.begin_byte_offsets.items[0];
+        const end_i64 = md.end_byte_offsets.items[0];
+        if (begin_i64 < 0 or end_i64 < 0) return error.Fatal;
+
+        return .{
+            .start_byte = @intCast(begin_i64),
+            .end_byte = @intCast(end_i64),
+            .matched_string = md.captures.items[0],
+            .match_data = md,
+        };
+    }
+
+    const pattern_value = try pattern_arg.coerceToStringValue(vm, "wrong argument type");
+    return findStringSubLiteralMatch(vm, receiver, pattern_value);
+}
+
+fn appendSubReplacementSegment(
+    vm: *VM,
+    out: *std.ArrayList(u8),
+    current_encoding: *enc.Encoding,
+    segment_encoding: enc.Encoding,
+    segment_bytes: []const u8,
+) VMError!void {
+    const resolved_encoding = resolveStringConcatEncoding(current_encoding.*, out.items, segment_encoding, segment_bytes) orelse {
+        return vm.raiseEncodingCompatibilityError(current_encoding.*, segment_encoding);
+    };
+    out.appendSlice(vm.allocator, segment_bytes) catch return error.Fatal;
+    current_encoding.* = resolved_encoding;
+}
+
+fn appendSubReplacementCapture(
+    vm: *VM,
+    out: *std.ArrayList(u8),
+    current_encoding: *enc.Encoding,
+    md: *value.MatchDataObject,
+    capture_index: usize,
+) VMError!void {
+    if (capture_index >= md.captures.items.len) return;
+    const capture = md.captures.items[capture_index];
+    if (!capture.isString()) return;
+    const capture_obj = capture.toStringObject();
+    try appendSubReplacementSegment(vm, out, current_encoding, capture_obj.encoding, capture_obj.str);
+}
+
+fn appendSubReplacementLastCapture(
+    vm: *VM,
+    out: *std.ArrayList(u8),
+    current_encoding: *enc.Encoding,
+    md: *value.MatchDataObject,
+) VMError!void {
+    if (md.captures.items.len <= 1) return;
+
+    var idx = md.captures.items.len;
+    while (idx > 1) {
+        idx -= 1;
+        if (idx >= md.begin_byte_offsets.items.len or idx >= md.end_byte_offsets.items.len) continue;
+        if (md.begin_byte_offsets.items[idx] < 0 or md.end_byte_offsets.items[idx] < 0) continue;
+        try appendSubReplacementCapture(vm, out, current_encoding, md, idx);
+        return;
+    }
+}
+
+fn expandStringSubReplacement(vm: *VM, md: *value.MatchDataObject, replacement_value: Value) VMError!Value {
+    const replacement_obj = replacement_value.toStringObject();
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(vm.allocator);
+    var result_encoding = replacement_obj.encoding;
+
+    const source_bytes = md.source.str;
+    const source_encoding = md.source.encoding;
+    const match_begin = if (md.begin_byte_offsets.items.len > 0) md.begin_byte_offsets.items[0] else -1;
+    const match_end = if (md.end_byte_offsets.items.len > 0) md.end_byte_offsets.items[0] else -1;
+
+    var index: usize = 0;
+    while (index < replacement_obj.str.len) {
+        if (replacement_obj.str[index] != '\\') {
+            const segment_start = index;
+            while (index < replacement_obj.str.len and replacement_obj.str[index] != '\\') : (index += 1) {}
+            try appendSubReplacementSegment(vm, &out, &result_encoding, replacement_obj.encoding, replacement_obj.str[segment_start..index]);
+            continue;
+        }
+
+        if (index + 1 >= replacement_obj.str.len) {
+            try appendSubReplacementSegment(vm, &out, &result_encoding, replacement_obj.encoding, "\\");
+            break;
+        }
+
+        const escape = replacement_obj.str[index + 1];
+        switch (escape) {
+            '\\' => try appendSubReplacementSegment(vm, &out, &result_encoding, replacement_obj.encoding, "\\"),
+            '&', '0' => try appendSubReplacementCapture(vm, &out, &result_encoding, md, 0),
+            '`' => {
+                if (match_begin >= 0) {
+                    try appendSubReplacementSegment(vm, &out, &result_encoding, source_encoding, source_bytes[0..@intCast(match_begin)]);
+                }
+            },
+            '\'' => {
+                if (match_end >= 0) {
+                    try appendSubReplacementSegment(vm, &out, &result_encoding, source_encoding, source_bytes[@intCast(match_end)..]);
+                }
+            },
+            '+' => try appendSubReplacementLastCapture(vm, &out, &result_encoding, md),
+            '1'...'9' => try appendSubReplacementCapture(vm, &out, &result_encoding, md, escape - '0'),
+            else => try appendSubReplacementSegment(vm, &out, &result_encoding, replacement_obj.encoding, replacement_obj.str[index .. index + 2]),
+        }
+        index += 2;
+    }
+
+    const replaced = out.toOwnedSlice(vm.allocator) catch return error.Fatal;
+    defer vm.allocator.free(replaced);
+    return try vm.newStringWithEncoding(replaced, false, result_encoding);
+}
+
+fn hashStringSubReplacement(vm: *VM, hash: Value, matched_string: Value) VMError!Value {
+    var hash_args = [_]Value{matched_string};
+    const replacement = try vm.callMethodByName(hash, "[]", hash_args[0..], null);
+    const to_s_value = try vm.callMethodByName(replacement, "to_s", &.{}, null);
+    if (!to_s_value.isString()) {
+        return vm.raiseExceptionFmt(
+            vm.type_error_class,
+            "can't convert {s} to String ({s}#to_s gives {s})",
+            .{ vm.className(replacement), vm.className(replacement), vm.className(to_s_value) },
+        );
+    }
+    return to_s_value;
+}
+
+fn yieldStringSubReplacement(vm: *VM, receiver: Value, snapshot: value.StringObject, matched_string: Value, match_data: *value.MatchDataObject, blk: Block, bang: bool) VMError!Value {
+    const yielded = try vm.yieldToBlock(blk, &[_]Value{matched_string});
+    if (yielded.controlFlowValue()) |return_value| return return_value;
+
+    if (bang) {
+        const current = receiver.toStringObject();
+        if (!current.encoding.eql(snapshot.encoding) or !std.mem.eql(u8, current.str, snapshot.str)) {
+            return vm.raiseExceptionFmt(vm.runtime_error_class, "string modified", .{});
+        }
+    }
+
+    try vm.setLastMatch(match_data);
+    const to_s_value = try vm.callMethodByName(yielded.value, "to_s", &.{}, null);
+    if (!to_s_value.isString()) {
+        return vm.raiseExceptionFmt(
+            vm.type_error_class,
+            "can't convert {s} to String ({s}#to_s gives {s})",
+            .{ vm.className(yielded.value), vm.className(yielded.value), vm.className(to_s_value) },
+        );
+    }
+    return to_s_value;
+}
+
+fn stringSub(vm: *VM, receiver: Value, args: []Value, block: ?Block, bang: bool) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+    if (args.len == 1 and block == null) {
+        return vm.raiseArgumentErrorWrongArgCount(args.len, 2);
+    }
+    if (bang and receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
+    }
+
+    const snapshot = receiver.toStringObject().*;
+    const match = (try findStringSubMatch(vm, receiver, args[0])) orelse {
+        if (bang) return Value.nil();
+        return try vm.newStringWithEncoding(snapshot.str, false, snapshot.encoding);
+    };
+
+    const replacement = if (args.len == 2) blk: {
+        if (args[1].isHash()) {
+            break :blk try hashStringSubReplacement(vm, args[1], match.matched_string);
+        }
+
+        const replacement_value = try args[1].coerceToStringValue(vm, "no implicit conversion into String");
+        break :blk try expandStringSubReplacement(vm, match.match_data, replacement_value);
+    } else blk: {
+        break :blk try yieldStringSubReplacement(vm, receiver, snapshot, match.matched_string, match.match_data, block.?, bang);
+    };
+
+    const result = try vm.newStringWithEncoding(snapshot.str, false, snapshot.encoding);
+    try spliceStringBytes(vm, result, match.start_byte, match.end_byte, replacement);
+    const result_obj = result.toStringObject();
+    const modified = !result_obj.encoding.eql(snapshot.encoding) or !std.mem.eql(u8, result_obj.str, snapshot.str);
+
+    if (!bang) return result;
+    if (!modified) return Value.nil();
+
+    const receiver_obj = receiver.toStringObject();
+    try warnSymbolToSMutation(vm, receiver_obj);
+    receiver_obj.str = result_obj.str;
+    receiver_obj.encoding = result_obj.encoding;
+    receiver_obj.validity = .unknown;
+    receiver_obj.symbol_to_s_source = null;
+    return receiver;
+}
+
+pub fn builtinStringSub(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    return stringSub(vm, receiver, args, block, false);
+}
+
+pub fn builtinStringSubBang(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    return stringSub(vm, receiver, args, block, true);
 }
 
 pub fn builtinStringToStr(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
