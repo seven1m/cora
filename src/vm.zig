@@ -7094,6 +7094,19 @@ pub const VM = struct {
         return Value.nil();
     }
 
+    pub fn hasInstanceVariable(self: *VM, receiver: Value, name: []const u8) VMError!bool {
+        const obj_ptr = receiver.getObjectPointer() orelse {
+            return false;
+        };
+
+        if (obj_ptr.instance_variables) |*ivars| {
+            const name_sym = try self.intern(name);
+            return ivars.contains(name_sym);
+        }
+
+        return false;
+    }
+
     pub fn setInstanceVariable(self: *VM, receiver: Value, name: []const u8, val: Value) VMError!void {
         const obj_ptr = receiver.getObjectPointer() orelse {
             const exc = try self.createException(self.type_error_class, "can't define singleton method for literals");

@@ -1215,7 +1215,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/kernel/initialize_dup_spec.rb
 - [ ] core/kernel/inspect_spec.rb
 - [ ] core/kernel/instance_of_spec.rb
-- [ ] core/kernel/instance_variable_defined_spec.rb
+- [x] core/kernel/instance_variable_defined_spec.rb
 - [ ] core/kernel/instance_variable_get_spec.rb
 - [ ] core/kernel/instance_variable_set_spec.rb
 - [ ] core/kernel/instance_variables_spec.rb

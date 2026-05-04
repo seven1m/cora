@@ -283,6 +283,9 @@ pub fn register(vm: *VM) !void {
     const instance_variable_get_sym = try vm.intern("instance_variable_get");
     try vm.kernel_module.methods.put(instance_variable_get_sym, .{ .method = .{ .builtin = &builtinKernelInstanceVariableGet } });
 
+    const instance_variable_defined_sym = try vm.intern("instance_variable_defined?");
+    try vm.kernel_module.methods.put(instance_variable_defined_sym, .{ .method = .{ .builtin = &builtinKernelInstanceVariableDefined } });
+
     const instance_variable_set_sym = try vm.intern("instance_variable_set");
     try vm.kernel_module.methods.put(instance_variable_set_sym, .{ .method = .{ .builtin = &builtinKernelInstanceVariableSet } });
 
@@ -1205,6 +1208,12 @@ pub fn builtinKernelInstanceVariableGet(vm: *VM, receiver: Value, args: []Value,
     try vm.requireArgCount(args, 1);
     const name_str = try vm.coerceToIvarName(args[0]);
     return vm.getInstanceVariable(receiver, name_str) catch return error.Fatal;
+}
+
+pub fn builtinKernelInstanceVariableDefined(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const name_str = try vm.coerceToIvarName(args[0]);
+    return Value.boolean(try vm.hasInstanceVariable(receiver, name_str));
 }
 
 pub fn builtinKernelInstanceVariableSet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
