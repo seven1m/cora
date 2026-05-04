@@ -436,7 +436,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/enumerable/each_entry_spec.rb
 - [ ] core/enumerable/each_slice_spec.rb
 - [ ] core/enumerable/each_with_index_spec.rb
-- [ ] core/enumerable/each_with_object_spec.rb
+- [x] core/enumerable/each_with_object_spec.rb
 - [ ] core/enumerable/entries_spec.rb
 - [ ] core/enumerable/filter_map_spec.rb
 - [ ] core/enumerable/filter_spec.rb
@@ -449,7 +449,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/enumerable/grep_v_spec.rb
 - [ ] core/enumerable/group_by_spec.rb
 - [ ] core/enumerable/include_spec.rb
-- [ ] core/enumerable/inject_spec.rb
+- [x] core/enumerable/inject_spec.rb
 - [ ] core/enumerable/lazy_spec.rb
 - [ ] core/enumerable/map_spec.rb
 - [ ] core/enumerable/max_by_spec.rb

@@ -30,6 +30,9 @@ $__spec_main.singleton_class.send(:private, :include)
 TOLERANCE = 0.00003 unless defined?(TOLERANCE)
 TIME_TOLERANCE = 20.0 unless defined?(TIME_TOLERANCE)
 
+class Set
+end unless defined?(Set)
+
 class SpecContextState
   attr_reader :description, :parent, :children, :examples, :entries
 
