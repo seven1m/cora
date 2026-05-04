@@ -2036,7 +2036,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/string/squeeze_spec.rb
 - [x] core/string/start_with_spec.rb
 - [x] core/string/string_spec.rb
-- [ ] core/string/strip_spec.rb
+- [x] core/string/strip_spec.rb
 - [x] core/string/sub_spec.rb
 - [x] core/string/succ_spec.rb
 - [ ] core/string/sum_spec.rb

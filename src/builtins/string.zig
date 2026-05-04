@@ -263,6 +263,11 @@ pub fn register(vm: *VM) !void {
     const string_split_sym = try vm.intern("split");
     try vm.string_class.module.methods.put(string_split_sym, .{ .method = .{ .builtin = &builtinStringSplit } });
 
+    const string_strip_sym = try vm.intern("strip");
+    try vm.string_class.module.methods.put(string_strip_sym, .{ .method = .{ .builtin = &builtinStringStrip } });
+    const string_strip_bang_sym = try vm.intern("strip!");
+    try vm.string_class.module.methods.put(string_strip_bang_sym, .{ .method = .{ .builtin = &builtinStringStripBang } });
+
     const string_reverse_sym = try vm.intern("reverse");
     try vm.string_class.module.methods.put(string_reverse_sym, .{ .method = .{ .builtin = &builtinStringReverse } });
     const string_reverse_bang_sym = try vm.intern("reverse!");
@@ -2892,6 +2897,50 @@ fn stringChopEnd(bytes: []const u8, encoding: enc.Encoding) usize {
     }
 
     return last_start;
+}
+
+inline fn isStringStripByte(byte: u8) bool {
+    return switch (byte) {
+        0, ' ', '\t', '\n', '\r', 0x0B, 0x0C => true,
+        else => false,
+    };
+}
+
+const StringStripBounds = struct {
+    start: usize,
+    end: usize,
+};
+
+fn stringStripBounds(bytes: []const u8) StringStripBounds {
+    var start: usize = 0;
+    while (start < bytes.len and isStringStripByte(bytes[start])) : (start += 1) {}
+
+    var end = bytes.len;
+    while (end > start and isStringStripByte(bytes[end - 1])) : (end -= 1) {}
+
+    return .{ .start = start, .end = end };
+}
+
+pub fn builtinStringStrip(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const string_obj = receiver.toStringObject();
+    const bounds = stringStripBounds(string_obj.str);
+    return vm.newStringWithEncoding(string_obj.str[bounds.start..bounds.end], false, string_obj.encoding);
+}
+
+pub fn builtinStringStripBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
+    }
+
+    const string_obj = receiver.toStringObject();
+    const bounds = stringStripBounds(string_obj.str);
+    if (bounds.start == 0 and bounds.end == string_obj.str.len) return Value.nil();
+
+    string_obj.str = vm.gc_allocator_atomic.dupe(u8, string_obj.str[bounds.start..bounds.end]) catch return error.Fatal;
+    string_obj.validity = .unknown;
+    return receiver;
 }
 
 pub fn builtinStringChop(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
