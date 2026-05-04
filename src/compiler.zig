@@ -484,6 +484,10 @@ pub const Compiler = struct {
                 try self.current_chunk.emitOpU16(.SET_CONST, @intCast(idx), line);
             },
 
+            .constant_path_write => |const_path_write| {
+                try self.compileConstantPathWrite(const_path_write, line);
+            },
+
             .constant_and_write => |const_write| {
                 try self.compileConstantAndWrite(const_write, line);
             },
@@ -2688,6 +2692,23 @@ pub const Compiler = struct {
         try self.current_chunk.emitOpU16(.SET_CONST, @intCast(const_idx), line);
 
         try self.current_chunk.patchJump(jump_end);
+    }
+
+    fn compileConstantPathWrite(self: *Compiler, const_path_write: *prism.ConstantPathWriteNode, line: u32) !void {
+        const target = const_path_write.target;
+        if (target.*.parent) |parent| {
+            const parent_node = try self.parser.asNode(@ptrCast(parent));
+            try self.compileNode(parent_node, line);
+        } else {
+            try self.current_chunk.emitOp(.PUSH_SELF, line);
+        }
+
+        const value_node = try self.parser.asNode(@ptrCast(const_path_write.value));
+        try self.compileNode(value_node, line);
+
+        const const_name = try self.parser.getConstantName(target.*.name);
+        const const_idx = try self.current_chunk.addConstant(.{ .string = const_name });
+        try self.current_chunk.emitOpU16(.SET_CONST_PATH, @intCast(const_idx), line);
     }
 
     fn compileAliasMethod(self: *Compiler, alias_node: *prism.AliasMethodNode, line: u32) anyerror!void {

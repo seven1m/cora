@@ -13,6 +13,7 @@ const value = @import("value.zig");
 const prism = @import("prism.zig");
 const builtins = @import("builtins/builtins.zig");
 const comparable_builtin = @import("builtins/comparable.zig");
+const warning_builtin = @import("builtins/warning.zig");
 const zio = @import("zio");
 const bdwgc = @import("bdwgc");
 
@@ -868,68 +869,68 @@ pub const VM = struct {
         self.class_class.superclass = self.module_class;
 
         // --- Stage 4: Register constants in Object ---
-        self.object_class.module.constants.put(class_name_sym, class_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(basic_object_name_sym, basic_object_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(object_name_sym, object_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(module_name_sym, module_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(numeric_name_sym, numeric_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(integer_name_sym, integer_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(float_name_sym, float_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(string_name_sym, string_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(symbol_name_sym, symbol_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(io_name_sym, io_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(array_name_sym, array_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(hash_name_sym, hash_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(file_name_sym, file_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(dir_name_sym, dir_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(binding_name_sym, binding_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(range_name_sym, range_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(proc_name_sym, proc_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(method_name_sym, method_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(fiber_name_sym, fiber_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(thread_name_sym, thread_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(mutex_name_sym, mutex_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(queue_name_sym, queue_class_val) catch return error.Fatal;
+        self.object_class.module.constants.put(class_name_sym, .{ .value = class_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(basic_object_name_sym, .{ .value = basic_object_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(object_name_sym, .{ .value = object_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(module_name_sym, .{ .value = module_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(numeric_name_sym, .{ .value = numeric_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(integer_name_sym, .{ .value = integer_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(float_name_sym, .{ .value = float_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(string_name_sym, .{ .value = string_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(symbol_name_sym, .{ .value = symbol_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(io_name_sym, .{ .value = io_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(array_name_sym, .{ .value = array_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(hash_name_sym, .{ .value = hash_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(file_name_sym, .{ .value = file_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(dir_name_sym, .{ .value = dir_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(binding_name_sym, .{ .value = binding_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(range_name_sym, .{ .value = range_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(proc_name_sym, .{ .value = proc_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(method_name_sym, .{ .value = method_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(fiber_name_sym, .{ .value = fiber_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(thread_name_sym, .{ .value = thread_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(mutex_name_sym, .{ .value = mutex_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(queue_name_sym, .{ .value = queue_class_val }) catch return error.Fatal;
         // Register Thread::Mutex alias
-        thread_class_val.toClassObject().module.constants.put(mutex_name_sym, mutex_class_val) catch return error.Fatal;
-        thread_class_val.toClassObject().module.constants.put(queue_name_sym, queue_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(regexp_name_sym, regexp_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(match_data_name_sym, match_data_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(nil_class_name_sym, nil_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(true_class_name_sym, true_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(false_class_name_sym, false_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(kernel_name_sym, kernel_module_val) catch return error.Fatal;
-        self.object_class.module.constants.put(process_name_sym, process_module_val) catch return error.Fatal;
-        self.object_class.module.constants.put(warning_name_sym, warning_module_val) catch return error.Fatal;
-        self.object_class.module.constants.put(marshal_name_sym, marshal_module_val) catch return error.Fatal;
-        self.object_class.module.constants.put(comparable_name_sym, comparable_module_val) catch return error.Fatal;
-        self.object_class.module.constants.put(enumerable_name_sym, enumerable_module_val) catch return error.Fatal;
-        self.object_class.module.constants.put(exception_name_sym, exception_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(standard_error_name_sym, standard_error_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(runtime_error_name_sym, runtime_error_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(syntax_error_name_sym, syntax_error_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(not_implemented_error_name_sym, not_implemented_error_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(frozen_error_name_sym, frozen_error_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(argument_error_name_sym, argument_error_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(key_error_name_sym, key_error_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(type_error_name_sym, type_error_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(zero_division_error_name_sym, zero_division_error_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(name_error_name_sym, name_error_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(no_method_error_name_sym, no_method_error_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(local_jump_error_name_sym, local_jump_error_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(io_error_name_sym, io_error_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(fiber_error_name_sym, fiber_error_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(thread_error_name_sym, thread_error_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(closed_queue_error_name_sym, closed_queue_error_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(load_error_name_sym, load_error_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(encoding_error_name_sym, encoding_error_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(range_error_name_sym, range_error_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(regexp_error_name_sym, regexp_error_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(index_error_name_sym, index_error_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(stop_iteration_name_sym, stop_iteration_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(enumerator_name_sym, enumerator_class_val) catch return error.Fatal;
-        self.enumerator_class.module.constants.put(yielder_name_sym, yielder_class_val) catch return error.Fatal;
-        self.object_class.module.constants.put(encoding_name_sym, encoding_class_val) catch return error.Fatal;
+        thread_class_val.toClassObject().module.constants.put(mutex_name_sym, .{ .value = mutex_class_val }) catch return error.Fatal;
+        thread_class_val.toClassObject().module.constants.put(queue_name_sym, .{ .value = queue_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(regexp_name_sym, .{ .value = regexp_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(match_data_name_sym, .{ .value = match_data_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(nil_class_name_sym, .{ .value = nil_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(true_class_name_sym, .{ .value = true_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(false_class_name_sym, .{ .value = false_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(kernel_name_sym, .{ .value = kernel_module_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(process_name_sym, .{ .value = process_module_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(warning_name_sym, .{ .value = warning_module_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(marshal_name_sym, .{ .value = marshal_module_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(comparable_name_sym, .{ .value = comparable_module_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(enumerable_name_sym, .{ .value = enumerable_module_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(exception_name_sym, .{ .value = exception_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(standard_error_name_sym, .{ .value = standard_error_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(runtime_error_name_sym, .{ .value = runtime_error_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(syntax_error_name_sym, .{ .value = syntax_error_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(not_implemented_error_name_sym, .{ .value = not_implemented_error_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(frozen_error_name_sym, .{ .value = frozen_error_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(argument_error_name_sym, .{ .value = argument_error_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(key_error_name_sym, .{ .value = key_error_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(type_error_name_sym, .{ .value = type_error_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(zero_division_error_name_sym, .{ .value = zero_division_error_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(name_error_name_sym, .{ .value = name_error_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(no_method_error_name_sym, .{ .value = no_method_error_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(local_jump_error_name_sym, .{ .value = local_jump_error_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(io_error_name_sym, .{ .value = io_error_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(fiber_error_name_sym, .{ .value = fiber_error_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(thread_error_name_sym, .{ .value = thread_error_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(closed_queue_error_name_sym, .{ .value = closed_queue_error_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(load_error_name_sym, .{ .value = load_error_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(encoding_error_name_sym, .{ .value = encoding_error_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(range_error_name_sym, .{ .value = range_error_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(regexp_error_name_sym, .{ .value = regexp_error_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(index_error_name_sym, .{ .value = index_error_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(stop_iteration_name_sym, .{ .value = stop_iteration_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(enumerator_name_sym, .{ .value = enumerator_class_val }) catch return error.Fatal;
+        self.enumerator_class.module.constants.put(yielder_name_sym, .{ .value = yielder_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(encoding_name_sym, .{ .value = encoding_class_val }) catch return error.Fatal;
         const ruby_engine_sym = try self.intern("RUBY_ENGINE");
         const ruby_version_sym = try self.intern("RUBY_VERSION");
         const ruby_platform_sym = try self.intern("RUBY_PLATFORM");
@@ -946,13 +947,13 @@ pub const VM = struct {
         const ruby_platform_val = try self.newString(ruby_platform, false);
         const ruby_description = comptime std.fmt.comptimePrint("cora 4.0.0p0 ({s}-{s})", .{ @tagName(builtin.cpu.arch), @tagName(builtin.os.tag) });
         const ruby_description_val = try self.newString(ruby_description, false);
-        self.object_class.module.constants.put(ruby_engine_sym, ruby_engine_val) catch return error.Fatal;
-        self.object_class.module.constants.put(ruby_version_sym, ruby_version_val) catch return error.Fatal;
-        self.object_class.module.constants.put(ruby_platform_sym, ruby_platform_val) catch return error.Fatal;
-        self.object_class.module.constants.put(ruby_patchlevel_sym, Value.integer(0)) catch return error.Fatal;
-        self.object_class.module.constants.put(ruby_description_sym, ruby_description_val) catch return error.Fatal;
-        self.marshal_module.constants.put(marshal_major_version_sym, Value.integer(4)) catch return error.Fatal;
-        self.marshal_module.constants.put(marshal_minor_version_sym, Value.integer(8)) catch return error.Fatal;
+        self.object_class.module.constants.put(ruby_engine_sym, .{ .value = ruby_engine_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(ruby_version_sym, .{ .value = ruby_version_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(ruby_platform_sym, .{ .value = ruby_platform_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(ruby_patchlevel_sym, .{ .value = Value.integer(0) }) catch return error.Fatal;
+        self.object_class.module.constants.put(ruby_description_sym, .{ .value = ruby_description_val }) catch return error.Fatal;
+        self.marshal_module.constants.put(marshal_major_version_sym, .{ .value = Value.integer(4) }) catch return error.Fatal;
+        self.marshal_module.constants.put(marshal_minor_version_sym, .{ .value = Value.integer(8) }) catch return error.Fatal;
 
         const rbconfig_val = try self.newModule(rbconfig_sym);
         const rbconfig_module = rbconfig_val.toModuleObject();
@@ -981,9 +982,9 @@ pub const VM = struct {
         try self.hashSetEntry(rbconfig_config, try self.newString("sitelibdir", false), try self.newString("", false));
         try self.hashSetEntry(rbconfig_config, try self.newString("AR", false), try self.newString("ar", false));
         try self.hashSetEntry(rbconfig_config, try self.newString("STRIP", false), try self.newString("strip", false));
-        rbconfig_module.constants.put(config_sym, rbconfig_config_val) catch return error.Fatal;
-        rbconfig_module.constants.put(topdir_sym, Value.nil()) catch return error.Fatal;
-        self.object_class.module.constants.put(rbconfig_sym, rbconfig_val) catch return error.Fatal;
+        rbconfig_module.constants.put(config_sym, .{ .value = rbconfig_config_val }) catch return error.Fatal;
+        rbconfig_module.constants.put(topdir_sym, .{ .value = Value.nil() }) catch return error.Fatal;
+        self.object_class.module.constants.put(rbconfig_sym, .{ .value = rbconfig_val }) catch return error.Fatal;
         try self.setArgv(&[_][]const u8{});
 
         const stdin_sym = try self.intern("STDIN");
@@ -992,9 +993,9 @@ pub const VM = struct {
         const stdin_obj = try self.newIo(self.io_class, 0, false, true, false, false);
         const stdout_obj = try self.newIo(self.io_class, 1, false, false, true, false);
         const stderr_obj = try self.newIo(self.io_class, 2, false, false, true, false);
-        self.object_class.module.constants.put(stdin_sym, stdin_obj) catch return error.Fatal;
-        self.object_class.module.constants.put(stdout_sym, stdout_obj) catch return error.Fatal;
-        self.object_class.module.constants.put(stderr_sym, stderr_obj) catch return error.Fatal;
+        self.object_class.module.constants.put(stdin_sym, .{ .value = stdin_obj }) catch return error.Fatal;
+        self.object_class.module.constants.put(stdout_sym, .{ .value = stdout_obj }) catch return error.Fatal;
+        self.object_class.module.constants.put(stderr_sym, .{ .value = stderr_obj }) catch return error.Fatal;
         try self.setGlobal("$stdin", stdin_obj);
         try self.setGlobal("$stdout", stdout_obj);
         try self.setGlobal("$stderr", stderr_obj);
@@ -1004,7 +1005,7 @@ pub const VM = struct {
         const env_obj = try self.newInstance(self.object_class);
         self.env_object = env_obj;
         const env_sym = try self.intern("ENV");
-        self.object_class.module.constants.put(env_sym, env_obj) catch return error.Fatal;
+        self.object_class.module.constants.put(env_sym, .{ .value = env_obj }) catch return error.Fatal;
 
         // Register encoding constants on Encoding class
         const utf8_const_sym = try self.intern("UTF_8");
@@ -1053,38 +1054,38 @@ pub const VM = struct {
         const utf32be_val = Value.fromObject(self.encoding_utf32be);
         const encoding_converter_class_val = try self.newClass(converter_const_sym, self.object_class);
 
-        self.encoding_class.module.constants.put(utf8_const_sym, utf8_val) catch return error.Fatal;
-        self.encoding_class.module.constants.put(cesu8_const_sym, cesu8_val) catch return error.Fatal;
-        self.encoding_class.module.constants.put(ascii_8bit_const_sym, ascii_8bit_val) catch return error.Fatal;
-        self.encoding_class.module.constants.put(binary_const_sym, ascii_8bit_val) catch return error.Fatal; // BINARY is alias for ASCII_8BIT
-        self.encoding_class.module.constants.put(us_ascii_const_sym, us_ascii_val) catch return error.Fatal;
-        self.encoding_class.module.constants.put(ascii_const_sym, us_ascii_val) catch return error.Fatal;
-        self.encoding_class.module.constants.put(shift_jis_const_sym, shift_jis_val) catch return error.Fatal;
-        self.encoding_class.module.constants.put(shift_jis_mixed_const_sym, shift_jis_val) catch return error.Fatal;
-        self.encoding_class.module.constants.put(sjis_const_sym, windows_31j_val) catch return error.Fatal;
-        self.encoding_class.module.constants.put(windows_31j_const_sym, windows_31j_val) catch return error.Fatal;
-        self.encoding_class.module.constants.put(euc_jp_const_sym, euc_jp_val) catch return error.Fatal;
-        self.encoding_class.module.constants.put(iso_8859_1_const_sym, iso_8859_15_val) catch return error.Fatal;
-        self.encoding_class.module.constants.put(iso_8859_9_const_sym, iso_8859_9_val) catch return error.Fatal;
-        self.encoding_class.module.constants.put(iso8859_9_const_sym, iso_8859_9_val) catch return error.Fatal;
-        self.encoding_class.module.constants.put(iso_8859_15_const_sym, iso_8859_15_val) catch return error.Fatal;
-        self.encoding_class.module.constants.put(utf7_const_sym, utf7_val) catch return error.Fatal;
-        self.encoding_class.module.constants.put(utf16_const_sym, utf16_val) catch return error.Fatal;
-        self.encoding_class.module.constants.put(utf16le_const_sym, utf16le_val) catch return error.Fatal;
-        self.encoding_class.module.constants.put(utf16be_const_sym, utf16be_val) catch return error.Fatal;
-        self.encoding_class.module.constants.put(utf32_const_sym, utf32_val) catch return error.Fatal;
-        self.encoding_class.module.constants.put(utf32le_const_sym, utf32le_val) catch return error.Fatal;
-        self.encoding_class.module.constants.put(utf32be_const_sym, utf32be_val) catch return error.Fatal;
-        self.encoding_class.module.constants.put(iso_2022_jp_const_sym, Value.fromObject(self.encoding_iso_2022_jp)) catch return error.Fatal;
-        self.encoding_class.module.constants.put(emacs_mule_const_sym, windows_31j_val) catch return error.Fatal;
-        self.encoding_class.module.constants.put(windows_1251_const_sym, iso_8859_15_val) catch return error.Fatal;
+        self.encoding_class.module.constants.put(utf8_const_sym, .{ .value = utf8_val }) catch return error.Fatal;
+        self.encoding_class.module.constants.put(cesu8_const_sym, .{ .value = cesu8_val }) catch return error.Fatal;
+        self.encoding_class.module.constants.put(ascii_8bit_const_sym, .{ .value = ascii_8bit_val }) catch return error.Fatal;
+        self.encoding_class.module.constants.put(binary_const_sym, .{ .value = ascii_8bit_val }) catch return error.Fatal; // BINARY is alias for ASCII_8BIT
+        self.encoding_class.module.constants.put(us_ascii_const_sym, .{ .value = us_ascii_val }) catch return error.Fatal;
+        self.encoding_class.module.constants.put(ascii_const_sym, .{ .value = us_ascii_val }) catch return error.Fatal;
+        self.encoding_class.module.constants.put(shift_jis_const_sym, .{ .value = shift_jis_val }) catch return error.Fatal;
+        self.encoding_class.module.constants.put(shift_jis_mixed_const_sym, .{ .value = shift_jis_val }) catch return error.Fatal;
+        self.encoding_class.module.constants.put(sjis_const_sym, .{ .value = windows_31j_val }) catch return error.Fatal;
+        self.encoding_class.module.constants.put(windows_31j_const_sym, .{ .value = windows_31j_val }) catch return error.Fatal;
+        self.encoding_class.module.constants.put(euc_jp_const_sym, .{ .value = euc_jp_val }) catch return error.Fatal;
+        self.encoding_class.module.constants.put(iso_8859_1_const_sym, .{ .value = iso_8859_15_val }) catch return error.Fatal;
+        self.encoding_class.module.constants.put(iso_8859_9_const_sym, .{ .value = iso_8859_9_val }) catch return error.Fatal;
+        self.encoding_class.module.constants.put(iso8859_9_const_sym, .{ .value = iso_8859_9_val }) catch return error.Fatal;
+        self.encoding_class.module.constants.put(iso_8859_15_const_sym, .{ .value = iso_8859_15_val }) catch return error.Fatal;
+        self.encoding_class.module.constants.put(utf7_const_sym, .{ .value = utf7_val }) catch return error.Fatal;
+        self.encoding_class.module.constants.put(utf16_const_sym, .{ .value = utf16_val }) catch return error.Fatal;
+        self.encoding_class.module.constants.put(utf16le_const_sym, .{ .value = utf16le_val }) catch return error.Fatal;
+        self.encoding_class.module.constants.put(utf16be_const_sym, .{ .value = utf16be_val }) catch return error.Fatal;
+        self.encoding_class.module.constants.put(utf32_const_sym, .{ .value = utf32_val }) catch return error.Fatal;
+        self.encoding_class.module.constants.put(utf32le_const_sym, .{ .value = utf32le_val }) catch return error.Fatal;
+        self.encoding_class.module.constants.put(utf32be_const_sym, .{ .value = utf32be_val }) catch return error.Fatal;
+        self.encoding_class.module.constants.put(iso_2022_jp_const_sym, .{ .value = Value.fromObject(self.encoding_iso_2022_jp) }) catch return error.Fatal;
+        self.encoding_class.module.constants.put(emacs_mule_const_sym, .{ .value = windows_31j_val }) catch return error.Fatal;
+        self.encoding_class.module.constants.put(windows_1251_const_sym, .{ .value = iso_8859_15_val }) catch return error.Fatal;
         const ibm437_const_sym = try self.intern("IBM437");
-        self.encoding_class.module.constants.put(ibm437_const_sym, cp437_val) catch return error.Fatal;
-        self.encoding_class.module.constants.put(converter_const_sym, encoding_converter_class_val) catch return error.Fatal;
-        self.encoding_class.module.constants.put(encoding_compatibility_error_name_sym, encoding_compatibility_error_class_val) catch return error.Fatal;
-        self.encoding_class.module.constants.put(encoding_converter_not_found_error_name_sym, encoding_converter_not_found_error_class_val) catch return error.Fatal;
-        self.encoding_class.module.constants.put(encoding_undefined_conversion_error_name_sym, encoding_undefined_conversion_error_class_val) catch return error.Fatal;
-        self.encoding_class.module.constants.put(encoding_invalid_byte_sequence_error_name_sym, encoding_invalid_byte_sequence_error_class_val) catch return error.Fatal;
+        self.encoding_class.module.constants.put(ibm437_const_sym, .{ .value = cp437_val }) catch return error.Fatal;
+        self.encoding_class.module.constants.put(converter_const_sym, .{ .value = encoding_converter_class_val }) catch return error.Fatal;
+        self.encoding_class.module.constants.put(encoding_compatibility_error_name_sym, .{ .value = encoding_compatibility_error_class_val }) catch return error.Fatal;
+        self.encoding_class.module.constants.put(encoding_converter_not_found_error_name_sym, .{ .value = encoding_converter_not_found_error_class_val }) catch return error.Fatal;
+        self.encoding_class.module.constants.put(encoding_undefined_conversion_error_name_sym, .{ .value = encoding_undefined_conversion_error_class_val }) catch return error.Fatal;
+        self.encoding_class.module.constants.put(encoding_invalid_byte_sequence_error_name_sym, .{ .value = encoding_invalid_byte_sequence_error_class_val }) catch return error.Fatal;
 
         // --- Stage 5: Register built-in methods ---
         builtins.registerAll(self) catch return error.Fatal;
@@ -1110,7 +1111,7 @@ pub const VM = struct {
         self.current_lexical_scope = try self.createLexicalScope(Value.fromObject(self.object_class), null);
         const toplevel_binding = try self.createBinding(self.main_self, null, self.current_lexical_scope);
         const toplevel_binding_sym = try self.intern("TOPLEVEL_BINDING");
-        self.object_class.module.constants.put(toplevel_binding_sym, Value.fromObject(toplevel_binding)) catch return error.Fatal;
+        self.object_class.module.constants.put(toplevel_binding_sym, .{ .value = Value.fromObject(toplevel_binding) }) catch return error.Fatal;
 
         // --- Stage 7: Initialize main fiber and bind VM state to it ---
         const main_fiber_obj = self.gc_allocator.create(value.FiberObject) catch return error.Fatal;
@@ -1354,6 +1355,37 @@ pub const VM = struct {
         return &module_obj.autoloads;
     }
 
+    fn moduleDisplayNameForWarning(self: *VM, module_obj: *value.ModuleObject) VMError![]const u8 {
+        _ = self;
+        return module_obj.name.name;
+    }
+
+    fn warnDeprecatedConstant(self: *VM, module_obj: *value.ModuleObject, name_sym: *value.SymbolObject) VMError!void {
+        if (!self.warning_deprecated_enabled) return;
+        const entry = module_obj.constants.get(name_sym) orelse return;
+        if (!entry.flags.deprecated) return;
+
+        const module_name = try self.moduleDisplayNameForWarning(module_obj);
+        const warning = std.fmt.allocPrint(
+            self.allocator,
+            "warning: constant {s}::{s} is deprecated\n",
+            .{ module_name, name_sym.name },
+        ) catch return error.Fatal;
+        defer self.allocator.free(warning);
+        try warning_builtin.writeWarning(self, warning);
+    }
+
+    fn raisePrivateConstantReference(self: *VM, module_obj: *value.ModuleObject, name_sym: *value.SymbolObject) VMError!void {
+        const msg = std.fmt.allocPrint(
+            self.gc_allocator,
+            "private constant {s}::{s} referenced",
+            .{ module_obj.name.name, name_sym.name },
+        ) catch return error.Fatal;
+        const exc = try self.createException(self.name_error_class, msg);
+        self.pending_exception = exc;
+        return error.Unwind;
+    }
+
     pub fn autoloadTableForReceiver(self: *VM, receiver: Value) ?*std.AutoHashMap(*SymbolObject, []const u8) {
         _ = self;
         if (receiver.isClass()) return &receiver.toClassObject().module.autoloads;
@@ -1400,7 +1432,7 @@ pub const VM = struct {
         _ = try self.callMethodByName(try self.autoloadRequireReceiver(), "require", require_args[0..], null);
         if (module_obj.constants.get(name_sym)) |loaded| {
             self.clearAutoload(module_obj, name_sym);
-            return .{ .loaded = loaded };
+            return .{ .loaded = loaded.value };
         }
         return .attempted;
     }
@@ -1410,8 +1442,9 @@ pub const VM = struct {
         var current_scope: ?*LexicalScope = scope;
         while (current_scope) |s| {
             const module_obj = s.getModule();
-            if (module_obj.constants.get(name)) |val| {
-                result.value = val;
+            if (module_obj.constants.get(name)) |entry| {
+                try self.warnDeprecatedConstant(module_obj, name);
+                result.value = entry.value;
                 return result;
             }
             switch (try self.triggerAutoload(module_obj, name)) {
@@ -1515,7 +1548,7 @@ pub const VM = struct {
         }
 
         const argv_sym = try self.intern("ARGV");
-        self.object_class.module.constants.put(argv_sym, Value.fromObject(argv_array)) catch return error.Fatal;
+        self.object_class.module.constants.put(argv_sym, .{ .value = Value.fromObject(argv_array) }) catch return error.Fatal;
     }
 
     pub fn setInputRecordSeparator(self: *VM, separator: []const u8, frozen: bool) VMError!void {
@@ -3496,8 +3529,9 @@ pub const VM = struct {
                 }
 
                 // Fallback: top-level Object constants
-                if (self.object_class.module.constants.get(name_sym)) |const_val| {
-                    try self.push(const_val);
+                if (self.object_class.module.constants.get(name_sym)) |entry| {
+                    try self.warnDeprecatedConstant(&self.object_class.module, name_sym);
+                    try self.push(entry.value);
                 } else {
                     if (!lexical_lookup.object_autoload_attempted) {
                         switch (try self.triggerAutoload(&self.object_class.module, name_sym)) {
@@ -3533,8 +3567,9 @@ pub const VM = struct {
                     }
                 }
 
-                if (self.object_class.module.constants.get(name_sym)) |const_val| {
-                    try self.push(const_val);
+                if (self.object_class.module.constants.get(name_sym)) |entry| {
+                    try self.warnDeprecatedConstant(&self.object_class.module, name_sym);
+                    try self.push(entry.value);
                 } else {
                     if (!lexical_lookup.object_autoload_attempted) {
                         switch (try self.triggerAutoload(&self.object_class.module, name_sym)) {
@@ -3557,10 +3592,45 @@ pub const VM = struct {
 
                 // Set in current lexical scope's module (or Object if no scope)
                 if (frame.ep.lexical_scope) |scope| {
-                    scope.getModule().constants.put(name_sym, val) catch return error.Fatal;
+                    const module = scope.getModule();
+                    if (module.constants.getPtr(name_sym)) |entry| {
+                        entry.value = val;
+                    } else {
+                        module.constants.put(name_sym, .{ .value = val }) catch return error.Fatal;
+                    }
                 } else {
-                    self.object_class.module.constants.put(name_sym, val) catch return error.Fatal;
+                    if (self.object_class.module.constants.getPtr(name_sym)) |entry| {
+                        entry.value = val;
+                    } else {
+                        self.object_class.module.constants.put(name_sym, .{ .value = val }) catch return error.Fatal;
+                    }
                 }
+                try self.push(val);
+            },
+
+            .SET_CONST_PATH => {
+                const idx = readU16From(frame, operands, &operand_cursor);
+                const val = self.pop();
+                const parent_val = self.pop();
+                const constant = constants[idx];
+                const name_sym = try self.intern(constant.string);
+
+                const module = if (parent_val.isClass())
+                    &parent_val.toClassObject().module
+                else if (parent_val.isModule())
+                    parent_val.toModuleObject()
+                else {
+                    const exc = try self.createException(self.type_error_class, "receiver is not a Module");
+                    self.pending_exception = exc;
+                    return error.Unwind;
+                };
+
+                if (module.constants.getPtr(name_sym)) |entry| {
+                    entry.value = val;
+                } else {
+                    module.constants.put(name_sym, .{ .value = val }) catch return error.Fatal;
+                }
+                _ = module.autoloads.remove(name_sym);
                 try self.push(val);
             },
 
@@ -3576,8 +3646,12 @@ pub const VM = struct {
                     parent_val.toModuleObject()
                 else
                     unreachable;
-                if (module.constants.get(name_sym)) |const_val| {
-                    try self.push(const_val);
+                if (module.constants.get(name_sym)) |entry| {
+                    if (entry.flags.visibility == .private) {
+                        try self.raisePrivateConstantReference(module, name_sym);
+                    }
+                    try self.warnDeprecatedConstant(module, name_sym);
+                    try self.push(entry.value);
                 } else {
                     switch (try self.triggerAutoload(module, name_sym)) {
                         .missing, .attempted => {},
@@ -4130,7 +4204,7 @@ pub const VM = struct {
                         }
 
                         const fresh_module = try self.newModule(target.name_sym);
-                        target.owner_module.constants.put(target.name_sym, fresh_module) catch return error.Fatal;
+                        target.owner_module.constants.put(target.name_sym, .{ .value = fresh_module }) catch return error.Fatal;
                         break :blk fresh_module;
                     };
 
@@ -4188,7 +4262,7 @@ pub const VM = struct {
                     } else {
                         // Create new class
                         class_val = try self.newClass(target.name_sym, superclass);
-                        target.owner_module.constants.put(target.name_sym, class_val) catch return error.Fatal;
+                        target.owner_module.constants.put(target.name_sym, .{ .value = class_val }) catch return error.Fatal;
                     }
 
                     // Execute class body if it exists
@@ -6085,7 +6159,7 @@ pub const VM = struct {
                     if (lexical_lookup.value) |val| break :blk val;
                 }
             }
-            break :blk self.object_class.module.constants.get(first_sym) orelse return null;
+            break :blk (self.object_class.module.constants.get(first_sym) orelse return null).value;
         };
 
         while (segments.next()) |segment| {
@@ -6097,7 +6171,7 @@ pub const VM = struct {
                 &current.toClassObject().module
             else
                 current.toModuleObject();
-            current = module_obj.constants.get(segment_sym) orelse return null;
+            current = (module_obj.constants.get(segment_sym) orelse return null).value;
         }
 
         return current;
@@ -6145,7 +6219,7 @@ pub const VM = struct {
             const name_sym = try self.intern(child_name);
             return .{
                 .owner_module = owner_module,
-                .existing_value = owner_module.constants.get(name_sym),
+                .existing_value = if (owner_module.constants.get(name_sym)) |entry| entry.value else null,
                 .name_sym = name_sym,
             };
         }
@@ -6155,7 +6229,7 @@ pub const VM = struct {
 
         return .{
             .owner_module = owner_module,
-            .existing_value = owner_module.constants.get(name_sym),
+            .existing_value = if (owner_module.constants.get(name_sym)) |entry| entry.value else null,
             .name_sym = name_sym,
         };
     }
@@ -6444,9 +6518,8 @@ pub const VM = struct {
                 },
                 .name = singleton_name_sym,
                 .methods = std.AutoHashMap(*value.SymbolObject, MethodEntry).init(self.gc_allocator),
-                .constants = std.AutoHashMap(*value.SymbolObject, value.Value).init(self.gc_allocator),
+                .constants = std.AutoHashMap(*value.SymbolObject, value.ConstEntry).init(self.gc_allocator),
                 .autoloads = std.AutoHashMap(*value.SymbolObject, []const u8).init(self.gc_allocator),
-                .private_constants = std.AutoHashMap(*value.SymbolObject, void).init(self.gc_allocator),
                 .class_variables = std.AutoHashMap(*value.SymbolObject, value.Value).init(self.gc_allocator),
             },
         };
@@ -6554,9 +6627,8 @@ pub const VM = struct {
             .object = .{ .type_tag = .module, .flags = 0, .class = self.module_class, .singleton_class = null, .instance_variables = null },
             .name = name,
             .methods = std.AutoHashMap(*SymbolObject, MethodEntry).init(self.gc_allocator),
-            .constants = std.AutoHashMap(*SymbolObject, Value).init(self.gc_allocator),
+            .constants = std.AutoHashMap(*value.SymbolObject, value.ConstEntry).init(self.gc_allocator),
             .autoloads = std.AutoHashMap(*SymbolObject, []const u8).init(self.gc_allocator),
-            .private_constants = std.AutoHashMap(*SymbolObject, void).init(self.gc_allocator),
             .class_variables = std.AutoHashMap(*SymbolObject, Value).init(self.gc_allocator),
         };
         return Value.fromObject(module_obj);
@@ -6577,9 +6649,8 @@ pub const VM = struct {
                 .object = .{ .type_tag = .class, .flags = 0, .class = self.class_class, .singleton_class = null, .instance_variables = null },
                 .name = name,
                 .methods = std.AutoHashMap(*SymbolObject, MethodEntry).init(self.gc_allocator),
-                .constants = std.AutoHashMap(*SymbolObject, Value).init(self.gc_allocator),
+            .constants = std.AutoHashMap(*value.SymbolObject, value.ConstEntry).init(self.gc_allocator),
                 .autoloads = std.AutoHashMap(*SymbolObject, []const u8).init(self.gc_allocator),
-                .private_constants = std.AutoHashMap(*SymbolObject, void).init(self.gc_allocator),
                 .class_variables = std.AutoHashMap(*SymbolObject, Value).init(self.gc_allocator),
             },
         };

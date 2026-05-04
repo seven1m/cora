@@ -10,9 +10,9 @@ const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
     const converter_const_sym = try vm.intern("Converter");
-    if (vm.encoding_class.module.constants.get(converter_const_sym)) |converter_val| {
+    if (vm.encoding_class.module.constants.get(converter_const_sym)) |converter_entry| {
         const initialize_sym = try vm.intern("initialize");
-        try converter_val.toClassObject().module.methods.put(initialize_sym, .{ .method = .{ .builtin = &builtinEncodingConverterInitialize } });
+        try converter_entry.value.toClassObject().module.methods.put(initialize_sym, .{ .method = .{ .builtin = &builtinEncodingConverterInitialize } });
     }
 }
 

@@ -1417,7 +1417,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/module/constants_spec.rb
 - [ ] core/module/define_method_spec.rb
 - [ ] core/module/define_singleton_method_spec.rb
-- [ ] core/module/deprecate_constant_spec.rb
+- [x] core/module/deprecate_constant_spec.rb
 - [ ] core/module/eql_spec.rb
 - [ ] core/module/equal_spec.rb
 - [ ] core/module/equal_value_spec.rb

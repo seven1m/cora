@@ -15,11 +15,11 @@ pub fn register(vm: *VM) !void {
     const tcp_server_name = try vm.intern("TCPServer");
     const tcp_server_val = try vm.newClassWithType(tcp_server_name, vm.io_class, .io);
     const tcp_server_class = tcp_server_val.toClassObject();
-    try vm.object_class.module.constants.put(tcp_server_name, tcp_server_val);
+    try vm.object_class.module.constants.put(tcp_server_name, .{ .value = tcp_server_val });
 
     const tcp_socket_name = try vm.intern("TCPSocket");
     const tcp_socket_val = try vm.newClassWithType(tcp_socket_name, vm.io_class, .io);
-    try vm.object_class.module.constants.put(tcp_socket_name, tcp_socket_val);
+    try vm.object_class.module.constants.put(tcp_socket_name, .{ .value = tcp_socket_val });
 
     const tcp_server_singleton = try vm.getOrCreateSingletonClass(tcp_server_val);
     const new_sym = try vm.intern("new");
@@ -73,8 +73,8 @@ pub fn builtinTCPServerNew(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
     }
 
     const tcp_server_name = try vm.intern("TCPServer");
-    const tcp_server_val = vm.object_class.module.constants.get(tcp_server_name) orelse return error.Fatal;
-    return vm.newIo(tcp_server_val.toClassObject(), @intCast(fd), true, true, false, false);
+    const tcp_server_entry = vm.object_class.module.constants.get(tcp_server_name) orelse return error.Fatal;
+    return vm.newIo(tcp_server_entry.value.toClassObject(), @intCast(fd), true, true, false, false);
 }
 
 pub fn builtinTCPServerAccept(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -89,6 +89,6 @@ pub fn builtinTCPServerAccept(vm: *VM, receiver: Value, args: []Value, _: ?Block
     if (client_fd < 0) return socketError(vm, "accept() failed", .{});
 
     const tcp_socket_name = try vm.intern("TCPSocket");
-    const tcp_socket_val = vm.object_class.module.constants.get(tcp_socket_name) orelse return error.Fatal;
-    return vm.newIo(tcp_socket_val.toClassObject(), @intCast(client_fd), true, true, true, false);
+    const tcp_socket_entry = vm.object_class.module.constants.get(tcp_socket_name) orelse return error.Fatal;
+    return vm.newIo(tcp_socket_entry.value.toClassObject(), @intCast(client_fd), true, true, true, false);
 }

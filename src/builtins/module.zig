@@ -2,6 +2,7 @@ const std = @import("std");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 const method_reflection = @import("method_reflection.zig");
+const warning_builtin = @import("warning.zig");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -60,26 +61,22 @@ fn collectOwnConstantSymbols(
 ) VMError!void {
     var it = module_obj.constants.iterator();
     while (it.next()) |entry| {
-        if (module_obj.private_constants.contains(entry.key_ptr.*)) continue;
+        if (entry.value_ptr.*.flags.visibility == .private) continue;
         try appendConstantSymbolUnique(vm, out, seen, entry.key_ptr.*);
     }
 
     var autoload_it = module_obj.autoloads.iterator();
     while (autoload_it.next()) |entry| {
-        if (module_obj.private_constants.contains(entry.key_ptr.*)) continue;
+        if (module_obj.constants.get(entry.key_ptr.*)) |const_entry| {
+            if (const_entry.flags.visibility == .private) continue;
+        }
         try appendConstantSymbolUnique(vm, out, seen, entry.key_ptr.*);
     }
 }
 
-fn constantsTable(receiver: Value) ?*std.AutoHashMap(*SymbolObject, Value) {
+fn constantsTable(receiver: Value) ?*std.AutoHashMap(*SymbolObject, value.ConstEntry) {
     if (receiver.isClass()) return &receiver.toClassObject().module.constants;
     if (receiver.isModule()) return &receiver.toModuleObject().constants;
-    return null;
-}
-
-fn privateConstantsTable(receiver: Value) ?*std.AutoHashMap(*SymbolObject, void) {
-    if (receiver.isClass()) return &receiver.toClassObject().module.private_constants;
-    if (receiver.isModule()) return &receiver.toModuleObject().private_constants;
     return null;
 }
 
@@ -95,8 +92,12 @@ fn moduleFromValue(receiver: Value) ?*value.ModuleObject {
     return null;
 }
 
+fn constantEntryOnModule(module_obj: *value.ModuleObject, name_sym: *SymbolObject) ?value.ConstEntry {
+    return module_obj.constants.get(name_sym);
+}
+
 fn lookupConstantOnModule(module_obj: *value.ModuleObject, name_sym: *SymbolObject) ?Value {
-    if (module_obj.constants.get(name_sym)) |val| return val;
+    if (constantEntryOnModule(module_obj, name_sym)) |entry| return entry.value;
 
     var i = module_obj.prepended_modules.items.len;
     while (i > 0) {
@@ -267,6 +268,22 @@ fn storedModuleName(receiver: Value) []const u8 {
     return if (receiver.isClass()) receiver.toClassObject().module.name.name else receiver.toModuleObject().name.name;
 }
 
+fn warnDeprecatedConstant(vm: *VM, receiver: Value, name_sym: *SymbolObject) VMError!void {
+    if (!vm.warning_deprecated_enabled) return;
+    const module_obj = moduleFromValue(receiver) orelse return;
+    const entry = module_obj.constants.get(name_sym) orelse return;
+    if (!entry.flags.deprecated) return;
+
+    const module_name = storedModuleName(receiver);
+    const warning = std.fmt.allocPrint(
+        vm.allocator,
+        "warning: constant {s}::{s} is deprecated\n",
+        .{ module_name, name_sym.name },
+    ) catch return error.Fatal;
+    defer vm.allocator.free(warning);
+    try warning_builtin.writeWarning(vm, warning);
+}
+
 fn isSyntheticSingletonName(name: []const u8) bool {
     return std.mem.startsWith(u8, name, "#<Class:#");
 }
@@ -289,7 +306,7 @@ fn findNestedConstantPath(
 
     var it = constants.iterator();
     while (it.next()) |entry| {
-        const child = entry.value_ptr.*;
+        const child = entry.value_ptr.*.value;
         if (!child.isModule() and !child.isClass()) continue;
 
         const path = std.fmt.allocPrint(vm.gc_allocator, "{s}::{s}", .{ owner_path, entry.key_ptr.*.name }) catch return error.Fatal;
@@ -298,7 +315,7 @@ fn findNestedConstantPath(
 
     it = constants.iterator();
     while (it.next()) |entry| {
-        const child = entry.value_ptr.*;
+        const child = entry.value_ptr.*.value;
         if (!child.isModule() and !child.isClass()) continue;
 
         const path = std.fmt.allocPrint(vm.gc_allocator, "{s}::{s}", .{ owner_path, entry.key_ptr.*.name }) catch return error.Fatal;
@@ -314,7 +331,7 @@ fn findConstantPathFromObject(vm: *VM, target: Value) VMError!?[]const u8 {
 
     var it = vm.object_class.module.constants.iterator();
     while (it.next()) |entry| {
-        const child = entry.value_ptr.*;
+        const child = entry.value_ptr.*.value;
         if (!child.isModule() and !child.isClass()) continue;
 
         const path = entry.key_ptr.*.name;
@@ -323,7 +340,7 @@ fn findConstantPathFromObject(vm: *VM, target: Value) VMError!?[]const u8 {
 
     it = vm.object_class.module.constants.iterator();
     while (it.next()) |entry| {
-        const child = entry.value_ptr.*;
+        const child = entry.value_ptr.*.value;
         if (!child.isModule() and !child.isClass()) continue;
         if (child.raw == Value.fromObject(vm.object_class).raw) continue;
 
@@ -616,6 +633,9 @@ pub fn register(vm: *VM) !void {
     const public_constant_sym = try vm.intern("public_constant");
     try vm.module_class.module.methods.put(public_constant_sym, .{ .method = .{ .builtin = &builtinModulePublicConstant } });
 
+    const deprecate_constant_sym = try vm.intern("deprecate_constant");
+    try vm.module_class.module.methods.put(deprecate_constant_sym, .{ .method = .{ .builtin = &builtinModuleDeprecateConstant } });
+
     const case_equal_sym = try vm.intern("===");
     try vm.module_class.module.methods.put(case_equal_sym, .{ .method = .{ .builtin = &builtinModuleCaseEqual } });
 
@@ -636,6 +656,15 @@ pub fn register(vm: *VM) !void {
 
     const remove_const_sym = try vm.intern("remove_const");
     try vm.module_class.module.methods.put(remove_const_sym, .{ .method = .{ .builtin = &builtinModuleRemoveConst } });
+
+    const const_get_sym = try vm.intern("const_get");
+    try vm.module_class.module.methods.put(const_get_sym, .{ .method = .{ .builtin = &builtinModuleConstGet } });
+
+    const module_eval_sym = try vm.intern("module_eval");
+    try vm.module_class.module.methods.put(module_eval_sym, .{ .method = .{ .builtin = &builtinModuleEval } });
+
+    const class_eval_sym = try vm.intern("class_eval");
+    try vm.module_class.module.methods.put(class_eval_sym, .{ .method = .{ .builtin = &builtinModuleEval } });
 
     const ancestors_sym = try vm.intern("ancestors");
     try vm.module_class.module.methods.put(ancestors_sym, .{ .method = .{ .builtin = &builtinModuleAncestors } });
@@ -766,7 +795,11 @@ pub fn builtinModuleConstSet(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     }
 
     const name_sym = try vm.intern(name);
-    constants.put(name_sym, args[1]) catch return error.Fatal;
+    if (constants.getPtr(name_sym)) |entry| {
+        entry.value = args[1];
+    } else {
+        constants.put(name_sym, .{ .value = args[1] }) catch return error.Fatal;
+    }
     if (autoloadTable(receiver)) |table| {
         _ = table.remove(name_sym);
     }
@@ -829,7 +862,6 @@ pub fn builtinModuleRemoveConst(vm: *VM, receiver: Value, args: []Value, _: ?Blo
         vm.pending_exception = exc;
         return error.Unwind;
     };
-    const private_constants = privateConstantsTable(receiver) orelse unreachable;
 
     const name = try constantNameString(vm, args[0]);
     if (!isValidConstantNameSegment(name)) {
@@ -839,16 +871,16 @@ pub fn builtinModuleRemoveConst(vm: *VM, receiver: Value, args: []Value, _: ?Blo
     const name_sym = try vm.intern(name);
     if (autoloadTable(receiver)) |table| {
         if (table.fetchRemove(name_sym) != null) {
+            try warnDeprecatedConstant(vm, receiver, name_sym);
             _ = constants.remove(name_sym);
-            _ = private_constants.remove(name_sym);
             return Value.nil();
         }
     }
     const removed = constants.fetchRemove(name_sym) orelse {
         return vm.raiseExceptionFmt(vm.name_error_class, "constant {s}::{s} not defined", .{ storedModuleName(receiver), name });
     };
-    _ = private_constants.remove(name_sym);
-    return removed.value;
+    try warnDeprecatedConstant(vm, receiver, name_sym);
+    return removed.value.value;
 }
 
 pub fn builtinModuleAncestors(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -1288,8 +1320,6 @@ fn setConstantVisibility(vm: *VM, receiver: Value, args: []Value, private: bool)
         vm.pending_exception = exc;
         return error.Unwind;
     };
-    const private_constants = privateConstantsTable(receiver) orelse unreachable;
-
     var names: std.ArrayList(*SymbolObject) = .empty;
     defer names.deinit(vm.gc_allocator);
     try normalizeVisibilityArgs(vm, args, &names);
@@ -1306,10 +1336,8 @@ fn setConstantVisibility(vm: *VM, receiver: Value, args: []Value, private: bool)
             return error.Unwind;
         }
 
-        if (private) {
-            private_constants.put(name_sym, {}) catch return error.Fatal;
-        } else {
-            _ = private_constants.remove(name_sym);
+        if (constants.getPtr(name_sym)) |entry| {
+            entry.flags.visibility = if (private) .private else .public;
         }
     }
 
@@ -1322,6 +1350,64 @@ pub fn builtinModulePrivateConstant(vm: *VM, receiver: Value, args: []Value, _: 
 
 pub fn builtinModulePublicConstant(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     return setConstantVisibility(vm, receiver, args, false);
+}
+
+pub fn builtinModuleDeprecateConstant(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireMinArgCount(args, 1);
+
+    const constants = constantsTable(receiver) orelse {
+        const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
+        vm.pending_exception = exc;
+        return error.Unwind;
+    };
+    var names: std.ArrayList(*SymbolObject) = .empty;
+    defer names.deinit(vm.gc_allocator);
+    try normalizeVisibilityArgs(vm, args, &names);
+
+    for (names.items) |name_sym| {
+        if (!constants.contains(name_sym)) {
+            const msg = std.fmt.allocPrint(
+                vm.gc_allocator,
+                "constant {s}::{s} not defined",
+                .{ storedModuleName(receiver), name_sym.name },
+            ) catch return error.Fatal;
+            const exc = try vm.createException(vm.name_error_class, msg);
+            vm.pending_exception = exc;
+            return error.Unwind;
+        }
+        if (constants.getPtr(name_sym)) |entry| {
+            entry.flags.deprecated = true;
+        }
+    }
+
+    return receiver;
+}
+
+pub fn builtinModuleConstGet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+    const inherit = if (args.len == 2) args[1].is_truthy() else true;
+    const name = try constantNameString(vm, args[0]);
+
+    if (std.mem.indexOf(u8, name, "::") != null) {
+        return vm.raiseExceptionFmt(vm.name_error_class, "uninitialized constant {s}", .{name});
+    }
+    if (!isValidConstantNameSegment(name)) {
+        return vm.raiseExceptionFmt(vm.name_error_class, "wrong constant name {s}", .{name});
+    }
+
+    const name_sym = try vm.intern(name);
+    const constant_value = lookupConstantOnReceiver(vm, receiver, name_sym, inherit) orelse {
+        return vm.raiseExceptionFmt(vm.name_error_class, "uninitialized constant {s}::{s}", .{ storedModuleName(receiver), name });
+    };
+    try warnDeprecatedConstant(vm, receiver, name_sym);
+    return constant_value;
+}
+
+pub fn builtinModuleEval(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const blk = try vm.requireBlock(block);
+    const proc_obj = (try vm.newProc(blk)).toProcObject();
+    return vm.callProcObject(proc_obj, &.{}, null, receiver);
 }
 
 pub fn builtinModuleFunction(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

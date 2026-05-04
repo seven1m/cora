@@ -25,6 +25,7 @@ pub const OpCode = enum(u8) {
     GET_CONST, // Operand: u16 (constant name index)
     GET_CONST_OR_NIL, // Operand: u16 (constant name index)
     SET_CONST, // Operand: u16 (constant name index)
+    SET_CONST_PATH, // Operand: u16 (constant name index), receiver and value on stack
     GET_IVAR, // Operand: u16 (constant pool index of variable name)
     SET_IVAR, // Operand: u16 (constant pool index of variable name)
 
@@ -171,7 +172,7 @@ pub fn opcodeOperandSize(op: OpCode) usize {
         .GET_LOCAL_DEEP, .SET_LOCAL_DEEP,
         .GET_GLOBAL, .SET_GLOBAL, .GET_BACKREF,
         .GET_CVAR, .GET_CVAR_OR_NIL, .SET_CVAR,
-        .GET_CONST, .GET_CONST_OR_NIL, .SET_CONST,
+        .GET_CONST, .GET_CONST_OR_NIL, .SET_CONST, .SET_CONST_PATH,
         .GET_IVAR, .SET_IVAR,
         .PUSH_CONST, .PUSH_CSTRING, .PUSH_FSTRING, .PUSH_SYMBOL,
         .JUMP, .JUMP_IF_FALSE, .JUMP_IF_TRUE,
@@ -231,6 +232,7 @@ pub fn opcodeName(op: OpCode) []const u8 {
         .GET_CONST => "GET_CONST",
         .GET_CONST_OR_NIL => "GET_CONST_OR_NIL",
         .SET_CONST => "SET_CONST",
+        .SET_CONST_PATH => "SET_CONST_PATH",
         .GET_IVAR => "GET_IVAR",
         .SET_IVAR => "SET_IVAR",
         .PUSH_SELF => "PUSH_SELF",

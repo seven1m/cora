@@ -41,7 +41,7 @@ test "VM.setArgv sets ARGV constant to provided arguments" {
     try vm.setArgv(&[_][]const u8{ "alpha", "beta", "gamma" });
 
     const argv_sym = try vm.intern("ARGV");
-    const argv_val = vm.object_class.module.constants.get(argv_sym) orelse return error.TestExpectedEqual;
+    const argv_val = (vm.object_class.module.constants.get(argv_sym) orelse return error.TestExpectedEqual).value;
 
     try std.testing.expect(argv_val.isArray());
     const argv = argv_val.toArrayObject().elements.items;

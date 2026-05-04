@@ -21,6 +21,7 @@ pub const ConstantPathNode = c.pm_constant_path_node_t;
 pub const ConstantReadNode = c.pm_constant_read_node_t;
 pub const ConstantAndWriteNode = c.pm_constant_and_write_node_t;
 pub const ConstantOrWriteNode = c.pm_constant_or_write_node_t;
+pub const ConstantPathWriteNode = c.pm_constant_path_write_node_t;
 pub const ConstantWriteNode = c.pm_constant_write_node_t;
 pub const DefNode = c.pm_def_node_t;
 pub const DefinedNode = c.pm_defined_node_t;
@@ -143,6 +144,7 @@ pub const Node = union(enum) {
     constant_read: *ConstantReadNode,
     constant_and_write: *ConstantAndWriteNode,
     constant_or_write: *ConstantOrWriteNode,
+    constant_path_write: *ConstantPathWriteNode,
     constant_write: *ConstantWriteNode,
     def: *DefNode,
     defined: *DefinedNode,
@@ -391,6 +393,9 @@ pub const Parser = struct {
         }
         if (node_type == c.PM_CONSTANT_OR_WRITE_NODE) {
             return Node{ .constant_or_write = @ptrCast(raw) };
+        }
+        if (node_type == c.PM_CONSTANT_PATH_WRITE_NODE) {
+            return Node{ .constant_path_write = @ptrCast(raw) };
         }
 
         if (node_type == c.PM_CONSTANT_PATH_NODE) {

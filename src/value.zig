@@ -115,12 +115,27 @@ pub const ModuleObject = struct {
     object: Object,
     name: *SymbolObject,
     methods: std.AutoHashMap(*SymbolObject, MethodEntry),
-    constants: std.AutoHashMap(*SymbolObject, Value),
+    constants: std.AutoHashMap(*SymbolObject, ConstEntry),
     autoloads: std.AutoHashMap(*SymbolObject, []const u8),
-    private_constants: std.AutoHashMap(*SymbolObject, void),
     class_variables: std.AutoHashMap(*SymbolObject, Value),
     prepended_modules: std.ArrayList(*ModuleObject) = .empty,
     included_modules: std.ArrayList(*ModuleObject) = .empty,
+};
+
+pub const ConstantVisibility = enum(u8) {
+    public = 0,
+    private = 1,
+};
+
+pub const ConstFlags = packed struct(u16) {
+    visibility: ConstantVisibility = .public,
+    deprecated: bool = false,
+    _padding: u7 = 0,
+};
+
+pub const ConstEntry = struct {
+    value: Value,
+    flags: ConstFlags = .{},
 };
 
 pub const MethodEntry = struct {

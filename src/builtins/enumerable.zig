@@ -8,7 +8,8 @@ const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
     const enumerable_sym = try vm.intern("Enumerable");
-    const enumerable_val = vm.object_class.module.constants.get(enumerable_sym) orelse return error.Fatal;
+    const enumerable_entry = vm.object_class.module.constants.get(enumerable_sym) orelse return error.Fatal;
+    const enumerable_val = enumerable_entry.value;
     const entries_sym = try vm.intern("entries");
     try enumerable_val.toModuleObject().methods.put(entries_sym, .{ .method = .{ .builtin = &builtinEnumerableEntries } });
     const map_sym = try vm.intern("map");
