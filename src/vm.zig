@@ -329,6 +329,7 @@ pub const VM = struct {
 
     // Exception classes
     exception_class: *value.ClassObject,
+    system_exit_class: *value.ClassObject,
     standard_error_class: *value.ClassObject,
     runtime_error_class: *value.ClassObject,
     syntax_error_class: *value.ClassObject,
@@ -490,6 +491,7 @@ pub const VM = struct {
             .mutex_waiters = std.AutoHashMap(*value.MutexObject, std.ArrayList(*value.ThreadObject)).init(allocator),
             .thread_preempt_quantum_ops = DEFAULT_THREAD_PREEMPT_QUANTUM_OPS,
             .exception_class = undefined,
+            .system_exit_class = undefined,
             .standard_error_class = undefined,
             .runtime_error_class = undefined,
             .syntax_error_class = undefined,
@@ -727,6 +729,10 @@ pub const VM = struct {
         const exception_class_val = try self.newClass(exception_name_sym, self.object_class);
         self.exception_class = exception_class_val.toClassObject();
 
+        const system_exit_name_sym = try self.intern("SystemExit");
+        const system_exit_class_val = try self.newClass(system_exit_name_sym, self.exception_class);
+        self.system_exit_class = system_exit_class_val.toClassObject();
+
         const standard_error_name_sym = try self.intern("StandardError");
         const standard_error_class_val = try self.newClass(standard_error_name_sym, self.exception_class);
         self.standard_error_class = standard_error_class_val.toClassObject();
@@ -906,6 +912,7 @@ pub const VM = struct {
         self.object_class.module.constants.put(comparable_name_sym, .{ .value = comparable_module_val }) catch return error.Fatal;
         self.object_class.module.constants.put(enumerable_name_sym, .{ .value = enumerable_module_val }) catch return error.Fatal;
         self.object_class.module.constants.put(exception_name_sym, .{ .value = exception_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(system_exit_name_sym, .{ .value = system_exit_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(standard_error_name_sym, .{ .value = standard_error_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(runtime_error_name_sym, .{ .value = runtime_error_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(syntax_error_name_sym, .{ .value = syntax_error_class_val }) catch return error.Fatal;
@@ -5268,7 +5275,7 @@ pub const VM = struct {
         return .public;
     }
 
-    fn isClassOrSubclassOf(_: *VM, class: *ClassObject, candidate_ancestor: *ClassObject) bool {
+    pub fn isClassOrSubclassOf(_: *VM, class: *ClassObject, candidate_ancestor: *ClassObject) bool {
         var current: ?*ClassObject = class;
         while (current) |c| {
             if (c == candidate_ancestor) return true;
@@ -6669,6 +6676,13 @@ pub const VM = struct {
         return Value.fromObject(obj);
     }
 
+    pub fn newExceptionInstance(self: *VM, class_obj: *ClassObject, args: []const Value, block: ?Block) VMError!Value {
+        const exc = try self.createException(class_obj, "");
+        const exc_val = Value.fromObject(exc);
+        _ = try self.callMethodByNameForwardingKeywords(exc_val, "initialize", @constCast(args), block);
+        return exc_val;
+    }
+
     pub fn newFiber(self: *VM, class_obj: *ClassObject, block: ?Block) VMError!Value {
         if (self.current_thread == null) {
             _ = try self.ensureMainThread();
@@ -7691,7 +7705,13 @@ pub const VM = struct {
                 self.pending_exception = args[0].toExceptionObject();
                 return error.Unwind;
             } else if (args[0].isClass()) {
-                const exc = self.createException(args[0].toClassObject(), "") catch return error.Fatal;
+                const class_obj = args[0].toClassObject();
+                if (self.isClassOrSubclassOf(class_obj, self.exception_class)) {
+                    const exc_val = try self.newExceptionInstance(class_obj, &[_]Value{}, null);
+                    self.pending_exception = exc_val.toExceptionObject();
+                    return error.Unwind;
+                }
+                const exc = self.createException(class_obj, "") catch return error.Fatal;
                 self.pending_exception = exc;
                 return error.Unwind;
             } else if (args[0].isString()) {
@@ -7707,8 +7727,14 @@ pub const VM = struct {
             if (!args[0].isClass()) {
                 return self.raiseExceptionFmt(self.type_error_class, "exception class/object expected", .{});
             }
+            const class_obj = args[0].toClassObject();
+            if (self.isClassOrSubclassOf(class_obj, self.exception_class)) {
+                const exc_val = try self.newExceptionInstance(class_obj, args[1..], null);
+                self.pending_exception = exc_val.toExceptionObject();
+                return error.Unwind;
+            }
             const msg_str = if (args[1].isString()) args[1].toStringObject().str else "";
-            const exc = self.createException(args[0].toClassObject(), msg_str) catch return error.Fatal;
+            const exc = self.createException(class_obj, msg_str) catch return error.Fatal;
             self.pending_exception = exc;
             return error.Unwind;
         }
@@ -8834,5 +8860,15 @@ pub const VM = struct {
             writer.print("unknown error\n", .{}) catch {};
             _ = writer.flush() catch {};
         }
+    }
+
+    pub fn unhandledExceptionExitStatus(self: *VM) ?u8 {
+        const exc = self.pending_exception orelse return null;
+        if (!self.isClassOrSubclassOf(exc.object.class.?, self.system_exit_class)) return null;
+
+        const status = self.getInstanceVariable(Value.fromObject(exc), "@status") catch return 1;
+        if (!status.isInteger()) return 0;
+        const code: u8 = @intCast(status.toInteger());
+        return code;
     }
 };

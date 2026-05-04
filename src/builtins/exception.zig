@@ -19,6 +19,11 @@ pub fn register(vm: *VM) !void {
     const full_message_sym = try vm.intern("full_message");
     try vm.exception_class.module.methods.put(full_message_sym, .{ .method = .{ .builtin = &builtinExceptionFullMessage } });
 
+    try vm.system_exit_class.module.methods.put(initialize_sym, .{ .method = .{ .builtin = &builtinSystemExitInitialize } });
+
+    const status_sym = try vm.intern("status");
+    try vm.system_exit_class.module.methods.put(status_sym, .{ .method = .{ .builtin = &builtinSystemExitStatus } });
+
     const receiver_sym = try vm.intern("receiver");
     try vm.key_error_class.module.methods.put(receiver_sym, .{ .method = .{ .builtin = &builtinKeyErrorReceiver } });
 
@@ -30,9 +35,47 @@ pub fn builtinExceptionInitialize(vm: *VM, receiver: Value, args: []Value, _: ?B
     try vm.requireArgCountRange(args, 0, 1);
 
     const exc = receiver.toExceptionObject();
-    const message = if (args.len == 1) try args[0].coerceToStr(vm, "no implicit conversion into String") else "";
+    const message = if (args.len == 1)
+        try args[0].coerceToStr(vm, "no implicit conversion into String")
+    else
+        vm.className(receiver);
     const msg_val = try vm.newString(message, false);
     exc.message = msg_val.toStringObject();
+    return receiver;
+}
+
+pub fn builtinSystemExitInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 2);
+
+    const exc = receiver.toExceptionObject();
+    var status: i64 = 0;
+    var message: []const u8 = vm.className(receiver);
+
+    switch (args.len) {
+        0 => {},
+        1 => {
+            if (args[0].isString()) {
+                message = try args[0].coerceToStr(vm, "no implicit conversion into String");
+            } else if (args[0].isBool()) {
+                status = if (args[0].toBool()) 0 else 1;
+            } else {
+                status = try args[0].integerArgToI64(vm, "no implicit conversion into Integer", "integer out of range");
+            }
+        },
+        2 => {
+            if (args[0].isBool()) {
+                status = if (args[0].toBool()) 0 else 1;
+            } else {
+                status = try args[0].integerArgToI64(vm, "no implicit conversion into Integer", "integer out of range");
+            }
+            message = try args[1].coerceToStr(vm, "no implicit conversion into String");
+        },
+        else => unreachable,
+    }
+
+    const msg_val = try vm.newString(message, false);
+    exc.message = msg_val.toStringObject();
+    try vm.setInstanceVariable(receiver, "@status", Value.integer(status));
     return receiver;
 }
 
@@ -56,6 +99,14 @@ pub fn builtinExceptionBacktrace(vm: *VM, receiver: Value, args: []Value, _: ?Bl
 pub fn builtinExceptionFullMessage(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return try vm.exceptionFullMessage(receiver.toExceptionObject());
+}
+
+pub fn builtinSystemExitStatus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
+    const status = try vm.getInstanceVariable(receiver, "@status");
+    if (status.isNil()) return Value.integer(0);
+    return status;
 }
 
 pub fn builtinKeyErrorReceiver(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

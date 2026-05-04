@@ -25,6 +25,11 @@ pub fn builtinObjectNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
         return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Class", .{});
     }
     const class_ptr = receiver.toClassObject();
+
+    if (vm.isClassOrSubclassOf(class_ptr, vm.exception_class)) {
+        return try vm.newExceptionInstance(class_ptr, args, block);
+    }
+
     const instance = try vm.newObjectForClass(class_ptr);
 
     _ = try vm.callMethodByNameForwardingKeywords(instance, "initialize", args, block);

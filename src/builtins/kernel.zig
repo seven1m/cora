@@ -1526,6 +1526,9 @@ fn finishForkChild(vm: *VM, block_err: ?anyerror) noreturn {
         // at_exit handlers completed
     } else |err| switch (err) {
         error.UnhandledException => {
+            if (vm.unhandledExceptionExitStatus()) |status| {
+                exitForkChild(vm, status);
+            }
             vm.printUnhandledException();
             exitForkChild(vm, 1);
         },
@@ -1536,6 +1539,9 @@ fn finishForkChild(vm: *VM, block_err: ?anyerror) noreturn {
         switch (err) {
             error.Unwind, error.UnhandledException => {
                 if (vm.pending_exception != null) {
+                    if (vm.unhandledExceptionExitStatus()) |status| {
+                        exitForkChild(vm, status);
+                    }
                     vm.printUnhandledException();
                 }
             },

@@ -664,7 +664,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/exception/success_spec.rb
 - [ ] core/exception/syntax_error_spec.rb
 - [ ] core/exception/system_call_error_spec.rb
-- [ ] core/exception/system_exit_spec.rb
+- [x] core/exception/system_exit_spec.rb
 - [ ] core/exception/to_s_spec.rb
 - [ ] core/exception/top_level_spec.rb
 - [ ] core/exception/uncaught_throw_error_spec.rb

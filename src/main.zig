@@ -158,7 +158,9 @@ pub fn main(init: std.process.Init) !void {
         // at_exit handlers completed
     } else |err| switch (err) {
         error.UnhandledException => {
-            // Unhandled exception from at_exit handler
+            if (virtual_machine.unhandledExceptionExitStatus()) |status| {
+                std.process.exit(status);
+            }
             virtual_machine.printUnhandledException();
             std.process.exit(1);
         },
@@ -169,7 +171,9 @@ pub fn main(init: std.process.Init) !void {
         // Success - program executed without unhandled exceptions
     } else |err| switch (err) {
         error.UnhandledException => {
-            // Unhandled Ruby exception - print it
+            if (virtual_machine.unhandledExceptionExitStatus()) |status| {
+                std.process.exit(status);
+            }
             virtual_machine.printUnhandledException();
             std.process.exit(1);
         },
