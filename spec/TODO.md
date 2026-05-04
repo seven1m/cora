@@ -1834,7 +1834,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/refinement/target_spec.rb
 
 ### core/regexp
-- [ ] core/regexp/case_compare_spec.rb
+- [x] core/regexp/case_compare_spec.rb
 - [ ] core/regexp/casefold_spec.rb
 - [ ] core/regexp/compile_spec.rb
 - [ ] core/regexp/encoding_spec.rb

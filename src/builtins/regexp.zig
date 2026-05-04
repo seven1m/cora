@@ -226,12 +226,18 @@ fn builtinRegexpCasefold(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
 
 fn builtinRegexpCaseEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    if (!args[0].isString()) {
-        return Value.boolean(false);
-    }
+    if (args[0].isNil()) return Value.boolean(false);
 
-    const text = args[0].toStringObject().str;
-    return Value.boolean(onigmo.search(receiver.toRegexpObject().regex, text));
+    const source = if (args[0].isSymbol())
+        try vm.newString(args[0].toSymbolObject().name, false)
+    else
+        switch (try vm.probeToStringValue(args[0])) {
+            .string => |coerced| coerced,
+            .missing, .nil_result => return Value.boolean(false),
+        };
+
+    const result = try searchRegexp(vm, receiver.toRegexpObject(), source, null, true);
+    return Value.boolean(result != null);
 }
 
 fn matchDataAt(md: *value.MatchDataObject, index: i64) Value {

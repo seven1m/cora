@@ -178,3 +178,33 @@ test "Regexp =~ sets backref globals and MatchData methods" {
     try std.testing.expect(items[10].isString());
     try std.testing.expectEqualStrings("t", items[10].toStringObject().str);
 }
+
+test "Regexp === updates match globals in case expressions" {
+    const result = try evalCode(
+        \\ case "mswin32"
+        \\ when /(mswin\d+)(?:[_-](\d+))?/
+        \\   [
+        \\     $~.instance_of?(MatchData),
+        \\     $1,
+        \\     $2,
+        \\     Regexp.last_match(0),
+        \\     Regexp.last_match(1),
+        \\     Regexp.last_match(2)
+        \\   ]
+        \\ else
+        \\   :no_match
+        \\ end
+    );
+    try std.testing.expect(result.isArray());
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 6), items.len);
+    try std.testing.expect(items[0].isBool() and items[0].toBool());
+    try std.testing.expect(items[1].isString());
+    try std.testing.expectEqualStrings("mswin32", items[1].toStringObject().str);
+    try std.testing.expect(items[2].isNil());
+    try std.testing.expect(items[3].isString());
+    try std.testing.expectEqualStrings("mswin32", items[3].toStringObject().str);
+    try std.testing.expect(items[4].isString());
+    try std.testing.expectEqualStrings("mswin32", items[4].toStringObject().str);
+    try std.testing.expect(items[5].isNil());
+}
