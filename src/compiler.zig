@@ -83,6 +83,39 @@ fn literalStringConstant(bytes: []const u8, flags: u16) chunk.Constant {
     return .{ .string = bytes };
 }
 
+fn literalRegexpConstant(bytes: []const u8, flags: u16) chunk.Constant {
+    if ((flags & prism.REGEXP_FLAGS_EUC_JP) != 0) {
+        return .{ .encoded_string = .{ .bytes = bytes, .encoding = .{ .euc_jp = .{} } } };
+    }
+    if ((flags & prism.REGEXP_FLAGS_ASCII_8BIT) != 0 or (flags & prism.REGEXP_FLAGS_FORCED_BINARY_ENCODING) != 0) {
+        return .{ .encoded_string = .{ .bytes = bytes, .encoding = .{ .ascii_8bit = .{} } } };
+    }
+    if ((flags & prism.REGEXP_FLAGS_WINDOWS_31J) != 0) {
+        return .{ .encoded_string = .{ .bytes = bytes, .encoding = .{ .windows_31j = .{} } } };
+    }
+    if ((flags & prism.REGEXP_FLAGS_UTF_8) != 0 or (flags & prism.REGEXP_FLAGS_FORCED_UTF8_ENCODING) != 0) {
+        return .{ .encoded_string = .{ .bytes = bytes, .encoding = .{ .utf8 = .{} } } };
+    }
+    if ((flags & prism.REGEXP_FLAGS_FORCED_US_ASCII_ENCODING) != 0) {
+        return .{ .encoded_string = .{ .bytes = bytes, .encoding = .{ .us_ascii = .{} } } };
+    }
+    return .{ .string = bytes };
+}
+
+fn regexpOptionsFromFlags(flags: u16) u16 {
+    var options: u16 = 0;
+    if ((flags & prism.REGEXP_FLAGS_IGNORE_CASE) != 0) options |= 1;
+    if ((flags & prism.REGEXP_FLAGS_EXTENDED) != 0) options |= 2;
+    if ((flags & prism.REGEXP_FLAGS_MULTI_LINE) != 0) options |= 4;
+    if ((flags & prism.REGEXP_FLAGS_EUC_JP) != 0) options |= 16;
+    if ((flags & prism.REGEXP_FLAGS_WINDOWS_31J) != 0) options |= 16;
+    if ((flags & prism.REGEXP_FLAGS_UTF_8) != 0) options |= 16;
+    if ((flags & prism.REGEXP_FLAGS_ASCII_8BIT) != 0) options |= 32;
+    if ((flags & prism.REGEXP_FLAGS_FORCED_UTF8_ENCODING) != 0) options |= 16;
+    if ((flags & prism.REGEXP_FLAGS_FORCED_BINARY_ENCODING) != 0) options |= 16;
+    return options;
+}
+
 pub const CompiledProgram = struct {
     allocator: std.mem.Allocator,
     main_chunk: Chunk,
@@ -282,13 +315,9 @@ pub const Compiler = struct {
                     "";
                 const decoded_pattern = try decodeRegexpUnicodeEscapes(self.allocator, pattern_slice);
                 defer self.allocator.free(decoded_pattern);
-                const idx = try self.current_chunk.addConstant(.{ .string = decoded_pattern });
-                // Map Prism flags to Onigmo option bits
                 const flags = regexp_node.base.flags;
-                var options: u16 = 0;
-                if ((flags & prism.REGEXP_FLAGS_IGNORE_CASE) != 0) options |= 1; // ONIG_OPTION_IGNORECASE
-                if ((flags & prism.REGEXP_FLAGS_EXTENDED) != 0) options |= 2; // ONIG_OPTION_EXTEND
-                if ((flags & prism.REGEXP_FLAGS_MULTI_LINE) != 0) options |= 4; // ONIG_OPTION_MULTILINE
+                const idx = try self.current_chunk.addConstant(literalRegexpConstant(decoded_pattern, flags));
+                const options = regexpOptionsFromFlags(flags);
                 try self.current_chunk.emitOpU16U16(.PUSH_REGEXP, @intCast(idx), options, line);
             },
 
@@ -299,11 +328,8 @@ pub const Compiler = struct {
                 const part_count = try self.compileInterpolatedParts(interp_regexp_node.parts, line);
                 try self.current_chunk.emitOpU8(.INTERPOLATE_STRING, part_count, line);
 
-                var options: i64 = 0;
                 const flags = interp_regexp_node.base.flags;
-                if ((flags & prism.REGEXP_FLAGS_IGNORE_CASE) != 0) options |= 1; // ONIG_OPTION_IGNORECASE
-                if ((flags & prism.REGEXP_FLAGS_EXTENDED) != 0) options |= 2; // ONIG_OPTION_EXTEND
-                if ((flags & prism.REGEXP_FLAGS_MULTI_LINE) != 0) options |= 4; // ONIG_OPTION_MULTILINE
+                const options: i64 = regexpOptionsFromFlags(flags);
                 const options_idx = try self.current_chunk.addConstant(.{ .integer = options });
                 try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(options_idx), line);
 

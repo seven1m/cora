@@ -4712,8 +4712,19 @@ pub const VM = struct {
             .PUSH_REGEXP => {
                 const pattern_idx = readU16From(frame, operands, &operand_cursor);
                 const options = readU16From(frame, operands, &operand_cursor);
-                const pattern = constants[pattern_idx].string;
-                const result = try self.newRegexp(pattern, options);
+                const pattern_constant = constants[pattern_idx];
+                const pattern: []const u8 = switch (pattern_constant) {
+                    .string => |bytes| bytes,
+                    .encoded_string => |encoded| encoded.bytes,
+                    else => return error.Fatal,
+                };
+                const source_encoding: enc.Encoding = switch (pattern_constant) {
+                    .string => frame.chunk.source_encoding,
+                    .encoded_string => |encoded| encoded.encoding,
+                    else => return error.Fatal,
+                };
+                const normalized = self.normalizeRegexpEncoding(pattern, source_encoding, options);
+                const result = try self.newRegexpWithEncoding(pattern, normalized.options, normalized.encoding);
                 try self.push(result);
             },
 
@@ -6789,6 +6800,86 @@ pub const VM = struct {
         return Value.fromObject(range_obj);
     }
 
+    pub const NormalizedRegexp = struct {
+        encoding: enc.Encoding,
+        options: u16,
+    };
+
+    fn regexpPatternNoEncodingAsciiOnly(pattern: []const u8) bool {
+        var i: usize = 0;
+        while (i < pattern.len) {
+            const b = pattern[i];
+            if (b > 0x7F) return false;
+            if (b != '\\') {
+                i += 1;
+                continue;
+            }
+
+            i += 1;
+            if (i >= pattern.len) break;
+            const escaped = pattern[i];
+
+            if (escaped == 'x' and i + 2 < pattern.len) {
+                const hi = std.fmt.charToDigit(pattern[i + 1], 16) catch {
+                    i += 1;
+                    continue;
+                };
+                const lo = std.fmt.charToDigit(pattern[i + 2], 16) catch {
+                    i += 1;
+                    continue;
+                };
+                if (((hi << 4) | lo) > 0x7F) return false;
+                i += 3;
+                continue;
+            }
+
+            if (escaped >= '0' and escaped <= '7') {
+                var octal_value: u16 = @intCast(escaped - '0');
+                var digits: usize = 1;
+                while (digits < 3 and i + digits < pattern.len) : (digits += 1) {
+                    const oct = pattern[i + digits];
+                    if (oct < '0' or oct > '7') break;
+                    octal_value = (octal_value << 3) | @as(u16, oct - '0');
+                }
+                if (octal_value > 0x7F) return false;
+                i += digits;
+                continue;
+            }
+
+            i += 1;
+        }
+
+        return true;
+    }
+
+    pub fn normalizeRegexpEncoding(_: *VM, pattern: []const u8, source_encoding: enc.Encoding, options: u16) NormalizedRegexp {
+        const ascii_only = if ((options & 32) != 0)
+            regexpPatternNoEncodingAsciiOnly(pattern)
+        else
+            source_encoding.isAsciiOnlyString(pattern);
+
+        if ((options & 32) != 0) {
+            return .{
+                .encoding = if (ascii_only) .{ .us_ascii = .{} } else .{ .ascii_8bit = .{} },
+                .options = if (ascii_only) options & ~@as(u16, 16) else options | 16,
+            };
+        }
+
+        if ((options & 16) != 0) {
+            return .{ .encoding = source_encoding, .options = options | 16 };
+        }
+
+        if (!source_encoding.isAsciiCompatible()) {
+            return .{ .encoding = source_encoding, .options = options | 16 };
+        }
+
+        if (ascii_only) {
+            return .{ .encoding = .{ .us_ascii = .{} }, .options = options & ~@as(u16, 16) };
+        }
+
+        return .{ .encoding = source_encoding, .options = options | 16 };
+    }
+
     pub fn newRegexpWithEncoding(self: *VM, pattern: []const u8, options: u16, encoding: enc.Encoding) VMError!Value {
         // Map our option bits to Onigmo options
         var onig_options: u32 = 0;
@@ -6844,7 +6935,8 @@ pub const VM = struct {
     }
 
     pub fn newRegexp(self: *VM, pattern: []const u8, options: u16) VMError!Value {
-        return self.newRegexpWithEncoding(pattern, options, .{ .utf8 = .{} });
+        const normalized = self.normalizeRegexpEncoding(pattern, .{ .utf8 = .{} }, options);
+        return self.newRegexpWithEncoding(pattern, normalized.options, normalized.encoding);
     }
 
     pub fn newMatchData(
