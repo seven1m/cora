@@ -444,7 +444,7 @@ pub const VM = struct {
             .globals = std.StringHashMap(Value).init(gc_allocator),
             .fstring_cache = std.StringHashMap(Value).init(gc_allocator),
             .canonical_fstrings = .empty,
-            .packed_pointer_targets = std.AutoHashMap(*StringObject, PackedPointerTargets).init(allocator),
+            .packed_pointer_targets = std.AutoHashMap(*StringObject, PackedPointerTargets).init(gc_allocator),
             .loaded_files = std.StringHashMap(void).init(gc_allocator),
             .program = undefined,
             .basic_object_class = undefined,
@@ -7127,7 +7127,7 @@ pub const VM = struct {
             return;
         }
 
-        var targets = PackedPointerTargets.init(self.allocator);
+        var targets = PackedPointerTargets.init(self.gc_allocator);
         errdefer targets.deinit();
         targets.put(offset, target) catch return error.Fatal;
         self.packed_pointer_targets.put(packed_str, targets) catch return error.Fatal;
@@ -7140,7 +7140,7 @@ pub const VM = struct {
 
     pub fn copyPackedPointerTargets(self: *VM, from: *StringObject, to: *StringObject) VMError!void {
         const src_targets = self.packed_pointer_targets.get(from) orelse return;
-        var copied = PackedPointerTargets.init(self.allocator);
+        var copied = PackedPointerTargets.init(self.gc_allocator);
         errdefer copied.deinit();
 
         var it = src_targets.iterator();
