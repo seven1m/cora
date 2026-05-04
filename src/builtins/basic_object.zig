@@ -87,11 +87,7 @@ pub fn builtinBasicObjectMethodMissing(vm: *VM, receiver: Value, args: []Value, 
     }
     if (args[0].isSymbol()) {
         const sym = args[0].toSymbolObject();
-        return vm.raiseExceptionFmt(
-            vm.no_method_error_class,
-            "undefined method '{s}' for {s}",
-            .{ sym.name, vm.getClass(receiver).module.name.name },
-        );
+        return vm.raiseNoMethod(receiver, sym.name);
     }
     unreachable;
 }

@@ -100,6 +100,7 @@ test "Calling undefined class method raises NoMethodError" {
     try std.testing.expectEqual(error.UnhandledException, result.err.?);
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, "NoMethodError") != null);
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, "undefined_method") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "undefined method 'undefined_method' for class Foo") != null);
 }
 
 test "Calling undefined singleton method on instance raises NoMethodError" {
@@ -113,6 +114,7 @@ test "Calling undefined singleton method on instance raises NoMethodError" {
 
     try std.testing.expectEqual(error.UnhandledException, result.err.?);
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, "NoMethodError") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "undefined method 'undefined_singleton_method' for an instance of Object") != null);
 }
 
 test "Class method overriding" {

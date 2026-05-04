@@ -5431,17 +5431,37 @@ pub const VM = struct {
         return .not_found;
     }
 
-    fn raiseNoMethod(self: *VM, receiver: Value, method_name: []const u8) VMError!void {
-        const class = self.getClass(receiver);
-        const class_name = class.module.name.name;
-        const msg = std.fmt.allocPrint(
+    fn noMethodReceiverDescription(self: *VM, receiver: Value) VMError![]const u8 {
+        if (receiver.isNil()) return "nil";
+        if (receiver.isBool()) return if (receiver.toBool()) "true" else "false";
+        if (receiver.isClass()) {
+            return std.fmt.allocPrint(
+                self.gc_allocator,
+                "class {s}",
+                .{receiver.toClassObject().module.name.name},
+            ) catch return error.Fatal;
+        }
+        if (receiver.isModule()) {
+            return std.fmt.allocPrint(
+                self.gc_allocator,
+                "module {s}",
+                .{receiver.toModuleObject().name.name},
+            ) catch return error.Fatal;
+        }
+        return std.fmt.allocPrint(
             self.gc_allocator,
-            "undefined method '{s}' for {s}",
-            .{ method_name, class_name },
+            "an instance of {s}",
+            .{self.className(receiver)},
         ) catch return error.Fatal;
-        const exc = try self.createException(self.no_method_error_class, msg);
-        self.pending_exception = exc;
-        return error.Unwind;
+    }
+
+    pub fn raiseNoMethod(self: *VM, receiver: Value, method_name: []const u8) VMError {
+        const receiver_desc = self.noMethodReceiverDescription(receiver) catch return error.Fatal;
+        return self.raiseExceptionFmt(
+            self.no_method_error_class,
+            "undefined method '{s}' for {s}",
+            .{ method_name, receiver_desc },
+        );
     }
 
     inline fn setupChunkCallFrame(
@@ -5746,13 +5766,13 @@ pub const VM = struct {
         block: ?Block,
     ) VMError!Value {
         if (std.mem.eql(u8, missing_method_sym.name, "method_missing")) {
-            try self.raiseNoMethod(receiver, missing_method_sym.name);
+            return self.raiseNoMethod(receiver, missing_method_sym.name);
         }
 
         const method_missing_sym = try self.intern("method_missing");
         const resolved = try self.findMethod(receiver, method_missing_sym);
         if (resolved == null) {
-            try self.raiseNoMethod(receiver, missing_method_sym.name);
+            return self.raiseNoMethod(receiver, missing_method_sym.name);
         }
 
         var missing_args: [258]Value = undefined;
@@ -6673,7 +6693,7 @@ pub const VM = struct {
                 .object = .{ .type_tag = .class, .flags = 0, .class = self.class_class, .singleton_class = null, .instance_variables = null },
                 .name = name,
                 .methods = std.AutoHashMap(*SymbolObject, MethodEntry).init(self.gc_allocator),
-            .constants = std.AutoHashMap(*value.SymbolObject, value.ConstEntry).init(self.gc_allocator),
+                .constants = std.AutoHashMap(*value.SymbolObject, value.ConstEntry).init(self.gc_allocator),
                 .autoloads = std.AutoHashMap(*SymbolObject, []const u8).init(self.gc_allocator),
                 .class_variables = std.AutoHashMap(*SymbolObject, Value).init(self.gc_allocator),
             },
