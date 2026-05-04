@@ -837,7 +837,7 @@ pub fn builtinKernelDup(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
 
     if (receiver.isRegexp()) {
         const regexp = receiver.toRegexpObject();
-        const duplicate = try vm.newRegexp(regexp.pattern, regexp.options);
+        const duplicate = try vm.newRegexpWithEncoding(regexp.pattern, regexp.options, regexp.encoding);
         duplicate.toRegexpObject().object.class = vm.getClass(receiver);
         duplicate.toRegexpObject().object.flags &= ~@as(u32, value.Object.FROZEN_FLAG);
 

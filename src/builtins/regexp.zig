@@ -9,6 +9,12 @@ const VMError = vm_mod.VMError;
 const Block = vm_mod.Block;
 const Value = value.Value;
 
+const OPTION_IGNORECASE: u16 = 1;
+const OPTION_EXTENDED: u16 = 2;
+const OPTION_MULTILINE: u16 = 4;
+const OPTION_FIXEDENCODING: u16 = 16;
+const OPTION_NOENCODING: u16 = 32;
+
 pub fn register(vm: *VM) !void {
     const initialize_sym = try vm.intern("initialize");
     try vm.regexp_class.module.methods.put(initialize_sym, .{
@@ -21,6 +27,9 @@ pub fn register(vm: *VM) !void {
 
     const options_sym = try vm.intern("options");
     try vm.regexp_class.module.methods.put(options_sym, .{ .method = .{ .builtin = &builtinRegexpOptions } });
+
+    const encoding_sym = try vm.intern("encoding");
+    try vm.regexp_class.module.methods.put(encoding_sym, .{ .method = .{ .builtin = &builtinRegexpEncoding } });
 
     const inspect_sym = try vm.intern("inspect");
     try vm.regexp_class.module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinRegexpInspect } });
@@ -53,6 +62,17 @@ pub fn register(vm: *VM) !void {
     try vm.regexp_class.module.methods.put(clone_sym, .{ .method = .{ .builtin = &builtinRegexpClone } });
 
     const regexp_class_val = Value.fromObject(vm.regexp_class);
+    const ignorecase_sym = try vm.intern("IGNORECASE");
+    try vm.regexp_class.module.constants.put(ignorecase_sym, .{ .value = Value.integer(OPTION_IGNORECASE) });
+    const extended_sym = try vm.intern("EXTENDED");
+    try vm.regexp_class.module.constants.put(extended_sym, .{ .value = Value.integer(OPTION_EXTENDED) });
+    const multiline_sym = try vm.intern("MULTILINE");
+    try vm.regexp_class.module.constants.put(multiline_sym, .{ .value = Value.integer(OPTION_MULTILINE) });
+    const fixedencoding_sym = try vm.intern("FIXEDENCODING");
+    try vm.regexp_class.module.constants.put(fixedencoding_sym, .{ .value = Value.integer(OPTION_FIXEDENCODING) });
+    const noencoding_sym = try vm.intern("NOENCODING");
+    try vm.regexp_class.module.constants.put(noencoding_sym, .{ .value = Value.integer(OPTION_NOENCODING) });
+
     const regexp_singleton = try vm.getOrCreateSingletonClass(regexp_class_val);
     const try_convert_sym = try vm.intern("try_convert");
     try regexp_singleton.module.methods.put(try_convert_sym, .{ .method = .{ .builtin = &builtinRegexpTryConvert } });
@@ -62,6 +82,8 @@ pub fn register(vm: *VM) !void {
     try regexp_singleton.module.methods.put(escape_sym, .{ .method = .{ .builtin = &builtinRegexpEscape } });
     const last_match_sym = try vm.intern("last_match");
     try regexp_singleton.module.methods.put(last_match_sym, .{ .method = .{ .builtin = &builtinRegexpLastMatch } });
+    const union_sym = try vm.intern("union");
+    try regexp_singleton.module.methods.put(union_sym, .{ .method = .{ .builtin = &builtinRegexpUnion } });
 }
 
 fn builtinRegexpInitialize(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -87,6 +109,11 @@ fn builtinRegexpTryConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
     );
 }
 
+fn normalizeRegexpConstruction(vm: *VM, pattern: []const u8, encoding: enc.Encoding, options: u16) VMError!Value {
+    const normalized = vm.normalizeRegexpEncoding(pattern, encoding, options);
+    return try vm.newRegexpWithEncoding(pattern, normalized.options, normalized.encoding);
+}
+
 fn builtinRegexpNew(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 1, 2);
 
@@ -107,7 +134,7 @@ fn builtinRegexpNew(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     else
         0;
 
-    return try vm.newRegexpWithEncoding(pattern_obj.str, options, pattern_obj.encoding);
+    return try normalizeRegexpConstruction(vm, pattern_obj.str, pattern_obj.encoding, options);
 }
 
 fn builtinRegexpEscape(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -121,7 +148,7 @@ fn builtinRegexpEscape(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
 
     for (string_obj.str) |b| {
         switch (b) {
-            '\\', '.', '^', '$', '|', '?', '*', '+', '(', ')', '[', ']', '{', '}' => {
+            '\\', '.', '^', '$', '|', '?', '*', '+', '-', '(', ')', '[', ']', '{', '}' => {
                 out.append(vm.allocator, '\\') catch return error.Fatal;
                 out.append(vm.allocator, b) catch return error.Fatal;
             },
@@ -139,9 +166,59 @@ fn builtinRegexpSource(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
     return try vm.newString(receiver.toRegexpObject().pattern, false);
 }
 
+fn builtinRegexpEncoding(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return vm.encodingToValue(receiver.toRegexpObject().encoding);
+}
+
 fn builtinRegexpOptions(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return Value.integer(@intCast(receiver.toRegexpObject().options));
+}
+
+fn appendEncodedAscii(out: *std.ArrayList(u8), allocator: std.mem.Allocator, target: enc.Encoding, ascii: []const u8) VMError!void {
+    var buf: [4]u8 = undefined;
+    for (ascii) |b| {
+        const len = target.fromUnicodeCodepoint(b, &buf) orelse return error.Fatal;
+        out.appendSlice(allocator, buf[0..len]) catch return error.Fatal;
+    }
+}
+
+fn buildRegexpToSBytes(vm: *VM, regexp: *value.RegexpObject) VMError![]u8 {
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(vm.allocator);
+
+    try appendEncodedAscii(&out, vm.allocator, regexp.encoding, "(?");
+    if ((regexp.options & OPTION_IGNORECASE) != 0) try appendEncodedAscii(&out, vm.allocator, regexp.encoding, "i");
+    if ((regexp.options & OPTION_MULTILINE) != 0) try appendEncodedAscii(&out, vm.allocator, regexp.encoding, "m");
+    if ((regexp.options & OPTION_EXTENDED) != 0) try appendEncodedAscii(&out, vm.allocator, regexp.encoding, "x");
+
+    var has_disabled = false;
+    if ((regexp.options & OPTION_MULTILINE) == 0) {
+        if (!has_disabled) {
+            try appendEncodedAscii(&out, vm.allocator, regexp.encoding, "-");
+            has_disabled = true;
+        }
+        try appendEncodedAscii(&out, vm.allocator, regexp.encoding, "m");
+    }
+    if ((regexp.options & OPTION_IGNORECASE) == 0) {
+        if (!has_disabled) {
+            try appendEncodedAscii(&out, vm.allocator, regexp.encoding, "-");
+            has_disabled = true;
+        }
+        try appendEncodedAscii(&out, vm.allocator, regexp.encoding, "i");
+    }
+    if ((regexp.options & OPTION_EXTENDED) == 0) {
+        if (!has_disabled) {
+            try appendEncodedAscii(&out, vm.allocator, regexp.encoding, "-");
+            has_disabled = true;
+        }
+        try appendEncodedAscii(&out, vm.allocator, regexp.encoding, "x");
+    }
+    try appendEncodedAscii(&out, vm.allocator, regexp.encoding, ":");
+    out.appendSlice(vm.allocator, regexp.pattern) catch return error.Fatal;
+    try appendEncodedAscii(&out, vm.allocator, regexp.encoding, ")");
+    return out.toOwnedSlice(vm.allocator) catch return error.Fatal;
 }
 
 fn builtinRegexpInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -166,44 +243,157 @@ fn builtinRegexpInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
 fn builtinRegexpToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const r = receiver.toRegexpObject();
-
-    var buf: std.Io.Writer.Allocating = .init(vm.allocator);
-    defer buf.deinit();
-    const writer = &buf.writer;
-    writer.writeAll("(?") catch return error.Fatal;
-    if ((r.options & 1) != 0) writer.writeByte('i') catch return error.Fatal;
-    if ((r.options & 4) != 0) writer.writeByte('m') catch return error.Fatal;
-    if ((r.options & 2) != 0) writer.writeByte('x') catch return error.Fatal;
-    // Add dash and disabled flags
-    var has_disabled = false;
-    if ((r.options & 1) == 0) {
-        if (!has_disabled) {
-            writer.writeByte('-') catch return error.Fatal;
-            has_disabled = true;
-        }
-        writer.writeByte('i') catch return error.Fatal;
-    }
-    if ((r.options & 4) == 0) {
-        if (!has_disabled) {
-            writer.writeByte('-') catch return error.Fatal;
-            has_disabled = true;
-        }
-        writer.writeByte('m') catch return error.Fatal;
-    }
-    if ((r.options & 2) == 0) {
-        if (!has_disabled) {
-            writer.writeByte('-') catch return error.Fatal;
-            has_disabled = true;
-        }
-        writer.writeByte('x') catch return error.Fatal;
-    }
-    writer.writeByte(':') catch return error.Fatal;
-    writer.writeAll(r.pattern) catch return error.Fatal;
-    writer.writeByte(')') catch return error.Fatal;
-
-    const str = buf.toOwnedSlice() catch return error.Fatal;
+    const str = try buildRegexpToSBytes(vm, r);
     defer vm.allocator.free(str);
-    return try vm.newString(str, false);
+    return try vm.newStringWithEncoding(str, false, r.encoding);
+}
+
+const UnionSegment = struct {
+    bytes: []const u8,
+    encoding: enc.Encoding,
+    sticky: bool,
+    ascii_only: bool,
+};
+
+fn raiseUnionEncodingError(vm: *VM, lhs: enc.Encoding, rhs: enc.Encoding) VMError {
+    if (!lhs.isAsciiCompatible() and rhs.eql(.{ .us_ascii = .{} })) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "ASCII incompatible encoding: {s}", .{lhs.name()});
+    }
+    if (!rhs.isAsciiCompatible() and lhs.eql(.{ .us_ascii = .{} })) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "ASCII incompatible encoding: {s}", .{rhs.name()});
+    }
+    if (!lhs.isAsciiCompatible() and rhs.isAsciiCompatible()) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "incompatible encodings: {s} and {s}", .{ lhs.name(), rhs.name() });
+    }
+    if (!rhs.isAsciiCompatible() and lhs.isAsciiCompatible()) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "incompatible encodings: {s} and {s}", .{ rhs.name(), lhs.name() });
+    }
+    return vm.raiseExceptionFmt(vm.argument_error_class, "incompatible encodings: {s} and {s}", .{ lhs.name(), rhs.name() });
+}
+
+fn captureUnionSegment(vm: *VM, arg: Value) VMError!UnionSegment {
+    if (arg.isRegexp()) {
+        const regexp = arg.toRegexpObject();
+        return .{
+            .bytes = try buildRegexpToSBytes(vm, regexp),
+            .encoding = regexp.encoding,
+            .sticky = (regexp.options & OPTION_FIXEDENCODING) != 0,
+            .ascii_only = if ((regexp.options & OPTION_NOENCODING) != 0)
+                regexp.encoding.eql(.{ .us_ascii = .{} })
+            else
+                regexp.encoding.isAsciiOnlyString(regexp.pattern),
+        };
+    }
+
+    const maybe_regexp = try vm.checkCallMethodByName(arg, "to_regexp", false, &[_]Value{}, null);
+    if (maybe_regexp) |converted| {
+        if (converted.isNil()) {
+            return vm.raiseExceptionFmt(
+                vm.type_error_class,
+                "can't convert {s} to Regexp ({s}#to_regexp gives NilClass)",
+                .{ vm.className(arg), vm.className(arg) },
+            );
+        }
+        if (!converted.isRegexp()) {
+            return vm.raiseExceptionFmt(
+                vm.type_error_class,
+                "can't convert {s} to Regexp ({s}#to_regexp gives {s})",
+                .{ vm.className(arg), vm.className(arg), vm.className(converted) },
+            );
+        }
+        return captureUnionSegment(vm, converted);
+    }
+
+    if (arg.isArray()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion of Array into String", .{});
+    }
+
+    const string_value = try arg.coerceToMatchSource(vm) orelse {
+        return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion of nil into String", .{});
+    };
+    const string_obj = string_value.toStringObject();
+    var escape_args = [_]Value{string_value};
+    const escaped_value = try builtinRegexpEscape(vm, Value.nil(), escape_args[0..], null);
+    const escaped_obj = escaped_value.toStringObject();
+    const normalized = vm.normalizeRegexpEncoding(string_obj.str, string_obj.encoding, 0);
+
+    return .{
+        .bytes = vm.allocator.dupe(u8, escaped_obj.str) catch return error.Fatal,
+        .encoding = normalized.encoding,
+        .sticky = (normalized.options & OPTION_FIXEDENCODING) != 0,
+        .ascii_only = string_obj.encoding.isAsciiOnlyString(string_obj.str),
+    };
+}
+
+fn builtinRegexpUnion(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    const union_args = if (args.len == 1 and args[0].isArray())
+        args[0].toArrayObject().elements.items
+    else
+        args;
+
+    if (union_args.len == 0) {
+        return try vm.newRegexpWithEncoding("(?!)", 0, .{ .us_ascii = .{} });
+    }
+
+    if (union_args.len == 1) {
+        var try_convert_args = [_]Value{union_args[0]};
+        const maybe_regexp = try builtinRegexpTryConvert(vm, Value.nil(), try_convert_args[0..], null);
+        if (maybe_regexp.isRegexp()) return maybe_regexp;
+    }
+
+    var segments: std.ArrayList(UnionSegment) = .empty;
+    defer {
+        for (segments.items) |segment| vm.allocator.free(segment.bytes);
+        segments.deinit(vm.allocator);
+    }
+
+    var resolved_encoding: ?enc.Encoding = null;
+    var saw_plain_ascii_only = false;
+    var all_ascii_only = true;
+
+    for (union_args) |arg| {
+        const segment = try captureUnionSegment(vm, arg);
+        segments.append(vm.allocator, segment) catch return error.Fatal;
+        all_ascii_only = all_ascii_only and segment.ascii_only;
+
+        if (!segment.sticky and segment.encoding.eql(.{ .us_ascii = .{} })) {
+            saw_plain_ascii_only = true;
+            if (resolved_encoding) |resolved| {
+                if (!resolved.isAsciiCompatible()) {
+                    return raiseUnionEncodingError(vm, resolved, .{ .us_ascii = .{} });
+                }
+            }
+            continue;
+        }
+
+        if (resolved_encoding) |resolved| {
+            if (!resolved.eql(segment.encoding)) {
+                return raiseUnionEncodingError(vm, resolved, segment.encoding);
+            }
+        } else {
+            if (saw_plain_ascii_only and !segment.encoding.isAsciiCompatible()) {
+                return raiseUnionEncodingError(vm, segment.encoding, .{ .us_ascii = .{} });
+            }
+            resolved_encoding = segment.encoding;
+        }
+    }
+
+    const final_encoding = if (all_ascii_only and (resolved_encoding == null or resolved_encoding.?.isAsciiCompatible()))
+        enc.Encoding{ .us_ascii = .{} }
+    else
+        resolved_encoding orelse enc.Encoding{ .us_ascii = .{} };
+    const final_options: u16 = if (final_encoding.eql(.{ .us_ascii = .{} })) 0 else OPTION_FIXEDENCODING;
+
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(vm.allocator);
+    for (segments.items, 0..) |segment, idx| {
+        if (idx != 0) try appendEncodedAscii(&out, vm.allocator, final_encoding, "|");
+        out.appendSlice(vm.allocator, segment.bytes) catch return error.Fatal;
+    }
+
+    const pattern = out.toOwnedSlice(vm.allocator) catch return error.Fatal;
+    defer vm.allocator.free(pattern);
+    return try vm.newRegexpWithEncoding(pattern, final_options, final_encoding);
 }
 
 fn builtinRegexpEq(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -292,8 +482,13 @@ fn searchRegexp(
         };
     }
 
+    const effective_regexp = if (regexp_obj.encoding.eql(.{ .us_ascii = .{} }) and source_obj.encoding.isAsciiCompatible() and !source_obj.encoding.eql(.{ .us_ascii = .{} }))
+        (try vm.newRegexpWithEncoding(regexp_obj.pattern, regexp_obj.options, source_obj.encoding)).toRegexpObject()
+    else
+        regexp_obj;
+
     const search_bytes = source_obj.str[start_byte..];
-    const search_result = onigmo.searchWithCaptures(vm.gc_allocator, regexp_obj.regex, search_bytes) catch return error.Fatal;
+    const search_result = onigmo.searchWithCaptures(vm.gc_allocator, effective_regexp.regex, search_bytes) catch return error.Fatal;
     defer vm.gc_allocator.free(search_result.begin_offsets);
     defer vm.gc_allocator.free(search_result.end_offsets);
 
@@ -419,7 +614,7 @@ fn builtinRegexpDup(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!
     try vm.requireArgCount(args, 0);
 
     const regexp = receiver.toRegexpObject();
-    const duplicate = try vm.newRegexp(regexp.pattern, regexp.options);
+    const duplicate = try vm.newRegexpWithEncoding(regexp.pattern, regexp.options, regexp.encoding);
     duplicate.toRegexpObject().object.class = vm.getClass(receiver);
     duplicate.toRegexpObject().object.flags &= ~@as(u32, value.Object.FROZEN_FLAG);
 

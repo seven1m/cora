@@ -480,7 +480,8 @@ fn buildLiteralStringMatchData(
     const string_obj = receiver.toStringObject();
     const escaped_pattern = try escapeRegexpLiteral(vm, pattern_obj.str);
     defer vm.allocator.free(escaped_pattern);
-    const regexp = (try vm.newRegexpWithEncoding(escaped_pattern, 0, pattern_obj.encoding)).toRegexpObject();
+    const normalized = vm.normalizeRegexpEncoding(pattern_obj.str, pattern_obj.encoding, 0);
+    const regexp = (try vm.newRegexpWithEncoding(escaped_pattern, normalized.options, normalized.encoding)).toRegexpObject();
     const match_str = try vm.newStringWithEncoding(string_obj.str[start_byte..end_byte], false, string_obj.encoding);
     const captures = [_]Value{match_str};
     const begins = [_]i64{@intCast(start_byte)};
@@ -1031,7 +1032,9 @@ fn coerceStringMatchPattern(vm: *VM, pattern: Value) VMError!Value {
     if (pattern.isRegexp()) return pattern;
 
     const pattern_value = try pattern.coerceToStringValue(vm, "wrong argument type");
-    return try vm.newRegexp(pattern_value.toStringObject().str, 0);
+    const pattern_obj = pattern_value.toStringObject();
+    const normalized = vm.normalizeRegexpEncoding(pattern_obj.str, pattern_obj.encoding, 0);
+    return try vm.newRegexpWithEncoding(pattern_obj.str, normalized.options, normalized.encoding);
 }
 
 fn stringMatchArgs(receiver: Value, args: []Value, match_args: *[2]Value) []Value {
@@ -3671,10 +3674,12 @@ pub fn builtinStringScan(vm: *VM, receiver: Value, args: []Value, block: ?Block)
         }
     } else {
         const pattern_value = try args[0].coerceToStringValue(vm, "wrong argument type");
-        const pattern = pattern_value.toStringObject().str;
+        const pattern_obj = pattern_value.toStringObject();
+        const pattern = pattern_obj.str;
         const escaped_pattern = try escapeRegexpLiteral(vm, pattern);
         defer vm.allocator.free(escaped_pattern);
-        const pattern_regexp = (try vm.newRegexp(escaped_pattern, 0)).toRegexpObject();
+        const normalized = vm.normalizeRegexpEncoding(pattern, pattern_obj.encoding, 0);
+        const pattern_regexp = (try vm.newRegexpWithEncoding(escaped_pattern, normalized.options, normalized.encoding)).toRegexpObject();
 
         while (offset <= string_obj.str.len) {
             const base_offset = offset;

@@ -87,7 +87,7 @@ test "Invalid regexp raises RegexpError" {
 test "Regexp to_s" {
     const result = try evalCode("/hello/.to_s");
     try std.testing.expect(result.isString());
-    try std.testing.expectEqualStrings("(?-imx:hello)", result.toStringObject().str);
+    try std.testing.expectEqualStrings("(?-mix:hello)", result.toStringObject().str);
 }
 
 test "Regexp to_s with ignorecase flag" {
