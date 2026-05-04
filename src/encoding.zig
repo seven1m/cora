@@ -9,6 +9,7 @@ const Windows31JEncoding = @import("encoding/windows_31j.zig").Windows31JEncodin
 const EucJpEncoding = @import("encoding/euc_jp.zig").EucJpEncoding;
 const Cp437Encoding = @import("encoding/cp437.zig").Cp437Encoding;
 const Iso2022JpEncoding = @import("encoding/iso_2022_jp.zig").Iso2022JpEncoding;
+const Iso88591Encoding = @import("encoding/iso_8859_1.zig").Iso88591Encoding;
 const Iso88599Encoding = @import("encoding/iso_8859_9.zig").Iso88599Encoding;
 const Iso885915Encoding = @import("encoding/iso_8859_15.zig").Iso885915Encoding;
 const Utf7Encoding = @import("encoding/utf7.zig").Utf7Encoding;
@@ -46,6 +47,7 @@ pub const Encoding = union(enum) {
     euc_jp: EucJpEncoding,
     cp437: Cp437Encoding,
     iso_2022_jp: Iso2022JpEncoding,
+    iso_8859_1: Iso88591Encoding,
     iso_8859_9: Iso88599Encoding,
     iso_8859_15: Iso885915Encoding,
     utf7: Utf7Encoding,
@@ -406,6 +408,7 @@ fn mapOnigEncoding(source_encoding: Encoding) ?onigmo.OnigEncoding {
         .shift_jis => onigmo.ENCODING_SHIFT_JIS,
         .windows_31j => onigmo.ENCODING_WINDOWS_31J,
         .euc_jp => onigmo.ENCODING_EUC_JP,
+        .iso_8859_1 => onigmo.ENCODING_ISO_8859_1,
         .iso_8859_9 => onigmo.ENCODING_ISO_8859_9,
         .iso_8859_15 => onigmo.ENCODING_ISO_8859_15,
         .utf16le => onigmo.ENCODING_UTF_16LE,

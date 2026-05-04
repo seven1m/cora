@@ -372,6 +372,7 @@ pub const VM = struct {
     encoding_euc_jp: *value.EncodingObject,
     encoding_cp437: *value.EncodingObject,
     encoding_iso_2022_jp: *value.EncodingObject,
+    encoding_iso_8859_1: *value.EncodingObject,
     encoding_iso_8859_9: *value.EncodingObject,
     encoding_iso_8859_15: *value.EncodingObject,
     encoding_utf7: *value.EncodingObject,
@@ -533,6 +534,7 @@ pub const VM = struct {
             .encoding_euc_jp = undefined,
             .encoding_cp437 = undefined,
             .encoding_iso_2022_jp = undefined,
+            .encoding_iso_8859_1 = undefined,
             .encoding_iso_8859_9 = undefined,
             .encoding_iso_8859_15 = undefined,
             .encoding_utf7 = undefined,
@@ -872,6 +874,7 @@ pub const VM = struct {
         self.encoding_euc_jp = try self.createEncodingObject(.{ .euc_jp = .{} });
         self.encoding_cp437 = try self.createEncodingObject(.{ .cp437 = .{} });
         self.encoding_iso_2022_jp = try self.createEncodingObject(.{ .iso_2022_jp = .{} });
+        self.encoding_iso_8859_1 = try self.createEncodingObject(.{ .iso_8859_1 = .{} });
         self.encoding_iso_8859_9 = try self.createEncodingObject(.{ .iso_8859_9 = .{} });
         self.encoding_iso_8859_15 = try self.createEncodingObject(.{ .iso_8859_15 = .{} });
         self.encoding_utf7 = try self.createEncodingObject(.{ .utf7 = .{} });
@@ -1064,6 +1067,7 @@ pub const VM = struct {
         const windows_31j_val = Value.fromObject(self.encoding_windows_31j);
         const euc_jp_val = Value.fromObject(self.encoding_euc_jp);
         const cp437_val = Value.fromObject(self.encoding_cp437);
+        const iso_8859_1_val = Value.fromObject(self.encoding_iso_8859_1);
         const iso_8859_9_val = Value.fromObject(self.encoding_iso_8859_9);
         const iso_8859_15_val = Value.fromObject(self.encoding_iso_8859_15);
         const utf7_val = Value.fromObject(self.encoding_utf7);
@@ -1086,7 +1090,7 @@ pub const VM = struct {
         self.encoding_class.module.constants.put(sjis_const_sym, .{ .value = windows_31j_val }) catch return error.Fatal;
         self.encoding_class.module.constants.put(windows_31j_const_sym, .{ .value = windows_31j_val }) catch return error.Fatal;
         self.encoding_class.module.constants.put(euc_jp_const_sym, .{ .value = euc_jp_val }) catch return error.Fatal;
-        self.encoding_class.module.constants.put(iso_8859_1_const_sym, .{ .value = iso_8859_15_val }) catch return error.Fatal;
+        self.encoding_class.module.constants.put(iso_8859_1_const_sym, .{ .value = iso_8859_1_val }) catch return error.Fatal;
         self.encoding_class.module.constants.put(iso_8859_9_const_sym, .{ .value = iso_8859_9_val }) catch return error.Fatal;
         self.encoding_class.module.constants.put(iso8859_9_const_sym, .{ .value = iso_8859_9_val }) catch return error.Fatal;
         self.encoding_class.module.constants.put(iso_8859_15_const_sym, .{ .value = iso_8859_15_val }) catch return error.Fatal;
@@ -6799,6 +6803,7 @@ pub const VM = struct {
             .shift_jis => onigmo.ENCODING_SHIFT_JIS,
             .windows_31j => onigmo.ENCODING_WINDOWS_31J,
             .euc_jp => onigmo.ENCODING_EUC_JP,
+            .iso_8859_1 => onigmo.ENCODING_ISO_8859_1,
             .iso_8859_9 => onigmo.ENCODING_ISO_8859_9,
             .iso_8859_15 => onigmo.ENCODING_ISO_8859_15,
             .utf16le => onigmo.ENCODING_UTF_16LE,
@@ -7236,6 +7241,7 @@ pub const VM = struct {
             .euc_jp => Value.fromObject(self.encoding_euc_jp),
             .cp437 => Value.fromObject(self.encoding_cp437),
             .iso_2022_jp => Value.fromObject(self.encoding_iso_2022_jp),
+            .iso_8859_1 => Value.fromObject(self.encoding_iso_8859_1),
             .iso_8859_9 => Value.fromObject(self.encoding_iso_8859_9),
             .iso_8859_15 => Value.fromObject(self.encoding_iso_8859_15),
             .utf7 => Value.fromObject(self.encoding_utf7),

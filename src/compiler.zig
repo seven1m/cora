@@ -1055,6 +1055,7 @@ pub const Compiler = struct {
         if (std.ascii.eqlIgnoreCase(name, "Shift_JIS")) return .{ .shift_jis = .{} };
         if (std.ascii.eqlIgnoreCase(name, "Windows-31J")) return .{ .windows_31j = .{} };
         if (std.ascii.eqlIgnoreCase(name, "EUC-JP")) return .{ .euc_jp = .{} };
+        if (std.ascii.eqlIgnoreCase(name, "ISO-8859-1")) return .{ .iso_8859_1 = .{} };
         if (std.ascii.eqlIgnoreCase(name, "ISO-8859-9")) return .{ .iso_8859_9 = .{} };
         if (std.ascii.eqlIgnoreCase(name, "ISO-8859-15")) return .{ .iso_8859_15 = .{} };
         if (std.ascii.eqlIgnoreCase(name, "UTF-7")) return .{ .utf7 = .{} };
