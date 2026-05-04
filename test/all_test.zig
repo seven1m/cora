@@ -22,6 +22,7 @@ const core_string_test = @import("core/string_test.zig");
 const core_struct_test = @import("core/struct_test.zig");
 const core_symbol_test = @import("core/symbol_test.zig");
 const core_thread_test = @import("core/thread_test.zig");
+const core_time_test = @import("core/time_test.zig");
 const core_true_test = @import("core/true_test.zig");
 
 const language_alias_test = @import("language/alias_test.zig");
@@ -91,6 +92,7 @@ comptime {
     _ = core_struct_test;
     _ = core_symbol_test;
     _ = core_thread_test;
+    _ = core_time_test;
     _ = core_true_test;
     _ = language_alias_test;
     _ = language_array_test;

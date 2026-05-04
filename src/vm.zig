@@ -278,6 +278,7 @@ pub const VM = struct {
     class_class: *value.ClassObject,
     integer_class: *value.ClassObject,
     float_class: *value.ClassObject,
+    time_class: *value.ClassObject,
     module_class: *value.ClassObject,
     numeric_class: *value.ClassObject,
     object_class: *value.ClassObject,
@@ -452,6 +453,7 @@ pub const VM = struct {
             .class_class = undefined,
             .integer_class = undefined,
             .float_class = undefined,
+            .time_class = undefined,
             .module_class = undefined,
             .numeric_class = undefined,
             .object_class = undefined,
@@ -613,6 +615,10 @@ pub const VM = struct {
         const float_name_sym = try self.intern("Float");
         const float_class_val = try self.newClass(float_name_sym, self.numeric_class);
         self.float_class = float_class_val.toClassObject();
+
+        const time_name_sym = try self.intern("Time");
+        const time_class_val = try self.newClassWithType(time_name_sym, self.object_class, .time);
+        self.time_class = time_class_val.toClassObject();
 
         const string_name_sym = try self.intern("String");
         const string_class_val = try self.newClassWithType(string_name_sym, self.object_class, .string);
@@ -888,6 +894,7 @@ pub const VM = struct {
         self.object_class.module.constants.put(numeric_name_sym, .{ .value = numeric_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(integer_name_sym, .{ .value = integer_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(float_name_sym, .{ .value = float_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(time_name_sym, .{ .value = time_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(string_name_sym, .{ .value = string_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(symbol_name_sym, .{ .value = symbol_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(io_name_sym, .{ .value = io_class_val }) catch return error.Fatal;
@@ -1119,6 +1126,7 @@ pub const VM = struct {
         try self.includeModule(&self.struct_class.module, enumerable_module_val.toModuleObject());
         try self.includeModule(&self.string_class.module, comparable_module_val.toModuleObject());
         try self.includeModule(&self.symbol_class.module, comparable_module_val.toModuleObject());
+        try self.includeModule(&self.time_class.module, comparable_module_val.toModuleObject());
 
         // Create top-level self (Ruby "main" object)
         self.main_self = try self.newInstance(self.object_class);
@@ -6949,6 +6957,7 @@ pub const VM = struct {
             .range => self.newRange(class_obj),
             .fiber => try self.newFiber(class_obj, null),
             .io => try self.newIo(class_obj, -1, false, false, false, false),
+            .time => self.newTime(class_obj, 0),
             .instance => self.newInstance(class_obj),
         };
     }
@@ -7088,6 +7097,15 @@ pub const VM = struct {
             .val = f,
         };
         return Value.fromObject(float_obj);
+    }
+
+    pub fn newTime(self: *VM, class_obj: *ClassObject, epoch_nanoseconds: i64) VMError!Value {
+        const time_obj = self.gc_allocator.create(value.TimeObject) catch return error.Fatal;
+        time_obj.* = .{
+            .object = .{ .type_tag = .time, .flags = 0, .class = class_obj, .singleton_class = null, .instance_variables = null },
+            .epoch_nanoseconds = epoch_nanoseconds,
+        };
+        return Value.fromObject(time_obj);
     }
 
     pub fn newBigIntegerFromI64(self: *VM, n: i64) VMError!Value {
@@ -7453,6 +7471,7 @@ pub const VM = struct {
             .thread => arg.isThread(),
             .mutex => arg.isMutex(),
             .queue => arg.isQueue(),
+            .time => arg.isTime(),
         };
         if (!matches) {
             const msg = std.fmt.allocPrint(

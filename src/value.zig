@@ -51,6 +51,7 @@ pub const ObjectTypeTag = enum(u8) {
     thread,
     mutex,
     queue,
+    time,
 };
 
 pub const Object = struct {
@@ -151,6 +152,7 @@ pub const ObjectType = enum {
     range,
     fiber,
     io,
+    time,
 };
 
 pub const ClassObject = struct {
@@ -307,6 +309,11 @@ pub const QueueObject = struct {
     read_index: usize = 0,
     waiters: std.ArrayList(*ThreadObject) = .empty,
     closed: bool = false,
+};
+
+pub const TimeObject = struct {
+    object: Object,
+    epoch_nanoseconds: i64,
 };
 
 pub const IoObject = struct {
@@ -556,6 +563,10 @@ pub const Value = struct {
         return self.isObject() and self.objectTypeTag() == .queue;
     }
 
+    pub inline fn isTime(self: Value) bool {
+        return self.isObject() and self.objectTypeTag() == .time;
+    }
+
     // -- Convenience extractors for heap types --
 
     pub inline fn toStringObject(self: Value) *StringObject {
@@ -643,6 +654,10 @@ pub const Value = struct {
     }
 
     pub inline fn toQueueObject(self: Value) *QueueObject {
+        return @ptrFromInt(self.raw);
+    }
+
+    pub inline fn toTimeObject(self: Value) *TimeObject {
         return @ptrFromInt(self.raw);
     }
 
@@ -908,6 +923,7 @@ pub const Value = struct {
                 .thread => try writer.print("#<Thread:0x{x}>", .{self.raw}),
                 .mutex => try writer.print("#<Mutex:0x{x}>", .{self.raw}),
                 .queue => try writer.print("#<Thread::Queue:0x{x}>", .{self.raw}),
+                .time => try writer.print("#<Time:0x{x}>", .{self.raw}),
             }
         } else {
             try writer.print("<unknown>", .{});
@@ -939,6 +955,7 @@ pub const Value = struct {
             .string => std.hash.Wyhash.hash(0, self.toStringObject().str),
             .regexp => std.hash.Wyhash.hash(@as(u64, self.toRegexpObject().options), self.toRegexpObject().pattern),
             .float => @bitCast(self.toFloatObject().val),
+            .time => std.hash.Wyhash.hash(0, std.mem.asBytes(&self.toTimeObject().epoch_nanoseconds)),
             else => self.raw,
         };
     }
@@ -963,6 +980,7 @@ pub const Value = struct {
                 .regexp => std.mem.eql(u8, self.toRegexpObject().pattern, other.toRegexpObject().pattern) and
                     self.toRegexpObject().options == other.toRegexpObject().options,
                 .float => self.toFloatObject().val == other.toFloatObject().val,
+                .time => self.toTimeObject().epoch_nanoseconds == other.toTimeObject().epoch_nanoseconds,
                 else => self.hash() == other.hash(),
             };
         }
