@@ -232,6 +232,44 @@ test "instance variable compound assignment" {
     try std.testing.expect(result.isNil());
 }
 
+test "call ||= assigns through getter/setter and evaluates receiver once" {
+    const result = try evalCode(
+        \\$calls = 0
+        \\$last = nil
+        \\class Foo
+        \\  attr_accessor :bar
+        \\end
+        \\def make_foo
+        \\  $calls += 1
+        \\  $last = Foo.new
+        \\end
+        \\x = (make_foo.bar ||= true)
+        \\[x, $last.bar, $calls]
+    );
+
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(usize, 3), result.toArrayObject().elements.items.len);
+    try std.testing.expect(result.toArrayObject().elements.items[0].isBool() and result.toArrayObject().elements.items[0].toBool());
+    try std.testing.expect(result.toArrayObject().elements.items[1].isBool() and result.toArrayObject().elements.items[1].toBool());
+    try std.testing.expectEqual(@as(i64, 1), result.toArrayObject().elements.items[2].toInteger());
+}
+
+test "call &&= short-circuits falsey getter result" {
+    const result = try evalCode(
+        \\class Foo
+        \\  attr_accessor :bar
+        \\end
+        \\foo = Foo.new
+        \\x = (foo.bar &&= true)
+        \\[x, foo.bar]
+    );
+
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(usize, 2), result.toArrayObject().elements.items.len);
+    try std.testing.expect(result.toArrayObject().elements.items[0].isNil());
+    try std.testing.expect(result.toArrayObject().elements.items[1].isNil());
+}
+
 test "constant ||= initializes when missing" {
     const result = try evalCode(
         \\X ||= 1
