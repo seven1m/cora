@@ -291,6 +291,7 @@ pub const VM = struct {
     binding_class: *value.ClassObject,
     range_class: *value.ClassObject,
     proc_class: *value.ClassObject,
+    struct_class: *value.ClassObject,
     fiber_class: *value.ClassObject,
     regexp_class: *value.ClassObject,
     match_data_class: *value.ClassObject,
@@ -464,6 +465,7 @@ pub const VM = struct {
             .binding_class = undefined,
             .range_class = undefined,
             .proc_class = undefined,
+            .struct_class = undefined,
             .fiber_class = undefined,
             .regexp_class = undefined,
             .match_data_class = undefined,
@@ -657,6 +659,10 @@ pub const VM = struct {
         const proc_name_sym = try self.intern("Proc");
         const proc_class_val = try self.newClass(proc_name_sym, self.object_class);
         self.proc_class = proc_class_val.toClassObject();
+
+        const struct_name_sym = try self.intern("Struct");
+        const struct_class_val = try self.newClass(struct_name_sym, self.object_class);
+        self.struct_class = struct_class_val.toClassObject();
 
         const method_name_sym = try self.intern("Method");
         const method_class_val = try self.newClass(method_name_sym, self.object_class);
@@ -892,6 +898,7 @@ pub const VM = struct {
         self.object_class.module.constants.put(binding_name_sym, .{ .value = binding_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(range_name_sym, .{ .value = range_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(proc_name_sym, .{ .value = proc_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(struct_name_sym, .{ .value = struct_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(method_name_sym, .{ .value = method_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(fiber_name_sym, .{ .value = fiber_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(thread_name_sym, .{ .value = thread_class_val }) catch return error.Fatal;
@@ -1098,6 +1105,7 @@ pub const VM = struct {
         builtins.registerAll(self) catch return error.Fatal;
         comparable_builtin.register(self, comparable_module_val.toModuleObject()) catch return error.Fatal;
         self.integer_changed = false;
+        self.struct_class.struct_members = try self.createArray();
 
         // Initialize last process status global.
         try self.setGlobal("$?", Value.nil());
@@ -1108,6 +1116,7 @@ pub const VM = struct {
         try self.includeModule(&self.object_class.module, self.kernel_module);
         try self.includeModule(&self.array_class.module, enumerable_module_val.toModuleObject());
         try self.includeModule(&self.hash_class.module, enumerable_module_val.toModuleObject());
+        try self.includeModule(&self.struct_class.module, enumerable_module_val.toModuleObject());
         try self.includeModule(&self.string_class.module, comparable_module_val.toModuleObject());
         try self.includeModule(&self.symbol_class.module, comparable_module_val.toModuleObject());
 

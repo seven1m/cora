@@ -158,6 +158,7 @@ pub const ClassObject = struct {
     superclass: ?*ClassObject,
     attached_object: ?Value = null,
     object_type: ObjectType = .instance,
+    struct_members: ?*ArrayObject = null,
 };
 
 pub const ArrayObject = struct {

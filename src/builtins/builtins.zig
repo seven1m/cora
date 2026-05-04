@@ -32,6 +32,7 @@ const warning = @import("warning.zig");
 const range = @import("range.zig");
 const regexp = @import("regexp.zig");
 const socket = @import("socket.zig");
+const struct_builtin = @import("struct.zig");
 const string = @import("string.zig");
 const symbol = @import("symbol.zig");
 const true_class = @import("true_class.zig");
@@ -54,6 +55,7 @@ pub fn registerAll(vm: *VM) !void {
     try process.register(vm);
     try warning.register(vm);
     try proc_builtin.register(vm);
+    try struct_builtin.register(vm);
     try fiber.register(vm);
     try thread.register(vm);
     try mutex.register(vm);
