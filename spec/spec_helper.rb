@@ -439,7 +439,7 @@ def cora_lib_dir
 end
 
 def shell_escape(str)
-  "'" + str.to_s.gsub("'", %q('\\'')) + "'"
+  "'" + str.to_s.gsub("'") { %q('\\'') } + "'"
 end
 
 def ruby_exe(script_path, options: nil, args: nil, exit_status: nil, env: nil)

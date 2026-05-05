@@ -1610,6 +1610,10 @@ pub const VM = struct {
         return out;
     }
 
+    pub fn dupeCStringZAsSlice(self: *VM, bytes_z: [:0]const u8) VMError![]u8 {
+        return self.allocator.dupe(u8, bytes_z[0..bytes_z.len]) catch return error.Fatal;
+    }
+
     pub fn envGet(self: *VM, key: []const u8) VMError!Value {
         var env_map = try self.currentEnvMap();
         defer env_map.deinit();
@@ -4548,11 +4552,11 @@ pub const VM = struct {
             .INTERPOLATE_STRING => {
                 const part_count = readByteFrom(frame, operands, &operand_cursor);
 
-                var buf: std.Io.Writer.Allocating = .init(self.allocator);
-                defer buf.deinit();
-                const writer = &buf.writer;
                 if (self.stack.items.len < part_count) return error.Fatal;
                 const start = self.stack.items.len - part_count;
+                var out: std.ArrayList(u8) = .empty;
+                defer out.deinit(self.allocator);
+                var result_encoding: enc.Encoding = .{ .ascii_8bit = .{} };
                 var i: usize = 0;
                 while (i < part_count) : (i += 1) {
                     const val = self.stack.items[start + i];
@@ -4567,13 +4571,17 @@ pub const VM = struct {
                         self.pending_exception = exc;
                         return error.Unwind;
                     }
-                    writer.writeAll(str_val.toStringObject().str) catch return error.Fatal;
+                    const str_obj = str_val.toStringObject();
+                    result_encoding = resolveInterpolatedStringEncoding(result_encoding, out.items, str_obj.encoding, str_obj.str) orelse {
+                        return self.raiseEncodingCompatibilityError(result_encoding, str_obj.encoding);
+                    };
+                    out.appendSlice(self.allocator, str_obj.str) catch return error.Fatal;
                 }
                 self.stack.items.len = start;
 
-                const final_str = buf.toOwnedSlice() catch return error.Fatal;
+                const final_str = out.toOwnedSlice(self.allocator) catch return error.Fatal;
                 defer self.allocator.free(final_str);
-                try self.push(try self.newString(final_str, false));
+                try self.push(try self.newStringWithEncoding(final_str, false, result_encoding));
             },
 
             .HALT => {
@@ -5883,10 +5891,27 @@ pub const VM = struct {
                 .break_occurred = false,
                 .non_local_return_occurred = false,
             },
-            .callable => |callable| .{
-                .value = try self.callMethodByName(callable, "call", @constCast(yield_args), null),
-                .break_occurred = false,
-                .non_local_return_occurred = false,
+            .callable => |callable| blk: {
+                const saved_last_match = self.globals.get("$~") orelse Value.nil();
+                try self.clearLastMatch();
+                const call_result = self.callMethodByName(callable, "call", @constCast(yield_args), null) catch |err| {
+                    if (saved_last_match.isMatchData()) {
+                        try self.setLastMatch(saved_last_match.toMatchDataObject());
+                    } else {
+                        try self.clearLastMatch();
+                    }
+                    return err;
+                };
+                if (saved_last_match.isMatchData()) {
+                    try self.setLastMatch(saved_last_match.toMatchDataObject());
+                } else {
+                    try self.clearLastMatch();
+                }
+                break :blk .{
+                    .value = call_result,
+                    .break_occurred = false,
+                    .non_local_return_occurred = false,
+                };
             },
             .chunk => |chunk_blk| blk: {
                 // Dereference defining_ep in case it's a forwarding pointer
@@ -7213,6 +7238,29 @@ pub const VM = struct {
             return .{ .ascii_8bit = .{} };
         }
         return source_encoding;
+    }
+
+    fn resolveInterpolatedStringEncoding(
+        lhs_encoding: enc.Encoding,
+        lhs_bytes: []const u8,
+        rhs_encoding: enc.Encoding,
+        rhs_bytes: []const u8,
+    ) ?enc.Encoding {
+        if (lhs_encoding.eql(rhs_encoding)) return lhs_encoding;
+
+        if (rhs_bytes.len == 0) return lhs_encoding;
+        if (lhs_bytes.len == 0) return rhs_encoding;
+
+        if (!lhs_encoding.isAsciiCompatible() or !rhs_encoding.isAsciiCompatible()) return null;
+
+        const lhs_ascii_only = enc.isAsciiOnly(lhs_bytes);
+        const rhs_ascii_only = enc.isAsciiOnly(rhs_bytes);
+
+        if (lhs_ascii_only and !rhs_ascii_only) return rhs_encoding;
+        if (!lhs_ascii_only and rhs_ascii_only) return lhs_encoding;
+        if (lhs_ascii_only and rhs_ascii_only) return lhs_encoding;
+
+        return null;
     }
 
     fn literalSymbolEncodingForChunk(source_encoding: enc.Encoding, bytes: []const u8) enc.Encoding {

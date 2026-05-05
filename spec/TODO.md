@@ -1998,7 +1998,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/string/freeze_spec.rb
 - [x] core/string/getbyte_spec.rb
 - [ ] core/string/grapheme_clusters_spec.rb
-- [ ] core/string/gsub_spec.rb
+- [x] core/string/gsub_spec.rb
 - [x] core/string/hash_spec.rb
 - [x] core/string/hex_spec.rb
 - [x] core/string/include_spec.rb

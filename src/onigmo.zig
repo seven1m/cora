@@ -103,12 +103,17 @@ pub fn search(regex: OnigRegex, text: []const u8) bool {
 }
 
 pub fn searchWithCaptures(allocator: std.mem.Allocator, regex: OnigRegex, text: []const u8) !SearchCaptures {
+    return searchWithCapturesAt(allocator, regex, text, 0);
+}
+
+pub fn searchWithCapturesAt(allocator: std.mem.Allocator, regex: OnigRegex, text: []const u8, start_offset: usize) !SearchCaptures {
     const region = c.onig_region_new() orelse return error.OutOfMemory;
     defer c.onig_region_free(region, 1);
 
     const start_ptr: [*c]const c.OnigUChar = @ptrCast(text.ptr);
     const end_ptr = start_ptr + text.len;
-    const result = c.onig_search(regex, start_ptr, end_ptr, start_ptr, end_ptr, region, 0);
+    const search_ptr = start_ptr + start_offset;
+    const result = c.onig_search(regex, start_ptr, end_ptr, search_ptr, end_ptr, region, 0);
     if (result == c.ONIG_MISMATCH) {
         const empty_beg = try allocator.alloc(i64, 0);
         const empty_end = try allocator.alloc(i64, 0);
@@ -119,6 +124,7 @@ pub fn searchWithCaptures(allocator: std.mem.Allocator, regex: OnigRegex, text: 
             .end_offsets = empty_end,
         };
     }
+    if (result < 0) return error.InvalidByteSequence;
 
     const regs: usize = @intCast(region.*.num_regs);
     const begins = try allocator.alloc(i64, regs);

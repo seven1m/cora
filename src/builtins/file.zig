@@ -147,7 +147,9 @@ fn currentHome(vm: *VM) VMError![]const u8 {
 }
 
 fn currentWorkingDir(vm: *VM) VMError![]u8 {
-    return std.process.currentPathAlloc(vm.io, vm.allocator) catch return error.Fatal;
+    const cwd_z = std.process.currentPathAlloc(vm.io, vm.allocator) catch return error.Fatal;
+    defer vm.allocator.free(cwd_z);
+    return vm.dupeCStringZAsSlice(cwd_z);
 }
 
 fn joinPathPartsAlloc(allocator: std.mem.Allocator, base: []const u8, tail: []const u8) ![]u8 {

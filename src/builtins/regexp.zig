@@ -487,8 +487,16 @@ fn searchRegexp(
     else
         regexp_obj;
 
-    const search_bytes = source_obj.str[start_byte..];
-    const search_result = onigmo.searchWithCaptures(vm.gc_allocator, effective_regexp.regex, search_bytes) catch return error.Fatal;
+    if (effective_regexp.encoding.isUnicode() and !source_obj.encoding.isValid(source_obj.str)) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "invalid byte sequence in {s}", .{source_obj.encoding.name()});
+    }
+
+    const search_result = onigmo.searchWithCapturesAt(vm.gc_allocator, effective_regexp.regex, source_obj.str, start_byte) catch |err| switch (err) {
+        error.InvalidByteSequence => {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "invalid byte sequence in {s}", .{source_obj.encoding.name()});
+        },
+        else => return error.Fatal,
+    };
     defer vm.gc_allocator.free(search_result.begin_offsets);
     defer vm.gc_allocator.free(search_result.end_offsets);
 
@@ -500,7 +508,6 @@ fn searchRegexp(
     var captures: std.ArrayList(Value) = .empty;
     defer captures.deinit(vm.gc_allocator);
 
-    const base_i64: i64 = @intCast(start_byte);
     var begins = vm.gc_allocator.alloc(i64, search_result.begin_offsets.len) catch return error.Fatal;
     defer vm.gc_allocator.free(begins);
     var ends = vm.gc_allocator.alloc(i64, search_result.end_offsets.len) catch return error.Fatal;
@@ -514,13 +521,11 @@ fn searchRegexp(
             continue;
         }
 
-        const absolute_begin = beg + base_i64;
-        const absolute_end = end_ + base_i64;
-        begins[idx] = absolute_begin;
-        ends[idx] = absolute_end;
+        begins[idx] = beg;
+        ends[idx] = end_;
 
-        const begin_usize: usize = @intCast(absolute_begin);
-        const end_usize: usize = @intCast(absolute_end);
+        const begin_usize: usize = @intCast(beg);
+        const end_usize: usize = @intCast(end_);
         if (begin_usize > source_obj.str.len or end_usize > source_obj.str.len or begin_usize > end_usize) {
             return error.Fatal;
         }
@@ -539,9 +544,8 @@ fn searchRegexp(
     const md = md_val.toMatchDataObject();
     if (update_last_match) try vm.setLastMatch(md);
 
-    const absolute_match_index: usize = start_byte + @as(usize, @intCast(search_result.match_index));
     return .{
-        .char_index = @intCast(source_obj.encoding.charCount(source_obj.str[0..absolute_match_index])),
+        .char_index = @intCast(source_obj.encoding.charCount(source_obj.str[0..@as(usize, @intCast(search_result.match_index))])),
         .match_data = md,
     };
 }
