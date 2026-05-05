@@ -326,6 +326,8 @@ pub fn register(vm: *VM) !void {
 
     const inspect_sym = try vm.intern("inspect");
     try vm.string_class.module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinStringInspect } });
+    const dump_sym = try vm.intern("dump");
+    try vm.string_class.module.methods.put(dump_sym, .{ .method = .{ .builtin = &builtinStringDump } });
 
     const match_op_sym = try vm.intern("=~");
     try vm.string_class.module.methods.put(match_op_sym, .{ .method = .{ .builtin = &builtinStringMatchOp } });
@@ -3689,6 +3691,18 @@ pub fn builtinStringInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     const str = inspect_util.inspectStringBytes(vm.allocator, string_obj.str, string_obj.encoding, vm.inspectTargetEncoding()) catch return error.Fatal;
     defer vm.allocator.free(str);
     return try vm.newStringWithEncoding(str, false, vm.inspectTargetEncoding());
+}
+
+pub fn builtinStringDump(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const string_obj = receiver.toStringObject();
+    const str = inspect_util.dumpStringBytes(vm.allocator, string_obj.str, string_obj.encoding) catch return error.Fatal;
+    defer vm.allocator.free(str);
+    const result_encoding: enc.Encoding = if (string_obj.encoding.isAsciiCompatible())
+        string_obj.encoding
+    else
+        .{ .ascii_8bit = .{} };
+    return try vm.newStringWithEncoding(str, false, result_encoding);
 }
 
 pub fn builtinStringMatchOp(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

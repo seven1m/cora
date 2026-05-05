@@ -64,6 +64,35 @@ fn escapedInspectControl(codepoint: u32) ?[]const u8 {
     };
 }
 
+fn appendDumpEscapedByte(writer: anytype, b: u8, next_byte: u8) !void {
+    switch (b) {
+        '"' => try writer.writeAll("\\\""),
+        '\\' => try writer.writeAll("\\\\"),
+        '#' => {
+            if (next_byte == '$' or next_byte == '@' or next_byte == '{') {
+                try writer.writeAll("\\#");
+            } else {
+                try writer.writeByte('#');
+            }
+        },
+        0x07 => try writer.writeAll("\\a"),
+        0x08 => try writer.writeAll("\\b"),
+        0x09 => try writer.writeAll("\\t"),
+        0x0A => try writer.writeAll("\\n"),
+        0x0B => try writer.writeAll("\\v"),
+        0x0C => try writer.writeAll("\\f"),
+        0x0D => try writer.writeAll("\\r"),
+        0x1B => try writer.writeAll("\\e"),
+        else => {
+            if ((b < 0x20) or (b >= 0x7F)) {
+                try appendHexByte(writer, b);
+            } else {
+                try writer.writeByte(b);
+            }
+        },
+    }
+}
+
 fn isIdentifierStart(codepoint: u32) bool {
     return codepoint == '_' or (codepoint <= 0x7F and std.ascii.isAlphabetic(@intCast(codepoint))) or codepoint > 0x7F;
 }
@@ -334,6 +363,65 @@ pub fn inspectStringBytes(
     }
     try writer.writeAll("\"");
 
+    return buf.toOwnedSlice();
+}
+
+pub fn dumpStringBytes(
+    allocator: std.mem.Allocator,
+    input: []const u8,
+    input_encoding: enc.Encoding,
+) ![]u8 {
+    var buf: std.Io.Writer.Allocating = .init(allocator);
+    defer buf.deinit();
+    const writer = &buf.writer;
+
+    try writer.writeAll("\"");
+
+    if (!input_encoding.isAsciiCompatible()) {
+        for (input, 0..) |b, idx| {
+            const next_byte = if (idx + 1 < input.len) input[idx + 1] else 0;
+            try appendDumpEscapedByte(writer, b, next_byte);
+        }
+
+        try writer.writeAll("\"");
+        try writer.print(".force_encoding(\"{s}\")", .{input_encoding.name()});
+        return buf.toOwnedSlice();
+    }
+
+    const unicode_encoding = input_encoding.isUnicode();
+    var i: usize = 0;
+    while (i < input.len) {
+        const start = i;
+        const parsed = input_encoding.nextCodepoint(input, &i);
+        if (parsed.len == 0) break;
+
+        const char_bytes = input[start .. start + parsed.len];
+        if (!parsed.valid) {
+            for (char_bytes) |b| {
+                try appendHexByte(writer, b);
+            }
+            continue;
+        }
+
+        const codepoint = parsed.codepoint;
+        const next_byte = if (i < input.len) input[i] else 0;
+
+        if (codepoint <= 0x7F) {
+            try appendDumpEscapedByte(writer, @intCast(codepoint), next_byte);
+            continue;
+        }
+
+        if (unicode_encoding) {
+            try appendUnicodeEscape(writer, codepoint);
+            continue;
+        }
+
+        for (char_bytes) |b| {
+            try appendHexByte(writer, b);
+        }
+    }
+
+    try writer.writeAll("\"");
     return buf.toOwnedSlice();
 }
 
