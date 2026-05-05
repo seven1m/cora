@@ -141,7 +141,8 @@ pub fn main(init: std.process.Init) !void {
         return;
     }
 
-    var virtual_machine = try vm.VM.init(allocator, bdwgc.allocator, bdwgc.allocator_atomic, init.io, init.minimal.environ, &program);
+    var virtual_machine = vm.VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic, init.io, init.minimal.environ);
+    try virtual_machine.prepare(&program);
     defer virtual_machine.deinit();
     virtual_machine.setTccJitEnabled(build_options.tcc_jit);
     virtual_machine.setDumpJitSource(dump_jit_source);

@@ -1565,19 +1565,6 @@ pub const VM = struct {
         }
     }
 
-    pub fn init(
-        allocator: std.mem.Allocator,
-        gc_allocator: std.mem.Allocator,
-        gc_allocator_atomic: std.mem.Allocator,
-        io: std.Io,
-        environ: std.process.Environ,
-        program: *compiler.CompiledProgram,
-    ) VMError!VM {
-        var vm = initEmpty(allocator, gc_allocator, gc_allocator_atomic, io, environ);
-        vm.prepare(program) catch return error.Fatal;
-        return vm;
-    }
-
     pub fn setArgv(self: *VM, args: []const []const u8) VMError!void {
         const argv_array = try self.createArray();
         for (args) |arg| {
