@@ -571,11 +571,12 @@ pub const VM = struct {
         zio.coro.setupStackGrowth() catch return error.Fatal;
         self.zio_stack_growth_ready = true;
 
-        // Initialize file loading infrastructure
+        // Initialize file loading infrastructure. The Ruby-facing $LOAD_PATH
+        // must wait until Array and String classes exist so those bootstrap
+        // objects get valid dispatch classes.
         self.loaded_files = std.StringHashMap(void).init(self.allocator);
         self.loaded_paths = .empty;
-        self.load_path = try self.createArray();
-        self.load_path.?.elements.append(self.gc_allocator, try self.newString(".", false)) catch return error.Fatal;
+        self.load_path = null;
         self.next_chunk_id = program.next_chunk_id;
         self.thread_preempt_quantum_ops = parseThreadPreemptQuantumOps();
 
@@ -647,6 +648,9 @@ pub const VM = struct {
         const hash_name_sym = try self.intern("Hash");
         const hash_class_val = try self.newClassWithType(hash_name_sym, self.object_class, .hash);
         self.hash_class = hash_class_val.toClassObject();
+
+        self.load_path = try self.createArray();
+        self.load_path.?.elements.append(self.gc_allocator, try self.newString(".", false)) catch return error.Fatal;
 
         const file_name_sym = try self.intern("File");
         const file_class_val = try self.newClassWithType(file_name_sym, self.io_class, .io);
