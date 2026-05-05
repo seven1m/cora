@@ -272,6 +272,7 @@ pub const VM = struct {
     program: *compiler.CompiledProgram,
 
     current_lexical_scope: ?*LexicalScope = null,
+    toplevel_lexical_scope: ?*LexicalScope = null,
     lexical_scopes: std.ArrayList(*LexicalScope) = .empty,
 
     basic_object_class: *value.ClassObject,
@@ -450,6 +451,8 @@ pub const VM = struct {
             .packed_pointer_targets = std.AutoHashMap(*StringObject, PackedPointerTargets).init(gc_allocator),
             .loaded_files = std.StringHashMap(void).init(gc_allocator),
             .program = undefined,
+            .current_lexical_scope = null,
+            .toplevel_lexical_scope = null,
             .basic_object_class = undefined,
             .class_class = undefined,
             .integer_class = undefined,
@@ -1143,6 +1146,7 @@ pub const VM = struct {
 
         // --- Stage 6: Initialize top-level lexical scope ---
         self.current_lexical_scope = try self.createLexicalScope(Value.fromObject(self.object_class), null);
+        self.toplevel_lexical_scope = self.current_lexical_scope;
         const toplevel_binding = try self.createBinding(self.main_self, null, self.current_lexical_scope);
         const toplevel_binding_sym = try self.intern("TOPLEVEL_BINDING");
         self.object_class.module.constants.put(toplevel_binding_sym, .{ .value = Value.fromObject(toplevel_binding) }) catch return error.Fatal;
@@ -8175,7 +8179,7 @@ pub const VM = struct {
             target_chunk,
             self.main_self,
             null,
-            target_chunk.lexical_scope orelse self.current_lexical_scope,
+            target_chunk.lexical_scope orelse self.toplevel_lexical_scope orelse self.current_lexical_scope,
         );
     }
 
