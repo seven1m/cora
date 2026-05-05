@@ -172,7 +172,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/array/pack/z_spec.rb
 
 ### core/array
-- [ ] core/array/partition_spec.rb
+- [x] core/array/partition_spec.rb
 - [ ] core/array/permutation_spec.rb
 - [x] core/array/plus_spec.rb
 - [x] core/array/pop_spec.rb

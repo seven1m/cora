@@ -416,6 +416,9 @@ pub fn register(vm: *VM) !void {
     const reject_sym = try vm.intern("reject");
     try vm.array_class.module.methods.put(reject_sym, .{ .method = .{ .builtin = &builtinArrayReject } });
 
+    const partition_sym = try vm.intern("partition");
+    try vm.array_class.module.methods.put(partition_sym, .{ .method = .{ .builtin = &builtinArrayPartition } });
+
     const select_bang_sym = try vm.intern("select!");
     try vm.array_class.module.methods.put(select_bang_sym, .{ .method = .{ .builtin = &builtinArraySelectBang } });
     const filter_bang_sym = try vm.intern("filter!");
@@ -1222,6 +1225,33 @@ pub fn builtinArrayReject(vm: *VM, receiver: Value, args: []Value, block: ?Block
     }
 
     return Value.fromObject(result);
+}
+
+pub fn builtinArrayPartition(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const blk = block orelse {
+        const size_value = Value.integer(@intCast(receiver.toArrayObject().elements.items.len));
+        return try vm.createMethodEnumeratorWithSize(receiver, try vm.intern("partition"), &.{}, size_value);
+    };
+    const source = receiver.toArrayObject();
+    const truthy = try vm.createArray();
+    const falsey = try vm.createArray();
+    const pair = try vm.createArray();
+
+    var idx: usize = 0;
+    while (idx < source.elements.items.len) : (idx += 1) {
+        const element = source.elements.items[idx];
+        const yield_args = [_]Value{element};
+        const yielded = try vm.yieldToBlock(blk, &yield_args);
+        if (yielded.controlFlowValue()) |return_value| return return_value;
+
+        const target = if (yielded.value.is_truthy()) truthy else falsey;
+        target.elements.append(vm.gc_allocator, element) catch return error.Fatal;
+    }
+
+    pair.elements.append(vm.gc_allocator, Value.fromObject(truthy)) catch return error.Fatal;
+    pair.elements.append(vm.gc_allocator, Value.fromObject(falsey)) catch return error.Fatal;
+    return Value.fromObject(pair);
 }
 
 pub fn builtinArraySelectBang(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
