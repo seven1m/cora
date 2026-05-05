@@ -180,6 +180,42 @@ test "Array#map" {
     try std.testing.expectEqual(@as(i64, 6), result.toArrayObject().elements.items[2].toInteger());
 }
 
+test "Array#flatten recursively expands nested arrays" {
+    const result = try evalCode("[1, [2, [3]], 4].flatten");
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(usize, 4), result.toArrayObject().elements.items.len);
+    try std.testing.expectEqual(@as(i64, 1), result.toArrayObject().elements.items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 2), result.toArrayObject().elements.items[1].toInteger());
+    try std.testing.expectEqual(@as(i64, 3), result.toArrayObject().elements.items[2].toInteger());
+    try std.testing.expectEqual(@as(i64, 4), result.toArrayObject().elements.items[3].toInteger());
+}
+
+test "Array#flatten raises on recursive arrays" {
+    const result = try evalCode(
+        \\a = []
+        \\a << a
+        \\begin
+        \\  a.flatten
+        \\rescue => e
+        \\  [e.class == ArgumentError, e.message]
+        \\end
+    );
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[0].toBool());
+    try std.testing.expectEqualSlices(u8, "tried to flatten recursive array", result.toArrayObject().elements.items[1].toStringObject().str);
+}
+
+test "Array#uniq! removes duplicates in place and returns nil when unchanged" {
+    var result = try evalCode("a = [1, 2, 1, 3]; [a.uniq!, a]");
+    try std.testing.expect(result.isArray());
+    try std.testing.expect(result.toArrayObject().elements.items[0].isArray());
+    try std.testing.expect(result.toArrayObject().elements.items[1].isArray());
+    try std.testing.expectEqual(@as(usize, 3), result.toArrayObject().elements.items[1].toArrayObject().elements.items.len);
+
+    result = try evalCode("a = [1, 2, 3]; a.uniq!");
+    try std.testing.expect(result.isNil());
+}
+
 test "Array#each propagates break value" {
     var result = try evalCode("a = [1, 2, 3]; a.each { |x| break :done if x == 2 }");
     try std.testing.expect(result.isSymbol());

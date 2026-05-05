@@ -177,6 +177,27 @@ fn arrayJoinAppendArray(
     }
 }
 
+fn arrayFlattenInto(
+    vm: *VM,
+    out: *value.ArrayObject,
+    array: *value.ArrayObject,
+    seen: *std.AutoHashMap(usize, void),
+) VMError!void {
+    const key = @intFromPtr(array);
+    if (seen.contains(key)) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "tried to flatten recursive array", .{});
+    }
+    seen.put(key, {}) catch return error.Fatal;
+    defer _ = seen.remove(key);
+
+    for (array.elements.items) |element| {
+        switch (try vm.probeToAry(element)) {
+            .array => |nested| try arrayFlattenInto(vm, out, nested.toArrayObject(), seen),
+            .missing, .nil_result => out.elements.append(vm.gc_allocator, element) catch return error.Fatal,
+        }
+    }
+}
+
 const ArrayFillPlan = struct {
     start: i64,
     count: i64,
@@ -384,6 +405,9 @@ pub fn register(vm: *VM) !void {
     const compact_bang_sym = try vm.intern("compact!");
     try vm.array_class.module.methods.put(compact_bang_sym, .{ .method = .{ .builtin = &builtinArrayCompactBang } });
 
+    const flatten_sym = try vm.intern("flatten");
+    try vm.array_class.module.methods.put(flatten_sym, .{ .method = .{ .builtin = &builtinArrayFlatten } });
+
     const select_sym = try vm.intern("select");
     try vm.array_class.module.methods.put(select_sym, .{ .method = .{ .builtin = &builtinArraySelect } });
     const filter_sym = try vm.intern("filter");
@@ -520,6 +544,9 @@ pub fn register(vm: *VM) !void {
 
     const uniq_sym = try vm.intern("uniq");
     try vm.array_class.module.methods.put(uniq_sym, .{ .method = .{ .builtin = &builtinArrayUniq } });
+
+    const uniq_bang_sym = try vm.intern("uniq!");
+    try vm.array_class.module.methods.put(uniq_bang_sym, .{ .method = .{ .builtin = &builtinArrayUniqBang } });
 }
 
 pub fn builtinArrayPush(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -1285,6 +1312,17 @@ pub fn builtinArrayCompactBang(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
     return receiver;
 }
 
+pub fn builtinArrayFlatten(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
+    const out = try vm.createArray();
+    var seen = std.AutoHashMap(usize, void).init(vm.allocator);
+    defer seen.deinit();
+
+    try arrayFlattenInto(vm, out, receiver.toArrayObject(), &seen);
+    return Value.fromObject(out);
+}
+
 pub fn builtinArrayAny(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
     const array = receiver.toArrayObject();
@@ -1537,6 +1575,40 @@ pub fn builtinArrayUniq(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     }
 
     return Value.fromObject(out);
+}
+
+pub fn builtinArrayUniqBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
+    const array = receiver.toArrayObject();
+    const kept = vm.allocator.alloc(Value, array.elements.items.len) catch return error.Fatal;
+    defer vm.allocator.free(kept);
+
+    var kept_len: usize = 0;
+    var changed = false;
+    for (array.elements.items) |candidate| {
+        var seen = false;
+        for (kept[0..kept_len]) |existing| {
+            if (try vm.hashKeysEqual(candidate, existing)) {
+                seen = true;
+                changed = true;
+                break;
+            }
+        }
+        if (!seen) {
+            kept[kept_len] = candidate;
+            kept_len += 1;
+        }
+    }
+
+    if (!changed) return Value.nil();
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
+    }
+
+    std.mem.copyForwards(Value, array.elements.items[0..kept_len], kept[0..kept_len]);
+    array.elements.items.len = kept_len;
+    return receiver;
 }
 
 pub fn builtinArrayFirst(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
