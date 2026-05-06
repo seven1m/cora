@@ -197,7 +197,6 @@ def run_spec_example(example)
   error = nil
 
   begin
-    example.context.hooks(:before, :all).each { |hook| hook.call }
     example.context.hooks(:before, :each).each { |hook| hook.call }
     example.block.call
   rescue Exception => e
@@ -226,12 +225,16 @@ def run_spec_example(example)
 end
 
 def run_spec_context(context)
-  context.entries.each do |entry_kind, entry|
-    case entry_kind
-    when :example
-      run_spec_example(entry)
-    when :context
-      run_spec_context(entry)
+  ran_entries = run_spec_blocks(context.full_description, "before :all", context.before(:all))
+
+  if ran_entries
+    context.entries.each do |entry_kind, entry|
+      case entry_kind
+      when :example
+        run_spec_example(entry)
+      when :context
+        run_spec_context(entry)
+      end
     end
   end
 
