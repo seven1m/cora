@@ -9,6 +9,11 @@ $__current_context = nil
 $__spec_main = self
 $__profile_examples = []
 $__profile_events = []
+$__spec_runtime_context = nil
+$__spec_runtime_example = nil
+$__spec_tmp_context_dirs = {}
+$__spec_tmp_example_dirs = {}
+$__spec_tmp_uniquifier = 0
 
 module SpecMatchers
   private
@@ -227,8 +232,12 @@ def run_spec_example(example)
   before_each_elapsed = 0.0
   body_elapsed = 0.0
   after_each_elapsed = 0.0
+  previous_runtime_context = $__spec_runtime_context
+  previous_runtime_example = $__spec_runtime_example
 
   begin
+    $__spec_runtime_context = example.context
+    $__spec_runtime_example = example
     example.context.hooks(:before, :each).each { |hook| hook.call }
     before_each_elapsed = monotonic_now - before_each_started_at
 
@@ -250,9 +259,17 @@ def run_spec_example(example)
     rescue Exception => e
       error = e if error.nil?
     end
+
+    begin
+      spec_tmp_cleanup_example_dir(example)
+    rescue Exception => e
+      error = e if error.nil?
+    end
     after_each_elapsed = monotonic_now - after_each_started_at
 
     $__active_mocks = []
+    $__spec_runtime_context = previous_runtime_context
+    $__spec_runtime_example = previous_runtime_example
   end
 
   if spec_profile_enabled?
@@ -271,6 +288,8 @@ def run_spec_example(example)
 end
 
 def run_spec_context(context)
+  previous_runtime_context = $__spec_runtime_context
+  $__spec_runtime_context = context
   before_all_started_at = monotonic_now
   ran_entries = run_spec_blocks(context.full_description, "before :all", context.before(:all))
   before_all_elapsed = monotonic_now - before_all_started_at
@@ -290,6 +309,8 @@ def run_spec_context(context)
   after_all_started_at = monotonic_now
   run_spec_blocks(context.full_description, "after :all", context.after(:all))
   record_profile_event("after :all #{context.full_description}", monotonic_now - after_all_started_at)
+  spec_tmp_cleanup_context_dir(context)
+  $__spec_runtime_context = previous_runtime_context
 end
 
 def run_spec_suite
@@ -466,9 +487,75 @@ def cora_repo_root
   File.expand_path("..", __dir__)
 end
 
-def tmp(name)
-  path = "#{cora_repo_root}/tmp"
+def spec_tmp_process_root
+  "#{cora_repo_root}/tmp"
+end
+
+def spec_tmp_slug(text)
+  slug = text.to_s.gsub(/[^A-Za-z0-9]+/, "_").gsub(/\A_+|_+\z/, "")
+  slug.empty? ? "spec" : slug
+end
+
+def spec_tmp_alloc_dir(prefix, label)
+  base = spec_tmp_process_root
+  $__spec_tmp_uniquifier += 1
+  path = "#{base}/#{prefix}-#{$__spec_tmp_uniquifier}-#{spec_tmp_slug(label)}"
   `mkdir -p #{shell_escape(path)}`
+  path
+end
+
+def spec_tmp_context_dir(context)
+  $__spec_tmp_context_dirs[context.object_id] ||= spec_tmp_alloc_dir("context", context.full_description)
+end
+
+def spec_tmp_example_dir(example)
+  label = "#{example.context.full_description} #{example.description}"
+  $__spec_tmp_example_dirs[example.object_id] ||= spec_tmp_alloc_dir("example", label)
+end
+
+def spec_tmp_cleanup_dir(path)
+  return unless path
+  `rm -rf #{shell_escape(path)}`
+end
+
+def spec_tmp_cleanup_example_dir(example)
+  path = $__spec_tmp_example_dirs.delete(example.object_id)
+  spec_tmp_cleanup_dir(path)
+end
+
+def spec_tmp_cleanup_context_dir(context)
+  path = $__spec_tmp_context_dirs.delete(context.object_id)
+  spec_tmp_cleanup_dir(path)
+end
+
+def tmp(name, uniquify = true)
+  path = if $__spec_runtime_example
+    spec_tmp_example_dir($__spec_runtime_example)
+  elsif $__spec_runtime_context
+    spec_tmp_context_dir($__spec_runtime_context)
+  else
+    spec_tmp_process_root
+  end
+
+  `mkdir -p #{shell_escape(path)}`
+
+  name = name.to_s.dup
+  if uniquify && !name.empty?
+    $__spec_tmp_uniquifier += 1
+    slash = nil
+    i = name.length - 1
+    while i >= 0
+      if name[i] == "/"
+        slash = i
+        break
+      end
+      i -= 1
+    end
+    index = slash ? slash + 1 : 0
+    name.insert(index, "#{$__spec_tmp_uniquifier}-")
+  end
+
+  return "#{path}/" if name.empty?
   "#{path}/#{name}"
 end
 
