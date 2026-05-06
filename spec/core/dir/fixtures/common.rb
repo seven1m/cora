@@ -36,7 +36,7 @@ module DirSpecs
       'reduced',
       'always_returns_0',
       '???',
-      [0xe9].pack('U')
+      "\u00E9"
     ].each do |dir|
       begin
         Dir.rmdir mock_dir(dir)

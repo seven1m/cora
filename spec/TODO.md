@@ -348,7 +348,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/dir/home_spec.rb
 - [ ] core/dir/initialize_spec.rb
 - [ ] core/dir/inspect_spec.rb
-- [ ] core/dir/mkdir_spec.rb
+- [-] core/dir/mkdir_spec.rb
 - [ ] core/dir/open_spec.rb
 - [ ] core/dir/path_spec.rb
 - [ ] core/dir/pos_spec.rb

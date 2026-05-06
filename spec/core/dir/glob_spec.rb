@@ -325,7 +325,7 @@ describe "Dir.glob" do
 
   platform_is_not(:windows) do
     it "matches the literal character '\\' with option File::FNM_NOESCAPE" do
-      CORAFIXME "Dir.mkdir and Dir.rmdir are not implemented yet for FNM_NOESCAPE setup", exception: NoMethodError, message: /undefined method 'mkdir'/ do
+      CORAFIXME "Dir.mkdir and Dir.rmdir are not implemented yet for FNM_NOESCAPE setup", exception: NoMethodError, message: /undefined method '(mkdir|rmdir)'/ do
         Dir.mkdir 'foo?bar'
 
         begin
@@ -346,7 +346,7 @@ describe "Dir.glob" do
     end
 
     it "returns nil for directories current user has no permission to read" do
-      CORAFIXME "Dir.mkdir and Dir.rmdir are not implemented yet for unreadable-directory glob setup", exception: NoMethodError, message: /undefined method 'mkdir'/ do
+      CORAFIXME "Dir.rmdir and File.chmod are not implemented yet for unreadable-directory glob setup" do
         Dir.mkdir('no_permission')
         File.chmod(0, 'no_permission')
 

@@ -87,6 +87,9 @@ pub fn register(vm: *VM) !void {
     const chdir_sym = try vm.intern("chdir");
     try dir_singleton.module.methods.put(chdir_sym, .{ .method = .{ .builtin = &builtinDirChdir } });
 
+    const mkdir_sym = try vm.intern("mkdir");
+    try dir_singleton.module.methods.put(mkdir_sym, .{ .method = .{ .builtin = &builtinDirMkdir } });
+
     const glob_sym = try vm.intern("glob");
     try dir_singleton.module.methods.put(glob_sym, .{ .method = .{ .builtin = &builtinDirGlob } });
 
@@ -146,6 +149,38 @@ pub fn builtinDirChdir(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!
         if (yielded.controlFlowValue()) |return_value| return return_value;
         return yielded.value;
     }
+
+    return Value.integer(0);
+}
+
+pub fn builtinDirMkdir(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "Dir.mkdir is not implemented on Windows", .{});
+    }
+
+    const target = try vm.coerceToPath(args[0], "no implicit conversion into String");
+    const permissions: std.Io.File.Permissions = if (args.len == 2) blk: {
+        const missing_msg = std.fmt.allocPrint(
+            vm.gc_allocator,
+            "no implicit conversion of {s} into Integer",
+            .{vm.className(args[1])},
+        ) catch return error.Fatal;
+        const raw_mode = try args[1].coerceToI64ViaToInt(
+            vm,
+            missing_msg,
+            "can't convert to Integer (to_int gives non-Integer)",
+            "integer out of range",
+        );
+        if (raw_mode < 0) {
+            return vm.raiseExceptionFmt(vm.range_error_class, "integer out of range", .{});
+        }
+        break :blk std.Io.File.Permissions.fromMode(@intCast(raw_mode));
+    } else .default_dir;
+
+    std.Io.Dir.cwd().createDir(vm.io, target, permissions) catch |err| {
+        return vm.raiseExceptionFmt(vm.io_error_class, "failed to create directory: {s} ({s})", .{ target, @errorName(err) });
+    };
 
     return Value.integer(0);
 }
