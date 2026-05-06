@@ -98,6 +98,12 @@ pub fn register(vm: *VM) !void {
 
     const exist_sym = try vm.intern("exist?");
     try file_singleton.module.methods.put(exist_sym, .{ .method = .{ .builtin = &builtinFileExist } });
+
+    const delete_sym = try vm.intern("delete");
+    try file_singleton.module.methods.put(delete_sym, .{ .method = .{ .builtin = &builtinFileDelete } });
+
+    const unlink_sym = try vm.intern("unlink");
+    try file_singleton.module.methods.put(unlink_sym, .{ .method = .{ .builtin = &builtinFileDelete } });
 }
 
 fn parseMode(vm: *VM, mode_str: []const u8) VMError!FileMode {
@@ -475,4 +481,23 @@ pub fn builtinFileExist(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Val
     const path = try vm.coerceToPath(args[0], "no implicit conversion into String");
     std.Io.Dir.cwd().access(vm.io, path, .{}) catch return Value.boolean(false);
     return Value.boolean(true);
+}
+
+pub fn builtinFileDelete(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "File.delete is not implemented on Windows", .{});
+    }
+
+    var deleted: usize = 0;
+    for (args) |arg| {
+        const path = try vm.coerceToPath(arg, "no implicit conversion into String");
+        const path_z = try vm.allocCStringZ(path);
+        defer vm.allocator.free(path_z);
+        const result = std.c.unlink(path_z.ptr);
+        if (result < 0) {
+            return vm.raiseExceptionFmt(vm.io_error_class, "No such file or directory @ unlink_internal - {s}", .{path});
+        }
+        deleted += 1;
+    }
+    return Value.integer(@intCast(deleted));
 }

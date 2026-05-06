@@ -49,6 +49,63 @@ test "File.write and File.read round trip content" {
     try std.testing.expectEqualSlices(u8, "hello", result.toArrayObject().elements.items[1].toStringObject().str);
 }
 
+test "File.delete and File.unlink remove files and return the deleted count" {
+    var path1_buf: [128]u8 = undefined;
+    var path2_buf: [128]u8 = undefined;
+    const path1 = try uniquePath(&path1_buf);
+    const path2 = try std.fmt.bufPrint(&path2_buf, "{s}_second", .{path1});
+
+    const source = try std.fmt.allocPrint(
+        std.testing.allocator,
+        \\path1 = "{s}"
+        \\path2 = "{s}"
+        \\File.write(path1, "a")
+        \\File.write(path2, "b")
+        \\[
+        \\  File.delete(path1),
+        \\  File.exist?(path1),
+        \\  File.unlink(path2),
+        \\  File.exist?(path2)
+        \\]
+    , .{ path1, path2 });
+    defer std.testing.allocator.free(source);
+
+    const result = try evalCode(source);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(i64, 1), result.toArrayObject().elements.items[0].toInteger());
+    try std.testing.expectEqual(false, result.toArrayObject().elements.items[1].toBool());
+    try std.testing.expectEqual(@as(i64, 1), result.toArrayObject().elements.items[2].toInteger());
+    try std.testing.expectEqual(false, result.toArrayObject().elements.items[3].toBool());
+}
+
+test "File.delete accepts zero args and coerces to_path" {
+    var path_buf: [128]u8 = undefined;
+    const path = try uniquePath(&path_buf);
+
+    const source = try std.fmt.allocPrint(
+        std.testing.allocator,
+        \\path = "{s}"
+        \\obj = Object.new
+        \\def obj.to_path
+        \\  @path
+        \\end
+        \\obj.instance_variable_set(:@path, path)
+        \\File.write(path, "x")
+        \\[
+        \\  File.delete,
+        \\  File.delete(obj),
+        \\  File.exist?(path)
+        \\]
+    , .{path});
+    defer std.testing.allocator.free(source);
+
+    const result = try evalCode(source);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(i64, 0), result.toArrayObject().elements.items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 1), result.toArrayObject().elements.items[1].toInteger());
+    try std.testing.expectEqual(false, result.toArrayObject().elements.items[2].toBool());
+}
+
 test "File.open with block closes file automatically" {
     var path_buf: [128]u8 = undefined;
     const path = try uniquePath(&path_buf);
