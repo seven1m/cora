@@ -95,6 +95,9 @@ pub fn register(vm: *VM) !void {
 
     const file_sym = try vm.intern("file?");
     try file_singleton.module.methods.put(file_sym, .{ .method = .{ .builtin = &builtinFileFile } });
+
+    const exist_sym = try vm.intern("exist?");
+    try file_singleton.module.methods.put(exist_sym, .{ .method = .{ .builtin = &builtinFileExist } });
 }
 
 fn parseMode(vm: *VM, mode_str: []const u8) VMError!FileMode {
@@ -461,4 +464,15 @@ pub fn builtinFileFile(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
     const path = try vm.coerceToPath(args[0], "no implicit conversion into String");
     const st = std.Io.Dir.cwd().statFile(vm.io, path, .{}) catch return Value.boolean(false);
     return Value.boolean(st.kind == .file);
+}
+
+pub fn builtinFileExist(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "File.exist? is not implemented on Windows", .{});
+    }
+
+    const path = try vm.coerceToPath(args[0], "no implicit conversion into String");
+    std.Io.Dir.cwd().access(vm.io, path, .{}) catch return Value.boolean(false);
+    return Value.boolean(true);
 }

@@ -370,21 +370,17 @@ describe :dir_glob, shared: true do
     end
 
     it "returns [] if specified path does not exist" do
-      CORAFIXME "File.exist? matcher support is not implemented yet", exception: NoMethodError, message: /undefined method 'exist\?'/ do
-        path = File.join(@mock_dir, "fake-name")
-        File.should_not.exist?(path)
+      path = File.join(@mock_dir, "fake-name")
+      File.should_not.exist?(path)
 
-        Dir.send(@method, "*", base: path).should == []
-      end
+      Dir.send(@method, "*", base: path).should == []
     end
 
     it "returns [] if specified path is a file" do
-      CORAFIXME "File.exist? matcher support is not implemented yet", exception: NoMethodError, message: /undefined method 'exist\?'/ do
-        path = File.join(@mock_dir, "a/b/x")
-        File.should.exist?(path)
+      path = File.join(@mock_dir, "a/b/x")
+      File.should.exist?(path)
 
-        Dir.send(@method, "*", base: path).should == []
-      end
+      Dir.send(@method, "*", base: path).should == []
     end
 
     it "raises TypeError when cannot convert value to string" do
