@@ -7,6 +7,8 @@ $__active_mocks = []
 $__root_contexts = []
 $__current_context = nil
 $__spec_main = self
+$__profile_examples = []
+$__profile_events = []
 
 module SpecMatchers
   private
@@ -174,6 +176,30 @@ def record_failure(group_desc, it_desc, error)
   $__failures << [group_desc, it_desc, message]
 end
 
+def spec_profile_enabled?
+  ENV["CORA_SPEC_PROFILE"] == "1"
+end
+
+def monotonic_now
+  Time.now.to_f
+end
+
+def record_profile_example(group_desc, it_desc, elapsed_seconds, status)
+  return unless spec_profile_enabled?
+
+  $__profile_examples << {
+    group: group_desc,
+    example: it_desc,
+    elapsed: elapsed_seconds,
+    status: status,
+  }
+end
+
+def record_profile_event(label, elapsed_seconds)
+  return unless spec_profile_enabled?
+  $__profile_events << [label, elapsed_seconds]
+end
+
 def run_spec_blocks(group_desc, label, blocks)
   blocks.each do |block|
     begin
@@ -191,17 +217,28 @@ def run_spec_example(example)
   group_desc = example.context.full_description
   if example.skipped?
     $__skipped << [group_desc, example.description]
+    record_profile_example(group_desc, example.description, 0.0, :skipped)
     return
   end
 
   error = nil
+  started_at = monotonic_now
+  before_each_started_at = monotonic_now
+  before_each_elapsed = 0.0
+  body_elapsed = 0.0
+  after_each_elapsed = 0.0
 
   begin
     example.context.hooks(:before, :each).each { |hook| hook.call }
+    before_each_elapsed = monotonic_now - before_each_started_at
+
+    body_started_at = monotonic_now
     example.block.call
+    body_elapsed = monotonic_now - body_started_at
   rescue Exception => e
     error = e
   ensure
+    after_each_started_at = monotonic_now
     begin
       $__active_mocks.each { |mock| mock.verify_expectations! }
     rescue Exception => e
@@ -213,19 +250,31 @@ def run_spec_example(example)
     rescue Exception => e
       error = e if error.nil?
     end
+    after_each_elapsed = monotonic_now - after_each_started_at
 
     $__active_mocks = []
   end
 
+  if spec_profile_enabled?
+    $__profile_events << ["before :each #{group_desc}: #{example.description}", before_each_elapsed]
+    $__profile_events << ["body #{group_desc}: #{example.description}", body_elapsed]
+    $__profile_events << ["after :each #{group_desc}: #{example.description}", after_each_elapsed]
+  end
+
   if error
+    record_profile_example(group_desc, example.description, monotonic_now - started_at, :failed)
     record_failure(group_desc, example.description, error)
   else
+    record_profile_example(group_desc, example.description, monotonic_now - started_at, :passed)
     $__passes += 1
   end
 end
 
 def run_spec_context(context)
+  before_all_started_at = monotonic_now
   ran_entries = run_spec_blocks(context.full_description, "before :all", context.before(:all))
+  before_all_elapsed = monotonic_now - before_all_started_at
+  record_profile_event("before :all #{context.full_description}", before_all_elapsed)
 
   if ran_entries
     context.entries.each do |entry_kind, entry|
@@ -238,7 +287,9 @@ def run_spec_context(context)
     end
   end
 
+  after_all_started_at = monotonic_now
   run_spec_blocks(context.full_description, "after :all", context.after(:all))
+  record_profile_event("after :all #{context.full_description}", monotonic_now - after_all_started_at)
 end
 
 def run_spec_suite
@@ -1817,6 +1868,23 @@ def report_results
     failed = $__failures.length
     skipped = $__skipped.length
     puts "__cora_spec_stats__ total=#{$__examples_total} passed=#{$__passes} failed=#{failed} skipped=#{skipped}"
+  end
+  if spec_profile_enabled?
+    limit = (ENV["CORA_SPEC_PROFILE_LIMIT"] || "15").to_i
+    ranked = $__profile_examples.sort_by { |entry| -entry[:elapsed] }
+    shown = limit < ranked.length ? limit : ranked.length
+    puts "__cora_spec_profile__ slowest=#{shown}"
+    ranked.first(limit).each do |entry|
+      millis = (entry[:elapsed] * 1000).to_i
+      puts "[#{entry[:status]}] #{millis}ms #{entry[:group]}: #{entry[:example]}"
+    end
+    unless $__profile_events.empty?
+      puts "__cora_spec_profile_events__"
+      $__profile_events.each do |label, elapsed|
+        millis = (elapsed * 1000).to_i
+        puts "#{millis}ms #{label}"
+      end
+    end
   end
 end
 

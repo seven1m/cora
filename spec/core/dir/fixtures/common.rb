@@ -1,20 +1,32 @@
 # encoding: utf-8
 
 module DirSpecs
-  def self.shell_escape(str)
-    "'" + str.to_s.gsub("'") { %q('\\'') } + "'"
-  end
-
   def self.mkdir_p(path)
-    `mkdir -p #{shell_escape(path)}`
+    parts = path.to_s.split("/")
+    current = path.to_s.start_with?("/") ? "/" : ""
+
+    parts.each do |part|
+      next if part.empty?
+
+      current = if current.empty? || current == "/"
+        "#{current}#{part}"
+      else
+        "#{current}/#{part}"
+      end
+
+      begin
+        Dir.mkdir(current)
+      rescue Exception
+      end
+    end
   end
 
   def self.touch(path)
-    `touch #{shell_escape(path)}`
+    File.open(path, "a") { |io| io.flush }
   end
 
   def self.rm_r(path)
-    `rm -rf #{shell_escape(path)}`
+    `rm -rf #{path}`
   end
 
   def self.mock_dir(dirs = ['dir_specs_mock'])
