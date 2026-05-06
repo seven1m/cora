@@ -48,6 +48,24 @@ pub fn register(vm: *VM) !void {
     const file_class_val = Value.fromObject(vm.file_class);
     const file_singleton = try vm.getOrCreateSingletonClass(file_class_val);
 
+    const separator_sym = try vm.intern("SEPARATOR");
+    try vm.file_class.module.constants.put(separator_sym, .{ .value = try vm.newString("/", false) });
+
+    const alt_separator_sym = try vm.intern("ALT_SEPARATOR");
+    try vm.file_class.module.constants.put(alt_separator_sym, .{ .value = Value.nil() });
+
+    const path_separator_sym = try vm.intern("PATH_SEPARATOR");
+    try vm.file_class.module.constants.put(path_separator_sym, .{ .value = try vm.newString(":", false) });
+
+    const fnm_dotmatch_sym = try vm.intern("FNM_DOTMATCH");
+    try vm.file_class.module.constants.put(fnm_dotmatch_sym, .{ .value = Value.integer(0x04) });
+
+    const fnm_noescape_sym = try vm.intern("FNM_NOESCAPE");
+    try vm.file_class.module.constants.put(fnm_noescape_sym, .{ .value = Value.integer(0x01) });
+
+    const fnm_extglob_sym = try vm.intern("FNM_EXTGLOB");
+    try vm.file_class.module.constants.put(fnm_extglob_sym, .{ .value = Value.integer(0x10) });
+
     const new_sym = try vm.intern("new");
     try file_singleton.module.methods.put(new_sym, .{ .method = .{ .builtin = &builtinFileNew } });
 

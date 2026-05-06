@@ -20,6 +20,8 @@ Use this skill to add one or more specs from `../ruby_spec` into `spec/`, keep t
 - Preserve mspec compatibility (not rspec APIs).
 - Remove local Zig tests that are fully supplanted by ported Ruby specs so coverage lives in one place.
 - Work on specs pauses if you find any fundamental issues with the Cora runtime. Memory errors/leaks, data corruption, and MRI-incompatibility take center stage when you find it.
+- NEVER take shortcuts like shelling out to `ruby` or other unix utilities in the implementation.
+- Shelling out in `spec_helper.rb` _might_ be acceptable if it's something like `mkdir -p` or another unix command that is basically guaranteed to be available on all systems.
 
 ## TODO Tracking
 

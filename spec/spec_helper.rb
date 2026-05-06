@@ -425,6 +425,14 @@ def cp(source, destination)
   `cp #{shell_escape(source)} #{shell_escape(destination)}`
 end
 
+def mkdir_p(path)
+  `mkdir -p #{shell_escape(path)}`
+end
+
+def touch(path)
+  `touch #{shell_escape(path)}`
+end
+
 def rm_r(path)
   `rm -rf #{shell_escape(path)}`
 end
