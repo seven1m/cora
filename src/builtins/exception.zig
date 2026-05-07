@@ -29,6 +29,9 @@ pub fn register(vm: *VM) !void {
 
     const key_sym = try vm.intern("key");
     try vm.key_error_class.module.methods.put(key_sym, .{ .method = .{ .builtin = &builtinKeyErrorKey } });
+
+    const name_sym = try vm.intern("name");
+    try vm.name_error_class.module.methods.put(name_sym, .{ .method = .{ .builtin = &builtinNameErrorName } });
 }
 
 pub fn builtinExceptionInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -121,4 +124,9 @@ pub fn builtinKeyErrorKey(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
 
     const exc = receiver.toExceptionObject();
     return exc.key orelse Value.nil();
+}
+
+pub fn builtinNameErrorName(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return try vm.getInstanceVariable(receiver, "@name");
 }

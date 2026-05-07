@@ -1720,27 +1720,6 @@ class MockObject
   end
 end
 
-class SpecUnboundMethod
-  def initialize(owner, method_name)
-    @owner = owner
-    @method_name = method_name.to_sym
-  end
-
-  def arity
-    if @owner == Enumerator && @method_name == :each
-      -1
-    else
-      0
-    end
-  end
-end
-
-class Module
-  def instance_method(name)
-    SpecUnboundMethod.new(self, name)
-  end
-end
-
 def mock(name = nil, options = nil, **kwargs)
   merged_options = {}
   unless options.nil?

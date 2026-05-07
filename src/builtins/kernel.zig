@@ -4,6 +4,8 @@ const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 const method_reflection = @import("method_reflection.zig");
 const module_builtin = @import("module.zig");
+const method_builtin = @import("method.zig");
+const method_common = @import("method_common.zig");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -99,52 +101,6 @@ fn collectSingletonMethods(vm: *VM, receiver: Value, include_super: bool) VMErro
     }
 
     return method_reflection.sortedSymbolArray(vm, names.items);
-}
-
-fn resolveMethodOwnerValue(vm: *VM, receiver: Value, method_name_sym: *SymbolObject) VMError!?Value {
-    const scanClass = struct {
-        fn run(vm_inner: *VM, class_obj: *ClassObject, name_sym: *SymbolObject) ?Value {
-            var current: ?*ClassObject = class_obj;
-            while (current) |klass| {
-                var i = klass.module.prepended_modules.items.len;
-                while (i > 0) {
-                    i -= 1;
-                    const prepended = klass.module.prepended_modules.items[i];
-                    if (prepended.methods.get(name_sym)) |entry| {
-                        if (entry.method == .undefined) return null;
-                        return Value.fromObject(prepended);
-                    }
-                }
-
-                if (klass.module.methods.get(name_sym)) |entry| {
-                    if (entry.method == .undefined) return null;
-                    return Value.fromObject(klass);
-                }
-
-                i = klass.module.included_modules.items.len;
-                while (i > 0) {
-                    i -= 1;
-                    const included = klass.module.included_modules.items[i];
-                    if (included.methods.get(name_sym)) |entry| {
-                        if (entry.method == .undefined) return null;
-                        return Value.fromObject(included);
-                    }
-                }
-
-                current = klass.superclass;
-            }
-
-            _ = vm_inner;
-            return null;
-        }
-    }.run;
-
-    if (receiver.getObjectPointer() != null) {
-        const singleton_class = try vm.getOrCreateSingletonClass(receiver);
-        if (scanClass(vm, singleton_class, method_name_sym)) |owner| return owner;
-    }
-
-    return scanClass(vm, vm.getClass(receiver), method_name_sym);
 }
 
 fn resolveMethodEntry(
@@ -955,98 +911,8 @@ pub fn builtinKernelSend(vm: *VM, receiver: Value, args: []Value, block: ?Block)
     return vm.callMethodByNameForwardingKeywords(receiver, name_str, call_args, block);
 }
 
-fn builtinKernelBoundMethodCall(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
-    const target = try vm.getInstanceVariable(receiver, "@__method_receiver");
-    const method_name_val = try vm.getInstanceVariable(receiver, "@__method_name");
-    if (!method_name_val.isSymbol()) return error.Fatal;
-    return vm.callMethodByNameForwardingKeywords(target, method_name_val.toSymbolObject().name, args, block);
-}
-
-fn builtinKernelBoundMethodOwner(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 0);
-    const stored_owner = try vm.getInstanceVariable(receiver, "@__method_owner");
-    if (!stored_owner.isNil()) return stored_owner;
-
-    const target = try vm.getInstanceVariable(receiver, "@__method_receiver");
-    const method_name_val = try vm.getInstanceVariable(receiver, "@__method_name");
-    if (!method_name_val.isSymbol()) return error.Fatal;
-
-    const owner = (try resolveMethodOwnerValue(vm, target, method_name_val.toSymbolObject())) orelse {
-        return vm.raiseExceptionFmt(vm.name_error_class, "undefined method '{s}'", .{method_name_val.toSymbolObject().name});
-    };
-    return owner;
-}
-
-fn builtinKernelBoundMethodToProc(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 0);
-    return receiver;
-}
-
-fn builtinKernelBoundMethodArity(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 0);
-    return try vm.getInstanceVariable(receiver, "@__method_arity");
-}
-
-fn builtinKernelBoundMethodUnbind(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 0);
-
-    const target = try vm.getInstanceVariable(receiver, "@__method_receiver");
-    const method_name_val = try vm.getInstanceVariable(receiver, "@__method_name");
-    if (!method_name_val.isSymbol()) return error.Fatal;
-    const owner = try vm.getInstanceVariable(receiver, "@__method_owner");
-
-    const resolved = (try vm.findMethod(target, method_name_val.toSymbolObject())) orelse {
-        return vm.raiseExceptionFmt(vm.name_error_class, "undefined method '{s}'", .{method_name_val.toSymbolObject().name});
-    };
-
-    return createMethodObject(vm, target, method_name_val.toSymbolObject(), resolved, owner);
-}
-
-fn createMethodObject(
-    vm: *VM,
-    receiver: Value,
-    method_name: *SymbolObject,
-    resolved: vm_mod.ResolvedMethod,
-    owner: Value,
-) VMError!Value {
-    const method_obj = try vm.newInstance(vm.method_class);
-    try vm.setInstanceVariable(method_obj, "@__method_receiver", receiver);
-    try vm.setInstanceVariable(method_obj, "@__method_name", Value.fromObject(method_name));
-    try vm.setInstanceVariable(method_obj, "@__method_arity", try vm.methodArityValue(resolved));
-    try vm.setInstanceVariable(method_obj, "@__method_owner", owner);
-
-    const singleton = try vm.getOrCreateSingletonClass(method_obj);
-    const call_sym = try vm.intern("call");
-    singleton.module.methods.put(call_sym, .{
-        .method = .{ .builtin = &builtinKernelBoundMethodCall },
-    }) catch return error.Fatal;
-
-    const owner_sym = try vm.intern("owner");
-    singleton.module.methods.put(owner_sym, .{
-        .method = .{ .builtin = &builtinKernelBoundMethodOwner },
-    }) catch return error.Fatal;
-
-    const to_proc_sym = try vm.intern("to_proc");
-    singleton.module.methods.put(to_proc_sym, .{
-        .method = .{ .builtin = &builtinKernelBoundMethodToProc },
-    }) catch return error.Fatal;
-
-    const arity_sym = try vm.intern("arity");
-    singleton.module.methods.put(arity_sym, .{
-        .method = .{ .builtin = &builtinKernelBoundMethodArity },
-    }) catch return error.Fatal;
-
-    const unbind_sym = try vm.intern("unbind");
-    singleton.module.methods.put(unbind_sym, .{
-        .method = .{ .builtin = &builtinKernelBoundMethodUnbind },
-    }) catch return error.Fatal;
-
-    vm.bumpMethodStateVersion();
-    return method_obj;
-}
-
 fn createBoundMethodObject(vm: *VM, receiver: Value, method_name: *SymbolObject, resolved: vm_mod.ResolvedMethod, owner: Value) VMError!Value {
-    return createMethodObject(vm, receiver, method_name, resolved, owner);
+    return method_builtin.createBoundMethodObject(vm, receiver, method_name, resolved, owner);
 }
 
 pub fn builtinKernelMethod(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -1061,7 +927,7 @@ pub fn builtinKernelMethod(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
         );
     };
 
-    const owner = (try resolveMethodOwnerValue(vm, receiver, method_name)) orelse Value.fromObject(resolved.owner_class);
+    const owner = (try method_common.resolveMethodOwnerValue(vm, receiver, method_name)) orelse Value.fromObject(resolved.owner_class);
     return createBoundMethodObject(vm, receiver, method_name, resolved, owner);
 }
 
@@ -1121,11 +987,19 @@ pub fn builtinKernelDefineSingletonMethod(vm: *VM, receiver: Value, args: []Valu
             break :blk .{ .method = .{ .proc = body.toProcObject() }, .visibility = .public };
         }
 
-        if (body.isObject() and vm.getClass(body) == vm.method_class) {
-            const method_name_val = try vm.getInstanceVariable(body, "@__method_name");
-            const method_receiver = try vm.getInstanceVariable(body, "@__method_receiver");
-            const method_owner = try vm.getInstanceVariable(body, "@__method_owner");
-            if (!method_name_val.isSymbol()) return error.Fatal;
+        if (body.isObject() and (vm.getClass(body) == vm.method_class or vm.getClass(body) == vm.unbound_method_class)) {
+            const method_name = if (body.isMethodObject())
+                body.toMethodObject().name
+            else if (body.isUnboundMethodObject())
+                body.toUnboundMethodObject().name
+            else
+                return error.Fatal;
+            const method_owner = if (body.isMethodObject())
+                body.toMethodObject().owner
+            else if (body.isUnboundMethodObject())
+                body.toUnboundMethodObject().owner
+            else
+                return error.Fatal;
 
             const attached_owner = if (method_owner.isClass())
                 method_owner.toClassObject().attached_object
@@ -1141,10 +1015,10 @@ pub fn builtinKernelDefineSingletonMethod(vm: *VM, receiver: Value, args: []Valu
                 }
             }
 
-            const resolved = (try vm.findMethod(method_receiver, method_name_val.toSymbolObject())) orelse {
-                return vm.raiseExceptionFmt(vm.name_error_class, "undefined method '{s}'", .{method_name_val.toSymbolObject().name});
+            const method_entry = method_common.methodEntryForOwner(method_owner, method_name) orelse {
+                return vm.raiseExceptionFmt(vm.name_error_class, "undefined method '{s}'", .{method_name.name});
             };
-            var copied = resolved.entry;
+            var copied = method_entry;
             copied.visibility = .public;
             break :blk copied;
         }

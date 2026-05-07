@@ -52,6 +52,8 @@ pub const ObjectTypeTag = enum(u8) {
     mutex,
     queue,
     time,
+    method,
+    unbound_method,
 };
 
 pub const Object = struct {
@@ -219,6 +221,21 @@ pub const ExceptionObject = struct {
     cause: ?*ExceptionObject,
     receiver: ?Value = null,
     key: ?Value = null,
+};
+
+pub const MethodObject = struct {
+    object: Object,
+    receiver: Value,
+    name: *SymbolObject,
+    arity: Value,
+    owner: Value,
+};
+
+pub const UnboundMethodObject = struct {
+    object: Object,
+    name: *SymbolObject,
+    arity: Value,
+    owner: Value,
 };
 
 pub const ProcObject = struct {
@@ -567,6 +584,14 @@ pub const Value = struct {
         return self.isObject() and self.objectTypeTag() == .time;
     }
 
+    pub inline fn isMethodObject(self: Value) bool {
+        return self.isObject() and self.objectTypeTag() == .method;
+    }
+
+    pub inline fn isUnboundMethodObject(self: Value) bool {
+        return self.isObject() and self.objectTypeTag() == .unbound_method;
+    }
+
     // -- Convenience extractors for heap types --
 
     pub inline fn toStringObject(self: Value) *StringObject {
@@ -658,6 +683,14 @@ pub const Value = struct {
     }
 
     pub inline fn toTimeObject(self: Value) *TimeObject {
+        return @ptrFromInt(self.raw);
+    }
+
+    pub inline fn toMethodObject(self: Value) *MethodObject {
+        return @ptrFromInt(self.raw);
+    }
+
+    pub inline fn toUnboundMethodObject(self: Value) *UnboundMethodObject {
         return @ptrFromInt(self.raw);
     }
 
@@ -924,6 +957,8 @@ pub const Value = struct {
                 .mutex => try writer.print("#<Mutex:0x{x}>", .{self.raw}),
                 .queue => try writer.print("#<Thread::Queue:0x{x}>", .{self.raw}),
                 .time => try writer.print("#<Time:0x{x}>", .{self.raw}),
+                .method => try writer.print("#<Method:0x{x}>", .{self.raw}),
+                .unbound_method => try writer.print("#<UnboundMethod:0x{x}>", .{self.raw}),
             }
         } else {
             try writer.print("<unknown>", .{});

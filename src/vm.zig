@@ -361,6 +361,7 @@ pub const VM = struct {
     enumerator_class: *value.ClassObject,
     yielder_class: *value.ClassObject,
     method_class: *value.ClassObject,
+    unbound_method_class: *value.ClassObject,
 
     // Encoding infrastructure
     encoding_class: *value.ClassObject,
@@ -527,6 +528,7 @@ pub const VM = struct {
             .enumerator_class = undefined,
             .yielder_class = undefined,
             .method_class = undefined,
+            .unbound_method_class = undefined,
             .encoding_class = undefined,
             .encoding_utf8 = undefined,
             .encoding_cesu8 = undefined,
@@ -682,6 +684,10 @@ pub const VM = struct {
         const method_name_sym = try self.intern("Method");
         const method_class_val = try self.newClass(method_name_sym, self.object_class);
         self.method_class = method_class_val.toClassObject();
+
+        const unbound_method_name_sym = try self.intern("UnboundMethod");
+        const unbound_method_class_val = try self.newClass(unbound_method_name_sym, self.object_class);
+        self.unbound_method_class = unbound_method_class_val.toClassObject();
 
         const fiber_name_sym = try self.intern("Fiber");
         const fiber_class_val = try self.newClassWithType(fiber_name_sym, self.object_class, .fiber);
@@ -917,6 +923,7 @@ pub const VM = struct {
         self.object_class.module.constants.put(proc_name_sym, .{ .value = proc_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(struct_name_sym, .{ .value = struct_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(method_name_sym, .{ .value = method_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(unbound_method_name_sym, .{ .value = unbound_method_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(fiber_name_sym, .{ .value = fiber_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(thread_name_sym, .{ .value = thread_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(mutex_name_sym, .{ .value = mutex_class_val }) catch return error.Fatal;
@@ -5779,7 +5786,7 @@ pub const VM = struct {
         }
     }
 
-    fn invokeResolvedMethod(self: *VM, resolved: ResolvedMethod, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    pub fn invokeResolvedMethod(self: *VM, resolved: ResolvedMethod, receiver: Value, args: []Value, block: ?Block) VMError!Value {
         return self.invokeResolvedMethodWithKeywords(resolved, receiver, args, block, null);
     }
 
@@ -6415,7 +6422,6 @@ pub const VM = struct {
     }
 
     pub fn methodArityValue(self: *VM, resolved: ResolvedMethod) VMError!Value {
-        _ = self;
         return switch (resolved.entry.method) {
             .chunk => |method_chunk| blk: {
                 const required = method_chunk.arity + method_chunk.post_required_count;
@@ -6435,6 +6441,12 @@ pub const VM = struct {
                 .symbol, .builtin, .callable => Value.integer(-1),
             },
             .builtin => blk: {
+                // FIXME: This special-case matches ruby/spec for Enumerator#each, but builtin
+                // arity metadata is still coarse in general. Replace this with real per-builtin
+                // arity information instead of name-based exceptions.
+                if (resolved.owner_class == self.enumerator_class and std.mem.eql(u8, resolved.name.name, "each")) {
+                    break :blk Value.integer(-1);
+                }
                 if (std.mem.eql(u8, resolved.name.name, "send") or
                     std.mem.eql(u8, resolved.name.name, "__send__") or
                     std.mem.eql(u8, resolved.name.name, "raise") or
@@ -6443,6 +6455,9 @@ pub const VM = struct {
                     std.mem.eql(u8, resolved.name.name, "enum_for"))
                 {
                     break :blk Value.integer(-1);
+                }
+                if (std.mem.eql(u8, resolved.name.name, "instance_method")) {
+                    break :blk Value.integer(1);
                 }
                 break :blk Value.integer(0);
             },
@@ -7669,6 +7684,8 @@ pub const VM = struct {
             .mutex => arg.isMutex(),
             .queue => arg.isQueue(),
             .time => arg.isTime(),
+            .method => arg.isMethodObject(),
+            .unbound_method => arg.isUnboundMethodObject(),
         };
         if (!matches) {
             const msg = std.fmt.allocPrint(

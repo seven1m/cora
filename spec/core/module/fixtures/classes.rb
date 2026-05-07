@@ -17,6 +17,13 @@ module ModuleSpecs
   end
 
   module Basic
+    def public_module() end
+
+    protected
+    def protected_module() end
+
+    private
+    def private_module() end
   end
 
   module Super
@@ -32,6 +39,19 @@ module ModuleSpecs
     class << self
       include Internal
     end
+  end
+
+  module InstanceMethMod
+    def bar(); :bar; end
+  end
+
+  class InstanceMeth
+    include InstanceMethMod
+
+    def foo(); :foo; end
+  end
+
+  class InstanceMethChild < InstanceMeth
   end
 
   module Autoload

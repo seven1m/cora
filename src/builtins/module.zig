@@ -2,6 +2,7 @@ const std = @import("std");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 const method_reflection = @import("method_reflection.zig");
+const unbound_method = @import("unbound_method.zig");
 const warning_builtin = @import("warning.zig");
 
 const VM = vm_mod.VM;
@@ -454,6 +455,109 @@ fn collectInstanceMethods(
     return method_reflection.sortedSymbolArray(vm, names.items);
 }
 
+const InstanceMethodLookup = struct {
+    resolved: vm_mod.ResolvedMethod,
+    owner: Value,
+};
+
+const InstanceMethodLookupResult = union(enum) {
+    found: InstanceMethodLookup,
+    undefined,
+    not_found,
+};
+
+fn resolveModuleMethodLookup(module_obj: *value.ModuleObject, owner_class: *ClassObject, name_sym: *SymbolObject) InstanceMethodLookupResult {
+    var i = module_obj.prepended_modules.items.len;
+    while (i > 0) {
+        i -= 1;
+        const prepended = module_obj.prepended_modules.items[i];
+        switch (resolveModuleMethodLookup(prepended, owner_class, name_sym)) {
+            .found => |found| return .{ .found = found },
+            .undefined => return .undefined,
+            .not_found => {},
+        }
+    }
+
+    if (module_obj.methods.get(name_sym)) |entry| {
+        return switch (entry.method) {
+            .undefined => .undefined,
+            else => .{ .found = .{
+                .resolved = .{
+                    .name = name_sym,
+                    .owner_class = owner_class,
+                    .entry = entry,
+                },
+                .owner = Value.fromObject(module_obj),
+            } },
+        };
+    }
+
+    i = module_obj.included_modules.items.len;
+    while (i > 0) {
+        i -= 1;
+        const included = module_obj.included_modules.items[i];
+        switch (resolveModuleMethodLookup(included, owner_class, name_sym)) {
+            .found => |found| return .{ .found = found },
+            .undefined => return .undefined,
+            .not_found => {},
+        }
+    }
+
+    return .not_found;
+}
+
+fn resolveInstanceMethodLookup(vm: *VM, receiver: Value, name_sym: *SymbolObject) InstanceMethodLookupResult {
+    if (receiver.isModule()) {
+        return resolveModuleMethodLookup(receiver.toModuleObject(), vm.object_class, name_sym);
+    }
+
+    if (receiver.isClass()) {
+        var current: ?*ClassObject = receiver.toClassObject();
+        while (current) |klass| {
+            var i = klass.module.prepended_modules.items.len;
+            while (i > 0) {
+                i -= 1;
+                const prepended = klass.module.prepended_modules.items[i];
+                switch (resolveModuleMethodLookup(prepended, klass, name_sym)) {
+                    .found => |found| return .{ .found = found },
+                    .undefined => return .undefined,
+                    .not_found => {},
+                }
+            }
+
+            if (klass.module.methods.get(name_sym)) |entry| {
+                return switch (entry.method) {
+                    .undefined => .undefined,
+                    else => .{ .found = .{
+                        .resolved = .{
+                            .name = name_sym,
+                            .owner_class = klass,
+                            .entry = entry,
+                        },
+                        .owner = Value.fromObject(klass),
+                    } },
+                };
+            }
+
+            i = klass.module.included_modules.items.len;
+            while (i > 0) {
+                i -= 1;
+                const included = klass.module.included_modules.items[i];
+                switch (resolveModuleMethodLookup(included, klass, name_sym)) {
+                    .found => |found| return .{ .found = found },
+                    .undefined => return .undefined,
+                    .not_found => {},
+                }
+            }
+
+            current = klass.superclass;
+        }
+        return .not_found;
+    }
+
+    return .not_found;
+}
+
 fn setVisibility(vm: *VM, receiver: Value, args: []Value, visibility: MethodVisibility) VMError!Value {
     if (args.len == 0) {
         if (vm.current_lexical_scope) |scope| {
@@ -680,6 +784,9 @@ pub fn register(vm: *VM) !void {
 
     const public_instance_methods_sym = try vm.intern("public_instance_methods");
     try vm.module_class.module.methods.put(public_instance_methods_sym, .{ .method = .{ .builtin = &builtinModulePublicInstanceMethods } });
+
+    const instance_method_sym = try vm.intern("instance_method");
+    try vm.module_class.module.methods.put(instance_method_sym, .{ .method = .{ .builtin = &builtinModuleInstanceMethod } });
 
     const method_defined_sym = try vm.intern("method_defined?");
     try vm.module_class.module.methods.put(method_defined_sym, .{ .method = .{ .builtin = &builtinModuleMethodDefined } });
@@ -957,6 +1064,22 @@ pub fn builtinModuleMethodDefined(vm: *VM, receiver: Value, args: []Value, _: ?B
         }
     }
     return Value.boolean(false);
+}
+
+pub fn builtinModuleInstanceMethod(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const name_sym = try vm.coerceToMethodNameSymbol(args[0]);
+
+    return switch (resolveInstanceMethodLookup(vm, receiver, name_sym)) {
+        .found => |lookup| unbound_method.createUnboundMethodObject(vm, name_sym, lookup.resolved, lookup.owner),
+        .undefined, .not_found => blk: {
+            const message = std.fmt.allocPrint(vm.gc_allocator, "undefined method '{s}'", .{name_sym.name}) catch return error.Fatal;
+            const exc = try vm.createException(vm.name_error_class, message);
+            try vm.setInstanceVariable(Value.fromObject(exc), "@name", Value.fromObject(name_sym));
+            vm.pending_exception = exc;
+            break :blk error.Unwind;
+        },
+    };
 }
 
 pub fn builtinModuleName(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
