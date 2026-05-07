@@ -7,6 +7,7 @@ pub const VMError = vm_mod.VMError;
 pub const Block = vm_mod.Block;
 pub const Value = value.Value;
 pub const ClassObject = value.ClassObject;
+pub const BuiltinArity = value.BuiltinArity;
 pub const MethodEntry = value.MethodEntry;
 pub const MethodObject = value.MethodObject;
 pub const SymbolObject = value.SymbolObject;
@@ -194,19 +195,19 @@ pub fn createBoundMethodObject(
     const singleton = try vm.getOrCreateSingletonClass(method_val);
 
     const call_sym = try vm.intern("call");
-    singleton.module.methods.put(call_sym, .{ .method = .{ .builtin = builtins.call } }) catch return error.Fatal;
+    singleton.module.methods.put(call_sym, MethodEntry.builtin(builtins.call, .{ .variadic = 0 })) catch return error.Fatal;
 
     const owner_sym = try vm.intern("owner");
-    singleton.module.methods.put(owner_sym, .{ .method = .{ .builtin = builtins.owner } }) catch return error.Fatal;
+    singleton.module.methods.put(owner_sym, MethodEntry.builtin(builtins.owner, .{ .exact = 0 })) catch return error.Fatal;
 
     const to_proc_sym = try vm.intern("to_proc");
-    singleton.module.methods.put(to_proc_sym, .{ .method = .{ .builtin = builtins.to_proc } }) catch return error.Fatal;
+    singleton.module.methods.put(to_proc_sym, MethodEntry.builtin(builtins.to_proc, .{ .exact = 0 })) catch return error.Fatal;
 
     const arity_sym = try vm.intern("arity");
-    singleton.module.methods.put(arity_sym, .{ .method = .{ .builtin = builtins.arity } }) catch return error.Fatal;
+    singleton.module.methods.put(arity_sym, MethodEntry.builtin(builtins.arity, .{ .exact = 0 })) catch return error.Fatal;
 
     const unbind_sym = try vm.intern("unbind");
-    singleton.module.methods.put(unbind_sym, .{ .method = .{ .builtin = builtins.unbind } }) catch return error.Fatal;
+    singleton.module.methods.put(unbind_sym, MethodEntry.builtin(builtins.unbind, .{ .exact = 0 })) catch return error.Fatal;
 
     vm.bumpMethodStateVersion();
     return method_val;
@@ -237,19 +238,19 @@ pub fn createUnboundMethodObject(
     const singleton = try vm.getOrCreateSingletonClass(method_val);
 
     const owner_sym = try vm.intern("owner");
-    singleton.module.methods.put(owner_sym, .{ .method = .{ .builtin = builtins.owner } }) catch return error.Fatal;
+    singleton.module.methods.put(owner_sym, MethodEntry.builtin(builtins.owner, .{ .exact = 0 })) catch return error.Fatal;
 
     const arity_sym = try vm.intern("arity");
-    singleton.module.methods.put(arity_sym, .{ .method = .{ .builtin = builtins.arity } }) catch return error.Fatal;
+    singleton.module.methods.put(arity_sym, MethodEntry.builtin(builtins.arity, .{ .exact = 0 })) catch return error.Fatal;
 
     const bind_sym = try vm.intern("bind");
-    singleton.module.methods.put(bind_sym, .{ .method = .{ .builtin = builtins.bind } }) catch return error.Fatal;
+    singleton.module.methods.put(bind_sym, MethodEntry.builtin(builtins.bind, .{ .exact = 1 })) catch return error.Fatal;
 
     const inspect_sym = try vm.intern("inspect");
-    singleton.module.methods.put(inspect_sym, .{ .method = .{ .builtin = builtins.inspect } }) catch return error.Fatal;
+    singleton.module.methods.put(inspect_sym, MethodEntry.builtin(builtins.inspect, .{ .exact = 0 })) catch return error.Fatal;
 
     const equal_sym = try vm.intern("==");
-    singleton.module.methods.put(equal_sym, .{ .method = .{ .builtin = builtins.equal } }) catch return error.Fatal;
+    singleton.module.methods.put(equal_sym, MethodEntry.builtin(builtins.equal, .{ .exact = 1 })) catch return error.Fatal;
 
     vm.bumpMethodStateVersion();
     return method_val;

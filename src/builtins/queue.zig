@@ -12,49 +12,46 @@ pub fn register(vm: *VM) !void {
     const queue_singleton = try vm.getOrCreateSingletonClass(queue_class_val);
 
     const new_sym = try vm.intern("new");
-    try queue_singleton.module.methods.put(new_sym, .{ .method = .{ .builtin = &builtinQueueNew } });
+    try queue_singleton.module.methods.put(new_sym, value.MethodEntry.builtin(&builtinQueueNew, .{ .variadic = 0 }));
 
     const initialize_sym = try vm.intern("initialize");
-    try vm.queue_class.module.methods.put(initialize_sym, .{
-        .method = .{ .builtin = &builtinQueueInitialize },
-        .visibility = .private,
-    });
+    try vm.queue_class.module.methods.put(initialize_sym, value.MethodEntry.builtinWithVisibility(&builtinQueueInitialize, .{ .variadic = 0 }, .private));
 
     const append_sym = try vm.intern("<<");
-    try vm.queue_class.module.methods.put(append_sym, .{ .method = .{ .builtin = &builtinQueuePush } });
+    try vm.queue_class.module.methods.put(append_sym, value.MethodEntry.builtin(&builtinQueuePush, .{ .exact = 1 }));
 
     const push_sym = try vm.intern("push");
-    try vm.queue_class.module.methods.put(push_sym, .{ .method = .{ .builtin = &builtinQueuePush } });
+    try vm.queue_class.module.methods.put(push_sym, value.MethodEntry.builtin(&builtinQueuePush, .{ .exact = 1 }));
 
     const enq_sym = try vm.intern("enq");
-    try vm.queue_class.module.methods.put(enq_sym, .{ .method = .{ .builtin = &builtinQueuePush } });
+    try vm.queue_class.module.methods.put(enq_sym, value.MethodEntry.builtin(&builtinQueuePush, .{ .exact = 1 }));
 
     const pop_sym = try vm.intern("pop");
-    try vm.queue_class.module.methods.put(pop_sym, .{ .method = .{ .builtin = &builtinQueuePop } });
+    try vm.queue_class.module.methods.put(pop_sym, value.MethodEntry.builtin(&builtinQueuePop, .{ .variadic = 0 }));
 
     const deq_sym = try vm.intern("deq");
-    try vm.queue_class.module.methods.put(deq_sym, .{ .method = .{ .builtin = &builtinQueuePop } });
+    try vm.queue_class.module.methods.put(deq_sym, value.MethodEntry.builtin(&builtinQueuePop, .{ .variadic = 0 }));
 
     const shift_sym = try vm.intern("shift");
-    try vm.queue_class.module.methods.put(shift_sym, .{ .method = .{ .builtin = &builtinQueuePop } });
+    try vm.queue_class.module.methods.put(shift_sym, value.MethodEntry.builtin(&builtinQueuePop, .{ .variadic = 0 }));
 
     const size_sym = try vm.intern("size");
-    try vm.queue_class.module.methods.put(size_sym, .{ .method = .{ .builtin = &builtinQueueSize } });
+    try vm.queue_class.module.methods.put(size_sym, value.MethodEntry.builtin(&builtinQueueSize, .{ .exact = 0 }));
 
     const length_sym = try vm.intern("length");
-    try vm.queue_class.module.methods.put(length_sym, .{ .method = .{ .builtin = &builtinQueueSize } });
+    try vm.queue_class.module.methods.put(length_sym, value.MethodEntry.builtin(&builtinQueueSize, .{ .exact = 0 }));
 
     const empty_sym = try vm.intern("empty?");
-    try vm.queue_class.module.methods.put(empty_sym, .{ .method = .{ .builtin = &builtinQueueEmpty } });
+    try vm.queue_class.module.methods.put(empty_sym, value.MethodEntry.builtin(&builtinQueueEmpty, .{ .exact = 0 }));
 
     const close_sym = try vm.intern("close");
-    try vm.queue_class.module.methods.put(close_sym, .{ .method = .{ .builtin = &builtinQueueClose } });
+    try vm.queue_class.module.methods.put(close_sym, value.MethodEntry.builtin(&builtinQueueClose, .{ .exact = 0 }));
 
     const closed_sym = try vm.intern("closed?");
-    try vm.queue_class.module.methods.put(closed_sym, .{ .method = .{ .builtin = &builtinQueueClosed } });
+    try vm.queue_class.module.methods.put(closed_sym, value.MethodEntry.builtin(&builtinQueueClosed, .{ .exact = 0 }));
 
     const num_waiting_sym = try vm.intern("num_waiting");
-    try vm.queue_class.module.methods.put(num_waiting_sym, .{ .method = .{ .builtin = &builtinQueueNumWaiting } });
+    try vm.queue_class.module.methods.put(num_waiting_sym, value.MethodEntry.builtin(&builtinQueueNumWaiting, .{ .exact = 0 }));
 }
 
 fn builtinQueueNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {

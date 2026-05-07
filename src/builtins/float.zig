@@ -56,67 +56,67 @@ fn appendScientificMantissa(writer: anytype, digits: []const u8) VMError!void {
 
 pub fn register(vm: *VM) !void {
     const plus_sym = try vm.intern("+");
-    try vm.float_class.module.methods.put(plus_sym, .{ .method = .{ .builtin = &builtinFloatPlus } });
+    try vm.float_class.module.methods.put(plus_sym, value.MethodEntry.builtin(&builtinFloatPlus, .{ .exact = 1 }));
 
     const minus_sym = try vm.intern("-");
-    try vm.float_class.module.methods.put(minus_sym, .{ .method = .{ .builtin = &builtinFloatMinus } });
+    try vm.float_class.module.methods.put(minus_sym, value.MethodEntry.builtin(&builtinFloatMinus, .{ .exact = 1 }));
 
     const unary_plus_sym = try vm.intern("+@");
-    try vm.float_class.module.methods.put(unary_plus_sym, .{ .method = .{ .builtin = &builtinFloatUnaryPlus } });
+    try vm.float_class.module.methods.put(unary_plus_sym, value.MethodEntry.builtin(&builtinFloatUnaryPlus, .{ .exact = 0 }));
 
     const unary_minus_sym = try vm.intern("-@");
-    try vm.float_class.module.methods.put(unary_minus_sym, .{ .method = .{ .builtin = &builtinFloatUnaryMinus } });
+    try vm.float_class.module.methods.put(unary_minus_sym, value.MethodEntry.builtin(&builtinFloatUnaryMinus, .{ .exact = 0 }));
 
     const multiply_sym = try vm.intern("*");
-    try vm.float_class.module.methods.put(multiply_sym, .{ .method = .{ .builtin = &builtinFloatMultiply } });
+    try vm.float_class.module.methods.put(multiply_sym, value.MethodEntry.builtin(&builtinFloatMultiply, .{ .exact = 1 }));
 
     const exponent_sym = try vm.intern("**");
-    try vm.float_class.module.methods.put(exponent_sym, .{ .method = .{ .builtin = &builtinFloatExponent } });
+    try vm.float_class.module.methods.put(exponent_sym, value.MethodEntry.builtin(&builtinFloatExponent, .{ .exact = 1 }));
 
     const divide_sym = try vm.intern("/");
-    try vm.float_class.module.methods.put(divide_sym, .{ .method = .{ .builtin = &builtinFloatDivide } });
+    try vm.float_class.module.methods.put(divide_sym, value.MethodEntry.builtin(&builtinFloatDivide, .{ .exact = 1 }));
 
     const compare_sym = try vm.intern("<=>");
-    try vm.float_class.module.methods.put(compare_sym, .{ .method = .{ .builtin = &builtinFloatCompare } });
+    try vm.float_class.module.methods.put(compare_sym, value.MethodEntry.builtin(&builtinFloatCompare, .{ .exact = 1 }));
 
     const equal_sym = try vm.intern("==");
-    try vm.float_class.module.methods.put(equal_sym, .{ .method = .{ .builtin = &builtinFloatEqual } });
+    try vm.float_class.module.methods.put(equal_sym, value.MethodEntry.builtin(&builtinFloatEqual, .{ .exact = 1 }));
 
     const eql_sym = try vm.intern("eql?");
-    try vm.float_class.module.methods.put(eql_sym, .{ .method = .{ .builtin = &builtinFloatEql } });
+    try vm.float_class.module.methods.put(eql_sym, value.MethodEntry.builtin(&builtinFloatEql, .{ .exact = 1 }));
 
     const less_than_sym = try vm.intern("<");
-    try vm.float_class.module.methods.put(less_than_sym, .{ .method = .{ .builtin = &builtinFloatLessThan } });
+    try vm.float_class.module.methods.put(less_than_sym, value.MethodEntry.builtin(&builtinFloatLessThan, .{ .exact = 1 }));
 
     const less_than_or_equal_sym = try vm.intern("<=");
-    try vm.float_class.module.methods.put(less_than_or_equal_sym, .{ .method = .{ .builtin = &builtinFloatLessThanOrEqual } });
+    try vm.float_class.module.methods.put(less_than_or_equal_sym, value.MethodEntry.builtin(&builtinFloatLessThanOrEqual, .{ .exact = 1 }));
 
     const greater_than_sym = try vm.intern(">");
-    try vm.float_class.module.methods.put(greater_than_sym, .{ .method = .{ .builtin = &builtinFloatGreaterThan } });
+    try vm.float_class.module.methods.put(greater_than_sym, value.MethodEntry.builtin(&builtinFloatGreaterThan, .{ .exact = 1 }));
 
     const greater_than_or_equal_sym = try vm.intern(">=");
-    try vm.float_class.module.methods.put(greater_than_or_equal_sym, .{ .method = .{ .builtin = &builtinFloatGreaterThanOrEqual } });
+    try vm.float_class.module.methods.put(greater_than_or_equal_sym, value.MethodEntry.builtin(&builtinFloatGreaterThanOrEqual, .{ .exact = 1 }));
 
     const abs_sym = try vm.intern("abs");
-    try vm.float_class.module.methods.put(abs_sym, .{ .method = .{ .builtin = &builtinFloatAbs } });
+    try vm.float_class.module.methods.put(abs_sym, value.MethodEntry.builtin(&builtinFloatAbs, .{ .exact = 0 }));
 
     const nan_sym = try vm.intern("nan?");
-    try vm.float_class.module.methods.put(nan_sym, .{ .method = .{ .builtin = &builtinFloatNan } });
+    try vm.float_class.module.methods.put(nan_sym, value.MethodEntry.builtin(&builtinFloatNan, .{ .exact = 0 }));
 
     const infinite_sym = try vm.intern("infinite?");
-    try vm.float_class.module.methods.put(infinite_sym, .{ .method = .{ .builtin = &builtinFloatInfinite } });
+    try vm.float_class.module.methods.put(infinite_sym, value.MethodEntry.builtin(&builtinFloatInfinite, .{ .exact = 0 }));
 
     const to_int_sym = try vm.intern("to_int");
-    try vm.float_class.module.methods.put(to_int_sym, .{ .method = .{ .builtin = &builtinFloatToInt } });
+    try vm.float_class.module.methods.put(to_int_sym, value.MethodEntry.builtin(&builtinFloatToInt, .{ .exact = 0 }));
 
     const to_i_sym = try vm.intern("to_i");
-    try vm.float_class.module.methods.put(to_i_sym, .{ .method = .{ .builtin = &builtinFloatToInt } });
+    try vm.float_class.module.methods.put(to_i_sym, value.MethodEntry.builtin(&builtinFloatToInt, .{ .exact = 0 }));
 
     const to_s_sym = try vm.intern("to_s");
-    try vm.float_class.module.methods.put(to_s_sym, .{ .method = .{ .builtin = &builtinFloatToS } });
+    try vm.float_class.module.methods.put(to_s_sym, value.MethodEntry.builtin(&builtinFloatToS, .{ .exact = 0 }));
 
     const inspect_sym = try vm.intern("inspect");
-    try vm.float_class.module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinFloatInspect } });
+    try vm.float_class.module.methods.put(inspect_sym, value.MethodEntry.builtin(&builtinFloatInspect, .{ .exact = 0 }));
 }
 
 pub fn builtinFloatPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

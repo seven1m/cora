@@ -12,22 +12,22 @@ pub fn register(vm: *VM) !void {
     const fiber_singleton = try vm.getOrCreateSingletonClass(fiber_class_val);
 
     const new_sym = try vm.intern("new");
-    try fiber_singleton.module.methods.put(new_sym, .{ .method = .{ .builtin = &builtinFiberNew } });
+    try fiber_singleton.module.methods.put(new_sym, value.MethodEntry.builtin(&builtinFiberNew, .{ .variadic = 0 }));
 
     const current_sym = try vm.intern("current");
-    try fiber_singleton.module.methods.put(current_sym, .{ .method = .{ .builtin = &builtinFiberCurrent } });
+    try fiber_singleton.module.methods.put(current_sym, value.MethodEntry.builtin(&builtinFiberCurrent, .{ .exact = 0 }));
 
     const yield_sym = try vm.intern("yield");
-    try fiber_singleton.module.methods.put(yield_sym, .{ .method = .{ .builtin = &builtinFiberYield } });
+    try fiber_singleton.module.methods.put(yield_sym, value.MethodEntry.builtin(&builtinFiberYield, .{ .variadic = 0 }));
 
     const resume_sym = try vm.intern("resume");
-    try vm.fiber_class.module.methods.put(resume_sym, .{ .method = .{ .builtin = &builtinFiberResume } });
+    try vm.fiber_class.module.methods.put(resume_sym, value.MethodEntry.builtin(&builtinFiberResume, .{ .variadic = 0 }));
 
     const alive_sym = try vm.intern("alive?");
-    try vm.fiber_class.module.methods.put(alive_sym, .{ .method = .{ .builtin = &builtinFiberAlive } });
+    try vm.fiber_class.module.methods.put(alive_sym, value.MethodEntry.builtin(&builtinFiberAlive, .{ .exact = 0 }));
 
     const inspect_sym = try vm.intern("inspect");
-    try vm.fiber_class.module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinFiberInspect } });
+    try vm.fiber_class.module.methods.put(inspect_sym, value.MethodEntry.builtin(&builtinFiberInspect, .{ .exact = 0 }));
 }
 
 fn argsToValue(vm: *VM, args: []Value) VMError!Value {

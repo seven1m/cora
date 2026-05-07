@@ -8,16 +8,16 @@ const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
     const to_s_sym = try vm.intern("to_s");
-    try vm.nil_class.module.methods.put(to_s_sym, .{ .method = .{ .builtin = &builtinNilClassToS } });
+    try vm.nil_class.module.methods.put(to_s_sym, value.MethodEntry.builtin(&builtinNilClassToS, .{ .exact = 0 }));
 
     const inspect_sym = try vm.intern("inspect");
-    try vm.nil_class.module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinNilClassInspect } });
+    try vm.nil_class.module.methods.put(inspect_sym, value.MethodEntry.builtin(&builtinNilClassInspect, .{ .exact = 0 }));
 
     const equal_sym = try vm.intern("==");
-    try vm.nil_class.module.methods.put(equal_sym, .{ .method = .{ .builtin = &builtinNilClassEqual } });
+    try vm.nil_class.module.methods.put(equal_sym, value.MethodEntry.builtin(&builtinNilClassEqual, .{ .exact = 1 }));
 
     const nil_sym = try vm.intern("nil?");
-    try vm.nil_class.module.methods.put(nil_sym, .{ .method = .{ .builtin = &builtinNilClassNil } });
+    try vm.nil_class.module.methods.put(nil_sym, value.MethodEntry.builtin(&builtinNilClassNil, .{ .exact = 0 }));
 }
 
 pub fn builtinNilClassToS(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

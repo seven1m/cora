@@ -13,32 +13,32 @@ pub fn register(vm: *VM) !void {
 
     // Class methods
     const new_sym = try vm.intern("new");
-    try mutex_singleton.module.methods.put(new_sym, .{ .method = .{ .builtin = &builtinMutexNew } });
+    try mutex_singleton.module.methods.put(new_sym, value.MethodEntry.builtin(&builtinMutexNew, .{ .variadic = 0 }));
 
     // Instance methods
     const initialize_sym = try vm.intern("initialize");
-    try vm.mutex_class.module.methods.put(initialize_sym, .{ .method = .{ .builtin = &builtinMutexInitialize } });
+    try vm.mutex_class.module.methods.put(initialize_sym, value.MethodEntry.builtin(&builtinMutexInitialize, .{ .exact = 0 }));
 
     const lock_sym = try vm.intern("lock");
-    try vm.mutex_class.module.methods.put(lock_sym, .{ .method = .{ .builtin = &builtinMutexLock } });
+    try vm.mutex_class.module.methods.put(lock_sym, value.MethodEntry.builtin(&builtinMutexLock, .{ .exact = 0 }));
 
     const unlock_sym = try vm.intern("unlock");
-    try vm.mutex_class.module.methods.put(unlock_sym, .{ .method = .{ .builtin = &builtinMutexUnlock } });
+    try vm.mutex_class.module.methods.put(unlock_sym, value.MethodEntry.builtin(&builtinMutexUnlock, .{ .exact = 0 }));
 
     const locked_q_sym = try vm.intern("locked?");
-    try vm.mutex_class.module.methods.put(locked_q_sym, .{ .method = .{ .builtin = &builtinMutexLockedQ } });
+    try vm.mutex_class.module.methods.put(locked_q_sym, value.MethodEntry.builtin(&builtinMutexLockedQ, .{ .exact = 0 }));
 
     const try_lock_sym = try vm.intern("try_lock");
-    try vm.mutex_class.module.methods.put(try_lock_sym, .{ .method = .{ .builtin = &builtinMutexTryLock } });
+    try vm.mutex_class.module.methods.put(try_lock_sym, value.MethodEntry.builtin(&builtinMutexTryLock, .{ .exact = 0 }));
 
     const owned_q_sym = try vm.intern("owned?");
-    try vm.mutex_class.module.methods.put(owned_q_sym, .{ .method = .{ .builtin = &builtinMutexOwnedQ } });
+    try vm.mutex_class.module.methods.put(owned_q_sym, value.MethodEntry.builtin(&builtinMutexOwnedQ, .{ .exact = 0 }));
 
     const synchronize_sym = try vm.intern("synchronize");
-    try vm.mutex_class.module.methods.put(synchronize_sym, .{ .method = .{ .builtin = &builtinMutexSynchronize } });
+    try vm.mutex_class.module.methods.put(synchronize_sym, value.MethodEntry.builtin(&builtinMutexSynchronize, .{ .exact = 0 }));
 
     const sleep_sym = try vm.intern("sleep");
-    try vm.mutex_class.module.methods.put(sleep_sym, .{ .method = .{ .builtin = &builtinMutexSleep } });
+    try vm.mutex_class.module.methods.put(sleep_sym, value.MethodEntry.builtin(&builtinMutexSleep, .{ .variadic = 0 }));
 }
 
 // =============================================================================

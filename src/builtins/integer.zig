@@ -288,121 +288,121 @@ pub fn register(vm: *VM) !void {
     const integer_class_val = Value.fromObject(vm.integer_class);
     const integer_singleton = try vm.getOrCreateSingletonClass(integer_class_val);
     const try_convert_sym = try vm.intern("try_convert");
-    try integer_singleton.module.methods.put(try_convert_sym, .{ .method = .{ .builtin = &builtinIntegerTryConvert } });
+    try integer_singleton.module.methods.put(try_convert_sym, value.MethodEntry.builtin(&builtinIntegerTryConvert, .{ .exact = 1 }));
 
     const plus_sym = try vm.intern("+");
-    try vm.integer_class.module.methods.put(plus_sym, .{ .method = .{ .builtin = &builtinIntegerPlus } });
+    try vm.integer_class.module.methods.put(plus_sym, value.MethodEntry.builtin(&builtinIntegerPlus, .{ .exact = 1 }));
 
     const unary_plus_sym = try vm.intern("+@");
-    try vm.integer_class.module.methods.put(unary_plus_sym, .{ .method = .{ .builtin = &builtinIntegerUnaryPlus } });
+    try vm.integer_class.module.methods.put(unary_plus_sym, value.MethodEntry.builtin(&builtinIntegerUnaryPlus, .{ .exact = 0 }));
 
     const minus_sym = try vm.intern("-");
-    try vm.integer_class.module.methods.put(minus_sym, .{ .method = .{ .builtin = &builtinIntegerMinus } });
+    try vm.integer_class.module.methods.put(minus_sym, value.MethodEntry.builtin(&builtinIntegerMinus, .{ .exact = 1 }));
 
     const unary_minus_sym = try vm.intern("-@");
-    try vm.integer_class.module.methods.put(unary_minus_sym, .{ .method = .{ .builtin = &builtinIntegerUnaryMinus } });
+    try vm.integer_class.module.methods.put(unary_minus_sym, value.MethodEntry.builtin(&builtinIntegerUnaryMinus, .{ .exact = 0 }));
 
     const multiply_sym = try vm.intern("*");
-    try vm.integer_class.module.methods.put(multiply_sym, .{ .method = .{ .builtin = &builtinIntegerMultiply } });
+    try vm.integer_class.module.methods.put(multiply_sym, value.MethodEntry.builtin(&builtinIntegerMultiply, .{ .exact = 1 }));
 
     const divide_sym = try vm.intern("/");
-    try vm.integer_class.module.methods.put(divide_sym, .{ .method = .{ .builtin = &builtinIntegerDivide } });
+    try vm.integer_class.module.methods.put(divide_sym, value.MethodEntry.builtin(&builtinIntegerDivide, .{ .exact = 1 }));
 
     const modulo_sym = try vm.intern("%");
-    try vm.integer_class.module.methods.put(modulo_sym, .{ .method = .{ .builtin = &builtinIntegerModulo } });
+    try vm.integer_class.module.methods.put(modulo_sym, value.MethodEntry.builtin(&builtinIntegerModulo, .{ .exact = 1 }));
 
     const compare_sym = try vm.intern("<=>");
-    try vm.integer_class.module.methods.put(compare_sym, .{ .method = .{ .builtin = &builtinIntegerCompare } });
+    try vm.integer_class.module.methods.put(compare_sym, value.MethodEntry.builtin(&builtinIntegerCompare, .{ .exact = 1 }));
 
     const left_shift_sym = try vm.intern("<<");
-    try vm.integer_class.module.methods.put(left_shift_sym, .{ .method = .{ .builtin = &builtinIntegerLeftShift } });
+    try vm.integer_class.module.methods.put(left_shift_sym, value.MethodEntry.builtin(&builtinIntegerLeftShift, .{ .exact = 1 }));
 
     const power_sym = try vm.intern("**");
-    try vm.integer_class.module.methods.put(power_sym, .{ .method = .{ .builtin = &builtinIntegerPower } });
+    try vm.integer_class.module.methods.put(power_sym, value.MethodEntry.builtin(&builtinIntegerPower, .{ .exact = 1 }));
 
     const equal_sym = try vm.intern("==");
-    try vm.integer_class.module.methods.put(equal_sym, .{ .method = .{ .builtin = &builtinIntegerEqual } });
+    try vm.integer_class.module.methods.put(equal_sym, value.MethodEntry.builtin(&builtinIntegerEqual, .{ .exact = 1 }));
 
     const eql_sym = try vm.intern("eql?");
-    try vm.integer_class.module.methods.put(eql_sym, .{ .method = .{ .builtin = &builtinIntegerEql } });
+    try vm.integer_class.module.methods.put(eql_sym, value.MethodEntry.builtin(&builtinIntegerEql, .{ .exact = 1 }));
 
     const not_equal_sym = try vm.intern("!=");
-    try vm.integer_class.module.methods.put(not_equal_sym, .{ .method = .{ .builtin = &builtinIntegerNotEqual } });
+    try vm.integer_class.module.methods.put(not_equal_sym, value.MethodEntry.builtin(&builtinIntegerNotEqual, .{ .exact = 1 }));
 
     const less_than_sym = try vm.intern("<");
-    try vm.integer_class.module.methods.put(less_than_sym, .{ .method = .{ .builtin = &builtinIntegerLessThan } });
+    try vm.integer_class.module.methods.put(less_than_sym, value.MethodEntry.builtin(&builtinIntegerLessThan, .{ .exact = 1 }));
 
     const less_than_or_equal_sym = try vm.intern("<=");
-    try vm.integer_class.module.methods.put(less_than_or_equal_sym, .{ .method = .{ .builtin = &builtinIntegerLessThanOrEqual } });
+    try vm.integer_class.module.methods.put(less_than_or_equal_sym, value.MethodEntry.builtin(&builtinIntegerLessThanOrEqual, .{ .exact = 1 }));
 
     const greater_than_sym = try vm.intern(">");
-    try vm.integer_class.module.methods.put(greater_than_sym, .{ .method = .{ .builtin = &builtinIntegerGreaterThan } });
+    try vm.integer_class.module.methods.put(greater_than_sym, value.MethodEntry.builtin(&builtinIntegerGreaterThan, .{ .exact = 1 }));
 
     const greater_than_or_equal_sym = try vm.intern(">=");
-    try vm.integer_class.module.methods.put(greater_than_or_equal_sym, .{ .method = .{ .builtin = &builtinIntegerGreaterThanOrEqual } });
+    try vm.integer_class.module.methods.put(greater_than_or_equal_sym, value.MethodEntry.builtin(&builtinIntegerGreaterThanOrEqual, .{ .exact = 1 }));
 
     const to_s_sym = try vm.intern("to_s");
-    try vm.integer_class.module.methods.put(to_s_sym, .{ .method = .{ .builtin = &builtinIntegerToS } });
+    try vm.integer_class.module.methods.put(to_s_sym, value.MethodEntry.builtin(&builtinIntegerToS, .{ .variadic = 0 }));
 
     const to_i_sym = try vm.intern("to_i");
-    try vm.integer_class.module.methods.put(to_i_sym, .{ .method = .{ .builtin = &builtinIntegerToI } });
+    try vm.integer_class.module.methods.put(to_i_sym, value.MethodEntry.builtin(&builtinIntegerToI, .{ .exact = 0 }));
 
     const to_int_sym = try vm.intern("to_int");
-    try vm.integer_class.module.methods.put(to_int_sym, .{ .method = .{ .builtin = &builtinIntegerToI } });
+    try vm.integer_class.module.methods.put(to_int_sym, value.MethodEntry.builtin(&builtinIntegerToI, .{ .exact = 0 }));
 
     const to_f_sym = try vm.intern("to_f");
-    try vm.integer_class.module.methods.put(to_f_sym, .{ .method = .{ .builtin = &builtinIntegerToF } });
+    try vm.integer_class.module.methods.put(to_f_sym, value.MethodEntry.builtin(&builtinIntegerToF, .{ .exact = 0 }));
 
     const ord_sym = try vm.intern("ord");
-    try vm.integer_class.module.methods.put(ord_sym, .{ .method = .{ .builtin = &builtinIntegerOrd } });
+    try vm.integer_class.module.methods.put(ord_sym, value.MethodEntry.builtin(&builtinIntegerOrd, .{ .exact = 0 }));
 
     const denominator_sym = try vm.intern("denominator");
-    try vm.integer_class.module.methods.put(denominator_sym, .{ .method = .{ .builtin = &builtinIntegerDenominator } });
+    try vm.integer_class.module.methods.put(denominator_sym, value.MethodEntry.builtin(&builtinIntegerDenominator, .{ .exact = 0 }));
 
     const size_sym = try vm.intern("size");
-    try vm.integer_class.module.methods.put(size_sym, .{ .method = .{ .builtin = &builtinIntegerSize } });
+    try vm.integer_class.module.methods.put(size_sym, value.MethodEntry.builtin(&builtinIntegerSize, .{ .exact = 0 }));
 
     const truncate_sym = try vm.intern("truncate");
-    try vm.integer_class.module.methods.put(truncate_sym, .{ .method = .{ .builtin = &builtinIntegerTruncate } });
+    try vm.integer_class.module.methods.put(truncate_sym, value.MethodEntry.builtin(&builtinIntegerTruncate, .{ .variadic = 0 }));
 
     const inspect_sym = try vm.intern("inspect");
-    try vm.integer_class.module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinIntegerInspect } });
+    try vm.integer_class.module.methods.put(inspect_sym, value.MethodEntry.builtin(&builtinIntegerInspect, .{ .variadic = 0 }));
 
     const abs_sym = try vm.intern("abs");
-    try vm.integer_class.module.methods.put(abs_sym, .{ .method = .{ .builtin = &builtinIntegerAbs } });
+    try vm.integer_class.module.methods.put(abs_sym, value.MethodEntry.builtin(&builtinIntegerAbs, .{ .exact = 0 }));
 
     const negative_sym = try vm.intern("negative?");
-    try vm.integer_class.module.methods.put(negative_sym, .{ .method = .{ .builtin = &builtinIntegerNegative } });
+    try vm.integer_class.module.methods.put(negative_sym, value.MethodEntry.builtin(&builtinIntegerNegative, .{ .exact = 0 }));
 
     const zero_sym = try vm.intern("zero?");
-    try vm.integer_class.module.methods.put(zero_sym, .{ .method = .{ .builtin = &builtinIntegerZero } });
+    try vm.integer_class.module.methods.put(zero_sym, value.MethodEntry.builtin(&builtinIntegerZero, .{ .exact = 0 }));
 
     const even_sym = try vm.intern("even?");
-    try vm.integer_class.module.methods.put(even_sym, .{ .method = .{ .builtin = &builtinIntegerEven } });
+    try vm.integer_class.module.methods.put(even_sym, value.MethodEntry.builtin(&builtinIntegerEven, .{ .exact = 0 }));
 
     const odd_sym = try vm.intern("odd?");
-    try vm.integer_class.module.methods.put(odd_sym, .{ .method = .{ .builtin = &builtinIntegerOdd } });
+    try vm.integer_class.module.methods.put(odd_sym, value.MethodEntry.builtin(&builtinIntegerOdd, .{ .exact = 0 }));
 
     const next_sym = try vm.intern("next");
-    try vm.integer_class.module.methods.put(next_sym, .{ .method = .{ .builtin = &builtinIntegerNext } });
+    try vm.integer_class.module.methods.put(next_sym, value.MethodEntry.builtin(&builtinIntegerNext, .{ .exact = 0 }));
 
     const succ_sym = try vm.intern("succ");
-    try vm.integer_class.module.methods.put(succ_sym, .{ .method = .{ .builtin = &builtinIntegerNext } });
+    try vm.integer_class.module.methods.put(succ_sym, value.MethodEntry.builtin(&builtinIntegerNext, .{ .exact = 0 }));
 
     const pred_sym = try vm.intern("pred");
-    try vm.integer_class.module.methods.put(pred_sym, .{ .method = .{ .builtin = &builtinIntegerPred } });
+    try vm.integer_class.module.methods.put(pred_sym, value.MethodEntry.builtin(&builtinIntegerPred, .{ .exact = 0 }));
 
     const times_sym = try vm.intern("times");
-    try vm.integer_class.module.methods.put(times_sym, .{ .method = .{ .builtin = &builtinIntegerTimes } });
+    try vm.integer_class.module.methods.put(times_sym, value.MethodEntry.builtin(&builtinIntegerTimes, .{ .exact = 0 }));
 
     const upto_sym = try vm.intern("upto");
-    try vm.integer_class.module.methods.put(upto_sym, .{ .method = .{ .builtin = &builtinIntegerUpto } });
+    try vm.integer_class.module.methods.put(upto_sym, value.MethodEntry.builtin(&builtinIntegerUpto, .{ .exact = 1 }));
 
     const downto_sym = try vm.intern("downto");
-    try vm.integer_class.module.methods.put(downto_sym, .{ .method = .{ .builtin = &builtinIntegerDownto } });
+    try vm.integer_class.module.methods.put(downto_sym, value.MethodEntry.builtin(&builtinIntegerDownto, .{ .exact = 1 }));
 
     const chr_sym = try vm.intern("chr");
-    try vm.integer_class.module.methods.put(chr_sym, .{ .method = .{ .builtin = &builtinIntegerChr } });
+    try vm.integer_class.module.methods.put(chr_sym, value.MethodEntry.builtin(&builtinIntegerChr, .{ .variadic = 0 }));
 }
 
 pub fn builtinIntegerPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

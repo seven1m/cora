@@ -142,42 +142,42 @@ const encoding_name_map = std.StaticStringMap(EncodingLookup).initComptime(.{
 
 pub fn register(vm: *VM) !void {
     const name_sym = try vm.intern("name");
-    try vm.encoding_class.module.methods.put(name_sym, .{ .method = .{ .builtin = &builtinEncodingName } });
+    try vm.encoding_class.module.methods.put(name_sym, value.MethodEntry.builtin(&builtinEncodingName, .{ .exact = 0 }));
 
     const to_s_sym = try vm.intern("to_s");
-    try vm.encoding_class.module.methods.put(to_s_sym, .{ .method = .{ .builtin = &builtinEncodingName } });
+    try vm.encoding_class.module.methods.put(to_s_sym, value.MethodEntry.builtin(&builtinEncodingName, .{ .exact = 0 }));
 
     const inspect_sym = try vm.intern("inspect");
-    try vm.encoding_class.module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinEncodingInspect } });
+    try vm.encoding_class.module.methods.put(inspect_sym, value.MethodEntry.builtin(&builtinEncodingInspect, .{ .exact = 0 }));
 
     const equal_sym = try vm.intern("==");
-    try vm.encoding_class.module.methods.put(equal_sym, .{ .method = .{ .builtin = &builtinEncodingEqual } });
+    try vm.encoding_class.module.methods.put(equal_sym, value.MethodEntry.builtin(&builtinEncodingEqual, .{ .exact = 1 }));
 
     const ascii_compatible_sym = try vm.intern("ascii_compatible?");
-    try vm.encoding_class.module.methods.put(ascii_compatible_sym, .{ .method = .{ .builtin = &builtinEncodingAsciiCompatible } });
+    try vm.encoding_class.module.methods.put(ascii_compatible_sym, value.MethodEntry.builtin(&builtinEncodingAsciiCompatible, .{ .exact = 0 }));
 
     const dummy_sym = try vm.intern("dummy?");
-    try vm.encoding_class.module.methods.put(dummy_sym, .{ .method = .{ .builtin = &builtinEncodingDummy } });
+    try vm.encoding_class.module.methods.put(dummy_sym, value.MethodEntry.builtin(&builtinEncodingDummy, .{ .exact = 0 }));
 
     const find_sym = try vm.intern("find");
     const encoding_class_val = Value.fromObject(vm.encoding_class);
     const encoding_singleton = try vm.getOrCreateSingletonClass(encoding_class_val);
-    try encoding_singleton.module.methods.put(find_sym, .{ .method = .{ .builtin = &builtinEncodingFind } });
+    try encoding_singleton.module.methods.put(find_sym, value.MethodEntry.builtin(&builtinEncodingFind, .{ .exact = 1 }));
 
     const list_sym = try vm.intern("list");
-    try encoding_singleton.module.methods.put(list_sym, .{ .method = .{ .builtin = &builtinEncodingList } });
+    try encoding_singleton.module.methods.put(list_sym, value.MethodEntry.builtin(&builtinEncodingList, .{ .exact = 0 }));
 
     const default_internal_sym = try vm.intern("default_internal");
-    try encoding_singleton.module.methods.put(default_internal_sym, .{ .method = .{ .builtin = &builtinEncodingDefaultInternal } });
+    try encoding_singleton.module.methods.put(default_internal_sym, value.MethodEntry.builtin(&builtinEncodingDefaultInternal, .{ .exact = 0 }));
 
     const set_default_internal_sym = try vm.intern("default_internal=");
-    try encoding_singleton.module.methods.put(set_default_internal_sym, .{ .method = .{ .builtin = &builtinEncodingSetDefaultInternal } });
+    try encoding_singleton.module.methods.put(set_default_internal_sym, value.MethodEntry.builtin(&builtinEncodingSetDefaultInternal, .{ .exact = 1 }));
 
     const default_external_sym = try vm.intern("default_external");
-    try encoding_singleton.module.methods.put(default_external_sym, .{ .method = .{ .builtin = &builtinEncodingDefaultExternal } });
+    try encoding_singleton.module.methods.put(default_external_sym, value.MethodEntry.builtin(&builtinEncodingDefaultExternal, .{ .exact = 0 }));
 
     const set_default_external_sym = try vm.intern("default_external=");
-    try encoding_singleton.module.methods.put(set_default_external_sym, .{ .method = .{ .builtin = &builtinEncodingSetDefaultExternal } });
+    try encoding_singleton.module.methods.put(set_default_external_sym, value.MethodEntry.builtin(&builtinEncodingSetDefaultExternal, .{ .exact = 1 }));
     try converter.register(vm);
 }
 

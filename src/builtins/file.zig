@@ -67,43 +67,43 @@ pub fn register(vm: *VM) !void {
     try vm.file_class.module.constants.put(fnm_extglob_sym, .{ .value = Value.integer(0x10) });
 
     const new_sym = try vm.intern("new");
-    try file_singleton.module.methods.put(new_sym, .{ .method = .{ .builtin = &builtinFileNew } });
+    try file_singleton.module.methods.put(new_sym, value.MethodEntry.builtin(&builtinFileNew, .{ .variadic = 0 }));
 
     const open_sym = try vm.intern("open");
-    try file_singleton.module.methods.put(open_sym, .{ .method = .{ .builtin = &builtinFileOpen } });
+    try file_singleton.module.methods.put(open_sym, value.MethodEntry.builtin(&builtinFileOpen, .{ .variadic = 0 }));
 
     const read_sym = try vm.intern("read");
-    try file_singleton.module.methods.put(read_sym, .{ .method = .{ .builtin = &builtinFileRead } });
+    try file_singleton.module.methods.put(read_sym, value.MethodEntry.builtin(&builtinFileRead, .{ .variadic = 0 }));
 
     const write_sym = try vm.intern("write");
-    try file_singleton.module.methods.put(write_sym, .{ .method = .{ .builtin = &builtinFileWrite } });
+    try file_singleton.module.methods.put(write_sym, value.MethodEntry.builtin(&builtinFileWrite, .{ .variadic = 0 }));
 
     const expand_path_sym = try vm.intern("expand_path");
-    try file_singleton.module.methods.put(expand_path_sym, .{ .method = .{ .builtin = &builtinFileExpandPath } });
+    try file_singleton.module.methods.put(expand_path_sym, value.MethodEntry.builtin(&builtinFileExpandPath, .{ .variadic = 0 }));
 
     const realpath_sym = try vm.intern("realpath");
-    try file_singleton.module.methods.put(realpath_sym, .{ .method = .{ .builtin = &builtinFileRealpath } });
+    try file_singleton.module.methods.put(realpath_sym, value.MethodEntry.builtin(&builtinFileRealpath, .{ .variadic = 0 }));
 
     const join_sym = try vm.intern("join");
-    try file_singleton.module.methods.put(join_sym, .{ .method = .{ .builtin = &builtinFileJoin } });
+    try file_singleton.module.methods.put(join_sym, value.MethodEntry.builtin(&builtinFileJoin, .{ .variadic = 0 }));
 
     const dirname_sym = try vm.intern("dirname");
-    try file_singleton.module.methods.put(dirname_sym, .{ .method = .{ .builtin = &builtinFileDirname } });
+    try file_singleton.module.methods.put(dirname_sym, value.MethodEntry.builtin(&builtinFileDirname, .{ .variadic = 0 }));
 
     const directory_sym = try vm.intern("directory?");
-    try file_singleton.module.methods.put(directory_sym, .{ .method = .{ .builtin = &builtinFileDirectory } });
+    try file_singleton.module.methods.put(directory_sym, value.MethodEntry.builtin(&builtinFileDirectory, .{ .exact = 1 }));
 
     const file_sym = try vm.intern("file?");
-    try file_singleton.module.methods.put(file_sym, .{ .method = .{ .builtin = &builtinFileFile } });
+    try file_singleton.module.methods.put(file_sym, value.MethodEntry.builtin(&builtinFileFile, .{ .exact = 1 }));
 
     const exist_sym = try vm.intern("exist?");
-    try file_singleton.module.methods.put(exist_sym, .{ .method = .{ .builtin = &builtinFileExist } });
+    try file_singleton.module.methods.put(exist_sym, value.MethodEntry.builtin(&builtinFileExist, .{ .exact = 1 }));
 
     const delete_sym = try vm.intern("delete");
-    try file_singleton.module.methods.put(delete_sym, .{ .method = .{ .builtin = &builtinFileDelete } });
+    try file_singleton.module.methods.put(delete_sym, value.MethodEntry.builtin(&builtinFileDelete, .{ .variadic = 0 }));
 
     const unlink_sym = try vm.intern("unlink");
-    try file_singleton.module.methods.put(unlink_sym, .{ .method = .{ .builtin = &builtinFileDelete } });
+    try file_singleton.module.methods.put(unlink_sym, value.MethodEntry.builtin(&builtinFileDelete, .{ .variadic = 0 }));
 }
 
 fn parseMode(vm: *VM, mode_str: []const u8) VMError!FileMode {

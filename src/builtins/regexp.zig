@@ -17,49 +17,46 @@ const OPTION_NOENCODING: u16 = 32;
 
 pub fn register(vm: *VM) !void {
     const initialize_sym = try vm.intern("initialize");
-    try vm.regexp_class.module.methods.put(initialize_sym, .{
-        .method = .{ .builtin = &builtinRegexpInitialize },
-        .visibility = .private,
-    });
+    try vm.regexp_class.module.methods.put(initialize_sym, value.MethodEntry.builtinWithVisibility(&builtinRegexpInitialize, .{ .variadic = 0 }, .private));
 
     const source_sym = try vm.intern("source");
-    try vm.regexp_class.module.methods.put(source_sym, .{ .method = .{ .builtin = &builtinRegexpSource } });
+    try vm.regexp_class.module.methods.put(source_sym, value.MethodEntry.builtin(&builtinRegexpSource, .{ .exact = 0 }));
 
     const options_sym = try vm.intern("options");
-    try vm.regexp_class.module.methods.put(options_sym, .{ .method = .{ .builtin = &builtinRegexpOptions } });
+    try vm.regexp_class.module.methods.put(options_sym, value.MethodEntry.builtin(&builtinRegexpOptions, .{ .exact = 0 }));
 
     const encoding_sym = try vm.intern("encoding");
-    try vm.regexp_class.module.methods.put(encoding_sym, .{ .method = .{ .builtin = &builtinRegexpEncoding } });
+    try vm.regexp_class.module.methods.put(encoding_sym, value.MethodEntry.builtin(&builtinRegexpEncoding, .{ .exact = 0 }));
 
     const inspect_sym = try vm.intern("inspect");
-    try vm.regexp_class.module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinRegexpInspect } });
+    try vm.regexp_class.module.methods.put(inspect_sym, value.MethodEntry.builtin(&builtinRegexpInspect, .{ .exact = 0 }));
 
     const to_s_sym = try vm.intern("to_s");
-    try vm.regexp_class.module.methods.put(to_s_sym, .{ .method = .{ .builtin = &builtinRegexpToS } });
+    try vm.regexp_class.module.methods.put(to_s_sym, value.MethodEntry.builtin(&builtinRegexpToS, .{ .exact = 0 }));
 
     const eq_sym = try vm.intern("==");
-    try vm.regexp_class.module.methods.put(eq_sym, .{ .method = .{ .builtin = &builtinRegexpEq } });
+    try vm.regexp_class.module.methods.put(eq_sym, value.MethodEntry.builtin(&builtinRegexpEq, .{ .exact = 1 }));
 
     const casefold_sym = try vm.intern("casefold?");
-    try vm.regexp_class.module.methods.put(casefold_sym, .{ .method = .{ .builtin = &builtinRegexpCasefold } });
+    try vm.regexp_class.module.methods.put(casefold_sym, value.MethodEntry.builtin(&builtinRegexpCasefold, .{ .exact = 0 }));
 
     const case_equal_sym = try vm.intern("===");
-    try vm.regexp_class.module.methods.put(case_equal_sym, .{ .method = .{ .builtin = &builtinRegexpCaseEqual } });
+    try vm.regexp_class.module.methods.put(case_equal_sym, value.MethodEntry.builtin(&builtinRegexpCaseEqual, .{ .exact = 1 }));
 
     const match_op_sym = try vm.intern("=~");
-    try vm.regexp_class.module.methods.put(match_op_sym, .{ .method = .{ .builtin = &builtinRegexpMatchOp } });
+    try vm.regexp_class.module.methods.put(match_op_sym, value.MethodEntry.builtin(&builtinRegexpMatchOp, .{ .exact = 1 }));
 
     const match_sym = try vm.intern("match");
-    try vm.regexp_class.module.methods.put(match_sym, .{ .method = .{ .builtin = &builtinRegexpMatch } });
+    try vm.regexp_class.module.methods.put(match_sym, value.MethodEntry.builtin(&builtinRegexpMatch, .{ .variadic = 0 }));
 
     const match_q_sym = try vm.intern("match?");
-    try vm.regexp_class.module.methods.put(match_q_sym, .{ .method = .{ .builtin = &builtinRegexpMatchQ } });
+    try vm.regexp_class.module.methods.put(match_q_sym, value.MethodEntry.builtin(&builtinRegexpMatchQ, .{ .variadic = 0 }));
 
     const dup_sym = try vm.intern("dup");
-    try vm.regexp_class.module.methods.put(dup_sym, .{ .method = .{ .builtin = &builtinRegexpDup } });
+    try vm.regexp_class.module.methods.put(dup_sym, value.MethodEntry.builtin(&builtinRegexpDup, .{ .exact = 0 }));
 
     const clone_sym = try vm.intern("clone");
-    try vm.regexp_class.module.methods.put(clone_sym, .{ .method = .{ .builtin = &builtinRegexpClone } });
+    try vm.regexp_class.module.methods.put(clone_sym, value.MethodEntry.builtin(&builtinRegexpClone, .{ .variadic = 0 }));
 
     const regexp_class_val = Value.fromObject(vm.regexp_class);
     const ignorecase_sym = try vm.intern("IGNORECASE");
@@ -75,15 +72,15 @@ pub fn register(vm: *VM) !void {
 
     const regexp_singleton = try vm.getOrCreateSingletonClass(regexp_class_val);
     const try_convert_sym = try vm.intern("try_convert");
-    try regexp_singleton.module.methods.put(try_convert_sym, .{ .method = .{ .builtin = &builtinRegexpTryConvert } });
+    try regexp_singleton.module.methods.put(try_convert_sym, value.MethodEntry.builtin(&builtinRegexpTryConvert, .{ .exact = 1 }));
     const new_sym = try vm.intern("new");
-    try regexp_singleton.module.methods.put(new_sym, .{ .method = .{ .builtin = &builtinRegexpNew } });
+    try regexp_singleton.module.methods.put(new_sym, value.MethodEntry.builtin(&builtinRegexpNew, .{ .variadic = 0 }));
     const escape_sym = try vm.intern("escape");
-    try regexp_singleton.module.methods.put(escape_sym, .{ .method = .{ .builtin = &builtinRegexpEscape } });
+    try regexp_singleton.module.methods.put(escape_sym, value.MethodEntry.builtin(&builtinRegexpEscape, .{ .exact = 1 }));
     const last_match_sym = try vm.intern("last_match");
-    try regexp_singleton.module.methods.put(last_match_sym, .{ .method = .{ .builtin = &builtinRegexpLastMatch } });
+    try regexp_singleton.module.methods.put(last_match_sym, value.MethodEntry.builtin(&builtinRegexpLastMatch, .{ .variadic = 0 }));
     const union_sym = try vm.intern("union");
-    try regexp_singleton.module.methods.put(union_sym, .{ .method = .{ .builtin = &builtinRegexpUnion } });
+    try regexp_singleton.module.methods.put(union_sym, value.MethodEntry.builtin(&builtinRegexpUnion, .{ .variadic = 0 }));
 }
 
 fn builtinRegexpInitialize(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -420,11 +417,10 @@ fn builtinRegexpCaseEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
 
     const source = if (args[0].isSymbol())
         try vm.newString(args[0].toSymbolObject().name, false)
-    else
-        switch (try vm.probeToStringValue(args[0])) {
-            .string => |coerced| coerced,
-            .missing, .nil_result => return Value.boolean(false),
-        };
+    else switch (try vm.probeToStringValue(args[0])) {
+        .string => |coerced| coerced,
+        .missing, .nil_result => return Value.boolean(false),
+    };
 
     const result = try searchRegexp(vm, receiver.toRegexpObject(), source, null, true);
     return Value.boolean(result != null);

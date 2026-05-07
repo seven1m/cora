@@ -11,25 +11,25 @@ pub fn register(vm: *VM) !void {
     const env_singleton = try vm.getOrCreateSingletonClass(env_obj);
 
     const bracket_sym = try vm.intern("[]");
-    try env_singleton.module.methods.put(bracket_sym, .{ .method = .{ .builtin = &builtinEnvBracket } });
+    try env_singleton.module.methods.put(bracket_sym, value.MethodEntry.builtin(&builtinEnvBracket, .{ .exact = 1 }));
 
     const bracket_set_sym = try vm.intern("[]=");
-    try env_singleton.module.methods.put(bracket_set_sym, .{ .method = .{ .builtin = &builtinEnvBracketSet } });
+    try env_singleton.module.methods.put(bracket_set_sym, value.MethodEntry.builtin(&builtinEnvBracketSet, .{ .exact = 2 }));
 
     const delete_sym = try vm.intern("delete");
-    try env_singleton.module.methods.put(delete_sym, .{ .method = .{ .builtin = &builtinEnvDelete } });
+    try env_singleton.module.methods.put(delete_sym, value.MethodEntry.builtin(&builtinEnvDelete, .{ .exact = 1 }));
 
     const size_sym = try vm.intern("size");
-    try env_singleton.module.methods.put(size_sym, .{ .method = .{ .builtin = &builtinEnvSize } });
+    try env_singleton.module.methods.put(size_sym, value.MethodEntry.builtin(&builtinEnvSize, .{ .exact = 0 }));
 
     const to_a_sym = try vm.intern("to_a");
-    try env_singleton.module.methods.put(to_a_sym, .{ .method = .{ .builtin = &builtinEnvToA } });
+    try env_singleton.module.methods.put(to_a_sym, value.MethodEntry.builtin(&builtinEnvToA, .{ .exact = 0 }));
 
     const to_hash_sym = try vm.intern("to_hash");
-    try env_singleton.module.methods.put(to_hash_sym, .{ .method = .{ .builtin = &builtinEnvToH } });
+    try env_singleton.module.methods.put(to_hash_sym, value.MethodEntry.builtin(&builtinEnvToH, .{ .exact = 0 }));
 
     const to_h_sym = try vm.intern("to_h");
-    try env_singleton.module.methods.put(to_h_sym, .{ .method = .{ .builtin = &builtinEnvToH } });
+    try env_singleton.module.methods.put(to_h_sym, value.MethodEntry.builtin(&builtinEnvToH, .{ .exact = 0 }));
 }
 
 pub fn builtinEnvBracket(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

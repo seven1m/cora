@@ -279,6 +279,54 @@ test "Kernel#respond_to? include_private controls respond_to_missing? fallback" 
     try std.testing.expectEqual(false, result.toArrayObject().elements.items[5].toBool());
 }
 
+test "builtin Method#arity and UnboundMethod#arity match MRI-visible arities" {
+    const result = try evalCode(
+        \\[
+        \\  Object.new.method(:send).arity,
+        \\  Kernel.instance_method(:send).arity,
+        \\  Object.new.method(:raise).arity,
+        \\  Object.new.method(:fail).arity,
+        \\  Kernel.instance_method(:raise).arity,
+        \\  Kernel.instance_method(:fail).arity,
+        \\  Object.new.method(:to_enum).arity,
+        \\  Object.new.method(:enum_for).arity,
+        \\  Kernel.instance_method(:to_enum).arity,
+        \\  Kernel.instance_method(:enum_for).arity,
+        \\  Module.new.method(:instance_method).arity,
+        \\  Module.instance_method(:instance_method).arity,
+        \\  Object.new.method(:send).method(:arity).arity,
+        \\  Object.new.method(:send).method(:unbind).arity,
+        \\  Object.new.method(:send).method(:call).arity,
+        \\  Kernel.instance_method(:send).method(:owner).arity,
+        \\  Kernel.instance_method(:send).method(:arity).arity,
+        \\  Kernel.instance_method(:send).method(:inspect).arity,
+        \\  Kernel.instance_method(:send).method(:bind).arity,
+        \\  Kernel.instance_method(:send).method(:==).arity
+        \\]
+    );
+    try std.testing.expect(result.isArray());
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 20), items.len);
+
+    const expected = [_]i64{
+        -1, -1,
+        -1, -1,
+        -1, -1,
+        -1, -1,
+        -1, -1,
+        1,  1,
+        0,  0,
+        -1, 0,
+        0,  0,
+        1,  1,
+    };
+
+    for (expected, items) |want, actual| {
+        try std.testing.expect(actual.isInteger());
+        try std.testing.expectEqual(want, actual.toInteger());
+    }
+}
+
 test "BasicObject#initialize is private and Class#new dispatches through method_missing after undef_method" {
     var result = try evalCode("Object.new.respond_to?(:initialize, true)");
     try std.testing.expect(result.isBool());

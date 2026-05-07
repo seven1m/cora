@@ -13,113 +13,113 @@ pub fn register(vm: *VM) !void {
 
     // Class methods
     const new_sym = try vm.intern("new");
-    try thread_singleton.module.methods.put(new_sym, .{ .method = .{ .builtin = &builtinThreadNew } });
+    try thread_singleton.module.methods.put(new_sym, value.MethodEntry.builtin(&builtinThreadNew, .{ .variadic = 0 }));
 
     const start_sym = try vm.intern("start");
-    try thread_singleton.module.methods.put(start_sym, .{ .method = .{ .builtin = &builtinThreadNew } });
+    try thread_singleton.module.methods.put(start_sym, value.MethodEntry.builtin(&builtinThreadNew, .{ .variadic = 0 }));
 
     const fork_sym = try vm.intern("fork");
-    try thread_singleton.module.methods.put(fork_sym, .{ .method = .{ .builtin = &builtinThreadNew } });
+    try thread_singleton.module.methods.put(fork_sym, value.MethodEntry.builtin(&builtinThreadNew, .{ .variadic = 0 }));
 
     const current_sym = try vm.intern("current");
-    try thread_singleton.module.methods.put(current_sym, .{ .method = .{ .builtin = &builtinThreadCurrent } });
+    try thread_singleton.module.methods.put(current_sym, value.MethodEntry.builtin(&builtinThreadCurrent, .{ .exact = 0 }));
 
     const main_sym = try vm.intern("main");
-    try thread_singleton.module.methods.put(main_sym, .{ .method = .{ .builtin = &builtinThreadMain } });
+    try thread_singleton.module.methods.put(main_sym, value.MethodEntry.builtin(&builtinThreadMain, .{ .exact = 0 }));
 
     const list_sym = try vm.intern("list");
-    try thread_singleton.module.methods.put(list_sym, .{ .method = .{ .builtin = &builtinThreadList } });
+    try thread_singleton.module.methods.put(list_sym, value.MethodEntry.builtin(&builtinThreadList, .{ .exact = 0 }));
 
     const pass_sym = try vm.intern("pass");
-    try thread_singleton.module.methods.put(pass_sym, .{ .method = .{ .builtin = &builtinThreadPass } });
+    try thread_singleton.module.methods.put(pass_sym, value.MethodEntry.builtin(&builtinThreadPass, .{ .exact = 0 }));
 
     const stop_sym = try vm.intern("stop");
-    try thread_singleton.module.methods.put(stop_sym, .{ .method = .{ .builtin = &builtinThreadStop } });
+    try thread_singleton.module.methods.put(stop_sym, value.MethodEntry.builtin(&builtinThreadStop, .{ .exact = 0 }));
 
     const kill_class_sym = try vm.intern("kill");
-    try thread_singleton.module.methods.put(kill_class_sym, .{ .method = .{ .builtin = &builtinThreadKillClass } });
+    try thread_singleton.module.methods.put(kill_class_sym, value.MethodEntry.builtin(&builtinThreadKillClass, .{ .exact = 1 }));
 
     // Instance methods
     const join_sym = try vm.intern("join");
-    try vm.thread_class.module.methods.put(join_sym, .{ .method = .{ .builtin = &builtinThreadJoin } });
+    try vm.thread_class.module.methods.put(join_sym, value.MethodEntry.builtin(&builtinThreadJoin, .{ .variadic = 0 }));
 
     const value_sym = try vm.intern("value");
-    try vm.thread_class.module.methods.put(value_sym, .{ .method = .{ .builtin = &builtinThreadValue } });
+    try vm.thread_class.module.methods.put(value_sym, value.MethodEntry.builtin(&builtinThreadValue, .{ .exact = 0 }));
 
     const alive_sym = try vm.intern("alive?");
-    try vm.thread_class.module.methods.put(alive_sym, .{ .method = .{ .builtin = &builtinThreadAlive } });
+    try vm.thread_class.module.methods.put(alive_sym, value.MethodEntry.builtin(&builtinThreadAlive, .{ .exact = 0 }));
 
     const status_sym = try vm.intern("status");
-    try vm.thread_class.module.methods.put(status_sym, .{ .method = .{ .builtin = &builtinThreadStatus } });
+    try vm.thread_class.module.methods.put(status_sym, value.MethodEntry.builtin(&builtinThreadStatus, .{ .exact = 0 }));
 
     const kill_sym = try vm.intern("kill");
-    try vm.thread_class.module.methods.put(kill_sym, .{ .method = .{ .builtin = &builtinThreadKill } });
+    try vm.thread_class.module.methods.put(kill_sym, value.MethodEntry.builtin(&builtinThreadKill, .{ .exact = 0 }));
 
     const exit_sym = try vm.intern("exit");
-    try vm.thread_class.module.methods.put(exit_sym, .{ .method = .{ .builtin = &builtinThreadKill } });
+    try vm.thread_class.module.methods.put(exit_sym, value.MethodEntry.builtin(&builtinThreadKill, .{ .exact = 0 }));
 
     const terminate_sym = try vm.intern("terminate");
-    try vm.thread_class.module.methods.put(terminate_sym, .{ .method = .{ .builtin = &builtinThreadKill } });
+    try vm.thread_class.module.methods.put(terminate_sym, value.MethodEntry.builtin(&builtinThreadKill, .{ .exact = 0 }));
 
     const raise_sym = try vm.intern("raise");
-    try vm.thread_class.module.methods.put(raise_sym, .{ .method = .{ .builtin = &builtinThreadRaise } });
+    try vm.thread_class.module.methods.put(raise_sym, value.MethodEntry.builtin(&builtinThreadRaise, .{ .variadic = 0 }));
 
     const run_sym = try vm.intern("run");
-    try vm.thread_class.module.methods.put(run_sym, .{ .method = .{ .builtin = &builtinThreadRun } });
+    try vm.thread_class.module.methods.put(run_sym, value.MethodEntry.builtin(&builtinThreadRun, .{ .exact = 0 }));
 
     const wakeup_sym = try vm.intern("wakeup");
-    try vm.thread_class.module.methods.put(wakeup_sym, .{ .method = .{ .builtin = &builtinThreadWakeup } });
+    try vm.thread_class.module.methods.put(wakeup_sym, value.MethodEntry.builtin(&builtinThreadWakeup, .{ .exact = 0 }));
 
     const get_sym = try vm.intern("[]");
-    try vm.thread_class.module.methods.put(get_sym, .{ .method = .{ .builtin = &builtinThreadGetFiberLocal } });
+    try vm.thread_class.module.methods.put(get_sym, value.MethodEntry.builtin(&builtinThreadGetFiberLocal, .{ .exact = 1 }));
 
     const set_sym = try vm.intern("[]=");
-    try vm.thread_class.module.methods.put(set_sym, .{ .method = .{ .builtin = &builtinThreadSetFiberLocal } });
+    try vm.thread_class.module.methods.put(set_sym, value.MethodEntry.builtin(&builtinThreadSetFiberLocal, .{ .exact = 2 }));
 
     const key_sym = try vm.intern("key?");
-    try vm.thread_class.module.methods.put(key_sym, .{ .method = .{ .builtin = &builtinThreadKey } });
+    try vm.thread_class.module.methods.put(key_sym, value.MethodEntry.builtin(&builtinThreadKey, .{ .exact = 1 }));
 
     const keys_sym = try vm.intern("keys");
-    try vm.thread_class.module.methods.put(keys_sym, .{ .method = .{ .builtin = &builtinThreadKeys } });
+    try vm.thread_class.module.methods.put(keys_sym, value.MethodEntry.builtin(&builtinThreadKeys, .{ .exact = 0 }));
 
     const tv_get_sym = try vm.intern("thread_variable_get");
-    try vm.thread_class.module.methods.put(tv_get_sym, .{ .method = .{ .builtin = &builtinThreadVarGet } });
+    try vm.thread_class.module.methods.put(tv_get_sym, value.MethodEntry.builtin(&builtinThreadVarGet, .{ .exact = 1 }));
 
     const tv_set_sym = try vm.intern("thread_variable_set");
-    try vm.thread_class.module.methods.put(tv_set_sym, .{ .method = .{ .builtin = &builtinThreadVarSet } });
+    try vm.thread_class.module.methods.put(tv_set_sym, value.MethodEntry.builtin(&builtinThreadVarSet, .{ .exact = 2 }));
 
     const tv_has_sym = try vm.intern("thread_variable?");
-    try vm.thread_class.module.methods.put(tv_has_sym, .{ .method = .{ .builtin = &builtinThreadVarHas } });
+    try vm.thread_class.module.methods.put(tv_has_sym, value.MethodEntry.builtin(&builtinThreadVarHas, .{ .exact = 1 }));
 
     const tv_list_sym = try vm.intern("thread_variables");
-    try vm.thread_class.module.methods.put(tv_list_sym, .{ .method = .{ .builtin = &builtinThreadVarList } });
+    try vm.thread_class.module.methods.put(tv_list_sym, value.MethodEntry.builtin(&builtinThreadVarList, .{ .exact = 0 }));
 
     const name_get_sym = try vm.intern("name");
-    try vm.thread_class.module.methods.put(name_get_sym, .{ .method = .{ .builtin = &builtinThreadNameGet } });
+    try vm.thread_class.module.methods.put(name_get_sym, value.MethodEntry.builtin(&builtinThreadNameGet, .{ .exact = 0 }));
 
     const name_set_sym = try vm.intern("name=");
-    try vm.thread_class.module.methods.put(name_set_sym, .{ .method = .{ .builtin = &builtinThreadNameSet } });
+    try vm.thread_class.module.methods.put(name_set_sym, value.MethodEntry.builtin(&builtinThreadNameSet, .{ .exact = 1 }));
 
     const priority_get_sym = try vm.intern("priority");
-    try vm.thread_class.module.methods.put(priority_get_sym, .{ .method = .{ .builtin = &builtinThreadPriorityGet } });
+    try vm.thread_class.module.methods.put(priority_get_sym, value.MethodEntry.builtin(&builtinThreadPriorityGet, .{ .exact = 0 }));
 
     const priority_set_sym = try vm.intern("priority=");
-    try vm.thread_class.module.methods.put(priority_set_sym, .{ .method = .{ .builtin = &builtinThreadPrioritySet } });
+    try vm.thread_class.module.methods.put(priority_set_sym, value.MethodEntry.builtin(&builtinThreadPrioritySet, .{ .exact = 1 }));
 
     const inspect_sym = try vm.intern("inspect");
-    try vm.thread_class.module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinThreadInspect } });
+    try vm.thread_class.module.methods.put(inspect_sym, value.MethodEntry.builtin(&builtinThreadInspect, .{ .exact = 0 }));
 
     const stop_q_sym = try vm.intern("stop?");
-    try vm.thread_class.module.methods.put(stop_q_sym, .{ .method = .{ .builtin = &builtinThreadStopQ } });
+    try vm.thread_class.module.methods.put(stop_q_sym, value.MethodEntry.builtin(&builtinThreadStopQ, .{ .exact = 0 }));
 
     const initialize_sym = try vm.intern("initialize");
-    try vm.thread_class.module.methods.put(initialize_sym, .{ .method = .{ .builtin = &builtinThreadInitialize } });
+    try vm.thread_class.module.methods.put(initialize_sym, value.MethodEntry.builtin(&builtinThreadInitialize, .{ .variadic = 0 }));
 
     const report_on_exception_sym = try vm.intern("report_on_exception");
-    try vm.thread_class.module.methods.put(report_on_exception_sym, .{ .method = .{ .builtin = &builtinThreadReportOnException } });
+    try vm.thread_class.module.methods.put(report_on_exception_sym, value.MethodEntry.builtin(&builtinThreadReportOnException, .{ .exact = 0 }));
 
     const report_on_exception_set_sym = try vm.intern("report_on_exception=");
-    try vm.thread_class.module.methods.put(report_on_exception_set_sym, .{ .method = .{ .builtin = &builtinThreadReportOnExceptionSet } });
+    try vm.thread_class.module.methods.put(report_on_exception_set_sym, value.MethodEntry.builtin(&builtinThreadReportOnExceptionSet, .{ .exact = 1 }));
 }
 
 // =============================================================================

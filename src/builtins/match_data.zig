@@ -8,40 +8,40 @@ const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
     const bracket_sym = try vm.intern("[]");
-    try vm.match_data_class.module.methods.put(bracket_sym, .{ .method = .{ .builtin = &builtinMatchDataBracket } });
+    try vm.match_data_class.module.methods.put(bracket_sym, value.MethodEntry.builtin(&builtinMatchDataBracket, .{ .variadic = 0 }));
 
     const match_sym = try vm.intern("match");
-    try vm.match_data_class.module.methods.put(match_sym, .{ .method = .{ .builtin = &builtinMatchDataMatch } });
+    try vm.match_data_class.module.methods.put(match_sym, value.MethodEntry.builtin(&builtinMatchDataMatch, .{ .exact = 1 }));
 
     const captures_sym = try vm.intern("captures");
-    try vm.match_data_class.module.methods.put(captures_sym, .{ .method = .{ .builtin = &builtinMatchDataCaptures } });
+    try vm.match_data_class.module.methods.put(captures_sym, value.MethodEntry.builtin(&builtinMatchDataCaptures, .{ .exact = 0 }));
 
     const to_a_sym = try vm.intern("to_a");
-    try vm.match_data_class.module.methods.put(to_a_sym, .{ .method = .{ .builtin = &builtinMatchDataToA } });
+    try vm.match_data_class.module.methods.put(to_a_sym, value.MethodEntry.builtin(&builtinMatchDataToA, .{ .exact = 0 }));
 
     const length_sym = try vm.intern("length");
-    try vm.match_data_class.module.methods.put(length_sym, .{ .method = .{ .builtin = &builtinMatchDataLength } });
+    try vm.match_data_class.module.methods.put(length_sym, value.MethodEntry.builtin(&builtinMatchDataLength, .{ .exact = 0 }));
 
     const size_sym = try vm.intern("size");
-    try vm.match_data_class.module.methods.put(size_sym, .{ .method = .{ .builtin = &builtinMatchDataLength } });
+    try vm.match_data_class.module.methods.put(size_sym, value.MethodEntry.builtin(&builtinMatchDataLength, .{ .exact = 0 }));
 
     const regexp_sym = try vm.intern("regexp");
-    try vm.match_data_class.module.methods.put(regexp_sym, .{ .method = .{ .builtin = &builtinMatchDataRegexp } });
+    try vm.match_data_class.module.methods.put(regexp_sym, value.MethodEntry.builtin(&builtinMatchDataRegexp, .{ .exact = 0 }));
 
     const string_sym = try vm.intern("string");
-    try vm.match_data_class.module.methods.put(string_sym, .{ .method = .{ .builtin = &builtinMatchDataString } });
+    try vm.match_data_class.module.methods.put(string_sym, value.MethodEntry.builtin(&builtinMatchDataString, .{ .exact = 0 }));
 
     const pre_match_sym = try vm.intern("pre_match");
-    try vm.match_data_class.module.methods.put(pre_match_sym, .{ .method = .{ .builtin = &builtinMatchDataPreMatch } });
+    try vm.match_data_class.module.methods.put(pre_match_sym, value.MethodEntry.builtin(&builtinMatchDataPreMatch, .{ .exact = 0 }));
 
     const post_match_sym = try vm.intern("post_match");
-    try vm.match_data_class.module.methods.put(post_match_sym, .{ .method = .{ .builtin = &builtinMatchDataPostMatch } });
+    try vm.match_data_class.module.methods.put(post_match_sym, value.MethodEntry.builtin(&builtinMatchDataPostMatch, .{ .exact = 0 }));
 
     const offset_sym = try vm.intern("offset");
-    try vm.match_data_class.module.methods.put(offset_sym, .{ .method = .{ .builtin = &builtinMatchDataOffset } });
+    try vm.match_data_class.module.methods.put(offset_sym, value.MethodEntry.builtin(&builtinMatchDataOffset, .{ .exact = 1 }));
 
     const begin_sym = try vm.intern("begin");
-    try vm.match_data_class.module.methods.put(begin_sym, .{ .method = .{ .builtin = &builtinMatchDataBegin } });
+    try vm.match_data_class.module.methods.put(begin_sym, value.MethodEntry.builtin(&builtinMatchDataBegin, .{ .exact = 1 }));
 }
 
 fn getMatchData(receiver: Value) VMError!*value.MatchDataObject {

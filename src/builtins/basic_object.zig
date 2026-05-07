@@ -5,40 +5,35 @@ const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
 const Block = vm_mod.Block;
 const Value = value.Value;
+const MethodEntry = value.MethodEntry;
 
 pub fn register(vm: *VM) !void {
     const initialize_sym = try vm.intern("initialize");
-    try vm.basic_object_class.module.methods.put(initialize_sym, .{
-        .method = .{ .builtin = &builtinBasicObjectInitialize },
-        .visibility = .private,
-    });
+    try vm.basic_object_class.module.methods.put(initialize_sym, MethodEntry.builtinWithVisibility(&builtinBasicObjectInitialize, .{ .exact = 0 }, .private));
 
     const send_sym = try vm.intern("__send__");
-    try vm.basic_object_class.module.methods.put(send_sym, .{ .method = .{ .builtin = &builtinBasicObjectSend } });
+    try vm.basic_object_class.module.methods.put(send_sym, MethodEntry.builtin(&builtinBasicObjectSend, .{ .variadic = 0 }));
 
     const instance_eval_sym = try vm.intern("instance_eval");
-    try vm.basic_object_class.module.methods.put(instance_eval_sym, .{ .method = .{ .builtin = &builtinBasicObjectInstanceEval } });
+    try vm.basic_object_class.module.methods.put(instance_eval_sym, MethodEntry.builtin(&builtinBasicObjectInstanceEval, .{ .variadic = 0 }));
 
     const id_sym = try vm.intern("__id__");
-    try vm.basic_object_class.module.methods.put(id_sym, .{ .method = .{ .builtin = &builtinBasicObjectId } });
+    try vm.basic_object_class.module.methods.put(id_sym, MethodEntry.builtin(&builtinBasicObjectId, .{ .exact = 0 }));
 
     const op_equal_sym = try vm.intern("==");
-    try vm.basic_object_class.module.methods.put(op_equal_sym, .{ .method = .{ .builtin = &builtinBasicObjectEqual } });
+    try vm.basic_object_class.module.methods.put(op_equal_sym, MethodEntry.builtin(&builtinBasicObjectEqual, .{ .exact = 1 }));
 
     const equal_sym = try vm.intern("equal?");
-    try vm.basic_object_class.module.methods.put(equal_sym, .{ .method = .{ .builtin = &builtinBasicObjectEqual } });
+    try vm.basic_object_class.module.methods.put(equal_sym, MethodEntry.builtin(&builtinBasicObjectEqual, .{ .exact = 1 }));
 
     const not_equal_sym = try vm.intern("!=");
-    try vm.basic_object_class.module.methods.put(not_equal_sym, .{ .method = .{ .builtin = &builtinBasicObjectNotEqual } });
+    try vm.basic_object_class.module.methods.put(not_equal_sym, MethodEntry.builtin(&builtinBasicObjectNotEqual, .{ .exact = 1 }));
 
     const not_sym = try vm.intern("!");
-    try vm.basic_object_class.module.methods.put(not_sym, .{ .method = .{ .builtin = &builtinBasicObjectNot } });
+    try vm.basic_object_class.module.methods.put(not_sym, MethodEntry.builtin(&builtinBasicObjectNot, .{ .exact = 0 }));
 
     const method_missing_sym = try vm.intern("method_missing");
-    try vm.basic_object_class.module.methods.put(method_missing_sym, .{
-        .method = .{ .builtin = &builtinBasicObjectMethodMissing },
-        .visibility = .private,
-    });
+    try vm.basic_object_class.module.methods.put(method_missing_sym, MethodEntry.builtinWithVisibility(&builtinBasicObjectMethodMissing, .{ .variadic = 0 }, .private));
 }
 
 pub fn builtinBasicObjectInitialize(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

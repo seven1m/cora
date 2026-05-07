@@ -8,30 +8,30 @@ const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
     const initialize_sym = try vm.intern("initialize");
-    try vm.exception_class.module.methods.put(initialize_sym, .{ .method = .{ .builtin = &builtinExceptionInitialize } });
+    try vm.exception_class.module.methods.put(initialize_sym, value.MethodEntry.builtin(&builtinExceptionInitialize, .{ .variadic = 0 }));
 
     const message_sym = try vm.intern("message");
-    try vm.exception_class.module.methods.put(message_sym, .{ .method = .{ .builtin = &builtinExceptionMessage } });
+    try vm.exception_class.module.methods.put(message_sym, value.MethodEntry.builtin(&builtinExceptionMessage, .{ .exact = 0 }));
 
     const backtrace_sym = try vm.intern("backtrace");
-    try vm.exception_class.module.methods.put(backtrace_sym, .{ .method = .{ .builtin = &builtinExceptionBacktrace } });
+    try vm.exception_class.module.methods.put(backtrace_sym, value.MethodEntry.builtin(&builtinExceptionBacktrace, .{ .exact = 0 }));
 
     const full_message_sym = try vm.intern("full_message");
-    try vm.exception_class.module.methods.put(full_message_sym, .{ .method = .{ .builtin = &builtinExceptionFullMessage } });
+    try vm.exception_class.module.methods.put(full_message_sym, value.MethodEntry.builtin(&builtinExceptionFullMessage, .{ .variadic = 0 }));
 
-    try vm.system_exit_class.module.methods.put(initialize_sym, .{ .method = .{ .builtin = &builtinSystemExitInitialize } });
+    try vm.system_exit_class.module.methods.put(initialize_sym, value.MethodEntry.builtin(&builtinSystemExitInitialize, .{ .variadic = 0 }));
 
     const status_sym = try vm.intern("status");
-    try vm.system_exit_class.module.methods.put(status_sym, .{ .method = .{ .builtin = &builtinSystemExitStatus } });
+    try vm.system_exit_class.module.methods.put(status_sym, value.MethodEntry.builtin(&builtinSystemExitStatus, .{ .exact = 0 }));
 
     const receiver_sym = try vm.intern("receiver");
-    try vm.key_error_class.module.methods.put(receiver_sym, .{ .method = .{ .builtin = &builtinKeyErrorReceiver } });
+    try vm.key_error_class.module.methods.put(receiver_sym, value.MethodEntry.builtin(&builtinKeyErrorReceiver, .{ .exact = 0 }));
 
     const key_sym = try vm.intern("key");
-    try vm.key_error_class.module.methods.put(key_sym, .{ .method = .{ .builtin = &builtinKeyErrorKey } });
+    try vm.key_error_class.module.methods.put(key_sym, value.MethodEntry.builtin(&builtinKeyErrorKey, .{ .exact = 0 }));
 
     const name_sym = try vm.intern("name");
-    try vm.name_error_class.module.methods.put(name_sym, .{ .method = .{ .builtin = &builtinNameErrorName } });
+    try vm.name_error_class.module.methods.put(name_sym, value.MethodEntry.builtin(&builtinNameErrorName, .{ .exact = 0 }));
 }
 
 pub fn builtinExceptionInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

@@ -152,25 +152,25 @@ fn clampBoundsFromArgs(vm: *VM, args: []Value) VMError!ClampBounds {
 
 pub fn register(vm: *VM, comparable_module: *value.ModuleObject) !void {
     const less_than_sym = try vm.intern("<");
-    try comparable_module.methods.put(less_than_sym, .{ .method = .{ .builtin = &builtinComparableLessThan } });
+    try comparable_module.methods.put(less_than_sym, value.MethodEntry.builtin(&builtinComparableLessThan, .{ .exact = 1 }));
 
     const less_than_or_equal_sym = try vm.intern("<=");
-    try comparable_module.methods.put(less_than_or_equal_sym, .{ .method = .{ .builtin = &builtinComparableLessThanOrEqual } });
+    try comparable_module.methods.put(less_than_or_equal_sym, value.MethodEntry.builtin(&builtinComparableLessThanOrEqual, .{ .exact = 1 }));
 
     const greater_than_sym = try vm.intern(">");
-    try comparable_module.methods.put(greater_than_sym, .{ .method = .{ .builtin = &builtinComparableGreaterThan } });
+    try comparable_module.methods.put(greater_than_sym, value.MethodEntry.builtin(&builtinComparableGreaterThan, .{ .exact = 1 }));
 
     const greater_than_or_equal_sym = try vm.intern(">=");
-    try comparable_module.methods.put(greater_than_or_equal_sym, .{ .method = .{ .builtin = &builtinComparableGreaterThanOrEqual } });
+    try comparable_module.methods.put(greater_than_or_equal_sym, value.MethodEntry.builtin(&builtinComparableGreaterThanOrEqual, .{ .exact = 1 }));
 
     const equal_sym = try vm.intern("==");
-    try comparable_module.methods.put(equal_sym, .{ .method = .{ .builtin = &builtinComparableEqual } });
+    try comparable_module.methods.put(equal_sym, value.MethodEntry.builtin(&builtinComparableEqual, .{ .exact = 1 }));
 
     const between_sym = try vm.intern("between?");
-    try comparable_module.methods.put(between_sym, .{ .method = .{ .builtin = &builtinComparableBetween } });
+    try comparable_module.methods.put(between_sym, value.MethodEntry.builtin(&builtinComparableBetween, .{ .exact = 2 }));
 
     const clamp_sym = try vm.intern("clamp");
-    try comparable_module.methods.put(clamp_sym, .{ .method = .{ .builtin = &builtinComparableClamp } });
+    try comparable_module.methods.put(clamp_sym, value.MethodEntry.builtin(&builtinComparableClamp, .{ .variadic = 0 }));
 }
 
 pub fn builtinComparableLessThan(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

@@ -23,10 +23,10 @@ pub fn register(vm: *VM) !void {
 
     const tcp_server_singleton = try vm.getOrCreateSingletonClass(tcp_server_val);
     const new_sym = try vm.intern("new");
-    try tcp_server_singleton.module.methods.put(new_sym, .{ .method = .{ .builtin = &builtinTCPServerNew } });
+    try tcp_server_singleton.module.methods.put(new_sym, value.MethodEntry.builtin(&builtinTCPServerNew, .{ .variadic = 0 }));
 
     const accept_sym = try vm.intern("accept");
-    try tcp_server_class.module.methods.put(accept_sym, .{ .method = .{ .builtin = &builtinTCPServerAccept } });
+    try tcp_server_class.module.methods.put(accept_sym, value.MethodEntry.builtin(&builtinTCPServerAccept, .{ .exact = 0 }));
 }
 
 fn socketError(vm: *VM, comptime fmt: []const u8, args: anytype) VMError {

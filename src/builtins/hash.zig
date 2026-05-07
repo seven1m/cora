@@ -79,142 +79,136 @@ pub fn register(vm: *VM) !void {
     const hash_singleton = try vm.getOrCreateSingletonClass(hash_class_val);
 
     const try_convert_sym = try vm.intern("try_convert");
-    try hash_singleton.module.methods.put(try_convert_sym, .{ .method = .{ .builtin = &builtinHashTryConvert } });
+    try hash_singleton.module.methods.put(try_convert_sym, value.MethodEntry.builtin(&builtinHashTryConvert, .{ .exact = 1 }));
 
     const singleton_bracket_sym = try vm.intern("[]");
-    try hash_singleton.module.methods.put(singleton_bracket_sym, .{ .method = .{ .builtin = &builtinHashConstructor } });
+    try hash_singleton.module.methods.put(singleton_bracket_sym, value.MethodEntry.builtin(&builtinHashConstructor, .{ .variadic = 0 }));
 
     const initialize_sym = try vm.intern("initialize");
-    try vm.hash_class.module.methods.put(initialize_sym, .{
-        .method = .{ .builtin = &builtinHashInitialize },
-        .visibility = .private,
-    });
+    try vm.hash_class.module.methods.put(initialize_sym, value.MethodEntry.builtinWithVisibility(&builtinHashInitialize, .{ .variadic = 0 }, .private));
 
     const initialize_copy_sym = try vm.intern("initialize_copy");
-    try vm.hash_class.module.methods.put(initialize_copy_sym, .{
-        .method = .{ .builtin = &builtinHashInitializeCopy },
-        .visibility = .private,
-    });
+    try vm.hash_class.module.methods.put(initialize_copy_sym, value.MethodEntry.builtinWithVisibility(&builtinHashInitializeCopy, .{ .exact = 1 }, .private));
 
     const bracket_sym = try vm.intern("[]");
-    try vm.hash_class.module.methods.put(bracket_sym, .{ .method = .{ .builtin = &builtinHashBracket } });
+    try vm.hash_class.module.methods.put(bracket_sym, value.MethodEntry.builtin(&builtinHashBracket, .{ .exact = 1 }));
 
     const bracket_set_sym = try vm.intern("[]=");
-    try vm.hash_class.module.methods.put(bracket_set_sym, .{ .method = .{ .builtin = &builtinHashBracketSet } });
+    try vm.hash_class.module.methods.put(bracket_set_sym, value.MethodEntry.builtin(&builtinHashBracketSet, .{ .exact = 2 }));
 
     const store_sym = try vm.intern("store");
-    try vm.hash_class.module.methods.put(store_sym, .{ .method = .{ .builtin = &builtinHashBracketSet } });
+    try vm.hash_class.module.methods.put(store_sym, value.MethodEntry.builtin(&builtinHashBracketSet, .{ .exact = 2 }));
 
     const keys_sym = try vm.intern("keys");
-    try vm.hash_class.module.methods.put(keys_sym, .{ .method = .{ .builtin = &builtinHashKeys } });
+    try vm.hash_class.module.methods.put(keys_sym, value.MethodEntry.builtin(&builtinHashKeys, .{ .exact = 0 }));
 
     const values_sym = try vm.intern("values");
-    try vm.hash_class.module.methods.put(values_sym, .{ .method = .{ .builtin = &builtinHashValues } });
+    try vm.hash_class.module.methods.put(values_sym, value.MethodEntry.builtin(&builtinHashValues, .{ .exact = 0 }));
 
     const values_at_sym = try vm.intern("values_at");
-    try vm.hash_class.module.methods.put(values_at_sym, .{ .method = .{ .builtin = &builtinHashValuesAt } });
+    try vm.hash_class.module.methods.put(values_at_sym, value.MethodEntry.builtin(&builtinHashValuesAt, .{ .variadic = 0 }));
 
     const to_a_sym = try vm.intern("to_a");
-    try vm.hash_class.module.methods.put(to_a_sym, .{ .method = .{ .builtin = &builtinHashToA } });
+    try vm.hash_class.module.methods.put(to_a_sym, value.MethodEntry.builtin(&builtinHashToA, .{ .exact = 0 }));
 
     const to_hash_sym = try vm.intern("to_hash");
-    try vm.hash_class.module.methods.put(to_hash_sym, .{ .method = .{ .builtin = &builtinHashToHash } });
+    try vm.hash_class.module.methods.put(to_hash_sym, value.MethodEntry.builtin(&builtinHashToHash, .{ .exact = 0 }));
 
     const include_sym = try vm.intern("include?");
-    try vm.hash_class.module.methods.put(include_sym, .{ .method = .{ .builtin = &builtinHashIncludeQ } });
+    try vm.hash_class.module.methods.put(include_sym, value.MethodEntry.builtin(&builtinHashIncludeQ, .{ .exact = 1 }));
 
     const has_key_sym = try vm.intern("has_key?");
-    try vm.hash_class.module.methods.put(has_key_sym, .{ .method = .{ .builtin = &builtinHashIncludeQ } });
+    try vm.hash_class.module.methods.put(has_key_sym, value.MethodEntry.builtin(&builtinHashIncludeQ, .{ .exact = 1 }));
 
     const member_sym = try vm.intern("member?");
-    try vm.hash_class.module.methods.put(member_sym, .{ .method = .{ .builtin = &builtinHashIncludeQ } });
+    try vm.hash_class.module.methods.put(member_sym, value.MethodEntry.builtin(&builtinHashIncludeQ, .{ .exact = 1 }));
 
     const key_query_sym = try vm.intern("key?");
-    try vm.hash_class.module.methods.put(key_query_sym, .{ .method = .{ .builtin = &builtinHashIncludeQ } });
+    try vm.hash_class.module.methods.put(key_query_sym, value.MethodEntry.builtin(&builtinHashIncludeQ, .{ .exact = 1 }));
 
     const has_value_sym = try vm.intern("has_value?");
-    try vm.hash_class.module.methods.put(has_value_sym, .{ .method = .{ .builtin = &builtinHashHasValueQ } });
+    try vm.hash_class.module.methods.put(has_value_sym, value.MethodEntry.builtin(&builtinHashHasValueQ, .{ .exact = 1 }));
 
     const value_query_sym = try vm.intern("value?");
-    try vm.hash_class.module.methods.put(value_query_sym, .{ .method = .{ .builtin = &builtinHashHasValueQ } });
+    try vm.hash_class.module.methods.put(value_query_sym, value.MethodEntry.builtin(&builtinHashHasValueQ, .{ .exact = 1 }));
 
     const key_sym = try vm.intern("key");
-    try vm.hash_class.module.methods.put(key_sym, .{ .method = .{ .builtin = &builtinHashKey } });
+    try vm.hash_class.module.methods.put(key_sym, value.MethodEntry.builtin(&builtinHashKey, .{ .exact = 1 }));
 
     const size_sym = try vm.intern("size");
-    try vm.hash_class.module.methods.put(size_sym, .{ .method = .{ .builtin = &builtinHashSize } });
+    try vm.hash_class.module.methods.put(size_sym, value.MethodEntry.builtin(&builtinHashSize, .{ .exact = 0 }));
 
     const length_sym = try vm.intern("length");
-    try vm.hash_class.module.methods.put(length_sym, .{ .method = .{ .builtin = &builtinHashSize } });
+    try vm.hash_class.module.methods.put(length_sym, value.MethodEntry.builtin(&builtinHashSize, .{ .exact = 0 }));
 
     const empty_sym = try vm.intern("empty?");
-    try vm.hash_class.module.methods.put(empty_sym, .{ .method = .{ .builtin = &builtinHashEmpty } });
+    try vm.hash_class.module.methods.put(empty_sym, value.MethodEntry.builtin(&builtinHashEmpty, .{ .exact = 0 }));
 
     const each_sym = try vm.intern("each");
-    try vm.hash_class.module.methods.put(each_sym, .{ .method = .{ .builtin = &builtinHashEach } });
+    try vm.hash_class.module.methods.put(each_sym, value.MethodEntry.builtin(&builtinHashEach, .{ .exact = 0 }));
 
     const each_pair_sym = try vm.intern("each_pair");
-    try vm.hash_class.module.methods.put(each_pair_sym, .{ .method = .{ .builtin = &builtinHashEachPair } });
+    try vm.hash_class.module.methods.put(each_pair_sym, value.MethodEntry.builtin(&builtinHashEachPair, .{ .exact = 0 }));
 
     const each_key_sym = try vm.intern("each_key");
-    try vm.hash_class.module.methods.put(each_key_sym, .{ .method = .{ .builtin = &builtinHashEachKey } });
+    try vm.hash_class.module.methods.put(each_key_sym, value.MethodEntry.builtin(&builtinHashEachKey, .{ .exact = 0 }));
 
     const to_s_sym = try vm.intern("to_s");
-    try vm.hash_class.module.methods.put(to_s_sym, .{ .method = .{ .builtin = &builtinHashToS } });
+    try vm.hash_class.module.methods.put(to_s_sym, value.MethodEntry.builtin(&builtinHashToS, .{ .exact = 0 }));
 
     const inspect_sym = try vm.intern("inspect");
-    try vm.hash_class.module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinHashInspect } });
+    try vm.hash_class.module.methods.put(inspect_sym, value.MethodEntry.builtin(&builtinHashInspect, .{ .exact = 0 }));
 
     const equal_sym = try vm.intern("==");
-    try vm.hash_class.module.methods.put(equal_sym, .{ .method = .{ .builtin = &builtinHashEqual } });
+    try vm.hash_class.module.methods.put(equal_sym, value.MethodEntry.builtin(&builtinHashEqual, .{ .exact = 1 }));
 
     const hash_sym = try vm.intern("hash");
-    try vm.hash_class.module.methods.put(hash_sym, .{ .method = .{ .builtin = &builtinHashHash } });
+    try vm.hash_class.module.methods.put(hash_sym, value.MethodEntry.builtin(&builtinHashHash, .{ .exact = 0 }));
 
     const fetch_sym = try vm.intern("fetch");
-    try vm.hash_class.module.methods.put(fetch_sym, .{ .method = .{ .builtin = &builtinHashFetch } });
+    try vm.hash_class.module.methods.put(fetch_sym, value.MethodEntry.builtin(&builtinHashFetch, .{ .variadic = 0 }));
 
     const dig_sym = try vm.intern("dig");
-    try vm.hash_class.module.methods.put(dig_sym, .{ .method = .{ .builtin = &builtinHashDig } });
+    try vm.hash_class.module.methods.put(dig_sym, value.MethodEntry.builtin(&builtinHashDig, .{ .variadic = 0 }));
 
     const select_sym = try vm.intern("select");
-    try vm.hash_class.module.methods.put(select_sym, .{ .method = .{ .builtin = &builtinHashSelect } });
+    try vm.hash_class.module.methods.put(select_sym, value.MethodEntry.builtin(&builtinHashSelect, .{ .exact = 0 }));
 
     const reject_sym = try vm.intern("reject");
-    try vm.hash_class.module.methods.put(reject_sym, .{ .method = .{ .builtin = &builtinHashReject } });
+    try vm.hash_class.module.methods.put(reject_sym, value.MethodEntry.builtin(&builtinHashReject, .{ .exact = 0 }));
 
     const reject_bang_sym = try vm.intern("reject!");
-    try vm.hash_class.module.methods.put(reject_bang_sym, .{ .method = .{ .builtin = &builtinHashRejectBang } });
+    try vm.hash_class.module.methods.put(reject_bang_sym, value.MethodEntry.builtin(&builtinHashRejectBang, .{ .exact = 0 }));
 
     const delete_sym = try vm.intern("delete");
-    try vm.hash_class.module.methods.put(delete_sym, .{ .method = .{ .builtin = &builtinHashDelete } });
+    try vm.hash_class.module.methods.put(delete_sym, value.MethodEntry.builtin(&builtinHashDelete, .{ .exact = 1 }));
 
     const delete_if_sym = try vm.intern("delete_if");
-    try vm.hash_class.module.methods.put(delete_if_sym, .{ .method = .{ .builtin = &builtinHashDeleteIf } });
+    try vm.hash_class.module.methods.put(delete_if_sym, value.MethodEntry.builtin(&builtinHashDeleteIf, .{ .exact = 0 }));
 
     const keep_if_sym = try vm.intern("keep_if");
-    try vm.hash_class.module.methods.put(keep_if_sym, .{ .method = .{ .builtin = &builtinHashKeepIf } });
+    try vm.hash_class.module.methods.put(keep_if_sym, value.MethodEntry.builtin(&builtinHashKeepIf, .{ .exact = 0 }));
 
     const clear_sym = try vm.intern("clear");
-    try vm.hash_class.module.methods.put(clear_sym, .{ .method = .{ .builtin = &builtinHashClear } });
+    try vm.hash_class.module.methods.put(clear_sym, value.MethodEntry.builtin(&builtinHashClear, .{ .exact = 0 }));
 
     const default_sym = try vm.intern("default");
-    try vm.hash_class.module.methods.put(default_sym, .{ .method = .{ .builtin = &builtinHashDefault } });
+    try vm.hash_class.module.methods.put(default_sym, value.MethodEntry.builtin(&builtinHashDefault, .{ .variadic = 0 }));
 
     const default_set_sym = try vm.intern("default=");
-    try vm.hash_class.module.methods.put(default_set_sym, .{ .method = .{ .builtin = &builtinHashDefaultSet } });
+    try vm.hash_class.module.methods.put(default_set_sym, value.MethodEntry.builtin(&builtinHashDefaultSet, .{ .exact = 1 }));
 
     const default_proc_sym = try vm.intern("default_proc");
-    try vm.hash_class.module.methods.put(default_proc_sym, .{ .method = .{ .builtin = &builtinHashDefaultProc } });
+    try vm.hash_class.module.methods.put(default_proc_sym, value.MethodEntry.builtin(&builtinHashDefaultProc, .{ .exact = 0 }));
 
     const default_proc_set_sym = try vm.intern("default_proc=");
-    try vm.hash_class.module.methods.put(default_proc_set_sym, .{ .method = .{ .builtin = &builtinHashDefaultProcSet } });
+    try vm.hash_class.module.methods.put(default_proc_set_sym, value.MethodEntry.builtin(&builtinHashDefaultProcSet, .{ .exact = 1 }));
 
     const compare_by_identity_sym = try vm.intern("compare_by_identity");
-    try vm.hash_class.module.methods.put(compare_by_identity_sym, .{ .method = .{ .builtin = &builtinHashCompareByIdentity } });
+    try vm.hash_class.module.methods.put(compare_by_identity_sym, value.MethodEntry.builtin(&builtinHashCompareByIdentity, .{ .exact = 0 }));
 
     const compare_by_identity_q_sym = try vm.intern("compare_by_identity?");
-    try vm.hash_class.module.methods.put(compare_by_identity_q_sym, .{ .method = .{ .builtin = &builtinHashCompareByIdentityQ } });
+    try vm.hash_class.module.methods.put(compare_by_identity_q_sym, value.MethodEntry.builtin(&builtinHashCompareByIdentityQ, .{ .exact = 0 }));
 }
 
 fn hashGetValue(hash_obj: *value.HashObject, vm: *VM, key: Value) VMError!?Value {

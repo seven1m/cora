@@ -159,240 +159,198 @@ fn isClassOrSubclassOf(class: *ClassObject, candidate_ancestor: *ClassObject) bo
 
 pub fn register(vm: *VM) !void {
     const kernel_array_convert_sym = try vm.intern("Array");
-    try vm.kernel_module.methods.put(kernel_array_convert_sym, .{
-        .method = .{ .builtin = &builtinKernelArrayConvert },
-        .visibility = .private,
-    });
+    try vm.kernel_module.methods.put(kernel_array_convert_sym, value.MethodEntry.builtinWithVisibility(&builtinKernelArrayConvert, .{ .exact = 1 }, .private));
 
     const kernel_string_convert_sym = try vm.intern("String");
-    try vm.kernel_module.methods.put(kernel_string_convert_sym, .{
-        .method = .{ .builtin = &builtinKernelStringConvert },
-        .visibility = .private,
-    });
+    try vm.kernel_module.methods.put(kernel_string_convert_sym, value.MethodEntry.builtinWithVisibility(&builtinKernelStringConvert, .{ .exact = 1 }, .private));
 
     const puts_sym = try vm.intern("puts");
-    try vm.kernel_module.methods.put(puts_sym, .{ .method = .{ .builtin = &builtinKernelPuts } });
+    try vm.kernel_module.methods.put(puts_sym, MethodEntry.builtin(&builtinKernelPuts, .{ .variadic = 0 }));
 
     const print_sym = try vm.intern("print");
-    try vm.kernel_module.methods.put(print_sym, .{ .method = .{ .builtin = &builtinKernelPrint } });
+    try vm.kernel_module.methods.put(print_sym, MethodEntry.builtin(&builtinKernelPrint, .{ .variadic = 0 }));
 
     const abort_sym = try vm.intern("abort");
-    try vm.kernel_module.methods.put(abort_sym, .{
-        .method = .{ .builtin = &builtinKernelAbort },
-        .visibility = .private,
-    });
+    try vm.kernel_module.methods.put(abort_sym, value.MethodEntry.builtinWithVisibility(&builtinKernelAbort, .{ .variadic = 0 }, .private));
 
     const exit_sym = try vm.intern("exit");
-    try vm.kernel_module.methods.put(exit_sym, .{
-        .method = .{ .builtin = &builtinKernelExit },
-        .visibility = .private,
-    });
+    try vm.kernel_module.methods.put(exit_sym, value.MethodEntry.builtinWithVisibility(&builtinKernelExit, .{ .variadic = 0 }, .private));
 
     const exit_bang_sym = try vm.intern("exit!");
-    try vm.kernel_module.methods.put(exit_bang_sym, .{
-        .method = .{ .builtin = &builtinKernelExitBang },
-        .visibility = .private,
-    });
+    try vm.kernel_module.methods.put(exit_bang_sym, value.MethodEntry.builtinWithVisibility(&builtinKernelExitBang, .{ .variadic = 0 }, .private));
 
     const system_sym = try vm.intern("system");
-    try vm.kernel_module.methods.put(system_sym, .{
-        .method = .{ .builtin = &builtinKernelSystem },
-        .visibility = .private,
-    });
+    try vm.kernel_module.methods.put(system_sym, value.MethodEntry.builtinWithVisibility(&builtinKernelSystem, .{ .variadic = 0 }, .private));
 
     const eval_sym = try vm.intern("eval");
-    try vm.kernel_module.methods.put(eval_sym, .{ .method = .{ .builtin = &builtinKernelEval } });
+    try vm.kernel_module.methods.put(eval_sym, value.MethodEntry.builtin(&builtinKernelEval, .{ .variadic = 0 }));
 
     const binding_sym = try vm.intern("binding");
-    try vm.kernel_module.methods.put(binding_sym, .{
-        .method = .{ .builtin = &builtinKernelBinding },
-        .visibility = .private,
-    });
+    try vm.kernel_module.methods.put(binding_sym, value.MethodEntry.builtinWithVisibility(&builtinKernelBinding, .{ .exact = 0 }, .private));
 
     const proc_sym = try vm.intern("proc");
-    try vm.kernel_module.methods.put(proc_sym, .{ .method = .{ .builtin = &builtinKernelProc } });
+    try vm.kernel_module.methods.put(proc_sym, value.MethodEntry.builtin(&builtinKernelProc, .{ .exact = 0 }));
 
     const lambda_sym = try vm.intern("lambda");
-    try vm.kernel_module.methods.put(lambda_sym, .{ .method = .{ .builtin = &builtinKernelLambda } });
+    try vm.kernel_module.methods.put(lambda_sym, value.MethodEntry.builtin(&builtinKernelLambda, .{ .exact = 0 }));
 
     const require_sym = try vm.intern("require");
-    try vm.kernel_module.methods.put(require_sym, .{ .method = .{ .builtin = &builtinKernelRequire } });
+    try vm.kernel_module.methods.put(require_sym, value.MethodEntry.builtin(&builtinKernelRequire, .{ .exact = 1 }));
 
     const autoload_sym = try vm.intern("autoload");
-    try vm.kernel_module.methods.put(autoload_sym, .{
-        .method = .{ .builtin = &builtinKernelAutoload },
-        .visibility = .private,
-    });
+    try vm.kernel_module.methods.put(autoload_sym, MethodEntry.builtinWithVisibility(&builtinKernelAutoload, .{ .exact = 2 }, .private));
 
     const autoload_q_sym = try vm.intern("autoload?");
-    try vm.kernel_module.methods.put(autoload_q_sym, .{
-        .method = .{ .builtin = &builtinKernelAutoloadQ },
-        .visibility = .private,
-    });
+    try vm.kernel_module.methods.put(autoload_q_sym, MethodEntry.builtinWithVisibility(&builtinKernelAutoloadQ, .{ .variadic = 0 }, .private));
 
     const require_relative_sym = try vm.intern("require_relative");
-    try vm.kernel_module.methods.put(require_relative_sym, .{ .method = .{ .builtin = &builtinKernelRequireRelative } });
+    try vm.kernel_module.methods.put(require_relative_sym, value.MethodEntry.builtin(&builtinKernelRequireRelative, .{ .exact = 1 }));
 
     const load_sym = try vm.intern("load");
-    try vm.kernel_module.methods.put(load_sym, .{ .method = .{ .builtin = &builtinKernelLoad } });
+    try vm.kernel_module.methods.put(load_sym, value.MethodEntry.builtin(&builtinKernelLoad, .{ .variadic = 0 }));
 
     const instance_variable_get_sym = try vm.intern("instance_variable_get");
-    try vm.kernel_module.methods.put(instance_variable_get_sym, .{ .method = .{ .builtin = &builtinKernelInstanceVariableGet } });
+    try vm.kernel_module.methods.put(instance_variable_get_sym, MethodEntry.builtin(&builtinKernelInstanceVariableGet, .{ .exact = 1 }));
 
     const instance_variable_defined_sym = try vm.intern("instance_variable_defined?");
-    try vm.kernel_module.methods.put(instance_variable_defined_sym, .{ .method = .{ .builtin = &builtinKernelInstanceVariableDefined } });
+    try vm.kernel_module.methods.put(instance_variable_defined_sym, MethodEntry.builtin(&builtinKernelInstanceVariableDefined, .{ .exact = 1 }));
 
     const instance_variable_set_sym = try vm.intern("instance_variable_set");
-    try vm.kernel_module.methods.put(instance_variable_set_sym, .{ .method = .{ .builtin = &builtinKernelInstanceVariableSet } });
+    try vm.kernel_module.methods.put(instance_variable_set_sym, MethodEntry.builtin(&builtinKernelInstanceVariableSet, .{ .exact = 2 }));
 
     const to_s_sym = try vm.intern("to_s");
-    try vm.kernel_module.methods.put(to_s_sym, .{ .method = .{ .builtin = &builtinKernelToS } });
+    try vm.kernel_module.methods.put(to_s_sym, MethodEntry.builtin(&builtinKernelToS, .{ .exact = 0 }));
 
     const inspect_sym = try vm.intern("inspect");
-    try vm.kernel_module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinKernelInspect } });
+    try vm.kernel_module.methods.put(inspect_sym, MethodEntry.builtin(&builtinKernelInspect, .{ .exact = 0 }));
 
     const kernel_hash_convert_sym = try vm.intern("Hash");
-    try vm.kernel_module.methods.put(kernel_hash_convert_sym, .{
-        .method = .{ .builtin = &builtinKernelHashConvert },
-        .visibility = .private,
-    });
+    try vm.kernel_module.methods.put(kernel_hash_convert_sym, value.MethodEntry.builtinWithVisibility(&builtinKernelHashConvert, .{ .exact = 1 }, .private));
 
     const kernel_module_val = Value.fromObject(vm.kernel_module);
     const kernel_singleton = try vm.getOrCreateSingletonClass(kernel_module_val);
-    try kernel_singleton.module.methods.put(kernel_array_convert_sym, .{ .method = .{ .builtin = &builtinKernelArrayConvert } });
-    try kernel_singleton.module.methods.put(kernel_string_convert_sym, .{ .method = .{ .builtin = &builtinKernelStringConvert } });
-    try kernel_singleton.module.methods.put(kernel_hash_convert_sym, .{ .method = .{ .builtin = &builtinKernelHashConvert } });
-    try kernel_singleton.module.methods.put(autoload_sym, .{ .method = .{ .builtin = &builtinKernelSingletonAutoload } });
-    try kernel_singleton.module.methods.put(autoload_q_sym, .{ .method = .{ .builtin = &builtinKernelSingletonAutoloadQ } });
+    try kernel_singleton.module.methods.put(kernel_array_convert_sym, value.MethodEntry.builtin(&builtinKernelArrayConvert, .{ .exact = 1 }));
+    try kernel_singleton.module.methods.put(kernel_string_convert_sym, value.MethodEntry.builtin(&builtinKernelStringConvert, .{ .exact = 1 }));
+    try kernel_singleton.module.methods.put(kernel_hash_convert_sym, value.MethodEntry.builtin(&builtinKernelHashConvert, .{ .exact = 1 }));
+    try kernel_singleton.module.methods.put(autoload_sym, MethodEntry.builtin(&builtinKernelSingletonAutoload, .{ .exact = 2 }));
+    try kernel_singleton.module.methods.put(autoload_q_sym, MethodEntry.builtin(&builtinKernelSingletonAutoloadQ, .{ .variadic = 0 }));
 
     const hash_sym = try vm.intern("hash");
-    try vm.kernel_module.methods.put(hash_sym, .{ .method = .{ .builtin = &builtinKernelHash } });
+    try vm.kernel_module.methods.put(hash_sym, MethodEntry.builtin(&builtinKernelHash, .{ .exact = 0 }));
 
     const p_sym = try vm.intern("p");
-    try vm.kernel_module.methods.put(p_sym, .{ .method = .{ .builtin = &builtinKernelP } });
+    try vm.kernel_module.methods.put(p_sym, MethodEntry.builtin(&builtinKernelP, .{ .variadic = 0 }));
 
     const rand_sym = try vm.intern("rand");
-    try vm.kernel_module.methods.put(rand_sym, .{ .method = .{ .builtin = &builtinKernelRand } });
+    try vm.kernel_module.methods.put(rand_sym, value.MethodEntry.builtin(&builtinKernelRand, .{ .variadic = 0 }));
 
     const raise_sym = try vm.intern("raise");
-    try vm.kernel_module.methods.put(raise_sym, .{ .method = .{ .builtin = &builtinKernelRaise } });
+    try vm.kernel_module.methods.put(raise_sym, MethodEntry.builtin(&builtinKernelRaise, .{ .variadic = 0 }));
 
     const fail_sym = try vm.intern("fail");
-    try vm.kernel_module.methods.put(fail_sym, .{ .method = .{ .builtin = &builtinKernelRaise } });
+    try vm.kernel_module.methods.put(fail_sym, MethodEntry.builtin(&builtinKernelRaise, .{ .variadic = 0 }));
 
     const is_a_sym = try vm.intern("is_a?");
-    try vm.kernel_module.methods.put(is_a_sym, .{ .method = .{ .builtin = &builtinKernelIsA } });
+    try vm.kernel_module.methods.put(is_a_sym, MethodEntry.builtin(&builtinKernelIsA, .{ .exact = 1 }));
 
     const kind_of_sym = try vm.intern("kind_of?");
-    try vm.kernel_module.methods.put(kind_of_sym, .{ .method = .{ .builtin = &builtinKernelIsA } });
+    try vm.kernel_module.methods.put(kind_of_sym, MethodEntry.builtin(&builtinKernelIsA, .{ .exact = 1 }));
 
     const instance_of_sym = try vm.intern("instance_of?");
-    try vm.kernel_module.methods.put(instance_of_sym, .{ .method = .{ .builtin = &builtinKernelInstanceOf } });
+    try vm.kernel_module.methods.put(instance_of_sym, MethodEntry.builtin(&builtinKernelInstanceOf, .{ .exact = 1 }));
 
     const respond_to_sym = try vm.intern("respond_to?");
-    try vm.kernel_module.methods.put(respond_to_sym, .{ .method = .{ .builtin = &builtinKernelRespondTo } });
+    try vm.kernel_module.methods.put(respond_to_sym, MethodEntry.builtin(&builtinKernelRespondTo, .{ .variadic = 0 }));
 
     const respond_to_missing_sym = try vm.intern("respond_to_missing?");
-    try vm.kernel_module.methods.put(respond_to_missing_sym, .{
-        .method = .{ .builtin = &builtinKernelRespondToMissing },
-        .visibility = .private,
-    });
+    try vm.kernel_module.methods.put(respond_to_missing_sym, value.MethodEntry.builtinWithVisibility(&builtinKernelRespondToMissing, .{ .exact = 2 }, .private));
 
     const not_match_sym = try vm.intern("!~");
-    try vm.kernel_module.methods.put(not_match_sym, .{ .method = .{ .builtin = &builtinKernelNotMatch } });
+    try vm.kernel_module.methods.put(not_match_sym, value.MethodEntry.builtin(&builtinKernelNotMatch, .{ .exact = 1 }));
 
     const initialize_copy_sym = try vm.intern("initialize_copy");
-    try vm.kernel_module.methods.put(initialize_copy_sym, .{
-        .method = .{ .builtin = &builtinKernelInitializeCopy },
-        .visibility = .private,
-    });
+    try vm.kernel_module.methods.put(initialize_copy_sym, value.MethodEntry.builtinWithVisibility(&builtinKernelInitializeCopy, .{ .exact = 1 }, .private));
 
     const initialize_dup_sym = try vm.intern("initialize_dup");
-    try vm.kernel_module.methods.put(initialize_dup_sym, .{
-        .method = .{ .builtin = &builtinKernelInitializeDup },
-        .visibility = .private,
-    });
+    try vm.kernel_module.methods.put(initialize_dup_sym, value.MethodEntry.builtinWithVisibility(&builtinKernelInitializeDup, .{ .exact = 1 }, .private));
 
     const dup_sym = try vm.intern("dup");
-    try vm.kernel_module.methods.put(dup_sym, .{ .method = .{ .builtin = &builtinKernelDup } });
+    try vm.kernel_module.methods.put(dup_sym, value.MethodEntry.builtin(&builtinKernelDup, .{ .exact = 0 }));
 
     const initialize_clone_sym = try vm.intern("initialize_clone");
-    try vm.kernel_module.methods.put(initialize_clone_sym, .{
-        .method = .{ .builtin = &builtinKernelInitializeClone },
-        .visibility = .private,
-    });
+    try vm.kernel_module.methods.put(initialize_clone_sym, value.MethodEntry.builtinWithVisibility(&builtinKernelInitializeClone, .{ .variadic = 0 }, .private));
 
     const block_given_sym = try vm.intern("block_given?");
-    try vm.kernel_module.methods.put(block_given_sym, .{ .method = .{ .builtin = &builtinKernelBlockGiven } });
+    try vm.kernel_module.methods.put(block_given_sym, MethodEntry.builtin(&builtinKernelBlockGiven, .{ .exact = 0 }));
 
     const at_exit_sym = try vm.intern("at_exit");
-    try vm.kernel_module.methods.put(at_exit_sym, .{ .method = .{ .builtin = &builtinKernelAtExit } });
+    try vm.kernel_module.methods.put(at_exit_sym, value.MethodEntry.builtin(&builtinKernelAtExit, .{ .exact = 0 }));
 
     const loop_sym = try vm.intern("loop");
-    try vm.kernel_module.methods.put(loop_sym, .{ .method = .{ .builtin = &builtinKernelLoop } });
+    try vm.kernel_module.methods.put(loop_sym, MethodEntry.builtin(&builtinKernelLoop, .{ .exact = 0 }));
 
     const sleep_sym = try vm.intern("sleep");
-    try vm.kernel_module.methods.put(sleep_sym, .{ .method = .{ .builtin = &builtinKernelSleep } });
+    try vm.kernel_module.methods.put(sleep_sym, MethodEntry.builtin(&builtinKernelSleep, .{ .variadic = 0 }));
 
     const tap_sym = try vm.intern("tap");
-    try vm.kernel_module.methods.put(tap_sym, .{ .method = .{ .builtin = &builtinKernelTap } });
+    try vm.kernel_module.methods.put(tap_sym, MethodEntry.builtin(&builtinKernelTap, .{ .exact = 0 }));
 
     const send_sym = try vm.intern("send");
-    try vm.kernel_module.methods.put(send_sym, .{ .method = .{ .builtin = &builtinKernelSend } });
+    try vm.kernel_module.methods.put(send_sym, MethodEntry.builtin(&builtinKernelSend, .{ .variadic = 0 }));
 
     const method_sym = try vm.intern("method");
-    try vm.kernel_module.methods.put(method_sym, .{ .method = .{ .builtin = &builtinKernelMethod } });
+    try vm.kernel_module.methods.put(method_sym, MethodEntry.builtin(&builtinKernelMethod, .{ .exact = 1 }));
 
     const singleton_method_sym = try vm.intern("singleton_method");
-    try vm.kernel_module.methods.put(singleton_method_sym, .{ .method = .{ .builtin = &builtinKernelSingletonMethod } });
+    try vm.kernel_module.methods.put(singleton_method_sym, MethodEntry.builtin(&builtinKernelSingletonMethod, .{ .exact = 1 }));
 
     const to_enum_sym = try vm.intern("to_enum");
-    try vm.kernel_module.methods.put(to_enum_sym, .{ .method = .{ .builtin = &builtinKernelToEnum } });
+    try vm.kernel_module.methods.put(to_enum_sym, MethodEntry.builtin(&builtinKernelToEnum, .{ .variadic = 0 }));
 
     const enum_for_sym = try vm.intern("enum_for");
-    try vm.kernel_module.methods.put(enum_for_sym, .{ .method = .{ .builtin = &builtinKernelEnumFor } });
+    try vm.kernel_module.methods.put(enum_for_sym, MethodEntry.builtin(&builtinKernelEnumFor, .{ .variadic = 0 }));
 
     const define_singleton_method_sym = try vm.intern("define_singleton_method");
-    try vm.kernel_module.methods.put(define_singleton_method_sym, .{ .method = .{ .builtin = &builtinKernelDefineSingletonMethod } });
+    try vm.kernel_module.methods.put(define_singleton_method_sym, value.MethodEntry.builtin(&builtinKernelDefineSingletonMethod, .{ .variadic = 0 }));
 
     const extend_sym = try vm.intern("extend");
-    try vm.kernel_module.methods.put(extend_sym, .{ .method = .{ .builtin = &builtinKernelExtend } });
+    try vm.kernel_module.methods.put(extend_sym, value.MethodEntry.builtin(&builtinKernelExtend, .{ .variadic = 0 }));
 
     const methods_sym = try vm.intern("methods");
-    try vm.kernel_module.methods.put(methods_sym, .{ .method = .{ .builtin = &builtinKernelMethods } });
+    try vm.kernel_module.methods.put(methods_sym, value.MethodEntry.builtin(&builtinKernelMethods, .{ .variadic = 0 }));
 
     const singleton_methods_sym = try vm.intern("singleton_methods");
-    try vm.kernel_module.methods.put(singleton_methods_sym, .{ .method = .{ .builtin = &builtinKernelSingletonMethods } });
+    try vm.kernel_module.methods.put(singleton_methods_sym, value.MethodEntry.builtin(&builtinKernelSingletonMethods, .{ .variadic = 0 }));
 
     const private_methods_sym = try vm.intern("private_methods");
-    try vm.kernel_module.methods.put(private_methods_sym, .{ .method = .{ .builtin = &builtinKernelPrivateMethods } });
+    try vm.kernel_module.methods.put(private_methods_sym, value.MethodEntry.builtin(&builtinKernelPrivateMethods, .{ .variadic = 0 }));
 
     const nil_sym = try vm.intern("nil?");
-    try vm.kernel_module.methods.put(nil_sym, .{ .method = .{ .builtin = &builtinKernelNil } });
+    try vm.kernel_module.methods.put(nil_sym, MethodEntry.builtin(&builtinKernelNil, .{ .exact = 0 }));
 
     const freeze_sym = try vm.intern("freeze");
-    try vm.kernel_module.methods.put(freeze_sym, .{ .method = .{ .builtin = &builtinKernelFreeze } });
+    try vm.kernel_module.methods.put(freeze_sym, MethodEntry.builtin(&builtinKernelFreeze, .{ .exact = 0 }));
 
     const frozen_sym = try vm.intern("frozen?");
-    try vm.kernel_module.methods.put(frozen_sym, .{ .method = .{ .builtin = &builtinKernelFrozen } });
+    try vm.kernel_module.methods.put(frozen_sym, MethodEntry.builtin(&builtinKernelFrozen, .{ .exact = 0 }));
 
     const singleton_class_sym = try vm.intern("singleton_class");
-    try vm.kernel_module.methods.put(singleton_class_sym, .{ .method = .{ .builtin = &builtinKernelSingletonClass } });
+    try vm.kernel_module.methods.put(singleton_class_sym, MethodEntry.builtin(&builtinKernelSingletonClass, .{ .exact = 0 }));
 
     const backtick_sym = try vm.intern("`");
-    try vm.kernel_module.methods.put(backtick_sym, .{ .method = .{ .builtin = &builtinKernelBacktick } });
+    try vm.kernel_module.methods.put(backtick_sym, value.MethodEntry.builtin(&builtinKernelBacktick, .{ .exact = 1 }));
 
     const dir_sym = try vm.intern("__dir__");
-    try vm.kernel_module.methods.put(dir_sym, .{ .method = .{ .builtin = &builtinKernelDir } });
+    try vm.kernel_module.methods.put(dir_sym, MethodEntry.builtin(&builtinKernelDir, .{ .exact = 0 }));
 
     const exitstatus_sym = try vm.intern("exitstatus");
-    try vm.process_status_class.module.methods.put(exitstatus_sym, .{ .method = .{ .builtin = &builtinProcessStatusExitstatus } });
+    try vm.process_status_class.module.methods.put(exitstatus_sym, value.MethodEntry.builtin(&builtinProcessStatusExitstatus, .{ .exact = 0 }));
 
     const success_sym = try vm.intern("success?");
-    try vm.process_status_class.module.methods.put(success_sym, .{ .method = .{ .builtin = &builtinProcessStatusSuccess } });
+    try vm.process_status_class.module.methods.put(success_sym, value.MethodEntry.builtin(&builtinProcessStatusSuccess, .{ .exact = 0 }));
 
     const fork_sym = try vm.intern("fork");
-    try vm.kernel_module.methods.put(fork_sym, .{ .method = .{ .builtin = &builtinKernelFork } });
+    try vm.kernel_module.methods.put(fork_sym, value.MethodEntry.builtin(&builtinKernelFork, .{ .exact = 0 }));
 }
 
 pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

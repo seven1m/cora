@@ -141,9 +141,38 @@ pub const ConstEntry = struct {
     flags: ConstFlags = .{},
 };
 
+pub const BuiltinArity = union(enum) {
+    exact: u8,
+    variadic: u8,
+
+    pub fn asRubyArity(self: BuiltinArity) i64 {
+        return switch (self) {
+            .exact => |count| @intCast(count),
+            .variadic => |required| -@as(i64, @intCast(required)) - 1,
+        };
+    }
+};
+
 pub const MethodEntry = struct {
     method: Method,
     visibility: MethodVisibility = .public,
+
+    pub fn builtin(function: *const fn (*VM, Value, []Value, ?Block) VMError!Value, arity: BuiltinArity) MethodEntry {
+        return .{
+            .method = .{ .builtin = .{ .function = function, .arity = arity } },
+        };
+    }
+
+    pub fn builtinWithVisibility(
+        function: *const fn (*VM, Value, []Value, ?Block) VMError!Value,
+        arity: BuiltinArity,
+        visibility: MethodVisibility,
+    ) MethodEntry {
+        return .{
+            .method = .{ .builtin = .{ .function = function, .arity = arity } },
+            .visibility = visibility,
+        };
+    }
 };
 
 pub const ObjectType = enum {

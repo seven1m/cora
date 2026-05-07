@@ -86,9 +86,14 @@ pub const VMError = error{
     Unwind,
 };
 
+pub const BuiltinMethod = struct {
+    function: *const fn (*VM, Value, []Value, ?Block) VMError!Value,
+    arity: value.BuiltinArity = .{ .exact = 0 },
+};
+
 pub const Method = union(enum) {
     chunk: *Chunk,
-    builtin: *const fn (*VM, Value, []Value, ?Block) VMError!Value,
+    builtin: BuiltinMethod,
     proc: *value.ProcObject,
     undefined: void,
 };
@@ -988,9 +993,9 @@ pub const VM = struct {
         const rbconfig_rubylibdir = comptime std.fmt.comptimePrint("{s}/ruby/{s}", .{ rbconfig_rubylibprefix, rbconfig_ruby_version });
         const rbconfig_archdir = comptime std.fmt.comptimePrint("{s}/{s}", .{ rbconfig_rubylibdir, ruby_platform });
         const rbconfig_sitelibdir = comptime std.fmt.comptimePrint("{s}/site_ruby/{s}", .{ rbconfig_rubylibprefix, rbconfig_ruby_version });
-        const rbconfig_vendordir = comptime std.fmt.comptimePrint("{s}/vendor_ruby", .{ rbconfig_rubylibprefix });
+        const rbconfig_vendordir = comptime std.fmt.comptimePrint("{s}/vendor_ruby", .{rbconfig_rubylibprefix});
         const rbconfig_vendorlibdir = comptime std.fmt.comptimePrint("{s}/{s}", .{ rbconfig_vendordir, rbconfig_ruby_version });
-        const rbconfig_mandir = comptime std.fmt.comptimePrint("{s}/share/man", .{ rbconfig_prefix });
+        const rbconfig_mandir = comptime std.fmt.comptimePrint("{s}/share/man", .{rbconfig_prefix});
         const ruby_engine_val = try self.newString(rbconfig_ruby_engine, false);
         const ruby_version_val = try self.newString(rbconfig_ruby_version, false);
         const ruby_platform_val = try self.newString(ruby_platform, false);
@@ -5638,7 +5643,7 @@ pub const VM = struct {
 
     fn invokeBuiltinMethod(
         self: *VM,
-        fun_ptr: *const fn (*VM, Value, []Value, ?Block) VMError!Value,
+        builtin_method: BuiltinMethod,
         receiver: Value,
         args: []Value,
         block: ?Block,
@@ -5648,7 +5653,7 @@ pub const VM = struct {
         self.builtin_keyword_ctx = keyword_ctx;
         defer self.builtin_keyword_ctx = previous_ctx;
 
-        const result = fun_ptr(self, receiver, args, block) catch |err| {
+        const result = builtin_method.function(self, receiver, args, block) catch |err| {
             if (self.pending_exception != null) {
                 return error.Unwind;
             }
@@ -6421,7 +6426,7 @@ pub const VM = struct {
         return null;
     }
 
-    pub fn methodArityValue(self: *VM, resolved: ResolvedMethod) VMError!Value {
+    pub fn methodArityValue(_: *VM, resolved: ResolvedMethod) VMError!Value {
         return switch (resolved.entry.method) {
             .chunk => |method_chunk| blk: {
                 const required = method_chunk.arity + method_chunk.post_required_count;
@@ -6440,27 +6445,7 @@ pub const VM = struct {
                 },
                 .symbol, .builtin, .callable => Value.integer(-1),
             },
-            .builtin => blk: {
-                // FIXME: This special-case matches ruby/spec for Enumerator#each, but builtin
-                // arity metadata is still coarse in general. Replace this with real per-builtin
-                // arity information instead of name-based exceptions.
-                if (resolved.owner_class == self.enumerator_class and std.mem.eql(u8, resolved.name.name, "each")) {
-                    break :blk Value.integer(-1);
-                }
-                if (std.mem.eql(u8, resolved.name.name, "send") or
-                    std.mem.eql(u8, resolved.name.name, "__send__") or
-                    std.mem.eql(u8, resolved.name.name, "raise") or
-                    std.mem.eql(u8, resolved.name.name, "fail") or
-                    std.mem.eql(u8, resolved.name.name, "to_enum") or
-                    std.mem.eql(u8, resolved.name.name, "enum_for"))
-                {
-                    break :blk Value.integer(-1);
-                }
-                if (std.mem.eql(u8, resolved.name.name, "instance_method")) {
-                    break :blk Value.integer(1);
-                }
-                break :blk Value.integer(0);
-            },
+            .builtin => |builtin_method| Value.integer(builtin_method.arity.asRubyArity()),
             .undefined => unreachable,
         };
     }

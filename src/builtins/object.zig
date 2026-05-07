@@ -8,16 +8,16 @@ const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
     const new_sym = try vm.intern("new");
-    try vm.object_class.module.methods.put(new_sym, .{ .method = .{ .builtin = &builtinObjectNew } });
+    try vm.object_class.module.methods.put(new_sym, value.MethodEntry.builtin(&builtinObjectNew, .{ .variadic = 0 }));
 
     const object_id_sym = try vm.intern("object_id");
-    try vm.object_class.module.methods.put(object_id_sym, .{ .method = .{ .builtin = &builtinObjectObjectId } });
+    try vm.object_class.module.methods.put(object_id_sym, value.MethodEntry.builtin(&builtinObjectObjectId, .{ .exact = 0 }));
 
     const class_sym = try vm.intern("class");
-    try vm.object_class.module.methods.put(class_sym, .{ .method = .{ .builtin = &builtinObjectClass } });
+    try vm.object_class.module.methods.put(class_sym, value.MethodEntry.builtin(&builtinObjectClass, .{ .exact = 0 }));
 
     const case_equal_sym = try vm.intern("===");
-    try vm.object_class.module.methods.put(case_equal_sym, .{ .method = .{ .builtin = &builtinObjectCaseEqual } });
+    try vm.object_class.module.methods.put(case_equal_sym, value.MethodEntry.builtin(&builtinObjectCaseEqual, .{ .exact = 1 }));
 }
 
 pub fn builtinObjectNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {

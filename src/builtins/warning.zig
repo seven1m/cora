@@ -12,10 +12,10 @@ pub fn register(vm: *VM) !void {
     const warning_singleton = try vm.getOrCreateSingletonClass(warning_obj);
 
     const get_sym = try vm.intern("[]");
-    try warning_singleton.module.methods.put(get_sym, .{ .method = .{ .builtin = &builtinWarningGet } });
+    try warning_singleton.module.methods.put(get_sym, value.MethodEntry.builtin(&builtinWarningGet, .{ .exact = 1 }));
 
     const set_sym = try vm.intern("[]=");
-    try warning_singleton.module.methods.put(set_sym, .{ .method = .{ .builtin = &builtinWarningSet } });
+    try warning_singleton.module.methods.put(set_sym, value.MethodEntry.builtin(&builtinWarningSet, .{ .exact = 2 }));
 }
 
 pub fn builtinWarningGet(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

@@ -13,16 +13,16 @@ pub fn register(vm: *VM) !void {
     const process_singleton = try vm.getOrCreateSingletonClass(process_obj);
 
     const uid_sym = try vm.intern("uid");
-    try process_singleton.module.methods.put(uid_sym, .{ .method = .{ .builtin = &builtinProcessUid } });
+    try process_singleton.module.methods.put(uid_sym, value.MethodEntry.builtin(&builtinProcessUid, .{ .exact = 0 }));
 
     const euid_sym = try vm.intern("euid");
-    try process_singleton.module.methods.put(euid_sym, .{ .method = .{ .builtin = &builtinProcessEuid } });
+    try process_singleton.module.methods.put(euid_sym, value.MethodEntry.builtin(&builtinProcessEuid, .{ .exact = 0 }));
 
     const pid_sym = try vm.intern("pid");
-    try process_singleton.module.methods.put(pid_sym, .{ .method = .{ .builtin = &builtinProcessPid } });
+    try process_singleton.module.methods.put(pid_sym, value.MethodEntry.builtin(&builtinProcessPid, .{ .exact = 0 }));
 
     const wait_sym = try vm.intern("wait");
-    try process_singleton.module.methods.put(wait_sym, .{ .method = .{ .builtin = &builtinProcessWait } });
+    try process_singleton.module.methods.put(wait_sym, value.MethodEntry.builtin(&builtinProcessWait, .{ .variadic = 0 }));
 }
 
 pub fn builtinProcessUid(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

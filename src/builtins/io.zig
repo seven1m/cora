@@ -10,31 +10,31 @@ const IoObject = value.IoObject;
 
 pub fn register(vm: *VM) !void {
     const read_sym = try vm.intern("read");
-    try vm.io_class.module.methods.put(read_sym, .{ .method = .{ .builtin = &builtinIoRead } });
+    try vm.io_class.module.methods.put(read_sym, value.MethodEntry.builtin(&builtinIoRead, .{ .variadic = 0 }));
 
     const write_sym = try vm.intern("write");
-    try vm.io_class.module.methods.put(write_sym, .{ .method = .{ .builtin = &builtinIoWrite } });
+    try vm.io_class.module.methods.put(write_sym, value.MethodEntry.builtin(&builtinIoWrite, .{ .variadic = 0 }));
 
     const print_sym = try vm.intern("print");
-    try vm.io_class.module.methods.put(print_sym, .{ .method = .{ .builtin = &builtinIoPrint } });
+    try vm.io_class.module.methods.put(print_sym, value.MethodEntry.builtin(&builtinIoPrint, .{ .variadic = 0 }));
 
     const puts_sym = try vm.intern("puts");
-    try vm.io_class.module.methods.put(puts_sym, .{ .method = .{ .builtin = &builtinIoPuts } });
+    try vm.io_class.module.methods.put(puts_sym, value.MethodEntry.builtin(&builtinIoPuts, .{ .variadic = 0 }));
 
     const flush_sym = try vm.intern("flush");
-    try vm.io_class.module.methods.put(flush_sym, .{ .method = .{ .builtin = &builtinIoFlush } });
+    try vm.io_class.module.methods.put(flush_sym, value.MethodEntry.builtin(&builtinIoFlush, .{ .exact = 0 }));
 
     const close_sym = try vm.intern("close");
-    try vm.io_class.module.methods.put(close_sym, .{ .method = .{ .builtin = &builtinIoClose } });
+    try vm.io_class.module.methods.put(close_sym, value.MethodEntry.builtin(&builtinIoClose, .{ .exact = 0 }));
 
     const closed_sym = try vm.intern("closed?");
-    try vm.io_class.module.methods.put(closed_sym, .{ .method = .{ .builtin = &builtinIoClosed } });
+    try vm.io_class.module.methods.put(closed_sym, value.MethodEntry.builtin(&builtinIoClosed, .{ .exact = 0 }));
 
     const fileno_sym = try vm.intern("fileno");
-    try vm.io_class.module.methods.put(fileno_sym, .{ .method = .{ .builtin = &builtinIoFileno } });
+    try vm.io_class.module.methods.put(fileno_sym, value.MethodEntry.builtin(&builtinIoFileno, .{ .exact = 0 }));
 
     const gets_sym = try vm.intern("gets");
-    try vm.io_class.module.methods.put(gets_sym, .{ .method = .{ .builtin = &builtinIoGets } });
+    try vm.io_class.module.methods.put(gets_sym, value.MethodEntry.builtin(&builtinIoGets, .{ .variadic = 0 }));
 }
 
 pub fn builtinIoGets(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

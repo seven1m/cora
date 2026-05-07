@@ -14,94 +14,94 @@ pub fn register(vm: *VM) !void {
     const symbol_singleton = try vm.getOrCreateSingletonClass(symbol_class_val);
 
     const all_symbols_sym = try vm.intern("all_symbols");
-    try symbol_singleton.module.methods.put(all_symbols_sym, .{ .method = .{ .builtin = &builtinSymbolAllSymbols } });
+    try symbol_singleton.module.methods.put(all_symbols_sym, value.MethodEntry.builtin(&builtinSymbolAllSymbols, .{ .exact = 0 }));
 
     const equal_sym = try vm.intern("==");
-    try vm.symbol_class.module.methods.put(equal_sym, .{ .method = .{ .builtin = &builtinSymbolEqual } });
+    try vm.symbol_class.module.methods.put(equal_sym, value.MethodEntry.builtin(&builtinSymbolEqual, .{ .exact = 1 }));
 
     const compare_sym = try vm.intern("<=>");
-    try vm.symbol_class.module.methods.put(compare_sym, .{ .method = .{ .builtin = &builtinSymbolCompare } });
+    try vm.symbol_class.module.methods.put(compare_sym, value.MethodEntry.builtin(&builtinSymbolCompare, .{ .exact = 1 }));
 
     const to_s_sym = try vm.intern("to_s");
-    try vm.symbol_class.module.methods.put(to_s_sym, .{ .method = .{ .builtin = &builtinSymbolToS } });
+    try vm.symbol_class.module.methods.put(to_s_sym, value.MethodEntry.builtin(&builtinSymbolToS, .{ .exact = 0 }));
 
     const id2name_sym = try vm.intern("id2name");
-    try vm.symbol_class.module.methods.put(id2name_sym, .{ .method = .{ .builtin = &builtinSymbolToS } });
+    try vm.symbol_class.module.methods.put(id2name_sym, value.MethodEntry.builtin(&builtinSymbolToS, .{ .exact = 0 }));
 
     const to_sym_sym = try vm.intern("to_sym");
-    try vm.symbol_class.module.methods.put(to_sym_sym, .{ .method = .{ .builtin = &builtinSymbolIdentity } });
+    try vm.symbol_class.module.methods.put(to_sym_sym, value.MethodEntry.builtin(&builtinSymbolIdentity, .{ .exact = 0 }));
 
     const intern_sym = try vm.intern("intern");
-    try vm.symbol_class.module.methods.put(intern_sym, .{ .method = .{ .builtin = &builtinSymbolIdentity } });
+    try vm.symbol_class.module.methods.put(intern_sym, value.MethodEntry.builtin(&builtinSymbolIdentity, .{ .exact = 0 }));
 
     const name_sym = try vm.intern("name");
-    try vm.symbol_class.module.methods.put(name_sym, .{ .method = .{ .builtin = &builtinSymbolName } });
+    try vm.symbol_class.module.methods.put(name_sym, value.MethodEntry.builtin(&builtinSymbolName, .{ .exact = 0 }));
 
     const inspect_sym = try vm.intern("inspect");
-    try vm.symbol_class.module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinSymbolInspect } });
+    try vm.symbol_class.module.methods.put(inspect_sym, value.MethodEntry.builtin(&builtinSymbolInspect, .{ .exact = 0 }));
 
     const match_op_sym = try vm.intern("=~");
-    try vm.symbol_class.module.methods.put(match_op_sym, .{ .method = .{ .builtin = &builtinSymbolMatchOp } });
+    try vm.symbol_class.module.methods.put(match_op_sym, value.MethodEntry.builtin(&builtinSymbolMatchOp, .{ .exact = 1 }));
 
     const match_sym = try vm.intern("match");
-    try vm.symbol_class.module.methods.put(match_sym, .{ .method = .{ .builtin = &builtinSymbolMatch } });
+    try vm.symbol_class.module.methods.put(match_sym, value.MethodEntry.builtin(&builtinSymbolMatch, .{ .variadic = 0 }));
 
     const match_q_sym = try vm.intern("match?");
-    try vm.symbol_class.module.methods.put(match_q_sym, .{ .method = .{ .builtin = &builtinSymbolMatchQ } });
+    try vm.symbol_class.module.methods.put(match_q_sym, value.MethodEntry.builtin(&builtinSymbolMatchQ, .{ .variadic = 0 }));
 
     const dup_sym = try vm.intern("dup");
-    try vm.symbol_class.module.methods.put(dup_sym, .{ .method = .{ .builtin = &builtinSymbolIdentity } });
+    try vm.symbol_class.module.methods.put(dup_sym, value.MethodEntry.builtin(&builtinSymbolIdentity, .{ .exact = 0 }));
 
     const to_proc_sym = try vm.intern("to_proc");
-    try vm.symbol_class.module.methods.put(to_proc_sym, .{ .method = .{ .builtin = &builtinSymbolToProc } });
+    try vm.symbol_class.module.methods.put(to_proc_sym, value.MethodEntry.builtin(&builtinSymbolToProc, .{ .exact = 0 }));
 
     const encoding_sym = try vm.intern("encoding");
-    try vm.symbol_class.module.methods.put(encoding_sym, .{ .method = .{ .builtin = &builtinSymbolEncoding } });
+    try vm.symbol_class.module.methods.put(encoding_sym, value.MethodEntry.builtin(&builtinSymbolEncoding, .{ .exact = 0 }));
 
     const length_sym = try vm.intern("length");
-    try vm.symbol_class.module.methods.put(length_sym, .{ .method = .{ .builtin = &builtinSymbolLength } });
+    try vm.symbol_class.module.methods.put(length_sym, value.MethodEntry.builtin(&builtinSymbolLength, .{ .exact = 0 }));
 
     const size_sym = try vm.intern("size");
-    try vm.symbol_class.module.methods.put(size_sym, .{ .method = .{ .builtin = &builtinSymbolLength } });
+    try vm.symbol_class.module.methods.put(size_sym, value.MethodEntry.builtin(&builtinSymbolLength, .{ .exact = 0 }));
 
     const element_reference_sym = try vm.intern("[]");
-    try vm.symbol_class.module.methods.put(element_reference_sym, .{ .method = .{ .builtin = &builtinSymbolElementReference } });
+    try vm.symbol_class.module.methods.put(element_reference_sym, value.MethodEntry.builtin(&builtinSymbolElementReference, .{ .variadic = 0 }));
 
     const slice_sym = try vm.intern("slice");
-    try vm.symbol_class.module.methods.put(slice_sym, .{ .method = .{ .builtin = &builtinSymbolElementReference } });
+    try vm.symbol_class.module.methods.put(slice_sym, value.MethodEntry.builtin(&builtinSymbolElementReference, .{ .variadic = 0 }));
 
     const empty_sym = try vm.intern("empty?");
-    try vm.symbol_class.module.methods.put(empty_sym, .{ .method = .{ .builtin = &builtinSymbolEmpty } });
+    try vm.symbol_class.module.methods.put(empty_sym, value.MethodEntry.builtin(&builtinSymbolEmpty, .{ .exact = 0 }));
 
     const start_with_sym = try vm.intern("start_with?");
-    try vm.symbol_class.module.methods.put(start_with_sym, .{ .method = .{ .builtin = &builtinSymbolStartWith } });
+    try vm.symbol_class.module.methods.put(start_with_sym, value.MethodEntry.builtin(&builtinSymbolStartWith, .{ .variadic = 0 }));
 
     const end_with_sym = try vm.intern("end_with?");
-    try vm.symbol_class.module.methods.put(end_with_sym, .{ .method = .{ .builtin = &builtinSymbolEndWith } });
+    try vm.symbol_class.module.methods.put(end_with_sym, value.MethodEntry.builtin(&builtinSymbolEndWith, .{ .variadic = 0 }));
 
     const succ_sym = try vm.intern("succ");
-    try vm.symbol_class.module.methods.put(succ_sym, .{ .method = .{ .builtin = &builtinSymbolSucc } });
+    try vm.symbol_class.module.methods.put(succ_sym, value.MethodEntry.builtin(&builtinSymbolSucc, .{ .exact = 0 }));
 
     const next_sym = try vm.intern("next");
-    try vm.symbol_class.module.methods.put(next_sym, .{ .method = .{ .builtin = &builtinSymbolSucc } });
+    try vm.symbol_class.module.methods.put(next_sym, value.MethodEntry.builtin(&builtinSymbolSucc, .{ .exact = 0 }));
 
     const downcase_sym = try vm.intern("downcase");
-    try vm.symbol_class.module.methods.put(downcase_sym, .{ .method = .{ .builtin = &builtinSymbolDowncase } });
+    try vm.symbol_class.module.methods.put(downcase_sym, value.MethodEntry.builtin(&builtinSymbolDowncase, .{ .variadic = 0 }));
 
     const swapcase_sym = try vm.intern("swapcase");
-    try vm.symbol_class.module.methods.put(swapcase_sym, .{ .method = .{ .builtin = &builtinSymbolSwapcase } });
+    try vm.symbol_class.module.methods.put(swapcase_sym, value.MethodEntry.builtin(&builtinSymbolSwapcase, .{ .variadic = 0 }));
 
     const upcase_sym = try vm.intern("upcase");
-    try vm.symbol_class.module.methods.put(upcase_sym, .{ .method = .{ .builtin = &builtinSymbolUpcase } });
+    try vm.symbol_class.module.methods.put(upcase_sym, value.MethodEntry.builtin(&builtinSymbolUpcase, .{ .variadic = 0 }));
 
     const capitalize_sym = try vm.intern("capitalize");
-    try vm.symbol_class.module.methods.put(capitalize_sym, .{ .method = .{ .builtin = &builtinSymbolCapitalize } });
+    try vm.symbol_class.module.methods.put(capitalize_sym, value.MethodEntry.builtin(&builtinSymbolCapitalize, .{ .variadic = 0 }));
 
     const casecmp_sym = try vm.intern("casecmp");
-    try vm.symbol_class.module.methods.put(casecmp_sym, .{ .method = .{ .builtin = &builtinSymbolCasecmp } });
+    try vm.symbol_class.module.methods.put(casecmp_sym, value.MethodEntry.builtin(&builtinSymbolCasecmp, .{ .exact = 1 }));
 
     const casecmp_q_sym = try vm.intern("casecmp?");
-    try vm.symbol_class.module.methods.put(casecmp_q_sym, .{ .method = .{ .builtin = &builtinSymbolCasecmpQ } });
+    try vm.symbol_class.module.methods.put(casecmp_q_sym, value.MethodEntry.builtin(&builtinSymbolCasecmpQ, .{ .exact = 1 }));
 }
 
 pub fn builtinSymbolAllSymbols(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

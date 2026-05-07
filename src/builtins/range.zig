@@ -10,28 +10,28 @@ const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
     const init_sym = try vm.intern("initialize");
-    try vm.range_class.module.methods.put(init_sym, .{ .method = .{ .builtin = &builtinRangeInitialize } });
+    try vm.range_class.module.methods.put(init_sym, value.MethodEntry.builtin(&builtinRangeInitialize, .{ .variadic = 0 }));
 
     const begin_sym = try vm.intern("begin");
-    try vm.range_class.module.methods.put(begin_sym, .{ .method = .{ .builtin = &builtinRangeBegin } });
+    try vm.range_class.module.methods.put(begin_sym, value.MethodEntry.builtin(&builtinRangeBegin, .{ .exact = 0 }));
 
     const end_sym = try vm.intern("end");
-    try vm.range_class.module.methods.put(end_sym, .{ .method = .{ .builtin = &builtinRangeEnd } });
+    try vm.range_class.module.methods.put(end_sym, value.MethodEntry.builtin(&builtinRangeEnd, .{ .exact = 0 }));
 
     const exclude_end_sym = try vm.intern("exclude_end?");
-    try vm.range_class.module.methods.put(exclude_end_sym, .{ .method = .{ .builtin = &builtinRangeExcludeEnd } });
+    try vm.range_class.module.methods.put(exclude_end_sym, value.MethodEntry.builtin(&builtinRangeExcludeEnd, .{ .exact = 0 }));
 
     const to_a_sym = try vm.intern("to_a");
-    try vm.range_class.module.methods.put(to_a_sym, .{ .method = .{ .builtin = &builtinRangeToA } });
+    try vm.range_class.module.methods.put(to_a_sym, value.MethodEntry.builtin(&builtinRangeToA, .{ .exact = 0 }));
 
     const each_sym = try vm.intern("each");
-    try vm.range_class.module.methods.put(each_sym, .{ .method = .{ .builtin = &builtinRangeEach } });
+    try vm.range_class.module.methods.put(each_sym, value.MethodEntry.builtin(&builtinRangeEach, .{ .exact = 0 }));
 
     const inspect_sym = try vm.intern("inspect");
-    try vm.range_class.module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinRangeInspect } });
+    try vm.range_class.module.methods.put(inspect_sym, value.MethodEntry.builtin(&builtinRangeInspect, .{ .exact = 0 }));
 
     const case_equal_sym = try vm.intern("===");
-    try vm.range_class.module.methods.put(case_equal_sym, .{ .method = .{ .builtin = &builtinRangeCaseEqual } });
+    try vm.range_class.module.methods.put(case_equal_sym, value.MethodEntry.builtin(&builtinRangeCaseEqual, .{ .exact = 1 }));
 }
 
 pub fn builtinRangeInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

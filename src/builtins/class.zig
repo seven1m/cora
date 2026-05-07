@@ -10,13 +10,13 @@ const ClassObject = value.ClassObject;
 
 pub fn register(vm: *VM) !void {
     const class_new_sym = try vm.intern("new");
-    try vm.class_class.module.methods.put(class_new_sym, .{ .method = .{ .builtin = &builtinClassNew } });
+    try vm.class_class.module.methods.put(class_new_sym, value.MethodEntry.builtin(&builtinClassNew, .{ .variadic = 0 }));
 
     const class_allocate_sym = try vm.intern("allocate");
-    try vm.class_class.module.methods.put(class_allocate_sym, .{ .method = .{ .builtin = &builtinClassAllocate } });
+    try vm.class_class.module.methods.put(class_allocate_sym, value.MethodEntry.builtin(&builtinClassAllocate, .{ .exact = 0 }));
 
     const class_equal_sym = try vm.intern("==");
-    try vm.class_class.module.methods.put(class_equal_sym, .{ .method = .{ .builtin = &builtinClassEqual } });
+    try vm.class_class.module.methods.put(class_equal_sym, value.MethodEntry.builtin(&builtinClassEqual, .{ .exact = 1 }));
 }
 
 pub fn builtinClassNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -106,8 +106,8 @@ pub fn builtinClassNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
 
     const initialize_sym = try vm.intern("initialize");
     if (try vm.findMethod(instance, initialize_sym)) |resolved| {
-        if (resolved.entry.method == .builtin and resolved.entry.method.builtin == &array_builtin.builtinArrayInitialize) {
-            return try resolved.entry.method.builtin(vm, instance, args, block);
+        if (resolved.entry.method == .builtin and resolved.entry.method.builtin.function == &array_builtin.builtinArrayInitialize) {
+            return try resolved.entry.method.builtin.function(vm, instance, args, block);
         }
     }
 

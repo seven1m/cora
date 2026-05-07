@@ -74,13 +74,13 @@ fn structMemberWriter(vm: *VM, receiver: Value, member: *SymbolObject, arg: Valu
 fn defineStructSubclassSingletonMethods(vm: *VM, class_value: Value) VMError!void {
     const singleton = try vm.getOrCreateSingletonClass(class_value);
     const new_sym = try vm.intern("new");
-    singleton.module.methods.put(new_sym, .{ .method = .{ .builtin = &class_builtin.builtinClassNew } }) catch return error.Fatal;
+    singleton.module.methods.put(new_sym, .{ .method = .{ .builtin = .{ .function = &class_builtin.builtinClassNew, .arity = .{ .variadic = 0 } } } }) catch return error.Fatal;
 
     const bracket_sym = try vm.intern("[]");
-    singleton.module.methods.put(bracket_sym, .{ .method = .{ .builtin = &builtinStructSubclassSquareBrackets } }) catch return error.Fatal;
+    singleton.module.methods.put(bracket_sym, .{ .method = .{ .builtin = .{ .function = &builtinStructSubclassSquareBrackets, .arity = .{ .variadic = 0 } } } }) catch return error.Fatal;
 
     const members_sym = try vm.intern("members");
-    singleton.module.methods.put(members_sym, .{ .method = .{ .builtin = &builtinStructClassMembers } }) catch return error.Fatal;
+    singleton.module.methods.put(members_sym, .{ .method = .{ .builtin = .{ .function = &builtinStructClassMembers, .arity = .{ .exact = 0 } } } }) catch return error.Fatal;
 }
 
 fn runStructSubclassBody(vm: *VM, struct_val: Value, block: Block) VMError!void {
@@ -117,55 +117,55 @@ pub fn register(vm: *VM) !void {
     const struct_singleton = try vm.getOrCreateSingletonClass(Value.fromObject(vm.struct_class));
 
     const new_sym = try vm.intern("new");
-    try struct_singleton.module.methods.put(new_sym, .{ .method = .{ .builtin = &builtinStructNew } });
+    try struct_singleton.module.methods.put(new_sym, value.MethodEntry.builtin(&builtinStructNew, .{ .variadic = 0 }));
 
     const bracket_sym = try vm.intern("[]");
-    try struct_singleton.module.methods.put(bracket_sym, .{ .method = .{ .builtin = &builtinStructNew } });
+    try struct_singleton.module.methods.put(bracket_sym, value.MethodEntry.builtin(&builtinStructNew, .{ .variadic = 0 }));
 
     const members_sym = try vm.intern("members");
-    try struct_singleton.module.methods.put(members_sym, .{ .method = .{ .builtin = &builtinStructClassMembers } });
+    try struct_singleton.module.methods.put(members_sym, value.MethodEntry.builtin(&builtinStructClassMembers, .{ .exact = 0 }));
 
     const initialize_sym = try vm.intern("initialize");
-    try vm.struct_class.module.methods.put(initialize_sym, .{ .method = .{ .builtin = &builtinStructInitialize } });
+    try vm.struct_class.module.methods.put(initialize_sym, value.MethodEntry.builtin(&builtinStructInitialize, .{ .variadic = 0 }));
 
     const instance_members_sym = try vm.intern("members");
-    try vm.struct_class.module.methods.put(instance_members_sym, .{ .method = .{ .builtin = &builtinStructMembers } });
+    try vm.struct_class.module.methods.put(instance_members_sym, value.MethodEntry.builtin(&builtinStructMembers, .{ .exact = 0 }));
 
     const aref_sym = try vm.intern("[]");
-    try vm.struct_class.module.methods.put(aref_sym, .{ .method = .{ .builtin = &builtinStructAref } });
+    try vm.struct_class.module.methods.put(aref_sym, value.MethodEntry.builtin(&builtinStructAref, .{ .exact = 1 }));
 
     const aset_sym = try vm.intern("[]=");
-    try vm.struct_class.module.methods.put(aset_sym, .{ .method = .{ .builtin = &builtinStructAset } });
+    try vm.struct_class.module.methods.put(aset_sym, value.MethodEntry.builtin(&builtinStructAset, .{ .exact = 2 }));
 
     const to_a_sym = try vm.intern("to_a");
-    try vm.struct_class.module.methods.put(to_a_sym, .{ .method = .{ .builtin = &builtinStructToA } });
+    try vm.struct_class.module.methods.put(to_a_sym, value.MethodEntry.builtin(&builtinStructToA, .{ .exact = 0 }));
 
     const values_sym = try vm.intern("values");
-    try vm.struct_class.module.methods.put(values_sym, .{ .method = .{ .builtin = &builtinStructToA } });
+    try vm.struct_class.module.methods.put(values_sym, value.MethodEntry.builtin(&builtinStructToA, .{ .exact = 0 }));
 
     const size_sym = try vm.intern("size");
-    try vm.struct_class.module.methods.put(size_sym, .{ .method = .{ .builtin = &builtinStructSize } });
+    try vm.struct_class.module.methods.put(size_sym, value.MethodEntry.builtin(&builtinStructSize, .{ .exact = 0 }));
 
     const length_sym = try vm.intern("length");
-    try vm.struct_class.module.methods.put(length_sym, .{ .method = .{ .builtin = &builtinStructSize } });
+    try vm.struct_class.module.methods.put(length_sym, value.MethodEntry.builtin(&builtinStructSize, .{ .exact = 0 }));
 
     const each_sym = try vm.intern("each");
-    try vm.struct_class.module.methods.put(each_sym, .{ .method = .{ .builtin = &builtinStructEach } });
+    try vm.struct_class.module.methods.put(each_sym, value.MethodEntry.builtin(&builtinStructEach, .{ .exact = 0 }));
 
     const each_pair_sym = try vm.intern("each_pair");
-    try vm.struct_class.module.methods.put(each_pair_sym, .{ .method = .{ .builtin = &builtinStructEachPair } });
+    try vm.struct_class.module.methods.put(each_pair_sym, value.MethodEntry.builtin(&builtinStructEachPair, .{ .exact = 0 }));
 
     const inspect_sym = try vm.intern("inspect");
-    try vm.struct_class.module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinStructInspect } });
+    try vm.struct_class.module.methods.put(inspect_sym, value.MethodEntry.builtin(&builtinStructInspect, .{ .exact = 0 }));
 
     const to_s_sym = try vm.intern("to_s");
-    try vm.struct_class.module.methods.put(to_s_sym, .{ .method = .{ .builtin = &builtinStructInspect } });
+    try vm.struct_class.module.methods.put(to_s_sym, value.MethodEntry.builtin(&builtinStructInspect, .{ .exact = 0 }));
 
     const equal_sym = try vm.intern("==");
-    try vm.struct_class.module.methods.put(equal_sym, .{ .method = .{ .builtin = &builtinStructEqual } });
+    try vm.struct_class.module.methods.put(equal_sym, value.MethodEntry.builtin(&builtinStructEqual, .{ .exact = 1 }));
 
     const eql_sym = try vm.intern("eql?");
-    try vm.struct_class.module.methods.put(eql_sym, .{ .method = .{ .builtin = &builtinStructEql } });
+    try vm.struct_class.module.methods.put(eql_sym, value.MethodEntry.builtin(&builtinStructEql, .{ .exact = 1 }));
 }
 
 pub fn builtinStructNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {

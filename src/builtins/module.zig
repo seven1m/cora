@@ -9,6 +9,7 @@ const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
 const Block = vm_mod.Block;
 const Value = value.Value;
+const MethodEntry = value.MethodEntry;
 const MethodVisibility = value.MethodVisibility;
 const SymbolObject = value.SymbolObject;
 const ClassObject = value.ClassObject;
@@ -672,133 +673,121 @@ fn copyMethodToModuleSingleton(vm: *VM, module_receiver: Value, name_sym: *Symbo
 
 pub fn register(vm: *VM) !void {
     const include_sym = try vm.intern("include");
-    try vm.module_class.module.methods.put(include_sym, .{ .method = .{ .builtin = &builtinModuleInclude } });
+    try vm.module_class.module.methods.put(include_sym, value.MethodEntry.builtin(&builtinModuleInclude, .{ .variadic = 0 }));
 
     const prepend_sym = try vm.intern("prepend");
-    try vm.module_class.module.methods.put(prepend_sym, .{ .method = .{ .builtin = &builtinModulePrepend } });
+    try vm.module_class.module.methods.put(prepend_sym, value.MethodEntry.builtin(&builtinModulePrepend, .{ .variadic = 0 }));
 
     const define_method_sym = try vm.intern("define_method");
-    try vm.module_class.module.methods.put(define_method_sym, .{ .method = .{ .builtin = &builtinModuleDefineMethod } });
+    try vm.module_class.module.methods.put(define_method_sym, value.MethodEntry.builtin(&builtinModuleDefineMethod, .{ .variadic = 0 }));
 
     const attr_reader_sym = try vm.intern("attr_reader");
-    try vm.module_class.module.methods.put(attr_reader_sym, .{ .method = .{ .builtin = &builtinModuleAttrReader } });
+    try vm.module_class.module.methods.put(attr_reader_sym, value.MethodEntry.builtin(&builtinModuleAttrReader, .{ .variadic = 0 }));
 
     const attr_writer_sym = try vm.intern("attr_writer");
-    try vm.module_class.module.methods.put(attr_writer_sym, .{ .method = .{ .builtin = &builtinModuleAttrWriter } });
+    try vm.module_class.module.methods.put(attr_writer_sym, value.MethodEntry.builtin(&builtinModuleAttrWriter, .{ .variadic = 0 }));
 
     const attr_accessor_sym = try vm.intern("attr_accessor");
-    try vm.module_class.module.methods.put(attr_accessor_sym, .{ .method = .{ .builtin = &builtinModuleAttrAccessor } });
+    try vm.module_class.module.methods.put(attr_accessor_sym, value.MethodEntry.builtin(&builtinModuleAttrAccessor, .{ .variadic = 0 }));
 
     const alias_method_sym = try vm.intern("alias_method");
-    try vm.module_class.module.methods.put(alias_method_sym, .{ .method = .{ .builtin = &builtinModuleAliasMethod } });
+    try vm.module_class.module.methods.put(alias_method_sym, value.MethodEntry.builtin(&builtinModuleAliasMethod, .{ .exact = 2 }));
 
     const undef_method_sym = try vm.intern("undef_method");
-    try vm.module_class.module.methods.put(undef_method_sym, .{ .method = .{ .builtin = &builtinModuleUndefMethod } });
+    try vm.module_class.module.methods.put(undef_method_sym, value.MethodEntry.builtin(&builtinModuleUndefMethod, .{ .variadic = 0 }));
 
     const remove_method_sym = try vm.intern("remove_method");
-    try vm.module_class.module.methods.put(remove_method_sym, .{ .method = .{ .builtin = &builtinModuleRemoveMethod } });
+    try vm.module_class.module.methods.put(remove_method_sym, value.MethodEntry.builtin(&builtinModuleRemoveMethod, .{ .variadic = 0 }));
 
     const include_query_sym = try vm.intern("include?");
-    try vm.module_class.module.methods.put(include_query_sym, .{ .method = .{ .builtin = &builtinModuleIncludeQ } });
+    try vm.module_class.module.methods.put(include_query_sym, value.MethodEntry.builtin(&builtinModuleIncludeQ, .{ .exact = 1 }));
 
     const private_sym = try vm.intern("private");
-    try vm.module_class.module.methods.put(private_sym, .{
-        .method = .{ .builtin = &builtinModulePrivate },
-        .visibility = .private,
-    });
+    try vm.module_class.module.methods.put(private_sym, value.MethodEntry.builtinWithVisibility(&builtinModulePrivate, .{ .variadic = 0 }, .private));
 
     const public_sym = try vm.intern("public");
-    try vm.module_class.module.methods.put(public_sym, .{
-        .method = .{ .builtin = &builtinModulePublic },
-        .visibility = .private,
-    });
+    try vm.module_class.module.methods.put(public_sym, value.MethodEntry.builtinWithVisibility(&builtinModulePublic, .{ .variadic = 0 }, .private));
 
     const protected_sym = try vm.intern("protected");
-    try vm.module_class.module.methods.put(protected_sym, .{
-        .method = .{ .builtin = &builtinModuleProtected },
-        .visibility = .private,
-    });
+    try vm.module_class.module.methods.put(protected_sym, value.MethodEntry.builtinWithVisibility(&builtinModuleProtected, .{ .variadic = 0 }, .private));
 
     const module_function_sym = try vm.intern("module_function");
-    try vm.module_class.module.methods.put(module_function_sym, .{
-        .method = .{ .builtin = &builtinModuleFunction },
-        .visibility = .private,
-    });
+    try vm.module_class.module.methods.put(module_function_sym, value.MethodEntry.builtinWithVisibility(&builtinModuleFunction, .{ .variadic = 0 }, .private));
 
     const private_class_method_sym = try vm.intern("private_class_method");
-    try vm.module_class.module.methods.put(private_class_method_sym, .{ .method = .{ .builtin = &builtinModulePrivateClassMethod } });
+    try vm.module_class.module.methods.put(private_class_method_sym, value.MethodEntry.builtin(&builtinModulePrivateClassMethod, .{ .variadic = 0 }));
 
     const public_class_method_sym = try vm.intern("public_class_method");
-    try vm.module_class.module.methods.put(public_class_method_sym, .{ .method = .{ .builtin = &builtinModulePublicClassMethod } });
+    try vm.module_class.module.methods.put(public_class_method_sym, value.MethodEntry.builtin(&builtinModulePublicClassMethod, .{ .variadic = 0 }));
 
     const private_constant_sym = try vm.intern("private_constant");
-    try vm.module_class.module.methods.put(private_constant_sym, .{ .method = .{ .builtin = &builtinModulePrivateConstant } });
+    try vm.module_class.module.methods.put(private_constant_sym, value.MethodEntry.builtin(&builtinModulePrivateConstant, .{ .variadic = 0 }));
 
     const public_constant_sym = try vm.intern("public_constant");
-    try vm.module_class.module.methods.put(public_constant_sym, .{ .method = .{ .builtin = &builtinModulePublicConstant } });
+    try vm.module_class.module.methods.put(public_constant_sym, value.MethodEntry.builtin(&builtinModulePublicConstant, .{ .variadic = 0 }));
 
     const deprecate_constant_sym = try vm.intern("deprecate_constant");
-    try vm.module_class.module.methods.put(deprecate_constant_sym, .{ .method = .{ .builtin = &builtinModuleDeprecateConstant } });
+    try vm.module_class.module.methods.put(deprecate_constant_sym, value.MethodEntry.builtin(&builtinModuleDeprecateConstant, .{ .variadic = 0 }));
 
     const case_equal_sym = try vm.intern("===");
-    try vm.module_class.module.methods.put(case_equal_sym, .{ .method = .{ .builtin = &builtinModuleCaseEqual } });
+    try vm.module_class.module.methods.put(case_equal_sym, value.MethodEntry.builtin(&builtinModuleCaseEqual, .{ .exact = 1 }));
 
     const constants_sym = try vm.intern("constants");
-    try vm.module_class.module.methods.put(constants_sym, .{ .method = .{ .builtin = &builtinModuleConstants } });
+    try vm.module_class.module.methods.put(constants_sym, value.MethodEntry.builtin(&builtinModuleConstants, .{ .variadic = 0 }));
 
     const const_defined_sym = try vm.intern("const_defined?");
-    try vm.module_class.module.methods.put(const_defined_sym, .{ .method = .{ .builtin = &builtinModuleConstDefined } });
+    try vm.module_class.module.methods.put(const_defined_sym, value.MethodEntry.builtin(&builtinModuleConstDefined, .{ .variadic = 0 }));
 
     const const_set_sym = try vm.intern("const_set");
-    try vm.module_class.module.methods.put(const_set_sym, .{ .method = .{ .builtin = &builtinModuleConstSet } });
+    try vm.module_class.module.methods.put(const_set_sym, value.MethodEntry.builtin(&builtinModuleConstSet, .{ .exact = 2 }));
 
     const autoload_sym = try vm.intern("autoload");
-    try vm.module_class.module.methods.put(autoload_sym, .{ .method = .{ .builtin = &builtinModuleAutoload } });
+    try vm.module_class.module.methods.put(autoload_sym, value.MethodEntry.builtin(&builtinModuleAutoload, .{ .exact = 2 }));
 
     const autoload_q_sym = try vm.intern("autoload?");
-    try vm.module_class.module.methods.put(autoload_q_sym, .{ .method = .{ .builtin = &builtinModuleAutoloadQ } });
+    try vm.module_class.module.methods.put(autoload_q_sym, value.MethodEntry.builtin(&builtinModuleAutoloadQ, .{ .variadic = 0 }));
 
     const remove_const_sym = try vm.intern("remove_const");
-    try vm.module_class.module.methods.put(remove_const_sym, .{ .method = .{ .builtin = &builtinModuleRemoveConst } });
+    try vm.module_class.module.methods.put(remove_const_sym, value.MethodEntry.builtin(&builtinModuleRemoveConst, .{ .exact = 1 }));
 
     const const_get_sym = try vm.intern("const_get");
-    try vm.module_class.module.methods.put(const_get_sym, .{ .method = .{ .builtin = &builtinModuleConstGet } });
+    try vm.module_class.module.methods.put(const_get_sym, value.MethodEntry.builtin(&builtinModuleConstGet, .{ .variadic = 0 }));
 
     const module_eval_sym = try vm.intern("module_eval");
-    try vm.module_class.module.methods.put(module_eval_sym, .{ .method = .{ .builtin = &builtinModuleEval } });
+    try vm.module_class.module.methods.put(module_eval_sym, value.MethodEntry.builtin(&builtinModuleEval, .{ .variadic = 0 }));
 
     const class_eval_sym = try vm.intern("class_eval");
-    try vm.module_class.module.methods.put(class_eval_sym, .{ .method = .{ .builtin = &builtinModuleEval } });
+    try vm.module_class.module.methods.put(class_eval_sym, value.MethodEntry.builtin(&builtinModuleEval, .{ .variadic = 0 }));
 
     const ancestors_sym = try vm.intern("ancestors");
-    try vm.module_class.module.methods.put(ancestors_sym, .{ .method = .{ .builtin = &builtinModuleAncestors } });
+    try vm.module_class.module.methods.put(ancestors_sym, value.MethodEntry.builtin(&builtinModuleAncestors, .{ .exact = 0 }));
 
     const instance_methods_sym = try vm.intern("instance_methods");
-    try vm.module_class.module.methods.put(instance_methods_sym, .{ .method = .{ .builtin = &builtinModuleInstanceMethods } });
+    try vm.module_class.module.methods.put(instance_methods_sym, value.MethodEntry.builtin(&builtinModuleInstanceMethods, .{ .variadic = 0 }));
 
     const private_instance_methods_sym = try vm.intern("private_instance_methods");
-    try vm.module_class.module.methods.put(private_instance_methods_sym, .{ .method = .{ .builtin = &builtinModulePrivateInstanceMethods } });
+    try vm.module_class.module.methods.put(private_instance_methods_sym, value.MethodEntry.builtin(&builtinModulePrivateInstanceMethods, .{ .variadic = 0 }));
 
     const protected_instance_methods_sym = try vm.intern("protected_instance_methods");
-    try vm.module_class.module.methods.put(protected_instance_methods_sym, .{ .method = .{ .builtin = &builtinModuleProtectedInstanceMethods } });
+    try vm.module_class.module.methods.put(protected_instance_methods_sym, value.MethodEntry.builtin(&builtinModuleProtectedInstanceMethods, .{ .variadic = 0 }));
 
     const public_instance_methods_sym = try vm.intern("public_instance_methods");
-    try vm.module_class.module.methods.put(public_instance_methods_sym, .{ .method = .{ .builtin = &builtinModulePublicInstanceMethods } });
+    try vm.module_class.module.methods.put(public_instance_methods_sym, value.MethodEntry.builtin(&builtinModulePublicInstanceMethods, .{ .variadic = 0 }));
 
     const instance_method_sym = try vm.intern("instance_method");
-    try vm.module_class.module.methods.put(instance_method_sym, .{ .method = .{ .builtin = &builtinModuleInstanceMethod } });
+    try vm.module_class.module.methods.put(instance_method_sym, MethodEntry.builtin(&builtinModuleInstanceMethod, .{ .exact = 1 }));
 
     const method_defined_sym = try vm.intern("method_defined?");
-    try vm.module_class.module.methods.put(method_defined_sym, .{ .method = .{ .builtin = &builtinModuleMethodDefined } });
+    try vm.module_class.module.methods.put(method_defined_sym, value.MethodEntry.builtin(&builtinModuleMethodDefined, .{ .variadic = 0 }));
 
     const name_sym = try vm.intern("name");
-    try vm.module_class.module.methods.put(name_sym, .{ .method = .{ .builtin = &builtinModuleName } });
+    try vm.module_class.module.methods.put(name_sym, value.MethodEntry.builtin(&builtinModuleName, .{ .exact = 0 }));
 
     const to_s_sym = try vm.intern("to_s");
-    try vm.module_class.module.methods.put(to_s_sym, .{ .method = .{ .builtin = &builtinModuleToS } });
+    try vm.module_class.module.methods.put(to_s_sym, value.MethodEntry.builtin(&builtinModuleToS, .{ .exact = 0 }));
 
     const inspect_sym = try vm.intern("inspect");
-    try vm.module_class.module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinModuleToS } });
+    try vm.module_class.module.methods.put(inspect_sym, value.MethodEntry.builtin(&builtinModuleToS, .{ .exact = 0 }));
 }
 
 pub fn builtinModuleCaseEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

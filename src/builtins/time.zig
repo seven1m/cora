@@ -39,63 +39,63 @@ pub fn register(vm: *VM) !void {
     const time_singleton = try vm.getOrCreateSingletonClass(time_class_val);
 
     const new_sym = try vm.intern("new");
-    try time_singleton.module.methods.put(new_sym, .{ .method = .{ .builtin = &builtinTimeNew } });
+    try time_singleton.module.methods.put(new_sym, value.MethodEntry.builtin(&builtinTimeNew, .{ .variadic = 0 }));
 
     const now_sym = try vm.intern("now");
-    try time_singleton.module.methods.put(now_sym, .{ .method = .{ .builtin = &builtinTimeNow } });
+    try time_singleton.module.methods.put(now_sym, value.MethodEntry.builtin(&builtinTimeNow, .{ .variadic = 0 }));
 
     const utc_sym = try vm.intern("utc");
-    try time_singleton.module.methods.put(utc_sym, .{ .method = .{ .builtin = &builtinTimeUtc } });
+    try time_singleton.module.methods.put(utc_sym, value.MethodEntry.builtin(&builtinTimeUtc, .{ .variadic = 0 }));
 
     const at_sym = try vm.intern("at");
-    try time_singleton.module.methods.put(at_sym, .{ .method = .{ .builtin = &builtinTimeAt } });
+    try time_singleton.module.methods.put(at_sym, value.MethodEntry.builtin(&builtinTimeAt, .{ .variadic = 1 }));
 
     const plus_sym = try vm.intern("+");
-    try vm.time_class.module.methods.put(plus_sym, .{ .method = .{ .builtin = &builtinTimePlus } });
+    try vm.time_class.module.methods.put(plus_sym, value.MethodEntry.builtin(&builtinTimePlus, .{ .exact = 1 }));
 
     const minus_sym = try vm.intern("-");
-    try vm.time_class.module.methods.put(minus_sym, .{ .method = .{ .builtin = &builtinTimeMinus } });
+    try vm.time_class.module.methods.put(minus_sym, value.MethodEntry.builtin(&builtinTimeMinus, .{ .exact = 1 }));
 
     const compare_sym = try vm.intern("<=>");
-    try vm.time_class.module.methods.put(compare_sym, .{ .method = .{ .builtin = &builtinTimeCompare } });
+    try vm.time_class.module.methods.put(compare_sym, value.MethodEntry.builtin(&builtinTimeCompare, .{ .exact = 1 }));
 
-    try vm.time_class.module.methods.put(utc_sym, .{ .method = .{ .builtin = &builtinTimeUtcInstance } });
+    try vm.time_class.module.methods.put(utc_sym, value.MethodEntry.builtin(&builtinTimeUtcInstance, .{ .exact = 0 }));
 
     const utc_q_sym = try vm.intern("utc?");
-    try vm.time_class.module.methods.put(utc_q_sym, .{ .method = .{ .builtin = &builtinTimeUtcQ } });
+    try vm.time_class.module.methods.put(utc_q_sym, value.MethodEntry.builtin(&builtinTimeUtcQ, .{ .exact = 0 }));
 
     const year_sym = try vm.intern("year");
-    try vm.time_class.module.methods.put(year_sym, .{ .method = .{ .builtin = &builtinTimeYear } });
+    try vm.time_class.module.methods.put(year_sym, value.MethodEntry.builtin(&builtinTimeYear, .{ .exact = 0 }));
 
     const month_sym = try vm.intern("month");
-    try vm.time_class.module.methods.put(month_sym, .{ .method = .{ .builtin = &builtinTimeMonth } });
+    try vm.time_class.module.methods.put(month_sym, value.MethodEntry.builtin(&builtinTimeMonth, .{ .exact = 0 }));
 
     const day_sym = try vm.intern("day");
-    try vm.time_class.module.methods.put(day_sym, .{ .method = .{ .builtin = &builtinTimeDay } });
+    try vm.time_class.module.methods.put(day_sym, value.MethodEntry.builtin(&builtinTimeDay, .{ .exact = 0 }));
 
     const to_i_sym = try vm.intern("to_i");
-    try vm.time_class.module.methods.put(to_i_sym, .{ .method = .{ .builtin = &builtinTimeToI } });
+    try vm.time_class.module.methods.put(to_i_sym, value.MethodEntry.builtin(&builtinTimeToI, .{ .exact = 0 }));
 
     const to_f_sym = try vm.intern("to_f");
-    try vm.time_class.module.methods.put(to_f_sym, .{ .method = .{ .builtin = &builtinTimeToF } });
+    try vm.time_class.module.methods.put(to_f_sym, value.MethodEntry.builtin(&builtinTimeToF, .{ .exact = 0 }));
 
     const to_a_sym = try vm.intern("to_a");
-    try vm.time_class.module.methods.put(to_a_sym, .{ .method = .{ .builtin = &builtinTimeToA } });
+    try vm.time_class.module.methods.put(to_a_sym, value.MethodEntry.builtin(&builtinTimeToA, .{ .exact = 0 }));
 
     const strftime_sym = try vm.intern("strftime");
-    try vm.time_class.module.methods.put(strftime_sym, .{ .method = .{ .builtin = &builtinTimeStrftime } });
+    try vm.time_class.module.methods.put(strftime_sym, value.MethodEntry.builtin(&builtinTimeStrftime, .{ .exact = 1 }));
 
     const to_s_sym = try vm.intern("to_s");
-    try vm.time_class.module.methods.put(to_s_sym, .{ .method = .{ .builtin = &builtinTimeToS } });
+    try vm.time_class.module.methods.put(to_s_sym, value.MethodEntry.builtin(&builtinTimeToS, .{ .exact = 0 }));
 
     const inspect_sym = try vm.intern("inspect");
-    try vm.time_class.module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinTimeInspect } });
+    try vm.time_class.module.methods.put(inspect_sym, value.MethodEntry.builtin(&builtinTimeInspect, .{ .exact = 0 }));
 
     const hash_sym = try vm.intern("hash");
-    try vm.time_class.module.methods.put(hash_sym, .{ .method = .{ .builtin = &builtinTimeHash } });
+    try vm.time_class.module.methods.put(hash_sym, value.MethodEntry.builtin(&builtinTimeHash, .{ .exact = 0 }));
 
     const eql_sym = try vm.intern("eql?");
-    try vm.time_class.module.methods.put(eql_sym, .{ .method = .{ .builtin = &builtinTimeEql } });
+    try vm.time_class.module.methods.put(eql_sym, value.MethodEntry.builtin(&builtinTimeEql, .{ .exact = 1 }));
 }
 
 fn floorDiv(numerator: i64, denominator: i64) i64 {

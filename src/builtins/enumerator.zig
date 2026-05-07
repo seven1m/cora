@@ -6,6 +6,7 @@ const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
 const Block = vm_mod.Block;
 const Value = value.Value;
+const MethodEntry = value.MethodEntry;
 
 pub fn register(vm: *VM) !void {
     // Enumerator singleton methods (class methods)
@@ -13,45 +14,45 @@ pub fn register(vm: *VM) !void {
     const enum_singleton = try vm.getOrCreateSingletonClass(enum_class_val);
 
     const new_sym = try vm.intern("new");
-    try enum_singleton.module.methods.put(new_sym, .{ .method = .{ .builtin = &builtinEnumeratorNew } });
+    try enum_singleton.module.methods.put(new_sym, MethodEntry.builtin(&builtinEnumeratorNew, .{ .variadic = 0 }));
 
     // Enumerator instance methods
     const each_sym = try vm.intern("each");
-    try vm.enumerator_class.module.methods.put(each_sym, .{ .method = .{ .builtin = &builtinEnumeratorEach } });
+    try vm.enumerator_class.module.methods.put(each_sym, MethodEntry.builtin(&builtinEnumeratorEach, .{ .variadic = 0 }));
 
     const map_sym = try vm.intern("map");
-    try vm.enumerator_class.module.methods.put(map_sym, .{ .method = .{ .builtin = &builtinEnumeratorMap } });
+    try vm.enumerator_class.module.methods.put(map_sym, MethodEntry.builtin(&builtinEnumeratorMap, .{ .exact = 0 }));
 
     const to_a_sym = try vm.intern("to_a");
-    try vm.enumerator_class.module.methods.put(to_a_sym, .{ .method = .{ .builtin = &builtinEnumeratorToA } });
+    try vm.enumerator_class.module.methods.put(to_a_sym, MethodEntry.builtin(&builtinEnumeratorToA, .{ .variadic = 0 }));
 
     const next_sym = try vm.intern("next");
-    try vm.enumerator_class.module.methods.put(next_sym, .{ .method = .{ .builtin = &builtinEnumeratorNext } });
+    try vm.enumerator_class.module.methods.put(next_sym, MethodEntry.builtin(&builtinEnumeratorNext, .{ .exact = 0 }));
 
     const next_values_sym = try vm.intern("next_values");
-    try vm.enumerator_class.module.methods.put(next_values_sym, .{ .method = .{ .builtin = &builtinEnumeratorNextValues } });
+    try vm.enumerator_class.module.methods.put(next_values_sym, MethodEntry.builtin(&builtinEnumeratorNextValues, .{ .exact = 0 }));
 
     const peek_sym = try vm.intern("peek");
-    try vm.enumerator_class.module.methods.put(peek_sym, .{ .method = .{ .builtin = &builtinEnumeratorPeek } });
+    try vm.enumerator_class.module.methods.put(peek_sym, MethodEntry.builtin(&builtinEnumeratorPeek, .{ .exact = 0 }));
 
     const peek_values_sym = try vm.intern("peek_values");
-    try vm.enumerator_class.module.methods.put(peek_values_sym, .{ .method = .{ .builtin = &builtinEnumeratorPeekValues } });
+    try vm.enumerator_class.module.methods.put(peek_values_sym, MethodEntry.builtin(&builtinEnumeratorPeekValues, .{ .exact = 0 }));
 
     const rewind_sym = try vm.intern("rewind");
-    try vm.enumerator_class.module.methods.put(rewind_sym, .{ .method = .{ .builtin = &builtinEnumeratorRewind } });
+    try vm.enumerator_class.module.methods.put(rewind_sym, MethodEntry.builtin(&builtinEnumeratorRewind, .{ .exact = 0 }));
 
     const inspect_sym = try vm.intern("inspect");
-    try vm.enumerator_class.module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinEnumeratorInspect } });
+    try vm.enumerator_class.module.methods.put(inspect_sym, MethodEntry.builtin(&builtinEnumeratorInspect, .{ .exact = 0 }));
 
     const size_sym = try vm.intern("size");
-    try vm.enumerator_class.module.methods.put(size_sym, .{ .method = .{ .builtin = &builtinEnumeratorSize } });
+    try vm.enumerator_class.module.methods.put(size_sym, MethodEntry.builtin(&builtinEnumeratorSize, .{ .exact = 0 }));
 
     // Yielder instance methods
     const yield_push_sym = try vm.intern("<<");
-    try vm.yielder_class.module.methods.put(yield_push_sym, .{ .method = .{ .builtin = &builtinYielderPush } });
+    try vm.yielder_class.module.methods.put(yield_push_sym, MethodEntry.builtin(&builtinYielderPush, .{ .exact = 1 }));
 
     const yield_sym = try vm.intern("yield");
-    try vm.yielder_class.module.methods.put(yield_sym, .{ .method = .{ .builtin = &builtinYielderYield } });
+    try vm.yielder_class.module.methods.put(yield_sym, MethodEntry.builtin(&builtinYielderYield, .{ .variadic = 0 }));
 }
 
 // --- Enumerator class methods ---

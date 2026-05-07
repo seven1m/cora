@@ -71,281 +71,275 @@ pub fn register(vm: *VM) !void {
     const try_convert_sym = try vm.intern("try_convert");
     const string_class_val = Value.fromObject(vm.string_class);
     const string_singleton = try vm.getOrCreateSingletonClass(string_class_val);
-    try string_singleton.module.methods.put(try_convert_sym, .{ .method = .{ .builtin = &builtinStringTryConvert } });
+    try string_singleton.module.methods.put(try_convert_sym, value.MethodEntry.builtin(&builtinStringTryConvert, .{ .exact = 1 }));
 
     const initialize_sym = try vm.intern("initialize");
-    try vm.string_class.module.methods.put(initialize_sym, .{
-        .method = .{ .builtin = &builtinStringInitialize },
-        .visibility = .private,
-    });
+    try vm.string_class.module.methods.put(initialize_sym, value.MethodEntry.builtinWithVisibility(&builtinStringInitialize, .{ .variadic = 0 }, .private));
 
     const initialize_copy_sym = try vm.intern("initialize_copy");
-    try vm.string_class.module.methods.put(initialize_copy_sym, .{
-        .method = .{ .builtin = &builtinStringInitializeCopy },
-        .visibility = .private,
-    });
+    try vm.string_class.module.methods.put(initialize_copy_sym, value.MethodEntry.builtinWithVisibility(&builtinStringInitializeCopy, .{ .exact = 1 }, .private));
 
     const string_uplus_sym = try vm.intern("+@");
-    try vm.string_class.module.methods.put(string_uplus_sym, .{ .method = .{ .builtin = &builtinStringUnaryPlus } });
+    try vm.string_class.module.methods.put(string_uplus_sym, value.MethodEntry.builtin(&builtinStringUnaryPlus, .{ .exact = 0 }));
     const string_uminus_sym = try vm.intern("-@");
-    try vm.string_class.module.methods.put(string_uminus_sym, .{ .method = .{ .builtin = &builtinStringDedup } });
+    try vm.string_class.module.methods.put(string_uminus_sym, value.MethodEntry.builtin(&builtinStringDedup, .{ .exact = 0 }));
 
     const string_plus_sym = try vm.intern("+");
-    try vm.string_class.module.methods.put(string_plus_sym, .{ .method = .{ .builtin = &builtinStringPlus } });
+    try vm.string_class.module.methods.put(string_plus_sym, value.MethodEntry.builtin(&builtinStringPlus, .{ .exact = 1 }));
 
     const string_multiply_sym = try vm.intern("*");
-    try vm.string_class.module.methods.put(string_multiply_sym, .{ .method = .{ .builtin = &builtinStringMultiply } });
+    try vm.string_class.module.methods.put(string_multiply_sym, value.MethodEntry.builtin(&builtinStringMultiply, .{ .exact = 1 }));
 
     const string_append_sym = try vm.intern("<<");
-    try vm.string_class.module.methods.put(string_append_sym, .{ .method = .{ .builtin = &builtinStringAppend } });
+    try vm.string_class.module.methods.put(string_append_sym, value.MethodEntry.builtin(&builtinStringAppend, .{ .exact = 1 }));
 
     const string_concat_sym = try vm.intern("concat");
-    try vm.string_class.module.methods.put(string_concat_sym, .{ .method = .{ .builtin = &builtinStringConcat } });
+    try vm.string_class.module.methods.put(string_concat_sym, value.MethodEntry.builtin(&builtinStringConcat, .{ .variadic = 0 }));
     const string_append_as_bytes_sym = try vm.intern("append_as_bytes");
-    try vm.string_class.module.methods.put(string_append_as_bytes_sym, .{ .method = .{ .builtin = &builtinStringAppendAsBytes } });
+    try vm.string_class.module.methods.put(string_append_as_bytes_sym, value.MethodEntry.builtin(&builtinStringAppendAsBytes, .{ .variadic = 0 }));
 
     const string_replace_sym = try vm.intern("replace");
-    try vm.string_class.module.methods.put(string_replace_sym, .{ .method = .{ .builtin = &builtinStringReplace } });
+    try vm.string_class.module.methods.put(string_replace_sym, value.MethodEntry.builtin(&builtinStringReplace, .{ .exact = 1 }));
 
     const string_gsub_sym = try vm.intern("gsub");
-    try vm.string_class.module.methods.put(string_gsub_sym, .{ .method = .{ .builtin = &builtinStringGsub } });
+    try vm.string_class.module.methods.put(string_gsub_sym, value.MethodEntry.builtin(&builtinStringGsub, .{ .variadic = 0 }));
     const string_gsub_bang_sym = try vm.intern("gsub!");
-    try vm.string_class.module.methods.put(string_gsub_bang_sym, .{ .method = .{ .builtin = &builtinStringGsubBang } });
+    try vm.string_class.module.methods.put(string_gsub_bang_sym, value.MethodEntry.builtin(&builtinStringGsubBang, .{ .variadic = 0 }));
     const string_sub_sym = try vm.intern("sub");
-    try vm.string_class.module.methods.put(string_sub_sym, .{ .method = .{ .builtin = &builtinStringSub } });
+    try vm.string_class.module.methods.put(string_sub_sym, value.MethodEntry.builtin(&builtinStringSub, .{ .variadic = 0 }));
     const string_sub_bang_sym = try vm.intern("sub!");
-    try vm.string_class.module.methods.put(string_sub_bang_sym, .{ .method = .{ .builtin = &builtinStringSubBang } });
+    try vm.string_class.module.methods.put(string_sub_bang_sym, value.MethodEntry.builtin(&builtinStringSubBang, .{ .variadic = 0 }));
 
     const string_equal_sym = try vm.intern("==");
-    try vm.string_class.module.methods.put(string_equal_sym, .{ .method = .{ .builtin = &builtinStringEqual } });
+    try vm.string_class.module.methods.put(string_equal_sym, value.MethodEntry.builtin(&builtinStringEqual, .{ .exact = 1 }));
 
     const string_eql_sym = try vm.intern("eql?");
-    try vm.string_class.module.methods.put(string_eql_sym, .{ .method = .{ .builtin = &builtinStringEql } });
+    try vm.string_class.module.methods.put(string_eql_sym, value.MethodEntry.builtin(&builtinStringEql, .{ .exact = 1 }));
 
     const string_hash_sym = try vm.intern("hash");
-    try vm.string_class.module.methods.put(string_hash_sym, .{ .method = .{ .builtin = &builtinStringHash } });
+    try vm.string_class.module.methods.put(string_hash_sym, value.MethodEntry.builtin(&builtinStringHash, .{ .exact = 0 }));
 
     const string_not_equal_sym = try vm.intern("!=");
-    try vm.string_class.module.methods.put(string_not_equal_sym, .{ .method = .{ .builtin = &builtinStringNotEqual } });
+    try vm.string_class.module.methods.put(string_not_equal_sym, value.MethodEntry.builtin(&builtinStringNotEqual, .{ .exact = 1 }));
 
     const string_compare_sym = try vm.intern("<=>");
-    try vm.string_class.module.methods.put(string_compare_sym, .{ .method = .{ .builtin = &builtinStringCompare } });
+    try vm.string_class.module.methods.put(string_compare_sym, value.MethodEntry.builtin(&builtinStringCompare, .{ .exact = 1 }));
     const string_casecmp_sym = try vm.intern("casecmp");
-    try vm.string_class.module.methods.put(string_casecmp_sym, .{ .method = .{ .builtin = &builtinStringCasecmp } });
+    try vm.string_class.module.methods.put(string_casecmp_sym, value.MethodEntry.builtin(&builtinStringCasecmp, .{ .exact = 1 }));
     const string_casecmp_pred_sym = try vm.intern("casecmp?");
-    try vm.string_class.module.methods.put(string_casecmp_pred_sym, .{ .method = .{ .builtin = &builtinStringCasecmpQ } });
+    try vm.string_class.module.methods.put(string_casecmp_pred_sym, value.MethodEntry.builtin(&builtinStringCasecmpQ, .{ .exact = 1 }));
 
     const string_encoding_sym = try vm.intern("encoding");
-    try vm.string_class.module.methods.put(string_encoding_sym, .{ .method = .{ .builtin = &builtinStringEncoding } });
+    try vm.string_class.module.methods.put(string_encoding_sym, value.MethodEntry.builtin(&builtinStringEncoding, .{ .exact = 0 }));
 
     const string_encode_sym = try vm.intern("encode");
-    try vm.string_class.module.methods.put(string_encode_sym, .{ .method = .{ .builtin = &builtinStringEncode } });
+    try vm.string_class.module.methods.put(string_encode_sym, value.MethodEntry.builtin(&builtinStringEncode, .{ .variadic = 0 }));
 
     const string_encode_bang_sym = try vm.intern("encode!");
-    try vm.string_class.module.methods.put(string_encode_bang_sym, .{ .method = .{ .builtin = &builtinStringEncodeBang } });
+    try vm.string_class.module.methods.put(string_encode_bang_sym, value.MethodEntry.builtin(&builtinStringEncodeBang, .{ .variadic = 0 }));
 
     const string_force_encoding_sym = try vm.intern("force_encoding");
-    try vm.string_class.module.methods.put(string_force_encoding_sym, .{ .method = .{ .builtin = &builtinStringForceEncoding } });
+    try vm.string_class.module.methods.put(string_force_encoding_sym, value.MethodEntry.builtin(&builtinStringForceEncoding, .{ .exact = 1 }));
 
     const string_valid_encoding_sym = try vm.intern("valid_encoding?");
-    try vm.string_class.module.methods.put(string_valid_encoding_sym, .{ .method = .{ .builtin = &builtinStringValidEncoding } });
+    try vm.string_class.module.methods.put(string_valid_encoding_sym, value.MethodEntry.builtin(&builtinStringValidEncoding, .{ .exact = 0 }));
 
     const string_ascii_only_sym = try vm.intern("ascii_only?");
-    try vm.string_class.module.methods.put(string_ascii_only_sym, .{ .method = .{ .builtin = &builtinStringAsciiOnly } });
+    try vm.string_class.module.methods.put(string_ascii_only_sym, value.MethodEntry.builtin(&builtinStringAsciiOnly, .{ .exact = 0 }));
 
     const string_b_sym = try vm.intern("b");
-    try vm.string_class.module.methods.put(string_b_sym, .{ .method = .{ .builtin = &builtinStringB } });
+    try vm.string_class.module.methods.put(string_b_sym, value.MethodEntry.builtin(&builtinStringB, .{ .exact = 0 }));
     const string_dedup_sym = try vm.intern("dedup");
-    try vm.string_class.module.methods.put(string_dedup_sym, .{ .method = .{ .builtin = &builtinStringDedup } });
+    try vm.string_class.module.methods.put(string_dedup_sym, value.MethodEntry.builtin(&builtinStringDedup, .{ .exact = 0 }));
 
     const string_dup_sym = try vm.intern("dup");
-    try vm.string_class.module.methods.put(string_dup_sym, .{ .method = .{ .builtin = &builtinStringDup } });
+    try vm.string_class.module.methods.put(string_dup_sym, value.MethodEntry.builtin(&builtinStringDup, .{ .exact = 0 }));
 
     const string_clone_sym = try vm.intern("clone");
-    try vm.string_class.module.methods.put(string_clone_sym, .{ .method = .{ .builtin = &builtinStringClone } });
+    try vm.string_class.module.methods.put(string_clone_sym, value.MethodEntry.builtin(&builtinStringClone, .{ .variadic = 0 }));
 
     const string_bytesize_sym = try vm.intern("bytesize");
-    try vm.string_class.module.methods.put(string_bytesize_sym, .{ .method = .{ .builtin = &builtinStringBytesize } });
+    try vm.string_class.module.methods.put(string_bytesize_sym, value.MethodEntry.builtin(&builtinStringBytesize, .{ .exact = 0 }));
 
     const string_length_sym = try vm.intern("length");
-    try vm.string_class.module.methods.put(string_length_sym, .{ .method = .{ .builtin = &builtinStringLength } });
+    try vm.string_class.module.methods.put(string_length_sym, value.MethodEntry.builtin(&builtinStringLength, .{ .exact = 0 }));
 
     const string_size_sym = try vm.intern("size");
-    try vm.string_class.module.methods.put(string_size_sym, .{ .method = .{ .builtin = &builtinStringLength } });
+    try vm.string_class.module.methods.put(string_size_sym, value.MethodEntry.builtin(&builtinStringLength, .{ .exact = 0 }));
 
     const string_empty_sym = try vm.intern("empty?");
-    try vm.string_class.module.methods.put(string_empty_sym, .{ .method = .{ .builtin = &builtinStringEmpty } });
+    try vm.string_class.module.methods.put(string_empty_sym, value.MethodEntry.builtin(&builtinStringEmpty, .{ .exact = 0 }));
 
     const string_clear_sym = try vm.intern("clear");
-    try vm.string_class.module.methods.put(string_clear_sym, .{ .method = .{ .builtin = &builtinStringClear } });
+    try vm.string_class.module.methods.put(string_clear_sym, value.MethodEntry.builtin(&builtinStringClear, .{ .exact = 0 }));
     const string_chop_sym = try vm.intern("chop");
-    try vm.string_class.module.methods.put(string_chop_sym, .{ .method = .{ .builtin = &builtinStringChop } });
+    try vm.string_class.module.methods.put(string_chop_sym, value.MethodEntry.builtin(&builtinStringChop, .{ .exact = 0 }));
     const string_chop_bang_sym = try vm.intern("chop!");
-    try vm.string_class.module.methods.put(string_chop_bang_sym, .{ .method = .{ .builtin = &builtinStringChopBang } });
+    try vm.string_class.module.methods.put(string_chop_bang_sym, value.MethodEntry.builtin(&builtinStringChopBang, .{ .exact = 0 }));
 
     const string_ord_sym = try vm.intern("ord");
-    try vm.string_class.module.methods.put(string_ord_sym, .{ .method = .{ .builtin = &builtinStringOrd } });
+    try vm.string_class.module.methods.put(string_ord_sym, value.MethodEntry.builtin(&builtinStringOrd, .{ .exact = 0 }));
 
     const string_chr_sym = try vm.intern("chr");
-    try vm.string_class.module.methods.put(string_chr_sym, .{ .method = .{ .builtin = &builtinStringChr } });
+    try vm.string_class.module.methods.put(string_chr_sym, value.MethodEntry.builtin(&builtinStringChr, .{ .exact = 0 }));
 
     const string_bracket_sym = try vm.intern("[]");
-    try vm.string_class.module.methods.put(string_bracket_sym, .{ .method = .{ .builtin = &builtinStringBracket } });
+    try vm.string_class.module.methods.put(string_bracket_sym, value.MethodEntry.builtin(&builtinStringBracket, .{ .variadic = 0 }));
 
     const string_slice_sym = try vm.intern("slice");
-    try vm.string_class.module.methods.put(string_slice_sym, .{ .method = .{ .builtin = &builtinStringSlice } });
+    try vm.string_class.module.methods.put(string_slice_sym, value.MethodEntry.builtin(&builtinStringSlice, .{ .variadic = 0 }));
     const string_slice_bang_sym = try vm.intern("slice!");
-    try vm.string_class.module.methods.put(string_slice_bang_sym, .{ .method = .{ .builtin = &builtinStringSliceBang } });
+    try vm.string_class.module.methods.put(string_slice_bang_sym, value.MethodEntry.builtin(&builtinStringSliceBang, .{ .variadic = 0 }));
 
     const string_bracket_set_sym = try vm.intern("[]=");
-    try vm.string_class.module.methods.put(string_bracket_set_sym, .{ .method = .{ .builtin = &builtinStringBracketSet } });
+    try vm.string_class.module.methods.put(string_bracket_set_sym, value.MethodEntry.builtin(&builtinStringBracketSet, .{ .variadic = 0 }));
 
     const string_byteslice_sym = try vm.intern("byteslice");
-    try vm.string_class.module.methods.put(string_byteslice_sym, .{ .method = .{ .builtin = &builtinStringByteSlice } });
+    try vm.string_class.module.methods.put(string_byteslice_sym, value.MethodEntry.builtin(&builtinStringByteSlice, .{ .variadic = 0 }));
 
     const string_chars_sym = try vm.intern("chars");
-    try vm.string_class.module.methods.put(string_chars_sym, .{ .method = .{ .builtin = &builtinStringChars } });
+    try vm.string_class.module.methods.put(string_chars_sym, value.MethodEntry.builtin(&builtinStringChars, .{ .exact = 0 }));
 
     const string_each_char_sym = try vm.intern("each_char");
-    try vm.string_class.module.methods.put(string_each_char_sym, .{ .method = .{ .builtin = &builtinStringEachChar } });
+    try vm.string_class.module.methods.put(string_each_char_sym, value.MethodEntry.builtin(&builtinStringEachChar, .{ .exact = 0 }));
 
     const string_bytes_sym = try vm.intern("bytes");
-    try vm.string_class.module.methods.put(string_bytes_sym, .{ .method = .{ .builtin = &builtinStringBytes } });
+    try vm.string_class.module.methods.put(string_bytes_sym, value.MethodEntry.builtin(&builtinStringBytes, .{ .exact = 0 }));
 
     const string_each_byte_sym = try vm.intern("each_byte");
-    try vm.string_class.module.methods.put(string_each_byte_sym, .{ .method = .{ .builtin = &builtinStringEachByte } });
+    try vm.string_class.module.methods.put(string_each_byte_sym, value.MethodEntry.builtin(&builtinStringEachByte, .{ .exact = 0 }));
 
     const string_getbyte_sym = try vm.intern("getbyte");
-    try vm.string_class.module.methods.put(string_getbyte_sym, .{ .method = .{ .builtin = &builtinStringGetbyte } });
+    try vm.string_class.module.methods.put(string_getbyte_sym, value.MethodEntry.builtin(&builtinStringGetbyte, .{ .exact = 1 }));
 
     const string_setbyte_sym = try vm.intern("setbyte");
-    try vm.string_class.module.methods.put(string_setbyte_sym, .{ .method = .{ .builtin = &builtinStringSetbyte } });
+    try vm.string_class.module.methods.put(string_setbyte_sym, value.MethodEntry.builtin(&builtinStringSetbyte, .{ .exact = 2 }));
 
     const string_insert_sym = try vm.intern("insert");
-    try vm.string_class.module.methods.put(string_insert_sym, .{ .method = .{ .builtin = &builtinStringInsert } });
+    try vm.string_class.module.methods.put(string_insert_sym, value.MethodEntry.builtin(&builtinStringInsert, .{ .exact = 2 }));
 
     const string_codepoints_sym = try vm.intern("codepoints");
-    try vm.string_class.module.methods.put(string_codepoints_sym, .{ .method = .{ .builtin = &builtinStringCodepoints } });
+    try vm.string_class.module.methods.put(string_codepoints_sym, value.MethodEntry.builtin(&builtinStringCodepoints, .{ .exact = 0 }));
 
     const string_each_codepoint_sym = try vm.intern("each_codepoint");
-    try vm.string_class.module.methods.put(string_each_codepoint_sym, .{ .method = .{ .builtin = &builtinStringEachCodepoint } });
+    try vm.string_class.module.methods.put(string_each_codepoint_sym, value.MethodEntry.builtin(&builtinStringEachCodepoint, .{ .exact = 0 }));
 
     const string_start_with_sym = try vm.intern("start_with?");
-    try vm.string_class.module.methods.put(string_start_with_sym, .{ .method = .{ .builtin = &builtinStringStartWith } });
+    try vm.string_class.module.methods.put(string_start_with_sym, value.MethodEntry.builtin(&builtinStringStartWith, .{ .variadic = 0 }));
 
     const string_end_with_sym = try vm.intern("end_with?");
-    try vm.string_class.module.methods.put(string_end_with_sym, .{ .method = .{ .builtin = &builtinStringEndWith } });
+    try vm.string_class.module.methods.put(string_end_with_sym, value.MethodEntry.builtin(&builtinStringEndWith, .{ .variadic = 0 }));
 
     const string_delete_prefix_sym = try vm.intern("delete_prefix");
-    try vm.string_class.module.methods.put(string_delete_prefix_sym, .{ .method = .{ .builtin = &builtinStringDeletePrefix } });
+    try vm.string_class.module.methods.put(string_delete_prefix_sym, value.MethodEntry.builtin(&builtinStringDeletePrefix, .{ .exact = 1 }));
 
     const string_delete_prefix_bang_sym = try vm.intern("delete_prefix!");
-    try vm.string_class.module.methods.put(string_delete_prefix_bang_sym, .{ .method = .{ .builtin = &builtinStringDeletePrefixBang } });
+    try vm.string_class.module.methods.put(string_delete_prefix_bang_sym, value.MethodEntry.builtin(&builtinStringDeletePrefixBang, .{ .exact = 1 }));
 
     const string_delete_suffix_sym = try vm.intern("delete_suffix");
-    try vm.string_class.module.methods.put(string_delete_suffix_sym, .{ .method = .{ .builtin = &builtinStringDeleteSuffix } });
+    try vm.string_class.module.methods.put(string_delete_suffix_sym, value.MethodEntry.builtin(&builtinStringDeleteSuffix, .{ .exact = 1 }));
 
     const string_delete_suffix_bang_sym = try vm.intern("delete_suffix!");
-    try vm.string_class.module.methods.put(string_delete_suffix_bang_sym, .{ .method = .{ .builtin = &builtinStringDeleteSuffixBang } });
+    try vm.string_class.module.methods.put(string_delete_suffix_bang_sym, value.MethodEntry.builtin(&builtinStringDeleteSuffixBang, .{ .exact = 1 }));
 
     const string_delete_sym = try vm.intern("delete");
-    try vm.string_class.module.methods.put(string_delete_sym, .{ .method = .{ .builtin = &builtinStringDelete } });
+    try vm.string_class.module.methods.put(string_delete_sym, value.MethodEntry.builtin(&builtinStringDelete, .{ .variadic = 0 }));
     const string_delete_bang_sym = try vm.intern("delete!");
-    try vm.string_class.module.methods.put(string_delete_bang_sym, .{ .method = .{ .builtin = &builtinStringDeleteBang } });
+    try vm.string_class.module.methods.put(string_delete_bang_sym, value.MethodEntry.builtin(&builtinStringDeleteBang, .{ .variadic = 0 }));
 
     const string_include_sym = try vm.intern("include?");
-    try vm.string_class.module.methods.put(string_include_sym, .{ .method = .{ .builtin = &builtinStringInclude } });
+    try vm.string_class.module.methods.put(string_include_sym, value.MethodEntry.builtin(&builtinStringInclude, .{ .exact = 1 }));
 
     const string_index_sym = try vm.intern("index");
-    try vm.string_class.module.methods.put(string_index_sym, .{ .method = .{ .builtin = &builtinStringIndex } });
+    try vm.string_class.module.methods.put(string_index_sym, value.MethodEntry.builtin(&builtinStringIndex, .{ .variadic = 0 }));
 
     const string_prepend_sym = try vm.intern("prepend");
-    try vm.string_class.module.methods.put(string_prepend_sym, .{ .method = .{ .builtin = &builtinStringPrepend } });
+    try vm.string_class.module.methods.put(string_prepend_sym, value.MethodEntry.builtin(&builtinStringPrepend, .{ .variadic = 0 }));
 
     const string_split_sym = try vm.intern("split");
-    try vm.string_class.module.methods.put(string_split_sym, .{ .method = .{ .builtin = &builtinStringSplit } });
+    try vm.string_class.module.methods.put(string_split_sym, value.MethodEntry.builtin(&builtinStringSplit, .{ .variadic = 0 }));
 
     const string_strip_sym = try vm.intern("strip");
-    try vm.string_class.module.methods.put(string_strip_sym, .{ .method = .{ .builtin = &builtinStringStrip } });
+    try vm.string_class.module.methods.put(string_strip_sym, value.MethodEntry.builtin(&builtinStringStrip, .{ .exact = 0 }));
     const string_strip_bang_sym = try vm.intern("strip!");
-    try vm.string_class.module.methods.put(string_strip_bang_sym, .{ .method = .{ .builtin = &builtinStringStripBang } });
+    try vm.string_class.module.methods.put(string_strip_bang_sym, value.MethodEntry.builtin(&builtinStringStripBang, .{ .exact = 0 }));
 
     const string_reverse_sym = try vm.intern("reverse");
-    try vm.string_class.module.methods.put(string_reverse_sym, .{ .method = .{ .builtin = &builtinStringReverse } });
+    try vm.string_class.module.methods.put(string_reverse_sym, value.MethodEntry.builtin(&builtinStringReverse, .{ .exact = 0 }));
     const string_reverse_bang_sym = try vm.intern("reverse!");
-    try vm.string_class.module.methods.put(string_reverse_bang_sym, .{ .method = .{ .builtin = &builtinStringReverseBang } });
+    try vm.string_class.module.methods.put(string_reverse_bang_sym, value.MethodEntry.builtin(&builtinStringReverseBang, .{ .exact = 0 }));
 
     const string_upcase_sym = try vm.intern("upcase");
-    try vm.string_class.module.methods.put(string_upcase_sym, .{ .method = .{ .builtin = &builtinStringUpcase } });
+    try vm.string_class.module.methods.put(string_upcase_sym, value.MethodEntry.builtin(&builtinStringUpcase, .{ .variadic = 0 }));
     const string_upcase_bang_sym = try vm.intern("upcase!");
-    try vm.string_class.module.methods.put(string_upcase_bang_sym, .{ .method = .{ .builtin = &builtinStringUpcaseBang } });
+    try vm.string_class.module.methods.put(string_upcase_bang_sym, value.MethodEntry.builtin(&builtinStringUpcaseBang, .{ .variadic = 0 }));
     const string_downcase_sym = try vm.intern("downcase");
-    try vm.string_class.module.methods.put(string_downcase_sym, .{ .method = .{ .builtin = &builtinStringDowncase } });
+    try vm.string_class.module.methods.put(string_downcase_sym, value.MethodEntry.builtin(&builtinStringDowncase, .{ .variadic = 0 }));
     const string_downcase_bang_sym = try vm.intern("downcase!");
-    try vm.string_class.module.methods.put(string_downcase_bang_sym, .{ .method = .{ .builtin = &builtinStringDowncaseBang } });
+    try vm.string_class.module.methods.put(string_downcase_bang_sym, value.MethodEntry.builtin(&builtinStringDowncaseBang, .{ .variadic = 0 }));
     const string_swapcase_sym = try vm.intern("swapcase");
-    try vm.string_class.module.methods.put(string_swapcase_sym, .{ .method = .{ .builtin = &builtinStringSwapcase } });
+    try vm.string_class.module.methods.put(string_swapcase_sym, value.MethodEntry.builtin(&builtinStringSwapcase, .{ .variadic = 0 }));
     const string_swapcase_bang_sym = try vm.intern("swapcase!");
-    try vm.string_class.module.methods.put(string_swapcase_bang_sym, .{ .method = .{ .builtin = &builtinStringSwapcaseBang } });
+    try vm.string_class.module.methods.put(string_swapcase_bang_sym, value.MethodEntry.builtin(&builtinStringSwapcaseBang, .{ .variadic = 0 }));
     const string_capitalize_sym = try vm.intern("capitalize");
-    try vm.string_class.module.methods.put(string_capitalize_sym, .{ .method = .{ .builtin = &builtinStringCapitalize } });
+    try vm.string_class.module.methods.put(string_capitalize_sym, value.MethodEntry.builtin(&builtinStringCapitalize, .{ .variadic = 0 }));
     const string_capitalize_bang_sym = try vm.intern("capitalize!");
-    try vm.string_class.module.methods.put(string_capitalize_bang_sym, .{ .method = .{ .builtin = &builtinStringCapitalizeBang } });
+    try vm.string_class.module.methods.put(string_capitalize_bang_sym, value.MethodEntry.builtin(&builtinStringCapitalizeBang, .{ .variadic = 0 }));
     const string_succ_sym = try vm.intern("succ");
-    try vm.string_class.module.methods.put(string_succ_sym, .{ .method = .{ .builtin = &builtinStringNext } });
+    try vm.string_class.module.methods.put(string_succ_sym, value.MethodEntry.builtin(&builtinStringNext, .{ .exact = 0 }));
     const string_succ_bang_sym = try vm.intern("succ!");
-    try vm.string_class.module.methods.put(string_succ_bang_sym, .{ .method = .{ .builtin = &builtinStringNextBang } });
+    try vm.string_class.module.methods.put(string_succ_bang_sym, value.MethodEntry.builtin(&builtinStringNextBang, .{ .exact = 0 }));
     const string_next_sym = try vm.intern("next");
-    try vm.string_class.module.methods.put(string_next_sym, .{ .method = .{ .builtin = &builtinStringNext } });
+    try vm.string_class.module.methods.put(string_next_sym, value.MethodEntry.builtin(&builtinStringNext, .{ .exact = 0 }));
     const string_next_bang_sym = try vm.intern("next!");
-    try vm.string_class.module.methods.put(string_next_bang_sym, .{ .method = .{ .builtin = &builtinStringNextBang } });
+    try vm.string_class.module.methods.put(string_next_bang_sym, value.MethodEntry.builtin(&builtinStringNextBang, .{ .exact = 0 }));
 
     const string_to_i_sym = try vm.intern("to_i");
-    try vm.string_class.module.methods.put(string_to_i_sym, .{ .method = .{ .builtin = &builtinStringToI } });
+    try vm.string_class.module.methods.put(string_to_i_sym, value.MethodEntry.builtin(&builtinStringToI, .{ .variadic = 0 }));
 
     const string_to_f_sym = try vm.intern("to_f");
-    try vm.string_class.module.methods.put(string_to_f_sym, .{ .method = .{ .builtin = &builtinStringToF } });
+    try vm.string_class.module.methods.put(string_to_f_sym, value.MethodEntry.builtin(&builtinStringToF, .{ .exact = 0 }));
 
     const string_oct_sym = try vm.intern("oct");
-    try vm.string_class.module.methods.put(string_oct_sym, .{ .method = .{ .builtin = &builtinStringOct } });
+    try vm.string_class.module.methods.put(string_oct_sym, value.MethodEntry.builtin(&builtinStringOct, .{ .exact = 0 }));
 
     const string_hex_sym = try vm.intern("hex");
-    try vm.string_class.module.methods.put(string_hex_sym, .{ .method = .{ .builtin = &builtinStringHex } });
+    try vm.string_class.module.methods.put(string_hex_sym, value.MethodEntry.builtin(&builtinStringHex, .{ .exact = 0 }));
 
     const string_to_sym_sym = try vm.intern("to_sym");
-    try vm.string_class.module.methods.put(string_to_sym_sym, .{ .method = .{ .builtin = &builtinStringToSym } });
+    try vm.string_class.module.methods.put(string_to_sym_sym, value.MethodEntry.builtin(&builtinStringToSym, .{ .exact = 0 }));
 
     const string_intern_sym = try vm.intern("intern");
-    try vm.string_class.module.methods.put(string_intern_sym, .{ .method = .{ .builtin = &builtinStringToSym } });
+    try vm.string_class.module.methods.put(string_intern_sym, value.MethodEntry.builtin(&builtinStringToSym, .{ .exact = 0 }));
 
     const to_s_sym = try vm.intern("to_s");
-    try vm.string_class.module.methods.put(to_s_sym, .{ .method = .{ .builtin = &builtinStringToS } });
+    try vm.string_class.module.methods.put(to_s_sym, value.MethodEntry.builtin(&builtinStringToS, .{ .exact = 0 }));
 
     const to_str_sym = try vm.intern("to_str");
-    try vm.string_class.module.methods.put(to_str_sym, .{ .method = .{ .builtin = &builtinStringToStr } });
+    try vm.string_class.module.methods.put(to_str_sym, value.MethodEntry.builtin(&builtinStringToStr, .{ .exact = 0 }));
 
     const inspect_sym = try vm.intern("inspect");
-    try vm.string_class.module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinStringInspect } });
+    try vm.string_class.module.methods.put(inspect_sym, value.MethodEntry.builtin(&builtinStringInspect, .{ .exact = 0 }));
     const dump_sym = try vm.intern("dump");
-    try vm.string_class.module.methods.put(dump_sym, .{ .method = .{ .builtin = &builtinStringDump } });
+    try vm.string_class.module.methods.put(dump_sym, value.MethodEntry.builtin(&builtinStringDump, .{ .exact = 0 }));
 
     const match_op_sym = try vm.intern("=~");
-    try vm.string_class.module.methods.put(match_op_sym, .{ .method = .{ .builtin = &builtinStringMatchOp } });
+    try vm.string_class.module.methods.put(match_op_sym, value.MethodEntry.builtin(&builtinStringMatchOp, .{ .exact = 1 }));
 
     const match_sym = try vm.intern("match");
-    try vm.string_class.module.methods.put(match_sym, .{ .method = .{ .builtin = &builtinStringMatch } });
+    try vm.string_class.module.methods.put(match_sym, value.MethodEntry.builtin(&builtinStringMatch, .{ .variadic = 0 }));
 
     const match_q_sym = try vm.intern("match?");
-    try vm.string_class.module.methods.put(match_q_sym, .{ .method = .{ .builtin = &builtinStringMatchQ } });
+    try vm.string_class.module.methods.put(match_q_sym, value.MethodEntry.builtin(&builtinStringMatchQ, .{ .variadic = 0 }));
 
     const scan_sym = try vm.intern("scan");
-    try vm.string_class.module.methods.put(scan_sym, .{ .method = .{ .builtin = &builtinStringScan } });
+    try vm.string_class.module.methods.put(scan_sym, value.MethodEntry.builtin(&builtinStringScan, .{ .exact = 1 }));
 
     const unpack_sym = try vm.intern("unpack");
-    try vm.string_class.module.methods.put(unpack_sym, .{ .method = .{ .builtin = &builtinStringUnpack } });
+    try vm.string_class.module.methods.put(unpack_sym, value.MethodEntry.builtin(&builtinStringUnpack, .{ .variadic = 1 }));
 
     const unpack1_sym = try vm.intern("unpack1");
-    try vm.string_class.module.methods.put(unpack1_sym, .{ .method = .{ .builtin = &builtinStringUnpack1 } });
+    try vm.string_class.module.methods.put(unpack1_sym, value.MethodEntry.builtin(&builtinStringUnpack1, .{ .variadic = 1 }));
 }
 
 pub fn builtinStringTryConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

@@ -326,230 +326,227 @@ pub fn register(vm: *VM) !void {
     const array_singleton = try vm.getOrCreateSingletonClass(array_class_val);
 
     const class_bracket_sym = try vm.intern("[]");
-    try array_singleton.module.methods.put(class_bracket_sym, .{ .method = .{ .builtin = &builtinArrayClassBracket } });
+    try array_singleton.module.methods.put(class_bracket_sym, value.MethodEntry.builtin(&builtinArrayClassBracket, .{ .variadic = 0 }));
 
     const try_convert_sym = try vm.intern("try_convert");
-    try array_singleton.module.methods.put(try_convert_sym, .{ .method = .{ .builtin = &builtinArrayTryConvert } });
+    try array_singleton.module.methods.put(try_convert_sym, value.MethodEntry.builtin(&builtinArrayTryConvert, .{ .exact = 1 }));
 
     const initialize_sym = try vm.intern("initialize");
-    try vm.array_class.module.methods.put(initialize_sym, .{
-        .method = .{ .builtin = &builtinArrayInitialize },
-        .visibility = .private,
-    });
+    try vm.array_class.module.methods.put(initialize_sym, value.MethodEntry.builtinWithVisibility(&builtinArrayInitialize, .{ .variadic = 0 }, .private));
 
     const push_sym = try vm.intern("<<");
-    try vm.array_class.module.methods.put(push_sym, .{ .method = .{ .builtin = &builtinArrayPush } });
+    try vm.array_class.module.methods.put(push_sym, value.MethodEntry.builtin(&builtinArrayPush, .{ .exact = 1 }));
 
     const append_sym = try vm.intern("append");
-    try vm.array_class.module.methods.put(append_sym, .{ .method = .{ .builtin = &builtinArrayAppend } });
+    try vm.array_class.module.methods.put(append_sym, value.MethodEntry.builtin(&builtinArrayAppend, .{ .variadic = 0 }));
 
     const push_method_sym = try vm.intern("push");
-    try vm.array_class.module.methods.put(push_method_sym, .{ .method = .{ .builtin = &builtinArrayAppend } });
+    try vm.array_class.module.methods.put(push_method_sym, value.MethodEntry.builtin(&builtinArrayAppend, .{ .variadic = 0 }));
 
     const concat_sym = try vm.intern("concat");
-    try vm.array_class.module.methods.put(concat_sym, .{ .method = .{ .builtin = &builtinArrayConcat } });
+    try vm.array_class.module.methods.put(concat_sym, value.MethodEntry.builtin(&builtinArrayConcat, .{ .variadic = 0 }));
 
     const unshift_sym = try vm.intern("unshift");
-    try vm.array_class.module.methods.put(unshift_sym, .{ .method = .{ .builtin = &builtinArrayUnshift } });
+    try vm.array_class.module.methods.put(unshift_sym, value.MethodEntry.builtin(&builtinArrayUnshift, .{ .variadic = 0 }));
     const prepend_sym = try vm.intern("prepend");
-    try vm.array_class.module.methods.put(prepend_sym, .{ .method = .{ .builtin = &builtinArrayUnshift } });
+    try vm.array_class.module.methods.put(prepend_sym, value.MethodEntry.builtin(&builtinArrayUnshift, .{ .variadic = 0 }));
 
     const each_sym = try vm.intern("each");
-    try vm.array_class.module.methods.put(each_sym, .{ .method = .{ .builtin = &builtinArrayEach } });
+    try vm.array_class.module.methods.put(each_sym, value.MethodEntry.builtin(&builtinArrayEach, .{ .exact = 0 }));
 
     const reverse_each_sym = try vm.intern("reverse_each");
-    try vm.array_class.module.methods.put(reverse_each_sym, .{ .method = .{ .builtin = &builtinArrayReverseEach } });
+    try vm.array_class.module.methods.put(reverse_each_sym, value.MethodEntry.builtin(&builtinArrayReverseEach, .{ .exact = 0 }));
 
     const each_with_index_sym = try vm.intern("each_with_index");
-    try vm.array_class.module.methods.put(each_with_index_sym, .{ .method = .{ .builtin = &builtinArrayEachWithIndex } });
+    try vm.array_class.module.methods.put(each_with_index_sym, value.MethodEntry.builtin(&builtinArrayEachWithIndex, .{ .variadic = 0 }));
 
     const each_index_sym = try vm.intern("each_index");
-    try vm.array_class.module.methods.put(each_index_sym, .{ .method = .{ .builtin = &builtinArrayEachIndex } });
+    try vm.array_class.module.methods.put(each_index_sym, value.MethodEntry.builtin(&builtinArrayEachIndex, .{ .exact = 0 }));
 
     const bracket_sym = try vm.intern("[]");
-    try vm.array_class.module.methods.put(bracket_sym, .{ .method = .{ .builtin = &builtinArrayBracket } });
+    try vm.array_class.module.methods.put(bracket_sym, value.MethodEntry.builtin(&builtinArrayBracket, .{ .variadic = 0 }));
 
     const bracket_set_sym = try vm.intern("[]=");
-    try vm.array_class.module.methods.put(bracket_set_sym, .{ .method = .{ .builtin = &builtinArrayBracketSet } });
+    try vm.array_class.module.methods.put(bracket_set_sym, value.MethodEntry.builtin(&builtinArrayBracketSet, .{ .variadic = 0 }));
 
     const equal_sym = try vm.intern("==");
-    try vm.array_class.module.methods.put(equal_sym, .{ .method = .{ .builtin = &builtinArrayEqual } });
+    try vm.array_class.module.methods.put(equal_sym, value.MethodEntry.builtin(&builtinArrayEqual, .{ .exact = 1 }));
     const eql_sym = try vm.intern("eql?");
-    try vm.array_class.module.methods.put(eql_sym, .{ .method = .{ .builtin = &builtinArrayEql } });
+    try vm.array_class.module.methods.put(eql_sym, value.MethodEntry.builtin(&builtinArrayEql, .{ .exact = 1 }));
     const hash_sym = try vm.intern("hash");
-    try vm.array_class.module.methods.put(hash_sym, .{ .method = .{ .builtin = &builtinArrayHash } });
+    try vm.array_class.module.methods.put(hash_sym, value.MethodEntry.builtin(&builtinArrayHash, .{ .exact = 0 }));
     const cmp_sym = try vm.intern("<=>");
-    try vm.array_class.module.methods.put(cmp_sym, .{ .method = .{ .builtin = &builtinArrayCmp } });
+    try vm.array_class.module.methods.put(cmp_sym, value.MethodEntry.builtin(&builtinArrayCmp, .{ .exact = 1 }));
 
     const length_sym = try vm.intern("length");
-    try vm.array_class.module.methods.put(length_sym, .{ .method = .{ .builtin = &builtinArrayLength } });
+    try vm.array_class.module.methods.put(length_sym, value.MethodEntry.builtin(&builtinArrayLength, .{ .exact = 0 }));
 
     const size_sym = try vm.intern("size");
-    try vm.array_class.module.methods.put(size_sym, .{ .method = .{ .builtin = &builtinArrayLength } });
+    try vm.array_class.module.methods.put(size_sym, value.MethodEntry.builtin(&builtinArrayLength, .{ .exact = 0 }));
 
     const map_sym = try vm.intern("map");
-    try vm.array_class.module.methods.put(map_sym, .{ .method = .{ .builtin = &builtinArrayMap } });
+    try vm.array_class.module.methods.put(map_sym, value.MethodEntry.builtin(&builtinArrayMap, .{ .exact = 0 }));
 
     const collect_sym = try vm.intern("collect");
-    try vm.array_class.module.methods.put(collect_sym, .{ .method = .{ .builtin = &builtinArrayCollect } });
+    try vm.array_class.module.methods.put(collect_sym, value.MethodEntry.builtin(&builtinArrayCollect, .{ .exact = 0 }));
 
     const map_bang_sym = try vm.intern("map!");
-    try vm.array_class.module.methods.put(map_bang_sym, .{ .method = .{ .builtin = &builtinArrayMapBang } });
+    try vm.array_class.module.methods.put(map_bang_sym, value.MethodEntry.builtin(&builtinArrayMapBang, .{ .exact = 0 }));
 
     const collect_bang_sym = try vm.intern("collect!");
-    try vm.array_class.module.methods.put(collect_bang_sym, .{ .method = .{ .builtin = &builtinArrayCollectBang } });
+    try vm.array_class.module.methods.put(collect_bang_sym, value.MethodEntry.builtin(&builtinArrayCollectBang, .{ .exact = 0 }));
 
     const compact_sym = try vm.intern("compact");
-    try vm.array_class.module.methods.put(compact_sym, .{ .method = .{ .builtin = &builtinArrayCompact } });
+    try vm.array_class.module.methods.put(compact_sym, value.MethodEntry.builtin(&builtinArrayCompact, .{ .exact = 0 }));
 
     const compact_bang_sym = try vm.intern("compact!");
-    try vm.array_class.module.methods.put(compact_bang_sym, .{ .method = .{ .builtin = &builtinArrayCompactBang } });
+    try vm.array_class.module.methods.put(compact_bang_sym, value.MethodEntry.builtin(&builtinArrayCompactBang, .{ .exact = 0 }));
 
     const flatten_sym = try vm.intern("flatten");
-    try vm.array_class.module.methods.put(flatten_sym, .{ .method = .{ .builtin = &builtinArrayFlatten } });
+    try vm.array_class.module.methods.put(flatten_sym, value.MethodEntry.builtin(&builtinArrayFlatten, .{ .variadic = 0 }));
 
     const select_sym = try vm.intern("select");
-    try vm.array_class.module.methods.put(select_sym, .{ .method = .{ .builtin = &builtinArraySelect } });
+    try vm.array_class.module.methods.put(select_sym, value.MethodEntry.builtin(&builtinArraySelect, .{ .exact = 0 }));
     const filter_sym = try vm.intern("filter");
-    try vm.array_class.module.methods.put(filter_sym, .{ .method = .{ .builtin = &builtinArraySelect } });
+    try vm.array_class.module.methods.put(filter_sym, value.MethodEntry.builtin(&builtinArraySelect, .{ .exact = 0 }));
 
     const reject_sym = try vm.intern("reject");
-    try vm.array_class.module.methods.put(reject_sym, .{ .method = .{ .builtin = &builtinArrayReject } });
+    try vm.array_class.module.methods.put(reject_sym, value.MethodEntry.builtin(&builtinArrayReject, .{ .exact = 0 }));
 
     const partition_sym = try vm.intern("partition");
-    try vm.array_class.module.methods.put(partition_sym, .{ .method = .{ .builtin = &builtinArrayPartition } });
+    try vm.array_class.module.methods.put(partition_sym, value.MethodEntry.builtin(&builtinArrayPartition, .{ .exact = 0 }));
 
     const select_bang_sym = try vm.intern("select!");
-    try vm.array_class.module.methods.put(select_bang_sym, .{ .method = .{ .builtin = &builtinArraySelectBang } });
+    try vm.array_class.module.methods.put(select_bang_sym, value.MethodEntry.builtin(&builtinArraySelectBang, .{ .exact = 0 }));
     const filter_bang_sym = try vm.intern("filter!");
-    try vm.array_class.module.methods.put(filter_bang_sym, .{ .method = .{ .builtin = &builtinArraySelectBang } });
+    try vm.array_class.module.methods.put(filter_bang_sym, value.MethodEntry.builtin(&builtinArraySelectBang, .{ .exact = 0 }));
 
     const keep_if_sym = try vm.intern("keep_if");
-    try vm.array_class.module.methods.put(keep_if_sym, .{ .method = .{ .builtin = &builtinArrayKeepIf } });
+    try vm.array_class.module.methods.put(keep_if_sym, value.MethodEntry.builtin(&builtinArrayKeepIf, .{ .exact = 0 }));
 
     const delete_if_sym = try vm.intern("delete_if");
-    try vm.array_class.module.methods.put(delete_if_sym, .{ .method = .{ .builtin = &builtinArrayDeleteIf } });
+    try vm.array_class.module.methods.put(delete_if_sym, value.MethodEntry.builtin(&builtinArrayDeleteIf, .{ .exact = 0 }));
 
     const delete_sym = try vm.intern("delete");
-    try vm.array_class.module.methods.put(delete_sym, .{ .method = .{ .builtin = &builtinArrayDelete } });
+    try vm.array_class.module.methods.put(delete_sym, value.MethodEntry.builtin(&builtinArrayDelete, .{ .exact = 1 }));
 
     const any_sym = try vm.intern("any?");
-    try vm.array_class.module.methods.put(any_sym, .{ .method = .{ .builtin = &builtinArrayAny } });
+    try vm.array_class.module.methods.put(any_sym, value.MethodEntry.builtin(&builtinArrayAny, .{ .variadic = 0 }));
 
     const none_sym = try vm.intern("none?");
-    try vm.array_class.module.methods.put(none_sym, .{ .method = .{ .builtin = &builtinArrayNone } });
+    try vm.array_class.module.methods.put(none_sym, value.MethodEntry.builtin(&builtinArrayNone, .{ .variadic = 0 }));
 
     const one_sym = try vm.intern("one?");
-    try vm.array_class.module.methods.put(one_sym, .{ .method = .{ .builtin = &builtinArrayOne } });
+    try vm.array_class.module.methods.put(one_sym, value.MethodEntry.builtin(&builtinArrayOne, .{ .variadic = 0 }));
 
     const include_sym = try vm.intern("include?");
-    try vm.array_class.module.methods.put(include_sym, .{ .method = .{ .builtin = &builtinArrayInclude } });
+    try vm.array_class.module.methods.put(include_sym, value.MethodEntry.builtin(&builtinArrayInclude, .{ .exact = 1 }));
 
     const empty_sym = try vm.intern("empty?");
-    try vm.array_class.module.methods.put(empty_sym, .{ .method = .{ .builtin = &builtinArrayEmpty } });
+    try vm.array_class.module.methods.put(empty_sym, value.MethodEntry.builtin(&builtinArrayEmpty, .{ .exact = 0 }));
 
     const join_sym = try vm.intern("join");
-    try vm.array_class.module.methods.put(join_sym, .{ .method = .{ .builtin = &builtinArrayJoin } });
+    try vm.array_class.module.methods.put(join_sym, value.MethodEntry.builtin(&builtinArrayJoin, .{ .variadic = 0 }));
 
     const first_sym = try vm.intern("first");
-    try vm.array_class.module.methods.put(first_sym, .{ .method = .{ .builtin = &builtinArrayFirst } });
+    try vm.array_class.module.methods.put(first_sym, value.MethodEntry.builtin(&builtinArrayFirst, .{ .variadic = 0 }));
 
     const last_sym = try vm.intern("last");
-    try vm.array_class.module.methods.put(last_sym, .{ .method = .{ .builtin = &builtinArrayLast } });
+    try vm.array_class.module.methods.put(last_sym, value.MethodEntry.builtin(&builtinArrayLast, .{ .variadic = 0 }));
 
     const at_sym = try vm.intern("at");
-    try vm.array_class.module.methods.put(at_sym, .{ .method = .{ .builtin = &builtinArrayAt } });
+    try vm.array_class.module.methods.put(at_sym, value.MethodEntry.builtin(&builtinArrayAt, .{ .exact = 1 }));
 
     const fetch_sym = try vm.intern("fetch");
-    try vm.array_class.module.methods.put(fetch_sym, .{ .method = .{ .builtin = &builtinArrayFetch } });
+    try vm.array_class.module.methods.put(fetch_sym, value.MethodEntry.builtin(&builtinArrayFetch, .{ .variadic = 0 }));
 
     const assoc_sym = try vm.intern("assoc");
-    try vm.array_class.module.methods.put(assoc_sym, .{ .method = .{ .builtin = &builtinArrayAssoc } });
+    try vm.array_class.module.methods.put(assoc_sym, value.MethodEntry.builtin(&builtinArrayAssoc, .{ .exact = 1 }));
 
     const rassoc_sym = try vm.intern("rassoc");
-    try vm.array_class.module.methods.put(rassoc_sym, .{ .method = .{ .builtin = &builtinArrayRassoc } });
+    try vm.array_class.module.methods.put(rassoc_sym, value.MethodEntry.builtin(&builtinArrayRassoc, .{ .exact = 1 }));
 
     const index_sym = try vm.intern("index");
-    try vm.array_class.module.methods.put(index_sym, .{ .method = .{ .builtin = &builtinArrayIndex } });
+    try vm.array_class.module.methods.put(index_sym, value.MethodEntry.builtin(&builtinArrayIndex, .{ .variadic = 0 }));
     const rindex_sym = try vm.intern("rindex");
-    try vm.array_class.module.methods.put(rindex_sym, .{ .method = .{ .builtin = &builtinArrayRindex } });
+    try vm.array_class.module.methods.put(rindex_sym, value.MethodEntry.builtin(&builtinArrayRindex, .{ .variadic = 0 }));
     const find_index_sym = try vm.intern("find_index");
-    try vm.array_class.module.methods.put(find_index_sym, .{ .method = .{ .builtin = &builtinArrayIndex } });
+    try vm.array_class.module.methods.put(find_index_sym, value.MethodEntry.builtin(&builtinArrayIndex, .{ .variadic = 0 }));
     const bsearch_sym = try vm.intern("bsearch");
-    try vm.array_class.module.methods.put(bsearch_sym, .{ .method = .{ .builtin = &builtinArrayBsearch } });
+    try vm.array_class.module.methods.put(bsearch_sym, value.MethodEntry.builtin(&builtinArrayBsearch, .{ .exact = 0 }));
 
     const dig_sym = try vm.intern("dig");
-    try vm.array_class.module.methods.put(dig_sym, .{ .method = .{ .builtin = &builtinArrayDig } });
+    try vm.array_class.module.methods.put(dig_sym, value.MethodEntry.builtin(&builtinArrayDig, .{ .variadic = 0 }));
 
     const intersection_sym = try vm.intern("&");
-    try vm.array_class.module.methods.put(intersection_sym, .{ .method = .{ .builtin = &builtinArrayIntersection } });
+    try vm.array_class.module.methods.put(intersection_sym, value.MethodEntry.builtin(&builtinArrayIntersection, .{ .exact = 1 }));
 
     const union_sym = try vm.intern("|");
-    try vm.array_class.module.methods.put(union_sym, .{ .method = .{ .builtin = &builtinArrayUnion } });
+    try vm.array_class.module.methods.put(union_sym, value.MethodEntry.builtin(&builtinArrayUnion, .{ .exact = 1 }));
 
     const plus_sym = try vm.intern("+");
-    try vm.array_class.module.methods.put(plus_sym, .{ .method = .{ .builtin = &builtinArrayPlus } });
+    try vm.array_class.module.methods.put(plus_sym, value.MethodEntry.builtin(&builtinArrayPlus, .{ .exact = 1 }));
 
     const to_s_sym = try vm.intern("to_s");
-    try vm.array_class.module.methods.put(to_s_sym, .{ .method = .{ .builtin = &builtinArrayToS } });
+    try vm.array_class.module.methods.put(to_s_sym, value.MethodEntry.builtin(&builtinArrayToS, .{ .exact = 0 }));
 
     const inspect_sym = try vm.intern("inspect");
-    try vm.array_class.module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinArrayInspect } });
+    try vm.array_class.module.methods.put(inspect_sym, value.MethodEntry.builtin(&builtinArrayInspect, .{ .exact = 0 }));
 
     const to_a_sym = try vm.intern("to_a");
-    try vm.array_class.module.methods.put(to_a_sym, .{ .method = .{ .builtin = &builtinArrayToA } });
+    try vm.array_class.module.methods.put(to_a_sym, value.MethodEntry.builtin(&builtinArrayToA, .{ .exact = 0 }));
     const to_ary_sym = try vm.intern("to_ary");
-    try vm.array_class.module.methods.put(to_ary_sym, .{ .method = .{ .builtin = &builtinArrayToAry } });
+    try vm.array_class.module.methods.put(to_ary_sym, value.MethodEntry.builtin(&builtinArrayToAry, .{ .exact = 0 }));
     const to_h_sym = try vm.intern("to_h");
-    try vm.array_class.module.methods.put(to_h_sym, .{ .method = .{ .builtin = &builtinArrayToH } });
+    try vm.array_class.module.methods.put(to_h_sym, value.MethodEntry.builtin(&builtinArrayToH, .{ .exact = 0 }));
 
     const replace_sym = try vm.intern("replace");
-    try vm.array_class.module.methods.put(replace_sym, .{ .method = .{ .builtin = &builtinArrayReplace } });
+    try vm.array_class.module.methods.put(replace_sym, value.MethodEntry.builtin(&builtinArrayReplace, .{ .exact = 1 }));
 
     const all_sym = try vm.intern("all?");
-    try vm.array_class.module.methods.put(all_sym, .{ .method = .{ .builtin = &builtinArrayAll } });
+    try vm.array_class.module.methods.put(all_sym, value.MethodEntry.builtin(&builtinArrayAll, .{ .variadic = 0 }));
 
     const sort_sym = try vm.intern("sort");
-    try vm.array_class.module.methods.put(sort_sym, .{ .method = .{ .builtin = &builtinArraySort } });
+    try vm.array_class.module.methods.put(sort_sym, value.MethodEntry.builtin(&builtinArraySort, .{ .exact = 0 }));
 
     const reverse_sym = try vm.intern("reverse");
-    try vm.array_class.module.methods.put(reverse_sym, .{ .method = .{ .builtin = &builtinArrayReverse } });
+    try vm.array_class.module.methods.put(reverse_sym, value.MethodEntry.builtin(&builtinArrayReverse, .{ .exact = 0 }));
 
     const reverse_bang_sym = try vm.intern("reverse!");
-    try vm.array_class.module.methods.put(reverse_bang_sym, .{ .method = .{ .builtin = &builtinArrayReverseBang } });
+    try vm.array_class.module.methods.put(reverse_bang_sym, value.MethodEntry.builtin(&builtinArrayReverseBang, .{ .exact = 0 }));
 
     const pack_sym = try vm.intern("pack");
-    try vm.array_class.module.methods.put(pack_sym, .{ .method = .{ .builtin = &builtinArrayPack } });
+    try vm.array_class.module.methods.put(pack_sym, value.MethodEntry.builtin(&builtinArrayPack, .{ .variadic = 1 }));
 
     const multiply_sym = try vm.intern("*");
-    try vm.array_class.module.methods.put(multiply_sym, .{ .method = .{ .builtin = &builtinArrayMultiply } });
+    try vm.array_class.module.methods.put(multiply_sym, value.MethodEntry.builtin(&builtinArrayMultiply, .{ .exact = 1 }));
 
     const clear_sym = try vm.intern("clear");
-    try vm.array_class.module.methods.put(clear_sym, .{ .method = .{ .builtin = &builtinArrayClear } });
+    try vm.array_class.module.methods.put(clear_sym, value.MethodEntry.builtin(&builtinArrayClear, .{ .exact = 0 }));
 
     const fill_sym = try vm.intern("fill");
-    try vm.array_class.module.methods.put(fill_sym, .{ .method = .{ .builtin = &builtinArrayFill } });
+    try vm.array_class.module.methods.put(fill_sym, value.MethodEntry.builtin(&builtinArrayFill, .{ .variadic = 0 }));
 
     const shift_sym = try vm.intern("shift");
-    try vm.array_class.module.methods.put(shift_sym, .{ .method = .{ .builtin = &builtinArrayShift } });
+    try vm.array_class.module.methods.put(shift_sym, value.MethodEntry.builtin(&builtinArrayShift, .{ .variadic = 0 }));
 
     const pop_sym = try vm.intern("pop");
-    try vm.array_class.module.methods.put(pop_sym, .{ .method = .{ .builtin = &builtinArrayPop } });
+    try vm.array_class.module.methods.put(pop_sym, value.MethodEntry.builtin(&builtinArrayPop, .{ .variadic = 0 }));
 
     const delete_at_sym = try vm.intern("delete_at");
-    try vm.array_class.module.methods.put(delete_at_sym, .{ .method = .{ .builtin = &builtinArrayDeleteAt } });
+    try vm.array_class.module.methods.put(delete_at_sym, value.MethodEntry.builtin(&builtinArrayDeleteAt, .{ .exact = 1 }));
 
     const dup_sym = try vm.intern("dup");
-    try vm.array_class.module.methods.put(dup_sym, .{ .method = .{ .builtin = &builtinArrayDup } });
+    try vm.array_class.module.methods.put(dup_sym, value.MethodEntry.builtin(&builtinArrayDup, .{ .exact = 0 }));
 
     const clone_sym = try vm.intern("clone");
-    try vm.array_class.module.methods.put(clone_sym, .{ .method = .{ .builtin = &builtinArrayClone } });
+    try vm.array_class.module.methods.put(clone_sym, value.MethodEntry.builtin(&builtinArrayClone, .{ .variadic = 0 }));
 
     const uniq_sym = try vm.intern("uniq");
-    try vm.array_class.module.methods.put(uniq_sym, .{ .method = .{ .builtin = &builtinArrayUniq } });
+    try vm.array_class.module.methods.put(uniq_sym, value.MethodEntry.builtin(&builtinArrayUniq, .{ .exact = 0 }));
 
     const uniq_bang_sym = try vm.intern("uniq!");
-    try vm.array_class.module.methods.put(uniq_bang_sym, .{ .method = .{ .builtin = &builtinArrayUniqBang } });
+    try vm.array_class.module.methods.put(uniq_bang_sym, value.MethodEntry.builtin(&builtinArrayUniqBang, .{ .exact = 0 }));
 }
 
 pub fn builtinArrayPush(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

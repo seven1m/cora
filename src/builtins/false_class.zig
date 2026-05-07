@@ -8,13 +8,13 @@ const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
     const to_s_sym = try vm.intern("to_s");
-    try vm.false_class.module.methods.put(to_s_sym, .{ .method = .{ .builtin = &builtinFalseClassToS } });
+    try vm.false_class.module.methods.put(to_s_sym, value.MethodEntry.builtin(&builtinFalseClassToS, .{ .exact = 0 }));
 
     const inspect_sym = try vm.intern("inspect");
-    try vm.false_class.module.methods.put(inspect_sym, .{ .method = .{ .builtin = &builtinFalseClassInspect } });
+    try vm.false_class.module.methods.put(inspect_sym, value.MethodEntry.builtin(&builtinFalseClassInspect, .{ .exact = 0 }));
 
     const equal_sym = try vm.intern("==");
-    try vm.false_class.module.methods.put(equal_sym, .{ .method = .{ .builtin = &builtinFalseClassEqual } });
+    try vm.false_class.module.methods.put(equal_sym, value.MethodEntry.builtin(&builtinFalseClassEqual, .{ .exact = 1 }));
 }
 
 pub fn builtinFalseClassToS(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

@@ -12,17 +12,17 @@ pub fn register(vm: *VM) !void {
     const enumerable_entry = vm.object_class.module.constants.get(enumerable_sym) orelse return error.Fatal;
     const enumerable_val = enumerable_entry.value;
     const entries_sym = try vm.intern("entries");
-    try enumerable_val.toModuleObject().methods.put(entries_sym, .{ .method = .{ .builtin = &builtinEnumerableEntries } });
+    try enumerable_val.toModuleObject().methods.put(entries_sym, value.MethodEntry.builtin(&builtinEnumerableEntries, .{ .variadic = 0 }));
     const map_sym = try vm.intern("map");
-    try enumerable_val.toModuleObject().methods.put(map_sym, .{ .method = .{ .builtin = &builtinEnumerableMap } });
+    try enumerable_val.toModuleObject().methods.put(map_sym, value.MethodEntry.builtin(&builtinEnumerableMap, .{ .exact = 0 }));
     const collect_sym = try vm.intern("collect");
-    try enumerable_val.toModuleObject().methods.put(collect_sym, .{ .method = .{ .builtin = &builtinEnumerableMap } });
+    try enumerable_val.toModuleObject().methods.put(collect_sym, value.MethodEntry.builtin(&builtinEnumerableMap, .{ .exact = 0 }));
     const each_with_object_sym = try vm.intern("each_with_object");
-    try enumerable_val.toModuleObject().methods.put(each_with_object_sym, .{ .method = .{ .builtin = &builtinEnumerableEachWithObject } });
+    try enumerable_val.toModuleObject().methods.put(each_with_object_sym, value.MethodEntry.builtin(&builtinEnumerableEachWithObject, .{ .exact = 1 }));
     const inject_sym = try vm.intern("inject");
-    try enumerable_val.toModuleObject().methods.put(inject_sym, .{ .method = .{ .builtin = &builtinEnumerableInject } });
+    try enumerable_val.toModuleObject().methods.put(inject_sym, value.MethodEntry.builtin(&builtinEnumerableInject, .{ .variadic = 0 }));
     const sort_by_sym = try vm.intern("sort_by");
-    try enumerable_val.toModuleObject().methods.put(sort_by_sym, .{ .method = .{ .builtin = &builtinEnumerableSortBy } });
+    try enumerable_val.toModuleObject().methods.put(sort_by_sym, value.MethodEntry.builtin(&builtinEnumerableSortBy, .{ .exact = 0 }));
 }
 
 fn builtinEnumerableEntries(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

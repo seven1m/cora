@@ -79,22 +79,22 @@ pub fn register(vm: *VM) !void {
     const dir_singleton = try vm.getOrCreateSingletonClass(dir_val);
 
     const pwd_sym = try vm.intern("pwd");
-    try dir_singleton.module.methods.put(pwd_sym, .{ .method = .{ .builtin = &builtinDirPwd } });
+    try dir_singleton.module.methods.put(pwd_sym, value.MethodEntry.builtin(&builtinDirPwd, .{ .exact = 0 }));
 
     const home_sym = try vm.intern("home");
-    try dir_singleton.module.methods.put(home_sym, .{ .method = .{ .builtin = &builtinDirHome } });
+    try dir_singleton.module.methods.put(home_sym, value.MethodEntry.builtin(&builtinDirHome, .{ .variadic = 0 }));
 
     const chdir_sym = try vm.intern("chdir");
-    try dir_singleton.module.methods.put(chdir_sym, .{ .method = .{ .builtin = &builtinDirChdir } });
+    try dir_singleton.module.methods.put(chdir_sym, value.MethodEntry.builtin(&builtinDirChdir, .{ .variadic = 0 }));
 
     const mkdir_sym = try vm.intern("mkdir");
-    try dir_singleton.module.methods.put(mkdir_sym, .{ .method = .{ .builtin = &builtinDirMkdir } });
+    try dir_singleton.module.methods.put(mkdir_sym, value.MethodEntry.builtin(&builtinDirMkdir, .{ .variadic = 0 }));
 
     const glob_sym = try vm.intern("glob");
-    try dir_singleton.module.methods.put(glob_sym, .{ .method = .{ .builtin = &builtinDirGlob } });
+    try dir_singleton.module.methods.put(glob_sym, value.MethodEntry.builtin(&builtinDirGlob, .{ .variadic = 1 }));
 
     const bracket_sym = try vm.intern("[]");
-    try dir_singleton.module.methods.put(bracket_sym, .{ .method = .{ .builtin = &builtinDirGlob } });
+    try dir_singleton.module.methods.put(bracket_sym, value.MethodEntry.builtin(&builtinDirGlob, .{ .variadic = 0 }));
 }
 
 pub fn builtinDirPwd(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
