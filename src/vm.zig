@@ -3801,6 +3801,37 @@ pub const VM = struct {
                 try self.push(result);
             },
 
+            .WHEN_SPLAT => {
+                const mode = frame.chunk.code.items[operand_cursor];
+                frame.ip += 1;
+                operand_cursor += 1;
+
+                const expanded = try self.expandSplatValue(self.pop());
+                const elements = expanded.toArrayObject().elements.items;
+
+                var matched = false;
+                if (mode == 1) {
+                    const predicate = self.peek(0);
+                    for (elements) |condition| {
+                        var args = [_]Value{predicate};
+                        const result = try self.callMethodByName(condition, "===", args[0..], null);
+                        if (result.is_truthy()) {
+                            matched = true;
+                            break;
+                        }
+                    }
+                } else {
+                    for (elements) |condition| {
+                        if (condition.is_truthy()) {
+                            matched = true;
+                            break;
+                        }
+                    }
+                }
+
+                try self.push(Value.boolean(matched));
+            },
+
             .OPT_PLUS => {
                 const stack_items = self.stack.items;
                 const len = stack_items.len;

@@ -493,6 +493,12 @@ pub const Chunk = struct {
                 try writer.print("PUSH_I8 {d}\n", .{val});
             },
 
+            .WHEN_SPLAT => {
+                const mode = self.code.items[ip];
+                ip += 1;
+                try writer.print("WHEN_SPLAT {d}\n", .{mode});
+            },
+
             .GET_LOCAL, .SET_LOCAL, .PUSH_RANGE, .INTERPOLATE_STRING, .RAISE, .CATCH_START, .DUP_N, .YIELD => {
                 const idx = self.code.items[ip];
                 ip += 1;

@@ -38,6 +38,7 @@ pub const OpCode = enum(u8) {
     DUP_N, // Operand: u8 (duplicate top N stack items in order)
     SWAP, // No operands - swaps top two stack items
     CASE_MATCH, // No operands
+    WHEN_SPLAT, // Operand: u8 (0=truthy any, 1=case match any)
 
     // Method calls
     CALL, // Operands: u16 (method name index), u8 (argc), u8 (call_flags), u16 (block chunk id)
@@ -164,7 +165,7 @@ pub fn opcodeOperandSize(op: OpCode) usize {
         => 0,
 
         // 1-byte operands
-        .GET_LOCAL, .SET_LOCAL, .DUP_N, .YIELD, .RETURN,
+        .GET_LOCAL, .SET_LOCAL, .DUP_N, .YIELD, .RETURN, .WHEN_SPLAT,
         .PUSH_RANGE, .INTERPOLATE_STRING, .RAISE, .CATCH_START, .PUSH_I8, .UNDEF_METHOD,
         => 1,
 
@@ -244,6 +245,7 @@ pub fn opcodeName(op: OpCode) []const u8 {
         .DUP_N => "DUP_N",
         .SWAP => "SWAP",
         .CASE_MATCH => "CASE_MATCH",
+        .WHEN_SPLAT => "WHEN_SPLAT",
         .CALL => "CALL",
         .CALL_KW => "CALL_KW",
         .OPT_PLUS => "OPT_PLUS",

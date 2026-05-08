@@ -323,6 +323,18 @@ pub const Parser = struct {
         try writer.print("{s}", .{output});
     }
 
+    pub fn prettyPrintNodeAlloc(self: *Parser, node: *RawNode) ![]u8 {
+        var buffer: c.pm_buffer_t = undefined;
+        if (!c.pm_buffer_init(&buffer)) {
+            return error.OutOfMemory;
+        }
+        defer c.pm_buffer_free(&buffer);
+
+        c.pm_prettyprint(&buffer, &self.internal, node);
+        const output = @as([*]u8, @ptrCast(buffer.value))[0..buffer.length];
+        return self.allocator.dupe(u8, output);
+    }
+
     pub fn integerNodeToDecimalString(self: *Parser, node: *IntegerNode) ![]u8 {
         var buffer: c.pm_buffer_t = undefined;
         if (!c.pm_buffer_init(&buffer)) {

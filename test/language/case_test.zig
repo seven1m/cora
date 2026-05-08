@@ -133,3 +133,28 @@ test "case matching works with Module#=== Class/Range/Regexp" {
     );
     try std.testing.expectEqual(@as(i64, 1), result.toInteger());
 }
+
+test "case with predicate supports splatted when conditions" {
+    const result = try evalCode(
+        \\style = {:short => 1, :long => 2}
+        \\case :short
+        \\when *style.keys
+        \\  1
+        \\else
+        \\  0
+        \\end
+    );
+    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
+}
+
+test "case without predicate supports splatted when conditions" {
+    const result = try evalCode(
+        \\case
+        \\when *[nil, false, 7]
+        \\  1
+        \\else
+        \\  0
+        \\end
+    );
+    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
+}

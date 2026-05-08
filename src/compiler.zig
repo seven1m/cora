@@ -237,6 +237,57 @@ pub const Compiler = struct {
         return @as(u32, @intCast(std.mem.count(u8, self.parser.source[0..offset], "\n"))) + 1;
     }
 
+    fn nodeColumn(self: *Compiler, node: prism.Node) u32 {
+        const ptr: *anyopaque = switch (node) {
+            inline else => |raw_ptr| @ptrCast(raw_ptr),
+        };
+        const raw: *prism.RawNode = @ptrCast(@alignCast(ptr));
+        const start = raw.location.start orelse return 1;
+        const offset = @intFromPtr(start) - @intFromPtr(self.parser.source.ptr);
+        const prefix = self.parser.source[0..offset];
+        const line_start = std.mem.lastIndexOfScalar(u8, prefix, '\n') orelse 0;
+        const column_offset = if (line_start == 0) offset else offset - (line_start + 1);
+        return @as(u32, @intCast(column_offset)) + 1;
+    }
+
+    fn nodeDebugTagName(node: prism.Node) []const u8 {
+        return @tagName(node);
+    }
+
+    fn unsupportedNodeSourceSlice(self: *Compiler, node: prism.Node) []const u8 {
+        const slice = self.nodeSourceSlice(node);
+        const trimmed = std.mem.trim(u8, slice, " \t\r\n");
+        if (trimmed.len == 0) return slice;
+        return trimmed;
+    }
+
+    fn reportUnsupportedNode(self: *Compiler, node: prism.Node) void {
+        const source_file = self.parser.source_file orelse "(eval)";
+        const line = self.nodeLine(node);
+        const column = self.nodeColumn(node);
+        const snippet = self.unsupportedNodeSourceSlice(node);
+        const ptr: *anyopaque = switch (node) {
+            inline else => |raw_ptr| @ptrCast(raw_ptr),
+        };
+        const raw: *prism.RawNode = @ptrCast(@alignCast(ptr));
+
+        if (snippet.len > 0) {
+            std.debug.print(
+                "Error: unsupported Prism node {s} at {s}:{d}:{d}: {s}\n",
+                .{ nodeDebugTagName(node), source_file, line, column, snippet },
+            );
+        } else {
+            std.debug.print(
+                "Error: unsupported Prism node {s} at {s}:{d}:{d}\n",
+                .{ nodeDebugTagName(node), source_file, line, column },
+            );
+        }
+
+        const pretty = self.parser.prettyPrintNodeAlloc(raw) catch return;
+        defer self.allocator.free(pretty);
+        std.debug.print("{s}", .{pretty});
+    }
+
     fn compileNode(self: *Compiler, node: prism.Node, inherited_line: u32) anyerror!void {
         const effective_line = self.nodeLine(node);
         const line = if (effective_line == 0) inherited_line else effective_line;
@@ -1064,7 +1115,7 @@ pub const Compiler = struct {
             },
 
             else => {
-                std.debug.print("Error: unsupported node type: {}\n", .{node});
+                self.reportUnsupportedNode(node);
                 return error.UnsupportedNode;
             },
         }
@@ -1796,6 +1847,21 @@ pub const Compiler = struct {
         }
     }
 
+    fn compileWhenCondition(self: *Compiler, condition_node: prism.Node, has_predicate: bool, line: u32) !void {
+        if (condition_node == .splat) {
+            const expr_ptr = condition_node.splat.expression orelse return error.UnsupportedNode;
+            const expr = try self.parser.asNode(@ptrCast(expr_ptr));
+            try self.compileNode(expr, line);
+            try self.current_chunk.emitOpU8(.WHEN_SPLAT, if (has_predicate) 1 else 0, line);
+            return;
+        }
+
+        try self.compileNode(condition_node, line);
+        if (has_predicate) {
+            try self.current_chunk.emitOp(.CASE_MATCH, line);
+        }
+    }
+
     fn compileCaseNode(self: *Compiler, case_node: *prism.CaseNode, line: u32) !void {
         const has_predicate = case_node.predicate != null;
         if (has_predicate) {
@@ -1822,13 +1888,7 @@ pub const Compiler = struct {
             while (j < when_node.when_node.conditions.size) : (j += 1) {
                 const condition_raw = when_node.when_node.conditions.nodes[j];
                 const condition_node = try self.parser.asNode(condition_raw);
-
-                if (has_predicate) {
-                    try self.compileNode(condition_node, line);
-                    try self.current_chunk.emitOp(.CASE_MATCH, line);
-                } else {
-                    try self.compileNode(condition_node, line);
-                }
+                try self.compileWhenCondition(condition_node, has_predicate, line);
 
                 const jump_on_match = try self.current_chunk.emitJump(.JUMP_IF_TRUE, line);
                 try next_when_jumps.append(self.allocator, jump_on_match);
