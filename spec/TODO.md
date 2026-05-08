@@ -673,7 +673,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/false/and_spec.rb
 - [ ] core/false/case_compare_spec.rb
 - [ ] core/false/dup_spec.rb
-- [ ] core/false/falseclass_spec.rb
+- [x] core/false/falseclass_spec.rb
 - [x] core/false/inspect_spec.rb
 - [x] core/false/or_spec.rb
 - [x] core/false/singleton_method_spec.rb
@@ -2327,7 +2327,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/true/or_spec.rb
 - [x] core/true/singleton_method_spec.rb
 - [x] core/true/to_s_spec.rb
-- [ ] core/true/trueclass_spec.rb
+- [x] core/true/trueclass_spec.rb
 - [x] core/true/xor_spec.rb
 
 ### core/unboundmethod
