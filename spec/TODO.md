@@ -972,7 +972,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/hash/replace_spec.rb
 - [ ] core/hash/ruby2_keywords_hash_spec.rb
 - [ ] core/hash/select_spec.rb
-- [ ] core/hash/shift_spec.rb
+- [x] core/hash/shift_spec.rb
 - [x] core/hash/size_spec.rb
 - [ ] core/hash/slice_spec.rb
 - [ ] core/hash/sort_spec.rb

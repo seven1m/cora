@@ -221,6 +221,9 @@ pub fn register(vm: *VM) !void {
 
     const update_sym = try vm.intern("update");
     try vm.hash_class.module.methods.put(update_sym, value.MethodEntry.builtin(&builtinHashMergeBang, .{ .variadic = 0 }));
+
+    const shift_sym = try vm.intern("shift");
+    try vm.hash_class.module.methods.put(shift_sym, value.MethodEntry.builtin(&builtinHashShift, .{ .exact = 0 }));
 }
 
 fn hashGetValue(hash_obj: *value.HashObject, vm: *VM, key: Value) VMError!?Value {
@@ -424,6 +427,24 @@ pub fn builtinHashInitializeCopy(vm: *VM, receiver: Value, args: []Value, _: ?Bl
     }
     try copyHashEntries(vm, target, source);
     return receiver;
+}
+
+pub fn builtinHashShift(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    try ensureMutableHash(vm, receiver);
+
+    const hash_obj = receiver.toHashObject();
+    if (hash_obj.entries.items.len == 0) {
+        return Value.nil();
+    }
+
+    const first_entry = hash_obj.entries.orderedRemove(0);
+    try vm.hashRebuildIndexes(hash_obj);
+
+    const result = try vm.createArray();
+    result.elements.append(vm.gc_allocator, first_entry.key) catch return error.Fatal;
+    result.elements.append(vm.gc_allocator, first_entry.value) catch return error.Fatal;
+    return Value.fromObject(result);
 }
 
 pub fn builtinHashBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
