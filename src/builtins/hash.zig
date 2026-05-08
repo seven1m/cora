@@ -224,6 +224,9 @@ pub fn register(vm: *VM) !void {
 
     const shift_sym = try vm.intern("shift");
     try vm.hash_class.module.methods.put(shift_sym, value.MethodEntry.builtin(&builtinHashShift, .{ .exact = 0 }));
+
+    const replace_sym = try vm.intern("replace");
+    try vm.hash_class.module.methods.put(replace_sym, value.MethodEntry.builtin(&builtinHashReplace, .{ .variadic = 0 }));
 }
 
 fn hashGetValue(hash_obj: *value.HashObject, vm: *VM, key: Value) VMError!?Value {
@@ -256,6 +259,46 @@ fn copyHashEntries(vm: *VM, target: *value.HashObject, source: *value.HashObject
     for (source.entries.items) |entry| {
         try vm.hashSetEntry(target, entry.key, entry.value);
     }
+}
+
+fn mergeEntriesIntoHash(
+    vm: *VM,
+    target: *value.HashObject,
+    source: *value.HashObject,
+    block: ?Block,
+) VMError!void {
+    for (source.entries.items) |entry| {
+        if (block) |blk| {
+            const key = entry.key;
+            const existing = try hashGetValue(target, vm, key);
+            if (existing) |old_val| {
+                const yield_args = [_]Value{ key, old_val, entry.value };
+                const yielded = try vm.yieldToBlock(blk, &yield_args);
+                try vm.hashSetEntry(target, key, yielded.value);
+            } else {
+                try vm.hashSetEntry(target, key, entry.value);
+            }
+        } else {
+            try vm.hashSetEntry(target, entry.key, entry.value);
+        }
+    }
+}
+
+fn copyHashProperties(target: *value.HashObject, source: *value.HashObject) void {
+    target.compare_by_identity = source.compare_by_identity;
+    if (source.default_proc) |default_proc| {
+        setHashDefaultProc(target, default_proc);
+    } else if (source.default_value) |default_value| {
+        setHashDefaultValue(target, default_value);
+    }
+}
+
+fn replaceHashFrom(vm: *VM, hash_obj: *value.HashObject, source_hash: *value.HashObject) VMError!void {
+    hash_obj.entries.clearRetainingCapacity();
+    hash_obj.map.clearRetainingCapacity();
+    clearHashDefaultBehavior(hash_obj);
+    try copyHashEntries(vm, hash_obj, source_hash);
+    copyHashProperties(hash_obj, source_hash);
 }
 
 fn hashConstructorElementTypeName(vm: *VM, element: Value) []const u8 {
@@ -604,6 +647,76 @@ pub fn builtinHashClear(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     const hash_obj = receiver.toHashObject();
     hash_obj.entries.clearRetainingCapacity();
     hash_obj.map.clearRetainingCapacity();
+    return receiver;
+}
+
+pub fn builtinHashReplace(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try ensureMutableHash(vm, receiver);
+
+    const hash_obj = receiver.toHashObject();
+
+    if (vm.keywordArgsGiven()) {
+        const kw_hash = try vm.consumeKeywordArgHash();
+        if (kw_hash) |kh| {
+            try vm.requireArgCount(args, 0);
+            hash_obj.entries.clearRetainingCapacity();
+            hash_obj.map.clearRetainingCapacity();
+            clearHashDefaultBehavior(hash_obj);
+            try copyHashEntries(vm, hash_obj, kh.toHashObject());
+            const source_hash = kh.toHashObject();
+            if (source_hash.default_proc) |default_proc| {
+                setHashDefaultProc(hash_obj, default_proc);
+            } else if (source_hash.default_value) |default_value| {
+                setHashDefaultValue(hash_obj, default_value);
+            }
+            hash_obj.compare_by_identity = source_hash.compare_by_identity;
+        } else {
+            try vm.requireArgCount(args, 1);
+            const source_hash = switch (try vm.probeToHash(args[0])) {
+                .hash => |h| h.toHashObject(),
+                .missing, .nil_result, .non_hash => {
+                    return vm.raiseExceptionFmt(
+                        vm.type_error_class,
+                        "can't convert {s} to Hash ({s}#to_hash gives {s})",
+                        .{ vm.className(args[0]), vm.className(args[0]), vm.className(args[0]) },
+                    );
+                },
+            };
+            hash_obj.entries.clearRetainingCapacity();
+            hash_obj.map.clearRetainingCapacity();
+            clearHashDefaultBehavior(hash_obj);
+            try copyHashEntries(vm, hash_obj, source_hash);
+            if (source_hash.default_proc) |default_proc| {
+                setHashDefaultProc(hash_obj, default_proc);
+            } else if (source_hash.default_value) |default_value| {
+                setHashDefaultValue(hash_obj, default_value);
+            }
+            hash_obj.compare_by_identity = source_hash.compare_by_identity;
+        }
+    } else {
+        try vm.requireArgCount(args, 1);
+        const source_hash = switch (try vm.probeToHash(args[0])) {
+            .hash => |h| h.toHashObject(),
+            .missing, .nil_result, .non_hash => {
+                return vm.raiseExceptionFmt(
+                    vm.type_error_class,
+                    "can't convert {s} to Hash ({s}#to_hash gives {s})",
+                    .{ vm.className(args[0]), vm.className(args[0]), vm.className(args[0]) },
+                );
+            },
+        };
+        hash_obj.entries.clearRetainingCapacity();
+        hash_obj.map.clearRetainingCapacity();
+        clearHashDefaultBehavior(hash_obj);
+        try copyHashEntries(vm, hash_obj, source_hash);
+        if (source_hash.default_proc) |default_proc| {
+            setHashDefaultProc(hash_obj, default_proc);
+        } else if (source_hash.default_value) |default_value| {
+            setHashDefaultValue(hash_obj, default_value);
+        }
+        hash_obj.compare_by_identity = source_hash.compare_by_identity;
+    }
+
     return receiver;
 }
 
