@@ -19,6 +19,8 @@ pub fn register(vm: *VM) !void {
     try enumerable_val.toModuleObject().methods.put(collect_sym, value.MethodEntry.builtin(&builtinEnumerableMap, .{ .exact = 0 }));
     const each_with_object_sym = try vm.intern("each_with_object");
     try enumerable_val.toModuleObject().methods.put(each_with_object_sym, value.MethodEntry.builtin(&builtinEnumerableEachWithObject, .{ .exact = 1 }));
+    const group_by_sym = try vm.intern("group_by");
+    try enumerable_val.toModuleObject().methods.put(group_by_sym, value.MethodEntry.builtin(&builtinEnumerableGroupBy, .{ .exact = 0 }));
     const inject_sym = try vm.intern("inject");
     try enumerable_val.toModuleObject().methods.put(inject_sym, value.MethodEntry.builtin(&builtinEnumerableInject, .{ .variadic = 0 }));
     const sort_by_sym = try vm.intern("sort_by");
@@ -148,6 +150,37 @@ fn builtinEnumerableEachWithObject(vm: *VM, receiver: Value, args: []Value, bloc
     }
 
     return memo;
+}
+
+fn builtinEnumerableGroupBy(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const blk = block orelse {
+        const method_name = try vm.intern("group_by");
+        if (try vm.checkCallMethodByName(receiver, "size", false, &.{}, null)) |size| {
+            return vm.createMethodEnumeratorWithSize(receiver, method_name, &.{}, size);
+        }
+        return vm.createMethodEnumerator(receiver, method_name, &.{});
+    };
+
+    const grouped = try vm.createHash();
+    const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
+    while (try enumerableNextElement(vm, enum_value)) |element| {
+        const yield_args = [_]Value{element};
+        const result = try vm.yieldToBlock(blk, &yield_args);
+        if (result.controlFlowValue()) |return_value| return return_value;
+
+        const bucket_value = if (try vm.hashGetEntry(grouped, result.value)) |entry|
+            entry.value
+        else blk: {
+            const new_bucket = try vm.createArray();
+            const new_bucket_value = Value.fromObject(new_bucket);
+            try vm.hashSetEntry(grouped, result.value, new_bucket_value);
+            break :blk new_bucket_value;
+        };
+        bucket_value.toArrayObject().elements.append(vm.gc_allocator, element) catch return error.Fatal;
+    }
+
+    return Value.fromObject(grouped);
 }
 
 fn raiseEnumerableInjectArgError(vm: *VM, given: usize, expected: []const u8) VMError {
