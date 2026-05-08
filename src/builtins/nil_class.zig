@@ -53,12 +53,12 @@ pub fn builtinNilClassAnd(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
 
 pub fn builtinNilClassOr(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    return Value.boolean(!args[0].isNil() and !args[0].isFalse());
+    return Value.boolean(args[0].is_truthy());
 }
 
 pub fn builtinNilClassXor(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    return Value.boolean(!args[0].isNil() and !args[0].isFalse());
+    return Value.boolean(args[0].is_truthy());
 }
 
 pub fn builtinNilClassNil(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
