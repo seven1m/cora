@@ -19,6 +19,7 @@ const io = @import("io.zig");
 const integer = @import("integer.zig");
 const kernel = @import("kernel.zig");
 const match_data = @import("match_data.zig");
+const marshal = @import("marshal.zig");
 const module_builtin = @import("module.zig");
 const nil_class = @import("nil_class.zig");
 const object = @import("object.zig");
@@ -55,6 +56,7 @@ pub fn registerAll(vm: *VM) !void {
     try env.register(vm);
     try process.register(vm);
     try warning.register(vm);
+    try marshal.register(vm);
     try proc_builtin.register(vm);
     try struct_builtin.register(vm);
     try fiber.register(vm);

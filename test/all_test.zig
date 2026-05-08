@@ -15,6 +15,7 @@ const core_integer_test = @import("core/integer_test.zig");
 const core_jit_tcc_test = @import("core/jit_tcc_test.zig");
 const core_io_file_test = @import("core/io_file_test.zig");
 const core_kernel_test = @import("core/kernel_test.zig");
+const core_marshal_test = @import("core/marshal_test.zig");
 const core_module_test = @import("core/module_test.zig");
 const core_nil_test = @import("core/nil_test.zig");
 const core_process_test = @import("core/process_test.zig");
@@ -86,6 +87,7 @@ comptime {
     _ = core_jit_tcc_test;
     _ = core_io_file_test;
     _ = core_kernel_test;
+    _ = core_marshal_test;
     _ = core_module_test;
     _ = core_nil_test;
     _ = core_process_test;
