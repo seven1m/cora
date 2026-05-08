@@ -429,7 +429,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/enumerable/compact_spec.rb
 - [ ] core/enumerable/count_spec.rb
 - [ ] core/enumerable/cycle_spec.rb
-- [ ] core/enumerable/detect_spec.rb
+- [x] core/enumerable/detect_spec.rb
 - [ ] core/enumerable/drop_spec.rb
 - [ ] core/enumerable/drop_while_spec.rb
 - [ ] core/enumerable/each_cons_spec.rb
@@ -442,7 +442,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/enumerable/filter_spec.rb
 - [ ] core/enumerable/find_all_spec.rb
 - [ ] core/enumerable/find_index_spec.rb
-- [ ] core/enumerable/find_spec.rb
+- [x] core/enumerable/find_spec.rb
 - [ ] core/enumerable/first_spec.rb
 - [x] core/enumerable/flat_map_spec.rb
 - [ ] core/enumerable/grep_spec.rb

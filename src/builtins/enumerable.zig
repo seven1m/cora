@@ -19,6 +19,10 @@ pub fn register(vm: *VM) !void {
     try enumerable_val.toModuleObject().methods.put(collect_sym, value.MethodEntry.builtin(&builtinEnumerableMap, .{ .exact = 0 }));
     const each_with_object_sym = try vm.intern("each_with_object");
     try enumerable_val.toModuleObject().methods.put(each_with_object_sym, value.MethodEntry.builtin(&builtinEnumerableEachWithObject, .{ .exact = 1 }));
+    const find_sym = try vm.intern("find");
+    try enumerable_val.toModuleObject().methods.put(find_sym, value.MethodEntry.builtin(&builtinEnumerableFind, .{ .variadic = 0 }));
+    const detect_sym = try vm.intern("detect");
+    try enumerable_val.toModuleObject().methods.put(detect_sym, value.MethodEntry.builtin(&builtinEnumerableFind, .{ .variadic = 0 }));
     const group_by_sym = try vm.intern("group_by");
     try enumerable_val.toModuleObject().methods.put(group_by_sym, value.MethodEntry.builtin(&builtinEnumerableGroupBy, .{ .exact = 0 }));
     const inject_sym = try vm.intern("inject");
@@ -181,6 +185,27 @@ fn builtinEnumerableGroupBy(vm: *VM, receiver: Value, args: []Value, block: ?Blo
     }
 
     return Value.fromObject(grouped);
+}
+
+fn builtinEnumerableFind(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const blk = block orelse {
+        return vm.createMethodEnumerator(receiver, try vm.intern("find"), args);
+    };
+
+    const ifnone = if (args.len == 1) args[0] else Value.nil();
+    const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
+    while (try enumerableNextElement(vm, enum_value)) |element| {
+        const yield_args = [_]Value{element};
+        const result = try vm.yieldToBlock(blk, &yield_args);
+        if (result.controlFlowValue()) |return_value| return return_value;
+        if (result.value.is_truthy()) return element;
+    }
+
+    if (!ifnone.isNil()) {
+        return vm.callMethodByName(ifnone, "call", &.{}, null);
+    }
+    return Value.nil();
 }
 
 fn raiseEnumerableInjectArgError(vm: *VM, given: usize, expected: []const u8) VMError {
