@@ -2,6 +2,7 @@
 zig-out
 zig-pkg
 .spec-port-loop/
+spec/tmp
 
 # ignore ext/prism just so my editor's fuzzy finder doesn't search in it
 ext/prism

@@ -488,7 +488,7 @@ def cora_repo_root
 end
 
 def spec_tmp_process_root
-  "#{cora_repo_root}/tmp"
+  "#{__dir__}/tmp"
 end
 
 def spec_tmp_slug(text)
