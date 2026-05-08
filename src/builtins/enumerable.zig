@@ -23,35 +23,51 @@ pub fn register(vm: *VM) !void {
     try enumerable_val.toModuleObject().methods.put(inject_sym, value.MethodEntry.builtin(&builtinEnumerableInject, .{ .variadic = 0 }));
     const sort_by_sym = try vm.intern("sort_by");
     try enumerable_val.toModuleObject().methods.put(sort_by_sym, value.MethodEntry.builtin(&builtinEnumerableSortBy, .{ .exact = 0 }));
+    const flat_map_sym = try vm.intern("flat_map");
+    try enumerable_val.toModuleObject().methods.put(flat_map_sym, value.MethodEntry.builtin(&builtinEnumerableFlatMap, .{ .exact = 0 }));
+    const collect_concat_sym = try vm.intern("collect_concat");
+    try enumerable_val.toModuleObject().methods.put(collect_concat_sym, value.MethodEntry.builtin(&builtinEnumerableFlatMap, .{ .exact = 0 }));
 }
 
-fn builtinEnumerableEntries(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+fn builtinEnumerableFlatMap(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    return vm.callMethodByName(receiver, "to_a", &.{}, null);
-}
-
-fn collapseYieldValues(yield_values: *value.ArrayObject) Value {
-    return switch (yield_values.elements.items.len) {
-        0 => Value.nil(),
-        1 => yield_values.elements.items[0],
-        else => Value.fromObject(yield_values),
-    };
-}
-
-fn enumerableNextValues(vm: *VM, enum_value: Value) VMError!?*value.ArrayObject {
-    const next_values = vm.callMethodByName(enum_value, "next_values", &.{}, null) catch |err| {
-        if (err == error.Unwind and vm.pending_exception != null and vm.pending_exception.?.object.class == vm.stop_iteration_class) {
-            vm.pending_exception = null;
-            return null;
+    const blk = block orelse {
+        const method_name = try vm.intern("flat_map");
+        if (try vm.checkCallMethodByName(receiver, "size", false, &.{}, null)) |size| {
+            return vm.createMethodEnumeratorWithSize(receiver, method_name, &.{}, size);
         }
-        return err;
+        return vm.createMethodEnumerator(receiver, method_name, &.{});
     };
-    return next_values.toArrayObject();
-}
 
-fn enumerableNextElement(vm: *VM, enum_value: Value) VMError!?Value {
-    const next_values = try enumerableNextValues(vm, enum_value) orelse return null;
-    return collapseYieldValues(next_values);
+    const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
+    const out = try vm.createArray();
+
+    while (true) {
+        const next_values = vm.callMethodByName(enum_value, "next_values", &.{}, null) catch |err| {
+            if (err == error.Unwind and vm.pending_exception != null and vm.pending_exception.?.object.class == vm.stop_iteration_class) {
+                vm.pending_exception = null;
+                break;
+            }
+            return err;
+        };
+        const yielded = next_values.toArrayObject().elements.items;
+        const result = try vm.yieldToBlock(blk, yielded);
+        if (result.controlFlowValue()) |return_value| return return_value;
+
+        const to_ary_result = try vm.probeToAry(result.value);
+        switch (to_ary_result) {
+            .array => |ary| {
+                for (ary.toArrayObject().elements.items) |elem| {
+                    out.elements.append(vm.gc_allocator, elem) catch return error.Fatal;
+                }
+            },
+            .missing, .nil_result => {
+                out.elements.append(vm.gc_allocator, result.value) catch return error.Fatal;
+            },
+        }
+    }
+
+    return Value.fromObject(out);
 }
 
 fn builtinEnumerableMap(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -82,6 +98,35 @@ fn builtinEnumerableMap(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
     }
 
     return Value.fromObject(out);
+}
+
+fn collapseYieldValues(yield_values: *value.ArrayObject) Value {
+    return switch (yield_values.elements.items.len) {
+        0 => Value.nil(),
+        1 => yield_values.elements.items[0],
+        else => Value.fromObject(yield_values),
+    };
+}
+
+fn enumerableNextValues(vm: *VM, enum_value: Value) VMError!?*value.ArrayObject {
+    const next_values = vm.callMethodByName(enum_value, "next_values", &.{}, null) catch |err| {
+        if (err == error.Unwind and vm.pending_exception != null and vm.pending_exception.?.object.class == vm.stop_iteration_class) {
+            vm.pending_exception = null;
+            return null;
+        }
+        return err;
+    };
+    return next_values.toArrayObject();
+}
+
+fn enumerableNextElement(vm: *VM, enum_value: Value) VMError!?Value {
+    const next_values = try enumerableNextValues(vm, enum_value) orelse return null;
+    return collapseYieldValues(next_values);
+}
+
+fn builtinEnumerableEntries(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return vm.callMethodByName(receiver, "to_a", &.{}, null);
 }
 
 fn builtinEnumerableEachWithObject(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {

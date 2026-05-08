@@ -444,7 +444,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/enumerable/find_index_spec.rb
 - [ ] core/enumerable/find_spec.rb
 - [ ] core/enumerable/first_spec.rb
-- [ ] core/enumerable/flat_map_spec.rb
+- [x] core/enumerable/flat_map_spec.rb
 - [ ] core/enumerable/grep_spec.rb
 - [ ] core/enumerable/grep_v_spec.rb
 - [ ] core/enumerable/group_by_spec.rb
