@@ -676,7 +676,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/false/falseclass_spec.rb
 - [x] core/false/inspect_spec.rb
 - [x] core/false/or_spec.rb
-- [ ] core/false/singleton_method_spec.rb
+- [x] core/false/singleton_method_spec.rb
 - [x] core/false/to_s_spec.rb
 - [x] core/false/xor_spec.rb
 
@@ -1495,7 +1495,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/nil/nilclass_spec.rb
 - [x] core/nil/or_spec.rb
 - [ ] core/nil/rationalize_spec.rb
-- [ ] core/nil/singleton_method_spec.rb
+- [x] core/nil/singleton_method_spec.rb
 - [ ] core/nil/to_a_spec.rb
 - [ ] core/nil/to_c_spec.rb
 - [ ] core/nil/to_f_spec.rb
@@ -2325,7 +2325,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/true/dup_spec.rb
 - [x] core/true/inspect_spec.rb
 - [x] core/true/or_spec.rb
-- [ ] core/true/singleton_method_spec.rb
+- [x] core/true/singleton_method_spec.rb
 - [x] core/true/to_s_spec.rb
 - [ ] core/true/trueclass_spec.rb
 - [x] core/true/xor_spec.rb

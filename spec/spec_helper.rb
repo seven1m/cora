@@ -1473,15 +1473,15 @@ def suppress_warning
   yield
 end
 
-def raise_error(expected = nil, expected_message = nil, &verifier)
-  expected_class = nil
-  message = expected_message
+  def raise_error(expected = nil, expected_message = nil, &verifier)
+    expected_class = nil
+    message = expected_message
 
-  if expected.is_a?(Module)
-    expected_class = expected
-  elsif expected.is_a?(String) || expected.is_a?(Regexp)
-    message = expected
-  end
+    if expected.is_a?(Module) || expected.is_a?(Class)
+      expected_class = expected
+    elsif expected.is_a?(String) || expected.is_a?(Regexp)
+      message = expected
+    end
 
   RaiseErrorMatcher.new(expected_class, message, verifier)
 end
@@ -1891,9 +1891,9 @@ class Object
     exp = SpecExpectation.new(self)
     return exp if args.length == 0
     matcher = args[0]
-    begin
+    if matcher.respond_to?(:matches?)
       exp.match(matcher)
-    rescue NoMethodError
+    else
       exp.==(matcher)
     end
   end
@@ -1902,9 +1902,9 @@ class Object
     exp = SpecNegatedExpectation.new(self)
     return exp if args.length == 0
     matcher = args[0]
-    begin
+    if matcher.respond_to?(:matches?)
       exp.match(matcher)
-    rescue NoMethodError
+    else
       exp.==(matcher)
     end
   end

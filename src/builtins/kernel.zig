@@ -1124,6 +1124,13 @@ pub fn builtinKernelMethod(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 pub fn builtinKernelSingletonMethod(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const method_name = try vm.coerceToMethodNameSymbol(args[0]);
+    if (receiver.isNil() or receiver.isTrue() or receiver.isFalse()) {
+        return vm.raiseExceptionFmt(
+            vm.name_error_class,
+            "undefined method '{s}'",
+            .{method_name.name},
+        );
+    }
     const singleton_class = receiver.getSingletonClass() orelse {
         return vm.raiseExceptionFmt(
             vm.name_error_class,

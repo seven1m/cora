@@ -6695,6 +6695,9 @@ pub const VM = struct {
     }
 
     pub fn getOrCreateSingletonClass(self: *VM, obj_val: value.Value) VMError!*ClassObject {
+        if (obj_val.isNil()) return self.nil_class;
+        if (obj_val.isBool()) return if (obj_val.toBool()) self.true_class else self.false_class;
+
         // Return existing singleton class if already created
         if (obj_val.getSingletonClass()) |singleton| {
             if (obj_val.isFrozen()) {

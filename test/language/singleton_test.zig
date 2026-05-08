@@ -282,6 +282,25 @@ test "class << literals true false nil uses singleton class self" {
     try std.testing.expectEqual(true, result.toArrayObject().elements.items[2].toBool());
 }
 
+test "def singleton method on nil true false defines class method" {
+    const result = try evalCode(
+        \\begin
+        \\  def (nil).nil_marker() = 1
+        \\  def (true).true_marker() = 2
+        \\  def (false).false_marker() = 3
+        \\  [nil.nil_marker, true.true_marker, false.false_marker]
+        \\ensure
+        \\  NilClass.send(:remove_method, :nil_marker) rescue nil
+        \\  TrueClass.send(:remove_method, :true_marker) rescue nil
+        \\  FalseClass.send(:remove_method, :false_marker) rescue nil
+        \\end
+    );
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(i64, 1), result.toArrayObject().elements.items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 2), result.toArrayObject().elements.items[1].toInteger());
+    try std.testing.expectEqual(@as(i64, 3), result.toArrayObject().elements.items[2].toInteger());
+}
+
 test "class << object constant namespace stays on singleton class" {
     const result = try evalCode(
         \\obj = Object.new
