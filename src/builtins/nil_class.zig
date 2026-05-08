@@ -16,6 +16,15 @@ pub fn register(vm: *VM) !void {
     const equal_sym = try vm.intern("==");
     try vm.nil_class.module.methods.put(equal_sym, value.MethodEntry.builtin(&builtinNilClassEqual, .{ .exact = 1 }));
 
+    const and_sym = try vm.intern("&");
+    try vm.nil_class.module.methods.put(and_sym, value.MethodEntry.builtin(&builtinNilClassAnd, .{ .exact = 1 }));
+
+    const or_sym = try vm.intern("|");
+    try vm.nil_class.module.methods.put(or_sym, value.MethodEntry.builtin(&builtinNilClassOr, .{ .exact = 1 }));
+
+    const xor_sym = try vm.intern("^");
+    try vm.nil_class.module.methods.put(xor_sym, value.MethodEntry.builtin(&builtinNilClassXor, .{ .exact = 1 }));
+
     const nil_sym = try vm.intern("nil?");
     try vm.nil_class.module.methods.put(nil_sym, value.MethodEntry.builtin(&builtinNilClassNil, .{ .exact = 0 }));
 }
@@ -35,6 +44,21 @@ pub fn builtinNilClassInspect(vm: *VM, _: Value, args: []Value, _: ?Block) VMErr
 pub fn builtinNilClassEqual(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     return Value.boolean(args[0].isNil());
+}
+
+pub fn builtinNilClassAnd(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    return Value.boolean(false);
+}
+
+pub fn builtinNilClassOr(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    return Value.boolean(!args[0].isNil() and !args[0].isFalse());
+}
+
+pub fn builtinNilClassXor(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    return Value.boolean(!args[0].isNil() and !args[0].isFalse());
 }
 
 pub fn builtinNilClassNil(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

@@ -670,15 +670,15 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/exception/uncaught_throw_error_spec.rb
 
 ### core/false
-- [ ] core/false/and_spec.rb
+- [x] core/false/and_spec.rb
 - [ ] core/false/case_compare_spec.rb
 - [ ] core/false/dup_spec.rb
 - [ ] core/false/falseclass_spec.rb
 - [x] core/false/inspect_spec.rb
-- [ ] core/false/or_spec.rb
+- [x] core/false/or_spec.rb
 - [ ] core/false/singleton_method_spec.rb
 - [x] core/false/to_s_spec.rb
-- [ ] core/false/xor_spec.rb
+- [x] core/false/xor_spec.rb
 
 ### core/fiber
 - [-] core/fiber/alive_spec.rb
@@ -1486,14 +1486,14 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/mutex/unlock_spec.rb
 
 ### core/nil
-- [ ] core/nil/and_spec.rb
+- [x] core/nil/and_spec.rb
 - [ ] core/nil/case_compare_spec.rb
 - [ ] core/nil/dup_spec.rb
 - [ ] core/nil/inspect_spec.rb
 - [ ] core/nil/match_spec.rb
 - [ ] core/nil/nil_spec.rb
 - [ ] core/nil/nilclass_spec.rb
-- [ ] core/nil/or_spec.rb
+- [x] core/nil/or_spec.rb
 - [ ] core/nil/rationalize_spec.rb
 - [ ] core/nil/singleton_method_spec.rb
 - [ ] core/nil/to_a_spec.rb
@@ -1503,7 +1503,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/nil/to_i_spec.rb
 - [ ] core/nil/to_r_spec.rb
 - [ ] core/nil/to_s_spec.rb
-- [ ] core/nil/xor_spec.rb
+- [x] core/nil/xor_spec.rb
 
 ### core/numeric
 - [ ] core/numeric/abs2_spec.rb
@@ -2320,15 +2320,15 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/tracepoint/trace_spec.rb
 
 ### core/true
-- [ ] core/true/and_spec.rb
+- [x] core/true/and_spec.rb
 - [ ] core/true/case_compare_spec.rb
 - [x] core/true/dup_spec.rb
 - [x] core/true/inspect_spec.rb
-- [ ] core/true/or_spec.rb
+- [x] core/true/or_spec.rb
 - [ ] core/true/singleton_method_spec.rb
 - [x] core/true/to_s_spec.rb
 - [ ] core/true/trueclass_spec.rb
-- [ ] core/true/xor_spec.rb
+- [x] core/true/xor_spec.rb
 
 ### core/unboundmethod
 - [ ] core/unboundmethod/arity_spec.rb

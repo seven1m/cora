@@ -15,6 +15,15 @@ pub fn register(vm: *VM) !void {
 
     const equal_sym = try vm.intern("==");
     try vm.false_class.module.methods.put(equal_sym, value.MethodEntry.builtin(&builtinFalseClassEqual, .{ .exact = 1 }));
+
+    const and_sym = try vm.intern("&");
+    try vm.false_class.module.methods.put(and_sym, value.MethodEntry.builtin(&builtinFalseClassAnd, .{ .exact = 1 }));
+
+    const or_sym = try vm.intern("|");
+    try vm.false_class.module.methods.put(or_sym, value.MethodEntry.builtin(&builtinFalseClassOr, .{ .exact = 1 }));
+
+    const xor_sym = try vm.intern("^");
+    try vm.false_class.module.methods.put(xor_sym, value.MethodEntry.builtin(&builtinFalseClassXor, .{ .exact = 1 }));
 }
 
 pub fn builtinFalseClassToS(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -30,4 +39,19 @@ pub fn builtinFalseClassInspect(vm: *VM, receiver: Value, args: []Value, block: 
 pub fn builtinFalseClassEqual(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     return Value.boolean(args[0].isFalse());
+}
+
+pub fn builtinFalseClassAnd(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    return Value.boolean(false);
+}
+
+pub fn builtinFalseClassOr(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    return Value.boolean(!args[0].isNil() and !args[0].isFalse());
+}
+
+pub fn builtinFalseClassXor(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    return Value.boolean(!args[0].isNil() and !args[0].isFalse());
 }
