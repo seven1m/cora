@@ -32,6 +32,9 @@ pub fn register(vm: *VM) !void {
 
     const name_sym = try vm.intern("name");
     try vm.name_error_class.module.methods.put(name_sym, value.MethodEntry.builtin(&builtinNameErrorName, .{ .exact = 0 }));
+
+    const path_sym = try vm.intern("path");
+    try vm.load_error_class.module.methods.put(path_sym, value.MethodEntry.builtin(&builtinLoadErrorPath, .{ .exact = 0 }));
 }
 
 pub fn builtinExceptionInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -129,4 +132,13 @@ pub fn builtinKeyErrorKey(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
 pub fn builtinNameErrorName(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return try vm.getInstanceVariable(receiver, "@name");
+}
+
+pub fn builtinLoadErrorPath(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const exc = receiver.toExceptionObject();
+    if (exc.path) |p| {
+        return Value.fromObject(p);
+    }
+    return Value.nil();
 }

@@ -380,11 +380,13 @@ pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
     const absolute_path = vm.searchLoadPath(feature) catch {
         const msg = std.fmt.allocPrint(vm.allocator, "cannot load such file -- {s}", .{feature}) catch return error.Fatal;
         const exc = vm.createException(vm.load_error_class, msg) catch return error.Fatal;
+        exc.path = (try vm.newString(feature, false)).toStringObject();
         vm.pending_exception = exc;
         return error.Unwind;
     } orelse {
         const msg = std.fmt.allocPrint(vm.allocator, "cannot load such file -- {s}", .{feature}) catch return error.Fatal;
         const exc = vm.createException(vm.load_error_class, msg) catch return error.Fatal;
+        exc.path = (try vm.newString(feature, false)).toStringObject();
         vm.pending_exception = exc;
         return error.Unwind;
     };
