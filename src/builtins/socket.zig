@@ -74,7 +74,7 @@ pub fn builtinTCPServerNew(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
 
     const tcp_server_name = try vm.intern("TCPServer");
     const tcp_server_entry = vm.object_class.module.constants.get(tcp_server_name) orelse return error.Fatal;
-    return vm.newIo(tcp_server_entry.value.toClassObject(), @intCast(fd), true, true, false, false);
+    return vm.newIo(tcp_server_entry.value.toClassObject(), @intCast(fd), true, true, false, false, null);
 }
 
 pub fn builtinTCPServerAccept(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -90,5 +90,5 @@ pub fn builtinTCPServerAccept(vm: *VM, receiver: Value, args: []Value, _: ?Block
 
     const tcp_socket_name = try vm.intern("TCPSocket");
     const tcp_socket_entry = vm.object_class.module.constants.get(tcp_socket_name) orelse return error.Fatal;
-    return vm.newIo(tcp_socket_entry.value.toClassObject(), @intCast(client_fd), true, true, true, false);
+    return vm.newIo(tcp_socket_entry.value.toClassObject(), @intCast(client_fd), true, true, true, false, null);
 }

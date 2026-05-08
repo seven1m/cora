@@ -250,6 +250,7 @@ pub const ExceptionObject = struct {
     cause: ?*ExceptionObject,
     receiver: ?Value = null,
     key: ?Value = null,
+    path: ?*StringObject = null,
 };
 
 pub const MethodObject = struct {
@@ -370,6 +371,7 @@ pub const IoObject = struct {
     readable: bool,
     writable: bool,
     append: bool,
+    path: ?[]const u8,
 };
 
 pub const RegexpObject = struct {

@@ -104,6 +104,9 @@ pub fn register(vm: *VM) !void {
 
     const unlink_sym = try vm.intern("unlink");
     try file_singleton.module.methods.put(unlink_sym, value.MethodEntry.builtin(&builtinFileDelete, .{ .variadic = 0 }));
+
+    const path_sym = try vm.intern("path");
+    try file_singleton.module.methods.put(path_sym, value.MethodEntry.builtin(&builtinFilePath, .{ .variadic = 0 }));
 }
 
 fn parseMode(vm: *VM, mode_str: []const u8) VMError!FileMode {
@@ -140,7 +143,8 @@ fn openFileWithMode(vm: *VM, path: []const u8, mode: FileMode) VMError!Value {
         return vm.raiseExceptionFmt(vm.io_error_class, "failed to open file: {s}", .{path});
     }
 
-    return vm.newIo(vm.file_class, @intCast(fd), true, mode.read, mode.write, mode.append);
+    const path_copy = vm.gc_allocator.dupe(u8, path) catch return error.Fatal;
+    return vm.newIo(vm.file_class, @intCast(fd), true, mode.read, mode.write, mode.append, path_copy);
 }
 
 fn pathAndMode(vm: *VM, args: []Value) VMError!struct { path: []const u8, mode: FileMode } {
@@ -500,4 +504,18 @@ pub fn builtinFileDelete(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
         deleted += 1;
     }
     return Value.integer(@intCast(deleted));
+}
+
+pub fn builtinFilePath(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+    const arg = args[0];
+    if (arg.isIo()) {
+        const io = arg.toIoObject();
+        if (io.path) |p| {
+            return vm.newString(p, false);
+        }
+        return Value.nil();
+    }
+    const path = try vm.coerceToPath(arg, "no implicit conversion into String");
+    return vm.newString(path, false);
 }
