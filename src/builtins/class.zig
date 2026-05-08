@@ -30,6 +30,10 @@ pub fn builtinClassNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
         return vm.raiseExceptionFmt(vm.no_method_error_class, "undefined method 'new' for Symbol", .{});
     }
 
+    if (class_ptr == vm.nil_class) {
+        return vm.raiseExceptionFmt(vm.no_method_error_class, "undefined method 'new' for NilClass", .{});
+    }
+
     if (class_ptr == vm.module_class) {
         try vm.requireArgCount(args, 0);
 
@@ -132,6 +136,9 @@ pub fn builtinClassAllocate(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     const class_ptr = receiver.toClassObject();
     if (class_ptr == vm.symbol_class) {
         return vm.raiseExceptionFmt(vm.type_error_class, "allocator undefined for Symbol", .{});
+    }
+    if (class_ptr == vm.nil_class) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "allocator undefined for NilClass", .{});
     }
     if (class_ptr.object_type == .string) {
         return vm.newStringForClassWithEncoding(class_ptr, "", false, .{ .ascii_8bit = .{} });
