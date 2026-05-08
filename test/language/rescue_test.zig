@@ -219,6 +219,30 @@ test "Rescue with module exception type matches" {
     try std.testing.expectEqual(@as(i64, 125), result.toInteger());
 }
 
+test "Rescue supports splatted exception type list" {
+    const result = try evalCode(
+        \\types = [ArgumentError, TypeError]
+        \\begin
+        \\  1 + "string"
+        \\rescue *types
+        \\  126
+        \\end
+    );
+    try std.testing.expectEqual(@as(i64, 126), result.toInteger());
+}
+
+test "Rescue splat wraps scalar exception type" {
+    const result = try evalCode(
+        \\type = TypeError
+        \\begin
+        \\  1 + "string"
+        \\rescue *type
+        \\  127
+        \\end
+    );
+    try std.testing.expectEqual(@as(i64, 127), result.toInteger());
+}
+
 test "Rescue with invalid exception type raises TypeError" {
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;

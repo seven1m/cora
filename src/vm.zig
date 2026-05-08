@@ -9068,7 +9068,7 @@ pub const VM = struct {
                 // Search for a matching rescue handler
                 for (handler.rescue_handlers.items, 0..) |*rescue, idx| {
                     // Check if exception matches any of the rescue types
-                    if (rescue.exception_type_expr_chunks.items.len == 0) {
+                    if (rescue.exception_type_exprs.items.len == 0) {
                         // Bare rescue catches StandardError
                         if (self.matchesException(self.pending_exception.?, self.standard_error_class)) {
                             return .{ .handler = handler, .rescue_idx = idx };
@@ -9077,8 +9077,8 @@ pub const VM = struct {
                         var rescue_eval_raised = false;
 
                         // Check each specified exception type expression
-                        for (rescue.exception_type_expr_chunks.items) |type_expr_chunk_id| {
-                            const rescue_type_chunk = self.program.child_chunks.get(type_expr_chunk_id) orelse {
+                        for (rescue.exception_type_exprs.items) |type_expr| {
+                            const rescue_type_chunk = self.program.child_chunks.get(type_expr.chunk_id) orelse {
                                 return error.Fatal;
                             };
 
@@ -9094,20 +9094,48 @@ pub const VM = struct {
 
                             if (rescue_eval_raised) break;
 
-                            const matches = self.matchesExceptionClassOrModule(self.pending_exception.?, rescue_type) catch |err| {
-                                switch (err) {
-                                    error.Unwind => {
-                                        rescue_eval_raised = true;
-                                        break;
-                                    },
-                                    else => return err,
+                            if (type_expr.splat) {
+                                const expanded = self.expandSplatValue(rescue_type) catch |err| {
+                                    switch (err) {
+                                        error.Unwind => {
+                                            rescue_eval_raised = true;
+                                            break;
+                                        },
+                                        else => return err,
+                                    }
+                                };
+
+                                if (rescue_eval_raised) break;
+
+                                for (expanded.toArrayObject().elements.items) |expanded_type| {
+                                    const matches = self.matchesExceptionClassOrModule(self.pending_exception.?, expanded_type) catch |err| {
+                                        switch (err) {
+                                            error.Unwind => {
+                                                rescue_eval_raised = true;
+                                                break;
+                                            },
+                                            else => return err,
+                                        }
+                                    };
+
+                                    if (rescue_eval_raised) break;
+                                    if (matches) return .{ .handler = handler, .rescue_idx = idx };
                                 }
-                            };
+                            } else {
+                                const matches = self.matchesExceptionClassOrModule(self.pending_exception.?, rescue_type) catch |err| {
+                                    switch (err) {
+                                        error.Unwind => {
+                                            rescue_eval_raised = true;
+                                            break;
+                                        },
+                                        else => return err,
+                                    }
+                                };
 
-                            if (rescue_eval_raised) break;
-
-                            if (matches) {
-                                return .{ .handler = handler, .rescue_idx = idx };
+                                if (rescue_eval_raised) break;
+                                if (matches) {
+                                    return .{ .handler = handler, .rescue_idx = idx };
+                                }
                             }
                         }
 

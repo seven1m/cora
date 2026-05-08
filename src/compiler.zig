@@ -1284,7 +1284,7 @@ pub const Compiler = struct {
 
                 var rescue_handlers: std.ArrayList(chunk.RescueHandler) = .empty;
                 try rescue_handlers.append(self.allocator, .{
-                    .exception_type_expr_chunks = .empty,
+                    .exception_type_exprs = .empty,
                     .catch_byte_offset = catch_byte_offset,
                     .catch_end_byte_offset = catch_end_byte_offset,
                     .var_idx = null,
@@ -1400,7 +1400,7 @@ pub const Compiler = struct {
 
         var rescue_handlers: std.ArrayList(chunk.RescueHandler) = .empty;
         try rescue_handlers.append(self.allocator, .{
-            .exception_type_expr_chunks = .empty,
+            .exception_type_exprs = .empty,
             .catch_byte_offset = catch_byte_offset,
             .catch_end_byte_offset = catch_end_byte_offset,
             .var_idx = null,
@@ -3686,7 +3686,7 @@ pub const Compiler = struct {
             const catch_byte_offset = self.current_chunk.currentOffset();
 
             // Collect exception type expression chunks (if any)
-            var exception_type_expr_chunks: std.ArrayList(chunk.ChunkId) = .empty;
+            var exception_type_exprs: std.ArrayList(chunk.RescueHandler.TypeExpression) = .empty;
 
             // Check if there are exception types specified
             if (rescue_node.exceptions.size > 0) {
@@ -3694,8 +3694,18 @@ pub const Compiler = struct {
                 while (i < rescue_node.exceptions.size) : (i += 1) {
                     const exc_node_raw = rescue_node.exceptions.nodes[i];
                     const exc_node = try self.parser.asNode(exc_node_raw);
-                    const type_chunk_id = try self.compileRescueTypeExpressionChunk(exc_node, line);
-                    try exception_type_expr_chunks.append(self.allocator, type_chunk_id);
+                    const expr_node, const splat = switch (exc_node) {
+                        .splat => .{
+                            try self.parser.asNode(@ptrCast(exc_node.splat.expression orelse return error.UnsupportedNode)),
+                            true,
+                        },
+                        else => .{ exc_node, false },
+                    };
+                    const type_chunk_id = try self.compileRescueTypeExpressionChunk(expr_node, line);
+                    try exception_type_exprs.append(self.allocator, .{
+                        .chunk_id = type_chunk_id,
+                        .splat = splat,
+                    });
                 }
             }
             // If no exception types, it's a bare rescue (catches StandardError)
@@ -3746,7 +3756,7 @@ pub const Compiler = struct {
 
             // Store rescue handler info
             try rescue_handlers.append(self.allocator, .{
-                .exception_type_expr_chunks = exception_type_expr_chunks,
+                .exception_type_exprs = exception_type_exprs,
                 .catch_byte_offset = catch_byte_offset,
                 .catch_end_byte_offset = catch_end_byte_offset,
                 .var_idx = if (var_idx == 255) null else var_idx,
@@ -3849,7 +3859,7 @@ pub const Compiler = struct {
         const catch_byte_offset = self.current_chunk.currentOffset();
 
         // No specific exception types means bare rescue (StandardError)
-        const exception_type_expr_chunks: std.ArrayList(chunk.ChunkId) = .empty;
+        const exception_type_exprs: std.ArrayList(chunk.RescueHandler.TypeExpression) = .empty;
 
         // No variable binding for rescue modifier
         const var_idx: u8 = 255; // 255 means no binding
@@ -3871,7 +3881,7 @@ pub const Compiler = struct {
         // Create the rescue handler
         var rescue_handlers: std.ArrayList(chunk.RescueHandler) = .empty;
         try rescue_handlers.append(self.allocator, .{
-            .exception_type_expr_chunks = exception_type_expr_chunks,
+            .exception_type_exprs = exception_type_exprs,
             .catch_byte_offset = catch_byte_offset,
             .catch_end_byte_offset = catch_end_byte_offset,
             .var_idx = null,

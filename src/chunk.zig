@@ -32,7 +32,12 @@ pub const Constant = union(enum) {
 };
 
 pub const RescueHandler = struct {
-    exception_type_expr_chunks: std.ArrayList(ChunkId) = .empty,
+    pub const TypeExpression = struct {
+        chunk_id: ChunkId,
+        splat: bool,
+    };
+
+    exception_type_exprs: std.ArrayList(TypeExpression) = .empty,
     catch_byte_offset: usize,
     catch_end_byte_offset: usize,
     var_idx: ?u8,
@@ -164,7 +169,7 @@ pub const Chunk = struct {
 
         for (self.exception_handlers.items) |*handler| {
             for (handler.rescue_handlers.items) |*rescue| {
-                rescue.exception_type_expr_chunks.deinit(self.allocator);
+                rescue.exception_type_exprs.deinit(self.allocator);
             }
             handler.rescue_handlers.deinit(self.allocator);
         }
