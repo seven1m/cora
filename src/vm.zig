@@ -1063,6 +1063,7 @@ pub const VM = struct {
         try self.setGlobal("$stdin", stdin_obj);
         try self.setGlobal("$stdout", stdout_obj);
         try self.setGlobal("$stderr", stderr_obj);
+        try self.setGlobal("$VERBOSE", Value.boolean(false));
         try self.setGlobal("$/", try self.newString("\n", false));
         try self.setGlobal("$-0", Value.nil());
 
@@ -5870,6 +5871,30 @@ pub const VM = struct {
         return self.callMethodByNameInternal(receiver, method_name, args, block, null);
     }
 
+    pub fn callMethodByNameWithKeywords(
+        self: *VM,
+        receiver: Value,
+        method_name: []const u8,
+        args: []Value,
+        kw_keys: []const Value,
+        kw_values: []const Value,
+        block: ?Block,
+    ) VMError!Value {
+        if (kw_keys.len != kw_values.len) return error.Fatal;
+        if (kw_keys.len == 0) return self.callMethodByNameInternal(receiver, method_name, args, block, null);
+
+        var keyword_ctx = BuiltinKeywordContext{
+            .kw_keys_storage = undefined,
+            .kw_values_storage = undefined,
+        };
+        @memcpy(keyword_ctx.kw_keys_storage[0..kw_keys.len], kw_keys);
+        @memcpy(keyword_ctx.kw_values_storage[0..kw_values.len], kw_values);
+        keyword_ctx.kw_keys = keyword_ctx.kw_keys_storage[0..kw_keys.len];
+        keyword_ctx.kw_values = keyword_ctx.kw_values_storage[0..kw_values.len];
+
+        return self.callMethodByNameInternal(receiver, method_name, args, block, &keyword_ctx);
+    }
+
     /// Call a method by name while forwarding the current builtin keyword context.
     pub fn callMethodByNameForwardingKeywords(self: *VM, receiver: Value, method_name: []const u8, args: []Value, block: ?Block) VMError!Value {
         return self.callMethodByNameInternal(receiver, method_name, args, block, self.builtin_keyword_ctx);
@@ -8821,7 +8846,7 @@ pub const VM = struct {
         return array_obj;
     }
 
-    fn backtraceLineForFrame(_: *VM, frame: *const CallFrame) u32 {
+    pub fn backtraceLineForFrame(_: *VM, frame: *const CallFrame) u32 {
         if (frame.chunk.line_info.items.len == 0) return 1;
         const ip = if (frame.ip == 0) 0 else frame.ip - 1;
         const line = frame.chunk.getLine(ip);

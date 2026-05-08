@@ -11,6 +11,9 @@ pub fn register(vm: *VM) !void {
     const warning_obj = Value.fromObject(vm.warning_module);
     const warning_singleton = try vm.getOrCreateSingletonClass(warning_obj);
 
+    const warn_sym = try vm.intern("warn");
+    try warning_singleton.module.methods.put(warn_sym, value.MethodEntry.builtin(&builtinWarningWarn, .{ .exact = 1 }));
+
     const get_sym = try vm.intern("[]");
     try warning_singleton.module.methods.put(get_sym, value.MethodEntry.builtin(&builtinWarningGet, .{ .exact = 1 }));
 
@@ -34,11 +37,24 @@ pub fn builtinWarningSet(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
     return args[1];
 }
 
+pub fn builtinWarningWarn(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+
+    var category: ?Value = null;
+    try vm.consumeKeywordArgs(.{"category"}, .{&category});
+    try vm.validateKeywordArgsConsumed();
+
+    const message = try args[0].coerceToStr(vm, "no implicit conversion into String");
+    try writeWarning(vm, message);
+    return Value.nil();
+}
+
 pub fn writeWarning(vm: *VM, message: []const u8) VMError!void {
     const stderr_target = vm.globals.get("$stderr") orelse return;
     const warning_val = try vm.newString(message, false);
     var args = [_]Value{warning_val};
     _ = try vm.callMethodByName(stderr_target, "write", args[0..], null);
+    _ = try vm.callMethodByName(stderr_target, "flush", &.{}, null);
 }
 
 pub fn warnBlockUnused(vm: *VM) VMError!void {

@@ -1282,7 +1282,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/kernel/untrace_var_spec.rb
 - [ ] core/kernel/untrust_spec.rb
 - [ ] core/kernel/untrusted_spec.rb
-- [ ] core/kernel/warn_spec.rb
+- [-] core/kernel/warn_spec.rb
 - [ ] core/kernel/yield_self_spec.rb
 
 ### core/main

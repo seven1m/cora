@@ -48,6 +48,16 @@ fn builtinMethodUnbind(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
     return unbound_method.createUnboundMethodObject(vm, method_obj.name, resolved, method_obj.owner);
 }
 
+fn builtinMethodSourceLocation(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
+    const method_obj = boundMethodObject(receiver);
+    const resolved = (try common.resolveExactMethodForReceiver(vm, method_obj.receiver, method_obj.owner, method_obj.name)) orelse {
+        return common.raiseUndefinedMethodName(vm, method_obj.name);
+    };
+    return common.sourceLocationForResolvedMethod(vm, resolved);
+}
+
 pub fn createBoundMethodObject(
     vm: *VM,
     receiver: Value,
@@ -61,5 +71,6 @@ pub fn createBoundMethodObject(
         .to_proc = &builtinMethodToProc,
         .arity = &builtinMethodArity,
         .unbind = &builtinMethodUnbind,
+        .source_location = &builtinMethodSourceLocation,
     });
 }

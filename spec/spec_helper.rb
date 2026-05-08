@@ -1500,7 +1500,8 @@ class SpecMockExpectation
     @pending_exactly = nil
   end
 
-  def with(*args)
+  def with(*args, **kwargs)
+    args = args + [kwargs] unless kwargs.empty?
     @expected_args = args
     self
   end

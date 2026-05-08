@@ -6,6 +6,7 @@ const method_reflection = @import("method_reflection.zig");
 const module_builtin = @import("module.zig");
 const method_builtin = @import("method.zig");
 const method_common = @import("method_common.zig");
+const warning_builtin = @import("warning.zig");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -170,6 +171,9 @@ pub fn register(vm: *VM) !void {
     const print_sym = try vm.intern("print");
     try vm.kernel_module.methods.put(print_sym, MethodEntry.builtin(&builtinKernelPrint, .{ .variadic = 0 }));
 
+    const warn_sym = try vm.intern("warn");
+    try vm.kernel_module.methods.put(warn_sym, MethodEntry.builtinWithVisibility(&builtinKernelWarn, .{ .variadic = 0 }, .private));
+
     const abort_sym = try vm.intern("abort");
     try vm.kernel_module.methods.put(abort_sym, value.MethodEntry.builtinWithVisibility(&builtinKernelAbort, .{ .variadic = 0 }, .private));
 
@@ -234,6 +238,7 @@ pub fn register(vm: *VM) !void {
     try kernel_singleton.module.methods.put(kernel_hash_convert_sym, value.MethodEntry.builtin(&builtinKernelHashConvert, .{ .exact = 1 }));
     try kernel_singleton.module.methods.put(autoload_sym, MethodEntry.builtin(&builtinKernelSingletonAutoload, .{ .exact = 2 }));
     try kernel_singleton.module.methods.put(autoload_q_sym, MethodEntry.builtin(&builtinKernelSingletonAutoloadQ, .{ .variadic = 0 }));
+    try kernel_singleton.module.methods.put(warn_sym, MethodEntry.builtin(&builtinKernelWarn, .{ .variadic = 0 }));
 
     const hash_sym = try vm.intern("hash");
     try vm.kernel_module.methods.put(hash_sym, MethodEntry.builtin(&builtinKernelHash, .{ .exact = 0 }));
@@ -606,6 +611,228 @@ pub fn builtinKernelPrint(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
     const stdout_target = vm.globals.get("$stdout") orelse return error.Fatal;
     _ = try vm.callMethodByName(stdout_target, "print", args, null);
     _ = try vm.callMethodByName(stdout_target, "flush", &[_]Value{}, null);
+    return Value.nil();
+}
+
+const WarningLocation = struct {
+    source: []const u8,
+    line: u32,
+};
+
+fn warningCategorySymbol(vm: *VM, category_value: ?Value) VMError!?Value {
+    const raw = category_value orelse return null;
+    if (raw.isNil()) return Value.nil();
+    if (raw.isSymbol()) return raw;
+
+    const converted = try vm.checkCallMethodByName(raw, "to_sym", false, &.{}, null) orelse {
+        return vm.raiseExceptionFmt(vm.type_error_class, "category must be a Symbol or nil", .{});
+    };
+    if (!converted.isSymbol()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "category must be a Symbol or nil", .{});
+    }
+    return converted;
+}
+
+fn warningUplevel(vm: *VM, uplevel_value: ?Value) VMError!?usize {
+    const raw = uplevel_value orelse return null;
+    if (raw.isNil()) return null;
+
+    const depth = try raw.coerceToI64ViaToInt(
+        vm,
+        "no implicit conversion into Integer",
+        "can't convert to Integer (to_int gives non-Integer)",
+        "integer too big to convert",
+    );
+    if (depth < 0) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "uplevel must be non-negative", .{});
+    }
+    return @intCast(depth);
+}
+
+fn warningLocationForUplevel(vm: *VM, depth: usize) ?WarningLocation {
+    var remaining = depth;
+    var i = vm.frames.items.len;
+    while (i > 0) {
+        i -= 1;
+        const frame = &vm.frames.items[i];
+        const source = frame.chunk.source_file orelse frame.chunk.name;
+
+        if (std.mem.startsWith(u8, source, "<internal:")) continue;
+        if (frame.method_name) |method_name| {
+            if (std.mem.eql(u8, method_name, "require") or std.mem.eql(u8, method_name, "require_relative")) continue;
+        }
+
+        if (remaining == 0) {
+            return .{
+                .source = source,
+                .line = vm.backtraceLineForFrame(frame),
+            };
+        }
+        remaining -= 1;
+    }
+    return null;
+}
+
+fn warningSupportsKeywordCategory(method: vm_mod.ResolvedMethod) bool {
+    return switch (method.entry.method) {
+        .builtin => true,
+        .proc => false,
+        .chunk => |method_chunk| blk: {
+            for (method_chunk.required_keywords.items) |req_kw| {
+                const name = method_chunk.constants.items[req_kw.name_idx].string;
+                if (std.mem.eql(u8, name, "category")) break :blk true;
+            }
+            for (method_chunk.optional_keywords.items) |opt_kw| {
+                const name = method_chunk.constants.items[opt_kw.name_idx].string;
+                if (std.mem.eql(u8, name, "category")) break :blk true;
+            }
+            break :blk false;
+        },
+        .undefined => false,
+    };
+}
+
+const WarningDispatchMode = enum {
+    keyword,
+    positional_hash,
+    plain,
+};
+
+fn warningDispatchMode(method: vm_mod.ResolvedMethod) WarningDispatchMode {
+    return switch (method.entry.method) {
+        .builtin => .keyword,
+        .proc => .positional_hash,
+        .chunk => |method_chunk| blk: {
+            if (warningSupportsKeywordCategory(method)) break :blk .keyword;
+            if (method_chunk.rest_param_index != null or method_chunk.keyword_rest_index != null) break :blk .positional_hash;
+            break :blk .plain;
+        },
+        .undefined => .plain,
+    };
+}
+
+fn formatWarnMessage(vm: *VM, arg: Value, uplevel: ?usize) VMError!Value {
+    const message_val = try vm.callMethodByName(arg, "to_s", &.{}, null);
+    if (!message_val.isString()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "to_s did not return String", .{});
+    }
+
+    const message = message_val.toStringObject().str;
+    const full_message = if (uplevel) |depth|
+        if (warningLocationForUplevel(vm, depth)) |location|
+            std.fmt.allocPrint(vm.allocator, "{s}:{d}: warning: {s}", .{ location.source, location.line, message }) catch return error.Fatal
+        else
+            std.fmt.allocPrint(vm.allocator, "warning: {s}", .{message}) catch return error.Fatal
+    else
+        std.fmt.allocPrint(vm.allocator, "{s}", .{message}) catch return error.Fatal;
+    defer vm.allocator.free(full_message);
+
+    if (std.mem.endsWith(u8, full_message, "\n")) {
+        return vm.newString(full_message, false);
+    }
+
+    const terminated = std.fmt.allocPrint(vm.allocator, "{s}\n", .{full_message}) catch return error.Fatal;
+    defer vm.allocator.free(terminated);
+    return vm.newString(terminated, false);
+}
+
+fn dispatchWarning(vm: *VM, receiver: Value, warning_message: Value, category: ?Value) VMError!void {
+    const warning_receiver = Value.fromObject(vm.warning_module);
+    if (receiver.raw == warning_receiver.raw) {
+        try warning_builtin.writeWarning(vm, warning_message.toStringObject().str);
+        return;
+    }
+
+    const warn_sym = try vm.intern("warn");
+    const resolved = try vm.findMethod(warning_receiver, warn_sym) orelse return error.Fatal;
+    const category_sym = try vm.intern("category");
+    const category_value = category orelse Value.nil();
+
+    switch (warningDispatchMode(resolved)) {
+        .keyword => {
+            var warn_args = [_]Value{warning_message};
+            var kw_keys = [_]Value{Value.fromObject(category_sym)};
+            var kw_values = [_]Value{category_value};
+            _ = vm.callMethodByNameWithKeywords(
+                warning_receiver,
+                "warn",
+                warn_args[0..],
+                kw_keys[0..],
+                kw_values[0..],
+                null,
+            ) catch |err| {
+                if (err == error.Unwind and vm.pending_exception != null and vm.pending_exception.?.object.class == vm.argument_error_class) {
+                    vm.pending_exception = null;
+                } else {
+                    return err;
+                }
+
+                const kw_hash = try vm.createHash();
+                try vm.hashSetEntry(kw_hash, Value.fromObject(category_sym), category_value);
+                var fallback_args = [_]Value{ warning_message, Value.fromObject(kw_hash) };
+                _ = vm.callMethodByName(warning_receiver, "warn", fallback_args[0..], null) catch |fallback_err| {
+                    if (fallback_err == error.Unwind and vm.pending_exception != null and vm.pending_exception.?.object.class == vm.argument_error_class) {
+                        vm.pending_exception = null;
+                    } else {
+                        return fallback_err;
+                    }
+
+                    var plain_args = [_]Value{warning_message};
+                    _ = try vm.callMethodByName(warning_receiver, "warn", plain_args[0..], null);
+                    return;
+                };
+                return;
+            };
+        },
+        .positional_hash => {
+            const kw_hash = try vm.createHash();
+            try vm.hashSetEntry(kw_hash, Value.fromObject(category_sym), category_value);
+            var warn_args = [_]Value{ warning_message, Value.fromObject(kw_hash) };
+            _ = vm.callMethodByName(warning_receiver, "warn", warn_args[0..], null) catch |err| {
+                if (err == error.Unwind and vm.pending_exception != null and vm.pending_exception.?.object.class == vm.argument_error_class) {
+                    vm.pending_exception = null;
+                    var plain_args = [_]Value{warning_message};
+                    _ = try vm.callMethodByName(warning_receiver, "warn", plain_args[0..], null);
+                    return;
+                }
+                return err;
+            };
+        },
+        .plain => {
+            var warn_args = [_]Value{warning_message};
+            _ = try vm.callMethodByName(warning_receiver, "warn", warn_args[0..], null);
+        },
+    }
+}
+
+fn kernelWarnEmit(vm: *VM, receiver: Value, arg: Value, uplevel: ?usize, category: ?Value) VMError!void {
+    if (arg.isArray()) {
+        for (arg.toArrayObject().elements.items) |elem| {
+            try kernelWarnEmit(vm, receiver, elem, uplevel, category);
+        }
+        return;
+    }
+
+    const warning_message = try formatWarnMessage(vm, arg, uplevel);
+    try dispatchWarning(vm, receiver, warning_message, category);
+}
+
+pub fn builtinKernelWarn(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    var uplevel_value: ?Value = null;
+    var category_value: ?Value = null;
+    try vm.consumeKeywordArgs(.{"uplevel", "category"}, .{ &uplevel_value, &category_value });
+    try vm.validateKeywordArgsConsumed();
+
+    const verbose = vm.globals.get("$VERBOSE") orelse Value.nil();
+    if (verbose.isNil()) return Value.nil();
+    if (args.len == 0) return Value.nil();
+
+    const uplevel = try warningUplevel(vm, uplevel_value);
+    const category = try warningCategorySymbol(vm, category_value);
+
+    for (args) |arg| {
+        try kernelWarnEmit(vm, receiver, arg, uplevel, category);
+    }
     return Value.nil();
 }
 

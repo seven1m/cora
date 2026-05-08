@@ -48,6 +48,16 @@ fn builtinMethodUnbind(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
     return createUnboundMethodObject(vm, method_obj.name, resolved, method_obj.owner);
 }
 
+fn builtinMethodSourceLocation(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
+    const method_obj = receiver.toMethodObject();
+    const resolved = (try common.resolveExactMethodForReceiver(vm, method_obj.receiver, method_obj.owner, method_obj.name)) orelse {
+        return common.raiseUndefinedMethodName(vm, method_obj.name);
+    };
+    return common.sourceLocationForResolvedMethod(vm, resolved);
+}
+
 fn createBoundMethodObject(
     vm: *VM,
     receiver: Value,
@@ -61,6 +71,7 @@ fn createBoundMethodObject(
         .to_proc = &builtinMethodToProc,
         .arity = &builtinMethodArity,
         .unbind = &builtinMethodUnbind,
+        .source_location = &builtinMethodSourceLocation,
     });
 }
 
@@ -115,6 +126,18 @@ fn builtinUnboundMethodEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     return Value.boolean(lhs.owner.raw == rhs.owner.raw and lhs.name == rhs.name);
 }
 
+fn builtinUnboundMethodSourceLocation(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
+    const method_obj = unboundMethodObject(receiver);
+    const resolved = common.methodEntryForOwner(method_obj.owner, method_obj.name) orelse return Value.nil();
+    return common.sourceLocationForResolvedMethod(vm, .{
+        .name = method_obj.name,
+        .owner_class = if (method_obj.owner.isClass()) method_obj.owner.toClassObject() else vm.getClass(method_obj.owner),
+        .entry = resolved,
+    });
+}
+
 pub fn createUnboundMethodObject(
     vm: *VM,
     method_name: *SymbolObject,
@@ -127,5 +150,6 @@ pub fn createUnboundMethodObject(
         .bind = &builtinUnboundMethodBind,
         .inspect = &builtinUnboundMethodInspect,
         .equal = &builtinUnboundMethodEqual,
+        .source_location = &builtinUnboundMethodSourceLocation,
     });
 }

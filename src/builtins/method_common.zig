@@ -21,6 +21,7 @@ pub const BoundMethodBuiltins = struct {
     to_proc: BuiltinMethodFn,
     arity: BuiltinMethodFn,
     unbind: BuiltinMethodFn,
+    source_location: BuiltinMethodFn,
 };
 
 pub const UnboundMethodBuiltins = struct {
@@ -29,6 +30,7 @@ pub const UnboundMethodBuiltins = struct {
     bind: BuiltinMethodFn,
     inspect: BuiltinMethodFn,
     equal: BuiltinMethodFn,
+    source_location: BuiltinMethodFn,
 };
 
 fn resolveMethodEntry(
@@ -168,6 +170,25 @@ pub fn raiseUndefinedMethodName(vm: *VM, name_sym: *SymbolObject) VMError!Value 
     return error.Unwind;
 }
 
+pub fn sourceLocationForResolvedMethod(vm: *VM, resolved: vm_mod.ResolvedMethod) VMError!Value {
+    const method_chunk = switch (resolved.entry.method) {
+        .chunk => |method_chunk| method_chunk,
+        else => return Value.nil(),
+    };
+
+    const source = method_chunk.source_file orelse method_chunk.name;
+    const body_line: i64 = if (method_chunk.line_info.items.len > 0 and method_chunk.line_info.items[0].line != 0)
+        method_chunk.line_info.items[0].line
+    else
+        1;
+    const line = if (body_line > 1) body_line - 1 else 1;
+
+    const array = try vm.createArray();
+    array.elements.append(vm.gc_allocator, try vm.newString(source, false)) catch return error.Fatal;
+    array.elements.append(vm.gc_allocator, Value.integer(line)) catch return error.Fatal;
+    return Value.fromObject(array);
+}
+
 pub fn createBoundMethodObject(
     vm: *VM,
     receiver: Value,
@@ -208,6 +229,9 @@ pub fn createBoundMethodObject(
 
     const unbind_sym = try vm.intern("unbind");
     singleton.module.methods.put(unbind_sym, MethodEntry.builtin(builtins.unbind, .{ .exact = 0 })) catch return error.Fatal;
+
+    const source_location_sym = try vm.intern("source_location");
+    singleton.module.methods.put(source_location_sym, MethodEntry.builtin(builtins.source_location, .{ .exact = 0 })) catch return error.Fatal;
 
     vm.bumpMethodStateVersion();
     return method_val;
@@ -251,6 +275,9 @@ pub fn createUnboundMethodObject(
 
     const equal_sym = try vm.intern("==");
     singleton.module.methods.put(equal_sym, MethodEntry.builtin(builtins.equal, .{ .exact = 1 })) catch return error.Fatal;
+
+    const source_location_sym = try vm.intern("source_location");
+    singleton.module.methods.put(source_location_sym, MethodEntry.builtin(builtins.source_location, .{ .exact = 0 })) catch return error.Fatal;
 
     vm.bumpMethodStateVersion();
     return method_val;
