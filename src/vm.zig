@@ -6091,11 +6091,35 @@ pub const VM = struct {
 
     fn invokeSymbolProc(self: *VM, symbol: *SymbolObject, args: []const Value, block: ?Block) VMError!Value {
         try self.requireMinArgCount(args, 1);
+        const receiver = args[0];
+        const method_name_sym = symbol;
+        const resolved = try self.findMethod(receiver, method_name_sym);
+
+        const r = resolved orelse {
+            var missing_args: [256]Value = undefined;
+            const remaining = args[1..];
+            for (remaining, 0..) |arg, i| {
+                missing_args[i] = arg;
+            }
+            return self.invokeMethodMissing(receiver, method_name_sym, missing_args[0..remaining.len], null, block);
+        };
+
+        if (r.entry.visibility != .public) {
+            const is_private = r.entry.visibility == .private;
+            const message = std.fmt.allocPrint(self.gc_allocator, "{s} method `{s}' called", .{
+                if (is_private) "private" else "protected",
+                symbol.name,
+            }) catch return error.Fatal;
+            const exc = try self.createException(self.no_method_error_class, message);
+            self.pending_exception = exc;
+            return error.Unwind;
+        }
+
         var forwarded_args: [256]Value = undefined;
         if (args.len > 1) {
             @memcpy(forwarded_args[0 .. args.len - 1], args[1..]);
         }
-        return self.callMethodByName(args[0], symbol.name, forwarded_args[0 .. args.len - 1], block);
+        return self.invokeResolvedMethod(r, receiver, forwarded_args[0 .. args.len - 1], block);
     }
 
     pub fn callProcObject(self: *VM, proc_obj: *value.ProcObject, args: []const Value, block: ?Block, self_override: ?Value) VMError!Value {
@@ -6503,11 +6527,57 @@ pub const VM = struct {
                     }
                     break :blk Value.integer(@intCast(required));
                 },
-                .symbol, .builtin, .callable => Value.integer(-1),
+                .symbol, .builtin, .callable => Value.integer(-2),
             },
             .builtin => |builtin_method| Value.integer(builtin_method.arity.asRubyArity()),
             .undefined => unreachable,
         };
+    }
+
+    pub fn getChunkParameters(self: *VM, ch: *Chunk) VMError!Value {
+        const result = try self.createArray();
+
+        var i: u8 = 0;
+        while (i < ch.arity) : (i += 1) {
+            const param_array = try self.createArray();
+            param_array.elements.append(self.gc_allocator, Value.fromObject(try self.intern("req"))) catch return error.Fatal;
+            result.elements.append(self.gc_allocator, Value.fromObject(param_array)) catch return error.Fatal;
+        }
+
+        if (ch.rest_param_index) |_| {
+            const rest_array = try self.createArray();
+            rest_array.elements.append(self.gc_allocator, Value.fromObject(try self.intern("rest"))) catch return error.Fatal;
+            result.elements.append(self.gc_allocator, Value.fromObject(rest_array)) catch return error.Fatal;
+        }
+
+        i = 0;
+        while (i < ch.optional_params.items.len) : (i += 1) {
+            const opt_array = try self.createArray();
+            opt_array.elements.append(self.gc_allocator, Value.fromObject(try self.intern("opt"))) catch return error.Fatal;
+            result.elements.append(self.gc_allocator, Value.fromObject(opt_array)) catch return error.Fatal;
+        }
+
+        i = 0;
+        while (i < ch.post_required_count) : (i += 1) {
+            const post_array = try self.createArray();
+            post_array.elements.append(self.gc_allocator, Value.fromObject(try self.intern("req"))) catch return error.Fatal;
+            result.elements.append(self.gc_allocator, Value.fromObject(post_array)) catch return error.Fatal;
+        }
+
+        if (ch.keyword_rest_index) |_| {
+            const kwrest_array = try self.createArray();
+            kwrest_array.elements.append(self.gc_allocator, Value.fromObject(try self.intern("keyrest"))) catch return error.Fatal;
+            result.elements.append(self.gc_allocator, Value.fromObject(kwrest_array)) catch return error.Fatal;
+        }
+
+        i = 0;
+        while (i < ch.required_keywords.items.len) : (i += 1) {
+            const key_array = try self.createArray();
+            key_array.elements.append(self.gc_allocator, Value.fromObject(try self.intern("key"))) catch return error.Fatal;
+            result.elements.append(self.gc_allocator, Value.fromObject(key_array)) catch return error.Fatal;
+        }
+
+        return Value.fromObject(result);
     }
 
     /// Copy forwarding arguments into the provided buffer.
