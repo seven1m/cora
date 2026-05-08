@@ -1170,6 +1170,7 @@ pub const VM = struct {
         try self.includeModule(&self.array_class.module, enumerable_module_val.toModuleObject());
         try self.includeModule(&self.hash_class.module, enumerable_module_val.toModuleObject());
         try self.includeModule(&self.struct_class.module, enumerable_module_val.toModuleObject());
+        try self.includeModule(&self.range_class.module, enumerable_module_val.toModuleObject());
         try self.includeModule(&self.string_class.module, comparable_module_val.toModuleObject());
         try self.includeModule(&self.symbol_class.module, comparable_module_val.toModuleObject());
         try self.includeModule(&self.time_class.module, comparable_module_val.toModuleObject());

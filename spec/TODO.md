@@ -195,7 +195,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/array/size_spec.rb
 - [ ] core/array/slice_spec.rb
 - [ ] core/array/sort_by_spec.rb
-- [ ] core/array/sort_spec.rb
+- [x] core/array/sort_spec.rb
 - [ ] core/array/sum_spec.rb
 - [ ] core/array/take_spec.rb
 - [ ] core/array/take_while_spec.rb

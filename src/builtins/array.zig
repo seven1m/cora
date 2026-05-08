@@ -507,7 +507,10 @@ pub fn register(vm: *VM) !void {
     try vm.array_class.module.methods.put(all_sym, value.MethodEntry.builtin(&builtinArrayAll, .{ .variadic = 0 }));
 
     const sort_sym = try vm.intern("sort");
-    try vm.array_class.module.methods.put(sort_sym, value.MethodEntry.builtin(&builtinArraySort, .{ .exact = 0 }));
+    try vm.array_class.module.methods.put(sort_sym, value.MethodEntry.builtin(&builtinArraySort, .{ .variadic = 0 }));
+
+    const sort_bang_sym = try vm.intern("sort!");
+    try vm.array_class.module.methods.put(sort_bang_sym, value.MethodEntry.builtin(&builtinArraySortBang, .{ .variadic = 0 }));
 
     const reverse_sym = try vm.intern("reverse");
     try vm.array_class.module.methods.put(reverse_sym, value.MethodEntry.builtin(&builtinArrayReverse, .{ .exact = 0 }));
@@ -2206,6 +2209,36 @@ pub fn builtinArraySort(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
     return Value.fromObject(result);
 }
 
+pub fn builtinArraySortBang(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
+    }
+    const array = receiver.toArrayObject();
+
+    var i: usize = 1;
+    while (i < array.elements.items.len) : (i += 1) {
+        const key = array.elements.items[i];
+        var j = i;
+        while (j > 0) {
+            const prev = array.elements.items[j - 1];
+            const less_than = if (block) |blk| blk: {
+                const cmp_result = try arraySortBlockLessThan(vm, blk, key, prev);
+                switch (cmp_result) {
+                    .less_than => |lt| break :blk lt,
+                    .control_flow_value => |value_to_return| return value_to_return,
+                }
+            } else try arrayValueLessThan(vm, key, prev);
+            if (!less_than) break;
+            array.elements.items[j] = prev;
+            j -= 1;
+        }
+        array.elements.items[j] = key;
+    }
+
+    return receiver;
+}
+
 pub fn builtinArrayReverse(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
 
@@ -2355,12 +2388,23 @@ fn arraySortBlockLessThan(vm: *VM, blk: Block, lhs: Value, rhs: Value) VMError!S
 }
 
 fn arraySortBlockResultSign(vm: *VM, cmp_value: Value) VMError!i8 {
+    if (cmp_value.isNil()) {
+        return vm.raiseExceptionFmt(
+            vm.argument_error_class,
+            "comparison of {s} with {s} failed",
+            .{ vm.className(cmp_value), "0" },
+        );
+    }
     if (cmp_value.isInteger()) {
         const n = cmp_value.toInteger();
         return if (n < 0) -1 else if (n > 0) 1 else 0;
     }
     if (cmp_value.isFloat()) {
         const n = cmp_value.toFloatObject().val;
+        return if (n < 0) -1 else if (n > 0) 1 else 0;
+    }
+    if (cmp_value.isBigInteger()) {
+        const n = cmp_value.toBigIntegerObject().value.toFloat(f64, .nearest_even)[0];
         return if (n < 0) -1 else if (n > 0) 1 else 0;
     }
 
@@ -2372,6 +2416,10 @@ fn arraySortBlockResultSign(vm: *VM, cmp_value: Value) VMError!i8 {
     }
     if (cmp.isFloat()) {
         const n = cmp.toFloatObject().val;
+        return if (n < 0) -1 else if (n > 0) 1 else 0;
+    }
+    if (cmp.isBigInteger()) {
+        const n = cmp.toBigIntegerObject().value.toFloat(f64, .nearest_even)[0];
         return if (n < 0) -1 else if (n > 0) 1 else 0;
     }
 
