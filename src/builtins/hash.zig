@@ -162,6 +162,9 @@ pub fn register(vm: *VM) !void {
     const equal_sym = try vm.intern("==");
     try vm.hash_class.module.methods.put(equal_sym, value.MethodEntry.builtin(&builtinHashEqual, .{ .exact = 1 }));
 
+    const eql_sym = try vm.intern("eql?");
+    try vm.hash_class.module.methods.put(eql_sym, value.MethodEntry.builtin(&builtinHashEqual, .{ .exact = 1 }));
+
     const hash_sym = try vm.intern("hash");
     try vm.hash_class.module.methods.put(hash_sym, value.MethodEntry.builtin(&builtinHashHash, .{ .exact = 0 }));
 
@@ -209,6 +212,15 @@ pub fn register(vm: *VM) !void {
 
     const compare_by_identity_q_sym = try vm.intern("compare_by_identity?");
     try vm.hash_class.module.methods.put(compare_by_identity_q_sym, value.MethodEntry.builtin(&builtinHashCompareByIdentityQ, .{ .exact = 0 }));
+
+    const merge_sym = try vm.intern("merge");
+    try vm.hash_class.module.methods.put(merge_sym, value.MethodEntry.builtin(&builtinHashMerge, .{ .variadic = 0 }));
+
+    const merge_bang_sym = try vm.intern("merge!");
+    try vm.hash_class.module.methods.put(merge_bang_sym, value.MethodEntry.builtin(&builtinHashMergeBang, .{ .variadic = 0 }));
+
+    const update_sym = try vm.intern("update");
+    try vm.hash_class.module.methods.put(update_sym, value.MethodEntry.builtin(&builtinHashMergeBang, .{ .variadic = 0 }));
 }
 
 fn hashGetValue(hash_obj: *value.HashObject, vm: *VM, key: Value) VMError!?Value {
@@ -379,7 +391,7 @@ pub fn builtinHashInitialize(vm: *VM, receiver: Value, args: []Value, block: ?Bl
     clearHashDefaultBehavior(hash_obj);
 
     if (block) |blk| {
-        const proc_val = try vm.newProc(blk);
+        const proc_val = try vm.procValueForBlock(blk);
         setHashDefaultProc(hash_obj, proc_val.toProcObject());
     } else if (args.len == 1) {
         setHashDefaultValue(hash_obj, args[0]);
@@ -961,4 +973,129 @@ pub fn builtinHashReject(vm: *VM, receiver: Value, args: []Value, block: ?Block)
     }
 
     return Value.fromObject(result_hash);
+}
+
+pub fn builtinHashMerge(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    const result = try vm.newObjectForClass(vm.getClass(receiver));
+    const result_hash = result.toHashObject();
+    try copyHashEntries(vm, result_hash, receiver.toHashObject());
+
+    const hash_obj = receiver.toHashObject();
+    result_hash.compare_by_identity = hash_obj.compare_by_identity;
+    if (hash_obj.default_proc) |default_proc| {
+        setHashDefaultProc(result_hash, default_proc);
+    } else if (hash_obj.default_value) |default_value| {
+        setHashDefaultValue(result_hash, default_value);
+    }
+
+    if (vm.keywordArgsGiven()) {
+        const kw_hash = try vm.consumeKeywordArgHash();
+        if (kw_hash) |kh| {
+            const kw_hash_obj = kh.toHashObject();
+            for (kw_hash_obj.entries.items) |entry| {
+                if (block) |blk| {
+                    const key = entry.key;
+                    const existing = try hashGetValue(result_hash, vm, key);
+                    if (existing) |old_val| {
+                        const yield_args = [_]Value{ key, old_val, entry.value };
+                        const yielded = try vm.yieldToBlock(blk, &yield_args);
+                        try vm.hashSetEntry(result_hash, key, yielded.value);
+                    } else {
+                        try vm.hashSetEntry(result_hash, key, entry.value);
+                    }
+                } else {
+                    try vm.hashSetEntry(result_hash, entry.key, entry.value);
+                }
+            }
+        }
+    }
+
+    for (args) |arg| {
+        const source_hash = switch (try vm.probeToHash(arg)) {
+            .hash => |h| h.toHashObject(),
+            .missing, .nil_result, .non_hash => {
+                return vm.raiseExceptionFmt(
+                    vm.type_error_class,
+                    "can't convert {s} to Hash ({s}#to_hash gives {s})",
+                    .{ vm.className(arg), vm.className(arg), vm.className(arg) },
+                );
+            },
+        };
+
+        for (source_hash.entries.items) |entry| {
+            if (block) |blk| {
+                const key = entry.key;
+                const existing = try hashGetValue(result_hash, vm, key);
+                if (existing) |old_val| {
+                    const yield_args = [_]Value{ key, old_val, entry.value };
+                    const yielded = try vm.yieldToBlock(blk, &yield_args);
+                    try vm.hashSetEntry(result_hash, key, yielded.value);
+                } else {
+                    try vm.hashSetEntry(result_hash, key, entry.value);
+                }
+            } else {
+                try vm.hashSetEntry(result_hash, entry.key, entry.value);
+            }
+        }
+    }
+
+    return Value.fromObject(result_hash);
+}
+
+pub fn builtinHashMergeBang(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try ensureMutableHash(vm, receiver);
+    const hash_obj = receiver.toHashObject();
+
+    if (vm.keywordArgsGiven()) {
+        const kw_hash = try vm.consumeKeywordArgHash();
+        if (kw_hash) |kh| {
+            const kw_hash_obj = kh.toHashObject();
+            for (kw_hash_obj.entries.items) |entry| {
+                if (block) |blk| {
+                    const key = entry.key;
+                    const existing = try hashGetValue(hash_obj, vm, key);
+                    if (existing) |old_val| {
+                        const yield_args = [_]Value{ key, old_val, entry.value };
+                        const yielded = try vm.yieldToBlock(blk, &yield_args);
+                        try vm.hashSetEntry(hash_obj, key, yielded.value);
+                    } else {
+                        try vm.hashSetEntry(hash_obj, key, entry.value);
+                    }
+                } else {
+                    try vm.hashSetEntry(hash_obj, entry.key, entry.value);
+                }
+            }
+        }
+    }
+
+    for (args) |arg| {
+        const source_hash = switch (try vm.probeToHash(arg)) {
+            .hash => |h| h.toHashObject(),
+            .missing, .nil_result, .non_hash => {
+                return vm.raiseExceptionFmt(
+                    vm.type_error_class,
+                    "can't convert {s} to Hash ({s}#to_hash gives {s})",
+                    .{ vm.className(arg), vm.className(arg), vm.className(arg) },
+                );
+            },
+        };
+
+        for (source_hash.entries.items) |entry| {
+            if (block) |blk| {
+                const key = entry.key;
+                const existing = try hashGetValue(hash_obj, vm, key);
+                if (existing) |old_val| {
+                    const yield_args = [_]Value{ key, old_val, entry.value };
+                    const yielded = try vm.yieldToBlock(blk, &yield_args);
+                    try vm.hashSetEntry(hash_obj, key, yielded.value);
+                } else {
+                    try vm.hashSetEntry(hash_obj, key, entry.value);
+                }
+            } else {
+                try vm.hashSetEntry(hash_obj, entry.key, entry.value);
+            }
+        }
+    }
+
+    return receiver;
 }

@@ -964,7 +964,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/hash/lt_spec.rb
 - [ ] core/hash/lte_spec.rb
 - [x] core/hash/member_spec.rb
-- [ ] core/hash/merge_spec.rb
+- [-] core/hash/merge_spec.rb
 - [ ] core/hash/new_spec.rb
 - [ ] core/hash/rassoc_spec.rb
 - [ ] core/hash/rehash_spec.rb
@@ -985,7 +985,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/hash/transform_keys_spec.rb
 - [ ] core/hash/transform_values_spec.rb
 - [x] core/hash/try_convert_spec.rb
-- [ ] core/hash/update_spec.rb
+- [x] core/hash/update_spec.rb
 - [x] core/hash/value_spec.rb
 - [ ] core/hash/values_at_spec.rb
 - [x] core/hash/values_spec.rb

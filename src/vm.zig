@@ -142,6 +142,7 @@ pub const Block = struct {
         builtin: *const fn (*VM, []Value) VMError!Value,
         callable: Value,
     },
+    source_proc: ?*value.ProcObject = null,
 };
 
 pub const CallFrame = struct {
@@ -2328,7 +2329,9 @@ pub const VM = struct {
             }
 
             const proc_obj = proc_val.toProcObject();
-            return proc_obj.block;
+            var resolved = proc_obj.block;
+            resolved.source_proc = proc_obj;
+            return resolved;
         } else if (block_chunk_id != 0) {
             // Literal block: look up chunk
             if (self.program.child_chunks.get(block_chunk_id)) |bc| {
@@ -7519,6 +7522,13 @@ pub const VM = struct {
             },
         };
         return Value.fromObject(proc_obj);
+    }
+
+    pub fn procValueForBlock(self: *VM, block: Block) VMError!Value {
+        if (block.source_proc) |proc_obj| {
+            return Value.fromObject(proc_obj);
+        }
+        return self.newProc(block);
     }
 
     pub fn newEnumerator(
