@@ -238,6 +238,12 @@ test "File.join and File.dirname provide minimal Unix path helpers" {
     try std.testing.expectEqualSlices(u8, "/tmp/a", result.toArrayObject().elements.items[1].toStringObject().str);
 }
 
+test "File.join accepts array as single argument" {
+    const result = try evalCode("File.join(['food', 'bar'])");
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "food/bar", result.toStringObject().str);
+}
+
 test "File.expand_path handles relative and home-based paths" {
     const cwd = try std.process.currentPathAlloc(std.testing.io, std.testing.allocator);
     defer std.testing.allocator.free(cwd);

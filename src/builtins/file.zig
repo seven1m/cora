@@ -409,7 +409,12 @@ pub fn builtinFileJoin(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
     var output_encoding: Encoding = .{ .utf8 = .{} };
     var have_encoding = false;
 
-    for (args, 0..) |arg, idx| {
+    var effective_args = args;
+    if (args.len == 1 and args[0].isArray()) {
+        effective_args = args[0].toArrayObject().elements.items;
+    }
+
+    for (effective_args, 0..) |arg, idx| {
         const part_value = try vm.coerceToPathValue(arg, "no implicit conversion into String");
         const part_obj = part_value.toStringObject();
         if (!have_encoding) {
