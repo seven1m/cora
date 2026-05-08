@@ -20,6 +20,7 @@ Prism AST -> bytecode -> VM execution.
 - Builtins and Ruby-facing conventions: `.agents/reference/builtins.md`
 - Testing, CLI usage, and debug workflow: `.agents/reference/testing.md`
 - Ruby spec workflow: `.agents/reference/ruby-specs.md`
+- Zig tips: `.agents/reference/zig.md`
 
 ## Fast Facts
 
