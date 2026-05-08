@@ -228,6 +228,9 @@ pub fn register(vm: *VM) !void {
     const inspect_sym = try vm.intern("inspect");
     try vm.kernel_module.methods.put(inspect_sym, MethodEntry.builtin(&builtinKernelInspect, .{ .exact = 0 }));
 
+    const itself_sym = try vm.intern("itself");
+    try vm.kernel_module.methods.put(itself_sym, MethodEntry.builtin(&builtinKernelItself, .{ .exact = 0 }));
+
     const kernel_hash_convert_sym = try vm.intern("Hash");
     try vm.kernel_module.methods.put(kernel_hash_convert_sym, value.MethodEntry.builtinWithVisibility(&builtinKernelHashConvert, .{ .exact = 1 }, .private));
 
@@ -1299,6 +1302,10 @@ pub fn builtinKernelToS(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError
 
 pub fn builtinKernelInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     return builtinKernelToS(vm, receiver, args, null);
+}
+
+fn builtinKernelItself(_: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
+    return receiver;
 }
 
 pub fn builtinKernelHash(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
