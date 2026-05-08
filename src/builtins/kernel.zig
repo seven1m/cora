@@ -887,6 +887,14 @@ pub fn builtinKernelIsA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
 
     if (arg.isClass()) {
         const cls = arg.toClassObject();
+        if (receiver.getSingletonClass()) |sc| {
+            var current: ?*ClassObject = sc;
+            while (current) |c| {
+                if (c == cls) return Value.boolean(true);
+                if (c.attached_object != null) break;
+                current = c.superclass;
+            }
+        }
         var current: ?*ClassObject = vm.getClass(receiver);
         while (current) |c| {
             if (c == cls) return Value.boolean(true);
@@ -895,14 +903,30 @@ pub fn builtinKernelIsA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
         return Value.boolean(false);
     } else if (arg.isModule()) {
         const mod = arg.toModuleObject();
+        if (receiver.getSingletonClass()) |sc| {
+            var current: ?*ClassObject = sc;
+            while (current) |c| {
+                const m = &c.module;
+                if (m == mod) return Value.boolean(true);
+                for (m.prepended_modules.items) |prepended| {
+                    if (prepended == mod) return Value.boolean(true);
+                }
+                for (m.included_modules.items) |included| {
+                    if (included == mod) return Value.boolean(true);
+                }
+                if (c.attached_object != null) break;
+                current = c.superclass;
+            }
+        }
         var current: ?*ClassObject = vm.getClass(receiver);
         while (current) |c| {
-            if (&c.module == mod) return Value.boolean(true);
-            for (c.module.prepended_modules.items) |m| {
-                if (m == mod) return Value.boolean(true);
+            const m = &c.module;
+            if (m == mod) return Value.boolean(true);
+            for (m.prepended_modules.items) |prepended| {
+                if (prepended == mod) return Value.boolean(true);
             }
-            for (c.module.included_modules.items) |m| {
-                if (m == mod) return Value.boolean(true);
+            for (m.included_modules.items) |included| {
+                if (included == mod) return Value.boolean(true);
             }
             current = c.superclass;
         }
