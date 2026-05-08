@@ -51,6 +51,7 @@ const language_proc_test = @import("language/proc_test.zig");
 const language_raise_test = @import("language/raise_test.zig");
 const language_range_test = @import("language/range_test.zig");
 const language_regexp_test = @import("language/regexp_test.zig");
+const language_require_test = @import("language/require_test.zig");
 const language_rescue_else_test = @import("language/rescue_else_test.zig");
 const language_rescue_test = @import("language/rescue_test.zig");
 const core_ruby_constants_test = @import("core/ruby_constants_test.zig");
@@ -120,6 +121,7 @@ comptime {
     _ = language_raise_test;
     _ = language_range_test;
     _ = language_regexp_test;
+    _ = language_require_test;
     _ = language_rescue_else_test;
     _ = language_rescue_test;
     _ = core_ruby_constants_test;
