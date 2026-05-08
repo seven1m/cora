@@ -21,6 +21,74 @@ fn parseDashZeroSeparator(arg: []const u8, storage: *[1]u8) ![]const u8 {
     return storage[0..1];
 }
 
+fn appendColonSeparatedPaths(allocator: std.mem.Allocator, paths: *std.ArrayList([]const u8), arg: []const u8) !void {
+    var it = std.mem.splitScalar(u8, arg, ':');
+    while (it.next()) |raw| {
+        const path = std.mem.trim(u8, raw, " \t\r\n");
+        if (path.len == 0) continue;
+        try paths.append(allocator, path);
+    }
+}
+
+fn appendLoadPathIfExists(virtual_machine: *vm.VM, io: std.Io, candidate: []const u8) !void {
+    var path_buffer: [4096]u8 = undefined;
+    const abs_len = if (std.fs.path.isAbsolute(candidate))
+        std.Io.Dir.realPathFileAbsolute(io, candidate, &path_buffer) catch return
+    else
+        std.Io.Dir.cwd().realPathFile(io, candidate, &path_buffer) catch return;
+    try virtual_machine.appendLoadPath(path_buffer[0..abs_len]);
+}
+
+fn appendScriptDirectory(virtual_machine: *vm.VM, io: std.Io, script_path: []const u8) !void {
+    var path_buffer: [4096]u8 = undefined;
+    const abs_len = if (std.fs.path.isAbsolute(script_path))
+        std.Io.Dir.realPathFileAbsolute(io, script_path, &path_buffer) catch return
+    else
+        std.Io.Dir.cwd().realPathFile(io, script_path, &path_buffer) catch return;
+    const abs_path = path_buffer[0..abs_len];
+    const dir = std.fs.path.dirname(abs_path) orelse return;
+    try virtual_machine.appendLoadPath(dir);
+}
+
+fn configureLoadPath(
+    allocator: std.mem.Allocator,
+    virtual_machine: *vm.VM,
+    io: std.Io,
+    argv0: []const u8,
+    script_path: ?[]const u8,
+    extra_load_paths: []const []const u8,
+) !void {
+    if (script_path) |path| {
+        try appendScriptDirectory(virtual_machine, io, path);
+    }
+
+    var exe_path_buffer: [4096]u8 = undefined;
+    const exe_abs_len = if (std.fs.path.isAbsolute(argv0))
+        std.Io.Dir.realPathFileAbsolute(io, argv0, &exe_path_buffer) catch 0
+    else
+        std.Io.Dir.cwd().realPathFile(io, argv0, &exe_path_buffer) catch 0;
+    if (exe_abs_len != 0) {
+        const exe_abs = exe_path_buffer[0..exe_abs_len];
+        if (std.fs.path.dirname(exe_abs)) |exe_dir| {
+            const installed_stdlib = try std.fs.path.join(allocator, &.{ exe_dir, "..", "lib", "stdlib" });
+            defer allocator.free(installed_stdlib);
+            try appendLoadPathIfExists(virtual_machine, io, installed_stdlib);
+
+            const repo_stdlib = try std.fs.path.join(allocator, &.{ exe_dir, "..", "..", "lib", "stdlib" });
+            defer allocator.free(repo_stdlib);
+            try appendLoadPathIfExists(virtual_machine, io, repo_stdlib);
+        }
+    }
+
+    try appendLoadPathIfExists(virtual_machine, io, "lib/stdlib");
+
+    for (extra_load_paths) |path| {
+        try appendLoadPathIfExists(virtual_machine, io, path);
+    }
+
+    try virtual_machine.syncLoadPathGlobals();
+}
+
 pub fn main(init: std.process.Init) !void {
     bdwgc.init();
     defer bdwgc.deinit();
@@ -39,6 +107,8 @@ pub fn main(init: std.process.Init) !void {
     var source_file: ?[]const u8 = null;
     var script_args: std.ArrayList([]const u8) = .empty;
     defer script_args.deinit(allocator);
+    var extra_load_paths: std.ArrayList([]const u8) = .empty;
+    defer extra_load_paths.deinit(allocator);
 
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
@@ -55,6 +125,16 @@ pub fn main(init: std.process.Init) !void {
                 std.debug.print("Error: -e requires an argument\n", .{});
                 return;
             }
+        } else if (std.mem.eql(u8, args[i], "-I")) {
+            if (i + 1 < args.len) {
+                try appendColonSeparatedPaths(allocator, &extra_load_paths, args[i + 1]);
+                i += 1;
+            } else {
+                std.debug.print("Error: -I requires an argument\n", .{});
+                return;
+            }
+        } else if (std.mem.startsWith(u8, args[i], "-I")) {
+            try appendColonSeparatedPaths(allocator, &extra_load_paths, args[i][2..]);
         } else if (std.mem.startsWith(u8, args[i], "-0")) {
             input_record_separator = parseDashZeroSeparator(args[i], &input_record_separator_storage) catch {
                 std.debug.print("Error: -0 requires an octal byte value between 000 and 377\n", .{});
@@ -144,6 +224,7 @@ pub fn main(init: std.process.Init) !void {
     var virtual_machine = vm.VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic, init.io, init.minimal.environ);
     try virtual_machine.prepare(&program);
     defer virtual_machine.deinit();
+    try configureLoadPath(allocator, &virtual_machine, init.io, args[0], source_file, extra_load_paths.items);
     virtual_machine.setTccJitEnabled(build_options.tcc_jit);
     virtual_machine.setDumpJitSource(dump_jit_source);
     virtual_machine.setBacktraceLimit(backtrace_limit);

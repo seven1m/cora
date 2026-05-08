@@ -29,8 +29,9 @@ test "binary: RubyGems requirement loads after extending $LOAD_PATH" {
     const result = try std.process.run(allocator, threaded.io(), .{
         .argv = &.{
             "zig-out/bin/cora",
+            "-Iext/rubygems/lib",
             "-e",
-            "$LOAD_PATH.unshift(File.expand_path(\"ext/rubygems/lib\", Dir.pwd)); require \"rubygems/version\"; require \"rubygems/requirement\"; puts Gem::Requirement.default.to_s",
+            "require \"rubygems/version\"; require \"rubygems/requirement\"; puts Gem::Requirement.default.to_s",
         },
         .stdout_limit = .limited(1024 * 1024),
         .stderr_limit = .limited(1024 * 1024),
@@ -52,8 +53,9 @@ test "binary: require runs Ruby files at top level lexical scope" {
     const result = try std.process.run(allocator, threaded.io(), .{
         .argv = &.{
             "zig-out/bin/cora",
+            "-Iext/rubygems/lib",
             "-e",
-            "$LOAD_PATH.unshift(File.expand_path(\"ext/rubygems/lib\", Dir.pwd)); require \"rubygems/version\"; class ScopeCarrier; require File.expand_path(\"ext/rubygems/lib/rubygems/requirement\", Dir.pwd); end; puts Gem::Requirement.default.to_s",
+            "require \"rubygems/version\"; class ScopeCarrier; require File.expand_path(\"ext/rubygems/lib/rubygems/requirement\", Dir.pwd); end; puts Gem::Requirement.default.to_s",
         },
         .stdout_limit = .limited(1024 * 1024),
         .stderr_limit = .limited(1024 * 1024),

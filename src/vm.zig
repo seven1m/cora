@@ -660,7 +660,6 @@ pub const VM = struct {
         self.hash_class = hash_class_val.toClassObject();
 
         self.load_path = try self.createArray();
-        self.load_path.?.elements.append(self.gc_allocator, try self.newString(".", false)) catch return error.Fatal;
 
         const file_name_sym = try self.intern("File");
         const file_class_val = try self.newClassWithType(file_name_sym, self.io_class, .io);
@@ -8039,6 +8038,15 @@ pub const VM = struct {
         const load_path_val = Value.fromObject(self.load_path orelse return error.Fatal);
         try self.setGlobal("$LOAD_PATH", load_path_val);
         try self.setGlobal("$:", load_path_val);
+    }
+
+    pub fn appendLoadPath(self: *VM, path: []const u8) VMError!void {
+        const load_path = self.load_path orelse return error.Fatal;
+        for (load_path.elements.items) |entry| {
+            if (!entry.isString()) continue;
+            if (std.mem.eql(u8, entry.toStringObject().str, path)) return;
+        }
+        load_path.elements.append(self.gc_allocator, try self.newString(path, false)) catch return error.Fatal;
     }
 
     // File loading helper methods

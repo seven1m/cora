@@ -304,6 +304,14 @@ fn evalCodeWithOutputAndPath(ruby_code: []const u8, stdout_buf: []u8, stderr_buf
         };
     };
 
+    {
+        var path_buffer: [4096]u8 = undefined;
+        const abs_len = std.Io.Dir.cwd().realPathFile(threaded.io(), "lib/stdlib", &path_buffer) catch 0;
+        if (abs_len != 0) {
+            vm.appendLoadPath(path_buffer[0..abs_len]) catch {};
+        }
+    }
+
     var stdout_writer = TestWriter.init(stdout_buf);
     vm.stdout = &stdout_writer.interface;
 

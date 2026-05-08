@@ -1,7 +1,9 @@
-# Boots vendored RubyGems 4.0.11 under Cora without relying on MRI at runtime.
-# We start at gem_runner directly so the harness exercises real RubyGems boot
-# without first depending on Cora exposing MRI-style $LOAD_PATH behavior.
+# Boots vendored RubyGems under Cora without relying on MRI at runtime.
+# Cora's stdlib lives on the default $LOAD_PATH, but vendored libraries remain
+# opt-in so harnesses control when they are visible.
 
-require_relative "../ext/rubygems/lib/rubygems/gem_runner"
+$LOAD_PATH.unshift(File.expand_path("../ext/rubygems/lib", __dir__))
+
+require "rubygems/gem_runner"
 
 Gem::GemRunner.new.run(ARGV.clone)
