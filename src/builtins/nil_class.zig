@@ -35,13 +35,13 @@ pub fn register(vm: *VM) !void {
 pub fn builtinNilClassToS(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
 
-    return try vm.newString("", false);
+    return try vm.getOrCreateCanonicalFString("", .{ .utf8 = .{} });
 }
 
 pub fn builtinNilClassInspect(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
 
-    return try vm.newString("nil", false);
+    return try vm.getOrCreateCanonicalFString("nil", .{ .utf8 = .{} });
 }
 
 pub fn builtinNilClassEqual(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
