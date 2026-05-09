@@ -24,6 +24,15 @@ fn getStructMembersForReceiver(vm: *VM, receiver: Value) VMError!*value.ArrayObj
     return getStructMembersForClass(vm, vm.getClass(receiver));
 }
 
+fn structKeywordInitForClass(class_obj: *ClassObject) ?bool {
+    var current: ?*ClassObject = class_obj;
+    while (current) |klass| {
+        if (klass.struct_members != null) return klass.struct_keyword_init;
+        current = klass.superclass;
+    }
+    return null;
+}
+
 fn duplicateMembersArray(vm: *VM, members: *value.ArrayObject) VMError!Value {
     const out = try vm.createArray();
     for (members.elements.items) |member| {
@@ -178,6 +187,10 @@ pub fn builtinStructNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
         return class_builtin.builtinClassNew(vm, receiver, args, block);
     }
 
+    var keyword_init: ?Value = null;
+    try vm.consumeKeywordArgs(.{"keyword_init"}, .{&keyword_init});
+    try vm.validateKeywordArgsConsumed();
+
     var member_start: usize = 0;
     var name_arg: ?Value = null;
     if (args.len > 0 and !args[0].isSymbol()) {
@@ -203,6 +216,7 @@ pub fn builtinStructNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
     const class_name_sym = try vm.intern(class_name);
     const struct_val = try vm.newClass(class_name_sym, vm.struct_class);
     struct_val.toClassObject().struct_members = members;
+    struct_val.toClassObject().struct_keyword_init = if (keyword_init) |value_arg| value_arg.is_truthy() else null;
 
     if (name_arg) |name| {
         var const_args = [_]Value{ name, struct_val };
@@ -233,6 +247,23 @@ pub fn builtinStructClassMembers(vm: *VM, receiver: Value, args: []Value, _: ?Bl
 
 pub fn builtinStructInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     const members = try getStructMembersForReceiver(vm, receiver);
+    const keyword_init = structKeywordInitForClass(vm.getClass(receiver));
+
+    if (keyword_init == true) {
+        if (args.len != 0) {
+            return vm.raiseArgumentErrorWrongArgCount(args.len, 0);
+        }
+
+        var i: usize = 0;
+        while (i < members.elements.items.len) : (i += 1) {
+            const member = members.elements.items[i].toSymbolObject();
+            const arg = (try vm.consumeKeywordArg(member.name)) orelse Value.nil();
+            _ = try structMemberWriter(vm, receiver, member, arg);
+        }
+        try vm.validateKeywordArgsConsumed();
+        return Value.nil();
+    }
+
     try vm.requireArgCountRange(args, 0, members.elements.items.len);
 
     for (members.elements.items, 0..) |member, idx| {

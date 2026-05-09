@@ -192,6 +192,7 @@ pub const ClassObject = struct {
     attached_object: ?Value = null,
     object_type: ObjectType = .instance,
     struct_members: ?*ArrayObject = null,
+    struct_keyword_init: ?bool = null,
 };
 
 pub const ArrayObject = struct {
