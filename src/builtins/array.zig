@@ -506,6 +506,9 @@ pub fn register(vm: *VM) !void {
     const all_sym = try vm.intern("all?");
     try vm.array_class.module.methods.put(all_sym, value.MethodEntry.builtin(&builtinArrayAll, .{ .variadic = 0 }));
 
+    const count_sym = try vm.intern("count");
+    try vm.array_class.module.methods.put(count_sym, value.MethodEntry.builtin(&builtinArrayCount, .{ .variadic = 1 }));
+
     const sort_sym = try vm.intern("sort");
     try vm.array_class.module.methods.put(sort_sym, value.MethodEntry.builtin(&builtinArraySort, .{ .variadic = 0 }));
 
@@ -2177,6 +2180,38 @@ pub fn builtinArrayAll(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
     }
 
     return Value.boolean(true);
+}
+
+pub fn builtinArrayCount(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const array_obj = receiver.toArrayObject();
+
+    if (args.len == 1) {
+        const pattern = args[0];
+        if (block) |_| {
+            try warning_builtin.warnBlockUnused(vm);
+        }
+        var count: usize = 0;
+        var idx: usize = 0;
+        while (idx < array_obj.elements.items.len) : (idx += 1) {
+            if (try arrayPatternMatches(vm, pattern, array_obj.elements.items[idx])) count += 1;
+        }
+        return Value.integer(@intCast(count));
+    }
+
+    if (block) |blk| {
+        var count: usize = 0;
+        var idx: usize = 0;
+        while (idx < array_obj.elements.items.len) : (idx += 1) {
+            const yield_args = [_]Value{array_obj.elements.items[idx]};
+            const result = try vm.yieldToBlock(blk, &yield_args);
+            if (result.controlFlowValue()) |return_value| return return_value;
+            if (result.value.is_truthy()) count += 1;
+        }
+        return Value.integer(@intCast(count));
+    }
+
+    return Value.integer(@intCast(array_obj.elements.items.len));
 }
 
 pub fn builtinArraySort(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
