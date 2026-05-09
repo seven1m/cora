@@ -158,6 +158,7 @@ pub const CallFrame = struct {
     return_target_ep: ?*Environment = null,
     method_name: ?[]const u8 = null,
     super_defining_class: ?*ClassObject = null,
+    forwarded_keyword_ctx: ?*BuiltinKeywordContext = null,
     dir_returns_nil: bool = false,
 };
 
@@ -5726,6 +5727,10 @@ pub const VM = struct {
         const callee_frame = self.currentFrame();
         callee_frame.method_name = method_name;
         callee_frame.super_defining_class = super_defining_class;
+        callee_frame.forwarded_keyword_ctx = if (has_keywords)
+            try self.copyKeywordContext(kw_keys.?, kw_values.?)
+        else
+            null;
         if (method_chunk.is_simple_positional) {
             if (args.len != method_chunk.arity) {
                 return self.raiseArgumentErrorWrongArgCount(args.len, method_chunk.arity);
@@ -5839,6 +5844,26 @@ pub const VM = struct {
             return err;
         };
         return result;
+    }
+
+    fn copyKeywordContext(
+        self: *VM,
+        kw_keys: []const Value,
+        kw_values: []const Value,
+    ) VMError!?*BuiltinKeywordContext {
+        if (kw_keys.len != kw_values.len) return error.Fatal;
+        if (kw_keys.len == 0) return null;
+
+        const keyword_ctx = self.gc_allocator.create(BuiltinKeywordContext) catch return error.Fatal;
+        keyword_ctx.* = .{
+            .kw_keys_storage = undefined,
+            .kw_values_storage = undefined,
+        };
+        @memcpy(keyword_ctx.kw_keys_storage[0..kw_keys.len], kw_keys);
+        @memcpy(keyword_ctx.kw_values_storage[0..kw_values.len], kw_values);
+        keyword_ctx.kw_keys = keyword_ctx.kw_keys_storage[0..kw_keys.len];
+        keyword_ctx.kw_values = keyword_ctx.kw_values_storage[0..kw_values.len];
+        return keyword_ctx;
     }
 
     pub fn keywordArgsGiven(self: *VM) bool {
@@ -6061,16 +6086,8 @@ pub const VM = struct {
         if (kw_keys.len != kw_values.len) return error.Fatal;
         if (kw_keys.len == 0) return self.callMethodByNameInternal(receiver, method_name, args, block, null);
 
-        var keyword_ctx = BuiltinKeywordContext{
-            .kw_keys_storage = undefined,
-            .kw_values_storage = undefined,
-        };
-        @memcpy(keyword_ctx.kw_keys_storage[0..kw_keys.len], kw_keys);
-        @memcpy(keyword_ctx.kw_values_storage[0..kw_values.len], kw_values);
-        keyword_ctx.kw_keys = keyword_ctx.kw_keys_storage[0..kw_keys.len];
-        keyword_ctx.kw_values = keyword_ctx.kw_values_storage[0..kw_values.len];
-
-        return self.callMethodByNameInternal(receiver, method_name, args, block, &keyword_ctx);
+        const keyword_ctx = (try self.copyKeywordContext(kw_keys, kw_values)).?;
+        return self.callMethodByNameInternal(receiver, method_name, args, block, keyword_ctx);
     }
 
     /// Call a method by name while forwarding the current builtin keyword context.
@@ -6797,39 +6814,34 @@ pub const VM = struct {
 
         switch (resolved.entry.method) {
             .chunk => |method_chunk| {
-                // Push frame with receiver as self_value
-                try self.pushFrame(method_chunk, receiver, block);
-
-                // Copy arguments with rest parameter handling
-                const new_frame = self.currentFrame();
-                try self.copyArgumentsWithRestParam(method_chunk, new_frame.ep, args, .strict);
-
-                // Bind block parameter if present
-                if (method_chunk.block_param_index) |block_idx| {
-                    const current_frame = &self.frames.items[self.frames.items.len - 1];
-
-                    if (current_frame.block) |blk| {
-                        const proc_val = try self.newProc(blk);
-                        const f = &self.frames.items[self.frames.items.len - 1];
-                        f.ep.variables[block_idx] = proc_val;
-                    } else {
-                        current_frame.ep.variables[block_idx] = Value.nil();
-                    }
-
-                    const f = &self.frames.items[self.frames.items.len - 1];
-                    if (block_idx >= f.ep.variables_len) {
-                        f.ep.variables_len = block_idx + 1;
-                    }
-                }
+                const kw_keys = if (frame.forwarded_keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_keys else null else null;
+                const kw_values = if (frame.forwarded_keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_values else null else null;
+                try self.setupChunkCallFrame(
+                    method_chunk,
+                    receiver,
+                    args,
+                    kw_keys,
+                    kw_values,
+                    resolved.name.name,
+                    resolved.owner_class,
+                    block,
+                );
             },
             .builtin => |fun_ptr| {
                 // For builtin methods, we need a mutable copy
                 var args_copy: [256]Value = undefined;
                 @memcpy(args_copy[0..args.len], args);
-                const result = try self.invokeBuiltinMethod(fun_ptr, receiver, args_copy[0..args.len], block, null);
+                const result = try self.invokeBuiltinMethod(fun_ptr, receiver, args_copy[0..args.len], block, frame.forwarded_keyword_ctx);
                 try self.push(result);
             },
             .proc => |proc_obj| {
+                if (frame.forwarded_keyword_ctx) |keyword_ctx| {
+                    if (keyword_ctx.kw_values.len > 0) {
+                        const exc = try self.createException(self.argument_error_class, "this method does not accept keyword arguments");
+                        self.pending_exception = exc;
+                        return error.Unwind;
+                    }
+                }
                 const result = try self.callProcAsMethod(proc_obj, receiver, args, block, resolved.name.name, resolved.owner_class);
                 try self.push(result);
             },

@@ -86,3 +86,22 @@ test "Struct instances enumerate and compare by member values" {
     try std.testing.expect(entries[3].toBool());
     try std.testing.expect(std.mem.indexOf(u8, entries[4].toStringObject().str, "#<struct Point x=3, y=4>") != null);
 }
+
+test "Struct keyword_init forwards through bare super" {
+    const result = try evalCode(
+        \\Node = Struct.new(:pairs, :tag, :anchor, keyword_init: true) do
+        \\  def initialize(pairs: [], tag: nil, anchor: nil)
+        \\    super
+        \\  end
+        \\end
+        \\node = Node.new(pairs: [[1, 2]])
+        \\[node.pairs, node.tag.nil?, node.anchor.nil?]
+    );
+    try std.testing.expect(result.isArray());
+    const entries = result.toArrayObject().elements.items;
+    const pairs = entries[0].toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 1), pairs[0].toArrayObject().elements.items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 2), pairs[0].toArrayObject().elements.items[1].toInteger());
+    try std.testing.expect(entries[1].toBool());
+    try std.testing.expect(entries[2].toBool());
+}
