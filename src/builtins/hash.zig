@@ -227,6 +227,18 @@ pub fn register(vm: *VM) !void {
 
     const replace_sym = try vm.intern("replace");
     try vm.hash_class.module.methods.put(replace_sym, value.MethodEntry.builtin(&builtinHashReplace, .{ .variadic = 0 }));
+
+    const transform_keys_sym = try vm.intern("transform_keys");
+    try vm.hash_class.module.methods.put(transform_keys_sym, value.MethodEntry.builtin(&builtinHashTransformKeys, .{ .variadic = 0 }));
+
+    const transform_keys_bang_sym = try vm.intern("transform_keys!");
+    try vm.hash_class.module.methods.put(transform_keys_bang_sym, value.MethodEntry.builtin(&builtinHashTransformKeysBang, .{ .variadic = 0 }));
+
+    const transform_values_sym = try vm.intern("transform_values");
+    try vm.hash_class.module.methods.put(transform_values_sym, value.MethodEntry.builtin(&builtinHashTransformValues, .{ .exact = 0 }));
+
+    const transform_values_bang_sym = try vm.intern("transform_values!");
+    try vm.hash_class.module.methods.put(transform_values_bang_sym, value.MethodEntry.builtin(&builtinHashTransformValuesBang, .{ .exact = 0 }));
 }
 
 fn hashGetValue(hash_obj: *value.HashObject, vm: *VM, key: Value) VMError!?Value {
@@ -299,6 +311,26 @@ fn replaceHashFrom(vm: *VM, hash_obj: *value.HashObject, source_hash: *value.Has
     clearHashDefaultBehavior(hash_obj);
     try copyHashEntries(vm, hash_obj, source_hash);
     copyHashProperties(hash_obj, source_hash);
+}
+
+fn replaceHashEntriesOnly(vm: *VM, hash_obj: *value.HashObject, source_hash: *value.HashObject) VMError!void {
+    hash_obj.entries.clearRetainingCapacity();
+    hash_obj.map.clearRetainingCapacity();
+    try copyHashEntries(vm, hash_obj, source_hash);
+}
+
+fn coerceTransformMappingHash(vm: *VM, args: []Value) VMError!?*value.HashObject {
+    try vm.requireArgCountRange(args, 0, 1);
+    if (args.len == 0) return null;
+
+    return switch (try vm.probeToHash(args[0])) {
+        .hash => |hash| hash.toHashObject(),
+        .missing, .nil_result, .non_hash => vm.raiseExceptionFmt(
+            vm.type_error_class,
+            "can't convert {s} to Hash ({s}#to_hash gives {s})",
+            .{ vm.className(args[0]), vm.className(args[0]), vm.className(args[0]) },
+        ),
+    };
 }
 
 fn hashConstructorElementTypeName(vm: *VM, element: Value) []const u8 {
@@ -687,6 +719,155 @@ pub fn builtinHashReplace(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
             },
         };
         try replaceHashFrom(vm, hash_obj, source_hash);
+    }
+
+    return receiver;
+}
+
+pub fn builtinHashTransformKeys(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    const mapping_hash = try coerceTransformMappingHash(vm, args);
+    if (mapping_hash == null and block == null) {
+        return try vm.createMethodEnumeratorWithSize(
+            receiver,
+            try vm.intern("transform_keys"),
+            &.{},
+            Value.integer(@intCast(receiver.toHashObject().entries.items.len)),
+        );
+    }
+
+    const result_hash = try vm.createHash();
+    const hash_obj = receiver.toHashObject();
+
+    for (hash_obj.entries.items) |entry| {
+        const new_key = if (mapping_hash) |mapping|
+            (try hashGetValue(mapping, vm, entry.key)) orelse blk: {
+                if (block) |blk| {
+                    const yielded = try vm.yieldToBlock(blk, &[_]Value{entry.key});
+                    if (yielded.controlFlowValue()) |return_value| return return_value;
+                    break :blk yielded.value;
+                }
+                break :blk entry.key;
+            }
+        else blk: {
+            const yielded = try vm.yieldToBlock(block.?, &[_]Value{entry.key});
+            if (yielded.controlFlowValue()) |return_value| return return_value;
+            break :blk yielded.value;
+        };
+        try vm.hashSetEntry(result_hash, new_key, entry.value);
+    }
+
+    return Value.fromObject(result_hash);
+}
+
+pub fn builtinHashTransformKeysBang(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    const mapping_hash = try coerceTransformMappingHash(vm, args);
+    if (mapping_hash == null and block == null) {
+        return try vm.createMethodEnumeratorWithSize(
+            receiver,
+            try vm.intern("transform_keys!"),
+            &.{},
+            Value.integer(@intCast(receiver.toHashObject().entries.items.len)),
+        );
+    }
+    try ensureMutableHash(vm, receiver);
+
+    const hash_obj = receiver.toHashObject();
+    const snapshot = vm.allocator.alloc(value.HashEntry, hash_obj.entries.items.len) catch return error.Fatal;
+    defer vm.allocator.free(snapshot);
+    @memcpy(snapshot, hash_obj.entries.items);
+
+    const transformed = try vm.createHash();
+    transformed.compare_by_identity = hash_obj.compare_by_identity;
+
+    for (snapshot, 0..) |entry, idx| {
+        const new_key = if (mapping_hash) |mapping|
+            (try hashGetValue(mapping, vm, entry.key)) orelse blk: {
+                if (block) |blk| {
+                    const yielded = try vm.yieldToBlock(blk, &[_]Value{entry.key});
+                    if (yielded.non_local_return_occurred) {
+                        try replaceHashEntriesOnly(vm, hash_obj, transformed);
+                        return yielded.value;
+                    }
+                    if (yielded.break_occurred) {
+                        for (snapshot[idx..]) |remaining| {
+                            if ((try vm.hashFindEntryIndex(transformed, remaining.key)) == null) {
+                                try vm.hashSetEntry(transformed, remaining.key, remaining.value);
+                            }
+                        }
+                        try replaceHashEntriesOnly(vm, hash_obj, transformed);
+                        return yielded.value;
+                    }
+                    break :blk yielded.value;
+                }
+                break :blk entry.key;
+            }
+        else blk: {
+            const yielded = try vm.yieldToBlock(block.?, &[_]Value{entry.key});
+            if (yielded.non_local_return_occurred) {
+                try replaceHashEntriesOnly(vm, hash_obj, transformed);
+                return yielded.value;
+            }
+            if (yielded.break_occurred) {
+                for (snapshot[idx..]) |remaining| {
+                    if ((try vm.hashFindEntryIndex(transformed, remaining.key)) == null) {
+                        try vm.hashSetEntry(transformed, remaining.key, remaining.value);
+                    }
+                }
+                try replaceHashEntriesOnly(vm, hash_obj, transformed);
+                return yielded.value;
+            }
+            break :blk yielded.value;
+        };
+        try vm.hashSetEntry(transformed, new_key, entry.value);
+    }
+
+    try replaceHashEntriesOnly(vm, hash_obj, transformed);
+    return receiver;
+}
+
+pub fn builtinHashTransformValues(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const blk = block orelse {
+        return try vm.createMethodEnumeratorWithSize(
+            receiver,
+            try vm.intern("transform_values"),
+            &.{},
+            Value.integer(@intCast(receiver.toHashObject().entries.items.len)),
+        );
+    };
+
+    const result_hash = try vm.createHash();
+    const hash_obj = receiver.toHashObject();
+    result_hash.compare_by_identity = hash_obj.compare_by_identity;
+    for (hash_obj.entries.items) |entry| {
+        const yielded = try vm.yieldToBlock(blk, &[_]Value{entry.value});
+        if (yielded.controlFlowValue()) |return_value| return return_value;
+        try vm.hashSetEntry(result_hash, entry.key, yielded.value);
+    }
+
+    return Value.fromObject(result_hash);
+}
+
+pub fn builtinHashTransformValuesBang(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const blk = block orelse {
+        return try vm.createMethodEnumeratorWithSize(
+            receiver,
+            try vm.intern("transform_values!"),
+            &.{},
+            Value.integer(@intCast(receiver.toHashObject().entries.items.len)),
+        );
+    };
+    try ensureMutableHash(vm, receiver);
+
+    const hash_obj = receiver.toHashObject();
+    var idx: usize = 0;
+    while (idx < hash_obj.entries.items.len) : (idx += 1) {
+        const yielded = try vm.yieldToBlock(blk, &[_]Value{hash_obj.entries.items[idx].value});
+        if (yielded.non_local_return_occurred or yielded.break_occurred) {
+            return yielded.value;
+        }
+        hash_obj.entries.items[idx].value = yielded.value;
     }
 
     return receiver;
