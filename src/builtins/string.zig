@@ -247,6 +247,11 @@ pub fn register(vm: *VM) !void {
     const string_delete_bang_sym = try vm.intern("delete!");
     try vm.string_class.module.methods.put(string_delete_bang_sym, value.MethodEntry.builtin(&builtinStringDeleteBang, .{ .variadic = 0 }));
 
+    const string_tr_sym = try vm.intern("tr");
+    try vm.string_class.module.methods.put(string_tr_sym, value.MethodEntry.builtin(&builtinStringTr, .{ .exact = 2 }));
+    const string_tr_bang_sym = try vm.intern("tr!");
+    try vm.string_class.module.methods.put(string_tr_bang_sym, value.MethodEntry.builtin(&builtinStringTrBang, .{ .exact = 2 }));
+
     const string_include_sym = try vm.intern("include?");
     try vm.string_class.module.methods.put(string_include_sym, value.MethodEntry.builtin(&builtinStringInclude, .{ .exact = 1 }));
 
@@ -2670,6 +2675,266 @@ pub fn builtinStringDeleteBang(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
 
     const string_obj = receiver.toStringObject();
     const result = try stringDeleteCompute(vm, string_obj, args);
+    if (!result.modified) return Value.nil();
+
+    try warnSymbolToSMutation(vm, string_obj);
+    string_obj.str = result.bytes;
+    string_obj.validity = .unknown;
+    string_obj.symbol_to_s_source = null;
+    return receiver;
+}
+
+const TrResult = struct {
+    bytes: []const u8,
+    modified: bool,
+};
+
+fn trParseArg(
+    vm: *VM,
+    arg: Value,
+) VMError![]const u8 {
+    const coerced = try arg.coerceToStringValue(vm, "no implicit conversion into String");
+    return coerced.toStringObject().str;
+}
+
+fn trExpandSource(
+    vm: *VM,
+    source: []const u8,
+) VMError!std.ArrayList(u32) {
+    var chars: std.ArrayList(u32) = .empty;
+    errdefer chars.deinit(vm.allocator);
+
+    var negated = false;
+    var i: usize = 0;
+
+    if (source.len > 1 and source[0] == '^') {
+        negated = true;
+        i = 1;
+    }
+
+    while (i < source.len) {
+        var next_i = i;
+        const first_cp = nextCodepointSimple(source, &next_i);
+        if (first_cp == null) break;
+        i = next_i;
+
+        if (i < source.len and source[i] == '-' and i + 1 < source.len) {
+            i += 1;
+            const last_cp_opt = nextCodepointSimple(source, &i);
+            if (last_cp_opt) |last_cp| {
+                if (first_cp.? <= last_cp) {
+                    var cp = first_cp.?;
+                    while (cp <= last_cp) : (cp += 1) {
+                        chars.append(vm.allocator, cp) catch return error.Fatal;
+                    }
+                    continue;
+                } else {
+                    return vm.raiseExceptionFmt(vm.argument_error_class, "invalid range in string transliteration", .{});
+                }
+            } else {
+                chars.append(vm.allocator, first_cp.?) catch return error.Fatal;
+                chars.append(vm.allocator, '-') catch return error.Fatal;
+                break;
+            }
+        }
+
+        chars.append(vm.allocator, first_cp.?) catch return error.Fatal;
+    }
+
+    if (negated) {
+        var negated_result: std.ArrayList(u32) = .empty;
+        errdefer negated_result.deinit(vm.allocator);
+        negated_result.append(vm.allocator, std.math.maxInt(u32)) catch return error.Fatal;
+        for (chars.items) |cp| {
+            negated_result.append(vm.allocator, cp) catch return error.Fatal;
+        }
+        chars.deinit(vm.allocator);
+        return negated_result;
+    }
+
+    return chars;
+}
+
+fn nextCodepointSimple(bytes: []const u8, index: *usize) ?u32 {
+    if (index.* >= bytes.len) return null;
+    const start = index.*;
+    const b = bytes[start];
+    var cp: u32 = undefined;
+    var len: usize = 0;
+
+    if (b < 0x80) {
+        cp = b;
+        len = 1;
+    } else if (b & 0xE0 == 0xC0) {
+        len = 2;
+        cp = b & 0x1F;
+    } else if (b & 0xF0 == 0xE0) {
+        len = 3;
+        cp = b & 0x0F;
+    } else if (b & 0xF8 == 0xF0) {
+        len = 4;
+        cp = b & 0x07;
+    } else {
+        index.* += 1;
+        return b;
+    }
+
+    if (start + len > bytes.len) {
+        index.* = bytes.len;
+        return b;
+    }
+
+    var j: usize = 1;
+    while (j < len) : (j += 1) {
+        cp = (cp << 6) | (bytes[start + j] & 0x3F);
+    }
+    index.* = start + len;
+    return cp;
+}
+
+fn cpToUtf8(cp: u32, buf: *[4]u8) usize {
+    if (cp < 0x80) {
+        buf[0] = @intCast(cp);
+        return 1;
+    } else if (cp < 0x800) {
+        buf[0] = @intCast(0xC0 | (cp >> 6));
+        buf[1] = @intCast(0x80 | (cp & 0x3F));
+        return 2;
+    } else if (cp < 0x10000) {
+        buf[0] = @intCast(0xE0 | (cp >> 12));
+        buf[1] = @intCast(0x80 | ((cp >> 6) & 0x3F));
+        buf[2] = @intCast(0x80 | (cp & 0x3F));
+        return 3;
+    } else {
+        buf[0] = @intCast(0xF0 | (cp >> 18));
+        buf[1] = @intCast(0x80 | ((cp >> 12) & 0x3F));
+        buf[2] = @intCast(0x80 | ((cp >> 6) & 0x3F));
+        buf[3] = @intCast(0x80 | (cp & 0x3F));
+        return 4;
+    }
+}
+
+fn trBuildTranslationTable(
+    vm: *VM,
+    from_expanded: std.ArrayList(u32),
+    to_expanded: std.ArrayList(u32),
+) VMError!std.AutoHashMap(u32, u32) {
+    var table: std.AutoHashMap(u32, u32) = .init(vm.allocator);
+    errdefer table.deinit();
+
+    if (to_expanded.items.len == 0) return table;
+
+    const last_to = to_expanded.items[to_expanded.items.len - 1];
+
+    for (from_expanded.items, 0..) |from_cp, idx| {
+        const to_cp = if (idx < to_expanded.items.len) to_expanded.items[idx] else last_to;
+        table.put(from_cp, to_cp) catch return error.Fatal;
+    }
+
+    return table;
+}
+
+fn stringTrCompute(vm: *VM, string_obj: *value.StringObject, from_arg: Value, to_arg: Value) VMError!TrResult {
+    const from_str = try trParseArg(vm, from_arg);
+    const to_str = try trParseArg(vm, to_arg);
+
+    if (from_str.len == 0) {
+        return .{ .bytes = string_obj.str, .modified = false };
+    }
+
+    var from_expanded = try trExpandSource(vm, from_str);
+    defer from_expanded.deinit(vm.allocator);
+    var to_expanded = try trExpandSource(vm, to_str);
+    defer to_expanded.deinit(vm.allocator);
+
+    const is_negated = from_str[0] == '^' and from_expanded.items.len > 1;
+
+    if (is_negated) {
+        if (from_expanded.items.len == 0) return .{ .bytes = string_obj.str, .modified = false };
+
+        const fill_cp = if (to_expanded.items.len > 0) to_expanded.items[to_expanded.items.len - 1] else return .{ .bytes = string_obj.str, .modified = false };
+
+        var excluded: std.AutoHashMap(u32, void) = .init(vm.allocator);
+        defer excluded.deinit();
+        for (from_expanded.items[1..]) |cp| {
+            excluded.put(cp, {}) catch return error.Fatal;
+        }
+
+        var out: std.ArrayList(u8) = .empty;
+        defer out.deinit(vm.gc_allocator_atomic);
+        var modified = false;
+        var idx: usize = 0;
+        while (idx < string_obj.str.len) {
+            const cp_opt = nextCodepointSimple(string_obj.str, &idx);
+            if (cp_opt == null) break;
+            const cp = cp_opt.?;
+
+            if (excluded.contains(cp)) {
+                var buf: [4]u8 = undefined;
+                const len = cpToUtf8(cp, &buf);
+                out.appendSlice(vm.gc_allocator_atomic, buf[0..len]) catch return error.Fatal;
+            } else {
+                var buf: [4]u8 = undefined;
+                const len = cpToUtf8(fill_cp, &buf);
+                out.appendSlice(vm.gc_allocator_atomic, buf[0..len]) catch return error.Fatal;
+                modified = true;
+            }
+        }
+        return .{
+            .bytes = out.toOwnedSlice(vm.gc_allocator_atomic) catch return error.Fatal,
+            .modified = modified,
+        };
+    }
+
+    var table = try trBuildTranslationTable(vm, from_expanded, to_expanded);
+    defer table.deinit();
+
+    if (table.count() == 0) {
+        return .{ .bytes = string_obj.str, .modified = false };
+    }
+
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(vm.gc_allocator_atomic);
+    var modified = false;
+    var idx: usize = 0;
+    while (idx < string_obj.str.len) {
+        const start = idx;
+        const cp_opt = nextCodepointSimple(string_obj.str, &idx);
+        if (cp_opt == null) break;
+        const cp = cp_opt.?;
+
+        if (table.get(cp)) |mapped| {
+            var buf: [4]u8 = undefined;
+            const len = cpToUtf8(mapped, &buf);
+            out.appendSlice(vm.gc_allocator_atomic, buf[0..len]) catch return error.Fatal;
+            modified = true;
+        } else {
+            const char_bytes = string_obj.str[start..idx];
+            out.appendSlice(vm.gc_allocator_atomic, char_bytes) catch return error.Fatal;
+        }
+    }
+
+    return .{
+        .bytes = out.toOwnedSlice(vm.gc_allocator_atomic) catch return error.Fatal,
+        .modified = modified,
+    };
+}
+
+pub fn builtinStringTr(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 2);
+    const string_obj = receiver.toStringObject();
+    const result = try stringTrCompute(vm, string_obj, args[0], args[1]);
+    return try vm.newStringWithEncoding(result.bytes, false, string_obj.encoding);
+}
+
+pub fn builtinStringTrBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 2);
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
+    }
+
+    const string_obj = receiver.toStringObject();
+    const result = try stringTrCompute(vm, string_obj, args[0], args[1]);
     if (!result.modified) return Value.nil();
 
     try warnSymbolToSMutation(vm, string_obj);

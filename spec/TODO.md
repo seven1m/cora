@@ -2049,7 +2049,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/string/to_str_spec.rb
 - [x] core/string/to_sym_spec.rb
 - [ ] core/string/tr_s_spec.rb
-- [ ] core/string/tr_spec.rb
+- [x] core/string/tr_spec.rb
 - [x] core/string/try_convert_spec.rb
 - [x] core/string/uminus_spec.rb
 - [ ] core/string/undump_spec.rb
