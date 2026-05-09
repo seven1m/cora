@@ -672,7 +672,7 @@ Source baseline: ../ruby_spec compared to local spec/
 ### core/false
 - [x] core/false/and_spec.rb
 - [ ] core/false/case_compare_spec.rb
-- [ ] core/false/dup_spec.rb
+- [x] core/false/dup_spec.rb
 - [x] core/false/falseclass_spec.rb
 - [x] core/false/inspect_spec.rb
 - [x] core/false/or_spec.rb
