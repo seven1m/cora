@@ -40,3 +40,33 @@ test "Process.euid returns current effective uid as Integer" {
     try std.testing.expect(result.isInteger());
     try std.testing.expect(result.toInteger() >= 0);
 }
+
+test "Process.clock_gettime returns float seconds by default" {
+    if (builtin.os.tag == .windows) {
+        var stdout_buf: [1024]u8 = undefined;
+        var stderr_buf: [1024]u8 = undefined;
+        const bad = evalCodeWithOutput("Process.clock_gettime(Process::CLOCK_MONOTONIC)", &stdout_buf, &stderr_buf);
+        try std.testing.expectEqual(error.UnhandledException, bad.err.?);
+        try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "RuntimeError") != null);
+        return;
+    }
+
+    const result = try evalCode("Process.clock_gettime(Process::CLOCK_MONOTONIC)");
+    try std.testing.expect(result.isFloat());
+    try std.testing.expect(result.toFloatObject().val > 0);
+}
+
+test "Process.clock_gettime supports nanosecond unit" {
+    if (builtin.os.tag == .windows) {
+        var stdout_buf: [1024]u8 = undefined;
+        var stderr_buf: [1024]u8 = undefined;
+        const bad = evalCodeWithOutput("Process.clock_gettime(Process::CLOCK_REALTIME, :nanosecond)", &stdout_buf, &stderr_buf);
+        try std.testing.expectEqual(error.UnhandledException, bad.err.?);
+        try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "RuntimeError") != null);
+        return;
+    }
+
+    const result = try evalCode("Process.clock_gettime(Process::CLOCK_REALTIME, :nanosecond)");
+    try std.testing.expect(result.isInteger());
+    try std.testing.expect(result.toInteger() > 0);
+}

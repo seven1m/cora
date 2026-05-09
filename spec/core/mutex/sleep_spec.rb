@@ -22,16 +22,14 @@ describe "Mutex#sleep" do
   end
 
   it "pauses execution for approximately the duration requested" do
-    CORAFIXME "Process.clock_gettime is not implemented yet", exception: NameError, message: /CLOCK_MONOTONIC/ do
-      m = Mutex.new
-      m.lock
-      duration = 0.001
-      start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-      m.sleep duration
-      now = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-      (now - start).should >= 0
-      (now - start).should < (duration + TIME_TOLERANCE)
-    end
+    m = Mutex.new
+    m.lock
+    duration = 0.001
+    start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    m.sleep duration
+    now = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    (now - start).should >= 0
+    (now - start).should < (duration + TIME_TOLERANCE)
   end
 
   it "unlocks the mutex while sleeping" do
