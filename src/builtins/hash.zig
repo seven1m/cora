@@ -659,17 +659,7 @@ pub fn builtinHashReplace(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
         const kw_hash = try vm.consumeKeywordArgHash();
         if (kw_hash) |kh| {
             try vm.requireArgCount(args, 0);
-            hash_obj.entries.clearRetainingCapacity();
-            hash_obj.map.clearRetainingCapacity();
-            clearHashDefaultBehavior(hash_obj);
-            try copyHashEntries(vm, hash_obj, kh.toHashObject());
-            const source_hash = kh.toHashObject();
-            if (source_hash.default_proc) |default_proc| {
-                setHashDefaultProc(hash_obj, default_proc);
-            } else if (source_hash.default_value) |default_value| {
-                setHashDefaultValue(hash_obj, default_value);
-            }
-            hash_obj.compare_by_identity = source_hash.compare_by_identity;
+            try replaceHashFrom(vm, hash_obj, kh.toHashObject());
         } else {
             try vm.requireArgCount(args, 1);
             const source_hash = switch (try vm.probeToHash(args[0])) {
@@ -682,16 +672,7 @@ pub fn builtinHashReplace(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
                     );
                 },
             };
-            hash_obj.entries.clearRetainingCapacity();
-            hash_obj.map.clearRetainingCapacity();
-            clearHashDefaultBehavior(hash_obj);
-            try copyHashEntries(vm, hash_obj, source_hash);
-            if (source_hash.default_proc) |default_proc| {
-                setHashDefaultProc(hash_obj, default_proc);
-            } else if (source_hash.default_value) |default_value| {
-                setHashDefaultValue(hash_obj, default_value);
-            }
-            hash_obj.compare_by_identity = source_hash.compare_by_identity;
+            try replaceHashFrom(vm, hash_obj, source_hash);
         }
     } else {
         try vm.requireArgCount(args, 1);
@@ -705,16 +686,7 @@ pub fn builtinHashReplace(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
                 );
             },
         };
-        hash_obj.entries.clearRetainingCapacity();
-        hash_obj.map.clearRetainingCapacity();
-        clearHashDefaultBehavior(hash_obj);
-        try copyHashEntries(vm, hash_obj, source_hash);
-        if (source_hash.default_proc) |default_proc| {
-            setHashDefaultProc(hash_obj, default_proc);
-        } else if (source_hash.default_value) |default_value| {
-            setHashDefaultValue(hash_obj, default_value);
-        }
-        hash_obj.compare_by_identity = source_hash.compare_by_identity;
+        try replaceHashFrom(vm, hash_obj, source_hash);
     }
 
     return receiver;
@@ -1125,22 +1097,7 @@ pub fn builtinHashMerge(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
     if (vm.keywordArgsGiven()) {
         const kw_hash = try vm.consumeKeywordArgHash();
         if (kw_hash) |kh| {
-            const kw_hash_obj = kh.toHashObject();
-            for (kw_hash_obj.entries.items) |entry| {
-                if (block) |blk| {
-                    const key = entry.key;
-                    const existing = try hashGetValue(result_hash, vm, key);
-                    if (existing) |old_val| {
-                        const yield_args = [_]Value{ key, old_val, entry.value };
-                        const yielded = try vm.yieldToBlock(blk, &yield_args);
-                        try vm.hashSetEntry(result_hash, key, yielded.value);
-                    } else {
-                        try vm.hashSetEntry(result_hash, key, entry.value);
-                    }
-                } else {
-                    try vm.hashSetEntry(result_hash, entry.key, entry.value);
-                }
-            }
+            try mergeEntriesIntoHash(vm, result_hash, kh.toHashObject(), block);
         }
     }
 
@@ -1156,21 +1113,7 @@ pub fn builtinHashMerge(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
             },
         };
 
-        for (source_hash.entries.items) |entry| {
-            if (block) |blk| {
-                const key = entry.key;
-                const existing = try hashGetValue(result_hash, vm, key);
-                if (existing) |old_val| {
-                    const yield_args = [_]Value{ key, old_val, entry.value };
-                    const yielded = try vm.yieldToBlock(blk, &yield_args);
-                    try vm.hashSetEntry(result_hash, key, yielded.value);
-                } else {
-                    try vm.hashSetEntry(result_hash, key, entry.value);
-                }
-            } else {
-                try vm.hashSetEntry(result_hash, entry.key, entry.value);
-            }
-        }
+        try mergeEntriesIntoHash(vm, result_hash, source_hash, block);
     }
 
     return Value.fromObject(result_hash);
@@ -1183,22 +1126,7 @@ pub fn builtinHashMergeBang(vm: *VM, receiver: Value, args: []Value, block: ?Blo
     if (vm.keywordArgsGiven()) {
         const kw_hash = try vm.consumeKeywordArgHash();
         if (kw_hash) |kh| {
-            const kw_hash_obj = kh.toHashObject();
-            for (kw_hash_obj.entries.items) |entry| {
-                if (block) |blk| {
-                    const key = entry.key;
-                    const existing = try hashGetValue(hash_obj, vm, key);
-                    if (existing) |old_val| {
-                        const yield_args = [_]Value{ key, old_val, entry.value };
-                        const yielded = try vm.yieldToBlock(blk, &yield_args);
-                        try vm.hashSetEntry(hash_obj, key, yielded.value);
-                    } else {
-                        try vm.hashSetEntry(hash_obj, key, entry.value);
-                    }
-                } else {
-                    try vm.hashSetEntry(hash_obj, entry.key, entry.value);
-                }
-            }
+            try mergeEntriesIntoHash(vm, hash_obj, kh.toHashObject(), block);
         }
     }
 
@@ -1214,21 +1142,7 @@ pub fn builtinHashMergeBang(vm: *VM, receiver: Value, args: []Value, block: ?Blo
             },
         };
 
-        for (source_hash.entries.items) |entry| {
-            if (block) |blk| {
-                const key = entry.key;
-                const existing = try hashGetValue(hash_obj, vm, key);
-                if (existing) |old_val| {
-                    const yield_args = [_]Value{ key, old_val, entry.value };
-                    const yielded = try vm.yieldToBlock(blk, &yield_args);
-                    try vm.hashSetEntry(hash_obj, key, yielded.value);
-                } else {
-                    try vm.hashSetEntry(hash_obj, key, entry.value);
-                }
-            } else {
-                try vm.hashSetEntry(hash_obj, entry.key, entry.value);
-            }
-        }
+        try mergeEntriesIntoHash(vm, hash_obj, source_hash, block);
     }
 
     return receiver;
