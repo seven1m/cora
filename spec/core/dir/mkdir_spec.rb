@@ -79,36 +79,30 @@ describe "Dir.mkdir" do
   end
 
   it "raises a SystemCallError if any of the directories in the path before the last does not exist" do
-    CORAFIXME "SystemCallError is not implemented yet for Dir.mkdir error mapping", exception: NameError, message: /uninitialized constant SystemCallError/ do
-      path = "#{tmp('dir_mkdir_missing_parent')}/missing/subdir"
-      rm_r("#{tmp('dir_mkdir_missing_parent')}")
-      -> { Dir.mkdir(path) }.should raise_error(SystemCallError)
-    end
+    path = "#{tmp('dir_mkdir_missing_parent')}/missing/subdir"
+    rm_r("#{tmp('dir_mkdir_missing_parent')}")
+    -> { Dir.mkdir(path) }.should raise_error(SystemCallError)
   end
 
   it "raises Errno::EEXIST if the specified directory already exists" do
-    CORAFIXME "Errno::EEXIST is not implemented yet for Dir.mkdir error mapping", exception: NameError, message: /uninitialized constant Errno/ do
-      path = tmp('dir_mkdir_existing_dir')
+    path = tmp('dir_mkdir_existing_dir')
+    rm_r(path)
+    mkdir_p(path)
+    begin
+      -> { Dir.mkdir(path) }.should raise_error(Errno::EEXIST)
+    ensure
       rm_r(path)
-      mkdir_p(path)
-      begin
-        -> { Dir.mkdir(path) }.should raise_error(Errno::EEXIST)
-      ensure
-        rm_r(path)
-      end
     end
   end
 
   it "raises Errno::EEXIST if the argument points to the existing file" do
-    CORAFIXME "Errno::EEXIST is not implemented yet for Dir.mkdir error mapping", exception: NameError, message: /uninitialized constant Errno/ do
-      path = tmp('dir_mkdir_existing_file')
+    path = tmp('dir_mkdir_existing_file')
+    rm_r(path)
+    touch(path)
+    begin
+      -> { Dir.mkdir(path) }.should raise_error(Errno::EEXIST)
+    ensure
       rm_r(path)
-      touch(path)
-      begin
-        -> { Dir.mkdir(path) }.should raise_error(Errno::EEXIST)
-      ensure
-        rm_r(path)
-      end
     end
   end
 end

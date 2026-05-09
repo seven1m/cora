@@ -30,7 +30,7 @@ pub fn register(vm: *VM) !void {
 }
 
 fn socketError(vm: *VM, comptime fmt: []const u8, args: anytype) VMError {
-    return vm.raiseExceptionFmt(vm.io_error_class, fmt, args);
+    return vm.raiseLastErrnoFmt(fmt, args);
 }
 
 pub fn builtinTCPServerNew(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

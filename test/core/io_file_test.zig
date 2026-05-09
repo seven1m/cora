@@ -106,6 +106,57 @@ test "File.delete accepts zero args and coerces to_path" {
     try std.testing.expectEqual(false, result.toArrayObject().elements.items[2].toBool());
 }
 
+test "File.open and File.delete raise mapped Errno classes" {
+    var path_buf: [128]u8 = undefined;
+    const path = try uniquePath(&path_buf);
+
+    const source = try std.fmt.allocPrint(
+        std.testing.allocator,
+        \\missing = "{s}"
+        \\[
+        \\  begin
+        \\    File.open(missing, "r")
+        \\  rescue Errno::ENOENT
+        \\    :open_ok
+        \\  end,
+        \\  begin
+        \\    File.delete(missing)
+        \\  rescue Errno::ENOENT
+        \\    :delete_ok
+        \\  end
+        \\]
+    , .{path});
+    defer std.testing.allocator.free(source);
+
+    const result = try evalCode(source);
+    try std.testing.expect(result.isArray());
+    try std.testing.expect(result.toArrayObject().elements.items[0].isSymbol());
+    try std.testing.expectEqualSlices(u8, "open_ok", result.toArrayObject().elements.items[0].toSymbolObject().name);
+    try std.testing.expect(result.toArrayObject().elements.items[1].isSymbol());
+    try std.testing.expectEqualSlices(u8, "delete_ok", result.toArrayObject().elements.items[1].toSymbolObject().name);
+}
+
+test "Dir.mkdir raises mapped Errno class for existing path" {
+    var path_buf: [128]u8 = undefined;
+    const path = try std.fmt.bufPrint(&path_buf, "/tmp/cora_dir_{d}", .{@as(i128, @intCast(std.Io.Clock.boot.now(std.testing.io).nanoseconds))});
+
+    const source = try std.fmt.allocPrint(
+        std.testing.allocator,
+        \\path = "{s}"
+        \\Dir.mkdir(path)
+        \\begin
+        \\  Dir.mkdir(path)
+        \\rescue Errno::EEXIST
+        \\  :mkdir_ok
+        \\end
+    , .{path});
+    defer std.testing.allocator.free(source);
+
+    const result = try evalCode(source);
+    try std.testing.expect(result.isSymbol());
+    try std.testing.expectEqualSlices(u8, "mkdir_ok", result.toSymbolObject().name);
+}
+
 test "File.open with block closes file automatically" {
     var path_buf: [128]u8 = undefined;
     const path = try uniquePath(&path_buf);

@@ -35,9 +35,7 @@ describe :file_unlink, shared: true do
   end
 
   it "raises an Errno::ENOENT when the given file doesn't exist" do
-    CORAFIXME "Errno class is not implemented yet", exception: NameError, message: /uninitialized constant Errno/ do
-      -> { File.send(@method, 'bogus') }.should raise_error(Errno::ENOENT)
-    end
+    -> { File.send(@method, 'bogus') }.should raise_error(Errno::ENOENT)
   end
 
   it "coerces a given parameter into a string if possible" do

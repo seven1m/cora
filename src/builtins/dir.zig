@@ -137,8 +137,9 @@ pub fn builtinDirChdir(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!
     const target_z = try vm.allocCStringZ(target);
     defer vm.allocator.free(target_z);
 
-    if (std.c.chdir(target_z.ptr) != 0) {
-        return vm.raiseExceptionFmt(vm.io_error_class, "No such file or directory @ dir_s_chdir - {s}", .{target});
+    const result = std.c.chdir(target_z.ptr);
+    if (result != 0) {
+        return vm.raiseErrnoFmt(std.posix.errno(result), "No such file or directory @ dir_s_chdir - {s}", .{target});
     }
 
     if (block) |blk| {
@@ -178,9 +179,12 @@ pub fn builtinDirMkdir(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
         break :blk std.Io.File.Permissions.fromMode(@intCast(raw_mode));
     } else .default_dir;
 
-    std.Io.Dir.cwd().createDir(vm.io, target, permissions) catch |err| {
-        return vm.raiseExceptionFmt(vm.io_error_class, "failed to create directory: {s} ({s})", .{ target, @errorName(err) });
-    };
+    const target_z = try vm.allocCStringZ(target);
+    defer vm.allocator.free(target_z);
+    const result = std.c.mkdir(target_z.ptr, @as(std.c.mode_t, permissions.toMode()));
+    if (result != 0) {
+        return vm.raiseErrnoFmt(std.posix.errno(result), "failed to create directory: {s}", .{target});
+    }
 
     return Value.integer(0);
 }

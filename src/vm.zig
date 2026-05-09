@@ -274,6 +274,7 @@ pub const VM = struct {
     fstring_cache: std.StringHashMap(Value),
     canonical_fstrings: std.ArrayList(Value) = .empty,
     packed_pointer_targets: std.AutoHashMap(*StringObject, PackedPointerTargets),
+    errno_classes: std.AutoHashMap(c_int, *ClassObject),
 
     program: *compiler.CompiledProgram,
 
@@ -310,6 +311,7 @@ pub const VM = struct {
     process_module: *value.ModuleObject,
     warning_module: *value.ModuleObject,
     marshal_module: *value.ModuleObject,
+    errno_module: *value.ModuleObject,
     warning_deprecated_enabled: bool = true,
     process_status_class: *value.ClassObject,
     main_self: Value,
@@ -339,6 +341,7 @@ pub const VM = struct {
     // Exception classes
     exception_class: *value.ClassObject,
     system_exit_class: *value.ClassObject,
+    system_call_error_class: *value.ClassObject,
     standard_error_class: *value.ClassObject,
     runtime_error_class: *value.ClassObject,
     syntax_error_class: *value.ClassObject,
@@ -456,6 +459,7 @@ pub const VM = struct {
             .fstring_cache = std.StringHashMap(Value).init(gc_allocator),
             .canonical_fstrings = .empty,
             .packed_pointer_targets = std.AutoHashMap(*StringObject, PackedPointerTargets).init(gc_allocator),
+            .errno_classes = std.AutoHashMap(c_int, *ClassObject).init(gc_allocator),
             .loaded_files = std.StringHashMap(void).init(gc_allocator),
             .program = undefined,
             .current_lexical_scope = null,
@@ -489,6 +493,7 @@ pub const VM = struct {
             .process_module = undefined,
             .warning_module = undefined,
             .marshal_module = undefined,
+            .errno_module = undefined,
             .process_status_class = undefined,
             .main_fiber = undefined,
             .current_fiber = undefined,
@@ -507,6 +512,7 @@ pub const VM = struct {
             .thread_preempt_quantum_ops = DEFAULT_THREAD_PREEMPT_QUANTUM_OPS,
             .exception_class = undefined,
             .system_exit_class = undefined,
+            .system_call_error_class = undefined,
             .standard_error_class = undefined,
             .runtime_error_class = undefined,
             .syntax_error_class = undefined,
@@ -746,6 +752,10 @@ pub const VM = struct {
         const marshal_module_val = try self.newModule(marshal_name_sym);
         self.marshal_module = marshal_module_val.toModuleObject();
 
+        const errno_name_sym = try self.intern("Errno");
+        const errno_module_val = try self.newModule(errno_name_sym);
+        self.errno_module = errno_module_val.toModuleObject();
+
         const comparable_name_sym = try self.intern("Comparable");
         const comparable_module_val = try self.newModule(comparable_name_sym);
 
@@ -768,6 +778,10 @@ pub const VM = struct {
         const standard_error_name_sym = try self.intern("StandardError");
         const standard_error_class_val = try self.newClass(standard_error_name_sym, self.exception_class);
         self.standard_error_class = standard_error_class_val.toClassObject();
+
+        const system_call_error_name_sym = try self.intern("SystemCallError");
+        const system_call_error_class_val = try self.newClass(system_call_error_name_sym, self.standard_error_class);
+        self.system_call_error_class = system_call_error_class_val.toClassObject();
 
         const runtime_error_name_sym = try self.intern("RuntimeError");
         const runtime_error_class_val = try self.newClass(runtime_error_name_sym, self.standard_error_class);
@@ -869,6 +883,61 @@ pub const VM = struct {
         const stop_iteration_class_val = try self.newClass(stop_iteration_name_sym, self.index_error_class);
         self.stop_iteration_class = stop_iteration_class_val.toClassObject();
 
+        const enoent_name_sym = try self.intern("ENOENT");
+        const enoent_class_val = try self.newClass(enoent_name_sym, self.system_call_error_class);
+        const eexist_name_sym = try self.intern("EEXIST");
+        const eexist_class_val = try self.newClass(eexist_name_sym, self.system_call_error_class);
+        const enotempty_name_sym = try self.intern("ENOTEMPTY");
+        const enotempty_class_val = try self.newClass(enotempty_name_sym, self.system_call_error_class);
+        const eacces_name_sym = try self.intern("EACCES");
+        const eacces_class_val = try self.newClass(eacces_name_sym, self.system_call_error_class);
+        const enosys_name_sym = try self.intern("ENOSYS");
+        const enosys_class_val = try self.newClass(enosys_name_sym, self.system_call_error_class);
+        const enotsup_name_sym = try self.intern("ENOTSUP");
+        const enotsup_class_val = try self.newClass(enotsup_name_sym, self.system_call_error_class);
+        const einprogress_name_sym = try self.intern("EINPROGRESS");
+        const einprogress_class_val = try self.newClass(einprogress_name_sym, self.system_call_error_class);
+        const eisconn_name_sym = try self.intern("EISCONN");
+        const eisconn_class_val = try self.newClass(eisconn_name_sym, self.system_call_error_class);
+        const eagain_name_sym = try self.intern("EAGAIN");
+        const eagain_class_val = try self.newClass(eagain_name_sym, self.system_call_error_class);
+        const eperm_name_sym = try self.intern("EPERM");
+        const eperm_class_val = try self.newClass(eperm_name_sym, self.system_call_error_class);
+        const erofs_name_sym = try self.intern("EROFS");
+        const erofs_class_val = try self.newClass(erofs_name_sym, self.system_call_error_class);
+        const enospc_name_sym = try self.intern("ENOSPC");
+        const enospc_class_val = try self.newClass(enospc_name_sym, self.system_call_error_class);
+        const eproto_name_sym = try self.intern("EPROTO");
+        const eproto_class_val = try self.newClass(eproto_name_sym, self.system_call_error_class);
+        const enoexec_name_sym = try self.intern("ENOEXEC");
+        const enoexec_class_val = try self.newClass(enoexec_name_sym, self.system_call_error_class);
+        const echild_name_sym = try self.intern("ECHILD");
+        const echild_class_val = try self.newClass(echild_name_sym, self.system_call_error_class);
+        const einval_name_sym = try self.intern("EINVAL");
+        const einval_class_val = try self.newClass(einval_name_sym, self.system_call_error_class);
+        const enotdir_name_sym = try self.intern("ENOTDIR");
+        const enotdir_class_val = try self.newClass(enotdir_name_sym, self.system_call_error_class);
+        const eisdir_name_sym = try self.intern("EISDIR");
+        const eisdir_class_val = try self.newClass(eisdir_name_sym, self.system_call_error_class);
+        const eopnotsupp_name_sym = try self.intern("EOPNOTSUPP");
+        const eopnotsupp_class_val = try self.newClass(eopnotsupp_name_sym, self.system_call_error_class);
+        const exdev_name_sym = try self.intern("EXDEV");
+        const exdev_class_val = try self.newClass(exdev_name_sym, self.system_call_error_class);
+        const econnrefused_name_sym = try self.intern("ECONNREFUSED");
+        const econnrefused_class_val = try self.newClass(econnrefused_name_sym, self.system_call_error_class);
+        const ehostdown_name_sym = try self.intern("EHOSTDOWN");
+        const ehostdown_class_val = try self.newClass(ehostdown_name_sym, self.system_call_error_class);
+        const etimedout_name_sym = try self.intern("ETIMEDOUT");
+        const etimedout_class_val = try self.newClass(etimedout_name_sym, self.system_call_error_class);
+        const econnaborted_name_sym = try self.intern("ECONNABORTED");
+        const econnaborted_class_val = try self.newClass(econnaborted_name_sym, self.system_call_error_class);
+        const econnreset_name_sym = try self.intern("ECONNRESET");
+        const econnreset_class_val = try self.newClass(econnreset_name_sym, self.system_call_error_class);
+        const epipe_name_sym = try self.intern("EPIPE");
+        const epipe_class_val = try self.newClass(epipe_name_sym, self.system_call_error_class);
+        const enetunreach_name_sym = try self.intern("ENETUNREACH");
+        const enetunreach_class_val = try self.newClass(enetunreach_name_sym, self.system_call_error_class);
+
         const enumerator_name_sym = try self.intern("Enumerator");
         const enumerator_class_val = try self.newClass(enumerator_name_sym, self.object_class);
         self.enumerator_class = enumerator_class_val.toClassObject();
@@ -945,11 +1014,13 @@ pub const VM = struct {
         self.object_class.module.constants.put(process_name_sym, .{ .value = process_module_val }) catch return error.Fatal;
         self.object_class.module.constants.put(warning_name_sym, .{ .value = warning_module_val }) catch return error.Fatal;
         self.object_class.module.constants.put(marshal_name_sym, .{ .value = marshal_module_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(errno_name_sym, .{ .value = errno_module_val }) catch return error.Fatal;
         self.object_class.module.constants.put(comparable_name_sym, .{ .value = comparable_module_val }) catch return error.Fatal;
         self.object_class.module.constants.put(enumerable_name_sym, .{ .value = enumerable_module_val }) catch return error.Fatal;
         self.object_class.module.constants.put(exception_name_sym, .{ .value = exception_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(system_exit_name_sym, .{ .value = system_exit_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(standard_error_name_sym, .{ .value = standard_error_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(system_call_error_name_sym, .{ .value = system_call_error_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(runtime_error_name_sym, .{ .value = runtime_error_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(syntax_error_name_sym, .{ .value = syntax_error_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(not_implemented_error_name_sym, .{ .value = not_implemented_error_class_val }) catch return error.Fatal;
@@ -971,6 +1042,65 @@ pub const VM = struct {
         self.object_class.module.constants.put(regexp_error_name_sym, .{ .value = regexp_error_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(index_error_name_sym, .{ .value = index_error_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(stop_iteration_name_sym, .{ .value = stop_iteration_class_val }) catch return error.Fatal;
+        self.errno_module.constants.put(enoent_name_sym, .{ .value = enoent_class_val }) catch return error.Fatal;
+        self.errno_module.constants.put(eexist_name_sym, .{ .value = eexist_class_val }) catch return error.Fatal;
+        self.errno_module.constants.put(enotempty_name_sym, .{ .value = enotempty_class_val }) catch return error.Fatal;
+        self.errno_module.constants.put(eacces_name_sym, .{ .value = eacces_class_val }) catch return error.Fatal;
+        self.errno_module.constants.put(enosys_name_sym, .{ .value = enosys_class_val }) catch return error.Fatal;
+        self.errno_module.constants.put(enotsup_name_sym, .{ .value = enotsup_class_val }) catch return error.Fatal;
+        self.errno_module.constants.put(einprogress_name_sym, .{ .value = einprogress_class_val }) catch return error.Fatal;
+        self.errno_module.constants.put(eisconn_name_sym, .{ .value = eisconn_class_val }) catch return error.Fatal;
+        self.errno_module.constants.put(eagain_name_sym, .{ .value = eagain_class_val }) catch return error.Fatal;
+        self.errno_module.constants.put(eperm_name_sym, .{ .value = eperm_class_val }) catch return error.Fatal;
+        self.errno_module.constants.put(erofs_name_sym, .{ .value = erofs_class_val }) catch return error.Fatal;
+        self.errno_module.constants.put(enospc_name_sym, .{ .value = enospc_class_val }) catch return error.Fatal;
+        self.errno_module.constants.put(eproto_name_sym, .{ .value = eproto_class_val }) catch return error.Fatal;
+        self.errno_module.constants.put(enoexec_name_sym, .{ .value = enoexec_class_val }) catch return error.Fatal;
+        self.errno_module.constants.put(echild_name_sym, .{ .value = echild_class_val }) catch return error.Fatal;
+        self.errno_module.constants.put(einval_name_sym, .{ .value = einval_class_val }) catch return error.Fatal;
+        self.errno_module.constants.put(enotdir_name_sym, .{ .value = enotdir_class_val }) catch return error.Fatal;
+        self.errno_module.constants.put(eisdir_name_sym, .{ .value = eisdir_class_val }) catch return error.Fatal;
+        self.errno_module.constants.put(eopnotsupp_name_sym, .{ .value = eopnotsupp_class_val }) catch return error.Fatal;
+        self.errno_module.constants.put(exdev_name_sym, .{ .value = exdev_class_val }) catch return error.Fatal;
+        self.errno_module.constants.put(econnrefused_name_sym, .{ .value = econnrefused_class_val }) catch return error.Fatal;
+        self.errno_module.constants.put(ehostdown_name_sym, .{ .value = ehostdown_class_val }) catch return error.Fatal;
+        self.errno_module.constants.put(etimedout_name_sym, .{ .value = etimedout_class_val }) catch return error.Fatal;
+        self.errno_module.constants.put(econnaborted_name_sym, .{ .value = econnaborted_class_val }) catch return error.Fatal;
+        self.errno_module.constants.put(econnreset_name_sym, .{ .value = econnreset_class_val }) catch return error.Fatal;
+        self.errno_module.constants.put(epipe_name_sym, .{ .value = epipe_class_val }) catch return error.Fatal;
+        self.errno_module.constants.put(enetunreach_name_sym, .{ .value = enetunreach_class_val }) catch return error.Fatal;
+        try self.registerErrnoClass(.NOENT, enoent_class_val.toClassObject());
+        try self.registerErrnoClass(.EXIST, eexist_class_val.toClassObject());
+        try self.registerErrnoClass(.NOTEMPTY, enotempty_class_val.toClassObject());
+        try self.registerErrnoClass(.ACCES, eacces_class_val.toClassObject());
+        try self.registerErrnoClass(.NOSYS, enosys_class_val.toClassObject());
+        if (@hasField(std.posix.E, "NOTSUP")) {
+            try self.registerErrnoClass(@field(std.posix.E, "NOTSUP"), enotsup_class_val.toClassObject());
+        } else if (@hasField(std.posix.E, "OPNOTSUPP")) {
+            try self.registerErrnoClass(@field(std.posix.E, "OPNOTSUPP"), enotsup_class_val.toClassObject());
+        }
+        try self.registerErrnoClass(.INPROGRESS, einprogress_class_val.toClassObject());
+        try self.registerErrnoClass(.ISCONN, eisconn_class_val.toClassObject());
+        try self.registerErrnoClass(.AGAIN, eagain_class_val.toClassObject());
+        try self.registerErrnoClass(.PERM, eperm_class_val.toClassObject());
+        try self.registerErrnoClass(.ROFS, erofs_class_val.toClassObject());
+        try self.registerErrnoClass(.NOSPC, enospc_class_val.toClassObject());
+        try self.registerErrnoClass(.PROTO, eproto_class_val.toClassObject());
+        try self.registerErrnoClass(.NOEXEC, enoexec_class_val.toClassObject());
+        try self.registerErrnoClass(.CHILD, echild_class_val.toClassObject());
+        try self.registerErrnoClass(.INVAL, einval_class_val.toClassObject());
+        try self.registerErrnoClass(.NOTDIR, enotdir_class_val.toClassObject());
+        try self.registerErrnoClass(.ISDIR, eisdir_class_val.toClassObject());
+        try self.registerErrnoClass(.XDEV, exdev_class_val.toClassObject());
+        try self.registerErrnoClass(.CONNREFUSED, econnrefused_class_val.toClassObject());
+        if (@hasField(std.posix.E, "HOSTDOWN")) {
+            try self.registerErrnoClass(@field(std.posix.E, "HOSTDOWN"), ehostdown_class_val.toClassObject());
+        }
+        try self.registerErrnoClass(.TIMEDOUT, etimedout_class_val.toClassObject());
+        try self.registerErrnoClass(.CONNABORTED, econnaborted_class_val.toClassObject());
+        try self.registerErrnoClass(.CONNRESET, econnreset_class_val.toClassObject());
+        try self.registerErrnoClass(.PIPE, epipe_class_val.toClassObject());
+        try self.registerErrnoClass(.NETUNREACH, enetunreach_class_val.toClassObject());
         self.object_class.module.constants.put(enumerator_name_sym, .{ .value = enumerator_class_val }) catch return error.Fatal;
         self.enumerator_class.module.constants.put(yielder_name_sym, .{ .value = yielder_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(encoding_name_sym, .{ .value = encoding_class_val }) catch return error.Fatal;
@@ -1797,6 +1927,7 @@ pub const VM = struct {
             targets.deinit();
         }
         self.packed_pointer_targets.deinit();
+        self.errno_classes.deinit();
         self.ensure_pending_exceptions.deinit(self.allocator);
         self.at_exit_handlers.deinit(self.gc_allocator);
         self.recursion_guard.deinit(self.allocator);
@@ -6868,6 +6999,10 @@ pub const VM = struct {
 
     // ==== Object creation ====
 
+    fn registerErrnoClass(self: *VM, errno_code: std.posix.E, class_obj: *ClassObject) VMError!void {
+        self.errno_classes.put(@intCast(@intFromEnum(errno_code)), class_obj) catch return error.Fatal;
+    }
+
     pub fn newModule(self: *VM, name: *SymbolObject) VMError!Value {
         const module_obj = self.gc_allocator.create(value.ModuleObject) catch return error.Fatal;
         module_obj.* = .{
@@ -8028,6 +8163,18 @@ pub const VM = struct {
         const exc = self.createException(exception_class, msg) catch return error.Fatal;
         self.pending_exception = exc;
         return error.Unwind;
+    }
+
+    pub fn errnoClass(self: *VM, errno_number: c_int) *value.ClassObject {
+        return self.errno_classes.get(errno_number) orelse self.system_call_error_class;
+    }
+
+    pub fn raiseErrnoFmt(self: *VM, errno_code: std.posix.E, comptime fmt: []const u8, args: anytype) VMError {
+        return self.raiseExceptionFmt(self.errnoClass(@intCast(@intFromEnum(errno_code))), fmt, args);
+    }
+
+    pub fn raiseLastErrnoFmt(self: *VM, comptime fmt: []const u8, args: anytype) VMError {
+        return self.raiseExceptionFmt(self.errnoClass(std.c._errno().*), fmt, args);
     }
 
     pub fn raiseArgumentErrorWrongArgCount(self: *VM, given: usize, expected: usize) VMError {

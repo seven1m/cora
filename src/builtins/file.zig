@@ -140,7 +140,7 @@ fn openFileWithMode(vm: *VM, path: []const u8, mode: FileMode) VMError!Value {
     defer vm.allocator.free(path_z);
     const fd = std.c.open(path_z.ptr, flags, @as(std.c.mode_t, 0o666));
     if (fd < 0) {
-        return vm.raiseExceptionFmt(vm.io_error_class, "failed to open file: {s}", .{path});
+        return vm.raiseErrnoFmt(std.posix.errno(fd), "failed to open file: {s}", .{path});
     }
 
     const path_copy = vm.gc_allocator.dupe(u8, path) catch return error.Fatal;
@@ -504,7 +504,7 @@ pub fn builtinFileDelete(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
         defer vm.allocator.free(path_z);
         const result = std.c.unlink(path_z.ptr);
         if (result < 0) {
-            return vm.raiseExceptionFmt(vm.io_error_class, "No such file or directory @ unlink_internal - {s}", .{path});
+            return vm.raiseErrnoFmt(std.posix.errno(result), "No such file or directory @ unlink_internal - {s}", .{path});
         }
         deleted += 1;
     }
