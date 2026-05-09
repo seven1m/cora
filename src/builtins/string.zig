@@ -279,6 +279,9 @@ pub fn register(vm: *VM) !void {
     const string_rstrip_bang_sym = try vm.intern("rstrip!");
     try vm.string_class.module.methods.put(string_rstrip_bang_sym, value.MethodEntry.builtin(&builtinStringRstripBang, .{ .exact = 0 }));
 
+    const string_center_sym = try vm.intern("center");
+    try vm.string_class.module.methods.put(string_center_sym, value.MethodEntry.builtin(&builtinStringCenter, .{ .variadic = 0 }));
+
     const string_reverse_sym = try vm.intern("reverse");
     try vm.string_class.module.methods.put(string_reverse_sym, value.MethodEntry.builtin(&builtinStringReverse, .{ .exact = 0 }));
     const string_reverse_bang_sym = try vm.intern("reverse!");
@@ -4887,4 +4890,75 @@ fn digitValue(c: u8) ?u8 {
     if (c >= 'a' and c <= 'z') return c - 'a' + 10;
     if (c >= 'A' and c <= 'Z') return c - 'A' + 10;
     return null;
+}
+
+pub fn builtinStringCenter(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+    const string_obj = receiver.toStringObject();
+    const recv_encoding = string_obj.encoding;
+
+    const length = try args[0].coerceToI64ViaToInt(
+        vm,
+        "no implicit conversion into Integer",
+        "no implicit conversion into Integer",
+        "bignum too big to convert into `long`",
+    );
+
+    var padstr_obj: ?*value.StringObject = null;
+    var padstr_encoding: enc.Encoding = .{ .utf8 = .{} };
+    if (args.len >= 2) {
+        if (!args[1].isString()) {
+            const padstr_val = try args[1].coerceToStringValue(vm, "no implicit conversion into String");
+            padstr_obj = padstr_val.toStringObject();
+        } else {
+            padstr_obj = args[1].toStringObject();
+        }
+        padstr_encoding = padstr_obj.?.encoding;
+        if (padstr_obj.?.str.len == 0) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "zero width padding", .{});
+        }
+    }
+
+    const char_len = recv_encoding.charCount(string_obj.str);
+
+    if (length <= 0 or @as(usize, @intCast(length)) <= char_len) {
+        return vm.newStringWithEncoding(string_obj.str, false, recv_encoding);
+    }
+
+    const target_len: usize = @intCast(length);
+    const pad_chars = target_len - char_len;
+    const left_pad_chars = pad_chars / 2;
+    const right_pad_chars = pad_chars - left_pad_chars;
+
+    const pad_str = if (padstr_obj) |p| p.str else " ";
+    const pad_encoding = if (padstr_obj) |_| blk: {
+        const result_encoding = resolveStringConcatEncoding(recv_encoding, string_obj.str, padstr_encoding, pad_str) orelse {
+            return vm.raiseEncodingCompatibilityError(recv_encoding, padstr_encoding);
+        };
+        break :blk result_encoding;
+    } else recv_encoding;
+
+    const pad_char_count = pad_encoding.charCount(pad_str);
+
+    var result: std.ArrayList(u8) = .empty;
+    defer result.deinit(vm.gc_allocator_atomic);
+
+    var i: usize = 0;
+    while (i < left_pad_chars) : (i += 1) {
+        const byte_start = pad_encoding.byteOffsetForCharIndex(pad_str, i % pad_char_count) orelse break;
+        const byte_end = pad_encoding.byteOffsetForCharIndex(pad_str, i % pad_char_count + 1) orelse pad_str.len;
+        result.appendSlice(vm.gc_allocator_atomic, pad_str[byte_start..byte_end]) catch return error.Fatal;
+    }
+
+    result.appendSlice(vm.gc_allocator_atomic, string_obj.str) catch return error.Fatal;
+
+    i = 0;
+    while (i < right_pad_chars) : (i += 1) {
+        const byte_start = pad_encoding.byteOffsetForCharIndex(pad_str, i % pad_char_count) orelse break;
+        const byte_end = pad_encoding.byteOffsetForCharIndex(pad_str, i % pad_char_count + 1) orelse pad_str.len;
+        result.appendSlice(vm.gc_allocator_atomic, pad_str[byte_start..byte_end]) catch return error.Fatal;
+    }
+
+    const out = result.toOwnedSlice(vm.gc_allocator_atomic) catch return error.Fatal;
+    return vm.newStringWithEncoding(out, false, pad_encoding);
 }
