@@ -4,6 +4,7 @@
 
 $LOAD_PATH.unshift(File.expand_path("../ext/rubygems/lib", __dir__))
 
+require "thread"
 require "rubygems/gem_runner"
 
 Gem::GemRunner.new.run(ARGV.clone)
