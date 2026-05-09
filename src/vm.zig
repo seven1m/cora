@@ -6109,8 +6109,40 @@ pub const VM = struct {
     /// Returns null when receiver does not respond to the method.
     /// If receiver responds, performs a normal call (including method_missing behavior).
     pub fn checkCallMethodByName(self: *VM, receiver: Value, method_name: []const u8, include_private: bool, args: []Value, block: ?Block) VMError!?Value {
-        if (!try self.respondsToMethodByName(receiver, method_name, include_private)) return null;
-        return try self.callMethodByName(receiver, method_name, args, block);
+        const respond_to_sym = try self.intern("respond_to?");
+        const method_name_sym = try self.intern(method_name);
+        const direct_method = try self.findMethod(receiver, method_name_sym);
+        const respond_to_method = try self.findMethod(receiver, respond_to_sym);
+        const has_respond_to = respond_to_method != null;
+
+        if (direct_method != null) {
+            return try self.callMethodByName(receiver, method_name, args, block);
+        }
+
+        if (has_respond_to) {
+            if (try self.respondsToMethodByName(receiver, method_name, include_private)) {
+                return try self.callMethodByName(receiver, method_name, args, block);
+            }
+
+            if (respond_to_method.?.owner_class != self.object_class) {
+                return null;
+            }
+        }
+
+        const original_exception = self.pending_exception;
+        const call_result = self.callMethodByName(receiver, method_name, args, block) catch |err| {
+            if (err == error.Unwind) {
+                if (self.pending_exception) |exc| {
+                    if (exc.object.class == self.no_method_error_class and direct_method == null) {
+                        self.pending_exception = original_exception;
+                        return null;
+                    }
+                }
+            }
+
+            return err;
+        };
+        return call_result;
     }
 
     /// Result from yielding to a block
@@ -8063,7 +8095,7 @@ pub const VM = struct {
     }
 
     pub fn probeToAry(self: *VM, arg: Value) VMError!ToAryResult {
-        return self.probeToAryWithVisibility(arg, false);
+        return self.probeToAryWithVisibility(arg, true);
     }
 
     pub fn probeToHash(self: *VM, arg: Value) VMError!ToHashResult {

@@ -182,6 +182,8 @@ fn arrayFlattenInto(
     out: *value.ArrayObject,
     array: *value.ArrayObject,
     seen: *std.AutoHashMap(usize, void),
+    remaining_depth: ?usize,
+    modified: ?*bool,
 ) VMError!void {
     const key = @intFromPtr(array);
     if (seen.contains(key)) {
@@ -191,11 +193,36 @@ fn arrayFlattenInto(
     defer _ = seen.remove(key);
 
     for (array.elements.items) |element| {
+        if (remaining_depth) |depth| {
+            if (depth == 0) {
+                out.elements.append(vm.gc_allocator, element) catch return error.Fatal;
+                continue;
+            }
+        }
+
         switch (try vm.probeToAry(element)) {
-            .array => |nested| try arrayFlattenInto(vm, out, nested.toArrayObject(), seen),
+            .array => |nested| {
+                if (modified) |did_modify| did_modify.* = true;
+                const next_depth = if (remaining_depth) |depth| depth - 1 else null;
+                try arrayFlattenInto(vm, out, nested.toArrayObject(), seen, next_depth, modified);
+            },
             .missing, .nil_result => out.elements.append(vm.gc_allocator, element) catch return error.Fatal,
         }
     }
+}
+
+fn arrayFlattenDepthArg(vm: *VM, args: []Value) VMError!?usize {
+    try vm.requireArgCountRange(args, 0, 1);
+    if (args.len == 0) return null;
+
+    const depth = try args[0].coerceToI64ViaToInt(
+        vm,
+        "no implicit conversion into Integer",
+        "no implicit conversion into Integer",
+        "bignum too big to convert into `long`",
+    );
+    if (depth < 0) return null;
+    return @intCast(depth);
 }
 
 const ArrayFillPlan = struct {
@@ -404,6 +431,8 @@ pub fn register(vm: *VM) !void {
 
     const flatten_sym = try vm.intern("flatten");
     try vm.array_class.module.methods.put(flatten_sym, value.MethodEntry.builtin(&builtinArrayFlatten, .{ .variadic = 0 }));
+    const flatten_bang_sym = try vm.intern("flatten!");
+    try vm.array_class.module.methods.put(flatten_bang_sym, value.MethodEntry.builtin(&builtinArrayFlattenBang, .{ .variadic = 0 }));
 
     const select_sym = try vm.intern("select");
     try vm.array_class.module.methods.put(select_sym, value.MethodEntry.builtin(&builtinArraySelect, .{ .exact = 0 }));
@@ -1346,14 +1375,36 @@ pub fn builtinArrayCompactBang(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
 }
 
 pub fn builtinArrayFlatten(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 0);
+    const remaining_depth = try arrayFlattenDepthArg(vm, args);
 
     const out = try vm.createArray();
     var seen = std.AutoHashMap(usize, void).init(vm.allocator);
     defer seen.deinit();
 
-    try arrayFlattenInto(vm, out, receiver.toArrayObject(), &seen);
+    try arrayFlattenInto(vm, out, receiver.toArrayObject(), &seen, remaining_depth, null);
     return Value.fromObject(out);
+}
+
+pub fn builtinArrayFlattenBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
+    }
+
+    const remaining_depth = try arrayFlattenDepthArg(vm, args);
+    if (remaining_depth == 0) return Value.nil();
+
+    const out = try vm.createArray();
+    var seen = std.AutoHashMap(usize, void).init(vm.allocator);
+    defer seen.deinit();
+
+    var modified = false;
+    try arrayFlattenInto(vm, out, receiver.toArrayObject(), &seen, remaining_depth, &modified);
+    if (!modified) return Value.nil();
+
+    const array = receiver.toArrayObject();
+    array.elements.clearRetainingCapacity();
+    array.elements.appendSlice(vm.gc_allocator, out.elements.items) catch return error.Fatal;
+    return receiver;
 }
 
 pub fn builtinArrayAny(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {

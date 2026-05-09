@@ -1539,6 +1539,8 @@ class SpecMockExpectation
   end
 
   def at_least(n)
+    n = 1 if n == :once
+    n = 2 if n == :twice
     @min_calls = n
     @max_calls = nil
     self
