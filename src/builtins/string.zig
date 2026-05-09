@@ -264,6 +264,11 @@ pub fn register(vm: *VM) !void {
     const string_strip_bang_sym = try vm.intern("strip!");
     try vm.string_class.module.methods.put(string_strip_bang_sym, value.MethodEntry.builtin(&builtinStringStripBang, .{ .exact = 0 }));
 
+    const string_lstrip_sym = try vm.intern("lstrip");
+    try vm.string_class.module.methods.put(string_lstrip_sym, value.MethodEntry.builtin(&builtinStringLstrip, .{ .exact = 0 }));
+    const string_lstrip_bang_sym = try vm.intern("lstrip!");
+    try vm.string_class.module.methods.put(string_lstrip_bang_sym, value.MethodEntry.builtin(&builtinStringLstripBang, .{ .exact = 0 }));
+
     const string_reverse_sym = try vm.intern("reverse");
     try vm.string_class.module.methods.put(string_reverse_sym, value.MethodEntry.builtin(&builtinStringReverse, .{ .exact = 0 }));
     const string_reverse_bang_sym = try vm.intern("reverse!");
@@ -3067,6 +3072,34 @@ pub fn builtinStringStripBang(vm: *VM, receiver: Value, args: []Value, _: ?Block
     if (bounds.start == 0 and bounds.end == string_obj.str.len) return Value.nil();
 
     string_obj.str = vm.gc_allocator_atomic.dupe(u8, string_obj.str[bounds.start..bounds.end]) catch return error.Fatal;
+    string_obj.validity = .unknown;
+    return receiver;
+}
+
+pub fn builtinStringLstrip(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const string_obj = receiver.toStringObject();
+    const bounds = stringStripBounds(string_obj.str);
+    return vm.newStringWithEncoding(string_obj.str[bounds.start..string_obj.str.len], false, string_obj.encoding);
+}
+
+pub fn builtinStringLstripBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
+    }
+
+    const string_obj = receiver.toStringObject();
+    const bounds = stringStripBounds(string_obj.str);
+
+    const check_encoding_valid = bounds.start > 0 or string_obj.str.len > 0;
+    if (check_encoding_valid and !string_obj.encoding.isValid(string_obj.str)) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "invalid encoding", .{});
+    }
+
+    if (bounds.start == 0) return Value.nil();
+
+    string_obj.str = vm.gc_allocator_atomic.dupe(u8, string_obj.str[bounds.start..]) catch return error.Fatal;
     string_obj.validity = .unknown;
     return receiver;
 }

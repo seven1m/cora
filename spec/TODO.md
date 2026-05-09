@@ -2010,7 +2010,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/string/length_spec.rb
 - [ ] core/string/lines_spec.rb
 - [ ] core/string/ljust_spec.rb
-- [ ] core/string/lstrip_spec.rb
+- [x] core/string/lstrip_spec.rb
 - [x] core/string/match_spec.rb
 - [ ] core/string/modulo_spec.rb
 - [x] core/string/multiply_spec.rb
