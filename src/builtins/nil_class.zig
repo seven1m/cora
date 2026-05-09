@@ -36,6 +36,9 @@ pub fn register(vm: *VM) !void {
 
     const to_a_sym = try vm.intern("to_a");
     try vm.nil_class.module.methods.put(to_a_sym, value.MethodEntry.builtin(&builtinNilClassToA, .{ .exact = 0 }));
+
+    const to_h_sym = try vm.intern("to_h");
+    try vm.nil_class.module.methods.put(to_h_sym, value.MethodEntry.builtin(&builtinNilClassToH, .{ .exact = 0 }));
 }
 
 pub fn builtinNilClassToS(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -89,4 +92,10 @@ pub fn builtinNilClassToA(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
     try vm.requireArgCount(args, 0);
     const array = try vm.createArray();
     return Value.fromObject(array);
+}
+
+pub fn builtinNilClassToH(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const hash = try vm.createHash();
+    return Value.fromObject(hash);
 }
