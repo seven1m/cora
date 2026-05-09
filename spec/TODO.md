@@ -1491,7 +1491,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/nil/dup_spec.rb
 - [x] core/nil/inspect_spec.rb
 - [ ] core/nil/match_spec.rb
-- [ ] core/nil/nil_spec.rb
+- [x] core/nil/nil_spec.rb
 - [x] core/nil/nilclass_spec.rb
 - [x] core/nil/or_spec.rb
 - [ ] core/nil/rationalize_spec.rb
