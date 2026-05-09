@@ -13,6 +13,7 @@ const VMError = vm_mod.VMError;
 const Block = vm_mod.Block;
 const Value = value.Value;
 const ClassObject = value.ClassObject;
+const ModuleObject = value.ModuleObject;
 const MethodEntry = value.MethodEntry;
 const SymbolObject = value.SymbolObject;
 const MethodListFilter = method_reflection.MethodListFilter;
@@ -881,6 +882,37 @@ pub fn builtinKernelRaise(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
     return vm.raiseFromArgs(args, "No exception to re-raise");
 }
 
+fn moduleIncludedInChain(vm: *VM, receiver: Value, mod: *const ModuleObject) bool {
+    if (receiver.getSingletonClass()) |sc| {
+        var current: ?*ClassObject = sc;
+        while (current) |c| {
+            const m = &c.module;
+            if (m == mod) return true;
+            for (m.prepended_modules.items) |prepended| {
+                if (prepended == mod) return true;
+            }
+            for (m.included_modules.items) |included| {
+                if (included == mod) return true;
+            }
+            if (c.attached_object != null) break;
+            current = c.superclass;
+        }
+    }
+    var current: ?*ClassObject = vm.getClass(receiver);
+    while (current) |c| {
+        const m = &c.module;
+        if (m == mod) return true;
+        for (m.prepended_modules.items) |prepended| {
+            if (prepended == mod) return true;
+        }
+        for (m.included_modules.items) |included| {
+            if (included == mod) return true;
+        }
+        current = c.superclass;
+    }
+    return false;
+}
+
 pub fn builtinKernelIsA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const arg = args[0];
@@ -902,35 +934,7 @@ pub fn builtinKernelIsA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
         }
         return Value.boolean(false);
     } else if (arg.isModule()) {
-        const mod = arg.toModuleObject();
-        if (receiver.getSingletonClass()) |sc| {
-            var current: ?*ClassObject = sc;
-            while (current) |c| {
-                const m = &c.module;
-                if (m == mod) return Value.boolean(true);
-                for (m.prepended_modules.items) |prepended| {
-                    if (prepended == mod) return Value.boolean(true);
-                }
-                for (m.included_modules.items) |included| {
-                    if (included == mod) return Value.boolean(true);
-                }
-                if (c.attached_object != null) break;
-                current = c.superclass;
-            }
-        }
-        var current: ?*ClassObject = vm.getClass(receiver);
-        while (current) |c| {
-            const m = &c.module;
-            if (m == mod) return Value.boolean(true);
-            for (m.prepended_modules.items) |prepended| {
-                if (prepended == mod) return Value.boolean(true);
-            }
-            for (m.included_modules.items) |included| {
-                if (included == mod) return Value.boolean(true);
-            }
-            current = c.superclass;
-        }
-        return Value.boolean(false);
+        return Value.boolean(moduleIncludedInChain(vm, receiver, arg.toModuleObject()));
     } else {
         return vm.raiseExceptionFmt(vm.type_error_class, "class or module required", .{});
     }

@@ -19,6 +19,14 @@ pub fn register(vm: *VM) !void {
     try vm.class_class.module.methods.put(class_equal_sym, value.MethodEntry.builtin(&builtinClassEqual, .{ .exact = 1 }));
 }
 
+fn singletonClassName(vm: *VM, class_ptr: *ClassObject) ?[]const u8 {
+    if (class_ptr == vm.symbol_class) return "Symbol";
+    if (class_ptr == vm.nil_class) return "NilClass";
+    if (class_ptr == vm.true_class) return "TrueClass";
+    if (class_ptr == vm.false_class) return "FalseClass";
+    return null;
+}
+
 pub fn builtinClassNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     if (!receiver.isClass()) {
         return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Class", .{});
@@ -26,20 +34,8 @@ pub fn builtinClassNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
 
     const class_ptr = receiver.toClassObject();
 
-    if (class_ptr == vm.symbol_class) {
-        return vm.raiseExceptionFmt(vm.no_method_error_class, "undefined method 'new' for Symbol", .{});
-    }
-
-    if (class_ptr == vm.nil_class) {
-        return vm.raiseExceptionFmt(vm.no_method_error_class, "undefined method 'new' for NilClass", .{});
-    }
-
-    if (class_ptr == vm.true_class) {
-        return vm.raiseExceptionFmt(vm.no_method_error_class, "undefined method 'new' for TrueClass", .{});
-    }
-
-    if (class_ptr == vm.false_class) {
-        return vm.raiseExceptionFmt(vm.no_method_error_class, "undefined method 'new' for FalseClass", .{});
+    if (singletonClassName(vm, class_ptr)) |name| {
+        return vm.raiseExceptionFmt(vm.no_method_error_class, "undefined method 'new' for {s}", .{name});
     }
 
     if (class_ptr == vm.module_class) {
@@ -142,17 +138,8 @@ pub fn builtinClassAllocate(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     }
 
     const class_ptr = receiver.toClassObject();
-    if (class_ptr == vm.symbol_class) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "allocator undefined for Symbol", .{});
-    }
-    if (class_ptr == vm.nil_class) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "allocator undefined for NilClass", .{});
-    }
-    if (class_ptr == vm.true_class) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "allocator undefined for TrueClass", .{});
-    }
-    if (class_ptr == vm.false_class) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "allocator undefined for FalseClass", .{});
+    if (singletonClassName(vm, class_ptr)) |name| {
+        return vm.raiseExceptionFmt(vm.type_error_class, "allocator undefined for {s}", .{name});
     }
     if (class_ptr.object_type == .string) {
         return vm.newStringForClassWithEncoding(class_ptr, "", false, .{ .ascii_8bit = .{} });
