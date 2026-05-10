@@ -19,6 +19,18 @@ pub fn register(vm: *VM) !void {
     const delete_sym = try vm.intern("delete");
     try env_singleton.module.methods.put(delete_sym, value.MethodEntry.builtin(&builtinEnvDelete, .{ .exact = 1 }));
 
+    const include_sym = try vm.intern("include?");
+    try env_singleton.module.methods.put(include_sym, value.MethodEntry.builtin(&builtinEnvInclude, .{ .exact = 1 }));
+
+    const key_sym = try vm.intern("key?");
+    try env_singleton.module.methods.put(key_sym, value.MethodEntry.builtin(&builtinEnvInclude, .{ .exact = 1 }));
+
+    const has_key_sym = try vm.intern("has_key?");
+    try env_singleton.module.methods.put(has_key_sym, value.MethodEntry.builtin(&builtinEnvInclude, .{ .exact = 1 }));
+
+    const member_sym = try vm.intern("member?");
+    try env_singleton.module.methods.put(member_sym, value.MethodEntry.builtin(&builtinEnvInclude, .{ .exact = 1 }));
+
     const size_sym = try vm.intern("size");
     try env_singleton.module.methods.put(size_sym, value.MethodEntry.builtin(&builtinEnvSize, .{ .exact = 0 }));
 
@@ -56,6 +68,13 @@ pub fn builtinEnvDelete(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Val
     const old_value = try vm.envGet(key);
     _ = try vm.envUnset(key, true);
     return old_value;
+}
+
+pub fn builtinEnvInclude(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const key = try args[0].coerceToStr(vm, "no implicit conversion into String");
+    const value_opt = try vm.envGet(key);
+    return Value.boolean(!value_opt.isNil());
 }
 
 pub fn builtinEnvSize(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
