@@ -415,8 +415,7 @@ pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
         vm.removeLoadedFile(absolute_path);
         vm.allocator.free(absolute_path);
         try vm.syncLoadedFeaturesGlobals();
-        if (err == error.Unwind and (vm.pending_exception != null or vm.pending_throw != null)) return error.Unwind;
-        return error.Fatal;
+        return err;
     };
 
     try vm.syncLoadedFeaturesGlobals();
@@ -535,8 +534,7 @@ pub fn builtinKernelRequireRelative(vm: *VM, _: Value, args: []Value, _: ?Block)
         vm.removeLoadedFile(resolved_path);
         vm.allocator.free(resolved_path);
         try vm.syncLoadedFeaturesGlobals();
-        if (err == error.Unwind and (vm.pending_exception != null or vm.pending_throw != null)) return error.Unwind;
-        return error.Fatal;
+        return err;
     };
 
     try vm.syncLoadedFeaturesGlobals();
@@ -587,10 +585,7 @@ pub fn builtinKernelLoad(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
     }
 
     vm.loaded_paths.append(vm.allocator, absolute_path.?) catch return error.Fatal;
-    vm.loadFile(absolute_path.?) catch |err| {
-        if (err == error.Unwind and (vm.pending_exception != null or vm.pending_throw != null)) return error.Unwind;
-        return error.Fatal;
-    };
+    try vm.loadFile(absolute_path.?);
 
     return Value.boolean(true);
 }
@@ -834,7 +829,7 @@ fn kernelWarnEmit(vm: *VM, receiver: Value, arg: Value, uplevel: ?usize, categor
 pub fn builtinKernelWarn(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     var uplevel_value: ?Value = null;
     var category_value: ?Value = null;
-    try vm.consumeKeywordArgs(.{"uplevel", "category"}, .{ &uplevel_value, &category_value });
+    try vm.consumeKeywordArgs(.{ "uplevel", "category" }, .{ &uplevel_value, &category_value });
     try vm.validateKeywordArgsConsumed();
 
     const verbose = vm.globals.get("$VERBOSE") orelse Value.nil();
@@ -1367,10 +1362,7 @@ pub fn builtinKernelInstanceVariableDefined(vm: *VM, receiver: Value, args: []Va
 pub fn builtinKernelInstanceVariableSet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 2);
     const name_str = try vm.coerceToIvarName(args[0]);
-    vm.setInstanceVariable(receiver, name_str, args[1]) catch |err| {
-        if (err == error.Unwind and (vm.pending_exception != null or vm.pending_throw != null)) return error.Unwind;
-        return error.Fatal;
-    };
+    try vm.setInstanceVariable(receiver, name_str, args[1]);
     return args[1];
 }
 
