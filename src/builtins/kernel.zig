@@ -175,6 +175,12 @@ pub fn register(vm: *VM) !void {
     const warn_sym = try vm.intern("warn");
     try vm.kernel_module.methods.put(warn_sym, MethodEntry.builtinWithVisibility(&builtinKernelWarn, .{ .variadic = 0 }, .private));
 
+    const catch_sym = try vm.intern("catch");
+    try vm.kernel_module.methods.put(catch_sym, MethodEntry.builtinWithVisibility(&builtinKernelCatch, .{ .variadic = 0 }, .private));
+
+    const throw_sym = try vm.intern("throw");
+    try vm.kernel_module.methods.put(throw_sym, MethodEntry.builtinWithVisibility(&builtinKernelThrow, .{ .variadic = 1 }, .private));
+
     const abort_sym = try vm.intern("abort");
     try vm.kernel_module.methods.put(abort_sym, value.MethodEntry.builtinWithVisibility(&builtinKernelAbort, .{ .variadic = 0 }, .private));
 
@@ -243,6 +249,8 @@ pub fn register(vm: *VM) !void {
     try kernel_singleton.module.methods.put(autoload_sym, MethodEntry.builtin(&builtinKernelSingletonAutoload, .{ .exact = 2 }));
     try kernel_singleton.module.methods.put(autoload_q_sym, MethodEntry.builtin(&builtinKernelSingletonAutoloadQ, .{ .variadic = 0 }));
     try kernel_singleton.module.methods.put(warn_sym, MethodEntry.builtin(&builtinKernelWarn, .{ .variadic = 0 }));
+    try kernel_singleton.module.methods.put(catch_sym, MethodEntry.builtin(&builtinKernelCatch, .{ .variadic = 0 }));
+    try kernel_singleton.module.methods.put(throw_sym, MethodEntry.builtin(&builtinKernelThrow, .{ .variadic = 1 }));
 
     const hash_sym = try vm.intern("hash");
     try vm.kernel_module.methods.put(hash_sym, MethodEntry.builtin(&builtinKernelHash, .{ .exact = 0 }));
@@ -407,7 +415,7 @@ pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
         vm.removeLoadedFile(absolute_path);
         vm.allocator.free(absolute_path);
         try vm.syncLoadedFeaturesGlobals();
-        if (err == error.Unwind and vm.pending_exception != null) return error.Unwind;
+        if (err == error.Unwind and (vm.pending_exception != null or vm.pending_throw != null)) return error.Unwind;
         return error.Fatal;
     };
 
@@ -527,7 +535,7 @@ pub fn builtinKernelRequireRelative(vm: *VM, _: Value, args: []Value, _: ?Block)
         vm.removeLoadedFile(resolved_path);
         vm.allocator.free(resolved_path);
         try vm.syncLoadedFeaturesGlobals();
-        if (err == error.Unwind and vm.pending_exception != null) return error.Unwind;
+        if (err == error.Unwind and (vm.pending_exception != null or vm.pending_throw != null)) return error.Unwind;
         return error.Fatal;
     };
 
@@ -580,7 +588,7 @@ pub fn builtinKernelLoad(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
 
     vm.loaded_paths.append(vm.allocator, absolute_path.?) catch return error.Fatal;
     vm.loadFile(absolute_path.?) catch |err| {
-        if (err == error.Unwind and vm.pending_exception != null) return error.Unwind;
+        if (err == error.Unwind and (vm.pending_exception != null or vm.pending_throw != null)) return error.Unwind;
         return error.Fatal;
     };
 
@@ -1060,6 +1068,47 @@ pub fn builtinKernelAtExit(vm: *VM, _: Value, args: []Value, block: ?Block) VMEr
     return proc_val;
 }
 
+pub fn builtinKernelCatch(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+
+    const blk = block orelse {
+        const exc = try vm.createException(vm.local_jump_error_class, "no block given");
+        vm.pending_exception = exc;
+        return error.Unwind;
+    };
+    const tag = if (args.len == 1) args[0] else try vm.newInstance(vm.object_class);
+
+    try vm.pushActiveCatch(tag);
+    defer vm.popActiveCatch();
+
+    const yielded = vm.yieldToBlock(blk, &[_]Value{tag}) catch |err| {
+        if (err == error.Unwind and vm.pending_throw != null and vm.throwTagsMatch(vm.pending_throw.?.tag, tag)) {
+            const thrown_value = vm.pending_throw.?.value;
+            vm.clearPendingThrow();
+            return thrown_value;
+        }
+        return err;
+    };
+
+    if (yielded.controlFlowValue()) |return_value| return return_value;
+    return yielded.value;
+}
+
+pub fn builtinKernelThrow(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+
+    const tag = args[0];
+    const thrown_value = if (args.len == 2) args[1] else Value.nil();
+
+    if (!vm.hasActiveCatch(tag)) {
+        vm.pending_exception = try vm.createUncaughtThrowError(tag, thrown_value);
+        return error.Unwind;
+    }
+
+    try vm.startThrow(tag, thrown_value);
+    return Value.nil();
+}
+
 pub fn builtinKernelLoop(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const blk = try vm.requireBlock(block);
@@ -1319,7 +1368,7 @@ pub fn builtinKernelInstanceVariableSet(vm: *VM, receiver: Value, args: []Value,
     try vm.requireArgCount(args, 2);
     const name_str = try vm.coerceToIvarName(args[0]);
     vm.setInstanceVariable(receiver, name_str, args[1]) catch |err| {
-        if (err == error.Unwind and vm.pending_exception != null) return error.Unwind;
+        if (err == error.Unwind and (vm.pending_exception != null or vm.pending_throw != null)) return error.Unwind;
         return error.Fatal;
     };
     return args[1];

@@ -237,6 +237,23 @@ test "thread preemption lets tight loops make progress without Thread.pass" {
     try std.testing.expectEqual(true, result.toBool());
 }
 
+test "throw does not cross thread boundary to outer catch" {
+    const result = try evalCode(
+        \\begin
+        \\  catch(:done) do
+        \\    Thread.new { throw :done, 11 }.value
+        \\  end
+        \\rescue UncaughtThrowError => e
+        \\  [e.tag, e.value]
+        \\end
+    );
+    try std.testing.expect(result.isArray());
+    const elems = result.toArrayObject().elements.items;
+    try std.testing.expect(elems[0].isSymbol());
+    try std.testing.expectEqualStrings("done", elems[0].toSymbolObject().name);
+    try std.testing.expectEqual(@as(i64, 11), elems[1].toInteger());
+}
+
 test "Thread.pass yields to other threads" {
     const result = try evalCode(
         \\Thread.pass

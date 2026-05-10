@@ -71,3 +71,23 @@ test "Ensure return value is ignored" {
     );
     try std.testing.expectEqual(@as(i64, 42), result.toInteger());
 }
+
+test "Ensure clause runs during throw unwinding" {
+    const result = try evalCode(
+        \\trace = []
+        \\def throw_with_ensure(trace)
+        \\  begin
+        \\    throw :done, 5
+        \\  ensure
+        \\    trace << :cleanup
+        \\  end
+        \\end
+        \\value = catch(:done) { throw_with_ensure(trace) }
+        \\[trace[0], value]
+    );
+    try std.testing.expect(result.isArray());
+    const elems = result.toArrayObject().elements.items;
+    try std.testing.expect(elems[0].isSymbol());
+    try std.testing.expectEqualStrings("cleanup", elems[0].toSymbolObject().name);
+    try std.testing.expectEqual(@as(i64, 5), elems[1].toInteger());
+}

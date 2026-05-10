@@ -45,3 +45,18 @@ test "pending SIGINT is not caught by bare rescue" {
     try std.testing.expectEqual(error.UnhandledException, result.err.?);
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, "Interrupt") != null);
 }
+
+test "UncaughtThrowError exposes tag and value" {
+    const result = try evalCode(
+        \\begin
+        \\  throw :boom, 12
+        \\rescue UncaughtThrowError => e
+        \\  [e.tag, e.value]
+        \\end
+    );
+    try std.testing.expect(result.isArray());
+    const elems = result.toArrayObject().elements.items;
+    try std.testing.expect(elems[0].isSymbol());
+    try std.testing.expectEqualStrings("boom", elems[0].toSymbolObject().name);
+    try std.testing.expectEqual(@as(i64, 12), elems[1].toInteger());
+}

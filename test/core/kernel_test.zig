@@ -936,3 +936,31 @@ test "Hash#default_proc= rejects non-Proc values" {
     try std.testing.expectEqual(error.UnhandledException, bad.err.?);
     try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "TypeError") != null);
 }
+
+test "Kernel#catch and Kernel#throw return thrown value" {
+    const result = try evalCode(
+        \\catch(:done) do
+        \\  throw :done, 7
+        \\  99
+        \\end
+    );
+    try std.testing.expectEqual(@as(i64, 7), result.toInteger());
+}
+
+test "Kernel.catch and Kernel.throw work as module methods" {
+    const result = try evalCode(
+        \\Kernel.catch(:done) do
+        \\  Kernel.throw(:done, 4)
+        \\end
+    );
+    try std.testing.expectEqual(@as(i64, 4), result.toInteger());
+}
+
+test "Kernel#catch without argument yields fresh tag object" {
+    const result = try evalCode(
+        \\catch do |tag|
+        \\  throw tag, 3
+        \\end
+    );
+    try std.testing.expectEqual(@as(i64, 3), result.toInteger());
+}

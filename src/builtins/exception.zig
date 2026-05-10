@@ -42,6 +42,12 @@ pub fn register(vm: *VM) !void {
 
     const path_sym = try vm.intern("path");
     try vm.load_error_class.module.methods.put(path_sym, value.MethodEntry.builtin(&builtinLoadErrorPath, .{ .exact = 0 }));
+
+    const tag_sym = try vm.intern("tag");
+    try vm.uncaught_throw_error_class.module.methods.put(tag_sym, value.MethodEntry.builtin(&builtinUncaughtThrowErrorTag, .{ .exact = 0 }));
+
+    const value_sym = try vm.intern("value");
+    try vm.uncaught_throw_error_class.module.methods.put(value_sym, value.MethodEntry.builtin(&builtinUncaughtThrowErrorValue, .{ .exact = 0 }));
 }
 
 pub fn builtinExceptionInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -163,4 +169,14 @@ pub fn builtinLoadErrorPath(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
         return Value.fromObject(p);
     }
     return Value.nil();
+}
+
+pub fn builtinUncaughtThrowErrorTag(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return try vm.getInstanceVariable(receiver, "@tag");
+}
+
+pub fn builtinUncaughtThrowErrorValue(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return try vm.getInstanceVariable(receiver, "@value");
 }
