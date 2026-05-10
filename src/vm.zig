@@ -7263,9 +7263,13 @@ pub const VM = struct {
     }
 
     pub fn internWithEncoding(self: *VM, str: []const u8, symbol_encoding: enc.Encoding) VMError!*SymbolObject {
+        const canonical_encoding: enc.Encoding = if (enc.isAsciiOnly(str) and !symbol_encoding.isDummy() and symbol_encoding.isAsciiCompatible())
+            .{ .us_ascii = .{} }
+        else
+            symbol_encoding;
         const probe_key = SymbolKey{
             .bytes = str,
-            .encoding_tag = @as(SymbolEncodingTag, symbol_encoding),
+            .encoding_tag = @as(SymbolEncodingTag, canonical_encoding),
         };
         if (self.symbols.get(probe_key)) |symbol_obj| {
             return symbol_obj;
@@ -7274,14 +7278,14 @@ pub const VM = struct {
         const key_bytes = self.gc_allocator_atomic.dupe(u8, str) catch return error.Fatal;
         const map_key = SymbolKey{
             .bytes = key_bytes,
-            .encoding_tag = @as(SymbolEncodingTag, symbol_encoding),
+            .encoding_tag = @as(SymbolEncodingTag, canonical_encoding),
         };
 
         const symbol_obj = self.gc_allocator.create(SymbolObject) catch return error.Fatal;
         symbol_obj.* = .{
             .object = .{ .type_tag = .symbol, .flags = Object.FROZEN_FLAG, .class = self.symbol_class, .singleton_class = null, .instance_variables = null },
             .name = key_bytes,
-            .encoding = symbol_encoding,
+            .encoding = canonical_encoding,
         };
         self.symbols.put(map_key, symbol_obj) catch return error.Fatal;
         return symbol_obj;

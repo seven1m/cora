@@ -26,6 +26,22 @@ test "Symbol interning - same address for identical symbols" {
     try std.testing.expect(@intFromPtr(symbol1) != @intFromPtr(symbol3));
 }
 
+test "Symbol interning canonicalizes ASCII-only encodings to US-ASCII" {
+    bdwgc.init();
+    defer bdwgc.deinit();
+
+    const allocator = getAllocator();
+
+    var vm = VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic, std.testing.io, std.testing.environ);
+    defer vm.deinit();
+
+    const ascii_symbol = try vm.intern("name");
+    const utf8_symbol = try vm.internWithEncoding("name", .{ .utf8 = .{} });
+
+    try std.testing.expectEqual(@intFromPtr(ascii_symbol), @intFromPtr(utf8_symbol));
+    try std.testing.expect(std.meta.activeTag(utf8_symbol.encoding) == .us_ascii);
+}
+
 test "Symbol#to_s" {
     const result = try evalCode(":foo.to_s");
     try std.testing.expect(result.isString());
@@ -71,6 +87,21 @@ test "String#to_sym canonicalizes ASCII-only symbols to US-ASCII" {
     const result = try evalCode("\"foo\".force_encoding(Encoding::UTF_8).to_sym.equal?(\"foo\".force_encoding(Encoding::US_ASCII).to_sym)");
     try std.testing.expect(result.isBool());
     try std.testing.expectEqual(true, result.toBool());
+}
+
+test "String#to_sym keeps ASCII-only dummy encoded symbols distinct" {
+    const result = try evalCode(
+        \\dummy = Encoding.list.find(&:dummy?)
+        \\sym = "abcd".dup.force_encoding(dummy).to_sym
+        \\[sym.encoding.dummy?, sym.inspect]
+    );
+    try std.testing.expect(result.isArray());
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 2), items.len);
+    try std.testing.expect(items[0].isBool());
+    try std.testing.expectEqual(true, items[0].toBool());
+    try std.testing.expect(items[1].isString());
+    try std.testing.expectEqualSlices(u8, ":\"\\x61\\x62\\x63\\x64\"", items[1].toStringObject().str);
 }
 
 test "String#to_sym keeps non-ASCII symbols distinct by encoding" {
