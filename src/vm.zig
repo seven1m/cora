@@ -9029,7 +9029,10 @@ pub const VM = struct {
         var effective_args = args;
         if (mode == .lenient and args.len == 1 and args[0].isArray()) {
             const positional_slots = target_chunk.arity + target_chunk.optional_params.items.len + target_chunk.post_required_count;
-            if (positional_slots > 1) {
+            const wants_destructuring =
+                positional_slots > 1 or
+                (positional_slots > 0 and target_chunk.rest_param_index != null);
+            if (wants_destructuring) {
                 effective_args = args[0].toArrayObject().elements.items;
             }
         }

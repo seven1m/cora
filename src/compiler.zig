@@ -3233,6 +3233,26 @@ pub const Compiler = struct {
                 }
 
                 rest_param_idx = @intCast(self.locals.items.len - 1);
+            } else if (rest_node == .implicit_rest) {
+                try self.addLocal("*");
+                rest_param_idx = @intCast(self.locals.items.len - 1);
+            } else {
+                return error.UnsupportedNode;
+            }
+        }
+
+        // Forwarding parameters (`...`) are represented by Prism as a
+        // ForwardingParameterNode in `keyword_rest`, but semantically they
+        // forward positional, keyword, and block arguments. Model the
+        // positional side as an anonymous rest slot here; the keyword-rest
+        // side is handled in processKeywordParameters below.
+        if (rest_param_idx == null) {
+            if (params.keyword_rest) |kw_rest_ptr| {
+                const kw_rest_node = try self.parser.asNode(@ptrCast(kw_rest_ptr));
+                if (kw_rest_node == .forwarding_parameter) {
+                    try self.addLocal("*");
+                    rest_param_idx = @intCast(self.locals.items.len - 1);
+                }
             }
         }
 
@@ -3354,6 +3374,8 @@ pub const Compiler = struct {
                         .param_slot = slot,
                         .default_chunk_id = @intCast(default_chunk_id),
                     });
+                } else {
+                    return error.UnsupportedNode;
                 }
             }
         }
@@ -3371,8 +3393,13 @@ pub const Compiler = struct {
                     try self.addLocal("**");
                 }
                 target_chunk.keyword_rest_index = @intCast(self.locals.items.len - 1);
+            } else if (kw_rest_node == .forwarding_parameter) {
+                try self.addLocal("**");
+                target_chunk.keyword_rest_index = @intCast(self.locals.items.len - 1);
             } else if (kw_rest_node == .no_keywords_parameter) {
                 target_chunk.no_keywords = true;
+            } else {
+                return error.UnsupportedNode;
             }
         }
     }
@@ -3542,6 +3569,8 @@ pub const Compiler = struct {
                     post_count = counts.post_count;
                     try self.compileDestructuredBlockRequiredParams(params, line);
                 }
+            } else {
+                return error.UnsupportedNode;
             }
         }
 
@@ -3652,6 +3681,8 @@ pub const Compiler = struct {
                     post_count = counts.post_count;
                     try self.compileDestructuredBlockRequiredParams(params, line);
                 }
+            } else {
+                return error.UnsupportedNode;
             }
         }
 

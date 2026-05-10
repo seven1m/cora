@@ -44,6 +44,7 @@ pub const ProgramNode = c.pm_program_node_t;
 pub const RangeNode = c.pm_range_node_t;
 pub const RequiredParameterNode = c.pm_required_parameter_node_t;
 pub const OptionalParameterNode = c.pm_optional_parameter_node_t;
+pub const ForwardingParameterNode = c.pm_forwarding_parameter_node_t;
 pub const OrNode = c.pm_or_node_t;
 pub const RestParameterNode = c.pm_rest_parameter_node_t;
 pub const RequiredKeywordParameterNode = c.pm_required_keyword_parameter_node_t;
@@ -178,6 +179,7 @@ pub const Node = union(enum) {
     range: *RangeNode,
     required_parameter: *RequiredParameterNode,
     optional_parameter: *OptionalParameterNode,
+    forwarding_parameter: *ForwardingParameterNode,
     or_node: *OrNode,
     rest_parameter: *RestParameterNode,
     required_keyword_parameter: *RequiredKeywordParameterNode,
@@ -477,6 +479,10 @@ pub const Parser = struct {
 
         if (node_type == c.PM_REQUIRED_PARAMETER_NODE) {
             return Node{ .required_parameter = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_FORWARDING_PARAMETER_NODE) {
+            return Node{ .forwarding_parameter = @ptrCast(raw) };
         }
 
         if (node_type == c.PM_CLASS_NODE) {
