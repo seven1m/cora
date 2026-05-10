@@ -95,6 +95,7 @@ pub fn main(init: std.process.Init) !void {
 
     const allocator = init.gpa;
     const args = try init.minimal.args.toSlice(init.arena.allocator());
+    vm.installDefaultSignalHandlers();
 
     var ruby_code: ?[]const u8 = null;
     var filename: ?[]const u8 = null;

@@ -47,6 +47,55 @@ const MAX_FIBER_ENVS: usize = 2048;
 const MAX_BUILTIN_KEYWORDS: usize = 256;
 const SMALL_CALL_VALUES: usize = 16;
 const DEFAULT_THREAD_PREEMPT_QUANTUM_OPS: u32 = 10_000;
+const MAX_QUEUED_SIGNALS: usize = 128;
+var queued_signal_counts: [MAX_QUEUED_SIGNALS]u32 = [_]u32{0} ** MAX_QUEUED_SIGNALS;
+
+fn signalHandler(sig: std.posix.SIG) callconv(.c) void {
+    const signo: usize = @intCast(@intFromEnum(sig));
+    if (signo < MAX_QUEUED_SIGNALS) {
+        _ = @atomicRmw(u32, &queued_signal_counts[signo], .Add, 1, .seq_cst);
+    }
+}
+
+fn installSignalHandler(sig: std.posix.SIG) void {
+    const act: std.posix.Sigaction = .{
+        .handler = .{ .handler = signalHandler },
+        .mask = std.posix.sigemptyset(),
+        .flags = 0,
+    };
+    std.posix.sigaction(sig, &act, null);
+}
+
+fn signalName(signo: c_int) []const u8 {
+    if (signo == @as(c_int, @intCast(@intFromEnum(std.posix.SIG.INT)))) return "SIGINT";
+    if (@hasField(std.posix.SIG, "TERM") and signo == @as(c_int, @intCast(@intFromEnum(std.posix.SIG.TERM)))) return "SIGTERM";
+    if (@hasField(std.posix.SIG, "HUP") and signo == @as(c_int, @intCast(@intFromEnum(std.posix.SIG.HUP)))) return "SIGHUP";
+    if (@hasField(std.posix.SIG, "QUIT") and signo == @as(c_int, @intCast(@intFromEnum(std.posix.SIG.QUIT)))) return "SIGQUIT";
+    if (@hasField(std.posix.SIG, "ALRM") and signo == @as(c_int, @intCast(@intFromEnum(std.posix.SIG.ALRM)))) return "SIGALRM";
+    if (@hasField(std.posix.SIG, "USR1") and signo == @as(c_int, @intCast(@intFromEnum(std.posix.SIG.USR1)))) return "SIGUSR1";
+    if (@hasField(std.posix.SIG, "USR2") and signo == @as(c_int, @intCast(@intFromEnum(std.posix.SIG.USR2)))) return "SIGUSR2";
+    return "SIG";
+}
+
+pub fn installDefaultSignalHandlers() void {
+    if (std.posix.Sigaction == void) return;
+
+    installSignalHandler(.INT);
+    if (@hasField(std.posix.SIG, "TERM")) installSignalHandler(.TERM);
+    if (@hasField(std.posix.SIG, "HUP")) installSignalHandler(.HUP);
+    if (@hasField(std.posix.SIG, "QUIT")) installSignalHandler(.QUIT);
+    if (@hasField(std.posix.SIG, "ALRM")) installSignalHandler(.ALRM);
+    if (@hasField(std.posix.SIG, "USR1")) installSignalHandler(.USR1);
+    if (@hasField(std.posix.SIG, "USR2")) installSignalHandler(.USR2);
+}
+
+pub fn requestSignal(signo: c_int) void {
+    if (signo <= 0) return;
+    const idx: usize = @intCast(signo);
+    if (idx < MAX_QUEUED_SIGNALS) {
+        _ = @atomicRmw(u32, &queued_signal_counts[idx], .Add, 1, .seq_cst);
+    }
+}
 
 fn parseThreadPreemptQuantumOps() u32 {
     const value_z = getenv("CORA_THREAD_QUANTUM_OPS") orelse return DEFAULT_THREAD_PREEMPT_QUANTUM_OPS;
@@ -342,6 +391,8 @@ pub const VM = struct {
     // Exception classes
     exception_class: *value.ClassObject,
     system_exit_class: *value.ClassObject,
+    signal_exception_class: *value.ClassObject,
+    interrupt_class: *value.ClassObject,
     system_call_error_class: *value.ClassObject,
     standard_error_class: *value.ClassObject,
     runtime_error_class: *value.ClassObject,
@@ -399,6 +450,7 @@ pub const VM = struct {
 
     // Exception handling state
     pending_exception: ?*value.ExceptionObject = null,
+    pending_async_exceptions: std.ArrayList(*value.ExceptionObject) = .empty,
     ensure_pending_exceptions: std.ArrayList(?*value.ExceptionObject) = .empty,
     backtrace_limit: ?usize = null,
     retry_point: ?struct {
@@ -513,6 +565,8 @@ pub const VM = struct {
             .thread_preempt_quantum_ops = DEFAULT_THREAD_PREEMPT_QUANTUM_OPS,
             .exception_class = undefined,
             .system_exit_class = undefined,
+            .signal_exception_class = undefined,
+            .interrupt_class = undefined,
             .system_call_error_class = undefined,
             .standard_error_class = undefined,
             .runtime_error_class = undefined,
@@ -776,6 +830,14 @@ pub const VM = struct {
         const system_exit_class_val = try self.newClass(system_exit_name_sym, self.exception_class);
         self.system_exit_class = system_exit_class_val.toClassObject();
 
+        const signal_exception_name_sym = try self.intern("SignalException");
+        const signal_exception_class_val = try self.newClass(signal_exception_name_sym, self.exception_class);
+        self.signal_exception_class = signal_exception_class_val.toClassObject();
+
+        const interrupt_name_sym = try self.intern("Interrupt");
+        const interrupt_class_val = try self.newClass(interrupt_name_sym, self.signal_exception_class);
+        self.interrupt_class = interrupt_class_val.toClassObject();
+
         const standard_error_name_sym = try self.intern("StandardError");
         const standard_error_class_val = try self.newClass(standard_error_name_sym, self.exception_class);
         self.standard_error_class = standard_error_class_val.toClassObject();
@@ -1020,6 +1082,8 @@ pub const VM = struct {
         self.object_class.module.constants.put(enumerable_name_sym, .{ .value = enumerable_module_val }) catch return error.Fatal;
         self.object_class.module.constants.put(exception_name_sym, .{ .value = exception_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(system_exit_name_sym, .{ .value = system_exit_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(signal_exception_name_sym, .{ .value = signal_exception_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(interrupt_name_sym, .{ .value = interrupt_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(standard_error_name_sym, .{ .value = standard_error_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(system_call_error_name_sym, .{ .value = system_call_error_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(runtime_error_name_sym, .{ .value = runtime_error_class_val }) catch return error.Fatal;
@@ -1929,6 +1993,7 @@ pub const VM = struct {
         }
         self.packed_pointer_targets.deinit();
         self.errno_classes.deinit();
+        self.pending_async_exceptions.deinit(self.allocator);
         self.ensure_pending_exceptions.deinit(self.allocator);
         self.at_exit_handlers.deinit(self.gc_allocator);
         self.recursion_guard.deinit(self.allocator);
@@ -2008,6 +2073,57 @@ pub const VM = struct {
         }
 
         self.pending_exception = original_exception;
+    }
+
+    fn createSignalException(self: *VM, signo: c_int) VMError!*value.ExceptionObject {
+        const class = if (signo == @as(c_int, @intCast(@intFromEnum(std.posix.SIG.INT))))
+            self.interrupt_class
+        else
+            self.signal_exception_class;
+        const exc = try self.createException(class, signalName(signo));
+        try self.setInstanceVariable(Value.fromObject(exc), "@signo", Value.integer(signo));
+        return exc;
+    }
+
+    fn enqueueAsyncException(self: *VM, exc: *value.ExceptionObject) VMError!void {
+        self.pending_async_exceptions.append(self.allocator, exc) catch return error.Fatal;
+    }
+
+    fn drainQueuedSignalsToAsyncExceptions(self: *VM) VMError!void {
+        var signo: usize = 1;
+        while (signo < MAX_QUEUED_SIGNALS) : (signo += 1) {
+            const count = @atomicRmw(u32, &queued_signal_counts[signo], .Xchg, 0, .seq_cst);
+            if (count == 0) continue;
+
+            var i: u32 = 0;
+            while (i < count) : (i += 1) {
+                const exc = try self.createSignalException(@intCast(signo));
+                try self.enqueueAsyncException(exc);
+            }
+        }
+    }
+
+    fn checkAsyncEvents(self: *VM) VMError!void {
+        try self.drainQueuedSignalsToAsyncExceptions();
+        if (self.pending_exception != null) return;
+        if (self.pending_async_exceptions.items.len == 0) return;
+
+        self.pending_exception = self.pending_async_exceptions.orderedRemove(0);
+        return error.Unwind;
+    }
+
+    inline fn checkAsyncEventsWithUnwind(self: *VM, comptime bounded: bool, min_unwind_depth: usize) VMError!void {
+        self.checkAsyncEvents() catch |err| switch (err) {
+            error.Unwind => {
+                if (bounded) {
+                    if (!try self.unwindStackUntilFrameDepth(min_unwind_depth))
+                        return error.Unwind;
+                } else {
+                    try self.unwindStack();
+                }
+            },
+            else => return err,
+        };
     }
 
     pub fn enterRecursionGuard(self: *VM, kind: RecursionGuardKind, lhs: Value, rhs: Value) VMError!bool {
@@ -3398,6 +3514,7 @@ pub const VM = struct {
     }
 
     pub fn maybePreemptCurrentThread(self: *VM, safe_point: bool) VMError!void {
+        try self.checkAsyncEvents();
         const thread = self.current_thread orelse return;
         const main = self.main_thread orelse return;
         if (thread == main) return;
@@ -5460,6 +5577,7 @@ pub const VM = struct {
                                                 if (try self.maybeCallJittedChunk(method_chunk, call_receiver, self.stack.items[(receiver_index + 1)..(receiver_index + 1 + argc)])) |jit_result| {
                                                     self.stack.storage[receiver_index] = jit_result;
                                                     self.stack.items = self.stack.storage[0 .. receiver_index + 1];
+                                                    try self.checkAsyncEventsWithUnwind(bounded, min_unwind_depth);
                                                     continue;
                                                 }
                                                 if (method_chunk.is_simple_positional and
@@ -5496,6 +5614,7 @@ pub const VM = struct {
                                                     if (method_chunk.lexical_scope) |scope| {
                                                         self.current_lexical_scope = scope;
                                                     }
+                                                    try self.checkAsyncEventsWithUnwind(bounded, min_unwind_depth);
                                                     continue;
                                                 }
                                             },
@@ -5515,6 +5634,8 @@ pub const VM = struct {
                     try self.executeInstructionWithUnwind(bounded, min_unwind_depth);
                 },
             }
+
+            try self.checkAsyncEventsWithUnwind(bounded, min_unwind_depth);
         }
     }
 
@@ -9473,11 +9594,21 @@ pub const VM = struct {
 
     pub fn unhandledExceptionExitStatus(self: *VM) ?u8 {
         const exc = self.pending_exception orelse return null;
-        if (!self.isClassOrSubclassOf(exc.object.class.?, self.system_exit_class)) return null;
+        if (self.isClassOrSubclassOf(exc.object.class.?, self.system_exit_class)) {
+            const status = self.getInstanceVariable(Value.fromObject(exc), "@status") catch return 1;
+            if (!status.isInteger()) return 0;
+            const code: u8 = @intCast(status.toInteger());
+            return code;
+        }
 
-        const status = self.getInstanceVariable(Value.fromObject(exc), "@status") catch return 1;
-        if (!status.isInteger()) return 0;
-        const code: u8 = @intCast(status.toInteger());
-        return code;
+        if (self.isClassOrSubclassOf(exc.object.class.?, self.signal_exception_class)) {
+            const status = self.getInstanceVariable(Value.fromObject(exc), "@signo") catch return 1;
+            if (!status.isInteger()) return 1;
+            const signo = status.toInteger();
+            if (signo < 0 or signo > 127) return 1;
+            return @intCast(128 + signo);
+        }
+
+        return null;
     }
 };

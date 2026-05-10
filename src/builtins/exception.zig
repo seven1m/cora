@@ -1,3 +1,4 @@
+const std = @import("std");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 
@@ -20,6 +21,12 @@ pub fn register(vm: *VM) !void {
     try vm.exception_class.module.methods.put(full_message_sym, value.MethodEntry.builtin(&builtinExceptionFullMessage, .{ .variadic = 0 }));
 
     try vm.system_exit_class.module.methods.put(initialize_sym, value.MethodEntry.builtin(&builtinSystemExitInitialize, .{ .variadic = 0 }));
+
+    const signo_sym = try vm.intern("signo");
+    try vm.signal_exception_class.module.methods.put(signo_sym, value.MethodEntry.builtin(&builtinSignalExceptionSigno, .{ .exact = 0 }));
+
+    const signm_sym = try vm.intern("signm");
+    try vm.signal_exception_class.module.methods.put(signm_sym, value.MethodEntry.builtin(&builtinSignalExceptionSignm, .{ .exact = 0 }));
 
     const status_sym = try vm.intern("status");
     try vm.system_exit_class.module.methods.put(status_sym, value.MethodEntry.builtin(&builtinSystemExitStatus, .{ .exact = 0 }));
@@ -113,6 +120,21 @@ pub fn builtinSystemExitStatus(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
     const status = try vm.getInstanceVariable(receiver, "@status");
     if (status.isNil()) return Value.integer(0);
     return status;
+}
+
+pub fn builtinSignalExceptionSigno(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
+    const signo = try vm.getInstanceVariable(receiver, "@signo");
+    if (!signo.isNil()) return signo;
+    if (receiver.toExceptionObject().object.class == vm.interrupt_class) {
+        return Value.integer(@intCast(@intFromEnum(std.posix.SIG.INT)));
+    }
+    return Value.nil();
+}
+
+pub fn builtinSignalExceptionSignm(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    return builtinExceptionMessage(vm, receiver, args, null);
 }
 
 pub fn builtinKeyErrorReceiver(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
