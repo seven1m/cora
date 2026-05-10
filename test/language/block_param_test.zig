@@ -136,6 +136,17 @@ test "block parameter with arguments" {
     try std.testing.expectEqual(@as(i64, 30), result.toInteger());
 }
 
+test "block destructuring parameters bind inner locals" {
+    const result = try evalCode(
+        \\value = nil
+        \\[[3, 9]].each do |(s, _)|
+        \\  value = s
+        \\end
+        \\value
+    );
+    try std.testing.expectEqual(@as(i64, 3), result.toInteger());
+}
+
 test "block parameter can be stored and called later" {
     const result = try evalCode(
         \\def foo(&block)

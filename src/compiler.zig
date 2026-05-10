@@ -2079,6 +2079,13 @@ pub const Compiler = struct {
 
     fn compileMultiTarget(self: *Compiler, target: prism.Node, index: i64, line: u32) anyerror!void {
         switch (target) {
+            .required_parameter => |param| {
+                const var_name = try self.parser.getLocalVariableName(param.name);
+                try self.extractArrayElement(index, line);
+                const slot = try self.resolveOrCreateLocalSlot(var_name);
+                try self.emitSetLocalSlot(slot, line);
+                try self.current_chunk.emitOp(.POP, line);
+            },
             .local_variable_target => |var_target| {
                 // Extract array element at index and assign to local variable
                 const var_name = try self.parser.getLocalVariableName(var_target.name);
@@ -2306,6 +2313,12 @@ pub const Compiler = struct {
         // Assign to target variable
         // Stack: [result_array]
         switch (target) {
+            .required_parameter => |param| {
+                const var_name = try self.parser.getLocalVariableName(param.name);
+                const slot = try self.resolveOrCreateLocalSlot(var_name);
+                try self.emitSetLocalSlot(slot, line);
+                try self.current_chunk.emitOp(.POP, line);
+            },
             .local_variable_target => |var_target| {
                 const var_name = try self.parser.getLocalVariableName(var_target.name);
                 const slot = try self.resolveOrCreateLocalSlot(var_name);
@@ -3153,9 +3166,17 @@ pub const Compiler = struct {
             var i: usize = 0;
             while (i < params.requireds.size) : (i += 1) {
                 const param_node = params.requireds.nodes[i];
-                const param = @as(*prism.RequiredParameterNode, @ptrCast(param_node));
-                const param_name = try self.parser.getLocalVariableName(param.name);
-                try self.addLocal(param_name);
+                const param = try self.parser.asNode(param_node);
+                switch (param) {
+                    .required_parameter => |required_param| {
+                        const param_name = try self.parser.getLocalVariableName(required_param.name);
+                        try self.addLocal(param_name);
+                    },
+                    .multi_target => {
+                        try self.addLocal("");
+                    },
+                    else => return error.UnsupportedNode,
+                }
                 param_count += 1;
             }
         }
@@ -3224,6 +3245,27 @@ pub const Compiler = struct {
             .rest_param_idx = rest_param_idx,
             .post_count = post_count,
         };
+    }
+
+    fn compileDestructuredBlockRequiredParams(self: *Compiler, params: *prism.ParametersNode, line: u32) !void {
+        if (params.requireds.size == 0) return;
+
+        var slot_index: u8 = 0;
+        var i: usize = 0;
+        while (i < params.requireds.size) : (i += 1) {
+            const param = try self.parser.asNode(params.requireds.nodes[i]);
+            switch (param) {
+                .required_parameter => {},
+                .multi_target => |multi_target| {
+                    try self.current_chunk.emitOpU8(.GET_LOCAL, slot_index, line);
+                    try self.current_chunk.emitOp(.MULTI_ASSIGN_PREPARE, line);
+                    try self.compileNestedMultiTarget(multi_target, line);
+                    try self.current_chunk.emitOp(.POP, line);
+                },
+                else => return error.UnsupportedNode,
+            }
+            slot_index += 1;
+        }
     }
 
     /// Process keyword parameters (required, optional, keyword rest) for a chunk
@@ -3452,6 +3494,7 @@ pub const Compiler = struct {
                     param_count = counts.param_count;
                     rest_param_idx = counts.rest_param_idx;
                     post_count = counts.post_count;
+                    try self.compileDestructuredBlockRequiredParams(params, line);
                 }
             }
         }
@@ -3549,6 +3592,7 @@ pub const Compiler = struct {
                     param_count = counts.param_count;
                     rest_param_idx = counts.rest_param_idx;
                     post_count = counts.post_count;
+                    try self.compileDestructuredBlockRequiredParams(params, line);
                 }
             }
         }
