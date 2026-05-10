@@ -5954,7 +5954,31 @@ pub const VM = struct {
         super_defining_class: ?*ClassObject,
         block: ?Block,
     ) VMError!void {
-        const has_keywords = kw_values != null and kw_values.?.len > 0;
+        var args_temp: TempValueSlice = .{};
+        defer args_temp.deinit(self.allocator);
+
+        var effective_args = args;
+        var effective_kw_keys = kw_keys;
+        var effective_kw_values = kw_values;
+        var has_keywords = effective_kw_values != null and effective_kw_values.?.len > 0;
+
+        if (has_keywords and
+            method_chunk.required_keywords.items.len == 0 and
+            method_chunk.optional_keywords.items.len == 0 and
+            method_chunk.keyword_rest_index == null and
+            !method_chunk.no_keywords)
+        {
+            const kw_hash = try self.createHashFromKeywordPairs(effective_kw_keys.?, effective_kw_values.?);
+            const expanded_args = try args_temp.initUninitialized(self, effective_args.len + 1);
+            if (effective_args.len > 0) {
+                @memcpy(expanded_args[0..effective_args.len], effective_args);
+            }
+            expanded_args[effective_args.len] = kw_hash;
+            effective_args = expanded_args;
+            effective_kw_keys = null;
+            effective_kw_values = null;
+            has_keywords = false;
+        }
 
         if (method_chunk.no_keywords and has_keywords) {
             const exc = try self.createException(self.argument_error_class, "this method does not accept keyword arguments");
@@ -5974,25 +5998,25 @@ pub const VM = struct {
         callee_frame.method_name = method_name;
         callee_frame.super_defining_class = super_defining_class;
         callee_frame.forwarded_keyword_ctx = if (has_keywords)
-            try self.copyKeywordContext(kw_keys.?, kw_values.?)
+            try self.copyKeywordContext(effective_kw_keys.?, effective_kw_values.?)
         else
             null;
         if (method_chunk.is_simple_positional) {
-            if (args.len != method_chunk.arity) {
-                return self.raiseArgumentErrorWrongArgCount(args.len, method_chunk.arity);
+            if (effective_args.len != method_chunk.arity) {
+                return self.raiseArgumentErrorWrongArgCount(effective_args.len, method_chunk.arity);
             }
 
-            if (args.len > 0) {
-                @memcpy(callee_frame.ep.variables[0..args.len], args);
+            if (effective_args.len > 0) {
+                @memcpy(callee_frame.ep.variables[0..effective_args.len], effective_args);
             }
-            callee_frame.ep.variables_len = @intCast(args.len);
+            callee_frame.ep.variables_len = @intCast(effective_args.len);
         } else {
-            try self.copyArgumentsWithRestParam(method_chunk, callee_frame.ep, args, .strict);
+            try self.copyArgumentsWithRestParam(method_chunk, callee_frame.ep, effective_args, .strict);
         }
 
         if (has_keywords) {
-            const keys = kw_keys orelse return error.Fatal;
-            const kw_vals = kw_values.?;
+            const keys = effective_kw_keys orelse return error.Fatal;
+            const kw_vals = effective_kw_values.?;
             try self.bindKeywordArguments(method_chunk, callee_frame.ep, keys, kw_vals);
         } else {
             if (method_chunk.optional_keywords.items.len > 0 or method_chunk.keyword_rest_index != null) {

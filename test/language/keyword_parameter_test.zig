@@ -113,3 +113,21 @@ test "Multiple optional keywords called with no arguments" {
     );
     try std.testing.expectEqual(60, result.toInteger());
 }
+
+test "Keyword syntax becomes positional hash when method has no keyword params" {
+    var result = try evalCode(
+        \\def foo(opts); opts; end
+        \\foo(a: 1, b: 2)
+    );
+    try std.testing.expect(result.isHash());
+    try std.testing.expectEqual(2, result.toHashObject().entries.items.len);
+
+    result = try evalCode(
+        \\def bar(*args); args; end
+        \\bar(a: 1)
+    );
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(usize, 1), result.toArrayObject().elements.items.len);
+    try std.testing.expect(result.toArrayObject().elements.items[0].isHash());
+    try std.testing.expectEqual(@as(usize, 1), result.toArrayObject().elements.items[0].toHashObject().entries.items.len);
+}
