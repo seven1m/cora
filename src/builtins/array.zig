@@ -885,32 +885,92 @@ pub fn builtinArrayBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 }
 
 pub fn builtinArrayBracketSet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 2);
-    try vm.requireIntegerArg(args, 0, "Integer");
+    try vm.requireArgCountRange(args, 2, 3);
 
     const array = receiver.toArrayObject();
-    const index = args[0].toInteger();
-    const len: i64 = @intCast(array.elements.items.len);
-    const value_to_set = args[1];
 
-    var actual_index = index;
-    if (actual_index < 0) {
-        actual_index = len + actual_index;
+    if (args.len == 2) {
+        try vm.requireIntegerArg(args, 0, "Integer");
+
+        const index = args[0].toInteger();
+        const len: i64 = @intCast(array.elements.items.len);
+        const value_to_set = args[1];
+
+        var actual_index = index;
         if (actual_index < 0) {
-            return vm.raiseExceptionFmt(vm.range_error_class, "index {d} too small for array", .{index});
+            actual_index = len + actual_index;
+            if (actual_index < 0) {
+                return vm.raiseExceptionFmt(vm.range_error_class, "index {d} too small for array", .{index});
+            }
         }
-    }
 
-    if (actual_index < len) {
-        array.elements.items[@intCast(actual_index)] = value_to_set;
+        if (actual_index < len) {
+            array.elements.items[@intCast(actual_index)] = value_to_set;
+            return value_to_set;
+        }
+
+        while (@as(i64, @intCast(array.elements.items.len)) < actual_index) {
+            array.elements.append(vm.gc_allocator, Value.nil()) catch return error.Fatal;
+        }
+        array.elements.append(vm.gc_allocator, value_to_set) catch return error.Fatal;
         return value_to_set;
     }
 
-    while (@as(i64, @intCast(array.elements.items.len)) < actual_index) {
+    const start = try args[0].coerceToI64ViaToInt(
+        vm,
+        "no implicit conversion into Integer",
+        "no implicit conversion into Integer",
+        "bignum too big to convert into `long`",
+    );
+    const delete_count = try args[1].coerceToI64ViaToInt(
+        vm,
+        "no implicit conversion into Integer",
+        "no implicit conversion into Integer",
+        "bignum too big to convert into `long`",
+    );
+    const replacement = args[2];
+
+    if (delete_count < 0) {
+        return vm.raiseExceptionFmt(vm.index_error_class, "negative length ({d})", .{delete_count});
+    }
+
+    const original_len: i64 = @intCast(array.elements.items.len);
+    var actual_start = start;
+    if (actual_start < 0) {
+        actual_start = original_len + actual_start;
+        if (actual_start < 0) {
+            return vm.raiseExceptionFmt(
+                vm.index_error_class,
+                "index {d} too small for array; minimum: -{d}",
+                .{ start, original_len },
+            );
+        }
+    }
+
+    while (@as(i64, @intCast(array.elements.items.len)) < actual_start) {
         array.elements.append(vm.gc_allocator, Value.nil()) catch return error.Fatal;
     }
-    array.elements.append(vm.gc_allocator, value_to_set) catch return error.Fatal;
-    return value_to_set;
+
+    const replace_start: usize = @intCast(actual_start);
+    const current_len: i64 = @intCast(array.elements.items.len);
+    const replace_len: usize = @intCast(@min(delete_count, current_len - actual_start));
+
+    switch (try vm.probeToAry(replacement)) {
+        .array => |replacement_array| {
+            array.elements.replaceRange(
+                vm.gc_allocator,
+                replace_start,
+                replace_len,
+                replacement_array.toArrayObject().elements.items,
+            ) catch return error.Fatal;
+        },
+        .missing, .nil_result => {
+            const scalar = [_]Value{replacement};
+            array.elements.replaceRange(vm.gc_allocator, replace_start, replace_len, &scalar) catch return error.Fatal;
+        },
+    }
+
+    return replacement;
 }
 
 pub fn builtinArrayEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

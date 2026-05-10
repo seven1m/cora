@@ -293,6 +293,43 @@ test "Array#[]= set and extend" {
     result = try evalCode("a = [1, 2, 3]; a[-1] = 7; a");
     try std.testing.expect(result.isArray());
     try std.testing.expectEqual(@as(i64, 7), result.toArrayObject().elements.items[2].toInteger());
+
+    result = try evalCode("a = [1, 2, 3]; a[1, 0] = [9, 8]; a.inspect");
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "[1, 9, 8, 2, 3]", result.toStringObject().str);
+
+    result = try evalCode("a = [1, 2, 3]; a[1, 1] = 9; a.inspect");
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "[1, 9, 3]", result.toStringObject().str);
+
+    result = try evalCode(
+        \\class SliceReplacement
+        \\  def to_ary
+        \\    [7, 8]
+        \\  end
+        \\end
+        \\a = [1, 2, 3]
+        \\a[1, 1] = SliceReplacement.new
+        \\a.inspect
+    );
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "[1, 7, 8, 3]", result.toStringObject().str);
+
+    result = try evalCode("a = [1, 2, 3]; a[5, 0] = 9; a.inspect");
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "[1, 2, 3, nil, nil, 9]", result.toStringObject().str);
+
+    result = try evalCode(
+        \\begin
+        \\  a = [1, 2, 3]
+        \\  a[1, -1] = 9
+        \\rescue => e
+        \\  [e.class == IndexError, e.message]
+        \\end
+    );
+    try std.testing.expect(result.isArray());
+    try std.testing.expect(result.toArrayObject().elements.items[0].toBool());
+    try std.testing.expectEqualSlices(u8, "negative length (-1)", result.toArrayObject().elements.items[1].toStringObject().str);
 }
 
 test "Array#map! mutates in place" {
