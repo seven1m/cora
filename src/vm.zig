@@ -1773,9 +1773,10 @@ pub const VM = struct {
         // superclass chain) of the innermost scope — matching Ruby's constant
         // lookup rule that the inheritance hierarchy of Module.nesting.first is
         // searched after the purely lexical pass.
+        // Skip Object if autoload was already attempted during the lexical walk.
         switch (scope.scope_module) {
             .class => |klass| {
-                if (try self.findConstantInClassAncestors(klass, name)) |val| {
+                if (try self.findConstantInClassAncestors(klass, name, result.object_autoload_attempted)) |val| {
                     result.value = val;
                     return result;
                 }
@@ -1819,7 +1820,7 @@ pub const VM = struct {
 
     /// Walk the ancestors of a class — prepended modules, included modules,
     /// then the superclass chain — looking for a constant.
-    fn findConstantInClassAncestors(self: *VM, klass: *ClassObject, name: *value.SymbolObject) VMError!?Value {
+    fn findConstantInClassAncestors(self: *VM, klass: *ClassObject, name: *value.SymbolObject, skip_object_autoload: bool) VMError!?Value {
         var current: ?*ClassObject = klass;
         var first = true;
         while (current) |cls| {
@@ -1834,10 +1835,12 @@ pub const VM = struct {
                     try self.warnDeprecatedConstant(prepended, name);
                     return entry.value;
                 }
-                switch (try self.triggerAutoload(prepended, name)) {
-                    .missing => {},
-                    .loaded => |val| return val,
-                    .attempted => {},
+                if (!skip_object_autoload or prepended != &self.object_class.module) {
+                    switch (try self.triggerAutoload(prepended, name)) {
+                        .missing => {},
+                        .loaded => |val| return val,
+                        .attempted => {},
+                    }
                 }
                 if (try self.findConstantInModuleAncestors(prepended, name)) |val| {
                     return val;
@@ -1851,10 +1854,12 @@ pub const VM = struct {
                     try self.warnDeprecatedConstant(&cls.module, name);
                     return entry.value;
                 }
-                switch (try self.triggerAutoload(&cls.module, name)) {
-                    .missing => {},
-                    .loaded => |val| return val,
-                    .attempted => {},
+                if (!skip_object_autoload or &cls.module != &self.object_class.module) {
+                    switch (try self.triggerAutoload(&cls.module, name)) {
+                        .missing => {},
+                        .loaded => |val| return val,
+                        .attempted => {},
+                    }
                 }
             }
             first = false;
