@@ -12,10 +12,10 @@ pub const OpCode = enum(u8) {
     PUSH_I8, // Operand: i8 (inline small integer)
 
     // Variables and Constants
-    GET_LOCAL, // Operand: u8 (local index)
-    GET_LOCAL_DEEP, // Operands: u8 (local index), u8 (depth)
-    SET_LOCAL, // Operand: u8 (local index)
-    SET_LOCAL_DEEP, // Operands: u8 (local index), u8 (depth)
+    GET_LOCAL, // Operand: u16 (ep_offset; patched from local_idx at compile-finalise time)
+    GET_LOCAL_DEEP, // Operands: u16 (local_idx), u8 (depth)
+    SET_LOCAL, // Operand: u16 (ep_offset; patched from local_idx at compile-finalise time)
+    SET_LOCAL_DEEP, // Operands: u16 (local_idx), u8 (depth)
     GET_GLOBAL, // Operand: u16 (constant pool index of variable name)
     GET_BACKREF, // Operand: u16 (1-indexed capture index)
     SET_GLOBAL, // Operand: u16 (constant pool index of variable name)
@@ -165,12 +165,12 @@ pub fn opcodeOperandSize(op: OpCode) usize {
         => 0,
 
         // 1-byte operands
-        .GET_LOCAL, .SET_LOCAL, .DUP_N, .YIELD, .RETURN, .WHEN_SPLAT,
+        .DUP_N, .YIELD, .RETURN, .WHEN_SPLAT,
         .PUSH_RANGE, .INTERPOLATE_STRING, .RAISE, .CATCH_START, .PUSH_I8, .UNDEF_METHOD,
         => 1,
 
         // 2-byte operands (u16)
-        .GET_LOCAL_DEEP, .SET_LOCAL_DEEP,
+        .GET_LOCAL, .SET_LOCAL,
         .GET_GLOBAL, .SET_GLOBAL, .GET_BACKREF,
         .GET_CVAR, .GET_CVAR_OR_NIL, .SET_CVAR,
         .GET_CONST, .GET_CONST_OR_NIL, .SET_CONST, .SET_CONST_PATH,
@@ -180,6 +180,9 @@ pub fn opcodeOperandSize(op: OpCode) usize {
         .TRY_BEGIN, .PUSH_LAMBDA, .GET_CONST_PATH,
         .PUSH_ARRAY, .PUSH_HASH, .HASH_SET_CONST_KEY,
         => 2,
+
+        // 3-byte operands: GET_LOCAL_DEEP / SET_LOCAL_DEEP = u16 local_idx + u8 depth
+        .GET_LOCAL_DEEP, .SET_LOCAL_DEEP => 3,
 
         // 4-byte operands
         .DEF_SINGLETON_CLASS, // u16 body_chunk_id (2 bytes)

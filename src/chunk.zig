@@ -40,7 +40,7 @@ pub const RescueHandler = struct {
     exception_type_exprs: std.ArrayList(TypeExpression) = .empty,
     catch_byte_offset: usize,
     catch_end_byte_offset: usize,
-    var_idx: ?u8,
+    var_idx: ?u16,
 };
 
 pub const ExceptionHandler = struct {
@@ -53,7 +53,7 @@ pub const ExceptionHandler = struct {
 };
 
 pub const OptionalParam = struct {
-    param_index: u8,
+    param_index: u16,
     default_chunk_id: ChunkId,
 };
 
@@ -63,12 +63,12 @@ pub const KeywordMetadata = struct {
 
 pub const RequiredKeyword = struct {
     name_idx: u16,
-    param_slot: u8,
+    param_slot: u16,
 };
 
 pub const OptionalKeyword = struct {
     name_idx: u16,
-    param_slot: u8,
+    param_slot: u16,
     default_chunk_id: ChunkId,
 };
 
@@ -107,10 +107,10 @@ pub const Chunk = struct {
     name_owned: bool = false,
     chunk_id: ?ChunkId = null,
     arity: u8 = 0,
-    locals_count: u8 = 0, // Total number of locals (including params)
+    locals_count: u16 = 0, // Total number of locals (including params)
     is_lambda: bool = false,
     optional_params: std.ArrayList(OptionalParam) = .empty,
-    rest_param_index: ?u8 = null,
+    rest_param_index: ?u16 = null,
     post_required_count: u8 = 0,
     lexical_scope: ?*LexicalScope = null,
     exception_handlers: std.ArrayList(ExceptionHandler) = .empty,
@@ -119,10 +119,10 @@ pub const Chunk = struct {
     source_encoding: enc.Encoding = .{ .utf8 = .{} },
     required_keywords: std.ArrayList(RequiredKeyword) = .empty,
     optional_keywords: std.ArrayList(OptionalKeyword) = .empty,
-    keyword_rest_index: ?u8 = null,
+    keyword_rest_index: ?u16 = null,
     no_keywords: bool = false,
     keyword_metadata: std.ArrayList(KeywordMetadata) = .empty,
-    block_param_index: ?u8 = null,
+    block_param_index: ?u16 = null,
 
     /// Set by compiler: true if this chunk has a simple positional-only signature
     /// (no optional/rest/keyword/block params).
@@ -504,16 +504,26 @@ pub const Chunk = struct {
                 try writer.print("WHEN_SPLAT {d}\n", .{mode});
             },
 
-            .GET_LOCAL, .SET_LOCAL, .PUSH_RANGE, .INTERPOLATE_STRING, .RAISE, .CATCH_START, .DUP_N, .YIELD => {
+            .GET_LOCAL, .SET_LOCAL => {
+                const lo: u16 = self.code.items[ip];
+                const hi: u16 = self.code.items[ip + 1];
+                const idx = lo | (hi << 8);
+                ip += 2;
+                try writer.print("{s} {d}\n", .{ bytecode.opcodeName(op), idx });
+            },
+
+            .PUSH_RANGE, .INTERPOLATE_STRING, .RAISE, .CATCH_START, .DUP_N, .YIELD => {
                 const idx = self.code.items[ip];
                 ip += 1;
                 try writer.print("{s} {d}\n", .{ bytecode.opcodeName(op), idx });
             },
 
             .GET_LOCAL_DEEP, .SET_LOCAL_DEEP => {
-                const local_idx = self.code.items[ip];
-                const depth = self.code.items[ip + 1];
-                ip += 2;
+                const lo: u16 = self.code.items[ip];
+                const hi: u16 = self.code.items[ip + 1];
+                const local_idx = lo | (hi << 8);
+                const depth = self.code.items[ip + 2];
+                ip += 3;
                 try writer.print("{s} {d} {d}\n", .{ bytecode.opcodeName(op), local_idx, depth });
             },
 
@@ -628,5 +638,35 @@ pub const Chunk = struct {
 
     pub fn readI16(code: []const u8, ip: *usize) i16 {
         return @bitCast(readU16(code, ip));
+    }
+
+    /// Post-compilation pass: rewrite depth-0 GET_LOCAL/SET_LOCAL operands from
+    /// `local_idx` (0-based) to `ep_offset` (= locals_count - local_idx).
+    /// Must be called after locals_count is finalised.
+    /// Pass an explicit `lc` override for default-expression sub-chunks that share
+    /// the parent scope's locals (their own locals_count is 0).
+    /// GET_LOCAL_DEEP / SET_LOCAL_DEEP keep local_idx as emitted; the VM resolves
+    /// ep_offset at runtime via ep[2] (the stored locals_count env-data slot).
+    pub fn patchEpOffsets(self: *Chunk, lc_override: ?u16) void {
+        const lc = lc_override orelse self.locals_count;
+        var ip: usize = 0;
+        while (ip < self.code.items.len) {
+            const op: OpCode = @enumFromInt(self.code.items[ip]);
+            const operand_size = bytecode.opcodeOperandSize(op);
+            ip += 1;
+            switch (op) {
+                .GET_LOCAL, .SET_LOCAL => {
+                    // 2-byte local_idx → ep_offset
+                    const lo: u16 = self.code.items[ip];
+                    const hi: u16 = self.code.items[ip + 1];
+                    const local_idx: u16 = lo | (hi << 8);
+                    const ep_offset: u16 = lc - local_idx;
+                    self.code.items[ip]     = @intCast(ep_offset & 0xFF);
+                    self.code.items[ip + 1] = @intCast(ep_offset >> 8);
+                },
+                else => {},
+            }
+            ip += operand_size;
+        }
     }
 };

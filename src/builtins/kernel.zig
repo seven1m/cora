@@ -465,7 +465,7 @@ pub fn builtinKernelEval(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
         source_obj.encoding,
         .{
             .self_value = binding_obj.self_value,
-            .parent_env = binding_obj.env,
+            .parent_ep = binding_obj.ep,
             .lexical_scope = binding_obj.lexical_scope,
             .dir_returns_nil = filename == null,
         },

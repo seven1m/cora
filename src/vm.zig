@@ -41,9 +41,13 @@ extern "c" fn getenv(name: [*:0]const u8) ?[*:0]u8;
 extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
 extern "c" fn unsetenv(name: [*:0]const u8) c_int;
 
-const MAX_FIBER_STACK_SIZE: usize = 4096;
+const MAX_FIBER_STACK_SIZE: usize = 8_192;
 const MAX_FIBER_FRAMES: usize = 2048;
-const MAX_FIBER_ENVS: usize = 2048;
+// ENV_DATA_SIZE: number of Value slots per frame above the locals region.
+//   ep[0] = parent ep (raw ptr encoded as Value.raw, or 0 = no parent)
+//   ep[1] = lexical scope (raw ptr encoded as Value.raw, or 0 = no scope)
+//   ep[2] = locals_count (encoded as Value.integer so BDW won't chase it)
+pub const ENV_DATA_SIZE: usize = 3;
 const MAX_BUILTIN_KEYWORDS: usize = 256;
 const SMALL_CALL_VALUES: usize = 16;
 const DEFAULT_THREAD_PREEMPT_QUANTUM_OPS: u32 = 10_000;
@@ -161,28 +165,20 @@ const LookupMethodResult = union(enum) {
     not_found: void,
 };
 
-pub const Environment = struct {
-    // Back pointer to outer environment (forms a chain for closures)
-    parent: ?*Environment,
-
-    // Lexical scope for constant lookup
-    lexical_scope: ?*LexicalScope,
-
-    // Variable storage - fixed size array for speed (like Ruby's CallFrame locals)
-    variables: [32]Value = undefined,
-    variables_len: u8 = 0,
-
-    // If non-null, this is a forwarding pointer to the heap-allocated version
-    // Used when a stack-allocated environment is promoted to the heap
-    heap_forwarding_ptr: ?*Environment = null,
+/// Heap-allocated environment: only created when a closure escapes its frame.
+/// Layout mirrors the on-stack layout: env[0..locals_count-1] = locals,
+/// env[locals_count..locals_count+ENV_DATA_SIZE-1] = env_data.
+/// ep_ptr = env.ptr + locals_count  (same formula as on-stack).
+pub const HeapEnv = struct {
+    env: []Value, // GC-owned; len = locals_count + ENV_DATA_SIZE
 };
 
 pub const Block = struct {
     pub const ChunkData = struct {
         chunk: *Chunk,
-        defining_ep: *Environment,
+        defining_ep: [*]Value,
         defining_self: Value,
-        return_target_ep: ?*Environment,
+        return_target_ep: ?[*]Value,
     };
 
     kind: union(enum) {
@@ -199,12 +195,13 @@ pub const CallFrame = struct {
 
     chunk: *Chunk,
     ip: usize,
-    stack_base: usize,
+    locals_base: usize, // vm.stack index of first local slot
+    ep: [*]Value,       // raw pointer to env_data[0]; locals at (ep-locals_count)..[ep-1]
+    stack_base: usize,  // vm.stack index where eval stack begins (= locals_base + locals_count + ENV_DATA_SIZE)
     self_value: Value,
-    ep: *Environment,
     block: ?Block = null,
     frame_type: FrameType = .method,
-    return_target_ep: ?*Environment = null,
+    return_target_ep: ?[*]Value = null,
     method_name: ?[]const u8 = null,
     super_defining_class: ?*ClassObject = null,
     forwarded_keyword_ctx: ?*BuiltinKeywordContext = null,
@@ -213,7 +210,6 @@ pub const CallFrame = struct {
 
 pub const FiberValueStack = FixedBufferList(Value, MAX_FIBER_STACK_SIZE);
 pub const FiberFrameStack = FixedBufferList(CallFrame, MAX_FIBER_FRAMES);
-pub const FiberEnvironmentStack = FixedBufferList(Environment, MAX_FIBER_ENVS);
 pub const FiberCoro = zio.coro.Coroutine;
 pub const FiberCoroContext = zio.coro.Context;
 
@@ -325,9 +321,6 @@ pub const VM = struct {
 
     stack: *FiberValueStack,
     frames: *FiberFrameStack,
-
-    // Environment stack for optimistic allocation
-    env_stack: *FiberEnvironmentStack,
 
     symbols: std.HashMap(SymbolKey, *SymbolObject, SymbolKeyContext, std.hash_map.default_max_load_percentage),
     globals: std.StringHashMap(Value),
@@ -521,7 +514,6 @@ pub const VM = struct {
             .environ = environ,
             .stack = undefined,
             .frames = undefined,
-            .env_stack = undefined,
             .symbols = std.HashMap(SymbolKey, *SymbolObject, SymbolKeyContext, std.hash_map.default_max_load_percentage).init(gc_allocator),
             .globals = std.StringHashMap(Value).init(gc_allocator),
             .fstring_cache = std.StringHashMap(Value).init(gc_allocator),
@@ -1426,7 +1418,6 @@ pub const VM = struct {
         main_fiber_obj.block = null;
         initFiberValueStackInPlace(&main_fiber_obj.stack);
         initFiberFrameStackInPlace(&main_fiber_obj.frames);
-        initFiberEnvironmentStackInPlace(&main_fiber_obj.env_stack);
         main_fiber_obj.current_lexical_scope = self.current_lexical_scope;
         main_fiber_obj.caller = null;
         main_fiber_obj.coro = null;
@@ -1467,63 +1458,37 @@ pub const VM = struct {
 
     // Create new stack-allocated environment
     // Dereference environment pointer, following forwarding pointer if needed
-    pub fn derefEnvironment(env: *Environment) *Environment {
-        // If this is a forwarding pointer, return the heap environment
-        if (env.heap_forwarding_ptr) |heap_env| {
-            return heap_env;
-        }
-        // Otherwise, return the environment itself (either stack or heap)
-        return env;
+    /// Encode a [*]Value ep pointer as a Value for storage in env-data slots.
+    /// Uses raw pointer bits directly; BDW GC conservatively scans these.
+    pub inline fn encodeEp(ep: [*]Value) Value {
+        return .{ .raw = @intFromPtr(ep) };
     }
 
-    pub fn createStackEnvironment(self: *VM, parent: ?*Environment, lexical_scope: ?*LexicalScope) VMError!*Environment {
-        if (self.env_stack.items.len >= self.env_stack.capacity) {
-            const exc = try self.createException(self.fiber_error_class, "fiber environment stack overflow");
-            self.pending_exception = exc;
-            return error.Unwind;
-        }
-        const env_index = self.env_stack.items.len;
-        self.env_stack.items = self.env_stack.storage[0 .. env_index + 1];
-
-        const env = &self.env_stack.storage[env_index];
-        env.parent = parent;
-        env.lexical_scope = lexical_scope;
-        env.variables = undefined;
-        env.variables_len = 0;
-        env.heap_forwarding_ptr = null;
-        return env;
+    /// Decode a parent-ep Value back to a [*]Value pointer.
+    /// Returns null if the slot is zero (no parent).
+    pub inline fn decodeEp(v: Value) ?[*]Value {
+        if (v.raw == 0) return null;
+        return @ptrFromInt(v.raw);
     }
 
-    // Get variable by walking environment chain
-    fn getVariableAtDepth(ep: *Environment, depth: usize, idx: usize) ?Value {
-        var current_ep = derefEnvironment(ep);
-        var i: usize = 0;
-        while (i < depth) : (i += 1) {
-            current_ep = derefEnvironment(current_ep.parent orelse return null);
-        }
-        if (idx < current_ep.variables_len) {
-            return current_ep.variables[idx];
-        }
-        return null;
+    /// Read the lexical scope from an ep's env-data[1] slot.
+    pub inline fn epLexScope(ep: [*]Value) ?*LexicalScope {
+        const raw = ep[1].raw;
+        if (raw == 0) return null;
+        return @ptrFromInt(raw);
     }
 
-    fn setVariableAtDepth(ep: *Environment, depth: usize, idx: usize, val: Value) VMError!void {
-        var current_ep = derefEnvironment(ep);
-        var i: usize = 0;
-        while (i < depth) : (i += 1) {
-            current_ep = derefEnvironment(current_ep.parent orelse return);
-        }
-        if (idx < 32) { // Fixed size limit
-            current_ep.variables[idx] = val;
-            if (idx >= current_ep.variables_len) {
-                current_ep.variables_len = @intCast(idx + 1);
-            }
-        } else {
-            return error.Fatal;
-        }
+    /// Read the locals_count stored in env-data[2] of an ep.
+    pub inline fn epLocalsCount(ep: [*]Value) u16 {
+        return @intCast(ep[2].toInteger());
     }
 
-    fn currentNonLocalReturnTarget(self: *VM) ?*Environment {
+    /// Get a pointer to local slot `idx` (0-based) from an ep and its locals_count.
+    pub inline fn localSlot(ep: [*]Value, locals_count: u16, idx: u16) *Value {
+        return @ptrCast(ep - locals_count + idx);
+    }
+
+    fn currentNonLocalReturnTarget(self: *VM) ?[*]Value {
         if (self.frames.items.len == 0) return null;
 
         var frame_idx = self.frames.items.len;
@@ -1532,28 +1497,28 @@ pub const VM = struct {
             const frame = self.frames.items[frame_idx];
             if (frame.frame_type != .method) continue;
             if (frame.method_name == null) continue;
-            return derefEnvironment(frame.ep);
+            return frame.ep;
         }
 
         return null;
     }
 
-    fn findActiveReturnTargetMethodFrameIndex(self: *VM, target_ep: *Environment) ?usize {
+    fn findActiveReturnTargetMethodFrameIndex(self: *VM, target_ep: [*]Value) ?usize {
         if (self.frames.items.len == 0) return null;
 
-        const real_target = derefEnvironment(target_ep);
+        const target_raw = @intFromPtr(target_ep);
         var frame_idx = self.frames.items.len;
         while (frame_idx > 0) {
             frame_idx -= 1;
             const frame = self.frames.items[frame_idx];
             if (frame.frame_type != .method) continue;
-            if (derefEnvironment(frame.ep) == real_target) return frame_idx;
+            if (@intFromPtr(frame.ep) == target_raw) return frame_idx;
         }
 
         return null;
     }
 
-    fn handleNonLocalReturn(self: *VM, frame_type: CallFrame.FrameType, return_target_ep: ?*Environment, result: Value) VMError!void {
+    fn handleNonLocalReturn(self: *VM, frame_type: CallFrame.FrameType, return_target_ep: ?[*]Value, result: Value) VMError!void {
         if (frame_type == .fiber) {
             const exc = try self.createException(self.local_jump_error_class, "return from fiber");
             self.pending_exception = exc;
@@ -1572,89 +1537,74 @@ pub const VM = struct {
         };
 
         while (self.frames.items.len > target_frame_idx) {
-            const unwind_stack_base = self.frames.items[self.frames.items.len - 1].stack_base;
+            const unwind_locals_base = self.frames.items[self.frames.items.len - 1].locals_base;
             try self.popFrame();
-            self.stack.shrinkRetainingCapacity(unwind_stack_base);
+            self.stack.shrinkRetainingCapacity(unwind_locals_base);
         }
 
         try self.push(result);
     }
 
-    fn promoteEnvironmentToHeap(self: *VM, stack_env: *Environment) VMError!*Environment {
-        // 1. Idempotent check - if already on heap or promoted
-        if (stack_env.heap_forwarding_ptr) |heap_env| {
-            if (heap_env == stack_env) {
-                // Points to itself - already a heap environment
-                return stack_env;
-            } else {
-                // Points to different address - this is a forwarding pointer
-                return heap_env;
-            }
+    /// Promote the ep of a live frame to the GC heap (for closure capture).
+    /// Returns the heap ep pointer.  Idempotent: if the ep already lives outside
+    /// the fiber's value stack, it is returned as-is.
+    fn promoteFrameToHeap(self: *VM, target_ep: [*]Value) VMError![*]Value {
+        // Determine if ep is stack-resident by checking address range.
+        const stack_start = @intFromPtr(&self.stack.storage[0]);
+        const stack_end   = stack_start + MAX_FIBER_STACK_SIZE * @sizeOf(Value);
+        const ep_addr     = @intFromPtr(target_ep);
+        if (ep_addr < stack_start or ep_addr >= stack_end) {
+            // Already on the heap — idempotent.
+            return target_ep;
         }
 
-        // 2. Recursively promote parent chain
-        var heap_parent: ?*Environment = null;
-        if (stack_env.parent) |parent| {
-            // Guard against accidental self-parenting to avoid infinite recursion
-            if (parent == stack_env) @panic("Something went wrong");
-            // Promote parent if it's a stack environment
-            heap_parent = try self.promoteEnvironmentToHeap(parent);
+        const locals_count = epLocalsCount(target_ep);
+        const env_size: usize = locals_count + ENV_DATA_SIZE;
+
+        // Allocate heap storage (locals + env_data), copy from stack.
+        const heap_storage = self.gc_allocator.alloc(Value, env_size) catch return error.Fatal;
+        const src_start: [*]Value = target_ep - locals_count;
+        @memcpy(heap_storage, src_start[0..env_size]);
+
+        const new_ep: [*]Value = heap_storage[locals_count..].ptr;
+
+        // Recursively promote parent ep if it is also stack-resident.
+        if (decodeEp(new_ep[0])) |parent_ep| {
+            const promoted_parent = try self.promoteFrameToHeap(parent_ep);
+            if (@intFromPtr(promoted_parent) != @intFromPtr(parent_ep))
+                new_ep[0] = encodeEp(promoted_parent);
         }
 
-        // 3. Allocate heap copy
-        const heap_env = self.gc_allocator.create(Environment) catch return error.Fatal;
-        const initialized_len = @min(@as(usize, stack_env.variables_len), stack_env.variables.len);
-        heap_env.* = .{
-            .parent = heap_parent,
-            .lexical_scope = stack_env.lexical_scope,
-            .variables = undefined,
-            .variables_len = @intCast(initialized_len),
-            .heap_forwarding_ptr = null,
-        };
-        if (initialized_len > 0) {
-            @memcpy(heap_env.variables[0..initialized_len], stack_env.variables[0..initialized_len]);
-        }
-        heap_env.heap_forwarding_ptr = heap_env; // Points to itself to mark as heap-allocated
+        // Patch all live references that still point at target_ep.
+        try self.updateEpReferences(target_ep, new_ep);
 
-        // 4. Update all references
-        try self.updateEnvironmentReferences(stack_env, heap_env);
-
-        // 5. Convert stack slot to forwarding pointer
-        stack_env.heap_forwarding_ptr = heap_env;
-
-        return heap_env;
+        return new_ep;
     }
 
-    fn updateEnvironmentReferences(self: *VM, old_env: *Environment, new_env: *Environment) VMError!void {
-        // Update CallFrame references
-        for (self.frames.items) |*frame| {
-            if (frame.ep == old_env) {
-                frame.ep = new_env;
+    fn updateEpReferences(self: *VM, old_ep: [*]Value, new_ep: [*]Value) VMError!void {
+        const old_raw = @intFromPtr(old_ep);
+        const new_val = encodeEp(new_ep);
+
+        for (self.frames.items) |*f| {
+            if (@intFromPtr(f.ep) == old_raw) f.ep = new_ep;
+            if (f.return_target_ep) |rte| {
+                if (@intFromPtr(rte) == old_raw) f.return_target_ep = new_ep;
             }
-            if (frame.block) |*blk| {
-                switch (blk.kind) {
-                    .chunk => |*chunk_blk| {
-                        if (chunk_blk.defining_ep == old_env) {
-                            chunk_blk.defining_ep = new_env;
-                        }
-                        if (chunk_blk.return_target_ep == old_env) {
-                            chunk_blk.return_target_ep = new_env;
-                        }
-                    },
-                    .symbol, .builtin, .callable => {},
+            if (f.block) |*blk| {
+                if (blk.kind == .chunk) {
+                    if (@intFromPtr(blk.kind.chunk.defining_ep) == old_raw)
+                        blk.kind.chunk.defining_ep = new_ep;
+                    if (blk.kind.chunk.return_target_ep) |rte| {
+                        if (@intFromPtr(rte) == old_raw)
+                            blk.kind.chunk.return_target_ep = new_ep;
+                    }
                 }
             }
         }
 
-        // Update Environment.parent chains in stack
-        for (self.env_stack.items) |*env| {
-            // Skip forwarding pointers (already promoted)
-            if (env.heap_forwarding_ptr != null) continue;
-            if (env.parent) |parent| {
-                if (parent == old_env) {
-                    env.parent = new_env;
-                }
-            }
+        // Update parent_ep env-data slot (ep[0]) in all live on-stack frames.
+        for (self.frames.items) |*f| {
+            if (f.ep[0].raw == old_raw) f.ep[0] = new_val;
         }
     }
 
@@ -1893,7 +1843,7 @@ pub const VM = struct {
         module: *value.ModuleObject,
         start_class: ?*ClassObject,
     } {
-        if (frame.ep.lexical_scope) |scope| {
+        if (epLexScope(frame.ep)) |scope| {
             return switch (scope.scope_module) {
                 .class => |class_obj| .{
                     .module = &class_obj.module,
@@ -2104,7 +2054,6 @@ pub const VM = struct {
 
         self.stack.deinit(self.gc_allocator);
         self.frames.deinit(self.gc_allocator);
-        self.env_stack.deinit(self.gc_allocator);
         for (self.zio_coroutines.items) |c| {
             self.unregisterCoroutineStackForGc(c);
             zio.coro.stackFree(c.context.stack_info);
@@ -2797,7 +2746,7 @@ pub const VM = struct {
             // Literal block: look up chunk
             if (self.program.child_chunks.get(block_chunk_id)) |bc| {
                 bc.lexical_scope = self.current_lexical_scope;
-                const defining_ep = try self.promoteEnvironmentToHeap(frame.ep);
+                const defining_ep = try self.promoteFrameToHeap(frame.ep);
                 return Block{
                     .kind = .{ .chunk = .{
                         .chunk = bc,
@@ -2813,6 +2762,62 @@ pub const VM = struct {
         return null;
     }
 
+    /// Push a frame for a block/proc/lambda invocation.
+    /// Uses `defining_ep` (the ep of the scope where the block was defined) as the
+    /// lexical parent (ep[0]), matching MRI's SPECVAL prev-ep convention.
+    fn pushBlockFrame(
+        self: *VM,
+        ch: *Chunk,
+        defining_ep: [*]Value,
+        self_value: Value,
+        frame_type: CallFrame.FrameType,
+        block: ?Block,
+        return_target_ep: ?[*]Value,
+    ) VMError!void {
+        if (self.frames.items.len >= self.frames.capacity) {
+            const exc = try self.createException(self.fiber_error_class, "fiber call stack overflow");
+            self.pending_exception = exc;
+            return error.Unwind;
+        }
+
+        const locals_count = ch.locals_count;
+        const locals_base  = self.stack.items.len;
+        const needed       = locals_base + locals_count + ENV_DATA_SIZE;
+
+        if (needed > MAX_FIBER_STACK_SIZE) {
+            const exc = try self.createException(self.fiber_error_class, "fiber stack overflow");
+            self.pending_exception = exc;
+            return error.Unwind;
+        }
+
+        self.stack.items.len = needed;
+        @memset(self.stack.items[locals_base..locals_base + locals_count], Value.nil());
+
+        const ep: [*]Value = self.stack.items[locals_base + locals_count..].ptr;
+        ep[0] = encodeEp(defining_ep);
+        ep[1] = if (ch.lexical_scope orelse self.current_lexical_scope) |ls|
+            .{ .raw = @intFromPtr(ls) }
+        else
+            .{ .raw = 0 };
+        ep[2] = Value.integer(locals_count);
+
+        self.frames.append(self.gc_allocator, CallFrame{
+            .chunk        = ch,
+            .ip           = 0,
+            .locals_base  = locals_base,
+            .ep           = ep,
+            .stack_base   = needed,
+            .self_value   = self_value,
+            .block        = block,
+            .frame_type   = frame_type,
+            .return_target_ep = return_target_ep,
+        }) catch return error.Fatal;
+
+        if (ch.lexical_scope) |scope| {
+            self.current_lexical_scope = scope;
+        }
+    }
+
     fn pushFrame(self: *VM, ch: *Chunk, self_value: Value, block: ?Block) VMError!void {
         if (self.frames.items.len >= self.frames.capacity) {
             const exc = try self.createException(self.fiber_error_class, "fiber call stack overflow");
@@ -2820,21 +2825,45 @@ pub const VM = struct {
             return error.Unwind;
         }
 
-        // Get parent environment (current frame's ep, if any)
-        const parent_env = if (self.frames.items.len > 0)
-            self.frames.items[self.frames.items.len - 1].ep
-        else
-            null;
+        const locals_count = ch.locals_count;
+        const locals_base  = self.stack.items.len;
+        const needed       = locals_base + locals_count + ENV_DATA_SIZE;
 
-        const env = try self.createStackEnvironment(parent_env, ch.lexical_scope orelse self.current_lexical_scope);
+        if (needed > MAX_FIBER_STACK_SIZE) {
+            const exc = try self.createException(self.fiber_error_class, "fiber stack overflow");
+            self.pending_exception = exc;
+            return error.Unwind;
+        }
+
+        // Extend the value stack: locals (nil-initialised) + env_data slots.
+        self.stack.items.len = needed;
+        // Nil-initialise locals.
+        @memset(self.stack.items[locals_base..locals_base + locals_count], Value.nil());
+
+        // Write env_data:
+        //   ep[0] = parent ep (current top frame's ep, or 0 if none)
+        //   ep[1] = lexical scope pointer
+        //   ep[2] = locals_count (as Ruby integer for GC safety)
+        const ep: [*]Value = self.stack.items[locals_base + locals_count..].ptr;
+        const parent_val: Value = if (self.frames.items.len > 0)
+            encodeEp(self.frames.items[self.frames.items.len - 1].ep)
+        else
+            .{ .raw = 0 };
+        ep[0] = parent_val;
+        ep[1] = if (ch.lexical_scope orelse self.current_lexical_scope) |ls|
+            .{ .raw = @intFromPtr(ls) }
+        else
+            .{ .raw = 0 };
+        ep[2] = Value.integer(locals_count);
 
         self.frames.append(self.gc_allocator, CallFrame{
-            .chunk = ch,
-            .ip = 0,
-            .stack_base = self.stack.items.len,
+            .chunk      = ch,
+            .ip         = 0,
+            .locals_base = locals_base,
+            .ep         = ep,
+            .stack_base = needed,
             .self_value = self_value,
-            .ep = env,
-            .block = block,
+            .block      = block,
         }) catch return error.Fatal;
 
         // Update current_lexical_scope to the frame's scope
@@ -2847,16 +2876,9 @@ pub const VM = struct {
         if (self.frames.items.len > 0) {
             _ = self.frames.pop();
 
-            const expected_len = self.frames.items.len;
-            if (self.env_stack.items.len > expected_len) {
-                self.env_stack.items.len = expected_len;
-            }
-
-            // Restore current_lexical_scope to the previous frame's scope
+            // Restore current_lexical_scope from the previous frame
             if (self.frames.items.len > 0) {
-                const prev_frame = &self.frames.items[self.frames.items.len - 1];
-                const prev_ep = derefEnvironment(prev_frame.ep);
-                self.current_lexical_scope = prev_ep.lexical_scope;
+                self.current_lexical_scope = epLexScope(self.frames.items[self.frames.items.len - 1].ep);
             }
         }
     }
@@ -2871,12 +2893,6 @@ pub const VM = struct {
         frames.storage = undefined;
         frames.items = frames.storage[0..0];
         frames.capacity = MAX_FIBER_FRAMES;
-    }
-
-    inline fn initFiberEnvironmentStackInPlace(envs: *FiberEnvironmentStack) void {
-        envs.storage = undefined;
-        envs.items = envs.storage[0..0];
-        envs.capacity = MAX_FIBER_ENVS;
     }
 
     fn ensureFiberCatchStack(self: *VM, fiber: *FiberObject) VMError!void {
@@ -2919,7 +2935,6 @@ pub const VM = struct {
                 if (self.main_thread == null or owner_thread != self.main_thread.?) {
                     self.stack = &owner_thread.stack;
                     self.frames = &owner_thread.frames;
-                    self.env_stack = &owner_thread.env_stack;
                     self.current_lexical_scope = owner_thread.current_lexical_scope;
                     self.active_catches = self.threadCatchStack(owner_thread);
                     return;
@@ -2928,7 +2943,6 @@ pub const VM = struct {
         }
         self.stack = &fiber.stack;
         self.frames = &fiber.frames;
-        self.env_stack = &fiber.env_stack;
         self.current_lexical_scope = fiber.current_lexical_scope;
         self.active_catches = self.fiberCatchStack(fiber);
     }
@@ -3045,22 +3059,7 @@ pub const VM = struct {
         const blk = fiber.block orelse return error.Fatal;
         switch (blk.kind) {
             .chunk => |chunk_blk| {
-                const real_defining_ep = derefEnvironment(chunk_blk.defining_ep);
-                const fiber_env = self.createStackEnvironment(real_defining_ep, chunk_blk.chunk.lexical_scope orelse self.current_lexical_scope) catch return error.Fatal;
-
-                self.frames.append(self.gc_allocator, CallFrame{
-                    .chunk = chunk_blk.chunk,
-                    .ip = 0,
-                    .stack_base = self.stack.items.len,
-                    .self_value = chunk_blk.defining_self,
-                    .ep = fiber_env,
-                    .block = null,
-                    .frame_type = .fiber,
-                }) catch return error.Fatal;
-
-                if (chunk_blk.chunk.lexical_scope) |scope| {
-                    self.current_lexical_scope = scope;
-                }
+                self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, chunk_blk.defining_self, .fiber, null, null) catch return error.Fatal;
 
                 const current_frame = self.currentFrame();
                 self.copyArgumentsWithRestParam(chunk_blk.chunk, current_frame.ep, fiber.first_resume_args[0..fiber.first_resume_argc], .lenient) catch return error.Fatal;
@@ -3253,7 +3252,6 @@ pub const VM = struct {
         main_thread_obj.block = null;
         initFiberValueStackInPlace(&main_thread_obj.stack);
         initFiberFrameStackInPlace(&main_thread_obj.frames);
-        initFiberEnvironmentStackInPlace(&main_thread_obj.env_stack);
         main_thread_obj.current_lexical_scope = null;
         main_thread_obj.coro = null;
         main_thread_obj.result = Value.nil();
@@ -3310,7 +3308,6 @@ pub const VM = struct {
         thread_obj.block = null;
         initFiberValueStackInPlace(&thread_obj.stack);
         initFiberFrameStackInPlace(&thread_obj.frames);
-        initFiberEnvironmentStackInPlace(&thread_obj.env_stack);
         thread_obj.current_lexical_scope = self.current_lexical_scope;
         thread_obj.coro = null;
         thread_obj.result = Value.nil();
@@ -3332,7 +3329,6 @@ pub const VM = struct {
         root_fiber.block = null;
         initFiberValueStackInPlace(&root_fiber.stack);
         initFiberFrameStackInPlace(&root_fiber.frames);
-        initFiberEnvironmentStackInPlace(&root_fiber.env_stack);
         root_fiber.current_lexical_scope = thread_obj.current_lexical_scope;
         root_fiber.caller = null;
         root_fiber.coro = null;
@@ -3412,7 +3408,6 @@ pub const VM = struct {
     fn restoreThreadState(self: *VM, thread: *value.ThreadObject) void {
         self.stack = &thread.stack;
         self.frames = &thread.frames;
-        self.env_stack = &thread.env_stack;
         self.current_lexical_scope = thread.current_lexical_scope;
         self.active_catches = self.threadCatchStack(thread);
     }
@@ -3473,22 +3468,7 @@ pub const VM = struct {
         const blk = thread.block orelse return error.Fatal;
         switch (blk.kind) {
             .chunk => |chunk_blk| {
-                const real_defining_ep = derefEnvironment(chunk_blk.defining_ep);
-                const thread_env = self.createStackEnvironment(real_defining_ep, chunk_blk.chunk.lexical_scope orelse self.current_lexical_scope) catch return error.Fatal;
-
-                self.frames.append(self.gc_allocator, CallFrame{
-                    .chunk = chunk_blk.chunk,
-                    .ip = 0,
-                    .stack_base = self.stack.items.len,
-                    .self_value = chunk_blk.defining_self,
-                    .ep = thread_env,
-                    .block = null,
-                    .frame_type = .fiber,
-                }) catch return error.Fatal;
-
-                if (chunk_blk.chunk.lexical_scope) |scope| {
-                    self.current_lexical_scope = scope;
-                }
+                self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, chunk_blk.defining_self, .fiber, null, null) catch return error.Fatal;
 
                 const current_frame = self.currentFrame();
                 const thread_args = thread.args orelse &[_]Value{};
@@ -3963,32 +3943,41 @@ pub const VM = struct {
             },
 
             .GET_LOCAL => {
-                const local_idx = readByteFrom(frame, operands, &operand_cursor);
-                // Fast path: direct access to current environment, no depth walking
-                const ep = derefEnvironment(frame.ep);
-                const val = if (local_idx < ep.variables_len) ep.variables[local_idx] else Value.nil();
-                try self.push(val);
+                // Operand is ep_offset (patched at compile time from local_idx).
+                // ep - ep_offset gives the local's Value slot.
+                const ep_offset = readU16From(frame, operands, &operand_cursor);
+                try self.push((frame.ep - ep_offset)[0]);
             },
 
             .SET_LOCAL => {
-                const local_idx = readByteFrom(frame, operands, &operand_cursor);
+                const ep_offset = readU16From(frame, operands, &operand_cursor);
                 const val = self.pop();
-                try setVariableAtDepth(frame.ep, 0, local_idx, val);
+                (frame.ep - ep_offset)[0] = val;
                 try self.push(val);
             },
 
             .GET_LOCAL_DEEP => {
-                const local_idx = readByteFrom(frame, operands, &operand_cursor);
+                // Operand is local_idx (0-based in the outer scope).
+                // Walk the ep chain `depth` times, then use ep[2] (stored locals_count)
+                // to compute the ep_offset at runtime.
+                const local_idx = readU16From(frame, operands, &operand_cursor);
                 const depth = readByteFrom(frame, operands, &operand_cursor);
-                const val = getVariableAtDepth(frame.ep, depth, local_idx) orelse Value.nil();
-                try self.push(val);
+                var ep: [*]Value = frame.ep;
+                for (0..depth) |_| ep = decodeEp(ep[0]) orelse break;
+                const outer_lc = epLocalsCount(ep);
+                const ep_offset = outer_lc - local_idx;
+                try self.push((ep - ep_offset)[0]);
             },
 
             .SET_LOCAL_DEEP => {
-                const local_idx = readByteFrom(frame, operands, &operand_cursor);
+                const local_idx = readU16From(frame, operands, &operand_cursor);
                 const depth = readByteFrom(frame, operands, &operand_cursor);
                 const val = self.pop();
-                try setVariableAtDepth(frame.ep, depth, local_idx, val);
+                var ep: [*]Value = frame.ep;
+                for (0..depth) |_| ep = decodeEp(ep[0]) orelse break;
+                const outer_lc = epLocalsCount(ep);
+                const ep_offset = outer_lc - local_idx;
+                (ep - ep_offset)[0] = val;
                 try self.push(val);
             },
 
@@ -4087,7 +4076,7 @@ pub const VM = struct {
                 var lexical_lookup = LexicalConstantLookupResult{};
 
                 // Walk lexical scope chain first
-                if (frame.ep.lexical_scope) |scope| {
+                if (epLexScope(frame.ep)) |scope| {
                     lexical_lookup = try self.findConstantInLexicalScope(scope, name_sym);
                     if (lexical_lookup.value) |val| {
                         try self.push(val);
@@ -4126,7 +4115,7 @@ pub const VM = struct {
                 const name_sym = try self.intern(constant.string);
                 var lexical_lookup = LexicalConstantLookupResult{};
 
-                if (frame.ep.lexical_scope) |scope| {
+                if (epLexScope(frame.ep)) |scope| {
                     lexical_lookup = try self.findConstantInLexicalScope(scope, name_sym);
                     if (lexical_lookup.value) |val| {
                         try self.push(val);
@@ -4158,7 +4147,7 @@ pub const VM = struct {
                 const name_sym = try self.intern(constant.string);
 
                 // Set in current lexical scope's module (or Object if no scope)
-                if (frame.ep.lexical_scope) |scope| {
+                if (epLexScope(frame.ep)) |scope| {
                     const module = scope.getModule();
                     if (module.constants.getPtr(name_sym)) |entry| {
                         entry.value = val;
@@ -4550,30 +4539,33 @@ pub const VM = struct {
                                             }
                                             if (block == null and method_chunk.is_simple_positional and
                                                 argc == method_chunk.arity and
-                                                self.frames.items.len < self.frames.capacity and
-                                                self.env_stack.items.len < self.env_stack.capacity)
+                                                self.frames.items.len < self.frames.capacity)
                                             {
-                                                // Ultra-fast path: inline frame + env setup
-                                                const env_index = self.env_stack.items.len;
-                                                self.env_stack.items = self.env_stack.storage[0 .. env_index + 1];
-                                                const env = &self.env_stack.storage[env_index];
-                                                env.parent = frame.ep;
-                                                env.lexical_scope = method_chunk.lexical_scope orelse self.current_lexical_scope;
-                                                env.heap_forwarding_ptr = null;
-
-                                                if (argc > 0) {
-                                                    @memcpy(env.variables[0..argc], self.stack.items[(receiver_index + 1)..(receiver_index + 1 + argc)]);
+                                                // Ultra-fast path: inline frame + env setup on unified stack.
+                                                // Save args BEFORE nil-init (nil-init clobbers the arg slots).
+                                                const lc = method_chunk.locals_count;
+                                                var saved_args: [32]Value = undefined;
+                                                if (argc > 0 and argc <= 32) {
+                                                    @memcpy(saved_args[0..argc], self.stack.items[(receiver_index + 1)..(receiver_index + 1 + argc)]);
                                                 }
-                                                env.variables_len = @intCast(argc);
-
-                                                self.stack.items = self.stack.storage[0..receiver_index];
+                                                const new_locals_base = receiver_index;
+                                                const needed = new_locals_base + lc + ENV_DATA_SIZE;
+                                                self.stack.items.len = needed;
+                                                if (lc > 0) @memset(self.stack.items[new_locals_base..new_locals_base + lc], Value.nil());
+                                                if (argc > 0 and argc <= 32) @memcpy(self.stack.items[new_locals_base..new_locals_base + argc], saved_args[0..argc]);
+                                                // Write env_data
+                                                const new_ep: [*]Value = self.stack.items[new_locals_base + lc..].ptr;
+                                                new_ep[0] = encodeEp(frame.ep);
+                                                new_ep[1] = if (method_chunk.lexical_scope orelse self.current_lexical_scope) |ls| .{ .raw = @intFromPtr(ls) } else .{ .raw = 0 };
+                                                new_ep[2] = Value.integer(lc);
 
                                                 self.frames.storage[self.frames.items.len] = CallFrame{
                                                     .chunk = method_chunk,
                                                     .ip = 0,
-                                                    .stack_base = receiver_index,
+                                                    .locals_base = new_locals_base,
+                                                    .ep = new_ep,
+                                                    .stack_base = needed,
                                                     .self_value = receiver,
-                                                    .ep = env,
                                                     .block = null,
                                                     .method_name = cached.method_name.name,
                                                     .super_defining_class = cached.owner_class,
@@ -4586,18 +4578,22 @@ pub const VM = struct {
                                                 return;
                                             }
                                             // Non-ultra-fast chunk call with cache hit
-                                            try self.setupChunkCallFrame(
-                                                method_chunk,
-                                                receiver,
-                                                self.stack.items[(receiver_index + 1)..(receiver_index + 1 + argc)],
-                                                null,
-                                                null,
-                                                cached.method_name.name,
-                                                cached.owner_class,
-                                                block,
-                                            );
-                                            self.stack.shrinkRetainingCapacity(receiver_index);
-                                            self.currentFrame().stack_base = receiver_index;
+                                            {
+                                                var call_args_tmp: TempValueSlice = .{};
+                                                defer call_args_tmp.deinit(self.allocator);
+                                                const call_args = try call_args_tmp.copyFrom(self, self.stack.items[(receiver_index + 1)..(receiver_index + 1 + argc)]);
+                                                self.stack.shrinkRetainingCapacity(receiver_index);
+                                                try self.setupChunkCallFrame(
+                                                    method_chunk,
+                                                    receiver,
+                                                    call_args,
+                                                    null,
+                                                    null,
+                                                    cached.method_name.name,
+                                                    cached.owner_class,
+                                                    block,
+                                                );
+                                            }
                                             return;
                                         },
                                         else => {},
@@ -4616,18 +4612,22 @@ pub const VM = struct {
                                             self.stack.items = self.stack.storage[0 .. receiver_index + 1];
                                             return;
                                         }
-                                        try self.setupChunkCallFrame(
-                                            method_chunk,
-                                            receiver,
-                                            self.stack.items[(receiver_index + 1)..(receiver_index + 1 + argc)],
-                                            null,
-                                            null,
-                                            method.name.name,
-                                            method.owner_class,
-                                            block,
-                                        );
-                                        self.stack.shrinkRetainingCapacity(receiver_index);
-                                        self.currentFrame().stack_base = receiver_index;
+                                        {
+                                            var call_args_tmp: TempValueSlice = .{};
+                                            defer call_args_tmp.deinit(self.allocator);
+                                            const call_args = try call_args_tmp.copyFrom(self, self.stack.items[(receiver_index + 1)..(receiver_index + 1 + argc)]);
+                                            self.stack.shrinkRetainingCapacity(receiver_index);
+                                            try self.setupChunkCallFrame(
+                                                method_chunk,
+                                                receiver,
+                                                call_args,
+                                                null,
+                                                null,
+                                                method.name.name,
+                                                method.owner_class,
+                                                block,
+                                            );
+                                        }
                                         return;
                                     },
                                     else => {},
@@ -4760,24 +4760,20 @@ pub const VM = struct {
             .RETURN => {
                 const is_explicit = readByteFrom(frame, operands, &operand_cursor);
                 const current_frame = self.currentFrame();
-                const frame_stack_base = current_frame.stack_base;
+                const frame_locals_base = current_frame.locals_base;
                 const frame_type = current_frame.frame_type;
                 const return_target_ep = current_frame.return_target_ep;
                 const result = self.pop();
 
                 // Fast path: implicit return or explicit return from method/lambda
                 if (is_explicit == 0 or (frame_type != .fiber and frame_type != .proc)) {
-                    self.stack.shrinkRetainingCapacity(frame_stack_base);
-                    // Inline fast popFrame: just decrement frame and env stack lengths
+                    self.stack.shrinkRetainingCapacity(frame_locals_base);
+                    // Inline fast popFrame: just decrement frame length
                     const new_frame_len = self.frames.items.len - 1;
                     self.frames.items = self.frames.storage[0..new_frame_len];
-                    if (self.env_stack.items.len > new_frame_len) {
-                        self.env_stack.items = self.env_stack.storage[0..new_frame_len];
-                    }
                     // Restore lexical scope from previous frame
                     if (new_frame_len > 0) {
-                        const prev_ep = derefEnvironment(self.frames.storage[new_frame_len - 1].ep);
-                        self.current_lexical_scope = prev_ep.lexical_scope;
+                        self.current_lexical_scope = epLexScope(self.frames.storage[new_frame_len - 1].ep);
                     }
                     try self.push(result);
                 } else {
@@ -4791,7 +4787,7 @@ pub const VM = struct {
 
                 const constant = constants[name_idx];
                 if (constant == .string) {
-                    const target = try self.resolveDefinitionTarget(frame.ep.lexical_scope, constant.string);
+                    const target = try self.resolveDefinitionTarget(epLexScope(frame.ep), constant.string);
 
                     const module_val = blk: {
                         if (target.existing_value) |em| {
@@ -4844,7 +4840,7 @@ pub const VM = struct {
 
                 const constant = constants[name_idx];
                 if (constant == .string) {
-                    const target = try self.resolveDefinitionTarget(frame.ep.lexical_scope, constant.string);
+                    const target = try self.resolveDefinitionTarget(epLexScope(frame.ep), constant.string);
 
                     var class_val: Value = undefined;
                     if (target.existing_value) |ec| {
@@ -5149,7 +5145,22 @@ pub const VM = struct {
             },
 
             .HALT => {
-                try self.popFrame();
+                // HALT behaves like an implicit RETURN: shrink stack to
+                // locals_base, push the last expression value (or nil),
+                // and pop the frame.
+                const halt_frame = self.currentFrame();
+                const halt_locals_base = halt_frame.locals_base;
+                const halt_result = if (self.stack.items.len > halt_frame.stack_base)
+                    self.pop()
+                else
+                    Value.nil();
+                self.stack.shrinkRetainingCapacity(halt_locals_base);
+                const new_frame_len = self.frames.items.len - 1;
+                self.frames.items = self.frames.storage[0..new_frame_len];
+                if (new_frame_len > 0) {
+                    self.current_lexical_scope = epLexScope(self.frames.storage[new_frame_len - 1].ep);
+                }
+                try self.push(halt_result);
             },
 
             .YIELD => {
@@ -5174,23 +5185,8 @@ pub const VM = struct {
                 switch (block.kind) {
                     .chunk => |chunk_blk| {
                         // De-recursed: push block frame inline, return to dispatch loop
-                        const real_defining_ep = derefEnvironment(chunk_blk.defining_ep);
-                        const block_env = self.createStackEnvironment(real_defining_ep, chunk_blk.chunk.lexical_scope orelse self.current_lexical_scope) catch return error.Fatal;
-
-                        self.frames.append(self.gc_allocator, CallFrame{
-                            .chunk = chunk_blk.chunk,
-                            .ip = 0,
-                            .stack_base = self.stack.items.len,
-                            .self_value = chunk_blk.defining_self,
-                            .ep = block_env,
-                            .block = frame.block,
-                            .frame_type = if (chunk_blk.chunk.is_lambda) .lambda else .proc,
-                            .return_target_ep = chunk_blk.return_target_ep,
-                        }) catch return error.Fatal;
-
-                        if (chunk_blk.chunk.lexical_scope) |scope| {
-                            self.current_lexical_scope = scope;
-                        }
+                        const ft: CallFrame.FrameType = if (chunk_blk.chunk.is_lambda) .lambda else .proc;
+                        try self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, chunk_blk.defining_self, ft, frame.block, chunk_blk.return_target_ep);
 
                         const arity_mode: ArityMode = if (chunk_blk.chunk.is_lambda) .strict else .lenient;
                         const block_frame = self.currentFrame();
@@ -5227,23 +5223,8 @@ pub const VM = struct {
                 switch (block.kind) {
                     .chunk => |chunk_blk| {
                         // De-recursed: push block frame inline, return to dispatch loop
-                        const real_defining_ep = derefEnvironment(chunk_blk.defining_ep);
-                        const block_env = self.createStackEnvironment(real_defining_ep, chunk_blk.chunk.lexical_scope orelse self.current_lexical_scope) catch return error.Fatal;
-
-                        self.frames.append(self.gc_allocator, CallFrame{
-                            .chunk = chunk_blk.chunk,
-                            .ip = 0,
-                            .stack_base = self.stack.items.len,
-                            .self_value = chunk_blk.defining_self,
-                            .ep = block_env,
-                            .block = frame.block,
-                            .frame_type = if (chunk_blk.chunk.is_lambda) .lambda else .proc,
-                            .return_target_ep = chunk_blk.return_target_ep,
-                        }) catch return error.Fatal;
-
-                        if (chunk_blk.chunk.lexical_scope) |scope| {
-                            self.current_lexical_scope = scope;
-                        }
+                        const ft: CallFrame.FrameType = if (chunk_blk.chunk.is_lambda) .lambda else .proc;
+                        try self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, chunk_blk.defining_self, ft, frame.block, chunk_blk.return_target_ep);
 
                         const arity_mode: ArityMode = if (chunk_blk.chunk.is_lambda) .strict else .lenient;
                         const block_frame = self.currentFrame();
@@ -5499,16 +5480,15 @@ pub const VM = struct {
             },
 
             .CATCH_START => {
-                // Read variable index
+                // Read variable index (local_idx, not ep_offset; we compute at runtime)
                 const var_idx = readByteFrom(frame, operands, &operand_cursor);
 
-                // Store exception in local variable if binding exists
+                // Store exception in local variable if binding exists (var_idx != 255)
                 if (var_idx != 255) {
                     if (self.pending_exception) |exc| {
-                        frame.ep.variables[var_idx] = Value.fromObject(exc);
-                        if (var_idx >= frame.ep.variables_len) {
-                            frame.ep.variables_len = @as(u8, @intCast(var_idx + 1));
-                        }
+                        // Compute ep_offset from the chunk's locals_count at runtime
+                        const ep_offset = frame.chunk.locals_count - @as(u16, var_idx);
+                        (frame.ep - ep_offset)[0] = Value.fromObject(exc);
                     }
                 }
 
@@ -5617,10 +5597,10 @@ pub const VM = struct {
             const op: bytecode.OpCode = @enumFromInt(code[f.ip]);
             switch (op) {
                 .GET_LOCAL => {
-                    const local_idx = code[f.ip + 1];
-                    f.ip += 2;
-                    const ep = derefEnvironment(f.ep);
-                    const val = if (local_idx < ep.variables_len) ep.variables[local_idx] else Value.nil();
+                    // ep_offset is 2 bytes (u16) after the opcode
+                    const ep_offset: u16 = @as(u16, code[f.ip + 1]) | (@as(u16, code[f.ip + 2]) << 8);
+                    f.ip += 3;
+                    const val = (f.ep - ep_offset)[0];
                     const len = self.stack.items.len;
                     self.stack.storage[len] = val;
                     self.stack.items = self.stack.storage[0 .. len + 1];
@@ -5769,16 +5749,12 @@ pub const VM = struct {
                     if (is_explicit == 0 or f.frame_type == .method or f.frame_type == .lambda) {
                         const s_len = self.stack.items.len;
                         const result = self.stack.storage[s_len - 1];
-                        self.stack.items = self.stack.storage[0..f.stack_base];
+                        self.stack.items = self.stack.storage[0..f.locals_base];
                         // Pop frame
                         const new_frame_len = self.frames.items.len - 1;
                         self.frames.items = self.frames.storage[0..new_frame_len];
-                        if (self.env_stack.items.len > new_frame_len) {
-                            self.env_stack.items = self.env_stack.storage[0..new_frame_len];
-                        }
                         if (new_frame_len > 0) {
-                            const prev_ep = derefEnvironment(self.frames.storage[new_frame_len - 1].ep);
-                            self.current_lexical_scope = prev_ep.lexical_scope;
+                            self.current_lexical_scope = epLexScope(self.frames.storage[new_frame_len - 1].ep);
                         }
                         const len = self.stack.items.len;
                         self.stack.storage[len] = result;
@@ -5822,31 +5798,33 @@ pub const VM = struct {
                                                 }
                                                 if (method_chunk.is_simple_positional and
                                                     argc == method_chunk.arity and
-                                                    self.frames.items.len < self.frames.capacity and
-                                                    self.env_stack.items.len < self.env_stack.capacity)
+                                                    self.frames.items.len < self.frames.capacity)
                                                 {
-                                                    // Ultra-fast inline call
-                                                    const env_index = self.env_stack.items.len;
-                                                    self.env_stack.items = self.env_stack.storage[0 .. env_index + 1];
-                                                    const env = &self.env_stack.storage[env_index];
-                                                    env.parent = f.ep;
-                                                    env.lexical_scope = method_chunk.lexical_scope orelse self.current_lexical_scope;
-                                                    env.heap_forwarding_ptr = null;
-
-                                                    if (argc > 0) {
-                                                        @memcpy(env.variables[0..argc], self.stack.items[(receiver_index + 1)..(receiver_index + 1 + argc)]);
+                                                    // Ultra-fast inline call on unified stack.
+                                                    // Save args BEFORE nil-init (nil-init clobbers the arg slots).
+                                                    const lc = method_chunk.locals_count;
+                                                    var saved_args: [32]Value = undefined;
+                                                    if (argc > 0 and argc <= 32) {
+                                                        @memcpy(saved_args[0..argc], self.stack.items[(receiver_index + 1)..(receiver_index + 1 + argc)]);
                                                     }
-                                                    env.variables_len = @intCast(argc);
-
-                                                    self.stack.items = self.stack.storage[0..receiver_index];
+                                                    const new_locals_base = receiver_index;
+                                                    const needed = new_locals_base + lc + ENV_DATA_SIZE;
+                                                    self.stack.items.len = needed;
+                                                    if (lc > 0) @memset(self.stack.items[new_locals_base..new_locals_base + lc], Value.nil());
+                                                    if (argc > 0 and argc <= 32) @memcpy(self.stack.items[new_locals_base..new_locals_base + argc], saved_args[0..argc]);
+                                                    const new_ep: [*]Value = self.stack.items[new_locals_base + lc..].ptr;
+                                                    new_ep[0] = encodeEp(f.ep);
+                                                    new_ep[1] = if (method_chunk.lexical_scope orelse self.current_lexical_scope) |ls| .{ .raw = @intFromPtr(ls) } else .{ .raw = 0 };
+                                                    new_ep[2] = Value.integer(lc);
 
                                                     const new_fl = self.frames.items.len;
                                                     self.frames.storage[new_fl] = CallFrame{
                                                         .chunk = method_chunk,
                                                         .ip = 0,
-                                                        .stack_base = receiver_index,
+                                                        .locals_base = new_locals_base,
+                                                        .ep = new_ep,
+                                                        .stack_base = needed,
                                                         .self_value = call_receiver,
-                                                        .ep = env,
                                                         .block = null,
                                                     };
                                                     self.frames.items = self.frames.storage[0 .. new_fl + 1];
@@ -6072,7 +6050,12 @@ pub const VM = struct {
         var args_temp: TempValueSlice = .{};
         defer args_temp.deinit(self.allocator);
 
-        var effective_args = args;
+        // Always copy args immediately: pushFrame will nil-init the locals region
+        // which overlaps with the on-stack arg slots when locals_base = receiver_index.
+        var effective_args: []const Value = if (args.len > 0)
+            try args_temp.copyFrom(self, args)
+        else
+            args;
         var effective_kw_keys = kw_keys;
         var effective_kw_values = kw_values;
         var has_keywords = effective_kw_values != null and effective_kw_values.?.len > 0;
@@ -6122,9 +6105,11 @@ pub const VM = struct {
             }
 
             if (effective_args.len > 0) {
-                @memcpy(callee_frame.ep.variables[0..effective_args.len], effective_args);
+                // Copy args into the first `effective_args.len` local slots
+                const lc = method_chunk.locals_count;
+                for (effective_args, 0..) |arg, i|
+                    (callee_frame.ep - lc + @as(u16, @intCast(i)))[0] = arg;
             }
-            callee_frame.ep.variables_len = @intCast(effective_args.len);
         } else {
             try self.copyArgumentsWithRestParam(method_chunk, callee_frame.ep, effective_args, .strict);
         }
@@ -6135,21 +6120,13 @@ pub const VM = struct {
             try self.bindKeywordArguments(method_chunk, callee_frame.ep, keys, kw_vals);
         } else {
             if (method_chunk.optional_keywords.items.len > 0 or method_chunk.keyword_rest_index != null) {
-                var max_slot: u8 = callee_frame.ep.variables_len;
-                for (method_chunk.optional_keywords.items) |opt_kw| {
-                    if (opt_kw.param_slot >= max_slot) max_slot = opt_kw.param_slot + 1;
-                }
-                if (method_chunk.keyword_rest_index) |rest_idx| {
-                    if (rest_idx >= max_slot) max_slot = rest_idx + 1;
-                }
-                callee_frame.ep.variables_len = max_slot;
-
                 for (method_chunk.optional_keywords.items) |opt_kw| {
                     const default_chunk = self.program.child_chunks.get(opt_kw.default_chunk_id).?;
                     const current_ep = self.currentFrame().ep;
                     const default_value = try self.executeDefaultExpression(default_chunk, current_ep);
                     const f = &self.frames.items[self.frames.items.len - 1];
-                    f.ep.variables[opt_kw.param_slot] = default_value;
+                    const lc = f.chunk.locals_count;
+                    (f.ep - lc + opt_kw.param_slot)[0] = default_value;
                 }
 
                 if (method_chunk.keyword_rest_index) |rest_idx| {
@@ -6163,25 +6140,22 @@ pub const VM = struct {
                         .compare_by_identity = false,
                     };
                     const f = &self.frames.items[self.frames.items.len - 1];
-                    f.ep.variables[rest_idx] = Value.fromObject(kw_hash);
+                    const lc = f.chunk.locals_count;
+                    (f.ep - lc + rest_idx)[0] = Value.fromObject(kw_hash);
                 }
             }
         }
 
         if (method_chunk.block_param_index) |block_idx| {
             const current_frame = &self.frames.items[self.frames.items.len - 1];
+            const lc = current_frame.chunk.locals_count;
 
             if (current_frame.block) |blk| {
                 const proc_val = try self.newProc(blk);
                 const f = &self.frames.items[self.frames.items.len - 1];
-                f.ep.variables[block_idx] = proc_val;
+                (f.ep - lc + block_idx)[0] = proc_val;
             } else {
-                current_frame.ep.variables[block_idx] = Value.nil();
-            }
-
-            const f = &self.frames.items[self.frames.items.len - 1];
-            if (block_idx >= f.ep.variables_len) {
-                f.ep.variables_len = block_idx + 1;
+                (current_frame.ep - lc + block_idx)[0] = Value.nil();
             }
         }
     }
@@ -6386,15 +6360,12 @@ pub const VM = struct {
 
     fn bindMethodBlockParam(self: *VM, method_chunk: *Chunk, frame: *CallFrame, block: ?Block) VMError!void {
         if (method_chunk.block_param_index) |block_idx| {
+            const lc = method_chunk.locals_count;
             if (block) |blk| {
                 const proc_val = try self.newProc(blk);
-                frame.ep.variables[block_idx] = proc_val;
+                (frame.ep - lc + block_idx)[0] = proc_val;
             } else {
-                frame.ep.variables[block_idx] = Value.nil();
-            }
-
-            if (block_idx >= frame.ep.variables_len) {
-                frame.ep.variables_len = block_idx + 1;
+                (frame.ep - lc + block_idx)[0] = Value.nil();
             }
         }
     }
@@ -6579,26 +6550,9 @@ pub const VM = struct {
                 };
             },
             .chunk => |chunk_blk| blk: {
-                // Dereference defining_ep in case it's a forwarding pointer
-                const real_defining_ep = derefEnvironment(chunk_blk.defining_ep);
-                const block_env = self.createStackEnvironment(real_defining_ep, chunk_blk.chunk.lexical_scope orelse self.current_lexical_scope) catch return error.Fatal;
                 const enclosing_block = if (self.frames.items.len > 0) self.currentFrame().block else null;
-
-                self.frames.append(self.gc_allocator, CallFrame{
-                    .chunk = chunk_blk.chunk,
-                    .ip = 0,
-                    .stack_base = self.stack.items.len,
-                    .self_value = chunk_blk.defining_self,
-                    .ep = block_env,
-                    .block = enclosing_block,
-                    .frame_type = if (chunk_blk.chunk.is_lambda) .lambda else .proc,
-                    .return_target_ep = chunk_blk.return_target_ep,
-                }) catch return error.Fatal;
-
-                // Update current_lexical_scope to the block's scope
-                if (chunk_blk.chunk.lexical_scope) |scope| {
-                    self.current_lexical_scope = scope;
-                }
+                const ft: CallFrame.FrameType = if (chunk_blk.chunk.is_lambda) .lambda else .proc;
+                try self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, chunk_blk.defining_self, ft, enclosing_block, chunk_blk.return_target_ep);
 
                 const arity_mode: ArityMode = if (chunk_blk.chunk.is_lambda) .strict else .lenient;
                 const block_frame = self.currentFrame();
@@ -6639,22 +6593,11 @@ pub const VM = struct {
             .builtin => |func| func(self, @constCast(args)),
             .callable => |callable| self.callMethodByName(callable, "call", @constCast(args), block),
             .chunk => |chunk_blk| blk: {
-                const real_defining_ep = derefEnvironment(chunk_blk.defining_ep);
-                const proc_env = self.createStackEnvironment(real_defining_ep, chunk_blk.chunk.lexical_scope orelse self.current_lexical_scope) catch return error.Fatal;
-
-                self.frames.append(self.gc_allocator, CallFrame{
-                    .chunk = chunk_blk.chunk,
-                    .ip = 0,
-                    .stack_base = self.stack.items.len,
-                    .self_value = receiver,
-                    .ep = proc_env,
-                    .block = block,
-                    .frame_type = .method,
-                    .method_name = method_name,
-                    .super_defining_class = defining_class,
-                }) catch return error.Fatal;
+                try self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, receiver, .method, block, null);
 
                 const current_frame = self.currentFrame();
+                current_frame.method_name = method_name;
+                current_frame.super_defining_class = defining_class;
                 try self.copyArgumentsWithRestParam(chunk_blk.chunk, current_frame.ep, args, .strict);
                 try self.bindMethodBlockParam(chunk_blk.chunk, current_frame, block);
 
@@ -6705,26 +6648,12 @@ pub const VM = struct {
             .builtin => |func| func(self, @constCast(args)),
             .callable => |callable| self.callMethodByName(callable, "call", @constCast(args), block),
             .chunk => |chunk_blk| blk: {
-                const real_defining_ep = derefEnvironment(chunk_blk.defining_ep);
-                const proc_env = self.createStackEnvironment(real_defining_ep, chunk_blk.chunk.lexical_scope orelse self.current_lexical_scope) catch return error.Fatal;
+                const ft: CallFrame.FrameType = if (chunk_blk.chunk.is_lambda) .lambda else .proc;
+                try self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, self_override orelse chunk_blk.defining_self, ft, block, chunk_blk.return_target_ep);
 
+                const current_frame = self.currentFrame();
                 const mode: ArityMode = if (chunk_blk.chunk.is_lambda) .strict else .lenient;
-                try self.copyArgumentsWithRestParam(chunk_blk.chunk, proc_env, args, mode);
-
-                if (chunk_blk.chunk.lexical_scope) |scope| {
-                    self.current_lexical_scope = scope;
-                }
-
-                self.frames.append(self.gc_allocator, CallFrame{
-                    .chunk = chunk_blk.chunk,
-                    .ip = 0,
-                    .stack_base = self.stack.items.len,
-                    .self_value = self_override orelse chunk_blk.defining_self,
-                    .ep = proc_env,
-                    .block = block,
-                    .frame_type = if (chunk_blk.chunk.is_lambda) .lambda else .proc,
-                    .return_target_ep = chunk_blk.return_target_ep,
-                }) catch return error.Fatal;
+                try self.copyArgumentsWithRestParam(chunk_blk.chunk, current_frame.ep, args, mode);
 
                 const saved_frame_count = self.frames.items.len - 1;
                 try self.executeUntilReturn(saved_frame_count);
@@ -6799,26 +6728,12 @@ pub const VM = struct {
                         .chunk => |chunk_blk| {
                             const mn = method.name.name;
                             if (std.mem.eql(u8, mn, "call") or std.mem.eql(u8, mn, "[]") or std.mem.eql(u8, mn, "yield")) {
-                                const real_defining_ep = derefEnvironment(chunk_blk.defining_ep);
-                                const proc_env = self.createStackEnvironment(real_defining_ep, chunk_blk.chunk.lexical_scope orelse self.current_lexical_scope) catch return error.Fatal;
+                                const ft: CallFrame.FrameType = if (chunk_blk.chunk.is_lambda) .lambda else .proc;
+                                try self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, chunk_blk.defining_self, ft, null, chunk_blk.return_target_ep);
 
+                                const current_frame = self.currentFrame();
                                 const mode: ArityMode = if (chunk_blk.chunk.is_lambda) .strict else .lenient;
-                                try self.copyArgumentsWithRestParam(chunk_blk.chunk, proc_env, args, mode);
-
-                                if (chunk_blk.chunk.lexical_scope) |scope| {
-                                    self.current_lexical_scope = scope;
-                                }
-
-                                self.frames.append(self.gc_allocator, CallFrame{
-                                    .chunk = chunk_blk.chunk,
-                                    .ip = 0,
-                                    .stack_base = self.stack.items.len,
-                                    .self_value = chunk_blk.defining_self,
-                                    .ep = proc_env,
-                                    .block = null,
-                                    .frame_type = if (chunk_blk.chunk.is_lambda) .lambda else .proc,
-                                    .return_target_ep = chunk_blk.return_target_ep,
-                                }) catch return error.Fatal;
+                                try self.copyArgumentsWithRestParam(chunk_blk.chunk, current_frame.ep, args, mode);
                                 return;
                             }
                         },
@@ -6851,22 +6766,11 @@ pub const VM = struct {
                 switch (proc_obj.block.kind) {
                     .chunk => |chunk_blk| {
                         // De-recursed: push frame inline, return to dispatch loop
-                        const real_defining_ep = derefEnvironment(chunk_blk.defining_ep);
-                        const proc_env = self.createStackEnvironment(real_defining_ep, chunk_blk.chunk.lexical_scope orelse self.current_lexical_scope) catch return error.Fatal;
-
-                        self.frames.append(self.gc_allocator, CallFrame{
-                            .chunk = chunk_blk.chunk,
-                            .ip = 0,
-                            .stack_base = self.stack.items.len,
-                            .self_value = receiver,
-                            .ep = proc_env,
-                            .block = block,
-                            .frame_type = .method,
-                            .method_name = method.name.name,
-                            .super_defining_class = method.owner_class,
-                        }) catch return error.Fatal;
+                        try self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, receiver, .method, block, null);
 
                         const current_frame = self.currentFrame();
+                        current_frame.method_name = method.name.name;
+                        current_frame.super_defining_class = method.owner_class;
                         try self.copyArgumentsWithRestParam(chunk_blk.chunk, current_frame.ep, args, .strict);
                         try self.bindMethodBlockParam(chunk_blk.chunk, current_frame, block);
                     },
@@ -7163,29 +7067,31 @@ pub const VM = struct {
     /// Returns the slice of buf that was filled.
     fn getForwardingArguments(_: *VM, frame: *CallFrame, buf: *[256]Value) []Value {
         const ch = frame.chunk;
-        const env = derefEnvironment(frame.ep);
+        const ep = frame.ep;
+        const lc = ch.locals_count;
         const param_count = ch.arity + ch.optional_params.items.len + ch.post_required_count;
 
         if (ch.rest_param_index == null) {
             // Common case: copy param slots into buffer
-            @memcpy(buf[0..param_count], env.variables[0..param_count]);
+            for (0..param_count) |i| buf[i] = (ep - lc + @as(u16, @intCast(i)))[0];
             return buf[0..param_count];
         }
 
         // Rest param case: copy slots, expanding the rest array inline
-        const rest_idx = ch.rest_param_index.?;
+        const rest_idx: usize = ch.rest_param_index.?;
         const total_slots = param_count + 1; // +1 for the rest slot itself
         var out: usize = 0;
         for (0..total_slots) |slot| {
+            const slot_val = (ep - lc + @as(u16, @intCast(slot)))[0];
             if (slot == rest_idx) {
-                if (slot < env.variables_len and env.variables[slot].isArray()) {
-                    for (env.variables[slot].toArrayObject().elements.items) |elem| {
+                if (slot_val.isArray()) {
+                    for (slot_val.toArrayObject().elements.items) |elem| {
                         buf[out] = elem;
                         out += 1;
                     }
                 }
             } else {
-                buf[out] = if (slot < env.variables_len) env.variables[slot] else Value.nil();
+                buf[out] = slot_val;
                 out += 1;
             }
         }
@@ -7501,7 +7407,6 @@ pub const VM = struct {
         fiber_obj.block = block;
         initFiberValueStackInPlace(&fiber_obj.stack);
         initFiberFrameStackInPlace(&fiber_obj.frames);
-        initFiberEnvironmentStackInPlace(&fiber_obj.env_stack);
         fiber_obj.current_lexical_scope = null;
         fiber_obj.caller = null;
         fiber_obj.coro = null;
@@ -8166,10 +8071,10 @@ pub const VM = struct {
                 .callable => block,
                 .chunk => |chunk_blk| .{ .kind = .{ .chunk = .{
                     .chunk = chunk_blk.chunk,
-                    .defining_ep = self.promoteEnvironmentToHeap(chunk_blk.defining_ep) catch return error.Fatal,
+                    .defining_ep = self.promoteFrameToHeap(chunk_blk.defining_ep) catch return error.Fatal,
                     .defining_self = chunk_blk.defining_self,
                     .return_target_ep = if (chunk_blk.return_target_ep) |target_ep|
-                        self.promoteEnvironmentToHeap(target_ep) catch return error.Fatal
+                        self.promoteFrameToHeap(target_ep) catch return error.Fatal
                     else
                         null,
                 } } },
@@ -8339,6 +8244,7 @@ pub const VM = struct {
         chunk_ptr.setSourceFile(self.current_loading_file orelse self.program.main_chunk.source_file) catch return error.Fatal;
         chunk_ptr.lexical_scope = self.current_lexical_scope;
         chunk_ptr.arity = if (kind == .reader) 0 else 1;
+        chunk_ptr.locals_count = if (kind == .reader) 0 else 1;
 
         const name_idx = chunk_ptr.addConstant(.{ .string = ivar_name }) catch return error.Fatal;
 
@@ -8348,9 +8254,11 @@ pub const VM = struct {
                 chunk_ptr.emitOpU8(.RETURN, 0, 0) catch return error.Fatal;
             },
             .writer => {
-                chunk_ptr.emitOpU8(.GET_LOCAL, 0, 0) catch return error.Fatal;
+                // Emit GET_LOCAL with local_idx=0 (will be patched to ep_offset by patchEpOffsets)
+                chunk_ptr.emitOpU16(.GET_LOCAL, 0, 0) catch return error.Fatal;
                 chunk_ptr.emitOpU16(.SET_IVAR, @intCast(name_idx), 0) catch return error.Fatal;
                 chunk_ptr.emitOpU8(.RETURN, 0, 0) catch return error.Fatal;
+                chunk_ptr.patchEpOffsets(null);
             },
         }
 
@@ -8864,7 +8772,7 @@ pub const VM = struct {
 
     pub const EvalContext = struct {
         self_value: Value,
-        parent_env: ?*Environment,
+        parent_ep: ?[*]Value,
         lexical_scope: ?*LexicalScope,
         dir_returns_nil: bool = false,
     };
@@ -8904,7 +8812,7 @@ pub const VM = struct {
             return self.executeChunkInContextWithOptions(
                 &eval_program.main_chunk,
                 ctx.self_value,
-                ctx.parent_env,
+                ctx.parent_ep,
                 ctx.lexical_scope,
                 ctx.dir_returns_nil,
             );
@@ -8941,32 +8849,44 @@ pub const VM = struct {
         self: *VM,
         target_chunk: *Chunk,
         self_value: Value,
-        parent_env: ?*Environment,
+        parent_ep: ?[*]Value,
         lexical_scope: ?*LexicalScope,
     ) VMError!Value {
-        return self.executeChunkInContextWithOptions(target_chunk, self_value, parent_env, lexical_scope, false);
+        return self.executeChunkInContextWithOptions(target_chunk, self_value, parent_ep, lexical_scope, false);
     }
 
     fn executeChunkInContextWithOptions(
         self: *VM,
         target_chunk: *Chunk,
         self_value: Value,
-        parent_env: ?*Environment,
+        parent_ep: ?[*]Value,
         lexical_scope: ?*LexicalScope,
         dir_returns_nil: bool,
     ) VMError!Value {
-        const env = try self.createStackEnvironment(parent_env, lexical_scope);
         const saved_stack_len = self.stack.items.len;
         const caller_frame_depth = self.frames.items.len;
 
+        const lc = target_chunk.locals_count;
+        const locals_base = self.stack.items.len;
+        const needed = locals_base + lc + ENV_DATA_SIZE;
+        if (needed > MAX_FIBER_STACK_SIZE) return error.Fatal;
+        self.stack.items.len = needed;
+        @memset(self.stack.items[locals_base..locals_base + lc], Value.nil());
+
+        const ep: [*]Value = self.stack.items[locals_base + lc..].ptr;
+        ep[0] = if (parent_ep) |p| encodeEp(p) else .{ .raw = 0 };
+        ep[1] = if (lexical_scope orelse self.current_lexical_scope) |ls| .{ .raw = @intFromPtr(ls) } else .{ .raw = 0 };
+        ep[2] = Value.integer(lc);
+
         self.frames.append(self.gc_allocator, CallFrame{
-            .chunk = target_chunk,
-            .ip = 0,
-            .stack_base = self.stack.items.len,
-            .self_value = self_value,
-            .ep = env,
-            .block = null,
-            .frame_type = .method,
+            .chunk       = target_chunk,
+            .ip          = 0,
+            .locals_base = locals_base,
+            .ep          = ep,
+            .stack_base  = needed,
+            .self_value  = self_value,
+            .block       = null,
+            .frame_type  = .method,
             .dir_returns_nil = dir_returns_nil,
         }) catch return error.Fatal;
 
@@ -9019,7 +8939,9 @@ pub const VM = struct {
         return hash_ptr;
     }
 
-    pub fn createBinding(self: *VM, self_value: Value, env: ?*Environment, lexical_scope: ?*LexicalScope) VMError!*value.BindingObject {
+    pub fn createBinding(self: *VM, self_value: Value, ep: ?[*]Value, lexical_scope: ?*LexicalScope) VMError!*value.BindingObject {
+        // Bindings always outlive the frame; promote the ep to the heap.
+        const heap_ep: ?[*]Value = if (ep) |e| try self.promoteFrameToHeap(e) else null;
         const binding_ptr = self.gc_allocator.create(value.BindingObject) catch return error.Fatal;
         binding_ptr.* = value.BindingObject{
             .object = .{
@@ -9030,7 +8952,7 @@ pub const VM = struct {
                 .instance_variables = null,
             },
             .self_value = self_value,
-            .env = env,
+            .ep = heap_ep,
             .lexical_scope = lexical_scope,
         };
         return binding_ptr;
@@ -9038,23 +8960,28 @@ pub const VM = struct {
 
     pub const ArityMode = enum { strict, lenient };
 
-    /// Execute a default parameter expression chunk and return its value
+    /// Execute a default parameter expression chunk and return its value.
+    /// The default chunk shares the calling frame's ep so it can read already-bound
+    /// parameters.  We push a frame with no locals of its own (locals_base = stack top,
+    /// stack_base = same) and reuse the parent ep.
     fn executeDefaultExpression(
         self: *VM,
         default_chunk: *const Chunk,
-        env: *Environment,
+        parent_ep: [*]Value,
     ) VMError!Value {
         const saved_stack_len = self.stack.items.len;
 
-        // Push frame for default expression (use current env directly)
+        // Push a minimal frame that shares the parent's ep.
+        // locals_base = stack_base = current top (no locals, no env_data pushed).
         const default_frame = CallFrame{
-            .chunk = @constCast(default_chunk),
-            .ip = 0,
-            .stack_base = self.stack.items.len,
-            .self_value = self.currentFrame().self_value,
-            .ep = env, // Use current environment directly
-            .frame_type = .method,
-            .block = null,
+            .chunk       = @constCast(default_chunk),
+            .ip          = 0,
+            .locals_base = self.stack.items.len,
+            .ep          = parent_ep,
+            .stack_base  = self.stack.items.len,
+            .self_value  = self.currentFrame().self_value,
+            .frame_type  = .method,
+            .block       = null,
         };
 
         self.frames.append(self.gc_allocator, default_frame) catch return error.Fatal;
@@ -9075,10 +9002,23 @@ pub const VM = struct {
     pub fn copyArgumentsWithRestParam(
         self: *VM,
         target_chunk: *const Chunk,
-        env: *Environment,
+        ep: [*]Value,
         args: []const Value,
         mode: ArityMode,
     ) VMError!void {
+        const lc = target_chunk.locals_count;
+        // Helper to read/write a local slot by 0-based index
+        const setLocal = struct {
+            fn call(ep2: [*]Value, lc2: u16, idx: usize, val: Value) void {
+                (ep2 - lc2 + @as(u16, @intCast(idx)))[0] = val;
+            }
+        }.call;
+        const getLocal = struct {
+            fn call(ep2: [*]Value, lc2: u16, idx: usize) Value {
+                return (ep2 - lc2 + @as(u16, @intCast(idx)))[0];
+            }
+        }.call;
+
         var effective_args = args;
         if (mode == .lenient and args.len == 1 and args[0].isArray()) {
             const positional_slots = target_chunk.arity + target_chunk.optional_params.items.len + target_chunk.post_required_count;
@@ -9091,14 +9031,12 @@ pub const VM = struct {
         const min_required = target_chunk.arity + target_chunk.post_required_count;
         const max_without_rest = target_chunk.arity + optional_count + target_chunk.post_required_count;
 
-        // Calculate min/max args based on whether rest param exists
         const min_args = min_required;
         const max_args = if (target_chunk.rest_param_index != null)
             std.math.maxInt(usize)
         else
             max_without_rest;
 
-        // Arity checking
         if (mode == .strict) {
             if (effective_args.len < min_args) {
                 return self.raiseArgumentErrorWrongArgCountAtLeast(effective_args.len, min_args);
@@ -9115,20 +9053,16 @@ pub const VM = struct {
         var i: usize = 0;
         while (i < target_chunk.arity) : (i += 1) {
             if (arg_idx < effective_args.len) {
-                env.variables[local_idx] = effective_args[arg_idx];
+                setLocal(ep, lc, local_idx, effective_args[arg_idx]);
                 arg_idx += 1;
             } else if (mode == .lenient) {
-                env.variables[local_idx] = Value.nil();
+                setLocal(ep, lc, local_idx, Value.nil());
             }
             local_idx += 1;
         }
-        // Update variables_len so defaults can access earlier parameters
-        env.variables_len = @intCast(local_idx);
 
         // 2. Handle optional parameters
         if (optional_count > 0) {
-            // Determine how many optionals get arguments vs defaults
-            // We need to reserve args for post-required params
             const args_remaining = if (arg_idx < effective_args.len) effective_args.len - arg_idx else 0;
             const args_available_for_optionals = if (args_remaining > target_chunk.post_required_count)
                 args_remaining - target_chunk.post_required_count
@@ -9140,34 +9074,26 @@ pub const VM = struct {
             else
                 args_available_for_optionals;
 
-            // Bind optionals that receive arguments
             i = 0;
             while (i < optionals_from_args) : (i += 1) {
-                env.variables[local_idx] = effective_args[arg_idx];
+                setLocal(ep, lc, local_idx, effective_args[arg_idx]);
                 arg_idx += 1;
                 local_idx += 1;
-                env.variables_len = @intCast(local_idx); // Update so later defaults can see earlier optionals
             }
 
-            // Evaluate defaults for remaining optionals
             while (i < optional_count) : (i += 1) {
                 const opt_info = target_chunk.optional_params.items[i];
                 const default_chunk = self.program.child_chunks.get(opt_info.default_chunk_id) orelse {
                     return error.Fatal;
                 };
-
-                // Execute default expression chunk and bind the result
-                // (the default may set side-effect locals beyond local_idx via SET_LOCAL)
-                const default_value = try self.executeDefaultExpression(default_chunk, env);
-                env.variables[local_idx] = default_value;
+                const default_value = try self.executeDefaultExpression(default_chunk, ep);
+                setLocal(ep, lc, local_idx, default_value);
                 local_idx += 1;
-                env.variables_len = @max(@as(u8, @intCast(local_idx)), env.variables_len);
             }
         }
 
         // 3. Handle rest parameter
         if (target_chunk.rest_param_index) |rest_idx| {
-            // Calculate how many args go into rest array
             const args_remaining_after_optionals = if (arg_idx < effective_args.len) effective_args.len - arg_idx else 0;
             const available_for_rest = if (args_remaining_after_optionals > target_chunk.post_required_count)
                 args_remaining_after_optionals - target_chunk.post_required_count
@@ -9180,7 +9106,7 @@ pub const VM = struct {
                 rest_array.elements.append(self.gc_allocator, effective_args[arg_idx]) catch return error.Fatal;
                 arg_idx += 1;
             }
-            env.variables[rest_idx] = Value.fromObject(rest_array);
+            setLocal(ep, lc, rest_idx, Value.fromObject(rest_array));
             local_idx = rest_idx + 1;
         }
 
@@ -9193,14 +9119,13 @@ pub const VM = struct {
                 0;
             const post_arg_idx = post_start + i;
             if (post_arg_idx < effective_args.len and post_arg_idx >= arg_idx) {
-                env.variables[local_idx] = effective_args[post_arg_idx];
+                setLocal(ep, lc, local_idx, effective_args[post_arg_idx]);
             } else if (mode == .lenient) {
-                env.variables[local_idx] = Value.nil();
+                setLocal(ep, lc, local_idx, Value.nil());
             }
             local_idx += 1;
         }
-
-        env.variables_len = @max(@as(u8, @intCast(local_idx)), env.variables_len);
+        _ = getLocal; // may be unused
     }
 
     pub fn hashKeyHash(self: *VM, key: Value) VMError!u64 {
@@ -9395,11 +9320,12 @@ pub const VM = struct {
     fn bindKeywordArguments(
         self: *VM,
         target_chunk: *const Chunk,
-        env: *Environment,
+        ep: [*]Value,
         kw_keys: []const Value,
         kw_values: []const Value,
     ) VMError!void {
         if (kw_keys.len != kw_values.len) return error.Fatal;
+        const lc = target_chunk.locals_count;
 
         var matched = self.allocator.alloc(bool, kw_values.len) catch return error.Fatal;
         defer self.allocator.free(matched);
@@ -9413,7 +9339,7 @@ pub const VM = struct {
             for (kw_keys, 0..) |kw_key, i| {
                 if (!kw_key.isSymbol()) continue;
                 if (kw_key.toSymbolObject() == req_symbol) {
-                    env.variables[req_kw.param_slot] = kw_values[i];
+                    (ep - lc + req_kw.param_slot)[0] = kw_values[i];
                     matched[i] = true;
                     found = true;
                     break;
@@ -9436,7 +9362,7 @@ pub const VM = struct {
             for (kw_keys, 0..) |kw_key, i| {
                 if (!kw_key.isSymbol()) continue;
                 if (kw_key.toSymbolObject() == opt_symbol) {
-                    env.variables[opt_kw.param_slot] = kw_values[i];
+                    (ep - lc + opt_kw.param_slot)[0] = kw_values[i];
                     matched[i] = true;
                     found = true;
                     break;
@@ -9445,8 +9371,8 @@ pub const VM = struct {
 
             if (!found) {
                 const default_chunk = self.program.child_chunks.get(opt_kw.default_chunk_id).?;
-                const default_value = try self.executeDefaultExpression(default_chunk, env);
-                env.variables[opt_kw.param_slot] = default_value;
+                const default_value = try self.executeDefaultExpression(default_chunk, ep);
+                (ep - lc + opt_kw.param_slot)[0] = default_value;
             }
         }
 
@@ -9467,7 +9393,7 @@ pub const VM = struct {
                 }
             }
 
-            env.variables[rest_idx] = Value.fromObject(kw_hash);
+            (ep - lc + rest_idx)[0] = Value.fromObject(kw_hash);
         } else {
             for (matched, 0..) |is_matched, i| {
                 if (!is_matched) {
@@ -9483,20 +9409,6 @@ pub const VM = struct {
                     return error.Unwind;
                 }
             }
-        }
-
-        var max_slot: u8 = 0;
-        for (target_chunk.required_keywords.items) |req_kw| {
-            if (req_kw.param_slot >= max_slot) max_slot = req_kw.param_slot + 1;
-        }
-        for (target_chunk.optional_keywords.items) |opt_kw| {
-            if (opt_kw.param_slot >= max_slot) max_slot = opt_kw.param_slot + 1;
-        }
-        if (target_chunk.keyword_rest_index) |rest_idx| {
-            if (rest_idx >= max_slot) max_slot = rest_idx + 1;
-        }
-        if (max_slot > env.variables_len) {
-            env.variables_len = max_slot;
         }
     }
 
@@ -9650,9 +9562,9 @@ pub const VM = struct {
                 }
             }
 
-            const unwind_stack_base = self.frames.items[frame_idx].stack_base;
+            const unwind_locals_base = self.frames.items[frame_idx].locals_base;
             try self.popFrame();
-            self.stack.shrinkRetainingCapacity(unwind_stack_base);
+            self.stack.shrinkRetainingCapacity(unwind_locals_base);
         }
 
         return false;
@@ -9697,20 +9609,22 @@ pub const VM = struct {
     fn executeRescueTypeExpression(
         self: *VM,
         rescue_type_chunk: *const Chunk,
-        env: *Environment,
+        ep: [*]Value,
         self_value: Value,
     ) VMError!Value {
         const saved_stack_len = self.stack.items.len;
         const saved = self.frames.items.len;
 
+        // Share the current frame's ep (no new locals allocated for rescue type checks).
         const rescue_type_frame = CallFrame{
-            .chunk = @constCast(rescue_type_chunk),
-            .ip = 0,
-            .stack_base = self.stack.items.len,
-            .self_value = self_value,
-            .ep = env,
-            .frame_type = .method,
-            .block = null,
+            .chunk       = @constCast(rescue_type_chunk),
+            .ip          = 0,
+            .locals_base = self.stack.items.len,
+            .ep          = ep,
+            .stack_base  = self.stack.items.len,
+            .self_value  = self_value,
+            .frame_type  = .method,
+            .block       = null,
         };
 
         self.frames.append(self.gc_allocator, rescue_type_frame) catch return error.Fatal;
