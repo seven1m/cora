@@ -8727,6 +8727,12 @@ pub const VM = struct {
         return null;
     }
 
+    fn allocateOwnedMainChunk(self: *VM, program: *compiler.CompiledProgram) VMError!*Chunk {
+        const main_chunk = self.allocator.create(Chunk) catch return error.Fatal;
+        main_chunk.* = program.main_chunk;
+        return main_chunk;
+    }
+
     pub fn loadFile(self: *VM, absolute_path: []const u8) VMError!void {
         const code_buffer = std.Io.Dir.cwd().readFileAlloc(self.io, absolute_path, self.gc_allocator_atomic, .limited(std.math.maxInt(usize))) catch return error.Fatal;
 
@@ -8734,14 +8740,15 @@ pub const VM = struct {
         defer parser.deinit();
 
         var program = compiler.Compiler.compile(self.allocator, &parser, self.next_chunk_id) catch return error.Fatal;
-        // Ensure cleanup of the loaded program's chunks on error
+        defer program.child_chunks.deinit();
+        const main_chunk = try self.allocateOwnedMainChunk(&program);
         defer {
-            program.main_chunk.deinit();
-            program.child_chunks.deinit();
+            main_chunk.deinit();
+            self.allocator.destroy(main_chunk);
         }
 
         self.next_chunk_id = program.next_chunk_id;
-        try self.buildChunkCallsiteDescriptors(&program.main_chunk);
+        try self.buildChunkCallsiteDescriptors(main_chunk);
         var loaded_iter = program.child_chunks.valueIterator();
         while (loaded_iter.next()) |chunk_ptr| {
             try self.buildChunkCallsiteDescriptors(chunk_ptr.*);
@@ -8757,7 +8764,7 @@ pub const VM = struct {
         self.current_loading_file = absolute_path;
         defer self.current_loading_file = prev_file;
 
-        try self.executeChunk(&program.main_chunk);
+        try self.executeChunk(main_chunk);
     }
 
     pub fn evalSource(self: *VM, source: []const u8, source_file: ?[]const u8) VMError!Value {
@@ -8790,12 +8797,16 @@ pub const VM = struct {
         var eval_program = compiler.Compiler.compile(self.allocator, &parser, self.next_chunk_id) catch {
             return self.raiseExceptionFmt(self.syntax_error_class, "{s}: syntax error", .{source_file orelse "(eval)"});
         };
-        defer eval_program.main_chunk.deinit();
         defer eval_program.child_chunks.deinit();
+        const eval_main_chunk = try self.allocateOwnedMainChunk(&eval_program);
+        defer {
+            eval_main_chunk.deinit();
+            self.allocator.destroy(eval_main_chunk);
+        }
 
         self.next_chunk_id = eval_program.next_chunk_id;
 
-        try self.buildChunkCallsiteDescriptors(&eval_program.main_chunk);
+        try self.buildChunkCallsiteDescriptors(eval_main_chunk);
         var iter = eval_program.child_chunks.valueIterator();
         while (iter.next()) |chunk_ptr| {
             try self.buildChunkCallsiteDescriptors(chunk_ptr.*);
@@ -8808,7 +8819,7 @@ pub const VM = struct {
 
         if (context) |ctx| {
             return self.executeChunkInContextWithOptions(
-                &eval_program.main_chunk,
+                eval_main_chunk,
                 ctx.self_value,
                 ctx.parent_ep,
                 ctx.lexical_scope,
@@ -8819,7 +8830,7 @@ pub const VM = struct {
         if (self.frames.items.len > 0) {
             const current_frame = self.currentFrame();
             return self.executeChunkInContext(
-                &eval_program.main_chunk,
+                eval_main_chunk,
                 current_frame.self_value,
                 current_frame.ep,
                 self.current_lexical_scope,
@@ -8827,7 +8838,7 @@ pub const VM = struct {
         }
 
         return self.executeChunkInContext(
-            &eval_program.main_chunk,
+            eval_main_chunk,
             self.main_self,
             null,
             self.current_lexical_scope,
@@ -8862,16 +8873,14 @@ pub const VM = struct {
         dir_returns_nil: bool,
     ) VMError!Value {
         const saved_stack_len = self.stack.items.len;
-        const caller_frame_depth = self.frames.items.len;
-
         const lc = target_chunk.locals_count;
-        const locals_base = self.stack.items.len;
+        const locals_base = saved_stack_len;
         const needed = locals_base + lc + ENV_DATA_SIZE;
         if (needed > MAX_FIBER_STACK_SIZE) return error.Fatal;
         self.stack.items.len = needed;
-        @memset(self.stack.items[locals_base..locals_base + lc], Value.nil());
+        @memset(self.stack.storage[locals_base..locals_base + lc], Value.nil());
 
-        const ep: [*]Value = self.stack.items[locals_base + lc..].ptr;
+        const ep: [*]Value = self.stack.storage[locals_base + lc .. locals_base + lc + ENV_DATA_SIZE].ptr;
         ep[0] = if (parent_ep) |p| encodeEp(p) else .{ .raw = 0 };
         ep[1] = if (lexical_scope orelse self.current_lexical_scope) |ls| .{ .raw = @intFromPtr(ls) } else .{ .raw = 0 };
         ep[2] = Value.integer(lc);
@@ -8892,7 +8901,7 @@ pub const VM = struct {
             self.current_lexical_scope = scope;
         }
 
-        try self.executeUntilReturn(caller_frame_depth);
+        try self.executeUntilReturn(self.frames.items.len - 1);
 
         return if (self.stack.items.len > saved_stack_len)
             self.pop()
