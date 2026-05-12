@@ -14,6 +14,9 @@ pub fn register(vm: *VM) !void {
     const message_sym = try vm.intern("message");
     try vm.exception_class.module.methods.put(message_sym, value.MethodEntry.builtin(&builtinExceptionMessage, .{ .exact = 0 }));
 
+    const to_s_sym = try vm.intern("to_s");
+    try vm.exception_class.module.methods.put(to_s_sym, value.MethodEntry.builtin(&builtinExceptionMessage, .{ .exact = 0 }));
+
     const backtrace_sym = try vm.intern("backtrace");
     try vm.exception_class.module.methods.put(backtrace_sym, value.MethodEntry.builtin(&builtinExceptionBacktrace, .{ .exact = 0 }));
 
