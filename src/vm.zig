@@ -1768,7 +1768,117 @@ pub const VM = struct {
             }
             current_scope = s.parent;
         }
+
+        // After the lexical scope chain, walk the ancestors (included modules +
+        // superclass chain) of the innermost scope — matching Ruby's constant
+        // lookup rule that the inheritance hierarchy of Module.nesting.first is
+        // searched after the purely lexical pass.
+        switch (scope.scope_module) {
+            .class => |klass| {
+                if (try self.findConstantInClassAncestors(klass, name)) |val| {
+                    result.value = val;
+                    return result;
+                }
+            },
+            .module => |mod| {
+                if (try self.findConstantInModuleAncestors(mod, name)) |val| {
+                    result.value = val;
+                    return result;
+                }
+            },
+        }
+
         return result;
+    }
+
+    /// Walk included modules (and their included modules recursively) of a
+    /// module looking for a constant.  Does NOT re-check the module itself
+    /// since the lexical scope walk already covered it.
+    fn findConstantInModuleAncestors(self: *VM, mod: *value.ModuleObject, name: *value.SymbolObject) VMError!?Value {
+        // Iterate from highest index (most recently included = highest priority)
+        var i = mod.included_modules.items.len;
+        while (i > 0) {
+            i -= 1;
+            const included = mod.included_modules.items[i];
+            if (included.constants.get(name)) |entry| {
+                try self.warnDeprecatedConstant(included, name);
+                return entry.value;
+            }
+            switch (try self.triggerAutoload(included, name)) {
+                .missing => {},
+                .loaded => |val| return val,
+                .attempted => {},
+            }
+            // Recurse into this included module's own included modules.
+            if (try self.findConstantInModuleAncestors(included, name)) |val| {
+                return val;
+            }
+        }
+        return null;
+    }
+
+    /// Walk the ancestors of a class — prepended modules, included modules,
+    /// then the superclass chain — looking for a constant.
+    fn findConstantInClassAncestors(self: *VM, klass: *ClassObject, name: *value.SymbolObject) VMError!?Value {
+        var current: ?*ClassObject = klass;
+        var first = true;
+        while (current) |cls| {
+            defer current = cls.superclass;
+
+            // Prepended modules (highest index = most recently prepended = first)
+            var pi = cls.module.prepended_modules.items.len;
+            while (pi > 0) {
+                pi -= 1;
+                const prepended = cls.module.prepended_modules.items[pi];
+                if (prepended.constants.get(name)) |entry| {
+                    try self.warnDeprecatedConstant(prepended, name);
+                    return entry.value;
+                }
+                switch (try self.triggerAutoload(prepended, name)) {
+                    .missing => {},
+                    .loaded => |val| return val,
+                    .attempted => {},
+                }
+                if (try self.findConstantInModuleAncestors(prepended, name)) |val| {
+                    return val;
+                }
+            }
+
+            // The class itself — skip on the first iteration since the lexical
+            // scope walk already checked it.
+            if (!first) {
+                if (cls.module.constants.get(name)) |entry| {
+                    try self.warnDeprecatedConstant(&cls.module, name);
+                    return entry.value;
+                }
+                switch (try self.triggerAutoload(&cls.module, name)) {
+                    .missing => {},
+                    .loaded => |val| return val,
+                    .attempted => {},
+                }
+            }
+            first = false;
+
+            // Included modules (highest index = most recently included = first)
+            var ii = cls.module.included_modules.items.len;
+            while (ii > 0) {
+                ii -= 1;
+                const included = cls.module.included_modules.items[ii];
+                if (included.constants.get(name)) |entry| {
+                    try self.warnDeprecatedConstant(included, name);
+                    return entry.value;
+                }
+                switch (try self.triggerAutoload(included, name)) {
+                    .missing => {},
+                    .loaded => |val| return val,
+                    .attempted => {},
+                }
+                if (try self.findConstantInModuleAncestors(included, name)) |val| {
+                    return val;
+                }
+            }
+        }
+        return null;
     }
 
     fn resolveClassVariableContext(
