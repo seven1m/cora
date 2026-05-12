@@ -253,7 +253,7 @@ fn constantPathDefined(vm: *VM, receiver: Value, name: []const u8, inherit: bool
     };
     defer parts.deinit(vm.gc_allocator);
 
-    var current: Value = if (rooted) Value.fromObject(vm.object_class) else receiver;
+    var current: Value = if (rooted) Value.fromObject(&vm.object_class.module.object) else receiver;
     var first = true;
     for (parts.items) |part| {
         const name_sym = try vm.intern(part);
@@ -344,7 +344,7 @@ fn findConstantPathFromObject(vm: *VM, target: Value) VMError!?[]const u8 {
     while (it.next()) |entry| {
         const child = entry.value_ptr.*.value;
         if (!child.isModule() and !child.isClass()) continue;
-        if (child.raw == Value.fromObject(vm.object_class).raw) continue;
+        if (child.raw == Value.fromObject(&vm.object_class.module.object).raw) continue;
 
         const path = entry.key_ptr.*.name;
         if (try findNestedConstantPath(vm, child, path, target, &seen)) |found| return found;
@@ -363,7 +363,8 @@ fn publicModuleName(vm: *VM, receiver: Value) VMError!?[]const u8 {
 }
 
 fn basicObjectToS(vm: *VM, receiver: Value) VMError!Value {
-    const class_val = Value.fromObject(vm.getClass(receiver));
+    const receiver_class = vm.getClass(receiver);
+    const class_val = Value.fromObject(&receiver_class.module.object);
     const class_name_val = try builtinModuleToS(vm, class_val, &[_]Value{}, null);
     if (!class_name_val.isString()) return error.Fatal;
 
@@ -488,7 +489,7 @@ fn resolveModuleMethodLookup(module_obj: *value.ModuleObject, owner_class: *Clas
                     .owner_class = owner_class,
                     .entry = entry,
                 },
-                .owner = Value.fromObject(module_obj),
+                .owner = Value.fromObject(&module_obj.object),
             } },
         };
     }
@@ -535,7 +536,7 @@ fn resolveInstanceMethodLookup(vm: *VM, receiver: Value, name_sym: *SymbolObject
                             .owner_class = klass,
                             .entry = entry,
                         },
-                        .owner = Value.fromObject(klass),
+                        .owner = Value.fromObject(&klass.module.object),
                     } },
                 };
             }
@@ -601,7 +602,7 @@ fn setVisibility(vm: *VM, receiver: Value, args: []Value, visibility: MethodVisi
     vm.bumpMethodStateVersion();
 
     if (args.len == 1 and !args[0].isArray()) {
-        return Value.fromObject(names.items[0]);
+        return Value.fromObject(&names.items[0].object);
     }
 
     if (args.len == 1 and args[0].isArray()) {
@@ -610,9 +611,9 @@ fn setVisibility(vm: *VM, receiver: Value, args: []Value, visibility: MethodVisi
 
     const arr = try vm.createArray();
     for (names.items) |name_sym| {
-        arr.elements.append(vm.gc_allocator, Value.fromObject(name_sym)) catch return error.Fatal;
+        arr.elements.append(vm.gc_allocator, Value.fromObject(&name_sym.object)) catch return error.Fatal;
     }
-    return Value.fromObject(arr);
+    return Value.fromObject(&arr.object);
 }
 
 fn raiseUndefinedMethodName(vm: *VM, name_sym: *SymbolObject) VMError!Value {
@@ -652,14 +653,14 @@ fn setClassMethodVisibility(vm: *VM, receiver: Value, args: []Value, visibility:
     vm.markIntegerChangedForReceiver(receiver);
     vm.bumpMethodStateVersion();
 
-    if (args.len == 1 and !args[0].isArray()) return Value.fromObject(names.items[0]);
+    if (args.len == 1 and !args[0].isArray()) return Value.fromObject(&names.items[0].object);
     if (args.len == 1 and args[0].isArray()) return args[0];
 
     const arr = try vm.createArray();
     for (names.items) |name_sym| {
-        arr.elements.append(vm.gc_allocator, Value.fromObject(name_sym)) catch return error.Fatal;
+        arr.elements.append(vm.gc_allocator, Value.fromObject(&name_sym.object)) catch return error.Fatal;
     }
-    return Value.fromObject(arr);
+    return Value.fromObject(&arr.object);
 }
 
 fn copyMethodToModuleSingleton(vm: *VM, module_receiver: Value, name_sym: *SymbolObject, entry: value.MethodEntry) VMError!void {
@@ -851,10 +852,10 @@ pub fn builtinModuleConstants(vm: *VM, receiver: Value, args: []Value, _: ?Block
 
     const out = try vm.createArray();
     for (constant_names.items) |name_sym| {
-        out.elements.append(vm.gc_allocator, Value.fromObject(name_sym)) catch return error.Fatal;
+        out.elements.append(vm.gc_allocator, Value.fromObject(&name_sym.object)) catch return error.Fatal;
     }
 
-    return Value.fromObject(out);
+    return Value.fromObject(&out.object);
 }
 
 pub fn builtinModuleConstDefined(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -985,7 +986,7 @@ pub fn builtinModuleAncestors(vm: *VM, receiver: Value, args: []Value, _: ?Block
     const out = try vm.createArray();
 
     if (receiver.isModule()) {
-        out.elements.append(vm.gc_allocator, Value.fromObject(receiver.toModuleObject())) catch return error.Fatal;
+        out.elements.append(vm.gc_allocator, Value.fromObject(&receiver.toModuleObject().object)) catch return error.Fatal;
     } else if (receiver.isClass()) {
         var current: ?*ClassObject = receiver.toClassObject();
         while (current) |klass| {
@@ -993,16 +994,16 @@ pub fn builtinModuleAncestors(vm: *VM, receiver: Value, args: []Value, _: ?Block
             while (i > 0) {
                 i -= 1;
                 const prepended = klass.module.prepended_modules.items[i];
-                out.elements.append(vm.gc_allocator, Value.fromObject(prepended)) catch return error.Fatal;
+                out.elements.append(vm.gc_allocator, Value.fromObject(&prepended.object)) catch return error.Fatal;
             }
 
-            out.elements.append(vm.gc_allocator, Value.fromObject(klass)) catch return error.Fatal;
+            out.elements.append(vm.gc_allocator, Value.fromObject(&klass.module.object)) catch return error.Fatal;
 
             var j = klass.module.included_modules.items.len;
             while (j > 0) {
                 j -= 1;
                 const included = klass.module.included_modules.items[j];
-                out.elements.append(vm.gc_allocator, Value.fromObject(included)) catch return error.Fatal;
+                out.elements.append(vm.gc_allocator, Value.fromObject(&included.object)) catch return error.Fatal;
             }
 
             current = klass.superclass;
@@ -1013,7 +1014,7 @@ pub fn builtinModuleAncestors(vm: *VM, receiver: Value, args: []Value, _: ?Block
         return error.Unwind;
     }
 
-    return Value.fromObject(out);
+    return Value.fromObject(&out.object);
 }
 
 pub fn builtinModuleInstanceMethods(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -1064,7 +1065,7 @@ pub fn builtinModuleInstanceMethod(vm: *VM, receiver: Value, args: []Value, _: ?
         .undefined, .not_found => blk: {
             const message = std.fmt.allocPrint(vm.gc_allocator, "undefined method '{s}'", .{name_sym.name}) catch return error.Fatal;
             const exc = try vm.createException(vm.name_error_class, message);
-            try vm.setInstanceVariable(Value.fromObject(exc), "@name", Value.fromObject(name_sym));
+            try vm.setInstanceVariable(Value.fromObject(&exc.object), "@name", Value.fromObject(&name_sym.object));
             vm.pending_exception = exc;
             break :blk error.Unwind;
         },
@@ -1178,7 +1179,7 @@ pub fn builtinModuleDefineMethod(vm: *VM, receiver: Value, args: []Value, block:
         try copyMethodToModuleSingleton(vm, receiver, name_sym, entry);
     }
 
-    return Value.fromObject(name_sym);
+    return Value.fromObject(&name_sym.object);
 }
 
 pub fn builtinModuleAttrReader(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -1202,12 +1203,12 @@ pub fn builtinModuleAttrReader(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
             .visibility = visibility,
         }) catch return error.Fatal;
 
-        result_array.elements.append(vm.gc_allocator, Value.fromObject(method_sym)) catch return error.Fatal;
+        result_array.elements.append(vm.gc_allocator, Value.fromObject(&method_sym.object)) catch return error.Fatal;
     }
     vm.markIntegerChangedForReceiver(receiver);
     vm.bumpMethodStateVersion();
 
-    return Value.fromObject(result_array);
+    return Value.fromObject(&result_array.object);
 }
 
 pub fn builtinModuleAttrWriter(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -1233,12 +1234,12 @@ pub fn builtinModuleAttrWriter(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
             .visibility = visibility,
         }) catch return error.Fatal;
 
-        result_array.elements.append(vm.gc_allocator, Value.fromObject(method_sym)) catch return error.Fatal;
+        result_array.elements.append(vm.gc_allocator, Value.fromObject(&method_sym.object)) catch return error.Fatal;
     }
     vm.markIntegerChangedForReceiver(receiver);
     vm.bumpMethodStateVersion();
 
-    return Value.fromObject(result_array);
+    return Value.fromObject(&result_array.object);
 }
 
 pub fn builtinModuleAttrAccessor(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -1273,13 +1274,13 @@ pub fn builtinModuleAttrAccessor(vm: *VM, receiver: Value, args: []Value, _: ?Bl
             .visibility = visibility,
         }) catch return error.Fatal;
 
-        result_array.elements.append(vm.gc_allocator, Value.fromObject(reader_sym)) catch return error.Fatal;
-        result_array.elements.append(vm.gc_allocator, Value.fromObject(writer_sym)) catch return error.Fatal;
+        result_array.elements.append(vm.gc_allocator, Value.fromObject(&reader_sym.object)) catch return error.Fatal;
+        result_array.elements.append(vm.gc_allocator, Value.fromObject(&writer_sym.object)) catch return error.Fatal;
     }
     vm.markIntegerChangedForReceiver(receiver);
     vm.bumpMethodStateVersion();
 
-    return Value.fromObject(result_array);
+    return Value.fromObject(&result_array.object);
 }
 
 pub fn builtinModuleAliasMethod(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -1306,7 +1307,7 @@ pub fn builtinModuleAliasMethod(vm: *VM, receiver: Value, args: []Value, _: ?Blo
             methods.put(new_name_sym, entry) catch return error.Fatal;
             vm.markIntegerChangedForReceiver(receiver);
             vm.bumpMethodStateVersion();
-            return Value.fromObject(new_name_sym);
+            return Value.fromObject(&new_name_sym.object);
         }
         const msg = std.fmt.allocPrint(
             vm.gc_allocator,
@@ -1336,7 +1337,7 @@ pub fn builtinModuleAliasMethod(vm: *VM, receiver: Value, args: []Value, _: ?Blo
         return error.Unwind;
     }
 
-    return Value.fromObject(new_name_sym);
+    return Value.fromObject(&new_name_sym.object);
 }
 
 pub fn builtinModuleUndefMethod(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -1564,5 +1565,5 @@ pub fn builtinModuleFunction(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     for (args) |arg| {
         arr.elements.append(vm.gc_allocator, arg) catch return error.Fatal;
     }
-    return Value.fromObject(arr);
+    return Value.fromObject(&arr.object);
 }

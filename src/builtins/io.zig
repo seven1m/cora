@@ -21,7 +21,7 @@ fn monotonicMilliseconds() i64 {
 }
 
 pub fn register(vm: *VM) !void {
-    const io_class_val = Value.fromObject(vm.io_class);
+    const io_class_val = Value.fromObject(&vm.io_class.module.object);
     const io_singleton = try vm.getOrCreateSingletonClass(io_class_val);
 
     const pipe_sym = try vm.intern("pipe");
@@ -116,7 +116,7 @@ pub fn builtinIoPipe(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
     const pair = try vm.createArray();
     pair.elements.append(vm.gc_allocator, read_io) catch return error.Fatal;
     pair.elements.append(vm.gc_allocator, write_io) catch return error.Fatal;
-    return Value.fromObject(pair);
+    return Value.fromObject(&pair.object);
 }
 
 pub fn builtinIoToIo(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -471,7 +471,7 @@ pub fn builtinIoReadNonblock(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     try ensureIoNonblocking(vm, io);
 
     if (!try waitReadable(vm, io, 0)) {
-        if (!exception_enabled) return Value.fromObject(try vm.intern("wait_readable"));
+        if (!exception_enabled) return Value.fromObject(&(try vm.intern("wait_readable")).object);
         return vm.raiseExceptionFmt(vm.io_eagain_wait_readable_class, "read would block", .{});
     }
 
@@ -483,7 +483,7 @@ pub fn builtinIoReadNonblock(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     if (read_len < 0) {
         const errno_code = std.posix.errno(read_len);
         if (errno_code == .AGAIN) {
-            if (!exception_enabled) return Value.fromObject(try vm.intern("wait_readable"));
+            if (!exception_enabled) return Value.fromObject(&(try vm.intern("wait_readable")).object);
             return vm.raiseExceptionFmt(vm.io_eagain_wait_readable_class, "read would block", .{});
         }
         return vm.raiseErrnoFmt(errno_code, "read failed", .{});
@@ -531,7 +531,7 @@ pub fn builtinIoWriteNonblock(vm: *VM, receiver: Value, args: []Value, _: ?Block
     try ensureIoNonblocking(vm, io);
 
     if (!try waitWritable(vm, io, 0)) {
-        if (!exception_enabled) return Value.fromObject(try vm.intern("wait_writable"));
+        if (!exception_enabled) return Value.fromObject(&(try vm.intern("wait_writable")).object);
         return vm.raiseExceptionFmt(vm.io_eagain_wait_writable_class, "write would block", .{});
     }
 
@@ -540,7 +540,7 @@ pub fn builtinIoWriteNonblock(vm: *VM, receiver: Value, args: []Value, _: ?Block
     if (written < 0) {
         const errno_code = std.posix.errno(written);
         if (errno_code == .AGAIN) {
-            if (!exception_enabled) return Value.fromObject(try vm.intern("wait_writable"));
+            if (!exception_enabled) return Value.fromObject(&(try vm.intern("wait_writable")).object);
             return vm.raiseExceptionFmt(vm.io_eagain_wait_writable_class, "write would block", .{});
         }
         if (errno_code == .PIPE) {

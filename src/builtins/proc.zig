@@ -8,7 +8,7 @@ const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
     const proc_new_sym = try vm.intern("new");
-    const proc_class_val = Value.fromObject(vm.proc_class);
+    const proc_class_val = Value.fromObject(&vm.proc_class.module.object);
     const proc_singleton = try vm.getOrCreateSingletonClass(proc_class_val);
     try proc_singleton.module.methods.put(proc_new_sym, value.MethodEntry.builtin(&builtinProcNew, .{ .variadic = 0 }));
 
@@ -73,13 +73,13 @@ pub fn builtinProcParameters(vm: *VM, receiver: Value, _: []Value, _: ?Block) VM
     switch (proc_obj.block.kind) {
         .symbol, .builtin, .callable => {
             const req_array = try vm.createArray();
-            req_array.elements.append(vm.gc_allocator, Value.fromObject(try vm.intern("req"))) catch return error.Fatal;
+            req_array.elements.append(vm.gc_allocator, Value.fromObject(&(try vm.intern("req")).object)) catch return error.Fatal;
             const rest_array = try vm.createArray();
-            rest_array.elements.append(vm.gc_allocator, Value.fromObject(try vm.intern("rest"))) catch return error.Fatal;
+            rest_array.elements.append(vm.gc_allocator, Value.fromObject(&(try vm.intern("rest")).object)) catch return error.Fatal;
             const result = try vm.createArray();
-            result.elements.append(vm.gc_allocator, Value.fromObject(req_array)) catch return error.Fatal;
-            result.elements.append(vm.gc_allocator, Value.fromObject(rest_array)) catch return error.Fatal;
-            return Value.fromObject(result);
+            result.elements.append(vm.gc_allocator, Value.fromObject(&req_array.object)) catch return error.Fatal;
+            result.elements.append(vm.gc_allocator, Value.fromObject(&rest_array.object)) catch return error.Fatal;
+            return Value.fromObject(&result.object);
         },
         .chunk => |chunk_blk| {
             return try vm.getChunkParameters(chunk_blk.chunk);
@@ -100,7 +100,7 @@ pub fn builtinProcSourceLocation(vm: *VM, receiver: Value, _: []Value, _: ?Block
                 const array = try vm.createArray();
                 array.elements.append(vm.gc_allocator, try vm.newString(source, false)) catch return error.Fatal;
                 array.elements.append(vm.gc_allocator, Value.integer(line)) catch return error.Fatal;
-                return Value.fromObject(array);
+                return Value.fromObject(&array.object);
             }
             return Value.nil();
         },

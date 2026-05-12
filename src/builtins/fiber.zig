@@ -8,7 +8,7 @@ const Block = vm_mod.Block;
 const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
-    const fiber_class_val = Value.fromObject(vm.fiber_class);
+    const fiber_class_val = Value.fromObject(&vm.fiber_class.module.object);
     const fiber_singleton = try vm.getOrCreateSingletonClass(fiber_class_val);
 
     const new_sym = try vm.intern("new");
@@ -39,7 +39,7 @@ fn argsToValue(vm: *VM, args: []Value) VMError!Value {
             for (args) |arg| {
                 array_obj.elements.append(vm.gc_allocator, arg) catch return error.Fatal;
             }
-            break :blk Value.fromObject(array_obj);
+            break :blk Value.fromObject(&array_obj.object);
         },
     };
 }
@@ -65,7 +65,7 @@ pub fn builtinFiberNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
 
 pub fn builtinFiberCurrent(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    return Value.fromObject(vm.current_fiber);
+    return Value.fromObject(&vm.current_fiber.object);
 }
 
 pub fn builtinFiberYield(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

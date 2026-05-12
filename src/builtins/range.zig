@@ -129,7 +129,7 @@ pub fn builtinRangeToA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
         }
     }
 
-    return Value.fromObject(array_obj);
+    return Value.fromObject(&array_obj.object);
 }
 
 pub fn builtinRangeEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {

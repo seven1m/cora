@@ -349,7 +349,7 @@ fn builtinArrayTryConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
 }
 
 pub fn register(vm: *VM) !void {
-    const array_class_val = Value.fromObject(vm.array_class);
+    const array_class_val = Value.fromObject(&vm.array_class.module.object);
     const array_singleton = try vm.getOrCreateSingletonClass(array_class_val);
 
     const class_bracket_sym = try vm.intern("[]");
@@ -793,7 +793,7 @@ pub fn builtinArrayBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 
             if (finish < actual_start) {
                 const empty = try vm.createArray();
-                return Value.fromObject(empty);
+                return Value.fromObject(&empty.object);
             }
 
             const clamped_end = @max(actual_start, @min(finish, len));
@@ -804,7 +804,7 @@ pub fn builtinArrayBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
                 const idx: usize = @intCast(i);
                 result_array.elements.append(vm.gc_allocator, array.elements.items[idx]) catch return error.Fatal;
             }
-            return Value.fromObject(result_array);
+            return Value.fromObject(&result_array.object);
         }
 
         const index = try args[0].coerceToI64ViaToInt(
@@ -878,7 +878,7 @@ pub fn builtinArrayBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
             result_array.elements.append(vm.gc_allocator, array.elements.items[idx]) catch return error.Fatal;
         }
 
-        return Value.fromObject(result_array);
+        return Value.fromObject(&result_array.object);
     }
 
     unreachable; // requireArgCountRange ensures args.len is 1 or 2
@@ -1239,7 +1239,7 @@ fn arrayMapShared(vm: *VM, receiver: Value, args: []Value, block: ?Block, method
         result.elements.append(vm.gc_allocator, yielded.value) catch return error.Fatal;
     }
 
-    return Value.fromObject(result);
+    return Value.fromObject(&result.object);
 }
 
 pub fn builtinArrayMapBang(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -1293,7 +1293,7 @@ pub fn builtinArraySelect(vm: *VM, receiver: Value, args: []Value, block: ?Block
         }
     }
 
-    return Value.fromObject(result);
+    return Value.fromObject(&result.object);
 }
 
 pub fn builtinArrayReject(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -1316,7 +1316,7 @@ pub fn builtinArrayReject(vm: *VM, receiver: Value, args: []Value, block: ?Block
         }
     }
 
-    return Value.fromObject(result);
+    return Value.fromObject(&result.object);
 }
 
 pub fn builtinArrayPartition(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -1341,9 +1341,9 @@ pub fn builtinArrayPartition(vm: *VM, receiver: Value, args: []Value, block: ?Bl
         target.elements.append(vm.gc_allocator, element) catch return error.Fatal;
     }
 
-    pair.elements.append(vm.gc_allocator, Value.fromObject(truthy)) catch return error.Fatal;
-    pair.elements.append(vm.gc_allocator, Value.fromObject(falsey)) catch return error.Fatal;
-    return Value.fromObject(pair);
+    pair.elements.append(vm.gc_allocator, Value.fromObject(&truthy.object)) catch return error.Fatal;
+    pair.elements.append(vm.gc_allocator, Value.fromObject(&falsey.object)) catch return error.Fatal;
+    return Value.fromObject(&pair.object);
 }
 
 pub fn builtinArraySelectBang(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -1406,7 +1406,7 @@ pub fn builtinArrayCompact(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
         }
     }
 
-    return Value.fromObject(out);
+    return Value.fromObject(&out.object);
 }
 
 pub fn builtinArrayCompactBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -1442,7 +1442,7 @@ pub fn builtinArrayFlatten(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     defer seen.deinit();
 
     try arrayFlattenInto(vm, out, receiver.toArrayObject(), &seen, remaining_depth, null);
-    return Value.fromObject(out);
+    return Value.fromObject(&out.object);
 }
 
 pub fn builtinArrayFlattenBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -1599,7 +1599,7 @@ pub fn builtinArrayPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     const out = try vm.createArray();
     out.elements.appendSlice(vm.gc_allocator, lhs.elements.items) catch return error.Fatal;
     out.elements.appendSlice(vm.gc_allocator, rhs.elements.items) catch return error.Fatal;
-    return Value.fromObject(out);
+    return Value.fromObject(&out.object);
 }
 
 pub fn builtinArrayInclude(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -1683,7 +1683,7 @@ pub fn builtinArrayMultiply(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
         }
     }
 
-    return Value.fromObject(out);
+    return Value.fromObject(&out.object);
 }
 
 pub fn builtinArrayClassBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -1718,7 +1718,7 @@ pub fn builtinArrayUniq(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
         }
     }
 
-    return Value.fromObject(out);
+    return Value.fromObject(&out.object);
 }
 
 pub fn builtinArrayUniqBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -1779,7 +1779,7 @@ pub fn builtinArrayFirst(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     for (array.elements.items[0..clamped_count]) |elem| {
         out.elements.append(vm.gc_allocator, elem) catch return error.Fatal;
     }
-    return Value.fromObject(out);
+    return Value.fromObject(&out.object);
 }
 
 pub fn builtinArrayLast(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -1807,7 +1807,7 @@ pub fn builtinArrayLast(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     for (array.elements.items[start..]) |elem| {
         out.elements.append(vm.gc_allocator, elem) catch return error.Fatal;
     }
-    return Value.fromObject(out);
+    return Value.fromObject(&out.object);
 }
 
 pub fn builtinArrayAt(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -1874,7 +1874,7 @@ pub fn builtinArrayAssoc(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     const array = receiver.toArrayObject();
     for (array.elements.items) |element| {
         const match = (try arrayProbePairElement(vm, element, 0)) orelse continue;
-        if (try vm.valueEquals(match.item, key)) return Value.fromObject(match.pair);
+        if (try vm.valueEquals(match.item, key)) return Value.fromObject(&match.pair.object);
     }
 
     return Value.nil();
@@ -1887,7 +1887,7 @@ pub fn builtinArrayRassoc(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     const array = receiver.toArrayObject();
     for (array.elements.items) |element| {
         const match = (try arrayProbePairElement(vm, element, 1)) orelse continue;
-        if (try vm.valueEquals(match.item, key)) return Value.fromObject(match.pair);
+        if (try vm.valueEquals(match.item, key)) return Value.fromObject(&match.pair.object);
     }
 
     return Value.nil();
@@ -2001,7 +2001,7 @@ pub fn builtinArrayIntersection(vm: *VM, receiver: Value, args: []Value, _: ?Blo
         }
     }
 
-    return Value.fromObject(result);
+    return Value.fromObject(&result.object);
 }
 
 pub fn builtinArrayClear(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -2043,7 +2043,7 @@ pub fn builtinArrayShift(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     while (i < shift_count) : (i += 1) {
         out.elements.append(vm.gc_allocator, array.elements.orderedRemove(0)) catch return error.Fatal;
     }
-    return Value.fromObject(out);
+    return Value.fromObject(&out.object);
 }
 
 pub fn builtinArrayPop(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -2075,7 +2075,7 @@ pub fn builtinArrayPop(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
         out.elements.append(vm.gc_allocator, element) catch return error.Fatal;
     }
     array.elements.shrinkRetainingCapacity(start);
-    return Value.fromObject(out);
+    return Value.fromObject(&out.object);
 }
 
 pub fn builtinArrayDeleteAt(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -2153,7 +2153,7 @@ pub fn builtinArrayUnion(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
         }
     }
 
-    return Value.fromObject(result);
+    return Value.fromObject(&result.object);
 }
 
 pub fn builtinArrayInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -2208,7 +2208,7 @@ pub fn builtinArrayToA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
     for (source.elements.items) |elem| {
         out.elements.append(vm.gc_allocator, elem) catch return error.Fatal;
     }
-    return Value.fromObject(out);
+    return Value.fromObject(&out.object);
 }
 
 pub fn builtinArrayToAry(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -2235,7 +2235,7 @@ pub fn builtinArrayToH(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
         try vm.hashSetEntry(hash, pair.key, pair.value);
     }
 
-    return Value.fromObject(hash);
+    return Value.fromObject(&hash.object);
 }
 
 pub fn builtinArrayReplace(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -2352,7 +2352,7 @@ pub fn builtinArraySort(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
         result.elements.items[j] = key;
     }
 
-    return Value.fromObject(result);
+    return Value.fromObject(&result.object);
 }
 
 pub fn builtinArraySortBang(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -2393,7 +2393,7 @@ pub fn builtinArrayReverse(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     out.elements.appendSlice(vm.gc_allocator, source.elements.items) catch return error.Fatal;
     std.mem.reverse(Value, out.elements.items);
 
-    return Value.fromObject(out);
+    return Value.fromObject(&out.object);
 }
 
 pub fn builtinArrayReverseBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

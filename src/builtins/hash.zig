@@ -75,7 +75,7 @@ fn builtinHashTryConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
 }
 
 pub fn register(vm: *VM) !void {
-    const hash_class_val = Value.fromObject(vm.hash_class);
+    const hash_class_val = Value.fromObject(&vm.hash_class.module.object);
     const hash_singleton = try vm.getOrCreateSingletonClass(hash_class_val);
 
     const try_convert_sym = try vm.intern("try_convert");
@@ -440,7 +440,7 @@ fn yieldHashEntryPair(vm: *VM, blk: Block, entry: value.HashEntry) VMError!VM.Yi
     const pair = try vm.createArray();
     pair.elements.append(vm.gc_allocator, entry.key) catch return error.Fatal;
     pair.elements.append(vm.gc_allocator, entry.value) catch return error.Fatal;
-    const pair_value = Value.fromObject(pair);
+    const pair_value = Value.fromObject(&pair.object);
 
     const yielded = switch (blk.kind) {
         .chunk => |chunk_blk| blk_result: {
@@ -522,7 +522,7 @@ pub fn builtinHashShift(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     const result = try vm.createArray();
     result.elements.append(vm.gc_allocator, first_entry.key) catch return error.Fatal;
     result.elements.append(vm.gc_allocator, first_entry.value) catch return error.Fatal;
-    return Value.fromObject(result);
+    return Value.fromObject(&result.object);
 }
 
 pub fn builtinHashBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -561,7 +561,7 @@ pub fn builtinHashDefaultProc(vm: *VM, receiver: Value, args: []Value, _: ?Block
     try vm.requireArgCount(args, 0);
     const hash_obj = receiver.toHashObject();
     if (hash_obj.default_proc) |default_proc| {
-        return Value.fromObject(default_proc);
+        return Value.fromObject(&default_proc.object);
     }
     return Value.nil();
 }
@@ -759,7 +759,7 @@ pub fn builtinHashTransformKeys(vm: *VM, receiver: Value, args: []Value, block: 
         try vm.hashSetEntry(result_hash, new_key, entry.value);
     }
 
-    return Value.fromObject(result_hash);
+    return Value.fromObject(&result_hash.object);
 }
 
 pub fn builtinHashTransformKeysBang(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -848,7 +848,7 @@ pub fn builtinHashTransformValues(vm: *VM, receiver: Value, args: []Value, block
         try vm.hashSetEntry(result_hash, entry.key, yielded.value);
     }
 
-    return Value.fromObject(result_hash);
+    return Value.fromObject(&result_hash.object);
 }
 
 pub fn builtinHashTransformValuesBang(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -889,7 +889,7 @@ pub fn builtinHashKeys(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
         array_obj.elements.append(vm.gc_allocator, entry.key) catch return error.Fatal;
     }
 
-    return Value.fromObject(array_obj);
+    return Value.fromObject(&array_obj.object);
 }
 
 pub fn builtinHashValues(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -905,7 +905,7 @@ pub fn builtinHashValues(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
         array_obj.elements.append(vm.gc_allocator, entry.value) catch return error.Fatal;
     }
 
-    return Value.fromObject(array_obj);
+    return Value.fromObject(&array_obj.object);
 }
 
 pub fn builtinHashValuesAt(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -922,7 +922,7 @@ pub fn builtinHashValuesAt(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
         array_obj.elements.append(vm.gc_allocator, value_at_key) catch return error.Fatal;
     }
 
-    return Value.fromObject(array_obj);
+    return Value.fromObject(&array_obj.object);
 }
 
 pub fn builtinHashToA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -934,10 +934,10 @@ pub fn builtinHashToA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
         const pair_obj = try vm.createArray();
         pair_obj.elements.append(vm.gc_allocator, entry.key) catch return error.Fatal;
         pair_obj.elements.append(vm.gc_allocator, entry.value) catch return error.Fatal;
-        array_obj.elements.append(vm.gc_allocator, Value.fromObject(pair_obj)) catch return error.Fatal;
+        array_obj.elements.append(vm.gc_allocator, Value.fromObject(&pair_obj.object)) catch return error.Fatal;
     }
 
-    return Value.fromObject(array_obj);
+    return Value.fromObject(&array_obj.object);
 }
 
 pub fn builtinHashToHash(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -1240,7 +1240,7 @@ pub fn builtinHashSelect(vm: *VM, receiver: Value, args: []Value, block: ?Block)
 
         // If break occurred, return immediately
         if (result.break_occurred) {
-            return Value.fromObject(result_hash);
+            return Value.fromObject(&result_hash.object);
         }
 
         // Check if the block returned a truthy value
@@ -1251,7 +1251,7 @@ pub fn builtinHashSelect(vm: *VM, receiver: Value, args: []Value, block: ?Block)
         }
     }
 
-    return Value.fromObject(result_hash);
+    return Value.fromObject(&result_hash.object);
 }
 
 pub fn builtinHashReject(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -1286,7 +1286,7 @@ pub fn builtinHashReject(vm: *VM, receiver: Value, args: []Value, block: ?Block)
         try vm.hashSetEntry(result_hash, entry.key, entry.value);
     }
 
-    return Value.fromObject(result_hash);
+    return Value.fromObject(&result_hash.object);
 }
 
 pub fn builtinHashMerge(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -1324,7 +1324,7 @@ pub fn builtinHashMerge(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
         try mergeEntriesIntoHash(vm, result_hash, source_hash, block);
     }
 
-    return Value.fromObject(result_hash);
+    return Value.fromObject(&result_hash.object);
 }
 
 pub fn builtinHashMergeBang(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {

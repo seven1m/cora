@@ -1295,7 +1295,8 @@ pub const VM = struct {
 
         const rbconfig_val = try self.newModule(rbconfig_sym);
         const rbconfig_module = rbconfig_val.toModuleObject();
-        const rbconfig_config_val = Value.fromObject(try self.createHash());
+        const rbconfig_config_obj = try self.createHash();
+        const rbconfig_config_val = Value.fromObject(&rbconfig_config_obj.object);
         const rbconfig_config = rbconfig_config_val.toHashObject();
         try self.hashSetEntry(rbconfig_config, try self.newString("MAJOR", false), try self.newString("4", false));
         try self.hashSetEntry(rbconfig_config, try self.newString("MINOR", false), try self.newString("0", false));
@@ -1385,24 +1386,24 @@ pub const VM = struct {
         const windows_1251_const_sym = try self.intern("Windows_1251");
         const converter_const_sym = try self.intern("Converter");
 
-        const utf8_val = Value.fromObject(self.encoding_utf8);
-        const cesu8_val = Value.fromObject(self.encoding_cesu8);
-        const ascii_8bit_val = Value.fromObject(self.encoding_ascii_8bit);
-        const us_ascii_val = Value.fromObject(self.encoding_us_ascii);
-        const shift_jis_val = Value.fromObject(self.encoding_shift_jis);
-        const windows_31j_val = Value.fromObject(self.encoding_windows_31j);
-        const euc_jp_val = Value.fromObject(self.encoding_euc_jp);
-        const cp437_val = Value.fromObject(self.encoding_cp437);
-        const iso_8859_1_val = Value.fromObject(self.encoding_iso_8859_1);
-        const iso_8859_9_val = Value.fromObject(self.encoding_iso_8859_9);
-        const iso_8859_15_val = Value.fromObject(self.encoding_iso_8859_15);
-        const utf7_val = Value.fromObject(self.encoding_utf7);
-        const utf16_val = Value.fromObject(self.encoding_utf16);
-        const utf32_val = Value.fromObject(self.encoding_utf32);
-        const utf16le_val = Value.fromObject(self.encoding_utf16le);
-        const utf16be_val = Value.fromObject(self.encoding_utf16be);
-        const utf32le_val = Value.fromObject(self.encoding_utf32le);
-        const utf32be_val = Value.fromObject(self.encoding_utf32be);
+        const utf8_val = Value.fromObject(&self.encoding_utf8.object);
+        const cesu8_val = Value.fromObject(&self.encoding_cesu8.object);
+        const ascii_8bit_val = Value.fromObject(&self.encoding_ascii_8bit.object);
+        const us_ascii_val = Value.fromObject(&self.encoding_us_ascii.object);
+        const shift_jis_val = Value.fromObject(&self.encoding_shift_jis.object);
+        const windows_31j_val = Value.fromObject(&self.encoding_windows_31j.object);
+        const euc_jp_val = Value.fromObject(&self.encoding_euc_jp.object);
+        const cp437_val = Value.fromObject(&self.encoding_cp437.object);
+        const iso_8859_1_val = Value.fromObject(&self.encoding_iso_8859_1.object);
+        const iso_8859_9_val = Value.fromObject(&self.encoding_iso_8859_9.object);
+        const iso_8859_15_val = Value.fromObject(&self.encoding_iso_8859_15.object);
+        const utf7_val = Value.fromObject(&self.encoding_utf7.object);
+        const utf16_val = Value.fromObject(&self.encoding_utf16.object);
+        const utf32_val = Value.fromObject(&self.encoding_utf32.object);
+        const utf16le_val = Value.fromObject(&self.encoding_utf16le.object);
+        const utf16be_val = Value.fromObject(&self.encoding_utf16be.object);
+        const utf32le_val = Value.fromObject(&self.encoding_utf32le.object);
+        const utf32be_val = Value.fromObject(&self.encoding_utf32be.object);
         const encoding_converter_class_val = try self.newClass(converter_const_sym, self.object_class);
 
         self.encoding_class.module.constants.put(utf8_const_sym, .{ .value = utf8_val }) catch return error.Fatal;
@@ -1428,7 +1429,7 @@ pub const VM = struct {
         self.encoding_class.module.constants.put(utf32_const_sym, .{ .value = utf32_val }) catch return error.Fatal;
         self.encoding_class.module.constants.put(utf32le_const_sym, .{ .value = utf32le_val }) catch return error.Fatal;
         self.encoding_class.module.constants.put(utf32be_const_sym, .{ .value = utf32be_val }) catch return error.Fatal;
-        self.encoding_class.module.constants.put(iso_2022_jp_const_sym, .{ .value = Value.fromObject(self.encoding_iso_2022_jp) }) catch return error.Fatal;
+        self.encoding_class.module.constants.put(iso_2022_jp_const_sym, .{ .value = Value.fromObject(&self.encoding_iso_2022_jp.object) }) catch return error.Fatal;
         self.encoding_class.module.constants.put(emacs_mule_const_sym, .{ .value = windows_31j_val }) catch return error.Fatal;
         self.encoding_class.module.constants.put(windows_1251_const_sym, .{ .value = iso_8859_15_val }) catch return error.Fatal;
         const ibm437_const_sym = try self.intern("IBM437");
@@ -1465,11 +1466,11 @@ pub const VM = struct {
         self.main_self = try self.newInstance(self.object_class);
 
         // --- Stage 6: Initialize top-level lexical scope ---
-        self.current_lexical_scope = try self.createLexicalScope(Value.fromObject(self.object_class), null);
+        self.current_lexical_scope = try self.createLexicalScope(Value.fromObject(&self.object_class.module.object), null);
         self.toplevel_lexical_scope = self.current_lexical_scope;
         const toplevel_binding = try self.createBinding(self.main_self, null, self.current_lexical_scope);
         const toplevel_binding_sym = try self.intern("TOPLEVEL_BINDING");
-        self.object_class.module.constants.put(toplevel_binding_sym, .{ .value = Value.fromObject(toplevel_binding) }) catch return error.Fatal;
+        self.object_class.module.constants.put(toplevel_binding_sym, .{ .value = Value.fromObject(&toplevel_binding.object) }) catch return error.Fatal;
 
         // --- Stage 7: Initialize main fiber and bind VM state to it ---
         const main_fiber_obj = self.gc_allocator.create(value.FiberObject) catch return error.Fatal;
@@ -1967,7 +1968,7 @@ pub const VM = struct {
         }
 
         const argv_sym = try self.intern("ARGV");
-        self.object_class.module.constants.put(argv_sym, .{ .value = Value.fromObject(argv_array) }) catch return error.Fatal;
+        self.object_class.module.constants.put(argv_sym, .{ .value = Value.fromObject(&argv_array.object) }) catch return error.Fatal;
     }
 
     pub fn setInputRecordSeparator(self: *VM, separator: []const u8, frozen: bool) VMError!void {
@@ -2064,7 +2065,7 @@ pub const VM = struct {
             try self.hashSetEntry(hash_obj, key_val, value_val);
         }
 
-        return Value.fromObject(hash_obj);
+        return Value.fromObject(&hash_obj.object);
     }
 
     pub fn envToArray(self: *VM) VMError!Value {
@@ -2079,10 +2080,10 @@ pub const VM = struct {
             const value_val = try self.newString(entry.value_ptr.*, false);
             pair.elements.append(self.gc_allocator, key_val) catch return error.Fatal;
             pair.elements.append(self.gc_allocator, value_val) catch return error.Fatal;
-            array_obj.elements.append(self.gc_allocator, Value.fromObject(pair)) catch return error.Fatal;
+            array_obj.elements.append(self.gc_allocator, Value.fromObject(&pair.object)) catch return error.Fatal;
         }
 
-        return Value.fromObject(array_obj);
+        return Value.fromObject(&array_obj.object);
     }
 
     pub fn envSize(self: *VM) VMError!Value {
@@ -2241,7 +2242,7 @@ pub const VM = struct {
         else
             self.signal_exception_class;
         const exc = try self.createException(class, signalName(signo));
-        try self.setInstanceVariable(Value.fromObject(exc), "@signo", Value.integer(signo));
+        try self.setInstanceVariable(Value.fromObject(&exc.object), "@signo", Value.integer(signo));
         return exc;
     }
 
@@ -2294,8 +2295,8 @@ pub const VM = struct {
             .{tag_inspect.toStringObject().str},
         ) catch return error.Fatal;
         const exc = try self.createException(self.uncaught_throw_error_class, message);
-        try self.setInstanceVariable(Value.fromObject(exc), "@tag", tag);
-        try self.setInstanceVariable(Value.fromObject(exc), "@value", thrown_value);
+        try self.setInstanceVariable(Value.fromObject(&exc.object), "@tag", tag);
+        try self.setInstanceVariable(Value.fromObject(&exc.object), "@value", thrown_value);
         return exc;
     }
 
@@ -3937,7 +3938,7 @@ pub const VM = struct {
                     .float => |f| try self.newFloat(f),
                     .string => |s| try self.newStringWithEncoding(s, false, literalStringEncodingForChunk(frame.chunk.source_encoding, s)),
                     .encoded_string => |s| try self.newStringWithEncoding(s.bytes, false, s.encoding),
-                    .symbol => |s| Value.fromObject(s),
+                    .symbol => |s| Value.fromObject(&s.object),
                 };
                 try self.push(val);
             },
@@ -4040,12 +4041,14 @@ pub const VM = struct {
                 switch (constant) {
                     .string => |name| {
                         const symbol_encoding = literalSymbolEncodingForChunk(frame.chunk.source_encoding, name);
-                        try self.push(Value.fromObject(try self.internWithEncoding(name, symbol_encoding)));
+                        const sym = try self.internWithEncoding(name, symbol_encoding);
+                        try self.push(Value.fromObject(&sym.object));
                     },
                     .encoded_string => |name| {
-                        try self.push(Value.fromObject(try self.internWithEncoding(name.bytes, name.encoding)));
+                        const sym = try self.internWithEncoding(name.bytes, name.encoding);
+                        try self.push(Value.fromObject(&sym.object));
                     },
-                    .symbol => |sym| try self.push(Value.fromObject(sym)),
+                    .symbol => |sym| try self.push(Value.fromObject(&sym.object)),
                     else => return error.Fatal,
                 }
             },
@@ -4813,7 +4816,7 @@ pub const VM = struct {
                                     else => return error.Fatal,
                                 };
                                 const key_sym = try self.intern(key_name);
-                                kw_key_slice.?[idx] = Value.fromObject(key_sym);
+                                kw_key_slice.?[idx] = Value.fromObject(&key_sym.object);
                             }
                         }
                     }
@@ -4855,7 +4858,7 @@ pub const VM = struct {
                                 else => return error.Fatal,
                             };
                             const key_sym = try self.intern(key_name);
-                            kw_key_slice.?[idx] = Value.fromObject(key_sym);
+                            kw_key_slice.?[idx] = Value.fromObject(&key_sym.object);
                         }
                     }
                     self.stack.shrinkRetainingCapacity(receiver_index);
@@ -4992,14 +4995,14 @@ pub const VM = struct {
                 const receiver = self.pop();
 
                 const singleton_val = if (receiver.isNil())
-                    Value.fromObject(self.nil_class)
+                    Value.fromObject(&self.nil_class.module.object)
                 else if (receiver.isBool())
-                    Value.fromObject(if (receiver.toBool()) self.true_class else self.false_class)
+                    Value.fromObject(&(if (receiver.toBool()) self.true_class else self.false_class).module.object)
                 else if (receiver.isInteger() or receiver.isFloat() or receiver.isSymbol())
                     return self.raiseExceptionFmt(self.type_error_class, "can't define singleton", .{})
                 else blk: {
                     const singleton_class = try self.getOrCreateSingletonClass(receiver);
-                    break :blk Value.fromObject(singleton_class);
+                    break :blk Value.fromObject(&singleton_class.module.object);
                 };
 
                 if (body_chunk_id != 0) {
@@ -5051,7 +5054,7 @@ pub const VM = struct {
                         var singleton_entry = entry;
                         singleton_entry.visibility = .public;
                         singleton_class.module.methods.put(method_name_sym, singleton_entry) catch return error.Fatal;
-                        self.markIntegerChangedForReceiver(Value.fromObject(singleton_class));
+                        self.markIntegerChangedForReceiver(Value.fromObject(&singleton_class.module.object));
                         self.bumpMethodStateVersion();
                     }
                 } else {
@@ -5108,7 +5111,7 @@ pub const VM = struct {
                     array_obj.elements.items[dst] = self.pop();
                 }
 
-                try self.push(Value.fromObject(array_obj));
+                try self.push(Value.fromObject(&array_obj.object));
             },
 
             .ARRAY_APPEND => {
@@ -5155,7 +5158,7 @@ pub const VM = struct {
                 }
                 self.stack.items.len = start;
 
-                try self.push(Value.fromObject(hash_obj));
+                try self.push(Value.fromObject(&hash_obj.object));
             },
 
             .HASH_SET_CONST_KEY => {
@@ -5177,7 +5180,7 @@ pub const VM = struct {
                     else => return error.Fatal,
                 };
                 const key_sym = try self.intern(key_name);
-                try self.hashSetEntry(target_hash_val.toHashObject(), Value.fromObject(key_sym), value_to_set);
+                try self.hashSetEntry(target_hash_val.toHashObject(), Value.fromObject(&key_sym.object), value_to_set);
             },
 
             .HASH_MERGE_KW => {
@@ -5489,7 +5492,7 @@ pub const VM = struct {
                             .elements = .empty,
                         };
                         array_obj.elements.append(self.gc_allocator, receiver) catch return error.Fatal;
-                        try self.push(Value.fromObject(array_obj));
+                        try self.push(Value.fromObject(&array_obj.object));
                     },
                 }
             },
@@ -5596,7 +5599,7 @@ pub const VM = struct {
                     if (self.pending_exception) |exc| {
                         // Compute ep_offset from the chunk's locals_count at runtime
                         const ep_offset = frame.chunk.locals_count - @as(u16, var_idx);
-                        (frame.ep - ep_offset)[0] = Value.fromObject(exc);
+                        (frame.ep - ep_offset)[0] = Value.fromObject(&exc.object);
                     }
                 }
 
@@ -6249,7 +6252,7 @@ pub const VM = struct {
                     };
                     const f = &self.frames.items[self.frames.items.len - 1];
                     const lc = f.chunk.locals_count;
-                    (f.ep - lc + rest_idx)[0] = Value.fromObject(kw_hash);
+                    (f.ep - lc + rest_idx)[0] = Value.fromObject(&kw_hash.object);
                 }
             }
         }
@@ -6497,7 +6500,7 @@ pub const VM = struct {
         }
 
         var missing_args: [258]Value = undefined;
-        missing_args[0] = Value.fromObject(missing_method_sym);
+        missing_args[0] = Value.fromObject(&missing_method_sym.object);
         for (args, 0..) |arg, i| {
             missing_args[i + 1] = arg;
         }
@@ -6562,7 +6565,7 @@ pub const VM = struct {
     pub fn respondsToMethodByName(self: *VM, receiver: Value, method_name: []const u8, include_private: bool) VMError!bool {
         const method_name_sym = try self.intern(method_name);
         var respond_args: [2]Value = .{
-            Value.fromObject(method_name_sym),
+            Value.fromObject(&method_name_sym.object),
             Value.boolean(include_private),
         };
         const responds = try self.callMethodByName(receiver, "respond_to?", respond_args[0..], null);
@@ -6980,7 +6983,7 @@ pub const VM = struct {
             const normalized_owner_path = if (std.mem.startsWith(u8, owner_path, "::")) owner_path[2..] else owner_path;
 
             const owner_val = if (normalized_owner_path.len == 0)
-                Value.fromObject(self.object_class)
+                Value.fromObject(&self.object_class.module.object)
             else
                 (try self.resolveConstantPathFrom(lexical_scope, normalized_owner_path, prefer_lexical)) orelse {
                     const msg = std.fmt.allocPrint(
@@ -7129,44 +7132,50 @@ pub const VM = struct {
         var i: u8 = 0;
         while (i < ch.arity) : (i += 1) {
             const param_array = try self.createArray();
-            param_array.elements.append(self.gc_allocator, Value.fromObject(try self.intern("req"))) catch return error.Fatal;
-            result.elements.append(self.gc_allocator, Value.fromObject(param_array)) catch return error.Fatal;
+            const req_sym = try self.intern("req");
+            param_array.elements.append(self.gc_allocator, Value.fromObject(&req_sym.object)) catch return error.Fatal;
+            result.elements.append(self.gc_allocator, Value.fromObject(&param_array.object)) catch return error.Fatal;
         }
 
         if (ch.rest_param_index) |_| {
             const rest_array = try self.createArray();
-            rest_array.elements.append(self.gc_allocator, Value.fromObject(try self.intern("rest"))) catch return error.Fatal;
-            result.elements.append(self.gc_allocator, Value.fromObject(rest_array)) catch return error.Fatal;
+            const rest_sym = try self.intern("rest");
+            rest_array.elements.append(self.gc_allocator, Value.fromObject(&rest_sym.object)) catch return error.Fatal;
+            result.elements.append(self.gc_allocator, Value.fromObject(&rest_array.object)) catch return error.Fatal;
         }
 
         i = 0;
         while (i < ch.optional_params.items.len) : (i += 1) {
             const opt_array = try self.createArray();
-            opt_array.elements.append(self.gc_allocator, Value.fromObject(try self.intern("opt"))) catch return error.Fatal;
-            result.elements.append(self.gc_allocator, Value.fromObject(opt_array)) catch return error.Fatal;
+            const opt_sym = try self.intern("opt");
+            opt_array.elements.append(self.gc_allocator, Value.fromObject(&opt_sym.object)) catch return error.Fatal;
+            result.elements.append(self.gc_allocator, Value.fromObject(&opt_array.object)) catch return error.Fatal;
         }
 
         i = 0;
         while (i < ch.post_required_count) : (i += 1) {
             const post_array = try self.createArray();
-            post_array.elements.append(self.gc_allocator, Value.fromObject(try self.intern("req"))) catch return error.Fatal;
-            result.elements.append(self.gc_allocator, Value.fromObject(post_array)) catch return error.Fatal;
+            const req_sym = try self.intern("req");
+            post_array.elements.append(self.gc_allocator, Value.fromObject(&req_sym.object)) catch return error.Fatal;
+            result.elements.append(self.gc_allocator, Value.fromObject(&post_array.object)) catch return error.Fatal;
         }
 
         if (ch.keyword_rest_index) |_| {
             const kwrest_array = try self.createArray();
-            kwrest_array.elements.append(self.gc_allocator, Value.fromObject(try self.intern("keyrest"))) catch return error.Fatal;
-            result.elements.append(self.gc_allocator, Value.fromObject(kwrest_array)) catch return error.Fatal;
+            const keyrest_sym = try self.intern("keyrest");
+            kwrest_array.elements.append(self.gc_allocator, Value.fromObject(&keyrest_sym.object)) catch return error.Fatal;
+            result.elements.append(self.gc_allocator, Value.fromObject(&kwrest_array.object)) catch return error.Fatal;
         }
 
         i = 0;
         while (i < ch.required_keywords.items.len) : (i += 1) {
             const key_array = try self.createArray();
-            key_array.elements.append(self.gc_allocator, Value.fromObject(try self.intern("key"))) catch return error.Fatal;
-            result.elements.append(self.gc_allocator, Value.fromObject(key_array)) catch return error.Fatal;
+            const key_sym = try self.intern("key");
+            key_array.elements.append(self.gc_allocator, Value.fromObject(&key_sym.object)) catch return error.Fatal;
+            result.elements.append(self.gc_allocator, Value.fromObject(&key_array.object)) catch return error.Fatal;
         }
 
-        return Value.fromObject(result);
+        return Value.fromObject(&result.object);
     }
 
     /// Copy forwarding arguments into the provided buffer.
@@ -7314,7 +7323,7 @@ pub const VM = struct {
                 .class => {
                     const c = obj_val.toClassObject();
                     if (c.superclass) |super| {
-                        break :blk try self.getOrCreateSingletonClass(Value.fromObject(super));
+                        break :blk try self.getOrCreateSingletonClass(Value.fromObject(&super.module.object));
                     } else {
                         break :blk self.class_class;
                     }
@@ -7460,7 +7469,7 @@ pub const VM = struct {
             .autoloads = std.AutoHashMap(*SymbolObject, []const u8).init(self.gc_allocator),
             .class_variables = std.AutoHashMap(*SymbolObject, Value).init(self.gc_allocator),
         };
-        return Value.fromObject(module_obj);
+        return Value.fromObject(&module_obj.object);
     }
 
     pub fn newClass(self: *VM, name: *SymbolObject, superclass: ?*ClassObject) VMError!Value {
@@ -7483,7 +7492,7 @@ pub const VM = struct {
                 .class_variables = std.AutoHashMap(*SymbolObject, Value).init(self.gc_allocator),
             },
         };
-        return Value.fromObject(class_obj);
+        return Value.fromObject(&class_obj.module.object);
     }
 
     pub fn newInstance(self: *VM, class_obj: *ClassObject) VMError!Value {
@@ -7500,7 +7509,7 @@ pub const VM = struct {
 
     pub fn newExceptionInstance(self: *VM, class_obj: *ClassObject, args: []const Value, block: ?Block) VMError!Value {
         const exc = try self.createException(class_obj, "");
-        const exc_val = Value.fromObject(exc);
+        const exc_val = Value.fromObject(&exc.object);
         _ = try self.callMethodByNameForwardingKeywords(exc_val, "initialize", @constCast(args), block);
         return exc_val;
     }
@@ -7527,7 +7536,7 @@ pub const VM = struct {
         fiber_obj.owner_thread = self.current_thread;
         fiber_obj.owner_vm = self;
         try self.ensureFiberCatchStack(fiber_obj);
-        return Value.fromObject(fiber_obj);
+        return Value.fromObject(&fiber_obj.object);
     }
 
     pub fn newIo(
@@ -7552,7 +7561,7 @@ pub const VM = struct {
             .path = path,
         };
         self.io_objects.append(self.gc_allocator, io_obj) catch return error.Fatal;
-        return Value.fromObject(io_obj);
+        return Value.fromObject(&io_obj.object);
     }
 
     pub fn newRange(self: *VM, class_obj: *ClassObject) VMError!Value {
@@ -7569,7 +7578,7 @@ pub const VM = struct {
             .end = Value.nil(),
             .exclude_end = false,
         };
-        return Value.fromObject(range_obj);
+        return Value.fromObject(&range_obj.object);
     }
 
     pub const NormalizedRegexp = struct {
@@ -7703,7 +7712,7 @@ pub const VM = struct {
             .options = options,
             .regex = result.regex.?,
         };
-        return Value.fromObject(regexp_obj);
+        return Value.fromObject(&regexp_obj.object);
     }
 
     pub fn newRegexp(self: *VM, pattern: []const u8, options: u16) VMError!Value {
@@ -7749,7 +7758,7 @@ pub const VM = struct {
             md.end_byte_offsets.append(self.gc_allocator, pos) catch return error.Fatal;
         }
 
-        return Value.fromObject(md);
+        return Value.fromObject(&md.object);
     }
 
     pub fn setLastMatch(self: *VM, md: ?*MatchDataObject) VMError!void {
@@ -7762,7 +7771,7 @@ pub const VM = struct {
         }
 
         const match_data = md.?;
-        const match_val = Value.fromObject(match_data);
+        const match_val = Value.fromObject(&match_data.object);
         try self.setGlobal("$~", match_val);
 
         const full_capture = if (match_data.captures.items.len > 0)
@@ -7806,7 +7815,8 @@ pub const VM = struct {
 
     pub fn newObjectForClass(self: *VM, class_obj: *ClassObject) VMError!Value {
         if (self.isClassOrSubclassOf(class_obj, self.exception_class)) {
-            return Value.fromObject(try self.createException(class_obj, ""));
+            const exc = try self.createException(class_obj, "");
+            return Value.fromObject(&exc.object);
         }
 
         return switch (class_obj.object_type) {
@@ -7823,7 +7833,7 @@ pub const VM = struct {
                     },
                     .elements = .empty,
                 };
-                break :blk Value.fromObject(array_obj);
+                break :blk Value.fromObject(&array_obj.object);
             },
             .hash => blk: {
                 const hash_obj = self.gc_allocator.create(value.HashObject) catch return error.Fatal;
@@ -7841,7 +7851,7 @@ pub const VM = struct {
                     .default_proc = null,
                     .compare_by_identity = false,
                 };
-                break :blk Value.fromObject(hash_obj);
+                break :blk Value.fromObject(&hash_obj.object);
             },
             .range => self.newRange(class_obj),
             .fiber => try self.newFiber(class_obj, null),
@@ -8021,7 +8031,7 @@ pub const VM = struct {
             .object = .{ .type_tag = .float, .flags = 0, .class = self.float_class, .singleton_class = null, .instance_variables = null },
             .val = f,
         };
-        return Value.fromObject(float_obj);
+        return Value.fromObject(&float_obj.object);
     }
 
     pub fn newTime(self: *VM, class_obj: *ClassObject, epoch_nanoseconds: i64) VMError!Value {
@@ -8030,7 +8040,7 @@ pub const VM = struct {
             .object = .{ .type_tag = .time, .flags = 0, .class = class_obj, .singleton_class = null, .instance_variables = null },
             .epoch_nanoseconds = epoch_nanoseconds,
         };
-        return Value.fromObject(time_obj);
+        return Value.fromObject(&time_obj.object);
     }
 
     pub fn newBigIntegerFromI64(self: *VM, n: i64) VMError!Value {
@@ -8040,7 +8050,7 @@ pub const VM = struct {
             .object = .{ .type_tag = .big_integer, .flags = 0, .class = self.integer_class, .singleton_class = null, .instance_variables = null },
             .value = managed,
         };
-        return Value.fromObject(big_obj);
+        return Value.fromObject(&big_obj.object);
     }
 
     pub fn newBigIntegerFromDecimalString(self: *VM, digits: []const u8) VMError!Value {
@@ -8056,7 +8066,7 @@ pub const VM = struct {
             .object = .{ .type_tag = .big_integer, .flags = 0, .class = self.integer_class, .singleton_class = null, .instance_variables = null },
             .value = managed,
         };
-        return Value.fromObject(big_obj);
+        return Value.fromObject(&big_obj.object);
     }
 
     pub fn valueFromManagedInteger(self: *VM, managed: *const std.math.big.int.Managed) VMError!Value {
@@ -8070,7 +8080,7 @@ pub const VM = struct {
             .object = .{ .type_tag = .big_integer, .flags = 0, .class = self.integer_class, .singleton_class = null, .instance_variables = null },
             .value = stored,
         };
-        return Value.fromObject(big_obj);
+        return Value.fromObject(&big_obj.object);
     }
 
     pub fn registerPackedPointerTarget(self: *VM, packed_str: *StringObject, offset: usize, target: *StringObject) VMError!void {
@@ -8120,7 +8130,7 @@ pub const VM = struct {
             .str = copy,
             .encoding = encoding,
         };
-        return Value.fromObject(string_obj);
+        return Value.fromObject(&string_obj.object);
     }
 
     pub fn inspectTargetEncoding(self: *VM) enc.Encoding {
@@ -8132,25 +8142,25 @@ pub const VM = struct {
 
     pub fn encodingToValue(self: *VM, encoding_value: enc.Encoding) Value {
         return switch (encoding_value) {
-            .utf8 => Value.fromObject(self.encoding_utf8),
-            .cesu8 => Value.fromObject(self.encoding_cesu8),
-            .ascii_8bit => Value.fromObject(self.encoding_ascii_8bit),
-            .us_ascii => Value.fromObject(self.encoding_us_ascii),
-            .shift_jis => Value.fromObject(self.encoding_shift_jis),
-            .windows_31j => Value.fromObject(self.encoding_windows_31j),
-            .euc_jp => Value.fromObject(self.encoding_euc_jp),
-            .cp437 => Value.fromObject(self.encoding_cp437),
-            .iso_2022_jp => Value.fromObject(self.encoding_iso_2022_jp),
-            .iso_8859_1 => Value.fromObject(self.encoding_iso_8859_1),
-            .iso_8859_9 => Value.fromObject(self.encoding_iso_8859_9),
-            .iso_8859_15 => Value.fromObject(self.encoding_iso_8859_15),
-            .utf7 => Value.fromObject(self.encoding_utf7),
-            .utf16 => Value.fromObject(self.encoding_utf16),
-            .utf32 => Value.fromObject(self.encoding_utf32),
-            .utf16le => Value.fromObject(self.encoding_utf16le),
-            .utf16be => Value.fromObject(self.encoding_utf16be),
-            .utf32le => Value.fromObject(self.encoding_utf32le),
-            .utf32be => Value.fromObject(self.encoding_utf32be),
+            .utf8 => Value.fromObject(&self.encoding_utf8.object),
+            .cesu8 => Value.fromObject(&self.encoding_cesu8.object),
+            .ascii_8bit => Value.fromObject(&self.encoding_ascii_8bit.object),
+            .us_ascii => Value.fromObject(&self.encoding_us_ascii.object),
+            .shift_jis => Value.fromObject(&self.encoding_shift_jis.object),
+            .windows_31j => Value.fromObject(&self.encoding_windows_31j.object),
+            .euc_jp => Value.fromObject(&self.encoding_euc_jp.object),
+            .cp437 => Value.fromObject(&self.encoding_cp437.object),
+            .iso_2022_jp => Value.fromObject(&self.encoding_iso_2022_jp.object),
+            .iso_8859_1 => Value.fromObject(&self.encoding_iso_8859_1.object),
+            .iso_8859_9 => Value.fromObject(&self.encoding_iso_8859_9.object),
+            .iso_8859_15 => Value.fromObject(&self.encoding_iso_8859_15.object),
+            .utf7 => Value.fromObject(&self.encoding_utf7.object),
+            .utf16 => Value.fromObject(&self.encoding_utf16.object),
+            .utf32 => Value.fromObject(&self.encoding_utf32.object),
+            .utf16le => Value.fromObject(&self.encoding_utf16le.object),
+            .utf16be => Value.fromObject(&self.encoding_utf16be.object),
+            .utf32le => Value.fromObject(&self.encoding_utf32le.object),
+            .utf32be => Value.fromObject(&self.encoding_utf32be.object),
         };
     }
 
@@ -8188,12 +8198,12 @@ pub const VM = struct {
                 } } },
             },
         };
-        return Value.fromObject(proc_obj);
+        return Value.fromObject(&proc_obj.object);
     }
 
     pub fn procValueForBlock(self: *VM, block: Block) VMError!Value {
         if (block.source_proc) |proc_obj| {
-            return Value.fromObject(proc_obj);
+            return Value.fromObject(&proc_obj.object);
         }
         return self.newProc(block);
     }
@@ -8216,7 +8226,7 @@ pub const VM = struct {
             .lookahead_values = null,
             .has_lookahead_values = false,
         };
-        return Value.fromObject(enum_obj);
+        return Value.fromObject(&enum_obj.object);
     }
 
     pub fn newYielder(self: *VM, block: Block) VMError!Value {
@@ -8225,7 +8235,7 @@ pub const VM = struct {
             .object = .{ .type_tag = .yielder, .flags = 0, .class = self.yielder_class, .singleton_class = null, .instance_variables = null },
             .block = block,
         };
-        return Value.fromObject(yielder_obj);
+        return Value.fromObject(&yielder_obj.object);
     }
 
     pub fn createMethodEnumerator(self: *VM, receiver: Value, method_name: *SymbolObject, args: []const Value) VMError!Value {
@@ -8532,13 +8542,16 @@ pub const VM = struct {
 
     pub fn expandSplatValue(self: *VM, arg: Value) VMError!Value {
         if (arg.isArray()) return arg;
-        if (arg.isNil()) return Value.fromObject(try self.createArray());
+        if (arg.isNil()) {
+            const empty = try self.createArray();
+            return Value.fromObject(&empty.object);
+        }
 
         if (try self.checkCallMethodByName(arg, "to_a", false, &[_]Value{}, null)) |coerced| {
             if (coerced.isNil()) {
                 const wrapped = try self.createArray();
                 wrapped.elements.append(self.gc_allocator, arg) catch return error.Fatal;
-                return Value.fromObject(wrapped);
+                return Value.fromObject(&wrapped.object);
             }
             if (coerced.isArray()) return coerced;
 
@@ -8551,7 +8564,7 @@ pub const VM = struct {
 
         const wrapped = try self.createArray();
         wrapped.elements.append(self.gc_allocator, arg) catch return error.Fatal;
-        return Value.fromObject(wrapped);
+        return Value.fromObject(&wrapped.object);
     }
 
     pub fn coerceToPath(self: *VM, arg: Value, type_error_message: []const u8) VMError![]const u8 {
@@ -8756,13 +8769,14 @@ pub const VM = struct {
         while (key_iter.next()) |key| {
             loaded.elements.append(self.gc_allocator, try self.newString(key.*, false)) catch return error.Fatal;
         }
-        const loaded_val = Value.fromObject(loaded);
+        const loaded_val = Value.fromObject(&loaded.object);
         try self.setGlobal("$LOADED_FEATURES", loaded_val);
         try self.setGlobal("$\"", loaded_val);
     }
 
     pub fn syncLoadPathGlobals(self: *VM) VMError!void {
-        const load_path_val = Value.fromObject(self.load_path orelse return error.Fatal);
+        const load_path_obj = self.load_path orelse return error.Fatal;
+        const load_path_val = Value.fromObject(&load_path_obj.object);
         try self.setGlobal("$LOAD_PATH", load_path_val);
         try self.setGlobal("$:", load_path_val);
     }
@@ -9226,7 +9240,7 @@ pub const VM = struct {
                 rest_array.elements.append(self.gc_allocator, effective_args[arg_idx]) catch return error.Fatal;
                 arg_idx += 1;
             }
-            setLocal(ep, lc, rest_idx, Value.fromObject(rest_array));
+            setLocal(ep, lc, rest_idx, Value.fromObject(&rest_array.object));
             local_idx = rest_idx + 1;
         }
 
@@ -9434,7 +9448,7 @@ pub const VM = struct {
             try self.hashSetEntry(kw_hash, kw_keys[i], kw_value);
         }
 
-        return Value.fromObject(kw_hash);
+        return Value.fromObject(&kw_hash.object);
     }
 
     fn bindKeywordArguments(
@@ -9513,7 +9527,7 @@ pub const VM = struct {
                 }
             }
 
-            (ep - lc + rest_idx)[0] = Value.fromObject(kw_hash);
+            (ep - lc + rest_idx)[0] = Value.fromObject(&kw_hash.object);
         } else {
             for (matched, 0..) |is_matched, i| {
                 if (!is_matched) {
@@ -9922,14 +9936,14 @@ pub const VM = struct {
     pub fn unhandledExceptionExitStatus(self: *VM) ?u8 {
         const exc = self.pending_exception orelse return null;
         if (self.isClassOrSubclassOf(exc.object.class.?, self.system_exit_class)) {
-            const status = self.getInstanceVariable(Value.fromObject(exc), "@status") catch return 1;
+            const status = self.getInstanceVariable(Value.fromObject(&exc.object), "@status") catch return 1;
             if (!status.isInteger()) return 0;
             const code: u8 = @intCast(status.toInteger());
             return code;
         }
 
         if (self.isClassOrSubclassOf(exc.object.class.?, self.signal_exception_class)) {
-            const status = self.getInstanceVariable(Value.fromObject(exc), "@signo") catch return 1;
+            const status = self.getInstanceVariable(Value.fromObject(&exc.object), "@signo") catch return 1;
             if (!status.isInteger()) return 1;
             const signo = status.toInteger();
             if (signo < 0 or signo > 127) return 1;

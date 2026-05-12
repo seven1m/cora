@@ -285,7 +285,7 @@ pub fn downtoEnumeratorSize(vm: *VM, receiver: Value, method_args: ?*value.Array
 }
 
 pub fn register(vm: *VM) !void {
-    const integer_class_val = Value.fromObject(vm.integer_class);
+    const integer_class_val = Value.fromObject(&vm.integer_class.module.object);
     const integer_singleton = try vm.getOrCreateSingletonClass(integer_class_val);
     const try_convert_sym = try vm.intern("try_convert");
     try integer_singleton.module.methods.put(try_convert_sym, value.MethodEntry.builtin(&builtinIntegerTryConvert, .{ .exact = 1 }));

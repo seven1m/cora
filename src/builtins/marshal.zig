@@ -99,7 +99,7 @@ const LoadState = struct {
 };
 
 pub fn register(vm: *VM) !void {
-    const marshal_obj = Value.fromObject(vm.marshal_module);
+    const marshal_obj = Value.fromObject(&vm.marshal_module.object);
     const marshal_singleton = try vm.getOrCreateSingletonClass(marshal_obj);
 
     const dump_sym = try vm.intern("dump");
@@ -454,8 +454,8 @@ fn loadValue(state: *LoadState) VMError!Value {
         Tag.true_value => Value.boolean(true),
         Tag.false_value => Value.boolean(false),
         Tag.fixnum => Value.integer(try loadPackedInt(state)),
-        Tag.symbol => Value.fromObject(try loadSymbol(state)),
-        Tag.symbol_link => Value.fromObject(try loadSymbolLink(state)),
+        Tag.symbol => Value.fromObject(&(try loadSymbol(state)).object),
+        Tag.symbol_link => Value.fromObject(&(try loadSymbolLink(state)).object),
         Tag.object_link => try loadObjectLink(state),
         Tag.string => try loadString(state),
         Tag.array => try loadArray(state),
@@ -556,7 +556,7 @@ fn loadArray(state: *LoadState) VMError!Value {
         return state.vm.raiseExceptionFmt(state.vm.argument_error_class, "negative array length", .{});
     }
     const array = try state.vm.createArray();
-    const array_val = Value.fromObject(array);
+    const array_val = Value.fromObject(&array.object);
     state.object_refs.append(state.vm.allocator, array_val) catch return error.Fatal;
     var i: i64 = 0;
     while (i < len) : (i += 1) {
@@ -571,7 +571,7 @@ fn loadHash(state: *LoadState, has_default: bool) VMError!Value {
         return state.vm.raiseExceptionFmt(state.vm.argument_error_class, "negative hash length", .{});
     }
     const hash = try state.vm.createHash();
-    const hash_val = Value.fromObject(hash);
+    const hash_val = Value.fromObject(&hash.object);
     state.object_refs.append(state.vm.allocator, hash_val) catch return error.Fatal;
     var i: i64 = 0;
     while (i < len) : (i += 1) {
@@ -674,7 +674,7 @@ fn loadIvarWrapped(state: *LoadState) VMError!Value {
         if (base.isString()) {
             base.toStringObject().encoding = encoding_value;
         } else if (base.isSymbol()) {
-            return Value.fromObject(try state.vm.internWithEncoding(base.toSymbolObject().name, encoding_value));
+            return Value.fromObject(&(try state.vm.internWithEncoding(base.toSymbolObject().name, encoding_value)).object);
         }
     }
 

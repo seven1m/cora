@@ -35,7 +35,7 @@ const TimeParts = struct {
 };
 
 pub fn register(vm: *VM) !void {
-    const time_class_val = Value.fromObject(vm.time_class);
+    const time_class_val = Value.fromObject(&vm.time_class.module.object);
     const time_singleton = try vm.getOrCreateSingletonClass(time_class_val);
 
     const new_sym = try vm.intern("new");
@@ -545,7 +545,7 @@ pub fn builtinTimeToA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
     array_obj.elements.append(vm.gc_allocator, Value.integer(parts.year_day)) catch return error.Fatal;
     array_obj.elements.append(vm.gc_allocator, Value.boolean(false)) catch return error.Fatal;
     array_obj.elements.append(vm.gc_allocator, try vm.newString("UTC", false)) catch return error.Fatal;
-    return Value.fromObject(array_obj);
+    return Value.fromObject(&array_obj.object);
 }
 
 pub fn builtinTimePlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

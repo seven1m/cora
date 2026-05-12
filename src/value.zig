@@ -469,7 +469,7 @@ pub const Value = struct {
         @panic("float values not yet implemented");
     }
 
-    pub inline fn fromObject(ptr: anytype) Value {
+    pub inline fn fromObject(ptr: *Object) Value {
         return .{ .raw = @intFromPtr(ptr) };
     }
 

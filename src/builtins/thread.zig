@@ -8,7 +8,7 @@ const Block = vm_mod.Block;
 const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
-    const thread_class_val = Value.fromObject(vm.thread_class);
+    const thread_class_val = Value.fromObject(&vm.thread_class.module.object);
     const thread_singleton = try vm.getOrCreateSingletonClass(thread_class_val);
 
     // Class methods
@@ -169,7 +169,7 @@ fn builtinThreadList(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value 
             arr.elements.append(vm.gc_allocator, Value.fromObject(&thread.object)) catch return error.Fatal;
         }
     }
-    return Value.fromObject(arr);
+    return Value.fromObject(&arr.object);
 }
 
 fn builtinThreadPass(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -454,10 +454,10 @@ fn builtinThreadKeys(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
     if (fiber.fiber_locals) |locals| {
         var it = locals.keyIterator();
         while (it.next()) |key| {
-            arr.elements.append(vm.gc_allocator, Value.fromObject(key.*)) catch return error.Fatal;
+            arr.elements.append(vm.gc_allocator, Value.fromObject(&key.*.object)) catch return error.Fatal;
         }
     }
-    return Value.fromObject(arr);
+    return Value.fromObject(&arr.object);
 }
 
 // =============================================================================
@@ -511,10 +511,10 @@ fn builtinThreadVarList(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     if (thread.thread_variables) |vars| {
         var it = vars.keyIterator();
         while (it.next()) |key| {
-            arr.elements.append(vm.gc_allocator, Value.fromObject(key.*)) catch return error.Fatal;
+            arr.elements.append(vm.gc_allocator, Value.fromObject(&key.*.object)) catch return error.Fatal;
         }
     }
-    return Value.fromObject(arr);
+    return Value.fromObject(&arr.object);
 }
 
 // =============================================================================

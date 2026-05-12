@@ -91,11 +91,11 @@ pub fn builtinNilClassToF(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
 pub fn builtinNilClassToA(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const array = try vm.createArray();
-    return Value.fromObject(array);
+    return Value.fromObject(&array.object);
 }
 
 pub fn builtinNilClassToH(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const hash = try vm.createHash();
-    return Value.fromObject(hash);
+    return Value.fromObject(&hash.object);
 }

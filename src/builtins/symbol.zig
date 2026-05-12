@@ -10,7 +10,7 @@ const Block = vm_mod.Block;
 const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
-    const symbol_class_val = Value.fromObject(vm.symbol_class);
+    const symbol_class_val = Value.fromObject(&vm.symbol_class.module.object);
     const symbol_singleton = try vm.getOrCreateSingletonClass(symbol_class_val);
 
     const all_symbols_sym = try vm.intern("all_symbols");
@@ -110,10 +110,10 @@ pub fn builtinSymbolAllSymbols(vm: *VM, _: Value, args: []Value, _: ?Block) VMEr
     const out = try vm.createArray();
     var it = vm.symbols.valueIterator();
     while (it.next()) |symbol_obj| {
-        out.elements.append(vm.gc_allocator, Value.fromObject(symbol_obj.*)) catch return error.Fatal;
+        out.elements.append(vm.gc_allocator, Value.fromObject(&symbol_obj.*.object)) catch return error.Fatal;
     }
 
-    return Value.fromObject(out);
+    return Value.fromObject(&out.object);
 }
 
 pub fn builtinSymbolEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -209,7 +209,7 @@ pub fn builtinSymbolLength(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 pub fn builtinSymbolElementReference(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     const sym = receiver.toSymbolObject();
     var string_view = symbolStringView(vm, sym);
-    return string_builtin.builtinStringSlice(vm, Value.fromObject(&string_view), args, null);
+    return string_builtin.builtinStringSlice(vm, Value.fromObject(&string_view.object), args, null);
 }
 
 pub fn builtinSymbolEmpty(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -233,20 +233,20 @@ pub fn builtinSymbolEndWith(vm: *VM, receiver: Value, args: []Value, block: ?Blo
 pub fn builtinSymbolMatchOp(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     const sym = receiver.toSymbolObject();
     var string_view = symbolStringView(vm, sym);
-    return string_builtin.builtinStringMatchOp(vm, Value.fromObject(&string_view), args, block);
+    return string_builtin.builtinStringMatchOp(vm, Value.fromObject(&string_view.object), args, block);
 }
 
 pub fn builtinSymbolMatch(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     const sym = receiver.toSymbolObject();
     var string_view = symbolStringView(vm, sym);
-    return string_builtin.builtinStringMatch(vm, Value.fromObject(&string_view), args, block);
+    return string_builtin.builtinStringMatch(vm, Value.fromObject(&string_view.object), args, block);
 }
 
 pub fn builtinSymbolMatchQ(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     _ = block;
     const sym = receiver.toSymbolObject();
     var string_view = symbolStringView(vm, sym);
-    return string_builtin.builtinStringMatchQ(vm, Value.fromObject(&string_view), args, null);
+    return string_builtin.builtinStringMatchQ(vm, Value.fromObject(&string_view.object), args, null);
 }
 
 pub fn builtinSymbolSucc(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -254,7 +254,7 @@ pub fn builtinSymbolSucc(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     const sym = receiver.toSymbolObject();
     const next_bytes = try string_builtin.stringNextBytes(vm, sym.name);
     const out = try vm.internWithEncoding(next_bytes, sym.encoding);
-    return Value.fromObject(out);
+    return Value.fromObject(&out.object);
 }
 
 pub fn builtinSymbolUpcase(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -282,7 +282,7 @@ fn mapSymbolCase(
     const sym = receiver.toSymbolObject();
     const mapped = try string_builtin.mapStringCase(vm, sym.name, sym.encoding, args, operation);
     const mapped_sym = try vm.internWithEncoding(mapped.bytes, mapped.encoding);
-    return Value.fromObject(mapped_sym);
+    return Value.fromObject(&mapped_sym.object);
 }
 
 fn symbolCasecmpOrder(vm: *VM, lhs: *const value.SymbolObject, rhs: *const value.SymbolObject, fold: bool) VMError!?i64 {

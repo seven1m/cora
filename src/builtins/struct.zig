@@ -38,7 +38,7 @@ fn duplicateMembersArray(vm: *VM, members: *value.ArrayObject) VMError!Value {
     for (members.elements.items) |member| {
         out.elements.append(vm.gc_allocator, member) catch return error.Fatal;
     }
-    return Value.fromObject(out);
+    return Value.fromObject(&out.object);
 }
 
 fn structSize(vm: *VM, receiver: Value) VMError!usize {
@@ -123,7 +123,7 @@ fn normalizeStructMember(vm: *VM, arg: Value) VMError!*SymbolObject {
 }
 
 pub fn register(vm: *VM) !void {
-    const struct_singleton = try vm.getOrCreateSingletonClass(Value.fromObject(vm.struct_class));
+    const struct_singleton = try vm.getOrCreateSingletonClass(Value.fromObject(&vm.struct_class.module.object));
 
     const new_sym = try vm.intern("new");
     try struct_singleton.module.methods.put(new_sym, value.MethodEntry.builtin(&builtinStructNew, .{ .variadic = 0 }));
@@ -209,7 +209,7 @@ pub fn builtinStructNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
             return vm.raiseExceptionFmt(vm.argument_error_class, "duplicate member: {s}", .{member_sym.name});
         }
         seen.put(member_sym, {}) catch return error.Fatal;
-        members.elements.append(vm.gc_allocator, Value.fromObject(member_sym)) catch return error.Fatal;
+        members.elements.append(vm.gc_allocator, Value.fromObject(&member_sym.object)) catch return error.Fatal;
     }
 
     const class_name = if (name_arg) |name| try name.coerceToStr(vm, "class name is not a string") else "<anonymous>";
@@ -300,7 +300,7 @@ pub fn builtinStructToA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     for (members.elements.items) |member| {
         out.elements.append(vm.gc_allocator, try structMemberReaderValue(vm, receiver, member.toSymbolObject())) catch return error.Fatal;
     }
-    return Value.fromObject(out);
+    return Value.fromObject(&out.object);
 }
 
 pub fn builtinStructSize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -333,7 +333,7 @@ pub fn builtinStructEachPair(vm: *VM, receiver: Value, args: []Value, block: ?Bl
 
     for (members.elements.items) |member| {
         const value_arg = try structMemberReaderValue(vm, receiver, member.toSymbolObject());
-        const yield_args = [_]Value{ Value.fromObject(member.toSymbolObject()), value_arg };
+        const yield_args = [_]Value{ Value.fromObject(&member.toSymbolObject().object), value_arg };
         const result = try vm.yieldToBlock(block.?, yield_args[0..]);
         if (result.controlFlowValue()) |return_value| return return_value;
     }
@@ -343,7 +343,8 @@ pub fn builtinStructEachPair(vm: *VM, receiver: Value, args: []Value, block: ?Bl
 
 pub fn builtinStructInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const class_name = try vm.callMethodByName(Value.fromObject(vm.getClass(receiver)), "name", &.{}, null);
+    const receiver_class = vm.getClass(receiver);
+    const class_name = try vm.callMethodByName(Value.fromObject(&receiver_class.module.object), "name", &.{}, null);
     const members = try getStructMembersForReceiver(vm, receiver);
 
     var buffer: std.ArrayList(u8) = .empty;

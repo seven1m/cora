@@ -21,11 +21,11 @@ const MethodListFilter = method_reflection.MethodListFilter;
 fn implicitAutoloadReceiver(vm: *VM) Value {
     if (vm.current_lexical_scope) |scope| {
         return switch (scope.scope_module) {
-            .class => |klass| Value.fromObject(klass),
-            .module => |mod| Value.fromObject(mod),
+            .class => |klass| Value.fromObject(&klass.module.object),
+            .module => |mod| Value.fromObject(&mod.object),
         };
     }
-    return Value.fromObject(vm.object_class);
+    return Value.fromObject(&vm.object_class.module.object);
 }
 
 const BoundMethodLookup = struct {
@@ -130,12 +130,12 @@ fn lookupSingletonMethodOnly(singleton_class: *ClassObject, method_name: *Symbol
         i -= 1;
         const prepended = singleton_class.module.prepended_modules.items[i];
         if (prepended.methods.get(method_name)) |entry| {
-            return resolveMethodEntry(method_name, singleton_class, Value.fromObject(prepended), entry);
+            return resolveMethodEntry(method_name, singleton_class, Value.fromObject(&prepended.object), entry);
         }
     }
 
     if (singleton_class.module.methods.get(method_name)) |entry| {
-        return resolveMethodEntry(method_name, singleton_class, Value.fromObject(singleton_class), entry);
+        return resolveMethodEntry(method_name, singleton_class, Value.fromObject(&singleton_class.module.object), entry);
     }
 
     i = singleton_class.module.included_modules.items.len;
@@ -143,7 +143,7 @@ fn lookupSingletonMethodOnly(singleton_class: *ClassObject, method_name: *Symbol
         i -= 1;
         const included = singleton_class.module.included_modules.items[i];
         if (included.methods.get(method_name)) |entry| {
-            return resolveMethodEntry(method_name, singleton_class, Value.fromObject(included), entry);
+            return resolveMethodEntry(method_name, singleton_class, Value.fromObject(&included.object), entry);
         }
     }
 
@@ -241,7 +241,7 @@ pub fn register(vm: *VM) !void {
     const kernel_hash_convert_sym = try vm.intern("Hash");
     try vm.kernel_module.methods.put(kernel_hash_convert_sym, value.MethodEntry.builtinWithVisibility(&builtinKernelHashConvert, .{ .exact = 1 }, .private));
 
-    const kernel_module_val = Value.fromObject(vm.kernel_module);
+    const kernel_module_val = Value.fromObject(&vm.kernel_module.object);
     const kernel_singleton = try vm.getOrCreateSingletonClass(kernel_module_val);
     try kernel_singleton.module.methods.put(kernel_array_convert_sym, value.MethodEntry.builtin(&builtinKernelArrayConvert, .{ .exact = 1 }));
     try kernel_singleton.module.methods.put(kernel_string_convert_sym, value.MethodEntry.builtin(&builtinKernelStringConvert, .{ .exact = 1 }));
@@ -477,10 +477,12 @@ pub fn builtinKernelBinding(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 
     if (vm.frames.items.len > 0) {
         const frame = vm.currentFrame();
-        return Value.fromObject(try vm.createBinding(frame.self_value, frame.ep, vm.current_lexical_scope));
+        const binding = try vm.createBinding(frame.self_value, frame.ep, vm.current_lexical_scope);
+        return Value.fromObject(&binding.object);
     }
 
-    return Value.fromObject(try vm.createBinding(receiver, null, vm.current_lexical_scope));
+    const binding = try vm.createBinding(receiver, null, vm.current_lexical_scope);
+    return Value.fromObject(&binding.object);
 }
 
 pub fn builtinKernelRequireRelative(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -746,7 +748,7 @@ fn formatWarnMessage(vm: *VM, arg: Value, uplevel: ?usize) VMError!Value {
 }
 
 fn dispatchWarning(vm: *VM, receiver: Value, warning_message: Value, category: ?Value) VMError!void {
-    const warning_receiver = Value.fromObject(vm.warning_module);
+    const warning_receiver = Value.fromObject(&vm.warning_module.object);
     if (receiver.raw == warning_receiver.raw) {
         try warning_builtin.writeWarning(vm, warning_message.toStringObject().str);
         return;
@@ -760,7 +762,7 @@ fn dispatchWarning(vm: *VM, receiver: Value, warning_message: Value, category: ?
     switch (warningDispatchMode(resolved)) {
         .keyword => {
             var warn_args = [_]Value{warning_message};
-            var kw_keys = [_]Value{Value.fromObject(category_sym)};
+            var kw_keys = [_]Value{Value.fromObject(&category_sym.object)};
             var kw_values = [_]Value{category_value};
             _ = vm.callMethodByNameWithKeywords(
                 warning_receiver,
@@ -777,8 +779,8 @@ fn dispatchWarning(vm: *VM, receiver: Value, warning_message: Value, category: ?
                 }
 
                 const kw_hash = try vm.createHash();
-                try vm.hashSetEntry(kw_hash, Value.fromObject(category_sym), category_value);
-                var fallback_args = [_]Value{ warning_message, Value.fromObject(kw_hash) };
+                try vm.hashSetEntry(kw_hash, Value.fromObject(&category_sym.object), category_value);
+                var fallback_args = [_]Value{ warning_message, Value.fromObject(&kw_hash.object) };
                 _ = vm.callMethodByName(warning_receiver, "warn", fallback_args[0..], null) catch |fallback_err| {
                     if (fallback_err == error.Unwind and vm.pending_exception != null and vm.pending_exception.?.object.class == vm.argument_error_class) {
                         vm.pending_exception = null;
@@ -795,8 +797,8 @@ fn dispatchWarning(vm: *VM, receiver: Value, warning_message: Value, category: ?
         },
         .positional_hash => {
             const kw_hash = try vm.createHash();
-            try vm.hashSetEntry(kw_hash, Value.fromObject(category_sym), category_value);
-            var warn_args = [_]Value{ warning_message, Value.fromObject(kw_hash) };
+            try vm.hashSetEntry(kw_hash, Value.fromObject(&category_sym.object), category_value);
+            var warn_args = [_]Value{ warning_message, Value.fromObject(&kw_hash.object) };
             _ = vm.callMethodByName(warning_receiver, "warn", warn_args[0..], null) catch |err| {
                 if (err == error.Unwind and vm.pending_exception != null and vm.pending_exception.?.object.class == vm.argument_error_class) {
                     vm.pending_exception = null;
@@ -968,7 +970,7 @@ pub fn builtinKernelRespondTo(vm: *VM, receiver: Value, args: []Value, _: ?Block
     }
 
     var respond_args: [2]Value = .{
-        Value.fromObject(method_name_sym),
+        Value.fromObject(&method_name_sym.object),
         Value.boolean(include_private),
     };
     const hook_result = try vm.callMethodByName(receiver, "respond_to_missing?", &respond_args, null);
@@ -1189,7 +1191,7 @@ pub fn builtinKernelMethod(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
         );
     };
 
-    const owner = (try method_common.resolveMethodOwnerValue(vm, receiver, method_name)) orelse Value.fromObject(resolved.owner_class);
+    const owner = (try method_common.resolveMethodOwnerValue(vm, receiver, method_name)) orelse Value.fromObject(&resolved.owner_class.module.object);
     return createBoundMethodObject(vm, receiver, method_name, resolved, owner);
 }
 
@@ -1307,7 +1309,7 @@ pub fn builtinKernelDefineSingletonMethod(vm: *VM, receiver: Value, args: []Valu
     vm.markIntegerChangedForReceiver(receiver);
     vm.bumpMethodStateVersion();
 
-    return Value.fromObject(name_sym);
+    return Value.fromObject(&name_sym.object);
 }
 
 pub fn builtinKernelExtend(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -1367,7 +1369,8 @@ pub fn builtinKernelInstanceVariableSet(vm: *VM, receiver: Value, args: []Value,
 }
 
 pub fn builtinKernelToS(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
-    const class_name_val = try module_builtin.builtinModuleToS(vm, Value.fromObject(vm.getClass(receiver)), &[_]Value{}, null);
+    const class_name = vm.getClass(receiver);
+    const class_name_val = try module_builtin.builtinModuleToS(vm, Value.fromObject(&class_name.module.object), &[_]Value{}, null);
     if (!class_name_val.isString()) return error.Fatal;
 
     const object_id = receiver.objectId();
@@ -1395,7 +1398,8 @@ fn builtinKernelArrayConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMErro
 
     const arg = args[0];
     if (arg.isNil()) {
-        return Value.fromObject(try vm.createArray());
+        const array = try vm.createArray();
+        return Value.fromObject(&array.object);
     }
 
     switch (try vm.probeToAryWithVisibility(arg, true)) {
@@ -1407,7 +1411,7 @@ fn builtinKernelArrayConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMErro
         if (coerced.isNil()) {
             const wrapped = try vm.createArray();
             wrapped.elements.append(vm.gc_allocator, arg) catch return error.Fatal;
-            return Value.fromObject(wrapped);
+            return Value.fromObject(&wrapped.object);
         }
         if (coerced.isArray()) return coerced;
 
@@ -1420,7 +1424,7 @@ fn builtinKernelArrayConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMErro
 
     const wrapped = try vm.createArray();
     wrapped.elements.append(vm.gc_allocator, arg) catch return error.Fatal;
-    return Value.fromObject(wrapped);
+    return Value.fromObject(&wrapped.object);
 }
 
 fn builtinKernelStringConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -1465,11 +1469,13 @@ fn builtinKernelHashConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
 
     const arg = args[0];
     if (arg.isNil()) {
-        return Value.fromObject(try vm.createHash());
+        const hash = try vm.createHash();
+        return Value.fromObject(&hash.object);
     }
 
     if (arg.isArray() and arg.toArrayObject().elements.items.len == 0) {
-        return Value.fromObject(try vm.createHash());
+        const hash = try vm.createHash();
+        return Value.fromObject(&hash.object);
     }
 
     return switch (try vm.probeToHash(arg)) {
@@ -1515,8 +1521,8 @@ pub fn builtinKernelFrozen(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 pub fn builtinKernelSingletonClass(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
 
-    if (receiver.isNil()) return Value.fromObject(vm.nil_class);
-    if (receiver.isBool()) return Value.fromObject(if (receiver.toBool()) vm.true_class else vm.false_class);
+    if (receiver.isNil()) return Value.fromObject(&vm.nil_class.module.object);
+    if (receiver.isBool()) return Value.fromObject(&(if (receiver.toBool()) vm.true_class else vm.false_class).module.object);
     if (receiver.isInteger() or receiver.isFloat() or receiver.isSymbol()) {
         return vm.raiseExceptionFmt(vm.type_error_class, "can't define singleton", .{});
     }
@@ -1525,7 +1531,7 @@ pub fn builtinKernelSingletonClass(vm: *VM, receiver: Value, args: []Value, _: ?
     }
 
     const singleton_class = try vm.getOrCreateSingletonClass(receiver);
-    return Value.fromObject(singleton_class);
+    return Value.fromObject(&singleton_class.module.object);
 }
 
 pub fn builtinKernelDir(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -1582,7 +1588,7 @@ pub fn builtinKernelP(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value
             array_obj.elements.append(vm.gc_allocator, arg) catch return error.Fatal;
         }
 
-        return Value.fromObject(array_obj);
+        return Value.fromObject(&array_obj.object);
     }
 }
 

@@ -8,7 +8,7 @@ const Block = vm_mod.Block;
 const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
-    const warning_obj = Value.fromObject(vm.warning_module);
+    const warning_obj = Value.fromObject(&vm.warning_module.object);
     const warning_singleton = try vm.getOrCreateSingletonClass(warning_obj);
 
     const warn_sym = try vm.intern("warn");

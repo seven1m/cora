@@ -187,7 +187,7 @@ pub fn stringUnpack(vm: *VM, source: *value.StringObject, base_offset: usize, fo
         }
     }
 
-    return Value.fromObject(out);
+    return Value.fromObject(&out.object);
 }
 
 fn tokenize(vm: *VM, format: []const u8) VMError!std.ArrayList(DirectiveToken) {

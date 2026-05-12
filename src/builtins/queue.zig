@@ -8,7 +8,7 @@ const Block = vm_mod.Block;
 const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
-    const queue_class_val = Value.fromObject(vm.queue_class);
+    const queue_class_val = Value.fromObject(&vm.queue_class.module.object);
     const queue_singleton = try vm.getOrCreateSingletonClass(queue_class_val);
 
     const new_sym = try vm.intern("new");
@@ -59,7 +59,7 @@ fn builtinQueueNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMErr
         return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Class", .{});
     }
     const queue_obj = try vm.newQueue(receiver);
-    const queue_val = Value.fromObject(queue_obj);
+    const queue_val = Value.fromObject(&queue_obj.object);
     _ = try vm.callMethodByNameForwardingKeywords(queue_val, "initialize", args, block);
     return queue_val;
 }

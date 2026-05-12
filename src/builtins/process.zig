@@ -11,7 +11,7 @@ const Value = value.Value;
 extern "c" fn clock_gettime(clk_id: std.posix.CLOCK, tp: *std.posix.timespec) c_int;
 
 pub fn register(vm: *VM) !void {
-    const process_obj = Value.fromObject(vm.process_module);
+    const process_obj = Value.fromObject(&vm.process_module.object);
     const process_singleton = try vm.getOrCreateSingletonClass(process_obj);
 
     const uid_sym = try vm.intern("uid");

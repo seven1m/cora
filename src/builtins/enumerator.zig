@@ -10,7 +10,7 @@ const MethodEntry = value.MethodEntry;
 
 pub fn register(vm: *VM) !void {
     // Enumerator singleton methods (class methods)
-    const enum_class_val = Value.fromObject(vm.enumerator_class);
+    const enum_class_val = Value.fromObject(&vm.enumerator_class.module.object);
     const enum_singleton = try vm.getOrCreateSingletonClass(enum_class_val);
 
     const new_sym = try vm.intern("new");
@@ -138,7 +138,7 @@ fn builtinEnumeratorNextValues(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
     try vm.requireArgCount(args, 0);
     const enum_obj = receiver.toEnumeratorObject();
     const yield_values = try takeNextYieldValues(vm, enum_obj);
-    return Value.fromObject(yield_values);
+    return Value.fromObject(&yield_values.object);
 }
 
 fn builtinEnumeratorPeek(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -152,7 +152,7 @@ fn builtinEnumeratorPeekValues(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
     try vm.requireArgCount(args, 0);
     const enum_obj = receiver.toEnumeratorObject();
     const yield_values = try peekNextYieldValues(vm, enum_obj);
-    return Value.fromObject(yield_values);
+    return Value.fromObject(&yield_values.object);
 }
 
 fn builtinEnumeratorRewind(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -224,7 +224,7 @@ fn builtinEnumeratorToA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
         out.elements.append(vm.gc_allocator, next_val) catch return error.Fatal;
     }
 
-    return Value.fromObject(out);
+    return Value.fromObject(&out.object);
 }
 
 fn builtinEnumeratorMap(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -248,7 +248,7 @@ fn builtinEnumeratorMap(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
         out.elements.append(vm.gc_allocator, mapped.value) catch return error.Fatal;
     }
 
-    return Value.fromObject(out);
+    return Value.fromObject(&out.object);
 }
 
 // --- Yielder instance methods ---
@@ -324,7 +324,7 @@ fn enumeratorFiberYieldBlock(vm: *VM, args: []Value) VMError!Value {
     for (args) |arg| {
         arr.elements.append(vm.gc_allocator, arg) catch return error.Fatal;
     }
-    return vm.fiberYield(Value.fromObject(arr));
+    return vm.fiberYield(Value.fromObject(&arr.object));
 }
 
 fn raiseStopIteration(vm: *VM) VMError {
@@ -337,7 +337,7 @@ fn collapseYieldValues(yield_values: *value.ArrayObject) Value {
     return switch (yield_values.elements.items.len) {
         0 => Value.nil(),
         1 => yield_values.elements.items[0],
-        else => Value.fromObject(yield_values),
+        else => Value.fromObject(&yield_values.object),
     };
 }
 
@@ -349,7 +349,7 @@ fn fetchNextYieldValues(vm: *VM, enum_obj: *value.EnumeratorObject) VMError!*val
         return raiseStopIteration(vm);
     }
 
-    var resume_args: [1]Value = .{Value.fromObject(enum_obj)};
+    var resume_args: [1]Value = .{Value.fromObject(&enum_obj.object)};
     const result = try vm.resumeFiber(
         fiber,
         if (fiber.state == .created) resume_args[0..1] else &[_]Value{},

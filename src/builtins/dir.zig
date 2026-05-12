@@ -75,7 +75,7 @@ fn currentHome(vm: *VM) VMError![]const u8 {
 }
 
 pub fn register(vm: *VM) !void {
-    const dir_val = Value.fromObject(vm.dir_class);
+    const dir_val = Value.fromObject(&vm.dir_class.module.object);
     const dir_singleton = try vm.getOrCreateSingletonClass(dir_val);
 
     const pwd_sym = try vm.intern("pwd");
@@ -668,7 +668,7 @@ fn buildGlobResult(vm: *VM, matches: *ArrayObject, block: ?Block) VMError!Value 
         }
         return Value.nil();
     }
-    return Value.fromObject(matches);
+    return Value.fromObject(&matches.object);
 }
 
 pub fn builtinDirGlob(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {

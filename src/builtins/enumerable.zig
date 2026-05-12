@@ -73,7 +73,7 @@ fn builtinEnumerableFlatMap(vm: *VM, receiver: Value, args: []Value, block: ?Blo
         }
     }
 
-    return Value.fromObject(out);
+    return Value.fromObject(&out.object);
 }
 
 fn builtinEnumerableMap(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -103,14 +103,14 @@ fn builtinEnumerableMap(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
         out.elements.append(vm.gc_allocator, result.value) catch return error.Fatal;
     }
 
-    return Value.fromObject(out);
+    return Value.fromObject(&out.object);
 }
 
 fn collapseYieldValues(yield_values: *value.ArrayObject) Value {
     return switch (yield_values.elements.items.len) {
         0 => Value.nil(),
         1 => yield_values.elements.items[0],
-        else => Value.fromObject(yield_values),
+        else => Value.fromObject(&yield_values.object),
     };
 }
 
@@ -177,14 +177,14 @@ fn builtinEnumerableGroupBy(vm: *VM, receiver: Value, args: []Value, block: ?Blo
             entry.value
         else blk: {
             const new_bucket = try vm.createArray();
-            const new_bucket_value = Value.fromObject(new_bucket);
+            const new_bucket_value = Value.fromObject(&new_bucket.object);
             try vm.hashSetEntry(grouped, result.value, new_bucket_value);
             break :blk new_bucket_value;
         };
         bucket_value.toArrayObject().elements.append(vm.gc_allocator, element) catch return error.Fatal;
     }
 
-    return Value.fromObject(grouped);
+    return Value.fromObject(&grouped.object);
 }
 
 fn builtinEnumerableFind(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -286,15 +286,15 @@ fn builtinEnumerableSortBy(vm: *VM, receiver: Value, args: []Value, block: ?Bloc
         entry.elements.append(vm.gc_allocator, result.value) catch return error.Fatal;
         entry.elements.append(vm.gc_allocator, Value.integer(index)) catch return error.Fatal;
         entry.elements.append(vm.gc_allocator, element) catch return error.Fatal;
-        decorated.elements.append(vm.gc_allocator, Value.fromObject(entry)) catch return error.Fatal;
+        decorated.elements.append(vm.gc_allocator, Value.fromObject(&entry.object)) catch return error.Fatal;
         index += 1;
     }
 
-    const sorted = try vm.callMethodByName(Value.fromObject(decorated), "sort", &.{}, null);
+    const sorted = try vm.callMethodByName(Value.fromObject(&decorated.object), "sort", &.{}, null);
     const out = try vm.createArray();
     for (sorted.toArrayObject().elements.items) |entry| {
         const tuple = entry.toArrayObject().elements.items;
         out.elements.append(vm.gc_allocator, tuple[2]) catch return error.Fatal;
     }
-    return Value.fromObject(out);
+    return Value.fromObject(&out.object);
 }

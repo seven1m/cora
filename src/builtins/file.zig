@@ -45,7 +45,7 @@ const FileMode = struct {
 };
 
 pub fn register(vm: *VM) !void {
-    const file_class_val = Value.fromObject(vm.file_class);
+    const file_class_val = Value.fromObject(&vm.file_class.module.object);
     const file_singleton = try vm.getOrCreateSingletonClass(file_class_val);
 
     const separator_sym = try vm.intern("SEPARATOR");

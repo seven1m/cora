@@ -105,7 +105,7 @@ pub fn builtinExceptionMessage(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
     try vm.requireArgCount(args, 0);
 
     const exc = receiver.toExceptionObject();
-    return Value.fromObject(exc.message);
+    return Value.fromObject(&exc.message.object);
 }
 
 pub fn builtinExceptionBacktrace(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -113,7 +113,7 @@ pub fn builtinExceptionBacktrace(vm: *VM, receiver: Value, args: []Value, _: ?Bl
 
     const exc = receiver.toExceptionObject();
     if (exc.backtrace) |backtrace| {
-        return Value.fromObject(backtrace);
+        return Value.fromObject(&backtrace.object);
     }
     return Value.nil();
 }
@@ -169,7 +169,7 @@ pub fn builtinLoadErrorPath(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     try vm.requireArgCount(args, 0);
     const exc = receiver.toExceptionObject();
     if (exc.path) |p| {
-        return Value.fromObject(p);
+        return Value.fromObject(&p.object);
     }
     return Value.nil();
 }

@@ -44,7 +44,8 @@ pub fn builtinObjectObjectId(vm: *VM, receiver: Value, args: []Value, _: ?Block)
 
 pub fn builtinObjectClass(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    return Value.fromObject(vm.getClass(receiver));
+    const class_obj = vm.getClass(receiver);
+    return Value.fromObject(&class_obj.module.object);
 }
 
 pub fn builtinObjectCaseEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

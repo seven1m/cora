@@ -58,7 +58,7 @@ pub fn register(vm: *VM) !void {
     const clone_sym = try vm.intern("clone");
     try vm.regexp_class.module.methods.put(clone_sym, value.MethodEntry.builtin(&builtinRegexpClone, .{ .variadic = 0 }));
 
-    const regexp_class_val = Value.fromObject(vm.regexp_class);
+    const regexp_class_val = Value.fromObject(&vm.regexp_class.module.object);
     const ignorecase_sym = try vm.intern("IGNORECASE");
     try vm.regexp_class.module.constants.put(ignorecase_sym, .{ .value = Value.integer(OPTION_IGNORECASE) });
     const extended_sym = try vm.intern("EXTENDED");
@@ -585,7 +585,7 @@ fn builtinRegexpMatch(vm: *VM, receiver: Value, args: []Value, block: ?Block) VM
     const result = try searchRegexp(vm, receiver.toRegexpObject(), args[0], start_pos, true);
     if (result == null) return Value.nil();
 
-    const md_val = Value.fromObject(result.?.match_data);
+    const md_val = Value.fromObject(&result.?.match_data.object);
     if (block) |blk| {
         const yielded = try vm.yieldToBlock(blk, &[_]Value{md_val});
         if (yielded.controlFlowValue()) |return_value| return return_value;

@@ -160,7 +160,7 @@ pub fn register(vm: *VM) !void {
     try vm.encoding_class.module.methods.put(dummy_sym, value.MethodEntry.builtin(&builtinEncodingDummy, .{ .exact = 0 }));
 
     const find_sym = try vm.intern("find");
-    const encoding_class_val = Value.fromObject(vm.encoding_class);
+    const encoding_class_val = Value.fromObject(&vm.encoding_class.module.object);
     const encoding_singleton = try vm.getOrCreateSingletonClass(encoding_class_val);
     try encoding_singleton.module.methods.put(find_sym, value.MethodEntry.builtin(&builtinEncodingFind, .{ .exact = 1 }));
 
@@ -248,36 +248,36 @@ pub fn builtinEncodingFind(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
 
     if (std.mem.eql(u8, lookup, "INTERNAL")) {
         if (vm.default_internal_encoding) |encoding_obj| {
-            return Value.fromObject(encoding_obj);
+            return Value.fromObject(&encoding_obj.object);
         }
         return Value.nil();
     }
 
     if (std.mem.eql(u8, lookup, "EXTERNAL") or std.mem.eql(u8, lookup, "FILESYSTEM") or std.mem.eql(u8, lookup, "LOCALE")) {
-        return Value.fromObject(vm.default_external_encoding);
+        return Value.fromObject(&vm.default_external_encoding.object);
     }
 
     if (encoding_name_map.get(lookup)) |enc_name| {
         return switch (enc_name) {
-            .utf8 => Value.fromObject(vm.encoding_utf8),
-            .cesu8 => Value.fromObject(vm.encoding_cesu8),
-            .ascii_8bit => Value.fromObject(vm.encoding_ascii_8bit),
-            .us_ascii => Value.fromObject(vm.encoding_us_ascii),
-            .shift_jis => Value.fromObject(vm.encoding_shift_jis),
-            .windows_31j => Value.fromObject(vm.encoding_windows_31j),
-            .euc_jp => Value.fromObject(vm.encoding_euc_jp),
-            .cp437 => Value.fromObject(vm.encoding_cp437),
-            .iso_8859_1 => Value.fromObject(vm.encoding_iso_8859_1),
-            .iso_8859_9 => Value.fromObject(vm.encoding_iso_8859_9),
-            .iso_8859_15 => Value.fromObject(vm.encoding_iso_8859_15),
-            .utf7 => Value.fromObject(vm.encoding_utf7),
-            .utf16 => Value.fromObject(vm.encoding_utf16),
-            .utf32 => Value.fromObject(vm.encoding_utf32),
-            .utf16le => Value.fromObject(vm.encoding_utf16le),
-            .utf16be => Value.fromObject(vm.encoding_utf16be),
-            .utf32le => Value.fromObject(vm.encoding_utf32le),
-            .utf32be => Value.fromObject(vm.encoding_utf32be),
-            .iso_2022_jp => Value.fromObject(vm.encoding_iso_2022_jp),
+            .utf8 => Value.fromObject(&vm.encoding_utf8.object),
+            .cesu8 => Value.fromObject(&vm.encoding_cesu8.object),
+            .ascii_8bit => Value.fromObject(&vm.encoding_ascii_8bit.object),
+            .us_ascii => Value.fromObject(&vm.encoding_us_ascii.object),
+            .shift_jis => Value.fromObject(&vm.encoding_shift_jis.object),
+            .windows_31j => Value.fromObject(&vm.encoding_windows_31j.object),
+            .euc_jp => Value.fromObject(&vm.encoding_euc_jp.object),
+            .cp437 => Value.fromObject(&vm.encoding_cp437.object),
+            .iso_8859_1 => Value.fromObject(&vm.encoding_iso_8859_1.object),
+            .iso_8859_9 => Value.fromObject(&vm.encoding_iso_8859_9.object),
+            .iso_8859_15 => Value.fromObject(&vm.encoding_iso_8859_15.object),
+            .utf7 => Value.fromObject(&vm.encoding_utf7.object),
+            .utf16 => Value.fromObject(&vm.encoding_utf16.object),
+            .utf32 => Value.fromObject(&vm.encoding_utf32.object),
+            .utf16le => Value.fromObject(&vm.encoding_utf16le.object),
+            .utf16be => Value.fromObject(&vm.encoding_utf16be.object),
+            .utf32le => Value.fromObject(&vm.encoding_utf32le.object),
+            .utf32be => Value.fromObject(&vm.encoding_utf32be.object),
+            .iso_2022_jp => Value.fromObject(&vm.encoding_iso_2022_jp.object),
         };
     }
 
@@ -289,34 +289,34 @@ pub fn builtinEncodingList(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
 
     const array = try vm.createArray();
     const encodings = [_]Value{
-        Value.fromObject(vm.encoding_ascii_8bit),
-        Value.fromObject(vm.encoding_us_ascii),
-        Value.fromObject(vm.encoding_utf8),
-        Value.fromObject(vm.encoding_cesu8),
-        Value.fromObject(vm.encoding_utf7),
-        Value.fromObject(vm.encoding_utf16),
-        Value.fromObject(vm.encoding_utf16le),
-        Value.fromObject(vm.encoding_utf16be),
-        Value.fromObject(vm.encoding_utf32),
-        Value.fromObject(vm.encoding_utf32le),
-        Value.fromObject(vm.encoding_utf32be),
-        Value.fromObject(vm.encoding_shift_jis),
-        Value.fromObject(vm.encoding_windows_31j),
-        Value.fromObject(vm.encoding_euc_jp),
-        Value.fromObject(vm.encoding_iso_2022_jp),
-        Value.fromObject(vm.encoding_iso_8859_1),
-        Value.fromObject(vm.encoding_iso_8859_9),
-        Value.fromObject(vm.encoding_iso_8859_15),
-        Value.fromObject(vm.encoding_cp437),
+        Value.fromObject(&vm.encoding_ascii_8bit.object),
+        Value.fromObject(&vm.encoding_us_ascii.object),
+        Value.fromObject(&vm.encoding_utf8.object),
+        Value.fromObject(&vm.encoding_cesu8.object),
+        Value.fromObject(&vm.encoding_utf7.object),
+        Value.fromObject(&vm.encoding_utf16.object),
+        Value.fromObject(&vm.encoding_utf16le.object),
+        Value.fromObject(&vm.encoding_utf16be.object),
+        Value.fromObject(&vm.encoding_utf32.object),
+        Value.fromObject(&vm.encoding_utf32le.object),
+        Value.fromObject(&vm.encoding_utf32be.object),
+        Value.fromObject(&vm.encoding_shift_jis.object),
+        Value.fromObject(&vm.encoding_windows_31j.object),
+        Value.fromObject(&vm.encoding_euc_jp.object),
+        Value.fromObject(&vm.encoding_iso_2022_jp.object),
+        Value.fromObject(&vm.encoding_iso_8859_1.object),
+        Value.fromObject(&vm.encoding_iso_8859_9.object),
+        Value.fromObject(&vm.encoding_iso_8859_15.object),
+        Value.fromObject(&vm.encoding_cp437.object),
     };
     array.elements.appendSlice(vm.gc_allocator, &encodings) catch return error.Fatal;
-    return Value.fromObject(array);
+    return Value.fromObject(&array.object);
 }
 
 pub fn builtinEncodingDefaultInternal(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     if (vm.default_internal_encoding) |encoding_obj| {
-        return Value.fromObject(encoding_obj);
+        return Value.fromObject(&encoding_obj.object);
     }
     return Value.nil();
 }
@@ -339,7 +339,7 @@ pub fn builtinEncodingSetDefaultInternal(vm: *VM, _: Value, args: []Value, _: ?B
 
 pub fn builtinEncodingDefaultExternal(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    return Value.fromObject(vm.default_external_encoding);
+    return Value.fromObject(&vm.default_external_encoding.object);
 }
 
 pub fn builtinEncodingSetDefaultExternal(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

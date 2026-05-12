@@ -138,7 +138,7 @@ pub fn sortedSymbolArray(vm: *VM, symbols: []*SymbolObject) VMError!Value {
 
     const out = try vm.createArray();
     for (symbols) |name_sym| {
-        out.elements.append(vm.gc_allocator, Value.fromObject(name_sym)) catch return error.Fatal;
+        out.elements.append(vm.gc_allocator, Value.fromObject(&name_sym.object)) catch return error.Fatal;
     }
-    return Value.fromObject(out);
+    return Value.fromObject(&out.object);
 }

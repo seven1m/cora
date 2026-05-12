@@ -62,7 +62,7 @@ fn buildArray(vm: *VM, items: []const Value) VMError!Value {
     for (items) |item| {
         arr.elements.append(vm.gc_allocator, item) catch return error.Fatal;
     }
-    return Value.fromObject(arr);
+    return Value.fromObject(&arr.object);
 }
 
 fn builtinMatchDataBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -102,13 +102,13 @@ fn builtinMatchDataLength(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
 fn builtinMatchDataRegexp(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const md = try getMatchData(receiver);
-    return Value.fromObject(md.regexp);
+    return Value.fromObject(&md.regexp.object);
 }
 
 fn builtinMatchDataString(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const md = try getMatchData(receiver);
-    return Value.fromObject(md.source);
+    return Value.fromObject(&md.source.object);
 }
 
 fn builtinMatchDataPreMatch(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -154,7 +154,7 @@ fn builtinMatchDataOffset(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     const arr = try vm.createArray();
     arr.elements.append(vm.gc_allocator, Value.integer(begin_pos)) catch return error.Fatal;
     arr.elements.append(vm.gc_allocator, Value.integer(end_pos)) catch return error.Fatal;
-    return Value.fromObject(arr);
+    return Value.fromObject(&arr.object);
 }
 
 fn builtinMatchDataBegin(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

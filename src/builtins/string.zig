@@ -69,7 +69,7 @@ fn transcodeToIso2022JpSimple(
 
 pub fn register(vm: *VM) !void {
     const try_convert_sym = try vm.intern("try_convert");
-    const string_class_val = Value.fromObject(vm.string_class);
+    const string_class_val = Value.fromObject(&vm.string_class.module.object);
     const string_singleton = try vm.getOrCreateSingletonClass(string_class_val);
     try string_singleton.module.methods.put(try_convert_sym, value.MethodEntry.builtin(&builtinStringTryConvert, .{ .exact = 1 }));
 
@@ -2160,7 +2160,7 @@ pub fn builtinStringChars(vm: *VM, receiver: Value, args: []Value, block: ?Block
         array_obj.elements.append(vm.gc_allocator, char_val) catch return error.Fatal;
     }
 
-    return Value.fromObject(array_obj);
+    return Value.fromObject(&array_obj.object);
 }
 
 pub fn builtinStringEachChar(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -2190,7 +2190,7 @@ pub fn builtinStringBytes(vm: *VM, receiver: Value, args: []Value, block: ?Block
     for (bytes) |b| {
         array_obj.elements.append(vm.gc_allocator, Value.integer(b)) catch return error.Fatal;
     }
-    return Value.fromObject(array_obj);
+    return Value.fromObject(&array_obj.object);
 }
 
 pub fn builtinStringEachByte(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -2337,7 +2337,7 @@ pub fn builtinStringCodepoints(vm: *VM, receiver: Value, args: []Value, block: ?
         array_obj.elements.append(vm.gc_allocator, Value.integer(parsed.codepoint)) catch return error.Fatal;
     }
 
-    return Value.fromObject(array_obj);
+    return Value.fromObject(&array_obj.object);
 }
 
 pub fn builtinStringEachCodepoint(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -3044,7 +3044,7 @@ fn splitYieldOrReturn(vm: *VM, receiver: Value, array_obj: *value.ArrayObject, b
         }
         return receiver;
     }
-    return Value.fromObject(array_obj);
+    return Value.fromObject(&array_obj.object);
 }
 
 fn splitRaiseInvalidSource(vm: *VM, encoding: enc.Encoding) VMError!Value {
@@ -4018,7 +4018,7 @@ pub fn builtinStringToSym(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     else
         string_obj.encoding;
     const sym = try vm.internWithEncoding(string_obj.str, symbol_encoding);
-    return Value.fromObject(sym);
+    return Value.fromObject(&sym.object);
 }
 
 pub fn builtinStringInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -4178,7 +4178,7 @@ pub fn builtinStringScan(vm: *VM, receiver: Value, args: []Value, block: ?Block)
                 for (md.captures.items[1..]) |capture| {
                     captures.elements.append(vm.gc_allocator, capture) catch return error.Fatal;
                 }
-                break :blk Value.fromObject(captures);
+                break :blk Value.fromObject(&captures.object);
             };
 
             if (block) |blk| {
@@ -4258,7 +4258,7 @@ pub fn builtinStringScan(vm: *VM, receiver: Value, args: []Value, block: ?Block)
     }
 
     if (block != null) return receiver;
-    return Value.fromObject(out.?);
+    return Value.fromObject(&out.?.object);
 }
 
 pub fn builtinStringUnpack(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

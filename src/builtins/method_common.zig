@@ -59,13 +59,13 @@ pub fn resolveMethodOwnerValue(vm: *VM, receiver: Value, method_name_sym: *Symbo
                     const prepended = klass.module.prepended_modules.items[i];
                     if (prepended.methods.get(name_sym)) |entry| {
                         if (entry.method == .undefined) return null;
-                        return Value.fromObject(prepended);
+                        return Value.fromObject(&prepended.object);
                     }
                 }
 
                 if (klass.module.methods.get(name_sym)) |entry| {
                     if (entry.method == .undefined) return null;
-                    return Value.fromObject(klass);
+                    return Value.fromObject(&klass.module.object);
                 }
 
                 i = klass.module.included_modules.items.len;
@@ -74,7 +74,7 @@ pub fn resolveMethodOwnerValue(vm: *VM, receiver: Value, method_name_sym: *Symbo
                     const included = klass.module.included_modules.items[i];
                     if (included.methods.get(name_sym)) |entry| {
                         if (entry.method == .undefined) return null;
-                        return Value.fromObject(included);
+                        return Value.fromObject(&included.object);
                     }
                 }
 
@@ -104,14 +104,14 @@ fn scanClassForExactMethod(
         while (i > 0) {
             i -= 1;
             const prepended = klass.module.prepended_modules.items[i];
-            if (Value.fromObject(prepended).raw != owner.raw) continue;
+            if (Value.fromObject(&prepended.object).raw != owner.raw) continue;
             if (prepended.methods.get(method_name_sym)) |entry| {
                 return resolveMethodEntry(method_name_sym, klass, entry);
             }
             return null;
         }
 
-        if (Value.fromObject(klass).raw == owner.raw) {
+        if (Value.fromObject(&klass.module.object).raw == owner.raw) {
             if (klass.module.methods.get(method_name_sym)) |entry| {
                 return resolveMethodEntry(method_name_sym, klass, entry);
             }
@@ -122,7 +122,7 @@ fn scanClassForExactMethod(
         while (i > 0) {
             i -= 1;
             const included = klass.module.included_modules.items[i];
-            if (Value.fromObject(included).raw != owner.raw) continue;
+            if (Value.fromObject(&included.object).raw != owner.raw) continue;
             if (included.methods.get(method_name_sym)) |entry| {
                 return resolveMethodEntry(method_name_sym, klass, entry);
             }
@@ -165,7 +165,7 @@ pub fn ownerDisplayNameFull(vm: *VM, owner: Value) VMError![]const u8 {
 pub fn raiseUndefinedMethodName(vm: *VM, name_sym: *SymbolObject) VMError!Value {
     const message = std.fmt.allocPrint(vm.gc_allocator, "undefined method '{s}'", .{name_sym.name}) catch return error.Fatal;
     const exc = try vm.createException(vm.name_error_class, message);
-    try vm.setInstanceVariable(Value.fromObject(exc), "@name", Value.fromObject(name_sym));
+    try vm.setInstanceVariable(Value.fromObject(&exc.object), "@name", Value.fromObject(&name_sym.object));
     vm.pending_exception = exc;
     return error.Unwind;
 }
@@ -186,7 +186,7 @@ pub fn sourceLocationForResolvedMethod(vm: *VM, resolved: vm_mod.ResolvedMethod)
     const array = try vm.createArray();
     array.elements.append(vm.gc_allocator, try vm.newString(source, false)) catch return error.Fatal;
     array.elements.append(vm.gc_allocator, Value.integer(line)) catch return error.Fatal;
-    return Value.fromObject(array);
+    return Value.fromObject(&array.object);
 }
 
 pub fn createBoundMethodObject(
@@ -212,7 +212,7 @@ pub fn createBoundMethodObject(
         .owner = owner,
     };
 
-    const method_val = Value.fromObject(method_obj);
+    const method_val = Value.fromObject(&method_obj.object);
     const singleton = try vm.getOrCreateSingletonClass(method_val);
 
     const call_sym = try vm.intern("call");
@@ -258,7 +258,7 @@ pub fn createUnboundMethodObject(
         .owner = owner,
     };
 
-    const method_val = Value.fromObject(method_obj);
+    const method_val = Value.fromObject(&method_obj.object);
     const singleton = try vm.getOrCreateSingletonClass(method_val);
 
     const owner_sym = try vm.intern("owner");

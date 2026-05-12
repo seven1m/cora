@@ -8,7 +8,7 @@ const Block = vm_mod.Block;
 const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
-    const mutex_class_val = Value.fromObject(vm.mutex_class);
+    const mutex_class_val = Value.fromObject(&vm.mutex_class.module.object);
     const mutex_singleton = try vm.getOrCreateSingletonClass(mutex_class_val);
 
     // Class methods
@@ -49,8 +49,8 @@ fn builtinMutexNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMErr
     if (!receiver.isClass()) {
         return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Class", .{});
     }
-    const mutex_obj = try vm.newMutex(Value.fromObject(vm.mutex_class));
-    const mutex_val = Value.fromObject(mutex_obj);
+    const mutex_obj = try vm.newMutex(Value.fromObject(&vm.mutex_class.module.object));
+    const mutex_val = Value.fromObject(&mutex_obj.object);
     _ = try vm.callMethodByNameForwardingKeywords(mutex_val, "initialize", args, block);
     return mutex_val;
 }
