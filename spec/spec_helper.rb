@@ -476,7 +476,14 @@ def fixture(spec_file, fixture_name)
   if base.end_with?("/shared")
     base = base[0...-"/shared".length]
   end
+  if base.end_with?("/fixtures")
+    base = base[0...-"/fixtures".length]
+  end
   "#{base}/fixtures/#{fixture_name}"
+end
+
+def new_io(name, mode = "r:utf-8")
+  File.open(name, mode)
 end
 
 def cora_bin_path

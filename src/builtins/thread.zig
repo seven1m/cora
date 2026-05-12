@@ -132,7 +132,7 @@ fn builtinThreadNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMEr
     }
     const class_obj = receiver.toClassObject();
     const thread = try vm.newThreadUnstarted(class_obj);
-    const thread_val = Value.fromObject(thread);
+    const thread_val = Value.fromObject(&thread.object);
     _ = try vm.callMethodByNameForwardingKeywords(thread_val, "initialize", args, block);
 
     if (thread.block == null) {
@@ -152,12 +152,12 @@ fn builtinThreadNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMEr
 fn builtinThreadCurrent(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const mt = try vm.ensureMainThread();
-    return Value.fromObject(vm.current_thread orelse mt);
+    return Value.fromObject(&(vm.current_thread orelse mt).object);
 }
 
 fn builtinThreadMain(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    return Value.fromObject(try vm.ensureMainThread());
+    return Value.fromObject(&(try vm.ensureMainThread()).object);
 }
 
 fn builtinThreadList(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -166,7 +166,7 @@ fn builtinThreadList(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value 
     const arr = try vm.createArray();
     for (vm.thread_list.items) |thread| {
         if (thread.state != .terminated) {
-            arr.elements.append(vm.gc_allocator, Value.fromObject(thread)) catch return error.Fatal;
+            arr.elements.append(vm.gc_allocator, Value.fromObject(&thread.object)) catch return error.Fatal;
         }
     }
     return Value.fromObject(arr);

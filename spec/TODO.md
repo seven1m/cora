@@ -1103,7 +1103,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/io/each_codepoint_spec.rb
 - [ ] core/io/each_line_spec.rb
 - [ ] core/io/each_spec.rb
-- [ ] core/io/eof_spec.rb
+- [-] core/io/eof_spec.rb
 - [ ] core/io/external_encoding_spec.rb
 - [ ] core/io/fcntl_spec.rb
 - [ ] core/io/fdatasync_spec.rb
@@ -1137,7 +1137,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/io/putc_spec.rb
 - [ ] core/io/puts_spec.rb
 - [ ] core/io/pwrite_spec.rb
-- [ ] core/io/read_nonblock_spec.rb
+- [-] core/io/read_nonblock_spec.rb
 - [ ] core/io/read_spec.rb
 - [ ] core/io/readbyte_spec.rb
 - [ ] core/io/readchar_spec.rb
@@ -1158,12 +1158,12 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/io/syswrite_spec.rb
 - [ ] core/io/tell_spec.rb
 - [ ] core/io/to_i_spec.rb
-- [ ] core/io/to_io_spec.rb
+- [-] core/io/to_io_spec.rb
 - [ ] core/io/try_convert_spec.rb
 - [ ] core/io/tty_spec.rb
 - [ ] core/io/ungetbyte_spec.rb
 - [ ] core/io/ungetc_spec.rb
-- [ ] core/io/write_nonblock_spec.rb
+- [-] core/io/write_nonblock_spec.rb
 - [ ] core/io/write_spec.rb
 
 ### core/kernel
@@ -3040,9 +3040,9 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/getoptlong/terminated_spec.rb
 
 ### library/io-wait
-- [ ] library/io-wait/wait_readable_spec.rb
+- [-] library/io-wait/wait_readable_spec.rb
 - [ ] library/io-wait/wait_spec.rb
-- [ ] library/io-wait/wait_writable_spec.rb
+- [-] library/io-wait/wait_writable_spec.rb
 
 ### library/ipaddr
 - [ ] library/ipaddr/hton_spec.rb

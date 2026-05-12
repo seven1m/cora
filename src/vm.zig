@@ -40,6 +40,7 @@ const JitChunkStates = std.AutoHashMap(*Chunk, jit.State);
 extern "c" fn getenv(name: [*:0]const u8) ?[*:0]u8;
 extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
 extern "c" fn unsetenv(name: [*:0]const u8) c_int;
+extern "c" fn clock_gettime(clk_id: std.posix.CLOCK, tp: *std.posix.timespec) c_int;
 
 const MAX_FIBER_STACK_SIZE: usize = 8_192;
 const MAX_FIBER_FRAMES: usize = 2048;
@@ -53,6 +54,15 @@ const SMALL_CALL_VALUES: usize = 16;
 const DEFAULT_THREAD_PREEMPT_QUANTUM_OPS: u32 = 10_000;
 const MAX_QUEUED_SIGNALS: usize = 128;
 var queued_signal_counts: [MAX_QUEUED_SIGNALS]u32 = [_]u32{0} ** MAX_QUEUED_SIGNALS;
+
+fn monotonicMilliseconds() i64 {
+    var timespec: std.posix.timespec = undefined;
+    if (clock_gettime(std.posix.CLOCK.MONOTONIC, &timespec) != 0) return 0;
+
+    const seconds: i64 = @intCast(timespec.sec);
+    const nanoseconds: i64 = @intCast(timespec.nsec);
+    return seconds * 1_000 + @divTrunc(nanoseconds, 1_000_000);
+}
 
 fn signalHandler(sig: std.posix.SIG) callconv(.c) void {
     const signo: usize = @intCast(@intFromEnum(sig));
@@ -413,8 +423,11 @@ pub const VM = struct {
     no_method_error_class: *value.ClassObject,
     local_jump_error_class: *value.ClassObject,
     io_error_class: *value.ClassObject,
+    eof_error_class: *value.ClassObject,
     fiber_error_class: *value.ClassObject,
     load_error_class: *value.ClassObject,
+    io_eagain_wait_readable_class: *value.ClassObject,
+    io_eagain_wait_writable_class: *value.ClassObject,
     encoding_error_class: *value.ClassObject,
     encoding_compatibility_error_class: *value.ClassObject,
     encoding_converter_not_found_error_class: *value.ClassObject,
@@ -591,8 +604,11 @@ pub const VM = struct {
             .no_method_error_class = undefined,
             .local_jump_error_class = undefined,
             .io_error_class = undefined,
+            .eof_error_class = undefined,
             .fiber_error_class = undefined,
             .load_error_class = undefined,
+            .io_eagain_wait_readable_class = undefined,
+            .io_eagain_wait_writable_class = undefined,
             .encoding_error_class = undefined,
             .encoding_compatibility_error_class = undefined,
             .encoding_converter_not_found_error_class = undefined,
@@ -906,6 +922,10 @@ pub const VM = struct {
         const io_error_class_val = try self.newClass(io_error_name_sym, self.standard_error_class);
         self.io_error_class = io_error_class_val.toClassObject();
 
+        const eof_error_name_sym = try self.intern("EOFError");
+        const eof_error_class_val = try self.newClass(eof_error_name_sym, self.io_error_class);
+        self.eof_error_class = eof_error_class_val.toClassObject();
+
         const fiber_error_name_sym = try self.intern("FiberError");
         const fiber_error_class_val = try self.newClass(fiber_error_name_sym, self.standard_error_class);
         self.fiber_error_class = fiber_error_class_val.toClassObject();
@@ -1017,6 +1037,45 @@ pub const VM = struct {
         const enetunreach_name_sym = try self.intern("ENETUNREACH");
         const enetunreach_class_val = try self.newClass(enetunreach_name_sym, self.system_call_error_class);
 
+        const io_readable_sym = try self.intern("READABLE");
+        self.io_class.module.constants.put(io_readable_sym, .{ .value = Value.integer(0x001) }) catch return error.Fatal;
+        const io_writable_sym = try self.intern("WRITABLE");
+        self.io_class.module.constants.put(io_writable_sym, .{ .value = Value.integer(0x004) }) catch return error.Fatal;
+        const io_priority_sym = try self.intern("PRIORITY");
+        self.io_class.module.constants.put(io_priority_sym, .{ .value = Value.integer(0x002) }) catch return error.Fatal;
+
+        const wait_readable_name_sym = try self.intern("WaitReadable");
+        const wait_readable_module_val = try self.newModule(wait_readable_name_sym);
+        const wait_readable_module = wait_readable_module_val.toModuleObject();
+        self.io_class.module.constants.put(wait_readable_name_sym, .{ .value = wait_readable_module_val }) catch return error.Fatal;
+
+        const wait_writable_name_sym = try self.intern("WaitWritable");
+        const wait_writable_module_val = try self.newModule(wait_writable_name_sym);
+        const wait_writable_module = wait_writable_module_val.toModuleObject();
+        self.io_class.module.constants.put(wait_writable_name_sym, .{ .value = wait_writable_module_val }) catch return error.Fatal;
+
+        const eagain_wait_readable_name_sym = try self.intern("EAGAINWaitReadable");
+        const eagain_wait_readable_val = try self.newClass(eagain_wait_readable_name_sym, eagain_class_val.toClassObject());
+        self.io_eagain_wait_readable_class = eagain_wait_readable_val.toClassObject();
+        try self.includeModule(&self.io_eagain_wait_readable_class.module, wait_readable_module);
+        self.io_class.module.constants.put(eagain_wait_readable_name_sym, .{ .value = eagain_wait_readable_val }) catch return error.Fatal;
+
+        const eagain_wait_writable_name_sym = try self.intern("EAGAINWaitWritable");
+        const eagain_wait_writable_val = try self.newClass(eagain_wait_writable_name_sym, eagain_class_val.toClassObject());
+        self.io_eagain_wait_writable_class = eagain_wait_writable_val.toClassObject();
+        try self.includeModule(&self.io_eagain_wait_writable_class.module, wait_writable_module);
+        self.io_class.module.constants.put(eagain_wait_writable_name_sym, .{ .value = eagain_wait_writable_val }) catch return error.Fatal;
+
+        const einprogress_wait_readable_name_sym = try self.intern("EINPROGRESSWaitReadable");
+        const einprogress_wait_readable_val = try self.newClass(einprogress_wait_readable_name_sym, einprogress_class_val.toClassObject());
+        try self.includeModule(&einprogress_wait_readable_val.toClassObject().module, wait_readable_module);
+        self.io_class.module.constants.put(einprogress_wait_readable_name_sym, .{ .value = einprogress_wait_readable_val }) catch return error.Fatal;
+
+        const einprogress_wait_writable_name_sym = try self.intern("EINPROGRESSWaitWritable");
+        const einprogress_wait_writable_val = try self.newClass(einprogress_wait_writable_name_sym, einprogress_class_val.toClassObject());
+        try self.includeModule(&einprogress_wait_writable_val.toClassObject().module, wait_writable_module);
+        self.io_class.module.constants.put(einprogress_wait_writable_name_sym, .{ .value = einprogress_wait_writable_val }) catch return error.Fatal;
+
         const enumerator_name_sym = try self.intern("Enumerator");
         const enumerator_class_val = try self.newClass(enumerator_name_sym, self.object_class);
         self.enumerator_class = enumerator_class_val.toClassObject();
@@ -1115,6 +1174,7 @@ pub const VM = struct {
         self.object_class.module.constants.put(no_method_error_name_sym, .{ .value = no_method_error_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(local_jump_error_name_sym, .{ .value = local_jump_error_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(io_error_name_sym, .{ .value = io_error_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(eof_error_name_sym, .{ .value = eof_error_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(fiber_error_name_sym, .{ .value = fiber_error_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(thread_error_name_sym, .{ .value = thread_error_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(closed_queue_error_name_sym, .{ .value = closed_queue_error_class_val }) catch return error.Fatal;
@@ -3264,6 +3324,7 @@ pub const VM = struct {
         main_thread_obj.kill_requested = false;
         main_thread_obj.preempt_requested = false;
         main_thread_obj.ops_until_preempt = self.thread_preempt_quantum_ops;
+        main_thread_obj.io_wait = null;
         main_thread_obj.args = null;
         main_thread_obj.main_fiber = self.main_fiber;
         main_thread_obj.current_fiber = self.main_fiber;
@@ -3320,6 +3381,7 @@ pub const VM = struct {
         thread_obj.kill_requested = false;
         thread_obj.preempt_requested = false;
         thread_obj.ops_until_preempt = self.thread_preempt_quantum_ops;
+        thread_obj.io_wait = null;
         thread_obj.args = null;
         const root_fiber = self.gc_allocator.create(value.FiberObject) catch return error.Fatal;
         root_fiber.object = .{ .type_tag = .fiber, .flags = 0, .class = self.fiber_class, .singleton_class = null, .instance_variables = null };
@@ -3586,6 +3648,53 @@ pub const VM = struct {
         return false;
     }
 
+    fn addRunnableThreadIfAbsent(self: *VM, thread: *value.ThreadObject) void {
+        for (self.runnable_queue.items) |queued| {
+            if (queued == thread) return;
+        }
+        self.runnable_queue.append(self.allocator, thread) catch {};
+    }
+
+    fn wakeSleepingIoWaiters(self: *VM) void {
+        const now_ms = monotonicMilliseconds();
+        for (self.thread_list.items) |thread| {
+            if (thread.state != .sleeping) continue;
+            const io_wait = thread.io_wait orelse continue;
+
+            if (thread.kill_requested) {
+                thread.io_wait = null;
+                thread.state = .running;
+                self.addRunnableThreadIfAbsent(thread);
+                continue;
+            }
+
+            if (io_wait.deadline_ms) |deadline_ms| {
+                if (now_ms >= deadline_ms) {
+                    thread.io_wait = null;
+                    thread.state = .running;
+                    self.addRunnableThreadIfAbsent(thread);
+                    continue;
+                }
+            }
+
+            var fds = [_]std.posix.pollfd{.{
+                .fd = @intCast(io_wait.fd),
+                .events = io_wait.events,
+                .revents = 0,
+            }};
+            const ready_count = std.posix.poll(fds[0..], 0) catch continue;
+            if (ready_count == 0) continue;
+
+            var ready_mask = io_wait.events | std.posix.POLL.ERR;
+            if (io_wait.include_hup) ready_mask |= std.posix.POLL.HUP;
+            if ((fds[0].revents & ready_mask) == 0) continue;
+
+            thread.io_wait = null;
+            thread.state = .running;
+            self.addRunnableThreadIfAbsent(thread);
+        }
+    }
+
     inline fn resetThreadPreemptBudget(self: *VM, thread: *value.ThreadObject) void {
         thread.preempt_requested = false;
         thread.ops_until_preempt = self.thread_preempt_quantum_ops;
@@ -3628,6 +3737,7 @@ pub const VM = struct {
     /// Yield to the thread scheduler. Runs all other runnable threads one step each,
     /// then returns control to the caller.
     pub fn schedulerYield(self: *VM) VMError!void {
+        self.wakeSleepingIoWaiters();
         if (self.runnable_queue.items.len == 0) return;
 
         const caller_thread = self.current_thread orelse return;

@@ -300,6 +300,13 @@ pub const FiberObject = struct {
 };
 
 pub const ThreadObject = struct {
+    pub const IoWait = struct {
+        fd: i32,
+        events: i16,
+        include_hup: bool,
+        deadline_ms: ?i64 = null,
+    };
+
     pub const State = enum {
         created,
         running,
@@ -330,6 +337,7 @@ pub const ThreadObject = struct {
     kill_requested: bool = false,
     preempt_requested: bool = false,
     ops_until_preempt: u32 = 0,
+    io_wait: ?IoWait = null,
     args: ?[]Value = null,
     main_fiber: ?*FiberObject = null,
     current_fiber: ?*FiberObject = null,
@@ -700,7 +708,7 @@ pub const Value = struct {
     }
 
     pub inline fn toThreadObject(self: Value) *ThreadObject {
-        return @ptrFromInt(self.raw);
+        return @fieldParentPtr("object", self.getObjectPointer().?);
     }
 
     pub inline fn toMutexObject(self: Value) *MutexObject {
