@@ -23,7 +23,7 @@ fn buildOnigmo(b: *std.Build) *std.Build.Step {
         const copy_step = b.addSystemCommand(&.{ "sh", "-c", "mkdir -p zig-out/onigmo && cp -r ext/onigmo/* zig-out/onigmo/" });
         onigmo_build_step.dependOn(&copy_step.step);
 
-        const patch_step = b.addSystemCommand(&.{ "sh", "-c", "cd zig-out/onigmo && git apply ../../ext/onigmo.patch 2>/dev/null; true" });
+        const patch_step = b.addSystemCommand(&.{ "sh", "-c", "cd zig-out/onigmo && patch -p1 < ../../ext/onigmo.patch 2>/dev/null; true" });
         patch_step.step.dependOn(&copy_step.step);
         onigmo_build_step.dependOn(&patch_step.step);
 
