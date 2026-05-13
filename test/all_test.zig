@@ -19,6 +19,7 @@ const core_marshal_test = @import("core/marshal_test.zig");
 const core_module_test = @import("core/module_test.zig");
 const core_nil_test = @import("core/nil_test.zig");
 const core_process_test = @import("core/process_test.zig");
+const core_random_test = @import("core/random_test.zig");
 const core_string_test = @import("core/string_test.zig");
 const core_struct_test = @import("core/struct_test.zig");
 const core_symbol_test = @import("core/symbol_test.zig");
@@ -92,6 +93,7 @@ comptime {
     _ = core_module_test;
     _ = core_nil_test;
     _ = core_process_test;
+    _ = core_random_test;
     _ = core_string_test;
     _ = core_struct_test;
     _ = core_symbol_test;

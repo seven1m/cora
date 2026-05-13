@@ -350,6 +350,7 @@ pub const VM = struct {
     integer_class: *value.ClassObject,
     float_class: *value.ClassObject,
     time_class: *value.ClassObject,
+    random_class: *value.ClassObject,
     module_class: *value.ClassObject,
     numeric_class: *value.ClassObject,
     object_class: *value.ClassObject,
@@ -495,6 +496,7 @@ pub const VM = struct {
     next_chunk_id: u16 = 1,
     method_state_version: u64 = 1,
     integer_changed: bool = false,
+    random_counter: u64 = 0,
     recursion_guard: RecursionGuard = .{},
     tcc_jit_enabled: bool = false,
     dump_jit_source: bool = false,
@@ -542,6 +544,7 @@ pub const VM = struct {
             .integer_class = undefined,
             .float_class = undefined,
             .time_class = undefined,
+            .random_class = undefined,
             .module_class = undefined,
             .numeric_class = undefined,
             .object_class = undefined,
@@ -722,6 +725,10 @@ pub const VM = struct {
         const time_name_sym = try self.intern("Time");
         const time_class_val = try self.newClassWithType(time_name_sym, self.object_class, .time);
         self.time_class = time_class_val.toClassObject();
+
+        const random_name_sym = try self.intern("Random");
+        const random_class_val = try self.newClass(random_name_sym, self.object_class);
+        self.random_class = random_class_val.toClassObject();
 
         const string_name_sym = try self.intern("String");
         const string_class_val = try self.newClassWithType(string_name_sym, self.object_class, .string);
@@ -1123,6 +1130,7 @@ pub const VM = struct {
         self.object_class.module.constants.put(integer_name_sym, .{ .value = integer_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(float_name_sym, .{ .value = float_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(time_name_sym, .{ .value = time_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(random_name_sym, .{ .value = random_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(string_name_sym, .{ .value = string_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(symbol_name_sym, .{ .value = symbol_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(io_name_sym, .{ .value = io_class_val }) catch return error.Fatal;
