@@ -94,42 +94,38 @@ pub fn builtinRangeToA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
         return vm.raiseExceptionFmt(vm.range_error_class, "cannot convert endless range to an array", .{});
     }
 
-    if (!begin_val.isInteger()) {
-        return vm.raiseExceptionFmt(
-            vm.type_error_class,
-            "wrong argument type (expected Integer)",
-            .{},
-        );
-    }
-
-    if (!end_val.isInteger()) {
-        return vm.raiseExceptionFmt(
-            vm.type_error_class,
-            "wrong argument type (expected Integer)",
-            .{},
-        );
-    }
-
-    const start_i = begin_val.toInteger();
-    const end_i = end_val.toInteger();
-
     const array_obj = try vm.createArray();
 
-    if (exclude_end) {
-        var current = start_i;
-        while (current < end_i) : (current += 1) {
-            array_obj.elements.append(vm.gc_allocator, Value.integer(current)) catch return error.Fatal;
-            if (current == std.math.maxInt(i64)) break;
+    if (begin_val.isInteger() and end_val.isInteger()) {
+        const start_i = begin_val.toInteger();
+        const end_i = end_val.toInteger();
+
+        if (exclude_end) {
+            var current = start_i;
+            while (current < end_i) : (current += 1) {
+                array_obj.elements.append(vm.gc_allocator, Value.integer(current)) catch return error.Fatal;
+                if (current == std.math.maxInt(i64)) break;
+            }
+        } else {
+            var current = start_i;
+            while (current <= end_i) : (current += 1) {
+                array_obj.elements.append(vm.gc_allocator, Value.integer(current)) catch return error.Fatal;
+                if (current == std.math.maxInt(i64)) break;
+            }
         }
-    } else {
-        var current = start_i;
-        while (current <= end_i) : (current += 1) {
-            array_obj.elements.append(vm.gc_allocator, Value.integer(current)) catch return error.Fatal;
-            if (current == std.math.maxInt(i64)) break;
-        }
+        return Value.fromObject(&array_obj.object);
     }
 
-    return Value.fromObject(&array_obj.object);
+    if (begin_val.isString() and end_val.isString()) {
+        try appendStringRangeToArray(vm, array_obj, begin_val, end_val, exclude_end);
+        return Value.fromObject(&array_obj.object);
+    }
+
+    return vm.raiseExceptionFmt(
+        vm.type_error_class,
+        "wrong argument type (expected Integer)",
+        .{},
+    );
 }
 
 pub fn builtinRangeEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -152,32 +148,102 @@ pub fn builtinRangeEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
         return vm.raiseExceptionFmt(vm.range_error_class, "cannot iterate from beginless or endless range", .{});
     }
 
-    if (!begin_val.isInteger() or !end_val.isInteger()) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "can't iterate from Range", .{});
+    if (begin_val.isInteger() and end_val.isInteger()) {
+        const start_i = begin_val.toInteger();
+        const end_i = end_val.toInteger();
+
+        if (exclude_end) {
+            var current = start_i;
+            while (current < end_i) : (current += 1) {
+                const yield_args = [_]Value{Value.integer(current)};
+                const result = try vm.yieldToBlock(blk, &yield_args);
+                if (result.controlFlowValue()) |return_value| return return_value;
+                if (current == std.math.maxInt(i64)) break;
+            }
+        } else {
+            var current = start_i;
+            while (current <= end_i) : (current += 1) {
+                const yield_args = [_]Value{Value.integer(current)};
+                const result = try vm.yieldToBlock(blk, &yield_args);
+                if (result.controlFlowValue()) |return_value| return return_value;
+                if (current == std.math.maxInt(i64)) break;
+            }
+        }
+        return receiver;
     }
 
-    const start_i = begin_val.toInteger();
-    const end_i = end_val.toInteger();
-
-    if (exclude_end) {
-        var current = start_i;
-        while (current < end_i) : (current += 1) {
-            const yield_args = [_]Value{Value.integer(current)};
-            const result = try vm.yieldToBlock(blk, &yield_args);
-            if (result.controlFlowValue()) |return_value| return return_value;
-            if (current == std.math.maxInt(i64)) break;
+    if (begin_val.isString() and end_val.isString()) {
+        if (try eachStringRange(vm, blk, begin_val, end_val, exclude_end)) |return_value| {
+            return return_value;
         }
-    } else {
-        var current = start_i;
-        while (current <= end_i) : (current += 1) {
-            const yield_args = [_]Value{Value.integer(current)};
-            const result = try vm.yieldToBlock(blk, &yield_args);
-            if (result.controlFlowValue()) |return_value| return return_value;
-            if (current == std.math.maxInt(i64)) break;
+        return receiver;
+    }
+
+    return vm.raiseExceptionFmt(vm.type_error_class, "can't iterate from Range", .{});
+}
+
+fn appendStringRangeToArray(
+    vm: *VM,
+    array_obj: *value.ArrayObject,
+    begin_val: Value,
+    end_val: Value,
+    exclude_end: bool,
+) VMError!void {
+    var empty_args = [_]Value{};
+    var compare_args = [_]Value{end_val};
+    var current = begin_val;
+
+    while (true) {
+        const comparison = try vm.callMethodByName(current, "<=>", compare_args[0..], null);
+        if (!comparison.isInteger()) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "can't iterate from Range", .{});
+        }
+
+        const order = comparison.toInteger();
+        if (order > 0 or (exclude_end and order == 0)) break;
+
+        array_obj.elements.append(vm.gc_allocator, current) catch return error.Fatal;
+        if (order == 0) break;
+
+        current = try vm.callMethodByName(current, "succ", empty_args[0..], null);
+        if (!current.isString()) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "can't iterate from Range", .{});
+        }
+    }
+}
+
+fn eachStringRange(
+    vm: *VM,
+    blk: Block,
+    begin_val: Value,
+    end_val: Value,
+    exclude_end: bool,
+) VMError!?Value {
+    var empty_args = [_]Value{};
+    var compare_args = [_]Value{end_val};
+    var current = begin_val;
+
+    while (true) {
+        const comparison = try vm.callMethodByName(current, "<=>", compare_args[0..], null);
+        if (!comparison.isInteger()) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "can't iterate from Range", .{});
+        }
+
+        const order = comparison.toInteger();
+        if (order > 0 or (exclude_end and order == 0)) break;
+
+        const yield_args = [_]Value{current};
+        const result = try vm.yieldToBlock(blk, &yield_args);
+        if (result.controlFlowValue()) |return_value| return return_value;
+        if (order == 0) break;
+
+        current = try vm.callMethodByName(current, "succ", empty_args[0..], null);
+        if (!current.isString()) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "can't iterate from Range", .{});
         }
     }
 
-    return receiver;
+    return null;
 }
 
 pub fn builtinRangeInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

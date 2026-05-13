@@ -39,6 +39,32 @@ test "Range to_a exclusive" {
     try std.testing.expectEqual(2, result.toArrayObject().elements.items[1].toInteger());
 }
 
+test "Range to_a string inclusive" {
+    const result = try evalCode("(\"A\"..\"C\").to_a");
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(3, result.toArrayObject().elements.items.len);
+    try std.testing.expectEqualSlices(u8, "A", result.toArrayObject().elements.items[0].toStringObject().str);
+    try std.testing.expectEqualSlices(u8, "B", result.toArrayObject().elements.items[1].toStringObject().str);
+    try std.testing.expectEqualSlices(u8, "C", result.toArrayObject().elements.items[2].toStringObject().str);
+}
+
+test "Range to_a string exclusive" {
+    const result = try evalCode("(\"A\"...\"C\").to_a");
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(2, result.toArrayObject().elements.items.len);
+    try std.testing.expectEqualSlices(u8, "A", result.toArrayObject().elements.items[0].toStringObject().str);
+    try std.testing.expectEqualSlices(u8, "B", result.toArrayObject().elements.items[1].toStringObject().str);
+}
+
+test "Range each string" {
+    const result = try evalCode("out = []; (\"A\"..\"C\").each { |s| out << s }; out");
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(3, result.toArrayObject().elements.items.len);
+    try std.testing.expectEqualSlices(u8, "A", result.toArrayObject().elements.items[0].toStringObject().str);
+    try std.testing.expectEqualSlices(u8, "B", result.toArrayObject().elements.items[1].toStringObject().str);
+    try std.testing.expectEqualSlices(u8, "C", result.toArrayObject().elements.items[2].toStringObject().str);
+}
+
 test "Range to_a endless raises" {
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;
