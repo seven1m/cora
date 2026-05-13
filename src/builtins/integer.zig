@@ -48,6 +48,13 @@ fn coerceAndCallIntegerArithmetic(vm: *VM, receiver: Value, arg: Value, op_name:
     return vm.callMethodByName(coerced_items[0], op_name, op_args[0..], null);
 }
 
+fn coerceAndCallIntegerBitwise(vm: *VM, receiver: Value, arg: Value, op_name: []const u8) VMError!Value {
+    if (arg.isFloat()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert Float into Integer", .{});
+    }
+    return coerceAndCallIntegerArithmetic(vm, receiver, arg, op_name);
+}
+
 fn compareIntegerRelational(vm: *VM, receiver: Value, arg: Value, op_name: []const u8) VMError!Value {
     if (arg.isInteger() or arg.isBigInteger() or arg.isFloat()) {
         const rhs = try coerceNumericArg(vm, arg);
@@ -222,6 +229,21 @@ inline fn modIntegers(vm: *VM, lhs: Value, rhs: Value) VMError!Value {
     return vm.valueFromManagedInteger(&rem);
 }
 
+inline fn bitAndIntegers(vm: *VM, lhs: Value, rhs: Value) VMError!Value {
+    if (lhs.isInteger() and rhs.isInteger()) {
+        return Value.integer(lhs.toInteger() & rhs.toInteger());
+    }
+
+    var a = try lhs.integerToManaged(vm);
+    defer a.deinit();
+    var b = try rhs.integerToManaged(vm);
+    defer b.deinit();
+    var out = BigInt.init(vm.allocator) catch return error.Fatal;
+    defer out.deinit();
+    out.bitAnd(&a, &b) catch return error.Fatal;
+    return vm.valueFromManagedInteger(&out);
+}
+
 inline fn compareIntegers(vm: *VM, lhs: Value, rhs: Value) VMError!std.math.Order {
     if (lhs.isInteger() and rhs.isInteger()) {
         return std.math.order(lhs.toInteger(), rhs.toInteger());
@@ -359,6 +381,9 @@ pub fn register(vm: *VM) !void {
 
     const plus_sym = try vm.intern("+");
     try vm.integer_class.module.methods.put(plus_sym, value.MethodEntry.builtin(&builtinIntegerPlus, .{ .exact = 1 }));
+
+    const bit_and_sym = try vm.intern("&");
+    try vm.integer_class.module.methods.put(bit_and_sym, value.MethodEntry.builtin(&builtinIntegerBitAnd, .{ .exact = 1 }));
 
     const unary_plus_sym = try vm.intern("+@");
     try vm.integer_class.module.methods.put(unary_plus_sym, value.MethodEntry.builtin(&builtinIntegerUnaryPlus, .{ .exact = 0 }));
@@ -509,6 +534,17 @@ pub fn builtinIntegerUnaryPlus(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
     try vm.requireArgCount(args, 0);
     try receiver.ensureInteger(vm);
     return receiver;
+}
+
+pub fn builtinIntegerBitAnd(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    try receiver.ensureInteger(vm);
+
+    const rhs = args[0];
+    if (rhs.isInteger() or rhs.isBigInteger()) {
+        return bitAndIntegers(vm, receiver, rhs);
+    }
+    return coerceAndCallIntegerBitwise(vm, receiver, rhs, "&");
 }
 
 pub fn builtinIntegerMinus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
