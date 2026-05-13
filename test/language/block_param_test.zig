@@ -197,6 +197,31 @@ test "forwarded block yield uses enclosing block rather than itself" {
     try std.testing.expectEqual(@as(i64, 99), result.toInteger());
 }
 
+test "__send__ forwarded block preserves yielded array on non-local return" {
+    const result = try evalCode(
+        \\class L
+        \\  def search(*)
+        \\    yield [1, 2]
+        \\  end
+        \\end
+        \\def visit(id, *args, &block)
+        \\  L.new.__send__(id, *args, &block)
+        \\  nil
+        \\end
+        \\def search2
+        \\  visit(:search) do |k|
+        \\    return k
+        \\  end
+        \\end
+        \\search2
+    );
+    try std.testing.expect(result.isArray());
+    const array = result.toArrayObject();
+    try std.testing.expectEqual(@as(usize, 2), array.elements.items.len);
+    try std.testing.expectEqual(@as(i64, 1), array.elements.items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 2), array.elements.items[1].toInteger());
+}
+
 test "pass &nil disables block" {
     const result = try evalCode(
         \\def bar(&block)

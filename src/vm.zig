@@ -6476,6 +6476,14 @@ pub const VM = struct {
                 );
 
                 try self.executeUntilReturn(saved_frame_count);
+                if (self.frames.items.len < saved_frame_count) {
+                    // A non-local return escaped past this chunk call. The target frame already
+                    // owns the return value on the VM stack, so don't pop a new callee result.
+                    if (self.stack.items.len > 0) {
+                        return self.stack.items[self.stack.items.len - 1];
+                    }
+                    return Value.nil();
+                }
                 return self.pop();
             },
             .builtin => |fun_ptr| {
@@ -6715,7 +6723,17 @@ pub const VM = struct {
                 }
                 const non_local_return_occurred = self.frames.items.len < saved_frame_count;
 
-                const result = if (self.stack.items.len > 0) self.pop() else Value.nil();
+                const result = if (non_local_return_occurred) blk_result: {
+                    // Non-local return unwound the yielded block frame and left the return value
+                    // on the surviving target frame's stack. Read it without consuming it here.
+                    if (self.stack.items.len > 0) {
+                        break :blk_result self.stack.items[self.stack.items.len - 1];
+                    }
+                    break :blk_result Value.nil();
+                } else if (self.stack.items.len > 0)
+                    self.pop()
+                else
+                    Value.nil();
                 break :blk YieldResult{
                     .value = result,
                     .break_occurred = break_occurred,
@@ -6901,7 +6919,13 @@ pub const VM = struct {
                     break :blk keyword_ctx;
                 } else null;
 
+                const saved_frame_len = self.frames.items.len;
                 const result = try self.invokeBuiltinMethod(fun_ptr, receiver, @constCast(args), block, maybe_keyword_ctx);
+                if (self.frames.items.len < saved_frame_len) {
+                    // Builtins can trigger block returns that unwind past this call helper. In
+                    // that case the surviving frame already has the right stack state/result.
+                    return;
+                }
                 try self.push(result);
             },
             .proc => |proc_obj| {
