@@ -171,6 +171,32 @@ test "pass block using &variable syntax" {
     try std.testing.expectEqual(@as(i64, 52), result.toInteger());
 }
 
+test "forwarded block yield uses enclosing block rather than itself" {
+    const result = try evalCode(
+        \\def inner
+        \\  yield 1
+        \\  nil
+        \\end
+        \\def outer(&block)
+        \\  inner(&block)
+        \\  nil
+        \\end
+        \\def middle
+        \\  block_given = block_given?
+        \\  outer do |k|
+        \\    return block_given ? yield(k) : k
+        \\  end
+        \\  nil
+        \\end
+        \\def top
+        \\  middle { |x| x }
+        \\  99
+        \\end
+        \\top
+    );
+    try std.testing.expectEqual(@as(i64, 99), result.toInteger());
+}
+
 test "pass &nil disables block" {
     const result = try evalCode(
         \\def bar(&block)
