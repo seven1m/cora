@@ -89,6 +89,8 @@ pub fn register(vm: *VM) !void {
 
     const string_multiply_sym = try vm.intern("*");
     try vm.string_class.module.methods.put(string_multiply_sym, value.MethodEntry.builtin(&builtinStringMultiply, .{ .exact = 1 }));
+    const string_percent_sym = try vm.intern("%");
+    try vm.string_class.module.methods.put(string_percent_sym, value.MethodEntry.builtin(&builtinStringPercent, .{ .exact = 1 }));
 
     const string_append_sym = try vm.intern("<<");
     try vm.string_class.module.methods.put(string_append_sym, value.MethodEntry.builtin(&builtinStringAppend, .{ .exact = 1 }));
@@ -364,6 +366,191 @@ pub fn register(vm: *VM) !void {
 
     const unpack1_sym = try vm.intern("unpack1");
     try vm.string_class.module.methods.put(unpack1_sym, value.MethodEntry.builtin(&builtinStringUnpack1, .{ .variadic = 1 }));
+}
+
+const StringPercentFlags = struct {
+    left_justify: bool = false,
+    show_sign: bool = false,
+    leading_space: bool = false,
+    zero_pad: bool = false,
+    alternate_form: bool = false,
+};
+
+const StringPercentSpec = struct {
+    flags: StringPercentFlags = .{},
+    width: ?usize = null,
+    precision: ?usize = null,
+    conversion: u8,
+};
+
+fn malformedStringPercent(vm: *VM) VMError {
+    return vm.raiseExceptionFmt(vm.argument_error_class, "malformed format string - %", .{});
+}
+
+fn parseStringPercentNumber(format: []const u8, index: *usize) !?usize {
+    const start = index.*;
+    var value_num: usize = 0;
+    while (index.* < format.len and std.ascii.isDigit(format[index.*])) : (index.* += 1) {
+        value_num = try std.math.mul(usize, value_num, 10);
+        value_num = try std.math.add(usize, value_num, format[index.*] - '0');
+    }
+    if (index.* == start) return null;
+    return value_num;
+}
+
+fn parseStringPercentSpec(vm: *VM, format: []const u8, index: *usize) VMError!StringPercentSpec {
+    var spec: StringPercentSpec = .{ .conversion = 0 };
+    while (index.* < format.len) : (index.* += 1) {
+        switch (format[index.*]) {
+            '-' => spec.flags.left_justify = true,
+            '+' => spec.flags.show_sign = true,
+            ' ' => spec.flags.leading_space = true,
+            '0' => spec.flags.zero_pad = true,
+            '#' => spec.flags.alternate_form = true,
+            else => break,
+        }
+    }
+
+    spec.width = parseStringPercentNumber(format, index) catch return malformedStringPercent(vm);
+
+    if (index.* < format.len and format[index.*] == '.') {
+        index.* += 1;
+        spec.precision = parseStringPercentNumber(format, index) catch return malformedStringPercent(vm);
+        if (spec.precision == null) return malformedStringPercent(vm);
+    }
+
+    if (index.* >= format.len) return malformedStringPercent(vm);
+    spec.conversion = format[index.*];
+    switch (spec.conversion) {
+        '%', 'B', 'X', 'b', 'c', 'd', 'i', 'o', 'p', 's', 'u', 'x' => {},
+        else => return malformedStringPercent(vm),
+    }
+    index.* += 1;
+    return spec;
+}
+
+fn appendRepeatedByte(out: *std.ArrayList(u8), allocator: std.mem.Allocator, byte: u8, count: usize) !void {
+    var i: usize = 0;
+    while (i < count) : (i += 1) {
+        try out.append(allocator, byte);
+    }
+}
+
+fn appendStringPercentFragment(
+    vm: *VM,
+    out: *std.ArrayList(u8),
+    result_encoding: *enc.Encoding,
+    bytes: []const u8,
+    bytes_encoding: enc.Encoding,
+) VMError!void {
+    const next_encoding = resolveStringConcatEncoding(result_encoding.*, out.items, bytes_encoding, bytes) orelse {
+        return vm.raiseEncodingCompatibilityError(result_encoding.*, bytes_encoding);
+    };
+    result_encoding.* = next_encoding;
+    out.appendSlice(vm.gc_allocator_atomic, bytes) catch return error.Fatal;
+}
+
+fn coerceStringPercentInteger(vm: *VM, arg: Value) VMError!Value {
+    if (arg.isInteger() or arg.isBigInteger()) return arg;
+
+    const maybe_integer = try vm.checkCallMethodByName(arg, "to_int", false, &[_]Value{}, null);
+    const coerced = maybe_integer orelse {
+        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Integer", .{vm.className(arg)});
+    };
+    if (coerced.isInteger() or coerced.isBigInteger()) return coerced;
+    return vm.raiseExceptionFmt(
+        vm.type_error_class,
+        "can't convert {s} to Integer ({s}#to_int gives {s})",
+        .{ vm.className(arg), vm.className(arg), vm.className(coerced) },
+    );
+}
+
+fn appendStringPercentPaddedText(
+    vm: *VM,
+    out: *std.ArrayList(u8),
+    result_encoding: *enc.Encoding,
+    spec: StringPercentSpec,
+    bytes: []const u8,
+    bytes_encoding: enc.Encoding,
+) VMError!void {
+    const width = spec.width orelse 0;
+    const pad_len = if (width > bytes.len) width - bytes.len else 0;
+    if (!spec.flags.left_justify) {
+        appendRepeatedByte(out, vm.gc_allocator_atomic, ' ', pad_len) catch return error.Fatal;
+    }
+    try appendStringPercentFragment(vm, out, result_encoding, bytes, bytes_encoding);
+    if (spec.flags.left_justify) {
+        appendRepeatedByte(out, vm.gc_allocator_atomic, ' ', pad_len) catch return error.Fatal;
+    }
+}
+
+fn appendStringPercentInteger(
+    vm: *VM,
+    out: *std.ArrayList(u8),
+    result_encoding: *enc.Encoding,
+    spec: StringPercentSpec,
+    arg: Value,
+    base: u8,
+    uppercase: bool,
+) VMError!void {
+    const integer_value = try coerceStringPercentInteger(vm, arg);
+    var base_args = [_]Value{Value.integer(base)};
+    const digits_value = try vm.callMethodByName(integer_value, "to_s", base_args[0..], null);
+    var digits = digits_value.toStringObject().str;
+
+    var sign_byte: ?u8 = null;
+    if (digits.len > 0 and digits[0] == '-') {
+        sign_byte = '-';
+        digits = digits[1..];
+    } else if (spec.flags.show_sign) {
+        sign_byte = '+';
+    } else if (spec.flags.leading_space) {
+        sign_byte = ' ';
+    }
+
+    var prefix: []const u8 = "";
+    if (spec.flags.alternate_form and digits.len > 0 and !std.mem.eql(u8, digits, "0")) {
+        prefix = switch (spec.conversion) {
+            'B' => "0B",
+            'X' => "0X",
+            'b' => "0b",
+            'o' => "0",
+            'x' => "0x",
+            else => "",
+        };
+    }
+
+    const zeros_for_precision = if (spec.precision) |precision|
+        if (precision > digits.len) precision - digits.len else 0
+    else
+        0;
+
+    const sign_len: usize = if (sign_byte == null) 0 else 1;
+    const raw_len = sign_len + prefix.len + zeros_for_precision + digits.len;
+    const width = spec.width orelse 0;
+    const zero_pad_width = spec.flags.zero_pad and !spec.flags.left_justify and spec.precision == null;
+    const zero_pad_count = if (zero_pad_width and width > raw_len) width - raw_len else 0;
+    const space_pad_count = if (!zero_pad_width and width > raw_len) width - raw_len else 0;
+
+    if (!spec.flags.left_justify) {
+        appendRepeatedByte(out, vm.gc_allocator_atomic, ' ', space_pad_count) catch return error.Fatal;
+    }
+    if (sign_byte) |byte| {
+        out.append(vm.gc_allocator_atomic, byte) catch return error.Fatal;
+    }
+    out.appendSlice(vm.gc_allocator_atomic, prefix) catch return error.Fatal;
+    appendRepeatedByte(out, vm.gc_allocator_atomic, '0', zero_pad_count + zeros_for_precision) catch return error.Fatal;
+    if (uppercase) {
+        for (digits) |byte| {
+            out.append(vm.gc_allocator_atomic, std.ascii.toUpper(byte)) catch return error.Fatal;
+        }
+    } else {
+        out.appendSlice(vm.gc_allocator_atomic, digits) catch return error.Fatal;
+    }
+    if (spec.flags.left_justify) {
+        appendRepeatedByte(out, vm.gc_allocator_atomic, ' ', space_pad_count) catch return error.Fatal;
+    }
+    _ = result_encoding;
 }
 
 pub fn builtinStringTryConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -969,6 +1156,89 @@ pub fn builtinStringMultiply(vm: *VM, receiver: Value, args: []Value, _: ?Block)
         offset += string_obj.str.len;
     }
     return try vm.newStringWithEncoding(out, false, string_obj.encoding);
+}
+
+pub fn builtinStringPercent(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+
+    const format_string = receiver.toStringObject();
+    var single_arg = [_]Value{args[0]};
+    const arg_values = switch (try vm.probeToAry(args[0])) {
+        .array => |array_value| array_value.toArrayObject().elements.items,
+        .missing, .nil_result => single_arg[0..],
+    };
+    var next_arg_index: usize = 0;
+
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(vm.gc_allocator_atomic);
+    var result_encoding = format_string.encoding;
+
+    var index: usize = 0;
+    while (index < format_string.str.len) {
+        if (format_string.str[index] != '%') {
+            out.append(vm.gc_allocator_atomic, format_string.str[index]) catch return error.Fatal;
+            index += 1;
+            continue;
+        }
+
+        index += 1;
+        const spec = try parseStringPercentSpec(vm, format_string.str, &index);
+        if (spec.conversion == '%') {
+            out.append(vm.gc_allocator_atomic, '%') catch return error.Fatal;
+            continue;
+        }
+
+        if (next_arg_index >= arg_values.len) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "too few arguments", .{});
+        }
+        const arg = arg_values[next_arg_index];
+        next_arg_index += 1;
+
+        switch (spec.conversion) {
+            'B' => try appendStringPercentInteger(vm, &out, &result_encoding, spec, arg, 2, true),
+            'X' => try appendStringPercentInteger(vm, &out, &result_encoding, spec, arg, 16, true),
+            'b' => try appendStringPercentInteger(vm, &out, &result_encoding, spec, arg, 2, false),
+            'd', 'i', 'u' => try appendStringPercentInteger(vm, &out, &result_encoding, spec, arg, 10, false),
+            'o' => try appendStringPercentInteger(vm, &out, &result_encoding, spec, arg, 8, false),
+            'x' => try appendStringPercentInteger(vm, &out, &result_encoding, spec, arg, 16, false),
+            'p', 's', 'c' => {
+                const string_value = switch (spec.conversion) {
+                    'c' => switch (try vm.probeToStringValue(arg)) {
+                        .string => |string_value| string_value,
+                        .missing, .nil_result => blk: {
+                            const integer_value = try coerceStringPercentInteger(vm, arg);
+                            break :blk try vm.callMethodByName(integer_value, "chr", &[_]Value{}, null);
+                        },
+                    },
+                    'p' => try vm.callMethodByName(arg, "inspect", &[_]Value{}, null),
+                    's' => if (arg.isString()) arg else try vm.callMethodByName(arg, "to_s", &[_]Value{}, null),
+                    else => unreachable,
+                };
+                if (!string_value.isString()) {
+                    return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into String", .{vm.className(string_value)});
+                }
+
+                const string_obj = string_value.toStringObject();
+                const bytes = switch (spec.conversion) {
+                    'c' => blk: {
+                        if (string_obj.str.len == 0) break :blk "";
+                        var next_byte: usize = 0;
+                        const char = string_obj.encoding.nextChar(string_obj.str, &next_byte);
+                        if (char.len == 0) break :blk "";
+                        break :blk string_obj.str[0..char.len];
+                    },
+                    else => if (spec.precision) |precision|
+                        string_obj.str[0..@min(string_obj.str.len, precision)]
+                    else
+                        string_obj.str,
+                };
+                try appendStringPercentPaddedText(vm, &out, &result_encoding, spec, bytes, string_obj.encoding);
+            },
+            else => return malformedStringPercent(vm),
+        }
+    }
+
+    return try vm.newStringWithEncoding(out.items, false, result_encoding);
 }
 
 pub fn builtinStringAppend(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

@@ -2012,7 +2012,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/string/ljust_spec.rb
 - [x] core/string/lstrip_spec.rb
 - [x] core/string/match_spec.rb
-- [ ] core/string/modulo_spec.rb
+- [-] core/string/modulo_spec.rb
 - [x] core/string/multiply_spec.rb
 - [x] core/string/new_spec.rb
 - [x] core/string/next_spec.rb
