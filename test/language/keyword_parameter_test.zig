@@ -89,6 +89,15 @@ test "Keyword with positional arguments" {
     try std.testing.expectEqual(42, result.toInteger());
 }
 
+test "Keyword argument omission uses local variable value" {
+    const result = try evalCode(
+        \\def foo(token:); token; end
+        \\token = 42
+        \\foo(token:)
+    );
+    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
+}
+
 test "Multiple optional keywords" {
     const result = try evalCode(
         \\def foo(a: 1, b: 2, c: 3); a + b + c; end

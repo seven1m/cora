@@ -320,6 +320,11 @@ pub const Compiler = struct {
                 }
             },
 
+            .implicit => |implicit_node| {
+                const value_node = try self.parser.asNode(@ptrCast(implicit_node.value));
+                try self.compileNode(value_node, line);
+            },
+
             .integer => |int_node| {
                 if (self.parser.integerNodeToI64(int_node)) |int_val| {
                     if (int_val >= -128 and int_val <= 127) {
@@ -1205,6 +1210,11 @@ pub const Compiler = struct {
 
             .local_variable_read => {
                 try self.emitDefinedDescriptor("local-variable", line);
+            },
+
+            .implicit => |implicit_node| {
+                const value_node = try self.parser.asNode(@ptrCast(implicit_node.value));
+                try self.compileDefinedValue(value_node, line);
             },
 
             .global_variable_read => |var_read| {

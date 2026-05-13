@@ -16,6 +16,11 @@ test "Hash with symbol keys" {
     try std.testing.expectEqual(2, result.toHashObject().entries.items.len);
 }
 
+test "Hash shorthand value omission uses local variable" {
+    const result = try evalCode("token = 42\n{token: }[:token]");
+    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
+}
+
 test "Hash with string keys" {
     const result = try evalCode(
         \\{"name" => "Alice", "age" => 30}

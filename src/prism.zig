@@ -108,6 +108,7 @@ pub const AliasMethodNode = c.pm_alias_method_node_t;
 pub const MultiWriteNode = c.pm_multi_write_node_t;
 pub const MultiTargetNode = c.pm_multi_target_node_t;
 pub const SplatNode = c.pm_splat_node_t;
+pub const ImplicitNode = c.pm_implicit_node_t;
 pub const ImplicitRestNode = c.pm_implicit_rest_node_t;
 pub const GlobalVariableTargetNode = c.pm_global_variable_target_node_t;
 pub const InstanceVariableTargetNode = c.pm_instance_variable_target_node_t;
@@ -241,6 +242,7 @@ pub const Node = union(enum) {
     multi_write: *MultiWriteNode,
     multi_target: *MultiTargetNode,
     splat: *SplatNode,
+    implicit: *ImplicitNode,
     implicit_rest: *ImplicitRestNode,
     global_variable_target: *GlobalVariableTargetNode,
     instance_variable_target: *InstanceVariableTargetNode,
@@ -764,6 +766,10 @@ pub const Parser = struct {
 
         if (node_type == c.PM_SPLAT_NODE) {
             return Node{ .splat = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_IMPLICIT_NODE) {
+            return Node{ .implicit = @ptrCast(raw) };
         }
 
         if (node_type == c.PM_IMPLICIT_REST_NODE) {
