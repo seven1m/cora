@@ -81,6 +81,12 @@ pub fn register(vm: *VM) !void {
     const gets_sym = try vm.intern("gets");
     try vm.io_class.module.methods.put(gets_sym, value.MethodEntry.builtin(&builtinIoGets, .{ .variadic = 0 }));
 
+    const each_sym = try vm.intern("each");
+    try vm.io_class.module.methods.put(each_sym, value.MethodEntry.builtin(&builtinIoEach, .{ .exact = 0 }));
+
+    const each_line_sym = try vm.intern("each_line");
+    try vm.io_class.module.methods.put(each_line_sym, value.MethodEntry.builtin(&builtinIoEach, .{ .exact = 0 }));
+
     const nread_sym = try vm.intern("nread");
     try vm.io_class.module.methods.put(nread_sym, value.MethodEntry.builtin(&builtinIoNread, .{ .exact = 0 }));
 
@@ -185,6 +191,24 @@ pub fn builtinIoGets(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
         if (byte[0] == '\n') break;
     }
     return vm.newString(out.items, false);
+}
+
+pub fn builtinIoEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const blk = block orelse {
+        return vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
+    };
+
+    var empty_args = [_]Value{};
+    while (true) {
+        const line = try builtinIoGets(vm, receiver, empty_args[0..], null);
+        if (line.isNil()) break;
+        const yield_args = [_]Value{line};
+        const result = try vm.yieldToBlock(blk, &yield_args);
+        if (result.controlFlowValue()) |return_value| return return_value;
+    }
+
+    return receiver;
 }
 
 fn requireIoReceiver(vm: *VM, receiver: Value) VMError!*IoObject {
