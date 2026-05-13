@@ -15,6 +15,14 @@ const NumericArg = union(enum) {
     float: f64,
 };
 
+const ShiftCount = union(enum) {
+    finite: i64,
+    positive_overflow,
+    negative_overflow,
+};
+
+const max_shift_width: u64 = std.math.maxInt(u32) + 1;
+
 fn coerceNumericArg(vm: *VM, arg: Value) VMError!NumericArg {
     if (arg.isInteger() or arg.isBigInteger()) return .{ .integer = arg };
     if (arg.isFloat()) return .{ .float = arg.toFloatObject().val };
@@ -226,6 +234,65 @@ inline fn compareIntegers(vm: *VM, lhs: Value, rhs: Value) VMError!std.math.Orde
     return BigInt.order(a, b);
 }
 
+fn coerceShiftCount(vm: *VM, arg: Value) VMError!ShiftCount {
+    const coerced = try arg.coerceToIntegerValue(
+        vm,
+        "no implicit conversion into Integer",
+        "no implicit conversion into Integer",
+    );
+    if (coerced.isInteger()) return .{ .finite = coerced.toInteger() };
+
+    const bigint = coerced.toBigIntegerObject().value;
+    const shift_count = bigint.toInt(i64) catch {
+        return if (bigint.isPositive()) .positive_overflow else .negative_overflow;
+    };
+    return .{ .finite = shift_count };
+}
+
+fn integerIsZero(value_: Value) bool {
+    return if (value_.isInteger())
+        value_.toInteger() == 0
+    else
+        value_.toBigIntegerObject().value.eqlZero();
+}
+
+fn integerIsNegative(value_: Value) bool {
+    return if (value_.isInteger())
+        value_.toInteger() < 0
+    else
+        !value_.toBigIntegerObject().value.isPositive() and !value_.toBigIntegerObject().value.eqlZero();
+}
+
+fn shiftRightConvergedValue(receiver: Value) Value {
+    return Value.integer(if (integerIsNegative(receiver)) -1 else 0);
+}
+
+fn raiseShiftWidthTooBig(vm: *VM) VMError!Value {
+    return vm.raiseExceptionFmt(vm.range_error_class, "shift width too big", .{});
+}
+
+fn shiftWidthTooBig(shift: u64) bool {
+    return shift >= max_shift_width;
+}
+
+fn shiftLeftInteger(vm: *VM, receiver: Value, shift: usize) VMError!Value {
+    if (shift == 0 or integerIsZero(receiver)) return receiver;
+
+    var managed = try receiver.integerToManaged(vm);
+    defer managed.deinit();
+    managed.shiftLeft(&managed, shift) catch return error.Fatal;
+    return vm.valueFromManagedInteger(&managed);
+}
+
+fn shiftRightInteger(vm: *VM, receiver: Value, shift: usize) VMError!Value {
+    if (shift == 0 or integerIsZero(receiver)) return receiver;
+
+    var managed = try receiver.integerToManaged(vm);
+    defer managed.deinit();
+    managed.shiftRight(&managed, shift) catch return error.Fatal;
+    return vm.valueFromManagedInteger(&managed);
+}
+
 pub fn uptoStopToI64(vm: *VM, stop: Value) VMError!i64 {
     if (stop.isInteger() or stop.isBigInteger()) {
         return stop.integerToI64(vm, "integer is too large to iterate");
@@ -316,6 +383,9 @@ pub fn register(vm: *VM) !void {
 
     const left_shift_sym = try vm.intern("<<");
     try vm.integer_class.module.methods.put(left_shift_sym, value.MethodEntry.builtin(&builtinIntegerLeftShift, .{ .exact = 1 }));
+
+    const right_shift_sym = try vm.intern(">>");
+    try vm.integer_class.module.methods.put(right_shift_sym, value.MethodEntry.builtin(&builtinIntegerRightShift, .{ .exact = 1 }));
 
     const power_sym = try vm.intern("**");
     try vm.integer_class.module.methods.put(power_sym, value.MethodEntry.builtin(&builtinIntegerPower, .{ .exact = 1 }));
@@ -486,30 +556,49 @@ pub fn builtinIntegerLeftShift(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
     try vm.requireArgCount(args, 1);
     try receiver.ensureInteger(vm);
 
-    const shift_count = try args[0].coerceToI64ViaToInt(
-        vm,
-        "no implicit conversion into Integer",
-        "no implicit conversion into Integer",
-        "bignum too big to convert into `long`",
-    );
+    return switch (try coerceShiftCount(vm, args[0])) {
+        .finite => |shift_count| {
+            if (shift_count == 0) return receiver;
+            if (shift_count > 0) {
+                if (shiftWidthTooBig(@intCast(shift_count)) and !integerIsZero(receiver)) {
+                    return raiseShiftWidthTooBig(vm);
+                }
+                return shiftLeftInteger(vm, receiver, @intCast(shift_count));
+            }
+            if (shift_count == std.math.minInt(i64)) return shiftRightConvergedValue(receiver);
+            return shiftRightInteger(vm, receiver, @intCast(-shift_count));
+        },
+        .positive_overflow => {
+            if (integerIsZero(receiver)) return receiver;
+            return raiseShiftWidthTooBig(vm);
+        },
+        .negative_overflow => return shiftRightConvergedValue(receiver),
+    };
+}
 
-    if (shift_count == 0) return receiver;
+pub fn builtinIntegerRightShift(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    try receiver.ensureInteger(vm);
 
-    var result = receiver;
-    if (shift_count > 0) {
-        var i: i64 = 0;
-        while (i < shift_count) : (i += 1) {
-            result = try mulIntegers(vm, result, Value.integer(2));
-        }
-        return result;
-    }
-
-    var i: i64 = 0;
-    const right_shift_count = -shift_count;
-    while (i < right_shift_count) : (i += 1) {
-        result = try divFloorIntegers(vm, result, Value.integer(2));
-    }
-    return result;
+    return switch (try coerceShiftCount(vm, args[0])) {
+        .finite => |shift_count| {
+            if (shift_count == 0) return receiver;
+            if (shift_count > 0) return shiftRightInteger(vm, receiver, @intCast(shift_count));
+            if (shift_count == std.math.minInt(i64)) {
+                if (integerIsZero(receiver)) return receiver;
+                return raiseShiftWidthTooBig(vm);
+            }
+            if (shiftWidthTooBig(@intCast(-shift_count)) and !integerIsZero(receiver)) {
+                return raiseShiftWidthTooBig(vm);
+            }
+            return shiftLeftInteger(vm, receiver, @intCast(-shift_count));
+        },
+        .positive_overflow => return shiftRightConvergedValue(receiver),
+        .negative_overflow => {
+            if (integerIsZero(receiver)) return receiver;
+            return raiseShiftWidthTooBig(vm);
+        },
+    };
 }
 
 pub fn builtinIntegerDivide(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

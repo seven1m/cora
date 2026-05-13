@@ -1025,7 +1025,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/integer/gte_spec.rb
 - [ ] core/integer/integer_spec.rb
 - [ ] core/integer/lcm_spec.rb
-- [ ] core/integer/left_shift_spec.rb
+- [x] core/integer/left_shift_spec.rb
 - [ ] core/integer/lt_spec.rb
 - [ ] core/integer/lte_spec.rb
 - [ ] core/integer/magnitude_spec.rb
@@ -1042,7 +1042,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/integer/pred_spec.rb
 - [ ] core/integer/rationalize_spec.rb
 - [ ] core/integer/remainder_spec.rb
-- [ ] core/integer/right_shift_spec.rb
+- [x] core/integer/right_shift_spec.rb
 - [ ] core/integer/round_spec.rb
 - [x] core/integer/size_spec.rb
 - [ ] core/integer/sqrt_spec.rb
