@@ -37,6 +37,16 @@ fn builtinMethodArity(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
     return boundMethodObject(receiver).arity;
 }
 
+fn builtinMethodParameters(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
+    const method_obj = boundMethodObject(receiver);
+    const resolved = (try common.resolveExactMethodForReceiver(vm, method_obj.receiver, method_obj.owner, method_obj.name)) orelse {
+        return common.raiseUndefinedMethodName(vm, method_obj.name);
+    };
+    return common.parametersForResolvedMethod(vm, resolved);
+}
+
 fn builtinMethodUnbind(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
 
@@ -70,6 +80,7 @@ pub fn createBoundMethodObject(
         .owner = &builtinMethodOwner,
         .to_proc = &builtinMethodToProc,
         .arity = &builtinMethodArity,
+        .parameters = &builtinMethodParameters,
         .unbind = &builtinMethodUnbind,
         .source_location = &builtinMethodSourceLocation,
     });

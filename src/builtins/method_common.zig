@@ -20,6 +20,7 @@ pub const BoundMethodBuiltins = struct {
     owner: BuiltinMethodFn,
     to_proc: BuiltinMethodFn,
     arity: BuiltinMethodFn,
+    parameters: BuiltinMethodFn,
     unbind: BuiltinMethodFn,
     source_location: BuiltinMethodFn,
 };
@@ -27,6 +28,7 @@ pub const BoundMethodBuiltins = struct {
 pub const UnboundMethodBuiltins = struct {
     owner: BuiltinMethodFn,
     arity: BuiltinMethodFn,
+    parameters: BuiltinMethodFn,
     bind: BuiltinMethodFn,
     inspect: BuiltinMethodFn,
     equal: BuiltinMethodFn,
@@ -189,6 +191,74 @@ pub fn sourceLocationForResolvedMethod(vm: *VM, resolved: vm_mod.ResolvedMethod)
     return Value.fromObject(&array.object);
 }
 
+fn appendParameterDescriptor(vm: *VM, array: *value.ArrayObject, kind_name: []const u8) VMError!void {
+    const descriptor = try vm.createArray();
+    descriptor.elements.append(vm.gc_allocator, Value.fromObject(&(try vm.intern(kind_name)).object)) catch return error.Fatal;
+    array.elements.append(vm.gc_allocator, Value.fromObject(&descriptor.object)) catch return error.Fatal;
+}
+
+pub fn parametersForResolvedMethod(vm: *VM, resolved: vm_mod.ResolvedMethod) VMError!Value {
+    const out = try vm.createArray();
+
+    switch (resolved.entry.method) {
+        .chunk => |method_chunk| {
+            for (0..method_chunk.arity) |_| {
+                try appendParameterDescriptor(vm, out, "req");
+            }
+            for (method_chunk.optional_params.items) |_| {
+                try appendParameterDescriptor(vm, out, "opt");
+            }
+            if (method_chunk.rest_param_index != null) {
+                try appendParameterDescriptor(vm, out, "rest");
+            }
+            for (0..method_chunk.post_required_count) |_| {
+                try appendParameterDescriptor(vm, out, "req");
+            }
+            for (method_chunk.required_keywords.items) |_| {
+                try appendParameterDescriptor(vm, out, "keyreq");
+            }
+            for (method_chunk.optional_keywords.items) |_| {
+                try appendParameterDescriptor(vm, out, "key");
+            }
+            if (method_chunk.keyword_rest_index != null) {
+                try appendParameterDescriptor(vm, out, "keyrest");
+            }
+            if (method_chunk.block_param_index != null) {
+                try appendParameterDescriptor(vm, out, "block");
+            }
+        },
+        .proc => |proc_obj| switch (proc_obj.block.kind) {
+            .chunk => |chunk_blk| {
+                const chunk_method: vm_mod.ResolvedMethod = .{
+                    .name = resolved.name,
+                    .owner_class = resolved.owner_class,
+                    .entry = .{ .method = .{ .chunk = chunk_blk.chunk }, .visibility = resolved.entry.visibility },
+                };
+                return parametersForResolvedMethod(vm, chunk_method);
+            },
+            .symbol, .builtin, .callable => {
+                try appendParameterDescriptor(vm, out, "rest");
+            },
+        },
+        .builtin => |builtin_method| switch (builtin_method.arity) {
+            .exact => |count| {
+                for (0..count) |_| {
+                    try appendParameterDescriptor(vm, out, "req");
+                }
+            },
+            .variadic => |required| {
+                for (0..required) |_| {
+                    try appendParameterDescriptor(vm, out, "req");
+                }
+                try appendParameterDescriptor(vm, out, "rest");
+            },
+        },
+        .undefined => unreachable,
+    }
+
+    return Value.fromObject(&out.object);
+}
+
 pub fn createBoundMethodObject(
     vm: *VM,
     receiver: Value,
@@ -226,6 +296,9 @@ pub fn createBoundMethodObject(
 
     const arity_sym = try vm.intern("arity");
     singleton.module.methods.put(arity_sym, MethodEntry.builtin(builtins.arity, .{ .exact = 0 })) catch return error.Fatal;
+
+    const parameters_sym = try vm.intern("parameters");
+    singleton.module.methods.put(parameters_sym, MethodEntry.builtin(builtins.parameters, .{ .exact = 0 })) catch return error.Fatal;
 
     const unbind_sym = try vm.intern("unbind");
     singleton.module.methods.put(unbind_sym, MethodEntry.builtin(builtins.unbind, .{ .exact = 0 })) catch return error.Fatal;
@@ -266,6 +339,9 @@ pub fn createUnboundMethodObject(
 
     const arity_sym = try vm.intern("arity");
     singleton.module.methods.put(arity_sym, MethodEntry.builtin(builtins.arity, .{ .exact = 0 })) catch return error.Fatal;
+
+    const parameters_sym = try vm.intern("parameters");
+    singleton.module.methods.put(parameters_sym, MethodEntry.builtin(builtins.parameters, .{ .exact = 0 })) catch return error.Fatal;
 
     const bind_sym = try vm.intern("bind");
     singleton.module.methods.put(bind_sym, MethodEntry.builtin(builtins.bind, .{ .exact = 1 })) catch return error.Fatal;
