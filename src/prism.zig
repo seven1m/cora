@@ -55,6 +55,7 @@ pub const KeywordHashNode = c.pm_keyword_hash_node_t;
 pub const RescueNode = c.pm_rescue_node_t;
 pub const RescueModifierNode = c.pm_rescue_modifier_node_t;
 pub const RetryNode = c.pm_retry_node_t;
+pub const RedoNode = c.pm_redo_node_t;
 pub const ReturnNode = c.pm_return_node_t;
 pub const NextNode = c.pm_next_node_t;
 pub const SelfNode = c.pm_self_node_t;
@@ -190,6 +191,7 @@ pub const Node = union(enum) {
     rescue: *RescueNode,
     rescue_modifier: *RescueModifierNode,
     retry: *RetryNode,
+    redo: *RedoNode,
     return_node: *ReturnNode,
     next_node: *NextNode,
     self: *SelfNode,
@@ -583,6 +585,10 @@ pub const Parser = struct {
 
         if (node_type == c.PM_RETRY_NODE) {
             return Node{ .retry = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_REDO_NODE) {
+            return Node{ .redo = @ptrCast(raw) };
         }
 
         if (node_type == c.PM_RETURN_NODE) {

@@ -145,6 +145,7 @@ const LoopContext = struct {
     loop_type: enum { while_loop, until_loop, block },
     break_jumps: std.ArrayList(usize),
     continue_target: usize,
+    redo_target: usize,
 };
 
 pub const Compiler = struct {
@@ -869,6 +870,10 @@ pub const Compiler = struct {
             .retry => {
                 // Emit RETRY opcode to jump back to the beginning of the begin block
                 try self.current_chunk.emitOp(.RETRY, line);
+            },
+
+            .redo => {
+                try self.compileRedoStatement(line);
             },
 
             .return_node => |return_node| {
@@ -3542,6 +3547,7 @@ pub const Compiler = struct {
             .loop_type = .block,
             .break_jumps = .empty,
             .continue_target = 0,
+            .redo_target = 0,
         });
 
         defer {
@@ -3580,6 +3586,7 @@ pub const Compiler = struct {
         block_chunk_ptr.post_required_count = post_count;
 
         // Compile the block body
+        self.loop_stack.items[loop_idx].redo_target = self.current_chunk.currentOffset();
         if (block_node.body) |body_ptr| {
             const body_node = try self.parser.asNode(@ptrCast(body_ptr));
             try self.compileNode(body_node, line);
@@ -3653,6 +3660,7 @@ pub const Compiler = struct {
             .loop_type = .block,
             .break_jumps = .empty,
             .continue_target = 0,
+            .redo_target = 0,
         });
 
         defer {
@@ -3692,6 +3700,7 @@ pub const Compiler = struct {
         lambda_chunk_ptr.post_required_count = post_count;
 
         // Compile the lambda body
+        self.loop_stack.items[loop_idx].redo_target = self.current_chunk.currentOffset();
         if (lambda_node.body) |body_ptr| {
             const body_node = try self.parser.asNode(@ptrCast(body_ptr));
             try self.compileNode(body_node, line);
@@ -4121,12 +4130,22 @@ pub const Compiler = struct {
         }
     }
 
+    fn compileRedoStatement(self: *Compiler, line: u32) !void {
+        if (self.loop_stack.items.len == 0) {
+            return error.RedoOutsideLoop;
+        }
+
+        const current_loop = &self.loop_stack.items[self.loop_stack.items.len - 1];
+        try self.current_chunk.emitBackwardJump(.JUMP, current_loop.redo_target, line);
+    }
+
     fn compileWhileStatement(self: *Compiler, while_node: *prism.WhileNode, line: u32) anyerror!void {
         const loop_idx = self.loop_stack.items.len;
         try self.loop_stack.append(self.allocator, .{
             .loop_type = .while_loop,
             .break_jumps = .empty,
             .continue_target = 0,
+            .redo_target = 0,
         });
 
         defer {
@@ -4147,6 +4166,7 @@ pub const Compiler = struct {
         const jump_to_end = try self.current_chunk.emitJump(.JUMP_IF_FALSE, line);
 
         // 3. Compile loop body
+        self.loop_stack.items[loop_idx].redo_target = self.current_chunk.currentOffset();
         if (while_node.statements) |statements_ptr| {
             const body = try self.parser.asNode(@ptrCast(statements_ptr));
             try self.compileNode(body, line);
@@ -4176,6 +4196,7 @@ pub const Compiler = struct {
             .loop_type = .until_loop,
             .break_jumps = .empty,
             .continue_target = 0,
+            .redo_target = 0,
         });
 
         defer {
@@ -4196,6 +4217,7 @@ pub const Compiler = struct {
         const jump_to_end = try self.current_chunk.emitJump(.JUMP_IF_TRUE, line);
 
         // 3. Compile loop body
+        self.loop_stack.items[loop_idx].redo_target = self.current_chunk.currentOffset();
         if (until_node.statements) |statements_ptr| {
             const body = try self.parser.asNode(@ptrCast(statements_ptr));
             try self.compileNode(body, line);
