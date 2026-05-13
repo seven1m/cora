@@ -58,3 +58,41 @@ test "Marshal dump can write to io-like object" {
     );
     try std.testing.expect(result.is_truthy());
 }
+
+test "Marshal round trips nested objects using marshal_dump and marshal_load" {
+    const result = try evalCode(
+        \\module MarshalSpec
+        \\  class UserMarshal
+        \\    def initialize(value)
+        \\      @value = value
+        \\    end
+        \\
+        \\    def marshal_dump
+        \\      [@value]
+        \\    end
+        \\
+        \\    def marshal_load(array)
+        \\      @value = array[0]
+        \\    end
+        \\
+        \\    def value
+        \\      @value
+        \\    end
+        \\  end
+        \\end
+        \\obj = MarshalSpec::UserMarshal.new(7)
+        \\Marshal.load(Marshal.dump(obj)).value == 7
+    );
+    try std.testing.expect(result.is_truthy());
+}
+
+test "Marshal round trips RubyGems Requirement defaults" {
+    const result = try evalCode(
+        \\$LOAD_PATH.unshift(File.expand_path("ext/rubygems/lib", Dir.pwd))
+        \\require "rubygems/requirement"
+        \\req = Gem::Requirement.new(">= 0")
+        \\copy = Marshal.load(Marshal.dump(req))
+        \\copy == req
+    );
+    try std.testing.expect(result.is_truthy());
+}

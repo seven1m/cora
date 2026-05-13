@@ -26,6 +26,7 @@ const Tag = struct {
     const float: u8 = 'f';
     const bignum: u8 = 'l';
     const ivar: u8 = 'I';
+    const user_marshaled_object: u8 = 'U';
 };
 
 const MarshalObjectRefs = std.AutoHashMap(usize, usize);
@@ -222,8 +223,35 @@ fn dumpValue(state: *DumpState, val: Value) VMError!void {
         try dumpBignumValue(state, val.toBigIntegerObject().value);
         return;
     }
+    if (val.getObjectPointer() != null) {
+        if (try state.vm.checkCallMethodByName(val, "marshal_dump", false, &.{}, null)) |dumped| {
+            try dumpUserMarshaledObject(state, val, dumped);
+            return;
+        }
+    }
 
     return state.vm.raiseExceptionFmt(state.vm.type_error_class, "can't dump {s}", .{state.vm.className(val)});
+}
+
+fn dumpUserMarshaledObject(state: *DumpState, val: Value, dumped: Value) VMError!void {
+    const key: usize = @intCast(val.raw);
+    if (state.object_refs.get(key)) |idx| {
+        try appendByte(state, Tag.object_link);
+        try dumpPackedInt(state, @intCast(idx));
+        return;
+    }
+
+    const class_obj = state.vm.getClass(val);
+    const class_path = (try marshalClassPath(state.vm, class_obj)) orelse {
+        return state.vm.raiseExceptionFmt(state.vm.type_error_class, "can't dump anonymous class", .{});
+    };
+
+    state.object_refs.put(key, state.object_count) catch return error.Fatal;
+    state.object_count += 1;
+
+    try appendByte(state, Tag.user_marshaled_object);
+    try dumpSymbolValue(state, try state.vm.intern(class_path));
+    try dumpValue(state, dumped);
 }
 
 fn dumpLinkedObject(state: *DumpState, val: Value, comptime body: fn (*DumpState, Value) VMError!void) VMError!void {
@@ -464,8 +492,32 @@ fn loadValue(state: *LoadState) VMError!Value {
         Tag.float => try loadFloat(state),
         Tag.bignum => try loadBignum(state),
         Tag.ivar => try loadIvarWrapped(state),
+        Tag.user_marshaled_object => try loadUserMarshaledObject(state),
         else => state.vm.raiseExceptionFmt(state.vm.argument_error_class, "unsupported marshal type", .{}),
     };
+}
+
+fn loadUserMarshaledObject(state: *LoadState) VMError!Value {
+    const class_name_value = try loadValue(state);
+    if (!class_name_value.isSymbol()) {
+        return state.vm.raiseExceptionFmt(state.vm.argument_error_class, "invalid marshal user class", .{});
+    }
+
+    const class_path = class_name_value.toSymbolObject().name;
+    const class_value = (try state.vm.resolveConstantPath(class_path)) orelse {
+        return state.vm.raiseExceptionFmt(state.vm.argument_error_class, "undefined class/module {s}", .{class_path});
+    };
+    if (!class_value.isClass()) {
+        return state.vm.raiseExceptionFmt(state.vm.argument_error_class, "undefined class/module {s}", .{class_path});
+    }
+
+    const object = try state.vm.newObjectForClass(class_value.toClassObject());
+    state.object_refs.append(state.vm.allocator, object) catch return error.Fatal;
+
+    const dumped = try loadValue(state);
+    var load_args = [_]Value{dumped};
+    _ = try state.vm.callMethodByName(object, "marshal_load", load_args[0..], null);
+    return object;
 }
 
 fn loadPackedInt(state: *LoadState) VMError!i64 {
@@ -730,4 +782,88 @@ fn marshalEncodingByName(vm: *VM, name: []const u8) VMError!enc.Encoding {
     if (std.ascii.eqlIgnoreCase(name, "CP437")) return .{ .cp437 = .{} };
     if (std.ascii.eqlIgnoreCase(name, "ISO-2022-JP")) return .{ .iso_2022_jp = .{} };
     return vm.raiseExceptionFmt(vm.argument_error_class, "unsupported marshal encoding", .{});
+}
+
+fn marshalConstantsTable(receiver: Value) ?*std.AutoHashMap(*value.SymbolObject, value.ConstEntry) {
+    if (receiver.isClass()) return &receiver.toClassObject().module.constants;
+    if (receiver.isModule()) return &receiver.toModuleObject().constants;
+    return null;
+}
+
+fn isSyntheticSingletonName(name: []const u8) bool {
+    return std.mem.startsWith(u8, name, "#<Class:#");
+}
+
+fn isAnonymousStoredName(name: []const u8) bool {
+    return std.mem.eql(u8, name, "<anonymous>");
+}
+
+fn findNestedConstantPath(
+    vm: *VM,
+    owner: Value,
+    owner_path: []const u8,
+    target: Value,
+    seen: *std.AutoHashMap(usize, void),
+) VMError!?[]const u8 {
+    const constants = marshalConstantsTable(owner) orelse return null;
+    const owner_key: usize = @intCast(owner.raw);
+    if (seen.contains(owner_key)) return null;
+    seen.put(owner_key, {}) catch return error.Fatal;
+
+    var it = constants.iterator();
+    while (it.next()) |entry| {
+        const child = entry.value_ptr.*.value;
+        if (!child.isModule() and !child.isClass()) continue;
+
+        const path = std.fmt.allocPrint(vm.gc_allocator, "{s}::{s}", .{ owner_path, entry.key_ptr.*.name }) catch return error.Fatal;
+        if (child.raw == target.raw) return path;
+    }
+
+    it = constants.iterator();
+    while (it.next()) |entry| {
+        const child = entry.value_ptr.*.value;
+        if (!child.isModule() and !child.isClass()) continue;
+
+        const path = std.fmt.allocPrint(vm.gc_allocator, "{s}::{s}", .{ owner_path, entry.key_ptr.*.name }) catch return error.Fatal;
+        if (try findNestedConstantPath(vm, child, path, target, seen)) |found| return found;
+    }
+
+    return null;
+}
+
+fn findConstantPathFromObject(vm: *VM, target: Value) VMError!?[]const u8 {
+    var seen = std.AutoHashMap(usize, void).init(vm.allocator);
+    defer seen.deinit();
+
+    var it = vm.object_class.module.constants.iterator();
+    while (it.next()) |entry| {
+        const child = entry.value_ptr.*.value;
+        if (!child.isModule() and !child.isClass()) continue;
+
+        const path = entry.key_ptr.*.name;
+        if (child.raw == target.raw) return path;
+    }
+
+    it = vm.object_class.module.constants.iterator();
+    while (it.next()) |entry| {
+        const child = entry.value_ptr.*.value;
+        if (!child.isModule() and !child.isClass()) continue;
+        if (child.raw == Value.fromObject(&vm.object_class.module.object).raw) continue;
+
+        const path = entry.key_ptr.*.name;
+        if (try findNestedConstantPath(vm, child, path, target, &seen)) |found| return found;
+    }
+
+    return null;
+}
+
+fn marshalClassPath(vm: *VM, class_obj: *value.ClassObject) VMError!?[]const u8 {
+    if (class_obj.attached_object != null) return null;
+
+    const class_value = Value.fromObject(&class_obj.module.object);
+    const stored_name = class_obj.module.name.name;
+    if (isSyntheticSingletonName(stored_name)) return null;
+    if (try findConstantPathFromObject(vm, class_value)) |path| return path;
+    if (isAnonymousStoredName(stored_name)) return null;
+    return stored_name;
 }

@@ -6928,6 +6928,10 @@ pub const VM = struct {
         return self.getClass(val).module.name.name;
     }
 
+    pub fn resolveConstantPath(self: *VM, path: []const u8) VMError!?Value {
+        return self.resolveConstantPathFrom(null, path, false);
+    }
+
     fn getObjectPointer(_: *VM, obj_val: value.Value) ?*value.Object {
         return obj_val.getObjectPointer();
     }
