@@ -1581,9 +1581,9 @@ pub const Compiler = struct {
         if (parts.size > 255) {
             return error.TooManyInterpolationParts;
         }
-        var part_count: u8 = @intCast(parts.size);
+        var part_count: usize = 0;
 
-        if (part_count == 0) return 0;
+        if (parts.size == 0) return 0;
 
         var i: usize = 0;
         while (i < parts.size) : (i += 1) {
@@ -1596,6 +1596,7 @@ pub const Compiler = struct {
                     const str_slice = prismStringSlice(str_val);
                     const idx = try self.current_chunk.addConstant(.{ .string = str_slice });
                     try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(idx), line);
+                    part_count += 1;
                 },
                 .embedded_statements => |embed_node| {
                     if (embed_node.statements) |stmts_raw| {
@@ -1605,10 +1606,12 @@ pub const Compiler = struct {
                         const idx = try self.current_chunk.addConstant(.{ .string = "" });
                         try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(idx), line);
                     }
+                    part_count += 1;
                 },
                 .embedded_variable => |embed_var| {
                     const var_node = try self.parser.asNode(@ptrCast(embed_var.variable));
                     try self.compileNode(var_node, line);
+                    part_count += 1;
                 },
                 .interpolated_string => |interp_node| {
                     part_count += try self.compileInterpolatedParts(interp_node.parts, line);
@@ -1624,9 +1627,13 @@ pub const Compiler = struct {
                     return error.UnsupportedNode;
                 },
             }
+
+            if (part_count > 255) {
+                return error.TooManyInterpolationParts;
+            }
         }
 
-        return part_count;
+        return @intCast(part_count);
     }
 
     fn emitBacktickCall(self: *Compiler, line: u32) !void {

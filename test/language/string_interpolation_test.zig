@@ -79,3 +79,16 @@ test "Interpolated string evaluates embedded expressions left-to-right" {
     try std.testing.expectEqual(@as(i64, 3), seen.toArrayObject().elements.items[2].toInteger());
     try std.testing.expectEqualSlices(u8, "123", str.toStringObject().str);
 }
+
+test "Adjacent interpolated string literals in method concatenate correctly" {
+    const result = try evalCode(
+        \\class InterpAdjacent
+        \\  def defaults_str
+        \\    "a#{1}b" "c#{2}d" + "e"
+        \\  end
+        \\end
+        \\InterpAdjacent.new.defaults_str
+    );
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "a1bc2de", result.toStringObject().str);
+}
