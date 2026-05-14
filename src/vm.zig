@@ -207,8 +207,8 @@ pub const CallFrame = struct {
     chunk: *Chunk,
     ip: usize,
     locals_base: usize, // vm.stack index of first local slot
-    ep: [*]Value,       // raw pointer to env_data[0]; locals at (ep-locals_count)..[ep-1]
-    stack_base: usize,  // vm.stack index where eval stack begins (= locals_base + locals_count + ENV_DATA_SIZE)
+    ep: [*]Value, // raw pointer to env_data[0]; locals at (ep-locals_count)..[ep-1]
+    stack_base: usize, // vm.stack index where eval stack begins (= locals_base + locals_count + ENV_DATA_SIZE)
     self_value: Value,
     block: ?Block = null,
     frame_type: FrameType = .method,
@@ -243,6 +243,7 @@ const PendingControlFlow = struct {
         break_,
         next_,
         redo_,
+        retry_,
     };
 };
 
@@ -497,10 +498,6 @@ pub const VM = struct {
     ensure_saved_unwinds: std.ArrayList(SavedUnwind) = .empty,
     active_catches: *std.ArrayList(Value),
     backtrace_limit: ?usize = null,
-    retry_point: ?struct {
-        frame_idx: usize,
-        byte_offset: usize,
-    } = null,
 
     builtin_keyword_ctx: ?*BuiltinKeywordContext = null,
 
@@ -1639,8 +1636,8 @@ pub const VM = struct {
     fn promoteFrameToHeap(self: *VM, target_ep: [*]Value) VMError![*]Value {
         // Determine if ep is stack-resident by checking address range.
         const stack_start = @intFromPtr(&self.stack.storage[0]);
-        const stack_end   = stack_start + MAX_FIBER_STACK_SIZE * @sizeOf(Value);
-        const ep_addr     = @intFromPtr(target_ep);
+        const stack_end = stack_start + MAX_FIBER_STACK_SIZE * @sizeOf(Value);
+        const ep_addr = @intFromPtr(target_ep);
         if (ep_addr < stack_start or ep_addr >= stack_end) {
             // Already on the heap — idempotent.
             return target_ep;
@@ -2911,8 +2908,8 @@ pub const VM = struct {
         }
 
         const locals_count = ch.locals_count;
-        const locals_base  = self.stack.items.len;
-        const needed       = locals_base + locals_count + ENV_DATA_SIZE;
+        const locals_base = self.stack.items.len;
+        const needed = locals_base + locals_count + ENV_DATA_SIZE;
 
         if (needed > MAX_FIBER_STACK_SIZE) {
             const exc = try self.createException(self.fiber_error_class, "fiber stack overflow");
@@ -2921,9 +2918,9 @@ pub const VM = struct {
         }
 
         self.stack.items.len = needed;
-        @memset(self.stack.items[locals_base..locals_base + locals_count], Value.nil());
+        @memset(self.stack.items[locals_base .. locals_base + locals_count], Value.nil());
 
-        const ep: [*]Value = self.stack.items[locals_base + locals_count..].ptr;
+        const ep: [*]Value = self.stack.items[locals_base + locals_count ..].ptr;
         ep[0] = encodeEp(defining_ep);
         ep[1] = if (ch.lexical_scope orelse self.current_lexical_scope) |ls|
             .{ .raw = @intFromPtr(ls) }
@@ -2932,14 +2929,14 @@ pub const VM = struct {
         ep[2] = Value.integer(locals_count);
 
         self.frames.append(self.gc_allocator, CallFrame{
-            .chunk        = ch,
-            .ip           = 0,
-            .locals_base  = locals_base,
-            .ep           = ep,
-            .stack_base   = needed,
-            .self_value   = self_value,
-            .block        = block,
-            .frame_type   = frame_type,
+            .chunk = ch,
+            .ip = 0,
+            .locals_base = locals_base,
+            .ep = ep,
+            .stack_base = needed,
+            .self_value = self_value,
+            .block = block,
+            .frame_type = frame_type,
             .return_target_ep = return_target_ep,
             .break_target_frame_idx = break_target_frame_idx,
             .next_target_frame_idx = next_target_frame_idx,
@@ -2963,8 +2960,8 @@ pub const VM = struct {
         }
 
         const locals_count = ch.locals_count;
-        const locals_base  = self.stack.items.len;
-        const needed       = locals_base + locals_count + ENV_DATA_SIZE;
+        const locals_base = self.stack.items.len;
+        const needed = locals_base + locals_count + ENV_DATA_SIZE;
 
         if (needed > MAX_FIBER_STACK_SIZE) {
             const exc = try self.createException(self.fiber_error_class, "fiber stack overflow");
@@ -2975,13 +2972,13 @@ pub const VM = struct {
         // Extend the value stack: locals (nil-initialised) + env_data slots.
         self.stack.items.len = needed;
         // Nil-initialise locals.
-        @memset(self.stack.items[locals_base..locals_base + locals_count], Value.nil());
+        @memset(self.stack.items[locals_base .. locals_base + locals_count], Value.nil());
 
         // Write env_data:
         //   ep[0] = parent ep (current top frame's ep, or 0 if none)
         //   ep[1] = lexical scope pointer
         //   ep[2] = locals_count (as Ruby integer for GC safety)
-        const ep: [*]Value = self.stack.items[locals_base + locals_count..].ptr;
+        const ep: [*]Value = self.stack.items[locals_base + locals_count ..].ptr;
         const parent_val: Value = if (self.frames.items.len > 0)
             encodeEp(self.frames.items[self.frames.items.len - 1].ep)
         else
@@ -2994,13 +2991,13 @@ pub const VM = struct {
         ep[2] = Value.integer(locals_count);
 
         self.frames.append(self.gc_allocator, CallFrame{
-            .chunk      = ch,
-            .ip         = 0,
+            .chunk = ch,
+            .ip = 0,
             .locals_base = locals_base,
-            .ep         = ep,
+            .ep = ep,
             .stack_base = needed,
             .self_value = self_value,
-            .block      = block,
+            .block = block,
         }) catch return error.Fatal;
 
         // Update current_lexical_scope to the frame's scope
@@ -4738,10 +4735,10 @@ pub const VM = struct {
                                                 const new_locals_base = receiver_index;
                                                 const needed = new_locals_base + lc + ENV_DATA_SIZE;
                                                 self.stack.items.len = needed;
-                                                if (lc > 0) @memset(self.stack.items[new_locals_base..new_locals_base + lc], Value.nil());
-                                                if (argc > 0 and argc <= 32) @memcpy(self.stack.items[new_locals_base..new_locals_base + argc], saved_args[0..argc]);
+                                                if (lc > 0) @memset(self.stack.items[new_locals_base .. new_locals_base + lc], Value.nil());
+                                                if (argc > 0 and argc <= 32) @memcpy(self.stack.items[new_locals_base .. new_locals_base + argc], saved_args[0..argc]);
                                                 // Write env_data
-                                                const new_ep: [*]Value = self.stack.items[new_locals_base + lc..].ptr;
+                                                const new_ep: [*]Value = self.stack.items[new_locals_base + lc ..].ptr;
                                                 new_ep[0] = encodeEp(frame.ep);
                                                 new_ep[1] = if (method_chunk.lexical_scope orelse self.current_lexical_scope) |ls| .{ .raw = @intFromPtr(ls) } else .{ .raw = 0 };
                                                 new_ep[2] = Value.integer(lc);
@@ -5667,13 +5664,6 @@ pub const VM = struct {
             .TRY_BEGIN => {
                 // Skip the handler index operand
                 _ = readU16From(frame, operands, &operand_cursor);
-
-                // Save retry point (current frame and IP after TRY_BEGIN)
-                // This allows 'retry' to jump back to the beginning of the begin block
-                self.retry_point = .{
-                    .frame_idx = self.frames.items.len - 1,
-                    .byte_offset = self.currentFrame().ip,
-                };
             },
 
             .TRY_END, .CATCH_END => {
@@ -5687,28 +5677,14 @@ pub const VM = struct {
             },
 
             .RETRY => {
-                // Jump back to the beginning of the current begin block
-                if (self.retry_point) |retry_pt| {
-                    // Verify we're in the same frame
-                    const current_frame_idx = self.frames.items.len - 1;
-                    if (retry_pt.frame_idx == current_frame_idx) {
-                        // Clear pending exception (if any) - we're starting fresh
-                        self.setPendingException(null);
-
-                        // Jump back to the saved retry point
-                        try setFrameIp(frame, retry_pt.byte_offset);
-                    } else {
-                        // Retry called from wrong frame - this shouldn't happen with proper compilation
-                        const exc = try self.createException(self.runtime_error_class, "retry called from wrong frame");
-                        self.setPendingException(exc);
-                        return error.Unwind;
-                    }
-                } else {
-                    // No retry point set - retry called outside of rescue block
-                    const exc = try self.createException(self.runtime_error_class, "retry called outside of rescue");
-                    self.setPendingException(exc);
-                    return error.Unwind;
-                }
+                const target_ip = readU16From(frame, operands, &operand_cursor);
+                self.setPendingControlFlow(.{
+                    .kind = .retry_,
+                    .value = Value.nil(),
+                    .target_frame_idx = self.frames.items.len - 1,
+                    .target_ip = target_ip,
+                });
+                return error.Unwind;
             },
 
             .ENSURE_END => {
@@ -6058,9 +6034,9 @@ pub const VM = struct {
                                                     const new_locals_base = receiver_index;
                                                     const needed = new_locals_base + lc + ENV_DATA_SIZE;
                                                     self.stack.items.len = needed;
-                                                    if (lc > 0) @memset(self.stack.items[new_locals_base..new_locals_base + lc], Value.nil());
-                                                    if (argc > 0 and argc <= 32) @memcpy(self.stack.items[new_locals_base..new_locals_base + argc], saved_args[0..argc]);
-                                                    const new_ep: [*]Value = self.stack.items[new_locals_base + lc..].ptr;
+                                                    if (lc > 0) @memset(self.stack.items[new_locals_base .. new_locals_base + lc], Value.nil());
+                                                    if (argc > 0 and argc <= 32) @memcpy(self.stack.items[new_locals_base .. new_locals_base + argc], saved_args[0..argc]);
+                                                    const new_ep: [*]Value = self.stack.items[new_locals_base + lc ..].ptr;
                                                     new_ep[0] = encodeEp(f.ep);
                                                     new_ep[1] = if (method_chunk.lexical_scope orelse self.current_lexical_scope) |ls| .{ .raw = @intFromPtr(ls) } else .{ .raw = 0 };
                                                     new_ep[2] = Value.integer(lc);
@@ -9182,7 +9158,7 @@ pub const VM = struct {
         const needed = locals_base + lc + ENV_DATA_SIZE;
         if (needed > MAX_FIBER_STACK_SIZE) return error.Fatal;
         self.stack.items.len = needed;
-        @memset(self.stack.storage[locals_base..locals_base + lc], Value.nil());
+        @memset(self.stack.storage[locals_base .. locals_base + lc], Value.nil());
 
         const ep: [*]Value = self.stack.storage[locals_base + lc .. locals_base + lc + ENV_DATA_SIZE].ptr;
         ep[0] = if (parent_ep) |p| encodeEp(p) else .{ .raw = 0 };
@@ -9190,14 +9166,14 @@ pub const VM = struct {
         ep[2] = Value.integer(lc);
 
         self.frames.append(self.gc_allocator, CallFrame{
-            .chunk       = target_chunk,
-            .ip          = 0,
+            .chunk = target_chunk,
+            .ip = 0,
             .locals_base = locals_base,
-            .ep          = ep,
-            .stack_base  = needed,
-            .self_value  = self_value,
-            .block       = null,
-            .frame_type  = .method,
+            .ep = ep,
+            .stack_base = needed,
+            .self_value = self_value,
+            .block = null,
+            .frame_type = .method,
             .dir_returns_nil = dir_returns_nil,
         }) catch return error.Fatal;
 
@@ -9282,14 +9258,14 @@ pub const VM = struct {
         // Push a minimal frame that shares the parent's ep.
         // locals_base = stack_base = current top (no locals, no env_data pushed).
         const default_frame = CallFrame{
-            .chunk       = @constCast(default_chunk),
-            .ip          = 0,
+            .chunk = @constCast(default_chunk),
+            .ip = 0,
             .locals_base = self.stack.items.len,
-            .ep          = parent_ep,
-            .stack_base  = self.stack.items.len,
-            .self_value  = self.currentFrame().self_value,
-            .frame_type  = .method,
-            .block       = null,
+            .ep = parent_ep,
+            .stack_base = self.stack.items.len,
+            .self_value = self.currentFrame().self_value,
+            .frame_type = .method,
+            .block = null,
         };
 
         self.frames.append(self.gc_allocator, default_frame) catch return error.Fatal;
@@ -9872,13 +9848,16 @@ pub const VM = struct {
             }
 
             if (self.pendingControlFlow()) |cf| {
-                if (cf.kind == .redo_) {
-                    if (cf.target_frame_idx == frame_idx) {
-                        const target_ip = cf.target_ip orelse return error.Fatal;
-                        try setFrameIp(&self.frames.items[frame_idx], target_ip);
-                        self.setPendingControlFlow(null);
-                        return true;
-                    }
+                switch (cf.kind) {
+                    .redo_, .retry_ => {
+                        if (cf.target_frame_idx == frame_idx) {
+                            const target_ip = cf.target_ip orelse return error.Fatal;
+                            try setFrameIp(&self.frames.items[frame_idx], target_ip);
+                            self.setPendingControlFlow(null);
+                            return true;
+                        }
+                    },
+                    else => {},
                 }
             }
 
@@ -9896,7 +9875,7 @@ pub const VM = struct {
                             }
                         }
                     },
-                    .redo_ => {},
+                    .redo_, .retry_ => {},
                 }
             }
         }
@@ -9914,7 +9893,7 @@ pub const VM = struct {
                 .return_, .break_, .next_ => if (cf.target_frame_idx) |target_frame_idx| {
                     return @min(min_frame_len, target_frame_idx);
                 },
-                .redo_ => {},
+                .redo_, .retry_ => {},
             }
         }
         return min_frame_len;
@@ -9983,7 +9962,7 @@ pub const VM = struct {
                 .return_ => .{ .non_local_return = result },
                 .break_ => .{ .broke = result },
                 .next_ => .{ .returned = result },
-                .redo_ => return error.Fatal,
+                .redo_, .retry_ => return error.Fatal,
             };
         }
 
@@ -10018,14 +9997,14 @@ pub const VM = struct {
 
         // Share the current frame's ep (no new locals allocated for rescue type checks).
         const rescue_type_frame = CallFrame{
-            .chunk       = @constCast(rescue_type_chunk),
-            .ip          = 0,
+            .chunk = @constCast(rescue_type_chunk),
+            .ip = 0,
             .locals_base = self.stack.items.len,
-            .ep          = ep,
-            .stack_base  = self.stack.items.len,
-            .self_value  = self_value,
-            .frame_type  = .method,
-            .block       = null,
+            .ep = ep,
+            .stack_base = self.stack.items.len,
+            .self_value = self_value,
+            .frame_type = .method,
+            .block = null,
         };
 
         self.frames.append(self.gc_allocator, rescue_type_frame) catch return error.Fatal;

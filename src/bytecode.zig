@@ -93,7 +93,7 @@ pub const OpCode = enum(u8) {
     CATCH_END, // No operands
     ENSURE_START, // No operands
     ENSURE_END, // No operands
-    RETRY, // No operands
+    RETRY, // u16 retry target byte offset
     BREAK, // No operands
     NEXT, // No operands
     REDO, // Operand: u16 (target byte offset)
@@ -156,31 +156,80 @@ pub const BuiltinId = enum(u8) {
 pub fn opcodeOperandSize(op: OpCode) usize {
     return switch (op) {
         // No operands
-        .PUSH_NIL, .PUSH_TRUE, .PUSH_FALSE, .PUSH_SELF,
-        .POP, .DUP, .SWAP, .CASE_MATCH,
-        .OPT_PLUS, .OPT_MINUS, .OPT_MULT, .OPT_DIV, .OPT_EQ,
-        .OPT_LT, .OPT_GT, .OPT_LE, .OPT_GE,
-        .ARRAY_APPEND, .ARRAY_CONCAT_ARRAY,
+        .PUSH_NIL,
+        .PUSH_TRUE,
+        .PUSH_FALSE,
+        .PUSH_SELF,
+        .POP,
+        .DUP,
+        .SWAP,
+        .CASE_MATCH,
+        .OPT_PLUS,
+        .OPT_MINUS,
+        .OPT_MULT,
+        .OPT_DIV,
+        .OPT_EQ,
+        .OPT_LT,
+        .OPT_GT,
+        .OPT_LE,
+        .OPT_GE,
+        .ARRAY_APPEND,
+        .ARRAY_CONCAT_ARRAY,
         .HASH_MERGE_KW,
-        .HALT, .TRY_END, .CATCH_END, .ENSURE_START, .ENSURE_END,
-        .RETRY, .BREAK, .NEXT, .YIELD_SPLAT, .MULTI_ASSIGN_PREPARE,
+        .HALT,
+        .TRY_END,
+        .CATCH_END,
+        .ENSURE_START,
+        .ENSURE_END,
+        .BREAK,
+        .NEXT,
+        .YIELD_SPLAT,
+        .MULTI_ASSIGN_PREPARE,
         => 0,
 
         // 1-byte operands
-        .DUP_N, .YIELD, .RETURN, .WHEN_SPLAT,
-        .PUSH_RANGE, .INTERPOLATE_STRING, .RAISE, .CATCH_START, .PUSH_I8, .UNDEF_METHOD,
+        .DUP_N,
+        .YIELD,
+        .RETURN,
+        .WHEN_SPLAT,
+        .PUSH_RANGE,
+        .INTERPOLATE_STRING,
+        .RAISE,
+        .CATCH_START,
+        .PUSH_I8,
+        .UNDEF_METHOD,
         => 1,
 
         // 2-byte operands (u16)
-        .GET_LOCAL, .SET_LOCAL,
-        .GET_GLOBAL, .SET_GLOBAL, .GET_BACKREF,
-        .GET_CVAR, .GET_CVAR_OR_NIL, .SET_CVAR,
-        .GET_CONST, .GET_CONST_OR_NIL, .SET_CONST, .SET_CONST_PATH,
-        .GET_IVAR, .SET_IVAR,
-        .PUSH_CONST, .PUSH_CSTRING, .PUSH_FSTRING, .PUSH_SYMBOL,
-        .JUMP, .JUMP_IF_FALSE, .JUMP_IF_TRUE,
-        .TRY_BEGIN, .REDO, .PUSH_LAMBDA, .GET_CONST_PATH,
-        .PUSH_ARRAY, .PUSH_HASH, .HASH_SET_CONST_KEY,
+        .GET_LOCAL,
+        .SET_LOCAL,
+        .GET_GLOBAL,
+        .SET_GLOBAL,
+        .GET_BACKREF,
+        .GET_CVAR,
+        .GET_CVAR_OR_NIL,
+        .SET_CVAR,
+        .GET_CONST,
+        .GET_CONST_OR_NIL,
+        .SET_CONST,
+        .SET_CONST_PATH,
+        .GET_IVAR,
+        .SET_IVAR,
+        .PUSH_CONST,
+        .PUSH_CSTRING,
+        .PUSH_FSTRING,
+        .PUSH_SYMBOL,
+        .JUMP,
+        .JUMP_IF_FALSE,
+        .JUMP_IF_TRUE,
+        .TRY_BEGIN,
+        .REDO,
+        .RETRY,
+        .PUSH_LAMBDA,
+        .GET_CONST_PATH,
+        .PUSH_ARRAY,
+        .PUSH_HASH,
+        .HASH_SET_CONST_KEY,
         => 2,
 
         // 3-byte operands: GET_LOCAL_DEEP / SET_LOCAL_DEEP = u16 local_idx + u8 depth
@@ -191,7 +240,9 @@ pub fn opcodeOperandSize(op: OpCode) usize {
         => 2,
 
         // DEF_MODULE: u16 name_idx + u16 body_chunk_id = 4 bytes
-        .DEF_MODULE, .DEF_METHOD, .DEF_SINGLETON_METHOD,
+        .DEF_MODULE,
+        .DEF_METHOD,
+        .DEF_SINGLETON_METHOD,
         .DEF_CLASS,
         => 4,
 

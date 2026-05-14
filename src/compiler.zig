@@ -148,6 +148,11 @@ const LoopContext = struct {
     redo_target: usize,
 };
 
+const RescueContext = struct {
+    in_rescue: usize,
+    active_retry_target: ?usize,
+};
+
 pub const Compiler = struct {
     allocator: std.mem.Allocator,
     parser: *prism.Parser,
@@ -162,6 +167,8 @@ pub const Compiler = struct {
     child_chunks: std.AutoHashMap(chunk.ChunkId, *Chunk),
     chunk_counter: chunk.ChunkId = 1,
     loop_stack: std.ArrayList(LoopContext) = .empty,
+    in_rescue: usize = 0,
+    active_retry_target: ?usize = null,
 
     pub fn init(allocator: std.mem.Allocator, parser: *prism.Parser, starting_chunk_id: chunk.ChunkId) Compiler {
         return Compiler{
@@ -184,6 +191,18 @@ pub const Compiler = struct {
         }
         self.all_locals.deinit(self.allocator);
         // self.child_chunks is transferred to CompiledProgram.
+    }
+
+    fn saveRescueContext(self: *Compiler) RescueContext {
+        return .{
+            .in_rescue = self.in_rescue,
+            .active_retry_target = self.active_retry_target,
+        };
+    }
+
+    fn restoreRescueContext(self: *Compiler, ctx: RescueContext) void {
+        self.in_rescue = ctx.in_rescue;
+        self.active_retry_target = ctx.active_retry_target;
     }
 
     /// Allocate the next chunk ID, returning an error if we've exceeded the limit.
@@ -873,8 +892,11 @@ pub const Compiler = struct {
             },
 
             .retry => {
-                // Emit RETRY opcode to jump back to the beginning of the begin block
-                try self.current_chunk.emitOp(.RETRY, line);
+                const retry_target = self.active_retry_target orelse return error.RetryOutsideRescue;
+                if (self.in_rescue == 0) {
+                    return error.RetryOutsideRescue;
+                }
+                try self.current_chunk.emitOpU16(.RETRY, @intCast(retry_target), line);
             },
 
             .redo => {
@@ -2956,8 +2978,11 @@ pub const Compiler = struct {
             // Save the current chunk and locals, switch to the body chunk
             const saved_chunk = self.current_chunk;
             const saved_locals = self.locals;
+            const saved_rescue_context = self.saveRescueContext();
             self.locals = .empty;
             self.current_chunk = body_chunk_ptr;
+            self.in_rescue = 0;
+            self.active_retry_target = null;
 
             // Compile the module body (method definitions, etc.)
             const body_node = try self.parser.asNode(@ptrCast(body_ptr));
@@ -2978,6 +3003,7 @@ pub const Compiler = struct {
             self.current_chunk = saved_chunk;
             self.locals.deinit(self.allocator);
             self.locals = saved_locals;
+            self.restoreRescueContext(saved_rescue_context);
         }
 
         // Emit DEF_MODULE instruction with the body chunk ID
@@ -3019,8 +3045,11 @@ pub const Compiler = struct {
             // Save the current chunk and locals, switch to the body chunk
             const saved_chunk = self.current_chunk;
             const saved_locals = self.locals;
+            const saved_rescue_context = self.saveRescueContext();
             self.locals = .empty;
             self.current_chunk = body_chunk_ptr;
+            self.in_rescue = 0;
+            self.active_retry_target = null;
 
             // Compile the class body (method definitions, etc.)
             const body_node = try self.parser.asNode(@ptrCast(body_ptr));
@@ -3041,6 +3070,7 @@ pub const Compiler = struct {
             self.current_chunk = saved_chunk;
             self.locals.deinit(self.allocator);
             self.locals = saved_locals;
+            self.restoreRescueContext(saved_rescue_context);
         }
 
         // Emit DEF_CLASS instruction with the body chunk ID
@@ -3089,8 +3119,11 @@ pub const Compiler = struct {
 
         const saved_chunk = self.current_chunk;
         const saved_locals = self.locals;
+        const saved_rescue_context = self.saveRescueContext();
         self.locals = .empty;
         self.current_chunk = body_chunk_ptr;
+        self.in_rescue = 0;
+        self.active_retry_target = null;
 
         // Ruby-compatible singleton-class body result is the last expression.
         if (singleton_class_node.body) |body_ptr| {
@@ -3109,6 +3142,7 @@ pub const Compiler = struct {
         self.current_chunk = saved_chunk;
         self.locals.deinit(self.allocator);
         self.locals = saved_locals;
+        self.restoreRescueContext(saved_rescue_context);
         try self.current_chunk.emitOpU16(.DEF_SINGLETON_CLASS, body_chunk_id, line);
     }
 
@@ -3448,12 +3482,16 @@ pub const Compiler = struct {
         // a fresh local table to keep parameter slots starting at 0.
         const saved_chunk = self.current_chunk;
         const saved_locals = self.locals;
+        const saved_rescue_context = self.saveRescueContext();
         self.locals = .empty;
         self.current_chunk = method_chunk_ptr;
+        self.in_rescue = 0;
+        self.active_retry_target = null;
         errdefer {
             self.current_chunk = saved_chunk;
             self.locals.deinit(self.allocator);
             self.locals = saved_locals;
+            self.restoreRescueContext(saved_rescue_context);
         }
 
         // Process parameters (if any)
@@ -3542,7 +3580,10 @@ pub const Compiler = struct {
 
         // Save the current chunk and switch to the block chunk
         const saved_chunk = self.current_chunk;
+        const saved_rescue_context = self.saveRescueContext();
         self.current_chunk = block_chunk_ptr;
+        self.in_rescue = 0;
+        self.active_retry_target = null;
 
         // Push current locals onto all_locals stack (for closure lookups)
         try self.all_locals.append(self.allocator, self.locals);
@@ -3638,6 +3679,7 @@ pub const Compiler = struct {
         self.current_chunk = saved_chunk;
         self.locals.deinit(self.allocator); // Clean up block's locals
         self.locals = saved_locals; // Restore parent's locals
+        self.restoreRescueContext(saved_rescue_context);
 
         return @intCast(chunk_id);
     }
@@ -3655,7 +3697,10 @@ pub const Compiler = struct {
 
         // Save the current chunk and switch to the lambda chunk
         const saved_chunk = self.current_chunk;
+        const saved_rescue_context = self.saveRescueContext();
         self.current_chunk = lambda_chunk_ptr;
+        self.in_rescue = 0;
+        self.active_retry_target = null;
 
         // Push current locals onto all_locals stack (for closure lookups)
         try self.all_locals.append(self.allocator, self.locals);
@@ -3752,6 +3797,7 @@ pub const Compiler = struct {
         self.current_chunk = saved_chunk;
         self.locals.deinit(self.allocator); // Clean up lambda's locals
         self.locals = saved_locals; // Restore parent's locals
+        self.restoreRescueContext(saved_rescue_context);
 
         return @intCast(chunk_id);
     }
@@ -3816,13 +3862,20 @@ pub const Compiler = struct {
         try self.child_chunks.put(rescue_type_chunk_id, rescue_type_chunk_ptr);
 
         const saved_chunk = self.current_chunk;
+        const saved_rescue_context = self.saveRescueContext();
         self.current_chunk = rescue_type_chunk_ptr;
-        errdefer self.current_chunk = saved_chunk;
+        self.in_rescue = 0;
+        self.active_retry_target = null;
+        errdefer {
+            self.current_chunk = saved_chunk;
+            self.restoreRescueContext(saved_rescue_context);
+        }
 
         try self.compileNode(expression, line);
         try self.current_chunk.emitOpU8(.RETURN, 0, line);
 
         self.current_chunk = saved_chunk;
+        self.restoreRescueContext(saved_rescue_context);
         return rescue_type_chunk_id;
     }
 
@@ -3915,12 +3968,19 @@ pub const Compiler = struct {
             try self.current_chunk.emitOpU8(.CATCH_START, var_idx, line);
 
             // Compile rescue body
-            if (rescue_node.statements) |statements_ptr| {
-                const statements = try self.parser.asNode(@ptrCast(statements_ptr));
-                try self.compileNode(statements, line);
-            } else {
-                // Empty rescue body pushes nil
-                try self.current_chunk.emitOp(.PUSH_NIL, line);
+            {
+                const saved_rescue_context = self.saveRescueContext();
+                self.in_rescue = saved_rescue_context.in_rescue + 1;
+                self.active_retry_target = try_start_byte_offset;
+                defer self.restoreRescueContext(saved_rescue_context);
+
+                if (rescue_node.statements) |statements_ptr| {
+                    const statements = try self.parser.asNode(@ptrCast(statements_ptr));
+                    try self.compileNode(statements, line);
+                } else {
+                    // Empty rescue body pushes nil
+                    try self.current_chunk.emitOp(.PUSH_NIL, line);
+                }
             }
 
             // Emit CATCH_END
@@ -4045,8 +4105,15 @@ pub const Compiler = struct {
         try self.current_chunk.emitOpU8(.CATCH_START, var_idx, line);
 
         // Compile the rescue expression (fallback value)
-        const rescue_expression = try self.parser.asNode(@ptrCast(rescue_modifier_node.rescue_expression));
-        try self.compileNode(rescue_expression, line);
+        {
+            const saved_rescue_context = self.saveRescueContext();
+            self.in_rescue = saved_rescue_context.in_rescue + 1;
+            self.active_retry_target = try_start_byte_offset;
+            defer self.restoreRescueContext(saved_rescue_context);
+
+            const rescue_expression = try self.parser.asNode(@ptrCast(rescue_modifier_node.rescue_expression));
+            try self.compileNode(rescue_expression, line);
+        }
 
         // Emit CATCH_END
         try self.current_chunk.emitOp(.CATCH_END, line);
