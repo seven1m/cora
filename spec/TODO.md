@@ -1985,7 +1985,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/string/each_char_spec.rb
 - [x] core/string/each_codepoint_spec.rb
 - [ ] core/string/each_grapheme_cluster_spec.rb
-- [ ] core/string/each_line_spec.rb
+- [x] core/string/each_line_spec.rb
 - [x] core/string/element_reference_spec.rb
 - [x] core/string/element_set_spec.rb
 - [x] core/string/empty_spec.rb
@@ -2008,7 +2008,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/string/inspect_spec.rb
 - [x] core/string/intern_spec.rb
 - [x] core/string/length_spec.rb
-- [ ] core/string/lines_spec.rb
+- [x] core/string/lines_spec.rb
 - [ ] core/string/ljust_spec.rb
 - [x] core/string/lstrip_spec.rb
 - [x] core/string/match_spec.rb

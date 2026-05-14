@@ -226,6 +226,12 @@ pub fn register(vm: *VM) !void {
     const string_each_codepoint_sym = try vm.intern("each_codepoint");
     try vm.string_class.module.methods.put(string_each_codepoint_sym, value.MethodEntry.builtin(&builtinStringEachCodepoint, .{ .exact = 0 }));
 
+    const string_each_line_sym = try vm.intern("each_line");
+    try vm.string_class.module.methods.put(string_each_line_sym, value.MethodEntry.builtin(&builtinStringEachLine, .{ .variadic = 0 }));
+
+    const string_lines_sym = try vm.intern("lines");
+    try vm.string_class.module.methods.put(string_lines_sym, value.MethodEntry.builtin(&builtinStringLines, .{ .variadic = 0 }));
+
     const string_start_with_sym = try vm.intern("start_with?");
     try vm.string_class.module.methods.put(string_start_with_sym, value.MethodEntry.builtin(&builtinStringStartWith, .{ .variadic = 0 }));
 
@@ -1619,6 +1625,21 @@ fn raiseUndefinedConversionForCodepoint(vm: *VM, codepoint: u32, from: enc.Encod
     );
 }
 
+fn prependBomForEncodedString(vm: *VM, target_encoding: enc.Encoding, bytes: []const u8) VMError![]const u8 {
+    if (bytes.len == 0) return bytes;
+
+    const bom = switch (target_encoding) {
+        .utf16 => "\xFE\xFF",
+        .utf32 => "\x00\x00\xFE\xFF",
+        else => return bytes,
+    };
+
+    const out = vm.gc_allocator_atomic.alloc(u8, bom.len + bytes.len) catch return error.Fatal;
+    @memcpy(out[0..bom.len], bom);
+    @memcpy(out[bom.len..], bytes);
+    return out;
+}
+
 const EncodeXmlMode = enum {
     none,
     text,
@@ -1960,6 +1981,10 @@ pub fn builtinStringEncode(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
         wrapped.appendSlice(vm.gc_allocator_atomic, encoded_obj.str) catch return error.Fatal;
         try appendCodepointInEncoding(vm, &wrapped, '"', target_encoding);
         encoded = try vm.newStringWithEncoding(wrapped.items, true, target_encoding);
+    }
+    const encoded_with_bom = try prependBomForEncodedString(vm, target_encoding, encoded.toStringObject().str);
+    if (!std.mem.eql(u8, encoded_with_bom, encoded.toStringObject().str)) {
+        encoded = try vm.newStringWithEncoding(encoded_with_bom, false, target_encoding);
     }
     return encoded;
 }
@@ -2431,6 +2456,185 @@ pub fn builtinStringChars(vm: *VM, receiver: Value, args: []Value, block: ?Block
     }
 
     return Value.fromObject(&array_obj.object);
+}
+
+const StringEachLineOptions = struct {
+    separator: ?*value.StringObject,
+    chomp: bool,
+};
+
+fn parseStringEachLineOptions(vm: *VM, args: []Value) VMError!StringEachLineOptions {
+    try vm.requireArgCountRange(args, 0, 1);
+
+    var chomp_value: ?Value = null;
+    try vm.consumeKeywordArgs(.{"chomp"}, .{&chomp_value});
+    try vm.validateKeywordArgsConsumed();
+
+    const raw_separator = if (args.len == 0)
+        vm.globals.get("$/") orelse Value.nil()
+    else
+        args[0];
+
+    return .{
+        .separator = if (raw_separator.isNil()) null else (try raw_separator.coerceToStringValue(vm, "no implicit conversion into String")).toStringObject(),
+        .chomp = if (chomp_value) |value_| value_.is_truthy() else false,
+    };
+}
+
+fn stringEachLineChomp(bytes: []const u8, separator: ?*value.StringObject) []const u8 {
+    const separator_obj = separator orelse return bytes;
+    if (separator_obj.str.len == 0) {
+        if (std.mem.endsWith(u8, bytes, "\n\n")) return bytes[0 .. bytes.len - 2];
+        return bytes;
+    }
+
+    if (std.mem.eql(u8, separator_obj.str, "\n")) {
+        if (std.mem.endsWith(u8, bytes, "\r\n")) return bytes[0 .. bytes.len - 2];
+        if (std.mem.endsWith(u8, bytes, "\n")) return bytes[0 .. bytes.len - 1];
+        return bytes;
+    }
+
+    if (std.mem.endsWith(u8, bytes, separator_obj.str)) {
+        return bytes[0 .. bytes.len - separator_obj.str.len];
+    }
+    return bytes;
+}
+
+fn stringEachLineAppendOrYield(
+    vm: *VM,
+    result_array: ?*value.ArrayObject,
+    blk: ?Block,
+    receiver: Value,
+    encoding: enc.Encoding,
+    segment: []const u8,
+    options: StringEachLineOptions,
+) VMError!Value {
+    const output_bytes = if (options.chomp) stringEachLineChomp(segment, options.separator) else segment;
+    const line_value = try vm.newStringWithEncoding(output_bytes, false, encoding);
+
+    if (blk) |block_| {
+        const yield_args = [_]Value{line_value};
+        const yield_result = try vm.yieldToBlock(block_, &yield_args);
+        if (yield_result.controlFlowValue()) |return_value| return return_value;
+        return receiver;
+    }
+
+    result_array.?.elements.append(vm.gc_allocator, line_value) catch return error.Fatal;
+    return receiver;
+}
+
+fn stringEachLineDummyBehavior(encoding: enc.Encoding) enum { whole_string, raise_converter } {
+    return switch (encoding) {
+        .utf16, .utf16le, .utf16be, .utf32, .utf32le, .utf32be => .whole_string,
+        else => .raise_converter,
+    };
+}
+
+fn stringEachLineImpl(vm: *VM, receiver: Value, args: []Value, block: ?Block, return_array_without_block: bool) VMError!Value {
+    const blk = if (return_array_without_block) null else block;
+    if (blk == null and !return_array_without_block) {
+        return vm.createMethodEnumerator(receiver, try vm.intern("each_line"), args);
+    }
+
+    const options = try parseStringEachLineOptions(vm, args);
+    const string_obj = receiver.toStringObject();
+    const snapshot_bytes = string_obj.str;
+    const snapshot_encoding = string_obj.encoding;
+
+    var result_array: ?*value.ArrayObject = null;
+    if (return_array_without_block) {
+        result_array = try vm.createArray();
+    }
+
+    if (options.separator) |separator_obj| {
+        if (snapshot_encoding.isDummy() and std.mem.eql(u8, separator_obj.str, "\n")) {
+            switch (stringEachLineDummyBehavior(snapshot_encoding)) {
+                .whole_string => {
+                    if (snapshot_bytes.len != 0) {
+                        const control = try stringEachLineAppendOrYield(vm, result_array, blk, receiver, snapshot_encoding, snapshot_bytes, options);
+                        if (control.raw != receiver.raw) return control;
+                    }
+                    return if (return_array_without_block) Value.fromObject(&result_array.?.object) else receiver;
+                },
+                .raise_converter => {
+                    return vm.raiseExceptionFmt(vm.encoding_converter_not_found_error_class, "code converter not found", .{});
+                },
+            }
+        }
+
+        if (!separator_obj.encoding.eql(snapshot_encoding) and enc.negotiate(snapshot_encoding, snapshot_bytes, separator_obj.encoding, separator_obj.str) == null) {
+            return vm.raiseEncodingCompatibilityError(snapshot_encoding, separator_obj.encoding);
+        }
+    }
+
+    if (options.separator == null) {
+        const control = try stringEachLineAppendOrYield(vm, result_array, blk, receiver, snapshot_encoding, snapshot_bytes, options);
+        if (control.raw != receiver.raw) return control;
+        return if (return_array_without_block) Value.fromObject(&result_array.?.object) else receiver;
+    }
+
+    const separator_obj = options.separator.?;
+    if (separator_obj.str.len == 0) {
+        var start: usize = 0;
+        while (start < snapshot_bytes.len) {
+            const segment = if (std.mem.indexOfPos(u8, snapshot_bytes, start, "\n\n")) |idx| blk_segment: {
+                var next_start = idx + 2;
+                while (next_start < snapshot_bytes.len and snapshot_bytes[next_start] == '\n') : (next_start += 1) {}
+                const out = snapshot_bytes[start .. idx + 2];
+                start = next_start;
+                break :blk_segment out;
+            } else blk_segment: {
+                const out = snapshot_bytes[start..];
+                start = snapshot_bytes.len;
+                break :blk_segment out;
+            };
+
+            const control = try stringEachLineAppendOrYield(vm, result_array, blk, receiver, snapshot_encoding, segment, options);
+            if (control.raw != receiver.raw) return control;
+        }
+        return if (return_array_without_block) Value.fromObject(&result_array.?.object) else receiver;
+    }
+
+    var start: usize = 0;
+    while (start < snapshot_bytes.len) {
+        const segment = if (std.mem.eql(u8, separator_obj.str, "\n")) blk_segment: {
+            if (std.mem.indexOfScalarPos(u8, snapshot_bytes, start, '\n')) |idx| {
+                const out = snapshot_bytes[start .. idx + 1];
+                start = idx + 1;
+                break :blk_segment out;
+            }
+
+            const out = snapshot_bytes[start..];
+            start = snapshot_bytes.len;
+            break :blk_segment out;
+        } else blk_segment: {
+            if (std.mem.indexOfPos(u8, snapshot_bytes, start, separator_obj.str)) |idx| {
+                const out = snapshot_bytes[start .. idx + separator_obj.str.len];
+                start = idx + separator_obj.str.len;
+                break :blk_segment out;
+            }
+
+            const out = snapshot_bytes[start..];
+            start = snapshot_bytes.len;
+            break :blk_segment out;
+        };
+
+        const control = try stringEachLineAppendOrYield(vm, result_array, blk, receiver, snapshot_encoding, segment, options);
+        if (control.raw != receiver.raw) return control;
+    }
+
+    return if (return_array_without_block) Value.fromObject(&result_array.?.object) else receiver;
+}
+
+pub fn builtinStringEachLine(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    return stringEachLineImpl(vm, receiver, args, block, false);
+}
+
+pub fn builtinStringLines(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    if (block != null) {
+        return vm.callMethodByNameForwardingKeywords(receiver, "each_line", args, block);
+    }
+    return stringEachLineImpl(vm, receiver, args, null, true);
 }
 
 pub fn builtinStringEachChar(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
