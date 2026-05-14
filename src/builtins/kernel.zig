@@ -391,12 +391,14 @@ pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
 
     const absolute_path = vm.searchLoadPath(feature) catch {
         const msg = std.fmt.allocPrint(vm.allocator, "cannot load such file -- {s}", .{feature}) catch return error.Fatal;
+        defer vm.allocator.free(msg);
         const exc = vm.createException(vm.load_error_class, msg) catch return error.Fatal;
         exc.path = (try vm.newString(feature, false)).toStringObject();
         vm.setPendingException(exc);
         return error.Unwind;
     } orelse {
         const msg = std.fmt.allocPrint(vm.allocator, "cannot load such file -- {s}", .{feature}) catch return error.Fatal;
+        defer vm.allocator.free(msg);
         const exc = vm.createException(vm.load_error_class, msg) catch return error.Fatal;
         exc.path = (try vm.newString(feature, false)).toStringObject();
         vm.setPendingException(exc);
@@ -518,6 +520,7 @@ pub fn builtinKernelRequireRelative(vm: *VM, _: Value, args: []Value, _: ?Block)
 
     if (absolute_path == null) {
         const msg = std.fmt.allocPrint(vm.allocator, "cannot load such file -- {s}", .{relative_path}) catch return error.Fatal;
+        defer vm.allocator.free(msg);
         const exc = vm.createException(vm.load_error_class, msg) catch return error.Fatal;
         vm.setPendingException(exc);
         return error.Unwind;
@@ -581,6 +584,7 @@ pub fn builtinKernelLoad(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
 
     if (absolute_path == null) {
         const msg = std.fmt.allocPrint(vm.allocator, "cannot load such file -- {s}", .{filename}) catch return error.Fatal;
+        defer vm.allocator.free(msg);
         const exc = vm.createException(vm.load_error_class, msg) catch return error.Fatal;
         vm.setPendingException(exc);
         return error.Unwind;
