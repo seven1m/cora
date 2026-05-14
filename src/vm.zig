@@ -4486,9 +4486,7 @@ pub const VM = struct {
             },
 
             .WHEN_SPLAT => {
-                const mode = frame.chunk.code.items[operand_cursor];
-                frame.ip += 1;
-                operand_cursor += 1;
+                const mode = readByteFrom(frame, operands, &operand_cursor);
 
                 const expanded = try self.expandSplatValue(self.pop());
                 const elements = expanded.toArrayObject().elements.items;

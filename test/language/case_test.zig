@@ -147,6 +147,19 @@ test "case with predicate supports splatted when conditions" {
     try std.testing.expectEqual(@as(i64, 1), result.toInteger());
 }
 
+test "case with predicate and splatted when conditions does not match unrelated values" {
+    const result = try evalCode(
+        \\style = {:short => 1, :long => 2}
+        \\case :other
+        \\when *style.keys
+        \\  1
+        \\else
+        \\  0
+        \\end
+    );
+    try std.testing.expectEqual(@as(i64, 0), result.toInteger());
+}
+
 test "case without predicate supports splatted when conditions" {
     const result = try evalCode(
         \\case
@@ -157,4 +170,16 @@ test "case without predicate supports splatted when conditions" {
         \\end
     );
     try std.testing.expectEqual(@as(i64, 1), result.toInteger());
+}
+
+test "case without predicate and splatted when conditions respects truthiness" {
+    const result = try evalCode(
+        \\case
+        \\when *[nil, false]
+        \\  1
+        \\else
+        \\  0
+        \\end
+    );
+    try std.testing.expectEqual(@as(i64, 0), result.toInteger());
 }
