@@ -162,6 +162,9 @@ pub fn register(vm: *VM) !void {
     const inspect_sym = try vm.intern("inspect");
     try vm.hash_class.module.methods.put(inspect_sym, value.MethodEntry.builtin(&builtinHashInspect, .{ .exact = 0 }));
 
+    const invert_sym = try vm.intern("invert");
+    try vm.hash_class.module.methods.put(invert_sym, value.MethodEntry.builtin(&builtinHashInvert, .{ .exact = 0 }));
+
     const equal_sym = try vm.intern("==");
     try vm.hash_class.module.methods.put(equal_sym, value.MethodEntry.builtin(&builtinHashEqual, .{ .exact = 1 }));
 
@@ -938,6 +941,17 @@ pub fn builtinHashToA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
     }
 
     return Value.fromObject(&array_obj.object);
+}
+
+pub fn builtinHashInvert(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const result_hash = try vm.createHash();
+
+    for (receiver.toHashObject().entries.items) |entry| {
+        try vm.hashSetEntry(result_hash, entry.value, entry.key);
+    }
+
+    return Value.fromObject(&result_hash.object);
 }
 
 pub fn builtinHashToHash(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
