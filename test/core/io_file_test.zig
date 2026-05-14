@@ -31,6 +31,27 @@ test "standard stream fileno values are 0,1,2" {
     try std.testing.expectEqual(@as(i64, 2), result.toArrayObject().elements.items[2].toInteger());
 }
 
+test "File#tty? is false for regular files" {
+    var path_buf: [128]u8 = undefined;
+    const path = try uniquePath(&path_buf);
+    const source = try std.fmt.allocPrint(
+        std.testing.allocator,
+        \\path = "{s}"
+        \\File.write(path, "hello")
+        \\f = File.open(path, "r")
+        \\begin
+        \\  f.tty?
+        \\ensure
+        \\  f.close
+        \\end
+    , .{path});
+    defer std.testing.allocator.free(source);
+
+    const result = try evalCode(source);
+    try std.testing.expect(result.isBool());
+    try std.testing.expectEqual(false, result.toBool());
+}
+
 test "File.write and File.read round trip content" {
     var path_buf: [128]u8 = undefined;
     const path = try uniquePath(&path_buf);

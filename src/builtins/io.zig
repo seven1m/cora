@@ -78,6 +78,9 @@ pub fn register(vm: *VM) !void {
     const fileno_sym = try vm.intern("fileno");
     try vm.io_class.module.methods.put(fileno_sym, value.MethodEntry.builtin(&builtinIoFileno, .{ .exact = 0 }));
 
+    const tty_q_sym = try vm.intern("tty?");
+    try vm.io_class.module.methods.put(tty_q_sym, value.MethodEntry.builtin(&builtinIoTtyQ, .{ .exact = 0 }));
+
     const gets_sym = try vm.intern("gets");
     try vm.io_class.module.methods.put(gets_sym, value.MethodEntry.builtin(&builtinIoGets, .{ .variadic = 0 }));
 
@@ -191,6 +194,13 @@ pub fn builtinIoGets(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
         if (byte[0] == '\n') break;
     }
     return vm.newString(out.items, false);
+}
+
+pub fn builtinIoTtyQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const io = try requireIoReceiver(vm, receiver);
+    try ensureIoOpen(vm, io);
+    return Value.boolean(std.c.isatty(@intCast(io.fd)) == 1);
 }
 
 pub fn builtinIoEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
