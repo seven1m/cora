@@ -272,6 +272,14 @@ test "Array iteration methods propagate non-local return from blocks" {
     try std.testing.expectEqual(@as(i64, 7), result.toInteger());
 }
 
+test "Array#find_all aliases #select" {
+    const result = try evalCode("[1, 2, 3, 4].find_all(&:even?)");
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(usize, 2), result.toArrayObject().elements.items.len);
+    try std.testing.expectEqual(@as(i64, 2), result.toArrayObject().elements.items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 4), result.toArrayObject().elements.items[1].toInteger());
+}
+
 test "Array#any?" {
     var result = try evalCode("[nil, false, 1].any?");
     try std.testing.expect(result.isBool());

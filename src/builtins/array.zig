@@ -436,6 +436,8 @@ pub fn register(vm: *VM) !void {
 
     const select_sym = try vm.intern("select");
     try vm.array_class.module.methods.put(select_sym, value.MethodEntry.builtin(&builtinArraySelect, .{ .exact = 0 }));
+    const find_all_sym = try vm.intern("find_all");
+    try vm.array_class.module.methods.put(find_all_sym, value.MethodEntry.builtin(&builtinArraySelect, .{ .exact = 0 }));
     const filter_sym = try vm.intern("filter");
     try vm.array_class.module.methods.put(filter_sym, value.MethodEntry.builtin(&builtinArraySelect, .{ .exact = 0 }));
 
