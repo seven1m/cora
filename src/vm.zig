@@ -6570,6 +6570,7 @@ pub const VM = struct {
         switch (resolved.entry.method) {
             .chunk => |method_chunk| {
                 const saved_frame_count = self.frames.items.len;
+                const saved_stack_len = self.stack.items.len;
                 const kw_keys = if (keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_keys else null else null;
                 const kw_values = if (keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_values else null else null;
                 try self.setupChunkCallFrame(
@@ -6584,7 +6585,7 @@ pub const VM = struct {
                 );
 
                 try self.executeUntilReturn(saved_frame_count);
-                return (try self.finishSubcall(saved_frame_count)).value();
+                return (try self.finishSubcallFromStack(saved_frame_count, saved_stack_len)).value();
             },
             .builtin => |fun_ptr| {
                 return self.invokeBuiltinMethod(fun_ptr, receiver, args, block, keyword_ctx);
@@ -6827,6 +6828,7 @@ pub const VM = struct {
                 };
             },
             .chunk => |chunk_blk| blk: {
+                const saved_stack_len = self.stack.items.len;
                 const ft: CallFrame.FrameType = if (chunk_blk.chunk.is_lambda) .lambda else .proc;
                 const break_target_frame_idx = self.frames.items.len;
                 const next_target_frame_idx = self.frames.items.len;
@@ -6847,7 +6849,7 @@ pub const VM = struct {
 
                 const saved_frame_count = self.frames.items.len - 1;
                 try self.executeUntilReturn(saved_frame_count);
-                const outcome = try self.finishSubcall(saved_frame_count);
+                const outcome = try self.finishSubcallFromStack(saved_frame_count, saved_stack_len);
                 break :blk YieldResult{
                     .value = outcome.value(),
                     .break_occurred = outcome.isBreak(),
@@ -6872,6 +6874,7 @@ pub const VM = struct {
             .builtin => |func| func(self, @constCast(args)),
             .callable => |callable| self.callMethodByName(callable, "call", @constCast(args), block),
             .chunk => |chunk_blk| blk: {
+                const saved_stack_len = self.stack.items.len;
                 try self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, receiver, .method, block, null, null, null);
 
                 const current_frame = self.currentFrame();
@@ -6883,7 +6886,7 @@ pub const VM = struct {
                 const saved_frame_count = self.frames.items.len - 1;
                 try self.executeUntilReturn(saved_frame_count);
 
-                break :blk (try self.finishSubcall(saved_frame_count)).value();
+                break :blk (try self.finishSubcallFromStack(saved_frame_count, saved_stack_len)).value();
             },
         };
     }
@@ -6927,6 +6930,7 @@ pub const VM = struct {
             .builtin => |func| func(self, @constCast(args)),
             .callable => |callable| self.callMethodByName(callable, "call", @constCast(args), block),
             .chunk => |chunk_blk| blk: {
+                const saved_stack_len = self.stack.items.len;
                 const ft: CallFrame.FrameType = if (chunk_blk.chunk.is_lambda) .lambda else .proc;
                 const next_target_frame_idx = self.frames.items.len;
                 try self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, self_override orelse chunk_blk.defining_self, ft, block, chunk_blk.return_target_ep, null, next_target_frame_idx);
@@ -6937,7 +6941,7 @@ pub const VM = struct {
 
                 const saved_frame_count = self.frames.items.len - 1;
                 try self.executeUntilReturn(saved_frame_count);
-                break :blk (try self.finishSubcall(saved_frame_count)).value();
+                break :blk (try self.finishSubcallFromStack(saved_frame_count, saved_stack_len)).value();
             },
         };
     }
@@ -9985,6 +9989,9 @@ pub const VM = struct {
     fn finishSubcallFromStack(self: *VM, caller_frame_depth: usize, saved_stack_len: usize) VMError!SubcallOutcome {
         if (self.pendingControlFlow()) |cf| {
             const result = cf.value;
+            if (cf.value_placed) {
+                _ = self.popStackAboveOrNil(saved_stack_len);
+            }
             self.setPendingControlFlow(null);
             return switch (cf.kind) {
                 .return_ => .{ .non_local_return = result },

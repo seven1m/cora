@@ -120,3 +120,22 @@ test "Array literal evaluates elements left-to-right" {
     try std.testing.expectEqual(@as(i64, 2), arr.toArrayObject().elements.items[1].toInteger());
     try std.testing.expectEqual(@as(i64, 3), arr.toArrayObject().elements.items[2].toInteger());
 }
+
+test "Array splat preserves target stack across block next" {
+    const result = try evalCode("[*[1, 2].map { |x| next if x == 2; x }]");
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(usize, 2), result.toArrayObject().elements.items.len);
+    try std.testing.expectEqual(@as(i64, 1), result.toArrayObject().elements.items[0].toInteger());
+    try std.testing.expect(result.toArrayObject().elements.items[1].isNil());
+}
+
+test "Array splat handles RubyGems-style compacted map results" {
+    const result = try evalCode(
+        \\["", ".rb", *["so", ""].map { |ext| next if ext.empty?; ".#{ext}" }].compact.uniq
+    );
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(usize, 3), result.toArrayObject().elements.items.len);
+    try std.testing.expectEqualSlices(u8, "", result.toArrayObject().elements.items[0].toStringObject().str);
+    try std.testing.expectEqualSlices(u8, ".rb", result.toArrayObject().elements.items[1].toStringObject().str);
+    try std.testing.expectEqualSlices(u8, ".so", result.toArrayObject().elements.items[2].toStringObject().str);
+}
