@@ -236,6 +236,7 @@ pub fn main(init: std.process.Init) !void {
     virtual_machine.setDumpJitSource(dump_jit_source);
     virtual_machine.setBacktraceLimit(backtrace_limit);
     try virtual_machine.setArgv(script_args.items);
+    try virtual_machine.setProgramName(if (ruby_code != null) "-e" else source_file orelse args[0]);
     if (input_record_separator) |separator| {
         try virtual_machine.setInputRecordSeparator(separator, true);
     }

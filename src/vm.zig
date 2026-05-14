@@ -1995,6 +1995,12 @@ pub const VM = struct {
         self.object_class.module.constants.put(argv_sym, .{ .value = Value.fromObject(&argv_array.object) }) catch return error.Fatal;
     }
 
+    pub fn setProgramName(self: *VM, program_name: []const u8) VMError!void {
+        const program_name_value = try self.newString(program_name, false);
+        try self.setGlobal("$0", program_name_value);
+        try self.setGlobal("$PROGRAM_NAME", program_name_value);
+    }
+
     pub fn setInputRecordSeparator(self: *VM, separator: []const u8, frozen: bool) VMError!void {
         const separator_value = try self.newString(separator, frozen);
         try self.setGlobal("$/", separator_value);
