@@ -95,6 +95,8 @@ pub const OpCode = enum(u8) {
     ENSURE_END, // No operands
     RETRY, // No operands
     BREAK, // No operands
+    NEXT, // No operands
+    REDO, // Operand: u16 (target byte offset)
 
     // Super calls
     SUPER, // Operands: u8 (argc), u8 (flags), u16 (block_chunk_id)
@@ -161,7 +163,7 @@ pub fn opcodeOperandSize(op: OpCode) usize {
         .ARRAY_APPEND, .ARRAY_CONCAT_ARRAY,
         .HASH_MERGE_KW,
         .HALT, .TRY_END, .CATCH_END, .ENSURE_START, .ENSURE_END,
-        .RETRY, .BREAK, .YIELD_SPLAT, .MULTI_ASSIGN_PREPARE,
+        .RETRY, .BREAK, .NEXT, .YIELD_SPLAT, .MULTI_ASSIGN_PREPARE,
         => 0,
 
         // 1-byte operands
@@ -177,7 +179,7 @@ pub fn opcodeOperandSize(op: OpCode) usize {
         .GET_IVAR, .SET_IVAR,
         .PUSH_CONST, .PUSH_CSTRING, .PUSH_FSTRING, .PUSH_SYMBOL,
         .JUMP, .JUMP_IF_FALSE, .JUMP_IF_TRUE,
-        .TRY_BEGIN, .PUSH_LAMBDA, .GET_CONST_PATH,
+        .TRY_BEGIN, .REDO, .PUSH_LAMBDA, .GET_CONST_PATH,
         .PUSH_ARRAY, .PUSH_HASH, .HASH_SET_CONST_KEY,
         => 2,
 
@@ -288,6 +290,8 @@ pub fn opcodeName(op: OpCode) []const u8 {
         .ENSURE_END => "ENSURE_END",
         .RETRY => "RETRY",
         .BREAK => "BREAK",
+        .NEXT => "NEXT",
+        .REDO => "REDO",
         .SUPER => "SUPER",
         .FORWARDING_SUPER => "FORWARDING_SUPER",
         .PUSH_REGEXP => "PUSH_REGEXP",

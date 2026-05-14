@@ -4131,7 +4131,7 @@ pub const Compiler = struct {
 
         switch (current_loop.loop_type) {
             .block => {
-                try self.current_chunk.emitOpU8(.RETURN, 0, line);
+                try self.current_chunk.emitOp(.NEXT, line);
             },
             .while_loop, .until_loop => {
                 try self.current_chunk.emitOp(.POP, line);
@@ -4146,7 +4146,10 @@ pub const Compiler = struct {
         }
 
         const current_loop = &self.loop_stack.items[self.loop_stack.items.len - 1];
-        try self.current_chunk.emitBackwardJump(.JUMP, current_loop.redo_target, line);
+        switch (current_loop.loop_type) {
+            .block => try self.current_chunk.emitOpU16(.REDO, @intCast(current_loop.redo_target), line),
+            .while_loop, .until_loop => try self.current_chunk.emitBackwardJump(.JUMP, current_loop.redo_target, line),
+        }
     }
 
     fn compileWhileStatement(self: *Compiler, while_node: *prism.WhileNode, line: u32) anyerror!void {

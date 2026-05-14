@@ -488,7 +488,7 @@ pub const Chunk = struct {
         var ip = offset + 1;
 
         switch (op) {
-            .PUSH_NIL, .PUSH_TRUE, .PUSH_FALSE, .PUSH_SELF, .POP, .DUP, .SWAP, .CASE_MATCH, .OPT_PLUS, .OPT_MINUS, .OPT_MULT, .OPT_DIV, .OPT_EQ, .OPT_LT, .OPT_GT, .OPT_LE, .OPT_GE, .HALT, .TRY_END, .CATCH_END, .ENSURE_START, .ENSURE_END, .RETRY, .BREAK, .MULTI_ASSIGN_PREPARE, .ARRAY_APPEND, .ARRAY_CONCAT_ARRAY, .HASH_MERGE_KW, .YIELD_SPLAT => {
+            .PUSH_NIL, .PUSH_TRUE, .PUSH_FALSE, .PUSH_SELF, .POP, .DUP, .SWAP, .CASE_MATCH, .OPT_PLUS, .OPT_MINUS, .OPT_MULT, .OPT_DIV, .OPT_EQ, .OPT_LT, .OPT_GT, .OPT_LE, .OPT_GE, .HALT, .TRY_END, .CATCH_END, .ENSURE_START, .ENSURE_END, .RETRY, .BREAK, .NEXT, .MULTI_ASSIGN_PREPARE, .ARRAY_APPEND, .ARRAY_CONCAT_ARRAY, .HASH_MERGE_KW, .YIELD_SPLAT => {
                 try writer.print("{s}\n", .{bytecode.opcodeName(op)});
             },
 
@@ -533,7 +533,7 @@ pub const Chunk = struct {
                 try writer.print("RETURN {s}\n", .{if (is_explicit == 1) "explicit" else "implicit"});
             },
 
-            .PUSH_CONST, .PUSH_CSTRING, .PUSH_FSTRING, .PUSH_SYMBOL, .GET_CONST, .GET_CONST_OR_NIL, .SET_CONST, .SET_CONST_PATH, .GET_CONST_PATH, .GET_GLOBAL, .GET_BACKREF, .SET_GLOBAL, .GET_CVAR, .GET_CVAR_OR_NIL, .SET_CVAR, .GET_IVAR, .SET_IVAR, .PUSH_ARRAY, .PUSH_HASH, .HASH_SET_CONST_KEY, .TRY_BEGIN, .PUSH_LAMBDA, .DEF_SINGLETON_CLASS, .FORWARDING_SUPER => {
+            .PUSH_CONST, .PUSH_CSTRING, .PUSH_FSTRING, .PUSH_SYMBOL, .GET_CONST, .GET_CONST_OR_NIL, .SET_CONST, .SET_CONST_PATH, .GET_CONST_PATH, .GET_GLOBAL, .GET_BACKREF, .SET_GLOBAL, .GET_CVAR, .GET_CVAR_OR_NIL, .SET_CVAR, .GET_IVAR, .SET_IVAR, .PUSH_ARRAY, .PUSH_HASH, .HASH_SET_CONST_KEY, .TRY_BEGIN, .REDO, .PUSH_LAMBDA, .DEF_SINGLETON_CLASS, .FORWARDING_SUPER => {
                 const idx = readU16(self.code.items, &ip);
                 try writer.print("{s} {d}", .{ bytecode.opcodeName(op), idx });
                 if ((op == .PUSH_CONST or op == .PUSH_CSTRING or op == .PUSH_FSTRING or op == .PUSH_SYMBOL or op == .GET_CONST or op == .GET_CONST_OR_NIL or op == .SET_CONST or op == .SET_CONST_PATH or op == .GET_CONST_PATH or op == .GET_GLOBAL or op == .SET_GLOBAL or op == .GET_CVAR or op == .GET_CVAR_OR_NIL or op == .SET_CVAR or op == .GET_IVAR or op == .SET_IVAR) and idx < self.constants.items.len) {

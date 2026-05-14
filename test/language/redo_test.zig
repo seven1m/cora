@@ -75,3 +75,27 @@ test "block redo reruns the current yield without yielding again" {
     try std.testing.expectEqual(@as(i64, 2), values[3].toInteger());
     try std.testing.expectEqual(@as(i64, 20), values[4].toInteger());
 }
+
+test "block redo runs ensure before restarting body" {
+    const result = try evalCode(
+        \\out = []
+        \\i = 0
+        \\[1].each do
+        \\  begin
+        \\    out << i
+        \\    i = i + 1
+        \\    redo if i < 2
+        \\  ensure
+        \\    out << 9
+        \\  end
+        \\end
+        \\out
+    );
+    try std.testing.expect(result.isArray());
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 4), values.len);
+    try std.testing.expectEqual(@as(i64, 0), values[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 9), values[1].toInteger());
+    try std.testing.expectEqual(@as(i64, 1), values[2].toInteger());
+    try std.testing.expectEqual(@as(i64, 9), values[3].toInteger());
+}

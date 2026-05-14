@@ -112,6 +112,29 @@ test "Integer#times next skips the current iteration" {
     try std.testing.expectEqual(@as(i64, 2), values[1].toInteger());
 }
 
+test "Integer#times next runs ensure before continuing" {
+    const result = try evalCode(
+        \\a = []
+        \\3.times do |i|
+        \\  begin
+        \\    next if i == 1
+        \\    a << i
+        \\  ensure
+        \\    a << 9
+        \\  end
+        \\end
+        \\a
+    );
+    try std.testing.expect(result.isArray());
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 5), values.len);
+    try std.testing.expectEqual(@as(i64, 0), values[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 9), values[1].toInteger());
+    try std.testing.expectEqual(@as(i64, 9), values[2].toInteger());
+    try std.testing.expectEqual(@as(i64, 2), values[3].toInteger());
+    try std.testing.expectEqual(@as(i64, 9), values[4].toInteger());
+}
+
 test "Integer#times for non-positive receiver does not yield" {
     var result = try evalCode(
         \\count = 0
