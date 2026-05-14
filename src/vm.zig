@@ -3790,7 +3790,7 @@ pub const VM = struct {
 
     inline fn isThreadPreemptSafePoint(op: bytecode.OpCode) bool {
         return switch (op) {
-            .JUMP, .JUMP_IF_FALSE, .RETURN => true,
+            .JUMP, .JUMP_IF_FALSE, .JUMP_IF_NIL, .RETURN => true,
             else => false,
         };
     }
@@ -4448,6 +4448,15 @@ pub const VM = struct {
                 const cond = self.pop();
 
                 if (cond.is_truthy()) {
+                    try setFrameIp(frame, @intCast(@as(i32, @intCast(frame.ip)) + offset));
+                }
+            },
+
+            .JUMP_IF_NIL => {
+                const offset = readI16From(frame, operands, &operand_cursor);
+                const cond = self.pop();
+
+                if (cond.isNil()) {
                     try setFrameIp(frame, @intCast(@as(i32, @intCast(frame.ip)) + offset));
                 }
             },
@@ -5959,6 +5968,18 @@ pub const VM = struct {
                     const cond = self.stack.storage[len - 1];
                     self.stack.items = self.stack.storage[0 .. len - 1];
                     if (!cond.is_truthy()) {
+                        f.ip = @intCast(@as(i32, @intCast(f.ip)) + offset);
+                    }
+                },
+                .JUMP_IF_NIL => {
+                    const lo: u16 = code[f.ip + 1];
+                    const hi: u16 = code[f.ip + 2];
+                    const offset: i16 = @bitCast(lo | (hi << 8));
+                    f.ip += 3;
+                    const len = self.stack.items.len;
+                    const cond = self.stack.storage[len - 1];
+                    self.stack.items = self.stack.storage[0 .. len - 1];
+                    if (cond.isNil()) {
                         f.ip = @intCast(@as(i32, @intCast(f.ip)) + offset);
                     }
                 },

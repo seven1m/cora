@@ -690,10 +690,20 @@ pub const Compiler = struct {
                     return;
                 }
 
+                const safe_navigation = call_node.receiver != null and
+                    (call_node.base.flags & prism.CALL_NODE_FLAGS_SAFE_NAVIGATION) != 0;
+
+                var safe_nav_jump_nil: ?usize = null;
+
                 // Compile receiver if it exists
                 if (call_node.receiver != null) {
                     const receiver = try self.parser.asNode(@ptrCast(call_node.receiver.?));
                     try self.compileNode(receiver, line);
+
+                    if (safe_navigation) {
+                        try self.current_chunk.emitOp(.DUP, line);
+                        safe_nav_jump_nil = try self.current_chunk.emitJump(.JUMP_IF_NIL, line);
+                    }
                 } else {
                     // Self is implicit receiver
                     try self.current_chunk.emitOp(.PUSH_SELF, line);
@@ -757,6 +767,12 @@ pub const Compiler = struct {
                     );
                 } else {
                     try self.current_chunk.emitCall(@intCast(method_idx), compiled_args.argc, call_flags, block_chunk_id, line);
+                }
+
+                if (safe_nav_jump_nil) |jump_nil| {
+                    const jump_end = try self.current_chunk.emitJump(.JUMP, line);
+                    try self.current_chunk.patchJump(jump_nil);
+                    try self.current_chunk.patchJump(jump_end);
                 }
             },
 

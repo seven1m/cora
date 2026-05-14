@@ -33,6 +33,7 @@ pub const OpCode = enum(u8) {
     JUMP, // Operand: i16 (offset from next instruction)
     JUMP_IF_FALSE, // Operand: i16 (offset)
     JUMP_IF_TRUE, // Operand: i16 (offset)
+    JUMP_IF_NIL, // Operand: i16 (offset)
     POP, // No operands
     DUP, // No operands
     DUP_N, // Operand: u8 (duplicate top N stack items in order)
@@ -222,6 +223,7 @@ pub fn opcodeOperandSize(op: OpCode) usize {
         .JUMP,
         .JUMP_IF_FALSE,
         .JUMP_IF_TRUE,
+        .JUMP_IF_NIL,
         .TRY_BEGIN,
         .REDO,
         .RETRY,
@@ -296,6 +298,7 @@ pub fn opcodeName(op: OpCode) []const u8 {
         .JUMP => "JUMP",
         .JUMP_IF_FALSE => "JUMP_IF_FALSE",
         .JUMP_IF_TRUE => "JUMP_IF_TRUE",
+        .JUMP_IF_NIL => "JUMP_IF_NIL",
         .POP => "POP",
         .DUP => "DUP",
         .DUP_N => "DUP_N",

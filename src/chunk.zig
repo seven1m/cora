@@ -557,7 +557,7 @@ pub const Chunk = struct {
                 try writer.print("\n", .{});
             },
 
-            .JUMP, .JUMP_IF_FALSE, .JUMP_IF_TRUE => {
+            .JUMP, .JUMP_IF_FALSE, .JUMP_IF_TRUE, .JUMP_IF_NIL => {
                 const signed_offset = readI16(self.code.items, &ip);
                 const target: i32 = @as(i32, @intCast(ip)) + signed_offset;
                 try writer.print("{s} {d} (-> {d})\n", .{ bytecode.opcodeName(op), signed_offset, target });
