@@ -544,6 +544,9 @@ pub fn register(vm: *VM) !void {
     const sort_bang_sym = try vm.intern("sort!");
     try vm.array_class.module.methods.put(sort_bang_sym, value.MethodEntry.builtin(&builtinArraySortBang, .{ .variadic = 0 }));
 
+    const max_sym = try vm.intern("max");
+    try vm.array_class.module.methods.put(max_sym, value.MethodEntry.builtin(&builtinArrayMax, .{ .exact = 0 }));
+
     const reverse_sym = try vm.intern("reverse");
     try vm.array_class.module.methods.put(reverse_sym, value.MethodEntry.builtin(&builtinArrayReverse, .{ .exact = 0 }));
 
@@ -2515,6 +2518,31 @@ fn arrayValueLessThan(vm: *VM, lhs: Value, rhs: Value) VMError!bool {
         "comparison of {s} with {s} failed",
         .{ vm.className(lhs), vm.className(rhs) },
     );
+}
+
+pub fn builtinArrayMax(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const array = receiver.toArrayObject();
+    const items = array.elements.items;
+    if (items.len == 0) return Value.nil();
+
+    var max = items[0];
+    if (block) |blk| {
+        for (items[1..]) |item| {
+            const yield_args = [_]Value{ item, max };
+            const yielded = try vm.yieldToBlock(blk, &yield_args);
+            if (yielded.controlFlowValue()) |return_value| return return_value;
+
+            const sign = try arraySortBlockResultSign(vm, yielded.value);
+            if (sign > 0) max = item;
+        }
+        return max;
+    }
+
+    for (items[1..]) |item| {
+        if (try arrayValueLessThan(vm, max, item)) max = item;
+    }
+    return max;
 }
 
 const SortBlockCompareResult = union(enum) {

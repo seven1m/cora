@@ -171,6 +171,21 @@ test "Array#size" {
     try std.testing.expectEqual(@as(i64, 3), result.toInteger());
 }
 
+test "Array#max returns the largest element or nil for empty arrays" {
+    var result = try evalCode("[3, 1, 4, 2].max");
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 4), result.toInteger());
+
+    result = try evalCode("[].max");
+    try std.testing.expect(result.isNil());
+}
+
+test "Array#max uses the comparison block" {
+    const result = try evalCode("[\"a\", \"bbb\", \"cc\"].max { |a, b| a.length <=> b.length }");
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "bbb", result.toStringObject().str);
+}
+
 test "Array#map" {
     const result = try evalCode("[1, 2, 3].map { |x| x * 2 }");
     try std.testing.expect(result.isArray());
