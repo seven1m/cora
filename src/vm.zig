@@ -213,6 +213,7 @@ pub const CallFrame = struct {
     block: ?Block = null,
     frame_type: FrameType = .method,
     return_target_ep: ?[*]Value = null,
+    break_target_frame_idx: ?usize = null,
     method_name: ?[]const u8 = null,
     super_defining_class: ?*ClassObject = null,
     forwarded_keyword_ctx: ?*BuiltinKeywordContext = null,
@@ -2896,6 +2897,7 @@ pub const VM = struct {
         frame_type: CallFrame.FrameType,
         block: ?Block,
         return_target_ep: ?[*]Value,
+        break_target_frame_idx: ?usize,
     ) VMError!void {
         if (self.frames.items.len >= self.frames.capacity) {
             const exc = try self.createException(self.fiber_error_class, "fiber call stack overflow");
@@ -2934,6 +2936,7 @@ pub const VM = struct {
             .block        = block,
             .frame_type   = frame_type,
             .return_target_ep = return_target_ep,
+            .break_target_frame_idx = break_target_frame_idx,
         }) catch return error.Fatal;
 
         if (ch.lexical_scope) |scope| {
@@ -3187,7 +3190,7 @@ pub const VM = struct {
         const blk = fiber.block orelse return error.Fatal;
         switch (blk.kind) {
             .chunk => |chunk_blk| {
-                self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, chunk_blk.defining_self, .fiber, null, null) catch return error.Fatal;
+                self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, chunk_blk.defining_self, .fiber, null, null, null) catch return error.Fatal;
 
                 const current_frame = self.currentFrame();
                 self.copyArgumentsWithRestParam(chunk_blk.chunk, current_frame.ep, fiber.first_resume_args[0..fiber.first_resume_argc], .lenient) catch return error.Fatal;
@@ -3597,7 +3600,7 @@ pub const VM = struct {
         const blk = thread.block orelse return error.Fatal;
         switch (blk.kind) {
             .chunk => |chunk_blk| {
-                self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, chunk_blk.defining_self, .fiber, null, null) catch return error.Fatal;
+                self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, chunk_blk.defining_self, .fiber, null, null, null) catch return error.Fatal;
 
                 const current_frame = self.currentFrame();
                 const thread_args = thread.args orelse &[_]Value{};
@@ -5364,6 +5367,7 @@ pub const VM = struct {
                     .chunk => |chunk_blk| {
                         // De-recursed: push block frame inline, return to dispatch loop
                         const ft: CallFrame.FrameType = if (chunk_blk.chunk.is_lambda) .lambda else .proc;
+                        const break_target_frame_idx = if (self.frames.items.len > 0) self.frames.items.len - 1 else null;
                         try self.pushBlockFrame(
                             chunk_blk.chunk,
                             chunk_blk.defining_ep,
@@ -5371,6 +5375,7 @@ pub const VM = struct {
                             ft,
                             if (chunk_blk.enclosing_block_proc) |proc_obj| proc_obj.block else null,
                             chunk_blk.return_target_ep,
+                            break_target_frame_idx,
                         );
 
                         const arity_mode: ArityMode = if (chunk_blk.chunk.is_lambda) .strict else .lenient;
@@ -5409,6 +5414,7 @@ pub const VM = struct {
                     .chunk => |chunk_blk| {
                         // De-recursed: push block frame inline, return to dispatch loop
                         const ft: CallFrame.FrameType = if (chunk_blk.chunk.is_lambda) .lambda else .proc;
+                        const break_target_frame_idx = if (self.frames.items.len > 0) self.frames.items.len - 1 else null;
                         try self.pushBlockFrame(
                             chunk_blk.chunk,
                             chunk_blk.defining_ep,
@@ -5416,6 +5422,7 @@ pub const VM = struct {
                             ft,
                             if (chunk_blk.enclosing_block_proc) |proc_obj| proc_obj.block else null,
                             chunk_blk.return_target_ep,
+                            break_target_frame_idx,
                         );
 
                         const arity_mode: ArityMode = if (chunk_blk.chunk.is_lambda) .strict else .lenient;
@@ -5581,14 +5588,29 @@ pub const VM = struct {
 
             .BREAK => {
                 const result = self.pop();
+                const current_frame = self.currentFrame();
+                if (current_frame.frame_type == .lambda) {
+                    self.stack.shrinkRetainingCapacity(current_frame.locals_base);
+                    const new_frame_len = self.frames.items.len - 1;
+                    self.frames.items = self.frames.storage[0..new_frame_len];
+                    if (new_frame_len > 0) {
+                        self.current_lexical_scope = epLexScope(self.frames.storage[new_frame_len - 1].ep);
+                    }
+                    try self.push(result);
+                    return;
+                }
+
+                const target_frame_idx = current_frame.break_target_frame_idx orelse {
+                    const exc = try self.createException(self.local_jump_error_class, "unexpected break");
+                    self.setPendingException(exc);
+                    return error.Unwind;
+                };
                 self.setPendingControlFlow(.{
                     .kind = .break_,
                     .value = result,
-                    .value_placed = true,
+                    .target_frame_idx = target_frame_idx,
                 });
-                // Return from block frame like RETURN does
-                try self.popFrame();
-                try self.push(result);
+                return error.Unwind;
             },
 
             .RAISE => {
@@ -5774,13 +5796,8 @@ pub const VM = struct {
     /// has zero overhead from the bounded unwinding logic.
     pub fn executeFastLoop(self: *VM, target_len: usize, comptime bounded: bool, min_unwind_depth: usize) VMError!void {
         while (self.frames.items.len >= target_len) {
-            // Handle BREAK from de-recursed block frames.
             if (self.pendingControlFlow()) |cf| {
-                if (cf.kind == .break_) {
-                    self.setPendingControlFlow(null);
-                    try self.popFrame();
-                    continue;
-                } else if (cf.kind == .return_ and cf.value_placed) {
+                if (cf.kind == .return_ and cf.value_placed) {
                     self.setPendingControlFlow(null);
                 }
             }
@@ -6777,6 +6794,7 @@ pub const VM = struct {
             },
             .chunk => |chunk_blk| blk: {
                 const ft: CallFrame.FrameType = if (chunk_blk.chunk.is_lambda) .lambda else .proc;
+                const break_target_frame_idx = self.frames.items.len;
                 try self.pushBlockFrame(
                     chunk_blk.chunk,
                     chunk_blk.defining_ep,
@@ -6784,6 +6802,7 @@ pub const VM = struct {
                     ft,
                     if (chunk_blk.enclosing_block_proc) |proc_obj| proc_obj.block else null,
                     chunk_blk.return_target_ep,
+                    break_target_frame_idx,
                 );
 
                 const arity_mode: ArityMode = if (chunk_blk.chunk.is_lambda) .strict else .lenient;
@@ -6817,7 +6836,7 @@ pub const VM = struct {
             .builtin => |func| func(self, @constCast(args)),
             .callable => |callable| self.callMethodByName(callable, "call", @constCast(args), block),
             .chunk => |chunk_blk| blk: {
-                try self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, receiver, .method, block, null);
+                try self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, receiver, .method, block, null, null);
 
                 const current_frame = self.currentFrame();
                 current_frame.method_name = method_name;
@@ -6873,7 +6892,7 @@ pub const VM = struct {
             .callable => |callable| self.callMethodByName(callable, "call", @constCast(args), block),
             .chunk => |chunk_blk| blk: {
                 const ft: CallFrame.FrameType = if (chunk_blk.chunk.is_lambda) .lambda else .proc;
-                try self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, self_override orelse chunk_blk.defining_self, ft, block, chunk_blk.return_target_ep);
+                try self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, self_override orelse chunk_blk.defining_self, ft, block, chunk_blk.return_target_ep, null);
 
                 const current_frame = self.currentFrame();
                 const mode: ArityMode = if (chunk_blk.chunk.is_lambda) .strict else .lenient;
@@ -6953,7 +6972,7 @@ pub const VM = struct {
                             const mn = method.name.name;
                             if (std.mem.eql(u8, mn, "call") or std.mem.eql(u8, mn, "[]") or std.mem.eql(u8, mn, "yield")) {
                                 const ft: CallFrame.FrameType = if (chunk_blk.chunk.is_lambda) .lambda else .proc;
-                                try self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, chunk_blk.defining_self, ft, null, chunk_blk.return_target_ep);
+                                try self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, chunk_blk.defining_self, ft, null, chunk_blk.return_target_ep, null);
 
                                 const current_frame = self.currentFrame();
                                 const mode: ArityMode = if (chunk_blk.chunk.is_lambda) .strict else .lenient;
@@ -6996,7 +7015,7 @@ pub const VM = struct {
                 switch (proc_obj.block.kind) {
                     .chunk => |chunk_blk| {
                         // De-recursed: push frame inline, return to dispatch loop
-                        try self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, receiver, .method, block, null);
+                        try self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, receiver, .method, block, null, null);
 
                         const current_frame = self.currentFrame();
                         current_frame.method_name = method.name.name;
@@ -9820,11 +9839,13 @@ pub const VM = struct {
             self.stack.shrinkRetainingCapacity(unwind_locals_base);
 
             if (self.pendingControlFlow()) |cf| {
-                if (cf.kind == .return_) {
-                    if (cf.target_frame_idx) |target_frame_idx| {
-                        if (self.frames.items.len <= target_frame_idx) {
-                            try self.placePendingControlFlowValue();
-                            return true;
+                switch (cf.kind) {
+                    .return_, .break_ => {
+                        if (cf.target_frame_idx) |target_frame_idx| {
+                            if (self.frames.items.len <= target_frame_idx) {
+                                try self.placePendingControlFlowValue();
+                                return true;
+                            }
                         }
                     }
                 }
@@ -9840,10 +9861,10 @@ pub const VM = struct {
 
     fn controlFlowStopFrameLen(self: *VM, min_frame_len: usize) usize {
         if (self.pendingControlFlow()) |cf| {
-            if (cf.kind == .return_) {
-                if (cf.target_frame_idx) |target_frame_idx| {
+            switch (cf.kind) {
+                .return_, .break_ => if (cf.target_frame_idx) |target_frame_idx| {
                     return @min(min_frame_len, target_frame_idx);
-                }
+                },
             }
         }
         return min_frame_len;

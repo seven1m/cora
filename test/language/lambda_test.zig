@@ -60,6 +60,18 @@ test "lambda: return exits lambda only" {
     try std.testing.expectEqual(@as(i64, 20), result.toInteger());
 }
 
+test "lambda: break exits lambda only" {
+    const result = try evalCode(
+        \\def foo
+        \\  l = lambda { break 10 }
+        \\  l.call
+        \\  20
+        \\end
+        \\foo
+    );
+    try std.testing.expectEqual(@as(i64, 20), result.toInteger());
+}
+
 test "proc: return exits enclosing method" {
     const result = try evalCode(
         \\def foo
@@ -70,6 +82,15 @@ test "proc: return exits enclosing method" {
         \\foo
     );
     try std.testing.expectEqual(@as(i64, 10), result.toInteger());
+}
+
+test "proc: break after enclosing method returned raises LocalJumpError" {
+    try std.testing.expectError(error.UnhandledException, evalCode(
+        \\def make_proc
+        \\  proc { break 10 }
+        \\end
+        \\make_proc.call
+    ));
 }
 
 test "lambda: parameters work correctly" {
