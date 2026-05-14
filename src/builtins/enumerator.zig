@@ -62,7 +62,7 @@ fn builtinEnumeratorNew(vm: *VM, _: Value, args: []Value, block: ?Block) VMError
 
     const blk = block orelse {
         const exc = try vm.createException(vm.argument_error_class, "no block given");
-        vm.pending_exception = exc;
+        vm.setPendingException(exc);
         return error.Unwind;
     };
 
@@ -215,8 +215,8 @@ fn builtinEnumeratorToA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
 
     while (true) {
         const next_val = builtinEnumeratorNext(vm, receiver, &[_]Value{}, null) catch |err| {
-            if (err == error.Unwind and vm.pending_exception != null and vm.pending_exception.?.object.class == vm.stop_iteration_class) {
-                vm.pending_exception = null;
+            if (err == error.Unwind and vm.pendingException() != null and vm.pendingException().?.object.class == vm.stop_iteration_class) {
+                vm.setPendingException(null);
                 break;
             }
             return err;
@@ -236,8 +236,8 @@ fn builtinEnumeratorMap(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
     const out = try vm.createArray();
     while (true) {
         const next_val = builtinEnumeratorNext(vm, receiver, &[_]Value{}, null) catch |err| {
-            if (err == error.Unwind and vm.pending_exception != null and vm.pending_exception.?.object.class == vm.stop_iteration_class) {
-                vm.pending_exception = null;
+            if (err == error.Unwind and vm.pendingException() != null and vm.pendingException().?.object.class == vm.stop_iteration_class) {
+                vm.setPendingException(null);
                 break;
             }
             return err;
@@ -329,7 +329,7 @@ fn enumeratorFiberYieldBlock(vm: *VM, args: []Value) VMError!Value {
 
 fn raiseStopIteration(vm: *VM) VMError {
     const exc = try vm.createException(vm.stop_iteration_class, "StopIteration");
-    vm.pending_exception = exc;
+    vm.setPendingException(exc);
     return error.Unwind;
 }
 

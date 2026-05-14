@@ -393,13 +393,13 @@ pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
         const msg = std.fmt.allocPrint(vm.allocator, "cannot load such file -- {s}", .{feature}) catch return error.Fatal;
         const exc = vm.createException(vm.load_error_class, msg) catch return error.Fatal;
         exc.path = (try vm.newString(feature, false)).toStringObject();
-        vm.pending_exception = exc;
+        vm.setPendingException(exc);
         return error.Unwind;
     } orelse {
         const msg = std.fmt.allocPrint(vm.allocator, "cannot load such file -- {s}", .{feature}) catch return error.Fatal;
         const exc = vm.createException(vm.load_error_class, msg) catch return error.Fatal;
         exc.path = (try vm.newString(feature, false)).toStringObject();
-        vm.pending_exception = exc;
+        vm.setPendingException(exc);
         return error.Unwind;
     };
 
@@ -496,7 +496,7 @@ pub fn builtinKernelRequireRelative(vm: *VM, _: Value, args: []Value, _: ?Block)
         }
         break :blk vm.current_loading_file orelse {
             const exc = vm.createException(vm.load_error_class, "cannot infer basepath") catch return error.Fatal;
-            vm.pending_exception = exc;
+            vm.setPendingException(exc);
             return error.Unwind;
         };
     };
@@ -519,7 +519,7 @@ pub fn builtinKernelRequireRelative(vm: *VM, _: Value, args: []Value, _: ?Block)
     if (absolute_path == null) {
         const msg = std.fmt.allocPrint(vm.allocator, "cannot load such file -- {s}", .{relative_path}) catch return error.Fatal;
         const exc = vm.createException(vm.load_error_class, msg) catch return error.Fatal;
-        vm.pending_exception = exc;
+        vm.setPendingException(exc);
         return error.Unwind;
     }
 
@@ -582,7 +582,7 @@ pub fn builtinKernelLoad(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
     if (absolute_path == null) {
         const msg = std.fmt.allocPrint(vm.allocator, "cannot load such file -- {s}", .{filename}) catch return error.Fatal;
         const exc = vm.createException(vm.load_error_class, msg) catch return error.Fatal;
-        vm.pending_exception = exc;
+        vm.setPendingException(exc);
         return error.Unwind;
     }
 
@@ -772,8 +772,8 @@ fn dispatchWarning(vm: *VM, receiver: Value, warning_message: Value, category: ?
                 kw_values[0..],
                 null,
             ) catch |err| {
-                if (err == error.Unwind and vm.pending_exception != null and vm.pending_exception.?.object.class == vm.argument_error_class) {
-                    vm.pending_exception = null;
+                if (err == error.Unwind and vm.pendingException() != null and vm.pendingException().?.object.class == vm.argument_error_class) {
+                    vm.setPendingException(null);
                 } else {
                     return err;
                 }
@@ -782,8 +782,8 @@ fn dispatchWarning(vm: *VM, receiver: Value, warning_message: Value, category: ?
                 try vm.hashSetEntry(kw_hash, Value.fromObject(&category_sym.object), category_value);
                 var fallback_args = [_]Value{ warning_message, Value.fromObject(&kw_hash.object) };
                 _ = vm.callMethodByName(warning_receiver, "warn", fallback_args[0..], null) catch |fallback_err| {
-                    if (fallback_err == error.Unwind and vm.pending_exception != null and vm.pending_exception.?.object.class == vm.argument_error_class) {
-                        vm.pending_exception = null;
+                    if (fallback_err == error.Unwind and vm.pendingException() != null and vm.pendingException().?.object.class == vm.argument_error_class) {
+                        vm.setPendingException(null);
                     } else {
                         return fallback_err;
                     }
@@ -800,8 +800,8 @@ fn dispatchWarning(vm: *VM, receiver: Value, warning_message: Value, category: ?
             try vm.hashSetEntry(kw_hash, Value.fromObject(&category_sym.object), category_value);
             var warn_args = [_]Value{ warning_message, Value.fromObject(&kw_hash.object) };
             _ = vm.callMethodByName(warning_receiver, "warn", warn_args[0..], null) catch |err| {
-                if (err == error.Unwind and vm.pending_exception != null and vm.pending_exception.?.object.class == vm.argument_error_class) {
-                    vm.pending_exception = null;
+                if (err == error.Unwind and vm.pendingException() != null and vm.pendingException().?.object.class == vm.argument_error_class) {
+                    vm.setPendingException(null);
                     var plain_args = [_]Value{warning_message};
                     _ = try vm.callMethodByName(warning_receiver, "warn", plain_args[0..], null);
                     return;
@@ -855,7 +855,7 @@ pub fn builtinKernelProc(vm: *VM, _: Value, args: []Value, block: ?Block) VMErro
             vm.argument_error_class,
             "tried to create Proc object without a block",
         );
-        vm.pending_exception = exc;
+        vm.setPendingException(exc);
         return error.Unwind;
     };
 
@@ -870,7 +870,7 @@ pub fn builtinKernelLambda(vm: *VM, _: Value, args: []Value, block: ?Block) VMEr
             vm.argument_error_class,
             "tried to create Lambda without a block",
         );
-        vm.pending_exception = exc;
+        vm.setPendingException(exc);
         return error.Unwind;
     };
 
@@ -1070,7 +1070,7 @@ pub fn builtinKernelCatch(vm: *VM, _: Value, args: []Value, block: ?Block) VMErr
 
     const blk = block orelse {
         const exc = try vm.createException(vm.local_jump_error_class, "no block given");
-        vm.pending_exception = exc;
+        vm.setPendingException(exc);
         return error.Unwind;
     };
     const tag = if (args.len == 1) args[0] else try vm.newInstance(vm.object_class);
@@ -1079,8 +1079,8 @@ pub fn builtinKernelCatch(vm: *VM, _: Value, args: []Value, block: ?Block) VMErr
     defer vm.popActiveCatch();
 
     const yielded = vm.yieldToBlock(blk, &[_]Value{tag}) catch |err| {
-        if (err == error.Unwind and vm.pending_throw != null and vm.throwTagsMatch(vm.pending_throw.?.tag, tag)) {
-            const thrown_value = vm.pending_throw.?.value;
+        if (err == error.Unwind and vm.pendingThrow() != null and vm.throwTagsMatch(vm.pendingThrow().?.tag, tag)) {
+            const thrown_value = vm.pendingThrow().?.value;
             vm.clearPendingThrow();
             return thrown_value;
         }
@@ -1098,7 +1098,7 @@ pub fn builtinKernelThrow(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
     const thrown_value = if (args.len == 2) args[1] else Value.nil();
 
     if (!vm.hasActiveCatch(tag)) {
-        vm.pending_exception = try vm.createUncaughtThrowError(tag, thrown_value);
+        vm.setPendingException(try vm.createUncaughtThrowError(tag, thrown_value));
         return error.Unwind;
     }
 
@@ -1160,7 +1160,7 @@ pub fn builtinKernelTap(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
     try vm.requireArgCount(args, 0);
     const blk = block orelse {
         const exc = try vm.createException(vm.local_jump_error_class, "no block given");
-        vm.pending_exception = exc;
+        vm.setPendingException(exc);
         return error.Unwind;
     };
     const result = try vm.yieldToBlock(blk, &[_]Value{receiver});
@@ -1442,9 +1442,9 @@ fn builtinKernelStringConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMErr
 
     const converted = vm.callMethodByName(arg, "to_s", &[_]Value{}, null) catch |err| switch (err) {
         error.Unwind => {
-            if (vm.pending_exception) |exc| {
+            if (vm.pendingException()) |exc| {
                 if (exc.object.class == vm.no_method_error_class) {
-                    vm.pending_exception = null;
+                    vm.setPendingException(null);
                     return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into String", .{vm.className(arg)});
                 }
             }
@@ -1611,7 +1611,7 @@ pub fn builtinKernelBacktick(vm: *VM, _: Value, args: []Value, _: ?Block) VMErro
     }) catch |err| {
         const msg = std.fmt.allocPrint(vm.gc_allocator, "failed to execute command: {s}", .{@errorName(err)}) catch return error.Fatal;
         const exc = try vm.createException(vm.runtime_error_class, msg);
-        vm.pending_exception = exc;
+        vm.setPendingException(exc);
         return error.Unwind;
     };
     defer vm.allocator.free(run_result.stdout);
@@ -1697,7 +1697,7 @@ fn finishForkChild(vm: *VM, block_err: ?anyerror) noreturn {
     if (block_err) |err| {
         switch (err) {
             error.Unwind, error.UnhandledException => {
-                if (vm.pending_exception != null) {
+                if (vm.pendingException() != null) {
                     if (vm.unhandledExceptionExitStatus()) |status| {
                         exitForkChild(vm, status);
                     }

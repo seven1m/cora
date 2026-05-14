@@ -26,14 +26,14 @@ const ClampBounds = struct {
 
 fn comparableComparisonFailed(vm: *VM, receiver: Value, other: Value) VMError!void {
     const inspected_other = try other.inspect(vm);
-    vm.pending_exception = try vm.createException(
+    vm.setPendingException(try vm.createException(
         vm.argument_error_class,
         std.fmt.allocPrint(
             vm.gc_allocator,
             "comparison of {s} with {s} failed",
             .{ vm.className(receiver), inspected_other.toStringObject().str },
         ) catch return error.Fatal,
-    );
+    ));
     return error.Unwind;
 }
 
@@ -46,9 +46,9 @@ fn comparableSign(vm: *VM, receiver: Value, other: Value, mode: ComparisonMode) 
     const maybe_cmp = compareAgainstOther(vm, receiver, other) catch |err| switch (err) {
         error.Unwind => {
             if (mode == .equality) {
-                if (vm.pending_exception) |exc| {
+                if (vm.pendingException()) |exc| {
                     if (exc.object.class == vm.no_method_error_class) {
-                        vm.pending_exception = null;
+                        vm.setPendingException(null);
                         return null;
                     }
                 }

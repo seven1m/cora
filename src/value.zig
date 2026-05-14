@@ -842,14 +842,14 @@ pub const Value = struct {
         else
             vm_instance.callMethodByName(self, "to_int", &[_]Value{}, null) catch |err| {
                 if (err == error.Unwind and
-                    vm_instance.pending_exception != null and
-                    vm_instance.pending_exception.?.object.class == vm_instance.no_method_error_class)
+                    vm_instance.pendingException() != null and
+                    vm_instance.pendingException().?.object.class == vm_instance.no_method_error_class)
                 {
                     const exc = try vm_instance.createException(
                         vm_instance.type_error_class,
                         missing_type_error_message,
                     );
-                    vm_instance.pending_exception = exc;
+                    vm_instance.setPendingException(exc);
                     return error.Unwind;
                 }
                 return err;
@@ -857,7 +857,7 @@ pub const Value = struct {
 
         if (!coerced.isInteger() and !coerced.isBigInteger()) {
             const exc = try vm_instance.createException(vm_instance.type_error_class, non_integer_type_error_message);
-            vm_instance.pending_exception = exc;
+            vm_instance.setPendingException(exc);
             return error.Unwind;
         }
 
@@ -888,7 +888,7 @@ pub const Value = struct {
             .string => |coerced| coerced,
             .missing, .nil_result => {
                 const exc = try vm_instance.createException(vm_instance.type_error_class, type_error_message);
-                vm_instance.pending_exception = exc;
+                vm_instance.setPendingException(exc);
                 return error.Unwind;
             },
         };

@@ -36,7 +36,7 @@ pub fn builtinProcNew(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!V
             vm.argument_error_class,
             "tried to create Proc object without a block",
         );
-        vm.pending_exception = exc;
+        vm.setPendingException(exc);
         return error.Unwind;
     };
 

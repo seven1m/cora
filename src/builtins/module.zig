@@ -450,7 +450,7 @@ fn collectInstanceMethods(
         }
     } else {
         const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
-        vm.pending_exception = exc;
+        vm.setPendingException(exc);
         return error.Unwind;
     }
 
@@ -575,7 +575,7 @@ fn setVisibility(vm: *VM, receiver: Value, args: []Value, visibility: MethodVisi
 
     const methods = receiver.getModuleMethods() orelse {
         const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
-        vm.pending_exception = exc;
+        vm.setPendingException(exc);
         return error.Unwind;
     };
 
@@ -591,7 +591,7 @@ fn setVisibility(vm: *VM, receiver: Value, args: []Value, visibility: MethodVisi
                 .{name_sym.name},
             ) catch return error.Fatal;
             const exc = try vm.createException(vm.name_error_class, msg);
-            vm.pending_exception = exc;
+            vm.setPendingException(exc);
             return error.Unwind;
         };
         var updated = method_entry;
@@ -623,7 +623,7 @@ fn raiseUndefinedMethodName(vm: *VM, name_sym: *SymbolObject) VMError!Value {
         .{name_sym.name},
     ) catch return error.Fatal;
     const exc = try vm.createException(vm.name_error_class, msg);
-    vm.pending_exception = exc;
+    vm.setPendingException(exc);
     return error.Unwind;
 }
 
@@ -632,7 +632,7 @@ fn setClassMethodVisibility(vm: *VM, receiver: Value, args: []Value, visibility:
 
     if (!receiver.isClass() and !receiver.isModule()) {
         const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
-        vm.pending_exception = exc;
+        vm.setPendingException(exc);
         return error.Unwind;
     }
 
@@ -801,7 +801,7 @@ pub fn builtinModuleCaseEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block
         receiver.toModuleObject()
     else {
         const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
-        vm.pending_exception = exc;
+        vm.setPendingException(exc);
         return error.Unwind;
     };
 
@@ -844,7 +844,7 @@ pub fn builtinModuleConstants(vm: *VM, receiver: Value, args: []Value, _: ?Block
         }
     } else {
         const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
-        vm.pending_exception = exc;
+        vm.setPendingException(exc);
         return error.Unwind;
     }
 
@@ -882,7 +882,7 @@ pub fn builtinModuleConstSet(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     try vm.requireArgCount(args, 2);
     const constants = constantsTable(receiver) orelse {
         const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
-        vm.pending_exception = exc;
+        vm.setPendingException(exc);
         return error.Unwind;
     };
 
@@ -912,7 +912,7 @@ pub fn builtinModuleAutoload(vm: *VM, receiver: Value, args: []Value, _: ?Block)
 
     _ = constantsTable(receiver) orelse {
         const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
-        vm.pending_exception = exc;
+        vm.setPendingException(exc);
         return error.Unwind;
     };
 
@@ -956,7 +956,7 @@ pub fn builtinModuleRemoveConst(vm: *VM, receiver: Value, args: []Value, _: ?Blo
     try vm.requireArgCount(args, 1);
     const constants = constantsTable(receiver) orelse {
         const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
-        vm.pending_exception = exc;
+        vm.setPendingException(exc);
         return error.Unwind;
     };
 
@@ -1010,7 +1010,7 @@ pub fn builtinModuleAncestors(vm: *VM, receiver: Value, args: []Value, _: ?Block
         }
     } else {
         const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
-        vm.pending_exception = exc;
+        vm.setPendingException(exc);
         return error.Unwind;
     }
 
@@ -1066,7 +1066,7 @@ pub fn builtinModuleInstanceMethod(vm: *VM, receiver: Value, args: []Value, _: ?
             const message = std.fmt.allocPrint(vm.gc_allocator, "undefined method '{s}'", .{name_sym.name}) catch return error.Fatal;
             const exc = try vm.createException(vm.name_error_class, message);
             try vm.setInstanceVariable(Value.fromObject(&exc.object), "@name", Value.fromObject(&name_sym.object));
-            vm.pending_exception = exc;
+            vm.setPendingException(exc);
             break :blk error.Unwind;
         },
     };
@@ -1118,7 +1118,7 @@ pub fn builtinModuleIncludeQ(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     }
 
     const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
-    vm.pending_exception = exc;
+    vm.setPendingException(exc);
     return error.Unwind;
 }
 
@@ -1126,7 +1126,7 @@ pub fn builtinModuleInclude(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     try vm.requireSingleArg(args, .module, "Module");
     const target = receiver.getModuleObject() orelse {
         const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
-        vm.pending_exception = exc;
+        vm.setPendingException(exc);
         return error.Unwind;
     };
     const module = args[0].toModuleObject();
@@ -1140,7 +1140,7 @@ pub fn builtinModulePrepend(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     try vm.requireSingleArg(args, .module, "Module");
     const target = receiver.getModuleObject() orelse {
         const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
-        vm.pending_exception = exc;
+        vm.setPendingException(exc);
         return error.Unwind;
     };
     const module = args[0].toModuleObject();
@@ -1161,7 +1161,7 @@ pub fn builtinModuleDefineMethod(vm: *VM, receiver: Value, args: []Value, block:
 
     const methods = receiver.getModuleMethods() orelse {
         const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
-        vm.pending_exception = exc;
+        vm.setPendingException(exc);
         return error.Unwind;
     };
     const module_function_mode = if (vm.current_lexical_scope) |scope| scope.module_function_mode else false;
@@ -1187,7 +1187,7 @@ pub fn builtinModuleAttrReader(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
 
     const methods = receiver.getModuleMethods() orelse {
         const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
-        vm.pending_exception = exc;
+        vm.setPendingException(exc);
         return error.Unwind;
     };
 
@@ -1216,7 +1216,7 @@ pub fn builtinModuleAttrWriter(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
 
     const methods = receiver.getModuleMethods() orelse {
         const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
-        vm.pending_exception = exc;
+        vm.setPendingException(exc);
         return error.Unwind;
     };
 
@@ -1247,7 +1247,7 @@ pub fn builtinModuleAttrAccessor(vm: *VM, receiver: Value, args: []Value, _: ?Bl
 
     const methods = receiver.getModuleMethods() orelse {
         const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
-        vm.pending_exception = exc;
+        vm.setPendingException(exc);
         return error.Unwind;
     };
 
@@ -1295,7 +1295,7 @@ pub fn builtinModuleAliasMethod(vm: *VM, receiver: Value, args: []Value, _: ?Blo
     // Get method table from receiver (class or module)
     const methods = receiver.getModuleMethods() orelse {
         const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
-        vm.pending_exception = exc;
+        vm.setPendingException(exc);
         return error.Unwind;
     };
     var lookup_class: *value.ClassObject = undefined;
@@ -1315,7 +1315,7 @@ pub fn builtinModuleAliasMethod(vm: *VM, receiver: Value, args: []Value, _: ?Blo
             .{old_name_str},
         ) catch return error.Fatal;
         const exc = try vm.createException(vm.name_error_class, msg);
-        vm.pending_exception = exc;
+        vm.setPendingException(exc);
         return error.Unwind;
     } else {
         unreachable;
@@ -1333,7 +1333,7 @@ pub fn builtinModuleAliasMethod(vm: *VM, receiver: Value, args: []Value, _: ?Blo
             .{old_name_str},
         ) catch return error.Fatal;
         const exc = try vm.createException(vm.name_error_class, msg);
-        vm.pending_exception = exc;
+        vm.setPendingException(exc);
         return error.Unwind;
     }
 
@@ -1343,7 +1343,7 @@ pub fn builtinModuleAliasMethod(vm: *VM, receiver: Value, args: []Value, _: ?Blo
 pub fn builtinModuleUndefMethod(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     const methods = receiver.getModuleMethods() orelse {
         const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
-        vm.pending_exception = exc;
+        vm.setPendingException(exc);
         return error.Unwind;
     };
 
@@ -1364,7 +1364,7 @@ pub fn builtinModuleUndefMethod(vm: *VM, receiver: Value, args: []Value, _: ?Blo
                 .{name_sym.name},
             ) catch return error.Fatal;
             const exc = try vm.createException(vm.name_error_class, msg);
-            vm.pending_exception = exc;
+            vm.setPendingException(exc);
             return error.Unwind;
         }
 
@@ -1381,7 +1381,7 @@ pub fn builtinModuleRemoveMethod(vm: *VM, receiver: Value, args: []Value, _: ?Bl
 
     const methods = receiver.getModuleMethods() orelse {
         const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
-        vm.pending_exception = exc;
+        vm.setPendingException(exc);
         return error.Unwind;
     };
 
@@ -1394,7 +1394,7 @@ pub fn builtinModuleRemoveMethod(vm: *VM, receiver: Value, args: []Value, _: ?Bl
                 .{name_sym.name},
             ) catch return error.Fatal;
             const exc = try vm.createException(vm.name_error_class, msg);
-            vm.pending_exception = exc;
+            vm.setPendingException(exc);
             return error.Unwind;
         };
         _ = methods.remove(name_sym);
@@ -1430,7 +1430,7 @@ fn setConstantVisibility(vm: *VM, receiver: Value, args: []Value, private: bool)
 
     const constants = constantsTable(receiver) orelse {
         const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
-        vm.pending_exception = exc;
+        vm.setPendingException(exc);
         return error.Unwind;
     };
     var names: std.ArrayList(*SymbolObject) = .empty;
@@ -1445,7 +1445,7 @@ fn setConstantVisibility(vm: *VM, receiver: Value, args: []Value, private: bool)
                 .{ storedModuleName(receiver), name_sym.name },
             ) catch return error.Fatal;
             const exc = try vm.createException(vm.name_error_class, msg);
-            vm.pending_exception = exc;
+            vm.setPendingException(exc);
             return error.Unwind;
         }
 
@@ -1470,7 +1470,7 @@ pub fn builtinModuleDeprecateConstant(vm: *VM, receiver: Value, args: []Value, _
 
     const constants = constantsTable(receiver) orelse {
         const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
-        vm.pending_exception = exc;
+        vm.setPendingException(exc);
         return error.Unwind;
     };
     var names: std.ArrayList(*SymbolObject) = .empty;
@@ -1485,7 +1485,7 @@ pub fn builtinModuleDeprecateConstant(vm: *VM, receiver: Value, args: []Value, _
                 .{ storedModuleName(receiver), name_sym.name },
             ) catch return error.Fatal;
             const exc = try vm.createException(vm.name_error_class, msg);
-            vm.pending_exception = exc;
+            vm.setPendingException(exc);
             return error.Unwind;
         }
         if (constants.getPtr(name_sym)) |entry| {
@@ -1544,7 +1544,7 @@ pub fn builtinModuleFunction(vm: *VM, receiver: Value, args: []Value, _: ?Block)
                 .{name_sym.name},
             ) catch return error.Fatal;
             const exc = try vm.createException(vm.name_error_class, msg);
-            vm.pending_exception = exc;
+            vm.setPendingException(exc);
             return error.Unwind;
         };
 

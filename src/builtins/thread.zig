@@ -137,7 +137,7 @@ fn builtinThreadNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMEr
 
     if (thread.block == null) {
         const exc = try vm.createException(vm.thread_error_class, "must be called with a block");
-        vm.pending_exception = exc;
+        vm.setPendingException(exc);
         return error.Unwind;
     }
 
@@ -182,17 +182,17 @@ fn builtinThreadStop(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value 
     try vm.requireArgCount(args, 0);
     const thread = vm.current_thread orelse {
         const exc = try vm.createException(vm.thread_error_class, "stopping main thread");
-        vm.pending_exception = exc;
+        vm.setPendingException(exc);
         return error.Unwind;
     };
     if (thread == vm.main_thread orelse thread) {
         const exc = try vm.createException(vm.thread_error_class, "stopping main thread");
-        vm.pending_exception = exc;
+        vm.setPendingException(exc);
         return error.Unwind;
     }
     thread.state = .sleeping;
     try vm.threadYield();
-    if (vm.pending_exception) |exc| {
+    if (vm.pendingException()) |exc| {
         if (exc.object.class == vm.thread_kill_exception_class and thread.state != .terminated) {
             thread.state = .aborting;
         }
@@ -227,7 +227,7 @@ fn builtinThreadInitialize(vm: *VM, receiver: Value, args: []Value, block: ?Bloc
     const thread = receiver.toThreadObject();
     const blk = block orelse {
         const exc = try vm.createException(vm.thread_error_class, "must be called with a block");
-        vm.pending_exception = exc;
+        vm.setPendingException(exc);
         return error.Unwind;
     };
 
@@ -241,7 +241,7 @@ fn builtinThreadJoin(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
 
     if (vm.current_thread != null and thread == vm.current_thread.?) {
         const exc = try vm.createException(vm.thread_error_class, "Target thread must not be current thread");
-        vm.pending_exception = exc;
+        vm.setPendingException(exc);
         return error.Unwind;
     }
 
@@ -274,7 +274,7 @@ fn builtinThreadJoin(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
     // Re-raise exception if thread died with one
     if (!thread.terminated_normally) {
         if (thread.exception) |exc| {
-            vm.pending_exception = exc;
+            vm.setPendingException(exc);
             return error.Unwind;
         }
     }
@@ -288,7 +288,7 @@ fn builtinThreadValue(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
 
     if (vm.current_thread != null and thread == vm.current_thread.?) {
         const exc = try vm.createException(vm.thread_error_class, "Target thread must not be current thread");
-        vm.pending_exception = exc;
+        vm.setPendingException(exc);
         return error.Unwind;
     }
 
@@ -300,7 +300,7 @@ fn builtinThreadValue(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
     // Re-raise exception if thread died with one
     if (!thread.terminated_normally) {
         if (thread.exception) |exc| {
-            vm.pending_exception = exc;
+            vm.setPendingException(exc);
             return error.Unwind;
         }
     }
@@ -332,7 +332,7 @@ fn builtinThreadKill(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
     const is_current = vm.current_thread != null and thread == vm.current_thread.?;
     if (is_current) {
         thread.state = .aborting;
-        vm.pending_exception = try vm.createException(vm.thread_kill_exception_class, "");
+        vm.setPendingException(try vm.createException(vm.thread_kill_exception_class, ""));
         return error.Unwind;
     }
 
@@ -373,7 +373,7 @@ fn builtinThreadRun(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!
     const thread = receiver.toThreadObject();
     if (thread.state == .terminated) {
         const exc = try vm.createException(vm.thread_error_class, "killed thread");
-        vm.pending_exception = exc;
+        vm.setPendingException(exc);
         return error.Unwind;
     }
     if (thread.state == .sleeping) {
@@ -389,7 +389,7 @@ fn builtinThreadWakeup(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
     const thread = receiver.toThreadObject();
     if (thread.state == .terminated) {
         const exc = try vm.createException(vm.thread_error_class, "killed thread");
-        vm.pending_exception = exc;
+        vm.setPendingException(exc);
         return error.Unwind;
     }
     if (thread.state == .sleeping) {

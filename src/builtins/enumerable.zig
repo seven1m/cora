@@ -50,8 +50,8 @@ fn builtinEnumerableFlatMap(vm: *VM, receiver: Value, args: []Value, block: ?Blo
 
     while (true) {
         const next_values = vm.callMethodByName(enum_value, "next_values", &.{}, null) catch |err| {
-            if (err == error.Unwind and vm.pending_exception != null and vm.pending_exception.?.object.class == vm.stop_iteration_class) {
-                vm.pending_exception = null;
+            if (err == error.Unwind and vm.pendingException() != null and vm.pendingException().?.object.class == vm.stop_iteration_class) {
+                vm.setPendingException(null);
                 break;
             }
             return err;
@@ -91,8 +91,8 @@ fn builtinEnumerableMap(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
 
     while (true) {
         const next_values = vm.callMethodByName(enum_value, "next_values", &.{}, null) catch |err| {
-            if (err == error.Unwind and vm.pending_exception != null and vm.pending_exception.?.object.class == vm.stop_iteration_class) {
-                vm.pending_exception = null;
+            if (err == error.Unwind and vm.pendingException() != null and vm.pendingException().?.object.class == vm.stop_iteration_class) {
+                vm.setPendingException(null);
                 break;
             }
             return err;
@@ -116,8 +116,8 @@ fn collapseYieldValues(yield_values: *value.ArrayObject) Value {
 
 fn enumerableNextValues(vm: *VM, enum_value: Value) VMError!?*value.ArrayObject {
     const next_values = vm.callMethodByName(enum_value, "next_values", &.{}, null) catch |err| {
-        if (err == error.Unwind and vm.pending_exception != null and vm.pending_exception.?.object.class == vm.stop_iteration_class) {
-            vm.pending_exception = null;
+        if (err == error.Unwind and vm.pendingException() != null and vm.pendingException().?.object.class == vm.stop_iteration_class) {
+            vm.setPendingException(null);
             return null;
         }
         return err;

@@ -1209,7 +1209,7 @@ pub fn builtinHashFetch(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
         );
         exc.receiver = receiver;
         exc.key = key;
-        vm.pending_exception = exc;
+        vm.setPendingException(exc);
         return error.Unwind;
     }
 }

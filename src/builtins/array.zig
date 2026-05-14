@@ -147,7 +147,7 @@ fn arrayJoinAppendElement(
     const to_s_value = try vm.callMethodByName(elem, "to_s", &[_]Value{}, null);
     if (!to_s_value.isString()) {
         const exc = try vm.createException(vm.type_error_class, "to_s did not return String");
-        vm.pending_exception = exc;
+        vm.setPendingException(exc);
         return error.Unwind;
     }
     try arrayJoinAppendString(vm, state, to_s_value);
@@ -715,7 +715,7 @@ pub fn builtinArrayInitialize(vm: *VM, receiver: Value, args: []Value, block: ?B
         "bignum too big to convert into `long`",
     ) catch |err| switch (err) {
         error.Unwind => {
-            if (vm.pending_exception) |exc| {
+            if (vm.pendingException()) |exc| {
                 if (exc.object.class == vm.range_error_class) {
                     return vm.raiseExceptionFmt(vm.argument_error_class, "array size too big", .{});
                 }

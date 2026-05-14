@@ -137,7 +137,7 @@ fn rbConfigSharedLibraryExtension() []const u8 {
 
 pub const VMError = error{
     // Unhandled Ruby exception returned by VM.run()
-    // Exception object is in pending_exception.
+    // Exception object is in pending_unwind.
     // Caller should probably call printUnhandledException().
     UnhandledException,
 
@@ -224,14 +224,31 @@ pub const FiberFrameStack = FixedBufferList(CallFrame, MAX_FIBER_FRAMES);
 pub const FiberCoro = zio.coro.Coroutine;
 pub const FiberCoroContext = zio.coro.Context;
 
-const PendingThrow = struct {
+pub const PendingThrow = struct {
     tag: Value,
     value: Value,
 };
 
+const PendingControlFlow = struct {
+    kind: Kind,
+    value: Value,
+    target_frame_idx: ?usize = null,
+    value_placed: bool = false,
+
+    const Kind = enum {
+        return_,
+        break_,
+    };
+};
+
+const PendingUnwind = union(enum) {
+    exception: *value.ExceptionObject,
+    throw_: PendingThrow,
+    control_flow: PendingControlFlow,
+};
+
 const SavedUnwind = struct {
-    pending_exception: ?*value.ExceptionObject = null,
-    pending_throw: ?PendingThrow = null,
+    pending_unwind: ?PendingUnwind = null,
 };
 
 pub const BuiltinKeywordContext = struct {
@@ -469,9 +486,8 @@ pub const VM = struct {
     default_external_encoding: *value.EncodingObject,
     default_internal_encoding: ?*value.EncodingObject = null,
 
-    // Exception handling state
-    pending_exception: ?*value.ExceptionObject = null,
-    pending_throw: ?PendingThrow = null,
+    // Exception/throw/control-flow unwind state.
+    pending_unwind: ?PendingUnwind = null,
     pending_async_exceptions: std.ArrayList(*value.ExceptionObject) = .empty,
     ensure_saved_unwinds: std.ArrayList(SavedUnwind) = .empty,
     active_catches: *std.ArrayList(Value),
@@ -481,8 +497,6 @@ pub const VM = struct {
         byte_offset: usize,
     } = null,
 
-    // Block break state
-    break_occurred: bool = false,
     builtin_keyword_ctx: ?*BuiltinKeywordContext = null,
 
     at_exit_handlers: std.ArrayList(Value) = .empty,
@@ -649,7 +663,7 @@ pub const VM = struct {
             .default_external_encoding = undefined,
             .default_internal_encoding = null,
             .main_self = undefined,
-            .pending_throw = null,
+            .pending_unwind = null,
             .active_catches = undefined,
             .zio_main_context = undefined,
             .zio_stack_growth_ready = false,
@@ -1588,31 +1602,30 @@ pub const VM = struct {
         return null;
     }
 
-    fn handleNonLocalReturn(self: *VM, frame_type: CallFrame.FrameType, return_target_ep: ?[*]Value, result: Value) VMError!void {
+    fn startNonLocalReturn(self: *VM, frame_type: CallFrame.FrameType, return_target_ep: ?[*]Value, result: Value) VMError!void {
         if (frame_type == .fiber) {
             const exc = try self.createException(self.local_jump_error_class, "return from fiber");
-            self.pending_exception = exc;
+            self.setPendingException(exc);
             return error.Unwind;
         }
 
         const target_ep = return_target_ep orelse {
             const exc = try self.createException(self.local_jump_error_class, "unexpected return");
-            self.pending_exception = exc;
+            self.setPendingException(exc);
             return error.Unwind;
         };
         const target_frame_idx = self.findActiveReturnTargetMethodFrameIndex(target_ep) orelse {
             const exc = try self.createException(self.local_jump_error_class, "unexpected return");
-            self.pending_exception = exc;
+            self.setPendingException(exc);
             return error.Unwind;
         };
 
-        while (self.frames.items.len > target_frame_idx) {
-            const unwind_locals_base = self.frames.items[self.frames.items.len - 1].locals_base;
-            try self.popFrame();
-            self.stack.shrinkRetainingCapacity(unwind_locals_base);
-        }
-
-        try self.push(result);
+        self.setPendingControlFlow(.{
+            .kind = .return_,
+            .value = result,
+            .target_frame_idx = target_frame_idx,
+        });
+        return error.Unwind;
     }
 
     /// Promote the ep of a live frame to the GC heap (for closure capture).
@@ -1709,7 +1722,7 @@ pub const VM = struct {
             .{ module_obj.name.name, name_sym.name },
         ) catch return error.Fatal;
         const exc = try self.createException(self.name_error_class, msg);
-        self.pending_exception = exc;
+        self.setPendingException(exc);
         return error.Unwind;
     }
 
@@ -2219,7 +2232,7 @@ pub const VM = struct {
     pub fn runAtExitHandlers(self: *VM) VMError!void {
         if (self.at_exit_handlers.items.len == 0) return;
 
-        const original_exception = self.pending_exception;
+        const original_exception = self.pendingException();
         var last_exception: ?*value.ExceptionObject = null;
 
         while (self.at_exit_handlers.items.len > 0) {
@@ -2227,9 +2240,9 @@ pub const VM = struct {
             _ = self.callMethodByName(handler, "call", &[_]Value{}, null) catch |err| {
                 switch (err) {
                     error.Unwind => {
-                        if (self.pending_exception) |exc| {
+                        if (self.pendingException()) |exc| {
                             last_exception = exc;
-                            self.pending_exception = null;
+                            self.setPendingException(null);
                         }
                     },
                     else => return err,
@@ -2238,11 +2251,11 @@ pub const VM = struct {
         }
 
         if (last_exception) |exc| {
-            self.pending_exception = exc;
+            self.setPendingException(exc);
             return error.UnhandledException;
         }
 
-        self.pending_exception = original_exception;
+        self.setPendingException(original_exception);
     }
 
     fn createSignalException(self: *VM, signo: c_int) VMError!*value.ExceptionObject {
@@ -2259,12 +2272,53 @@ pub const VM = struct {
         self.pending_async_exceptions.append(self.allocator, exc) catch return error.Fatal;
     }
 
-    fn hasPendingUnwind(self: *VM) bool {
-        return self.pending_throw != null or self.pending_exception != null;
+    inline fn hasPendingUnwind(self: *VM) bool {
+        return self.pending_unwind != null;
     }
 
-    pub fn clearPendingThrow(self: *VM) void {
-        self.pending_throw = null;
+    pub inline fn pendingException(self: *VM) ?*value.ExceptionObject {
+        if (self.pending_unwind) |pending| {
+            if (pending == .exception) return pending.exception;
+        }
+        return null;
+    }
+
+    pub inline fn setPendingException(self: *VM, exc: ?*value.ExceptionObject) void {
+        self.pending_unwind = if (exc) |e| .{ .exception = e } else null;
+    }
+
+    pub inline fn pendingThrow(self: *VM) ?PendingThrow {
+        if (self.pending_unwind) |pending| {
+            if (pending == .throw_) return pending.throw_;
+        }
+        return null;
+    }
+
+    pub inline fn setPendingThrow(self: *VM, pending_throw: ?PendingThrow) void {
+        self.pending_unwind = if (pending_throw) |t| .{ .throw_ = t } else null;
+    }
+
+    inline fn pendingControlFlow(self: *VM) ?PendingControlFlow {
+        if (self.pending_unwind) |pending| {
+            if (pending == .control_flow) return pending.control_flow;
+        }
+        return null;
+    }
+
+    inline fn pendingControlFlowPtr(self: *VM) ?*PendingControlFlow {
+        if (self.pending_unwind) |*pending| {
+            if (pending.* == .control_flow) return &pending.control_flow;
+        }
+        return null;
+    }
+
+    inline fn setPendingControlFlow(self: *VM, control_flow: ?PendingControlFlow) void {
+        self.pending_unwind = if (control_flow) |cf| .{ .control_flow = cf } else null;
+    }
+
+    pub inline fn clearPendingThrow(self: *VM) void {
+        if (self.pending_unwind != null and self.pending_unwind.? == .throw_)
+            self.pending_unwind = null;
     }
 
     pub fn throwTagsMatch(_: *VM, left: Value, right: Value) bool {
@@ -2289,10 +2343,10 @@ pub const VM = struct {
     }
 
     pub fn startThrow(self: *VM, tag: Value, thrown_value: Value) VMError!void {
-        self.pending_throw = .{
+        self.setPendingThrow(.{
             .tag = tag,
             .value = thrown_value,
-        };
+        });
         return error.Unwind;
     }
 
@@ -2328,7 +2382,7 @@ pub const VM = struct {
         if (self.hasPendingUnwind()) return;
         if (self.pending_async_exceptions.items.len == 0) return;
 
-        self.pending_exception = self.pending_async_exceptions.orderedRemove(0);
+        self.setPendingException(self.pending_async_exceptions.orderedRemove(0));
         return error.Unwind;
     }
 
@@ -2713,7 +2767,7 @@ pub const VM = struct {
         const len = self.stack.items.len;
         if (len >= self.stack.capacity) {
             const exc = try self.createException(self.fiber_error_class, "fiber stack overflow");
-            self.pending_exception = exc;
+            self.setPendingException(exc);
             return error.Unwind;
         }
 
@@ -2845,7 +2899,7 @@ pub const VM = struct {
     ) VMError!void {
         if (self.frames.items.len >= self.frames.capacity) {
             const exc = try self.createException(self.fiber_error_class, "fiber call stack overflow");
-            self.pending_exception = exc;
+            self.setPendingException(exc);
             return error.Unwind;
         }
 
@@ -2855,7 +2909,7 @@ pub const VM = struct {
 
         if (needed > MAX_FIBER_STACK_SIZE) {
             const exc = try self.createException(self.fiber_error_class, "fiber stack overflow");
-            self.pending_exception = exc;
+            self.setPendingException(exc);
             return error.Unwind;
         }
 
@@ -2895,7 +2949,7 @@ pub const VM = struct {
     fn pushFrame(self: *VM, ch: *Chunk, self_value: Value, block: ?Block) VMError!void {
         if (self.frames.items.len >= self.frames.capacity) {
             const exc = try self.createException(self.fiber_error_class, "fiber call stack overflow");
-            self.pending_exception = exc;
+            self.setPendingException(exc);
             return error.Unwind;
         }
 
@@ -2905,7 +2959,7 @@ pub const VM = struct {
 
         if (needed > MAX_FIBER_STACK_SIZE) {
             const exc = try self.createException(self.fiber_error_class, "fiber stack overflow");
-            self.pending_exception = exc;
+            self.setPendingException(exc);
             return error.Unwind;
         }
 
@@ -3113,7 +3167,7 @@ pub const VM = struct {
             switch (err) {
                 error.UnhandledException => {
                     fiber.coro_event = .raised;
-                    fiber.coro_exception = self.pending_exception;
+                    fiber.coro_exception = self.pendingException();
                 },
                 else => {
                     fiber.coro_event = .none;
@@ -3150,12 +3204,11 @@ pub const VM = struct {
                 const result = func(self, fiber.first_resume_args[0..fiber.first_resume_argc]) catch |err| {
                     if (err == error.Unwind) {
                         fiber.state = .terminated;
-                        if (self.pending_exception == null and self.pending_throw != null) {
-                            const pending_throw = self.pending_throw.?;
-                            self.pending_exception = try self.createUncaughtThrowError(pending_throw.tag, pending_throw.value);
-                            self.pending_throw = null;
+                        if (self.pendingException() == null and self.pendingThrow() != null) {
+                            const pending_throw = self.pendingThrow().?;
+                            self.setPendingException(try self.createUncaughtThrowError(pending_throw.tag, pending_throw.value));
                         }
-                        fiber.coro_exception = self.pending_exception;
+                        fiber.coro_exception = self.pendingException();
                         fiber.coro_event = .raised;
                         if (fiber.coro) |c| c.yield();
                         return;
@@ -3226,7 +3279,7 @@ pub const VM = struct {
         const fiber = self.current_fiber;
         if (fiber == self.rootFiberForCurrentThread()) {
             const exc = try self.createException(self.fiber_error_class, "can't yield from root fiber");
-            self.pending_exception = exc;
+            self.setPendingException(exc);
             return error.Unwind;
         }
 
@@ -3307,7 +3360,7 @@ pub const VM = struct {
             .yielded => fiber.coro_result,
             .returned => fiber.coro_result,
             .raised => {
-                self.pending_exception = fiber.coro_exception orelse return error.Fatal;
+                self.setPendingException(fiber.coro_exception orelse return error.Fatal);
                 return error.Unwind;
             },
             .none => error.Fatal,
@@ -3515,12 +3568,12 @@ pub const VM = struct {
             self.releaseThreadOwnedMutexes(thread);
             switch (err) {
                 error.UnhandledException => {
-                    if (self.pending_exception) |exc| {
+                    if (self.pendingException()) |exc| {
                         if (exc.object.class == self.thread_kill_exception_class) {
                             thread.terminated_normally = true;
                             thread.exception = null;
                             thread.result = Value.nil();
-                            self.pending_exception = null;
+                            self.setPendingException(null);
                         } else {
                             thread.terminated_normally = false;
                             thread.exception = exc;
@@ -3565,13 +3618,12 @@ pub const VM = struct {
                 const thread_args = thread.args orelse &empty_args;
                 const result = func(self, thread_args) catch |err| {
                     if (err == error.Unwind) {
-                        if (self.pending_exception == null and self.pending_throw != null) {
-                            const pending_throw = self.pending_throw.?;
-                            self.pending_exception = try self.createUncaughtThrowError(pending_throw.tag, pending_throw.value);
-                            self.pending_throw = null;
+                        if (self.pendingException() == null and self.pendingThrow() != null) {
+                            const pending_throw = self.pendingThrow().?;
+                            self.setPendingException(try self.createUncaughtThrowError(pending_throw.tag, pending_throw.value));
                         }
                         thread.state = .terminated;
-                        thread.exception = self.pending_exception;
+                        thread.exception = self.pendingException();
                         thread.terminated_normally = false;
                         self.releaseThreadOwnedMutexes(thread);
                         if (thread.coro) |c| c.yield();
@@ -3606,7 +3658,7 @@ pub const VM = struct {
             if (thread.kill_requested) {
                 thread.kill_requested = false;
                 thread.state = .aborting;
-                self.pending_exception = try self.createException(self.thread_kill_exception_class, "");
+                self.setPendingException(try self.createException(self.thread_kill_exception_class, ""));
                 self.unwindStack() catch |unwind_err| switch (unwind_err) {
                     error.UnhandledException => return error.UnhandledException,
                     else => return error.Fatal,
@@ -3851,7 +3903,7 @@ pub const VM = struct {
         if (thread.kill_requested) {
             thread.kill_requested = false;
             thread.state = .aborting;
-            self.pending_exception = try self.createException(self.thread_kill_exception_class, "");
+            self.setPendingException(try self.createException(self.thread_kill_exception_class, ""));
             return error.Unwind;
         }
     }
@@ -4145,7 +4197,7 @@ pub const VM = struct {
                         .{ var_name, ctx.module.name.name },
                     ) catch return error.Fatal;
                     const exc = try self.createException(self.name_error_class, msg);
-                    self.pending_exception = exc;
+                    self.setPendingException(exc);
                     return error.Unwind;
                 }
             },
@@ -4230,7 +4282,7 @@ pub const VM = struct {
                         .{constant.string},
                     ) catch return error.Fatal;
                     const exc = try self.createException(self.name_error_class, msg);
-                    self.pending_exception = exc;
+                    self.setPendingException(exc);
                     return error.Unwind;
                 }
             },
@@ -4303,7 +4355,7 @@ pub const VM = struct {
                     parent_val.toModuleObject()
                 else {
                     const exc = try self.createException(self.type_error_class, "receiver is not a Module");
-                    self.pending_exception = exc;
+                    self.setPendingException(exc);
                     return error.Unwind;
                 };
 
@@ -4348,7 +4400,7 @@ pub const VM = struct {
                         .{ module.name.name, constant.string },
                     ) catch return error.Fatal;
                     const exc = try self.createException(self.name_error_class, msg);
-                    self.pending_exception = exc;
+                    self.setPendingException(exc);
                     return error.Unwind;
                 }
             },
@@ -4903,7 +4955,7 @@ pub const VM = struct {
                     }
                     try self.push(result);
                 } else {
-                    try self.handleNonLocalReturn(frame_type, return_target_ep, result);
+                    try self.startNonLocalReturn(frame_type, return_target_ep, result);
                 }
             },
 
@@ -4919,7 +4971,7 @@ pub const VM = struct {
                         if (target.existing_value) |em| {
                             if (em.isModule()) break :blk em;
                             const exc = try self.createException(self.type_error_class, "constant is not a module");
-                            self.pending_exception = exc;
+                            self.setPendingException(exc);
                             return error.Unwind;
                         }
 
@@ -4960,7 +5012,7 @@ pub const VM = struct {
                     superclass = superclass_val.toClassObject();
                 } else if (!superclass_val.isNil()) {
                     const exc = try self.createException(self.type_error_class, "superclass must be a Class");
-                    self.pending_exception = exc;
+                    self.setPendingException(exc);
                     return error.Unwind;
                 }
 
@@ -4976,7 +5028,7 @@ pub const VM = struct {
                         } else {
                             // Name exists but isn't a class - error
                             const exc = try self.createException(self.type_error_class, "constant is not a class");
-                            self.pending_exception = exc;
+                            self.setPendingException(exc);
                             return error.Unwind;
                         }
                     } else {
@@ -5134,7 +5186,7 @@ pub const VM = struct {
                 const array_val = self.pop();
                 if (!array_val.isArray()) {
                     const exc = try self.createException(self.type_error_class, "internal error: ARRAY_APPEND target is not an Array");
-                    self.pending_exception = exc;
+                    self.setPendingException(exc);
                     return error.Unwind;
                 }
                 array_val.toArrayObject().elements.append(self.gc_allocator, value_to_append) catch return error.Fatal;
@@ -5146,7 +5198,7 @@ pub const VM = struct {
                 const array_val = self.pop();
                 if (!array_val.isArray()) {
                     const exc = try self.createException(self.type_error_class, "internal error: ARRAY_CONCAT_ARRAY target is not an Array");
-                    self.pending_exception = exc;
+                    self.setPendingException(exc);
                     return error.Unwind;
                 }
                 const other_array = try self.expandSplatValue(other);
@@ -5184,7 +5236,7 @@ pub const VM = struct {
                 const target_hash_val = self.peek(0);
                 if (!target_hash_val.isHash()) {
                     const exc = try self.createException(self.type_error_class, "internal error: HASH_SET_CONST_KEY target is not a Hash");
-                    self.pending_exception = exc;
+                    self.setPendingException(exc);
                     return error.Unwind;
                 }
 
@@ -5204,7 +5256,7 @@ pub const VM = struct {
                 const target_hash_val = self.peek(0);
                 if (!target_hash_val.isHash()) {
                     const exc = try self.createException(self.type_error_class, "internal error: HASH_MERGE_KW target is not a Hash");
-                    self.pending_exception = exc;
+                    self.setPendingException(exc);
                     return error.Unwind;
                 }
 
@@ -5221,7 +5273,7 @@ pub const VM = struct {
                     const comparable = try self.callMethodByName(begin_val, "<=>", cmp_args[0..], null);
                     if (comparable.isNil()) {
                         const exc = try self.createException(self.argument_error_class, "bad value for range");
-                        self.pending_exception = exc;
+                        self.setPendingException(exc);
                         return error.Unwind;
                     }
                 }
@@ -5247,14 +5299,14 @@ pub const VM = struct {
                 while (i < part_count) : (i += 1) {
                     const val = self.stack.items[start + i];
                     const str_val = self.callMethodByName(val, "to_s", &[_]Value{}, null) catch |err| {
-                        if (err == error.Unwind and self.pending_exception != null) {
+                        if (err == error.Unwind and self.pendingException() != null) {
                             return error.Unwind;
                         }
                         return err;
                     };
                     if (!str_val.isString()) {
                         const exc = try self.createException(self.type_error_class, "to_s did not return String");
-                        self.pending_exception = exc;
+                        self.setPendingException(exc);
                         return error.Unwind;
                     }
                     const str_obj = str_val.toStringObject();
@@ -5305,7 +5357,7 @@ pub const VM = struct {
                         self.argument_error_class,
                         "no block given",
                     );
-                    self.pending_exception = exc;
+                    self.setPendingException(exc);
                     return error.Unwind;
                 };
                 switch (block.kind) {
@@ -5348,7 +5400,7 @@ pub const VM = struct {
                         self.argument_error_class,
                         "no block given",
                     );
-                    self.pending_exception = exc;
+                    self.setPendingException(exc);
                     return error.Unwind;
                 };
 
@@ -5456,7 +5508,7 @@ pub const VM = struct {
                         .{old_name},
                     ) catch return error.Fatal;
                     const exc = try self.createException(self.name_error_class, msg);
-                    self.pending_exception = exc;
+                    self.setPendingException(exc);
                     return error.Unwind;
                 }
 
@@ -5496,7 +5548,7 @@ pub const VM = struct {
                             .{name_sym.name},
                         ) catch return error.Fatal;
                         const exc = try self.createException(self.name_error_class, msg);
-                        self.pending_exception = exc;
+                        self.setPendingException(exc);
                         return error.Unwind;
                     }
 
@@ -5528,10 +5580,15 @@ pub const VM = struct {
             },
 
             .BREAK => {
-                // Break value is already on stack (pushed by compileBreakStatement)
-                self.break_occurred = true;
+                const result = self.pop();
+                self.setPendingControlFlow(.{
+                    .kind = .break_,
+                    .value = result,
+                    .value_placed = true,
+                });
                 // Return from block frame like RETURN does
                 try self.popFrame();
+                try self.push(result);
             },
 
             .RAISE => {
@@ -5570,8 +5627,7 @@ pub const VM = struct {
 
             .ENSURE_START => {
                 self.ensure_saved_unwinds.append(self.allocator, .{
-                    .pending_exception = self.pending_exception,
-                    .pending_throw = self.pending_throw,
+                    .pending_unwind = self.pending_unwind,
                 }) catch return error.Fatal;
             },
 
@@ -5582,20 +5638,20 @@ pub const VM = struct {
                     const current_frame_idx = self.frames.items.len - 1;
                     if (retry_pt.frame_idx == current_frame_idx) {
                         // Clear pending exception (if any) - we're starting fresh
-                        self.pending_exception = null;
+                        self.setPendingException(null);
 
                         // Jump back to the saved retry point
                         try setFrameIp(frame, retry_pt.byte_offset);
                     } else {
                         // Retry called from wrong frame - this shouldn't happen with proper compilation
                         const exc = try self.createException(self.runtime_error_class, "retry called from wrong frame");
-                        self.pending_exception = exc;
+                        self.setPendingException(exc);
                         return error.Unwind;
                     }
                 } else {
                     // No retry point set - retry called outside of rescue block
                     const exc = try self.createException(self.runtime_error_class, "retry called outside of rescue");
-                    self.pending_exception = exc;
+                    self.setPendingException(exc);
                     return error.Unwind;
                 }
             },
@@ -5613,8 +5669,7 @@ pub const VM = struct {
                     return error.Unwind;
                 }
 
-                self.pending_exception = saved.pending_exception;
-                self.pending_throw = saved.pending_throw;
+                self.pending_unwind = saved.pending_unwind;
                 if (self.hasPendingUnwind()) {
                     return error.Unwind;
                 }
@@ -5626,7 +5681,7 @@ pub const VM = struct {
 
                 // Store exception in local variable if binding exists (var_idx != 255)
                 if (var_idx != 255) {
-                    if (self.pending_exception) |exc| {
+                    if (self.pendingException()) |exc| {
                         // Compute ep_offset from the chunk's locals_count at runtime
                         const ep_offset = frame.chunk.locals_count - @as(u16, var_idx);
                         (frame.ep - ep_offset)[0] = Value.fromObject(&exc.object);
@@ -5634,7 +5689,7 @@ pub const VM = struct {
                 }
 
                 // Clear pending exception - it's now caught
-                self.pending_exception = null;
+                self.setPendingException(null);
             },
 
             .SUPER => {
@@ -5653,7 +5708,7 @@ pub const VM = struct {
                     const elems = positional.toArrayObject().elements.items;
                     if (elems.len > args.len) {
                         const exc = try self.createException(self.argument_error_class, "too many arguments");
-                        self.pending_exception = exc;
+                        self.setPendingException(exc);
                         return error.Unwind;
                     }
                     for (elems, 0..) |elem, idx| {
@@ -5719,13 +5774,15 @@ pub const VM = struct {
     /// has zero overhead from the bounded unwinding logic.
     pub fn executeFastLoop(self: *VM, target_len: usize, comptime bounded: bool, min_unwind_depth: usize) VMError!void {
         while (self.frames.items.len >= target_len) {
-            // Handle BREAK from de-recursed block frames:
-            // BREAK pops the block frame and sets break_occurred.
-            // We need to also pop the yielding method's frame.
-            if (self.break_occurred) {
-                self.break_occurred = false;
-                try self.popFrame();
-                continue;
+            // Handle BREAK from de-recursed block frames.
+            if (self.pendingControlFlow()) |cf| {
+                if (cf.kind == .break_) {
+                    self.setPendingControlFlow(null);
+                    try self.popFrame();
+                    continue;
+                } else if (cf.kind == .return_ and cf.value_placed) {
+                    self.setPendingControlFlow(null);
+                }
             }
             const frame_len = self.frames.items.len;
             const f = &self.frames.storage[frame_len - 1];
@@ -6221,14 +6278,14 @@ pub const VM = struct {
 
         if (method_chunk.no_keywords and has_keywords) {
             const exc = try self.createException(self.argument_error_class, "this method does not accept keyword arguments");
-            self.pending_exception = exc;
+            self.setPendingException(exc);
             return error.Unwind;
         }
 
         if (!has_keywords and method_chunk.required_keywords.items.len > 0) {
             const msg = "missing required keyword arguments";
             const exc = try self.createException(self.argument_error_class, msg);
-            self.pending_exception = exc;
+            self.setPendingException(exc);
             return error.Unwind;
         }
 
@@ -6338,7 +6395,7 @@ pub const VM = struct {
         defer self.builtin_keyword_ctx = previous_ctx;
 
         const result = builtin_method.function(self, receiver, args, block) catch |err| {
-            if (self.pending_exception != null) {
+            if (self.pendingException() != null) {
                 return error.Unwind;
             }
             return err;
@@ -6476,15 +6533,7 @@ pub const VM = struct {
                 );
 
                 try self.executeUntilReturn(saved_frame_count);
-                if (self.frames.items.len < saved_frame_count) {
-                    // A non-local return escaped past this chunk call. The target frame already
-                    // owns the return value on the VM stack, so don't pop a new callee result.
-                    if (self.stack.items.len > 0) {
-                        return self.stack.items[self.stack.items.len - 1];
-                    }
-                    return Value.nil();
-                }
-                return self.pop();
+                return (try self.finishSubcall(saved_frame_count)).value();
             },
             .builtin => |fun_ptr| {
                 return self.invokeBuiltinMethod(fun_ptr, receiver, args, block, keyword_ctx);
@@ -6493,7 +6542,7 @@ pub const VM = struct {
                 if (keyword_ctx) |ctx| {
                     if (ctx.kw_values.len > 0) {
                         const exc = try self.createException(self.argument_error_class, "this method does not accept keyword arguments");
-                        self.pending_exception = exc;
+                        self.setPendingException(exc);
                         return error.Unwind;
                     }
                 }
@@ -6634,12 +6683,12 @@ pub const VM = struct {
             }
         }
 
-        const original_exception = self.pending_exception;
+        const original_exception = self.pendingException();
         const call_result = self.callMethodByName(receiver, method_name, args, block) catch |err| {
             if (err == error.Unwind) {
-                if (self.pending_exception) |exc| {
+                if (self.pendingException()) |exc| {
                     if (exc.object.class == self.no_method_error_class and direct_method == null) {
-                        self.pending_exception = original_exception;
+                        self.setPendingException(original_exception);
                         return null;
                     }
                 }
@@ -6650,13 +6699,41 @@ pub const VM = struct {
         return call_result;
     }
 
+    const SubcallOutcome = union(enum) {
+        returned: Value,
+        non_local_return: Value,
+        broke: Value,
+
+        inline fn value(self: SubcallOutcome) Value {
+            return switch (self) {
+                .returned => |v| v,
+                .non_local_return => |v| v,
+                .broke => |v| v,
+            };
+        }
+
+        inline fn isBreak(self: SubcallOutcome) bool {
+            return switch (self) {
+                .broke => true,
+                else => false,
+            };
+        }
+
+        inline fn isNonLocalReturn(self: SubcallOutcome) bool {
+            return switch (self) {
+                .non_local_return => true,
+                else => false,
+            };
+        }
+    };
+
     /// Result from yielding to a block
     pub const YieldResult = struct {
         value: Value,
         break_occurred: bool,
         non_local_return_occurred: bool,
 
-        pub fn controlFlowValue(self: YieldResult) ?Value {
+        pub inline fn controlFlowValue(self: YieldResult) ?Value {
             if (self.non_local_return_occurred or self.break_occurred) return self.value;
             return null;
         }
@@ -6713,31 +6790,13 @@ pub const VM = struct {
                 const block_frame = self.currentFrame();
                 try self.copyArgumentsWithRestParam(chunk_blk.chunk, block_frame.ep, yield_args, arity_mode);
 
-                self.break_occurred = false;
                 const saved_frame_count = self.frames.items.len - 1;
                 try self.executeUntilReturn(saved_frame_count);
-
-                const break_occurred = self.break_occurred;
-                if (break_occurred) {
-                    self.break_occurred = false;
-                }
-                const non_local_return_occurred = self.frames.items.len < saved_frame_count;
-
-                const result = if (non_local_return_occurred) blk_result: {
-                    // Non-local return unwound the yielded block frame and left the return value
-                    // on the surviving target frame's stack. Read it without consuming it here.
-                    if (self.stack.items.len > 0) {
-                        break :blk_result self.stack.items[self.stack.items.len - 1];
-                    }
-                    break :blk_result Value.nil();
-                } else if (self.stack.items.len > 0)
-                    self.pop()
-                else
-                    Value.nil();
+                const outcome = try self.finishSubcall(saved_frame_count);
                 break :blk YieldResult{
-                    .value = result,
-                    .break_occurred = break_occurred,
-                    .non_local_return_occurred = non_local_return_occurred,
+                    .value = outcome.value(),
+                    .break_occurred = outcome.isBreak(),
+                    .non_local_return_occurred = outcome.isNonLocalReturn(),
                 };
             },
         };
@@ -6769,7 +6828,7 @@ pub const VM = struct {
                 const saved_frame_count = self.frames.items.len - 1;
                 try self.executeUntilReturn(saved_frame_count);
 
-                break :blk self.pop();
+                break :blk (try self.finishSubcall(saved_frame_count)).value();
             },
         };
     }
@@ -6796,7 +6855,7 @@ pub const VM = struct {
                 symbol.name,
             }) catch return error.Fatal;
             const exc = try self.createException(self.no_method_error_class, message);
-            self.pending_exception = exc;
+            self.setPendingException(exc);
             return error.Unwind;
         }
 
@@ -6822,7 +6881,7 @@ pub const VM = struct {
 
                 const saved_frame_count = self.frames.items.len - 1;
                 try self.executeUntilReturn(saved_frame_count);
-                break :blk self.pop();
+                break :blk (try self.finishSubcall(saved_frame_count)).value();
             },
         };
     }
@@ -6831,7 +6890,7 @@ pub const VM = struct {
     pub fn requireBlock(self: *VM, block: ?Block) VMError!Block {
         return block orelse {
             const exc = try self.createException(self.argument_error_class, "no block given");
-            self.pending_exception = exc;
+            self.setPendingException(exc);
             return error.Unwind;
         };
     }
@@ -6931,7 +6990,7 @@ pub const VM = struct {
             .proc => |proc_obj| {
                 if (kwargc > 0) {
                     const exc = try self.createException(self.argument_error_class, "this method does not accept keyword arguments");
-                    self.pending_exception = exc;
+                    self.setPendingException(exc);
                     return error.Unwind;
                 }
                 switch (proc_obj.block.kind) {
@@ -7056,13 +7115,13 @@ pub const VM = struct {
                         .{normalized_owner_path},
                     ) catch return error.Fatal;
                     const exc = try self.createException(self.name_error_class, msg);
-                    self.pending_exception = exc;
+                    self.setPendingException(exc);
                     return error.Unwind;
                 };
 
             if (!owner_val.isClass() and !owner_val.isModule()) {
                 const exc = try self.createException(self.type_error_class, "constant path does not refer to class/module");
-                self.pending_exception = exc;
+                self.setPendingException(exc);
                 return error.Unwind;
             }
 
@@ -7309,7 +7368,7 @@ pub const VM = struct {
                 .{ method_name, self.getClass(frame.self_value).module.name.name },
             ) catch return error.Fatal;
             const exc = try self.createException(self.no_method_error_class, msg);
-            self.pending_exception = exc;
+            self.setPendingException(exc);
             return error.Unwind;
         };
 
@@ -7342,7 +7401,7 @@ pub const VM = struct {
                 if (frame.forwarded_keyword_ctx) |keyword_ctx| {
                     if (keyword_ctx.kw_values.len > 0) {
                         const exc = try self.createException(self.argument_error_class, "this method does not accept keyword arguments");
-                        self.pending_exception = exc;
+                        self.setPendingException(exc);
                         return error.Unwind;
                     }
                 }
@@ -7368,7 +7427,7 @@ pub const VM = struct {
         // Get the object pointer (returns null for primitives)
         const obj_ptr = obj_val.getObjectPointer() orelse {
             const exc = try self.createException(self.type_error_class, "can't define singleton method for literals");
-            self.pending_exception = exc;
+            self.setPendingException(exc);
             return error.Unwind;
         };
 
@@ -7956,7 +8015,7 @@ pub const VM = struct {
     pub fn setInstanceVariable(self: *VM, receiver: Value, name: []const u8, val: Value) VMError!void {
         const obj_ptr = receiver.getObjectPointer() orelse {
             const exc = try self.createException(self.type_error_class, "can't define singleton method for literals");
-            self.pending_exception = exc;
+            self.setPendingException(exc);
             return error.Unwind;
         };
 
@@ -8493,7 +8552,7 @@ pub const VM = struct {
                 .{ if (type_name[0] == 'A' or type_name[0] == 'I' or type_name[0] == 'O') "an" else "a", type_name },
             ) catch return error.Fatal;
             const exc = try self.createException(self.type_error_class, msg);
-            self.pending_exception = exc;
+            self.setPendingException(exc);
             return error.Unwind;
         }
     }
@@ -8511,7 +8570,7 @@ pub const VM = struct {
                 .{ if (type_name[0] == 'A' or type_name[0] == 'I' or type_name[0] == 'O') "an" else "a", type_name },
             ) catch return error.Fatal;
             const exc = try self.createException(self.type_error_class, msg);
-            self.pending_exception = exc;
+            self.setPendingException(exc);
             return error.Unwind;
         }
     }
@@ -8689,7 +8748,7 @@ pub const VM = struct {
     ) VMError {
         const msg = std.fmt.allocPrint(self.gc_allocator, fmt, args) catch return error.Fatal;
         const exc = self.createException(exception_class, msg) catch return error.Fatal;
-        self.pending_exception = exc;
+        self.setPendingException(exc);
         return error.Unwind;
     }
 
@@ -8749,8 +8808,8 @@ pub const VM = struct {
 
     pub fn raiseFromArgs(self: *VM, args: []const Value, no_current_exception_message: []const u8) VMError {
         if (args.len == 0) {
-            if (self.pending_exception) |exc| {
-                self.pending_exception = exc;
+            if (self.pendingException()) |exc| {
+                self.setPendingException(exc);
                 return error.Unwind;
             }
             return self.raiseExceptionFmt(self.runtime_error_class, "{s}", .{no_current_exception_message});
@@ -8758,21 +8817,21 @@ pub const VM = struct {
 
         if (args.len == 1) {
             if (args[0].isException()) {
-                self.pending_exception = args[0].toExceptionObject();
+                self.setPendingException(args[0].toExceptionObject());
                 return error.Unwind;
             } else if (args[0].isClass()) {
                 const class_obj = args[0].toClassObject();
                 if (self.isClassOrSubclassOf(class_obj, self.exception_class)) {
                     const exc_val = try self.newExceptionInstance(class_obj, &[_]Value{}, null);
-                    self.pending_exception = exc_val.toExceptionObject();
+                    self.setPendingException(exc_val.toExceptionObject());
                     return error.Unwind;
                 }
                 const exc = self.createException(class_obj, "") catch return error.Fatal;
-                self.pending_exception = exc;
+                self.setPendingException(exc);
                 return error.Unwind;
             } else if (args[0].isString()) {
                 const exc = self.createException(self.runtime_error_class, args[0].toStringObject().str) catch return error.Fatal;
-                self.pending_exception = exc;
+                self.setPendingException(exc);
                 return error.Unwind;
             } else {
                 return self.raiseExceptionFmt(self.type_error_class, "exception class/object expected", .{});
@@ -8786,12 +8845,12 @@ pub const VM = struct {
             const class_obj = args[0].toClassObject();
             if (self.isClassOrSubclassOf(class_obj, self.exception_class)) {
                 const exc_val = try self.newExceptionInstance(class_obj, args[1..], null);
-                self.pending_exception = exc_val.toExceptionObject();
+                self.setPendingException(exc_val.toExceptionObject());
                 return error.Unwind;
             }
             const msg_str = if (args[1].isString()) args[1].toStringObject().str else "";
             const exc = self.createException(class_obj, msg_str) catch return error.Fatal;
-            self.pending_exception = exc;
+            self.setPendingException(exc);
             return error.Unwind;
         }
 
@@ -9090,12 +9149,9 @@ pub const VM = struct {
             self.current_lexical_scope = scope;
         }
 
-        try self.executeUntilReturn(self.frames.items.len - 1);
-
-        return if (self.stack.items.len > saved_stack_len)
-            self.pop()
-        else
-            Value.nil();
+        const saved = self.frames.items.len - 1;
+        try self.executeUntilReturn(saved);
+        return (try self.finishSubcallFromStack(saved, saved_stack_len)).value();
     }
 
     // ===== Exception Handling Methods =====
@@ -9185,14 +9241,7 @@ pub const VM = struct {
         // Execute instructions until this frame completes
         const saved = self.frames.items.len - 1;
         try self.executeUntilReturn(saved);
-
-        // Pop result from stack (default chunk returns a value)
-        const default_value = if (self.stack.items.len > saved_stack_len)
-            self.pop()
-        else
-            Value.nil();
-
-        return default_value;
+        return (try self.finishSubcallFromStack(saved, saved_stack_len)).value();
     }
 
     pub fn copyArgumentsWithRestParam(
@@ -9353,10 +9402,10 @@ pub const VM = struct {
         var args = [_]Value{stored_key};
         const result = self.callMethodByName(lookup_key, "eql?", args[0..], null) catch |err| {
             if (err == error.Unwind and
-                self.pending_exception != null and
-                self.pending_exception.?.object.class == self.no_method_error_class)
+                self.pendingException() != null and
+                self.pendingException().?.object.class == self.no_method_error_class)
             {
-                self.pending_exception = null;
+                self.setPendingException(null);
                 return lookup_key.eql(stored_key);
             }
             return err;
@@ -9451,17 +9500,17 @@ pub const VM = struct {
             .hash => |hash| hash.toHashObject(),
             .missing => {
                 const exc = try self.createException(self.type_error_class, "no implicit conversion into Hash");
-                self.pending_exception = exc;
+                self.setPendingException(exc);
                 return error.Unwind;
             },
             .nil_result => {
                 const exc = try self.createException(self.type_error_class, "can't convert to Hash");
-                self.pending_exception = exc;
+                self.setPendingException(exc);
                 return error.Unwind;
             },
             .non_hash => {
                 const exc = try self.createException(self.type_error_class, "can't convert to Hash");
-                self.pending_exception = exc;
+                self.setPendingException(exc);
                 return error.Unwind;
             },
         };
@@ -9548,7 +9597,7 @@ pub const VM = struct {
             if (!found) {
                 const msg = std.fmt.allocPrint(self.gc_allocator, "missing keyword: {s}", .{req_name}) catch return error.Fatal;
                 const exc = try self.createException(self.argument_error_class, msg);
-                self.pending_exception = exc;
+                self.setPendingException(exc);
                 return error.Unwind;
             }
         }
@@ -9604,7 +9653,7 @@ pub const VM = struct {
                     else
                         std.fmt.allocPrint(self.gc_allocator, "unknown keyword", .{}) catch return error.Fatal;
                     const exc = try self.createException(self.argument_error_class, msg);
-                    self.pending_exception = exc;
+                    self.setPendingException(exc);
                     return error.Unwind;
                 }
             }
@@ -9626,7 +9675,7 @@ pub const VM = struct {
             },
             .message = msg_str.toStringObject(),
             .backtrace = backtrace,
-            .cause = self.pending_exception,
+            .cause = self.pendingException(),
             .receiver = null,
             .key = null,
         };
@@ -9730,10 +9779,9 @@ pub const VM = struct {
             return;
         }
 
-        if (self.pending_exception == null and self.pending_throw != null) {
-            const pending_throw = self.pending_throw.?;
-            self.pending_exception = try self.createUncaughtThrowError(pending_throw.tag, pending_throw.value);
-            self.pending_throw = null;
+        if (self.pendingException() == null and self.pendingThrow() != null) {
+            const pending_throw = self.pendingThrow().?;
+            self.setPendingException(try self.createUncaughtThrowError(pending_throw.tag, pending_throw.value));
         }
 
         // No handler was found in any frame.
@@ -9742,10 +9790,16 @@ pub const VM = struct {
     }
 
     fn unwindStackUntilFrameDepth(self: *VM, min_frame_len: usize) VMError!bool {
-        while (self.frames.items.len > min_frame_len) {
+        const stop_frame_len = self.controlFlowStopFrameLen(min_frame_len);
+        while (self.frames.items.len > stop_frame_len) {
             const frame_idx = self.frames.items.len - 1;
 
-            if (self.pending_throw != null) {
+            if (self.pendingControlFlow() != null) {
+                if (try self.findEnsureHandler(frame_idx)) |ensure_byte_offset| {
+                    try setFrameIp(&self.frames.items[frame_idx], ensure_byte_offset);
+                    return true;
+                }
+            } else if (self.pendingThrow() != null) {
                 if (try self.findEnsureHandler(frame_idx)) |ensure_byte_offset| {
                     try setFrameIp(&self.frames.items[frame_idx], ensure_byte_offset);
                     return true;
@@ -9764,9 +9818,44 @@ pub const VM = struct {
             const unwind_locals_base = self.frames.items[frame_idx].locals_base;
             try self.popFrame();
             self.stack.shrinkRetainingCapacity(unwind_locals_base);
+
+            if (self.pendingControlFlow()) |cf| {
+                if (cf.kind == .return_) {
+                    if (cf.target_frame_idx) |target_frame_idx| {
+                        if (self.frames.items.len <= target_frame_idx) {
+                            try self.placePendingControlFlowValue();
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (self.pendingControlFlow() != null) {
+            try self.placePendingControlFlowValue();
         }
 
         return false;
+    }
+
+    fn controlFlowStopFrameLen(self: *VM, min_frame_len: usize) usize {
+        if (self.pendingControlFlow()) |cf| {
+            if (cf.kind == .return_) {
+                if (cf.target_frame_idx) |target_frame_idx| {
+                    return @min(min_frame_len, target_frame_idx);
+                }
+            }
+        }
+        return min_frame_len;
+    }
+
+    fn placePendingControlFlowValue(self: *VM) VMError!void {
+        if (self.pendingControlFlowPtr()) |cf| {
+            if (!cf.value_placed) {
+                try self.push(cf.value);
+                cf.value_placed = true;
+            }
+        }
     }
 
     fn findEnsureHandler(self: *VM, frame_idx: usize) VMError!?usize {
@@ -9793,16 +9882,56 @@ pub const VM = struct {
         while (self.frames.items.len >= target_frame_depth) {
             self.executeInstruction() catch |err| switch (err) {
                 error.Unwind => {
-                    if (!try self.unwindStackUntilFrameDepth(caller_frame_depth))
+                    if (!try self.unwindStackUntilFrameDepth(caller_frame_depth)) {
+                        if (self.pendingControlFlow() != null)
+                            return;
                         return error.Unwind;
+                    }
                     // Handler found — if it's in a frame below our target (shouldn't happen),
                     // propagate since the callee frame is gone.
-                    if (self.frames.items.len < target_frame_depth)
+                    if (self.frames.items.len < target_frame_depth) {
+                        if (self.pendingControlFlow() != null)
+                            return;
                         return error.Unwind;
+                    }
                 },
                 else => return err,
             };
         }
+    }
+
+    fn finishSubcall(self: *VM, caller_frame_depth: usize) VMError!SubcallOutcome {
+        return self.finishSubcallFromStack(caller_frame_depth, 0);
+    }
+
+    fn finishSubcallFromStack(self: *VM, caller_frame_depth: usize, saved_stack_len: usize) VMError!SubcallOutcome {
+        if (self.pendingControlFlow()) |cf| {
+            const result = cf.value;
+            self.setPendingControlFlow(null);
+            return switch (cf.kind) {
+                .return_ => .{ .non_local_return = result },
+                .break_ => .{ .broke = result },
+            };
+        }
+
+        const escaped = self.frames.items.len < caller_frame_depth;
+        const result = if (escaped)
+            self.peekStackOrNil()
+        else
+            self.popStackAboveOrNil(saved_stack_len);
+
+        if (escaped) return .{ .non_local_return = result };
+        return .{ .returned = result };
+    }
+
+    fn peekStackOrNil(self: *VM) Value {
+        if (self.stack.items.len == 0) return Value.nil();
+        return self.stack.items[self.stack.items.len - 1];
+    }
+
+    fn popStackAboveOrNil(self: *VM, saved_stack_len: usize) Value {
+        if (self.stack.items.len <= saved_stack_len) return Value.nil();
+        return self.pop();
     }
 
     fn executeRescueTypeExpression(
@@ -9829,13 +9958,7 @@ pub const VM = struct {
         self.frames.append(self.gc_allocator, rescue_type_frame) catch return error.Fatal;
 
         try self.executeUntilReturn(saved);
-
-        const rescue_type = if (self.stack.items.len > saved_stack_len)
-            self.pop()
-        else
-            Value.nil();
-
-        return rescue_type;
+        return (try self.finishSubcallFromStack(saved, saved_stack_len)).value();
     }
 
     fn matchesExceptionClassOrModule(self: *VM, exception: *value.ExceptionObject, rescue_type: Value) VMError!bool {
@@ -9883,7 +10006,7 @@ pub const VM = struct {
                     // Check if exception matches any of the rescue types
                     if (rescue.exception_type_exprs.items.len == 0) {
                         // Bare rescue catches StandardError
-                        if (self.matchesException(self.pending_exception.?, self.standard_error_class)) {
+                        if (self.matchesException(self.pendingException().?, self.standard_error_class)) {
                             return .{ .handler = handler, .rescue_idx = idx };
                         }
                     } else {
@@ -9921,7 +10044,7 @@ pub const VM = struct {
                                 if (rescue_eval_raised) break;
 
                                 for (expanded.toArrayObject().elements.items) |expanded_type| {
-                                    const matches = self.matchesExceptionClassOrModule(self.pending_exception.?, expanded_type) catch |err| {
+                                    const matches = self.matchesExceptionClassOrModule(self.pendingException().?, expanded_type) catch |err| {
                                         switch (err) {
                                             error.Unwind => {
                                                 rescue_eval_raised = true;
@@ -9935,7 +10058,7 @@ pub const VM = struct {
                                     if (matches) return .{ .handler = handler, .rescue_idx = idx };
                                 }
                             } else {
-                                const matches = self.matchesExceptionClassOrModule(self.pending_exception.?, rescue_type) catch |err| {
+                                const matches = self.matchesExceptionClassOrModule(self.pendingException().?, rescue_type) catch |err| {
                                     switch (err) {
                                         error.Unwind => {
                                             rescue_eval_raised = true;
@@ -9988,18 +10111,18 @@ pub const VM = struct {
     /// Print an unhandled exception
     pub fn printUnhandledException(self: *VM) void {
         const writer = self.stderr.?;
-        if (self.pending_exception) |exc| {
+        if (self.pendingException()) |exc| {
             self.writeFormattedException(writer, exc, self.backtrace_limit) catch {};
             _ = writer.flush() catch {};
         } else {
-            // Someone forgot to set pending_exception.
+            // Someone forgot to set a pending exception.
             writer.print("unknown error\n", .{}) catch {};
             _ = writer.flush() catch {};
         }
     }
 
     pub fn unhandledExceptionExitStatus(self: *VM) ?u8 {
-        const exc = self.pending_exception orelse return null;
+        const exc = self.pendingException() orelse return null;
         if (self.isClassOrSubclassOf(exc.object.class.?, self.system_exit_class)) {
             const status = self.getInstanceVariable(Value.fromObject(&exc.object), "@status") catch return 1;
             if (!status.isInteger()) return 0;
