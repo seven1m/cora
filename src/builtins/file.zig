@@ -90,6 +90,9 @@ pub fn register(vm: *VM) !void {
     const dirname_sym = try vm.intern("dirname");
     try file_singleton.module.methods.put(dirname_sym, value.MethodEntry.builtin(&builtinFileDirname, .{ .variadic = 0 }));
 
+    const basename_sym = try vm.intern("basename");
+    try file_singleton.module.methods.put(basename_sym, value.MethodEntry.builtin(&builtinFileBasename, .{ .variadic = 0 }));
+
     const directory_sym = try vm.intern("directory?");
     try file_singleton.module.methods.put(directory_sym, value.MethodEntry.builtin(&builtinFileDirectory, .{ .exact = 1 }));
 
@@ -316,6 +319,32 @@ fn dirnameBytesAlloc(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     return allocator.dupe(u8, trimmed[0..last_slash]);
 }
 
+fn basenameBytesAlloc(allocator: std.mem.Allocator, path: []const u8, suffix_opt: ?[]const u8) ![]u8 {
+    if (path.len == 0) return allocator.dupe(u8, "");
+
+    var end = path.len;
+    while (end > 1 and path[end - 1] == '/') : (end -= 1) {}
+    const trimmed = path[0..end];
+
+    const basename = if (std.mem.eql(u8, trimmed, "/"))
+        trimmed
+    else
+        trimmed[(std.mem.lastIndexOfScalar(u8, trimmed, '/') orelse return allocator.dupe(u8, trimmed)) + 1 ..];
+
+    var result = basename;
+    if (suffix_opt) |suffix| {
+        if (std.mem.eql(u8, suffix, ".*")) {
+            if (std.mem.lastIndexOfScalar(u8, basename, '.')) |dot_idx| {
+                if (dot_idx > 0) result = basename[0..dot_idx];
+            }
+        } else if (suffix.len > 0 and std.mem.endsWith(u8, basename, suffix)) {
+            result = basename[0 .. basename.len - suffix.len];
+        }
+    }
+
+    return allocator.dupe(u8, result);
+}
+
 pub fn builtinFileNew(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     const parsed = try pathAndMode(vm, args);
     return openFileWithMode(vm, parsed.path, parsed.mode);
@@ -456,6 +485,23 @@ pub fn builtinFileDirname(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
     const dir = dirnameBytesAlloc(vm.allocator, path_obj.str) catch return error.Fatal;
     defer vm.allocator.free(dir);
     return try vm.newStringWithEncoding(dir, false, path_obj.encoding);
+}
+
+pub fn builtinFileBasename(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "File.basename is not implemented on Windows", .{});
+    }
+
+    const path_value = try vm.coerceToPathValue(args[0], "no implicit conversion into String");
+    const path_obj = path_value.toStringObject();
+    const suffix: ?[]const u8 = if (args.len == 2 and !args[1].isNil())
+        try args[1].coerceToStr(vm, "no implicit conversion into String")
+    else
+        null;
+    const base = basenameBytesAlloc(vm.allocator, path_obj.str, suffix) catch return error.Fatal;
+    defer vm.allocator.free(base);
+    return try vm.newStringWithEncoding(base, false, path_obj.encoding);
 }
 
 pub fn builtinFileDirectory(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

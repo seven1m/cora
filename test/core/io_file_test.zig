@@ -310,6 +310,13 @@ test "File.join and File.dirname provide minimal Unix path helpers" {
     try std.testing.expectEqualSlices(u8, "/tmp/a", result.toArrayObject().elements.items[1].toStringObject().str);
 }
 
+test "File.basename handles plain and suffix-stripped paths" {
+    const result = try evalCode("[File.basename('/tmp/a/b.rb'), File.basename('/tmp/a/b.rb', '.*')]");
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqualSlices(u8, "b.rb", result.toArrayObject().elements.items[0].toStringObject().str);
+    try std.testing.expectEqualSlices(u8, "b", result.toArrayObject().elements.items[1].toStringObject().str);
+}
+
 test "File.join accepts array as single argument" {
     const result = try evalCode("File.join(['food', 'bar'])");
     try std.testing.expect(result.isString());
