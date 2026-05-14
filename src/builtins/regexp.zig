@@ -58,6 +58,12 @@ pub fn register(vm: *VM) !void {
     const clone_sym = try vm.intern("clone");
     try vm.regexp_class.module.methods.put(clone_sym, value.MethodEntry.builtin(&builtinRegexpClone, .{ .variadic = 0 }));
 
+    const names_sym = try vm.intern("names");
+    try vm.regexp_class.module.methods.put(names_sym, value.MethodEntry.builtin(&builtinRegexpNames, .{ .exact = 0 }));
+
+    const named_captures_sym = try vm.intern("named_captures");
+    try vm.regexp_class.module.methods.put(named_captures_sym, value.MethodEntry.builtin(&builtinRegexpNamedCaptures, .{ .exact = 0 }));
+
     const regexp_class_val = Value.fromObject(&vm.regexp_class.module.object);
     const ignorecase_sym = try vm.intern("IGNORECASE");
     try vm.regexp_class.module.constants.put(ignorecase_sym, .{ .value = Value.integer(OPTION_IGNORECASE) });
@@ -243,6 +249,42 @@ fn builtinRegexpToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!
     const str = try buildRegexpToSBytes(vm, r);
     defer vm.allocator.free(str);
     return try vm.newStringWithEncoding(str, false, r.encoding);
+}
+
+fn buildNamedCaptureNamesArray(vm: *VM, regexp: *value.RegexpObject) VMError!Value {
+    const groups = onigmo.collectNamedCaptureGroups(vm.allocator, regexp.regex) catch return error.Fatal;
+    defer onigmo.freeNamedCaptureGroups(vm.allocator, groups);
+
+    const arr = try vm.createArray();
+    for (groups) |group| {
+        arr.elements.append(vm.gc_allocator, try vm.newString(group.name, false)) catch return error.Fatal;
+    }
+    return Value.fromObject(&arr.object);
+}
+
+fn builtinRegexpNames(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return buildNamedCaptureNamesArray(vm, receiver.toRegexpObject());
+}
+
+fn builtinRegexpNamedCaptures(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
+    const regexp = receiver.toRegexpObject();
+    const groups = onigmo.collectNamedCaptureGroups(vm.allocator, regexp.regex) catch return error.Fatal;
+    defer onigmo.freeNamedCaptureGroups(vm.allocator, groups);
+
+    const hash = try vm.createHash();
+    for (groups) |group| {
+        const key = try vm.newString(group.name, false);
+        const values = try vm.createArray();
+        for (group.group_numbers) |group_number| {
+            values.elements.append(vm.gc_allocator, Value.integer(group_number)) catch return error.Fatal;
+        }
+        try vm.hashSetEntry(hash, key, Value.fromObject(&values.object));
+    }
+
+    return Value.fromObject(&hash.object);
 }
 
 const UnionSegment = struct {

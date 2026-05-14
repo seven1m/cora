@@ -1312,7 +1312,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/matchdata/deconstruct_keys_spec.rb
 - [ ] core/matchdata/deconstruct_spec.rb
 - [ ] core/matchdata/dup_spec.rb
-- [ ] core/matchdata/element_reference_spec.rb
+- [x] core/matchdata/element_reference_spec.rb
 - [ ] core/matchdata/end_spec.rb
 - [ ] core/matchdata/eql_spec.rb
 - [ ] core/matchdata/equal_value_spec.rb
@@ -1321,8 +1321,8 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/matchdata/length_spec.rb
 - [ ] core/matchdata/match_length_spec.rb
 - [ ] core/matchdata/match_spec.rb
-- [ ] core/matchdata/named_captures_spec.rb
-- [ ] core/matchdata/names_spec.rb
+- [x] core/matchdata/named_captures_spec.rb
+- [x] core/matchdata/names_spec.rb
 - [ ] core/matchdata/offset_spec.rb
 - [ ] core/matchdata/post_match_spec.rb
 - [ ] core/matchdata/pre_match_spec.rb
@@ -1848,8 +1848,8 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/regexp/last_match_spec.rb
 - [ ] core/regexp/linear_time_spec.rb
 - [ ] core/regexp/match_spec.rb
-- [ ] core/regexp/named_captures_spec.rb
-- [ ] core/regexp/names_spec.rb
+- [x] core/regexp/named_captures_spec.rb
+- [x] core/regexp/names_spec.rb
 - [ ] core/regexp/new_spec.rb
 - [ ] core/regexp/options_spec.rb
 - [ ] core/regexp/quote_spec.rb

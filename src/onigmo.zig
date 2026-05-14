@@ -44,6 +44,11 @@ pub const SearchCaptures = struct {
     end_offsets: []i64,
 };
 
+pub const NamedCaptureGroup = struct {
+    name: []const u8,
+    group_numbers: []const i32,
+};
+
 pub const CaseMapError = error{
     OutOfMemory,
     InvalidByteSequence,
@@ -158,6 +163,78 @@ pub fn nameToBackrefNumber(regex: OnigRegex, text: []const u8, name: []const u8)
     const name_ptr: [*c]const c.OnigUChar = @ptrCast(name.ptr);
     const name_end = name_ptr + name.len;
     return c.onig_name_to_backref_number(regex, name_ptr, name_end, region);
+}
+
+const CollectNamedCaptureContext = struct {
+    allocator: std.mem.Allocator,
+    groups: std.ArrayList(NamedCaptureGroup) = .empty,
+    failed: bool = false,
+};
+
+fn freeNamedCaptureGroupsPartial(allocator: std.mem.Allocator, groups: []const NamedCaptureGroup) void {
+    for (groups) |group| {
+        allocator.free(group.name);
+        allocator.free(group.group_numbers);
+    }
+}
+
+fn collectNamedCaptureCallback(
+    name_ptr: [*c]const c.OnigUChar,
+    name_end: [*c]const c.OnigUChar,
+    ngroup_num: c_int,
+    group_nums: [*c]c_int,
+    _: OnigRegex,
+    arg: ?*anyopaque,
+) callconv(.c) c_int {
+    const ctx: *CollectNamedCaptureContext = @ptrCast(@alignCast(arg orelse return 1));
+    const name_len = @as(usize, @intCast(@intFromPtr(name_end) - @intFromPtr(name_ptr)));
+    const name_slice: []const u8 = @as([*]const u8, @ptrCast(name_ptr))[0..name_len];
+    const copied_name = ctx.allocator.dupe(u8, name_slice) catch {
+        ctx.failed = true;
+        return 1;
+    };
+
+    const group_count: usize = @intCast(ngroup_num);
+    const copied_group_numbers = ctx.allocator.alloc(i32, group_count) catch {
+        ctx.allocator.free(copied_name);
+        ctx.failed = true;
+        return 1;
+    };
+
+    for (copied_group_numbers, 0..) |*dest, idx| {
+        dest.* = group_nums[idx];
+    }
+
+    ctx.groups.append(ctx.allocator, .{
+        .name = copied_name,
+        .group_numbers = copied_group_numbers,
+    }) catch {
+        ctx.allocator.free(copied_name);
+        ctx.allocator.free(copied_group_numbers);
+        ctx.failed = true;
+        return 1;
+    };
+
+    return 0;
+}
+
+pub fn collectNamedCaptureGroups(allocator: std.mem.Allocator, regex: OnigRegex) ![]NamedCaptureGroup {
+    var ctx = CollectNamedCaptureContext{ .allocator = allocator };
+    errdefer {
+        freeNamedCaptureGroupsPartial(allocator, ctx.groups.items);
+        ctx.groups.deinit(allocator);
+    }
+
+    const rc = c.onig_foreach_name(regex, collectNamedCaptureCallback, &ctx);
+    if (ctx.failed) return error.OutOfMemory;
+    if (rc < 0) return error.InvalidByteSequence;
+
+    return ctx.groups.toOwnedSlice(allocator);
+}
+
+pub fn freeNamedCaptureGroups(allocator: std.mem.Allocator, groups: []const NamedCaptureGroup) void {
+    freeNamedCaptureGroupsPartial(allocator, groups);
+    allocator.free(groups);
 }
 
 pub fn caseMap(

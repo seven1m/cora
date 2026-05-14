@@ -1,3 +1,5 @@
+const std = @import("std");
+const onigmo = @import("../onigmo.zig");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 
@@ -42,6 +44,12 @@ pub fn register(vm: *VM) !void {
 
     const begin_sym = try vm.intern("begin");
     try vm.match_data_class.module.methods.put(begin_sym, value.MethodEntry.builtin(&builtinMatchDataBegin, .{ .exact = 1 }));
+
+    const names_sym = try vm.intern("names");
+    try vm.match_data_class.module.methods.put(names_sym, value.MethodEntry.builtin(&builtinMatchDataNames, .{ .exact = 0 }));
+
+    const named_captures_sym = try vm.intern("named_captures");
+    try vm.match_data_class.module.methods.put(named_captures_sym, value.MethodEntry.builtin(&builtinMatchDataNamedCaptures, .{ .variadic = 0 }));
 }
 
 fn getMatchData(receiver: Value) VMError!*value.MatchDataObject {
@@ -65,13 +73,131 @@ fn buildArray(vm: *VM, items: []const Value) VMError!Value {
     return Value.fromObject(&arr.object);
 }
 
-fn builtinMatchDataBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 1);
-    if (!args[0].isInteger()) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Integer", .{});
+fn buildCaptureSlice(vm: *VM, md: *value.MatchDataObject, start: i64, end_exclusive: i64) VMError!Value {
+    const arr = try vm.createArray();
+    var i = start;
+    while (i < end_exclusive) : (i += 1) {
+        arr.elements.append(vm.gc_allocator, md.captures.items[@intCast(i)]) catch return error.Fatal;
     }
+    return Value.fromObject(&arr.object);
+}
+
+fn resolveNamedCaptureIndex(vm: *VM, md: *value.MatchDataObject, name: []const u8) VMError!?usize {
+    const groups = onigmo.collectNamedCaptureGroups(vm.allocator, md.regexp.regex) catch return error.Fatal;
+    defer onigmo.freeNamedCaptureGroups(vm.allocator, groups);
+
+    for (groups) |group| {
+        if (!std.mem.eql(u8, group.name, name)) continue;
+
+        var i = group.group_numbers.len;
+        while (i > 0) {
+            i -= 1;
+            const group_index: usize = @intCast(group.group_numbers[i]);
+            if (group_index >= md.begin_byte_offsets.items.len) continue;
+            if (md.begin_byte_offsets.items[group_index] >= 0) return group_index;
+        }
+
+        return null;
+    }
+
+    return vm.raiseExceptionFmt(vm.index_error_class, "undefined group name reference: {s}", .{name});
+}
+
+fn captureByName(vm: *VM, md: *value.MatchDataObject, name: []const u8) VMError!Value {
+    const maybe_index = try resolveNamedCaptureIndex(vm, md, name);
+    if (maybe_index) |index| return md.captures.items[index];
+    return Value.nil();
+}
+
+fn buildNamesArray(vm: *VM, regexp: *value.RegexpObject) VMError!Value {
+    const groups = onigmo.collectNamedCaptureGroups(vm.allocator, regexp.regex) catch return error.Fatal;
+    defer onigmo.freeNamedCaptureGroups(vm.allocator, groups);
+
+    const arr = try vm.createArray();
+    for (groups) |group| {
+        arr.elements.append(vm.gc_allocator, try vm.newString(group.name, false)) catch return error.Fatal;
+    }
+    return Value.fromObject(&arr.object);
+}
+
+fn builtinMatchDataBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
     const md = try getMatchData(receiver);
-    return captureAt(md, args[0].toInteger());
+    const len: i64 = @intCast(md.captures.items.len);
+
+    if (args.len == 1) {
+        if (args[0].isRange()) {
+            const range_obj = args[0].toRangeObject();
+            var actual_start: i64 = 0;
+            if (!range_obj.begin.isNil()) {
+                actual_start = try range_obj.begin.coerceToI64ViaToInt(
+                    vm,
+                    "no implicit conversion into Integer",
+                    "no implicit conversion into Integer",
+                    "bignum too big to convert into `long`",
+                );
+                if (actual_start < 0) actual_start += len;
+            }
+            if (actual_start < 0 or actual_start > len) return Value.nil();
+
+            var finish: i64 = len;
+            if (!range_obj.end.isNil()) {
+                finish = try range_obj.end.coerceToI64ViaToInt(
+                    vm,
+                    "no implicit conversion into Integer",
+                    "no implicit conversion into Integer",
+                    "bignum too big to convert into `long`",
+                );
+                if (finish < 0) finish += len;
+                if (!range_obj.exclude_end) finish += 1;
+            }
+
+            if (finish < actual_start) {
+                const empty = try vm.createArray();
+                return Value.fromObject(&empty.object);
+            }
+
+            const clamped_end = @max(actual_start, @min(finish, len));
+            return buildCaptureSlice(vm, md, actual_start, clamped_end);
+        }
+
+        if (args[0].isSymbol()) {
+            return captureByName(vm, md, args[0].toSymbolObject().name);
+        }
+
+        if (args[0].isString()) {
+            return captureByName(vm, md, args[0].toStringObject().str);
+        }
+
+        const index = try args[0].coerceToI64ViaToInt(
+            vm,
+            "no implicit conversion into Integer",
+            "no implicit conversion into Integer",
+            "bignum too big to convert into `long`",
+        );
+        return captureAt(md, index);
+    }
+
+    const start = try args[0].coerceToI64ViaToInt(
+        vm,
+        "no implicit conversion into Integer",
+        "no implicit conversion into Integer",
+        "bignum too big to convert into `long`",
+    );
+    const length = try args[1].coerceToI64ViaToInt(
+        vm,
+        "no implicit conversion into Integer",
+        "no implicit conversion into Integer",
+        "bignum too big to convert into `long`",
+    );
+
+    var actual_start = start;
+    if (actual_start < 0) actual_start += len;
+    if (actual_start < 0 or actual_start > len) return Value.nil();
+    if (length < 0) return Value.nil();
+
+    const end_exclusive = @min(actual_start + length, len);
+    return buildCaptureSlice(vm, md, actual_start, end_exclusive);
 }
 
 fn builtinMatchDataMatch(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -172,4 +298,32 @@ fn builtinMatchDataBegin(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     const begin_pos = md.begin_byte_offsets.items[@intCast(idx)];
     if (begin_pos < 0) return Value.nil();
     return Value.integer(begin_pos);
+}
+
+fn builtinMatchDataNames(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const md = try getMatchData(receiver);
+    return buildNamesArray(vm, md.regexp);
+}
+
+fn builtinMatchDataNamedCaptures(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
+    var symbolize_names = Value.nil();
+    try vm.consumeKeywordArgs(.{"symbolize_names"}, .{&symbolize_names});
+
+    const md = try getMatchData(receiver);
+    const groups = onigmo.collectNamedCaptureGroups(vm.allocator, md.regexp.regex) catch return error.Fatal;
+    defer onigmo.freeNamedCaptureGroups(vm.allocator, groups);
+
+    const hash = try vm.createHash();
+    for (groups) |group| {
+        const key = if (symbolize_names.is_truthy())
+            Value.fromObject(&(try vm.intern(group.name)).object)
+        else
+            try vm.newString(group.name, false);
+        try vm.hashSetEntry(hash, key, try captureByName(vm, md, group.name));
+    }
+
+    return Value.fromObject(&hash.object);
 }
