@@ -15,6 +15,7 @@ pub const BlockParametersNode = c.pm_block_parameters_node_t;
 pub const BlockParameterNode = c.pm_block_parameter_node_t;
 pub const CallNode = c.pm_call_node_t;
 pub const CallAndWriteNode = c.pm_call_and_write_node_t;
+pub const CallOperatorWriteNode = c.pm_call_operator_write_node_t;
 pub const CallOrWriteNode = c.pm_call_or_write_node_t;
 pub const CaseNode = c.pm_case_node_t;
 pub const ClassNode = c.pm_class_node_t;
@@ -150,6 +151,7 @@ pub const Node = union(enum) {
     block_parameter: *BlockParameterNode,
     call: *CallNode,
     call_and_write: *CallAndWriteNode,
+    call_operator_write: *CallOperatorWriteNode,
     call_or_write: *CallOrWriteNode,
     case_node: *CaseNode,
     class: *ClassNode,
@@ -437,6 +439,10 @@ pub const Parser = struct {
 
         if (node_type == c.PM_CALL_AND_WRITE_NODE) {
             return Node{ .call_and_write = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_CALL_OPERATOR_WRITE_NODE) {
+            return Node{ .call_operator_write = @ptrCast(raw) };
         }
 
         if (node_type == c.PM_CALL_OR_WRITE_NODE) {

@@ -270,6 +270,30 @@ test "call &&= short-circuits falsey getter result" {
     try std.testing.expect(result.toArrayObject().elements.items[1].isNil());
 }
 
+test "call operator assignment assigns through getter/setter and evaluates receiver once" {
+    const result = try evalCode(
+        \\$calls = 0
+        \\$last = nil
+        \\class Scanner
+        \\  attr_accessor :pos
+        \\end
+        \\def make_scanner
+        \\  $calls += 1
+        \\  $last = Scanner.new
+        \\  $last.pos = 5
+        \\  $last
+        \\end
+        \\x = (make_scanner.pos -= 1)
+        \\[x, $last.pos, $calls]
+    );
+
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(usize, 3), result.toArrayObject().elements.items.len);
+    try std.testing.expectEqual(@as(i64, 4), result.toArrayObject().elements.items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 4), result.toArrayObject().elements.items[1].toInteger());
+    try std.testing.expectEqual(@as(i64, 1), result.toArrayObject().elements.items[2].toInteger());
+}
+
 test "constant ||= initializes when missing" {
     const result = try evalCode(
         \\X ||= 1

@@ -764,6 +764,10 @@ pub const Compiler = struct {
                 try self.compileCallAndWrite(call_write, line);
             },
 
+            .call_operator_write => |call_write| {
+                try self.compileCallOperatorWrite(call_write, line);
+            },
+
             .call_or_write => |call_write| {
                 try self.compileCallOrWrite(call_write, line);
             },
@@ -2649,6 +2653,34 @@ pub const Compiler = struct {
         try self.current_chunk.emitOp(.POP, line);
 
         try self.current_chunk.patchJump(jump_end);
+    }
+
+    fn compileCallOperatorWrite(self: *Compiler, call_write: *prism.CallOperatorWriteNode, line: u32) !void {
+        const receiver_style: bytecode.ReceiverCallStyle = if (call_write.receiver != null) .explicit else .implicit_self;
+        if (call_write.receiver) |receiver_ptr| {
+            const receiver_node = try self.parser.asNode(@ptrCast(receiver_ptr));
+            try self.compileNode(receiver_node, line);
+        } else {
+            try self.current_chunk.emitOp(.PUSH_SELF, line);
+        }
+
+        try self.current_chunk.emitOp(.DUP, line);
+
+        const read_name = try self.parser.getConstantName(call_write.read_name);
+        const read_idx = try self.current_chunk.addConstant(.{ .string = read_name });
+        try self.current_chunk.emitCall(@intCast(read_idx), 0, @intFromEnum(receiver_style), 0, line);
+
+        const value_node = try self.parser.asNode(@ptrCast(call_write.value));
+        try self.compileNode(value_node, line);
+
+        const operator_name = try self.parser.getConstantName(@intCast(call_write.binary_operator));
+        const operator_idx = try self.current_chunk.addConstant(.{ .string = operator_name });
+        const explicit_receiver_style: u8 = @intFromEnum(bytecode.ReceiverCallStyle.explicit);
+        try self.current_chunk.emitCall(@intCast(operator_idx), 1, explicit_receiver_style, 0, line);
+
+        const write_name = try self.parser.getConstantName(call_write.write_name);
+        const write_idx = try self.current_chunk.addConstant(.{ .string = write_name });
+        try self.current_chunk.emitCall(@intCast(write_idx), 1, @intFromEnum(receiver_style), 0, line);
     }
 
     fn compileLocalOperatorWrite(self: *Compiler, var_write: *prism.LocalVariableOperatorWriteNode, line: u32) !void {
