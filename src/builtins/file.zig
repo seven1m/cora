@@ -47,6 +47,10 @@ const FileMode = struct {
 pub fn register(vm: *VM) !void {
     const file_class_val = Value.fromObject(&vm.file_class.module.object);
     const file_singleton = try vm.getOrCreateSingletonClass(file_class_val);
+    const stat_name_sym = try vm.intern("Stat");
+    const file_stat_class_val = try vm.newClass(stat_name_sym, vm.object_class);
+    vm.file_stat_class = file_stat_class_val.toClassObject();
+    try vm.file_class.module.constants.put(stat_name_sym, .{ .value = file_stat_class_val });
 
     const separator_sym = try vm.intern("SEPARATOR");
     try vm.file_class.module.constants.put(separator_sym, .{ .value = try vm.newString("/", false) });
@@ -99,8 +103,15 @@ pub fn register(vm: *VM) !void {
     const file_sym = try vm.intern("file?");
     try file_singleton.module.methods.put(file_sym, value.MethodEntry.builtin(&builtinFileFile, .{ .exact = 1 }));
 
+    const stat_sym = try vm.intern("stat");
+    try file_singleton.module.methods.put(stat_sym, value.MethodEntry.builtin(&builtinFileStat, .{ .exact = 1 }));
+    try vm.io_class.module.methods.put(stat_sym, value.MethodEntry.builtin(&builtinIoStat, .{ .exact = 0 }));
+
     const exist_sym = try vm.intern("exist?");
     try file_singleton.module.methods.put(exist_sym, value.MethodEntry.builtin(&builtinFileExist, .{ .exact = 1 }));
+
+    const symlink_sym = try vm.intern("symlink");
+    try file_singleton.module.methods.put(symlink_sym, value.MethodEntry.builtin(&builtinFileSymlink, .{ .exact = 2 }));
 
     const delete_sym = try vm.intern("delete");
     try file_singleton.module.methods.put(delete_sym, value.MethodEntry.builtin(&builtinFileDelete, .{ .variadic = 0 }));
@@ -110,6 +121,35 @@ pub fn register(vm: *VM) !void {
 
     const path_sym = try vm.intern("path");
     try file_singleton.module.methods.put(path_sym, value.MethodEntry.builtin(&builtinFilePath, .{ .variadic = 0 }));
+
+    try vm.file_stat_class.module.methods.put(file_sym, value.MethodEntry.builtin(&builtinFileStatFileQ, .{ .exact = 0 }));
+
+    const symlink_q_sym = try vm.intern("symlink?");
+    try vm.file_stat_class.module.methods.put(symlink_q_sym, value.MethodEntry.builtin(&builtinFileStatSymlinkQ, .{ .exact = 0 }));
+
+    const zero_q_sym = try vm.intern("zero?");
+    try vm.file_stat_class.module.methods.put(zero_q_sym, value.MethodEntry.builtin(&builtinFileStatZeroQ, .{ .exact = 0 }));
+
+    const size_sym = try vm.intern("size");
+    try vm.file_stat_class.module.methods.put(size_sym, value.MethodEntry.builtin(&builtinFileStatSize, .{ .exact = 0 }));
+
+    const size_q_sym = try vm.intern("size?");
+    try vm.file_stat_class.module.methods.put(size_q_sym, value.MethodEntry.builtin(&builtinFileStatSizeQ, .{ .exact = 0 }));
+
+    const blksize_sym = try vm.intern("blksize");
+    try vm.file_stat_class.module.methods.put(blksize_sym, value.MethodEntry.builtin(&builtinFileStatBlksize, .{ .exact = 0 }));
+
+    const atime_sym = try vm.intern("atime");
+    try vm.file_stat_class.module.methods.put(atime_sym, value.MethodEntry.builtin(&builtinFileStatAtime, .{ .exact = 0 }));
+
+    const ctime_sym = try vm.intern("ctime");
+    try vm.file_stat_class.module.methods.put(ctime_sym, value.MethodEntry.builtin(&builtinFileStatCtime, .{ .exact = 0 }));
+
+    const mtime_sym = try vm.intern("mtime");
+    try vm.file_stat_class.module.methods.put(mtime_sym, value.MethodEntry.builtin(&builtinFileStatMtime, .{ .exact = 0 }));
+
+    const mode_sym = try vm.intern("mode");
+    try vm.file_stat_class.module.methods.put(mode_sym, value.MethodEntry.builtin(&builtinFileStatMode, .{ .exact = 0 }));
 }
 
 fn parseMode(vm: *VM, mode_str: []const u8) VMError!FileMode {
@@ -345,6 +385,65 @@ fn basenameBytesAlloc(allocator: std.mem.Allocator, path: []const u8, suffix_opt
     return allocator.dupe(u8, result);
 }
 
+fn statTimestampToValue(vm: *VM, timestamp: std.Io.Timestamp) VMError!Value {
+    return vm.newTime(vm.time_class, @intCast(timestamp.nanoseconds));
+}
+
+fn requireFileStatReceiver(vm: *VM, receiver: Value) VMError!Value {
+    if (receiver.isObject() and vm.getClass(receiver) == vm.file_stat_class) return receiver;
+    return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a File::Stat", .{});
+}
+
+fn fileStatBoolIvar(vm: *VM, receiver: Value, name: []const u8) VMError!Value {
+    const stat_val = try requireFileStatReceiver(vm, receiver);
+    return vm.getInstanceVariable(stat_val, name);
+}
+
+fn fileStatIntegerIvar(vm: *VM, receiver: Value, name: []const u8) VMError!Value {
+    const stat_val = try requireFileStatReceiver(vm, receiver);
+    return vm.getInstanceVariable(stat_val, name);
+}
+
+fn fileStatTimeIvar(vm: *VM, receiver: Value, name: []const u8) VMError!Value {
+    const stat_val = try requireFileStatReceiver(vm, receiver);
+    return vm.getInstanceVariable(stat_val, name);
+}
+
+fn buildFileStat(vm: *VM, stat: std.Io.File.Stat) VMError!Value {
+    const stat_val = try vm.newInstance(vm.file_stat_class);
+    const atime_value = try statTimestampToValue(vm, stat.atime orelse stat.mtime);
+    try vm.setInstanceVariable(stat_val, "@file", Value.boolean(stat.kind == .file));
+    try vm.setInstanceVariable(stat_val, "@symlink", Value.boolean(stat.kind == .sym_link));
+    try vm.setInstanceVariable(stat_val, "@mode", Value.integer(@intCast(stat.permissions.toMode())));
+    try vm.setInstanceVariable(stat_val, "@size", Value.integer(@intCast(stat.size)));
+    try vm.setInstanceVariable(stat_val, "@blksize", Value.integer(@intCast(stat.block_size)));
+    try vm.setInstanceVariable(stat_val, "@atime", atime_value);
+    try vm.setInstanceVariable(stat_val, "@ctime", try statTimestampToValue(vm, stat.ctime));
+    try vm.setInstanceVariable(stat_val, "@mtime", try statTimestampToValue(vm, stat.mtime));
+    return stat_val;
+}
+
+fn raiseEncodedPathErrno(vm: *VM, errno_code: std.posix.E, path_obj: *value.StringObject) VMError {
+    var message_bytes: std.ArrayList(u8) = .empty;
+    defer message_bytes.deinit(vm.allocator);
+    message_bytes.appendSlice(vm.allocator, "No such file or directory @ stat - ") catch return error.Fatal;
+    message_bytes.appendSlice(vm.allocator, path_obj.str) catch return error.Fatal;
+
+    const exc = try vm.createException(vm.errnoClass(@intCast(@intFromEnum(errno_code))), "");
+    const msg_val = try vm.newStringWithEncoding(message_bytes.items, false, path_obj.encoding);
+    exc.message = msg_val.toStringObject();
+    vm.setPendingException(exc);
+    return error.Unwind;
+}
+
+fn raisePathStatError(vm: *VM, path_obj: *value.StringObject, err: anyerror) VMError {
+    return switch (err) {
+        error.FileNotFound => raiseEncodedPathErrno(vm, .NOENT, path_obj),
+        error.AccessDenied, error.PermissionDenied => vm.raiseErrnoFmt(.ACCES, "Permission denied @ stat - {s}", .{path_obj.str}),
+        else => vm.raiseExceptionFmt(vm.system_call_error_class, "stat failed for {s}", .{path_obj.str}),
+    };
+}
+
 pub fn builtinFileNew(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     const parsed = try pathAndMode(vm, args);
     return openFileWithMode(vm, parsed.path, parsed.mode);
@@ -527,6 +626,60 @@ pub fn builtinFileFile(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
     return Value.boolean(st.kind == .file);
 }
 
+pub fn builtinFileStat(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "File.stat is not implemented on Windows", .{});
+    }
+
+    const path_value = try vm.coerceToPathValue(args[0], "no implicit conversion into String");
+    const path_obj = path_value.toStringObject();
+    const stat = std.Io.Dir.cwd().statFile(vm.io, path_obj.str, .{}) catch |err| return raisePathStatError(vm, path_obj, err);
+    return buildFileStat(vm, stat);
+}
+
+pub fn builtinIoStat(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "IO#stat is not implemented on Windows", .{});
+    }
+    if (!receiver.isIo()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not an IO", .{});
+    }
+
+    const io_obj = receiver.toIoObject();
+    if (io_obj.closed) {
+        return vm.raiseExceptionFmt(vm.io_error_class, "closed stream", .{});
+    }
+
+    const file: std.Io.File = .{
+        .handle = @intCast(io_obj.fd),
+        .flags = .{ .nonblocking = false },
+    };
+    const stat = file.stat(vm.io) catch return vm.raiseExceptionFmt(vm.system_call_error_class, "stat failed", .{});
+    return buildFileStat(vm, stat);
+}
+
+pub fn builtinFileSymlink(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 2);
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "File.symlink is not implemented on Windows", .{});
+    }
+
+    const target = try vm.coerceToPath(args[0], "no implicit conversion into String");
+    const link = try vm.coerceToPath(args[1], "no implicit conversion into String");
+    const target_z = try vm.allocCStringZ(target);
+    defer vm.allocator.free(target_z);
+    const link_z = try vm.allocCStringZ(link);
+    defer vm.allocator.free(link_z);
+
+    const result = std.c.symlink(target_z.ptr, link_z.ptr);
+    if (result != 0) {
+        return vm.raiseErrnoFmt(std.posix.errno(-1), "failed to create symlink: {s}", .{link});
+    }
+    return Value.integer(0);
+}
+
 pub fn builtinFileExist(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     if (builtin.os.tag == .windows) {
@@ -569,4 +722,57 @@ pub fn builtinFilePath(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
     }
     const path = try vm.coerceToPath(arg, "no implicit conversion into String");
     return vm.newString(path, false);
+}
+
+pub fn builtinFileStatFileQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return fileStatBoolIvar(vm, receiver, "@file");
+}
+
+pub fn builtinFileStatSymlinkQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return fileStatBoolIvar(vm, receiver, "@symlink");
+}
+
+pub fn builtinFileStatZeroQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const size = try fileStatIntegerIvar(vm, receiver, "@size");
+    return Value.boolean(size.isInteger() and size.toInteger() == 0);
+}
+
+pub fn builtinFileStatSize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return fileStatIntegerIvar(vm, receiver, "@size");
+}
+
+pub fn builtinFileStatSizeQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const size = try fileStatIntegerIvar(vm, receiver, "@size");
+    if (size.isInteger() and size.toInteger() == 0) return Value.nil();
+    return size;
+}
+
+pub fn builtinFileStatBlksize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return fileStatIntegerIvar(vm, receiver, "@blksize");
+}
+
+pub fn builtinFileStatAtime(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return fileStatTimeIvar(vm, receiver, "@atime");
+}
+
+pub fn builtinFileStatCtime(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return fileStatTimeIvar(vm, receiver, "@ctime");
+}
+
+pub fn builtinFileStatMtime(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return fileStatTimeIvar(vm, receiver, "@mtime");
+}
+
+pub fn builtinFileStatMode(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return fileStatIntegerIvar(vm, receiver, "@mode");
 }

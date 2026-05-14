@@ -384,6 +384,7 @@ pub const VM = struct {
     array_class: *value.ClassObject,
     hash_class: *value.ClassObject,
     file_class: *value.ClassObject,
+    file_stat_class: *value.ClassObject,
     dir_class: *value.ClassObject,
     binding_class: *value.ClassObject,
     range_class: *value.ClassObject,
@@ -571,6 +572,7 @@ pub const VM = struct {
             .array_class = undefined,
             .hash_class = undefined,
             .file_class = undefined,
+            .file_stat_class = undefined,
             .dir_class = undefined,
             .binding_class = undefined,
             .range_class = undefined,
@@ -1034,6 +1036,8 @@ pub const VM = struct {
         const eproto_class_val = try self.newClass(eproto_name_sym, self.system_call_error_class);
         const enoexec_name_sym = try self.intern("ENOEXEC");
         const enoexec_class_val = try self.newClass(enoexec_name_sym, self.system_call_error_class);
+        const eilseq_name_sym = try self.intern("EILSEQ");
+        const eilseq_class_val = try self.newClass(eilseq_name_sym, self.system_call_error_class);
         const echild_name_sym = try self.intern("ECHILD");
         const echild_class_val = try self.newClass(echild_name_sym, self.system_call_error_class);
         const einval_name_sym = try self.intern("EINVAL");
@@ -1223,6 +1227,7 @@ pub const VM = struct {
         self.errno_module.constants.put(enospc_name_sym, .{ .value = enospc_class_val }) catch return error.Fatal;
         self.errno_module.constants.put(eproto_name_sym, .{ .value = eproto_class_val }) catch return error.Fatal;
         self.errno_module.constants.put(enoexec_name_sym, .{ .value = enoexec_class_val }) catch return error.Fatal;
+        self.errno_module.constants.put(eilseq_name_sym, .{ .value = eilseq_class_val }) catch return error.Fatal;
         self.errno_module.constants.put(echild_name_sym, .{ .value = echild_class_val }) catch return error.Fatal;
         self.errno_module.constants.put(einval_name_sym, .{ .value = einval_class_val }) catch return error.Fatal;
         self.errno_module.constants.put(enotdir_name_sym, .{ .value = enotdir_class_val }) catch return error.Fatal;
@@ -1254,6 +1259,9 @@ pub const VM = struct {
         try self.registerErrnoClass(.NOSPC, enospc_class_val.toClassObject());
         try self.registerErrnoClass(.PROTO, eproto_class_val.toClassObject());
         try self.registerErrnoClass(.NOEXEC, enoexec_class_val.toClassObject());
+        if (@hasField(std.posix.E, "ILSEQ")) {
+            try self.registerErrnoClass(@field(std.posix.E, "ILSEQ"), eilseq_class_val.toClassObject());
+        }
         try self.registerErrnoClass(.CHILD, echild_class_val.toClassObject());
         try self.registerErrnoClass(.INVAL, einval_class_val.toClassObject());
         try self.registerErrnoClass(.NOTDIR, enotdir_class_val.toClassObject());

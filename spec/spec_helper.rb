@@ -575,11 +575,21 @@ def mkdir_p(path)
 end
 
 def touch(path)
-  `touch #{shell_escape(path)}`
+  if block_given?
+    File.open(path, "w") do |f|
+      yield f
+    end
+  else
+    `touch #{shell_escape(path)}`
+  end
 end
 
-def rm_r(path)
-  `rm -rf #{shell_escape(path)}`
+def rm_r(*paths)
+  i = 0
+  while i < paths.length
+    `rm -rf #{shell_escape(paths[i])}`
+    i += 1
+  end
 end
 
 def cora_lib_dir

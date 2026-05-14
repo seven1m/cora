@@ -803,7 +803,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/file/stat/zero_spec.rb
 
 ### core/file
-- [ ] core/file/stat_spec.rb
+- [x] core/file/stat_spec.rb
 - [ ] core/file/sticky_spec.rb
 - [ ] core/file/symlink_spec.rb
 - [ ] core/file/to_path_spec.rb

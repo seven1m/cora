@@ -436,21 +436,19 @@ describe :dir_glob_recursive, shared: true do
 
   platform_is_not :windows do
     it "ignores symlinks" do
-      CORAFIXME "File.symlink is not implemented yet", exception: NoMethodError, message: /undefined method 'symlink'/ do
-        file = File.join @mock_dir, 'b/z/e'
-        link = File.join @mock_dir, 'a/y'
+      file = File.join @mock_dir, 'b/z/e'
+      link = File.join @mock_dir, 'a/y'
 
-        mkdir_p File.dirname(file)
-        touch file
-        File.symlink(File.dirname(file), link)
+      mkdir_p File.dirname(file)
+      touch file
+      File.symlink(File.dirname(file), link)
 
-        expected = %w[
-          a/x/b/y/b/z/e
-          a/x/b/y/e
-        ]
+      expected = %w[
+        a/x/b/y/b/z/e
+        a/x/b/y/e
+      ]
 
-        Dir.send(@method, 'a/**/e').uniq.sort.should == expected
-      end
+      Dir.send(@method, 'a/**/e').uniq.sort.should == expected
     end
   end
 end
