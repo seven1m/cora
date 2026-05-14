@@ -195,6 +195,33 @@ test "File.open with block closes file automatically" {
     try std.testing.expectEqual(true, result.toBool());
 }
 
+test "File.stat and IO#stat expose uid and gid" {
+    var path_buf: [128]u8 = undefined;
+    const path = try uniquePath(&path_buf);
+    const source = try std.fmt.allocPrint(
+        std.testing.allocator,
+        \\path = "{s}"
+        \\File.write(path, "x")
+        \\f = File.open(path, "r")
+        \\begin
+        \\  st = File.stat(path)
+        \\  io_st = f.stat
+        \\  [st.uid, st.gid, io_st.uid, io_st.gid]
+        \\ensure
+        \\  f.close
+        \\end
+    , .{path});
+    defer std.testing.allocator.free(source);
+
+    const result = try evalCode(source);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(usize, 4), result.toArrayObject().elements.items.len);
+    try std.testing.expectEqual(@as(i64, @intCast(std.c.getuid())), result.toArrayObject().elements.items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, @intCast(std.c.getgid())), result.toArrayObject().elements.items[1].toInteger());
+    try std.testing.expectEqual(@as(i64, @intCast(std.c.getuid())), result.toArrayObject().elements.items[2].toInteger());
+    try std.testing.expectEqual(@as(i64, @intCast(std.c.getgid())), result.toArrayObject().elements.items[3].toInteger());
+}
+
 test "Kernel puts and p follow $stdout reassignment" {
     var path_buf: [128]u8 = undefined;
     const path = try uniquePath(&path_buf);

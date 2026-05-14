@@ -10,6 +10,18 @@ const Block = vm_mod.Block;
 const Value = value.Value;
 const Encoding = enc.Encoding;
 
+const PosixStatMetadata = struct {
+    uid: i64,
+    gid: i64,
+    mode: i64,
+};
+
+const linux_statx_request: std.os.linux.STATX = .{
+    .MODE = true,
+    .UID = true,
+    .GID = true,
+};
+
 fn passwdDir(passwd: *const std.c.passwd) ?[]const u8 {
     const dir_z = passwd.dir orelse return null;
     return std.mem.span(dir_z);
@@ -150,6 +162,15 @@ pub fn register(vm: *VM) !void {
 
     const mode_sym = try vm.intern("mode");
     try vm.file_stat_class.module.methods.put(mode_sym, value.MethodEntry.builtin(&builtinFileStatMode, .{ .exact = 0 }));
+
+    const uid_sym = try vm.intern("uid");
+    try vm.file_stat_class.module.methods.put(uid_sym, value.MethodEntry.builtin(&builtinFileStatUid, .{ .exact = 0 }));
+
+    const gid_sym = try vm.intern("gid");
+    try vm.file_stat_class.module.methods.put(gid_sym, value.MethodEntry.builtin(&builtinFileStatGid, .{ .exact = 0 }));
+
+    const executable_q_sym = try vm.intern("executable?");
+    try vm.file_stat_class.module.methods.put(executable_q_sym, value.MethodEntry.builtin(&builtinFileStatExecutableQ, .{ .exact = 0 }));
 }
 
 fn parseMode(vm: *VM, mode_str: []const u8) VMError!FileMode {
@@ -409,12 +430,70 @@ fn fileStatTimeIvar(vm: *VM, receiver: Value, name: []const u8) VMError!Value {
     return vm.getInstanceVariable(stat_val, name);
 }
 
-fn buildFileStat(vm: *VM, stat: std.Io.File.Stat) VMError!Value {
+fn loadPosixStatMetadataForPath(vm: *VM, path_obj: *value.StringObject, default_mode: i64) VMError!PosixStatMetadata {
+    if (builtin.os.tag != .linux) {
+        return .{
+            .uid = @intCast(std.c.getuid()),
+            .gid = @intCast(std.c.getgid()),
+            .mode = default_mode,
+        };
+    }
+
+    const path_z = try vm.allocCStringZ(path_obj.str);
+    defer vm.allocator.free(path_z);
+
+    while (true) {
+        var statx = std.mem.zeroes(std.os.linux.Statx);
+        switch (std.c.errno(std.c.statx(std.os.linux.AT.FDCWD, path_z.ptr, std.os.linux.AT.NO_AUTOMOUNT, linux_statx_request, &statx))) {
+            .SUCCESS => {
+                return .{
+                    .uid = @intCast(statx.uid),
+                    .gid = @intCast(statx.gid),
+                    .mode = @intCast(statx.mode),
+                };
+            },
+            .INTR => continue,
+            .ACCES, .PERM => return vm.raiseErrnoFmt(.ACCES, "Permission denied @ stat - {s}", .{path_obj.str}),
+            .NOENT, .NOTDIR => return raiseEncodedPathErrno(vm, .NOENT, path_obj),
+            else => return vm.raiseExceptionFmt(vm.system_call_error_class, "stat failed for {s}", .{path_obj.str}),
+        }
+    }
+}
+
+fn loadPosixStatMetadataForFd(vm: *VM, fd: std.c.fd_t, default_mode: i64) VMError!PosixStatMetadata {
+    if (builtin.os.tag != .linux) {
+        return .{
+            .uid = @intCast(std.c.getuid()),
+            .gid = @intCast(std.c.getgid()),
+            .mode = default_mode,
+        };
+    }
+
+    while (true) {
+        var statx = std.mem.zeroes(std.os.linux.Statx);
+        switch (std.c.errno(std.c.statx(fd, "", std.os.linux.AT.EMPTY_PATH, linux_statx_request, &statx))) {
+            .SUCCESS => {
+                return .{
+                    .uid = @intCast(statx.uid),
+                    .gid = @intCast(statx.gid),
+                    .mode = @intCast(statx.mode),
+                };
+            },
+            .INTR => continue,
+            .ACCES, .PERM => return vm.raiseExceptionFmt(vm.system_call_error_class, "stat failed", .{}),
+            else => return vm.raiseExceptionFmt(vm.system_call_error_class, "stat failed", .{}),
+        }
+    }
+}
+
+fn buildFileStat(vm: *VM, stat: std.Io.File.Stat, posix_metadata: PosixStatMetadata) VMError!Value {
     const stat_val = try vm.newInstance(vm.file_stat_class);
     const atime_value = try statTimestampToValue(vm, stat.atime orelse stat.mtime);
     try vm.setInstanceVariable(stat_val, "@file", Value.boolean(stat.kind == .file));
     try vm.setInstanceVariable(stat_val, "@symlink", Value.boolean(stat.kind == .sym_link));
-    try vm.setInstanceVariable(stat_val, "@mode", Value.integer(@intCast(stat.permissions.toMode())));
+    try vm.setInstanceVariable(stat_val, "@mode", Value.integer(posix_metadata.mode));
+    try vm.setInstanceVariable(stat_val, "@uid", Value.integer(posix_metadata.uid));
+    try vm.setInstanceVariable(stat_val, "@gid", Value.integer(posix_metadata.gid));
     try vm.setInstanceVariable(stat_val, "@size", Value.integer(@intCast(stat.size)));
     try vm.setInstanceVariable(stat_val, "@blksize", Value.integer(@intCast(stat.block_size)));
     try vm.setInstanceVariable(stat_val, "@atime", atime_value);
@@ -635,7 +714,8 @@ pub fn builtinFileStat(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
     const path_value = try vm.coerceToPathValue(args[0], "no implicit conversion into String");
     const path_obj = path_value.toStringObject();
     const stat = std.Io.Dir.cwd().statFile(vm.io, path_obj.str, .{}) catch |err| return raisePathStatError(vm, path_obj, err);
-    return buildFileStat(vm, stat);
+    const posix_metadata = try loadPosixStatMetadataForPath(vm, path_obj, @intCast(stat.permissions.toMode()));
+    return buildFileStat(vm, stat, posix_metadata);
 }
 
 pub fn builtinIoStat(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -657,7 +737,8 @@ pub fn builtinIoStat(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
         .flags = .{ .nonblocking = false },
     };
     const stat = file.stat(vm.io) catch return vm.raiseExceptionFmt(vm.system_call_error_class, "stat failed", .{});
-    return buildFileStat(vm, stat);
+    const posix_metadata = try loadPosixStatMetadataForFd(vm, @intCast(io_obj.fd), @intCast(stat.permissions.toMode()));
+    return buildFileStat(vm, stat, posix_metadata);
 }
 
 pub fn builtinFileSymlink(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -775,4 +856,20 @@ pub fn builtinFileStatMtime(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 pub fn builtinFileStatMode(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return fileStatIntegerIvar(vm, receiver, "@mode");
+}
+
+pub fn builtinFileStatUid(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return fileStatIntegerIvar(vm, receiver, "@uid");
+}
+
+pub fn builtinFileStatGid(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return fileStatIntegerIvar(vm, receiver, "@gid");
+}
+
+pub fn builtinFileStatExecutableQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const mode = try fileStatIntegerIvar(vm, receiver, "@mode");
+    return Value.boolean(mode.isInteger() and (mode.toInteger() & 0o111) != 0);
 }
