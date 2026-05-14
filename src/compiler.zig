@@ -153,6 +153,45 @@ const RescueContext = struct {
     active_retry_target: ?usize,
 };
 
+const ControlContextKind = enum {
+    top_level,
+    method,
+    block,
+    lambda,
+    class_body,
+    module_body,
+    singleton_class_body,
+    rescue_body,
+    ensure_body,
+    rescue_type_expr,
+};
+
+fn isScopeControlContext(kind: ControlContextKind) bool {
+    return switch (kind) {
+        .top_level,
+        .method,
+        .block,
+        .lambda,
+        .class_body,
+        .module_body,
+        .singleton_class_body,
+        .rescue_type_expr,
+        => true,
+        .rescue_body, .ensure_body => false,
+    };
+}
+
+pub fn syntaxErrorMessage(err: anyerror) ?[]const u8 {
+    return switch (err) {
+        error.BreakOutsideLoop => "Invalid break",
+        error.NextOutsideLoop => "Invalid next",
+        error.RedoOutsideLoop => "Invalid redo",
+        error.RetryOutsideRescue => "Invalid retry",
+        error.InvalidReturnInClassModuleBody => "Invalid return in class/module body",
+        else => null,
+    };
+}
+
 pub const Compiler = struct {
     allocator: std.mem.Allocator,
     parser: *prism.Parser,
@@ -167,6 +206,7 @@ pub const Compiler = struct {
     child_chunks: std.AutoHashMap(chunk.ChunkId, *Chunk),
     chunk_counter: chunk.ChunkId = 1,
     loop_stack: std.ArrayList(LoopContext) = .empty,
+    control_contexts: std.ArrayList(ControlContextKind) = .empty,
     in_rescue: usize = 0,
     active_retry_target: ?usize = null,
 
@@ -186,6 +226,7 @@ pub const Compiler = struct {
             ctx.break_jumps.deinit(self.allocator);
         }
         self.loop_stack.deinit(self.allocator);
+        self.control_contexts.deinit(self.allocator);
         for (self.all_locals.items) |*scope| {
             scope.deinit(self.allocator);
         }
@@ -203,6 +244,45 @@ pub const Compiler = struct {
     fn restoreRescueContext(self: *Compiler, ctx: RescueContext) void {
         self.in_rescue = ctx.in_rescue;
         self.active_retry_target = ctx.active_retry_target;
+    }
+
+    fn pushControlContext(self: *Compiler, kind: ControlContextKind) !void {
+        try self.control_contexts.append(self.allocator, kind);
+    }
+
+    fn popControlContext(self: *Compiler) void {
+        _ = self.control_contexts.pop();
+    }
+
+    fn currentControlContextSegment(self: *Compiler) []const ControlContextKind {
+        var i = self.control_contexts.items.len;
+        while (i > 0) {
+            i -= 1;
+            if (isScopeControlContext(self.control_contexts.items[i])) {
+                return self.control_contexts.items[i..];
+            }
+        }
+        return self.control_contexts.items[0..0];
+    }
+
+    fn currentScopeControlContext(self: *Compiler) ?ControlContextKind {
+        const segment = self.currentControlContextSegment();
+        if (segment.len == 0) return null;
+        return segment[0];
+    }
+
+    fn retryAllowed(self: *Compiler) bool {
+        const segment = self.currentControlContextSegment();
+        var i = segment.len;
+        while (i > 0) {
+            i -= 1;
+            switch (segment[i]) {
+                .rescue_body => return true,
+                .ensure_body => return false,
+                else => {},
+            }
+        }
+        return false;
     }
 
     /// Allocate the next chunk ID, returning an error if we've exceeded the limit.
@@ -236,6 +316,8 @@ pub const Compiler = struct {
         }
 
         const root = try parser.root();
+        try compiler.pushControlContext(.top_level);
+        defer compiler.popControlContext();
         try compiler.compileNode(root, 1);
         try compiler.current_chunk.emitOp(.HALT, 1);
 
@@ -893,7 +975,7 @@ pub const Compiler = struct {
 
             .retry => {
                 const retry_target = self.active_retry_target orelse return error.RetryOutsideRescue;
-                if (self.in_rescue == 0) {
+                if (!self.retryAllowed()) {
                     return error.RetryOutsideRescue;
                 }
                 try self.current_chunk.emitOpU16(.RETRY, @intCast(retry_target), line);
@@ -904,7 +986,13 @@ pub const Compiler = struct {
             },
 
             .return_node => |return_node| {
+                switch (self.currentScopeControlContext() orelse .top_level) {
+                    .class_body, .module_body, .singleton_class_body => return error.InvalidReturnInClassModuleBody,
+                    else => {},
+                }
+
                 // Compile return value if present
+                var top_level_return_mode: u8 = 3;
                 if (return_node.arguments) |args_ptr| {
                     const args_node = @as(*prism.ArgumentsNode, @ptrCast(args_ptr));
                     if (args_node.arguments.size > 0) {
@@ -912,6 +1000,7 @@ pub const Compiler = struct {
                         const arg = args_node.arguments.nodes[0];
                         const arg_node = try self.parser.asNode(arg);
                         try self.compileNode(arg_node, line);
+                        top_level_return_mode = 2;
                     } else {
                         // No arguments, return nil
                         try self.current_chunk.emitOp(.PUSH_NIL, line);
@@ -920,8 +1009,11 @@ pub const Compiler = struct {
                     // No arguments, return nil
                     try self.current_chunk.emitOp(.PUSH_NIL, line);
                 }
-                // Emit RETURN opcode (explicit return)
-                try self.current_chunk.emitOpU8(.RETURN, 1, line);
+                const return_mode: u8 = if ((self.currentScopeControlContext() orelse .top_level) == .top_level)
+                    top_level_return_mode
+                else
+                    1;
+                try self.current_chunk.emitOpU8(.RETURN, return_mode, line);
             },
 
             .next_node => |next_node| {
@@ -2983,6 +3075,8 @@ pub const Compiler = struct {
             self.current_chunk = body_chunk_ptr;
             self.in_rescue = 0;
             self.active_retry_target = null;
+            try self.pushControlContext(.module_body);
+            defer self.popControlContext();
 
             // Compile the module body (method definitions, etc.)
             const body_node = try self.parser.asNode(@ptrCast(body_ptr));
@@ -3050,6 +3144,8 @@ pub const Compiler = struct {
             self.current_chunk = body_chunk_ptr;
             self.in_rescue = 0;
             self.active_retry_target = null;
+            try self.pushControlContext(.class_body);
+            defer self.popControlContext();
 
             // Compile the class body (method definitions, etc.)
             const body_node = try self.parser.asNode(@ptrCast(body_ptr));
@@ -3124,6 +3220,8 @@ pub const Compiler = struct {
         self.current_chunk = body_chunk_ptr;
         self.in_rescue = 0;
         self.active_retry_target = null;
+        try self.pushControlContext(.singleton_class_body);
+        defer self.popControlContext();
 
         // Ruby-compatible singleton-class body result is the last expression.
         if (singleton_class_node.body) |body_ptr| {
@@ -3487,6 +3585,8 @@ pub const Compiler = struct {
         self.current_chunk = method_chunk_ptr;
         self.in_rescue = 0;
         self.active_retry_target = null;
+        try self.pushControlContext(.method);
+        defer self.popControlContext();
         errdefer {
             self.current_chunk = saved_chunk;
             self.locals.deinit(self.allocator);
@@ -3584,6 +3684,8 @@ pub const Compiler = struct {
         self.current_chunk = block_chunk_ptr;
         self.in_rescue = 0;
         self.active_retry_target = null;
+        try self.pushControlContext(.block);
+        defer self.popControlContext();
 
         // Push current locals onto all_locals stack (for closure lookups)
         try self.all_locals.append(self.allocator, self.locals);
@@ -3701,6 +3803,8 @@ pub const Compiler = struct {
         self.current_chunk = lambda_chunk_ptr;
         self.in_rescue = 0;
         self.active_retry_target = null;
+        try self.pushControlContext(.lambda);
+        defer self.popControlContext();
 
         // Push current locals onto all_locals stack (for closure lookups)
         try self.all_locals.append(self.allocator, self.locals);
@@ -3870,6 +3974,8 @@ pub const Compiler = struct {
             self.current_chunk = saved_chunk;
             self.restoreRescueContext(saved_rescue_context);
         }
+        try self.pushControlContext(.rescue_type_expr);
+        defer self.popControlContext();
 
         try self.compileNode(expression, line);
         try self.current_chunk.emitOpU8(.RETURN, 0, line);
@@ -3973,6 +4079,8 @@ pub const Compiler = struct {
                 self.in_rescue = saved_rescue_context.in_rescue + 1;
                 self.active_retry_target = try_start_byte_offset;
                 defer self.restoreRescueContext(saved_rescue_context);
+                try self.pushControlContext(.rescue_body);
+                defer self.popControlContext();
 
                 if (rescue_node.statements) |statements_ptr| {
                     const statements = try self.parser.asNode(@ptrCast(statements_ptr));
@@ -4038,6 +4146,8 @@ pub const Compiler = struct {
             try self.current_chunk.emitOp(.ENSURE_START, line);
 
             const ensure_node = try self.parser.asNode(@ptrCast(ensure_ptr));
+            try self.pushControlContext(.ensure_body);
+            defer self.popControlContext();
 
             // Compile ensure body
             if (ensure_node == .ensure) {
@@ -4110,6 +4220,8 @@ pub const Compiler = struct {
             self.in_rescue = saved_rescue_context.in_rescue + 1;
             self.active_retry_target = try_start_byte_offset;
             defer self.restoreRescueContext(saved_rescue_context);
+            try self.pushControlContext(.rescue_body);
+            defer self.popControlContext();
 
             const rescue_expression = try self.parser.asNode(@ptrCast(rescue_modifier_node.rescue_expression));
             try self.compileNode(rescue_expression, line);

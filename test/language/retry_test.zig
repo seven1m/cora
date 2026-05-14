@@ -49,12 +49,22 @@ test "Retry with ensure clause" {
 }
 
 test "Retry outside rescue errors at compile/eval" {
-    try std.testing.expectError(error.RetryOutsideRescue, evalCode("retry"));
-    try std.testing.expectError(error.RetryOutsideRescue, evalCode(
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+
+    var result = evalCodeWithOutput("retry", &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.UnhandledException, result.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "SyntaxError") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "Invalid retry") != null);
+
+    result = evalCodeWithOutput(
         \\begin
         \\  retry
         \\end
-    ));
+    , &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.UnhandledException, result.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "SyntaxError") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "Invalid retry") != null);
 }
 
 test "Retry targets innermost rescue" {
@@ -103,7 +113,10 @@ test "Retry runs intervening ensure before restarting protected body" {
 }
 
 test "Retry in method called from rescue errors instead of retrying caller rescue" {
-    try std.testing.expectError(error.RetryOutsideRescue, evalCode(
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+
+    const result = evalCodeWithOutput(
         \\def inner
         \\  retry
         \\end
@@ -112,15 +125,43 @@ test "Retry in method called from rescue errors instead of retrying caller rescu
         \\rescue
         \\  inner
         \\end
-    ));
+    , &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.UnhandledException, result.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "SyntaxError") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "Invalid retry") != null);
 }
 
 test "Retry in proc called from rescue matches MRI invalid retry behavior" {
-    try std.testing.expectError(error.RetryOutsideRescue, evalCode(
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+
+    const result = evalCodeWithOutput(
         \\begin
         \\  raise "boom"
         \\rescue
         \\  Proc.new { retry }.call
         \\end
-    ));
+    , &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.UnhandledException, result.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "SyntaxError") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "Invalid retry") != null);
+}
+
+test "Retry in ensure clause is a SyntaxError" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+
+    const result = evalCodeWithOutput(
+        \\begin
+        \\  raise "boom"
+        \\rescue
+        \\  begin
+        \\  ensure
+        \\    retry
+        \\  end
+        \\end
+    , &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.UnhandledException, result.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "SyntaxError") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "Invalid retry") != null);
 }

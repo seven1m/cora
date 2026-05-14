@@ -1,18 +1,26 @@
 const std = @import("std");
 const test_helper = @import("../test_helper.zig");
-const evalCode = test_helper.evalCode;
+const evalCodeWithOutput = test_helper.evalCodeWithOutput;
 
 test "break outside loop - should error" {
-    const result = evalCode(
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+    const result = evalCodeWithOutput(
         \\break
-    );
-    try std.testing.expectError(error.BreakOutsideLoop, result);
+    , &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.UnhandledException, result.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "SyntaxError") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "Invalid break") != null);
 }
 
 test "break outside loop with value - should error" {
-    const result = evalCode(
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+    const result = evalCodeWithOutput(
         \\x = 5
         \\break x
-    );
-    try std.testing.expectError(error.BreakOutsideLoop, result);
+    , &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.UnhandledException, result.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "SyntaxError") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "Invalid break") != null);
 }

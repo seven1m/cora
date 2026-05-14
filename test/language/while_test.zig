@@ -1,6 +1,7 @@
 const std = @import("std");
 const test_helper = @import("../test_helper.zig");
 const evalCode = test_helper.evalCode;
+const evalCodeWithOutput = test_helper.evalCodeWithOutput;
 
 test "while loop - basic execution" {
     const result = try evalCode(
@@ -105,4 +106,16 @@ test "while loop - next skips to the next iteration" {
     try std.testing.expectEqual(@as(i64, 1), values[0].toInteger());
     try std.testing.expectEqual(@as(i64, 3), values[1].toInteger());
     try std.testing.expectEqual(@as(i64, 4), values[2].toInteger());
+}
+
+test "next outside loop raises SyntaxError" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+
+    const result = evalCodeWithOutput(
+        \\next
+    , &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.UnhandledException, result.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "SyntaxError") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "Invalid next") != null);
 }

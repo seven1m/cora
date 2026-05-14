@@ -4942,15 +4942,28 @@ pub const VM = struct {
             },
 
             .RETURN => {
-                const is_explicit = readByteFrom(frame, operands, &operand_cursor);
+                const return_mode = readByteFrom(frame, operands, &operand_cursor);
                 const current_frame = self.currentFrame();
                 const frame_locals_base = current_frame.locals_base;
                 const frame_type = current_frame.frame_type;
                 const return_target_ep = current_frame.return_target_ep;
                 const result = self.pop();
+                const frame_idx = self.frames.items.len - 1;
+                const top_level_return_with_arg = return_mode == 2;
+                const top_level_return_without_arg = return_mode == 3;
+
+                if ((top_level_return_with_arg or top_level_return_without_arg) and frame_idx == 0) {
+                    if (top_level_return_with_arg) {
+                        try warning_builtin.writeWarning(self, "warning: argument of top-level return is ignored\n");
+                    }
+                    self.stack.shrinkRetainingCapacity(frame_locals_base);
+                    self.frames.items = self.frames.storage[0..0];
+                    try self.push(Value.nil());
+                    return;
+                }
 
                 // Fast path: implicit return or explicit return from method/lambda
-                if (is_explicit == 0 or (frame_type != .fiber and frame_type != .proc)) {
+                if (return_mode == 0 or (frame_type != .fiber and frame_type != .proc)) {
                     self.stack.shrinkRetainingCapacity(frame_locals_base);
                     // Inline fast popFrame: just decrement frame length
                     const new_frame_len = self.frames.items.len - 1;
@@ -5968,9 +5981,21 @@ pub const VM = struct {
                     self.stack.items = self.stack.storage[0 .. len + 1];
                 },
                 .RETURN => {
-                    // Only handle fast-path implicit return from methods
-                    const is_explicit = code[f.ip + 1];
-                    if (is_explicit == 0 or f.frame_type == .method or f.frame_type == .lambda) {
+                    const return_mode = code[f.ip + 1];
+                    const frame_idx = self.frames.items.len - 1;
+                    const top_level_return_with_arg = return_mode == 2;
+                    const top_level_return_without_arg = return_mode == 3;
+                    if ((top_level_return_with_arg or top_level_return_without_arg) and frame_idx == 0) {
+                        _ = self.pop();
+                        if (top_level_return_with_arg) {
+                            try warning_builtin.writeWarning(self, "warning: argument of top-level return is ignored\n");
+                        }
+                        self.stack.items = self.stack.storage[0..f.locals_base];
+                        self.frames.items = self.frames.storage[0..0];
+                        const len = self.stack.items.len;
+                        self.stack.storage[len] = Value.NIL;
+                        self.stack.items = self.stack.storage[0 .. len + 1];
+                    } else if (return_mode == 0 or f.frame_type == .method or f.frame_type == .lambda) {
                         const s_len = self.stack.items.len;
                         const result = self.stack.storage[s_len - 1];
                         self.stack.items = self.stack.storage[0..f.locals_base];
@@ -9074,7 +9099,10 @@ pub const VM = struct {
         };
         defer parser.deinit();
 
-        var eval_program = compiler.Compiler.compile(self.allocator, &parser, self.next_chunk_id) catch {
+        var eval_program = compiler.Compiler.compile(self.allocator, &parser, self.next_chunk_id) catch |err| {
+            if (compiler.syntaxErrorMessage(err)) |message| {
+                return self.raiseExceptionFmt(self.syntax_error_class, "{s}: {s}", .{ source_file orelse "(eval)", message });
+            }
             return self.raiseExceptionFmt(self.syntax_error_class, "{s}: syntax error", .{source_file orelse "(eval)"});
         };
         defer eval_program.child_chunks.deinit();

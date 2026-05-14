@@ -185,7 +185,7 @@ pub fn main(init: std.process.Init) !void {
         break :blk code_buffer.?;
     } else unreachable;
     var parser = prism.Parser.init(allocator, code, source_file) catch {
-        std.debug.print("Parse error\n", .{});
+        std.debug.print("{s}: syntax error (SyntaxError)\n", .{source_file orelse "(eval)"});
         return;
     };
     defer parser.deinit();
@@ -197,7 +197,13 @@ pub fn main(init: std.process.Init) !void {
         return;
     }
 
-    var program = try compiler.Compiler.compile(allocator, &parser, 1);
+    var program = compiler.Compiler.compile(allocator, &parser, 1) catch |err| {
+        if (compiler.syntaxErrorMessage(err)) |message| {
+            std.debug.print("{s}: {s} (SyntaxError)\n", .{ source_file orelse "(eval)", message });
+            return;
+        }
+        return err;
+    };
     defer program.deinit();
 
     if (dump_bytecode) {

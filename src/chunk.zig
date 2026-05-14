@@ -528,9 +528,16 @@ pub const Chunk = struct {
             },
 
             .RETURN => {
-                const is_explicit = self.code.items[ip];
+                const return_mode = self.code.items[ip];
                 ip += 1;
-                try writer.print("RETURN {s}\n", .{if (is_explicit == 1) "explicit" else "implicit"});
+                const mode_name = switch (return_mode) {
+                    0 => "implicit",
+                    1 => "explicit",
+                    2 => "top-level-explicit-ignored",
+                    3 => "top-level-bare",
+                    else => "unknown",
+                };
+                try writer.print("RETURN {s}\n", .{mode_name});
             },
 
             .PUSH_CONST, .PUSH_CSTRING, .PUSH_FSTRING, .PUSH_SYMBOL, .GET_CONST, .GET_CONST_OR_NIL, .SET_CONST, .SET_CONST_PATH, .GET_CONST_PATH, .GET_GLOBAL, .GET_BACKREF, .SET_GLOBAL, .GET_CVAR, .GET_CVAR_OR_NIL, .SET_CVAR, .GET_IVAR, .SET_IVAR, .PUSH_ARRAY, .PUSH_HASH, .HASH_SET_CONST_KEY, .TRY_BEGIN, .REDO, .RETRY, .PUSH_LAMBDA, .DEF_SINGLETON_CLASS, .FORWARDING_SUPER => {

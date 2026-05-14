@@ -63,6 +63,16 @@ pub const EvalResult = struct {
     err: ?anyerror,
 };
 
+fn syntaxErrorResult(stderr_buf: []u8, source_path: ?[]const u8, message: []const u8) EvalResult {
+    const rendered = std.fmt.bufPrint(stderr_buf, "{s}: {s} (SyntaxError)\n", .{ source_path orelse "(eval)", message }) catch "SyntaxError\n";
+    return .{
+        .value = Value.nil(),
+        .stdout = "",
+        .stderr = rendered,
+        .err = error.UnhandledException,
+    };
+}
+
 pub fn evalCodeWithOutput(ruby_code: []const u8, stdout_buf: []u8, stderr_buf: []u8) EvalResult {
     return evalCodeWithOutputAndPath(ruby_code, stdout_buf, stderr_buf, null);
 }
@@ -104,6 +114,9 @@ pub fn evalCodeWithOutputAndPath(ruby_code: []const u8, stdout_buf: []u8, stderr
     const allocator = getAllocator();
 
     var parser = prism.Parser.init(allocator, ruby_code, source_path) catch |err| {
+        if (err == error.ParseError) {
+            return syntaxErrorResult(stderr_buf, source_path, "syntax error");
+        }
         return .{
             .value = Value.nil(),
             .stdout = "",
@@ -120,6 +133,9 @@ pub fn evalCodeWithOutputAndPath(ruby_code: []const u8, stdout_buf: []u8, stderr
     defer vm.deinit();
 
     var program = compiler.Compiler.compile(allocator, &parser, 1) catch |err| {
+        if (compiler.syntaxErrorMessage(err)) |message| {
+            return syntaxErrorResult(stderr_buf, source_path, message);
+        }
         return .{
             .value = Value.nil(),
             .stdout = "",
