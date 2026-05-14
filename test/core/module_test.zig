@@ -545,6 +545,52 @@ test "Module ancestors validates arg count" {
     try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "ArgumentError") != null);
 }
 
+test "Module comparison operators follow ancestry" {
+    const result = try evalCode(
+        \\module A
+        \\end
+        \\module B
+        \\  include A
+        \\end
+        \\class C
+        \\  include B
+        \\end
+        \\[
+        \\  A >= B,
+        \\  A >= C,
+        \\  B > C,
+        \\  C <= A,
+        \\  C < A,
+        \\  A >= A,
+        \\  A > A,
+        \\  A >= Module,
+        \\  A >= Comparable
+        \\]
+    );
+    try std.testing.expect(result.isArray());
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 9), items.len);
+    try std.testing.expect(items[0].is_truthy());
+    try std.testing.expect(items[1].is_truthy());
+    try std.testing.expect(items[2].is_truthy());
+    try std.testing.expect(items[3].is_truthy());
+    try std.testing.expect(items[4].is_truthy());
+    try std.testing.expect(items[5].is_truthy());
+    try std.testing.expect(!items[6].is_truthy());
+    try std.testing.expect(!items[6].isNil());
+    try std.testing.expect(items[7].isNil());
+    try std.testing.expect(items[8].isNil());
+}
+
+test "Module comparison validates compared type" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+
+    const bad = evalCodeWithOutput("Module >= 1", &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.UnhandledException, bad.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "TypeError") != null);
+}
+
 test "Module instance method visibility APIs filter correctly" {
     var result = try evalCode(
         \\class C

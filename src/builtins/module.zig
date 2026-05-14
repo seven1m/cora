@@ -384,23 +384,86 @@ fn singletonAttachedObjectToS(vm: *VM, attached_object: Value) VMError!Value {
 }
 
 fn classIncludesModule(class_obj: *ClassObject, target: *value.ModuleObject) bool {
+    return classLookupChainContains(class_obj, target);
+}
+
+fn moduleLookupChainContains(module_obj: *value.ModuleObject, target: *value.ModuleObject) bool {
+    if (module_obj == target) return true;
+
+    var i = module_obj.prepended_modules.items.len;
+    while (i > 0) {
+        i -= 1;
+        if (moduleLookupChainContains(module_obj.prepended_modules.items[i], target)) return true;
+    }
+
+    i = module_obj.included_modules.items.len;
+    while (i > 0) {
+        i -= 1;
+        if (moduleLookupChainContains(module_obj.included_modules.items[i], target)) return true;
+    }
+
+    return false;
+}
+
+fn classLookupChainContains(class_obj: *ClassObject, target: *value.ModuleObject) bool {
     var current: ?*ClassObject = class_obj;
     while (current) |klass| {
         var i = klass.module.prepended_modules.items.len;
         while (i > 0) {
             i -= 1;
-            if (klass.module.prepended_modules.items[i] == target) return true;
+            if (moduleLookupChainContains(klass.module.prepended_modules.items[i], target)) return true;
         }
+
+        if (&klass.module == target) return true;
 
         var j = klass.module.included_modules.items.len;
         while (j > 0) {
             j -= 1;
-            if (klass.module.included_modules.items[j] == target) return true;
+            if (moduleLookupChainContains(klass.module.included_modules.items[j], target)) return true;
         }
 
         current = klass.superclass;
     }
     return false;
+}
+
+fn receiverModuleForComparison(vm: *VM, receiver: Value) VMError!*value.ModuleObject {
+    if (receiver.isClass()) return &receiver.toClassObject().module;
+    if (receiver.isModule()) return receiver.toModuleObject();
+
+    const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
+    vm.setPendingException(exc);
+    return error.Unwind;
+}
+
+fn moduleLookupChainContainsValue(target: Value, module_obj: *value.ModuleObject) VMError!bool {
+    if (target.isClass()) return classLookupChainContains(target.toClassObject(), module_obj);
+    if (target.isModule()) return moduleLookupChainContains(target.toModuleObject(), module_obj);
+    return error.Fatal;
+}
+
+const ModuleComparison = enum {
+    equal,
+    receiver_ancestor,
+    receiver_descendant,
+    unrelated,
+};
+
+fn compareModules(vm: *VM, receiver: Value, other: Value) VMError!ModuleComparison {
+    const receiver_module = try receiverModuleForComparison(vm, receiver);
+    const other_module = if (other.isClass())
+        &other.toClassObject().module
+    else if (other.isModule())
+        other.toModuleObject()
+    else {
+        return vm.raiseExceptionFmt(vm.type_error_class, "compared with non class/module", .{});
+    };
+
+    if (receiver_module == other_module) return .equal;
+
+    if (try moduleLookupChainContainsValue(other, receiver_module)) return .receiver_ancestor;
+    if (try moduleLookupChainContainsValue(receiver, other_module)) return .receiver_descendant;
+    return .unrelated;
 }
 
 fn collectInstanceMethods(
@@ -733,6 +796,18 @@ pub fn register(vm: *VM) !void {
     const case_equal_sym = try vm.intern("===");
     try vm.module_class.module.methods.put(case_equal_sym, value.MethodEntry.builtin(&builtinModuleCaseEqual, .{ .exact = 1 }));
 
+    const greater_than_sym = try vm.intern(">");
+    try vm.module_class.module.methods.put(greater_than_sym, value.MethodEntry.builtin(&builtinModuleGreaterThan, .{ .exact = 1 }));
+
+    const greater_than_equal_sym = try vm.intern(">=");
+    try vm.module_class.module.methods.put(greater_than_equal_sym, value.MethodEntry.builtin(&builtinModuleGreaterThanEqual, .{ .exact = 1 }));
+
+    const less_than_sym = try vm.intern("<");
+    try vm.module_class.module.methods.put(less_than_sym, value.MethodEntry.builtin(&builtinModuleLessThan, .{ .exact = 1 }));
+
+    const less_than_equal_sym = try vm.intern("<=");
+    try vm.module_class.module.methods.put(less_than_equal_sym, value.MethodEntry.builtin(&builtinModuleLessThanEqual, .{ .exact = 1 }));
+
     const constants_sym = try vm.intern("constants");
     try vm.module_class.module.methods.put(constants_sym, value.MethodEntry.builtin(&builtinModuleConstants, .{ .variadic = 0 }));
 
@@ -793,33 +868,44 @@ pub fn register(vm: *VM) !void {
 
 pub fn builtinModuleCaseEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
+    const receiver_module = try receiverModuleForComparison(vm, receiver);
+    return Value.boolean(classLookupChainContains(vm.getClass(args[0]), receiver_module));
+}
 
-    const target = args[0];
-    const receiver_module = if (receiver.isClass())
-        &receiver.toClassObject().module
-    else if (receiver.isModule())
-        receiver.toModuleObject()
-    else {
-        const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
-        vm.setPendingException(exc);
-        return error.Unwind;
+pub fn builtinModuleGreaterThan(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    return switch (try compareModules(vm, receiver, args[0])) {
+        .receiver_ancestor => Value.boolean(true),
+        .equal, .receiver_descendant => Value.boolean(false),
+        .unrelated => Value.nil(),
     };
+}
 
-    var current: ?*ClassObject = vm.getClass(target);
-    while (current) |c| {
-        if (&c.module == receiver_module) return Value.boolean(true);
+pub fn builtinModuleGreaterThanEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    return switch (try compareModules(vm, receiver, args[0])) {
+        .equal, .receiver_ancestor => Value.boolean(true),
+        .receiver_descendant => Value.boolean(false),
+        .unrelated => Value.nil(),
+    };
+}
 
-        for (c.module.prepended_modules.items) |m| {
-            if (m == receiver_module) return Value.boolean(true);
-        }
-        for (c.module.included_modules.items) |m| {
-            if (m == receiver_module) return Value.boolean(true);
-        }
+pub fn builtinModuleLessThan(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    return switch (try compareModules(vm, receiver, args[0])) {
+        .receiver_descendant => Value.boolean(true),
+        .equal, .receiver_ancestor => Value.boolean(false),
+        .unrelated => Value.nil(),
+    };
+}
 
-        current = c.superclass;
-    }
-
-    return Value.boolean(false);
+pub fn builtinModuleLessThanEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    return switch (try compareModules(vm, receiver, args[0])) {
+        .equal, .receiver_descendant => Value.boolean(true),
+        .receiver_ancestor => Value.boolean(false),
+        .unrelated => Value.nil(),
+    };
 }
 
 pub fn builtinModuleConstants(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
