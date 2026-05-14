@@ -996,10 +996,7 @@ pub const Compiler = struct {
                 if (return_node.arguments) |args_ptr| {
                     const args_node = @as(*prism.ArgumentsNode, @ptrCast(args_ptr));
                     if (args_node.arguments.size > 0) {
-                        // Compile the first argument as the return value
-                        const arg = args_node.arguments.nodes[0];
-                        const arg_node = try self.parser.asNode(arg);
-                        try self.compileNode(arg_node, line);
+                        try self.compileArgumentsAsValue(args_node, line);
                         top_level_return_mode = 2;
                     } else {
                         // No arguments, return nil
@@ -4265,8 +4262,7 @@ pub const Compiler = struct {
         if (break_node.arguments) |args_ptr| {
             const args = @as(*prism.ArgumentsNode, @ptrCast(args_ptr));
             if (args.arguments.size > 0) {
-                const arg_node = try self.parser.asNode(args.arguments.nodes[0]);
-                try self.compileNode(arg_node, line);
+                try self.compileArgumentsAsValue(args, line);
             } else {
                 try self.current_chunk.emitOp(.PUSH_NIL, line);
             }
@@ -4299,8 +4295,7 @@ pub const Compiler = struct {
         if (next_node.arguments) |args_ptr| {
             const args = @as(*prism.ArgumentsNode, @ptrCast(args_ptr));
             if (args.arguments.size > 0) {
-                const arg_node = try self.parser.asNode(args.arguments.nodes[0]);
-                try self.compileNode(arg_node, line);
+                try self.compileArgumentsAsValue(args, line);
             } else {
                 try self.current_chunk.emitOp(.PUSH_NIL, line);
             }
@@ -4328,6 +4323,44 @@ pub const Compiler = struct {
         switch (current_loop.loop_type) {
             .block => try self.current_chunk.emitOpU16(.REDO, @intCast(current_loop.redo_target), line),
             .while_loop, .until_loop => try self.current_chunk.emitBackwardJump(.JUMP, current_loop.redo_target, line),
+        }
+    }
+
+    fn compileArgumentsAsValue(self: *Compiler, args_node: *prism.ArgumentsNode, line: u32) !void {
+        if (args_node.arguments.size == 0) {
+            try self.current_chunk.emitOp(.PUSH_NIL, line);
+            return;
+        }
+
+        var has_splat = false;
+        var i: usize = 0;
+        while (i < args_node.arguments.size) : (i += 1) {
+            const arg_node = try self.parser.asNode(args_node.arguments.nodes[i]);
+            if (arg_node == .splat) {
+                has_splat = true;
+                break;
+            }
+        }
+
+        if (!has_splat and args_node.arguments.size == 1) {
+            const arg_node = try self.parser.asNode(args_node.arguments.nodes[0]);
+            try self.compileNode(arg_node, line);
+            return;
+        }
+
+        try self.current_chunk.emitOpU16(.PUSH_ARRAY, 0, line);
+        i = 0;
+        while (i < args_node.arguments.size) : (i += 1) {
+            const arg_node = try self.parser.asNode(args_node.arguments.nodes[i]);
+            if (arg_node == .splat) {
+                const expr_ptr = arg_node.splat.expression orelse return error.UnsupportedNode;
+                const expr = try self.parser.asNode(@ptrCast(expr_ptr));
+                try self.compileNode(expr, line);
+                try self.current_chunk.emitOp(.ARRAY_CONCAT_ARRAY, line);
+            } else {
+                try self.compileNode(arg_node, line);
+                try self.current_chunk.emitOp(.ARRAY_APPEND, line);
+            }
         }
     }
 

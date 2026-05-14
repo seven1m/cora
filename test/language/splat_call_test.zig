@@ -46,6 +46,23 @@ test "splat call empty array" {
     try expectIntArray(result, &.{});
 }
 
+test "splat call expands assignment from multi-value return" {
+    const result = try evalCode(
+        \\def make
+        \\  return 1, 2, 3
+        \\end
+        \\def f(*a)
+        \\  a
+        \\end
+        \\sw = nil
+        \\result = f(*(sw = make))
+        \\[result, sw]
+    );
+    try std.testing.expect(result.isArray());
+    try expectIntArray(result.toArrayObject().elements.items[0], &.{ 1, 2, 3 });
+    try expectIntArray(result.toArrayObject().elements.items[1], &.{ 1, 2, 3 });
+}
+
 test "splat call with keywords via CALL_KW" {
     var result = try evalCode(
         \\def f(*a, b:); [a, b]; end
