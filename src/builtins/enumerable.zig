@@ -27,6 +27,8 @@ pub fn register(vm: *VM) !void {
     try enumerable_val.toModuleObject().methods.put(group_by_sym, value.MethodEntry.builtin(&builtinEnumerableGroupBy, .{ .exact = 0 }));
     const inject_sym = try vm.intern("inject");
     try enumerable_val.toModuleObject().methods.put(inject_sym, value.MethodEntry.builtin(&builtinEnumerableInject, .{ .variadic = 0 }));
+    const max_by_sym = try vm.intern("max_by");
+    try enumerable_val.toModuleObject().methods.put(max_by_sym, value.MethodEntry.builtin(&builtinEnumerableMaxBy, .{ .exact = 0 }));
     const sort_by_sym = try vm.intern("sort_by");
     try enumerable_val.toModuleObject().methods.put(sort_by_sym, value.MethodEntry.builtin(&builtinEnumerableSortBy, .{ .exact = 0 }));
     const flat_map_sym = try vm.intern("flat_map");
@@ -261,6 +263,41 @@ fn builtinEnumerableInject(vm: *VM, receiver: Value, args: []Value, block: ?Bloc
         accumulator = try vm.callMethodByName(accumulator, method_name, method_args[0..], null);
     }
     return accumulator;
+}
+
+fn builtinEnumerableMaxBy(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const blk = block orelse {
+        const method_name = try vm.intern("max_by");
+        if (try vm.checkCallMethodByName(receiver, "size", false, &.{}, null)) |size| {
+            return vm.createMethodEnumeratorWithSize(receiver, method_name, &.{}, size);
+        }
+        return vm.createMethodEnumerator(receiver, method_name, &.{});
+    };
+
+    const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
+    var best_value: ?Value = null;
+    var best_key: Value = Value.nil();
+
+    while (try enumerableNextElement(vm, enum_value)) |element| {
+        const result = try vm.yieldToBlock(blk, &.{element});
+        if (result.controlFlowValue()) |return_value| return return_value;
+
+        if (best_value == null) {
+            best_value = element;
+            best_key = result.value;
+            continue;
+        }
+
+        var cmp_args = [_]Value{best_key};
+        const cmp = try vm.callMethodByName(result.value, "<=>", cmp_args[0..], null);
+        if (cmp.isInteger() and cmp.toInteger() > 0) {
+            best_value = element;
+            best_key = result.value;
+        }
+    }
+
+    return best_value orelse Value.nil();
 }
 
 fn builtinEnumerableSortBy(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {

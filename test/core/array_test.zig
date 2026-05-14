@@ -280,6 +280,15 @@ test "Array#find_all aliases #select" {
     try std.testing.expectEqual(@as(i64, 4), result.toArrayObject().elements.items[1].toInteger());
 }
 
+test "Array#max_by returns the element with the largest block result" {
+    var result = try evalCode("[1, 2, 3].max_by { |n| -n }");
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
+
+    result = try evalCode("[].max_by { |n| n }");
+    try std.testing.expect(result.isNil());
+}
+
 test "Array#any?" {
     var result = try evalCode("[nil, false, 1].any?");
     try std.testing.expect(result.isBool());
