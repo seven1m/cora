@@ -26,6 +26,9 @@ pub fn register(vm: *VM) !void {
 
     const source_location_sym = try vm.intern("source_location");
     try vm.proc_class.module.methods.put(source_location_sym, value.MethodEntry.builtin(&builtinProcSourceLocation, .{ .exact = 0 }));
+
+    const to_proc_sym = try vm.intern("to_proc");
+    try vm.proc_class.module.methods.put(to_proc_sym, value.MethodEntry.builtin(&builtinProcToProc, .{ .exact = 0 }));
 }
 
 pub fn builtinProcNew(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
@@ -105,4 +108,8 @@ pub fn builtinProcSourceLocation(vm: *VM, receiver: Value, _: []Value, _: ?Block
             return Value.nil();
         },
     }
+}
+
+pub fn builtinProcToProc(_: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
+    return receiver;
 }

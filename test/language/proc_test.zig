@@ -190,6 +190,16 @@ test "Proc explicit return: early exit from proc body" {
     try std.testing.expectEqual(@as(i64, 100), result.toInteger());
 }
 
+test "Proc#to_proc returns self" {
+    const result = try evalCode(
+        \\pr = proc { |x| x + 1 }
+        \\[pr.to_proc.call(4), pr.object_id == pr.to_proc.object_id]
+    );
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(i64, 5), result.toArrayObject().elements.items[0].toInteger());
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[1].toBool());
+}
+
 test "Nested procs: outer explicit return exits method" {
     const result = try evalCode(
         \\def foo
