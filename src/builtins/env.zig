@@ -42,6 +42,9 @@ pub fn register(vm: *VM) !void {
 
     const to_h_sym = try vm.intern("to_h");
     try env_singleton.module.methods.put(to_h_sym, value.MethodEntry.builtin(&builtinEnvToH, .{ .exact = 0 }));
+
+    const values_at_sym = try vm.intern("values_at");
+    try env_singleton.module.methods.put(values_at_sym, value.MethodEntry.builtin(&builtinEnvValuesAt, .{ .variadic = 0 }));
 }
 
 pub fn builtinEnvBracket(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -90,4 +93,13 @@ pub fn builtinEnvToA(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value 
 pub fn builtinEnvToH(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return vm.envToHash();
+}
+
+pub fn builtinEnvValuesAt(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    const result = try vm.createArray();
+    for (args) |arg| {
+        const key = try arg.coerceToStr(vm, "no implicit conversion into String");
+        result.elements.append(vm.gc_allocator, try vm.envGet(key)) catch return error.Fatal;
+    }
+    return Value.fromObject(&result.object);
 }

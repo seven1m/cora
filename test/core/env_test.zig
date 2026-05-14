@@ -14,3 +14,15 @@ test "ENV membership predicates" {
     );
     try std.testing.expect(result.toBool());
 }
+
+test "ENV.values_at returns values and nil for missing keys" {
+    const result = try evalCode(
+        \\ENV["CORA_ENV_VALUES_AT_A"] = "alpha"
+        \\ENV.delete("CORA_ENV_VALUES_AT_B")
+        \\ENV.values_at("CORA_ENV_VALUES_AT_A", "CORA_ENV_VALUES_AT_B")
+    );
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(usize, 2), result.toArrayObject().elements.items.len);
+    try std.testing.expectEqualSlices(u8, "alpha", result.toArrayObject().elements.items[0].toStringObject().str);
+    try std.testing.expect(result.toArrayObject().elements.items[1].isNil());
+}
