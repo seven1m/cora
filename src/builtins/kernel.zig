@@ -382,7 +382,6 @@ pub fn register(vm: *VM) !void {
 
 pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    try vm.resetLoadedFilesFromGlobal();
     const feature = try vm.coerceToPath(args[0], "no implicit conversion into String");
 
     // Builtin libraries whose classes are registered at VM startup:
@@ -507,7 +506,6 @@ pub fn builtinKernelBinding(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 
 pub fn builtinKernelRequireRelative(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    try vm.resetLoadedFilesFromGlobal();
     const relative_path = try vm.coerceToPath(args[0], "no implicit conversion into String");
 
     const current_file = blk: {
