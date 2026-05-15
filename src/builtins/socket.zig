@@ -91,6 +91,72 @@ fn tcpSocketClass(vm: *VM) VMError!*ClassObject {
     return tcp_socket_entry.value.toClassObject();
 }
 
+fn socketStatusFlags(vm: *VM, fd: std.posix.fd_t) VMError!c_int {
+    const flags = std.c.fcntl(fd, std.c.F.GETFL, @as(c_int, 0));
+    if (flags < 0) {
+        return vm.raiseErrnoFmt(std.posix.errno(-1), "fcntl failed", .{});
+    }
+    return flags;
+}
+
+fn setSocketNonblocking(vm: *VM, fd: std.posix.fd_t, enabled: bool) VMError!void {
+    const flags = try socketStatusFlags(vm, fd);
+    const nonblock_flag: c_int = @intCast(std.c.SOCK.NONBLOCK);
+    const already_enabled = (flags & nonblock_flag) != 0;
+    if (already_enabled == enabled) return;
+
+    const next_flags = if (enabled) flags | nonblock_flag else flags & ~nonblock_flag;
+    if (std.c.fcntl(fd, std.c.F.SETFL, next_flags) < 0) {
+        return vm.raiseErrnoFmt(std.posix.errno(-1), "fcntl failed", .{});
+    }
+}
+
+fn waitForConnectWritable(vm: *VM, fd: std.posix.fd_t) VMError!void {
+    var fds = [_]std.posix.pollfd{.{
+        .fd = fd,
+        .events = std.posix.POLL.OUT,
+        .revents = 0,
+    }};
+    const ready_mask = std.posix.POLL.OUT | std.posix.POLL.ERR | std.posix.POLL.HUP;
+
+    const current_thread = vm.current_thread;
+    const is_worker_thread = current_thread != null and vm.main_thread != null and current_thread.? != vm.main_thread.?;
+    if (!is_worker_thread) {
+        _ = std.posix.poll(fds[0..], -1) catch return vm.raiseExceptionFmt(vm.io_error_class, "poll failed", .{});
+        return;
+    }
+
+    const thread = current_thread.?;
+    defer {
+        thread.io_wait = null;
+        if (thread.state == .sleeping) thread.state = .running;
+    }
+
+    while (true) {
+        const ready_count = std.posix.poll(fds[0..], 0) catch return vm.raiseExceptionFmt(vm.io_error_class, "poll failed", .{});
+        if (ready_count != 0 and (fds[0].revents & ready_mask) != 0) return;
+
+        thread.io_wait = .{
+            .fd = @intCast(fd),
+            .events = std.posix.POLL.OUT,
+            .include_hup = true,
+            .deadline_ms = null,
+        };
+        thread.state = .sleeping;
+        try vm.threadYield();
+    }
+}
+
+fn socketConnectError(fd: std.posix.fd_t) std.posix.E {
+    var so_error: c_int = 0;
+    var so_error_len: std.posix.socklen_t = @sizeOf(c_int);
+    if (std.c.getsockopt(fd, std.posix.SOL.SOCKET, std.posix.SO.ERROR, &so_error, &so_error_len) != 0) {
+        return std.posix.errno(-1);
+    }
+    if (so_error == 0) return .SUCCESS;
+    return std.posix.errno(so_error);
+}
+
 fn connectTCPSocket(vm: *VM, host_value: Value, port_value: Value) VMError!Value {
     const host = try host_value.coerceToStr(vm, "no implicit conversion into String");
     var service_buf: [32]u8 = undefined;
@@ -120,19 +186,43 @@ fn connectTCPSocket(vm: *VM, host_value: Value, port_value: Value) VMError!Value
     }
     defer if (addrinfo_result) |result| std.c.freeaddrinfo(result);
 
+    var last_errno: ?std.posix.E = null;
     var current = addrinfo_result;
     while (current) |addrinfo| : (current = addrinfo.next) {
         const addr = addrinfo.addr orelse continue;
         const fd = std.c.socket(@intCast(addrinfo.family), @intCast(addrinfo.socktype), @intCast(addrinfo.protocol));
         if (fd < 0) continue;
+        errdefer _ = std.c.close(fd);
+
+        const posix_fd: std.posix.fd_t = @intCast(fd);
+        try setSocketNonblocking(vm, posix_fd, true);
+        defer setSocketNonblocking(vm, posix_fd, false) catch {};
 
         if (std.c.connect(fd, addr, addrinfo.addrlen) == 0) {
             return vm.newIo(try tcpSocketClass(vm), @intCast(fd), true, true, true, false, null);
         }
 
+        const connect_errno = std.posix.errno(-1);
+        switch (connect_errno) {
+            .INPROGRESS, .AGAIN, .ALREADY => {
+                try waitForConnectWritable(vm, posix_fd);
+                const so_error = socketConnectError(posix_fd);
+                if (so_error == .SUCCESS) {
+                    return vm.newIo(try tcpSocketClass(vm), @intCast(fd), true, true, true, false, null);
+                }
+                last_errno = so_error;
+            },
+            else => {
+                last_errno = connect_errno;
+            },
+        }
+
         _ = std.c.close(fd);
     }
 
+    if (last_errno) |err| {
+        return vm.raiseErrnoFmt(err, "connect() failed for {s}:{s}", .{ host, service });
+    }
     return socketError(vm, "connect() failed for {s}:{s}", .{ host, service });
 }
 
