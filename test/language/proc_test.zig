@@ -234,6 +234,17 @@ test "Nested procs: inner explicit return exits method from inside" {
     try std.testing.expectEqual(@as(i64, 5), result.toInteger());
 }
 
+test "Proc.new block keeps enclosing method yield when called later" {
+    const result = try evalCode(
+        \\def foo
+        \\  p = Proc.new { yield 1 }
+        \\  p.call
+        \\end
+        \\foo { |x| x + 1 }
+    );
+    try std.testing.expectEqual(@as(i64, 2), result.toInteger());
+}
+
 test "Proc explicit return raises LocalJumpError after enclosing method has returned" {
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;

@@ -225,6 +225,18 @@ test "Rescue with arbitrary expression exception type matches" {
     try std.testing.expectEqual(@as(i64, 124), result.toInteger());
 }
 
+test "Rescue type expression preserves active exception after inner rescue" {
+    const result = try evalCode(
+        \\begin
+        \\  raise "boom"
+        \\rescue (Object.new.nope rescue RuntimeError)
+        \\  :ok
+        \\end
+    );
+    try std.testing.expect(result.isSymbol());
+    try std.testing.expectEqualStrings("ok", result.toSymbolObject().name);
+}
+
 test "Rescue with module exception type matches" {
     const result = try evalCode(
         \\module Marker; end
