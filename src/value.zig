@@ -335,6 +335,7 @@ pub const ThreadObject = struct {
     report_on_exception: bool = true,
     abort_on_exception: bool = false,
     kill_requested: bool = false,
+    waiting_on_queue: bool = false,
     preempt_requested: bool = false,
     ops_until_preempt: u32 = 0,
     io_wait: ?IoWait = null,
@@ -360,8 +361,10 @@ pub const QueueObject = struct {
     object: Object,
     items: std.ArrayList(Value) = .empty,
     read_index: usize = 0,
-    waiters: std.ArrayList(*ThreadObject) = .empty,
+    dequeue_waiters: std.ArrayList(*ThreadObject) = .empty,
+    enqueue_waiters: std.ArrayList(*ThreadObject) = .empty,
     closed: bool = false,
+    max_size: ?usize = null,
 };
 
 pub const TimeObject = struct {
@@ -992,7 +995,7 @@ pub const Value = struct {
                 .float => try writer.print("{d}", .{self.toFloatObject().val}),
                 .thread => try writer.print("#<Thread:0x{x}>", .{self.raw}),
                 .mutex => try writer.print("#<Mutex:0x{x}>", .{self.raw}),
-                .queue => try writer.print("#<Thread::Queue:0x{x}>", .{self.raw}),
+                .queue => try writer.print("#<Thread::{s}:0x{x}>", .{ self.getObjectPointer().?.class.?.module.name.name, self.raw }),
                 .time => try writer.print("#<Time:0x{x}>", .{self.raw}),
                 .method => try writer.print("#<Method:0x{x}>", .{self.raw}),
                 .unbound_method => try writer.print("#<UnboundMethod:0x{x}>", .{self.raw}),

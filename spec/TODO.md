@@ -1929,22 +1929,22 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/signal/trap_spec.rb
 
 ### core/sizedqueue
-- [ ] core/sizedqueue/append_spec.rb
-- [ ] core/sizedqueue/clear_spec.rb
-- [ ] core/sizedqueue/close_spec.rb
-- [ ] core/sizedqueue/closed_spec.rb
-- [ ] core/sizedqueue/deq_spec.rb
-- [ ] core/sizedqueue/empty_spec.rb
-- [ ] core/sizedqueue/enq_spec.rb
-- [ ] core/sizedqueue/freeze_spec.rb
-- [ ] core/sizedqueue/length_spec.rb
-- [ ] core/sizedqueue/max_spec.rb
-- [ ] core/sizedqueue/new_spec.rb
-- [ ] core/sizedqueue/num_waiting_spec.rb
-- [ ] core/sizedqueue/pop_spec.rb
-- [ ] core/sizedqueue/push_spec.rb
-- [ ] core/sizedqueue/shift_spec.rb
-- [ ] core/sizedqueue/size_spec.rb
+- [x] core/sizedqueue/append_spec.rb
+- [x] core/sizedqueue/clear_spec.rb
+- [x] core/sizedqueue/close_spec.rb
+- [x] core/sizedqueue/closed_spec.rb
+- [x] core/sizedqueue/deq_spec.rb
+- [x] core/sizedqueue/empty_spec.rb
+- [x] core/sizedqueue/enq_spec.rb
+- [x] core/sizedqueue/freeze_spec.rb
+- [x] core/sizedqueue/length_spec.rb
+- [x] core/sizedqueue/max_spec.rb
+- [x] core/sizedqueue/new_spec.rb
+- [x] core/sizedqueue/num_waiting_spec.rb
+- [x] core/sizedqueue/pop_spec.rb
+- [x] core/sizedqueue/push_spec.rb
+- [x] core/sizedqueue/shift_spec.rb
+- [x] core/sizedqueue/size_spec.rb
 
 ### core/string
 - [x] core/string/allocate_spec.rb
@@ -3968,7 +3968,7 @@ Source baseline: ../ruby_spec compared to local spec/
 
 ### library/thread
 - [x] library/thread/queue_spec.rb
-- [ ] library/thread/sizedqueue_spec.rb
+- [x] library/thread/sizedqueue_spec.rb
 
 ### library/time
 - [ ] library/time/httpdate_spec.rb

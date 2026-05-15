@@ -409,6 +409,7 @@ pub const VM = struct {
     thread_class: *value.ClassObject,
     mutex_class: *value.ClassObject,
     queue_class: *value.ClassObject,
+    sized_queue_class: *value.ClassObject,
     thread_error_class: *value.ClassObject,
     thread_kill_exception_class: *value.ClassObject,
     closed_queue_error_class: *value.ClassObject,
@@ -595,6 +596,7 @@ pub const VM = struct {
             .thread_class = undefined,
             .mutex_class = undefined,
             .queue_class = undefined,
+            .sized_queue_class = undefined,
             .thread_error_class = undefined,
             .thread_kill_exception_class = undefined,
             .closed_queue_error_class = undefined,
@@ -824,6 +826,10 @@ pub const VM = struct {
         const queue_name_sym = try self.intern("Queue");
         const queue_class_val = try self.newClass(queue_name_sym, self.object_class);
         self.queue_class = queue_class_val.toClassObject();
+
+        const sized_queue_name_sym = try self.intern("SizedQueue");
+        const sized_queue_class_val = try self.newClass(sized_queue_name_sym, self.queue_class);
+        self.sized_queue_class = sized_queue_class_val.toClassObject();
 
         const regexp_name_sym = try self.intern("Regexp");
         const regexp_class_val = try self.newClass(regexp_name_sym, self.object_class);
@@ -1169,9 +1175,11 @@ pub const VM = struct {
         self.object_class.module.constants.put(thread_name_sym, .{ .value = thread_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(mutex_name_sym, .{ .value = mutex_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(queue_name_sym, .{ .value = queue_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(sized_queue_name_sym, .{ .value = sized_queue_class_val }) catch return error.Fatal;
         // Register Thread::Mutex alias
         thread_class_val.toClassObject().module.constants.put(mutex_name_sym, .{ .value = mutex_class_val }) catch return error.Fatal;
         thread_class_val.toClassObject().module.constants.put(queue_name_sym, .{ .value = queue_class_val }) catch return error.Fatal;
+        thread_class_val.toClassObject().module.constants.put(sized_queue_name_sym, .{ .value = sized_queue_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(regexp_name_sym, .{ .value = regexp_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(match_data_name_sym, .{ .value = match_data_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(nil_class_name_sym, .{ .value = nil_class_val }) catch return error.Fatal;
@@ -2222,8 +2230,8 @@ pub const VM = struct {
             waiters.deinit(self.allocator);
         }
         self.mutex_waiters.deinit();
-        self.runnable_queue.deinit(self.allocator);
-        self.thread_list.deinit(self.allocator);
+        self.runnable_queue.deinit(self.gc_allocator);
+        self.thread_list.deinit(self.gc_allocator);
     }
 
     pub fn run(self: *VM) VMError!Value {
@@ -3411,6 +3419,7 @@ pub const VM = struct {
         main_thread_obj.report_on_exception = true;
         main_thread_obj.abort_on_exception = false;
         main_thread_obj.kill_requested = false;
+        main_thread_obj.waiting_on_queue = false;
         main_thread_obj.preempt_requested = false;
         main_thread_obj.ops_until_preempt = self.thread_preempt_quantum_ops;
         main_thread_obj.io_wait = null;
@@ -3423,7 +3432,7 @@ pub const VM = struct {
         self.main_thread = main_thread_obj;
         self.current_thread = main_thread_obj;
         self.setCurrentFiber(self.main_fiber);
-        self.thread_list.append(self.allocator, main_thread_obj) catch return error.Fatal;
+        self.thread_list.append(self.gc_allocator, main_thread_obj) catch return error.Fatal;
         return main_thread_obj;
     }
 
@@ -3438,13 +3447,14 @@ pub const VM = struct {
     }
 
     pub fn newQueue(self: *VM, class_val: Value) VMError!*value.QueueObject {
-        _ = class_val;
         const queue_obj = self.gc_allocator.create(value.QueueObject) catch return error.Fatal;
-        queue_obj.object = .{ .type_tag = .queue, .flags = 0, .class = self.queue_class, .singleton_class = null, .instance_variables = null };
+        queue_obj.object = .{ .type_tag = .queue, .flags = 0, .class = class_val.toClassObject(), .singleton_class = null, .instance_variables = null };
         queue_obj.items = .empty;
         queue_obj.read_index = 0;
-        queue_obj.waiters = .empty;
+        queue_obj.dequeue_waiters = .empty;
+        queue_obj.enqueue_waiters = .empty;
         queue_obj.closed = false;
+        queue_obj.max_size = null;
         return queue_obj;
     }
 
@@ -3468,6 +3478,7 @@ pub const VM = struct {
         thread_obj.report_on_exception = true;
         thread_obj.abort_on_exception = false;
         thread_obj.kill_requested = false;
+        thread_obj.waiting_on_queue = false;
         thread_obj.preempt_requested = false;
         thread_obj.ops_until_preempt = self.thread_preempt_quantum_ops;
         thread_obj.io_wait = null;
@@ -3510,8 +3521,8 @@ pub const VM = struct {
     }
 
     pub fn startThread(self: *VM, thread_obj: *value.ThreadObject) VMError!void {
-        self.thread_list.append(self.allocator, thread_obj) catch return error.Fatal;
-        self.runnable_queue.append(self.allocator, thread_obj) catch return error.Fatal;
+        self.thread_list.append(self.gc_allocator, thread_obj) catch return error.Fatal;
+        self.runnable_queue.append(self.gc_allocator, thread_obj) catch return error.Fatal;
     }
 
     pub fn releaseThreadOwnedMutexes(self: *VM, thread: *value.ThreadObject) void {
@@ -3536,7 +3547,7 @@ pub const VM = struct {
                 for (self.runnable_queue.items) |thread| {
                     if (thread == waiter) return;
                 }
-                self.runnable_queue.append(self.allocator, waiter) catch {};
+                self.runnable_queue.append(self.gc_allocator, waiter) catch {};
                 return;
             }
         }
@@ -3740,7 +3751,7 @@ pub const VM = struct {
         for (self.runnable_queue.items) |queued| {
             if (queued == thread) return;
         }
-        self.runnable_queue.append(self.allocator, thread) catch {};
+        self.runnable_queue.append(self.gc_allocator, thread) catch {};
     }
 
     fn wakeSleepingIoWaiters(self: *VM) void {

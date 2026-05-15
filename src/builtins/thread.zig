@@ -213,7 +213,7 @@ fn builtinThreadKillClass(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
         for (vm.runnable_queue.items) |t| {
             if (t == thread) break;
         } else {
-            vm.runnable_queue.append(vm.allocator, thread) catch return error.Fatal;
+            vm.runnable_queue.append(vm.gc_allocator, thread) catch return error.Fatal;
         }
     }
     return args[0];
@@ -317,6 +317,7 @@ fn builtinThreadAlive(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
 fn builtinThreadStatus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const thread = receiver.toThreadObject();
+    if (thread.waiting_on_queue) return try vm.newString("sleep", false);
     return switch (thread.state) {
         .created, .running => try vm.newString("run", false),
         .sleeping => try vm.newString("sleep", false),
@@ -563,7 +564,9 @@ fn builtinThreadPrioritySet(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 fn builtinThreadInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const thread = receiver.toThreadObject();
-    const state_str = switch (thread.state) {
+    const state_str = if (thread.waiting_on_queue)
+        "sleep"
+    else switch (thread.state) {
         .created, .running => "run",
         .sleeping => "sleep",
         .aborting => "aborting",
@@ -580,7 +583,7 @@ fn builtinThreadInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
 fn builtinThreadStopQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const thread = receiver.toThreadObject();
-    return Value.boolean(thread.state == .sleeping or thread.state == .terminated);
+    return Value.boolean(thread.waiting_on_queue or thread.state == .sleeping or thread.state == .terminated);
 }
 
 fn builtinThreadReportOnException(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -654,5 +657,5 @@ fn addToRunnableIfAbsent(vm: *VM, thread: *value.ThreadObject) void {
     for (vm.runnable_queue.items) |t| {
         if (t == thread) return;
     }
-    vm.runnable_queue.append(vm.allocator, thread) catch {};
+    vm.runnable_queue.append(vm.gc_allocator, thread) catch {};
 }

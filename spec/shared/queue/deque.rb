@@ -66,16 +66,14 @@ describe :queue_deq, shared: true do
 
   describe "with a timeout" do
     it "returns an item if one is available in time" do
-      CORAFIXME "Queue timeout wakeups do not yet resume blocked threads before expiry", exception: SpecFailedException do
-        q = @object.call
+      q = @object.call
 
-        t = Thread.new {
-          q.send(@method, timeout: TIME_TOLERANCE)
-        }
-        Thread.pass
-        q << 1
-        t.value.should == 1
-      end
+      t = Thread.new {
+        q.send(@method, timeout: TIME_TOLERANCE)
+      }
+      Thread.pass
+      q << 1
+      t.value.should == 1
     end
 
     it "returns nil if no item is available in time" do
