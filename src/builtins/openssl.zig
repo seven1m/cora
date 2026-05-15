@@ -1,5 +1,6 @@
 const std = @import("std");
 const enc = @import("../encoding.zig");
+const io_builtin = @import("io.zig");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 const c = @cImport({
@@ -1012,11 +1013,8 @@ pub fn builtinOpenSSLSslSocketEof(vm: *VM, _: Value, args: []Value, _: ?Block) V
     try vm.requireArgCount(args, 1);
     const state = try requireSslState(vm, args[0]);
     if (c.SSL_pending(state.ssl) > 0) return Value.boolean(false);
-
-    var byte: [1]u8 = undefined;
-    var read_len: usize = 0;
-    if (c.SSL_peek_ex(state.ssl, &byte, 1, &read_len) == 1) return Value.boolean(false);
-    return Value.boolean(c.SSL_get_error(state.ssl, 0) == c.SSL_ERROR_ZERO_RETURN);
+    const io = try sslReceiverIo(vm, args[0]);
+    return io_builtin.builtinIoEof(vm, Value.fromObject(&io.object), &.{}, null);
 }
 
 pub fn builtinOpenSSLSslSocketSslVersion(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
