@@ -3434,38 +3434,38 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/open3/popen3_spec.rb
 
 ### library/openssl
-- [ ] library/openssl/cipher_spec.rb
+- [x] library/openssl/cipher_spec.rb
 
 ### library/openssl/digest
-- [ ] library/openssl/digest/append_spec.rb
-- [ ] library/openssl/digest/block_length_spec.rb
-- [ ] library/openssl/digest/digest_length_spec.rb
-- [ ] library/openssl/digest/digest_spec.rb
-- [ ] library/openssl/digest/initialize_spec.rb
-- [ ] library/openssl/digest/name_spec.rb
-- [ ] library/openssl/digest/reset_spec.rb
-- [ ] library/openssl/digest/update_spec.rb
+- [x] library/openssl/digest/append_spec.rb
+- [x] library/openssl/digest/block_length_spec.rb
+- [x] library/openssl/digest/digest_length_spec.rb
+- [x] library/openssl/digest/digest_spec.rb
+- [x] library/openssl/digest/initialize_spec.rb
+- [x] library/openssl/digest/name_spec.rb
+- [x] library/openssl/digest/reset_spec.rb
+- [x] library/openssl/digest/update_spec.rb
 
 ### library/openssl
-- [ ] library/openssl/fixed_length_secure_compare_spec.rb
+- [x] library/openssl/fixed_length_secure_compare_spec.rb
 
 ### library/openssl/hmac
-- [ ] library/openssl/hmac/digest_spec.rb
-- [ ] library/openssl/hmac/hexdigest_spec.rb
+- [x] library/openssl/hmac/digest_spec.rb
+- [x] library/openssl/hmac/hexdigest_spec.rb
 
 ### library/openssl/kdf
-- [ ] library/openssl/kdf/pbkdf2_hmac_spec.rb
-- [ ] library/openssl/kdf/scrypt_spec.rb
+- [x] library/openssl/kdf/pbkdf2_hmac_spec.rb
+- [x] library/openssl/kdf/scrypt_spec.rb
 
 ### library/openssl/random
-- [ ] library/openssl/random/pseudo_bytes_spec.rb
-- [ ] library/openssl/random/random_bytes_spec.rb
+- [x] library/openssl/random/pseudo_bytes_spec.rb
+- [x] library/openssl/random/random_bytes_spec.rb
 
 ### library/openssl
-- [ ] library/openssl/secure_compare_spec.rb
+- [x] library/openssl/secure_compare_spec.rb
 
 ### library/openssl/x509/name
-- [ ] library/openssl/x509/name/parse_spec.rb
+- [x] library/openssl/x509/name/parse_spec.rb
 
 ### library/openssl/x509/store
 - [ ] library/openssl/x509/store/verify_spec.rb

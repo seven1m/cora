@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const evalCodeWithOutput = @import("../test_helper.zig").evalCodeWithOutput;
 test "require loads RubyGems after extending $LOAD_PATH" {
     var gpa: std.heap.DebugAllocator(.{}) = .init;
     defer _ = gpa.deinit();
@@ -129,4 +130,26 @@ test "stdlib require loads thread condition variable" {
 
     try std.testing.expect(result.term == .exited and result.term.exited == 0);
     try std.testing.expectEqualSlices(u8, "true\n", result.stdout);
+}
+
+test "require lazily registers OpenSSL" {
+    var stdout_buf: [1024]u8 = undefined;
+    var stderr_buf: [1024]u8 = undefined;
+
+    const result = evalCodeWithOutput(
+        \\p defined?(OpenSSL)
+        \\begin
+        \\  OpenSSL
+        \\rescue NameError
+        \\  puts "missing"
+        \\end
+        \\p require("openssl")
+        \\p defined?(OpenSSL)
+        \\puts OpenSSL::Digest.hexdigest("sha1", "abc")
+        \\p require("openssl")
+    , &stdout_buf, &stderr_buf);
+
+    try std.testing.expect(result.err == null);
+    try std.testing.expectEqualStrings("nil\nmissing\ntrue\n\"constant\"\na9993e364706816aba3e25717850c26c9cd0d89d\nfalse\n", result.stdout);
+    try std.testing.expectEqualStrings("", result.stderr);
 }

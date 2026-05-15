@@ -407,6 +407,16 @@ class ScratchPad
   end
 end
 
+class Hash
+  def except(*keys)
+    copy = dup
+    keys.each do |key|
+      copy.delete(key)
+    end
+    copy
+  end
+end
+
 def parse_version_segments(version)
   version.to_s.split('.').map { |segment| segment.to_i }
 end
@@ -451,6 +461,12 @@ def ruby_bug(_id, *args, **kwargs, &block)
   else
     ruby_version_is(*args, **kwargs, &block)
   end
+end
+
+def version_is(current, requirement, &block)
+  matches = compare_versions(current, requirement) >= 0
+  block.call if matches && block
+  matches
 end
 
 def fixture(spec_file, fixture_name)

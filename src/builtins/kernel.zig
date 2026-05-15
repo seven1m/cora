@@ -6,6 +6,7 @@ const method_reflection = @import("method_reflection.zig");
 const module_builtin = @import("module.zig");
 const method_builtin = @import("method.zig");
 const method_common = @import("method_common.zig");
+const openssl_builtin = @import("openssl.zig");
 const warning_builtin = @import("warning.zig");
 
 const VM = vm_mod.VM;
@@ -408,6 +409,10 @@ pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
     if (vm.loaded_files.contains(absolute_path)) {
         vm.allocator.free(absolute_path);
         return Value.boolean(false);
+    }
+
+    if (std.mem.eql(u8, feature, "openssl") or std.mem.eql(u8, feature, "openssl.rb")) {
+        openssl_builtin.register(vm) catch return error.Fatal;
     }
 
     try vm.insertLoadedFile(absolute_path);
