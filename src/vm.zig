@@ -217,6 +217,7 @@ pub const CallFrame = struct {
     next_target_frame_idx: ?usize = null,
     method_name: ?[]const u8 = null,
     super_defining_class: ?*ClassObject = null,
+    active_rescue_exceptions: usize = 0,
     forwarded_keyword_ctx: ?*BuiltinKeywordContext = null,
     dir_returns_nil: bool = false,
 };
@@ -497,6 +498,7 @@ pub const VM = struct {
     // Exception/throw/control-flow unwind state.
     pending_unwind: ?PendingUnwind = null,
     pending_async_exceptions: std.ArrayList(*value.ExceptionObject) = .empty,
+    rescued_exceptions: std.ArrayList(*value.ExceptionObject) = .empty,
     ensure_saved_unwinds: std.ArrayList(SavedUnwind) = .empty,
     active_catches: *std.ArrayList(Value),
     backtrace_limit: ?usize = null,
@@ -2191,6 +2193,7 @@ pub const VM = struct {
         self.packed_pointer_targets.deinit();
         self.errno_classes.deinit();
         self.pending_async_exceptions.deinit(self.allocator);
+        self.rescued_exceptions.deinit(self.allocator);
         self.ensure_saved_unwinds.deinit(self.allocator);
         var fiber_catches_iter = self.fiber_active_catches.valueIterator();
         while (fiber_catches_iter.next()) |active_catches| {
@@ -3030,7 +3033,9 @@ pub const VM = struct {
 
     fn popFrame(self: *VM) VMError!void {
         if (self.frames.items.len > 0) {
-            _ = self.frames.pop();
+            const frame = self.frames.pop().?;
+            if (frame.active_rescue_exceptions > self.rescued_exceptions.items.len) return error.Fatal;
+            self.rescued_exceptions.shrinkRetainingCapacity(self.rescued_exceptions.items.len - frame.active_rescue_exceptions);
 
             // Restore current_lexical_scope from the previous frame
             if (self.frames.items.len > 0) {
@@ -5711,8 +5716,12 @@ pub const VM = struct {
                 _ = readU16From(frame, operands, &operand_cursor);
             },
 
-            .TRY_END, .CATCH_END => {
-                // These opcodes are just markers, no action needed during normal execution
+            .TRY_END => {},
+
+            .CATCH_END => {
+                if (frame.active_rescue_exceptions == 0 or self.rescued_exceptions.items.len == 0) return error.Fatal;
+                frame.active_rescue_exceptions -= 1;
+                _ = self.rescued_exceptions.pop();
             },
 
             .ENSURE_START => {
@@ -5754,6 +5763,11 @@ pub const VM = struct {
             .CATCH_START => {
                 // Read variable index (local_idx, not ep_offset; we compute at runtime)
                 const var_idx = readByteFrom(frame, operands, &operand_cursor);
+
+                if (self.pendingException()) |exc| {
+                    self.rescued_exceptions.append(self.allocator, exc) catch return error.Fatal;
+                    frame.active_rescue_exceptions += 1;
+                }
 
                 // Store exception in local variable if binding exists (var_idx != 255)
                 if (var_idx != 255) {
@@ -8955,6 +8969,10 @@ pub const VM = struct {
 
     pub fn raiseFromArgs(self: *VM, args: []const Value, no_current_exception_message: []const u8) VMError {
         if (args.len == 0) {
+            if (self.rescued_exceptions.items.len > 0) {
+                self.setPendingException(self.rescued_exceptions.items[self.rescued_exceptions.items.len - 1]);
+                return error.Unwind;
+            }
             if (self.pendingException()) |exc| {
                 self.setPendingException(exc);
                 return error.Unwind;
@@ -8986,6 +9004,12 @@ pub const VM = struct {
         }
 
         if (args.len == 2) {
+            if (args[0].isException()) {
+                const class_obj = args[0].toExceptionObject().object.class orelse return error.Fatal;
+                const exc_val = try self.newExceptionInstance(class_obj, args[1..], null);
+                self.setPendingException(exc_val.toExceptionObject());
+                return error.Unwind;
+            }
             if (!args[0].isClass()) {
                 return self.raiseExceptionFmt(self.type_error_class, "exception class/object expected", .{});
             }

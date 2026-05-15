@@ -17,6 +17,20 @@ test "Exception#message returns message string" {
     try std.testing.expectEqualSlices(u8, "my message", result.toStringObject().str);
 }
 
+test "raise accepts exception object with replacement message" {
+    const result = try evalCode(
+        \\begin
+        \\  raise RuntimeError.new("old"), "new"
+        \\rescue => e
+        \\  [e.class.name, e.message]
+        \\end
+    );
+    try std.testing.expect(result.isArray());
+    const elems = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("RuntimeError", elems[0].toStringObject().str);
+    try std.testing.expectEqualStrings("new", elems[1].toStringObject().str);
+}
+
 test "pending SIGINT raises Interrupt and explicit rescue catches it" {
     cora.vm.requestSignal(@intCast(@intFromEnum(std.posix.SIG.INT)));
     const result = try evalCode(

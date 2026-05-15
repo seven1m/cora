@@ -34,6 +34,27 @@ test "Begin/rescue returns value from rescue" {
     try std.testing.expectEqual(@as(i64, 42), result.toInteger());
 }
 
+test "bare raise inside rescue re-raises current exception" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+
+    const result = evalCodeWithOutput(
+        \\def reraiser
+        \\  raise
+        \\end
+        \\
+        \\begin
+        \\  raise "boom"
+        \\rescue
+        \\  reraiser
+        \\end
+    , &stdout_buf, &stderr_buf);
+
+    try std.testing.expectEqual(error.UnhandledException, result.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "boom") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "No exception to re-raise") == null);
+}
+
 test "Begin/rescue with no exception executes protected code" {
     const result = try evalCode(
         \\begin
