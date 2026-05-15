@@ -1,6 +1,7 @@
 const value_test = @import("value_test.zig");
 const prism_test = @import("prism_test.zig");
 const binary_test = @import("binary_test.zig");
+const openssl_test = @import("openssl_test.zig");
 
 const core_array_test = @import("core/array_test.zig");
 const core_argv_test = @import("core/argv_test.zig");
@@ -77,6 +78,7 @@ comptime {
     _ = value_test;
     _ = prism_test;
     _ = binary_test;
+    _ = openssl_test;
     _ = core_class_test;
     _ = core_argv_test;
     _ = core_array_test;

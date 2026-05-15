@@ -6388,7 +6388,7 @@ pub const VM = struct {
             const kw_hash = try self.createHashFromKeywordPairs(effective_kw_keys.?, effective_kw_values.?);
             const expanded_args = try args_temp.initUninitialized(self, effective_args.len + 1);
             if (effective_args.len > 0) {
-                @memcpy(expanded_args[0..effective_args.len], effective_args);
+                std.mem.copyForwards(Value, expanded_args[0..effective_args.len], effective_args);
             }
             expanded_args[effective_args.len] = kw_hash;
             effective_args = expanded_args;

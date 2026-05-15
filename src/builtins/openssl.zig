@@ -2,6 +2,12 @@ const std = @import("std");
 const enc = @import("../encoding.zig");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
+const c = @cImport({
+    @cInclude("openssl/err.h");
+    @cInclude("openssl/pem.h");
+    @cInclude("openssl/ssl.h");
+    @cInclude("openssl/x509_vfy.h");
+});
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -11,6 +17,11 @@ const ClassObject = value.ClassObject;
 const ModuleObject = value.ModuleObject;
 
 const binary_encoding = enc.Encoding{ .ascii_8bit = .{} };
+
+const NativeSslSocket = struct {
+    ssl_ctx: *c.SSL_CTX,
+    ssl: *c.SSL,
+};
 
 const DigestAlgorithm = enum {
     md5,
@@ -37,6 +48,15 @@ pub fn register(vm: *VM) !void {
         fixed_length_secure_compare_sym,
         value.MethodEntry.builtin(&builtinOpenSSLFixedLengthSecureCompare, .{ .exact = 2 }),
     );
+    try openssl_singleton.module.methods.put(try vm.intern("__ssl_socket_connect"), value.MethodEntry.builtin(&builtinOpenSSLSslSocketConnect, .{ .exact = 3 }));
+    try openssl_singleton.module.methods.put(try vm.intern("__ssl_socket_read_nonblock"), value.MethodEntry.builtin(&builtinOpenSSLSslSocketReadNonblock, .{ .exact = 4 }));
+    try openssl_singleton.module.methods.put(try vm.intern("__ssl_socket_write_nonblock"), value.MethodEntry.builtin(&builtinOpenSSLSslSocketWriteNonblock, .{ .exact = 3 }));
+    try openssl_singleton.module.methods.put(try vm.intern("__ssl_socket_close"), value.MethodEntry.builtin(&builtinOpenSSLSslSocketClose, .{ .exact = 1 }));
+    try openssl_singleton.module.methods.put(try vm.intern("__ssl_socket_eof"), value.MethodEntry.builtin(&builtinOpenSSLSslSocketEof, .{ .exact = 1 }));
+    try openssl_singleton.module.methods.put(try vm.intern("__ssl_socket_ssl_version"), value.MethodEntry.builtin(&builtinOpenSSLSslSocketSslVersion, .{ .exact = 1 }));
+    try openssl_singleton.module.methods.put(try vm.intern("__ssl_socket_cipher"), value.MethodEntry.builtin(&builtinOpenSSLSslSocketCipher, .{ .exact = 1 }));
+    try openssl_singleton.module.methods.put(try vm.intern("__ssl_socket_peer_cert_pem"), value.MethodEntry.builtin(&builtinOpenSSLSslSocketPeerCertPem, .{ .exact = 1 }));
+    try openssl_singleton.module.methods.put(try vm.intern("__ssl_socket_post_connection_check"), value.MethodEntry.builtin(&builtinOpenSSLSslSocketPostConnectionCheck, .{ .exact = 2 }));
 
     const digest_name = try vm.intern("Digest");
     const digest_val = try vm.newClass(digest_name, vm.object_class);
@@ -167,6 +187,222 @@ fn kdfErrorClass(vm: *VM) VMError!*ClassObject {
     const name = try vm.intern("KDFError");
     const entry = mod.constants.get(name) orelse return error.Fatal;
     return entry.value.toClassObject();
+}
+
+fn sslErrorClass(vm: *VM) VMError!*ClassObject {
+    const val = (try vm.resolveConstantPath("OpenSSL::SSL::SSLError")) orelse return opensslErrorClass(vm);
+    return val.toClassObject();
+}
+
+fn raiseSslError(vm: *VM, message: []const u8) VMError {
+    return vm.raiseExceptionFmt(try sslErrorClass(vm), "{s}", .{message});
+}
+
+fn raiseCurrentSslError(vm: *VM, prefix: []const u8) VMError {
+    var buffer: [256]u8 = undefined;
+    const err_code = c.ERR_get_error();
+    if (err_code != 0) {
+        c.ERR_error_string_n(err_code, &buffer, buffer.len);
+        const len = std.mem.indexOfScalar(u8, &buffer, 0) orelse buffer.len;
+        return vm.raiseExceptionFmt(try sslErrorClass(vm), "{s}: {s}", .{ prefix, buffer[0..len] });
+    }
+    return vm.raiseExceptionFmt(try sslErrorClass(vm), "{s}", .{prefix});
+}
+
+fn sslStateFromReceiver(vm: *VM, receiver: Value) VMError!?*NativeSslSocket {
+    const handle_value = try vm.getInstanceVariable(receiver, "@__ssl_native");
+    if (handle_value.isNil()) return null;
+    if (!handle_value.isInteger()) return error.Fatal;
+    const ptr_value = handle_value.toInteger();
+    if (ptr_value <= 0) return error.Fatal;
+    return @ptrFromInt(@as(usize, @intCast(ptr_value)));
+}
+
+fn setSslStateOnReceiver(vm: *VM, receiver: Value, state: ?*NativeSslSocket) VMError!void {
+    const value_to_set = if (state) |ptr|
+        Value.integer(@intCast(@intFromPtr(ptr)))
+    else
+        Value.nil();
+    try vm.setInstanceVariable(receiver, "@__ssl_native", value_to_set);
+}
+
+fn sslReceiverIo(vm: *VM, receiver: Value) VMError!*value.IoObject {
+    const io_value = try vm.getInstanceVariable(receiver, "@io");
+    if (!io_value.isIo()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "SSL socket is not wrapping an IO", .{});
+    }
+    return io_value.toIoObject();
+}
+
+fn sslReceiverContext(vm: *VM, receiver: Value) VMError!Value {
+    return vm.getInstanceVariable(receiver, "@context");
+}
+
+fn contextStringIvar(vm: *VM, context: Value, name: []const u8) VMError!?[]const u8 {
+    const value_arg = try vm.getInstanceVariable(context, name);
+    if (value_arg.isNil()) return null;
+    return (try coerceToStringValueExact(vm, value_arg)).toStringObject().str;
+}
+
+fn contextIntegerIvar(vm: *VM, context: Value, name: []const u8) VMError!?i64 {
+    const value_arg = try vm.getInstanceVariable(context, name);
+    if (value_arg.isNil()) return null;
+    return try coerceToI64Exact(vm, value_arg, "bignum too big to convert into `long`");
+}
+
+fn contextBoolIvar(vm: *VM, context: Value, name: []const u8, default: bool) VMError!bool {
+    const value_arg = try vm.getInstanceVariable(context, name);
+    if (value_arg.isNil()) return default;
+    return value_arg.is_truthy();
+}
+
+fn loadVerifyLocations(vm: *VM, ssl_ctx: *c.SSL_CTX, file: ?[]const u8, path: ?[]const u8) VMError!void {
+    const file_z = if (file) |f| try vm.allocCStringZ(f) else null;
+    defer if (file_z) |buf| vm.allocator.free(buf);
+    const path_z = if (path) |p| try vm.allocCStringZ(p) else null;
+    defer if (path_z) |buf| vm.allocator.free(buf);
+
+    if (c.SSL_CTX_load_verify_locations(
+        ssl_ctx,
+        if (file_z) |buf| buf.ptr else null,
+        if (path_z) |buf| buf.ptr else null,
+    ) != 1) {
+        return raiseCurrentSslError(vm, "SSL_CTX_load_verify_locations failed");
+    }
+}
+
+fn configureSslCertStore(vm: *VM, ssl_ctx: *c.SSL_CTX, context: Value, verify_mode: i64) VMError!void {
+    if (verify_mode == 0) return;
+
+    var loaded_paths = false;
+    if (try contextStringIvar(vm, context, "@ca_file")) |ca_file| {
+        try loadVerifyLocations(vm, ssl_ctx, ca_file, null);
+        loaded_paths = true;
+    }
+    if (try contextStringIvar(vm, context, "@ca_path")) |ca_path| {
+        try loadVerifyLocations(vm, ssl_ctx, null, ca_path);
+        loaded_paths = true;
+    }
+
+    const cert_store = try vm.getInstanceVariable(context, "@cert_store");
+    if (!cert_store.isNil()) {
+        if ((try vm.getInstanceVariable(cert_store, "@set_default_paths")).is_truthy()) {
+            if (c.SSL_CTX_set_default_verify_paths(ssl_ctx) != 1) {
+                return raiseCurrentSslError(vm, "SSL_CTX_set_default_verify_paths failed");
+            }
+            loaded_paths = true;
+        }
+
+        const files = try vm.getInstanceVariable(cert_store, "@files");
+        if (files.isArray()) {
+            for (files.toArrayObject().elements.items) |entry| {
+                const file = (try coerceToStringValueExact(vm, entry)).toStringObject().str;
+                try loadVerifyLocations(vm, ssl_ctx, file, null);
+                loaded_paths = true;
+            }
+        }
+
+        const paths = try vm.getInstanceVariable(cert_store, "@paths");
+        if (paths.isArray()) {
+            for (paths.toArrayObject().elements.items) |entry| {
+                const path = (try coerceToStringValueExact(vm, entry)).toStringObject().str;
+                try loadVerifyLocations(vm, ssl_ctx, null, path);
+                loaded_paths = true;
+            }
+        }
+    }
+
+    if (!loaded_paths) {
+        if (c.SSL_CTX_set_default_verify_paths(ssl_ctx) != 1) {
+            return raiseCurrentSslError(vm, "SSL_CTX_set_default_verify_paths failed");
+        }
+    }
+}
+
+fn createSslState(vm: *VM, receiver: Value) VMError!*NativeSslSocket {
+    const io = try sslReceiverIo(vm, receiver);
+    if (io.closed) return vm.raiseExceptionFmt(vm.io_error_class, "closed stream", .{});
+
+    const context = try sslReceiverContext(vm, receiver);
+    const ssl_ctx = c.SSL_CTX_new(c.TLS_client_method()) orelse return raiseCurrentSslError(vm, "SSL_CTX_new failed");
+    errdefer c.SSL_CTX_free(ssl_ctx);
+
+    const verify_mode = (try contextIntegerIvar(vm, context, "@verify_mode")) orelse 0;
+    c.SSL_CTX_set_verify(ssl_ctx, @intCast(verify_mode), null);
+    try configureSslCertStore(vm, ssl_ctx, context, verify_mode);
+
+    if (try contextStringIvar(vm, context, "@ciphers")) |ciphers| {
+        const ciphers_z = try vm.allocCStringZ(ciphers);
+        defer vm.allocator.free(ciphers_z);
+        if (c.SSL_CTX_set_cipher_list(ssl_ctx, ciphers_z.ptr) != 1) {
+            return raiseCurrentSslError(vm, "SSL_CTX_set_cipher_list failed");
+        }
+    }
+
+    const ssl = c.SSL_new(ssl_ctx) orelse return raiseCurrentSslError(vm, "SSL_new failed");
+    errdefer c.SSL_free(ssl);
+
+    if (c.SSL_set_fd(ssl, io.fd) != 1) {
+        return raiseCurrentSslError(vm, "SSL_set_fd failed");
+    }
+
+    const hostname_value = try vm.getInstanceVariable(receiver, "@hostname");
+    if (!hostname_value.isNil()) {
+        const hostname = (try coerceToStringValueExact(vm, hostname_value)).toStringObject().str;
+        const hostname_z = try vm.allocCStringZ(hostname);
+        defer vm.allocator.free(hostname_z);
+
+        if (c.SSL_set_tlsext_host_name(ssl, hostname_z.ptr) != 1) {
+            return raiseCurrentSslError(vm, "SSL_set_tlsext_host_name failed");
+        }
+
+        if (try contextBoolIvar(vm, context, "@verify_hostname", false) and verify_mode != 0) {
+            const params = c.SSL_get0_param(ssl) orelse return raiseSslError(vm, "SSL_get0_param failed");
+            if (c.X509_VERIFY_PARAM_set1_host(params, hostname_z.ptr, 0) != 1) {
+                return raiseCurrentSslError(vm, "X509_VERIFY_PARAM_set1_host failed");
+            }
+        }
+    }
+
+    const state = std.heap.c_allocator.create(NativeSslSocket) catch return error.Fatal;
+    state.* = .{ .ssl_ctx = ssl_ctx, .ssl = ssl };
+    return state;
+}
+
+fn destroySslState(state: *NativeSslSocket) void {
+    _ = c.SSL_shutdown(state.ssl);
+    c.SSL_free(state.ssl);
+    c.SSL_CTX_free(state.ssl_ctx);
+    std.heap.c_allocator.destroy(state);
+}
+
+fn waitSymbol(vm: *VM, name: []const u8) VMError!Value {
+    const sym = try vm.intern(name);
+    return Value.fromObject(&sym.object);
+}
+
+fn sslConnectImpl(vm: *VM, receiver: Value, exception: bool) VMError!Value {
+    if (try sslStateFromReceiver(vm, receiver)) |_| return receiver;
+
+    const state = try createSslState(vm, receiver);
+    errdefer destroySslState(state);
+
+    const rc = c.SSL_connect(state.ssl);
+    if (rc != 1) {
+        const err_code = c.SSL_get_error(state.ssl, rc);
+        if (!exception) {
+            if (err_code == c.SSL_ERROR_WANT_READ) return waitSymbol(vm, "wait_readable");
+            if (err_code == c.SSL_ERROR_WANT_WRITE) return waitSymbol(vm, "wait_writable");
+        }
+        return raiseCurrentSslError(vm, "SSL_connect failed");
+    }
+
+    try setSslStateOnReceiver(vm, receiver, state);
+    return receiver;
+}
+
+fn requireSslState(vm: *VM, receiver: Value) VMError!*NativeSslSocket {
+    return (try sslStateFromReceiver(vm, receiver)) orelse raiseSslError(vm, "SSL socket is not connected");
 }
 
 fn isKindOfClass(vm: *VM, value_arg: Value, expected: *ClassObject) bool {
@@ -709,4 +945,118 @@ pub fn builtinOpenSSLKDFScrypt(vm: *VM, _: Value, args: []Value, _: ?Block) VMEr
     };
 
     return binaryString(vm, output);
+}
+
+pub fn builtinOpenSSLSslSocketConnect(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 3);
+    _ = args[1];
+    return sslConnectImpl(vm, args[0], args[2].is_truthy());
+}
+
+pub fn builtinOpenSSLSslSocketReadNonblock(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 4);
+    const state = try requireSslState(vm, args[0]);
+    const length = try coerceToI64Exact(vm, args[1], "bignum too big to convert into `long`");
+    if (length < 0) return vm.raiseExceptionFmt(vm.argument_error_class, "negative string size (or size too big)", .{});
+
+    const len: usize = @intCast(length);
+    if (len == 0) return binaryString(vm, "");
+
+    const buffer = vm.allocator.alloc(u8, len) catch return error.Fatal;
+    defer vm.allocator.free(buffer);
+
+    var read_len: usize = 0;
+    if (c.SSL_read_ex(state.ssl, buffer.ptr, len, &read_len) == 1) {
+        return binaryString(vm, buffer[0..read_len]);
+    }
+
+    const exception = args[3].is_truthy();
+    const err_code = c.SSL_get_error(state.ssl, 0);
+    if (!exception) {
+        if (err_code == c.SSL_ERROR_WANT_READ) return waitSymbol(vm, "wait_readable");
+        if (err_code == c.SSL_ERROR_WANT_WRITE) return waitSymbol(vm, "wait_writable");
+    }
+    if (err_code == c.SSL_ERROR_ZERO_RETURN) return Value.nil();
+    return raiseCurrentSslError(vm, "SSL_read failed");
+}
+
+pub fn builtinOpenSSLSslSocketWriteNonblock(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 3);
+    const state = try requireSslState(vm, args[0]);
+    const data = (try coerceToStringValueExact(vm, args[1])).toStringObject().str;
+
+    var written_len: usize = 0;
+    if (c.SSL_write_ex(state.ssl, data.ptr, data.len, &written_len) == 1) {
+        return Value.integer(@intCast(written_len));
+    }
+
+    const exception = args[2].is_truthy();
+    const err_code = c.SSL_get_error(state.ssl, 0);
+    if (!exception) {
+        if (err_code == c.SSL_ERROR_WANT_READ) return waitSymbol(vm, "wait_readable");
+        if (err_code == c.SSL_ERROR_WANT_WRITE) return waitSymbol(vm, "wait_writable");
+    }
+    return raiseCurrentSslError(vm, "SSL_write failed");
+}
+
+pub fn builtinOpenSSLSslSocketClose(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (try sslStateFromReceiver(vm, args[0])) |state| {
+        destroySslState(state);
+        try setSslStateOnReceiver(vm, args[0], null);
+    }
+    return Value.nil();
+}
+
+pub fn builtinOpenSSLSslSocketEof(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const state = try requireSslState(vm, args[0]);
+    if (c.SSL_pending(state.ssl) > 0) return Value.boolean(false);
+
+    var byte: [1]u8 = undefined;
+    var read_len: usize = 0;
+    if (c.SSL_peek_ex(state.ssl, &byte, 1, &read_len) == 1) return Value.boolean(false);
+    return Value.boolean(c.SSL_get_error(state.ssl, 0) == c.SSL_ERROR_ZERO_RETURN);
+}
+
+pub fn builtinOpenSSLSslSocketSslVersion(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const state = try requireSslState(vm, args[0]);
+    const version_ptr = c.SSL_get_version(state.ssl);
+    if (version_ptr == null) return Value.nil();
+    return vm.newString(std.mem.sliceTo(version_ptr, 0), false);
+}
+
+pub fn builtinOpenSSLSslSocketCipher(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const state = try requireSslState(vm, args[0]);
+    const cipher = c.SSL_get_current_cipher(state.ssl) orelse return Value.nil();
+
+    const name_ptr = c.SSL_CIPHER_get_name(cipher);
+    const version_ptr = c.SSL_CIPHER_get_version(cipher);
+    var alg_bits: c_int = 0;
+    const bits = c.SSL_CIPHER_get_bits(cipher, &alg_bits);
+
+    const result = try vm.createArray();
+    result.elements.append(vm.gc_allocator, try vm.newString(std.mem.sliceTo(name_ptr, 0), false)) catch return error.Fatal;
+    result.elements.append(vm.gc_allocator, try vm.newString(std.mem.sliceTo(version_ptr, 0), false)) catch return error.Fatal;
+    result.elements.append(vm.gc_allocator, Value.integer(bits)) catch return error.Fatal;
+    result.elements.append(vm.gc_allocator, Value.integer(alg_bits)) catch return error.Fatal;
+    return Value.fromObject(&result.object);
+}
+
+pub fn builtinOpenSSLSslSocketPeerCertPem(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    _ = try requireSslState(vm, args[0]);
+    return Value.nil();
+}
+
+pub fn builtinOpenSSLSslSocketPostConnectionCheck(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 2);
+    const state = try requireSslState(vm, args[0]);
+    _ = args[1];
+    if (c.SSL_get_verify_result(state.ssl) != c.X509_V_OK) {
+        return raiseCurrentSslError(vm, "SSL peer verification failed");
+    }
+    return args[0];
 }

@@ -89,6 +89,11 @@ fn buildTinyCC(b: *std.Build) *std.Build.Step {
     return tinycc_build_step;
 }
 
+fn linkOpenSSL(module: *std.Build.Module) void {
+    module.linkSystemLibrary("ssl", .{});
+    module.linkSystemLibrary("crypto", .{});
+}
+
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
@@ -134,6 +139,7 @@ pub fn build(b: *std.Build) void {
     }
 
     exe.root_module.link_libc = true;
+    linkOpenSSL(exe.root_module);
 
     const bdwgc = b.dependency("bdwgc_zig", .{
         .target = target,
@@ -200,6 +206,7 @@ pub fn build(b: *std.Build) void {
         test_exe.root_module.addIncludePath(b.path("zig-out/tinycc"));
     }
     test_exe.root_module.link_libc = true;
+    linkOpenSSL(test_exe.root_module);
 
     test_exe.root_module.addImport("bdwgc", bdwgc.module("bdwgc"));
     test_exe.root_module.addImport("build_options", build_options_mod);
@@ -215,6 +222,7 @@ pub fn build(b: *std.Build) void {
     cora_mod.addIncludePath(b.path("zig-out/prism/include"));
     cora_mod.addIncludePath(b.path("zig-out/onigmo/"));
     cora_mod.addObjectFile(b.path("zig-out/onigmo/.libs/libonigmo.a"));
+    linkOpenSSL(cora_mod);
     if (tcc_jit) {
         cora_mod.addIncludePath(b.path("zig-out/tinycc"));
     }

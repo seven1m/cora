@@ -9,6 +9,7 @@ pkgs.mkShell {
     gnumake
     libtool
     m4
+    openssl
     pkg-config
     stdenv.cc
     zig_0_16
