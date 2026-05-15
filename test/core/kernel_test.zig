@@ -397,6 +397,64 @@ test "Kernel lifecycle copy helpers match default dispatch behavior" {
     try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "TypeError") != null);
 }
 
+test "Kernel#clone mirrors MRI freeze keyword semantics" {
+    var result = try evalCode(
+        \\class CloneFreezeNilSpec
+        \\  attr_reader :kwargs
+        \\  def initialize_clone(orig, **kwargs)
+        \\    @kwargs = kwargs
+        \\    super(orig)
+        \\  end
+        \\end
+        \\
+        \\obj = CloneFreezeNilSpec.new
+        \\clone = obj.clone(freeze: nil)
+        \\[clone.kwargs, clone.frozen?]
+    );
+    try std.testing.expect(result.isArray());
+    try std.testing.expect(result.toArrayObject().elements.items[0].isHash());
+    try std.testing.expectEqual(@as(usize, 0), result.toArrayObject().elements.items[0].toHashObject().map.count());
+    try std.testing.expectEqual(false, result.toArrayObject().elements.items[1].toBool());
+
+    result = try evalCode(
+        \\obj = Object.new.freeze
+        \\[obj.clone(freeze: false).frozen?, obj.clone(freeze: true).frozen?]
+    );
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(false, result.toArrayObject().elements.items[0].toBool());
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[1].toBool());
+
+    var stdout_buf: [4096]u8 = undefined;
+    var stderr_buf: [4096]u8 = undefined;
+
+    var bad = evalCodeWithOutput(
+        \\1.clone(freeze: false)
+    , &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.UnhandledException, bad.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "can't unfreeze Integer") != null);
+
+    bad = evalCodeWithOutput(
+        \\nil.clone(freeze: false)
+    , &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.UnhandledException, bad.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "can't unfreeze NilClass") != null);
+
+    result = try evalCode(
+        \\sym = :my_symbol
+        \\flt = 1.5
+        \\big = 1 << 80
+        \\[
+        \\  sym.clone.equal?(sym),
+        \\  flt.clone.equal?(flt),
+        \\  big.clone == big
+        \\]
+    );
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[0].toBool());
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[1].toBool());
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[2].toBool());
+}
+
 test "Array literal preserves side effects across respond_to? calls" {
     const result = try evalCode(
         \\class RespondToMissingHookSpec

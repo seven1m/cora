@@ -2100,13 +2100,19 @@ pub fn builtinStringDup(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
 }
 
 pub fn builtinStringClone(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    const duplicate = try builtinStringDup(vm, receiver, args, null);
+    try vm.requireArgCount(args, 0);
+    const kwfreeze = try vm.consumeCloneFreezeOpt();
 
-    if (receiver.isFrozen()) {
-        var mutable_duplicate = duplicate;
-        mutable_duplicate.freeze();
-    }
+    const string_obj = receiver.toStringObject();
+    const duplicate = try vm.newStringForClassWithEncoding(vm.getClass(receiver), string_obj.str, false, string_obj.encoding);
 
+    const src_obj = receiver.getObjectPointer().?;
+    const dst_obj = duplicate.getObjectPointer().?;
+    try vm.copyObjectInstanceVariables(src_obj, dst_obj);
+
+    try vm.callInitializeClone(duplicate, receiver, kwfreeze);
+    vm.applyCloneFreeze(receiver, duplicate, kwfreeze);
+    try vm.copyPackedPointerTargets(receiver.toStringObject(), duplicate.toStringObject());
     try vm.copySingletonClassMetadata(receiver, duplicate);
     return duplicate;
 }

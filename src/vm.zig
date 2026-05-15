@@ -6583,6 +6583,50 @@ pub const VM = struct {
         return self.builtin_keyword_ctx != null and self.builtin_keyword_ctx.?.kw_values.len > 0;
     }
 
+    pub fn consumeCloneFreezeOpt(self: *VM) VMError!Value {
+        const freeze_value = try self.consumeKeywordArg("freeze");
+        try self.validateKeywordArgsConsumed();
+
+        const value_opt = freeze_value orelse return Value.nil();
+        if (value_opt.isNil() or value_opt.isTrue() or value_opt.isFalse()) return value_opt;
+
+        return self.raiseExceptionFmt(
+            self.argument_error_class,
+            "unexpected value for freeze: {s}",
+            .{self.className(value_opt)},
+        );
+    }
+
+    pub fn callInitializeClone(self: *VM, clone: Value, original: Value, kwfreeze: Value) VMError!void {
+        var initialize_clone_args = [_]Value{original};
+        if (kwfreeze.isNil()) {
+            _ = try self.callMethodByName(clone, "initialize_clone", initialize_clone_args[0..], null);
+            return;
+        }
+
+        const freeze_sym = try self.intern("freeze");
+        const kw_keys = [_]Value{Value.fromObject(&freeze_sym.object)};
+        const kw_values = [_]Value{kwfreeze};
+        _ = try self.callMethodByNameWithKeywords(
+            clone,
+            "initialize_clone",
+            initialize_clone_args[0..],
+            kw_keys[0..],
+            kw_values[0..],
+            null,
+        );
+    }
+
+    pub fn applyCloneFreeze(self: *VM, original: Value, clone: Value, kwfreeze: Value) void {
+        _ = self;
+        if (kwfreeze.isFalse()) return;
+
+        if (kwfreeze.isTrue() or original.isFrozen()) {
+            var mutable_clone = clone;
+            mutable_clone.freeze();
+        }
+    }
+
     pub fn consumeKeywordArg(self: *VM, name: []const u8) VMError!?Value {
         const ctx = self.builtin_keyword_ctx orelse return null;
 

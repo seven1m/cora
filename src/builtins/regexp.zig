@@ -668,11 +668,12 @@ fn builtinRegexpDup(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!
 }
 
 fn builtinRegexpClone(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    const duplicate = try builtinRegexpDup(vm, receiver, args, null);
-    if (receiver.isFrozen()) {
-        var mutable_duplicate = duplicate;
-        mutable_duplicate.freeze();
-    }
+    try vm.requireArgCount(args, 0);
+    const kwfreeze = try vm.consumeCloneFreezeOpt();
+
+    const duplicate = try builtinRegexpDup(vm, receiver, &[_]Value{}, null);
+    try vm.callInitializeClone(duplicate, receiver, kwfreeze);
+    vm.applyCloneFreeze(receiver, duplicate, kwfreeze);
     try vm.copySingletonClassMetadata(receiver, duplicate);
     return duplicate;
 }

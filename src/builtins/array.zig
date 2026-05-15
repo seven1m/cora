@@ -2119,6 +2119,7 @@ pub fn builtinArrayDup(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
 
 pub fn builtinArrayClone(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
+    const kwfreeze = try vm.consumeCloneFreezeOpt();
 
     const out = try vm.newObjectForClass(vm.getClass(receiver));
     const source = receiver.toArrayObject();
@@ -2129,14 +2130,8 @@ pub fn builtinArrayClone(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     const dst_obj = out.getObjectPointer().?;
     try vm.copyObjectInstanceVariables(src_obj, dst_obj);
 
-    var initialize_clone_args = [_]Value{receiver};
-    _ = try vm.callMethodByName(out, "initialize_clone", initialize_clone_args[0..], null);
-
-    if (receiver.isFrozen()) {
-        var mutable_out = out;
-        mutable_out.freeze();
-    }
-
+    try vm.callInitializeClone(out, receiver, kwfreeze);
+    vm.applyCloneFreeze(receiver, out, kwfreeze);
     try vm.copySingletonClassMetadata(receiver, out);
     return out;
 }

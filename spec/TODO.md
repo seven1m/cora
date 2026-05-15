@@ -1190,7 +1190,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/kernel/chomp_spec.rb
 - [ ] core/kernel/chop_spec.rb
 - [x] core/kernel/class_spec.rb
-- [ ] core/kernel/clone_spec.rb
+- [-] core/kernel/clone_spec.rb
 - [ ] core/kernel/comparison_spec.rb
 - [-] core/kernel/define_singleton_method_spec.rb
 - [ ] core/kernel/display_spec.rb
@@ -1210,7 +1210,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/kernel/gets_spec.rb
 - [ ] core/kernel/global_variables_spec.rb
 - [ ] core/kernel/gsub_spec.rb
-- [ ] core/kernel/initialize_clone_spec.rb
+- [x] core/kernel/initialize_clone_spec.rb
 - [ ] core/kernel/initialize_copy_spec.rb
 - [ ] core/kernel/initialize_dup_spec.rb
 - [ ] core/kernel/inspect_spec.rb

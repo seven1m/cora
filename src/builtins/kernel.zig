@@ -298,6 +298,9 @@ pub fn register(vm: *VM) !void {
     const dup_sym = try vm.intern("dup");
     try vm.kernel_module.methods.put(dup_sym, value.MethodEntry.builtin(&builtinKernelDup, .{ .exact = 0 }));
 
+    const clone_sym = try vm.intern("clone");
+    try vm.kernel_module.methods.put(clone_sym, value.MethodEntry.builtin(&builtinKernelClone, .{ .exact = 0 }));
+
     const initialize_clone_sym = try vm.intern("initialize_clone");
     try vm.kernel_module.methods.put(initialize_clone_sym, value.MethodEntry.builtinWithVisibility(&builtinKernelInitializeClone, .{ .variadic = 0 }, .private));
 
@@ -1066,11 +1069,36 @@ pub fn builtinKernelDup(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
 pub fn builtinKernelInitializeClone(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
 
-    _ = try vm.consumeKeywordArg("freeze");
-    try vm.validateKeywordArgsConsumed();
+    _ = try vm.consumeCloneFreezeOpt();
 
     _ = try vm.callMethodByName(receiver, "initialize_copy", args[0..1], null);
     return receiver;
+}
+
+pub fn builtinKernelClone(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
+    const kwfreeze = try vm.consumeCloneFreezeOpt();
+    if (receiver.isSymbol() or receiver.isFloat() or receiver.isBigInteger()) {
+        if (kwfreeze.isFalse()) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "can't unfreeze {s}", .{vm.className(receiver)});
+        }
+        return receiver;
+    }
+    const src_obj = receiver.getObjectPointer() orelse {
+        if (kwfreeze.isFalse()) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "can't unfreeze {s}", .{vm.className(receiver)});
+        }
+        return receiver;
+    };
+    const duplicate = try vm.newObjectForClass(vm.getClass(receiver));
+    const dst_obj = duplicate.getObjectPointer() orelse return error.Fatal;
+    try vm.copyObjectInstanceVariables(src_obj, dst_obj);
+
+    try vm.callInitializeClone(duplicate, receiver, kwfreeze);
+    vm.applyCloneFreeze(receiver, duplicate, kwfreeze);
+    try vm.copySingletonClassMetadata(receiver, duplicate);
+    return duplicate;
 }
 
 pub fn builtinKernelBlockGiven(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
