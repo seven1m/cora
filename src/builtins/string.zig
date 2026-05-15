@@ -169,6 +169,9 @@ pub fn register(vm: *VM) !void {
     const string_size_sym = try vm.intern("size");
     try vm.string_class.module.methods.put(string_size_sym, value.MethodEntry.builtin(&builtinStringLength, .{ .exact = 0 }));
 
+    const string_count_sym = try vm.intern("count");
+    try vm.string_class.module.methods.put(string_count_sym, value.MethodEntry.builtin(&builtinStringCount, .{ .variadic = 1 }));
+
     const string_empty_sym = try vm.intern("empty?");
     try vm.string_class.module.methods.put(string_empty_sym, value.MethodEntry.builtin(&builtinStringEmpty, .{ .exact = 0 }));
 
@@ -2119,6 +2122,41 @@ pub fn builtinStringLength(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     return Value.integer(@intCast(string_obj.encoding.charCount(string_obj.str)));
 }
 
+pub fn builtinStringCount(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountAtLeast(args, 1);
+    const string_obj = receiver.toStringObject();
+
+    const selectors = vm.allocator.alloc(StringDeleteSelector, args.len) catch return error.Fatal;
+    defer vm.allocator.free(selectors);
+    const selector_count = try buildStringDeleteSelectors(vm, string_obj, args, selectors);
+    defer {
+        for (selectors[0..selector_count]) |*selector| {
+            selector.deinit(vm.allocator);
+        }
+    }
+
+    var count: usize = 0;
+    var index: usize = 0;
+    while (index < string_obj.str.len) {
+        const parsed = string_obj.encoding.nextCodepoint(string_obj.str, &index);
+        if (parsed.len == 0) break;
+        if (!parsed.valid) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "invalid byte sequence in {s}", .{string_obj.encoding.name()});
+        }
+
+        var matched_all = true;
+        for (selectors[0..selector_count]) |selector| {
+            if (!stringDeleteSelectorContains(selector, parsed.codepoint)) {
+                matched_all = false;
+                break;
+            }
+        }
+        if (matched_all) count += 1;
+    }
+
+    return Value.integer(@intCast(count));
+}
+
 pub fn builtinStringEmpty(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return Value.boolean(receiver.toStringObject().str.len == 0);
@@ -3088,16 +3126,13 @@ const StringDeleteResult = struct {
     modified: bool,
 };
 
-fn stringDeleteCompute(vm: *VM, string_obj: *value.StringObject, args: []Value) VMError!StringDeleteResult {
-    const selectors = vm.allocator.alloc(StringDeleteSelector, args.len) catch return error.Fatal;
-    defer vm.allocator.free(selectors);
+fn buildStringDeleteSelectors(
+    vm: *VM,
+    string_obj: *value.StringObject,
+    args: []Value,
+    selectors: []StringDeleteSelector,
+) VMError!usize {
     var selector_count: usize = 0;
-    defer {
-        for (selectors[0..selector_count]) |*selector| {
-            selector.deinit(vm.allocator);
-        }
-    }
-
     for (args) |arg| {
         const selector = try arg.coerceToStringValue(vm, "no implicit conversion into String");
         const selector_obj = selector.toStringObject();
@@ -3106,6 +3141,19 @@ fn stringDeleteCompute(vm: *VM, string_obj: *value.StringObject, args: []Value) 
         }
         selectors[selector_count] = try stringDeleteParseSelector(vm, selector);
         selector_count += 1;
+    }
+
+    return selector_count;
+}
+
+fn stringDeleteCompute(vm: *VM, string_obj: *value.StringObject, args: []Value) VMError!StringDeleteResult {
+    const selectors = vm.allocator.alloc(StringDeleteSelector, args.len) catch return error.Fatal;
+    defer vm.allocator.free(selectors);
+    const selector_count = try buildStringDeleteSelectors(vm, string_obj, args, selectors);
+    defer {
+        for (selectors[0..selector_count]) |*selector| {
+            selector.deinit(vm.allocator);
+        }
     }
 
     var out: std.ArrayList(u8) = .empty;

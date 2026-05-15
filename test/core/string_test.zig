@@ -178,6 +178,16 @@ test "String#length and String#size" {
     try std.testing.expectEqual(@as(i64, 5), result.toInteger());
 }
 
+test "String#count" {
+    var result = try evalCode("'hello'.count('lo')");
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 3), result.toInteger());
+
+    result = try evalCode("'hello'.count('lo', '^o')");
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 2), result.toInteger());
+}
+
 test "String#[] with integer index" {
     var result = try evalCode("'hello'[0]");
     try std.testing.expect(result.isString());
