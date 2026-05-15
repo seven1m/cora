@@ -230,6 +230,9 @@ pub fn register(vm: *VM) !void {
     const instance_variable_set_sym = try vm.intern("instance_variable_set");
     try vm.kernel_module.methods.put(instance_variable_set_sym, MethodEntry.builtin(&builtinKernelInstanceVariableSet, .{ .exact = 2 }));
 
+    const instance_variables_sym = try vm.intern("instance_variables");
+    try vm.kernel_module.methods.put(instance_variables_sym, MethodEntry.builtin(&builtinKernelInstanceVariables, .{ .exact = 0 }));
+
     const to_s_sym = try vm.intern("to_s");
     try vm.kernel_module.methods.put(to_s_sym, MethodEntry.builtin(&builtinKernelToS, .{ .exact = 0 }));
 
@@ -1375,6 +1378,12 @@ pub fn builtinKernelInstanceVariableSet(vm: *VM, receiver: Value, args: []Value,
     const name_str = try vm.coerceToIvarName(args[0]);
     try vm.setInstanceVariable(receiver, name_str, args[1]);
     return args[1];
+}
+
+pub fn builtinKernelInstanceVariables(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const array = try vm.getInstanceVariableNames(receiver);
+    return Value.fromObject(&array.object);
 }
 
 pub fn builtinKernelToS(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {

@@ -62,7 +62,7 @@ pub const Object = struct {
     flags: u32,
     class: ?*ClassObject,
     singleton_class: ?*ClassObject,
-    instance_variables: ?std.AutoHashMap(*SymbolObject, Value),
+    instance_variables: ?std.array_hash_map.Auto(*SymbolObject, Value),
 };
 
 pub const SymbolObject = struct {

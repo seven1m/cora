@@ -1725,6 +1725,8 @@ class MockObject
   end
 
   def restore_method_wrappers
+    return if @wrapped_methods.empty?
+
     singleton = class << self; self; end
     method_names = @wrapped_methods.keys
     i = 0

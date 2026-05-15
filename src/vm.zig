@@ -7736,10 +7736,10 @@ pub const VM = struct {
     pub fn copyObjectInstanceVariables(self: *VM, source_obj: *const Object, target_obj: *Object) VMError!void {
         const src_ivars = source_obj.instance_variables orelse return;
 
-        var copied_ivars = std.AutoHashMap(*value.SymbolObject, Value).init(self.gc_allocator);
+        var copied_ivars: std.array_hash_map.Auto(*value.SymbolObject, Value) = .{};
         var iter = src_ivars.iterator();
         while (iter.next()) |entry| {
-            copied_ivars.put(entry.key_ptr.*, entry.value_ptr.*) catch return error.Fatal;
+            copied_ivars.put(self.gc_allocator, entry.key_ptr.*, entry.value_ptr.*) catch return error.Fatal;
         }
         target_obj.instance_variables = copied_ivars;
     }
@@ -8225,19 +8225,32 @@ pub const VM = struct {
         return false;
     }
 
+    pub fn getInstanceVariableNames(self: *VM, receiver: Value) VMError!*value.ArrayObject {
+        const array = try self.createArray();
+        const obj_ptr = receiver.getObjectPointer() orelse return array;
+        const ivars = obj_ptr.instance_variables orelse return array;
+
+        for (ivars.keys()) |name_sym| {
+            array.elements.append(self.gc_allocator, Value.fromObject(&name_sym.object)) catch return error.Fatal;
+        }
+        return array;
+    }
+
     pub fn setInstanceVariable(self: *VM, receiver: Value, name: []const u8, val: Value) VMError!void {
         const obj_ptr = receiver.getObjectPointer() orelse {
-            const exc = try self.createException(self.type_error_class, "can't define singleton method for literals");
-            self.setPendingException(exc);
-            return error.Unwind;
+            return self.raiseExceptionFmt(self.frozen_error_class, "can't modify frozen {s}", .{self.className(receiver)});
         };
 
+        if (receiver.isFrozen()) {
+            return self.raiseExceptionFmt(self.frozen_error_class, "can't modify frozen {s}", .{self.className(receiver)});
+        }
+
         if (obj_ptr.instance_variables == null) {
-            obj_ptr.instance_variables = std.AutoHashMap(*SymbolObject, Value).init(self.gc_allocator);
+            obj_ptr.instance_variables = .{};
         }
 
         const name_sym = try self.intern(name);
-        obj_ptr.instance_variables.?.put(name_sym, val) catch return error.Fatal;
+        obj_ptr.instance_variables.?.put(self.gc_allocator, name_sym, val) catch return error.Fatal;
     }
 
     pub fn setGlobal(self: *VM, name: []const u8, val: Value) VMError!void {
