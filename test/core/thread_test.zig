@@ -44,6 +44,18 @@ test "Thread.main returns the main thread" {
     try std.testing.expectEqual(true, result.toBool());
 }
 
+test "ThreadGroup default is available from Thread#group" {
+    const result = try evalCode(
+        \\g = Thread.current.group
+        \\[ThreadGroup::Default == g, g.enclosed?, ThreadGroup::Default.add(Thread.current) == ThreadGroup::Default]
+    );
+    try std.testing.expect(result.isArray());
+    const elems = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(true, elems[0].toBool());
+    try std.testing.expectEqual(false, elems[1].toBool());
+    try std.testing.expectEqual(true, elems[2].toBool());
+}
+
 test "Thread#alive? returns true while running, false after termination" {
     const result = try evalCode(
         \\t = Thread.new { 42 }

@@ -52,6 +52,9 @@ pub fn register(vm: *VM) !void {
     const status_sym = try vm.intern("status");
     try vm.thread_class.module.methods.put(status_sym, value.MethodEntry.builtin(&builtinThreadStatus, .{ .exact = 0 }));
 
+    const group_sym = try vm.intern("group");
+    try vm.thread_class.module.methods.put(group_sym, value.MethodEntry.builtin(&builtinThreadGroup, .{ .exact = 0 }));
+
     const kill_sym = try vm.intern("kill");
     try vm.thread_class.module.methods.put(kill_sym, value.MethodEntry.builtin(&builtinThreadKill, .{ .exact = 0 }));
 
@@ -120,6 +123,12 @@ pub fn register(vm: *VM) !void {
 
     const report_on_exception_set_sym = try vm.intern("report_on_exception=");
     try vm.thread_class.module.methods.put(report_on_exception_set_sym, value.MethodEntry.builtin(&builtinThreadReportOnExceptionSet, .{ .exact = 1 }));
+
+    const add_sym = try vm.intern("add");
+    try vm.thread_group_class.module.methods.put(add_sym, value.MethodEntry.builtin(&builtinThreadGroupAdd, .{ .exact = 1 }));
+
+    const enclosed_sym = try vm.intern("enclosed?");
+    try vm.thread_group_class.module.methods.put(enclosed_sym, value.MethodEntry.builtin(&builtinThreadGroupEnclosed, .{ .exact = 0 }));
 }
 
 // =============================================================================
@@ -280,6 +289,24 @@ fn builtinThreadJoin(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
     }
 
     return receiver;
+}
+
+fn builtinThreadGroup(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return vm.default_thread_group;
+}
+
+fn builtinThreadGroupAdd(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (!args[0].isThread()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "wrong argument type (expected Thread)", .{});
+    }
+    return receiver;
+}
+
+fn builtinThreadGroupEnclosed(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return Value.boolean(false);
 }
 
 fn builtinThreadValue(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

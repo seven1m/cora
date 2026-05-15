@@ -408,6 +408,7 @@ pub const VM = struct {
     main_fiber: *value.FiberObject,
     current_fiber: *value.FiberObject,
     thread_class: *value.ClassObject,
+    thread_group_class: *value.ClassObject,
     mutex_class: *value.ClassObject,
     queue_class: *value.ClassObject,
     sized_queue_class: *value.ClassObject,
@@ -415,6 +416,7 @@ pub const VM = struct {
     thread_kill_exception_class: *value.ClassObject,
     closed_queue_error_class: *value.ClassObject,
     uncaught_throw_error_class: *value.ClassObject,
+    default_thread_group: Value = Value.nil(),
     main_thread: ?*value.ThreadObject = null,
     current_thread: ?*value.ThreadObject = null,
     thread_list: std.ArrayList(*value.ThreadObject) = .empty,
@@ -596,6 +598,7 @@ pub const VM = struct {
             .main_fiber = undefined,
             .current_fiber = undefined,
             .thread_class = undefined,
+            .thread_group_class = undefined,
             .mutex_class = undefined,
             .queue_class = undefined,
             .sized_queue_class = undefined,
@@ -603,6 +606,7 @@ pub const VM = struct {
             .thread_kill_exception_class = undefined,
             .closed_queue_error_class = undefined,
             .uncaught_throw_error_class = undefined,
+            .default_thread_group = Value.nil(),
             .main_thread = null,
             .current_thread = null,
             .thread_list = .empty,
@@ -820,6 +824,11 @@ pub const VM = struct {
         const thread_name_sym = try self.intern("Thread");
         const thread_class_val = try self.newClass(thread_name_sym, self.object_class);
         self.thread_class = thread_class_val.toClassObject();
+
+        const thread_group_name_sym = try self.intern("ThreadGroup");
+        const thread_group_class_val = try self.newClass(thread_group_name_sym, self.object_class);
+        self.thread_group_class = thread_group_class_val.toClassObject();
+        self.default_thread_group = try self.newObjectForClass(self.thread_group_class);
 
         const mutex_name_sym = try self.intern("Mutex");
         const mutex_class_val = try self.newClass(mutex_name_sym, self.object_class);
@@ -1175,10 +1184,13 @@ pub const VM = struct {
         self.object_class.module.constants.put(unbound_method_name_sym, .{ .value = unbound_method_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(fiber_name_sym, .{ .value = fiber_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(thread_name_sym, .{ .value = thread_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(thread_group_name_sym, .{ .value = thread_group_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(mutex_name_sym, .{ .value = mutex_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(queue_name_sym, .{ .value = queue_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(sized_queue_name_sym, .{ .value = sized_queue_class_val }) catch return error.Fatal;
         // Register Thread::Mutex alias
+        const default_name_sym = try self.intern("Default");
+        thread_group_class_val.toClassObject().module.constants.put(default_name_sym, .{ .value = self.default_thread_group }) catch return error.Fatal;
         thread_class_val.toClassObject().module.constants.put(mutex_name_sym, .{ .value = mutex_class_val }) catch return error.Fatal;
         thread_class_val.toClassObject().module.constants.put(queue_name_sym, .{ .value = queue_class_val }) catch return error.Fatal;
         thread_class_val.toClassObject().module.constants.put(sized_queue_name_sym, .{ .value = sized_queue_class_val }) catch return error.Fatal;
