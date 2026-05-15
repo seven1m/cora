@@ -25,6 +25,8 @@ pub fn register(vm: *VM) !void {
     try enumerable_val.toModuleObject().methods.put(detect_sym, value.MethodEntry.builtin(&builtinEnumerableFind, .{ .variadic = 0 }));
     const group_by_sym = try vm.intern("group_by");
     try enumerable_val.toModuleObject().methods.put(group_by_sym, value.MethodEntry.builtin(&builtinEnumerableGroupBy, .{ .exact = 0 }));
+    const grep_sym = try vm.intern("grep");
+    try enumerable_val.toModuleObject().methods.put(grep_sym, value.MethodEntry.builtin(&builtinEnumerableGrep, .{ .exact = 1 }));
     const inject_sym = try vm.intern("inject");
     try enumerable_val.toModuleObject().methods.put(inject_sym, value.MethodEntry.builtin(&builtinEnumerableInject, .{ .variadic = 0 }));
     const max_by_sym = try vm.intern("max_by");
@@ -116,6 +118,12 @@ fn collapseYieldValues(yield_values: *value.ArrayObject) Value {
     };
 }
 
+fn enumerablePatternMatches(vm: *VM, pattern: Value, element: Value) VMError!bool {
+    var match_args = [_]Value{element};
+    const result = try vm.callMethodByName(pattern, "===", match_args[0..], null);
+    return result.is_truthy();
+}
+
 fn enumerableNextValues(vm: *VM, enum_value: Value) VMError!?*value.ArrayObject {
     const next_values = vm.callMethodByName(enum_value, "next_values", &.{}, null) catch |err| {
         if (err == error.Unwind and vm.pendingException() != null and vm.pendingException().?.object.class == vm.stop_iteration_class) {
@@ -187,6 +195,46 @@ fn builtinEnumerableGroupBy(vm: *VM, receiver: Value, args: []Value, block: ?Blo
     }
 
     return Value.fromObject(&grouped.object);
+}
+
+fn builtinEnumerableGrep(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+
+    const saved_last_match = vm.globals.get("$~") orelse Value.nil();
+    errdefer if (block == null) {
+        if (saved_last_match.isMatchData()) {
+            vm.setLastMatch(saved_last_match.toMatchDataObject()) catch unreachable;
+        } else {
+            vm.clearLastMatch() catch unreachable;
+        }
+    };
+
+    const pattern = args[0];
+    const out = try vm.createArray();
+    const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
+
+    while (try enumerableNextElement(vm, enum_value)) |element| {
+        if (!try enumerablePatternMatches(vm, pattern, element)) continue;
+
+        if (block) |blk| {
+            const yield_args = [_]Value{element};
+            const result = try vm.yieldToBlock(blk, &yield_args);
+            if (result.controlFlowValue()) |return_value| return return_value;
+            out.elements.append(vm.gc_allocator, result.value) catch return error.Fatal;
+        } else {
+            out.elements.append(vm.gc_allocator, element) catch return error.Fatal;
+        }
+    }
+
+    if (block == null) {
+        if (saved_last_match.isMatchData()) {
+            try vm.setLastMatch(saved_last_match.toMatchDataObject());
+        } else {
+            try vm.clearLastMatch();
+        }
+    }
+
+    return Value.fromObject(&out.object);
 }
 
 fn builtinEnumerableFind(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
