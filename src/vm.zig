@@ -202,7 +202,7 @@ pub const Block = struct {
 };
 
 pub const CallFrame = struct {
-    pub const FrameType = enum { method, lambda, proc, fiber };
+    pub const FrameType = enum { method, lambda, proc, fiber, builtin };
 
     chunk: *Chunk,
     ip: usize,
@@ -1787,13 +1787,6 @@ pub const VM = struct {
     };
 
     fn autoloadRequireReceiver(self: *VM) VMError!Value {
-        if (self.frames.items.len > 0) {
-            const require_sym = try self.intern("require");
-            const frame_self = self.currentFrame().self_value;
-            if ((try self.findMethod(frame_self, require_sym)) != null) {
-                return frame_self;
-            }
-        }
         return self.main_self;
     }
 
@@ -2449,6 +2442,20 @@ pub const VM = struct {
 
     pub fn currentFrame(self: *VM) *CallFrame {
         return &self.frames.items[self.frames.items.len - 1];
+    }
+
+    fn nearestRubyFrame(self: *VM, start_exclusive: usize) ?*CallFrame {
+        var i = @min(start_exclusive, self.frames.items.len);
+        while (i > 0) {
+            i -= 1;
+            const frame = &self.frames.items[i];
+            if (frame.frame_type != .builtin) return frame;
+        }
+        return null;
+    }
+
+    pub fn currentRubyFrame(self: *VM) ?*CallFrame {
+        return self.nearestRubyFrame(self.frames.items.len);
     }
 
     fn currentChunk(self: *VM) *Chunk {
@@ -6355,6 +6362,16 @@ pub const VM = struct {
         );
     }
 
+    fn raiseMethodVisibilityError(self: *VM, method_name: []const u8, visibility: MethodVisibility) VMError {
+        const message = std.fmt.allocPrint(self.gc_allocator, "{s} method `{s}' called", .{
+            if (visibility == .private) "private" else "protected",
+            method_name,
+        }) catch return error.Fatal;
+        const exc = self.createException(self.no_method_error_class, message) catch return error.Fatal;
+        self.setPendingException(exc);
+        return error.Unwind;
+    }
+
     inline fn setupChunkCallFrame(
         self: *VM,
         method_chunk: *Chunk,
@@ -6507,10 +6524,17 @@ pub const VM = struct {
         self: *VM,
         builtin_method: BuiltinMethod,
         receiver: Value,
+        method_name: []const u8,
         args: []Value,
         block: ?Block,
         keyword_ctx: ?*BuiltinKeywordContext,
     ) VMError!Value {
+        const saved_frame_len = self.frames.items.len;
+        try self.pushBuiltinFrame(receiver, method_name, block);
+        defer if (self.frames.items.len > saved_frame_len and self.frames.items[self.frames.items.len - 1].frame_type == .builtin) {
+            self.popBuiltinFrame();
+        };
+
         const previous_ctx = self.builtin_keyword_ctx;
         self.builtin_keyword_ctx = keyword_ctx;
         defer self.builtin_keyword_ctx = previous_ctx;
@@ -6522,6 +6546,17 @@ pub const VM = struct {
             return err;
         };
         return result;
+    }
+
+    pub fn popCurrentBuiltinFrame(self: *VM) void {
+        std.debug.assert(self.frames.items.len > 0);
+        std.debug.assert(self.frames.items[self.frames.items.len - 1].frame_type == .builtin);
+        self.popBuiltinFrame();
+    }
+
+    pub fn currentRubyCallerFrame(self: *VM) ?*CallFrame {
+        if (self.frames.items.len == 0) return null;
+        return self.nearestRubyFrame(self.frames.items.len - 1);
     }
 
     fn copyKeywordContext(
@@ -6658,7 +6693,7 @@ pub const VM = struct {
                 return (try self.finishSubcallFromStack(saved_frame_count, saved_stack_len)).value();
             },
             .builtin => |fun_ptr| {
-                return self.invokeBuiltinMethod(fun_ptr, receiver, args, block, keyword_ctx);
+                return self.invokeBuiltinMethod(fun_ptr, receiver, resolved.name.name, args, block, keyword_ctx);
             },
             .proc => |proc_obj| {
                 if (keyword_ctx) |ctx| {
@@ -6745,9 +6780,71 @@ pub const VM = struct {
         return self.invokeResolvedMethodWithKeywords(resolved.?, receiver, args, block, keyword_ctx);
     }
 
+    fn callPublicMethodByNameInternal(
+        self: *VM,
+        receiver: Value,
+        method_name: []const u8,
+        args: []Value,
+        block: ?Block,
+        keyword_ctx: ?*BuiltinKeywordContext,
+    ) VMError!Value {
+        const method_name_sym = try self.intern(method_name);
+        const resolved = try self.findMethod(receiver, method_name_sym);
+
+        if (resolved) |r| {
+            if (r.entry.visibility != .public) {
+                return self.raiseMethodVisibilityError(method_name_sym.name, r.entry.visibility);
+            }
+            return self.invokeResolvedMethodWithKeywords(r, receiver, args, block, keyword_ctx);
+        }
+
+        const kw_hash = if (keyword_ctx) |ctx|
+            if (ctx.kw_values.len > 0) try self.materializeKeywordHashForContext(ctx) else null
+        else
+            null;
+        return self.invokeMethodMissing(receiver, method_name_sym, args, kw_hash, block);
+    }
+
     /// Call a method by name string (not from bytecode constant pool)
     pub fn callMethodByName(self: *VM, receiver: Value, method_name: []const u8, args: []Value, block: ?Block) VMError!Value {
         return self.callMethodByNameInternal(receiver, method_name, args, block, null);
+    }
+
+    pub fn callPublicMethodByName(self: *VM, receiver: Value, method_name: []const u8, args: []Value, block: ?Block) VMError!Value {
+        return self.callPublicMethodByNameInternal(receiver, method_name, args, block, null);
+    }
+
+    /// MRI records C methods as real control frames so backtraces preserve the
+    /// true call order. Reuse the nearest Ruby frame's location metadata so
+    /// lightweight builtin frames compose correctly with Ruby frames.
+    pub fn pushBuiltinFrame(self: *VM, receiver: Value, method_name: []const u8, block: ?Block) VMError!void {
+        if (self.frames.items.len >= self.frames.capacity) {
+            const exc = try self.createException(self.fiber_error_class, "fiber call stack overflow");
+            self.setPendingException(exc);
+            return error.Unwind;
+        }
+
+        const caller_frame = self.currentRubyFrame() orelse return;
+        self.frames.append(self.gc_allocator, .{
+            .chunk = caller_frame.chunk,
+            .ip = caller_frame.ip,
+            .locals_base = self.stack.items.len,
+            .ep = caller_frame.ep,
+            .stack_base = self.stack.items.len,
+            .self_value = receiver,
+            .block = block,
+            .frame_type = .builtin,
+            .method_name = method_name,
+            .dir_returns_nil = caller_frame.dir_returns_nil,
+        }) catch return error.Fatal;
+    }
+
+    pub fn popBuiltinFrame(self: *VM) void {
+        const frame = self.frames.pop().?;
+        std.debug.assert(frame.frame_type == .builtin);
+        if (self.frames.items.len > 0) {
+            self.current_lexical_scope = epLexScope(self.frames.items[self.frames.items.len - 1].ep);
+        }
     }
 
     pub fn callMethodByNameWithKeywords(
@@ -6769,6 +6866,11 @@ pub const VM = struct {
     /// Call a method by name while forwarding the current builtin keyword context.
     pub fn callMethodByNameForwardingKeywords(self: *VM, receiver: Value, method_name: []const u8, args: []Value, block: ?Block) VMError!Value {
         return self.callMethodByNameInternal(receiver, method_name, args, block, self.builtin_keyword_ctx);
+    }
+
+    /// Call a public method by name while forwarding the current builtin keyword context.
+    pub fn callPublicMethodByNameForwardingKeywords(self: *VM, receiver: Value, method_name: []const u8, args: []Value, block: ?Block) VMError!Value {
+        return self.callPublicMethodByNameInternal(receiver, method_name, args, block, self.builtin_keyword_ctx);
     }
 
     pub fn respondsToMethodByName(self: *VM, receiver: Value, method_name: []const u8, include_private: bool) VMError!bool {
@@ -7141,7 +7243,7 @@ pub const VM = struct {
                 } else null;
 
                 const saved_frame_len = self.frames.items.len;
-                const result = try self.invokeBuiltinMethod(fun_ptr, receiver, @constCast(args), block, maybe_keyword_ctx);
+                const result = try self.invokeBuiltinMethod(fun_ptr, receiver, method.name.name, @constCast(args), block, maybe_keyword_ctx);
                 if (self.frames.items.len < saved_frame_len) {
                     // Builtins can trigger block returns that unwind past this call helper. In
                     // that case the surviving frame already has the right stack state/result.
@@ -7607,7 +7709,7 @@ pub const VM = struct {
                 // For builtin methods, we need a mutable copy
                 var args_copy: [256]Value = undefined;
                 @memcpy(args_copy[0..args.len], args);
-                const result = try self.invokeBuiltinMethod(fun_ptr, receiver, args_copy[0..args.len], block, frame.forwarded_keyword_ctx);
+                const result = try self.invokeBuiltinMethod(fun_ptr, receiver, resolved.name.name, args_copy[0..args.len], block, frame.forwarded_keyword_ctx);
                 try self.push(result);
             },
             .proc => |proc_obj| {
@@ -9942,19 +10044,26 @@ pub const VM = struct {
             i -= 1;
             const frame = &self.frames.items[i];
 
-            const line = self.backtraceLineForFrame(frame);
-            const source = frame.chunk.source_file orelse frame.chunk.name;
+            const frame_line = self.backtraceLineForFrame(frame);
+            const frame_source = frame.chunk.source_file orelse frame.chunk.name;
             const backtrace_str = if (frame.method_name) |method_name|
+                if (frame.frame_type == .builtin)
+                    std.fmt.allocPrint(
+                        self.gc_allocator,
+                        "{s}:{d}:in '{s}'",
+                        .{ frame_source, frame_line, method_name },
+                    ) catch return error.Fatal
+                else
                 std.fmt.allocPrint(
                     self.gc_allocator,
                     "{s}:{d}:in '{s}#{s}'",
-                    .{ source, line, self.getClass(frame.self_value).module.name.name, method_name },
+                    .{ frame_source, frame_line, self.getClass(frame.self_value).module.name.name, method_name },
                 ) catch return error.Fatal
             else
                 std.fmt.allocPrint(
                     self.gc_allocator,
                     "{s}:{d}:in '<main>'",
-                    .{ source, line },
+                    .{ frame_source, frame_line },
                 ) catch return error.Fatal;
 
             const str_val = try self.newString(backtrace_str, false);

@@ -1242,7 +1242,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/kernel/protected_methods_spec.rb
 - [ ] core/kernel/public_method_spec.rb
 - [ ] core/kernel/public_methods_spec.rb
-- [ ] core/kernel/public_send_spec.rb
+- [x] core/kernel/public_send_spec.rb
 - [ ] core/kernel/putc_spec.rb
 - [ ] core/kernel/puts_spec.rb
 - [ ] core/kernel/raise_spec.rb

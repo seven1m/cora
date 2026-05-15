@@ -319,6 +319,9 @@ pub fn register(vm: *VM) !void {
     const send_sym = try vm.intern("send");
     try vm.kernel_module.methods.put(send_sym, MethodEntry.builtin(&builtinKernelSend, .{ .variadic = 0 }));
 
+    const public_send_sym = try vm.intern("public_send");
+    try vm.kernel_module.methods.put(public_send_sym, MethodEntry.builtin(&builtinKernelPublicSend, .{ .variadic = 0 }));
+
     const method_sym = try vm.intern("method");
     try vm.kernel_module.methods.put(method_sym, MethodEntry.builtin(&builtinKernelMethod, .{ .exact = 1 }));
 
@@ -449,12 +452,17 @@ pub fn builtinKernelSingletonAutoloadQ(vm: *VM, _: Value, args: []Value, _: ?Blo
     return module_builtin.builtinModuleAutoloadQ(vm, implicitAutoloadReceiver(vm), args, null);
 }
 
-pub fn builtinKernelEval(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+pub fn builtinKernelEval(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 1, 4);
     const source_value = try args[0].coerceToStringValue(vm, "no implicit conversion into String");
     const source_obj = source_value.toStringObject();
 
-    const binding_arg = if (args.len >= 2) args[1] else Value.nil();
+    const binding_arg = if (args.len >= 2)
+        args[1]
+    else if (receiver.isBinding())
+        receiver
+    else
+        Value.nil();
     const filename: ?[]const u8 = if (args.len >= 3 and !args[2].isNil())
         try args[2].coerceToStr(vm, "no implicit conversion into String")
     else
@@ -485,8 +493,7 @@ pub fn builtinKernelEval(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
 pub fn builtinKernelBinding(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
 
-    if (vm.frames.items.len > 0) {
-        const frame = vm.currentFrame();
+    if (vm.currentRubyCallerFrame()) |frame| {
         const binding = try vm.createBinding(frame.self_value, frame.ep, vm.current_lexical_scope);
         return Value.fromObject(&binding.object);
     }
@@ -678,6 +685,7 @@ fn warningLocationForUplevel(vm: *VM, depth: usize) ?WarningLocation {
     while (i > 0) {
         i -= 1;
         const frame = &vm.frames.items[i];
+        if (frame.frame_type == .builtin) continue;
         const source = frame.chunk.source_file orelse frame.chunk.name;
 
         if (std.mem.startsWith(u8, source, "<internal:")) continue;
@@ -896,6 +904,9 @@ pub fn builtinKernelLambda(vm: *VM, _: Value, args: []Value, block: ?Block) VMEr
 }
 
 pub fn builtinKernelRaise(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    if (vm.frames.items.len > 0 and vm.currentFrame().frame_type == .builtin) {
+        vm.popCurrentBuiltinFrame();
+    }
     return vm.raiseFromArgs(args, "No exception to re-raise");
 }
 
@@ -1064,7 +1075,7 @@ pub fn builtinKernelInitializeClone(vm: *VM, receiver: Value, args: []Value, _: 
 
 pub fn builtinKernelBlockGiven(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const frame = vm.currentFrame();
+    const frame = vm.currentRubyCallerFrame() orelse return Value.boolean(false);
     return Value.boolean(frame.block != null);
 }
 
@@ -1185,6 +1196,13 @@ pub fn builtinKernelSend(vm: *VM, receiver: Value, args: []Value, block: ?Block)
     const name_str = try vm.coerceToMethodNameString(args[0]);
     const call_args = args[1..];
     return vm.callMethodByNameForwardingKeywords(receiver, name_str, call_args, block);
+}
+
+pub fn builtinKernelPublicSend(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireMinArgCount(args, 1);
+    const name_str = try vm.coerceToMethodNameString(args[0]);
+    const call_args = args[1..];
+    return vm.callPublicMethodByNameForwardingKeywords(receiver, name_str, call_args, block);
 }
 
 fn createBoundMethodObject(vm: *VM, receiver: Value, method_name: *SymbolObject, resolved: vm_mod.ResolvedMethod, owner: Value) VMError!Value {

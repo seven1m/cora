@@ -53,3 +53,30 @@ test "Nested method calls show full backtrace" {
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, "bar") != null);
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, "foo") != null);
 }
+
+test "Builtin argument errors show builtin name in backtrace" {
+    const result = try evalCode(
+        \\begin
+        \\  public_send
+        \\rescue => e
+        \\  e.backtrace[0]
+        \\end
+    );
+
+    try std.testing.expect(result.isString());
+    try std.testing.expect(std.mem.indexOf(u8, result.toStringObject().str, "public_send") != null);
+}
+
+test "Kernel#raise keeps the Ruby caller at the top of the backtrace" {
+    const result = try evalCode(
+        \\def boom
+        \\  raise "boom"
+        \\rescue => e
+        \\  e.backtrace[0]
+        \\end
+        \\boom
+    );
+
+    try std.testing.expect(result.isString());
+    try std.testing.expect(std.mem.indexOf(u8, result.toStringObject().str, "Object#boom") != null);
+}
