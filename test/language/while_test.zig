@@ -41,6 +41,28 @@ test "while loop - modifier form" {
     try std.testing.expectEqual(@as(i64, 4), result.toInteger());
 }
 
+test "while begin modifier executes body before first condition check" {
+    const result = try evalCode(
+        \\x = 0
+        \\begin
+        \\  x = x + 1
+        \\end while false
+        \\x
+    );
+    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
+}
+
+test "until begin modifier executes body before first condition check" {
+    const result = try evalCode(
+        \\x = 0
+        \\begin
+        \\  x = x + 1
+        \\end until true
+        \\x
+    );
+    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
+}
+
 test "while loop - break without value" {
     const result = try evalCode(
         \\i = 0

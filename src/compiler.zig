@@ -4434,31 +4434,51 @@ pub const Compiler = struct {
             _ = self.loop_stack.pop();
         }
 
-        // Mark loop start position for backward jump
-        const loop_start_ip = self.current_chunk.currentOffset();
-        self.loop_stack.items[loop_idx].continue_target = loop_start_ip;
+        if ((while_node.base.flags & prism.LOOP_FLAGS_BEGIN_MODIFIER) != 0) {
+            const loop_body_ip = self.current_chunk.currentOffset();
+            self.loop_stack.items[loop_idx].redo_target = loop_body_ip;
 
-        // 1. Compile condition expression
-        const condition = try self.parser.asNode(@ptrCast(while_node.predicate));
-        try self.compileNode(condition, line);
+            if (while_node.statements) |statements_ptr| {
+                const body = try self.parser.asNode(@ptrCast(statements_ptr));
+                try self.compileNode(body, line);
+                try self.current_chunk.emitOp(.POP, line);
+            }
 
-        // 2. Jump to end if condition is false (JUMP_IF_FALSE pops the condition)
-        const jump_to_end = try self.current_chunk.emitJump(.JUMP_IF_FALSE, line);
+            const condition_ip = self.current_chunk.currentOffset();
+            self.loop_stack.items[loop_idx].continue_target = condition_ip;
 
-        // 3. Compile loop body
-        self.loop_stack.items[loop_idx].redo_target = self.current_chunk.currentOffset();
-        if (while_node.statements) |statements_ptr| {
-            const body = try self.parser.asNode(@ptrCast(statements_ptr));
-            try self.compileNode(body, line);
-            // 4. Discard body result to prevent stack growth
-            try self.current_chunk.emitOp(.POP, line);
+            const condition = try self.parser.asNode(@ptrCast(while_node.predicate));
+            try self.compileNode(condition, line);
+            const jump_to_end = try self.current_chunk.emitJump(.JUMP_IF_FALSE, line);
+            try self.current_chunk.emitBackwardJump(.JUMP, loop_body_ip, line);
+            try self.current_chunk.patchJump(jump_to_end);
+        } else {
+            // Mark loop start position for backward jump
+            const loop_start_ip = self.current_chunk.currentOffset();
+            self.loop_stack.items[loop_idx].continue_target = loop_start_ip;
+
+            // 1. Compile condition expression
+            const condition = try self.parser.asNode(@ptrCast(while_node.predicate));
+            try self.compileNode(condition, line);
+
+            // 2. Jump to end if condition is false (JUMP_IF_FALSE pops the condition)
+            const jump_to_end = try self.current_chunk.emitJump(.JUMP_IF_FALSE, line);
+
+            // 3. Compile loop body
+            self.loop_stack.items[loop_idx].redo_target = self.current_chunk.currentOffset();
+            if (while_node.statements) |statements_ptr| {
+                const body = try self.parser.asNode(@ptrCast(statements_ptr));
+                try self.compileNode(body, line);
+                // 4. Discard body result to prevent stack growth
+                try self.current_chunk.emitOp(.POP, line);
+            }
+
+            // 5. Jump back to loop start (backward jump)
+            try self.current_chunk.emitBackwardJump(.JUMP, loop_start_ip, line);
+
+            // 6. Patch forward jump to here (after loop exits)
+            try self.current_chunk.patchJump(jump_to_end);
         }
-
-        // 5. Jump back to loop start (backward jump)
-        try self.current_chunk.emitBackwardJump(.JUMP, loop_start_ip, line);
-
-        // 6. Patch forward jump to here (after loop exits)
-        try self.current_chunk.patchJump(jump_to_end);
 
         // Normal exit: push nil
         try self.current_chunk.emitOp(.PUSH_NIL, line);
@@ -4485,31 +4505,51 @@ pub const Compiler = struct {
             _ = self.loop_stack.pop();
         }
 
-        // Mark loop start position for backward jump
-        const loop_start_ip = self.current_chunk.currentOffset();
-        self.loop_stack.items[loop_idx].continue_target = loop_start_ip;
+        if ((until_node.base.flags & prism.LOOP_FLAGS_BEGIN_MODIFIER) != 0) {
+            const loop_body_ip = self.current_chunk.currentOffset();
+            self.loop_stack.items[loop_idx].redo_target = loop_body_ip;
 
-        // 1. Compile condition expression
-        const condition = try self.parser.asNode(@ptrCast(until_node.predicate));
-        try self.compileNode(condition, line);
+            if (until_node.statements) |statements_ptr| {
+                const body = try self.parser.asNode(@ptrCast(statements_ptr));
+                try self.compileNode(body, line);
+                try self.current_chunk.emitOp(.POP, line);
+            }
 
-        // 2. Jump to end if condition is TRUE
-        const jump_to_end = try self.current_chunk.emitJump(.JUMP_IF_TRUE, line);
+            const condition_ip = self.current_chunk.currentOffset();
+            self.loop_stack.items[loop_idx].continue_target = condition_ip;
 
-        // 3. Compile loop body
-        self.loop_stack.items[loop_idx].redo_target = self.current_chunk.currentOffset();
-        if (until_node.statements) |statements_ptr| {
-            const body = try self.parser.asNode(@ptrCast(statements_ptr));
-            try self.compileNode(body, line);
-            // 4. Discard body result to prevent stack growth
-            try self.current_chunk.emitOp(.POP, line);
+            const condition = try self.parser.asNode(@ptrCast(until_node.predicate));
+            try self.compileNode(condition, line);
+            const jump_to_end = try self.current_chunk.emitJump(.JUMP_IF_TRUE, line);
+            try self.current_chunk.emitBackwardJump(.JUMP, loop_body_ip, line);
+            try self.current_chunk.patchJump(jump_to_end);
+        } else {
+            // Mark loop start position for backward jump
+            const loop_start_ip = self.current_chunk.currentOffset();
+            self.loop_stack.items[loop_idx].continue_target = loop_start_ip;
+
+            // 1. Compile condition expression
+            const condition = try self.parser.asNode(@ptrCast(until_node.predicate));
+            try self.compileNode(condition, line);
+
+            // 2. Jump to end if condition is TRUE
+            const jump_to_end = try self.current_chunk.emitJump(.JUMP_IF_TRUE, line);
+
+            // 3. Compile loop body
+            self.loop_stack.items[loop_idx].redo_target = self.current_chunk.currentOffset();
+            if (until_node.statements) |statements_ptr| {
+                const body = try self.parser.asNode(@ptrCast(statements_ptr));
+                try self.compileNode(body, line);
+                // 4. Discard body result to prevent stack growth
+                try self.current_chunk.emitOp(.POP, line);
+            }
+
+            // 5. Jump back to loop start (backward jump)
+            try self.current_chunk.emitBackwardJump(.JUMP, loop_start_ip, line);
+
+            // 6. Patch forward jump to here (after loop exits)
+            try self.current_chunk.patchJump(jump_to_end);
         }
-
-        // 5. Jump back to loop start (backward jump)
-        try self.current_chunk.emitBackwardJump(.JUMP, loop_start_ip, line);
-
-        // 6. Patch forward jump to here (after loop exits)
-        try self.current_chunk.patchJump(jump_to_end);
 
         // Normal exit: push nil
         try self.current_chunk.emitOp(.PUSH_NIL, line);
