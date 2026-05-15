@@ -214,3 +214,34 @@ test "bare super forwards correctly with side-effect locals in defaults" {
     try std.testing.expect(result.isInteger());
     try std.testing.expectEqual(30, result.toInteger());
 }
+
+test "super reaches included module after defining class" {
+    const result = try evalCode(
+        \\module HeaderMethods
+        \\  def []=(key, value)
+        \\    @stored = value
+        \\  end
+        \\end
+        \\
+        \\class Request
+        \\  include HeaderMethods
+        \\
+        \\  def []=(key, value)
+        \\    super
+        \\  end
+        \\
+        \\  def stored
+        \\    @stored
+        \\  end
+        \\end
+        \\
+        \\class Head < Request
+        \\end
+        \\
+        \\req = Head.new
+        \\req[:accept] = 41
+        \\req.stored + 1
+    );
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(42, result.toInteger());
+}

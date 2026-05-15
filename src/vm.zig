@@ -7264,66 +7264,92 @@ pub const VM = struct {
         unreachable;
     }
 
-    /// Look up a method in the superclass chain starting from defining_class.superclass
-    fn lookupMethodForSuper(self: *VM, defining_class: *ClassObject, method_name: *value.SymbolObject) ?ResolvedMethod {
-        // Start from the superclass, not the defining class itself
-        const start_class = defining_class.superclass orelse return null;
-        return self.lookupMethod(start_class, method_name);
+    const SuperLookupScope = union(enum) {
+        class: *ClassObject,
+        module: *value.ModuleObject,
+    };
+
+    fn lookupMethodForSuperInModuleChain(
+        self: *VM,
+        owner_class: *ClassObject,
+        module_obj: *value.ModuleObject,
+        is_class_module: bool,
+        defining_scope: SuperLookupScope,
+        method_name: *value.SymbolObject,
+        found_owner: *bool,
+    ) LookupMethodResult {
+        var i = module_obj.prepended_modules.items.len;
+        while (i > 0) {
+            i -= 1;
+            switch (self.lookupMethodForSuperInModuleChain(
+                owner_class,
+                module_obj.prepended_modules.items[i],
+                false,
+                defining_scope,
+                method_name,
+                found_owner,
+            )) {
+                .found => |resolved| return .{ .found = resolved },
+                .undefined => return .undefined,
+                .not_found => {},
+            }
+        }
+
+        const matches_owner = switch (defining_scope) {
+            .class => |defining_class| is_class_module and owner_class == defining_class,
+            .module => |defining_module| module_obj == defining_module,
+        };
+
+        if (found_owner.*) {
+            if (module_obj.methods.get(method_name)) |entry| {
+                return self.resolveLookupEntry(method_name, owner_class, entry);
+            }
+        } else if (matches_owner) {
+            found_owner.* = true;
+        }
+
+        i = module_obj.included_modules.items.len;
+        while (i > 0) {
+            i -= 1;
+            switch (self.lookupMethodForSuperInModuleChain(
+                owner_class,
+                module_obj.included_modules.items[i],
+                false,
+                defining_scope,
+                method_name,
+                found_owner,
+            )) {
+                .found => |resolved| return .{ .found = resolved },
+                .undefined => return .undefined,
+                .not_found => {},
+            }
+        }
+
+        return .not_found;
     }
 
-    fn lookupMethodForSuperFromIncludedModule(
+    fn lookupMethodForSuperFromScope(
         self: *VM,
-        receiver_class: *ClassObject,
-        defining_module: *value.ModuleObject,
+        start_class: *ClassObject,
+        defining_scope: SuperLookupScope,
         method_name: *value.SymbolObject,
     ) ?ResolvedMethod {
-        var current_class: ?*ClassObject = receiver_class;
+        var current_class: ?*ClassObject = start_class;
         var found_owner = false;
 
         while (current_class) |klass| {
-            var i = klass.module.prepended_modules.items.len;
-            while (i > 0) {
-                i -= 1;
-                const module_obj = klass.module.prepended_modules.items[i];
-                if (!found_owner) {
-                    if (module_obj == defining_module) found_owner = true;
-                    continue;
-                }
-                if (module_obj.methods.get(method_name)) |entry| {
-                    return switch (self.resolveLookupEntry(method_name, klass, entry)) {
-                        .found => |resolved| resolved,
-                        .undefined, .not_found => null,
-                    };
-                }
+            switch (self.lookupMethodForSuperInModuleChain(
+                klass,
+                &klass.module,
+                true,
+                defining_scope,
+                method_name,
+                &found_owner,
+            )) {
+                .found => |resolved| return resolved,
+                .undefined => return null,
+                .not_found => {},
             }
-
-            if (found_owner) {
-                if (klass.module.methods.get(method_name)) |entry| {
-                    return switch (self.resolveLookupEntry(method_name, klass, entry)) {
-                        .found => |resolved| resolved,
-                        .undefined, .not_found => null,
-                    };
-                }
-            } else if (&klass.module == defining_module) {
-                found_owner = true;
-            }
-
-            i = klass.module.included_modules.items.len;
-            while (i > 0) {
-                i -= 1;
-                const module_obj = klass.module.included_modules.items[i];
-                if (!found_owner) {
-                    if (module_obj == defining_module) found_owner = true;
-                    continue;
-                }
-                if (module_obj.methods.get(method_name)) |entry| {
-                    return switch (self.resolveLookupEntry(method_name, klass, entry)) {
-                        .found => |resolved| resolved,
-                        .undefined, .not_found => null,
-                    };
-                }
-            }
-
             current_class = klass.superclass;
         }
 
@@ -7455,14 +7481,30 @@ pub const VM = struct {
         const lexical_scope = frame.chunk.lexical_scope;
         const maybe_resolved = if (lexical_scope) |scope|
             switch (scope.scope_module) {
-                .module => |defining_module| self.lookupMethodForSuperFromIncludedModule(self.getClass(frame.self_value), defining_module, method_name_sym),
+                .module => |defining_module| self.lookupMethodForSuperFromScope(
+                    self.getClass(frame.self_value),
+                    .{ .module = defining_module },
+                    method_name_sym,
+                ),
                 .class => |defining_class| if (frame.super_defining_class) |explicit_defining_class|
-                    self.lookupMethodForSuper(explicit_defining_class, method_name_sym)
+                    self.lookupMethodForSuperFromScope(
+                        explicit_defining_class,
+                        .{ .class = explicit_defining_class },
+                        method_name_sym,
+                    )
                 else
-                    self.lookupMethodForSuper(defining_class, method_name_sym),
+                    self.lookupMethodForSuperFromScope(
+                        defining_class,
+                        .{ .class = defining_class },
+                        method_name_sym,
+                    ),
             }
         else if (frame.super_defining_class) |defining_class|
-            self.lookupMethodForSuper(defining_class, method_name_sym)
+            self.lookupMethodForSuperFromScope(
+                defining_class,
+                .{ .class = defining_class },
+                method_name_sym,
+            )
         else
             null;
 
