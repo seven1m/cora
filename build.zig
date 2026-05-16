@@ -98,12 +98,14 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const test_verbose = b.option(bool, "test-verbose", "Print each test name") orelse false;
+    const test_timing = b.option(bool, "test-timing", "Print elapsed time for each test") orelse false;
     const test_jobs = b.option(i32, "test-jobs", "Number of test worker processes (<=0 auto)") orelse 0;
     const coverage = b.option(bool, "coverage", "Run tests under kcov and generate an HTML coverage report") orelse false;
     const coverage_output_dir = b.option([]const u8, "coverage-output-dir", "Directory for kcov output") orelse "zig-out/kcov";
     const tcc_jit = b.option(bool, "tcc-jit", "Build TinyCC-backed proof-of-concept JIT support") orelse false;
     const options = b.addOptions();
     options.addOption(bool, "test_verbose", test_verbose);
+    options.addOption(bool, "test_timing", test_timing);
     options.addOption(i32, "test_jobs", test_jobs);
     options.addOption(bool, "tcc_jit", tcc_jit);
     const build_options_mod = options.createModule();

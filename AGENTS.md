@@ -39,6 +39,7 @@ Prism AST -> bytecode -> VM execution.
 zig build test
 zig build test -Dtest-filter="Proc"
 zig build test -Dtest-filter="Proc" -Dtest-verbose
+zig build test -Dtest-filter="Proc" -Dtest-verbose -Dtest-timing
 zig build run -- [flags] [filename]
 zig-out/bin/cora [flags] [filename]
 ```

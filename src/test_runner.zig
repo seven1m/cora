@@ -8,6 +8,7 @@ const build_options = @import("build_options");
 const ruby_spec_runner = @import("ruby_spec_runner");
 
 const verbose = @hasDecl(build_options, "test_verbose") and build_options.test_verbose;
+const timing = @hasDecl(build_options, "test_timing") and build_options.test_timing;
 const test_filter_raw = if (@hasDecl(build_options, "test_filter_raw")) build_options.test_filter_raw else "";
 const configured_test_jobs = if (@hasDecl(build_options, "test_jobs")) build_options.test_jobs else 0;
 
@@ -131,6 +132,7 @@ const TestRunResult = struct {
     fuzz: bool = false,
     spec_total_delta: usize = 0,
     spec_completed_delta: usize = 0,
+    elapsed_ns: u64 = 0,
 };
 
 const WorkerJsonResult = struct {
@@ -141,6 +143,7 @@ const WorkerJsonResult = struct {
     fuzz: bool = false,
     spec_total_delta: usize = 0,
     spec_completed_delta: usize = 0,
+    elapsed_ns: u64 = 0,
 };
 
 const ActiveWorker = struct {
@@ -190,12 +193,21 @@ fn testNameForIndex(test_fns: []const ZigTestFn, ruby_spec_tests: []const RubySp
     return ruby_spec_tests[index - test_fns.len].displayName();
 }
 
+fn getTimeNsec() u64 {
+    var ts: std.posix.timespec = undefined;
+    switch (std.posix.errno(std.posix.system.clock_gettime(std.posix.CLOCK.MONOTONIC, &ts))) {
+        .SUCCESS => return @intCast(@as(i128, ts.sec) * 1_000_000_000 + ts.nsec),
+        else => return 0,
+    }
+}
+
 fn executeTestAtIndex(test_fns: []const ZigTestFn, ruby_spec_tests: []const RubySpecTest, index: usize) TestRunResult {
     var result = TestRunResult{};
     log_err_count = 0;
     testing.log_level = .warn;
     is_fuzz_test = false;
     testing.allocator_instance = .{};
+    const start_ts = if (timing) getTimeNsec() else 0;
     defer {
         result.log_err_count = log_err_count;
         result.fuzz = is_fuzz_test;
@@ -224,6 +236,7 @@ fn executeTestAtIndex(test_fns: []const ZigTestFn, ruby_spec_tests: []const Ruby
                 }
             },
         }
+        if (timing) result.elapsed_ns = getTimeNsec() - start_ts;
         return result;
     }
 
@@ -232,18 +245,21 @@ fn executeTestAtIndex(test_fns: []const ZigTestFn, ruby_spec_tests: []const Ruby
         return .{
             .outcome = .fail,
             .err_name = "InvalidTestIndex",
+            .elapsed_ns = if (timing) getTimeNsec() - start_ts else 0,
         };
     }
 
     const ruby_spec_test = ruby_spec_tests[spec_index];
+    const test_name = ruby_spec_test.displayName();
     if (verbose) {
-        std.debug.print("TEST {s}\n", .{ruby_spec_test.displayName()});
+        std.debug.print("TEST {s}\n", .{test_name});
     }
     const ruby_result = runRubySpecTest(ruby_spec_test);
     result.outcome = ruby_result.outcome;
     result.err_name = ruby_result.err_name;
     result.spec_total_delta = ruby_result.spec_total_delta;
     result.spec_completed_delta = ruby_result.spec_completed_delta;
+    if (timing) result.elapsed_ns = getTimeNsec() - start_ts;
     return result;
 }
 
@@ -256,6 +272,7 @@ fn emitWorkerJsonResult(result: TestRunResult) void {
         .fuzz = result.fuzz,
         .spec_total_delta = result.spec_total_delta,
         .spec_completed_delta = result.spec_completed_delta,
+        .elapsed_ns = result.elapsed_ns,
     };
 
     const allocator = std.heap.page_allocator;
@@ -296,6 +313,7 @@ fn parseWorkerResult(allocator: std.mem.Allocator, term: std.process.Child.Term,
             .fuzz = parsed.value.fuzz,
             .spec_total_delta = parsed.value.spec_total_delta,
             .spec_completed_delta = parsed.value.spec_completed_delta,
+            .elapsed_ns = parsed.value.elapsed_ns,
         };
         if (parsed.value.err_name) |name| {
             if (allocator.dupe(u8, name)) |duped| {
@@ -435,6 +453,11 @@ const RunSummary = struct {
     completed_specs: usize = 0,
 };
 
+fn printElapsedSuffix(elapsed_ns: u64) void {
+    const elapsed_ms = elapsed_ns / 1_000_000;
+    std.debug.print(" [{d}ms]", .{elapsed_ms});
+}
+
 fn printTerminalOutcome(
     have_tty: bool,
     completed_specs: usize,
@@ -442,7 +465,7 @@ fn printTerminalOutcome(
     test_name: []const u8,
     result: TestRunResult,
 ) void {
-    if (have_tty and !verbose) {
+    if (have_tty and !verbose and !timing) {
         switch (result.outcome) {
             .skip => std.debug.print("\r{d}/{d} specs {s}...SKIP\n", .{
                 completed_specs,
@@ -462,10 +485,12 @@ fn printTerminalOutcome(
 
     std.debug.print("{d}/{d} specs {s}...", .{ completed_specs, known_total_specs, test_name });
     switch (result.outcome) {
-        .pass => std.debug.print("OK\n", .{}),
-        .skip => std.debug.print("SKIP\n", .{}),
-        .fail => std.debug.print("FAIL ({s})\n", .{result.err_name orelse "UnknownError"}),
+        .pass => std.debug.print("OK", .{}),
+        .skip => std.debug.print("SKIP", .{}),
+        .fail => std.debug.print("FAIL ({s})", .{result.err_name orelse "UnknownError"}),
     }
+    if (timing) printElapsedSuffix(result.elapsed_ns);
+    std.debug.print("\n", .{});
 }
 
 fn applyResult(summary: *RunSummary, result: TestRunResult) void {
@@ -492,7 +517,7 @@ fn deinitTestRunResult(allocator: std.mem.Allocator, result: *TestRunResult) voi
 }
 
 fn printParallelProgressStatus(have_tty: bool, summary: RunSummary, active_workers: usize) void {
-    if (!have_tty or verbose) return;
+    if (!have_tty or verbose or timing) return;
     std.debug.print(
         "\r{d}/{d} specs complete ({d} workers active)      ",
         .{ summary.completed_specs, summary.known_total_specs, active_workers },
