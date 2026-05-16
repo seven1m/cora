@@ -5,6 +5,7 @@ const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 const c = @cImport({
     @cInclude("openssl/err.h");
+    @cInclude("openssl/evp.h");
     @cInclude("openssl/pem.h");
     @cInclude("openssl/ssl.h");
     @cInclude("openssl/x509_vfy.h");
@@ -921,29 +922,23 @@ pub fn builtinOpenSSLKDFScrypt(vm: *VM, _: Value, args: []Value, _: ?Block) VMEr
         return vm.raiseExceptionFmt(try kdfErrorClass(vm), "EVP_PBE_scrypt", .{});
     }
 
-    var ln: u6 = 0;
-    var n_tmp = N;
-    while (n_tmp > 1) : (n_tmp >>= 1) {
-        ln += 1;
-    }
-
-    const r_u30 = std.math.cast(u30, r) orelse return vm.raiseExceptionFmt(try kdfErrorClass(vm), "EVP_PBE_scrypt", .{});
-    const p_u30 = std.math.cast(u30, p) orelse return vm.raiseExceptionFmt(try kdfErrorClass(vm), "EVP_PBE_scrypt", .{});
-
     const output = vm.allocator.alloc(u8, len) catch return error.Fatal;
     defer vm.allocator.free(output);
 
-    std.crypto.pwhash.scrypt.kdf(
-        vm.allocator,
-        output,
-        password,
-        salt,
-        .{ .ln = ln, .r = r_u30, .p = p_u30 },
-    ) catch |err| switch (err) {
-        error.WeakParameters => return vm.raiseExceptionFmt(try kdfErrorClass(vm), "EVP_PBE_scrypt", .{}),
-        error.OutOfMemory => return error.Fatal,
-        else => return error.Fatal,
-    };
+    if (c.EVP_PBE_scrypt(
+        password.ptr,
+        password.len,
+        salt.ptr,
+        salt.len,
+        N,
+        r,
+        p,
+        0,
+        output.ptr,
+        output.len,
+    ) != 1) {
+        return vm.raiseExceptionFmt(try kdfErrorClass(vm), "EVP_PBE_scrypt", .{});
+    }
 
     return binaryString(vm, output);
 }
