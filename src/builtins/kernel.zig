@@ -7,6 +7,7 @@ const module_builtin = @import("module.zig");
 const method_builtin = @import("method.zig");
 const method_common = @import("method_common.zig");
 const openssl_builtin = @import("openssl.zig");
+const stringio_builtin = @import("stringio.zig");
 const warning_builtin = @import("warning.zig");
 const zlib_builtin = @import("zlib.zig");
 
@@ -435,6 +436,10 @@ pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
         try vm.syncLoadedFeaturesGlobals();
         return err;
     };
+
+    if (std.mem.eql(u8, feature, "stringio") or std.mem.eql(u8, feature, "stringio.rb")) {
+        stringio_builtin.register(vm) catch return error.Fatal;
+    }
 
     try vm.syncLoadedFeaturesGlobals();
     vm.allocator.free(absolute_path);
@@ -1498,8 +1503,33 @@ fn builtinKernelStringConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMErr
     const arg = args[0];
     if (arg.isString()) return arg;
 
-    if (!try vm.respondsToMethodByName(arg, "to_s", false)) {
-        const to_s_sym = try vm.intern("to_s");
+    const to_str_sym = try vm.intern("to_str");
+    const to_s_sym = try vm.intern("to_s");
+
+    if (try vm.respondsToMethodByName(arg, to_str_sym.name, false)) {
+        const converted = vm.callMethodByName(arg, "to_str", &[_]Value{}, null) catch |err| switch (err) {
+            error.Unwind => {
+                if (vm.pendingException()) |exc| {
+                    if (exc.object.class == vm.no_method_error_class) {
+                        vm.setPendingException(null);
+                        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into String", .{vm.className(arg)});
+                    }
+                }
+                return error.Unwind;
+            },
+            else => return err,
+        };
+        if (!converted.isString()) {
+            return vm.raiseExceptionFmt(
+                vm.type_error_class,
+                "can't convert {s} to String ({s}#to_str gives {s})",
+                .{ vm.className(arg), vm.className(arg), vm.className(converted) },
+            );
+        }
+        return converted;
+    }
+
+    if (!try vm.respondsToMethodByName(arg, to_s_sym.name, false)) {
         if (try vm.findMethod(arg, to_s_sym) != null) {
             return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into String", .{vm.className(arg)});
         }

@@ -37,6 +37,7 @@ const regexp = @import("regexp.zig");
 const socket = @import("socket.zig");
 const struct_builtin = @import("struct.zig");
 const string = @import("string.zig");
+const stringio = @import("stringio.zig");
 const symbol = @import("symbol.zig");
 const true_class = @import("true_class.zig");
 
@@ -71,6 +72,7 @@ pub fn registerAll(vm: *VM) !void {
     try socket.register(vm);
     try match_data.register(vm);
     try string.register(vm);
+    try stringio.register(vm);
     try symbol.register(vm);
     try nil_class.register(vm);
     try true_class.register(vm);

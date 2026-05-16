@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const enc = @import("../encoding.zig");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
@@ -36,6 +37,21 @@ pub fn register(vm: *VM) !void {
     const to_io_sym = try vm.intern("to_io");
     try vm.io_class.module.methods.put(to_io_sym, value.MethodEntry.builtin(&builtinIoToIo, .{ .exact = 0 }));
 
+    const rdonly_sym = try vm.intern("RDONLY");
+    try vm.io_class.module.constants.put(rdonly_sym, .{ .value = Value.integer(0) });
+    const wronly_sym = try vm.intern("WRONLY");
+    try vm.io_class.module.constants.put(wronly_sym, .{ .value = Value.integer(1) });
+    const rdwr_sym = try vm.intern("RDWR");
+    try vm.io_class.module.constants.put(rdwr_sym, .{ .value = Value.integer(2) });
+    const append_sym_const = try vm.intern("APPEND");
+    try vm.io_class.module.constants.put(append_sym_const, .{ .value = Value.integer(0x200) });
+    const trunc_sym = try vm.intern("TRUNC");
+    try vm.io_class.module.constants.put(trunc_sym, .{ .value = Value.integer(0x400) });
+    const creat_sym = try vm.intern("CREAT");
+    try vm.io_class.module.constants.put(creat_sym, .{ .value = Value.integer(0x200) });
+    const excl_sym = try vm.intern("EXCL");
+    try vm.io_class.module.constants.put(excl_sym, .{ .value = Value.integer(0x400) });
+
     const nonblock_q_sym = try vm.intern("nonblock?");
     try vm.io_class.module.methods.put(nonblock_q_sym, value.MethodEntry.builtin(&builtinIoNonblockQ, .{ .exact = 0 }));
 
@@ -61,7 +77,7 @@ pub fn register(vm: *VM) !void {
     try vm.io_class.module.methods.put(append_sym, value.MethodEntry.builtin(&builtinIoAppend, .{ .exact = 1 }));
 
     const write_nonblock_sym = try vm.intern("write_nonblock");
-    try vm.io_class.module.methods.put(write_nonblock_sym, value.MethodEntry.builtin(&builtinIoWriteNonblock, .{ .exact = 1 }));
+    try vm.io_class.module.methods.put(write_nonblock_sym, value.MethodEntry.builtin(&builtinIoWriteNonblock, .{ .variadic = 1 }));
 
     const print_sym = try vm.intern("print");
     try vm.io_class.module.methods.put(print_sym, value.MethodEntry.builtin(&builtinIoPrint, .{ .variadic = 0 }));
@@ -456,12 +472,25 @@ fn maybeRemainingSeekableBytes(io: *IoObject) ?usize {
     return @intCast(end - cur);
 }
 
+/// BSD/macOS ioctl _IOR(group, nr, T): encodes a read-direction ioctl request number.
+/// Mirrors the kernel macro: IOC_OUT | (sizeof(T) << 16) | (group << 8) | nr
+/// IOC_OUT = 0x40000000 on BSD (bit 30 = "kernel reads from userspace ptr").
+fn bsd_IOR(group: u8, nr: u8, comptime T: type) u32 {
+    return 0x40000000 | (@as(u32, @sizeOf(T)) << 16) | (@as(u32, group) << 8) | nr;
+}
+
 fn pendingIoBytes(io: *IoObject) usize {
     if (maybeRemainingSeekableBytes(io)) |remaining| return remaining;
 
     var bytes_available: c_int = 0;
     const fd: std.posix.fd_t = @intCast(io.fd);
-    if (std.c.ioctl(fd, std.c.T.FIONREAD, &bytes_available) == 0 and bytes_available > 0) {
+    // Linux exposes FIONREAD via std.os.linux.T; on macOS/BSD the T struct only
+    // has IOCGWINSZ, so we derive it with the same _IOR encoding the kernel uses.
+    const FIONREAD: u32 = switch (builtin.os.tag) {
+        .linux => std.os.linux.T.FIONREAD,
+        else => comptime bsd_IOR('f', 127, c_int), // FIONREAD = _IOR('f', 127, int)
+    };
+    if (std.c.ioctl(fd, FIONREAD, &bytes_available) == 0 and bytes_available > 0) {
         return @intCast(bytes_available);
     }
     return 0;
@@ -501,7 +530,7 @@ fn ioStatusFlags(vm: *VM, io: *IoObject) VMError!c_int {
 
 fn setIoNonblocking(vm: *VM, io: *IoObject, enabled: bool) VMError!void {
     const flags = try ioStatusFlags(vm, io);
-    const nonblock_flag: c_int = @intCast(std.c.SOCK.NONBLOCK);
+    const nonblock_flag: c_int = @bitCast(std.posix.O{ .NONBLOCK = true });
     const already_enabled = (flags & nonblock_flag) != 0;
     if (already_enabled == enabled) return;
 
@@ -518,7 +547,7 @@ fn ensureIoNonblocking(vm: *VM, io: *IoObject) VMError!void {
 
 fn ioIsNonblocking(vm: *VM, io: *IoObject) VMError!bool {
     const flags = try ioStatusFlags(vm, io);
-    const nonblock_flag: c_int = @intCast(std.c.SOCK.NONBLOCK);
+    const nonblock_flag: c_int = @bitCast(std.posix.O{ .NONBLOCK = true });
     return (flags & nonblock_flag) != 0;
 }
 
@@ -670,7 +699,7 @@ pub fn builtinIoAppend(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
 }
 
 pub fn builtinIoWriteNonblock(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 1);
+    try vm.requireMinArgCount(args, 1);
     const io = try requireIoReceiver(vm, receiver);
     try ensureIoWritable(vm, io);
 
@@ -683,11 +712,8 @@ pub fn builtinIoWriteNonblock(vm: *VM, receiver: Value, args: []Value, _: ?Block
     if (str.len == 0) return Value.integer(0);
     try ensureIoNonblocking(vm, io);
 
-    if (!try waitWritable(vm, io, 0)) {
-        if (!exception_enabled) return Value.fromObject(&(try vm.intern("wait_writable")).object);
-        return vm.raiseExceptionFmt(vm.io_eagain_wait_writable_class, "write would block", .{});
-    }
-
+    // Write directly — the fd is non-blocking so write() returns EAGAIN if full,
+    // EPIPE if the read end is closed, without blocking.
     const fd: std.posix.fd_t = @intCast(io.fd);
     const written = std.c.write(fd, str.ptr, str.len);
     if (written < 0) {
@@ -782,11 +808,34 @@ pub fn builtinIoEof(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!
     const io = try requireIoReceiver(vm, receiver);
     try ensureIoReadable(vm, io);
 
+    // Seekable streams (files): compare position against end-of-file.
     if (maybeRemainingSeekableBytes(io)) |remaining| {
         return Value.boolean(remaining == 0);
     }
 
-    if (!try waitReadable(vm, io, 0)) return Value.boolean(false);
+    // Non-seekable streams (pipes, sockets): use poll(0) to probe state, then
+    // FIONREAD to count bytes when the write end is known to be closed.
+    //
+    // Platform behaviour (both macOS and Linux):
+    //   write end open, no data  → revents = 0              → not eof (would block)
+    //   write end open, data     → revents = POLLIN          → not eof
+    //   write end closed, data   → revents = POLLIN|POLLHUP  → not eof
+    //   write end closed, no data→ revents = POLLIN|POLLHUP  → eof
+    //
+    // So POLLHUP distinguishes "write end closed" from "write end open".
+    // When POLLHUP is set, use FIONREAD to settle whether bytes remain.
+    var fds = [_]std.posix.pollfd{.{
+        .fd = @intCast(io.fd),
+        .events = std.posix.POLL.IN | std.posix.POLL.HUP,
+        .revents = 0,
+    }};
+    _ = std.posix.poll(fds[0..], 0) catch
+        return vm.raiseExceptionFmt(vm.io_error_class, "poll failed", .{});
+    if ((fds[0].revents & std.posix.POLL.HUP) == 0) {
+        // Write end is still open — EOF is impossible regardless of data.
+        return Value.boolean(false);
+    }
+    // Write end is closed. EOF iff no bytes remain in the pipe buffer.
     return Value.boolean(pendingIoBytes(io) == 0);
 }
 

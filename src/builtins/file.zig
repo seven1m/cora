@@ -32,6 +32,14 @@ const FileIdentity = struct {
     mount_id: ?u64,
 };
 
+// callStat: thin wrapper around fstatat(AT_FDCWD, path, ..., 0) for non-Linux platforms.
+// We use fstatat because std.c.stat isn't universally available in Zig 0.16.
+fn callStat(path: [*:0]const u8, buf: *std.posix.Stat) c_int {
+    const rc = std.posix.system.fstatat(std.posix.AT.FDCWD, path, buf, 0);
+    // fstatat returns -1 on error (errno set) or 0 on success; return as c_int
+    return @intCast(rc);
+}
+
 fn passwdDir(passwd: *const std.c.passwd) ?[]const u8 {
     const dir_z = passwd.dir orelse return null;
     return std.mem.span(dir_z);
@@ -76,6 +84,25 @@ pub fn register(vm: *VM) !void {
 
     const separator_sym = try vm.intern("SEPARATOR");
     try vm.file_class.module.constants.put(separator_sym, .{ .value = try vm.newString("/", false) });
+
+    // File::Constants module — open-mode flag constants shared with IO
+    const constants_name_sym = try vm.intern("Constants");
+    const file_constants_val = try vm.newModule(constants_name_sym);
+    const file_constants_module = file_constants_val.toModuleObject();
+    try vm.file_class.module.constants.put(constants_name_sym, .{ .value = file_constants_val });
+    const fc_constants = [_]struct { []const u8, i64 }{
+        .{ "RDONLY", 0 },
+        .{ "WRONLY", 1 },
+        .{ "RDWR",   2 },
+        .{ "APPEND", 0x200 },
+        .{ "TRUNC",  0x400 },
+        .{ "CREAT",  0x200 },
+        .{ "EXCL",   0x400 },
+    };
+    for (fc_constants) |entry| {
+        const sym = try vm.intern(entry[0]);
+        try file_constants_module.constants.put(sym, .{ .value = Value.integer(entry[1]) });
+    }
 
     const alt_separator_sym = try vm.intern("ALT_SEPARATOR");
     try vm.file_class.module.constants.put(alt_separator_sym, .{ .value = Value.nil() });
@@ -545,22 +572,39 @@ fn loadPosixStatMetadataForFd(vm: *VM, fd: std.c.fd_t, default_mode: i64) VMErro
 }
 
 fn fileIdentityForPath(vm: *VM, path_obj: *value.StringObject) VMError!?FileIdentity {
-    if (builtin.os.tag != .linux) {
-        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "File.identical? is not implemented on this platform", .{});
-    }
-
     const path_z = try vm.allocCStringZ(path_obj.str);
     defer vm.allocator.free(path_z);
 
+    if (builtin.os.tag == .linux) {
+        while (true) {
+            var statx = std.mem.zeroes(std.os.linux.Statx);
+            switch (std.c.errno(std.c.statx(std.os.linux.AT.FDCWD, path_z.ptr, std.os.linux.AT.NO_AUTOMOUNT, linux_identical_statx_request, &statx))) {
+                .SUCCESS => {
+                    return .{
+                        .inode = statx.ino,
+                        .mount_id = if (statx.mask.MNT_ID or statx.mask.MNT_ID_UNIQUE) statx.mnt_id else null,
+                    };
+                },
+                .INTR => continue,
+                .NOENT, .NOTDIR => return null,
+                .ACCES, .PERM => return null,
+                else => return vm.raiseExceptionFmt(vm.system_call_error_class, "stat failed for {s}", .{path_obj.str}),
+            }
+        }
+    }
+
+    // POSIX fallback (macOS and other platforms): use stat(2) — follows symlinks,
+    // so a symlink and its target correctly compare as identical.
+    var st = std.mem.zeroes(std.posix.Stat);
     while (true) {
-        var statx = std.mem.zeroes(std.os.linux.Statx);
-        switch (std.c.errno(std.c.statx(std.os.linux.AT.FDCWD, path_z.ptr, std.os.linux.AT.NO_AUTOMOUNT, linux_identical_statx_request, &statx))) {
-            .SUCCESS => {
-                return .{
-                    .inode = statx.ino,
-                    .mount_id = if (statx.mask.MNT_ID or statx.mask.MNT_ID_UNIQUE) statx.mnt_id else null,
-                };
-            },
+        if (callStat(path_z.ptr, &st) == 0) {
+            return .{
+                .inode = @intCast(st.ino),
+                .mount_id = @intCast(st.dev),
+            };
+        }
+        const err = std.posix.errno(-1);
+        switch (err) {
             .INTR => continue,
             .NOENT, .NOTDIR => return null,
             .ACCES, .PERM => return null,

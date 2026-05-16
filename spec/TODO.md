@@ -3821,6 +3821,12 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/socket/unixsocket/socketpair_spec.rb
 
 ### library/stringio
+- [x] library/stringio/initialize_spec.rb
+- [x] library/stringio/new_spec.rb
+- [x] library/stringio/read_spec.rb
+- [x] library/stringio/size_spec.rb
+- [x] library/stringio/string_spec.rb
+- [x] library/stringio/write_spec.rb
 - [ ] library/stringio/append_spec.rb
 - [ ] library/stringio/binmode_spec.rb
 - [ ] library/stringio/close_read_spec.rb
@@ -3845,13 +3851,11 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/stringio/getch_spec.rb
 - [ ] library/stringio/getpass_spec.rb
 - [ ] library/stringio/gets_spec.rb
-- [ ] library/stringio/initialize_spec.rb
 - [ ] library/stringio/inspect_spec.rb
 - [ ] library/stringio/internal_encoding_spec.rb
 - [ ] library/stringio/isatty_spec.rb
 - [ ] library/stringio/length_spec.rb
 - [ ] library/stringio/lineno_spec.rb
-- [ ] library/stringio/new_spec.rb
 - [ ] library/stringio/open_spec.rb
 - [ ] library/stringio/path_spec.rb
 - [ ] library/stringio/pid_spec.rb
@@ -3861,7 +3865,6 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/stringio/putc_spec.rb
 - [ ] library/stringio/puts_spec.rb
 - [ ] library/stringio/read_nonblock_spec.rb
-- [ ] library/stringio/read_spec.rb
 - [ ] library/stringio/readbyte_spec.rb
 - [ ] library/stringio/readchar_spec.rb
 - [ ] library/stringio/readline_spec.rb
@@ -3872,8 +3875,6 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/stringio/seek_spec.rb
 - [ ] library/stringio/set_encoding_by_bom_spec.rb
 - [ ] library/stringio/set_encoding_spec.rb
-- [ ] library/stringio/size_spec.rb
-- [ ] library/stringio/string_spec.rb
 - [ ] library/stringio/stringio_spec.rb
 - [ ] library/stringio/sync_spec.rb
 - [ ] library/stringio/sysread_spec.rb
@@ -3884,7 +3885,6 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/stringio/ungetbyte_spec.rb
 - [ ] library/stringio/ungetc_spec.rb
 - [ ] library/stringio/write_nonblock_spec.rb
-- [ ] library/stringio/write_spec.rb
 
 ### library/stringscanner
 - [ ] library/stringscanner/append_spec.rb
