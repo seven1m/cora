@@ -285,6 +285,20 @@ test "String#to_sym" {
     try std.testing.expectEqualSlices(u8, "hello", result.toStringObject().str);
 }
 
+test "String#chomp removes default line endings and explicit separator" {
+    var result = try evalCode("\"a\\n\".chomp");
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "a", result.toStringObject().str);
+
+    result = try evalCode("\"a\\r\\n\".chomp");
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "a", result.toStringObject().str);
+
+    result = try evalCode("\"a/\".chomp(?/)");
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "a", result.toStringObject().str);
+}
+
 test "String#chars propagates break value" {
     var result = try evalCode("'abc'.chars { |c| break :done if c == 'b' }");
     try std.testing.expect(result.isSymbol());

@@ -181,6 +181,10 @@ pub fn register(vm: *VM) !void {
     try vm.string_class.module.methods.put(string_chop_sym, value.MethodEntry.builtin(&builtinStringChop, .{ .exact = 0 }));
     const string_chop_bang_sym = try vm.intern("chop!");
     try vm.string_class.module.methods.put(string_chop_bang_sym, value.MethodEntry.builtin(&builtinStringChopBang, .{ .exact = 0 }));
+    const string_chomp_sym = try vm.intern("chomp");
+    try vm.string_class.module.methods.put(string_chomp_sym, value.MethodEntry.builtin(&builtinStringChomp, .{ .variadic = 0 }));
+    const string_chomp_bang_sym = try vm.intern("chomp!");
+    try vm.string_class.module.methods.put(string_chomp_bang_sym, value.MethodEntry.builtin(&builtinStringChompBang, .{ .variadic = 0 }));
 
     const string_ord_sym = try vm.intern("ord");
     try vm.string_class.module.methods.put(string_ord_sym, value.MethodEntry.builtin(&builtinStringOrd, .{ .exact = 0 }));
@@ -3839,6 +3843,37 @@ fn stringChopEnd(bytes: []const u8, encoding: enc.Encoding) usize {
     return last_start;
 }
 
+fn stringChompEnd(vm: *VM, bytes: []const u8, encoding: enc.Encoding, args: []Value) VMError!usize {
+    try vm.requireArgCountRange(args, 0, 1);
+    if (bytes.len == 0) return 0;
+
+    if (args.len == 0) {
+        if (std.mem.endsWith(u8, bytes, "\r\n")) return bytes.len - 2;
+        if (std.mem.endsWith(u8, bytes, "\n") or std.mem.endsWith(u8, bytes, "\r")) return stringChopEnd(bytes, encoding);
+        return bytes.len;
+    }
+
+    const separator = try args[0].coerceToStr(vm, "no implicit conversion into String");
+    if (separator.len == 0) {
+        var end = bytes.len;
+        while (end > 0) {
+            if (std.mem.endsWith(u8, bytes[0..end], "\r\n")) {
+                end -= 2;
+                continue;
+            }
+            if (std.mem.endsWith(u8, bytes[0..end], "\n") or std.mem.endsWith(u8, bytes[0..end], "\r")) {
+                end = stringChopEnd(bytes[0..end], encoding);
+                continue;
+            }
+            break;
+        }
+        return end;
+    }
+
+    if (std.mem.endsWith(u8, bytes, separator)) return bytes.len - separator.len;
+    return bytes.len;
+}
+
 inline fn isStringStripByte(byte: u8) bool {
     return switch (byte) {
         0, ' ', '\t', '\n', '\r', 0x0B, 0x0C => true,
@@ -3959,6 +3994,26 @@ pub fn builtinStringChopBang(vm: *VM, receiver: Value, args: []Value, _: ?Block)
 
     const chop_end = stringChopEnd(string_obj.str, string_obj.encoding);
     string_obj.str = string_obj.str[0..chop_end];
+    string_obj.validity = .unknown;
+    return receiver;
+}
+
+pub fn builtinStringChomp(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const string_obj = receiver.toStringObject();
+    const chomp_end = try stringChompEnd(vm, string_obj.str, string_obj.encoding, args);
+    return vm.newStringWithEncoding(string_obj.str[0..chomp_end], false, string_obj.encoding);
+}
+
+pub fn builtinStringChompBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
+    }
+
+    const string_obj = receiver.toStringObject();
+    const chomp_end = try stringChompEnd(vm, string_obj.str, string_obj.encoding, args);
+    if (chomp_end == string_obj.str.len) return Value.nil();
+
+    string_obj.str = string_obj.str[0..chomp_end];
     string_obj.validity = .unknown;
     return receiver;
 }
