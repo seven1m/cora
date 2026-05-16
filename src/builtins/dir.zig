@@ -90,6 +90,12 @@ pub fn register(vm: *VM) !void {
     const mkdir_sym = try vm.intern("mkdir");
     try dir_singleton.module.methods.put(mkdir_sym, value.MethodEntry.builtin(&builtinDirMkdir, .{ .variadic = 0 }));
 
+    const rmdir_sym = try vm.intern("rmdir");
+    try dir_singleton.module.methods.put(rmdir_sym, value.MethodEntry.builtin(&builtinDirRmdir, .{ .exact = 1 }));
+
+    const children_sym = try vm.intern("children");
+    try dir_singleton.module.methods.put(children_sym, value.MethodEntry.builtin(&builtinDirChildren, .{ .variadic = 0 }));
+
     const glob_sym = try vm.intern("glob");
     try dir_singleton.module.methods.put(glob_sym, value.MethodEntry.builtin(&builtinDirGlob, .{ .variadic = 1 }));
 
@@ -189,6 +195,49 @@ pub fn builtinDirMkdir(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
     return Value.integer(0);
 }
 
+pub fn builtinDirRmdir(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "Dir.rmdir is not implemented on Windows", .{});
+    }
+
+    const target = try vm.coerceToPath(args[0], "no implicit conversion into String");
+    const target_z = try vm.allocCStringZ(target);
+    defer vm.allocator.free(target_z);
+
+    const result = std.c.rmdir(target_z.ptr);
+    if (result != 0) {
+        return vm.raiseErrnoFmt(std.posix.errno(result), "failed to remove directory: {s}", .{target});
+    }
+
+    return Value.integer(0);
+}
+
+pub fn builtinDirChildren(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    var encoding_value: ?Value = null;
+    try vm.consumeKeywordArgs(.{"encoding"}, .{&encoding_value});
+
+    const target = if (args.len == 1)
+        try vm.coerceToPath(args[0], "no implicit conversion into String")
+    else
+        ".";
+
+    var dir = std.Io.Dir.cwd().openDir(vm.io, target, .{ .iterate = true }) catch {
+        return vm.raiseExceptionFmt(vm.system_call_error_class, "failed to open directory: {s}", .{target});
+    };
+    defer dir.close(vm.io);
+
+    const result = try vm.createArray();
+    var iter = dir.iterate();
+    while (iter.next(vm.io) catch return error.Fatal) |entry| {
+        if (isDotLike(entry.name)) continue;
+        result.elements.append(vm.gc_allocator, try vm.newString(entry.name, false)) catch return error.Fatal;
+    }
+
+    return Value.fromObject(&result.object);
+}
+
 fn joinPathAlloc(allocator: std.mem.Allocator, left: []const u8, right: []const u8) ![]u8 {
     if (left.len == 0) return allocator.dupe(u8, right);
     if (right.len == 0) return allocator.dupe(u8, left);
@@ -259,6 +308,27 @@ fn hasMeta(pattern: []const u8, noescape: bool) bool {
         }
     }
     return false;
+}
+
+fn unescapeGlobLiteralAlloc(allocator: std.mem.Allocator, pattern: []const u8, noescape: bool) ![]u8 {
+    if (noescape or std.mem.indexOfScalar(u8, pattern, '\\') == null) {
+        return allocator.dupe(u8, pattern);
+    }
+
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(allocator);
+
+    var i: usize = 0;
+    while (i < pattern.len) : (i += 1) {
+        if (pattern[i] == '\\' and i + 1 < pattern.len) {
+            i += 1;
+            try out.append(allocator, pattern[i]);
+            continue;
+        }
+        try out.append(allocator, pattern[i]);
+    }
+
+    return allocator.dupe(u8, out.items);
 }
 
 fn splitPatternSegmentsAlloc(allocator: std.mem.Allocator, pattern: []const u8) !std.ArrayList([]const u8) {
@@ -612,13 +682,15 @@ fn processPattern(ctx: *GlobContext, pattern: []const u8) VMError!void {
 
     const pattern_body = if (absolute) trimmed[1..] else trimmed;
     if (!hasMeta(pattern_body, ctx.flags.noescape) and std.mem.indexOfScalar(u8, pattern_body, '/') == null) {
-        const candidate_abs = joinPathAlloc(ctx.vm.allocator, base_abs, pattern_body) catch return error.Fatal;
+        const literal_name = unescapeGlobLiteralAlloc(ctx.vm.allocator, pattern_body, ctx.flags.noescape) catch return error.Fatal;
+        defer ctx.vm.allocator.free(literal_name);
+        const candidate_abs = joinPathAlloc(ctx.vm.allocator, base_abs, literal_name) catch return error.Fatal;
         defer ctx.vm.allocator.free(candidate_abs);
         const stat = std.Io.Dir.cwd().statFile(ctx.vm.io, candidate_abs, .{}) catch return;
         if (directory_only and stat.kind != .directory) return;
         if (!directory_only and stat.kind != .file and stat.kind != .directory) return;
 
-        const display = if (absolute) candidate_abs else pattern_body;
+        const display = if (absolute) candidate_abs else literal_name;
         try appendMatch(ctx, display, absolute, directory_only and stat.kind == .directory);
         return;
     }

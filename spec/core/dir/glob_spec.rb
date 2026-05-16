@@ -325,36 +325,32 @@ describe "Dir.glob" do
 
   platform_is_not(:windows) do
     it "matches the literal character '\\' with option File::FNM_NOESCAPE" do
-      CORAFIXME "Dir.mkdir and Dir.rmdir are not implemented yet for FNM_NOESCAPE setup", exception: NoMethodError, message: /undefined method '(mkdir|rmdir)'/ do
-        Dir.mkdir 'foo?bar'
+      Dir.mkdir 'foo?bar'
 
-        begin
-          Dir.glob('foo?bar', File::FNM_NOESCAPE).should == %w|foo?bar|
-          Dir.glob('foo\?bar', File::FNM_NOESCAPE).should == []
-        ensure
-          Dir.rmdir 'foo?bar'
-        end
+      begin
+        Dir.glob('foo?bar', File::FNM_NOESCAPE).should == %w|foo?bar|
+        Dir.glob('foo\?bar', File::FNM_NOESCAPE).should == []
+      ensure
+        Dir.rmdir 'foo?bar'
+      end
 
-        Dir.mkdir 'foo\?bar'
+      Dir.mkdir 'foo\?bar'
 
-        begin
-          Dir.glob('foo\?bar', File::FNM_NOESCAPE).should == %w|foo\\?bar|
-        ensure
-          Dir.rmdir 'foo\?bar'
-        end
+      begin
+        Dir.glob('foo\?bar', File::FNM_NOESCAPE).should == %w|foo\\?bar|
+      ensure
+        Dir.rmdir 'foo\?bar'
       end
     end
 
     it "returns nil for directories current user has no permission to read" do
-      CORAFIXME "Dir.rmdir and File.chmod are not implemented yet for unreadable-directory glob setup" do
-        Dir.mkdir('no_permission')
-        File.chmod(0, 'no_permission')
+      Dir.mkdir('no_permission')
+      File.chmod(0, 'no_permission')
 
-        begin
-          Dir.glob('no_permission/*').should == []
-        ensure
-          Dir.rmdir('no_permission')
-        end
+      begin
+        Dir.glob('no_permission/*').should == []
+      ensure
+        Dir.rmdir('no_permission')
       end
     end
 

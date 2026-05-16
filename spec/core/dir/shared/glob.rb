@@ -291,16 +291,14 @@ describe :dir_glob, shared: true do
   end
 
   it "matches special characters by escaping with a backslash with '\\<character>'" do
-    CORAFIXME "Dir.mkdir and Dir.rmdir are not implemented yet for glob escape setup", exception: NoMethodError, message: /undefined method '(mkdir|rmdir)'/ do
-      Dir.mkdir 'foo^bar'
+    Dir.mkdir 'foo^bar'
 
-      begin
-        Dir.send(@method, 'foo?bar').should == %w|foo^bar|
-        Dir.send(@method, 'foo\?bar').should == []
-        Dir.send(@method, 'nond\otfile').should == %w|nondotfile|
-      ensure
-        Dir.rmdir 'foo^bar'
-      end
+    begin
+      Dir.send(@method, 'foo?bar').should == %w|foo^bar|
+      Dir.send(@method, 'foo\?bar').should == []
+      Dir.send(@method, 'nond\otfile').should == %w|nondotfile|
+    ensure
+      Dir.rmdir 'foo^bar'
     end
   end
 

@@ -222,6 +222,27 @@ test "File.stat and IO#stat expose uid and gid" {
     try std.testing.expectEqual(@as(i64, @intCast(std.c.getgid())), result.toArrayObject().elements.items[3].toInteger());
 }
 
+test "Dir.children and File::Stat#directory? support vendored fileutils traversal" {
+    var root_buf: [128]u8 = undefined;
+    const root = try uniquePath(&root_buf);
+
+    const source = try std.fmt.allocPrint(
+        std.testing.allocator,
+        \\root = "{s}"
+        \\Dir.mkdir(root)
+        \\File.write(File.join(root, "a.txt"), "x")
+        \\sub = File.join(root, "sub")
+        \\Dir.mkdir(sub)
+        \\[Dir.children(root).sort.inspect, File.lstat(root).directory?, File.lstat(File.join(root, "a.txt")).file?]
+    , .{root});
+    defer std.testing.allocator.free(source);
+
+    const result = try evalCode(source);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqualSlices(u8, "[\"a.txt\", \"sub\"]", result.toArrayObject().elements.items[0].toStringObject().str);
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[1].toBool());
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[2].toBool());
+}
 test "Kernel puts and p follow $stdout reassignment" {
     var path_buf: [128]u8 = undefined;
     const path = try uniquePath(&path_buf);
