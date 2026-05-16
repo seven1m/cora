@@ -8,6 +8,7 @@ const method_builtin = @import("method.zig");
 const method_common = @import("method_common.zig");
 const openssl_builtin = @import("openssl.zig");
 const warning_builtin = @import("warning.zig");
+const zlib_builtin = @import("zlib.zig");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -421,6 +422,8 @@ pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
 
     if (std.mem.eql(u8, feature, "openssl") or std.mem.eql(u8, feature, "openssl.rb")) {
         openssl_builtin.register(vm) catch return error.Fatal;
+    } else if (std.mem.eql(u8, feature, "zlib") or std.mem.eql(u8, feature, "zlib.rb")) {
+        zlib_builtin.register(vm) catch return error.Fatal;
     }
 
     try vm.insertLoadedFile(absolute_path);
