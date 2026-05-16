@@ -239,6 +239,20 @@ test "File.split matches MRI path splitting" {
     try std.testing.expectEqualSlices(u8, "", result.toArrayObject().elements.items[1].toStringObject().str);
 }
 
+test "File.join does not reset on later absolute segments" {
+    var result = try evalCode("File.join('/base', 'host%80', '/quick/Marshal.4.8')");
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "/base/host%80/quick/Marshal.4.8", result.toStringObject().str);
+
+    result = try evalCode("File.join('a', '/b')");
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "a/b", result.toStringObject().str);
+
+    result = try evalCode("File.join(['/base', '/b'])");
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "/base/b", result.toStringObject().str);
+}
+
 test "File.identical? returns true for same file and false for missing paths" {
     var path_buf: [128]u8 = undefined;
     const path = try uniquePath(&path_buf);

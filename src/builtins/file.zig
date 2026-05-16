@@ -715,12 +715,6 @@ pub fn builtinFileJoin(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
             continue;
         }
 
-        if (part_obj.str.len > 0 and part_obj.str[0] == '/') {
-            result.clearRetainingCapacity();
-            result.appendSlice(vm.allocator, part_obj.str) catch return error.Fatal;
-            continue;
-        }
-
         if (result.items.len > 0 and result.items[result.items.len - 1] != '/') {
             result.append(vm.allocator, '/') catch return error.Fatal;
         }
