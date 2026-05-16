@@ -32,6 +32,36 @@ const CliOptions = struct {
     worker_test_index: ?usize = null,
 };
 
+const total_specs_path = "spec/.total-specs";
+
+fn readTotalSpecs() ?usize {
+    const flags = std.c.O{
+        .ACCMODE = .RDONLY,
+    };
+    const fd = std.c.open(@ptrCast(total_specs_path.ptr), flags, @as(u32, 0));
+    if (fd < 0) return null;
+    defer _ = std.c.close(fd);
+    var buf: [32]u8 = undefined;
+    const bytes_read = std.c.read(fd, &buf, buf.len);
+    if (bytes_read <= 0) return null;
+    const trimmed = std.mem.trim(u8, buf[0..@as(usize, @intCast(bytes_read))], " \n\r\t");
+    return std.fmt.parseUnsigned(usize, trimmed, 10) catch null;
+}
+
+fn writeTotalSpecs(total: usize) void {
+    const flags = std.c.O{
+        .ACCMODE = .WRONLY,
+        .CREAT = true,
+        .TRUNC = true,
+    };
+    const fd = std.c.open(@ptrCast(total_specs_path.ptr), flags, @as(u32, 0o644));
+    if (fd < 0) return;
+    defer _ = std.c.close(fd);
+    var buf: [32]u8 = undefined;
+    const len = std.fmt.bufPrint(&buf, "{d}", .{total}) catch return;
+    _ = std.c.write(fd, len.ptr, len.len);
+}
+
 const RubySpecTest = union(enum) {
     spec: ruby_spec_runner.SpecCase,
     no_specs_found: void,
@@ -467,23 +497,43 @@ fn printTerminalOutcome(
 ) void {
     if (have_tty and !verbose and !timing) {
         switch (result.outcome) {
-            .skip => std.debug.print("\r{d}/{d} specs {s}...SKIP\n", .{
-                completed_specs,
-                known_total_specs,
-                test_name,
-            }),
-            .fail => std.debug.print("\r{d}/{d} specs {s}...FAIL ({s})\n", .{
-                completed_specs,
-                known_total_specs,
-                test_name,
-                result.err_name orelse "UnknownError",
-            }),
+            .skip => {
+                if (known_total_specs == 0) {
+                    std.debug.print("\r{d} specs {s}...SKIP\n", .{ completed_specs, test_name });
+                } else {
+                    std.debug.print("\r{d}/{d} specs {s}...SKIP\n", .{
+                        completed_specs,
+                        known_total_specs,
+                        test_name,
+                    });
+                }
+            },
+            .fail => {
+                if (known_total_specs == 0) {
+                    std.debug.print("\r{d} specs {s}...FAIL ({s})\n", .{
+                        completed_specs,
+                        test_name,
+                        result.err_name orelse "UnknownError",
+                    });
+                } else {
+                    std.debug.print("\r{d}/{d} specs {s}...FAIL ({s})\n", .{
+                        completed_specs,
+                        known_total_specs,
+                        test_name,
+                        result.err_name orelse "UnknownError",
+                    });
+                }
+            },
             .pass => {},
         }
         return;
     }
 
-    std.debug.print("{d}/{d} specs {s}...", .{ completed_specs, known_total_specs, test_name });
+    if (known_total_specs == 0) {
+        std.debug.print("{d} specs {s}...", .{ completed_specs, test_name });
+    } else {
+        std.debug.print("{d}/{d} specs {s}...", .{ completed_specs, known_total_specs, test_name });
+    }
     switch (result.outcome) {
         .pass => std.debug.print("OK", .{}),
         .skip => std.debug.print("SKIP", .{}),
@@ -497,7 +547,6 @@ fn applyResult(summary: *RunSummary, result: TestRunResult) void {
     summary.log_err_count += result.log_err_count;
     summary.leaks += @intFromBool(result.leak);
     summary.fuzz_count += @intFromBool(result.fuzz);
-    summary.known_total_specs += result.spec_total_delta;
     summary.completed_specs += result.spec_completed_delta;
     switch (result.outcome) {
         .pass => summary.ok_count += 1,
@@ -518,10 +567,17 @@ fn deinitTestRunResult(allocator: std.mem.Allocator, result: *TestRunResult) voi
 
 fn printParallelProgressStatus(have_tty: bool, summary: RunSummary, active_workers: usize) void {
     if (!have_tty or verbose or timing) return;
-    std.debug.print(
-        "\r{d}/{d} specs complete ({d} workers active)      ",
-        .{ summary.completed_specs, summary.known_total_specs, active_workers },
-    );
+    if (summary.known_total_specs == 0) {
+        std.debug.print(
+            "\r{d} specs complete ({d} workers active)      ",
+            .{ summary.completed_specs, active_workers },
+        );
+    } else {
+        std.debug.print(
+            "\r{d}/{d} specs complete ({d} workers active)      ",
+            .{ summary.completed_specs, summary.known_total_specs, active_workers },
+        );
+    }
 }
 
 fn runProcessWorkerQueue(
@@ -532,9 +588,10 @@ fn runProcessWorkerQueue(
     test_fns: []const ZigTestFn,
     ruby_spec_tests: []const RubySpecTest,
     have_tty: bool,
+    initial_total: usize,
 ) RunSummary {
     var summary = RunSummary{
-        .known_total_specs = test_fns.len,
+        .known_total_specs = initial_total,
     };
     const total_tests = test_fns.len + ruby_spec_tests.len;
     if (total_tests == 0) return summary;
@@ -899,6 +956,7 @@ fn mainTerminal() void {
     const total_tests = test_fn_list.len + ruby_spec_tests.items.len;
     const worker_count = resolveWorkerCount(total_tests);
 
+    const saved_total = readTotalSpecs();
     if (worker_count > 1) {
         const allocator = std.heap.page_allocator;
         const child_exe_path = std.process.executablePathAlloc(process_io, allocator) catch |err| {
@@ -908,6 +966,7 @@ fn mainTerminal() void {
         defer allocator.free(child_exe_path);
 
         const interactive_tty = (std.Io.File.stderr().isTty(process_io) catch false) and !verbose;
+        const initial_total = if (test_filter_raw.len == 0) (saved_total orelse 0) else 0;
         const summary = runProcessWorkerQueue(
             allocator,
             child_exe_path,
@@ -916,6 +975,7 @@ fn mainTerminal() void {
             test_fn_list,
             ruby_spec_tests.items,
             interactive_tty,
+            initial_total,
         );
 
         if (summary.ok_count == total_tests) {
@@ -940,12 +1000,18 @@ fn mainTerminal() void {
         if (summary.leaks != 0 or summary.log_err_count != 0 or summary.fail_count != 0) {
             std.process.exit(1);
         }
+        if (summary.known_total_specs != 0) {
+            writeTotalSpecs(summary.known_total_specs);
+        } else if (summary.completed_specs > 0 and test_filter_raw.len == 0) {
+            writeTotalSpecs(summary.completed_specs);
+        }
         return;
     }
 
-    var summary = RunSummary{
-        .known_total_specs = test_fn_list.len,
-    };
+    var summary = RunSummary{};
+    if (saved_total != null and test_filter_raw.len == 0) {
+        summary.known_total_specs = saved_total.?;
+    }
     const root_node = if (builtin.fuzz or verbose) std.Progress.Node.none else std.Progress.start(process_io, .{
         .root_name = "Test",
         .estimated_total_items = total_tests,
@@ -991,6 +1057,9 @@ fn mainTerminal() void {
     }
     if (summary.leaks != 0 or summary.log_err_count != 0 or summary.fail_count != 0) {
         std.process.exit(1);
+    }
+    if (summary.known_total_specs != 0 and test_filter_raw.len == 0) {
+        writeTotalSpecs(summary.known_total_specs);
     }
 }
 
