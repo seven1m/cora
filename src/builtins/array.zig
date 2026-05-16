@@ -515,6 +515,9 @@ pub fn register(vm: *VM) !void {
     const union_sym = try vm.intern("|");
     try vm.array_class.module.methods.put(union_sym, value.MethodEntry.builtin(&builtinArrayUnion, .{ .exact = 1 }));
 
+    const minus_sym = try vm.intern("-");
+    try vm.array_class.module.methods.put(minus_sym, value.MethodEntry.builtin(&builtinArrayMinus, .{ .exact = 1 }));
+
     const plus_sym = try vm.intern("+");
     try vm.array_class.module.methods.put(plus_sym, value.MethodEntry.builtin(&builtinArrayPlus, .{ .exact = 1 }));
 
@@ -2149,6 +2152,21 @@ pub fn builtinArrayUnion(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     }
     for (right.elements.items) |elem| {
         if (!(try arrayContainsEquivalent(vm, result.elements.items, elem))) {
+            result.elements.append(vm.gc_allocator, elem) catch return error.Fatal;
+        }
+    }
+
+    return Value.fromObject(&result.object);
+}
+
+pub fn builtinArrayMinus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireSingleArg(args, .array, "Array");
+    const left = receiver.toArrayObject();
+    const right = args[0].toArrayObject();
+    const result = try vm.createArray();
+
+    for (left.elements.items) |elem| {
+        if (!(try arrayContainsEquivalent(vm, right.elements.items, elem))) {
             result.elements.append(vm.gc_allocator, elem) catch return error.Fatal;
         }
     }

@@ -240,6 +240,22 @@ test "Array#each propagates break value" {
     try std.testing.expect(result.isNil());
 }
 
+test "Array#- removes all rhs-equal elements and preserves lhs duplicates otherwise" {
+    var result = try evalCode("[1, 1, 2, 3] - [1, 4]");
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(usize, 2), result.toArrayObject().elements.items.len);
+    try std.testing.expectEqual(@as(i64, 2), result.toArrayObject().elements.items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 3), result.toArrayObject().elements.items[1].toInteger());
+
+    result = try evalCode("[1, 2, 2, 3] - []");
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(usize, 4), result.toArrayObject().elements.items.len);
+    try std.testing.expectEqual(@as(i64, 1), result.toArrayObject().elements.items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 2), result.toArrayObject().elements.items[1].toInteger());
+    try std.testing.expectEqual(@as(i64, 2), result.toArrayObject().elements.items[2].toInteger());
+    try std.testing.expectEqual(@as(i64, 3), result.toArrayObject().elements.items[3].toInteger());
+}
+
 test "Array iteration methods propagate non-local return from blocks" {
     var result = try evalCode(
         \\def foo
