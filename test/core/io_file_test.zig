@@ -222,6 +222,78 @@ test "File.stat and IO#stat expose uid and gid" {
     try std.testing.expectEqual(@as(i64, @intCast(std.c.getgid())), result.toArrayObject().elements.items[3].toInteger());
 }
 
+test "File.split matches MRI path splitting" {
+    var result = try evalCode("File.split('/a/b')");
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqualSlices(u8, "/a", result.toArrayObject().elements.items[0].toStringObject().str);
+    try std.testing.expectEqualSlices(u8, "b", result.toArrayObject().elements.items[1].toStringObject().str);
+
+    result = try evalCode("File.split('foo/')");
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqualSlices(u8, ".", result.toArrayObject().elements.items[0].toStringObject().str);
+    try std.testing.expectEqualSlices(u8, "foo", result.toArrayObject().elements.items[1].toStringObject().str);
+
+    result = try evalCode("File.split('')");
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqualSlices(u8, ".", result.toArrayObject().elements.items[0].toStringObject().str);
+    try std.testing.expectEqualSlices(u8, "", result.toArrayObject().elements.items[1].toStringObject().str);
+}
+
+test "File.identical? returns true for same file and false for missing paths" {
+    var path_buf: [128]u8 = undefined;
+    const path = try uniquePath(&path_buf);
+    const alt_path = try std.fmt.allocPrint(std.testing.allocator, "{s}_link", .{path});
+    defer std.testing.allocator.free(alt_path);
+    const missing_path = try std.fmt.allocPrint(std.testing.allocator, "{s}_missing", .{path});
+    defer std.testing.allocator.free(missing_path);
+
+    const source = try std.fmt.allocPrint(
+        std.testing.allocator,
+        \\path = "{s}"
+        \\alt = "{s}"
+        \\missing = "{s}"
+        \\File.write(path, "x")
+        \\File.symlink(path, alt)
+        \\[
+        \\  File.identical?(path, path),
+        \\  File.identical?(path, alt),
+        \\  File.identical?(path, missing)
+        \\]
+    , .{ path, alt_path, missing_path });
+    defer std.testing.allocator.free(source);
+
+    const result = try evalCode(source);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[0].toBool());
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[1].toBool());
+    try std.testing.expectEqual(false, result.toArrayObject().elements.items[2].toBool());
+}
+
+test "IO.copy_stream copies bytes between open files" {
+    var src_buf: [128]u8 = undefined;
+    var dst_buf: [128]u8 = undefined;
+    const src = try uniquePath(&src_buf);
+    const dst = try uniquePath(&dst_buf);
+
+    const source = try std.fmt.allocPrint(
+        std.testing.allocator,
+        \\src = "{s}"
+        \\dst = "{s}"
+        \\File.write(src, "hello")
+        \\File.open(src, "rb") do |from|
+        \\  File.open(dst, "wb") do |to|
+        \\    IO.copy_stream(from, to)
+        \\  end
+        \\end
+        \\File.read(dst)
+    , .{ src, dst });
+    defer std.testing.allocator.free(source);
+
+    const result = try evalCode(source);
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "hello", result.toStringObject().str);
+}
+
 test "Dir.children and File::Stat#directory? support vendored fileutils traversal" {
     var root_buf: [128]u8 = undefined;
     const root = try uniquePath(&root_buf);
@@ -243,6 +315,7 @@ test "Dir.children and File::Stat#directory? support vendored fileutils traversa
     try std.testing.expectEqual(true, result.toArrayObject().elements.items[1].toBool());
     try std.testing.expectEqual(true, result.toArrayObject().elements.items[2].toBool());
 }
+
 test "Kernel puts and p follow $stdout reassignment" {
     var path_buf: [128]u8 = undefined;
     const path = try uniquePath(&path_buf);

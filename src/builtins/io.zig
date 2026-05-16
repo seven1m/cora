@@ -27,6 +27,9 @@ pub fn register(vm: *VM) !void {
     const pipe_sym = try vm.intern("pipe");
     try io_singleton.module.methods.put(pipe_sym, value.MethodEntry.builtin(&builtinIoPipe, .{ .exact = 0 }));
 
+    const copy_stream_sym = try vm.intern("copy_stream");
+    try io_singleton.module.methods.put(copy_stream_sym, value.MethodEntry.builtin(&builtinIoCopyStream, .{ .exact = 2 }));
+
     const to_io_sym = try vm.intern("to_io");
     try vm.io_class.module.methods.put(to_io_sym, value.MethodEntry.builtin(&builtinIoToIo, .{ .exact = 0 }));
 
@@ -126,6 +129,27 @@ pub fn builtinIoPipe(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
     pair.elements.append(vm.gc_allocator, read_io) catch return error.Fatal;
     pair.elements.append(vm.gc_allocator, write_io) catch return error.Fatal;
     return Value.fromObject(&pair.object);
+}
+
+pub fn builtinIoCopyStream(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 2);
+    const src = try requireIoReceiver(vm, args[0]);
+    const dst = try requireIoReceiver(vm, args[1]);
+    try ensureIoReadable(vm, src);
+    try ensureIoWritable(vm, dst);
+
+    var total: i64 = 0;
+    var buf: [8192]u8 = undefined;
+    while (true) {
+        const read_len = std.posix.read(@intCast(src.fd), &buf) catch {
+            return vm.raiseExceptionFmt(vm.io_error_class, "read failed", .{});
+        };
+        if (read_len == 0) break;
+        _ = try ioWriteBytes(vm, dst, buf[0..read_len]);
+        total += @intCast(read_len);
+    }
+
+    return Value.integer(total);
 }
 
 pub fn builtinIoToIo(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

@@ -22,6 +22,16 @@ const linux_statx_request: std.os.linux.STATX = .{
     .GID = true,
 };
 
+const linux_identical_statx_request: std.os.linux.STATX = .{
+    .INO = true,
+    .MNT_ID = true,
+};
+
+const FileIdentity = struct {
+    inode: u64,
+    mount_id: ?u64,
+};
+
 fn passwdDir(passwd: *const std.c.passwd) ?[]const u8 {
     const dir_z = passwd.dir orelse return null;
     return std.mem.span(dir_z);
@@ -109,6 +119,9 @@ pub fn register(vm: *VM) !void {
     const basename_sym = try vm.intern("basename");
     try file_singleton.module.methods.put(basename_sym, value.MethodEntry.builtin(&builtinFileBasename, .{ .variadic = 0 }));
 
+    const split_sym = try vm.intern("split");
+    try file_singleton.module.methods.put(split_sym, value.MethodEntry.builtin(&builtinFileSplit, .{ .exact = 1 }));
+
     const directory_sym = try vm.intern("directory?");
     try file_singleton.module.methods.put(directory_sym, value.MethodEntry.builtin(&builtinFileDirectory, .{ .exact = 1 }));
 
@@ -117,13 +130,30 @@ pub fn register(vm: *VM) !void {
 
     const stat_sym = try vm.intern("stat");
     try file_singleton.module.methods.put(stat_sym, value.MethodEntry.builtin(&builtinFileStat, .{ .exact = 1 }));
+    const lstat_sym = try vm.intern("lstat");
+    try file_singleton.module.methods.put(lstat_sym, value.MethodEntry.builtin(&builtinFileLstat, .{ .exact = 1 }));
     try vm.io_class.module.methods.put(stat_sym, value.MethodEntry.builtin(&builtinIoStat, .{ .exact = 0 }));
 
     const exist_sym = try vm.intern("exist?");
     try file_singleton.module.methods.put(exist_sym, value.MethodEntry.builtin(&builtinFileExist, .{ .exact = 1 }));
 
+    const writable_sym = try vm.intern("writable?");
+    try file_singleton.module.methods.put(writable_sym, value.MethodEntry.builtin(&builtinFileWritable, .{ .exact = 1 }));
+
+    const executable_sym = try vm.intern("executable?");
+    try file_singleton.module.methods.put(executable_sym, value.MethodEntry.builtin(&builtinFileExecutable, .{ .exact = 1 }));
+
+    const identical_sym = try vm.intern("identical?");
+    try file_singleton.module.methods.put(identical_sym, value.MethodEntry.builtin(&builtinFileIdentical, .{ .exact = 2 }));
+
     const symlink_sym = try vm.intern("symlink");
     try file_singleton.module.methods.put(symlink_sym, value.MethodEntry.builtin(&builtinFileSymlink, .{ .exact = 2 }));
+
+    const chmod_sym = try vm.intern("chmod");
+    try file_singleton.module.methods.put(chmod_sym, value.MethodEntry.builtin(&builtinFileChmod, .{ .variadic = 1 }));
+
+    const rename_sym = try vm.intern("rename");
+    try file_singleton.module.methods.put(rename_sym, value.MethodEntry.builtin(&builtinFileRename, .{ .exact = 2 }));
 
     const delete_sym = try vm.intern("delete");
     try file_singleton.module.methods.put(delete_sym, value.MethodEntry.builtin(&builtinFileDelete, .{ .variadic = 0 }));
@@ -135,6 +165,9 @@ pub fn register(vm: *VM) !void {
     try file_singleton.module.methods.put(path_sym, value.MethodEntry.builtin(&builtinFilePath, .{ .variadic = 0 }));
 
     try vm.file_stat_class.module.methods.put(file_sym, value.MethodEntry.builtin(&builtinFileStatFileQ, .{ .exact = 0 }));
+
+    const directory_q_sym = try vm.intern("directory?");
+    try vm.file_stat_class.module.methods.put(directory_q_sym, value.MethodEntry.builtin(&builtinFileStatDirectoryQ, .{ .exact = 0 }));
 
     const symlink_q_sym = try vm.intern("symlink?");
     try vm.file_stat_class.module.methods.put(symlink_q_sym, value.MethodEntry.builtin(&builtinFileStatSymlinkQ, .{ .exact = 0 }));
@@ -187,7 +220,7 @@ fn parseMode(vm: *VM, mode_str: []const u8) VMError!FileMode {
     };
 }
 
-fn openFileWithMode(vm: *VM, path: []const u8, mode: FileMode) VMError!Value {
+fn openFileWithMode(vm: *VM, path: []const u8, mode: FileMode, create_mode: std.c.mode_t) VMError!Value {
     if (builtin.os.tag == .windows) {
         return vm.raiseExceptionFmt(vm.runtime_error_class, "File is not implemented on Windows", .{});
     }
@@ -202,7 +235,7 @@ fn openFileWithMode(vm: *VM, path: []const u8, mode: FileMode) VMError!Value {
 
     const path_z = try vm.allocCStringZ(path);
     defer vm.allocator.free(path_z);
-    const fd = std.c.open(path_z.ptr, flags, @as(std.c.mode_t, 0o666));
+    const fd = std.c.open(path_z.ptr, flags, create_mode);
     if (fd < 0) {
         return vm.raiseErrnoFmt(std.posix.errno(fd), "failed to open file: {s}", .{path});
     }
@@ -211,16 +244,20 @@ fn openFileWithMode(vm: *VM, path: []const u8, mode: FileMode) VMError!Value {
     return vm.newIo(vm.file_class, @intCast(fd), true, mode.read, mode.write, mode.append, path_copy);
 }
 
-fn pathAndMode(vm: *VM, args: []Value) VMError!struct { path: []const u8, mode: FileMode } {
-    try vm.requireArgCountRange(args, 1, 2);
+fn pathAndMode(vm: *VM, args: []Value) VMError!struct { path: []const u8, mode: FileMode, create_mode: std.c.mode_t } {
+    try vm.requireArgCountRange(args, 1, 3);
     const path = try vm.coerceToPath(args[0], "no implicit conversion into String");
 
-    const mode_str: []const u8 = if (args.len == 2) blk: {
+    const mode_str: []const u8 = if (args.len >= 2) blk: {
         if (args[1].isNil()) break :blk "r";
         break :blk try args[1].coerceToStr(vm, "no implicit conversion into String");
     } else "r";
     const mode = try parseMode(vm, mode_str);
-    return .{ .path = path, .mode = mode };
+    const create_mode: std.c.mode_t = if (args.len == 3 and !args[2].isNil())
+        try coerceModeBits(vm, args[2])
+    else
+        0o666;
+    return .{ .path = path, .mode = mode, .create_mode = create_mode };
 }
 
 fn currentHome(vm: *VM) VMError![]const u8 {
@@ -239,6 +276,24 @@ fn currentHome(vm: *VM) VMError![]const u8 {
         return vm.raiseExceptionFmt(vm.argument_error_class, "non-absolute home", .{});
     }
     return home;
+}
+
+fn coerceModeBits(vm: *VM, arg: Value) VMError!std.c.mode_t {
+    const missing_msg = std.fmt.allocPrint(
+        vm.gc_allocator,
+        "no implicit conversion of {s} into Integer",
+        .{vm.className(arg)},
+    ) catch return error.Fatal;
+    const raw_mode = try arg.coerceToI64ViaToInt(
+        vm,
+        missing_msg,
+        "can't convert to Integer (to_int gives non-Integer)",
+        "integer out of range",
+    );
+    if (raw_mode < 0) {
+        return vm.raiseExceptionFmt(vm.range_error_class, "integer out of range", .{});
+    }
+    return @intCast(raw_mode);
 }
 
 fn currentWorkingDir(vm: *VM) VMError![]u8 {
@@ -486,9 +541,35 @@ fn loadPosixStatMetadataForFd(vm: *VM, fd: std.c.fd_t, default_mode: i64) VMErro
     }
 }
 
+fn fileIdentityForPath(vm: *VM, path_obj: *value.StringObject) VMError!?FileIdentity {
+    if (builtin.os.tag != .linux) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "File.identical? is not implemented on this platform", .{});
+    }
+
+    const path_z = try vm.allocCStringZ(path_obj.str);
+    defer vm.allocator.free(path_z);
+
+    while (true) {
+        var statx = std.mem.zeroes(std.os.linux.Statx);
+        switch (std.c.errno(std.c.statx(std.os.linux.AT.FDCWD, path_z.ptr, std.os.linux.AT.NO_AUTOMOUNT, linux_identical_statx_request, &statx))) {
+            .SUCCESS => {
+                return .{
+                    .inode = statx.ino,
+                    .mount_id = if (statx.mask.MNT_ID or statx.mask.MNT_ID_UNIQUE) statx.mnt_id else null,
+                };
+            },
+            .INTR => continue,
+            .NOENT, .NOTDIR => return null,
+            .ACCES, .PERM => return null,
+            else => return vm.raiseExceptionFmt(vm.system_call_error_class, "stat failed for {s}", .{path_obj.str}),
+        }
+    }
+}
+
 fn buildFileStat(vm: *VM, stat: std.Io.File.Stat, posix_metadata: PosixStatMetadata) VMError!Value {
     const stat_val = try vm.newInstance(vm.file_stat_class);
     const atime_value = try statTimestampToValue(vm, stat.atime orelse stat.mtime);
+    try vm.setInstanceVariable(stat_val, "@directory", Value.boolean(stat.kind == .directory));
     try vm.setInstanceVariable(stat_val, "@file", Value.boolean(stat.kind == .file));
     try vm.setInstanceVariable(stat_val, "@symlink", Value.boolean(stat.kind == .sym_link));
     try vm.setInstanceVariable(stat_val, "@mode", Value.integer(posix_metadata.mode));
@@ -525,12 +606,12 @@ fn raisePathStatError(vm: *VM, path_obj: *value.StringObject, err: anyerror) VME
 
 pub fn builtinFileNew(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     const parsed = try pathAndMode(vm, args);
-    return openFileWithMode(vm, parsed.path, parsed.mode);
+    return openFileWithMode(vm, parsed.path, parsed.mode, parsed.create_mode);
 }
 
 pub fn builtinFileOpen(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
     const parsed = try pathAndMode(vm, args);
-    const file_val = try openFileWithMode(vm, parsed.path, parsed.mode);
+    const file_val = try openFileWithMode(vm, parsed.path, parsed.mode, parsed.create_mode);
 
     if (block) |blk| {
         var yield_args: [1]Value = .{file_val};
@@ -548,7 +629,7 @@ pub fn builtinFileOpen(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!
 pub fn builtinFileRead(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const path = try vm.coerceToPath(args[0], "no implicit conversion into String");
-    const file_val = try openFileWithMode(vm, path, .{ .read = true, .write = false, .append = false, .create = false, .truncate = false });
+    const file_val = try openFileWithMode(vm, path, .{ .read = true, .write = false, .append = false, .create = false, .truncate = false }, 0o666);
     defer _ = vm.callMethodByName(file_val, "close", &[_]Value{}, null) catch {};
     return vm.callMethodByName(file_val, "read", &[_]Value{}, null);
 }
@@ -556,7 +637,7 @@ pub fn builtinFileRead(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
 pub fn builtinFileWrite(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 2);
     const path = try vm.coerceToPath(args[0], "no implicit conversion into String");
-    const file_val = try openFileWithMode(vm, path, .{ .read = false, .write = true, .append = false, .create = true, .truncate = true });
+    const file_val = try openFileWithMode(vm, path, .{ .read = false, .write = true, .append = false, .create = true, .truncate = true }, 0o666);
     defer _ = vm.callMethodByName(file_val, "close", &[_]Value{}, null) catch {};
     return vm.callMethodByName(file_val, "write", args[1..2], null);
 }
@@ -682,6 +763,25 @@ pub fn builtinFileBasename(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
     return try vm.newStringWithEncoding(base, false, path_obj.encoding);
 }
 
+pub fn builtinFileSplit(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "File.split is not implemented on Windows", .{});
+    }
+
+    const path_value = try vm.coerceToPathValue(args[0], "no implicit conversion into String");
+    const path_obj = path_value.toStringObject();
+    const dir = dirnameBytesAlloc(vm.allocator, path_obj.str) catch return error.Fatal;
+    defer vm.allocator.free(dir);
+    const base = basenameBytesAlloc(vm.allocator, path_obj.str, null) catch return error.Fatal;
+    defer vm.allocator.free(base);
+
+    const result = try vm.createArray();
+    result.elements.append(vm.gc_allocator, try vm.newStringWithEncoding(dir, false, path_obj.encoding)) catch return error.Fatal;
+    result.elements.append(vm.gc_allocator, try vm.newStringWithEncoding(base, false, path_obj.encoding)) catch return error.Fatal;
+    return Value.fromObject(&result.object);
+}
+
 pub fn builtinFileDirectory(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     if (builtin.os.tag == .windows) {
@@ -705,6 +805,23 @@ pub fn builtinFileFile(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
     return Value.boolean(st.kind == .file);
 }
 
+pub fn builtinFileIdentical(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 2);
+
+    const left_value = try vm.coerceToPathValue(args[0], "no implicit conversion into String");
+    const right_value = try vm.coerceToPathValue(args[1], "no implicit conversion into String");
+    const left_identity = (try fileIdentityForPath(vm, left_value.toStringObject())) orelse return Value.boolean(false);
+    const right_identity = (try fileIdentityForPath(vm, right_value.toStringObject())) orelse return Value.boolean(false);
+
+    if (left_identity.mount_id) |left_mount_id| {
+        if (right_identity.mount_id) |right_mount_id| {
+            return Value.boolean(left_identity.inode == right_identity.inode and left_mount_id == right_mount_id);
+        }
+    }
+
+    return Value.boolean(left_identity.inode == right_identity.inode);
+}
+
 pub fn builtinFileStat(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     if (builtin.os.tag == .windows) {
@@ -716,6 +833,10 @@ pub fn builtinFileStat(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
     const stat = std.Io.Dir.cwd().statFile(vm.io, path_obj.str, .{}) catch |err| return raisePathStatError(vm, path_obj, err);
     const posix_metadata = try loadPosixStatMetadataForPath(vm, path_obj, @intCast(stat.permissions.toMode()));
     return buildFileStat(vm, stat, posix_metadata);
+}
+
+pub fn builtinFileLstat(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    return builtinFileStat(vm, Value.nil(), args, null);
 }
 
 pub fn builtinIoStat(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -761,6 +882,49 @@ pub fn builtinFileSymlink(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
     return Value.integer(0);
 }
 
+pub fn builtinFileChmod(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 2, std.math.maxInt(u8));
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "File.chmod is not implemented on Windows", .{});
+    }
+
+    const mode = try coerceModeBits(vm, args[0]);
+    var changed: usize = 0;
+    for (args[1..]) |arg| {
+        const path = try vm.coerceToPath(arg, "no implicit conversion into String");
+        const path_z = try vm.allocCStringZ(path);
+        defer vm.allocator.free(path_z);
+
+        const result = std.c.chmod(path_z.ptr, mode);
+        if (result != 0) {
+            return vm.raiseErrnoFmt(std.posix.errno(result), "failed to chmod: {s}", .{path});
+        }
+        changed += 1;
+    }
+
+    return Value.integer(@intCast(changed));
+}
+
+pub fn builtinFileRename(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 2);
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "File.rename is not implemented on Windows", .{});
+    }
+
+    const from = try vm.coerceToPath(args[0], "no implicit conversion into String");
+    const to = try vm.coerceToPath(args[1], "no implicit conversion into String");
+    const from_z = try vm.allocCStringZ(from);
+    defer vm.allocator.free(from_z);
+    const to_z = try vm.allocCStringZ(to);
+    defer vm.allocator.free(to_z);
+
+    const result = std.c.rename(from_z.ptr, to_z.ptr);
+    if (result != 0) {
+        return vm.raiseErrnoFmt(std.posix.errno(result), "failed to rename: {s}", .{from});
+    }
+    return Value.integer(0);
+}
+
 pub fn builtinFileExist(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     if (builtin.os.tag == .windows) {
@@ -770,6 +934,30 @@ pub fn builtinFileExist(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Val
     const path = try vm.coerceToPath(args[0], "no implicit conversion into String");
     std.Io.Dir.cwd().access(vm.io, path, .{}) catch return Value.boolean(false);
     return Value.boolean(true);
+}
+
+pub fn builtinFileWritable(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "File.writable? is not implemented on Windows", .{});
+    }
+
+    const path = try vm.coerceToPath(args[0], "no implicit conversion into String");
+    const path_z = try vm.allocCStringZ(path);
+    defer vm.allocator.free(path_z);
+    return Value.boolean(std.c.access(path_z.ptr, std.c.W_OK) == 0);
+}
+
+pub fn builtinFileExecutable(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "File.executable? is not implemented on Windows", .{});
+    }
+
+    const path = try vm.coerceToPath(args[0], "no implicit conversion into String");
+    const path_z = try vm.allocCStringZ(path);
+    defer vm.allocator.free(path_z);
+    return Value.boolean(std.c.access(path_z.ptr, std.c.X_OK) == 0);
 }
 
 pub fn builtinFileDelete(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -808,6 +996,11 @@ pub fn builtinFilePath(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
 pub fn builtinFileStatFileQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return fileStatBoolIvar(vm, receiver, "@file");
+}
+
+pub fn builtinFileStatDirectoryQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return fileStatBoolIvar(vm, receiver, "@directory");
 }
 
 pub fn builtinFileStatSymlinkQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

@@ -2,41 +2,39 @@ require_relative '../../spec_helper'
 
 describe "Dir.mkdir" do
   it "creates the named directory with the given permissions" do
-    CORAFIXME "File.exist?, File.stat, and File.chmod are not implemented yet for Dir.mkdir permission coverage", exception: NoMethodError, message: /undefined method '(exist\?|stat|chmod)'/ do
-      base = tmp('dir_mkdir_permissions')
-      nonexisting = "#{base}/nonexisting"
-      default_perms = "#{base}/default_perms"
-      reduced = "#{base}/reduced"
-      always_returns_0 = "#{base}/always_returns_0"
-      rm_r(base)
-      mkdir_p(base)
-      begin
-        File.should_not.exist?(nonexisting)
-        Dir.mkdir nonexisting
-        File.should.exist?(nonexisting)
-        platform_is_not :windows do
-          Dir.mkdir default_perms
-          a = File.stat(default_perms).mode
-          Dir.mkdir reduced, (a - 1)
-          File.stat(reduced).mode.should_not == a
-        end
-        platform_is :windows do
-          Dir.mkdir default_perms, 0666
-          a = File.stat(default_perms).mode
-          Dir.mkdir reduced, 0444
-          File.stat(reduced).mode.should_not == a
-        end
-
-        Dir.mkdir(always_returns_0).should == 0
-        platform_is_not(:windows) do
-          File.chmod(0777, nonexisting, default_perms, reduced, always_returns_0)
-        end
-        platform_is_not(:windows) do
-          File.chmod(0644, nonexisting, default_perms, reduced, always_returns_0)
-        end
-      ensure
-        rm_r(base)
+    base = tmp('dir_mkdir_permissions')
+    nonexisting = "#{base}/nonexisting"
+    default_perms = "#{base}/default_perms"
+    reduced = "#{base}/reduced"
+    always_returns_0 = "#{base}/always_returns_0"
+    rm_r(base)
+    mkdir_p(base)
+    begin
+      File.should_not.exist?(nonexisting)
+      Dir.mkdir nonexisting
+      File.should.exist?(nonexisting)
+      platform_is_not :windows do
+        Dir.mkdir default_perms
+        a = File.stat(default_perms).mode
+        Dir.mkdir reduced, (a - 1)
+        File.stat(reduced).mode.should_not == a
       end
+      platform_is :windows do
+        Dir.mkdir default_perms, 0666
+        a = File.stat(default_perms).mode
+        Dir.mkdir reduced, 0444
+        File.stat(reduced).mode.should_not == a
+      end
+
+      Dir.mkdir(always_returns_0).should == 0
+      platform_is_not(:windows) do
+        File.chmod(0777, nonexisting, default_perms, reduced, always_returns_0)
+      end
+      platform_is_not(:windows) do
+        File.chmod(0644, nonexisting, default_perms, reduced, always_returns_0)
+      end
+    ensure
+      rm_r(base)
     end
   end
 
