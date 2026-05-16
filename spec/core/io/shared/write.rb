@@ -32,13 +32,11 @@ describe :io_write, shared: true do
   end
 
   it "invokes to_s on non-String argument" do
-    CORAFIXME "IO#seek is not implemented yet for shared IO write verification", exception: NoMethodError, message: /undefined method 'seek'/ do
-      data = "abcdefgh9876"
-      (obj = mock(data)).should_receive(:to_s).and_return(data)
-      @file.send(@method, obj)
-      @file.seek(0)
-      @file.read(data.size).should == data
-    end
+    data = "abcdefgh9876"
+    (obj = mock(data)).should_receive(:to_s).and_return(data)
+    @file.send(@method, obj)
+    @file.seek(0)
+    @file.read(data.size).should == data
   end
 
   it "writes all of the string's bytes without buffering if mode is sync" do

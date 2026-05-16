@@ -30,6 +30,9 @@ pub fn register(vm: *VM) !void {
     const copy_stream_sym = try vm.intern("copy_stream");
     try io_singleton.module.methods.put(copy_stream_sym, value.MethodEntry.builtin(&builtinIoCopyStream, .{ .exact = 2 }));
 
+    const binread_sym = try vm.intern("binread");
+    try io_singleton.module.methods.put(binread_sym, value.MethodEntry.builtin(&builtinIoBinread, .{ .variadic = 0 }));
+
     const to_io_sym = try vm.intern("to_io");
     try vm.io_class.module.methods.put(to_io_sym, value.MethodEntry.builtin(&builtinIoToIo, .{ .exact = 0 }));
 
@@ -44,6 +47,9 @@ pub fn register(vm: *VM) !void {
 
     const read_sym = try vm.intern("read");
     try vm.io_class.module.methods.put(read_sym, value.MethodEntry.builtin(&builtinIoRead, .{ .variadic = 0 }));
+
+    const seek_sym = try vm.intern("seek");
+    try vm.io_class.module.methods.put(seek_sym, value.MethodEntry.builtin(&builtinIoSeek, .{ .variadic = 0 }));
 
     const read_nonblock_sym = try vm.intern("read_nonblock");
     try vm.io_class.module.methods.put(read_nonblock_sym, value.MethodEntry.builtin(&builtinIoReadNonblock, .{ .variadic = 1 }));
@@ -150,6 +156,95 @@ pub fn builtinIoCopyStream(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
     }
 
     return Value.integer(total);
+}
+
+pub fn builtinIoBinread(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 3);
+    const path = try vm.coerceToPath(args[0], "no implicit conversion into String");
+
+    const path_z = try vm.allocCStringZ(path);
+    defer vm.allocator.free(path_z);
+    const flags: std.c.O = .{
+        .ACCMODE = .RDONLY,
+    };
+    const fd = std.c.open(path_z.ptr, flags, @as(std.c.mode_t, 0o666));
+    if (fd < 0) {
+        return vm.raiseErrnoFmt(std.posix.errno(fd), "could not open file: {s}", .{path});
+    }
+    errdefer _ = std.c.close(fd);
+
+    if (args.len >= 3) {
+        const offset_val = args[2];
+        if (!offset_val.isInteger()) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Integer", .{});
+        }
+        const offset = offset_val.toInteger();
+        if (offset < 0) {
+            _ = std.c.lseek(fd, offset, 0);
+            const errno_val = std.c._errno().*;
+            return vm.raiseErrnoFmt(@enumFromInt(errno_val), "invalid argument", .{});
+        }
+        const result = std.c.lseek(fd, offset, 0);
+        if (result < 0) {
+            const errno_val = std.c._errno().*;
+            return vm.raiseErrnoFmt(@enumFromInt(errno_val), "seek failed", .{});
+        }
+    }
+
+    if (args.len == 1) {
+        var buf: [4096]u8 = undefined;
+        var out: std.ArrayList(u8) = .empty;
+        defer out.deinit(vm.allocator);
+        while (true) {
+            const n = std.posix.read(fd, &buf) catch return vm.raiseExceptionFmt(vm.io_error_class, "read failed", .{});
+            if (n == 0) break;
+            out.appendSlice(vm.allocator, buf[0..n]) catch return error.Fatal;
+        }
+        return vm.newStringWithEncoding(out.items, false, enc.Encoding{ .ascii_8bit = .{} });
+    }
+
+    const len_val = args[1];
+    if (!len_val.isInteger() and !len_val.isNil()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Integer", .{});
+    }
+
+    const len: ?i64 = if (len_val.isNil()) null else len_val.toInteger();
+    if (len != null and len.? < 0) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "negative length {d} given", .{len.?});
+    }
+
+    if (len == null) {
+        var buf: [4096]u8 = undefined;
+        var out: std.ArrayList(u8) = .empty;
+        defer out.deinit(vm.allocator);
+        while (true) {
+            const n = std.posix.read(fd, &buf) catch return vm.raiseExceptionFmt(vm.io_error_class, "read failed", .{});
+            if (n == 0) break;
+            out.appendSlice(vm.allocator, buf[0..n]) catch return error.Fatal;
+        }
+        return vm.newStringWithEncoding(out.items, false, enc.Encoding{ .ascii_8bit = .{} });
+    }
+
+    const len_usize: usize = @intCast(len.?);
+    if (len_usize == 0) {
+        return vm.newStringWithEncoding(&[_]u8{}, false, enc.Encoding{ .ascii_8bit = .{} });
+    }
+
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(vm.allocator);
+    out.ensureTotalCapacity(vm.allocator, len_usize) catch return error.Fatal;
+
+    var remaining = len_usize;
+    var buf: [4096]u8 = undefined;
+    while (remaining > 0) {
+        const to_read = @min(remaining, buf.len);
+        const n = std.posix.read(fd, buf[0..to_read]) catch return vm.raiseExceptionFmt(vm.io_error_class, "read failed", .{});
+        if (n == 0) break;
+        out.appendSlice(vm.allocator, buf[0..n]) catch return error.Fatal;
+        remaining -= n;
+    }
+
+    return vm.newStringWithEncoding(out.items, false, enc.Encoding{ .ascii_8bit = .{} });
 }
 
 pub fn builtinIoToIo(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -740,4 +835,31 @@ pub fn builtinIoWaitWritable(vm: *VM, receiver: Value, args: []Value, _: ?Block)
 
     const timeout_ms = if (args.len == 1) try timeoutArgToPollMilliseconds(vm, args[0]) else -1;
     return if (try waitWritable(vm, io, timeout_ms)) receiver else Value.nil();
+}
+
+pub fn builtinIoSeek(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+    const io = try requireIoReceiver(vm, receiver);
+    try ensureIoOpen(vm, io);
+
+    const offset_val = args[0];
+    if (!offset_val.isInteger()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Integer", .{});
+    }
+    const offset = offset_val.toInteger();
+
+    const whence: i32 = if (args.len >= 2) blk: {
+        const w_val = args[1];
+        if (!w_val.isInteger()) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Integer", .{});
+        }
+        break :blk @as(i32, @intCast(w_val.toInteger()));
+    } else 0;
+
+    const fd: std.c.fd_t = @intCast(io.fd);
+    const result = std.c.lseek(fd, offset, @intCast(whence));
+    if (result < 0) {
+        return vm.raiseErrnoFmt(std.posix.errno(result), "seek failed", .{});
+    }
+    return Value.integer(result);
 }

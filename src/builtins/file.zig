@@ -104,6 +104,9 @@ pub fn register(vm: *VM) !void {
     const write_sym = try vm.intern("write");
     try file_singleton.module.methods.put(write_sym, value.MethodEntry.builtin(&builtinFileWrite, .{ .variadic = 0 }));
 
+    const binread_sym = try vm.intern("binread");
+    try file_singleton.module.methods.put(binread_sym, value.MethodEntry.builtin(&builtinFileBinread, .{ .variadic = 0 }));
+
     const expand_path_sym = try vm.intern("expand_path");
     try file_singleton.module.methods.put(expand_path_sym, value.MethodEntry.builtin(&builtinFileExpandPath, .{ .variadic = 0 }));
 
@@ -640,6 +643,88 @@ pub fn builtinFileWrite(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Val
     const file_val = try openFileWithMode(vm, path, .{ .read = false, .write = true, .append = false, .create = true, .truncate = true }, 0o666);
     defer _ = vm.callMethodByName(file_val, "close", &[_]Value{}, null) catch {};
     return vm.callMethodByName(file_val, "write", args[1..2], null);
+}
+
+pub fn builtinFileBinread(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 3);
+    const path = try vm.coerceToPath(args[0], "no implicit conversion into String");
+    const file_val = try openFileWithMode(vm, path, .{ .read = true, .write = false, .append = false, .create = false, .truncate = false }, 0o666);
+    defer _ = vm.callMethodByName(file_val, "close", &[_]Value{}, null) catch {};
+
+    const fd = file_val.toIoObject().fd;
+
+    if (args.len >= 3) {
+        const offset_val = args[2];
+        if (!offset_val.isInteger()) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Integer", .{});
+        }
+        const offset = offset_val.toInteger();
+        if (offset < 0) {
+            _ = std.c.lseek(fd, offset, 0);
+            const errno_val = std.c._errno().*;
+            return vm.raiseErrnoFmt(@enumFromInt(errno_val), "invalid argument", .{});
+        }
+        const result = std.c.lseek(fd, offset, 0);
+        if (result < 0) {
+            const errno_code = std.posix.errno(result);
+            return vm.raiseErrnoFmt(errno_code, "seek failed", .{});
+        }
+    }
+
+    if (args.len == 1) {
+        var buf: [4096]u8 = undefined;
+        var out: std.ArrayList(u8) = .empty;
+        defer out.deinit(vm.allocator);
+        while (true) {
+            const n = std.posix.read(fd, &buf) catch return vm.raiseExceptionFmt(vm.io_error_class, "read failed", .{});
+            if (n == 0) break;
+            out.appendSlice(vm.allocator, buf[0..n]) catch return error.Fatal;
+        }
+        return vm.newStringWithEncoding(out.items, false, enc.Encoding{ .ascii_8bit = .{} });
+    }
+
+    const len_val = args[1];
+    if (!len_val.isInteger() and !len_val.isNil()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Integer", .{});
+    }
+
+    const len: ?i64 = if (len_val.isNil()) null else len_val.toInteger();
+    if (len != null and len.? < 0) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "negative length {d} given", .{len.?});
+    }
+
+    if (len == null) {
+        var buf: [4096]u8 = undefined;
+        var out: std.ArrayList(u8) = .empty;
+        defer out.deinit(vm.allocator);
+        while (true) {
+            const n = std.posix.read(fd, &buf) catch return vm.raiseExceptionFmt(vm.io_error_class, "read failed", .{});
+            if (n == 0) break;
+            out.appendSlice(vm.allocator, buf[0..n]) catch return error.Fatal;
+        }
+        return vm.newStringWithEncoding(out.items, false, enc.Encoding{ .ascii_8bit = .{} });
+    }
+
+    const len_usize: usize = @intCast(len.?);
+    if (len_usize == 0) {
+        return vm.newStringWithEncoding(&[_]u8{}, false, enc.Encoding{ .ascii_8bit = .{} });
+    }
+
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(vm.allocator);
+    out.ensureTotalCapacity(vm.allocator, len_usize) catch return error.Fatal;
+
+    var remaining = len_usize;
+    var buf: [4096]u8 = undefined;
+    while (remaining > 0) {
+        const to_read = @min(remaining, buf.len);
+        const n = std.posix.read(fd, buf[0..to_read]) catch return vm.raiseExceptionFmt(vm.io_error_class, "read failed", .{});
+        if (n == 0) break;
+        out.appendSlice(vm.allocator, buf[0..n]) catch return error.Fatal;
+        remaining -= n;
+    }
+
+    return vm.newStringWithEncoding(out.items, false, enc.Encoding{ .ascii_8bit = .{} });
 }
 
 pub fn builtinFileExpandPath(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
