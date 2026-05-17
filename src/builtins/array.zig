@@ -494,6 +494,9 @@ pub fn register(vm: *VM) !void {
     const drop_sym = try vm.intern("drop");
     try vm.array_class.module.methods.put(drop_sym, value.MethodEntry.builtin(&builtinArrayDrop, .{ .exact = 1 }));
 
+    const drop_while_sym = try vm.intern("drop_while");
+    try vm.array_class.module.methods.put(drop_while_sym, value.MethodEntry.builtin(&builtinArrayDropWhile, .{ .exact = 0 }));
+
     const at_sym = try vm.intern("at");
     try vm.array_class.module.methods.put(at_sym, value.MethodEntry.builtin(&builtinArrayAt, .{ .exact = 1 }));
 
@@ -1871,6 +1874,35 @@ pub fn builtinArrayDrop(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
         out.elements.append(vm.gc_allocator, elem) catch return error.Fatal;
     }
     return Value.fromObject(&out.object);
+}
+
+pub fn builtinArrayDropWhile(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const blk = block orelse {
+        const size_value = Value.integer(@intCast(receiver.toArrayObject().elements.items.len));
+        return try vm.createMethodEnumeratorWithSize(receiver, try vm.intern("drop_while"), &.{}, size_value);
+    };
+    const source = receiver.toArrayObject();
+    const result = try vm.createArray();
+
+    var dropping = true;
+    var idx: usize = 0;
+    while (idx < source.elements.items.len) : (idx += 1) {
+        const element = source.elements.items[idx];
+        if (dropping) {
+            const yield_args = [_]Value{element};
+            const yielded = try vm.yieldToBlock(blk, &yield_args);
+            if (yielded.controlFlowValue()) |return_value| return return_value;
+            if (!yielded.value.is_truthy()) {
+                dropping = false;
+                result.elements.append(vm.gc_allocator, element) catch return error.Fatal;
+            }
+        } else {
+            result.elements.append(vm.gc_allocator, element) catch return error.Fatal;
+        }
+    }
+
+    return Value.fromObject(&result.object);
 }
 
 pub fn builtinArrayAt(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
