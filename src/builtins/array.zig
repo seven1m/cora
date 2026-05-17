@@ -591,6 +591,9 @@ pub fn register(vm: *VM) !void {
     const delete_at_sym = try vm.intern("delete_at");
     try vm.array_class.module.methods.put(delete_at_sym, value.MethodEntry.builtin(&builtinArrayDeleteAt, .{ .exact = 1 }));
 
+    const insert_sym = try vm.intern("insert");
+    try vm.array_class.module.methods.put(insert_sym, value.MethodEntry.builtin(&builtinArrayInsert, .{ .variadic = 1 }));
+
     const dup_sym = try vm.intern("dup");
     try vm.array_class.module.methods.put(dup_sym, value.MethodEntry.builtin(&builtinArrayDup, .{ .exact = 0 }));
 
@@ -2188,6 +2191,50 @@ pub fn builtinArrayDeleteAt(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     if (actual_index < 0 or actual_index >= len) return Value.nil();
 
     return array.elements.orderedRemove(@intCast(actual_index));
+}
+
+pub fn builtinArrayInsert(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
+    }
+
+    if (args.len == 0) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "wrong number of arguments (given 0, expected 1+)", .{});
+    }
+
+    const array = receiver.toArrayObject();
+    const len: usize = array.elements.items.len;
+
+    if (args.len == 1) {
+        return receiver;
+    }
+
+    const index_value = try args[0].coerceToIntegerValue(vm, "no implicit conversion to Integer", "can't convert to Integer");
+    const raw_index = try index_value.integerToI64(vm, "index too big");
+
+    var position: usize = undefined;
+    if (raw_index < 0) {
+        const adjusted = @as(i64, @intCast(len)) + raw_index + 1;
+        if (adjusted < 0) {
+            return vm.raiseExceptionFmt(vm.index_error_class, "index {d} out of bounds", .{raw_index});
+        }
+        position = @intCast(adjusted);
+    } else {
+        position = @intCast(raw_index);
+    }
+
+    if (position > len) {
+        const padding_needed = position - len;
+        for (0..padding_needed) |_| {
+            array.elements.append(vm.gc_allocator, Value.nil()) catch return error.Fatal;
+        }
+    }
+
+    for (args[1..], 0..) |arg, offset| {
+        array.elements.insert(vm.gc_allocator, position + offset, arg) catch return error.Fatal;
+    }
+
+    return receiver;
 }
 
 pub fn builtinArrayDup(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
