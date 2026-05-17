@@ -9,6 +9,7 @@ const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
     const getc_sym = try vm.intern("getc");
+    const getbyte_sym = try vm.intern("getbyte");
     const stringio_name_sym = try vm.intern("StringIO");
 
     if (vm.object_class.module.constants.getPtr(stringio_name_sym)) |entry| {
@@ -18,6 +19,10 @@ pub fn register(vm: *VM) !void {
             try stringio_class.module.methods.put(
                 getc_sym,
                 value.MethodEntry.builtin(&builtinStringIOGetc, .{ .exact = 0 }),
+            );
+            try stringio_class.module.methods.put(
+                getbyte_sym,
+                value.MethodEntry.builtin(&builtinStringIOGetbyte, .{ .exact = 0 }),
             );
         }
     }
@@ -56,4 +61,35 @@ pub fn builtinStringIOGetc(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMEr
     try vm.setInstanceVariable(receiver, "@pos", Value.integer(new_pos));
 
     return char_val;
+}
+
+pub fn builtinStringIOGetbyte(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
+    const closed_read_val = try vm.getInstanceVariable(receiver, "@closed_read");
+    if (closed_read_val.isTrue()) {
+        return vm.raiseExceptionFmt(vm.io_error_class, "not opened for reading", .{});
+    }
+
+    const string_val = try vm.getInstanceVariable(receiver, "@string");
+    if (!string_val.isString()) {
+        return vm.raiseNoMethod(receiver, "getbyte");
+    }
+
+    const string_obj = string_val.toStringObject();
+
+    const pos_val = try vm.getInstanceVariable(receiver, "@pos");
+    if (!pos_val.isInteger()) {
+        return vm.raiseNoMethod(receiver, "getbyte");
+    }
+
+    const pos = @as(usize, @intCast(pos_val.toInteger()));
+
+    if (pos >= string_obj.str.len) {
+        return Value.nil();
+    }
+
+    const byte = string_obj.str[pos];
+    const new_pos = pos + 1;
+    try vm.setInstanceVariable(receiver, "@pos", Value.integer(@as(i64, @intCast(new_pos))));
+
+    return Value.integer(@as(i64, @intCast(byte)));
 }

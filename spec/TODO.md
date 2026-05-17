@@ -3846,7 +3846,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/stringio/fileno_spec.rb
 - [ ] library/stringio/flush_spec.rb
 - [ ] library/stringio/fsync_spec.rb
-- [ ] library/stringio/getbyte_spec.rb
+- [x] library/stringio/getbyte_spec.rb
 - [ ] library/stringio/getc_spec.rb
 - [ ] library/stringio/getch_spec.rb
 - [ ] library/stringio/getpass_spec.rb
