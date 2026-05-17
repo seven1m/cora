@@ -30,6 +30,7 @@ const thread = @import("thread.zig");
 const mutex = @import("mutex.zig");
 const queue = @import("queue.zig");
 const random = @import("random.zig");
+const rational = @import("rational.zig");
 const time = @import("time.zig");
 const warning = @import("warning.zig");
 const range = @import("range.zig");
@@ -66,6 +67,7 @@ pub fn registerAll(vm: *VM) !void {
     try mutex.register(vm);
     try queue.register(vm);
     try random.register(vm);
+    try rational.register(vm);
     try time.register(vm);
     try range.register(vm);
     try regexp.register(vm);

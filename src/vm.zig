@@ -374,6 +374,7 @@ pub const VM = struct {
     class_class: *value.ClassObject,
     integer_class: *value.ClassObject,
     float_class: *value.ClassObject,
+    rational_class: *value.ClassObject,
     time_class: *value.ClassObject,
     random_class: *value.ClassObject,
     module_class: *value.ClassObject,
@@ -566,6 +567,7 @@ pub const VM = struct {
             .class_class = undefined,
             .integer_class = undefined,
             .float_class = undefined,
+            .rational_class = undefined,
             .time_class = undefined,
             .random_class = undefined,
             .module_class = undefined,
@@ -748,6 +750,10 @@ pub const VM = struct {
         const float_name_sym = try self.intern("Float");
         const float_class_val = try self.newClass(float_name_sym, self.numeric_class);
         self.float_class = float_class_val.toClassObject();
+
+        const rational_name_sym = try self.intern("Rational");
+        const rational_class_val = try self.newClass(rational_name_sym, self.numeric_class);
+        self.rational_class = rational_class_val.toClassObject();
 
         const time_name_sym = try self.intern("Time");
         const time_class_val = try self.newClassWithType(time_name_sym, self.object_class, .time);
@@ -1167,6 +1173,7 @@ pub const VM = struct {
         self.object_class.module.constants.put(numeric_name_sym, .{ .value = numeric_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(integer_name_sym, .{ .value = integer_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(float_name_sym, .{ .value = float_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(rational_name_sym, .{ .value = rational_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(time_name_sym, .{ .value = time_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(random_name_sym, .{ .value = random_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(string_name_sym, .{ .value = string_class_val }) catch return error.Fatal;
@@ -1528,6 +1535,7 @@ pub const VM = struct {
         try self.includeModule(&self.string_class.module, comparable_module_val.toModuleObject());
         try self.includeModule(&self.symbol_class.module, comparable_module_val.toModuleObject());
         try self.includeModule(&self.time_class.module, comparable_module_val.toModuleObject());
+        try self.includeModule(&self.rational_class.module, comparable_module_val.toModuleObject());
 
         // Create top-level self (Ruby "main" object)
         self.main_self = try self.newInstance(self.object_class);
@@ -2775,7 +2783,7 @@ pub const VM = struct {
         return self.valueFromManagedInteger(&out);
     }
 
-    fn mulIntegerValues(self: *VM, lhs: Value, rhs: Value) VMError!Value {
+    pub fn mulIntegerValues(self: *VM, lhs: Value, rhs: Value) VMError!Value {
         if (lhs.isInteger() and rhs.isInteger()) {
             if (std.math.mul(i64, lhs.toInteger(), rhs.toInteger())) |product| {
                 return Value.integer(product);
@@ -2790,6 +2798,41 @@ pub const VM = struct {
         defer out.deinit();
         out.mul(&a, &b) catch return error.Fatal;
         return self.valueFromManagedInteger(&out);
+    }
+
+    pub fn compareIntegerValues(self: *VM, lhs: Value, rhs: Value) VMError!std.math.Order {
+        if (lhs.isInteger() and rhs.isInteger()) {
+            return std.math.order(lhs.toInteger(), rhs.toInteger());
+        }
+
+        var a = try lhs.integerToManaged(self);
+        defer a.deinit();
+        var b = try rhs.integerToManaged(self);
+        defer b.deinit();
+        return BigInt.order(a, b);
+    }
+
+    pub fn divTruncIntegerValues(self: *VM, lhs: Value, rhs: Value) VMError!Value {
+        if (lhs.isInteger() and rhs.isInteger()) {
+            const li: i63 = @intCast(lhs.toInteger());
+            const ri: i63 = @intCast(rhs.toInteger());
+            if (std.math.divTrunc(i63, li, ri)) |quot| {
+                return Value.integer(@as(i64, quot));
+            } else |_| {}
+        }
+
+        var a = try lhs.integerToManaged(self);
+        defer a.deinit();
+        var b = try rhs.integerToManaged(self);
+        defer b.deinit();
+
+        var quot = BigInt.init(self.allocator) catch return error.Fatal;
+        defer quot.deinit();
+        var rem = BigInt.init(self.allocator) catch return error.Fatal;
+        defer rem.deinit();
+
+        quot.divTrunc(&rem, &a, &b) catch return error.Fatal;
+        return self.valueFromManagedInteger(&quot);
     }
 
     fn divFloorIntegerValues(self: *VM, lhs: Value, rhs: Value) VMError!Value {
@@ -4070,6 +4113,7 @@ pub const VM = struct {
                     .integer => |i| if (std.math.cast(i63, i) != null) Value.integer(i) else try self.newBigIntegerFromI64(i),
                     .big_integer_decimal => |digits| try self.newBigIntegerFromDecimalString(digits),
                     .float => |f| try self.newFloat(f),
+                    .rational => |r| try self.newRational(r.numerator, r.denominator),
                     .string => |s| try self.newStringWithEncoding(s, false, literalStringEncodingForChunk(frame.chunk.source_encoding, s)),
                     .encoded_string => |s| try self.newStringWithEncoding(s.bytes, false, s.encoding),
                     .symbol => |s| Value.fromObject(&s.object),
@@ -8541,6 +8585,86 @@ pub const VM = struct {
         return Value.fromObject(&float_obj.object);
     }
 
+    fn gcdIntegerValues(self: *VM, lhs: Value, rhs: Value) VMError!Value {
+        if (lhs.isInteger() and rhs.isInteger()) {
+            var a = lhs.toInteger();
+            var b = rhs.toInteger();
+            if (a < 0) a = -a;
+            if (b < 0) b = -b;
+            while (b != 0) {
+                const temp = b;
+                b = @mod(a, b);
+                a = temp;
+            }
+            return Value.integer(a);
+        }
+
+        var a = try lhs.integerToManaged(self);
+        defer a.deinit();
+        if (!a.isPositive()) a.negate();
+        var b = try rhs.integerToManaged(self);
+        defer b.deinit();
+        if (!b.isPositive()) b.negate();
+
+        var quot = BigInt.init(self.allocator) catch return error.Fatal;
+        defer quot.deinit();
+        var rem = BigInt.init(self.allocator) catch return error.Fatal;
+        defer rem.deinit();
+        while (!b.eqlZero()) {
+            quot.divTrunc(&rem, &a, &b) catch return error.Fatal;
+            a.swap(&b);
+            b.swap(&rem);
+        }
+
+        return self.valueFromManagedInteger(&a);
+    }
+    pub fn newRationalValues(self: *VM, numerator: Value, denominator: Value) VMError!Value {
+        try numerator.ensureInteger(self);
+        try denominator.ensureInteger(self);
+
+        const zero = Value.integer(0);
+        const one = Value.integer(1);
+        const negative_one = Value.integer(-1);
+
+        if ((try self.compareIntegerValues(denominator, zero)) == .eq) {
+            return self.raiseExceptionFmt(self.zero_division_error_class, "divided by 0", .{});
+        }
+
+        var num = numerator;
+        var den = denominator;
+
+        if ((try self.compareIntegerValues(den, zero)) == .lt) {
+            num = try self.mulIntegerValues(negative_one, num);
+            den = try self.mulIntegerValues(negative_one, den);
+        }
+
+        if ((try self.compareIntegerValues(num, zero)) == .eq) {
+            den = one;
+        } else {
+            const abs_num = if ((try self.compareIntegerValues(num, zero)) == .lt)
+                try self.mulIntegerValues(negative_one, num)
+            else
+                num;
+            const gcd = try gcdIntegerValues(self, abs_num, den);
+            if ((try self.compareIntegerValues(gcd, one)) != .eq) {
+                num = try self.divTruncIntegerValues(num, gcd);
+                den = try self.divTruncIntegerValues(den, gcd);
+            }
+        }
+
+        const rational_obj = self.gc_allocator.create(value.RationalObject) catch return error.Fatal;
+        rational_obj.* = .{
+            .object = .{ .type_tag = .rational, .flags = value.Object.FROZEN_FLAG, .class = self.rational_class, .singleton_class = null, .instance_variables = null },
+            .numerator = num,
+            .denominator = den,
+        };
+        return Value.fromObject(&rational_obj.object);
+    }
+
+    pub fn newRational(self: *VM, numerator: i64, denominator: i64) VMError!Value {
+        return self.newRationalValues(Value.integer(numerator), Value.integer(denominator));
+    }
+
     pub fn newTime(self: *VM, class_obj: *ClassObject, epoch_nanoseconds: i64) VMError!Value {
         const time_obj = self.gc_allocator.create(value.TimeObject) catch return error.Fatal;
         time_obj.* = .{
@@ -8922,6 +9046,7 @@ pub const VM = struct {
             .module => arg.isModule(),
             .class => arg.isClass(),
             .float => arg.isFloat(),
+            .rational => arg.isRational(),
             .thread => arg.isThread(),
             .mutex => arg.isMutex(),
             .queue => arg.isQueue(),

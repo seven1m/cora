@@ -47,6 +47,7 @@ pub const ObjectTypeTag = enum(u8) {
     module,
     class,
     float,
+    rational,
     thread,
     mutex,
     queue,
@@ -89,6 +90,12 @@ pub const BigIntegerObject = struct {
 pub const FloatObject = struct {
     object: Object,
     val: f64,
+};
+
+pub const RationalObject = struct {
+    object: Object,
+    numerator: Value,
+    denominator: Value,
 };
 
 pub const EncodingObject = struct {
@@ -572,6 +579,10 @@ pub const Value = struct {
         return self.isObject() and self.objectTypeTag() == .float;
     }
 
+    pub inline fn isRational(self: Value) bool {
+        return self.isObject() and self.objectTypeTag() == .rational;
+    }
+
     pub inline fn isBigInteger(self: Value) bool {
         return self.isObject() and self.objectTypeTag() == .big_integer;
     }
@@ -675,6 +686,10 @@ pub const Value = struct {
     }
 
     pub inline fn toFloatObject(self: Value) *FloatObject {
+        return @ptrFromInt(self.raw);
+    }
+
+    pub inline fn toRationalObject(self: Value) *RationalObject {
         return @ptrFromInt(self.raw);
     }
 
@@ -795,7 +810,7 @@ pub const Value = struct {
         if (self.isInteger()) return true;
         if (self.isObject()) {
             const tag = self.objectTypeTag();
-            return tag == .float or tag == .big_integer;
+            return tag == .float or tag == .big_integer or tag == .rational;
         }
         return false;
     }
@@ -992,6 +1007,12 @@ pub const Value = struct {
                 .enumerator => try writer.print("#<Enumerator:0x{x}>", .{self.raw}),
                 .yielder => try writer.print("#<Enumerator::Yielder:0x{x}>", .{self.raw}),
                 .big_integer => try writer.print("{}", .{self.toBigIntegerObject().value}),
+                .rational => {
+                    const rational = self.toRationalObject();
+                    try rational.numerator.format(writer);
+                    try writer.print("/", .{});
+                    try rational.denominator.format(writer);
+                },
                 .float => try writer.print("{d}", .{self.toFloatObject().val}),
                 .thread => try writer.print("#<Thread:0x{x}>", .{self.raw}),
                 .mutex => try writer.print("#<Mutex:0x{x}>", .{self.raw}),

@@ -2,6 +2,7 @@ const std = @import("std");
 const enc = @import("../encoding.zig");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
+const rational_builtin = @import("rational.zig");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -114,6 +115,9 @@ pub fn register(vm: *VM) !void {
 
     const to_s_sym = try vm.intern("to_s");
     try vm.float_class.module.methods.put(to_s_sym, value.MethodEntry.builtin(&builtinFloatToS, .{ .exact = 0 }));
+
+    const to_r_sym = try vm.intern("to_r");
+    try vm.float_class.module.methods.put(to_r_sym, value.MethodEntry.builtin(&builtinFloatToR, .{ .exact = 0 }));
 
     const inspect_sym = try vm.intern("inspect");
     try vm.float_class.module.methods.put(inspect_sym, value.MethodEntry.builtin(&builtinFloatInspect, .{ .exact = 0 }));
@@ -278,6 +282,12 @@ pub fn builtinFloatToInt(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     managed.shiftLeft(&managed, @intCast(exponent - 52)) catch return error.Fatal;
     if (sign) managed.negate();
     return vm.valueFromManagedInteger(&managed);
+}
+
+pub fn builtinFloatToR(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const parts = try rational_builtin.floatToRationalParts(vm, receiver.toFloatObject().val);
+    return vm.newRationalValues(parts.numerator, parts.denominator);
 }
 
 fn floatToString(vm: *VM, value_f: f64) VMError!Value {

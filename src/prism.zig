@@ -36,6 +36,7 @@ pub const FalseNode = c.pm_false_node_t;
 pub const IfNode = c.pm_if_node_t;
 pub const IntegerNode = c.pm_integer_node_t;
 pub const FloatNode = c.pm_float_node_t;
+pub const RationalNode = c.pm_rational_node_t;
 pub const LocalVariableReadNode = c.pm_local_variable_read_node_t;
 pub const LocalVariableTargetNode = c.pm_local_variable_target_node_t;
 pub const LocalVariableWriteNode = c.pm_local_variable_write_node_t;
@@ -172,6 +173,7 @@ pub const Node = union(enum) {
     if_node: *IfNode,
     integer: *IntegerNode,
     float: *FloatNode,
+    rational: *RationalNode,
     local_variable_read: *LocalVariableReadNode,
     local_variable_target: *LocalVariableTargetNode,
     local_variable_and_write: *LocalVariableAndWriteNode,
@@ -382,6 +384,19 @@ pub const Parser = struct {
         return @intCast(mag);
     }
 
+    pub fn rationalNodeToI64Pair(_: *Parser, node: *RationalNode) ?struct { i64, i64 } {
+        const num = node.numerator;
+        const den = node.denominator;
+
+        const num_mag: u64 = if (num.length == 0) num.value else return null;
+        const den_mag: u64 = if (den.length == 0) den.value else return null;
+
+        const num_val: i64 = if (num.negative) -@as(i64, @intCast(num_mag)) else @as(i64, @intCast(num_mag));
+        const den_val: i64 = if (den.negative) -@as(i64, @intCast(den_mag)) else @as(i64, @intCast(den_mag));
+
+        return .{ num_val, den_val };
+    }
+
     /// Convert a raw C node pointer to a typed Node
     pub fn asNode(self: *Parser, raw: *RawNode) !Node {
         const node_type = raw.type;
@@ -408,6 +423,10 @@ pub const Parser = struct {
 
         if (node_type == c.PM_FLOAT_NODE) {
             return Node{ .float = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_RATIONAL_NODE) {
+            return Node{ .rational = @ptrCast(raw) };
         }
 
         if (node_type == c.PM_SYMBOL_NODE) {

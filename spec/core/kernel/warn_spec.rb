@@ -190,10 +190,8 @@ describe "Kernel#warn" do
       w = KernelSpecs::WarnInNestedCall.new
 
       -> { w.f4(0.1) }.should output(nil, %r|classes.rb:#{w.warn_call_lineno}:|)
-      CORAFIXME "Kernel.Rational is not implemented yet", exception: NoMethodError, message: /undefined method 'Rational'/ do
-        rational = Rational(1, 2)
-        -> { w.f4(rational) }.should output(nil, %r|classes.rb:#{w.warn_call_lineno}:|)
-      end
+      rational = Rational(1, 2)
+      -> { w.f4(rational) }.should output(nil, %r|classes.rb:#{w.warn_call_lineno}:|)
     end
 
     it "raises ArgumentError if passed negative value" do

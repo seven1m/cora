@@ -7,6 +7,7 @@ const module_builtin = @import("module.zig");
 const method_builtin = @import("method.zig");
 const method_common = @import("method_common.zig");
 const openssl_builtin = @import("openssl.zig");
+const rational_builtin = @import("rational.zig");
 const stringio_builtin = @import("stringio.zig");
 const warning_builtin = @import("warning.zig");
 const zlib_builtin = @import("zlib.zig");
@@ -380,8 +381,104 @@ pub fn register(vm: *VM) !void {
 
     const fork_sym = try vm.intern("fork");
     try vm.kernel_module.methods.put(fork_sym, value.MethodEntry.builtin(&builtinKernelFork, .{ .exact = 0 }));
+
+    const rational_sym = try vm.intern("Rational");
+    try vm.kernel_module.methods.put(rational_sym, value.MethodEntry.builtin(&builtinKernelRational, .{ .variadic = 0 }));
 }
 
+pub fn builtinKernelRational(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+
+    const kw_exception = try vm.consumeKeywordArg("exception");
+    try vm.validateKeywordArgsConsumed();
+    const exception_mode = if (kw_exception) |value_| value_.is_truthy() else true;
+
+    const numerator = args[0];
+    const denominator = if (args.len == 2) args[1] else null;
+
+    if (denominator == null) {
+        const parts = try builtinKernelRationalCoerce(vm, numerator, exception_mode) orelse return Value.nil();
+        if (numerator.isRational()) return numerator;
+        return vm.newRationalValues(parts.numerator, parts.denominator);
+    }
+
+    const num_parts = try builtinKernelRationalCoerce(vm, numerator, exception_mode) orelse return Value.nil();
+    const den_parts = try builtinKernelRationalCoerce(vm, denominator.?, exception_mode) orelse return Value.nil();
+
+    if ((try vm.compareIntegerValues(den_parts.numerator, Value.integer(0))) == .eq) {
+        if (exception_mode) {
+            return vm.raiseExceptionFmt(vm.zero_division_error_class, "divided by 0", .{});
+        }
+        return Value.nil();
+    }
+
+    const result_num = try vm.mulIntegerValues(num_parts.numerator, den_parts.denominator);
+    const result_den = try vm.mulIntegerValues(num_parts.denominator, den_parts.numerator);
+    return vm.newRationalValues(result_num, result_den);
+}
+
+fn builtinKernelRationalRaiseCantConvert(vm: *VM, arg: Value) VMError!Value {
+    if (arg.isNil()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert nil into Rational", .{});
+    }
+    return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Rational", .{vm.className(arg)});
+}
+
+fn builtinKernelRationalSafeCheckCall(vm: *VM, arg: Value, method_name: []const u8) VMError!?Value {
+    return vm.checkCallMethodByName(arg, method_name, false, &[_]Value{}, null) catch |err| {
+        if (err == error.Unwind) {
+            vm.setPendingException(null);
+            return null;
+        }
+        return err;
+    };
+}
+
+fn builtinKernelRationalCoerce(vm: *VM, arg: Value, exception_mode: bool) VMError!?rational_builtin.RationalParts {
+    if (arg.isRational()) {
+        const rational = arg.toRationalObject();
+        return .{ .numerator = rational.numerator, .denominator = rational.denominator };
+    }
+    if (arg.isInteger() or arg.isBigInteger()) {
+        return .{ .numerator = arg, .denominator = Value.integer(1) };
+    }
+    if (arg.isString()) {
+        const parsed = try rational_builtin.parseStringToRational(vm, arg.toStringObject().str) orelse {
+            if (exception_mode) {
+                return vm.raiseExceptionFmt(vm.type_error_class, "can't convert String into Rational", .{});
+            }
+            return null;
+        };
+        return parsed;
+    }
+    if (arg.isFloat()) {
+        return try rational_builtin.floatToRationalParts(vm, arg.toFloatObject().val);
+    }
+    if (try builtinKernelRationalSafeCheckCall(vm, arg, "to_r")) |r| {
+        if (r.isRational()) {
+            const rational = r.toRationalObject();
+            return .{ .numerator = rational.numerator, .denominator = rational.denominator };
+        }
+        if (exception_mode) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} to Rational ({s}#to_r gives {s})", .{ vm.className(arg), vm.className(arg), vm.className(r) });
+        }
+        return null;
+    }
+    if (try builtinKernelRationalSafeCheckCall(vm, arg, "to_int")) |int_val| {
+        if (int_val.isInteger() or int_val.isBigInteger()) {
+            return .{ .numerator = int_val, .denominator = Value.integer(1) };
+        }
+        if (exception_mode) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} to Integer ({s}#to_int gives non-Integer)", .{ vm.className(arg), vm.className(arg) });
+        }
+        return null;
+    }
+    if (exception_mode) {
+        _ = try builtinKernelRationalRaiseCantConvert(vm, arg);
+        unreachable;
+    }
+    return null;
+}
 pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const feature = try vm.coerceToPath(args[0], "no implicit conversion into String");
@@ -1085,7 +1182,7 @@ pub fn builtinKernelClone(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     try vm.requireArgCount(args, 0);
 
     const kwfreeze = try vm.consumeCloneFreezeOpt();
-    if (receiver.isSymbol() or receiver.isFloat() or receiver.isBigInteger()) {
+    if (receiver.isSymbol() or receiver.isFloat() or receiver.isBigInteger() or receiver.isRational()) {
         if (kwfreeze.isFalse()) {
             return vm.raiseExceptionFmt(vm.argument_error_class, "can't unfreeze {s}", .{vm.className(receiver)});
         }

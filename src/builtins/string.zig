@@ -6,6 +6,7 @@ const inspect_util = @import("../inspect.zig");
 const onigmo = @import("../onigmo.zig");
 const encoding_builtin = @import("encoding.zig");
 const regexp_builtin = @import("regexp.zig");
+const rational_builtin = @import("rational.zig");
 const warning_builtin = @import("warning.zig");
 const pack_runtime = @import("../pack.zig");
 
@@ -338,6 +339,9 @@ pub fn register(vm: *VM) !void {
 
     const string_to_f_sym = try vm.intern("to_f");
     try vm.string_class.module.methods.put(string_to_f_sym, value.MethodEntry.builtin(&builtinStringToF, .{ .exact = 0 }));
+
+    const string_to_r_sym = try vm.intern("to_r");
+    try vm.string_class.module.methods.put(string_to_r_sym, value.MethodEntry.builtin(&builtinStringToR, .{ .exact = 0 }));
 
     const string_oct_sym = try vm.intern("oct");
     try vm.string_class.module.methods.put(string_oct_sym, value.MethodEntry.builtin(&builtinStringOct, .{ .exact = 0 }));
@@ -4547,6 +4551,14 @@ pub fn builtinStringToF(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     const trimmed = std.mem.trim(u8, string_obj.str, " \t\n\r\x0B\x0C");
     const parsed = try parseStringToFloat(vm, trimmed);
     return vm.newFloat(parsed);
+}
+
+pub fn builtinStringToR(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const parsed = try rational_builtin.parseStringToRational(vm, receiver.toStringObject().str) orelse {
+        return vm.newRational(0, 1);
+    };
+    return vm.newRationalValues(parsed.numerator, parsed.denominator);
 }
 
 pub fn builtinStringOct(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

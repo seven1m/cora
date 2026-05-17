@@ -87,9 +87,7 @@ describe :kernel_dup_clone, shared: true do
   end
 
   it "returns self for Rational" do
-    CORAFIXME "Kernel.Rational is not implemented yet", exception: NoMethodError, message: /undefined method 'Rational'/ do
-      r = Rational(1, 3)
-      r.send(@method).should equal r
-    end
+    r = Rational(1, 3)
+    r.send(@method).should equal r
   end
 end

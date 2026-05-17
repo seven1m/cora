@@ -1172,7 +1172,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/kernel/Float_spec.rb
 - [x] core/kernel/Hash_spec.rb
 - [ ] core/kernel/Integer_spec.rb
-- [ ] core/kernel/Rational_spec.rb
+- [-] core/kernel/Rational_spec.rb
 - [x] core/kernel/String_spec.rb
 - [ ] core/kernel/__callee___spec.rb
 - [x] core/kernel/__dir___spec.rb
@@ -1812,7 +1812,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/rational/numerator_spec.rb
 - [ ] core/rational/plus_spec.rb
 - [ ] core/rational/quo_spec.rb
-- [ ] core/rational/rational_spec.rb
+- [x] core/rational/rational_spec.rb
 - [ ] core/rational/rationalize_spec.rb
 - [ ] core/rational/remainder_spec.rb
 - [ ] core/rational/round_spec.rb

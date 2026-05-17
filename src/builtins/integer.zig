@@ -669,6 +669,15 @@ pub fn builtinIntegerRightShift(vm: *VM, receiver: Value, args: []Value, _: ?Blo
 pub fn builtinIntegerDivide(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     try receiver.ensureInteger(vm);
+    if (args[0].isRational()) {
+        const rhs_rational = args[0].toRationalObject();
+        const rhs_num = rhs_rational.numerator;
+        if ((try vm.compareIntegerValues(rhs_num, Value.integer(0))) == .eq) {
+            return vm.raiseExceptionFmt(vm.zero_division_error_class, "divided by 0", .{});
+        }
+        const numerator = try vm.mulIntegerValues(receiver, rhs_rational.denominator);
+        return vm.newRationalValues(numerator, rhs_num);
+    }
     const rhs = try coerceNumericArg(vm, args[0]);
     return switch (rhs) {
         .integer => |divisor| blk: {

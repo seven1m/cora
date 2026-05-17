@@ -447,6 +447,15 @@ pub const Compiler = struct {
                 try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(idx), line);
             },
 
+            .rational => |rational_node| {
+                if (self.parser.rationalNodeToI64Pair(rational_node)) |pair| {
+                    const idx = try self.current_chunk.addConstant(.{ .rational = .{ .numerator = pair[0], .denominator = pair[1] } });
+                    try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(idx), line);
+                } else {
+                    try self.current_chunk.emitOp(.PUSH_NIL, line);
+                }
+            },
+
             .string => |string_node| {
                 const str_val = string_node.unescaped;
                 const str_slice = prismStringSlice(str_val);

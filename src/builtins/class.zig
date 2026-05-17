@@ -24,6 +24,7 @@ fn singletonClassName(vm: *VM, class_ptr: *ClassObject) ?[]const u8 {
     if (class_ptr == vm.nil_class) return "NilClass";
     if (class_ptr == vm.true_class) return "TrueClass";
     if (class_ptr == vm.false_class) return "FalseClass";
+    if (class_ptr == vm.rational_class) return "Rational";
     return null;
 }
 
