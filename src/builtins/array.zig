@@ -458,6 +458,9 @@ pub fn register(vm: *VM) !void {
     const delete_if_sym = try vm.intern("delete_if");
     try vm.array_class.module.methods.put(delete_if_sym, value.MethodEntry.builtin(&builtinArrayDeleteIf, .{ .exact = 0 }));
 
+    const reject_bang_sym = try vm.intern("reject!");
+    try vm.array_class.module.methods.put(reject_bang_sym, value.MethodEntry.builtin(&builtinArrayRejectBang, .{ .exact = 0 }));
+
     const delete_sym = try vm.intern("delete");
     try vm.array_class.module.methods.put(delete_sym, value.MethodEntry.builtin(&builtinArrayDelete, .{ .exact = 1 }));
 
@@ -1325,6 +1328,10 @@ pub fn builtinArrayReject(vm: *VM, receiver: Value, args: []Value, block: ?Block
     }
 
     return Value.fromObject(&result.object);
+}
+
+pub fn builtinArrayRejectBang(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    return arrayFilterBangShared(vm, receiver, args, block, "reject!", false, true);
 }
 
 pub fn builtinArrayPartition(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
