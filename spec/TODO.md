@@ -94,7 +94,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/array/compact_spec.rb
 - [x] core/array/comparison_spec.rb
 - [x] core/array/concat_spec.rb
-- [ ] core/array/constructor_spec.rb
+- [x] core/array/constructor_spec.rb
 - [x] core/array/count_spec.rb
 - [ ] core/array/cycle_spec.rb
 - [ ] core/array/deconstruct_spec.rb
