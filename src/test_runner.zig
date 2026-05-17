@@ -11,6 +11,7 @@ const verbose = @hasDecl(build_options, "test_verbose") and build_options.test_v
 const timing = @hasDecl(build_options, "test_timing") and build_options.test_timing;
 const test_filter_raw = if (@hasDecl(build_options, "test_filter_raw")) build_options.test_filter_raw else "";
 const configured_test_jobs = if (@hasDecl(build_options, "test_jobs")) build_options.test_jobs else 0;
+const configured_test_timeout_s: u64 = if (@hasDecl(build_options, "test_timeout")) build_options.test_timeout else 0;
 
 pub const std_options: std.Options = .{
     .logFn = log,
@@ -179,6 +180,8 @@ const WorkerJsonResult = struct {
 const ActiveWorker = struct {
     child: std.process.Child,
     test_index: usize,
+    spawned_at_ns: u64 = 0,
+    timed_out: bool = false,
     stdout_buffer: std.ArrayList(u8) = .empty,
     stderr_buffer: std.ArrayList(u8) = .empty,
 
@@ -399,6 +402,7 @@ fn spawnWorkerProcess(
     return .{
         .child = child,
         .test_index = test_index,
+        .spawned_at_ns = getTimeNsec(),
     };
 }
 
@@ -673,6 +677,18 @@ fn runProcessWorkerQueue(
                 std.process.exit(1);
             };
 
+            // Kill workers that have exceeded the per-test timeout.
+            if (configured_test_timeout_s > 0) {
+                const now_ns: u64 = getTimeNsec();
+                const limit_ns: u64 = configured_test_timeout_s * std.time.ns_per_s;
+                for (active_workers.items) |*worker| {
+                    if (!worker.timed_out and (now_ns -| worker.spawned_at_ns) >= limit_ns) {
+                        worker.timed_out = true;
+                        worker.child.kill(process_io);
+                    }
+                }
+            }
+
             for (poll_fds[0..poll_count], poll_targets[0..poll_count]) |poll_fd, poll_target| {
                 const revents = poll_fd.revents;
                 if ((revents & (std.posix.POLL.IN | std.posix.POLL.HUP | std.posix.POLL.ERR)) == 0) continue;
@@ -703,7 +719,12 @@ fn runProcessWorkerQueue(
             const worker_stderr = finished_worker.stderr_buffer.items;
 
             var result: TestRunResult = undefined;
-            if (finished_worker.child.wait(process_io)) |term| {
+            if (finished_worker.timed_out) {
+                result = .{
+                    .outcome = .fail,
+                    .err_name = "SpecTimeout",
+                };
+            } else if (finished_worker.child.wait(process_io)) |term| {
                 result = parseWorkerResult(allocator, term, worker_stdout);
             } else |err| {
                 result = .{

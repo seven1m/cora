@@ -40,6 +40,7 @@ zig build test
 zig build test -Dtest-filter="Proc"
 zig build test -Dtest-filter="Proc" -Dtest-verbose
 zig build test -Dtest-filter="Proc" -Dtest-verbose -Dtest-timing
+zig build test -Dtest-filter="Proc" -Dtest-verbose -Dtest-timing -Dtest-timeout=10
 zig build run -- [flags] [filename]
 zig-out/bin/cora [flags] [filename]
 ```
