@@ -488,6 +488,9 @@ pub fn register(vm: *VM) !void {
     const last_sym = try vm.intern("last");
     try vm.array_class.module.methods.put(last_sym, value.MethodEntry.builtin(&builtinArrayLast, .{ .variadic = 0 }));
 
+    const take_sym = try vm.intern("take");
+    try vm.array_class.module.methods.put(take_sym, value.MethodEntry.builtin(&builtinArrayTake, .{ .exact = 1 }));
+
     const drop_sym = try vm.intern("drop");
     try vm.array_class.module.methods.put(drop_sym, value.MethodEntry.builtin(&builtinArrayDrop, .{ .exact = 1 }));
 
@@ -1823,6 +1826,27 @@ pub fn builtinArrayLast(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     const clamped_count: usize = @intCast(@min(count, @as(i64, @intCast(array.elements.items.len))));
     const start = array.elements.items.len - clamped_count;
     for (array.elements.items[start..]) |elem| {
+        out.elements.append(vm.gc_allocator, elem) catch return error.Fatal;
+    }
+    return Value.fromObject(&out.object);
+}
+
+pub fn builtinArrayTake(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const count = try args[0].coerceToI64ViaToInt(
+        vm,
+        "no implicit conversion into Integer",
+        "no implicit conversion into Integer",
+        "bignum too big to convert into `long`",
+    );
+    if (count < 0) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "negative array size", .{});
+    }
+
+    const array = receiver.toArrayObject();
+    const out = try vm.createArray();
+    const end: usize = @intCast(@min(count, @as(i64, @intCast(array.elements.items.len))));
+    for (array.elements.items[0..end]) |elem| {
         out.elements.append(vm.gc_allocator, elem) catch return error.Fatal;
     }
     return Value.fromObject(&out.object);
