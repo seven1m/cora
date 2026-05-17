@@ -259,6 +259,21 @@ inline fn bitOrIntegers(vm: *VM, lhs: Value, rhs: Value) VMError!Value {
     return vm.valueFromManagedInteger(&out);
 }
 
+inline fn bitXorIntegers(vm: *VM, lhs: Value, rhs: Value) VMError!Value {
+    if (lhs.isInteger() and rhs.isInteger()) {
+        return Value.integer(lhs.toInteger() ^ rhs.toInteger());
+    }
+
+    var a = try lhs.integerToManaged(vm);
+    defer a.deinit();
+    var b = try rhs.integerToManaged(vm);
+    defer b.deinit();
+    var out = BigInt.init(vm.allocator) catch return error.Fatal;
+    defer out.deinit();
+    out.bitXor(&a, &b) catch return error.Fatal;
+    return vm.valueFromManagedInteger(&out);
+}
+
 inline fn compareIntegers(vm: *VM, lhs: Value, rhs: Value) VMError!std.math.Order {
     if (lhs.isInteger() and rhs.isInteger()) {
         return std.math.order(lhs.toInteger(), rhs.toInteger());
@@ -402,6 +417,9 @@ pub fn register(vm: *VM) !void {
 
     const bit_or_sym = try vm.intern("|");
     try vm.integer_class.module.methods.put(bit_or_sym, value.MethodEntry.builtin(&builtinIntegerBitOr, .{ .exact = 1 }));
+
+    const bit_xor_sym = try vm.intern("^");
+    try vm.integer_class.module.methods.put(bit_xor_sym, value.MethodEntry.builtin(&builtinIntegerBitXor, .{ .exact = 1 }));
 
     const unary_plus_sym = try vm.intern("+@");
     try vm.integer_class.module.methods.put(unary_plus_sym, value.MethodEntry.builtin(&builtinIntegerUnaryPlus, .{ .exact = 0 }));
@@ -574,6 +592,17 @@ pub fn builtinIntegerBitOr(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
         return bitOrIntegers(vm, receiver, rhs);
     }
     return coerceAndCallIntegerBitwise(vm, receiver, rhs, "|");
+}
+
+pub fn builtinIntegerBitXor(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    try receiver.ensureInteger(vm);
+
+    const rhs = args[0];
+    if (rhs.isInteger() or rhs.isBigInteger()) {
+        return bitXorIntegers(vm, receiver, rhs);
+    }
+    return coerceAndCallIntegerBitwise(vm, receiver, rhs, "^");
 }
 
 pub fn builtinIntegerMinus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
