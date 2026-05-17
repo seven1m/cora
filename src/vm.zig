@@ -268,6 +268,12 @@ pub const BuiltinKeywordContext = struct {
     hash_materialized: bool = false,
 };
 
+pub const IndexedYieldContext = struct {
+    block: Block,
+    index: i64,
+    previous: ?*IndexedYieldContext = null,
+};
+
 const TempValueSlice = struct {
     small: [SMALL_CALL_VALUES]Value = undefined,
     heap: ?[]Value = null,
@@ -507,6 +513,7 @@ pub const VM = struct {
     backtrace_limit: ?usize = null,
 
     builtin_keyword_ctx: ?*BuiltinKeywordContext = null,
+    indexed_yield_ctx: ?*IndexedYieldContext = null,
 
     at_exit_handlers: std.ArrayList(Value) = .empty,
     io_objects: std.ArrayList(*value.IoObject) = .empty,
@@ -689,6 +696,7 @@ pub const VM = struct {
             .method_state_version = 1,
             .lexical_scopes = .empty,
             .builtin_keyword_ctx = null,
+            .indexed_yield_ctx = null,
             .tcc_jit_enabled = false,
             .dump_jit_source = false,
             .jit_chunk_states = JitChunkStates.init(allocator),

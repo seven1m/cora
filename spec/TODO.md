@@ -504,7 +504,7 @@ Source baseline: ../ruby_spec compared to local spec/
 
 ### core/enumerator
 - [x] core/enumerator/each_spec.rb
-- [ ] core/enumerator/each_with_index_spec.rb
+- [x] core/enumerator/each_with_index_spec.rb
 - [ ] core/enumerator/each_with_object_spec.rb
 - [x] core/enumerator/enum_for_spec.rb
 - [ ] core/enumerator/enumerator_spec.rb
@@ -573,7 +573,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/enumerator/rewind_spec.rb
 - [ ] core/enumerator/size_spec.rb
 - [x] core/enumerator/to_enum_spec.rb
-- [ ] core/enumerator/with_index_spec.rb
+- [x] core/enumerator/with_index_spec.rb
 - [ ] core/enumerator/with_object_spec.rb
 
 ### core/enumerator/yielder

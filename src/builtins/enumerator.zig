@@ -20,6 +20,9 @@ pub fn register(vm: *VM) !void {
     const each_sym = try vm.intern("each");
     try vm.enumerator_class.module.methods.put(each_sym, MethodEntry.builtin(&builtinEnumeratorEach, .{ .variadic = 0 }));
 
+    const each_with_index_sym = try vm.intern("each_with_index");
+    try vm.enumerator_class.module.methods.put(each_with_index_sym, MethodEntry.builtin(&builtinEnumeratorEachWithIndex, .{ .exact = 0 }));
+
     const map_sym = try vm.intern("map");
     try vm.enumerator_class.module.methods.put(map_sym, MethodEntry.builtin(&builtinEnumeratorMap, .{ .exact = 0 }));
 
@@ -46,6 +49,9 @@ pub fn register(vm: *VM) !void {
 
     const size_sym = try vm.intern("size");
     try vm.enumerator_class.module.methods.put(size_sym, MethodEntry.builtin(&builtinEnumeratorSize, .{ .exact = 0 }));
+
+    const with_index_sym = try vm.intern("with_index");
+    try vm.enumerator_class.module.methods.put(with_index_sym, MethodEntry.builtin(&builtinEnumeratorWithIndex, .{ .variadic = 0 }));
 
     // Yielder instance methods
     const yield_push_sym = try vm.intern("<<");
@@ -124,6 +130,71 @@ fn builtinEnumeratorEach(vm: *VM, receiver: Value, args: []Value, block: ?Block)
             return vm.callProcObject(g.proc, &proc_args, null, null);
         },
     }
+}
+
+fn coerceEnumeratorIndexOffset(vm: *VM, args: []Value) VMError!i64 {
+    if (args.len == 0 or args[0].isNil()) return 0;
+    return args[0].coerceToI64ViaToInt(
+        vm,
+        "no implicit conversion to Integer",
+        "can't convert to Integer (to_int gives non-Integer)",
+        "bignum too big to convert into `long`",
+    );
+}
+
+fn enumeratorWithIndexYieldBlock(vm: *VM, args: []Value) VMError!Value {
+    var yield_ctx = vm.indexed_yield_ctx orelse return error.Fatal;
+    var yield_args_buf: [2]Value = undefined;
+    yield_args_buf[0] = switch (args.len) {
+        0 => Value.nil(),
+        1 => args[0],
+        else => blk: {
+            const values = try vm.createArray();
+            for (args) |arg| {
+                values.elements.append(vm.gc_allocator, arg) catch return error.Fatal;
+            }
+            break :blk Value.fromObject(&values.object);
+        },
+    };
+    yield_args_buf[1] = Value.integer(yield_ctx.index);
+    yield_ctx.index += 1;
+
+    vm.indexed_yield_ctx = yield_ctx.previous;
+    defer vm.indexed_yield_ctx = yield_ctx;
+
+    const yielded = try vm.yieldToBlock(yield_ctx.block, &yield_args_buf);
+    if (yielded.controlFlowValue()) |return_value| return return_value;
+    return yielded.value;
+}
+
+fn enumeratorWithIndexImpl(vm: *VM, receiver: Value, args: []Value, block: ?Block, method_name: []const u8) VMError!Value {
+    const blk = block orelse {
+        if (try vm.checkCallMethodByName(receiver, "size", false, &.{}, null)) |size| {
+            return vm.createMethodEnumeratorWithSize(receiver, try vm.intern(method_name), args, size);
+        }
+        return vm.createMethodEnumerator(receiver, try vm.intern(method_name), args);
+    };
+
+    const start_index = try coerceEnumeratorIndexOffset(vm, args);
+    var yield_ctx = vm_mod.IndexedYieldContext{
+        .block = blk,
+        .index = start_index,
+        .previous = vm.indexed_yield_ctx,
+    };
+    vm.indexed_yield_ctx = &yield_ctx;
+    defer vm.indexed_yield_ctx = yield_ctx.previous;
+
+    return vm.callMethodByName(receiver, "each", &.{}, .{ .kind = .{ .builtin = &enumeratorWithIndexYieldBlock } });
+}
+
+fn builtinEnumeratorEachWithIndex(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return enumeratorWithIndexImpl(vm, receiver, &.{}, block, "each_with_index");
+}
+
+fn builtinEnumeratorWithIndex(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    return enumeratorWithIndexImpl(vm, receiver, args, block, "with_index");
 }
 
 fn builtinEnumeratorNext(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
