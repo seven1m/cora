@@ -266,6 +266,31 @@ fn constantPathDefined(vm: *VM, receiver: Value, name: []const u8, inherit: bool
     return true;
 }
 
+fn getConstantPath(vm: *VM, receiver: Value, name: []const u8, inherit: bool) VMError!Value {
+    const rooted = std.mem.startsWith(u8, name, "::");
+    var parts = splitConstantName(vm.gc_allocator, name, rooted) catch |err| switch (err) {
+        error.InvalidConstName => return vm.raiseExceptionFmt(vm.name_error_class, "wrong constant name {s}", .{name}),
+        else => return error.Fatal,
+    };
+    defer parts.deinit(vm.gc_allocator);
+
+    var current: Value = if (rooted) Value.fromObject(&vm.object_class.module.object) else receiver;
+    var first = true;
+    for (parts.items) |part| {
+        const name_sym = try vm.intern(part);
+        const use_inherit = if (first and !rooted) inherit else true;
+        _ = moduleFromValue(current) orelse {
+            return vm.raiseExceptionFmt(vm.name_error_class, "uninitialized constant {s}", .{name});
+        };
+        current = lookupConstantOnReceiver(vm, current, name_sym, use_inherit) orelse {
+            return vm.raiseExceptionFmt(vm.name_error_class, "uninitialized constant {s}", .{name});
+        };
+        first = false;
+    }
+
+    return current;
+}
+
 fn storedModuleName(receiver: Value) []const u8 {
     return if (receiver.isClass()) receiver.toClassObject().module.name.name else receiver.toModuleObject().name.name;
 }
@@ -1588,7 +1613,7 @@ pub fn builtinModuleConstGet(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     const name = try constantNameString(vm, args[0]);
 
     if (std.mem.indexOf(u8, name, "::") != null) {
-        return vm.raiseExceptionFmt(vm.name_error_class, "uninitialized constant {s}", .{name});
+        return getConstantPath(vm, receiver, name, inherit);
     }
     if (!isValidConstantNameSegment(name)) {
         return vm.raiseExceptionFmt(vm.name_error_class, "wrong constant name {s}", .{name});

@@ -246,6 +246,40 @@ test "Module attr_accessor defines getter and setter and returns symbols" {
     try std.testing.expectEqual(@as(i64, 2), result.toArrayObject().elements.items[1].toInteger());
 }
 
+test "Module const_get resolves nested constant paths" {
+    var result = try evalCode(
+        \\module A
+        \\  module B
+        \\    X = 42
+        \\  end
+        \\end
+        \\Object.const_get("A::B::X")
+    );
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
+
+    result = try evalCode(
+        \\module A
+        \\  module B
+        \\    X = 42
+        \\  end
+        \\end
+        \\A.const_get("::A::B")
+    );
+    try std.testing.expect(result.isModule());
+    try std.testing.expectEqualSlices(u8, "B", result.toModuleObject().name.name);
+}
+
+test "Object const_get resolves Gem::Specification" {
+    const result = try evalCode(
+        \\$LOAD_PATH.unshift(File.expand_path("ext/rubygems/lib", Dir.pwd))
+        \\require "rubygems"
+        \\Object.const_get("Gem::Specification")
+    );
+    try std.testing.expect(result.isClass());
+    try std.testing.expectEqualSlices(u8, "Specification", result.toClassObject().module.name.name);
+}
+
 test "Module module_function creates module singleton method and privatizes instance method" {
     var result = try evalCode(
         \\module M
