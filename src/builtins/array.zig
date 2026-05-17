@@ -1732,59 +1732,65 @@ pub fn builtinArrayClassBracket(vm: *VM, receiver: Value, args: []Value, _: ?Blo
     return out;
 }
 
-pub fn builtinArrayUniq(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+fn arrayUniqKey(vm: *VM, blk: ?Block, candidate: Value) VMError!Value {
+    if (blk) |block_| {
+        const yielded = try vm.yieldToBlock(block_, &[_]Value{candidate});
+        if (yielded.controlFlowValue()) |return_value| return return_value;
+        return yielded.value;
+    }
+    return candidate;
+}
+
+pub fn builtinArrayUniq(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
 
     const input = receiver.toArrayObject();
     const out = try vm.createArray();
+    const seen = try vm.createHash();
 
-    for (input.elements.items) |candidate| {
-        var seen = false;
-        for (out.elements.items) |existing| {
-            if (try vm.hashKeysEqual(candidate, existing)) {
-                seen = true;
-                break;
-            }
-        }
-        if (!seen) {
-            out.elements.append(vm.gc_allocator, candidate) catch return error.Fatal;
-        }
+    var idx: usize = 0;
+    while (idx < input.elements.items.len) : (idx += 1) {
+        const candidate = input.elements.items[idx];
+        const key = try arrayUniqKey(vm, block, candidate);
+        if ((try vm.hashFindEntryIndex(seen, key)) != null) continue;
+
+        try vm.hashSetEntry(seen, key, Value.boolean(true));
+        out.elements.append(vm.gc_allocator, candidate) catch return error.Fatal;
     }
 
     return Value.fromObject(&out.object);
 }
 
-pub fn builtinArrayUniqBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+pub fn builtinArrayUniqBang(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-
-    const array = receiver.toArrayObject();
-    const kept = vm.allocator.alloc(Value, array.elements.items.len) catch return error.Fatal;
-    defer vm.allocator.free(kept);
-
-    var kept_len: usize = 0;
-    var changed = false;
-    for (array.elements.items) |candidate| {
-        var seen = false;
-        for (kept[0..kept_len]) |existing| {
-            if (try vm.hashKeysEqual(candidate, existing)) {
-                seen = true;
-                changed = true;
-                break;
-            }
-        }
-        if (!seen) {
-            kept[kept_len] = candidate;
-            kept_len += 1;
-        }
-    }
-
-    if (!changed) return Value.nil();
     if (receiver.isFrozen()) {
         return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
     }
 
-    std.mem.copyForwards(Value, array.elements.items[0..kept_len], kept[0..kept_len]);
-    array.elements.items.len = kept_len;
+    const array = receiver.toArrayObject();
+    var kept: std.ArrayList(Value) = .empty;
+    defer kept.deinit(vm.allocator);
+    const seen = try vm.createHash();
+
+    var changed = false;
+    var idx: usize = 0;
+    while (idx < array.elements.items.len) : (idx += 1) {
+        const candidate = array.elements.items[idx];
+        const key = try arrayUniqKey(vm, block, candidate);
+        if ((try vm.hashFindEntryIndex(seen, key)) != null) {
+            changed = true;
+            continue;
+        }
+
+        try vm.hashSetEntry(seen, key, Value.boolean(true));
+        kept.append(vm.allocator, candidate) catch return error.Fatal;
+    }
+
+    if (!changed) return Value.nil();
+
+    array.elements.ensureTotalCapacity(vm.gc_allocator, kept.items.len) catch return error.Fatal;
+    std.mem.copyForwards(Value, array.elements.items[0..kept.items.len], kept.items);
+    array.elements.items.len = kept.items.len;
     return receiver;
 }
 
