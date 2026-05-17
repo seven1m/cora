@@ -527,6 +527,9 @@ pub fn register(vm: *VM) !void {
     const intersection_sym = try vm.intern("&");
     try vm.array_class.module.methods.put(intersection_sym, value.MethodEntry.builtin(&builtinArrayIntersection, .{ .exact = 1 }));
 
+    const intersect_q_sym = try vm.intern("intersect?");
+    try vm.array_class.module.methods.put(intersect_q_sym, value.MethodEntry.builtin(&builtinArrayIntersectQ, .{ .exact = 1 }));
+
     const union_sym = try vm.intern("|");
     try vm.array_class.module.methods.put(union_sym, value.MethodEntry.builtin(&builtinArrayUnion, .{ .exact = 1 }));
 
@@ -2131,6 +2134,26 @@ pub fn builtinArrayIntersection(vm: *VM, receiver: Value, args: []Value, _: ?Blo
     }
 
     return Value.fromObject(&result.object);
+}
+
+pub fn builtinArrayIntersectQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const other = switch (try vm.probeToAry(args[0])) {
+        .array => |array_value| array_value,
+        .missing, .nil_result => return Value.boolean(false),
+    };
+
+    const left = receiver.toArrayObject();
+    const right = other.toArrayObject();
+
+    for (left.elements.items) |elem| {
+        for (right.elements.items) |other_elem| {
+            if (elem.raw == other_elem.raw) return Value.boolean(true);
+            var eql_args = [_]Value{other_elem};
+            const result = try vm.callMethodByName(elem, "eql?", eql_args[0..], null);
+            if (result.is_truthy()) return Value.boolean(true);
+        }
+    }
+    return Value.boolean(false);
 }
 
 pub fn builtinArrayClear(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

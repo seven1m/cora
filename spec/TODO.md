@@ -127,7 +127,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/array/initialize_spec.rb
 - [x] core/array/insert_spec.rb
 - [x] core/array/inspect_spec.rb
-- [ ] core/array/intersect_spec.rb
+- [x] core/array/intersect_spec.rb
 - [ ] core/array/intersection_spec.rb
 - [x] core/array/join_spec.rb
 - [x] core/array/keep_if_spec.rb

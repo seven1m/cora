@@ -28,6 +28,9 @@ pub fn register(vm: *VM) !void {
     const nil_sym = try vm.intern("nil?");
     try vm.nil_class.module.methods.put(nil_sym, value.MethodEntry.builtin(&builtinNilClassNil, .{ .exact = 0 }));
 
+    const eql_sym = try vm.intern("eql?");
+    try vm.nil_class.module.methods.put(eql_sym, value.MethodEntry.builtin(&builtinNilClassEql, .{ .exact = 1 }));
+
     const to_i_sym = try vm.intern("to_i");
     try vm.nil_class.module.methods.put(to_i_sym, value.MethodEntry.builtin(&builtinNilClassToI, .{ .exact = 0 }));
 
@@ -76,6 +79,11 @@ pub fn builtinNilClassXor(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
 pub fn builtinNilClassNil(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return Value.boolean(true);
+}
+
+pub fn builtinNilClassEql(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    return Value.boolean(args[0].isNil());
 }
 
 pub fn builtinNilClassToI(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
