@@ -22,6 +22,12 @@ zig build test -Dtest-timing -Dtest-timeout=10
 
 Tests live under `test/` including `test/core/*.zig`, `test/language/*.zig`, and integration helpers/spec runner code. When adding a new test file, add it to `test/all_test.zig`.
 
+## Focused/Skipped Specs
+
+When debugging ruby spec behavior, it can be helpful to "focus" a single spec, when you can do by changing the `it` to `fit`.
+
+Similarly, you can "skip" a spec by changing `it` to `xit`. Focused specs will run exclusively, while skipped specs will be ignored.
+
 ## Running The CLI
 
 ```bash

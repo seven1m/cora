@@ -14,6 +14,8 @@ $__spec_runtime_example = nil
 $__spec_tmp_context_dirs = {}
 $__spec_tmp_example_dirs = {}
 $__spec_tmp_uniquifier = 0
+$__focused_examples = []
+$__has_focused_examples = false
 
 module SpecMatchers
   private
@@ -153,10 +155,11 @@ class SpecExampleState
   attr_accessor :context
   attr_reader :description, :block
 
-  def initialize(description, block, skipped: false)
+  def initialize(description, block, skipped: false, focused: false)
     @description = description
     @block = block
     @skipped = skipped
+    @focused = focused
     @context = nil
   end
 
@@ -164,8 +167,12 @@ class SpecExampleState
     @skipped
   end
 
+  def focused?
+    @focused
+  end
+
   def dup
-    SpecExampleState.new(@description, @block, skipped: @skipped)
+    SpecExampleState.new(@description, @block, skipped: @skipped, focused: @focused)
   end
 end
 
@@ -223,6 +230,10 @@ def run_spec_example(example)
   if example.skipped?
     $__skipped << [group_desc, example.description]
     record_profile_example(group_desc, example.description, 0.0, :skipped)
+    return
+  end
+
+  if $__has_focused_examples and not example.focused?
     return
   end
 
@@ -379,6 +390,11 @@ end
 
 def it(desc, &block)
   current_context.add_example(SpecExampleState.new(desc, block, skipped: block.nil?))
+end
+
+def fit(desc, &block)
+  $__has_focused_examples = true
+  current_context.add_example(SpecExampleState.new(desc, block, skipped: false, focused: true))
 end
 
 def xit(desc)
