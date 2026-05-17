@@ -3101,6 +3101,12 @@ fn stringDeleteParseSelector(
         index = 1;
     }
 
+    // A sole '^' is treated as a literal character, not negation.
+    if (parsed_selector.negated and index >= selector.len) {
+        parsed_selector.negated = false;
+        index = 0;
+    }
+
     while (index < selector.len) {
         var first_escaped = false;
         const first = (try stringDeleteParseChar(vm, encoding, selector, &index, &first_escaped)) orelse break;

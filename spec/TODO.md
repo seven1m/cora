@@ -1972,7 +1972,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/string/codepoints_spec.rb
 - [x] core/string/comparison_spec.rb
 - [x] core/string/concat_spec.rb
-- [ ] core/string/count_spec.rb
+- [x] core/string/count_spec.rb
 - [ ] core/string/crypt_spec.rb
 - [x] core/string/dedup_spec.rb
 - [x] core/string/delete_prefix_spec.rb
