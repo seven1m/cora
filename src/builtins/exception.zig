@@ -40,6 +40,8 @@ pub fn register(vm: *VM) !void {
     const key_sym = try vm.intern("key");
     try vm.key_error_class.module.methods.put(key_sym, value.MethodEntry.builtin(&builtinKeyErrorKey, .{ .exact = 0 }));
 
+    try vm.no_method_error_class.module.methods.put(receiver_sym, value.MethodEntry.builtin(&builtinNoMethodErrorReceiver, .{ .exact = 0 }));
+
     const name_sym = try vm.intern("name");
     try vm.name_error_class.module.methods.put(name_sym, value.MethodEntry.builtin(&builtinNameErrorName, .{ .exact = 0 }));
 
@@ -182,4 +184,10 @@ pub fn builtinUncaughtThrowErrorTag(vm: *VM, receiver: Value, args: []Value, _: 
 pub fn builtinUncaughtThrowErrorValue(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return try vm.getInstanceVariable(receiver, "@value");
+}
+
+pub fn builtinNoMethodErrorReceiver(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const exc = receiver.toExceptionObject();
+    return exc.receiver orelse Value.nil();
 }

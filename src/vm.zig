@@ -6411,11 +6411,10 @@ pub const VM = struct {
 
     pub fn raiseNoMethod(self: *VM, receiver: Value, method_name: []const u8) VMError {
         const receiver_desc = self.noMethodReceiverDescription(receiver) catch return error.Fatal;
-        return self.raiseExceptionFmt(
-            self.no_method_error_class,
-            "undefined method '{s}' for {s}",
-            .{ method_name, receiver_desc },
-        );
+        const exc = try self.createException(self.no_method_error_class, std.fmt.allocPrint(self.gc_allocator, "undefined method '{s}' for {s}", .{ method_name, receiver_desc }) catch return error.Fatal);
+        exc.receiver = receiver;
+        self.setPendingException(exc);
+        return error.Unwind;
     }
 
     fn raiseMethodVisibilityError(self: *VM, method_name: []const u8, visibility: MethodVisibility) VMError {
