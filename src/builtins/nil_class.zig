@@ -16,6 +16,9 @@ pub fn register(vm: *VM) !void {
     const equal_sym = try vm.intern("==");
     try vm.nil_class.module.methods.put(equal_sym, value.MethodEntry.builtin(&builtinNilClassEqual, .{ .exact = 1 }));
 
+    const case_compare_sym = try vm.intern("===");
+    try vm.nil_class.module.methods.put(case_compare_sym, value.MethodEntry.builtin(&builtinNilClassEqual, .{ .exact = 1 }));
+
     const and_sym = try vm.intern("&");
     try vm.nil_class.module.methods.put(and_sym, value.MethodEntry.builtin(&builtinNilClassAnd, .{ .exact = 1 }));
 
