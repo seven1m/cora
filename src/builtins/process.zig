@@ -29,11 +29,47 @@ pub fn register(vm: *VM) !void {
     const wait_sym = try vm.intern("wait");
     try process_singleton.module.methods.put(wait_sym, value.MethodEntry.builtin(&builtinProcessWait, .{ .variadic = 0 }));
 
+    const kill_sym = try vm.intern("kill");
+    try process_singleton.module.methods.put(kill_sym, value.MethodEntry.builtin(&builtinProcessKill, .{ .variadic = 1 }));
+
     const clock_realtime_sym = try vm.intern("CLOCK_REALTIME");
     try vm.process_module.constants.put(clock_realtime_sym, .{ .value = Value.integer(@intCast(@intFromEnum(std.posix.CLOCK.REALTIME))) });
 
     const clock_monotonic_sym = try vm.intern("CLOCK_MONOTONIC");
     try vm.process_module.constants.put(clock_monotonic_sym, .{ .value = Value.integer(@intCast(@intFromEnum(std.posix.CLOCK.MONOTONIC))) });
+
+    const wnohang_sym = try vm.intern("WNOHANG");
+    try vm.process_module.constants.put(wnohang_sym, .{ .value = Value.integer(std.posix.W.NOHANG) });
+}
+
+fn signalNumberFromName(name: []const u8) ?c_int {
+    const trimmed = if (std.mem.startsWith(u8, name, "SIG")) name[3..] else name;
+
+    if (std.mem.eql(u8, trimmed, "HUP") and @hasField(std.posix.SIG, "HUP")) return @intCast(@intFromEnum(std.posix.SIG.HUP));
+    if (std.mem.eql(u8, trimmed, "INT")) return @intCast(@intFromEnum(std.posix.SIG.INT));
+    if (std.mem.eql(u8, trimmed, "QUIT") and @hasField(std.posix.SIG, "QUIT")) return @intCast(@intFromEnum(std.posix.SIG.QUIT));
+    if (std.mem.eql(u8, trimmed, "KILL") and @hasField(std.posix.SIG, "KILL")) return @intCast(@intFromEnum(std.posix.SIG.KILL));
+    if (std.mem.eql(u8, trimmed, "TERM") and @hasField(std.posix.SIG, "TERM")) return @intCast(@intFromEnum(std.posix.SIG.TERM));
+    if (std.mem.eql(u8, trimmed, "ALRM") and @hasField(std.posix.SIG, "ALRM")) return @intCast(@intFromEnum(std.posix.SIG.ALRM));
+    if (std.mem.eql(u8, trimmed, "USR1") and @hasField(std.posix.SIG, "USR1")) return @intCast(@intFromEnum(std.posix.SIG.USR1));
+    if (std.mem.eql(u8, trimmed, "USR2") and @hasField(std.posix.SIG, "USR2")) return @intCast(@intFromEnum(std.posix.SIG.USR2));
+    return null;
+}
+
+fn signalArgToNumber(vm: *VM, signal_value: Value) VMError!c_int {
+    if (signal_value.isInteger()) {
+        return @intCast(try signal_value.integerArgToI64(vm, "no implicit conversion into Integer", "signal out of range"));
+    }
+
+    if (signal_value.isSymbol() or signal_value.isString()) {
+        const name = if (signal_value.isSymbol())
+            signal_value.toSymbolObject().name
+        else
+            signal_value.toStringObject().str;
+        return signalNumberFromName(name) orelse vm.raiseExceptionFmt(vm.argument_error_class, "unsupported signal name", .{});
+    }
+
+    return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into String", .{});
 }
 
 pub fn builtinProcessUid(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -141,10 +177,33 @@ pub fn builtinProcessWait(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
     var status: c_int = 0;
     const rc = std.c.waitpid(wait_pid, &status, flags);
     if (rc < 0) {
-        return vm.raiseExceptionFmt(vm.runtime_error_class, "waitpid failed", .{});
+        return vm.raiseErrnoFmt(std.posix.errno(rc), "waitpid failed", .{});
     }
+    if (rc == 0) return Value.nil();
     if (rc > 0) {
         try vm.setLastProcessStatusFromWaitStatus(status);
     }
     return Value.integer(@intCast(rc));
+}
+
+pub fn builtinProcessKill(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireMinArgCount(args, 2);
+
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.runtime_error_class, "Process.kill is not implemented on Windows", .{});
+    }
+
+    const signo = try signalArgToNumber(vm, args[0]);
+    var delivered: i64 = 0;
+
+    for (args[1..]) |pid_value| {
+        const pid: i32 = @intCast(try pid_value.integerArgToI64(vm, "no implicit conversion into Integer", "pid out of range"));
+        const rc = std.c.kill(pid, @enumFromInt(signo));
+        if (rc != 0) {
+            return vm.raiseErrnoFmt(std.posix.errno(rc), "kill failed", .{});
+        }
+        delivered += 1;
+    }
+
+    return Value.integer(delivered);
 }

@@ -78,17 +78,15 @@ describe "IO.popen" do
   end
 
   it "does not throw an exception if child exited and has been waited for" do
-    CORAFIXME "Process.kill is not implemented yet", exception: NoMethodError, message: /undefined method 'kill'/ do
-      @io = IO.popen([*ruby_exe, '-e', 'sleep'])
-      pid = @io.pid
-      Process.kill "KILL", pid
-      @io.close
-      platform_is_not :windows do
-        $?.should.signaled?
-      end
-      platform_is :windows do
-        $?.should.exited?
-      end
+    @io = IO.popen([*ruby_exe, '-e', 'sleep'])
+    pid = @io.pid
+    Process.kill "KILL", pid
+    @io.close
+    platform_is_not :windows do
+      $?.should.signaled?
+    end
+    platform_is :windows do
+      $?.should.exited?
     end
   end
 
