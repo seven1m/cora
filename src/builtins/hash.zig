@@ -195,6 +195,12 @@ pub fn register(vm: *VM) !void {
     const select_bang_sym = try vm.intern("select!");
     try vm.hash_class.module.methods.put(select_bang_sym, value.MethodEntry.builtin(&builtinHashSelectBang, .{ .exact = 0 }));
 
+    const filter_sym = try vm.intern("filter");
+    try vm.hash_class.module.methods.put(filter_sym, value.MethodEntry.builtin(&builtinHashSelect, .{ .exact = 0 }));
+
+    const filter_bang_sym = try vm.intern("filter!");
+    try vm.hash_class.module.methods.put(filter_bang_sym, value.MethodEntry.builtin(&builtinHashSelectBang, .{ .exact = 0 }));
+
     const reject_sym = try vm.intern("reject");
     try vm.hash_class.module.methods.put(reject_sym, value.MethodEntry.builtin(&builtinHashReject, .{ .exact = 0 }));
 
