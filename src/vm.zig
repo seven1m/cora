@@ -2437,7 +2437,7 @@ pub const VM = struct {
         }
     }
 
-    fn checkAsyncEvents(self: *VM) VMError!void {
+    pub fn checkAsyncEvents(self: *VM) VMError!void {
         try self.drainQueuedSignalsToAsyncExceptions();
         if (self.hasPendingUnwind()) return;
         if (self.pending_async_exceptions.items.len == 0) return;

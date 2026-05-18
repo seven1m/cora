@@ -111,3 +111,37 @@ test "Process.kill and Process.wait with WNOHANG work for popen child" {
     try std.testing.expectEqual(true, elems[3].toBool());
     try std.testing.expect(elems[4].toInteger() > 0);
 }
+
+test "nonblocking popen loop drains child output" {
+    if (builtin.os.tag == .windows) return;
+
+    const result = try evalCode(
+        \\io = IO.popen(["/usr/bin/env", "sh", "-lc", "echo one; sleep 0.1; echo two"], err: [:child, :out])
+        \\pid = io.pid
+        \\buffer = +""
+        \\lines = []
+        \\child_done = false
+        \\loop do
+        \\  child_done = true if !child_done && Process.wait(pid, Process::WNOHANG) == pid
+        \\  io.wait_readable(0.1)
+        \\  loop do
+        \\    available = io.nread
+        \\    break if available.zero?
+        \\    chunk_len = available < 4096 ? available : 4096
+        \\    chunk = io.read(chunk_len)
+        \\    break if chunk.nil? || chunk.empty?
+        \\    buffer << chunk
+        \\    while (newline_idx = buffer.index("\\n"))
+        \\      lines << buffer.slice!(0, newline_idx + 1).strip
+        \\    end
+        \\  end
+        \\  break if child_done && io.nread.zero?
+        \\end
+        \\lines << buffer unless buffer.empty?
+        \\io.close
+        \\lines.join("|")
+    );
+    try std.testing.expect(result.isString());
+    try std.testing.expect(std.mem.indexOf(u8, result.toStringObject().str, "one") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.toStringObject().str, "two") != null);
+}

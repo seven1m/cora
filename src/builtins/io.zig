@@ -844,9 +844,34 @@ fn waitForIo(vm: *VM, io: *IoObject, events: i16, timeout_ms: i32, include_hup: 
     const current_thread = vm.current_thread;
     const is_worker_thread = current_thread != null and vm.main_thread != null and current_thread.? != vm.main_thread.?;
     if (!is_worker_thread) {
-        const ready_count = std.posix.poll(fds[0..], timeout_ms) catch return vm.raiseExceptionFmt(vm.io_error_class, "poll failed", .{});
-        if (ready_count == 0) return false;
-        return (fds[0].revents & ready_mask) != 0;
+        const deadline_ms = if (timeout_ms < 0) null else monotonicMilliseconds() + timeout_ms;
+
+        while (true) {
+            try vm.checkAsyncEvents();
+
+            const step_timeout_ms: i32 = if (deadline_ms) |deadline| blk: {
+                const remaining = deadline - monotonicMilliseconds();
+                if (remaining <= 0) break :blk 0;
+                break :blk @intCast(@min(remaining, 100));
+            } else 100;
+
+            const ready_count = std.c.poll(fds[0..].ptr, @intCast(fds[0..].len), step_timeout_ms);
+            if (ready_count < 0) {
+                const errno_code: std.posix.E = @enumFromInt(std.c._errno().*);
+                if (errno_code == .INTR) {
+                    try vm.checkAsyncEvents();
+                    continue;
+                }
+                return vm.raiseErrnoFmt(errno_code, "poll failed", .{});
+            }
+            try vm.checkAsyncEvents();
+            if (ready_count == 0) {
+                if (deadline_ms != null and step_timeout_ms == 0) return false;
+                if (deadline_ms != null) continue;
+                continue;
+            }
+            return (fds[0].revents & ready_mask) != 0;
+        }
     }
 
     const thread = current_thread.?;
@@ -857,7 +882,16 @@ fn waitForIo(vm: *VM, io: *IoObject, events: i16, timeout_ms: i32, include_hup: 
     }
 
     while (true) {
-        const ready_count = std.posix.poll(fds[0..], 0) catch return vm.raiseExceptionFmt(vm.io_error_class, "poll failed", .{});
+        try vm.checkAsyncEvents();
+        const ready_count = std.c.poll(fds[0..].ptr, @intCast(fds[0..].len), 0);
+        if (ready_count < 0) {
+            const errno_code: std.posix.E = @enumFromInt(std.c._errno().*);
+            if (errno_code == .INTR) {
+                try vm.checkAsyncEvents();
+                continue;
+            }
+            return vm.raiseErrnoFmt(errno_code, "poll failed", .{});
+        }
         if (ready_count != 0) {
             return (fds[0].revents & ready_mask) != 0;
         }
