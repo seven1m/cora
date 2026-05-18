@@ -1,4 +1,6 @@
 module JSON
+  class ParserError < StandardError; end unless const_defined?(:ParserError)
+
   def self.dump(value)
     generate(value)
   end
@@ -32,7 +34,7 @@ module JSON
     def parse
       value = parse_value
       skip_whitespace
-      raise ArgumentError, "unexpected trailing characters" if @index != @source.length
+      parse_error("unexpected trailing characters") if @index != @source.length
 
       value
     end
@@ -43,7 +45,7 @@ module JSON
       skip_whitespace
 
       char = current_char
-      raise ArgumentError, "unexpected end of input" if char.nil?
+      parse_error("unexpected end of input") if char.nil?
 
       if char == '"'
         parse_string
@@ -64,7 +66,7 @@ module JSON
 
     def parse_literal(literal, value)
       if @source[@index, literal.length] != literal
-        raise ArgumentError, "invalid token"
+        parse_error("invalid token")
       end
 
       @index += literal.length
@@ -72,7 +74,7 @@ module JSON
     end
 
     def parse_string
-      raise ArgumentError, "expected string" unless current_char == '"'
+      parse_error("expected string") unless current_char == '"'
 
       @index += 1
       out = +""
@@ -85,7 +87,7 @@ module JSON
           return out
         elsif char == "\\"
           escape = current_char
-          raise ArgumentError, "unterminated escape" if escape.nil?
+          parse_error("unterminated escape") if escape.nil?
 
           @index += 1
           if escape == '"' || escape == "\\" || escape == "/"
@@ -101,14 +103,14 @@ module JSON
           elsif escape == "t"
             out << "\t"
           else
-            raise ArgumentError, "unsupported escape"
+            parse_error("unsupported escape")
           end
         else
           out << char
         end
       end
 
-      raise ArgumentError, "unterminated string"
+      parse_error("unterminated string")
     end
 
     def parse_array
@@ -132,7 +134,7 @@ module JSON
           @index += 1
           return array
         else
-          raise ArgumentError, "expected ',' or ']'"
+          parse_error("expected ',' or ']'")
         end
       end
     end
@@ -150,7 +152,7 @@ module JSON
       loop do
         key = parse_string
         skip_whitespace
-        raise ArgumentError, "expected ':'" unless current_char == ":"
+        parse_error("expected ':'") unless current_char == ":"
 
         @index += 1
         object[key] = parse_value
@@ -164,7 +166,7 @@ module JSON
           @index += 1
           return object
         else
-          raise ArgumentError, "expected ',' or '}'"
+          parse_error("expected ',' or '}'")
         end
       end
     end
@@ -190,7 +192,7 @@ module JSON
       end
 
       token = @source[start...@index]
-      raise ArgumentError, "invalid number" if token.empty? || token == "-"
+      parse_error("invalid number") if token.empty? || token == "-"
 
       float ? token.to_f : token.to_i
     end
@@ -198,7 +200,7 @@ module JSON
     def consume_digits
       start = @index
       @index += 1 while digit?(current_char)
-      raise ArgumentError, "invalid number" if start == @index
+      parse_error("invalid number") if start == @index
     end
 
     def digit?(char)
@@ -217,6 +219,10 @@ module JSON
 
     def current_char
       @source[@index]
+    end
+
+    def parse_error(message)
+      raise ParserError, message
     end
   end
 

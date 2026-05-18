@@ -21,3 +21,22 @@ test "require loads simple json dump and parse helpers" {
     );
     try std.testing.expectEqualStrings("", result.stderr);
 }
+
+test "JSON.parse raises JSON::ParserError for invalid input" {
+    var stdout_buf: [2048]u8 = undefined;
+    var stderr_buf: [2048]u8 = undefined;
+
+    const result = evalCodeWithOutput(
+        \\require "json"
+        \\begin
+        \\  JSON.parse("{")
+        \\rescue => e
+        \\  puts e.class.name
+        \\  puts e.message
+        \\end
+    , &stdout_buf, &stderr_buf);
+
+    try std.testing.expect(result.err == null);
+    try std.testing.expectEqualStrings("JSON::ParserError\nexpected string\n", result.stdout);
+    try std.testing.expectEqualStrings("", result.stderr);
+}
