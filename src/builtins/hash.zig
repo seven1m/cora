@@ -237,6 +237,12 @@ pub fn register(vm: *VM) !void {
     const update_sym = try vm.intern("update");
     try vm.hash_class.module.methods.put(update_sym, value.MethodEntry.builtin(&builtinHashMergeBang, .{ .variadic = 0 }));
 
+    const compact_sym = try vm.intern("compact");
+    try vm.hash_class.module.methods.put(compact_sym, value.MethodEntry.builtin(&builtinHashCompact, .{ .exact = 0 }));
+
+    const compact_bang_sym = try vm.intern("compact!");
+    try vm.hash_class.module.methods.put(compact_bang_sym, value.MethodEntry.builtin(&builtinHashCompactBang, .{ .exact = 0 }));
+
     const shift_sym = try vm.intern("shift");
     try vm.hash_class.module.methods.put(shift_sym, value.MethodEntry.builtin(&builtinHashShift, .{ .exact = 0 }));
 
@@ -1307,6 +1313,45 @@ pub fn builtinHashSelect(vm: *VM, receiver: Value, args: []Value, block: ?Block)
 
 pub fn builtinHashSelectBang(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     return hashFilterBangShared(vm, receiver, args, block, "select!", false, true);
+}
+
+pub fn builtinHashCompact(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const hash_obj = receiver.toHashObject();
+    const result_hash = try vm.createHash();
+    result_hash.compare_by_identity = hash_obj.compare_by_identity;
+    if (hash_obj.default_proc) |default_proc| {
+        setHashDefaultProc(result_hash, default_proc);
+    } else if (hash_obj.default_value) |default_value| {
+        setHashDefaultValue(result_hash, default_value);
+    }
+    for (hash_obj.entries.items) |entry| {
+        if (!entry.value.isNil()) {
+            try vm.hashSetEntry(result_hash, entry.key, entry.value);
+        }
+    }
+    return Value.fromObject(&result_hash.object);
+}
+
+pub fn builtinHashCompactBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    try ensureMutableHash(vm, receiver);
+    const hash_obj = receiver.toHashObject();
+    var changed = false;
+    var i: usize = 0;
+    while (i < hash_obj.entries.items.len) {
+        const entry = hash_obj.entries.items[i];
+        if (entry.value.isNil()) {
+            _ = try vm.hashDeleteEntry(hash_obj, entry.key);
+            changed = true;
+        } else {
+            i += 1;
+        }
+    }
+    if (!changed) {
+        return Value.nil();
+    }
+    return receiver;
 }
 
 pub fn builtinHashReject(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
