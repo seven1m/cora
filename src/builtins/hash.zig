@@ -260,6 +260,9 @@ pub fn register(vm: *VM) !void {
 
     const transform_values_bang_sym = try vm.intern("transform_values!");
     try vm.hash_class.module.methods.put(transform_values_bang_sym, value.MethodEntry.builtin(&builtinHashTransformValuesBang, .{ .exact = 0 }));
+
+    const any_sym = try vm.intern("any?");
+    try vm.hash_class.module.methods.put(any_sym, value.MethodEntry.builtin(&builtinHashAny, .{ .variadic = 0 }));
 }
 
 fn hashGetValue(hash_obj: *value.HashObject, vm: *VM, key: Value) VMError!?Value {
@@ -1454,4 +1457,36 @@ pub fn builtinHashMergeBang(vm: *VM, receiver: Value, args: []Value, block: ?Blo
     }
 
     return receiver;
+}
+
+pub fn builtinHashAny(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+
+    const hash_obj = receiver.toHashObject();
+    const pattern = if (args.len == 1) args[0] else null;
+
+    if (pattern != null and block != null) {
+        try warning_builtin.writeWarning(vm, "warning: block supersedes default value argument\n");
+    }
+
+    if (pattern) |pat| {
+        for (hash_obj.entries.items) |entry| {
+            if (try vm.valueEquals(entry.key, pat)) {
+                return Value.boolean(true);
+            }
+        }
+        return Value.boolean(false);
+    }
+
+    if (block) |blk| {
+        for (hash_obj.entries.items) |entry| {
+            const yield_args = [_]Value{ entry.key, entry.value };
+            const yielded = try vm.yieldToBlock(blk, &yield_args);
+            if (yielded.controlFlowValue()) |return_value| return return_value;
+            if (yielded.value.is_truthy()) return Value.boolean(true);
+        }
+        return Value.boolean(false);
+    }
+
+    return Value.boolean(hash_obj.entries.items.len > 0);
 }
