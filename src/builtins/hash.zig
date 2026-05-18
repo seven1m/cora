@@ -263,6 +263,9 @@ pub fn register(vm: *VM) !void {
 
     const any_sym = try vm.intern("any?");
     try vm.hash_class.module.methods.put(any_sym, value.MethodEntry.builtin(&builtinHashAny, .{ .variadic = 0 }));
+
+    const sort_sym = try vm.intern("sort");
+    try vm.hash_class.module.methods.put(sort_sym, value.MethodEntry.builtin(&builtinHashSort, .{ .variadic = 0 }));
 }
 
 fn hashGetValue(hash_obj: *value.HashObject, vm: *VM, key: Value) VMError!?Value {
@@ -1489,4 +1492,20 @@ pub fn builtinHashAny(vm: *VM, receiver: Value, args: []Value, block: ?Block) VM
     }
 
     return Value.boolean(hash_obj.entries.items.len > 0);
+}
+
+pub fn builtinHashSort(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const hash_obj = receiver.toHashObject();
+    const result = try vm.createArray();
+
+    for (hash_obj.entries.items) |entry| {
+        const pair_obj = try vm.createArray();
+        pair_obj.elements.append(vm.gc_allocator, entry.key) catch return error.Fatal;
+        pair_obj.elements.append(vm.gc_allocator, entry.value) catch return error.Fatal;
+        result.elements.append(vm.gc_allocator, Value.fromObject(&pair_obj.object)) catch return error.Fatal;
+    }
+
+    const sorted = try vm.callMethodByName(Value.fromObject(&result.object), "sort", &.{}, block.?);
+    return sorted;
 }

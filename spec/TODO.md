@@ -975,7 +975,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/hash/shift_spec.rb
 - [x] core/hash/size_spec.rb
 - [ ] core/hash/slice_spec.rb
-- [ ] core/hash/sort_spec.rb
+- [x] core/hash/sort_spec.rb
 - [x] core/hash/store_spec.rb
 - [x] core/hash/to_a_spec.rb
 - [ ] core/hash/to_h_spec.rb
