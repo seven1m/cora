@@ -945,7 +945,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/hash/equal_value_spec.rb
 - [ ] core/hash/except_spec.rb
 - [x] core/hash/fetch_spec.rb
-- [ ] core/hash/fetch_values_spec.rb
+- [x] core/hash/fetch_values_spec.rb
 - [ ] core/hash/filter_spec.rb
 - [x] core/hash/flatten_spec.rb
 - [ ] core/hash/gt_spec.rb

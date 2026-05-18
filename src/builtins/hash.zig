@@ -108,6 +108,9 @@ pub fn register(vm: *VM) !void {
     const values_at_sym = try vm.intern("values_at");
     try vm.hash_class.module.methods.put(values_at_sym, value.MethodEntry.builtin(&builtinHashValuesAt, .{ .variadic = 0 }));
 
+    const fetch_values_sym = try vm.intern("fetch_values");
+    try vm.hash_class.module.methods.put(fetch_values_sym, value.MethodEntry.builtin(&builtinHashFetchValues, .{ .variadic = 0 }));
+
     const to_a_sym = try vm.intern("to_a");
     try vm.hash_class.module.methods.put(to_a_sym, value.MethodEntry.builtin(&builtinHashToA, .{ .exact = 0 }));
 
@@ -947,6 +950,34 @@ pub fn builtinHashValuesAt(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
             break :blk try vm.callMethodByName(receiver, "default", default_args[0..], null);
         };
         array_obj.elements.append(vm.gc_allocator, value_at_key) catch return error.Fatal;
+    }
+
+    return Value.fromObject(&array_obj.object);
+}
+
+pub fn builtinHashFetchValues(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 256);
+    const hash_obj = receiver.toHashObject();
+    const array_obj = try vm.createArray();
+
+    for (args) |arg| {
+        if (try hashGetValue(hash_obj, vm, arg)) |found| {
+            array_obj.elements.append(vm.gc_allocator, found) catch return error.Fatal;
+        } else if (block) |blk| {
+            const yield_args = [_]Value{arg};
+            const result = try vm.yieldToBlock(blk, &yield_args);
+            array_obj.elements.append(vm.gc_allocator, result.value) catch return error.Fatal;
+        } else {
+            const key_str = try arg.inspect(vm);
+            const exc = try vm.createException(
+                vm.key_error_class,
+                std.fmt.allocPrint(vm.gc_allocator, "key not found: {s}", .{key_str.toStringObject().str}) catch return error.Fatal,
+            );
+            exc.receiver = receiver;
+            exc.key = arg;
+            vm.setPendingException(exc);
+            return error.Unwind;
+        }
     }
 
     return Value.fromObject(&array_obj.object);
