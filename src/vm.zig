@@ -8481,9 +8481,28 @@ pub const VM = struct {
         return captures[idx];
     }
 
+    fn processExited(wait_status: c_int) bool {
+        return (wait_status & 0x7f) == 0;
+    }
+
+    fn processSignaled(wait_status: c_int) bool {
+        const signal_bits = wait_status & 0x7f;
+        return signal_bits != 0 and signal_bits != 0x7f;
+    }
+
     pub fn setLastProcessStatus(self: *VM, exitstatus: i64) VMError!void {
+        return self.setLastProcessStatusFromWaitStatus(@intCast((exitstatus & 0xff) << 8));
+    }
+
+    pub fn setLastProcessStatusFromWaitStatus(self: *VM, wait_status: c_int) VMError!void {
         const status_obj = try self.newInstance(self.process_status_class);
-        try self.setInstanceVariable(status_obj, "@exitstatus", Value.integer(exitstatus));
+        try self.setInstanceVariable(status_obj, "@raw_status", Value.integer(wait_status));
+        if (processExited(wait_status)) {
+            try self.setInstanceVariable(status_obj, "@exitstatus", Value.integer((wait_status >> 8) & 0xff));
+        }
+        if (processSignaled(wait_status)) {
+            try self.setInstanceVariable(status_obj, "@termsig", Value.integer(wait_status & 0x7f));
+        }
         try self.setGlobal("$?", status_obj);
     }
 

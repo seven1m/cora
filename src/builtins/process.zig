@@ -143,5 +143,8 @@ pub fn builtinProcessWait(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
     if (rc < 0) {
         return vm.raiseExceptionFmt(vm.runtime_error_class, "waitpid failed", .{});
     }
+    if (rc > 0) {
+        try vm.setLastProcessStatusFromWaitStatus(status);
+    }
     return Value.integer(@intCast(rc));
 }

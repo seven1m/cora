@@ -522,6 +522,8 @@ def cora_bin_path
   "#{__dir__}/../zig-out/bin/cora"
 end
 
+RUBY_EXE = [cora_bin_path] unless defined?(RUBY_EXE)
+
 def cora_repo_root
   File.expand_path("..", __dir__)
 end
@@ -640,7 +642,13 @@ def shell_escape(str)
   "'" + str.to_s.gsub("'") { %q('\\'') } + "'"
 end
 
-def ruby_exe(script_path, options: nil, args: nil, exit_status: nil, env: nil)
+def ruby_exe_command_prefix
+  ruby = RUBY_EXE
+  ruby = [ruby] unless ruby.is_a?(Array)
+  ruby
+end
+
+def ruby_cmd(script_path, options: nil, args: nil, env: nil)
   command = []
 
   if env
@@ -649,19 +657,41 @@ def ruby_exe(script_path, options: nil, args: nil, exit_status: nil, env: nil)
     end
   end
 
-  lib_dir = cora_lib_dir
-  if lib_dir
-    if (RUBY_PLATFORM.to_s.include?("darwin") || RUBY_PLATFORM.to_s.include?("macos"))
-      command << "DYLD_LIBRARY_PATH=#{shell_escape(lib_dir)}"
-    else
-      command << "LD_LIBRARY_PATH=#{shell_escape(lib_dir)}"
+  ruby_exe_command_prefix.each do |part|
+    command << shell_escape(part)
+  end
+
+  command << options.to_s unless options.nil? || options == ""
+  inline_code = !File.exist?(script_path) && !script_path.end_with?(".rb")
+  if inline_code
+    command << "-e"
+    command << shell_escape(script_path)
+  else
+    command << shell_escape(script_path)
+  end
+  command << args.to_s unless args.nil? || args == ""
+
+  command.join(" ")
+end
+
+def ruby_exe(script_path = nil, options: nil, args: nil, exit_status: nil, env: nil)
+  if script_path.nil? && options.nil? && args.nil? && exit_status.nil? && env.nil?
+    return ruby_exe_command_prefix
+  end
+
+  command = []
+  if env
+    env.each do |key, value|
+      command << "#{key}=#{shell_escape(value)}"
     end
   end
 
-  command << shell_escape(cora_bin_path)
+  ruby_exe_command_prefix.each do |part|
+    command << shell_escape(part)
+  end
   command << options.to_s unless options.nil? || options == ""
   unless script_path.nil?
-    inline_code = script_path.include?("\n") || script_path.include?(";") || script_path.include?(" ")
+    inline_code = !File.exist?(script_path) && !script_path.end_with?(".rb")
     if inline_code
       command << "-e"
       command << shell_escape(script_path)

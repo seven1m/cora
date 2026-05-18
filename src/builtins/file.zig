@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const enc = @import("../encoding.zig");
+const encoding_builtin = @import("encoding.zig");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 
@@ -288,6 +289,54 @@ fn pathAndMode(vm: *VM, args: []Value) VMError!struct { path: []const u8, mode: 
     else
         0o666;
     return .{ .path = path, .mode = mode, .create_mode = create_mode };
+}
+
+const FileOpenConfig = struct {
+    path: []const u8,
+    mode: FileMode,
+    create_mode: std.c.mode_t,
+    external_encoding: ?Value = null,
+    internal_encoding: ?Value = null,
+};
+
+fn resolveEncodingValue(vm: *VM, arg: Value) VMError!Value {
+    if (arg.isEncoding()) return arg;
+    var find_args = [_]Value{arg};
+    return encoding_builtin.builtinEncodingFind(vm, Value.nil(), find_args[0..], null);
+}
+
+fn fileOpenConfig(vm: *VM, args: []Value) VMError!FileOpenConfig {
+    var external_encoding: ?Value = null;
+    var internal_encoding: ?Value = null;
+    try vm.consumeKeywordArgs(.{ "external_encoding", "internal_encoding" }, .{ &external_encoding, &internal_encoding });
+    try vm.validateKeywordArgsConsumed();
+
+    const parsed = try pathAndMode(vm, args);
+    var config = FileOpenConfig{
+        .path = parsed.path,
+        .mode = parsed.mode,
+        .create_mode = parsed.create_mode,
+    };
+
+    if (external_encoding) |encoding_arg| {
+        config.external_encoding = try resolveEncodingValue(vm, encoding_arg);
+    }
+    if (internal_encoding) |encoding_arg| {
+        config.internal_encoding = try resolveEncodingValue(vm, encoding_arg);
+    }
+    if (config.external_encoding != null and config.internal_encoding != null and config.external_encoding.?.raw == config.internal_encoding.?.raw) {
+        config.internal_encoding = null;
+    }
+    return config;
+}
+
+fn applyIoEncodingConfig(vm: *VM, io_value: Value, config: FileOpenConfig) VMError!void {
+    if (config.external_encoding) |encoding| {
+        try vm.setInstanceVariable(io_value, "@external_encoding", encoding);
+    }
+    if (config.internal_encoding) |encoding| {
+        try vm.setInstanceVariable(io_value, "@internal_encoding", encoding);
+    }
 }
 
 fn currentHome(vm: *VM) VMError![]const u8 {
@@ -652,13 +701,16 @@ fn raisePathStatError(vm: *VM, path_obj: *value.StringObject, err: anyerror) VME
 }
 
 pub fn builtinFileNew(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
-    const parsed = try pathAndMode(vm, args);
-    return openFileWithMode(vm, parsed.path, parsed.mode, parsed.create_mode);
+    const config = try fileOpenConfig(vm, args);
+    const file_val = try openFileWithMode(vm, config.path, config.mode, config.create_mode);
+    try applyIoEncodingConfig(vm, file_val, config);
+    return file_val;
 }
 
 pub fn builtinFileOpen(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
-    const parsed = try pathAndMode(vm, args);
-    const file_val = try openFileWithMode(vm, parsed.path, parsed.mode, parsed.create_mode);
+    const config = try fileOpenConfig(vm, args);
+    const file_val = try openFileWithMode(vm, config.path, config.mode, config.create_mode);
+    try applyIoEncodingConfig(vm, file_val, config);
 
     if (block) |blk| {
         var yield_args: [1]Value = .{file_val};

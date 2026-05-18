@@ -384,6 +384,29 @@ test "write on closed File raises IOError" {
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, "IOError") != null);
 }
 
+test "File.open applies external encoding without transcoding write_nonblock bytes" {
+    var path_buf: [128]u8 = undefined;
+    const path = try uniquePath(&path_buf);
+    const source = try std.fmt.allocPrint(
+        std.testing.allocator,
+        \\path = "{s}"
+        \\File.open(path, "w", external_encoding: Encoding::UTF_16BE) do |file|
+        \\  puts file.external_encoding == Encoding::UTF_16BE
+        \\  file.write_nonblock("hello")
+        \\end
+        \\p File.binread(path).bytes
+        \\File.delete(path)
+    , .{path});
+    defer std.testing.allocator.free(source);
+
+    var stdout_buf: [2048]u8 = undefined;
+    var stderr_buf: [2048]u8 = undefined;
+    const result = evalCodeWithOutput(source, &stdout_buf, &stderr_buf);
+    try std.testing.expect(result.err == null);
+    try std.testing.expectEqualStrings("true\n[104, 101, 108, 108, 111]\n", result.stdout);
+    try std.testing.expectEqualStrings("", result.stderr);
+}
+
 test "Dir.pwd returns the current working directory" {
     const cwd = try std.process.currentPathAlloc(std.testing.io, std.testing.allocator);
     defer std.testing.allocator.free(cwd);

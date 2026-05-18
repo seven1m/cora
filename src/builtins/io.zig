@@ -11,6 +11,7 @@ const Value = value.Value;
 const IoObject = value.IoObject;
 
 extern "c" fn clock_gettime(clk_id: std.posix.CLOCK, tp: *std.posix.timespec) c_int;
+extern "c" fn execve(path: [*:0]const u8, argv: [*:null]const ?[*:0]const u8, envp: [*:null]const ?[*:0]const u8) c_int;
 
 fn monotonicMilliseconds() i64 {
     var timespec: std.posix.timespec = undefined;
@@ -28,6 +29,9 @@ pub fn register(vm: *VM) !void {
     const pipe_sym = try vm.intern("pipe");
     try io_singleton.module.methods.put(pipe_sym, value.MethodEntry.builtin(&builtinIoPipe, .{ .exact = 0 }));
 
+    const popen_sym = try vm.intern("popen");
+    try io_singleton.module.methods.put(popen_sym, value.MethodEntry.builtin(&builtinIoPopen, .{ .variadic = 0 }));
+
     const copy_stream_sym = try vm.intern("copy_stream");
     try io_singleton.module.methods.put(copy_stream_sym, value.MethodEntry.builtin(&builtinIoCopyStream, .{ .exact = 2 }));
 
@@ -36,6 +40,15 @@ pub fn register(vm: *VM) !void {
 
     const to_io_sym = try vm.intern("to_io");
     try vm.io_class.module.methods.put(to_io_sym, value.MethodEntry.builtin(&builtinIoToIo, .{ .exact = 0 }));
+
+    const pid_sym = try vm.intern("pid");
+    try vm.io_class.module.methods.put(pid_sym, value.MethodEntry.builtin(&builtinIoPid, .{ .exact = 0 }));
+
+    const external_encoding_sym = try vm.intern("external_encoding");
+    try vm.io_class.module.methods.put(external_encoding_sym, value.MethodEntry.builtin(&builtinIoExternalEncoding, .{ .exact = 0 }));
+
+    const internal_encoding_sym = try vm.intern("internal_encoding");
+    try vm.io_class.module.methods.put(internal_encoding_sym, value.MethodEntry.builtin(&builtinIoInternalEncoding, .{ .exact = 0 }));
 
     const rdonly_sym = try vm.intern("RDONLY");
     try vm.io_class.module.constants.put(rdonly_sym, .{ .value = Value.integer(0) });
@@ -126,6 +139,397 @@ pub fn register(vm: *VM) !void {
 
     const wait_writable_sym = try vm.intern("wait_writable");
     try vm.io_class.module.methods.put(wait_writable_sym, value.MethodEntry.builtin(&builtinIoWaitWritable, .{ .variadic = 0 }));
+}
+
+const PopenEnvEntry = struct {
+    key: []const u8,
+    value: []const u8,
+};
+
+const PopenConfig = struct {
+    env: std.ArrayList(PopenEnvEntry),
+    argv: std.ArrayList([]const u8),
+    exec_path: ?[]const u8 = null,
+    shell_command: ?[]const u8 = null,
+    chdir_path: ?[]const u8 = null,
+    readable: bool = true,
+    writable: bool = false,
+    merge_stderr: bool = false,
+    external_encoding: ?Value = null,
+    internal_encoding: ?Value = null,
+
+    fn init(_: std.mem.Allocator) PopenConfig {
+        return .{
+            .env = .empty,
+            .argv = .empty,
+        };
+    }
+
+    fn deinit(self: *PopenConfig, allocator: std.mem.Allocator) void {
+        self.env.deinit(allocator);
+        self.argv.deinit(allocator);
+    }
+};
+
+fn hashKeyName(key: Value) ?[]const u8 {
+    if (key.isSymbol()) return key.toSymbolObject().name;
+    if (key.isString()) return key.toStringObject().str;
+    return null;
+}
+
+fn parsePopenEnvHash(vm: *VM, env_hash: *value.HashObject, out: *std.ArrayList(PopenEnvEntry)) VMError!void {
+    for (env_hash.entries.items) |entry| {
+        const key = try entry.key.coerceToStr(vm, "no implicit conversion into String");
+        const value_bytes = try entry.value.coerceToStr(vm, "no implicit conversion into String");
+        out.append(vm.allocator, .{ .key = key, .value = value_bytes }) catch return error.Fatal;
+    }
+}
+
+fn parsePopenExecOptions(_: *VM, options_hash: *value.HashObject, config: *PopenConfig) VMError!void {
+    for (options_hash.entries.items) |entry| {
+        const key_name = hashKeyName(entry.key) orelse continue;
+        if (std.mem.eql(u8, key_name, "err")) {
+            if (entry.value.isArray()) {
+                const array = entry.value.toArrayObject().elements.items;
+                if (array.len == 2 and array[0].isSymbol() and array[1].isSymbol()) {
+                    const left = array[0].toSymbolObject().name;
+                    const right = array[1].toSymbolObject().name;
+                    if (std.mem.eql(u8, left, "child") and std.mem.eql(u8, right, "out")) {
+                        config.merge_stderr = true;
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn parsePopenMode(vm: *VM, mode_value: Value, config: *PopenConfig) VMError!void {
+    const mode = try mode_value.coerceToStr(vm, "no implicit conversion into String");
+    if (std.mem.indexOfScalar(u8, mode, '+') != null) {
+        config.readable = true;
+        config.writable = true;
+        return;
+    }
+    if (mode.len == 0 or mode[0] == 'r') {
+        config.readable = true;
+        config.writable = false;
+        return;
+    }
+    if (mode[0] == 'w') {
+        config.readable = false;
+        config.writable = true;
+        return;
+    }
+}
+
+fn parsePopenArrayCommand(vm: *VM, array_value: Value, config: *PopenConfig) VMError!void {
+    const items = array_value.toArrayObject().elements.items;
+    var start: usize = 0;
+    var end = items.len;
+
+    if (start < end and items[start].isHash()) {
+        try parsePopenEnvHash(vm, items[start].toHashObject(), &config.env);
+        start += 1;
+    }
+    if (start < end and items[end - 1].isHash()) {
+        try parsePopenExecOptions(vm, items[end - 1].toHashObject(), config);
+        end -= 1;
+    }
+    if (start >= end) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "wrong number of arguments (given 0, expected 1+)", .{});
+    }
+
+    const first = items[start];
+    if (first.isArray()) {
+        const pair = first.toArrayObject().elements.items;
+        if (pair.len >= 2) {
+            config.exec_path = try pair[0].coerceToStr(vm, "no implicit conversion into String");
+            config.argv.append(vm.allocator, try pair[1].coerceToStr(vm, "no implicit conversion into String")) catch return error.Fatal;
+        }
+    } else {
+        const first_str = try first.coerceToStr(vm, "no implicit conversion into String");
+        config.exec_path = first_str;
+        config.argv.append(vm.allocator, first_str) catch return error.Fatal;
+    }
+
+    var i = start + 1;
+    while (i < end) : (i += 1) {
+        config.argv.append(vm.allocator, try items[i].coerceToStr(vm, "no implicit conversion into String")) catch return error.Fatal;
+    }
+}
+
+fn parsePopenArgs(vm: *VM, args: []Value) VMError!PopenConfig {
+    var config = PopenConfig.init(vm.allocator);
+    errdefer config.deinit(vm.allocator);
+
+    var external_encoding: ?Value = null;
+    var internal_encoding: ?Value = null;
+    var chdir_value: ?Value = null;
+    var err_value: ?Value = null;
+    try vm.consumeKeywordArgs(.{ "external_encoding", "internal_encoding", "chdir", "err" }, .{ &external_encoding, &internal_encoding, &chdir_value, &err_value });
+    try vm.validateKeywordArgsConsumed();
+
+    if (external_encoding) |val| config.external_encoding = val;
+    if (internal_encoding) |val| config.internal_encoding = val;
+    if (config.external_encoding != null and config.internal_encoding != null and config.external_encoding.?.raw == config.internal_encoding.?.raw) {
+        config.internal_encoding = null;
+    }
+    if (chdir_value) |val| {
+        config.chdir_path = try vm.coerceToPath(val, "no implicit conversion into String");
+    }
+    if (err_value) |val| {
+        const hash = try vm.createHash();
+        try vm.hashSetEntry(hash, Value.fromObject(&(try vm.intern("err")).object), val);
+        try parsePopenExecOptions(vm, hash, &config);
+    }
+
+    var index: usize = 0;
+    if (args.len > 0 and args[0].isHash()) {
+        try parsePopenEnvHash(vm, args[0].toHashObject(), &config.env);
+        index += 1;
+    }
+    if (index >= args.len) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "wrong number of arguments (given 0, expected 1+)", .{});
+    }
+
+    const command = args[index];
+    index += 1;
+    if (command.isArray()) {
+        try parsePopenArrayCommand(vm, command, &config);
+    } else {
+        config.shell_command = try command.coerceToStr(vm, "no implicit conversion into String");
+    }
+
+    if (index < args.len) {
+        try parsePopenMode(vm, args[index], &config);
+        index += 1;
+    }
+    if (index != args.len) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "wrong number of arguments", .{});
+    }
+
+    return config;
+}
+
+fn closeFdIfOpen(fd: i32) void {
+    if (fd >= 0) _ = std.c.close(@intCast(fd));
+}
+
+fn makeSocketPair(vm: *VM) VMError![2]i32 {
+    var fds: [2]std.c.fd_t = undefined;
+    if (std.c.socketpair(std.posix.AF.UNIX, std.posix.SOCK.STREAM, 0, &fds) != 0) {
+        return vm.raiseErrnoFmt(std.posix.errno(-1), "socketpair failed", .{});
+    }
+    return .{ @intCast(fds[0]), @intCast(fds[1]) };
+}
+
+fn applyChildDup(fd: i32, target: i32) void {
+    if (fd == target) return;
+    _ = std.c.dup2(@intCast(fd), @intCast(target));
+}
+
+fn buildPopenEnvp(vm: *VM, config: *PopenConfig) VMError!struct {
+    env_map: std.process.Environ.Map,
+    env_strings: std.ArrayList([:0]u8),
+    envp: std.ArrayList(?[*:0]const u8),
+} {
+    var env_map = try vm.currentEnvMap();
+    errdefer env_map.deinit();
+    for (config.env.items) |entry| {
+        env_map.put(entry.key, entry.value) catch return error.Fatal;
+    }
+
+    var env_strings: std.ArrayList([:0]u8) = .empty;
+    errdefer {
+        for (env_strings.items) |item| vm.allocator.free(item);
+        env_strings.deinit(vm.allocator);
+    }
+    var envp: std.ArrayList(?[*:0]const u8) = .empty;
+    errdefer envp.deinit(vm.allocator);
+
+    var iter = env_map.iterator();
+    while (iter.next()) |entry| {
+        const combined = std.fmt.allocPrint(vm.allocator, "{s}={s}", .{ entry.key_ptr.*, entry.value_ptr.* }) catch return error.Fatal;
+        defer vm.allocator.free(combined);
+        const combined_z = try vm.allocCStringZ(combined);
+        env_strings.append(vm.allocator, combined_z) catch return error.Fatal;
+        envp.append(vm.allocator, combined_z.ptr) catch return error.Fatal;
+    }
+    envp.append(vm.allocator, null) catch return error.Fatal;
+
+    return .{
+        .env_map = env_map,
+        .env_strings = env_strings,
+        .envp = envp,
+    };
+}
+
+fn buildPopenArgv(vm: *VM, config: *PopenConfig) VMError!struct {
+    path_z: [:0]u8,
+    arg_strings: std.ArrayList([:0]u8),
+    argv: std.ArrayList(?[*:0]const u8),
+} {
+    const exec_path = config.exec_path orelse if (config.shell_command != null) "/bin/sh" else unreachable;
+    const path_z = try vm.allocCStringZ(exec_path);
+    errdefer vm.allocator.free(path_z);
+
+    var arg_strings: std.ArrayList([:0]u8) = .empty;
+    errdefer {
+        for (arg_strings.items) |item| vm.allocator.free(item);
+        arg_strings.deinit(vm.allocator);
+    }
+    var argv: std.ArrayList(?[*:0]const u8) = .empty;
+    errdefer argv.deinit(vm.allocator);
+
+    if (config.shell_command) |shell_command| {
+        const sh0 = try vm.allocCStringZ("sh");
+        const shc = try vm.allocCStringZ("-c");
+        const cmd = try vm.allocCStringZ(shell_command);
+        arg_strings.append(vm.allocator, sh0) catch return error.Fatal;
+        arg_strings.append(vm.allocator, shc) catch return error.Fatal;
+        arg_strings.append(vm.allocator, cmd) catch return error.Fatal;
+        argv.append(vm.allocator, sh0.ptr) catch return error.Fatal;
+        argv.append(vm.allocator, shc.ptr) catch return error.Fatal;
+        argv.append(vm.allocator, cmd.ptr) catch return error.Fatal;
+    } else {
+        for (config.argv.items) |arg| {
+            const arg_z = try vm.allocCStringZ(arg);
+            arg_strings.append(vm.allocator, arg_z) catch return error.Fatal;
+            argv.append(vm.allocator, arg_z.ptr) catch return error.Fatal;
+        }
+    }
+    argv.append(vm.allocator, null) catch return error.Fatal;
+
+    return .{
+        .path_z = path_z,
+        .arg_strings = arg_strings,
+        .argv = argv,
+    };
+}
+
+fn popenSpawn(vm: *VM, receiver: Value, config: *PopenConfig) VMError!Value {
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "IO.popen is not implemented on Windows", .{});
+    }
+
+    const io_class = if (receiver.isClass()) receiver.toClassObject() else vm.io_class;
+
+    var envp_data = try buildPopenEnvp(vm, config);
+    defer {
+        envp_data.env_map.deinit();
+        for (envp_data.env_strings.items) |item| vm.allocator.free(item);
+        envp_data.env_strings.deinit(vm.allocator);
+        envp_data.envp.deinit(vm.allocator);
+    }
+
+    var argv_data = try buildPopenArgv(vm, config);
+    defer {
+        vm.allocator.free(argv_data.path_z);
+        for (argv_data.arg_strings.items) |item| vm.allocator.free(item);
+        argv_data.arg_strings.deinit(vm.allocator);
+        argv_data.argv.deinit(vm.allocator);
+    }
+
+    var parent_fd: i32 = -1;
+    var child_stdin_fd: i32 = -1;
+    var child_stdout_fd: i32 = -1;
+    var extra_child_fd: i32 = -1;
+
+    if (config.readable and config.writable) {
+        const fds = try makeSocketPair(vm);
+        parent_fd = fds[0];
+        child_stdin_fd = fds[1];
+        child_stdout_fd = fds[1];
+        extra_child_fd = fds[1];
+    } else if (config.readable) {
+        var fds: [2]std.c.fd_t = undefined;
+        if (std.c.pipe(&fds) != 0) {
+            return vm.raiseErrnoFmt(std.posix.errno(-1), "pipe failed", .{});
+        }
+        parent_fd = @intCast(fds[0]);
+        child_stdout_fd = @intCast(fds[1]);
+    } else if (config.writable) {
+        var fds: [2]std.c.fd_t = undefined;
+        if (std.c.pipe(&fds) != 0) {
+            return vm.raiseErrnoFmt(std.posix.errno(-1), "pipe failed", .{});
+        }
+        child_stdin_fd = @intCast(fds[0]);
+        parent_fd = @intCast(fds[1]);
+    }
+    errdefer closeFdIfOpen(parent_fd);
+    errdefer closeFdIfOpen(child_stdin_fd);
+    errdefer closeFdIfOpen(child_stdout_fd);
+
+    const pid = std.c.fork();
+    if (pid < 0) {
+        return vm.raiseExceptionFmt(vm.runtime_error_class, "fork failed", .{});
+    }
+
+    if (pid == 0) {
+        if (config.readable and config.writable) {
+            closeFdIfOpen(parent_fd);
+            applyChildDup(child_stdin_fd, 0);
+            applyChildDup(child_stdout_fd, 1);
+            if (config.merge_stderr) applyChildDup(child_stdout_fd, 2);
+            if (extra_child_fd >= 0) closeFdIfOpen(extra_child_fd);
+        } else {
+            if (config.readable) {
+                closeFdIfOpen(parent_fd);
+                applyChildDup(child_stdout_fd, 1);
+                if (config.merge_stderr) applyChildDup(child_stdout_fd, 2);
+                closeFdIfOpen(child_stdout_fd);
+            }
+            if (config.writable) {
+                closeFdIfOpen(parent_fd);
+                applyChildDup(child_stdin_fd, 0);
+                closeFdIfOpen(child_stdin_fd);
+            }
+        }
+
+        if (config.chdir_path) |path| {
+            const path_z = vm.allocCStringZ(path) catch std.c._exit(127);
+            defer vm.allocator.free(path_z);
+            if (std.c.chdir(path_z.ptr) != 0) std.c._exit(127);
+        }
+
+        _ = execve(argv_data.path_z.ptr, @ptrCast(argv_data.argv.items.ptr), @ptrCast(envp_data.envp.items.ptr));
+        std.c._exit(127);
+    }
+
+    if (config.readable and config.writable) {
+        closeFdIfOpen(child_stdin_fd);
+    } else {
+        closeFdIfOpen(child_stdin_fd);
+        closeFdIfOpen(child_stdout_fd);
+    }
+
+    const io_value = try vm.newIo(io_class, parent_fd, true, config.readable, config.writable, false, null);
+    try vm.setInstanceVariable(io_value, "@pid", Value.integer(pid));
+    try vm.setInstanceVariable(io_value, "@child_process", Value.boolean(true));
+    if (config.external_encoding) |encoding| {
+        try vm.setInstanceVariable(io_value, "@external_encoding", encoding);
+    }
+    if (config.internal_encoding) |encoding| {
+        try vm.setInstanceVariable(io_value, "@internal_encoding", encoding);
+    }
+    return io_value;
+}
+
+pub fn builtinIoPopen(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    var config = try parsePopenArgs(vm, args);
+    defer config.deinit(vm.allocator);
+
+    const io_value = try popenSpawn(vm, receiver, &config);
+    if (block) |blk| {
+        const yielded = vm.yieldToBlock(blk, &[_]Value{io_value}) catch |err| {
+            _ = builtinIoClose(vm, io_value, &[_]Value{}, null) catch {};
+            return err;
+        };
+        _ = builtinIoClose(vm, io_value, &[_]Value{}, null) catch {};
+        if (yielded.controlFlowValue()) |return_value| return return_value;
+        return yielded.value;
+    }
+    return io_value;
 }
 
 pub fn builtinIoPipe(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -267,6 +671,31 @@ pub fn builtinIoToIo(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
     try vm.requireArgCount(args, 0);
     _ = try requireIoReceiver(vm, receiver);
     return receiver;
+}
+
+pub fn builtinIoPid(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const io = try requireIoReceiver(vm, receiver);
+    if (io.closed and (try vm.getInstanceVariable(receiver, "@child_process")).is_truthy()) {
+        return vm.raiseExceptionFmt(vm.io_error_class, "closed stream", .{});
+    }
+    return vm.getInstanceVariable(receiver, "@pid");
+}
+
+pub fn builtinIoExternalEncoding(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    _ = try requireIoReceiver(vm, receiver);
+    const explicit = try vm.getInstanceVariable(receiver, "@external_encoding");
+    if (!explicit.isNil()) return explicit;
+    return Value.fromObject(&vm.default_external_encoding.object);
+}
+
+pub fn builtinIoInternalEncoding(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    _ = try requireIoReceiver(vm, receiver);
+    const explicit = try vm.getInstanceVariable(receiver, "@internal_encoding");
+    if (!explicit.isNil()) return explicit;
+    return if (vm.default_internal_encoding) |encoding| Value.fromObject(&encoding.object) else Value.nil();
 }
 
 pub fn builtinIoNonblockQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -557,11 +986,13 @@ fn ioWriteBytes(vm: *VM, io: *IoObject, bytes: []const u8) VMError!usize {
     if (io.fd == 1) {
         vm.setupOutput();
         vm.stdout.?.writeAll(bytes) catch return vm.raiseExceptionFmt(vm.io_error_class, "write failed", .{});
+        _ = vm.stdout.?.flush() catch {};
         return bytes.len;
     }
     if (io.fd == 2) {
         vm.setupOutput();
         vm.stderr.?.writeAll(bytes) catch return vm.raiseExceptionFmt(vm.io_error_class, "write failed", .{});
+        _ = vm.stderr.?.flush() catch {};
         return bytes.len;
     }
 
@@ -798,6 +1229,16 @@ pub fn builtinIoClose(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
 
     if (io.owns_fd and io.fd >= 0) {
         _ = std.c.close(@intCast(io.fd));
+    }
+
+    const pid_value = try vm.getInstanceVariable(receiver, "@pid");
+    if (pid_value.isInteger()) {
+        var status: c_int = 0;
+        const waited = std.c.waitpid(@intCast(pid_value.toInteger()), &status, 0);
+        if (waited > 0) {
+            try vm.setLastProcessStatusFromWaitStatus(status);
+        }
+        try vm.setInstanceVariable(receiver, "@pid", Value.nil());
     }
     io.closed = true;
     return Value.nil();

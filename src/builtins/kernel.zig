@@ -379,6 +379,15 @@ pub fn register(vm: *VM) !void {
     const success_sym = try vm.intern("success?");
     try vm.process_status_class.module.methods.put(success_sym, value.MethodEntry.builtin(&builtinProcessStatusSuccess, .{ .exact = 0 }));
 
+    const exited_sym = try vm.intern("exited?");
+    try vm.process_status_class.module.methods.put(exited_sym, value.MethodEntry.builtin(&builtinProcessStatusExited, .{ .exact = 0 }));
+
+    const signaled_sym = try vm.intern("signaled?");
+    try vm.process_status_class.module.methods.put(signaled_sym, value.MethodEntry.builtin(&builtinProcessStatusSignaled, .{ .exact = 0 }));
+
+    const termsig_sym = try vm.intern("termsig");
+    try vm.process_status_class.module.methods.put(termsig_sym, value.MethodEntry.builtin(&builtinProcessStatusTermsig, .{ .exact = 0 }));
+
     const fork_sym = try vm.intern("fork");
     try vm.kernel_module.methods.put(fork_sym, value.MethodEntry.builtin(&builtinKernelFork, .{ .exact = 0 }));
 
@@ -1830,6 +1839,26 @@ pub fn builtinProcessStatusSuccess(vm: *VM, receiver: Value, args: []Value, _: ?
     try vm.requireArgCount(args, 0);
     const exitstatus = try vm.getInstanceVariable(receiver, "@exitstatus");
     return Value.boolean(exitstatus.isInteger() and exitstatus.toInteger() == 0);
+}
+
+pub fn builtinProcessStatusExited(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const raw_status = try vm.getInstanceVariable(receiver, "@raw_status");
+    if (!raw_status.isInteger()) return Value.boolean(false);
+    return Value.boolean((raw_status.toInteger() & 0x7f) == 0);
+}
+
+pub fn builtinProcessStatusSignaled(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const raw_status = try vm.getInstanceVariable(receiver, "@raw_status");
+    if (!raw_status.isInteger()) return Value.boolean(false);
+    const signal_bits = raw_status.toInteger() & 0x7f;
+    return Value.boolean(signal_bits != 0 and signal_bits != 0x7f);
+}
+
+pub fn builtinProcessStatusTermsig(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return vm.getInstanceVariable(receiver, "@termsig");
 }
 
 pub fn builtinKernelRand(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

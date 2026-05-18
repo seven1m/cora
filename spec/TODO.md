@@ -1129,7 +1129,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/io/path_spec.rb
 - [ ] core/io/pid_spec.rb
 - [ ] core/io/pipe_spec.rb
-- [ ] core/io/popen_spec.rb
+- [-] core/io/popen_spec.rb
 - [ ] core/io/pos_spec.rb
 - [ ] core/io/pread_spec.rb
 - [ ] core/io/print_spec.rb

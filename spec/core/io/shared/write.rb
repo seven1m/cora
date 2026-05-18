@@ -145,16 +145,14 @@ describe :io_write_no_transcode, shared: true do
   end
 
   it "does not transcode the given string even when the external encoding is set" do
-    CORAFIXME "IO external encoding APIs are not implemented yet", exception: NoMethodError, message: /undefined method 'external_encoding'/ do
-      utf8_str = "hello"
+    utf8_str = "hello"
 
-      File.open(@transcode_filename, "w", external_encoding: Encoding::UTF_16BE) do |file|
-        file.external_encoding.should == Encoding::UTF_16BE
-        file.send(@method, utf8_str)
-      end
-
-      result = File.binread(@transcode_filename)
-      result.bytes.should == utf8_str.bytes
+    File.open(@transcode_filename, "w", external_encoding: Encoding::UTF_16BE) do |file|
+      file.external_encoding.should == Encoding::UTF_16BE
+      file.send(@method, utf8_str)
     end
+
+    result = File.binread(@transcode_filename)
+    result.bytes.should == utf8_str.bytes
   end
 end
