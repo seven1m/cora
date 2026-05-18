@@ -189,6 +189,9 @@ pub fn register(vm: *VM) !void {
     const select_sym = try vm.intern("select");
     try vm.hash_class.module.methods.put(select_sym, value.MethodEntry.builtin(&builtinHashSelect, .{ .exact = 0 }));
 
+    const select_bang_sym = try vm.intern("select!");
+    try vm.hash_class.module.methods.put(select_bang_sym, value.MethodEntry.builtin(&builtinHashSelectBang, .{ .exact = 0 }));
+
     const reject_sym = try vm.intern("reject");
     try vm.hash_class.module.methods.put(reject_sym, value.MethodEntry.builtin(&builtinHashReject, .{ .exact = 0 }));
 
@@ -1277,35 +1280,33 @@ pub fn builtinHashDig(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
 pub fn builtinHashSelect(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const blk = block orelse {
-        return try vm.createMethodEnumerator(receiver, try vm.intern("select"), &.{});
+        return try vm.createMethodEnumeratorWithSize(
+            receiver,
+            try vm.intern("select"),
+            &.{},
+            Value.integer(@intCast(receiver.toHashObject().entries.items.len)),
+        );
     };
     const hash_obj = receiver.toHashObject();
 
-    // Create a new hash for the result
     const result_hash = try vm.createHash();
+    result_hash.compare_by_identity = hash_obj.compare_by_identity;
 
-    // Iterate through entries
     for (hash_obj.entries.items) |entry| {
         const yield_args = [_]Value{ entry.key, entry.value };
         const result = try vm.yieldToBlock(blk, &yield_args);
-        if (result.non_local_return_occurred) {
-            return result.value;
-        }
+        if (result.controlFlowValue()) |return_value| return return_value;
 
-        // If break occurred, return immediately
-        if (result.break_occurred) {
-            return Value.fromObject(&result_hash.object);
-        }
-
-        // Check if the block returned a truthy value
-        const is_truthy = result.value.is_truthy();
-
-        if (is_truthy) {
+        if (result.value.is_truthy()) {
             try vm.hashSetEntry(result_hash, entry.key, entry.value);
         }
     }
 
     return Value.fromObject(&result_hash.object);
+}
+
+pub fn builtinHashSelectBang(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    return hashFilterBangShared(vm, receiver, args, block, "select!", false, true);
 }
 
 pub fn builtinHashReject(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
