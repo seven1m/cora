@@ -2018,7 +2018,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/string/next_spec.rb
 - [x] core/string/oct_spec.rb
 - [x] core/string/ord_spec.rb
-- [ ] core/string/partition_spec.rb
+- [-] core/string/partition_spec.rb
 - [x] core/string/plus_spec.rb
 - [x] core/string/prepend_spec.rb
 - [x] core/string/replace_spec.rb

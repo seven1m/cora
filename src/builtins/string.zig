@@ -274,6 +274,11 @@ pub fn register(vm: *VM) !void {
     const string_index_sym = try vm.intern("index");
     try vm.string_class.module.methods.put(string_index_sym, value.MethodEntry.builtin(&builtinStringIndex, .{ .variadic = 0 }));
 
+    const string_partition_sym = try vm.intern("partition");
+    try vm.string_class.module.methods.put(string_partition_sym, value.MethodEntry.builtin(&builtinStringPartition, .{ .exact = 1 }));
+    const string_rpartition_sym = try vm.intern("rpartition");
+    try vm.string_class.module.methods.put(string_rpartition_sym, value.MethodEntry.builtin(&builtinStringRpartition, .{ .exact = 1 }));
+
     const string_prepend_sym = try vm.intern("prepend");
     try vm.string_class.module.methods.put(string_prepend_sym, value.MethodEntry.builtin(&builtinStringPrepend, .{ .variadic = 0 }));
 
@@ -4722,6 +4727,122 @@ pub fn builtinStringIndex(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     }
 
     return Value.nil();
+}
+
+pub fn builtinStringPartition(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const string_obj = receiver.toStringObject();
+
+    if (args[0].isRegexp()) {
+        const match_idx = try regexp_builtin.regexpMatchOp(vm, args[0].toRegexpObject(), receiver);
+        if (match_idx.isNil()) {
+            const whole = try vm.newStringWithEncoding(string_obj.str, false, string_obj.encoding);
+            const empty = try newEmptyStringWithEncoding(vm, string_obj.encoding);
+            return newArrayWith3Values(vm, .{ whole, empty, empty });
+        }
+        const md_val = vm.globals.get("$~") orelse return error.Fatal;
+        if (!md_val.isMatchData()) return error.Fatal;
+        const md = md_val.toMatchDataObject();
+        if (md.begin_byte_offsets.items.len == 0) return error.Fatal;
+        const match_byte = md.begin_byte_offsets.items[0];
+        if (match_byte < 0) return error.Fatal;
+        const end_byte = md.end_byte_offsets.items[0];
+        if (end_byte < 0) return error.Fatal;
+        const match_byte_usize: usize = @intCast(match_byte);
+        const end_byte_usize: usize = @intCast(end_byte);
+        const before = try vm.newStringWithEncoding(string_obj.str[0..match_byte_usize], false, string_obj.encoding);
+        const separator = try vm.newStringWithEncoding(string_obj.str[match_byte_usize..end_byte_usize], false, string_obj.encoding);
+        const after = try vm.newStringWithEncoding(string_obj.str[end_byte_usize..], false, string_obj.encoding);
+        return newArrayWith3Values(vm, .{ before, separator, after });
+    }
+
+    const needle_value = try args[0].coerceToStringValue(vm, "no implicit conversion into String");
+    const needle_obj = needle_value.toStringObject();
+    const needle = needle_obj.str;
+
+    if (enc.negotiate(string_obj.encoding, string_obj.str, needle_obj.encoding, needle) == null) {
+        return vm.raiseEncodingCompatibilityError(string_obj.encoding, needle_obj.encoding);
+    }
+
+    if (needle.len == 0) {
+        const empty = try newEmptyStringWithEncoding(vm, string_obj.encoding);
+        const whole = try vm.newStringWithEncoding(string_obj.str, false, string_obj.encoding);
+        return newArrayWith3Values(vm, .{ empty, empty, whole });
+    }
+
+    const idx = std.mem.indexOf(u8, string_obj.str, needle) orelse {
+        const whole = try vm.newStringWithEncoding(string_obj.str, false, string_obj.encoding);
+        const empty = try newEmptyStringWithEncoding(vm, string_obj.encoding);
+        return newArrayWith3Values(vm, .{ whole, empty, empty });
+    };
+    const before = try vm.newStringWithEncoding(string_obj.str[0..idx], false, string_obj.encoding);
+    const separator = try vm.newStringWithEncoding(needle, false, needle_obj.encoding);
+    const after = try vm.newStringWithEncoding(string_obj.str[idx + needle.len ..], false, string_obj.encoding);
+    return newArrayWith3Values(vm, .{ before, separator, after });
+}
+
+fn newArrayWith3Values(vm: *VM, values: [3]Value) VMError!Value {
+    const array_obj = try vm.createArray();
+    for (values) |item| {
+        array_obj.elements.append(vm.gc_allocator, item) catch return error.Fatal;
+    }
+    return Value.fromObject(&array_obj.object);
+}
+
+fn newEmptyStringWithEncoding(vm: *VM, encoding: enc.Encoding) VMError!Value {
+    return vm.newStringWithEncoding("", false, encoding);
+}
+
+pub fn builtinStringRpartition(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const string_obj = receiver.toStringObject();
+
+    if (args[0].isRegexp()) {
+        const match_idx = try regexp_builtin.regexpMatchOp(vm, args[0].toRegexpObject(), receiver);
+        if (match_idx.isNil()) {
+            const empty = try newEmptyStringWithEncoding(vm, string_obj.encoding);
+            const whole = try vm.newStringWithEncoding(string_obj.str, false, string_obj.encoding);
+            return newArrayWith3Values(vm, .{ empty, empty, whole });
+        }
+        const md_val = vm.globals.get("$~") orelse return error.Fatal;
+        if (!md_val.isMatchData()) return error.Fatal;
+        const md = md_val.toMatchDataObject();
+        if (md.begin_byte_offsets.items.len == 0) return error.Fatal;
+        const match_byte = md.begin_byte_offsets.items[0];
+        if (match_byte < 0) return error.Fatal;
+        const end_byte = md.end_byte_offsets.items[0];
+        if (end_byte < 0) return error.Fatal;
+        const match_byte_usize: usize = @intCast(match_byte);
+        const end_byte_usize: usize = @intCast(end_byte);
+        const before = try vm.newStringWithEncoding(string_obj.str[0..match_byte_usize], false, string_obj.encoding);
+        const separator = try vm.newStringWithEncoding(string_obj.str[match_byte_usize..end_byte_usize], false, string_obj.encoding);
+        const after = try vm.newStringWithEncoding(string_obj.str[end_byte_usize..], false, string_obj.encoding);
+        return newArrayWith3Values(vm, .{ before, separator, after });
+    }
+
+    const needle_value = try args[0].coerceToStringValue(vm, "no implicit conversion into String");
+    const needle_obj = needle_value.toStringObject();
+    const needle = needle_obj.str;
+
+    if (enc.negotiate(string_obj.encoding, string_obj.str, needle_obj.encoding, needle) == null) {
+        return vm.raiseEncodingCompatibilityError(string_obj.encoding, needle_obj.encoding);
+    }
+
+    if (needle.len == 0) {
+        const empty = try newEmptyStringWithEncoding(vm, string_obj.encoding);
+        const whole = try vm.newStringWithEncoding(string_obj.str, false, string_obj.encoding);
+        return newArrayWith3Values(vm, .{ whole, empty, empty });
+    }
+
+    const idx = std.mem.lastIndexOf(u8, string_obj.str, needle) orelse {
+        const empty = try newEmptyStringWithEncoding(vm, string_obj.encoding);
+        const whole = try vm.newStringWithEncoding(string_obj.str, false, string_obj.encoding);
+        return newArrayWith3Values(vm, .{ empty, empty, whole });
+    };
+    const before = try vm.newStringWithEncoding(string_obj.str[0..idx], false, string_obj.encoding);
+    const separator = try vm.newStringWithEncoding(needle, false, needle_obj.encoding);
+    const after = try vm.newStringWithEncoding(string_obj.str[idx + needle.len ..], false, string_obj.encoding);
+    return newArrayWith3Values(vm, .{ before, separator, after });
 }
 
 fn escapeRegexpLiteral(vm: *VM, bytes: []const u8) VMError![]u8 {
