@@ -301,6 +301,24 @@ fn coerceShiftCount(vm: *VM, arg: Value) VMError!ShiftCount {
     return .{ .finite = shift_count };
 }
 
+fn negateInteger(vm: *VM, value_: Value) VMError!Value {
+    if (value_.isInteger()) {
+        if (std.math.negate(value_.toInteger())) |negated| {
+            return Value.integer(negated);
+        } else |_| {}
+    }
+
+    var value_managed = try value_.integerToManaged(vm);
+    defer value_managed.deinit();
+    value_managed.negate();
+    return vm.valueFromManagedInteger(&value_managed);
+}
+
+fn bitNotInteger(vm: *VM, value_: Value) VMError!Value {
+    const incremented = try addIntegers(vm, value_, Value.integer(1));
+    return negateInteger(vm, incremented);
+}
+
 fn integerIsZero(value_: Value) bool {
     return if (value_.isInteger())
         value_.toInteger() == 0
@@ -420,6 +438,18 @@ pub fn register(vm: *VM) !void {
 
     const bit_xor_sym = try vm.intern("^");
     try vm.integer_class.module.methods.put(bit_xor_sym, value.MethodEntry.builtin(&builtinIntegerBitXor, .{ .exact = 1 }));
+
+    const allbits_sym = try vm.intern("allbits?");
+    try vm.integer_class.module.methods.put(allbits_sym, value.MethodEntry.builtin(&builtinIntegerAllBits, .{ .exact = 1 }));
+
+    const anybits_sym = try vm.intern("anybits?");
+    try vm.integer_class.module.methods.put(anybits_sym, value.MethodEntry.builtin(&builtinIntegerAnyBits, .{ .exact = 1 }));
+
+    const nobits_sym = try vm.intern("nobits?");
+    try vm.integer_class.module.methods.put(nobits_sym, value.MethodEntry.builtin(&builtinIntegerNoBits, .{ .exact = 1 }));
+
+    const bit_not_sym = try vm.intern("~");
+    try vm.integer_class.module.methods.put(bit_not_sym, value.MethodEntry.builtin(&builtinIntegerBitNot, .{ .exact = 0 }));
 
     const unary_plus_sym = try vm.intern("+@");
     try vm.integer_class.module.methods.put(unary_plus_sym, value.MethodEntry.builtin(&builtinIntegerUnaryPlus, .{ .exact = 0 }));
@@ -605,6 +635,51 @@ pub fn builtinIntegerBitXor(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     return coerceAndCallIntegerBitwise(vm, receiver, rhs, "^");
 }
 
+pub fn builtinIntegerAllBits(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    try receiver.ensureInteger(vm);
+
+    const arg = try args[0].coerceToIntegerValue(
+        vm,
+        "no implicit conversion into Integer",
+        "no implicit conversion into Integer",
+    );
+    const result = try bitAndIntegers(vm, receiver, arg);
+    return Value.boolean(result.eql(arg));
+}
+
+pub fn builtinIntegerAnyBits(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    try receiver.ensureInteger(vm);
+
+    const arg = try args[0].coerceToIntegerValue(
+        vm,
+        "no implicit conversion into Integer",
+        "no implicit conversion into Integer",
+    );
+    const result = try bitAndIntegers(vm, receiver, arg);
+    return Value.boolean(!result.isInteger() or result.toInteger() != 0);
+}
+
+pub fn builtinIntegerNoBits(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    try receiver.ensureInteger(vm);
+
+    const arg = try args[0].coerceToIntegerValue(
+        vm,
+        "no implicit conversion into Integer",
+        "no implicit conversion into Integer",
+    );
+    const result = try bitAndIntegers(vm, receiver, arg);
+    return Value.boolean(result.isInteger() and result.toInteger() == 0);
+}
+
+pub fn builtinIntegerBitNot(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    try receiver.ensureInteger(vm);
+    return bitNotInteger(vm, receiver);
+}
+
 pub fn builtinIntegerMinus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     try receiver.ensureInteger(vm);
@@ -621,16 +696,7 @@ pub fn builtinIntegerMinus(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 pub fn builtinIntegerUnaryMinus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     try receiver.ensureInteger(vm);
-    if (receiver.isInteger()) {
-        if (std.math.negate(receiver.toInteger())) |negated| {
-            return Value.integer(negated);
-        } else |_| {}
-    }
-
-    var value_managed = try receiver.integerToManaged(vm);
-    defer value_managed.deinit();
-    value_managed.negate();
-    return vm.valueFromManagedInteger(&value_managed);
+    return negateInteger(vm, receiver);
 }
 
 pub fn builtinIntegerMultiply(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
