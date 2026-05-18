@@ -922,7 +922,7 @@ Source baseline: ../ruby_spec compared to local spec/
 ### core/hash
 - [x] core/hash/allocate_spec.rb
 - [ ] core/hash/any_spec.rb
-- [ ] core/hash/assoc_spec.rb
+- [x] core/hash/assoc_spec.rb
 - [x] core/hash/clear_spec.rb
 - [ ] core/hash/clone_spec.rb
 - [ ] core/hash/compact_spec.rb
@@ -966,7 +966,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/hash/member_spec.rb
 - [-] core/hash/merge_spec.rb
 - [ ] core/hash/new_spec.rb
-- [ ] core/hash/rassoc_spec.rb
+- [x] core/hash/rassoc_spec.rb
 - [ ] core/hash/rehash_spec.rb
 - [x] core/hash/reject_spec.rb
 - [x] core/hash/replace_spec.rb

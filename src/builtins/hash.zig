@@ -135,6 +135,12 @@ pub fn register(vm: *VM) !void {
     const key_sym = try vm.intern("key");
     try vm.hash_class.module.methods.put(key_sym, value.MethodEntry.builtin(&builtinHashKey, .{ .exact = 1 }));
 
+    const assoc_sym = try vm.intern("assoc");
+    try vm.hash_class.module.methods.put(assoc_sym, value.MethodEntry.builtin(&builtinHashAssoc, .{ .exact = 1 }));
+
+    const rassoc_sym = try vm.intern("rassoc");
+    try vm.hash_class.module.methods.put(rassoc_sym, value.MethodEntry.builtin(&builtinHashRassoc, .{ .exact = 1 }));
+
     const size_sym = try vm.intern("size");
     try vm.hash_class.module.methods.put(size_sym, value.MethodEntry.builtin(&builtinHashSize, .{ .exact = 0 }));
 
@@ -986,6 +992,40 @@ pub fn builtinHashKey(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
     for (hash_obj.entries.items) |entry| {
         if (try vm.valueEquals(entry.value, needle)) {
             return entry.key;
+        }
+    }
+
+    return Value.nil();
+}
+
+pub fn builtinHashAssoc(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const hash_obj = receiver.toHashObject();
+    const needle = args[0];
+
+    for (hash_obj.entries.items) |entry| {
+        if (try vm.valueEquals(entry.key, needle)) {
+            const pair_obj = try vm.createArray();
+            pair_obj.elements.append(vm.gc_allocator, entry.key) catch return error.Fatal;
+            pair_obj.elements.append(vm.gc_allocator, entry.value) catch return error.Fatal;
+            return Value.fromObject(&pair_obj.object);
+        }
+    }
+
+    return Value.nil();
+}
+
+pub fn builtinHashRassoc(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const hash_obj = receiver.toHashObject();
+    const needle = args[0];
+
+    for (hash_obj.entries.items) |entry| {
+        if (try vm.valueEquals(entry.value, needle)) {
+            const pair_obj = try vm.createArray();
+            pair_obj.elements.append(vm.gc_allocator, entry.key) catch return error.Fatal;
+            pair_obj.elements.append(vm.gc_allocator, entry.value) catch return error.Fatal;
+            return Value.fromObject(&pair_obj.object);
         }
     }
 
