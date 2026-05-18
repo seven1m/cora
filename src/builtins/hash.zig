@@ -266,6 +266,9 @@ pub fn register(vm: *VM) !void {
 
     const sort_sym = try vm.intern("sort");
     try vm.hash_class.module.methods.put(sort_sym, value.MethodEntry.builtin(&builtinHashSort, .{ .variadic = 0 }));
+
+    const flatten_sym = try vm.intern("flatten");
+    try vm.hash_class.module.methods.put(flatten_sym, value.MethodEntry.builtin(&builtinHashFlatten, .{ .variadic = 0 }));
 }
 
 fn hashGetValue(hash_obj: *value.HashObject, vm: *VM, key: Value) VMError!?Value {
@@ -1506,6 +1509,44 @@ pub fn builtinHashSort(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
         result.elements.append(vm.gc_allocator, Value.fromObject(&pair_obj.object)) catch return error.Fatal;
     }
 
-    const sorted = try vm.callMethodByName(Value.fromObject(&result.object), "sort", &.{}, block.?);
+    const sorted = try vm.callMethodByName(Value.fromObject(&result.object), "sort", &.{}, block);
     return sorted;
+}
+
+pub fn builtinHashFlatten(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+
+    const hash_obj = receiver.toHashObject();
+    const result = try vm.createArray();
+
+    for (hash_obj.entries.items) |entry| {
+        result.elements.append(vm.gc_allocator, entry.key) catch return error.Fatal;
+        result.elements.append(vm.gc_allocator, entry.value) catch return error.Fatal;
+    }
+
+    if (args.len == 0) {
+        return Value.fromObject(&result.object);
+    }
+
+    const depth = try args[0].coerceToI64ViaToInt(
+        vm,
+        "no implicit conversion into Integer",
+        "no implicit conversion into Integer",
+        "bignum too big to convert into `long`",
+    );
+    if (depth < 0) {
+        return Value.fromObject(&result.object);
+    }
+    if (depth == 0) {
+        return Value.fromObject(&result.object);
+    }
+
+    const result_ref = Value.fromObject(&result.object);
+    if (depth == 1) {
+        return result_ref;
+    }
+
+    var depth_arg: [1]Value = .{Value.integer(depth - 1)};
+    const flattened = try vm.callMethodByName(result_ref, "flatten", &depth_arg, null);
+    return flattened;
 }
