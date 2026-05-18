@@ -281,6 +281,9 @@ pub fn register(vm: *VM) !void {
 
     const slice_sym = try vm.intern("slice");
     try vm.hash_class.module.methods.put(slice_sym, value.MethodEntry.builtin(&builtinHashSlice, .{ .variadic = 0 }));
+
+    const except_sym = try vm.intern("except");
+    try vm.hash_class.module.methods.put(except_sym, value.MethodEntry.builtin(&builtinHashExcept, .{ .variadic = 0 }));
 }
 
 fn hashGetValue(hash_obj: *value.HashObject, vm: *VM, key: Value) VMError!?Value {
@@ -1601,6 +1604,29 @@ pub fn builtinHashSlice(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     for (args) |key| {
         if (try hashGetValue(hash_obj, vm, key)) |found| {
             try vm.hashSetEntry(result_hash, key, found);
+        }
+    }
+
+    return Value.fromObject(&result_hash.object);
+}
+
+pub fn builtinHashExcept(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 256);
+
+    const hash_obj = receiver.toHashObject();
+    const result_hash = try vm.createHash();
+    result_hash.compare_by_identity = hash_obj.compare_by_identity;
+
+    for (hash_obj.entries.items) |entry| {
+        var found = false;
+        for (args) |key| {
+            if (try vm.valueEquals(entry.key, key)) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            try vm.hashSetEntry(result_hash, entry.key, entry.value);
         }
     }
 

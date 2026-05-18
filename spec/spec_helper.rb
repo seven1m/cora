@@ -423,16 +423,6 @@ class ScratchPad
   end
 end
 
-class Hash
-  def except(*keys)
-    copy = dup
-    keys.each do |key|
-      copy.delete(key)
-    end
-    copy
-  end
-end
-
 def parse_version_segments(version)
   version.to_s.split('.').map { |segment| segment.to_i }
 end
