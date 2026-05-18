@@ -25,6 +25,7 @@ const nil_class = @import("nil_class.zig");
 const object = @import("object.zig");
 const proc_builtin = @import("proc.zig");
 const process = @import("process.zig");
+const signal = @import("signal.zig");
 const fiber = @import("fiber.zig");
 const thread = @import("thread.zig");
 const mutex = @import("mutex.zig");
@@ -58,6 +59,7 @@ pub fn registerAll(vm: *VM) !void {
     try enumerable.register(vm);
     try env.register(vm);
     try process.register(vm);
+    try signal.register(vm);
     try warning.register(vm);
     try marshal.register(vm);
     try proc_builtin.register(vm);

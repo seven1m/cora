@@ -55,6 +55,12 @@ const DEFAULT_THREAD_PREEMPT_QUANTUM_OPS: u32 = 10_000;
 const MAX_QUEUED_SIGNALS: usize = 128;
 var queued_signal_counts: [MAX_QUEUED_SIGNALS]u32 = [_]u32{0} ** MAX_QUEUED_SIGNALS;
 
+pub const SignalTrapMode = enum {
+    default,
+    ignore,
+    callable,
+};
+
 fn monotonicMilliseconds() i64 {
     var timespec: std.posix.timespec = undefined;
     if (clock_gettime(std.posix.CLOCK.MONOTONIC, &timespec) != 0) return 0;
@@ -406,6 +412,7 @@ pub const VM = struct {
     false_class: *value.ClassObject,
     kernel_module: *value.ModuleObject,
     process_module: *value.ModuleObject,
+    signal_module: *value.ModuleObject,
     warning_module: *value.ModuleObject,
     marshal_module: *value.ModuleObject,
     errno_module: *value.ModuleObject,
@@ -507,6 +514,7 @@ pub const VM = struct {
     // Exception/throw/control-flow unwind state.
     pending_unwind: ?PendingUnwind = null,
     pending_async_exceptions: std.ArrayList(*value.ExceptionObject) = .empty,
+    pending_signal_traps: std.ArrayList(c_int) = .empty,
     rescued_exceptions: std.ArrayList(*value.ExceptionObject) = .empty,
     ensure_saved_unwinds: std.ArrayList(SavedUnwind) = .empty,
     active_catches: *std.ArrayList(Value),
@@ -517,6 +525,8 @@ pub const VM = struct {
 
     at_exit_handlers: std.ArrayList(Value) = .empty,
     io_objects: std.ArrayList(*value.IoObject) = .empty,
+    signal_trap_modes: [MAX_QUEUED_SIGNALS]SignalTrapMode = [_]SignalTrapMode{.default} ** MAX_QUEUED_SIGNALS,
+    signal_trap_callables: [MAX_QUEUED_SIGNALS]Value = [_]Value{Value.nil()} ** MAX_QUEUED_SIGNALS,
 
     // File loading infrastructure
     loaded_files: std.StringHashMap(void) = undefined,
@@ -600,6 +610,7 @@ pub const VM = struct {
             .false_class = undefined,
             .kernel_module = undefined,
             .process_module = undefined,
+            .signal_module = undefined,
             .warning_module = undefined,
             .marshal_module = undefined,
             .errno_module = undefined,
@@ -685,6 +696,7 @@ pub const VM = struct {
             .default_internal_encoding = null,
             .main_self = undefined,
             .pending_unwind = null,
+            .pending_signal_traps = .empty,
             .active_catches = undefined,
             .zio_main_context = undefined,
             .zio_stack_growth_ready = false,
@@ -883,6 +895,10 @@ pub const VM = struct {
         const process_name_sym = try self.intern("Process");
         const process_module_val = try self.newModule(process_name_sym);
         self.process_module = process_module_val.toModuleObject();
+
+        const signal_name_sym = try self.intern("Signal");
+        const signal_module_val = try self.newModule(signal_name_sym);
+        self.signal_module = signal_module_val.toModuleObject();
 
         const warning_name_sym = try self.intern("Warning");
         const warning_module_val = try self.newModule(warning_name_sym);
@@ -1216,6 +1232,7 @@ pub const VM = struct {
         self.object_class.module.constants.put(false_class_name_sym, .{ .value = false_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(kernel_name_sym, .{ .value = kernel_module_val }) catch return error.Fatal;
         self.object_class.module.constants.put(process_name_sym, .{ .value = process_module_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(signal_name_sym, .{ .value = signal_module_val }) catch return error.Fatal;
         self.object_class.module.constants.put(warning_name_sym, .{ .value = warning_module_val }) catch return error.Fatal;
         self.object_class.module.constants.put(marshal_name_sym, .{ .value = marshal_module_val }) catch return error.Fatal;
         self.object_class.module.constants.put(errno_name_sym, .{ .value = errno_module_val }) catch return error.Fatal;
@@ -2226,6 +2243,7 @@ pub const VM = struct {
         self.packed_pointer_targets.deinit();
         self.errno_classes.deinit();
         self.pending_async_exceptions.deinit(self.allocator);
+        self.pending_signal_traps.deinit(self.allocator);
         self.rescued_exceptions.deinit(self.allocator);
         self.ensure_saved_unwinds.deinit(self.allocator);
         var fiber_catches_iter = self.fiber_active_catches.valueIterator();
@@ -2332,6 +2350,36 @@ pub const VM = struct {
         self.pending_async_exceptions.append(self.allocator, exc) catch return error.Fatal;
     }
 
+    fn enqueuePendingSignalTrap(self: *VM, signo: c_int) VMError!void {
+        self.pending_signal_traps.append(self.allocator, signo) catch return error.Fatal;
+    }
+
+    pub fn signalTrapMode(self: *VM, signo: c_int) SignalTrapMode {
+        if (signo <= 0) return .default;
+        const idx: usize = @intCast(signo);
+        if (idx >= MAX_QUEUED_SIGNALS) return .default;
+        return self.signal_trap_modes[idx];
+    }
+
+    pub fn signalTrapCallable(self: *VM, signo: c_int) Value {
+        if (signo <= 0) return Value.nil();
+        const idx: usize = @intCast(signo);
+        if (idx >= MAX_QUEUED_SIGNALS) return Value.nil();
+        return self.signal_trap_callables[idx];
+    }
+
+    pub fn setSignalTrap(self: *VM, signo: c_int, mode: SignalTrapMode, callable: Value) VMError!void {
+        if (signo <= 0) {
+            return self.raiseExceptionFmt(self.argument_error_class, "unsupported signal number", .{});
+        }
+        const idx: usize = @intCast(signo);
+        if (idx >= MAX_QUEUED_SIGNALS) {
+            return self.raiseExceptionFmt(self.argument_error_class, "unsupported signal number", .{});
+        }
+        self.signal_trap_modes[idx] = mode;
+        self.signal_trap_callables[idx] = if (mode == .callable) callable else Value.nil();
+    }
+
     inline fn hasPendingUnwind(self: *VM) bool {
         return self.pending_unwind != null;
     }
@@ -2431,8 +2479,15 @@ pub const VM = struct {
 
             var i: u32 = 0;
             while (i < count) : (i += 1) {
-                const exc = try self.createSignalException(@intCast(signo));
-                try self.enqueueAsyncException(exc);
+                const signum: c_int = @intCast(signo);
+                switch (self.signalTrapMode(signum)) {
+                    .ignore => {},
+                    .callable => try self.enqueuePendingSignalTrap(signum),
+                    .default => {
+                        const exc = try self.createSignalException(signum);
+                        try self.enqueueAsyncException(exc);
+                    },
+                }
             }
         }
     }
@@ -2440,6 +2495,15 @@ pub const VM = struct {
     pub fn checkAsyncEvents(self: *VM) VMError!void {
         try self.drainQueuedSignalsToAsyncExceptions();
         if (self.hasPendingUnwind()) return;
+        if (self.pending_signal_traps.items.len != 0) {
+            const signo = self.pending_signal_traps.orderedRemove(0);
+            const callable = self.signalTrapCallable(signo);
+            if (!callable.isNil()) {
+                var args = [_]Value{Value.integer(signo)};
+                _ = try self.callMethodByName(callable, "call", args[0..], null);
+            }
+            return;
+        }
         if (self.pending_async_exceptions.items.len == 0) return;
 
         self.setPendingException(self.pending_async_exceptions.orderedRemove(0));
