@@ -278,6 +278,9 @@ pub fn register(vm: *VM) !void {
 
     const flatten_sym = try vm.intern("flatten");
     try vm.hash_class.module.methods.put(flatten_sym, value.MethodEntry.builtin(&builtinHashFlatten, .{ .variadic = 0 }));
+
+    const slice_sym = try vm.intern("slice");
+    try vm.hash_class.module.methods.put(slice_sym, value.MethodEntry.builtin(&builtinHashSlice, .{ .variadic = 0 }));
 }
 
 fn hashGetValue(hash_obj: *value.HashObject, vm: *VM, key: Value) VMError!?Value {
@@ -1586,4 +1589,20 @@ pub fn builtinHashFlatten(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     var depth_arg: [1]Value = .{Value.integer(depth - 1)};
     const flattened = try vm.callMethodByName(result_ref, "flatten", &depth_arg, null);
     return flattened;
+}
+
+pub fn builtinHashSlice(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 256);
+
+    const hash_obj = receiver.toHashObject();
+    const result_hash = try vm.createHash();
+    result_hash.compare_by_identity = hash_obj.compare_by_identity;
+
+    for (args) |key| {
+        if (try hashGetValue(hash_obj, vm, key)) |found| {
+            try vm.hashSetEntry(result_hash, key, found);
+        }
+    }
+
+    return Value.fromObject(&result_hash.object);
 }
