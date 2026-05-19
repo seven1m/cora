@@ -606,6 +606,9 @@ pub fn register(vm: *VM) !void {
     const gcd_sym = try vm.intern("gcd");
     try vm.integer_class.module.methods.put(gcd_sym, value.MethodEntry.builtin(&builtinIntegerGcd, .{ .exact = 1 }));
 
+    const digits_sym = try vm.intern("digits");
+    try vm.integer_class.module.methods.put(digits_sym, value.MethodEntry.builtin(&builtinIntegerDigits, .{ .variadic = 0 }));
+
     const ceil_sym = try vm.intern("ceil");
     try integer_singleton.module.methods.put(ceil_sym, value.MethodEntry.builtin(&builtinIntegerCeil, .{ .variadic = 0 }));
     try vm.integer_class.module.methods.put(ceil_sym, value.MethodEntry.builtin(&builtinIntegerCeil, .{ .variadic = 0 }));
@@ -1497,6 +1500,102 @@ pub fn builtinIntegerGcd(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
         b.swap(&rem);
     }
     return vm.valueFromManagedInteger(&a);
+}
+
+pub fn builtinIntegerDigits(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    try receiver.ensureInteger(vm);
+
+    if (receiver.isInteger() and receiver.toInteger() < 0) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "Integer#digits does not support negative numbers", .{});
+    }
+
+    var base: u64 = 10;
+    if (args.len == 1) {
+        const base_val = try args[0].integerArgToI64(vm, "argument is not an Integer", "base is too large");
+        if (base_val < 2) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "radix must be >= 2", .{});
+        }
+        base = @intCast(base_val);
+    }
+
+    if (base <= 36 and receiver.isInteger()) {
+        return builtinIntegerDigitsGeneric(vm, receiver, @intCast(base));
+    }
+
+    return builtinIntegerDigitsBignum(vm, receiver, base);
+}
+
+fn builtinIntegerDigitsGeneric(vm: *VM, receiver: Value, base: u8) VMError!Value {
+    const arr = try vm.createArray();
+
+    if (receiver.isInteger() and receiver.toInteger() == 0) {
+        arr.elements.append(vm.gc_allocator, Value.integer(0)) catch return error.Fatal;
+        return Value.fromObject(&arr.object);
+    }
+
+    if (receiver.isInteger()) {
+        var n = @as(u64, @bitCast(receiver.toInteger()));
+        while (n > 0) {
+            const digit = @as(u8, @intCast(n % base));
+            arr.elements.append(vm.gc_allocator, Value.integer(digit)) catch return error.Fatal;
+            n /= base;
+        }
+        return Value.fromObject(&arr.object);
+    }
+
+    var n = try receiver.integerToManaged(vm);
+    defer n.deinit();
+
+    var base_big = BigInt.init(vm.allocator) catch return error.Fatal;
+    defer base_big.deinit();
+    base_big.set(@as(u64, @intCast(base))) catch return error.Fatal;
+
+    while (!n.eqlZero()) {
+        var rem = BigInt.init(vm.allocator) catch return error.Fatal;
+        defer rem.deinit();
+        var quot = BigInt.init(vm.allocator) catch return error.Fatal;
+        defer quot.deinit();
+
+        n.divTrunc(&rem, &quot, &base_big) catch return error.Fatal;
+
+        const digit_val = @as(i64, @intCast(rem.toInt(u64) catch @panic("digit overflow")));
+        arr.elements.append(vm.gc_allocator, Value.integer(digit_val)) catch return error.Fatal;
+        n = quot;
+    }
+
+    return Value.fromObject(&arr.object);
+}
+
+fn builtinIntegerDigitsBignum(vm: *VM, receiver: Value, base: u64) VMError!Value {
+    const arr = try vm.createArray();
+
+    if (receiver.isInteger() and receiver.toInteger() == 0) {
+        arr.elements.append(vm.gc_allocator, Value.integer(0)) catch return error.Fatal;
+        return Value.fromObject(&arr.object);
+    }
+
+    const allocator = vm.allocator;
+    var n = try receiver.integerToManaged(vm);
+    defer n.deinit();
+
+    var base_big = BigInt.init(allocator) catch return error.Fatal;
+    errdefer base_big.deinit();
+    base_big.set(@as(u64, @intCast(base))) catch return error.Fatal;
+
+    while (!n.eqlZero()) {
+        var rem = BigInt.init(allocator) catch return error.Fatal;
+        defer rem.deinit();
+        var quot = BigInt.init(allocator) catch return error.Fatal;
+        defer quot.deinit();
+
+        n.divTrunc(&rem, &quot, &base_big) catch return error.Fatal;
+        const digit_val = @as(i64, @intCast(rem.toInt(u64) catch @panic("digit overflow")));
+        arr.elements.append(vm.gc_allocator, Value.integer(digit_val)) catch return error.Fatal;
+        n = quot;
+    }
+
+    return Value.fromObject(&arr.object);
 }
 
 fn encodeIntegerChrBytes(target_encoding: enc.Encoding, codepoint: u32, out: *[8]u8) ?usize {
