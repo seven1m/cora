@@ -743,17 +743,98 @@ pub fn builtinKernelAbort(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
 
 pub fn builtinKernelExit(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
-    return Value.nil();
+    const exc_value = try vm.newExceptionInstance(vm.system_exit_class, args, null);
+    vm.setPendingException(exc_value.toExceptionObject());
+    return error.Unwind;
 }
 
 pub fn builtinKernelExitBang(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
-    return Value.nil();
+    const exc_value = try vm.newExceptionInstance(vm.system_exit_class, args, null);
+    vm.setPendingException(exc_value.toExceptionObject());
+    return error.Unwind;
 }
 
 pub fn builtinKernelSystem(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountAtLeast(args, 1);
-    return Value.boolean(false);
+
+    var chdir_value: ?Value = null;
+    try vm.consumeKeywordArgs(.{"chdir"}, .{&chdir_value});
+    try vm.validateKeywordArgsConsumed();
+
+    var env_map = try vm.currentEnvMap();
+    defer env_map.deinit();
+
+    var arg_storage: std.ArrayList([]const u8) = .empty;
+    defer arg_storage.deinit(vm.allocator);
+
+    var arg_index: usize = 0;
+    if (args[0].isHash()) {
+        for (args[0].toHashObject().entries.items) |entry| {
+            const key = try entry.key.coerceToStr(vm, "no implicit conversion into String");
+            const value_bytes = try entry.value.coerceToStr(vm, "no implicit conversion into String");
+            env_map.put(key, value_bytes) catch return error.Fatal;
+        }
+        arg_index = 1;
+    }
+    if (arg_index >= args.len) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "wrong number of arguments (given 0, expected 1+)", .{});
+    }
+
+    const use_shell = arg_index + 1 == args.len;
+    if (use_shell) {
+        const command = try args[arg_index].coerceToStr(vm, "no implicit conversion into String");
+        if (builtin.os.tag == .windows) {
+            arg_storage.append(vm.allocator, "cmd.exe") catch return error.Fatal;
+            arg_storage.append(vm.allocator, "/C") catch return error.Fatal;
+        } else {
+            arg_storage.append(vm.allocator, "/bin/sh") catch return error.Fatal;
+            arg_storage.append(vm.allocator, "-c") catch return error.Fatal;
+        }
+        arg_storage.append(vm.allocator, command) catch return error.Fatal;
+    } else {
+        var i = arg_index;
+        while (i < args.len) : (i += 1) {
+            arg_storage.append(vm.allocator, try args[i].coerceToStr(vm, "no implicit conversion into String")) catch return error.Fatal;
+        }
+    }
+
+    const run_result = std.process.run(vm.allocator, vm.io, .{
+        .argv = arg_storage.items,
+        .cwd = if (chdir_value) |value_arg|
+            .{ .path = try vm.coerceToPath(value_arg, "no implicit conversion into String") }
+        else
+            .inherit,
+        .environ_map = &env_map,
+        .stderr_limit = .limited(16 * 1024 * 1024),
+        .stdout_limit = .limited(16 * 1024 * 1024),
+    }) catch {
+        try vm.setGlobal("$?", Value.nil());
+        return Value.nil();
+    };
+    defer vm.allocator.free(run_result.stdout);
+    defer vm.allocator.free(run_result.stderr);
+
+    const result = switch (run_result.term) {
+        .exited => |code| blk: {
+            try vm.setLastProcessStatus(@intCast(code));
+            break :blk Value.boolean(code == 0);
+        },
+        .signal => |sig| blk: {
+            try vm.setLastProcessStatus(128 + @as(i64, @intCast(@intFromEnum(sig))));
+            break :blk Value.boolean(false);
+        },
+        .stopped => |sig| blk: {
+            try vm.setLastProcessStatus(128 + @as(i64, @intCast(@intFromEnum(sig))));
+            break :blk Value.boolean(false);
+        },
+        else => blk: {
+            try vm.setLastProcessStatus(1);
+            break :blk Value.boolean(false);
+        },
+    };
+
+    return result;
 }
 
 pub fn builtinKernelPrint(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

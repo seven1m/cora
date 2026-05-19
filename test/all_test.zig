@@ -1,6 +1,7 @@
 const value_test = @import("value_test.zig");
 const prism_test = @import("prism_test.zig");
 const binary_test = @import("binary_test.zig");
+const exit_test = @import("exit_test.zig");
 const fileutils_test = @import("fileutils_test.zig");
 const json_test = @import("json_test.zig");
 const openssl_test = @import("openssl_test.zig");
@@ -82,6 +83,7 @@ comptime {
     _ = value_test;
     _ = prism_test;
     _ = binary_test;
+    _ = exit_test;
     _ = fileutils_test;
     _ = json_test;
     _ = openssl_test;

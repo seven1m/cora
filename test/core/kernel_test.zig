@@ -689,6 +689,29 @@ test "Dir.chdir restores cwd after block" {
     try std.testing.expectEqualStrings(original, result.toArrayObject().elements.items[2].toStringObject().str);
 }
 
+test "Kernel#system updates $? and supports chdir keyword" {
+    const allocator = std.testing.allocator;
+    const dir_path = try std.fmt.allocPrint(allocator, "/tmp/cora-kernel-system-{d}", .{uniqueId()});
+    defer allocator.free(dir_path);
+    try std.Io.Dir.createDirAbsolute(std.testing.io, dir_path, .default_dir);
+    defer std.Io.Dir.cwd().deleteTree(std.testing.io, dir_path) catch {};
+    const cwd = try std.process.currentPathAlloc(std.testing.io, allocator);
+    defer allocator.free(cwd);
+
+    const ruby_code = try std.fmt.allocPrint(
+        allocator,
+        "ok = system(\"/usr/bin/env\", \"sh\", \"-c\", \"exit 7\", chdir: \"{s}\"); [ok, $?.exitstatus, Dir.pwd == \"{s}\"]",
+        .{ dir_path, cwd },
+    );
+    defer allocator.free(ruby_code);
+
+    const result = try evalCode(ruby_code);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(false, result.toArrayObject().elements.items[0].toBool());
+    try std.testing.expectEqual(@as(i64, 7), result.toArrayObject().elements.items[1].toInteger());
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[2].toBool());
+}
+
 test "Kernel#__dir__ returns dot for eval code" {
     const result = try evalCode("__dir__");
     try std.testing.expect(result.isString());
