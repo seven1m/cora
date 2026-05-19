@@ -1021,9 +1021,7 @@ fn mainTerminal() void {
         if (summary.leaks != 0 or summary.log_err_count != 0 or summary.fail_count != 0) {
             std.process.exit(1);
         }
-        if (summary.known_total_specs != 0) {
-            writeTotalSpecs(summary.known_total_specs);
-        } else if (summary.completed_specs > 0 and test_filter_raw.len == 0) {
+        if (summary.completed_specs > 0 and test_filter_raw.len == 0) {
             writeTotalSpecs(summary.completed_specs);
         }
         return;
