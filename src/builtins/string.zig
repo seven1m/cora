@@ -371,6 +371,9 @@ pub fn register(vm: *VM) !void {
     const dump_sym = try vm.intern("dump");
     try vm.string_class.module.methods.put(dump_sym, value.MethodEntry.builtin(&builtinStringDump, .{ .exact = 0 }));
 
+    const sum_sym = try vm.intern("sum");
+    try vm.string_class.module.methods.put(sum_sym, value.MethodEntry.builtin(&builtinStringSum, .{ .variadic = 0 }));
+
     const match_op_sym = try vm.intern("=~");
     try vm.string_class.module.methods.put(match_op_sym, value.MethodEntry.builtin(&builtinStringMatchOp, .{ .exact = 1 }));
 
@@ -4645,6 +4648,34 @@ pub fn builtinStringDump(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     else
         .{ .ascii_8bit = .{} };
     return try vm.newStringWithEncoding(str, false, result_encoding);
+}
+
+pub fn builtinStringSum(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const string_obj = receiver.toStringObject();
+    var sum: u64 = 0;
+    for (string_obj.str) |byte| {
+        sum += byte;
+    }
+    if (args.len == 1 and args[0].isInteger()) {
+        const n = args[0].toInteger();
+        if (n > 0) {
+            const mask: u64 = (@as(u64, 1) << @as(u6, @intCast(n))) - 1;
+            sum = sum & mask;
+        }
+    } else if (args.len == 1) {
+        const n = try args[0].coerceToI64ViaToInt(
+            vm,
+            "no implicit conversion into Integer",
+            "no implicit conversion into Integer",
+            "bignum too big to convert into `long`",
+        );
+        if (n > 0) {
+            const mask: u64 = (@as(u64, 1) << @as(u6, @intCast(n))) - 1;
+            sum = sum & mask;
+        }
+    }
+    return Value.integer(@intCast(sum));
 }
 
 pub fn builtinStringMatchOp(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
