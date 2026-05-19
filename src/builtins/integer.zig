@@ -600,6 +600,9 @@ pub fn register(vm: *VM) !void {
     const chr_sym = try vm.intern("chr");
     try vm.integer_class.module.methods.put(chr_sym, value.MethodEntry.builtin(&builtinIntegerChr, .{ .variadic = 0 }));
 
+    const gcd_sym = try vm.intern("gcd");
+    try vm.integer_class.module.methods.put(gcd_sym, value.MethodEntry.builtin(&builtinIntegerGcd, .{ .exact = 1 }));
+
     const ceil_sym = try vm.intern("ceil");
     try integer_singleton.module.methods.put(ceil_sym, value.MethodEntry.builtin(&builtinIntegerCeil, .{ .variadic = 0 }));
     try vm.integer_class.module.methods.put(ceil_sym, value.MethodEntry.builtin(&builtinIntegerCeil, .{ .variadic = 0 }));
@@ -987,7 +990,7 @@ pub fn builtinIntegerPower(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
             }
         }
 
-        if (!overflowed) {
+        if (!overflowed and std.math.cast(i63, result) != null) {
             return Value.integer(result);
         }
     }
@@ -1368,6 +1371,45 @@ pub fn builtinIntegerChr(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     const bytes = buf[0..encoded_len];
 
     return try vm.newStringWithEncoding(bytes, false, target_encoding);
+}
+
+pub fn builtinIntegerGcd(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    try receiver.ensureInteger(vm);
+    if (!args[0].isInteger() and !args[0].isBigInteger()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "not an integer", .{});
+    }
+    if (receiver.isInteger() and args[0].isInteger()) {
+        var a = receiver.toInteger();
+        var b = args[0].toInteger();
+        if (a < 0) a = -a;
+        if (b < 0) b = -b;
+        while (b != 0) {
+            const temp = b;
+            b = @mod(a, b);
+            a = temp;
+        }
+        return if (std.math.cast(i63, a) != null)
+            Value.integer(a)
+        else
+            try vm.newBigIntegerFromI64(a);
+    }
+    var a = try receiver.integerToManaged(vm);
+    defer a.deinit();
+    if (!a.isPositive()) a.negate();
+    var b = try args[0].integerToManaged(vm);
+    defer b.deinit();
+    if (!b.isPositive()) b.negate();
+    var quot = BigInt.init(vm.allocator) catch return error.Fatal;
+    defer quot.deinit();
+    var rem = BigInt.init(vm.allocator) catch return error.Fatal;
+    defer rem.deinit();
+    while (!b.eqlZero()) {
+        quot.divTrunc(&rem, &a, &b) catch return error.Fatal;
+        a.swap(&b);
+        b.swap(&rem);
+    }
+    return vm.valueFromManagedInteger(&a);
 }
 
 fn encodeIntegerChrBytes(target_encoding: enc.Encoding, codepoint: u32, out: *[8]u8) ?usize {

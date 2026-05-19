@@ -51,6 +51,12 @@ test "Exponentiation" {
     try std.testing.expectEqual(@as(i64, 1024), result.toInteger());
 }
 
+test "Exponentiation promotes when result exceeds immediate integer range" {
+    const result = try evalCode("(2 ** 62).to_s");
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualStrings("4611686018427387904", result.toStringObject().str);
+}
+
 test "Integer#abs" {
     var result = try evalCode("(-42).abs");
     try std.testing.expectEqual(@as(i64, 42), result.toInteger());
