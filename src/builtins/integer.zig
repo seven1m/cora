@@ -451,6 +451,9 @@ pub fn register(vm: *VM) !void {
     const bit_not_sym = try vm.intern("~");
     try vm.integer_class.module.methods.put(bit_not_sym, value.MethodEntry.builtin(&builtinIntegerBitNot, .{ .exact = 0 }));
 
+    const bit_length_sym = try vm.intern("bit_length");
+    try vm.integer_class.module.methods.put(bit_length_sym, value.MethodEntry.builtin(&builtinIntegerBitLength, .{ .exact = 0 }));
+
     const unary_plus_sym = try vm.intern("+@");
     try vm.integer_class.module.methods.put(unary_plus_sym, value.MethodEntry.builtin(&builtinIntegerUnaryPlus, .{ .exact = 0 }));
 
@@ -685,6 +688,38 @@ pub fn builtinIntegerBitNot(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     try vm.requireArgCount(args, 0);
     try receiver.ensureInteger(vm);
     return bitNotInteger(vm, receiver);
+}
+
+pub fn builtinIntegerBitLength(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    try receiver.ensureInteger(vm);
+
+    if (receiver.isInteger()) {
+        const val = receiver.toInteger();
+        if (val == 0) return Value.integer(0);
+        const abs_val: u64 = if (val < 0) @intCast(-(val + 1)) else @intCast(val);
+        return Value.integer(@intCast(@bitSizeOf(u64) - @clz(abs_val)));
+    }
+
+    var managed = try receiver.integerToManaged(vm);
+    defer managed.deinit();
+
+    if (managed.isPositive() and managed.eqlZero()) {
+        return Value.integer(0);
+    }
+
+    if (!managed.isPositive()) {
+        managed.negate();
+        var one = BigInt.init(vm.allocator) catch return error.Fatal;
+        defer one.deinit();
+        one.set(1) catch return error.Fatal;
+        var out = BigInt.init(vm.allocator) catch return error.Fatal;
+        defer out.deinit();
+        out.sub(&managed, &one) catch return error.Fatal;
+        return Value.integer(@intCast(out.bitCountAbs()));
+    }
+
+    return Value.integer(@intCast(managed.bitCountAbs()));
 }
 
 pub fn builtinIntegerMinus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

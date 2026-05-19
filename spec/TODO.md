@@ -995,7 +995,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/integer/allbits_spec.rb
 - [x] core/integer/anybits_spec.rb
 - [x] core/integer/bit_and_spec.rb
-- [ ] core/integer/bit_length_spec.rb
+- [-] core/integer/bit_length_spec.rb
 - [x] core/integer/bit_or_spec.rb
 - [x] core/integer/bit_xor_spec.rb
 - [x] core/integer/case_compare_spec.rb
