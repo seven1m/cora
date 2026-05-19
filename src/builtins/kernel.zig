@@ -170,6 +170,9 @@ pub fn register(vm: *VM) !void {
     const kernel_string_convert_sym = try vm.intern("String");
     try vm.kernel_module.methods.put(kernel_string_convert_sym, value.MethodEntry.builtinWithVisibility(&builtinKernelStringConvert, .{ .exact = 1 }, .private));
 
+    const kernel_integer_convert_sym = try vm.intern("Integer");
+    try vm.kernel_module.methods.put(kernel_integer_convert_sym, value.MethodEntry.builtinWithVisibility(&builtinKernelIntegerConvert, .{ .exact = 1 }, .private));
+
     const puts_sym = try vm.intern("puts");
     try vm.kernel_module.methods.put(puts_sym, MethodEntry.builtin(&builtinKernelPuts, .{ .variadic = 0 }));
 
@@ -252,6 +255,7 @@ pub fn register(vm: *VM) !void {
     const kernel_singleton = try vm.getOrCreateSingletonClass(kernel_module_val);
     try kernel_singleton.module.methods.put(kernel_array_convert_sym, value.MethodEntry.builtin(&builtinKernelArrayConvert, .{ .exact = 1 }));
     try kernel_singleton.module.methods.put(kernel_string_convert_sym, value.MethodEntry.builtin(&builtinKernelStringConvert, .{ .exact = 1 }));
+    try kernel_singleton.module.methods.put(kernel_integer_convert_sym, value.MethodEntry.builtin(&builtinKernelIntegerConvert, .{ .exact = 1 }));
     try kernel_singleton.module.methods.put(kernel_hash_convert_sym, value.MethodEntry.builtin(&builtinKernelHashConvert, .{ .exact = 1 }));
     try kernel_singleton.module.methods.put(autoload_sym, MethodEntry.builtin(&builtinKernelSingletonAutoload, .{ .exact = 2 }));
     try kernel_singleton.module.methods.put(autoload_q_sym, MethodEntry.builtin(&builtinKernelSingletonAutoloadQ, .{ .variadic = 0 }));
@@ -1663,6 +1667,24 @@ fn builtinKernelStringConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMErr
     }
 
     return converted;
+}
+
+fn builtinKernelIntegerConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+
+    const arg = args[0];
+    if (arg.isInteger() or arg.isBigInteger()) return arg;
+
+    if (try vm.checkCallMethodByName(arg, "to_int", true, &[_]Value{}, null)) |coerced| {
+        if (coerced.isInteger() or coerced.isBigInteger()) return coerced;
+        return vm.raiseExceptionFmt(
+            vm.type_error_class,
+            "can't convert {s} to Integer ({s}#to_int gives {s})",
+            .{ vm.className(arg), vm.className(arg), vm.className(coerced) },
+        );
+    }
+
+    return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Integer", .{vm.className(arg)});
 }
 
 fn builtinKernelHashConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

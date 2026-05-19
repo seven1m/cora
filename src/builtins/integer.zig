@@ -564,6 +564,10 @@ pub fn register(vm: *VM) !void {
 
     const chr_sym = try vm.intern("chr");
     try vm.integer_class.module.methods.put(chr_sym, value.MethodEntry.builtin(&builtinIntegerChr, .{ .variadic = 0 }));
+
+    const ceil_sym = try vm.intern("ceil");
+    try integer_singleton.module.methods.put(ceil_sym, value.MethodEntry.builtin(&builtinIntegerCeil, .{ .variadic = 0 }));
+    try vm.integer_class.module.methods.put(ceil_sym, value.MethodEntry.builtin(&builtinIntegerCeil, .{ .variadic = 0 }));
 }
 
 pub fn builtinIntegerPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -1019,6 +1023,41 @@ pub fn builtinIntegerTruncate(vm: *VM, receiver: Value, args: []Value, _: ?Block
 
     const quotient = try divTruncIntegers(vm, receiver, factor);
     return mulIntegers(vm, quotient, factor);
+}
+
+pub fn builtinIntegerCeil(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    try receiver.ensureInteger(vm);
+
+    if (args.len == 0) return receiver;
+
+    const ndigits = try args[0].integerArgToI64(vm, "argument is not an Integer", "ndigits is too large");
+    if (ndigits >= 0) return receiver;
+
+    const abs_ndigits: u64 = @intCast(-ndigits);
+    var factor = Value.integer(1);
+    var i: u64 = 0;
+    while (i < abs_ndigits) : (i += 1) {
+        factor = try mulIntegers(vm, factor, Value.integer(10));
+    }
+
+    const remainder = try modIntegers(vm, receiver, factor);
+    const remainder_i64 = try remainder.integerToI64(vm, "integer is too large");
+    if (remainder_i64 == 0) return receiver;
+
+    const floored = if (receiver.isInteger() and factor.isInteger())
+        Value.integer(@divFloor(receiver.toInteger(), factor.toInteger()))
+    else
+        try divFloorIntegers(vm, receiver, factor);
+
+    const floored_i64 = try floored.integerToI64(vm, "integer is too large");
+    const receiver_i64 = try receiver.integerToI64(vm, "integer is too large");
+    const n_is_pos = receiver_i64 >= 0;
+
+    if (floored_i64 == 0 and !n_is_pos) return Value.integer(0);
+
+    const incremented = Value.integer(floored_i64 + 1);
+    return mulIntegers(vm, incremented, factor);
 }
 
 pub fn builtinIntegerInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
