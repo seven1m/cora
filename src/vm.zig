@@ -9,6 +9,7 @@ const inspect_util = @import("inspect.zig");
 const jit = @import("jit.zig");
 const onigmo = @import("onigmo.zig");
 const recursion_guard = @import("recursion_guard.zig");
+const signal_support = @import("signal_support.zig");
 const value = @import("value.zig");
 const prism = @import("prism.zig");
 const builtins = @import("builtins/builtins.zig");
@@ -56,8 +57,10 @@ const MAX_QUEUED_SIGNALS: usize = 128;
 var queued_signal_counts: [MAX_QUEUED_SIGNALS]u32 = [_]u32{0} ** MAX_QUEUED_SIGNALS;
 
 pub const SignalTrapMode = enum {
+    system_default,
     default,
     ignore,
+    ignore_nil,
     callable,
 };
 
@@ -86,15 +89,37 @@ fn installSignalHandler(sig: std.posix.SIG) void {
     std.posix.sigaction(sig, &act, null);
 }
 
-fn signalName(signo: c_int) []const u8 {
-    if (signo == @as(c_int, @intCast(@intFromEnum(std.posix.SIG.INT)))) return "SIGINT";
-    if (@hasField(std.posix.SIG, "TERM") and signo == @as(c_int, @intCast(@intFromEnum(std.posix.SIG.TERM)))) return "SIGTERM";
-    if (@hasField(std.posix.SIG, "HUP") and signo == @as(c_int, @intCast(@intFromEnum(std.posix.SIG.HUP)))) return "SIGHUP";
-    if (@hasField(std.posix.SIG, "QUIT") and signo == @as(c_int, @intCast(@intFromEnum(std.posix.SIG.QUIT)))) return "SIGQUIT";
-    if (@hasField(std.posix.SIG, "ALRM") and signo == @as(c_int, @intCast(@intFromEnum(std.posix.SIG.ALRM)))) return "SIGALRM";
-    if (@hasField(std.posix.SIG, "USR1") and signo == @as(c_int, @intCast(@intFromEnum(std.posix.SIG.USR1)))) return "SIGUSR1";
-    if (@hasField(std.posix.SIG, "USR2") and signo == @as(c_int, @intCast(@intFromEnum(std.posix.SIG.USR2)))) return "SIGUSR2";
-    return "SIG";
+fn setOsSignalMode(signo: c_int, mode: SignalTrapMode) void {
+    if (std.posix.Sigaction == void or signo <= 0) return;
+    const sig: std.posix.SIG = @enumFromInt(signo);
+    const handler = switch (mode) {
+        .system_default => std.posix.SIG.DFL,
+        .ignore, .ignore_nil => std.posix.SIG.IGN,
+        .default => if (signal_support.isVmDefaultSignal(signo)) signalHandler else std.posix.SIG.DFL,
+        .callable => signalHandler,
+    };
+    const act: std.posix.Sigaction = .{
+        .handler = .{ .handler = handler },
+        .mask = std.posix.sigemptyset(),
+        .flags = 0,
+    };
+    std.posix.sigaction(sig, &act, null);
+}
+
+
+fn initializeDefaultSignalTrapModes(vm: *VM) void {
+    var signo: usize = 0;
+    while (signo < MAX_QUEUED_SIGNALS) : (signo += 1) {
+        vm.signal_trap_modes[signo] = .system_default;
+        vm.signal_trap_callables[signo] = Value.nil();
+    }
+
+    var default_signo: c_int = 1;
+    while (default_signo < MAX_QUEUED_SIGNALS) : (default_signo += 1) {
+        if (signal_support.isVmDefaultSignal(default_signo)) {
+            vm.signal_trap_modes[@intCast(default_signo)] = .default;
+        }
+    }
 }
 
 pub fn installDefaultSignalHandlers() void {
@@ -525,8 +550,10 @@ pub const VM = struct {
 
     at_exit_handlers: std.ArrayList(Value) = .empty,
     io_objects: std.ArrayList(*value.IoObject) = .empty,
-    signal_trap_modes: [MAX_QUEUED_SIGNALS]SignalTrapMode = [_]SignalTrapMode{.default} ** MAX_QUEUED_SIGNALS,
+    signal_trap_modes: [MAX_QUEUED_SIGNALS]SignalTrapMode = [_]SignalTrapMode{.system_default} ** MAX_QUEUED_SIGNALS,
     signal_trap_callables: [MAX_QUEUED_SIGNALS]Value = [_]Value{Value.nil()} ** MAX_QUEUED_SIGNALS,
+    exit_signal_trap_mode: SignalTrapMode = .system_default,
+    exit_signal_trap_callable: Value = Value.nil(),
 
     // File loading infrastructure
     loaded_files: std.StringHashMap(void) = undefined,
@@ -731,6 +758,9 @@ pub const VM = struct {
         self.load_path = null;
         self.next_chunk_id = program.next_chunk_id;
         self.thread_preempt_quantum_ops = parseThreadPreemptQuantumOps();
+        initializeDefaultSignalTrapModes(self);
+        self.exit_signal_trap_mode = .system_default;
+        self.exit_signal_trap_callable = Value.nil();
 
         if (program.main_chunk.source_file) |main_file| {
             const abs_path = try self.resolveAbsolutePath(main_file);
@@ -2308,10 +2338,22 @@ pub const VM = struct {
     }
 
     pub fn runAtExitHandlers(self: *VM) VMError!void {
-        if (self.at_exit_handlers.items.len == 0) return;
-
         const original_exception = self.pendingException();
         var last_exception: ?*value.ExceptionObject = null;
+
+        if (self.exit_signal_trap_mode == .callable and !self.exit_signal_trap_callable.isNil()) {
+            _ = self.callMethodByName(self.exit_signal_trap_callable, "call", &[_]Value{}, null) catch |err| {
+                switch (err) {
+                    error.Unwind => {
+                        if (self.pendingException()) |exc| {
+                            last_exception = exc;
+                            self.setPendingException(null);
+                        }
+                    },
+                    else => return err,
+                }
+            };
+        }
 
         while (self.at_exit_handlers.items.len > 0) {
             const handler = self.at_exit_handlers.pop().?;
@@ -2341,7 +2383,7 @@ pub const VM = struct {
             self.interrupt_class
         else
             self.signal_exception_class;
-        const exc = try self.createException(class, signalName(signo));
+        const exc = try self.createException(class, signal_support.fullName(signo) orelse "SIG");
         try self.setInstanceVariable(Value.fromObject(&exc.object), "@signo", Value.integer(signo));
         return exc;
     }
@@ -2355,29 +2397,48 @@ pub const VM = struct {
     }
 
     pub fn signalTrapMode(self: *VM, signo: c_int) SignalTrapMode {
-        if (signo <= 0) return .default;
+        if (signo == 0) return self.exit_signal_trap_mode;
+        if (signo < 0) return .system_default;
         const idx: usize = @intCast(signo);
-        if (idx >= MAX_QUEUED_SIGNALS) return .default;
+        if (idx >= MAX_QUEUED_SIGNALS) return .system_default;
         return self.signal_trap_modes[idx];
     }
 
     pub fn signalTrapCallable(self: *VM, signo: c_int) Value {
-        if (signo <= 0) return Value.nil();
+        if (signo == 0) return self.exit_signal_trap_callable;
+        if (signo < 0) return Value.nil();
         const idx: usize = @intCast(signo);
         if (idx >= MAX_QUEUED_SIGNALS) return Value.nil();
         return self.signal_trap_callables[idx];
     }
 
     pub fn setSignalTrap(self: *VM, signo: c_int, mode: SignalTrapMode, callable: Value) VMError!void {
-        if (signo <= 0) {
-            return self.raiseExceptionFmt(self.argument_error_class, "unsupported signal number", .{});
+        if (signo == 0) {
+            self.exit_signal_trap_mode = mode;
+            self.exit_signal_trap_callable = if (mode == .callable) callable else Value.nil();
+            return;
+        }
+        if (signo < 0) {
+            return self.raiseExceptionFmt(self.argument_error_class, "invalid signal number ({d})", .{signo});
         }
         const idx: usize = @intCast(signo);
         if (idx >= MAX_QUEUED_SIGNALS) {
-            return self.raiseExceptionFmt(self.argument_error_class, "unsupported signal number", .{});
+            return self.raiseExceptionFmt(self.argument_error_class, "invalid signal number ({d})", .{signo});
         }
+
+        const signal_info = signal_support.infoByNumber(signo) orelse {
+            return self.raiseExceptionFmt(self.argument_error_class, "invalid signal number ({d})", .{signo});
+        };
+        if (signal_info.ruby_reserved) {
+            return self.raiseExceptionFmt(self.argument_error_class, "can't trap reserved signal: {s}", .{signal_info.full_name});
+        }
+        if (!signal_info.can_trap) {
+            return self.raiseExceptionFmt(self.argument_error_class, "Signal already used by VM or OS", .{});
+        }
+
         self.signal_trap_modes[idx] = mode;
         self.signal_trap_callables[idx] = if (mode == .callable) callable else Value.nil();
+        setOsSignalMode(signo, mode);
     }
 
     inline fn hasPendingUnwind(self: *VM) bool {
@@ -2481,7 +2542,7 @@ pub const VM = struct {
             while (i < count) : (i += 1) {
                 const signum: c_int = @intCast(signo);
                 switch (self.signalTrapMode(signum)) {
-                    .ignore => {},
+                    .system_default, .ignore, .ignore_nil => {},
                     .callable => try self.enqueuePendingSignalTrap(signum),
                     .default => {
                         const exc = try self.createSignalException(signum);
@@ -4072,6 +4133,8 @@ pub const VM = struct {
 
     /// Yield to scheduler, used by Thread.pass and join loops
     pub fn threadYield(self: *VM) VMError!void {
+        try self.checkAsyncEvents();
+
         const thread = self.current_thread orelse return self.schedulerYield();
         const main = self.main_thread orelse return self.schedulerYield();
         if (thread == main) {

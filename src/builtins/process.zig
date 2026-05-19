@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const signal_support = @import("../signal_support.zig");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 
@@ -42,20 +43,6 @@ pub fn register(vm: *VM) !void {
     try vm.process_module.constants.put(wnohang_sym, .{ .value = Value.integer(std.posix.W.NOHANG) });
 }
 
-fn signalNumberFromName(name: []const u8) ?c_int {
-    const trimmed = if (std.mem.startsWith(u8, name, "SIG")) name[3..] else name;
-
-    if (std.mem.eql(u8, trimmed, "HUP") and @hasField(std.posix.SIG, "HUP")) return @intCast(@intFromEnum(std.posix.SIG.HUP));
-    if (std.mem.eql(u8, trimmed, "INT")) return @intCast(@intFromEnum(std.posix.SIG.INT));
-    if (std.mem.eql(u8, trimmed, "QUIT") and @hasField(std.posix.SIG, "QUIT")) return @intCast(@intFromEnum(std.posix.SIG.QUIT));
-    if (std.mem.eql(u8, trimmed, "KILL") and @hasField(std.posix.SIG, "KILL")) return @intCast(@intFromEnum(std.posix.SIG.KILL));
-    if (std.mem.eql(u8, trimmed, "TERM") and @hasField(std.posix.SIG, "TERM")) return @intCast(@intFromEnum(std.posix.SIG.TERM));
-    if (std.mem.eql(u8, trimmed, "ALRM") and @hasField(std.posix.SIG, "ALRM")) return @intCast(@intFromEnum(std.posix.SIG.ALRM));
-    if (std.mem.eql(u8, trimmed, "USR1") and @hasField(std.posix.SIG, "USR1")) return @intCast(@intFromEnum(std.posix.SIG.USR1));
-    if (std.mem.eql(u8, trimmed, "USR2") and @hasField(std.posix.SIG, "USR2")) return @intCast(@intFromEnum(std.posix.SIG.USR2));
-    return null;
-}
-
 fn signalArgToNumber(vm: *VM, signal_value: Value) VMError!c_int {
     if (signal_value.isInteger()) {
         return @intCast(try signal_value.integerArgToI64(vm, "no implicit conversion into Integer", "signal out of range"));
@@ -66,7 +53,14 @@ fn signalArgToNumber(vm: *VM, signal_value: Value) VMError!c_int {
             signal_value.toSymbolObject().name
         else
             signal_value.toStringObject().str;
-        return signalNumberFromName(name) orelse vm.raiseExceptionFmt(vm.argument_error_class, "unsupported signal name", .{});
+        const prefixed = if (std.mem.startsWith(u8, name, "SIG"))
+            name
+        else
+            std.fmt.allocPrint(vm.gc_allocator, "SIG{s}", .{name}) catch return error.Fatal;
+        return if (signal_support.infoByName(name)) |info|
+            info.signo
+        else
+            vm.raiseExceptionFmt(vm.argument_error_class, "unsupported signal '{s}'", .{prefixed});
     }
 
     return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into String", .{});

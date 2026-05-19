@@ -189,7 +189,12 @@ fn parsePopenExecOptions(_: *VM, options_hash: *value.HashObject, config: *Popen
     for (options_hash.entries.items) |entry| {
         const key_name = hashKeyName(entry.key) orelse continue;
         if (std.mem.eql(u8, key_name, "err")) {
-            if (entry.value.isArray()) {
+            if (entry.value.isSymbol()) {
+                const name = entry.value.toSymbolObject().name;
+                if (std.mem.eql(u8, name, "out")) {
+                    config.merge_stderr = true;
+                }
+            } else if (entry.value.isArray()) {
                 const array = entry.value.toArrayObject().elements.items;
                 if (array.len == 2 and array[0].isSymbol() and array[1].isSymbol()) {
                     const left = array[0].toSymbolObject().name;

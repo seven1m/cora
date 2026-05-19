@@ -669,6 +669,42 @@ def ruby_exe(script_path = nil, options: nil, args: nil, exit_status: nil, env: 
     return ruby_exe_command_prefix
   end
 
+  if args == "2>&1"
+    shell_command = "exec #{ruby_cmd(script_path, options: options, args: nil, env: env)} 2>&1"
+    io = IO.popen([["/bin/sh", "sh"], "-c", shell_command], "r")
+    result = io.read
+    io.close
+    exit_status
+    return result
+  end
+
+  if (env.nil? || env.empty?) && (args.nil? || args == "")
+    argv = []
+    ruby_parts = ruby_exe_command_prefix
+    exe = ruby_parts[0]
+    argv << [exe, exe]
+    i = 1
+    while i < ruby_parts.length
+      argv << ruby_parts[i]
+      i += 1
+    end
+    argv << options.to_s unless options.nil? || options == ""
+    unless script_path.nil?
+      inline_code = !File.exist?(script_path) && !script_path.end_with?(".rb")
+      if inline_code
+        argv << "-e"
+        argv << script_path
+      else
+        argv << script_path
+      end
+    end
+    io = IO.popen(argv, "r")
+    result = io.read
+    io.close
+    exit_status
+    return result
+  end
+
   command = []
   if env
     env.each do |key, value|
