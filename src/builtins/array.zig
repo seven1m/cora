@@ -506,6 +506,9 @@ pub fn register(vm: *VM) !void {
     const fetch_sym = try vm.intern("fetch");
     try vm.array_class.module.methods.put(fetch_sym, value.MethodEntry.builtin(&builtinArrayFetch, .{ .variadic = 0 }));
 
+    const fetch_values_sym = try vm.intern("fetch_values");
+    try vm.array_class.module.methods.put(fetch_values_sym, value.MethodEntry.builtin(&builtinArrayFetchValues, .{ .variadic = 0 }));
+
     const assoc_sym = try vm.intern("assoc");
     try vm.array_class.module.methods.put(assoc_sym, value.MethodEntry.builtin(&builtinArrayAssoc, .{ .exact = 1 }));
 
@@ -2006,6 +2009,44 @@ pub fn builtinArrayFetch(vm: *VM, receiver: Value, args: []Value, block: ?Block)
     }
 
     return array.elements.items[@intCast(actual_index)];
+}
+
+pub fn builtinArrayFetchValues(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    const array = receiver.toArrayObject();
+    const len: i64 = @intCast(array.elements.items.len);
+    const result = try vm.createArray();
+
+    for (args) |arg| {
+        if (arg.isRange()) {
+            return vm.raiseExceptionFmt(
+                vm.type_error_class,
+                "no implicit conversion of Range into Integer",
+                .{},
+            );
+        }
+
+        const index = try coerceFetchIndex(vm, arg);
+        var actual_index = index;
+        if (actual_index < 0) actual_index += len;
+
+        if (actual_index < 0 or actual_index >= len) {
+            if (block) |blk| {
+                const yielded = try vm.yieldToBlock(blk, &[_]Value{arg});
+                if (yielded.controlFlowValue()) |return_value| return return_value;
+                result.elements.append(vm.gc_allocator, yielded.value) catch return error.Fatal;
+            } else {
+                return vm.raiseExceptionFmt(
+                    vm.index_error_class,
+                    "index {d} outside of array bounds: {d}...{d}",
+                    .{ index, if (len == 0) @as(i64, 0) else -len, len },
+                );
+            }
+        } else {
+            result.elements.append(vm.gc_allocator, array.elements.items[@intCast(actual_index)]) catch return error.Fatal;
+        }
+    }
+
+    return Value.fromObject(&result.object);
 }
 
 pub fn builtinArrayAssoc(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
