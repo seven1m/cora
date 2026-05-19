@@ -199,6 +199,32 @@ inline fn divTruncIntegers(vm: *VM, lhs: Value, rhs: Value) VMError!Value {
     return vm.valueFromManagedInteger(&quot);
 }
 
+inline fn divCeilIntegers(vm: *VM, lhs: Value, rhs: Value) VMError!Value {
+    if (lhs.isInteger() and rhs.isInteger()) {
+        const li: i63 = @intCast(lhs.toInteger());
+        const ri: i63 = @intCast(rhs.toInteger());
+        if (std.math.divCeil(i63, li, ri)) |quot| {
+            return Value.integer(@as(i64, quot));
+        } else |_| {}
+    }
+
+    var a = try lhs.integerToManaged(vm);
+    defer a.deinit();
+    var b = try rhs.integerToManaged(vm);
+    defer b.deinit();
+
+    a.negate();
+
+    var quot = BigInt.init(vm.allocator) catch return error.Fatal;
+    defer quot.deinit();
+    var rem = BigInt.init(vm.allocator) catch return error.Fatal;
+    defer rem.deinit();
+
+    quot.divFloor(&rem, &a, &b) catch return error.Fatal;
+    quot.negate();
+    return vm.valueFromManagedInteger(&quot);
+}
+
 inline fn modIntegers(vm: *VM, lhs: Value, rhs: Value) VMError!Value {
     if (lhs.isInteger() and rhs.isInteger()) {
         const li = lhs.toInteger();
@@ -471,6 +497,9 @@ pub fn register(vm: *VM) !void {
 
     const modulo_sym = try vm.intern("%");
     try vm.integer_class.module.methods.put(modulo_sym, value.MethodEntry.builtin(&builtinIntegerModulo, .{ .exact = 1 }));
+
+    const ceildiv_sym = try vm.intern("ceildiv");
+    try vm.integer_class.module.methods.put(ceildiv_sym, value.MethodEntry.builtin(&builtinIntegerCeildiv, .{ .exact = 1 }));
 
     const compare_sym = try vm.intern("<=>");
     try vm.integer_class.module.methods.put(compare_sym, value.MethodEntry.builtin(&builtinIntegerCompare, .{ .exact = 1 }));
@@ -849,6 +878,55 @@ pub fn builtinIntegerModulo(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     }
 
     return modIntegers(vm, receiver, args[0]);
+}
+
+pub fn builtinIntegerCeildiv(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    try receiver.ensureInteger(vm);
+    if (args[0].isRational()) {
+        const rhs_rational = args[0].toRationalObject();
+        const rhs_num = rhs_rational.numerator;
+        if ((try vm.compareIntegerValues(rhs_num, Value.integer(0))) == .eq) {
+            return vm.raiseExceptionFmt(vm.zero_division_error_class, "divided by 0", .{});
+        }
+        const numerator = try vm.mulIntegerValues(receiver, rhs_rational.denominator);
+        var num_managed = try numerator.integerToManaged(vm);
+        defer num_managed.deinit();
+        var rhs_managed = try rhs_num.integerToManaged(vm);
+        defer rhs_managed.deinit();
+        const num_f = num_managed.toFloat(f64, .nearest_even)[0];
+        const rhs_f = rhs_managed.toFloat(f64, .nearest_even)[0];
+        const result = std.math.ceil(num_f / rhs_f);
+        const rounded = @round(result);
+        if (rounded == result) {
+            return Value.integer(@intFromFloat(rounded));
+        }
+        return vm.newFloat(result);
+    }
+    const rhs = try coerceNumericArg(vm, args[0]);
+    return switch (rhs) {
+        .integer => |divisor| blk: {
+            const divisor_is_zero = if (divisor.isInteger())
+                divisor.toInteger() == 0
+            else if (divisor.isBigInteger())
+                divisor.toBigIntegerObject().value.eqlZero()
+            else
+                unreachable;
+            if (divisor_is_zero) {
+                return vm.raiseExceptionFmt(vm.zero_division_error_class, "divided by 0", .{});
+            }
+            break :blk try divCeilIntegers(vm, receiver, divisor);
+        },
+        .float => |divisor| {
+            const lhs_f = receiver.integerToF64();
+            const result = std.math.ceil(lhs_f / divisor);
+            const rounded = @round(result);
+            if (rounded == result) {
+                return Value.integer(@intFromFloat(rounded));
+            }
+            return vm.newFloat(result);
+        },
+    };
 }
 
 pub fn builtinIntegerCompare(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
