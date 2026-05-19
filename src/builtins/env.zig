@@ -1,3 +1,4 @@
+const std = @import("std");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 
@@ -22,8 +23,8 @@ pub fn register(vm: *VM) !void {
     const include_sym = try vm.intern("include?");
     try env_singleton.module.methods.put(include_sym, value.MethodEntry.builtin(&builtinEnvInclude, .{ .exact = 1 }));
 
-    const key_sym = try vm.intern("key?");
-    try env_singleton.module.methods.put(key_sym, value.MethodEntry.builtin(&builtinEnvInclude, .{ .exact = 1 }));
+    const key_query_sym = try vm.intern("key?");
+    try env_singleton.module.methods.put(key_query_sym, value.MethodEntry.builtin(&builtinEnvInclude, .{ .exact = 1 }));
 
     const has_key_sym = try vm.intern("has_key?");
     try env_singleton.module.methods.put(has_key_sym, value.MethodEntry.builtin(&builtinEnvInclude, .{ .exact = 1 }));
@@ -45,6 +46,21 @@ pub fn register(vm: *VM) !void {
 
     const values_at_sym = try vm.intern("values_at");
     try env_singleton.module.methods.put(values_at_sym, value.MethodEntry.builtin(&builtinEnvValuesAt, .{ .variadic = 0 }));
+
+    const key_sym = try vm.intern("key");
+    try env_singleton.module.methods.put(key_sym, value.MethodEntry.builtin(&builtinEnvKey, .{ .exact = 1 }));
+
+    const reject_sym = try vm.intern("reject");
+    try env_singleton.module.methods.put(reject_sym, value.MethodEntry.builtin(&builtinEnvReject, .{ .exact = 0 }));
+
+    const select_sym = try vm.intern("select");
+    try env_singleton.module.methods.put(select_sym, value.MethodEntry.builtin(&builtinEnvSelect, .{ .variadic = 0 }));
+
+    const merge_sym = try vm.intern("merge");
+    try env_singleton.module.methods.put(merge_sym, value.MethodEntry.builtin(&builtinEnvMerge, .{ .variadic = 0 }));
+
+    const update_sym = try vm.intern("update");
+    try env_singleton.module.methods.put(update_sym, value.MethodEntry.builtin(&builtinEnvMerge, .{ .variadic = 0 }));
 }
 
 pub fn builtinEnvBracket(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -101,5 +117,129 @@ pub fn builtinEnvValuesAt(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
         const key = try arg.coerceToStr(vm, "no implicit conversion into String");
         result.elements.append(vm.gc_allocator, try vm.envGet(key)) catch return error.Fatal;
     }
+    return Value.fromObject(&result.object);
+}
+
+pub fn builtinEnvKey(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const value_to_find = try args[0].coerceToStr(vm, "no implicit conversion into String");
+
+    var env_map = try vm.currentEnvMap();
+    defer env_map.deinit();
+
+    var iter = env_map.iterator();
+    while (iter.next()) |entry| {
+        if (std.mem.eql(u8, entry.value_ptr.*, value_to_find)) {
+            return vm.newString(entry.key_ptr.*, false);
+        }
+    }
+    return Value.nil();
+}
+
+pub fn builtinEnvReject(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    if (block == null) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "no block given", .{});
+    }
+
+    const result = try vm.createHash();
+    var env_map = try vm.currentEnvMap();
+    defer env_map.deinit();
+
+    var iter = env_map.iterator();
+    while (iter.next()) |entry| {
+        const key_val = try vm.newString(entry.key_ptr.*, false);
+        const value_val = try vm.newString(entry.value_ptr.*, false);
+
+        const yield_args = [_]Value{ key_val, value_val };
+        const yielded = try vm.yieldToBlock(block.?, &yield_args);
+        if (yielded.controlFlowValue()) |return_value| return return_value;
+        if (!yielded.value.is_truthy()) {
+            try vm.hashSetEntry(result, key_val, value_val);
+        }
+    }
+    return Value.fromObject(&result.object);
+}
+
+pub fn builtinEnvSelect(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
+    if (args.len > 0 and block == null) {
+        const hash_arg = try vm.probeToHash(args[0]);
+        switch (hash_arg) {
+            .hash => |h| {
+                const result = try vm.createHash();
+                const source_hash = h.toHashObject();
+                for (source_hash.entries.items) |entry| {
+                    try vm.hashSetEntry(result, entry.key, entry.value);
+                }
+                return Value.fromObject(&result.object);
+            },
+            else => {},
+        }
+    }
+
+    try vm.requireArgCount(args, 0);
+    if (block == null) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "no block given", .{});
+    }
+
+    const result = try vm.createHash();
+    var env_map = try vm.currentEnvMap();
+    defer env_map.deinit();
+
+    var iter = env_map.iterator();
+    while (iter.next()) |entry| {
+        const key_val = try vm.newString(entry.key_ptr.*, false);
+        const value_val = try vm.newString(entry.value_ptr.*, false);
+
+        const yield_args = [_]Value{ key_val, value_val };
+        const yielded = try vm.yieldToBlock(block.?, &yield_args);
+        if (yielded.controlFlowValue()) |return_value| return return_value;
+        if (yielded.value.is_truthy()) {
+            try vm.hashSetEntry(result, key_val, value_val);
+        }
+    }
+    return Value.fromObject(&result.object);
+}
+
+pub fn builtinEnvMerge(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
+    const result = try vm.createHash();
+    var env_map = try vm.currentEnvMap();
+    defer env_map.deinit();
+
+    var iter = env_map.iterator();
+    while (iter.next()) |entry| {
+        const key_val = try vm.newString(entry.key_ptr.*, false);
+        const value_val = try vm.newString(entry.value_ptr.*, false);
+        try vm.hashSetEntry(result, key_val, value_val);
+    }
+
+    for (args) |arg| {
+        const source_hash = switch (try vm.probeToHash(arg)) {
+            .hash => |h| h.toHashObject(),
+            .missing, .nil_result, .non_hash => {
+                return vm.raiseExceptionFmt(
+                    vm.type_error_class,
+                    "can't convert {s} to Hash ({s}#to_hash gives {s})",
+                    .{ vm.className(arg), vm.className(arg), vm.className(arg) },
+                );
+            },
+        };
+
+        for (source_hash.entries.items) |entry| {
+            if (block) |blk| {
+                const existing = try vm.hashGetEntry(result, entry.key);
+                if (existing != null) {
+                    const yield_args = [_]Value{ entry.key, existing.?.value, entry.value };
+                    const yielded = try vm.yieldToBlock(blk, &yield_args);
+                    try vm.hashSetEntry(result, entry.key, yielded.value);
+                } else {
+                    try vm.hashSetEntry(result, entry.key, entry.value);
+                }
+            } else {
+                try vm.hashSetEntry(result, entry.key, entry.value);
+            }
+        }
+    }
+
     return Value.fromObject(&result.object);
 }
