@@ -18,6 +18,27 @@ fn integerValueFromDecimalDigits(vm: *VM, digits: []const u8) VMError!Value {
     return vm.newBigIntegerFromDecimalString(digits);
 }
 
+fn parseRationalInteger(vm: *VM, bytes: []const u8, negative: bool) VMError!Value {
+    var digits: std.ArrayList(u8) = .empty;
+    defer digits.deinit(vm.allocator);
+
+    for (bytes) |c| {
+        if (std.ascii.isDigit(c)) {
+            digits.append(vm.allocator, c) catch return error.Fatal;
+        } else {
+            return Value.integer(0);
+        }
+    }
+
+    if (digits.items.len == 0) return Value.integer(0);
+
+    var val = try integerValueFromDecimalDigits(vm, digits.items);
+    if (negative) {
+        val = try vm.mulIntegerValues(Value.integer(-1), val);
+    }
+    return val;
+}
+
 pub fn parseStringToRational(vm: *VM, bytes: []const u8) VMError!?RationalParts {
     const trimmed = std.mem.trim(u8, bytes, " \t\n\r\x0B\x0C");
     if (trimmed.len == 0) return null;
@@ -30,6 +51,115 @@ pub fn parseStringToRational(vm: *VM, bytes: []const u8) VMError!?RationalParts 
         if (i >= trimmed.len) return null;
     }
 
+    var slash_idx: ?usize = null;
+    var k: usize = i;
+    while (k < trimmed.len) : (k += 1) {
+        if (trimmed[k] == '/') {
+            slash_idx = k;
+            break;
+        }
+    }
+
+if (slash_idx) |si| {
+        const num_bytes = trimmed[i..si];
+        const den_bytes = trimmed[si + 1..];
+        if (num_bytes.len == 0 or den_bytes.len == 0) return null;
+
+        const num_trimmed = std.mem.trim(u8, num_bytes, " \t\n\r\x0B\x0C");
+        const den_trimmed = std.mem.trim(u8, den_bytes, " \t\n\r\x0B\x0C");
+
+        if (num_trimmed.len == 0 or den_trimmed.len == 0) return null;
+
+        var num_sign: bool = negative;
+        var num_num_start: usize = 0;
+        if (num_trimmed[0] == '+' or num_trimmed[0] == '-') {
+            num_sign = (num_trimmed[0] == '-') != negative;
+            num_num_start = 1;
+        }
+
+        const parsed_den = try parseRationalInteger(vm, den_trimmed, false);
+        const den_int = parsed_den.toInteger();
+
+        var num_val: Value = undefined;
+        var num_frac_digits: usize = 0;
+        var num_denom: Value = Value.integer(1);
+
+        {
+            var digits: std.ArrayList(u8) = .empty;
+            defer digits.deinit(vm.allocator);
+
+            var saw_digit = false;
+            var saw_dot = false;
+            var prev_was_digit = false;
+
+            for (num_trimmed[num_num_start..]) |c| {
+                if (std.ascii.isDigit(c)) {
+                    digits.append(vm.allocator, c) catch return error.Fatal;
+                    saw_digit = true;
+                    prev_was_digit = true;
+                    if (saw_dot) num_frac_digits += 1;
+                    continue;
+                }
+
+                if (c == '_') {
+                    const next_idx = digits.items.len;
+                    if (prev_was_digit and next_idx + 1 < num_trimmed[num_num_start..].len) {
+                        const next_c = num_trimmed[num_num_start..][next_idx + 1];
+                        if (std.ascii.isDigit(next_c)) {
+                            prev_was_digit = false;
+                            continue;
+                        }
+                    }
+                    return null;
+                }
+
+                if (c == '.' and !saw_dot) {
+                    saw_dot = true;
+                    prev_was_digit = false;
+                    continue;
+                }
+
+                if (!saw_digit) return null;
+                break;
+            }
+
+            if (!saw_digit) return null;
+
+            num_val = try integerValueFromDecimalDigits(vm, digits.items);
+            if (num_sign and (try vm.compareIntegerValues(num_val, Value.integer(0))) != .eq) {
+                num_val = try vm.mulIntegerValues(Value.integer(-1), num_val);
+            }
+
+            if (num_frac_digits > 0) {
+                const denominator_digits = vm.allocator.alloc(u8, num_frac_digits + 1) catch return error.Fatal;
+                defer vm.allocator.free(denominator_digits);
+                denominator_digits[0] = '1';
+                @memset(denominator_digits[1..], '0');
+                num_denom = try integerValueFromDecimalDigits(vm, denominator_digits);
+            }
+        }
+
+        var result_num: Value = undefined;
+        var result_den: Value = undefined;
+        if (num_frac_digits > 0) {
+            result_num = num_val;
+            result_den = try vm.mulIntegerValues(num_denom, Value.integer(den_int));
+        } else {
+            result_num = num_val;
+            result_den = Value.integer(den_int);
+        }
+
+        return .{
+            .numerator = result_num,
+            .denominator = result_den,
+        };
+    }
+
+    const result = try parseRationalCore(vm, trimmed[i..], negative);
+    return result;
+}
+
+fn parseRationalCore(vm: *VM, bytes: []const u8, negative: bool) VMError!?RationalParts {
     var digits: std.ArrayList(u8) = .empty;
     defer digits.deinit(vm.allocator);
 
@@ -38,8 +168,7 @@ pub fn parseStringToRational(vm: *VM, bytes: []const u8) VMError!?RationalParts 
     var prev_was_digit = false;
     var fractional_digits: usize = 0;
 
-    while (i < trimmed.len) : (i += 1) {
-        const c = trimmed[i];
+    for (bytes) |c| {
         if (std.ascii.isDigit(c)) {
             digits.append(vm.allocator, c) catch return error.Fatal;
             saw_digit = true;
@@ -49,10 +178,13 @@ pub fn parseStringToRational(vm: *VM, bytes: []const u8) VMError!?RationalParts 
         }
 
         if (c == '_') {
-            const next_is_digit = i + 1 < trimmed.len and std.ascii.isDigit(trimmed[i + 1]);
-            if (prev_was_digit and next_is_digit) {
-                prev_was_digit = false;
-                continue;
+            const next_idx = digits.items.len;
+            if (prev_was_digit and next_idx + 1 < bytes.len) {
+                const next_c = bytes[next_idx + 1];
+                if (std.ascii.isDigit(next_c)) {
+                    prev_was_digit = false;
+                    continue;
+                }
             }
             return null;
         }
@@ -63,7 +195,8 @@ pub fn parseStringToRational(vm: *VM, bytes: []const u8) VMError!?RationalParts 
             continue;
         }
 
-        return null;
+        if (!saw_digit) return null;
+        break;
     }
 
     if (!saw_digit) return null;
