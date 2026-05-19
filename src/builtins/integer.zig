@@ -520,6 +520,9 @@ pub fn register(vm: *VM) !void {
     const denominator_sym = try vm.intern("denominator");
     try vm.integer_class.module.methods.put(denominator_sym, value.MethodEntry.builtin(&builtinIntegerDenominator, .{ .exact = 0 }));
 
+    const to_r_sym = try vm.intern("to_r");
+    try vm.integer_class.module.methods.put(to_r_sym, value.MethodEntry.builtin(&builtinIntegerToR, .{ .exact = 0 }));
+
     const size_sym = try vm.intern("size");
     try vm.integer_class.module.methods.put(size_sym, value.MethodEntry.builtin(&builtinIntegerSize, .{ .exact = 0 }));
 
@@ -990,6 +993,12 @@ pub fn builtinIntegerDenominator(vm: *VM, receiver: Value, args: []Value, _: ?Bl
     try vm.requireArgCount(args, 0);
     try receiver.ensureInteger(vm);
     return Value.integer(1);
+}
+
+pub fn builtinIntegerToR(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    try receiver.ensureInteger(vm);
+    return try vm.newRationalValues(receiver, Value.integer(1));
 }
 
 pub fn builtinIntegerSize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
