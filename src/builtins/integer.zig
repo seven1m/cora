@@ -498,6 +498,9 @@ pub fn register(vm: *VM) !void {
     const modulo_sym = try vm.intern("%");
     try vm.integer_class.module.methods.put(modulo_sym, value.MethodEntry.builtin(&builtinIntegerModulo, .{ .exact = 1 }));
 
+    const modulo_method_sym = try vm.intern("modulo");
+    try vm.integer_class.module.methods.put(modulo_method_sym, value.MethodEntry.builtin(&builtinIntegerModulo, .{ .exact = 1 }));
+
     const ceildiv_sym = try vm.intern("ceildiv");
     try vm.integer_class.module.methods.put(ceildiv_sym, value.MethodEntry.builtin(&builtinIntegerCeildiv, .{ .exact = 1 }));
 
