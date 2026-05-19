@@ -987,7 +987,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/hash/try_convert_spec.rb
 - [x] core/hash/update_spec.rb
 - [x] core/hash/value_spec.rb
-- [ ] core/hash/values_at_spec.rb
+- [x] core/hash/values_at_spec.rb
 - [x] core/hash/values_spec.rb
 
 ### core/integer
