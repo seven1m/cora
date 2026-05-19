@@ -540,6 +540,9 @@ pub fn register(vm: *VM) !void {
     const to_i_sym = try vm.intern("to_i");
     try vm.integer_class.module.methods.put(to_i_sym, value.MethodEntry.builtin(&builtinIntegerToI, .{ .exact = 0 }));
 
+    const coerce_sym = try vm.intern("coerce");
+    try vm.integer_class.module.methods.put(coerce_sym, value.MethodEntry.builtin(&builtinIntegerCoerce, .{ .exact = 1 }));
+
     const to_int_sym = try vm.intern("to_int");
     try vm.integer_class.module.methods.put(to_int_sym, value.MethodEntry.builtin(&builtinIntegerToI, .{ .exact = 0 }));
 
@@ -619,6 +622,90 @@ pub fn builtinIntegerPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
         .integer => |i| try addIntegers(vm, receiver, i),
         .float => |f| try vm.newFloat(receiver.integerToF64() + f),
     };
+}
+
+pub fn builtinIntegerCoerce(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const arg = args[0];
+
+    if (arg.isInteger() or arg.isBigInteger()) {
+        const result = try vm.createArray();
+        result.elements.append(vm.gc_allocator, arg) catch return error.Fatal;
+        result.elements.append(vm.gc_allocator, receiver) catch return error.Fatal;
+        return Value.fromObject(&result.object);
+    }
+
+    if (arg.isFloat()) {
+        const self_float = try vm.newFloat(receiver.integerToF64());
+        const result = try vm.createArray();
+        result.elements.append(vm.gc_allocator, arg) catch return error.Fatal;
+        result.elements.append(vm.gc_allocator, self_float) catch return error.Fatal;
+        return Value.fromObject(&result.object);
+    }
+
+    if (arg.isString()) {
+        const str_obj = arg.toStringObject();
+        const trimmed = std.mem.trim(u8, str_obj.str, " \t\n\r\x0B\x0C");
+        const parsed = std.fmt.parseFloat(f64, trimmed) catch 0.0;
+        if (parsed == 0.0 and !isZeroString(trimmed)) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "invalid value for Integer: \"{s}\"", .{str_obj.str});
+        }
+        const self_float = try vm.newFloat(receiver.integerToF64());
+        const arg_float = try vm.newFloat(parsed);
+        const result = try vm.createArray();
+        result.elements.append(vm.gc_allocator, arg_float) catch return error.Fatal;
+        result.elements.append(vm.gc_allocator, self_float) catch return error.Fatal;
+        return Value.fromObject(&result.object);
+    }
+
+    if (arg.isNil()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "nil can't be coerced to Integer", .{});
+    }
+
+    const maybe_to_f = try vm.checkCallMethodByName(arg, "to_f", false, &[_]Value{}, null);
+    if (maybe_to_f) |to_f_result| {
+        if (to_f_result.isNil()) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "nil can't be coerced to Integer", .{});
+        }
+        if (!to_f_result.isFloat() and !to_f_result.isInteger() and !to_f_result.isBigInteger()) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "can't coerce {s} to Integer", .{vm.className(to_f_result)});
+        }
+        const self_float = try vm.newFloat(receiver.integerToF64());
+        const arg_float = if (to_f_result.isFloat())
+            to_f_result
+        else
+            try vm.newFloat(to_f_result.integerToF64());
+        const result = try vm.createArray();
+        result.elements.append(vm.gc_allocator, arg_float) catch return error.Fatal;
+        result.elements.append(vm.gc_allocator, self_float) catch return error.Fatal;
+        return Value.fromObject(&result.object);
+    }
+
+    return vm.raiseExceptionFmt(vm.type_error_class, "can't coerce {s} to Integer", .{vm.className(arg)});
+}
+
+fn isZeroString(s: []const u8) bool {
+    if (s.len == 0) return false;
+    var offset: usize = 0;
+    if (s[0] == '-' or s[0] == '+') {
+        offset = 1;
+    }
+    const trimmed = s[offset..];
+    if (std.mem.eql(u8, trimmed, "0")) return true;
+    if (std.mem.eql(u8, trimmed, "0.0")) return true;
+    if (std.mem.eql(u8, trimmed, "0e0")) return true;
+    if (std.mem.eql(u8, trimmed, "0E0")) return true;
+    if (std.mem.eql(u8, trimmed, "0.0e0")) return true;
+    if (std.mem.eql(u8, trimmed, "0.0E0")) return true;
+    if (std.mem.eql(u8, trimmed, "0e-0")) return true;
+    if (std.mem.eql(u8, trimmed, "0E-0")) return true;
+    if (std.mem.eql(u8, trimmed, "0.0e-0")) return true;
+    if (std.mem.eql(u8, trimmed, "0.0E-0")) return true;
+    if (std.mem.eql(u8, trimmed, "0e+0")) return true;
+    if (std.mem.eql(u8, trimmed, "0E+0")) return true;
+    if (std.mem.eql(u8, trimmed, "0.0e+0")) return true;
+    if (std.mem.eql(u8, trimmed, "0.0E+0")) return true;
+    return false;
 }
 
 pub fn builtinIntegerTryConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
