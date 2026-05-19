@@ -611,6 +611,9 @@ pub fn register(vm: *VM) !void {
 
     const uniq_bang_sym = try vm.intern("uniq!");
     try vm.array_class.module.methods.put(uniq_bang_sym, value.MethodEntry.builtin(&builtinArrayUniqBang, .{ .exact = 0 }));
+
+    const values_at_sym = try vm.intern("values_at");
+    try vm.array_class.module.methods.put(values_at_sym, value.MethodEntry.builtin(&builtinArrayValuesAt, .{ .variadic = 0 }));
 }
 
 pub fn builtinArrayPush(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -2811,4 +2814,65 @@ fn arraySortBlockResultSign(vm: *VM, cmp_value: Value) VMError!i8 {
         "comparison of {s} with 0 failed",
         .{vm.className(cmp_value)},
     );
+}
+
+pub fn builtinArrayValuesAt(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const array = receiver.toArrayObject();
+    const len: i64 = @intCast(array.elements.items.len);
+    const result = try vm.createArray();
+
+    for (args) |arg| {
+        if (arg.isRange()) {
+            const range_obj = arg.toRangeObject();
+            var start_i: i64 = 0;
+            if (!range_obj.begin.isNil()) {
+                const start_raw = try range_obj.begin.coerceToI64ViaToInt(
+                    vm,
+                    "no implicit conversion into Integer",
+                    "no implicit conversion into Integer",
+                    "bignum too big to convert into `long`",
+                );
+                start_i = start_raw;
+                if (start_i < 0) start_i += len;
+            }
+
+            var end_i: i64 = len;
+            if (!range_obj.end.isNil()) {
+                end_i = try range_obj.end.coerceToI64ViaToInt(
+                    vm,
+                    "no implicit conversion into Integer",
+                    "no implicit conversion into Integer",
+                    "bignum too big to convert into `long`",
+                );
+                if (end_i < 0) end_i += len;
+                if (!range_obj.exclude_end) end_i += 1;
+            }
+
+            var j = start_i;
+            while (j < end_i) : (j += 1) {
+                if (j >= 0 and j < len) {
+                    result.elements.append(vm.gc_allocator, array.elements.items[@intCast(j)]) catch return error.Fatal;
+                } else {
+                    result.elements.append(vm.gc_allocator, Value.nil()) catch return error.Fatal;
+                }
+            }
+        } else {
+            const index = try arg.coerceToI64ViaToInt(
+                vm,
+                "no implicit conversion into Integer",
+                "no implicit conversion into Integer",
+                "bignum too big to convert into `long`",
+            );
+            var actual_index = index;
+            if (actual_index < 0) actual_index += len;
+
+            if (actual_index >= 0 and actual_index < len) {
+                result.elements.append(vm.gc_allocator, array.elements.items[@intCast(actual_index)]) catch return error.Fatal;
+            } else {
+                result.elements.append(vm.gc_allocator, Value.nil()) catch return error.Fatal;
+            }
+        }
+    }
+
+    return Value.fromObject(&result.object);
 }
