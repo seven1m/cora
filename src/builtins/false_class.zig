@@ -24,6 +24,9 @@ pub fn register(vm: *VM) !void {
 
     const xor_sym = try vm.intern("^");
     try vm.false_class.module.methods.put(xor_sym, value.MethodEntry.builtin(&builtinFalseClassXor, .{ .exact = 1 }));
+
+    const case_compare_sym = try vm.intern("===");
+    try vm.false_class.module.methods.put(case_compare_sym, value.MethodEntry.builtin(&builtinFalseClassCaseCompare, .{ .exact = 1 }));
 }
 
 pub fn builtinFalseClassToS(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -54,4 +57,9 @@ pub fn builtinFalseClassOr(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
 pub fn builtinFalseClassXor(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     return Value.boolean(args[0].is_truthy());
+}
+
+pub fn builtinFalseClassCaseCompare(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    return Value.boolean(args[0].isFalse());
 }
