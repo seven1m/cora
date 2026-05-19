@@ -924,7 +924,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/hash/any_spec.rb
 - [x] core/hash/assoc_spec.rb
 - [x] core/hash/clear_spec.rb
-- [ ] core/hash/clone_spec.rb
+- [x] core/hash/clone_spec.rb
 - [x] core/hash/compact_spec.rb
 - [x] core/hash/compare_by_identity_spec.rb
 - [x] core/hash/constructor_spec.rb
