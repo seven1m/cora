@@ -287,6 +287,9 @@ pub fn register(vm: *VM) !void {
 
     const except_sym = try vm.intern("except");
     try vm.hash_class.module.methods.put(except_sym, value.MethodEntry.builtin(&builtinHashExcept, .{ .variadic = 0 }));
+
+    const rehash_sym = try vm.intern("rehash");
+    try vm.hash_class.module.methods.put(rehash_sym, value.MethodEntry.builtin(&builtinHashRehash, .{ .exact = 0 }));
 }
 
 fn hashGetValue(hash_obj: *value.HashObject, vm: *VM, key: Value) VMError!?Value {
@@ -1716,4 +1719,13 @@ pub fn builtinHashExcept(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     }
 
     return Value.fromObject(&result_hash.object);
+}
+
+pub fn builtinHashRehash(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    try ensureMutableHash(vm, receiver);
+
+    try vm.hashRebuildIndexes(receiver.toHashObject());
+
+    return receiver;
 }

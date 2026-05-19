@@ -967,7 +967,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/hash/merge_spec.rb
 - [ ] core/hash/new_spec.rb
 - [x] core/hash/rassoc_spec.rb
-- [ ] core/hash/rehash_spec.rb
+- [-] core/hash/rehash_spec.rb
 - [x] core/hash/reject_spec.rb
 - [x] core/hash/replace_spec.rb
 - [ ] core/hash/ruby2_keywords_hash_spec.rb
@@ -1490,7 +1490,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/nil/case_compare_spec.rb
 - [x] core/nil/dup_spec.rb
 - [x] core/nil/inspect_spec.rb
-- [ ] core/nil/match_spec.rb
+- [x] core/nil/match_spec.rb
 - [x] core/nil/nil_spec.rb
 - [x] core/nil/nilclass_spec.rb
 - [x] core/nil/or_spec.rb
