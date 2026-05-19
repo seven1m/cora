@@ -268,6 +268,11 @@ pub fn register(vm: *VM) !void {
     const string_tr_bang_sym = try vm.intern("tr!");
     try vm.string_class.module.methods.put(string_tr_bang_sym, value.MethodEntry.builtin(&builtinStringTrBang, .{ .exact = 2 }));
 
+    const string_tr_s_sym = try vm.intern("tr_s");
+    try vm.string_class.module.methods.put(string_tr_s_sym, value.MethodEntry.builtin(&builtinStringTrS, .{ .exact = 2 }));
+    const string_tr_s_bang_sym = try vm.intern("tr_s!");
+    try vm.string_class.module.methods.put(string_tr_s_bang_sym, value.MethodEntry.builtin(&builtinStringTrSBang, .{ .exact = 2 }));
+
     const string_include_sym = try vm.intern("include?");
     try vm.string_class.module.methods.put(string_include_sym, value.MethodEntry.builtin(&builtinStringInclude, .{ .exact = 1 }));
 
@@ -3479,6 +3484,86 @@ fn stringTrCompute(vm: *VM, string_obj: *value.StringObject, from_arg: Value, to
     };
 }
 
+fn stringTrSCompute(vm: *VM, string_obj: *value.StringObject, from_arg: Value, to_arg: Value) VMError!TrResult {
+    const from_str = try trParseArg(vm, from_arg);
+    const to_str = try trParseArg(vm, to_arg);
+
+    if (from_str.len == 0) {
+        return .{ .bytes = string_obj.str, .modified = false };
+    }
+
+    var from_expanded = try trExpandSource(vm, from_str);
+    defer from_expanded.deinit(vm.allocator);
+    var to_expanded = try trExpandSource(vm, to_str);
+    defer to_expanded.deinit(vm.allocator);
+
+    const is_negated = from_str[0] == '^' and from_expanded.items.len > 1;
+
+    var table: std.AutoHashMap(u32, u32) = .init(vm.allocator);
+    defer table.deinit();
+
+    if (!is_negated) {
+        table = try trBuildTranslationTable(vm, from_expanded, to_expanded);
+        if (table.count() == 0) {
+            return .{ .bytes = string_obj.str, .modified = false };
+        }
+    }
+
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(vm.gc_allocator_atomic);
+    var modified = false;
+    var idx: usize = 0;
+    var last_mapped_cp: u32 = undefined;
+    var has_last_mapped = false;
+
+    while (idx < string_obj.str.len) {
+        const start = idx;
+        const cp_opt = nextCodepointSimple(string_obj.str, &idx);
+        if (cp_opt == null) break;
+        const cp = cp_opt.?;
+
+        var mapped_cp: u32 = undefined;
+        var should_replace = false;
+
+        if (is_negated) {
+            var excluded: std.AutoHashMap(u32, void) = .init(vm.allocator);
+            defer excluded.deinit();
+            for (from_expanded.items[1..]) |exc_cp| {
+                excluded.put(exc_cp, {}) catch return error.Fatal;
+            }
+            should_replace = !excluded.contains(cp);
+            if (should_replace) {
+                mapped_cp = if (to_expanded.items.len > 0) to_expanded.items[to_expanded.items.len - 1] else cp;
+            }
+        } else {
+            if (table.get(cp)) |mp| {
+                should_replace = true;
+                mapped_cp = mp;
+            }
+        }
+
+        if (should_replace) {
+            if (!has_last_mapped or last_mapped_cp != mapped_cp) {
+                var buf: [4]u8 = undefined;
+                const len = cpToUtf8(mapped_cp, &buf);
+                out.appendSlice(vm.gc_allocator_atomic, buf[0..len]) catch return error.Fatal;
+                last_mapped_cp = mapped_cp;
+                has_last_mapped = true;
+                modified = true;
+            }
+        } else {
+            const char_bytes = string_obj.str[start..idx];
+            out.appendSlice(vm.gc_allocator_atomic, char_bytes) catch return error.Fatal;
+            has_last_mapped = false;
+        }
+    }
+
+    return .{
+        .bytes = out.toOwnedSlice(vm.gc_allocator_atomic) catch return error.Fatal,
+        .modified = modified,
+    };
+}
+
 pub fn builtinStringTr(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 2);
     const string_obj = receiver.toStringObject();
@@ -3494,6 +3579,30 @@ pub fn builtinStringTrBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 
     const string_obj = receiver.toStringObject();
     const result = try stringTrCompute(vm, string_obj, args[0], args[1]);
+    if (!result.modified) return Value.nil();
+
+    try warnSymbolToSMutation(vm, string_obj);
+    string_obj.str = result.bytes;
+    string_obj.validity = .unknown;
+    string_obj.symbol_to_s_source = null;
+    return receiver;
+}
+
+pub fn builtinStringTrS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 2);
+    const string_obj = receiver.toStringObject();
+    const result = try stringTrSCompute(vm, string_obj, args[0], args[1]);
+    return try vm.newStringWithEncoding(result.bytes, false, string_obj.encoding);
+}
+
+pub fn builtinStringTrSBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 2);
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
+    }
+
+    const string_obj = receiver.toStringObject();
+    const result = try stringTrSCompute(vm, string_obj, args[0], args[1]);
     if (!result.modified) return Value.nil();
 
     try warnSymbolToSMutation(vm, string_obj);
