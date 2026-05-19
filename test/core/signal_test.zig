@@ -55,3 +55,60 @@ test "Signal.trap dispatches queued signal to Ruby handler" {
     try std.testing.expectEqual(@as(i64, 1), handled.toInteger());
     try std.testing.expectEqual(@as(i64, @intCast(@intFromEnum(std.posix.SIG.INT))), last_signo.toInteger());
 }
+
+test "Signal.trap dispatches while IO.gets waits on a pipe" {
+    bdwgc.init();
+    defer bdwgc.deinit();
+
+    const allocator = test_helper.getAllocator();
+    const ruby_code =
+        \\$handled = 0
+        \\$r, $w = IO.pipe
+        \\Signal.trap("INT") { $handled += 1 }
+    ;
+
+    var parser = try prism.Parser.init(allocator, ruby_code, null);
+    defer parser.deinit();
+
+    var threaded: std.Io.Threaded = .init(allocator, .{});
+    defer threaded.deinit();
+
+    var vm = VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic, threaded.io(), std.testing.environ);
+    defer vm.deinit();
+
+    var program = try compiler.Compiler.compile(allocator, &parser, 1);
+    defer program.deinit();
+
+    try vm.prepare(&program);
+    _ = try vm.run();
+
+    const reader = vm.globals.get("$r") orelse return error.TestExpectedEqual;
+    const writer = vm.globals.get("$w") orelse return error.TestExpectedEqual;
+    const writer_fd: std.posix.fd_t = @intCast(writer.toIoObject().fd);
+
+    const Worker = struct {
+        fn sleepMs(ms: u64) void {
+            var ts: std.posix.timespec = .{
+                .sec = @intCast(@divTrunc(ms, 1000)),
+                .nsec = @intCast(@mod(ms, 1000) * std.time.ns_per_ms),
+            };
+            while (std.posix.errno(std.posix.system.nanosleep(&ts, &ts)) == .INTR) {}
+        }
+
+        fn run(fd: std.posix.fd_t) void {
+            sleepMs(50);
+            cora.vm.requestSignal(@intCast(@intFromEnum(std.posix.SIG.INT)));
+            sleepMs(50);
+            _ = std.c.write(fd, "x\n", 2);
+        }
+    };
+
+    const thread = try std.Thread.spawn(.{}, Worker.run, .{writer_fd});
+    defer thread.join();
+
+    const line = try vm.callMethodByName(reader, "gets", &.{}, null);
+    try std.testing.expectEqualStrings("x\n", line.toStringObject().str);
+
+    const handled = vm.globals.get("$handled") orelse return error.TestExpectedEqual;
+    try std.testing.expectEqual(@as(i64, 1), handled.toInteger());
+}

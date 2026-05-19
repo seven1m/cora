@@ -748,13 +748,12 @@ pub fn builtinIoGets(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
     const io = try requireIoReceiver(vm, receiver);
     try ensureIoReadable(vm, io);
 
-    const fd: std.posix.fd_t = @intCast(io.fd);
     var out: std.ArrayList(u8) = .empty;
     defer out.deinit(vm.allocator);
 
     var byte: [1]u8 = undefined;
     while (true) {
-        const n = std.posix.read(fd, &byte) catch return vm.raiseExceptionFmt(vm.io_error_class, "read failed", .{});
+        const n = try blockingIoRead(vm, io, byte[0..]);
         if (n == 0) {
             if (out.items.len == 0) return Value.nil();
             break;
@@ -1046,15 +1045,35 @@ fn ioWriteBytes(vm: *VM, io: *IoObject, bytes: []const u8) VMError!usize {
     return total;
 }
 
+fn blockingIoRead(vm: *VM, io: *IoObject, buf: []u8) VMError!usize {
+    const fd: std.posix.fd_t = @intCast(io.fd);
+    while (true) {
+        try vm.checkAsyncEvents();
+        _ = try waitReadable(vm, io, -1);
+
+        const n = std.c.read(fd, buf.ptr, buf.len);
+        if (n >= 0) return @intCast(n);
+
+        const errno_code: std.posix.E = @enumFromInt(std.c._errno().*);
+        switch (errno_code) {
+            .INTR => {
+                try vm.checkAsyncEvents();
+                continue;
+            },
+            .AGAIN => continue,
+            else => return vm.raiseErrnoFmt(errno_code, "read failed", .{}),
+        }
+    }
+}
+
 fn ioReadAll(vm: *VM, io: *IoObject) VMError!Value {
     try ensureIoReadable(vm, io);
-    const fd: std.posix.fd_t = @intCast(io.fd);
     var buf: [4096]u8 = undefined;
     var out: std.ArrayList(u8) = .empty;
     defer out.deinit(vm.allocator);
 
     while (true) {
-        const n = std.posix.read(fd, &buf) catch return vm.raiseExceptionFmt(vm.io_error_class, "read failed", .{});
+        const n = try blockingIoRead(vm, io, buf[0..]);
         if (n == 0) break;
         out.appendSlice(vm.allocator, buf[0..n]) catch return error.Fatal;
     }
@@ -1066,7 +1085,6 @@ fn ioReadN(vm: *VM, io: *IoObject, len: usize) VMError!Value {
     try ensureIoReadable(vm, io);
     if (len == 0) return vm.newString("", false);
 
-    const fd: std.posix.fd_t = @intCast(io.fd);
     var out: std.ArrayList(u8) = .empty;
     defer out.deinit(vm.allocator);
     out.ensureTotalCapacity(vm.allocator, len) catch return error.Fatal;
@@ -1075,7 +1093,7 @@ fn ioReadN(vm: *VM, io: *IoObject, len: usize) VMError!Value {
     var buf: [4096]u8 = undefined;
     while (remaining > 0) {
         const to_read = @min(remaining, buf.len);
-        const n = std.posix.read(fd, buf[0..to_read]) catch return vm.raiseExceptionFmt(vm.io_error_class, "read failed", .{});
+        const n = try blockingIoRead(vm, io, buf[0..to_read]);
         if (n == 0) break;
         out.appendSlice(vm.allocator, buf[0..n]) catch return error.Fatal;
         remaining -= n;
