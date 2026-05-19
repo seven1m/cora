@@ -12,6 +12,8 @@ pub const Kind = enum {
     array_eql,
     array_compare,
     array_hash,
+    hash_equal,
+    hash_eql,
     hash_hash,
 };
 

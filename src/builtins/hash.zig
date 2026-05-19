@@ -181,7 +181,7 @@ pub fn register(vm: *VM) !void {
     try vm.hash_class.module.methods.put(equal_sym, value.MethodEntry.builtin(&builtinHashEqual, .{ .exact = 1 }));
 
     const eql_sym = try vm.intern("eql?");
-    try vm.hash_class.module.methods.put(eql_sym, value.MethodEntry.builtin(&builtinHashEqual, .{ .exact = 1 }));
+    try vm.hash_class.module.methods.put(eql_sym, value.MethodEntry.builtin(&builtinHashEql, .{ .exact = 1 }));
 
     const hash_sym = try vm.intern("hash");
     try vm.hash_class.module.methods.put(hash_sym, value.MethodEntry.builtin(&builtinHashHash, .{ .exact = 0 }));
@@ -1333,11 +1333,37 @@ pub fn builtinHashEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
 
     const lhs = receiver.toHashObject();
     const rhs = args[0].toHashObject();
+    if (lhs == rhs) return Value.boolean(true);
+    if (try vm.enterRecursionGuard(.hash_equal, receiver, args[0])) {
+        return Value.boolean(true);
+    }
+    defer vm.leaveRecursionGuard(.hash_equal, receiver, args[0]);
     if (lhs.entries.items.len != rhs.entries.items.len) return Value.boolean(false);
 
     for (lhs.entries.items) |entry| {
         const rhs_entry = (try vm.hashGetEntry(rhs, entry.key)) orelse return Value.boolean(false);
         if (!(try vm.valueEquals(entry.value, rhs_entry.value))) return Value.boolean(false);
+    }
+
+    return Value.boolean(true);
+}
+
+pub fn builtinHashEql(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (!args[0].isHash()) return Value.boolean(false);
+
+    const lhs = receiver.toHashObject();
+    const rhs = args[0].toHashObject();
+    if (lhs == rhs) return Value.boolean(true);
+    if (try vm.enterRecursionGuard(.hash_eql, receiver, args[0])) {
+        return Value.boolean(true);
+    }
+    defer vm.leaveRecursionGuard(.hash_eql, receiver, args[0]);
+    if (lhs.entries.items.len != rhs.entries.items.len) return Value.boolean(false);
+
+    for (lhs.entries.items) |entry| {
+        const rhs_entry = (try vm.hashGetEntry(rhs, entry.key)) orelse return Value.boolean(false);
+        if (!(try vm.hashKeysEqual(entry.value, rhs_entry.value))) return Value.boolean(false);
     }
 
     return Value.boolean(true);
