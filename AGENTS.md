@@ -44,3 +44,11 @@ zig build test -Dtest-filter="Proc" -Dtest-verbose -Dtest-timing -Dtest-timeout=
 zig build run -- [flags] [filename]
 zig-out/bin/cora [flags] [filename]
 ```
+
+## Nix
+
+Unless you're running in a nix-shell already, you will need to prefix all zig commands like this:
+
+```bash
+nix-shell --command "zig build ..."
+```
