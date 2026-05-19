@@ -992,8 +992,8 @@ Source baseline: ../ruby_spec compared to local spec/
 
 ### core/integer
 - [x] core/integer/abs_spec.rb
-- [-] core/integer/allbits_spec.rb
-- [-] core/integer/anybits_spec.rb
+- [x] core/integer/allbits_spec.rb
+- [x] core/integer/anybits_spec.rb
 - [x] core/integer/bit_and_spec.rb
 - [ ] core/integer/bit_length_spec.rb
 - [x] core/integer/bit_or_spec.rb
@@ -1033,7 +1033,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/integer/modulo_spec.rb
 - [x] core/integer/multiply_spec.rb
 - [x] core/integer/next_spec.rb
-- [-] core/integer/nobits_spec.rb
+- [x] core/integer/nobits_spec.rb
 - [ ] core/integer/numerator_spec.rb
 - [x] core/integer/odd_spec.rb
 - [x] core/integer/ord_spec.rb
