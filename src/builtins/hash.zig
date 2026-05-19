@@ -117,6 +117,9 @@ pub fn register(vm: *VM) !void {
     const to_hash_sym = try vm.intern("to_hash");
     try vm.hash_class.module.methods.put(to_hash_sym, value.MethodEntry.builtin(&builtinHashToHash, .{ .exact = 0 }));
 
+    const to_h_sym = try vm.intern("to_h");
+    try vm.hash_class.module.methods.put(to_h_sym, value.MethodEntry.builtin(&builtinHashToH, .{ .variadic = 0 }));
+
     const include_sym = try vm.intern("include?");
     try vm.hash_class.module.methods.put(include_sym, value.MethodEntry.builtin(&builtinHashIncludeQ, .{ .exact = 1 }));
 
@@ -1023,6 +1026,62 @@ pub fn builtinHashInvert(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
 
 pub fn builtinHashToHash(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
+    return receiver;
+}
+
+pub fn builtinHashToH(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
+    if (receiver.toHashObject().object.class != vm.hash_class) {
+        const hash_obj = receiver.toHashObject();
+        const result_hash = try vm.createHash();
+        result_hash.compare_by_identity = hash_obj.compare_by_identity;
+        if (hash_obj.default_proc) |default_proc| {
+            setHashDefaultProc(result_hash, default_proc);
+        } else if (hash_obj.default_value) |default_value| {
+            setHashDefaultValue(result_hash, default_value);
+        }
+        for (hash_obj.entries.items) |entry| {
+            try vm.hashSetEntry(result_hash, entry.key, entry.value);
+        }
+        return Value.fromObject(&result_hash.object);
+    }
+
+    if (block) |blk| {
+        const hash_obj = receiver.toHashObject();
+        const result_hash = try vm.createHash();
+
+        for (hash_obj.entries.items) |entry| {
+            const yield_args = [_]Value{ entry.key, entry.value };
+            const yielded = try vm.yieldToBlock(blk, &yield_args);
+            if (yielded.controlFlowValue()) |return_value| return return_value;
+
+            const pair_value = switch (try vm.probeToAry(yielded.value)) {
+                .array => |array_value| array_value,
+                .missing, .nil_result => {
+                    return vm.raiseExceptionFmt(
+                        vm.type_error_class,
+                        "wrong element type {s} at {d} (expected array)",
+                        .{ vm.className(yielded.value), 0 },
+                    );
+                },
+            };
+
+            const pair = pair_value.toArrayObject().elements.items;
+            if (pair.len != 2) {
+                return vm.raiseExceptionFmt(
+                    vm.argument_error_class,
+                    "element has wrong array length at {d} (expected 2, was {d})",
+                    .{ 0, pair.len },
+                );
+            }
+
+            try vm.hashSetEntry(result_hash, pair[0], pair[1]);
+        }
+
+        return Value.fromObject(&result_hash.object);
+    }
+
     return receiver;
 }
 
