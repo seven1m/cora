@@ -3970,31 +3970,77 @@ fn stringChopEnd(bytes: []const u8, encoding: enc.Encoding) usize {
     return last_start;
 }
 
+const TrailingLineEnding = enum {
+    none,
+    lf,
+    cr,
+    crlf,
+};
+
+fn stringTrailingLineEnding(bytes: []const u8, encoding: enc.Encoding) TrailingLineEnding {
+    if (bytes.len == 0) return .none;
+
+    var i: usize = 0;
+    var second_last_start: ?usize = null;
+    var last_start: usize = 0;
+    while (i < bytes.len) {
+        second_last_start = last_start;
+        last_start = i;
+        const parsed = encoding.nextChar(bytes, &i);
+        if (parsed.len == 0 or i <= last_start) {
+            i = last_start + 1;
+        }
+    }
+
+    const last_codepoint = encoding.toUnicodeCodepoint(bytes[last_start..]) orelse return .none;
+    if (last_codepoint == '\r') return .cr;
+    if (last_codepoint != '\n') return .none;
+
+    if (second_last_start) |prev_start| {
+        const prev_codepoint = encoding.toUnicodeCodepoint(bytes[prev_start..last_start]) orelse return .lf;
+        if (prev_codepoint == '\r') return .crlf;
+    }
+
+    return .lf;
+}
+
+fn stringChompLineEndingEnd(bytes: []const u8, encoding: enc.Encoding) usize {
+    return switch (stringTrailingLineEnding(bytes, encoding)) {
+        .none => bytes.len,
+        .lf, .cr, .crlf => stringChopEnd(bytes, encoding),
+    };
+}
+
 fn stringChompEnd(vm: *VM, bytes: []const u8, encoding: enc.Encoding, args: []Value) VMError!usize {
     try vm.requireArgCountRange(args, 0, 1);
     if (bytes.len == 0) return 0;
 
+    var separator_value: Value = undefined;
     if (args.len == 0) {
-        if (std.mem.endsWith(u8, bytes, "\r\n")) return bytes.len - 2;
-        if (std.mem.endsWith(u8, bytes, "\n") or std.mem.endsWith(u8, bytes, "\r")) return stringChopEnd(bytes, encoding);
-        return bytes.len;
+        separator_value = vm.globals.get("$/") orelse Value.nil();
+    } else {
+        separator_value = args[0];
     }
 
-    const separator = try args[0].coerceToStr(vm, "no implicit conversion into String");
+    if (separator_value.isNil()) return bytes.len;
+
+    const separator_string = try separator_value.coerceToStringValue(vm, "no implicit conversion into String");
+    const separator = separator_string.toStringObject().str;
     if (separator.len == 0) {
         var end = bytes.len;
         while (end > 0) {
-            if (std.mem.endsWith(u8, bytes[0..end], "\r\n")) {
-                end -= 2;
-                continue;
+            switch (stringTrailingLineEnding(bytes[0..end], encoding)) {
+                .lf, .crlf => end = stringChopEnd(bytes[0..end], encoding),
+                .none, .cr => break,
             }
-            if (std.mem.endsWith(u8, bytes[0..end], "\n") or std.mem.endsWith(u8, bytes[0..end], "\r")) {
-                end = stringChopEnd(bytes[0..end], encoding);
-                continue;
-            }
-            break;
         }
         return end;
+    }
+
+    if (separator_string.toStringObject().encoding.toUnicodeCodepoint(separator) == '\n' and
+        separator_string.toStringObject().encoding.charCount(separator) == 1)
+    {
+        return stringChompLineEndingEnd(bytes, encoding);
     }
 
     if (std.mem.endsWith(u8, bytes, separator)) return bytes.len - separator.len;
