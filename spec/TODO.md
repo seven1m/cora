@@ -1501,7 +1501,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/nil/to_f_spec.rb
 - [x] core/nil/to_h_spec.rb
 - [x] core/nil/to_i_spec.rb
-- [ ] core/nil/to_r_spec.rb
+- [x] core/nil/to_r_spec.rb
 - [x] core/nil/to_s_spec.rb
 - [x] core/nil/xor_spec.rb
 

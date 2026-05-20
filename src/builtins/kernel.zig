@@ -448,6 +448,12 @@ fn builtinKernelRationalSafeCheckCall(vm: *VM, arg: Value, method_name: []const 
 }
 
 fn builtinKernelRationalCoerce(vm: *VM, arg: Value, exception_mode: bool) VMError!?rational_builtin.RationalParts {
+    if (arg.isNil()) {
+        if (exception_mode) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "can't convert nil into Rational", .{});
+        }
+        return null;
+    }
     if (arg.isRational()) {
         const rational = arg.toRationalObject();
         return .{ .numerator = rational.numerator, .denominator = rational.denominator };
