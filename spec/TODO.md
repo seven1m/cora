@@ -962,7 +962,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/hash/keys_spec.rb
 - [x] core/hash/length_spec.rb
 - [x] core/hash/lt_spec.rb
-- [ ] core/hash/lte_spec.rb
+- [x] core/hash/lte_spec.rb
 - [x] core/hash/member_spec.rb
 - [x] core/hash/merge_spec.rb
 - [ ] core/hash/new_spec.rb
