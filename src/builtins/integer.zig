@@ -585,6 +585,9 @@ pub fn register(vm: *VM) !void {
     const abs_sym = try vm.intern("abs");
     try vm.integer_class.module.methods.put(abs_sym, value.MethodEntry.builtin(&builtinIntegerAbs, .{ .exact = 0 }));
 
+    const magnitude_sym = try vm.intern("magnitude");
+    try vm.integer_class.module.methods.put(magnitude_sym, value.MethodEntry.builtin(&builtinIntegerAbs, .{ .exact = 0 }));
+
     const negative_sym = try vm.intern("negative?");
     try vm.integer_class.module.methods.put(negative_sym, value.MethodEntry.builtin(&builtinIntegerNegative, .{ .exact = 0 }));
 
