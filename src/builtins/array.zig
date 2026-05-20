@@ -230,6 +230,14 @@ const ArrayFillPlan = struct {
     count: i64,
 };
 
+const ArraySliceRangePlan = union(enum) {
+    nil_result,
+    span: struct {
+        start: i64,
+        count: i64,
+    },
+};
+
 fn coerceFillIndex(vm: *VM, value_to_coerce: Value) VMError!i64 {
     return try value_to_coerce.coerceToI64ViaToInt(
         vm,
@@ -277,6 +285,68 @@ fn coerceFetchIndex(vm: *VM, value_to_coerce: Value) VMError!i64 {
     }
 
     return coerced.integerToI64(vm, "bignum too big to convert into `long`");
+}
+
+fn createArrayFromElements(vm: *VM, elements: []const Value) VMError!Value {
+    const out = try vm.createArray();
+    for (elements) |element| {
+        out.elements.append(vm.gc_allocator, element) catch return error.Fatal;
+    }
+    return Value.fromObject(&out.object);
+}
+
+fn planArraySliceRange(vm: *VM, array_len: i64, range_obj: *value.RangeObject) VMError!ArraySliceRangePlan {
+    var actual_start: i64 = 0;
+    if (!range_obj.begin.isNil()) {
+        actual_start = try range_obj.begin.coerceToI64ViaToInt(
+            vm,
+            "no implicit conversion into Integer",
+            "no implicit conversion into Integer",
+            "bignum too big to convert into `long`",
+        );
+        if (actual_start < 0) actual_start += array_len;
+    }
+    if (actual_start < 0 or actual_start > array_len) return .nil_result;
+
+    var finish: i64 = array_len;
+    if (!range_obj.end.isNil()) {
+        finish = try range_obj.end.coerceToI64ViaToInt(
+            vm,
+            "no implicit conversion into Integer",
+            "no implicit conversion into Integer",
+            "bignum too big to convert into `long`",
+        );
+        if (finish < 0) finish += array_len;
+        if (!range_obj.exclude_end) finish += 1;
+    }
+
+    if (finish < actual_start) {
+        return .{ .span = .{ .start = actual_start, .count = 0 } };
+    }
+
+    const clamped_end = @max(actual_start, @min(finish, array_len));
+    return .{ .span = .{ .start = actual_start, .count = clamped_end - actual_start } };
+}
+
+fn planArraySliceStartLength(vm: *VM, array_len: i64, raw_start: Value, raw_length: Value) VMError!ArraySliceRangePlan {
+    var actual_start = try raw_start.coerceToI64ViaToInt(
+        vm,
+        "no implicit conversion into Integer",
+        "no implicit conversion into Integer",
+        "bignum too big to convert into `long`",
+    );
+    const length = try raw_length.coerceToI64ViaToInt(
+        vm,
+        "no implicit conversion into Integer",
+        "no implicit conversion into Integer",
+        "bignum too big to convert into `long`",
+    );
+    if (actual_start < 0) actual_start += array_len;
+    if (actual_start < 0 or actual_start > array_len) return .nil_result;
+    if (length < 0) return .nil_result;
+
+    const end_idx = @min(actual_start + length, array_len);
+    return .{ .span = .{ .start = actual_start, .count = end_idx - actual_start } };
 }
 
 fn planArrayFillFromStartLength(
@@ -610,6 +680,12 @@ pub fn register(vm: *VM) !void {
     const clear_sym = try vm.intern("clear");
     try vm.array_class.module.methods.put(clear_sym, value.MethodEntry.builtin(&builtinArrayClear, .{ .exact = 0 }));
 
+    const slice_sym = try vm.intern("slice");
+    try vm.array_class.module.methods.put(slice_sym, value.MethodEntry.builtin(&builtinArrayBracket, .{ .variadic = 0 }));
+
+    const slice_bang_sym = try vm.intern("slice!");
+    try vm.array_class.module.methods.put(slice_bang_sym, value.MethodEntry.builtin(&builtinArraySliceBang, .{ .variadic = 0 }));
+
     const fill_sym = try vm.intern("fill");
     try vm.array_class.module.methods.put(fill_sym, value.MethodEntry.builtin(&builtinArrayFill, .{ .variadic = 0 }));
 
@@ -818,50 +894,14 @@ pub fn builtinArrayBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     const len: i64 = @intCast(array.elements.items.len);
 
     if (args.len == 1) {
-        // Single argument: arr[index] or arr[range]
         if (args[0].isRange()) {
-            const range_obj = args[0].toRangeObject();
-            var actual_start: i64 = 0;
-            if (!range_obj.begin.isNil()) {
-                const start = try range_obj.begin.coerceToI64ViaToInt(
+            return switch (try planArraySliceRange(vm, len, args[0].toRangeObject())) {
+                .nil_result => Value.nil(),
+                .span => |span| createArrayFromElements(
                     vm,
-                    "no implicit conversion into Integer",
-                    "no implicit conversion into Integer",
-                    "bignum too big to convert into `long`",
-                );
-                actual_start = start;
-                if (actual_start < 0) actual_start += len;
-            }
-            if (actual_start < 0 or actual_start > len) {
-                return Value.nil();
-            }
-
-            var finish: i64 = len;
-            if (!range_obj.end.isNil()) {
-                finish = try range_obj.end.coerceToI64ViaToInt(
-                    vm,
-                    "no implicit conversion into Integer",
-                    "no implicit conversion into Integer",
-                    "bignum too big to convert into `long`",
-                );
-                if (finish < 0) finish += len;
-                if (!range_obj.exclude_end) finish += 1;
-            }
-
-            if (finish < actual_start) {
-                const empty = try vm.createArray();
-                return Value.fromObject(&empty.object);
-            }
-
-            const clamped_end = @max(actual_start, @min(finish, len));
-
-            const result_array = try vm.createArray();
-            var i: i64 = actual_start;
-            while (i < clamped_end) : (i += 1) {
-                const idx: usize = @intCast(i);
-                result_array.elements.append(vm.gc_allocator, array.elements.items[idx]) catch return error.Fatal;
-            }
-            return Value.fromObject(&result_array.object);
+                    array.elements.items[@intCast(span.start)..@intCast(span.start + span.count)],
+                ),
+            };
         }
 
         const index = try args[0].coerceToI64ViaToInt(
@@ -881,64 +921,15 @@ pub fn builtinArrayBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
         }
 
         return array.elements.items[@intCast(actual_index)];
-    } else if (args.len == 2) {
-        // Two arguments: arr[start, length] - array slicing
-        const start = try args[0].coerceToI64ViaToInt(
-            vm,
-            "no implicit conversion into Integer",
-            "no implicit conversion into Integer",
-            "bignum too big to convert into `long`",
-        );
-        const length = try args[1].coerceToI64ViaToInt(
-            vm,
-            "no implicit conversion into Integer",
-            "no implicit conversion into Integer",
-            "bignum too big to convert into `long`",
-        );
-
-        // Handle negative start index
-        var actual_start: i64 = start;
-        if (start < 0) {
-            actual_start = len + start;
-        }
-
-        // Return nil if start is out of bounds
-        if (actual_start < 0 or actual_start > len) {
-            return Value.nil();
-        }
-
-        // Negative length is invalid
-        if (length < 0) {
-            return Value.nil();
-        }
-
-        // Calculate end index (capped at array length)
-        const end_idx: i64 = @min(actual_start + length, len);
-
-        // Create new array with sliced elements
-        const result_array = vm.gc_allocator.create(value.ArrayObject) catch return error.Fatal;
-        result_array.* = .{
-            .object = .{
-                .type_tag = .array,
-                .flags = 0,
-                .class = vm.array_class,
-                .singleton_class = null,
-                .instance_variables = null,
-            },
-            .elements = .empty,
-        };
-
-        // Copy elements from start to end
-        var i: i64 = actual_start;
-        while (i < end_idx) : (i += 1) {
-            const idx: usize = @intCast(i);
-            result_array.elements.append(vm.gc_allocator, array.elements.items[idx]) catch return error.Fatal;
-        }
-
-        return Value.fromObject(&result_array.object);
     }
 
-    unreachable; // requireArgCountRange ensures args.len is 1 or 2
+    return switch (try planArraySliceStartLength(vm, len, args[0], args[1])) {
+        .nil_result => Value.nil(),
+        .span => |span| createArrayFromElements(
+            vm,
+            array.elements.items[@intCast(span.start)..@intCast(span.start + span.count)],
+        ),
+    };
 }
 
 pub fn builtinArrayBracketSet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -2317,6 +2308,44 @@ pub fn builtinArrayDeleteAt(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     if (actual_index < 0 or actual_index >= len) return Value.nil();
 
     return array.elements.orderedRemove(@intCast(actual_index));
+}
+
+pub fn builtinArraySliceBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
+    }
+
+    const array = receiver.toArrayObject();
+    const len: i64 = @intCast(array.elements.items.len);
+
+    if (args.len == 1 and !args[0].isRange()) {
+        var actual_index = try args[0].coerceToI64ViaToInt(
+            vm,
+            "no implicit conversion into Integer",
+            "no implicit conversion into Integer",
+            "bignum too big to convert into `long`",
+        );
+        if (actual_index < 0) actual_index += len;
+        if (actual_index < 0 or actual_index >= len) return Value.nil();
+        return array.elements.orderedRemove(@intCast(actual_index));
+    }
+
+    const plan = if (args.len == 1)
+        try planArraySliceRange(vm, len, args[0].toRangeObject())
+    else
+        try planArraySliceStartLength(vm, len, args[0], args[1]);
+
+    return switch (plan) {
+        .nil_result => Value.nil(),
+        .span => |span| blk: {
+            const start: usize = @intCast(span.start);
+            const count: usize = @intCast(span.count);
+            const removed = try createArrayFromElements(vm, array.elements.items[start .. start + count]);
+            array.elements.replaceRange(vm.gc_allocator, start, count, &[_]Value{}) catch return error.Fatal;
+            break :blk removed;
+        },
+    };
 }
 
 pub fn builtinArrayInsert(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
