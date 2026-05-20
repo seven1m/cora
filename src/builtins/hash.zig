@@ -340,28 +340,7 @@ pub fn builtinHashLessThan(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 
 pub fn builtinHashLessThanOrEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const lhs = receiver.toHashObject();
-    const other_hash = switch (try vm.probeToHash(args[0])) {
-        .hash => |h| h.toHashObject(),
-        .missing, .nil_result, .non_hash => {
-            return vm.raiseExceptionFmt(
-                vm.type_error_class,
-                "can't convert {s} to Hash ({s}#to_hash gives {s})",
-                .{ vm.className(args[0]), vm.className(args[0]), vm.className(args[0]) },
-            );
-        },
-    };
-
-    if (lhs.entries.items.len > other_hash.entries.items.len) {
-        return Value.boolean(false);
-    }
-
-    for (lhs.entries.items) |entry| {
-        const other_entry = (try vm.hashGetEntry(other_hash, entry.key)) orelse return Value.boolean(false);
-        if (!(try vm.hashKeysEqual(entry.value, other_entry.value))) return Value.boolean(false);
-    }
-
-    return Value.boolean(true);
+    return try hashSubsetComparison(vm, receiver, args[0], false);
 }
 
 pub fn builtinHashGreaterThan(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
