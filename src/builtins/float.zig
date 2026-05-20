@@ -393,11 +393,14 @@ pub fn builtinFloatFloor(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
         return Value.integer(@as(i64, @intFromFloat(@floor(f))));
     }
     const digits = try args[0].integerToI64(vm, "invalid precision");
-    if (digits >= 0) {
+    if (digits > 0) {
         return try vm.newFloat(f);
     }
+    if (digits == 0) {
+        return Value.integer(@as(i64, @intFromFloat(@floor(f))));
+    }
     const factor = std.math.pow(f64, 10, @as(f64, @floatFromInt(-digits)));
-    return try vm.newFloat(@floor(f / factor) * factor);
+    return Value.integer(@as(i64, @intFromFloat(@floor(f / factor) * factor)));
 }
 
 pub fn builtinFloatRound(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
