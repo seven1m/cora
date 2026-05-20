@@ -354,8 +354,8 @@ pub fn builtinEnvReplace(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
     }
 
     for (source_hash.entries.items) |entry| {
-        const key_str = entry.key.toStringObject().str;
-        const value_str = entry.value.toStringObject().str;
+        const key_str = try entry.key.coerceToStr(vm, "no implicit conversion of Object into String");
+        const value_str = try entry.value.coerceToStr(vm, "no implicit conversion of Object into String");
         _ = try vm.envSetString(key_str, value_str, true);
     }
 

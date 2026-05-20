@@ -18,3 +18,9 @@ describe "ENV.clear" do
   end
 
 end
+
+describe "ENV.replace" do
+  it "raises TypeError for non-String keys and values" do
+    -> { ENV.replace(1 => 2) }.should raise_error(TypeError)
+  end
+end
