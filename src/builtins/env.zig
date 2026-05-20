@@ -67,6 +67,12 @@ pub fn register(vm: *VM) !void {
 
     const rassoc_sym = try vm.intern("rassoc");
     try env_singleton.module.methods.put(rassoc_sym, value.MethodEntry.builtin(&builtinEnvRassoc, .{ .exact = 1 }));
+
+    const clear_sym = try vm.intern("clear");
+    try env_singleton.module.methods.put(clear_sym, value.MethodEntry.builtin(&builtinEnvClear, .{ .exact = 0 }));
+
+    const replace_sym = try vm.intern("replace");
+    try env_singleton.module.methods.put(replace_sym, value.MethodEntry.builtin(&builtinEnvReplace, .{ .exact = 1 }));
 }
 
 pub fn builtinEnvBracket(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -287,4 +293,71 @@ pub fn builtinEnvRassoc(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Val
         }
     }
     return Value.nil();
+}
+
+pub fn builtinEnvClear(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
+    var env_map = try vm.currentEnvMap();
+    defer env_map.deinit();
+
+    var keys = std.ArrayListUnmanaged([]const u8){ .items = &.{}, .capacity = 0 };
+    defer {
+        for (keys.items) |key| vm.allocator.free(key);
+        keys.deinit(vm.allocator);
+    }
+
+    var iter = env_map.iterator();
+    while (iter.next()) |entry| {
+        const key_copy = vm.allocator.dupe(u8, entry.key_ptr.*) catch return error.Fatal;
+        keys.append(vm.allocator, key_copy) catch return error.Fatal;
+    }
+
+    for (keys.items) |key| {
+        _ = try vm.envUnset(key, true);
+    }
+
+    return vm.env_object.?;
+}
+
+pub fn builtinEnvReplace(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+
+    const source_hash = switch (try vm.probeToHash(args[0])) {
+        .hash => |h| h.toHashObject(),
+        .missing, .nil_result, .non_hash => {
+            return vm.raiseExceptionFmt(
+                vm.type_error_class,
+                "can't convert {s} to Hash ({s}#to_hash gives {s})",
+                .{ vm.className(args[0]), vm.className(args[0]), vm.className(args[0]) },
+            );
+        },
+    };
+
+    var env_map = try vm.currentEnvMap();
+    defer env_map.deinit();
+
+    var keys = std.ArrayListUnmanaged([]const u8){ .items = &.{}, .capacity = 0 };
+    defer {
+        for (keys.items) |key| vm.allocator.free(key);
+        keys.deinit(vm.allocator);
+    }
+
+    var iter = env_map.iterator();
+    while (iter.next()) |entry| {
+        const key_copy = vm.allocator.dupe(u8, entry.key_ptr.*) catch return error.Fatal;
+        keys.append(vm.allocator, key_copy) catch return error.Fatal;
+    }
+
+    for (keys.items) |key| {
+        _ = try vm.envUnset(key, true);
+    }
+
+    for (source_hash.entries.items) |entry| {
+        const key_str = entry.key.toStringObject().str;
+        const value_str = entry.value.toStringObject().str;
+        _ = try vm.envSetString(key_str, value_str, true);
+    }
+
+    return vm.env_object.?;
 }
