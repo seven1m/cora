@@ -280,6 +280,30 @@ test "Object const_get resolves Gem::Specification" {
     try std.testing.expectEqualSlices(u8, "Specification", result.toClassObject().module.name.name);
 }
 
+test "qualified constant paths inherit constants from superclass" {
+    var result = try evalCode(
+        \\class A
+        \\  X = 42
+        \\end
+        \\class B < A
+        \\end
+        \\B::X
+    );
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
+
+    result = try evalCode(
+        \\class A
+        \\  X = 42
+        \\end
+        \\class B < A
+        \\end
+        \\Object.const_get("B::X")
+    );
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
+}
+
 test "Module module_function creates module singleton method and privatizes instance method" {
     var result = try evalCode(
         \\module M

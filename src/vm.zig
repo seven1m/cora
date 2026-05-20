@@ -4663,23 +4663,38 @@ pub const VM = struct {
                     }
                     try self.warnDeprecatedConstant(module, name_sym);
                     try self.push(entry.value);
-                } else {
-                    switch (try self.triggerAutoload(module, name_sym)) {
-                        .missing, .attempted => {},
-                        .loaded => |const_val| {
-                            try self.push(const_val);
-                            return;
-                        },
-                    }
-                    const msg = std.fmt.allocPrint(
-                        self.gc_allocator,
-                        "uninitialized constant {s}::{s}",
-                        .{ module.name.name, constant.string },
-                    ) catch return error.Fatal;
-                    const exc = try self.createException(self.name_error_class, msg);
-                    self.setPendingException(exc);
-                    return error.Unwind;
+                    return;
                 }
+
+                if (parent_val.isClass()) {
+                    var superclass = parent_val.toClassObject().superclass;
+                    while (superclass) |cls| : (superclass = cls.superclass) {
+                        if (cls.module.constants.get(name_sym)) |entry| {
+                            if (entry.flags.visibility == .private) {
+                                try self.raisePrivateConstantReference(&cls.module, name_sym);
+                            }
+                            try self.warnDeprecatedConstant(&cls.module, name_sym);
+                            try self.push(entry.value);
+                            return;
+                        }
+                    }
+                }
+
+                switch (try self.triggerAutoload(module, name_sym)) {
+                    .missing, .attempted => {},
+                    .loaded => |const_val| {
+                        try self.push(const_val);
+                        return;
+                    },
+                }
+                const msg = std.fmt.allocPrint(
+                    self.gc_allocator,
+                    "uninitialized constant {s}::{s}",
+                    .{ module.name.name, constant.string },
+                ) catch return error.Fatal;
+                const exc = try self.createException(self.name_error_class, msg);
+                self.setPendingException(exc);
+                return error.Unwind;
             },
 
             .PUSH_SELF => {
@@ -7637,11 +7652,15 @@ pub const VM = struct {
             if (!current.isClass() and !current.isModule()) return null;
 
             const segment_sym = try self.intern(segment);
-            const module_obj = if (current.isClass())
-                &current.toClassObject().module
-            else
-                current.toModuleObject();
-            current = (module_obj.constants.get(segment_sym) orelse return null).value;
+            if (current.isClass()) {
+                var klass: ?*ClassObject = current.toClassObject();
+                current = blk: while (klass) |cls| : (klass = cls.superclass) {
+                    if (cls.module.constants.get(segment_sym)) |entry| break :blk entry.value;
+                } else return null;
+            } else {
+                const module_obj = current.toModuleObject();
+                current = (module_obj.constants.get(segment_sym) orelse return null).value;
+            }
         }
 
         return current;
