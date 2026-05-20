@@ -121,7 +121,11 @@ pub fn builtinDirHome(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value
     }
 
     if (args.len == 1) {
-        const requested_user = try args[0].coerceToStr(vm, "no implicit conversion into String");
+        const arg = args[0];
+        if (arg.isNil()) {
+            return try vm.newString(try currentHome(vm), false);
+        }
+        const requested_user = try arg.coerceToStr(vm, "no implicit conversion into String");
         const home = (try homeFromPasswdByName(vm, requested_user)) orelse {
             return vm.raiseExceptionFmt(vm.argument_error_class, "user {s} doesn't exist", .{requested_user});
         };
