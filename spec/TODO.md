@@ -848,7 +848,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/float/angle_spec.rb
 - [ ] core/float/arg_spec.rb
 - [ ] core/float/case_compare_spec.rb
-- [ ] core/float/ceil_spec.rb
+- [-] core/float/ceil_spec.rb
 - [ ] core/float/coerce_spec.rb
 - [ ] core/float/comparison_spec.rb
 - [ ] core/float/constants_spec.rb

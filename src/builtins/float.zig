@@ -121,6 +121,15 @@ pub fn register(vm: *VM) !void {
 
     const inspect_sym = try vm.intern("inspect");
     try vm.float_class.module.methods.put(inspect_sym, value.MethodEntry.builtin(&builtinFloatInspect, .{ .exact = 0 }));
+
+    const ceil_sym = try vm.intern("ceil");
+    try vm.float_class.module.methods.put(ceil_sym, value.MethodEntry.builtin(&builtinFloatCeil, .{ .variadic = 0 }));
+
+    const floor_sym = try vm.intern("floor");
+    try vm.float_class.module.methods.put(floor_sym, value.MethodEntry.builtin(&builtinFloatFloor, .{ .variadic = 0 }));
+
+    const round_sym = try vm.intern("round");
+    try vm.float_class.module.methods.put(round_sym, value.MethodEntry.builtin(&builtinFloatRound, .{ .variadic = 0 }));
 }
 
 pub fn builtinFloatPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -358,4 +367,49 @@ pub fn builtinFloatToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
 
 pub fn builtinFloatInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     return builtinFloatToS(vm, receiver, args, null);
+}
+
+pub fn builtinFloatCeil(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const f = receiver.toFloatObject().val;
+    if (args.len == 0) {
+        return Value.integer(@as(i64, @intFromFloat(@ceil(f))));
+    }
+    const digits = try args[0].integerToI64(vm, "invalid precision");
+    if (digits > 0) {
+        return try vm.newFloat(f);
+    }
+    if (digits == 0) {
+        return Value.integer(@as(i64, @intFromFloat(@ceil(f))));
+    }
+    const factor = std.math.pow(f64, 10, @as(f64, @floatFromInt(-digits)));
+    return Value.integer(@as(i64, @intFromFloat(@ceil(f / factor) * factor)));
+}
+
+pub fn builtinFloatFloor(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const f = receiver.toFloatObject().val;
+    if (args.len == 0) {
+        return Value.integer(@as(i64, @intFromFloat(@floor(f))));
+    }
+    const digits = try args[0].integerToI64(vm, "invalid precision");
+    if (digits >= 0) {
+        return try vm.newFloat(f);
+    }
+    const factor = std.math.pow(f64, 10, @as(f64, @floatFromInt(-digits)));
+    return try vm.newFloat(@floor(f / factor) * factor);
+}
+
+pub fn builtinFloatRound(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const f = receiver.toFloatObject().val;
+    if (args.len == 0) {
+        return Value.integer(@as(i64, @intFromFloat(@round(f))));
+    }
+    const digits = try args[0].integerToI64(vm, "invalid precision");
+    if (digits >= 0) {
+        return try vm.newFloat(f);
+    }
+    const factor = std.math.pow(f64, 10, @as(f64, @floatFromInt(-digits)));
+    return try vm.newFloat(@round(f / factor) * factor);
 }
