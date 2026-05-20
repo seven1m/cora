@@ -76,6 +76,9 @@ pub fn register(vm: *VM) !void {
 
     const replace_sym = try vm.intern("replace");
     try env_singleton.module.methods.put(replace_sym, value.MethodEntry.builtin(&builtinEnvReplace, .{ .exact = 1 }));
+
+    const except_sym = try vm.intern("except");
+    try env_singleton.module.methods.put(except_sym, value.MethodEntry.builtin(&builtinEnvExcept, .{ .variadic = 0 }));
 }
 
 pub fn builtinEnvBracket(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -291,6 +294,26 @@ pub fn builtinEnvMerge(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!
                 try vm.hashSetEntry(result, entry.key, entry.value);
             }
         }
+    }
+
+    return Value.fromObject(&result.object);
+}
+
+pub fn builtinEnvExcept(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    const result = try vm.createHash();
+    var env_map = try vm.currentEnvMap();
+    defer env_map.deinit();
+
+    var iter = env_map.iterator();
+    while (iter.next()) |entry| {
+        const key_val = try vm.newString(entry.key_ptr.*, false);
+        const value_val = try vm.newString(entry.value_ptr.*, false);
+
+        try vm.hashSetEntry(result, key_val, value_val);
+    }
+
+    for (args) |arg| {
+        _ = try vm.hashDeleteEntry(result, arg);
     }
 
     return Value.fromObject(&result.object);
