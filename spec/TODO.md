@@ -1030,7 +1030,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/integer/lte_spec.rb
 - [ ] core/integer/magnitude_spec.rb
 - [x] core/integer/minus_spec.rb
-- [ ] core/integer/modulo_spec.rb
+- [x] core/integer/modulo_spec.rb
 - [x] core/integer/multiply_spec.rb
 - [x] core/integer/next_spec.rb
 - [x] core/integer/nobits_spec.rb

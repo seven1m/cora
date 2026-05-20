@@ -961,19 +961,30 @@ pub fn builtinIntegerDivide(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 pub fn builtinIntegerModulo(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     try receiver.ensureInteger(vm);
-    try args[0].ensureInteger(vm);
-
-    const divisor_is_zero = if (args[0].isInteger())
-        args[0].toInteger() == 0
-    else if (args[0].isBigInteger())
-        args[0].toBigIntegerObject().value.eqlZero()
-    else
-        unreachable;
-    if (divisor_is_zero) {
-        return vm.raiseExceptionFmt(vm.zero_division_error_class, "divided by 0", .{});
+    if (!args[0].isInteger() and !args[0].isBigInteger() and !args[0].isFloat()) {
+        return coerceAndCallIntegerArithmetic(vm, receiver, args[0], "%");
     }
-
-    return modIntegers(vm, receiver, args[0]);
+    const rhs = try coerceNumericArg(vm, args[0]);
+    return switch (rhs) {
+        .integer => |divisor| blk: {
+            const divisor_is_zero = if (divisor.isInteger())
+                divisor.toInteger() == 0
+            else if (divisor.isBigInteger())
+                divisor.toBigIntegerObject().value.eqlZero()
+            else
+                unreachable;
+            if (divisor_is_zero) {
+                return vm.raiseExceptionFmt(vm.zero_division_error_class, "divided by 0", .{});
+            }
+            break :blk modIntegers(vm, receiver, divisor);
+        },
+        .float => |divisor| {
+            if (divisor == 0.0) {
+                return vm.raiseExceptionFmt(vm.zero_division_error_class, "divided by 0", .{});
+            }
+            return try vm.newFloat(@mod(receiver.integerToF64(), divisor));
+        },
+    };
 }
 
 pub fn builtinIntegerCeildiv(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
