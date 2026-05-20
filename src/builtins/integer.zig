@@ -558,6 +558,9 @@ pub fn register(vm: *VM) !void {
     const denominator_sym = try vm.intern("denominator");
     try vm.integer_class.module.methods.put(denominator_sym, value.MethodEntry.builtin(&builtinIntegerDenominator, .{ .exact = 0 }));
 
+    const numerator_sym = try vm.intern("numerator");
+    try vm.integer_class.module.methods.put(numerator_sym, value.MethodEntry.builtin(&builtinIntegerNumerator, .{ .exact = 0 }));
+
     const to_r_sym = try vm.intern("to_r");
     try vm.integer_class.module.methods.put(to_r_sym, value.MethodEntry.builtin(&builtinIntegerToR, .{ .exact = 0 }));
 
@@ -1213,6 +1216,12 @@ pub fn builtinIntegerDenominator(vm: *VM, receiver: Value, args: []Value, _: ?Bl
     try vm.requireArgCount(args, 0);
     try receiver.ensureInteger(vm);
     return Value.integer(1);
+}
+
+pub fn builtinIntegerNumerator(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    try receiver.ensureInteger(vm);
+    return receiver;
 }
 
 pub fn builtinIntegerToR(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
