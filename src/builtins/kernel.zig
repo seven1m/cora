@@ -332,6 +332,12 @@ pub fn register(vm: *VM) !void {
     const public_send_sym = try vm.intern("public_send");
     try vm.kernel_module.methods.put(public_send_sym, MethodEntry.builtin(&builtinKernelPublicSend, .{ .variadic = 0 }));
 
+    const method_magic_sym = try vm.intern("__method__");
+    try vm.kernel_module.methods.put(method_magic_sym, MethodEntry.builtinWithVisibility(&builtinKernelMagicMethod, .{ .exact = 0 }, .private));
+
+    const callee_magic_sym = try vm.intern("__callee__");
+    try vm.kernel_module.methods.put(callee_magic_sym, MethodEntry.builtinWithVisibility(&builtinKernelMagicCallee, .{ .exact = 0 }, .private));
+
     const method_sym = try vm.intern("method");
     try vm.kernel_module.methods.put(method_sym, MethodEntry.builtin(&builtinKernelMethod, .{ .exact = 1 }));
 
@@ -1507,6 +1513,65 @@ pub fn builtinKernelPublicSend(vm: *VM, receiver: Value, args: []Value, block: ?
     const name_str = try vm.coerceToMethodNameString(args[0]);
     const call_args = args[1..];
     return vm.callPublicMethodByNameForwardingKeywords(receiver, name_str, call_args, block);
+}
+
+fn isEvalLikeFrame(frame: *const vm_mod.CallFrame) bool {
+    const source = frame.chunk.source_file orelse return false;
+    return std.mem.eql(u8, source, "(eval)");
+}
+
+fn sameMethodContext(outer: *const vm_mod.CallFrame, inner: *const vm_mod.CallFrame) bool {
+    if (!outer.self_value.eql(inner.self_value)) return false;
+
+    const outer_source = outer.chunk.source_file;
+    const inner_source = inner.chunk.source_file;
+    if (outer_source != null and inner_source != null and std.mem.eql(u8, outer_source.?, inner_source.?)) {
+        return true;
+    }
+
+    return isEvalLikeFrame(outer);
+}
+
+fn enclosingMethodFrame(vm: *VM) ?*const vm_mod.CallFrame {
+    const current = vm.currentRubyFrame() orelse return null;
+    if (current.method_name != null) return current;
+
+    if (current.frame_type != .proc and current.frame_type != .lambda and !isEvalLikeFrame(current)) {
+        return null;
+    }
+
+    var seen_current = false;
+    var i = vm.frames.items.len;
+    while (i > 0) {
+        i -= 1;
+        const frame = &vm.frames.items[i];
+        if (frame.frame_type == .builtin) continue;
+        if (!seen_current) {
+            if (frame == current) seen_current = true;
+            continue;
+        }
+        if (frame.method_name == null) continue;
+        if (sameMethodContext(current, frame)) return frame;
+        return null;
+    }
+    return null;
+}
+
+pub fn builtinKernelMagicMethod(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const frame = enclosingMethodFrame(vm) orelse return Value.nil();
+    const method_name = if (std.mem.eql(u8, frame.chunk.name, "block"))
+        frame.method_name orelse frame.chunk.name
+    else
+        frame.chunk.name;
+    return Value.fromObject(&(try vm.intern(method_name)).object);
+}
+
+pub fn builtinKernelMagicCallee(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const frame = enclosingMethodFrame(vm) orelse return Value.nil();
+    const callee_name = frame.method_name orelse frame.chunk.name;
+    return Value.fromObject(&(try vm.intern(callee_name)).object);
 }
 
 fn createBoundMethodObject(vm: *VM, receiver: Value, method_name: *SymbolObject, resolved: vm_mod.ResolvedMethod, owner: Value) VMError!Value {

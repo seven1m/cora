@@ -1172,7 +1172,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/kernel/String_spec.rb
 - [ ] core/kernel/__callee___spec.rb
 - [x] core/kernel/__dir___spec.rb
-- [ ] core/kernel/__method___spec.rb
+- [x] core/kernel/__method___spec.rb
 - [ ] core/kernel/abort_spec.rb
 - [ ] core/kernel/at_exit_spec.rb
 - [-] core/kernel/autoload_spec.rb
