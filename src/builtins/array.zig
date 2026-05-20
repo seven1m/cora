@@ -239,6 +239,22 @@ fn coerceFillIndex(vm: *VM, value_to_coerce: Value) VMError!i64 {
     );
 }
 
+fn coerceRotateOffset(vm: *VM, args: []Value, len: i64) VMError!usize {
+    var offset: i64 = 1;
+    if (args.len == 1) {
+        offset = try args[0].coerceToI64ViaToInt(
+            vm,
+            "no implicit conversion into Integer",
+            "no implicit conversion into Integer",
+            "bignum too big to convert into `long`",
+        );
+    }
+
+    offset = @mod(offset, len);
+    if (offset < 0) offset += len;
+    return @intCast(offset);
+}
+
 fn coerceFetchIndex(vm: *VM, value_to_coerce: Value) VMError!i64 {
     if (value_to_coerce.isInteger() or value_to_coerce.isBigInteger()) {
         return value_to_coerce.integerToI64(vm, "bignum too big to convert into `long`");
@@ -2680,21 +2696,8 @@ pub fn builtinArrayRotate(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
         return Value.fromObject(&out.object);
     }
 
-    var offset: i64 = 1;
-    if (args.len == 1) {
-        offset = try args[0].coerceToI64ViaToInt(
-            vm,
-            "no implicit conversion into Integer",
-            "no implicit conversion into Integer",
-            "bignum too big to convert into `long`",
-        );
-    }
-
-    offset = @mod(offset, len);
-    if (offset < 0) offset += len;
-
+    const mid = try coerceRotateOffset(vm, args, len);
     const out = try vm.createArray();
-    const mid = @as(usize, @intCast(offset));
     const tail = array.elements.items[mid..];
     const head = array.elements.items[0..mid];
     out.elements.appendSlice(vm.gc_allocator, tail) catch return error.Fatal;
@@ -2713,25 +2716,13 @@ pub fn builtinArrayRotateBang(vm: *VM, receiver: Value, args: []Value, _: ?Block
     const len: i64 = @intCast(array.elements.items.len);
     if (len <= 1) return receiver;
 
-    var offset: i64 = 1;
-    if (args.len == 1) {
-        offset = try args[0].coerceToI64ViaToInt(
-            vm,
-            "no implicit conversion into Integer",
-            "no implicit conversion into Integer",
-            "bignum too big to convert into `long`",
-        );
-    }
-
-    offset = @mod(offset, len);
-    if (offset < 0) offset += len;
-    if (offset == 0) return receiver;
+    const mid = try coerceRotateOffset(vm, args, len);
+    if (mid == 0) return receiver;
 
     const snapshot = vm.allocator.alloc(Value, array.elements.items.len) catch return error.Fatal;
     @memcpy(snapshot, array.elements.items);
     defer vm.allocator.free(snapshot);
 
-    const mid = @as(usize, @intCast(offset));
     var idx: usize = 0;
     for (snapshot[mid..]) |elem| {
         array.elements.items[idx] = elem;
