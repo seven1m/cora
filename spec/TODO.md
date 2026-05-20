@@ -844,7 +844,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/filetest/zero_spec.rb
 
 ### core/float
-- [ ] core/float/abs_spec.rb
+- [x] core/float/abs_spec.rb
 - [ ] core/float/angle_spec.rb
 - [ ] core/float/arg_spec.rb
 - [ ] core/float/case_compare_spec.rb

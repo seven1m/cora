@@ -1157,6 +1157,16 @@ class BeCloseMatcher
   end
 end
 
+class BePositiveZeroMatcher
+  def matches?(actual)
+    actual == 0.0 and 1.0 / actual > 0
+  end
+
+  def failure_message(actual)
+    "Expected #{actual.inspect} to be positive zero"
+  end
+end
+
 class HaveMethodMatcher
   def initialize(name)
     @name = name
@@ -1512,6 +1522,10 @@ end
 
 def be_false
   BooleanMatcher.new(false)
+end
+
+def be_positive_zero
+  BePositiveZeroMatcher.new
 end
 
 def be_nil
