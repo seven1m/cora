@@ -10,4 +10,10 @@ describe "Integer#ceil" do
   context "with precision" do
     it_behaves_like :integer_ceil_precision, :Integer
   end
+
+  it "handles big integers with negative precision" do
+    (10**30).ceil(-1).should == 10**30
+    (10**30).ceil(-40).should == 10**40
+    (-(10**30)).ceil(-40).should == 0
+  end
 end

@@ -1304,21 +1304,16 @@ pub fn builtinIntegerCeil(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     }
 
     const remainder = try modIntegers(vm, receiver, factor);
-    const remainder_i64 = try remainder.integerToI64(vm, "integer is too large");
-    if (remainder_i64 == 0) return receiver;
+    if (integerIsZero(remainder)) return receiver;
 
     const floored = if (receiver.isInteger() and factor.isInteger())
         Value.integer(@divFloor(receiver.toInteger(), factor.toInteger()))
     else
         try divFloorIntegers(vm, receiver, factor);
 
-    const floored_i64 = try floored.integerToI64(vm, "integer is too large");
-    const receiver_i64 = try receiver.integerToI64(vm, "integer is too large");
-    const n_is_pos = receiver_i64 >= 0;
+    if (integerIsZero(floored) and integerIsNegative(receiver)) return Value.integer(0);
 
-    if (floored_i64 == 0 and !n_is_pos) return Value.integer(0);
-
-    const incremented = Value.integer(floored_i64 + 1);
+    const incremented = try addIntegers(vm, floored, Value.integer(1));
     return mulIntegers(vm, incremented, factor);
 }
 
