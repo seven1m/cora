@@ -91,3 +91,22 @@ test "Time.new parses RubyGems timestamp strings and rejects date-only strings" 
     try std.testing.expect(result.isSymbol());
     try std.testing.expectEqualStrings("argument_error", result.toSymbolObject().name);
 }
+
+test "Time._load decodes MRI marshal payload" {
+    const result = try evalCode(
+        \\payload = [0xec, 0x15, 0x1f, 0xc0, 0x00, 0x00, 0x80, 0x8b].pack("C*")
+        \\Time._load(payload).strftime("%F %T %Z")
+    );
+    try std.testing.expectEqualStrings("2024-06-15 12:34:56 UTC", result.toStringObject().str);
+}
+
+test "Marshal.load restores marshaled Time values" {
+    const result = try evalCode(
+        \\payload = [0x04, 0x08, 0x49, 0x75, 0x3a, 0x09, 0x54, 0x69, 0x6d, 0x65, 0x0d, 0xec, 0x15, 0x1f, 0xc0, 0x00, 0x00, 0x80, 0x8b, 0x06, 0x3a, 0x09, 0x7a, 0x6f, 0x6e, 0x65, 0x49, 0x22, 0x08, 0x55, 0x54, 0x43, 0x06, 0x3a, 0x06, 0x45, 0x46].pack("C*")
+        \\time = Marshal.load(payload)
+        \\[time.strftime("%F %T %Z"), time.utc?]
+    );
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("2024-06-15 12:34:56 UTC", items[0].toStringObject().str);
+    try std.testing.expectEqual(true, items[1].toBool());
+}

@@ -13,6 +13,8 @@ const IoObject = value.IoObject;
 extern "c" fn clock_gettime(clk_id: std.posix.CLOCK, tp: *std.posix.timespec) c_int;
 extern "c" fn execve(path: [*:0]const u8, argv: [*:null]const ?[*:0]const u8, envp: [*:null]const ?[*:0]const u8) c_int;
 
+const null_device_path = if (builtin.os.tag == .windows) "NUL" else "/dev/null";
+
 fn monotonicMilliseconds() i64 {
     var timespec: std.posix.timespec = undefined;
     if (clock_gettime(std.posix.CLOCK.MONOTONIC, &timespec) != 0) return 0;
@@ -64,6 +66,8 @@ pub fn register(vm: *VM) !void {
     try vm.io_class.module.constants.put(creat_sym, .{ .value = Value.integer(0x200) });
     const excl_sym = try vm.intern("EXCL");
     try vm.io_class.module.constants.put(excl_sym, .{ .value = Value.integer(0x400) });
+    const null_sym = try vm.intern("NULL");
+    try vm.io_class.module.constants.put(null_sym, .{ .value = try vm.newString(null_device_path, false) });
 
     const nonblock_q_sym = try vm.intern("nonblock?");
     try vm.io_class.module.methods.put(nonblock_q_sym, value.MethodEntry.builtin(&builtinIoNonblockQ, .{ .exact = 0 }));

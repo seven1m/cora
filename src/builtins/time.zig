@@ -50,6 +50,9 @@ pub fn register(vm: *VM) !void {
     const at_sym = try vm.intern("at");
     try time_singleton.module.methods.put(at_sym, value.MethodEntry.builtin(&builtinTimeAt, .{ .variadic = 1 }));
 
+    const load_sym = try vm.intern("_load");
+    try time_singleton.module.methods.put(load_sym, value.MethodEntry.builtin(&builtinTimeLoad, .{ .exact = 1 }));
+
     const plus_sym = try vm.intern("+");
     try vm.time_class.module.methods.put(plus_sym, value.MethodEntry.builtin(&builtinTimePlus, .{ .exact = 1 }));
 
@@ -213,6 +216,35 @@ fn epochNanosecondsFromUtcComponents(year: i64, month: i64, day: i64, hour: i64,
     const total_seconds: i128 = @as(i128, day_count) * seconds_per_day + hour * seconds_per_hour + minute * seconds_per_minute + second;
     const total_nanoseconds: i128 = total_seconds * nanos_per_second + nanosecond;
     return @intCast(total_nanoseconds);
+}
+
+fn parseMarshalDumpedUtcNanoseconds(raw: []const u8) ?i64 {
+    if (raw.len < 8) return null;
+
+    var packed_date = std.mem.readInt(u32, raw[0..4], .little);
+    const packed_time = std.mem.readInt(u32, raw[4..8], .little);
+    if ((packed_date & (@as(u32, 1) << 31)) == 0) return null;
+
+    packed_date &= ~(@as(u32, 1) << 31);
+
+    var year: i64 = 1900 + @as(i64, (packed_date >> 14) & 0xffff);
+    var month: i64 = 1 + @as(i64, (packed_date >> 10) & 0xf);
+    if (month > 12) {
+        month -= 12;
+        year += 1;
+    }
+
+    const day: i64 = @as(i64, (packed_date >> 5) & 0x1f);
+    const hour: i64 = @as(i64, packed_date & 0x1f);
+    const minute: i64 = @as(i64, (packed_time >> 26) & 0x3f);
+    const second: i64 = @as(i64, (packed_time >> 20) & 0x3f);
+    const microsecond: u32 = @intCast(packed_time & 0xfffff);
+
+    if (month < 1 or month > 12) return null;
+    if (day < 1 or day > daysInMonth(year, @intCast(month))) return null;
+    if (hour > 23 or minute > 59 or second > 59) return null;
+
+    return epochNanosecondsFromUtcComponents(year, month, day, hour, minute, second, microsecond * 1000);
 }
 
 fn currentEpochNanoseconds() i64 {
@@ -492,6 +524,18 @@ pub fn builtinTimeAt(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
     }
     const seconds = try coerceNumericSeconds(vm, args[0]);
     const epoch_nanoseconds = @as(i64, @intFromFloat(@floor(seconds * @as(f64, @floatFromInt(nanos_per_second)))));
+    return vm.newTime(receiver.toClassObject(), epoch_nanoseconds);
+}
+
+pub fn builtinTimeLoad(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (!receiver.isClass()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Class", .{});
+    }
+    const raw = try args[0].coerceToStr(vm, "no implicit conversion into String");
+    const epoch_nanoseconds = parseMarshalDumpedUtcNanoseconds(raw) orelse {
+        return vm.raiseExceptionFmt(vm.type_error_class, "marshaled time format differ", .{});
+    };
     return vm.newTime(receiver.toClassObject(), epoch_nanoseconds);
 }
 

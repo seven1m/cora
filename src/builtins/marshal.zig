@@ -26,6 +26,7 @@ const Tag = struct {
     const float: u8 = 'f';
     const bignum: u8 = 'l';
     const ivar: u8 = 'I';
+    const user_defined_object: u8 = 'u';
     const user_marshaled_object: u8 = 'U';
 };
 
@@ -492,9 +493,37 @@ fn loadValue(state: *LoadState) VMError!Value {
         Tag.float => try loadFloat(state),
         Tag.bignum => try loadBignum(state),
         Tag.ivar => try loadIvarWrapped(state),
+        Tag.user_defined_object => try loadUserDefinedObject(state),
         Tag.user_marshaled_object => try loadUserMarshaledObject(state),
         else => state.vm.raiseExceptionFmt(state.vm.argument_error_class, "unsupported marshal type", .{}),
     };
+}
+
+fn loadUserDefinedObject(state: *LoadState) VMError!Value {
+    const class_name_value = try loadValue(state);
+    if (!class_name_value.isSymbol()) {
+        return state.vm.raiseExceptionFmt(state.vm.argument_error_class, "invalid marshal user class", .{});
+    }
+
+    const class_path = class_name_value.toSymbolObject().name;
+    const class_value = (try state.vm.resolveConstantPath(class_path)) orelse {
+        return state.vm.raiseExceptionFmt(state.vm.argument_error_class, "undefined class/module {s}", .{class_path});
+    };
+    if (!class_value.isClass()) {
+        return state.vm.raiseExceptionFmt(state.vm.argument_error_class, "undefined class/module {s}", .{class_path});
+    }
+
+    const byte_count = try loadPackedInt(state);
+    if (byte_count < 0) {
+        return state.vm.raiseExceptionFmt(state.vm.argument_error_class, "negative string size", .{});
+    }
+
+    const bytes = try state.readBytes(@intCast(byte_count));
+    const payload = try state.vm.newStringWithEncoding(bytes, false, .{ .ascii_8bit = .{} });
+    var load_args = [_]Value{payload};
+    const object = try state.vm.callMethodByName(class_value, "_load", load_args[0..], null);
+    state.object_refs.append(state.vm.allocator, object) catch return error.Fatal;
+    return object;
 }
 
 fn loadUserMarshaledObject(state: *LoadState) VMError!Value {

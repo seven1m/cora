@@ -11,6 +11,8 @@ const Block = vm_mod.Block;
 const Value = value.Value;
 const Encoding = enc.Encoding;
 
+const null_device_path = if (builtin.os.tag == .windows) "NUL" else "/dev/null";
+
 const PosixStatMetadata = struct {
     uid: i64,
     gid: i64,
@@ -85,6 +87,9 @@ pub fn register(vm: *VM) !void {
 
     const separator_sym = try vm.intern("SEPARATOR");
     try vm.file_class.module.constants.put(separator_sym, .{ .value = try vm.newString("/", false) });
+
+    const null_sym = try vm.intern("NULL");
+    try vm.file_class.module.constants.put(null_sym, .{ .value = try vm.newString(null_device_path, false) });
 
     // File::Constants module — open-mode flag constants shared with IO
     const constants_name_sym = try vm.intern("Constants");
