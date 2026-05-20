@@ -182,10 +182,11 @@ end
 
 def record_failure(group_desc, it_desc, error)
   message = error.message
-  if error.respond_to?(:class) && error.class
+  if error.respond_to?(:class) && error.class && error.class != SpecFailedException
     message = "#{error.class}: #{message}"
   end
-  $__failures << [group_desc, it_desc, message]
+  backtrace = error.backtrace.reject { |l| l =~ /spec\/spec_helper\.rb/ }
+  $__failures << [group_desc, it_desc, message, backtrace]
 end
 
 def spec_profile_enabled?
@@ -2037,9 +2038,14 @@ def report_results
   if $__failures.length > 0
     puts "FAILURES (#{$__failures.length}):"
     puts
-    $__failures.each do |details|
-      puts "#{details[0]}: #{details[1]}"
+    $__failures.each_with_index do |details, index|
+      puts "#{index + 1})"
+      puts "#{details[0]} #{details[1]} FAILED"
+      puts '--'
       puts details[2]
+      puts '--'
+      details[3].each { |line| puts line }
+      puts if index + 1 < $__failures.length
     end
     if $__skipped.length > 0
       puts
