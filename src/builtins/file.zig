@@ -188,6 +188,9 @@ pub fn register(vm: *VM) !void {
     const chmod_sym = try vm.intern("chmod");
     try file_singleton.module.methods.put(chmod_sym, value.MethodEntry.builtin(&builtinFileChmod, .{ .variadic = 1 }));
 
+    const umask_sym = try vm.intern("umask");
+    try file_singleton.module.methods.put(umask_sym, value.MethodEntry.builtin(&builtinFileUmask, .{ .variadic = 0 }));
+
     const rename_sym = try vm.intern("rename");
     try file_singleton.module.methods.put(rename_sym, value.MethodEntry.builtin(&builtinFileRename, .{ .exact = 2 }));
 
@@ -1083,6 +1086,23 @@ pub fn builtinFileChmod(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Val
     }
 
     return Value.integer(@intCast(changed));
+}
+
+pub fn builtinFileUmask(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    if (builtin.os.tag == .windows) {
+        return Value.integer(0);
+    }
+
+    if (args.len == 0) {
+        const current = std.c.umask(0);
+        _ = std.c.umask(current);
+        return Value.integer(current);
+    }
+
+    const new_mask = try coerceModeBits(vm, args[0]);
+    const previous = std.c.umask(new_mask);
+    return Value.integer(previous);
 }
 
 pub fn builtinFileRename(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

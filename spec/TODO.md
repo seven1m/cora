@@ -808,7 +808,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/file/symlink_spec.rb
 - [ ] core/file/to_path_spec.rb
 - [ ] core/file/truncate_spec.rb
-- [ ] core/file/umask_spec.rb
+- [x] core/file/umask_spec.rb
 - [ ] core/file/unlink_spec.rb
 - [ ] core/file/utime_spec.rb
 - [ ] core/file/world_readable_spec.rb
