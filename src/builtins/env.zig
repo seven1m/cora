@@ -226,16 +226,7 @@ pub fn builtinEnvMerge(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!
     }
 
     for (args) |arg| {
-        const source_hash = switch (try vm.probeToHash(arg)) {
-            .hash => |h| h.toHashObject(),
-            .missing, .nil_result, .non_hash => {
-                return vm.raiseExceptionFmt(
-                    vm.type_error_class,
-                    "can't convert {s} to Hash ({s}#to_hash gives {s})",
-                    .{ vm.className(arg), vm.className(arg), vm.className(arg) },
-                );
-            },
-        };
+        const source_hash = (try vm.coerceToHashValue(arg)).toHashObject();
 
         for (source_hash.entries.items) |entry| {
             if (block) |blk| {
@@ -323,16 +314,7 @@ pub fn builtinEnvClear(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
 pub fn builtinEnvReplace(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
 
-    const source_hash = switch (try vm.probeToHash(args[0])) {
-        .hash => |h| h.toHashObject(),
-        .missing, .nil_result, .non_hash => {
-            return vm.raiseExceptionFmt(
-                vm.type_error_class,
-                "can't convert {s} to Hash ({s}#to_hash gives {s})",
-                .{ vm.className(args[0]), vm.className(args[0]), vm.className(args[0]) },
-            );
-        },
-    };
+    const source_hash = (try vm.coerceToHashValue(args[0])).toHashObject();
 
     var env_map = try vm.currentEnvMap();
     defer env_map.deinit();

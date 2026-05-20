@@ -9315,6 +9315,27 @@ pub const VM = struct {
         return .{ .non_hash = coerced };
     }
 
+    pub fn coerceToHashValue(self: *VM, arg: Value) VMError!Value {
+        return switch (try self.probeToHash(arg)) {
+            .hash => |hash| hash,
+            .missing => self.raiseExceptionFmt(
+                self.type_error_class,
+                "can't convert {s} into Hash",
+                .{self.className(arg)},
+            ),
+            .nil_result => self.raiseExceptionFmt(
+                self.type_error_class,
+                "can't convert {s} to Hash ({s}#to_hash gives NilClass)",
+                .{ self.className(arg), self.className(arg) },
+            ),
+            .non_hash => |coerced| self.raiseExceptionFmt(
+                self.type_error_class,
+                "can't convert {s} to Hash ({s}#to_hash gives {s})",
+                .{ self.className(arg), self.className(arg), self.className(coerced) },
+            ),
+        };
+    }
+
     pub fn coerceToArrayValue(self: *VM, arg: Value) VMError!Value {
         return switch (try self.probeToAry(arg)) {
             .array => |array| array,

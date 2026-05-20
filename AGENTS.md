@@ -11,6 +11,7 @@ Prism AST -> bytecode -> VM execution.
 - Do not expose runtime-only implementation details to Ruby code via fake hidden local variables, ivars, or methods.
 - Prefer shared VM coercion, dispatch, warning, and arity helpers over per-builtin ad hoc logic.
 - Prefer `VM.probeToHash` for optional `to_hash` probes where missing/nil should be handled by the caller.
+- Prefer `VM.coerceToHashValue` when `to_hash` is required and standard Ruby `TypeError` details should be preserved.
 - For Ruby truthiness checks on `Value`, use existing `Value.is_truthy()`. Do not add camelCase aliases like `isTruthy`.
 - Keep imports at the top of the file; avoid inline `@import(...)` expressions.
 

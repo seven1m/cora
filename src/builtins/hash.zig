@@ -306,16 +306,7 @@ pub fn register(vm: *VM) !void {
 
 fn hashSubsetComparison(vm: *VM, receiver: Value, other: Value, is_strict: bool) VMError!Value {
     const lhs = receiver.toHashObject();
-    const other_hash = switch (try vm.probeToHash(other)) {
-        .hash => |h| h.toHashObject(),
-        .missing, .nil_result, .non_hash => {
-            return vm.raiseExceptionFmt(
-                vm.type_error_class,
-                "can't convert {s} to Hash ({s}#to_hash gives {s})",
-                .{ vm.className(other), vm.className(other), vm.className(other) },
-            );
-        },
-    };
+    const other_hash = (try vm.coerceToHashValue(other)).toHashObject();
 
     if (is_strict and lhs.entries.items.len == other_hash.entries.items.len) {
         return Value.boolean(false);
@@ -434,15 +425,7 @@ fn replaceHashEntriesOnly(vm: *VM, hash_obj: *value.HashObject, source_hash: *va
 fn coerceTransformMappingHash(vm: *VM, args: []Value) VMError!?*value.HashObject {
     try vm.requireArgCountRange(args, 0, 1);
     if (args.len == 0) return null;
-
-    return switch (try vm.probeToHash(args[0])) {
-        .hash => |hash| hash.toHashObject(),
-        .missing, .nil_result, .non_hash => vm.raiseExceptionFmt(
-            vm.type_error_class,
-            "can't convert {s} to Hash ({s}#to_hash gives {s})",
-            .{ vm.className(args[0]), vm.className(args[0]), vm.className(args[0]) },
-        ),
-    };
+    return (try vm.coerceToHashValue(args[0])).toHashObject();
 }
 
 fn hashConstructorElementTypeName(vm: *VM, element: Value) []const u8 {
@@ -806,30 +789,12 @@ pub fn builtinHashReplace(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
             try replaceHashFrom(vm, hash_obj, kh.toHashObject());
         } else {
             try vm.requireArgCount(args, 1);
-            const source_hash = switch (try vm.probeToHash(args[0])) {
-                .hash => |h| h.toHashObject(),
-                .missing, .nil_result, .non_hash => {
-                    return vm.raiseExceptionFmt(
-                        vm.type_error_class,
-                        "can't convert {s} to Hash ({s}#to_hash gives {s})",
-                        .{ vm.className(args[0]), vm.className(args[0]), vm.className(args[0]) },
-                    );
-                },
-            };
+            const source_hash = (try vm.coerceToHashValue(args[0])).toHashObject();
             try replaceHashFrom(vm, hash_obj, source_hash);
         }
     } else {
         try vm.requireArgCount(args, 1);
-        const source_hash = switch (try vm.probeToHash(args[0])) {
-            .hash => |h| h.toHashObject(),
-            .missing, .nil_result, .non_hash => {
-                return vm.raiseExceptionFmt(
-                    vm.type_error_class,
-                    "can't convert {s} to Hash ({s}#to_hash gives {s})",
-                    .{ vm.className(args[0]), vm.className(args[0]), vm.className(args[0]) },
-                );
-            },
-        };
+        const source_hash = (try vm.coerceToHashValue(args[0])).toHashObject();
         try replaceHashFrom(vm, hash_obj, source_hash);
     }
 
@@ -1611,16 +1576,7 @@ pub fn builtinHashMerge(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
     }
 
     for (args) |arg| {
-        const source_hash = switch (try vm.probeToHash(arg)) {
-            .hash => |h| h.toHashObject(),
-            .missing, .nil_result, .non_hash => {
-                return vm.raiseExceptionFmt(
-                    vm.type_error_class,
-                    "can't convert {s} to Hash ({s}#to_hash gives {s})",
-                    .{ vm.className(arg), vm.className(arg), vm.className(arg) },
-                );
-            },
-        };
+        const source_hash = (try vm.coerceToHashValue(arg)).toHashObject();
 
         try mergeEntriesIntoHash(vm, result_hash, source_hash, block);
     }
@@ -1640,16 +1596,7 @@ pub fn builtinHashMergeBang(vm: *VM, receiver: Value, args: []Value, block: ?Blo
     }
 
     for (args) |arg| {
-        const source_hash = switch (try vm.probeToHash(arg)) {
-            .hash => |h| h.toHashObject(),
-            .missing, .nil_result, .non_hash => {
-                return vm.raiseExceptionFmt(
-                    vm.type_error_class,
-                    "can't convert {s} to Hash ({s}#to_hash gives {s})",
-                    .{ vm.className(arg), vm.className(arg), vm.className(arg) },
-                );
-            },
-        };
+        const source_hash = (try vm.coerceToHashValue(arg)).toHashObject();
 
         try mergeEntriesIntoHash(vm, hash_obj, source_hash, block);
     }

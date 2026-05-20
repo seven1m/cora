@@ -5,6 +5,18 @@ describe :hash_comparison, shared: true do
     -> { { a: 1 }.send(@method, []) }.should raise_error(TypeError)
   end
 
+  it "preserves the class returned by to_hash in the error" do
+    obj = Object.new
+    def obj.to_hash
+      nil
+    end
+
+    -> { { a: 1 }.send(@method, obj) }.should raise_error(
+      TypeError,
+      "can't convert Object to Hash (Object#to_hash gives NilClass)"
+    )
+  end
+
   it "returns false if both hashes have the same keys but different values" do
     h1 = { a: 1 }
     h2 = { a: 2 }

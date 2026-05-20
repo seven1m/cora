@@ -1861,19 +1861,7 @@ fn builtinKernelHashConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
         return Value.fromObject(&hash.object);
     }
 
-    return switch (try vm.probeToHash(arg)) {
-        .hash => |hash| hash,
-        .missing, .nil_result => vm.raiseExceptionFmt(
-            vm.type_error_class,
-            "can't convert {s} into Hash",
-            .{vm.className(arg)},
-        ),
-        .non_hash => |coerced| vm.raiseExceptionFmt(
-            vm.type_error_class,
-            "can't convert {s} to Hash ({s}#to_hash gives {s})",
-            .{ vm.className(arg), vm.className(arg), vm.className(coerced) },
-        ),
-    };
+    return vm.coerceToHashValue(arg);
 }
 
 pub fn builtinKernelNil(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
