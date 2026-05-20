@@ -54,12 +54,13 @@ pub fn builtinProcCall(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
 pub fn builtinProcIsLambda(_: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
     return Value.boolean(switch (receiver.toProcObject().block.kind) {
         .chunk => |chunk_blk| chunk_blk.chunk.is_lambda,
-        .symbol, .builtin, .callable => true,
+        .receiver_builtin, .symbol, .builtin, .callable => true,
     });
 }
 
 pub fn builtinProcArity(_: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
     return switch (receiver.toProcObject().block.kind) {
+        .receiver_builtin => |builtin_data| Value.integer(builtin_data.arity),
         .chunk => |chunk_blk| blk: {
             const required = chunk_blk.chunk.arity + chunk_blk.chunk.post_required_count;
             if (chunk_blk.chunk.rest_param_index != null or chunk_blk.chunk.optional_params.items.len > 0) {
@@ -74,6 +75,16 @@ pub fn builtinProcArity(_: *VM, receiver: Value, _: []Value, _: ?Block) VMError!
 pub fn builtinProcParameters(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
     const proc_obj = receiver.toProcObject();
     switch (proc_obj.block.kind) {
+        .receiver_builtin => |builtin_data| {
+            const result = try vm.createArray();
+            var index: i64 = 0;
+            while (index < builtin_data.arity) : (index += 1) {
+                const param = try vm.createArray();
+                param.elements.append(vm.gc_allocator, Value.fromObject(&(try vm.intern("req")).object)) catch return error.Fatal;
+                result.elements.append(vm.gc_allocator, Value.fromObject(&param.object)) catch return error.Fatal;
+            }
+            return Value.fromObject(&result.object);
+        },
         .symbol, .builtin, .callable => {
             const req_array = try vm.createArray();
             req_array.elements.append(vm.gc_allocator, Value.fromObject(&(try vm.intern("req")).object)) catch return error.Fatal;
@@ -93,7 +104,7 @@ pub fn builtinProcParameters(vm: *VM, receiver: Value, _: []Value, _: ?Block) VM
 pub fn builtinProcSourceLocation(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
     const proc_obj = receiver.toProcObject();
     switch (proc_obj.block.kind) {
-        .symbol, .builtin, .callable => return Value.nil(),
+        .receiver_builtin, .symbol, .builtin, .callable => return Value.nil(),
         .chunk => |chunk_blk| {
             if (chunk_blk.chunk.source_file) |source| {
                 const line = if (chunk_blk.chunk.line_info.items.len > 0 and chunk_blk.chunk.line_info.items[0].line != 0)

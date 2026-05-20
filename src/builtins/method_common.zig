@@ -236,6 +236,11 @@ pub fn parametersForResolvedMethod(vm: *VM, resolved: vm_mod.ResolvedMethod) VME
                 };
                 return parametersForResolvedMethod(vm, chunk_method);
             },
+            .receiver_builtin => |builtin_data| {
+                for (0..@intCast(builtin_data.arity)) |_| {
+                    try appendParameterDescriptor(vm, out, "req");
+                }
+            },
             .symbol, .builtin, .callable => {
                 try appendParameterDescriptor(vm, out, "rest");
             },

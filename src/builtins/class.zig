@@ -60,6 +60,7 @@ pub fn builtinClassNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
                     };
                     break :chunk_blk_result try vm.yieldToBlock(module_body_block, &[_]Value{});
                 },
+                .receiver_builtin => try vm.yieldToBlock(blk, &[_]Value{}),
                 .symbol => try vm.yieldToBlock(blk, &[_]Value{}),
                 .builtin => try vm.yieldToBlock(blk, &[_]Value{}),
                 .callable => try vm.yieldToBlock(blk, &[_]Value{}),
@@ -100,6 +101,7 @@ pub fn builtinClassNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
                     };
                     break :chunk_blk_result try vm.yieldToBlock(class_body_block, &[_]Value{});
                 },
+                .receiver_builtin => try vm.yieldToBlock(blk, &[_]Value{}),
                 .symbol => try vm.yieldToBlock(blk, &[_]Value{}),
                 .builtin => try vm.yieldToBlock(blk, &[_]Value{}),
                 .callable => try vm.yieldToBlock(blk, &[_]Value{}),

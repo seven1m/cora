@@ -223,8 +223,15 @@ pub const Block = struct {
         enclosing_block_proc: ?*value.ProcObject = null,
     };
 
+    pub const ReceiverBuiltinData = struct {
+        receiver: Value,
+        func: *const fn (*VM, Value, []Value) VMError!Value,
+        arity: i64,
+    };
+
     kind: union(enum) {
         chunk: ChunkData,
+        receiver_builtin: ReceiverBuiltinData,
         symbol: *SymbolObject,
         builtin: *const fn (*VM, []Value) VMError!Value,
         callable: Value,
@@ -3444,6 +3451,14 @@ pub const VM = struct {
                 if (fiber.coro) |c| c.yield();
                 return;
             },
+            .receiver_builtin => |builtin_data| {
+                const result = try builtin_data.func(self, builtin_data.receiver, fiber.first_resume_args[0..fiber.first_resume_argc]);
+                fiber.state = .terminated;
+                fiber.coro_result = result;
+                fiber.coro_event = .returned;
+                if (fiber.coro) |c| c.yield();
+                return;
+            },
             .builtin => |func| {
                 const result = func(self, fiber.first_resume_args[0..fiber.first_resume_argc]) catch |err| {
                     if (err == error.Unwind) {
@@ -3854,6 +3869,17 @@ pub const VM = struct {
             .symbol => |sym| {
                 const thread_args = thread.args orelse &[_]Value{};
                 const result = try self.invokeSymbolProc(sym, thread_args, null);
+                thread.state = .terminated;
+                thread.result = result;
+                thread.terminated_normally = true;
+                self.releaseThreadOwnedMutexes(thread);
+                if (thread.coro) |c| c.yield();
+                return;
+            },
+            .receiver_builtin => |builtin_data| {
+                var empty_args = [_]Value{};
+                const thread_args = thread.args orelse &empty_args;
+                const result = try builtin_data.func(self, builtin_data.receiver, thread_args);
                 thread.state = .terminated;
                 thread.result = result;
                 thread.terminated_normally = true;
@@ -5652,6 +5678,10 @@ pub const VM = struct {
                         const block_frame = self.currentFrame();
                         try self.copyArgumentsWithRestParam(chunk_blk.chunk, block_frame.ep, yield_args[0..argc], arity_mode);
                     },
+                    .receiver_builtin => |builtin_data| {
+                        const result = try builtin_data.func(self, builtin_data.receiver, yield_args[0..argc]);
+                        try self.push(result);
+                    },
                     .symbol => |sym| {
                         const result = try self.invokeSymbolProc(sym, yield_args[0..argc], null);
                         try self.push(result);
@@ -5700,6 +5730,10 @@ pub const VM = struct {
                         const arity_mode: ArityMode = if (chunk_blk.chunk.is_lambda) .strict else .lenient;
                         const block_frame = self.currentFrame();
                         try self.copyArgumentsWithRestParam(chunk_blk.chunk, block_frame.ep, splat_args, arity_mode);
+                    },
+                    .receiver_builtin => |builtin_data| {
+                        const result = try builtin_data.func(self, builtin_data.receiver, @constCast(splat_args));
+                        try self.push(result);
                     },
                     .symbol => |sym| {
                         const result = try self.invokeSymbolProc(sym, splat_args, null);
@@ -7206,6 +7240,11 @@ pub const VM = struct {
     /// Returns the block's result value and whether a break occurred
     pub fn yieldToBlock(self: *VM, block: Block, yield_args: []const Value) VMError!YieldResult {
         return switch (block.kind) {
+            .receiver_builtin => |builtin_data| .{
+                .value = try builtin_data.func(self, builtin_data.receiver, @constCast(yield_args)),
+                .break_occurred = false,
+                .non_local_return_occurred = false,
+            },
             .symbol => |sym| .{
                 .value = try self.invokeSymbolProc(sym, yield_args, null),
                 .break_occurred = false,
@@ -7285,6 +7324,7 @@ pub const VM = struct {
         defining_class: ?*ClassObject,
     ) VMError!Value {
         return switch (proc_obj.block.kind) {
+            .receiver_builtin => |builtin_data| builtin_data.func(self, builtin_data.receiver, @constCast(args)),
             .symbol => |sym| self.invokeSymbolProc(sym, args, block),
             .builtin => |func| func(self, @constCast(args)),
             .callable => |callable| self.callMethodByName(callable, "call", @constCast(args), block),
@@ -7350,6 +7390,7 @@ pub const VM = struct {
 
     pub fn callProcObject(self: *VM, proc_obj: *value.ProcObject, args: []const Value, block: ?Block, self_override: ?Value) VMError!Value {
         return switch (proc_obj.block.kind) {
+            .receiver_builtin => |builtin_data| builtin_data.func(self, builtin_data.receiver, @constCast(args)),
             .symbol => |sym| self.invokeSymbolProc(sym, args, block),
             .builtin => |func| func(self, @constCast(args)),
             .callable => |callable| self.callMethodByName(callable, "call", @constCast(args), block),
@@ -7515,6 +7556,10 @@ pub const VM = struct {
                         current_frame.super_defining_class = method.owner_class;
                         try self.copyArgumentsWithRestParam(chunk_blk.chunk, current_frame.ep, args, .strict);
                         try self.bindMethodBlockParam(chunk_blk.chunk, current_frame, block);
+                    },
+                    .receiver_builtin => |builtin_data| {
+                        const result = try builtin_data.func(self, builtin_data.receiver, @constCast(args));
+                        try self.push(result);
                     },
                     .symbol => |sym| {
                         const result = try self.invokeSymbolProc(sym, args, block);
@@ -7780,6 +7825,7 @@ pub const VM = struct {
                     }
                     break :blk Value.integer(@intCast(required));
                 },
+                .receiver_builtin => |builtin_data| Value.integer(builtin_data.arity),
                 .symbol, .builtin, .callable => Value.integer(-2),
             },
             .builtin => |builtin_method| Value.integer(builtin_method.arity.asRubyArity()),
@@ -8973,6 +9019,7 @@ pub const VM = struct {
         proc_obj.* = .{
             .object = .{ .type_tag = .proc, .flags = 0, .class = self.proc_class, .singleton_class = null, .instance_variables = null },
             .block = switch (block.kind) {
+                .receiver_builtin => block,
                 .symbol => block,
                 .builtin => block,
                 .callable => block,

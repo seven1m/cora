@@ -60,6 +60,10 @@ fn validateHashDefaultProc(vm: *VM, proc_obj: *value.ProcObject) VMError!void {
     }
 }
 
+fn hashProcCall(vm: *VM, receiver: Value, args: []Value) VMError!Value {
+    return builtinHashBracket(vm, receiver, args, null);
+}
+
 fn builtinHashTryConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
 
@@ -275,6 +279,9 @@ pub fn register(vm: *VM) !void {
 
     const any_sym = try vm.intern("any?");
     try vm.hash_class.module.methods.put(any_sym, value.MethodEntry.builtin(&builtinHashAny, .{ .variadic = 0 }));
+
+    const to_proc_sym = try vm.intern("to_proc");
+    try vm.hash_class.module.methods.put(to_proc_sym, value.MethodEntry.builtin(&builtinHashToProc, .{ .exact = 0 }));
 
     const sort_sym = try vm.intern("sort");
     try vm.hash_class.module.methods.put(sort_sym, value.MethodEntry.builtin(&builtinHashSort, .{ .variadic = 0 }));
@@ -544,7 +551,7 @@ fn yieldHashEntryPair(vm: *VM, blk: Block, entry: value.HashEntry) VMError!VM.Yi
             const yield_args = [_]Value{ entry.key, entry.value };
             break :blk_result try vm.yieldToBlock(blk, &yield_args);
         },
-        .symbol, .builtin, .callable => blk_result: {
+        .receiver_builtin, .symbol, .builtin, .callable => blk_result: {
             const yield_args = [_]Value{pair_value};
             break :blk_result try vm.yieldToBlock(blk, &yield_args);
         },
@@ -1518,6 +1525,15 @@ pub fn builtinHashCompactBang(vm: *VM, receiver: Value, args: []Value, _: ?Block
         return Value.nil();
     }
     return receiver;
+}
+
+pub fn builtinHashToProc(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return vm.newProc(.{ .kind = .{ .receiver_builtin = .{
+        .receiver = receiver,
+        .func = &hashProcCall,
+        .arity = 1,
+    } } });
 }
 
 pub fn builtinHashReject(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {

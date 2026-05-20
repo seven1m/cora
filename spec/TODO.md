@@ -980,7 +980,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/hash/to_a_spec.rb
 - [x] core/hash/to_h_spec.rb
 - [x] core/hash/to_hash_spec.rb
-- [ ] core/hash/to_proc_spec.rb
+- [-] core/hash/to_proc_spec.rb
 - [x] core/hash/to_s_spec.rb
 - [x] core/hash/transform_keys_spec.rb
 - [x] core/hash/transform_values_spec.rb

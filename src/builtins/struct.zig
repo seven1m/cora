@@ -108,6 +108,7 @@ fn runStructSubclassBody(vm: *VM, struct_val: Value, block: Block) VMError!void 
             break :chunk_blk_result try vm.yieldToBlock(class_body_block, &[_]Value{});
         },
         .symbol => try vm.yieldToBlock(block, &[_]Value{}),
+        .receiver_builtin => try vm.yieldToBlock(block, &[_]Value{}),
         .builtin => try vm.yieldToBlock(block, &[_]Value{}),
         .callable => try vm.yieldToBlock(block, &[_]Value{}),
     };
