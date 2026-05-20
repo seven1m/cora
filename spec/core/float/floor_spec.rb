@@ -14,4 +14,8 @@ describe "Float#floor" do
     7.0.floor(1).should eql(7.0)
     200.0.floor(-2).should eql(200)
   end
+
+  it "raises RangeError when precision is too large for C int" do
+    -> { 1.23.floor(2147483648) }.should raise_error(RangeError)
+  end
 end

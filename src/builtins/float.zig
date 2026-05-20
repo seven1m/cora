@@ -28,6 +28,22 @@ fn coerceNumericArg(vm: *VM, arg: Value) VMError!f64 {
     return vm.raiseExceptionFmt(vm.type_error_class, "argument is not numeric", .{});
 }
 
+fn coercePrecisionArgToCInt(vm: *VM, arg: Value) VMError!c_int {
+    const digits = try arg.integerToI64(vm, "invalid precision");
+    if (digits < std.math.minInt(c_int)) {
+        return vm.raiseExceptionFmt(vm.range_error_class, "integer {d} too small to convert to 'int'", .{digits});
+    }
+    if (digits > std.math.maxInt(c_int)) {
+        return vm.raiseExceptionFmt(vm.range_error_class, "integer {d} too big to convert to 'int'", .{digits});
+    }
+
+    const coerced: c_int = @intCast(digits);
+    if (coerced == std.math.minInt(c_int)) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "exponent is too large", .{});
+    }
+    return coerced;
+}
+
 fn appendExponent(writer: anytype, exponent: c_int) VMError!void {
     writer.writeByte('e') catch return error.Fatal;
     if (exponent < 0) {
@@ -375,7 +391,7 @@ pub fn builtinFloatCeil(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     if (args.len == 0) {
         return Value.integer(@as(i64, @intFromFloat(@ceil(f))));
     }
-    const digits = try args[0].integerToI64(vm, "invalid precision");
+    const digits = try coercePrecisionArgToCInt(vm, args[0]);
     if (digits > 0) {
         return try vm.newFloat(f);
     }
@@ -392,7 +408,7 @@ pub fn builtinFloatFloor(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     if (args.len == 0) {
         return Value.integer(@as(i64, @intFromFloat(@floor(f))));
     }
-    const digits = try args[0].integerToI64(vm, "invalid precision");
+    const digits = try coercePrecisionArgToCInt(vm, args[0]);
     if (digits > 0) {
         return try vm.newFloat(f);
     }
