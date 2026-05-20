@@ -53,6 +53,9 @@ pub fn register(vm: *VM) !void {
     const reject_sym = try vm.intern("reject");
     try env_singleton.module.methods.put(reject_sym, value.MethodEntry.builtin(&builtinEnvReject, .{ .exact = 0 }));
 
+    const reject_bang_sym = try vm.intern("reject!");
+    try env_singleton.module.methods.put(reject_bang_sym, value.MethodEntry.builtin(&builtinEnvRejectBang, .{ .exact = 0 }));
+
     const select_sym = try vm.intern("select");
     try env_singleton.module.methods.put(select_sym, value.MethodEntry.builtin(&builtinEnvSelect, .{ .variadic = 0 }));
 
@@ -151,7 +154,10 @@ pub fn builtinEnvKey(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value 
 pub fn builtinEnvReject(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     if (block == null) {
-        return vm.raiseExceptionFmt(vm.argument_error_class, "no block given", .{});
+        var env_map = try vm.currentEnvMap();
+        const size_value = Value.integer(@intCast(env_map.count()));
+        env_map.deinit();
+        return try vm.createMethodEnumeratorWithSize(vm.env_object.?, try vm.intern("reject"), &.{}, size_value);
     }
 
     const result = try vm.createHash();
@@ -171,6 +177,49 @@ pub fn builtinEnvReject(vm: *VM, _: Value, args: []Value, block: ?Block) VMError
         }
     }
     return Value.fromObject(&result.object);
+}
+
+pub fn builtinEnvRejectBang(vm: *VM, env_receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    _ = env_receiver;
+    try vm.requireArgCount(args, 0);
+    const blk = block orelse {
+        var env_map = try vm.currentEnvMap();
+        const size_value = Value.integer(@intCast(env_map.count()));
+        env_map.deinit();
+        return try vm.createMethodEnumeratorWithSize(vm.env_object.?, try vm.intern("reject!"), &.{}, size_value);
+    };
+
+    var env_map = try vm.currentEnvMap();
+    defer env_map.deinit();
+
+    var keys_to_delete = std.ArrayListUnmanaged([]const u8){ .items = &.{}, .capacity = 0 };
+    defer {
+        for (keys_to_delete.items) |key| vm.allocator.free(key);
+        keys_to_delete.deinit(vm.allocator);
+    }
+
+    var iter = env_map.iterator();
+    while (iter.next()) |entry| {
+        const key_val = try vm.newString(entry.key_ptr.*, false);
+        const value_val = try vm.newString(entry.value_ptr.*, false);
+
+        const yield_args = [_]Value{ key_val, value_val };
+        const yielded = try vm.yieldToBlock(blk, &yield_args);
+        if (yielded.controlFlowValue()) |return_value| return return_value;
+        if (yielded.value.is_truthy()) {
+            const key_copy = vm.allocator.dupe(u8, entry.key_ptr.*) catch return error.Fatal;
+            keys_to_delete.append(vm.allocator, key_copy) catch return error.Fatal;
+        }
+    }
+
+    for (keys_to_delete.items) |key| {
+        _ = try vm.envUnset(key, true);
+    }
+
+    if (keys_to_delete.items.len == 0) {
+        return Value.nil();
+    }
+    return vm.env_object.?;
 }
 
 pub fn builtinEnvSelect(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {

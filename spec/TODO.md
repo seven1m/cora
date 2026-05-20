@@ -612,7 +612,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/env/merge_spec.rb
 - [x] core/env/rassoc_spec.rb
 - [ ] core/env/rehash_spec.rb
-- [ ] core/env/reject_spec.rb
+- [x] core/env/reject_spec.rb
 - [ ] core/env/replace_spec.rb
 - [ ] core/env/select_spec.rb
 - [ ] core/env/shift_spec.rb
