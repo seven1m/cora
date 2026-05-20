@@ -706,7 +706,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/file/chown_spec.rb
 
 ### core/file/constants
-- [ ] core/file/constants/constants_spec.rb
+- [x] core/file/constants/constants_spec.rb
 
 ### core/file
 - [ ] core/file/constants_spec.rb

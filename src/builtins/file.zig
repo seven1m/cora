@@ -96,18 +96,34 @@ pub fn register(vm: *VM) !void {
     const file_constants_val = try vm.newModule(constants_name_sym);
     const file_constants_module = file_constants_val.toModuleObject();
     try vm.file_class.module.constants.put(constants_name_sym, .{ .value = file_constants_val });
-    const fc_constants = [_]struct { []const u8, i64 }{
+    const shared_file_constants = [_]struct { []const u8, i64 }{
         .{ "RDONLY", 0 },
         .{ "WRONLY", 1 },
-        .{ "RDWR",   2 },
-        .{ "APPEND", 0x200 },
-        .{ "TRUNC",  0x400 },
-        .{ "CREAT",  0x200 },
-        .{ "EXCL",   0x400 },
+        .{ "RDWR", 2 },
+        .{ "APPEND", 1024 },
+        .{ "TRUNC", 512 },
+        .{ "CREAT", 64 },
+        .{ "EXCL", 128 },
+        .{ "NONBLOCK", 2048 },
+        .{ "NOCTTY", 256 },
+        .{ "SYNC", 1052672 },
+        .{ "BINARY", 0 },
+        .{ "SHARE_DELETE", 0 },
+        .{ "FNM_NOESCAPE", 0x01 },
+        .{ "FNM_PATHNAME", 0x02 },
+        .{ "FNM_DOTMATCH", 0x04 },
+        .{ "FNM_CASEFOLD", 0x08 },
+        .{ "FNM_EXTGLOB", 0x10 },
+        .{ "FNM_SYSCASE", 0x00 },
+        .{ "LOCK_SH", 1 },
+        .{ "LOCK_EX", 2 },
+        .{ "LOCK_NB", 4 },
+        .{ "LOCK_UN", 8 },
     };
-    for (fc_constants) |entry| {
+    for (shared_file_constants) |entry| {
         const sym = try vm.intern(entry[0]);
         try file_constants_module.constants.put(sym, .{ .value = Value.integer(entry[1]) });
+        try vm.file_class.module.constants.put(sym, .{ .value = Value.integer(entry[1]) });
     }
 
     const alt_separator_sym = try vm.intern("ALT_SEPARATOR");
@@ -115,15 +131,6 @@ pub fn register(vm: *VM) !void {
 
     const path_separator_sym = try vm.intern("PATH_SEPARATOR");
     try vm.file_class.module.constants.put(path_separator_sym, .{ .value = try vm.newString(":", false) });
-
-    const fnm_dotmatch_sym = try vm.intern("FNM_DOTMATCH");
-    try vm.file_class.module.constants.put(fnm_dotmatch_sym, .{ .value = Value.integer(0x04) });
-
-    const fnm_noescape_sym = try vm.intern("FNM_NOESCAPE");
-    try vm.file_class.module.constants.put(fnm_noescape_sym, .{ .value = Value.integer(0x01) });
-
-    const fnm_extglob_sym = try vm.intern("FNM_EXTGLOB");
-    try vm.file_class.module.constants.put(fnm_extglob_sym, .{ .value = Value.integer(0x10) });
 
     const new_sym = try vm.intern("new");
     try file_singleton.module.methods.put(new_sym, value.MethodEntry.builtin(&builtinFileNew, .{ .variadic = 0 }));
