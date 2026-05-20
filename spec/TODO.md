@@ -420,7 +420,7 @@ Source baseline: ../ruby_spec compared to local spec/
 
 ### core/enumerable
 - [ ] core/enumerable/all_spec.rb
-- [ ] core/enumerable/any_spec.rb
+- [x] core/enumerable/any_spec.rb
 - [ ] core/enumerable/chain_spec.rb
 - [ ] core/enumerable/chunk_spec.rb
 - [ ] core/enumerable/chunk_while_spec.rb

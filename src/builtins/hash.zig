@@ -1627,12 +1627,17 @@ pub fn builtinHashAny(vm: *VM, receiver: Value, args: []Value, block: ?Block) VM
     const pattern = if (args.len == 1) args[0] else null;
 
     if (pattern != null and block != null) {
-        try warning_builtin.writeWarning(vm, "warning: block supersedes default value argument\n");
+        try warning_builtin.warnBlockUnused(vm);
     }
 
     if (pattern) |pat| {
         for (hash_obj.entries.items) |entry| {
-            if (try vm.valueEquals(entry.key, pat)) {
+            const pair = try vm.createArray();
+            pair.elements.append(vm.gc_allocator, entry.key) catch return error.Fatal;
+            pair.elements.append(vm.gc_allocator, entry.value) catch return error.Fatal;
+            var pattern_args = [_]Value{Value.fromObject(&pair.object)};
+            const matched = try vm.callMethodByName(pat, "===", pattern_args[0..], null);
+            if (matched.is_truthy()) {
                 return Value.boolean(true);
             }
         }
