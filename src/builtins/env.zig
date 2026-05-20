@@ -61,6 +61,12 @@ pub fn register(vm: *VM) !void {
 
     const update_sym = try vm.intern("update");
     try env_singleton.module.methods.put(update_sym, value.MethodEntry.builtin(&builtinEnvMerge, .{ .variadic = 0 }));
+
+    const assoc_sym = try vm.intern("assoc");
+    try env_singleton.module.methods.put(assoc_sym, value.MethodEntry.builtin(&builtinEnvAssoc, .{ .exact = 1 }));
+
+    const rassoc_sym = try vm.intern("rassoc");
+    try env_singleton.module.methods.put(rassoc_sym, value.MethodEntry.builtin(&builtinEnvRassoc, .{ .exact = 1 }));
 }
 
 pub fn builtinEnvBracket(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -242,4 +248,43 @@ pub fn builtinEnvMerge(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!
     }
 
     return Value.fromObject(&result.object);
+}
+
+pub fn builtinEnvAssoc(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const key = try args[0].coerceToStr(vm, "no implicit conversion of Object into String");
+    const value_opt = try vm.envGet(key);
+    if (value_opt.isNil()) return Value.nil();
+    const key_val = try vm.newString(key, false);
+    const result = try vm.createArray();
+    result.elements.append(vm.gc_allocator, key_val) catch return error.Fatal;
+    result.elements.append(vm.gc_allocator, value_opt) catch return error.Fatal;
+    return Value.fromObject(&result.object);
+}
+
+pub fn builtinEnvRassoc(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const arg = args[0];
+
+    const string_opt = try vm.probeToStringValue(arg);
+    const value_to_find: []const u8 = switch (string_opt) {
+        .string => |s| s.toStringObject().str,
+        .missing, .nil_result => return Value.nil(),
+    };
+
+    var env_map = try vm.currentEnvMap();
+    defer env_map.deinit();
+
+    var iter = env_map.iterator();
+    while (iter.next()) |entry| {
+        if (std.mem.eql(u8, entry.value_ptr.*, value_to_find)) {
+            const key_val = try vm.newString(entry.key_ptr.*, false);
+            const value_val = try vm.newString(entry.value_ptr.*, false);
+            const result = try vm.createArray();
+            result.elements.append(vm.gc_allocator, key_val) catch return error.Fatal;
+            result.elements.append(vm.gc_allocator, value_val) catch return error.Fatal;
+            return Value.fromObject(&result.object);
+        }
+    }
+    return Value.nil();
 }

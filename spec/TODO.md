@@ -583,7 +583,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/enumerator/yielder/yield_spec.rb
 
 ### core/env
-- [ ] core/env/assoc_spec.rb
+- [x] core/env/assoc_spec.rb
 - [ ] core/env/clear_spec.rb
 - [ ] core/env/clone_spec.rb
 - [ ] core/env/delete_if_spec.rb
@@ -610,7 +610,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/env/length_spec.rb
 - [ ] core/env/member_spec.rb
 - [ ] core/env/merge_spec.rb
-- [ ] core/env/rassoc_spec.rb
+- [x] core/env/rassoc_spec.rb
 - [ ] core/env/rehash_spec.rb
 - [ ] core/env/reject_spec.rb
 - [ ] core/env/replace_spec.rb
