@@ -359,6 +359,15 @@ fn integerIsNegative(value_: Value) bool {
         !value_.toBigIntegerObject().value.isPositive() and !value_.toBigIntegerObject().value.eqlZero();
 }
 
+fn integerDecimalFactor(vm: *VM, abs_ndigits: u64) VMError!Value {
+    var factor = Value.integer(1);
+    var i: u64 = 0;
+    while (i < abs_ndigits) : (i += 1) {
+        factor = try mulIntegers(vm, factor, Value.integer(10));
+    }
+    return factor;
+}
+
 fn shiftRightConvergedValue(receiver: Value) Value {
     return Value.integer(if (integerIsNegative(receiver)) -1 else 0);
 }
@@ -1256,12 +1265,7 @@ pub fn builtinIntegerFloor(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     const ndigits = try args[0].integerArgToI64(vm, "argument is not an Integer", "ndigits is too large");
     if (ndigits >= 0) return receiver;
 
-    const abs_ndigits: u64 = @intCast(-ndigits);
-    var factor = Value.integer(1);
-    var i: u64 = 0;
-    while (i < abs_ndigits) : (i += 1) {
-        factor = try mulIntegers(vm, factor, Value.integer(10));
-    }
+    const factor = try integerDecimalFactor(vm, @intCast(-ndigits));
 
     const quotient = try divFloorIntegers(vm, receiver, factor);
     return mulIntegers(vm, quotient, factor);
@@ -1276,12 +1280,7 @@ pub fn builtinIntegerTruncate(vm: *VM, receiver: Value, args: []Value, _: ?Block
     const ndigits = try args[0].integerArgToI64(vm, "argument is not an Integer", "ndigits is too large");
     if (ndigits >= 0) return receiver;
 
-    const abs_ndigits: u64 = @intCast(-ndigits);
-    var factor = Value.integer(1);
-    var i: u64 = 0;
-    while (i < abs_ndigits) : (i += 1) {
-        factor = try mulIntegers(vm, factor, Value.integer(10));
-    }
+    const factor = try integerDecimalFactor(vm, @intCast(-ndigits));
 
     const quotient = try divTruncIntegers(vm, receiver, factor);
     return mulIntegers(vm, quotient, factor);
@@ -1296,12 +1295,7 @@ pub fn builtinIntegerCeil(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     const ndigits = try args[0].integerArgToI64(vm, "argument is not an Integer", "ndigits is too large");
     if (ndigits >= 0) return receiver;
 
-    const abs_ndigits: u64 = @intCast(-ndigits);
-    var factor = Value.integer(1);
-    var i: u64 = 0;
-    while (i < abs_ndigits) : (i += 1) {
-        factor = try mulIntegers(vm, factor, Value.integer(10));
-    }
+    const factor = try integerDecimalFactor(vm, @intCast(-ndigits));
 
     const remainder = try modIntegers(vm, receiver, factor);
     if (integerIsZero(remainder)) return receiver;
