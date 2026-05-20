@@ -286,9 +286,7 @@ pub fn builtinEnvRassoc(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Val
     return Value.nil();
 }
 
-pub fn builtinEnvClear(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 0);
-
+fn clearCurrentEnv(vm: *VM) VMError!void {
     var env_map = try vm.currentEnvMap();
     defer env_map.deinit();
 
@@ -307,7 +305,11 @@ pub fn builtinEnvClear(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
     for (keys.items) |key| {
         _ = try vm.envUnset(key, true);
     }
+}
 
+pub fn builtinEnvClear(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    try clearCurrentEnv(vm);
     return vm.env_object.?;
 }
 
@@ -315,26 +317,7 @@ pub fn builtinEnvReplace(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
     try vm.requireArgCount(args, 1);
 
     const source_hash = (try vm.coerceToHashValue(args[0])).toHashObject();
-
-    var env_map = try vm.currentEnvMap();
-    defer env_map.deinit();
-
-    var keys = std.ArrayListUnmanaged([]const u8){ .items = &.{}, .capacity = 0 };
-    defer {
-        for (keys.items) |key| vm.allocator.free(key);
-        keys.deinit(vm.allocator);
-    }
-
-    var iter = env_map.iterator();
-    while (iter.next()) |entry| {
-        const key_copy = vm.allocator.dupe(u8, entry.key_ptr.*) catch return error.Fatal;
-        keys.append(vm.allocator, key_copy) catch return error.Fatal;
-    }
-
-    for (keys.items) |key| {
-        _ = try vm.envUnset(key, true);
-    }
-
+    try clearCurrentEnv(vm);
     for (source_hash.entries.items) |entry| {
         const key_str = try entry.key.coerceToStr(vm, "no implicit conversion of Object into String");
         const value_str = try entry.value.coerceToStr(vm, "no implicit conversion of Object into String");
