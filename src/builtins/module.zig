@@ -1016,6 +1016,7 @@ pub fn builtinModuleConstSet(vm: *VM, receiver: Value, args: []Value, _: ?Block)
 
 pub fn builtinModuleAutoload(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 2);
+    try vm.resetLoadedFilesFromGlobal();
 
     if (receiver.isFrozen()) {
         return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen {s}", .{vm.className(receiver)});

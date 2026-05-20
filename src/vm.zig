@@ -557,6 +557,7 @@ pub const VM = struct {
 
     // File loading infrastructure
     loaded_files: std.StringHashMap(void) = undefined,
+    require_in_progress: std.StringHashMap(*value.ThreadObject) = undefined,
     loaded_paths: std.ArrayList([]const u8) = .empty,
     load_path: ?*value.ArrayObject = null,
     current_loading_file: ?[]const u8 = null,
@@ -604,6 +605,7 @@ pub const VM = struct {
             .packed_pointer_targets = std.AutoHashMap(*StringObject, PackedPointerTargets).init(gc_allocator),
             .errno_classes = std.AutoHashMap(c_int, *ClassObject).init(gc_allocator),
             .loaded_files = std.StringHashMap(void).init(gc_allocator),
+            .require_in_progress = std.StringHashMap(*value.ThreadObject).init(allocator),
             .program = undefined,
             .current_lexical_scope = null,
             .toplevel_lexical_scope = null,
@@ -765,8 +767,8 @@ pub const VM = struct {
         if (program.main_chunk.source_file) |main_file| {
             const abs_path = try self.resolveAbsolutePath(main_file);
             try self.insertLoadedFile(abs_path);
-            self.loaded_paths.append(self.allocator, abs_path) catch return error.Fatal;
-            self.current_loading_file = abs_path;
+            self.allocator.free(abs_path);
+            self.current_loading_file = self.loaded_paths.items[self.loaded_paths.items.len - 1];
         }
 
         // --- Stage 1: Create Class and BasicObject ---
@@ -2236,9 +2238,11 @@ pub const VM = struct {
             self.allocator.free(key.*);
         }
         self.loaded_files.deinit();
-        for (self.loaded_paths.items) |path| {
-            self.allocator.free(path);
+        var require_iter = self.require_in_progress.keyIterator();
+        while (require_iter.next()) |key| {
+            self.allocator.free(key.*);
         }
+        self.require_in_progress.deinit();
         self.loaded_paths.deinit(self.allocator);
 
         self.stack.deinit(self.gc_allocator);
@@ -3691,6 +3695,7 @@ pub const VM = struct {
         thread_obj.abort_on_exception = false;
         thread_obj.kill_requested = false;
         thread_obj.waiting_on_queue = false;
+        thread_obj.waiting_on_require = false;
         thread_obj.preempt_requested = false;
         thread_obj.ops_until_preempt = self.thread_preempt_quantum_ops;
         thread_obj.io_wait = null;
@@ -9539,31 +9544,41 @@ pub const VM = struct {
         }
         self.loaded_files.deinit();
         self.loaded_files = std.StringHashMap(void).init(self.allocator);
+        self.loaded_paths.clearRetainingCapacity();
 
         for (loaded_val.toArrayObject().elements.items) |entry| {
             if (!entry.isString()) continue;
             const duped = self.allocator.dupe(u8, entry.toStringObject().str) catch return error.Fatal;
             self.loaded_files.put(duped, {}) catch return error.Fatal;
+            self.loaded_paths.append(self.allocator, duped) catch return error.Fatal;
         }
     }
 
     pub fn insertLoadedFile(self: *VM, path: []const u8) VMError!void {
+        if (self.loaded_files.contains(path)) return;
         const duped = self.allocator.dupe(u8, path) catch return error.Fatal;
         errdefer self.allocator.free(duped);
         self.loaded_files.put(duped, {}) catch return error.Fatal;
+        self.loaded_paths.append(self.allocator, duped) catch return error.Fatal;
     }
 
     pub fn removeLoadedFile(self: *VM, path: []const u8) void {
         if (self.loaded_files.fetchRemove(path)) |entry| {
+            var i: usize = 0;
+            while (i < self.loaded_paths.items.len) : (i += 1) {
+                if (std.mem.eql(u8, self.loaded_paths.items[i], entry.key)) {
+                    _ = self.loaded_paths.orderedRemove(i);
+                    break;
+                }
+            }
             self.allocator.free(entry.key);
         }
     }
 
     pub fn syncLoadedFeaturesGlobals(self: *VM) VMError!void {
         const loaded = try self.createArray();
-        var key_iter = self.loaded_files.keyIterator();
-        while (key_iter.next()) |key| {
-            loaded.elements.append(self.gc_allocator, try self.newString(key.*, false)) catch return error.Fatal;
+        for (self.loaded_paths.items) |path| {
+            loaded.elements.append(self.gc_allocator, try self.newString(path, false)) catch return error.Fatal;
         }
         const loaded_val = Value.fromObject(&loaded.object);
         try self.setGlobal("$LOADED_FEATURES", loaded_val);
@@ -9605,46 +9620,260 @@ pub const VM = struct {
         return true;
     }
 
-    pub fn searchLoadPath(self: *VM, feature: []const u8) VMError!?[]const u8 {
-        if (std.fs.path.isAbsolute(feature)) {
-            if (self.fileExists(feature)) {
-                return try self.resolveAbsolutePath(feature);
+    fn hasExplicitRelativePrefix(path: []const u8) bool {
+        return std.mem.eql(u8, path, ".") or
+            std.mem.eql(u8, path, "..") or
+            std.mem.startsWith(u8, path, "./") or
+            std.mem.startsWith(u8, path, "../");
+    }
+
+    fn currentWorkingDir(self: *VM) VMError![]u8 {
+        const cwd_z = std.process.currentPathAlloc(self.io, self.allocator) catch return error.Fatal;
+        defer self.allocator.free(cwd_z);
+        return self.dupeCStringZAsSlice(cwd_z);
+    }
+
+    fn joinPathPartsAlloc(self: *VM, base: []const u8, tail: []const u8) VMError![]u8 {
+        var out: std.ArrayList(u8) = .empty;
+        defer out.deinit(self.allocator);
+
+        if (base.len == 0) {
+            out.appendSlice(self.allocator, tail) catch return error.Fatal;
+        } else if (tail.len == 0) {
+            out.appendSlice(self.allocator, base) catch return error.Fatal;
+        } else {
+            out.appendSlice(self.allocator, base) catch return error.Fatal;
+            if (out.items[out.items.len - 1] != '/') {
+                out.append(self.allocator, '/') catch return error.Fatal;
             }
-            const with_rb = std.fmt.allocPrint(self.allocator, "{s}.rb", .{feature}) catch return error.Fatal;
-            defer self.allocator.free(with_rb);
-            if (self.fileExists(with_rb)) {
-                return try self.resolveAbsolutePath(with_rb);
+            var start: usize = 0;
+            while (start < tail.len and tail[start] == '/') : (start += 1) {}
+            out.appendSlice(self.allocator, tail[start..]) catch return error.Fatal;
+        }
+
+        return self.allocator.dupe(u8, out.items) catch return error.Fatal;
+    }
+
+    fn normalizeAbsolutePathAlloc(self: *VM, path: []const u8) VMError![]u8 {
+        var leading_slashes: usize = 0;
+        while (leading_slashes < path.len and path[leading_slashes] == '/') : (leading_slashes += 1) {}
+        if (leading_slashes == 0) return error.Fatal;
+
+        var segments: std.ArrayList([]const u8) = .empty;
+        defer segments.deinit(self.allocator);
+
+        var i: usize = leading_slashes;
+        while (i <= path.len) {
+            const start = i;
+            while (i < path.len and path[i] != '/') : (i += 1) {}
+            const segment = path[start..i];
+            if (segment.len > 0 and !std.mem.eql(u8, segment, ".")) {
+                if (std.mem.eql(u8, segment, "..")) {
+                    if (segments.items.len > 0) _ = segments.pop();
+                } else {
+                    segments.append(self.allocator, segment) catch return error.Fatal;
+                }
             }
-            return null;
+            i += 1;
+        }
+
+        var out: std.ArrayList(u8) = .empty;
+        defer out.deinit(self.allocator);
+        for (0..leading_slashes) |_| {
+            out.append(self.allocator, '/') catch return error.Fatal;
+        }
+
+        for (segments.items, 0..) |segment, idx| {
+            if (idx > 0) out.append(self.allocator, '/') catch return error.Fatal;
+            out.appendSlice(self.allocator, segment) catch return error.Fatal;
+        }
+
+        return self.allocator.dupe(u8, out.items) catch return error.Fatal;
+    }
+
+    pub fn expandPathLexical(self: *VM, path: []const u8) VMError![]const u8 {
+        if (path.len > 0 and path[0] == '/') {
+            return self.normalizeAbsolutePathAlloc(path);
+        }
+
+        const cwd = try self.currentWorkingDir();
+        defer self.allocator.free(cwd);
+        const joined = try self.joinPathPartsAlloc(cwd, path);
+        defer self.allocator.free(joined);
+        return self.normalizeAbsolutePathAlloc(joined);
+    }
+
+    pub fn isBareFeatureWithoutExt(path: []const u8) bool {
+        if (path.len == 0) return false;
+        if (std.fs.path.isAbsolute(path)) return false;
+        if (hasExplicitRelativePrefix(path)) return false;
+        if (std.mem.indexOfScalar(u8, path, '/')) |_| return false;
+        return std.mem.indexOfScalar(u8, path, '.') == null;
+    }
+
+    fn resolveFeaturePath(self: *VM, path: []const u8) VMError!?[]const u8 {
+        if (self.fileExists(path)) {
+            return try self.resolveAbsolutePath(path);
+        }
+
+        const with_rb = std.fmt.allocPrint(self.allocator, "{s}.rb", .{path}) catch return error.Fatal;
+        defer self.allocator.free(with_rb);
+        if (self.fileExists(with_rb)) {
+            return try self.resolveAbsolutePath(with_rb);
+        }
+
+        return null;
+    }
+
+    const ResolvedFeature = struct {
+        load_path: []const u8,
+        identity_path: []const u8,
+    };
+
+    fn resolveExplicitFeature(self: *VM, path: []const u8) VMError!?ResolvedFeature {
+        const load_path = try self.expandPathLexical(path);
+        errdefer self.allocator.free(load_path);
+
+        if (self.fileExists(load_path)) {
+            const identity_path = try self.resolveAbsolutePath(load_path);
+            return .{ .load_path = load_path, .identity_path = identity_path };
+        }
+
+        const with_rb = std.fmt.allocPrint(self.allocator, "{s}.rb", .{load_path}) catch return error.Fatal;
+        defer self.allocator.free(with_rb);
+        if (self.fileExists(with_rb)) {
+            self.allocator.free(load_path);
+            const stored = self.allocator.dupe(u8, with_rb) catch return error.Fatal;
+            errdefer self.allocator.free(stored);
+            const identity_path = try self.resolveAbsolutePath(stored);
+            return .{ .load_path = stored, .identity_path = identity_path };
+        }
+
+        self.allocator.free(load_path);
+        return null;
+    }
+
+    fn canonicalizeLoadPathEntry(self: *VM, entry: []const u8) VMError![]const u8 {
+        var path_buffer: [4096]u8 = undefined;
+        const len = std.Io.Dir.cwd().realPathFile(self.io, entry, &path_buffer) catch {
+            return try self.expandPathLexical(entry);
+        };
+        return self.allocator.dupe(u8, path_buffer[0..len]) catch return error.Fatal;
+    }
+
+    pub fn resolveRequireFeature(self: *VM, feature: []const u8) VMError!?ResolvedFeature {
+        if (std.fs.path.isAbsolute(feature) or hasExplicitRelativePrefix(feature)) {
+            return try self.resolveExplicitFeature(feature);
         }
 
         const load_path = self.load_path orelse return error.Fatal;
         for (load_path.elements.items) |entry| {
             if (!entry.isString()) continue;
             const dir = entry.toStringObject().str;
-            const full_path = std.fs.path.join(self.allocator, &[_][]const u8{ dir, feature }) catch return error.Fatal;
-            defer self.allocator.free(full_path);
+            const canonical_dir = try self.canonicalizeLoadPathEntry(dir);
+            defer self.allocator.free(canonical_dir);
 
-            if (self.fileExists(full_path)) {
-                return try self.resolveAbsolutePath(full_path);
+            const joined = try self.joinPathPartsAlloc(canonical_dir, feature);
+            defer self.allocator.free(joined);
+
+            const load_candidate = try self.normalizeAbsolutePathAlloc(joined);
+            errdefer self.allocator.free(load_candidate);
+            if (self.fileExists(load_candidate)) {
+                const identity_path = try self.resolveAbsolutePath(load_candidate);
+                return .{ .load_path = load_candidate, .identity_path = identity_path };
             }
-        }
 
-        const with_rb = std.fmt.allocPrint(self.allocator, "{s}.rb", .{feature}) catch return error.Fatal;
-        defer self.allocator.free(with_rb);
-
-        for (load_path.elements.items) |entry| {
-            if (!entry.isString()) continue;
-            const dir = entry.toStringObject().str;
-            const full_path = std.fs.path.join(self.allocator, &[_][]const u8{ dir, with_rb }) catch return error.Fatal;
-            defer self.allocator.free(full_path);
-
-            if (self.fileExists(full_path)) {
-                return try self.resolveAbsolutePath(full_path);
+            const with_rb = std.fmt.allocPrint(self.allocator, "{s}.rb", .{load_candidate}) catch return error.Fatal;
+            defer self.allocator.free(with_rb);
+            if (self.fileExists(with_rb)) {
+                self.allocator.free(load_candidate);
+                const stored = self.allocator.dupe(u8, with_rb) catch return error.Fatal;
+                errdefer self.allocator.free(stored);
+                const identity_path = try self.resolveAbsolutePath(stored);
+                return .{ .load_path = stored, .identity_path = identity_path };
             }
+
+            self.allocator.free(load_candidate);
         }
 
         return null;
+    }
+
+    fn normalizeLoadedFeatureEntry(self: *VM, entry: []const u8) VMError!?[]const u8 {
+        if (isBareFeatureWithoutExt(entry)) return null;
+
+        if (try self.resolveRequireFeature(entry)) |resolved| {
+            defer self.allocator.free(resolved.load_path);
+            return resolved.identity_path;
+        }
+        return null;
+    }
+
+    pub fn loadedFeatureMatches(self: *VM, feature: []const u8, resolved_path: ?[]const u8) VMError!bool {
+        if (resolved_path == null) {
+            return self.loaded_files.contains(feature);
+        }
+
+        if (!isBareFeatureWithoutExt(feature) and self.loaded_files.contains(feature)) {
+            return true;
+        }
+
+        var key_iter = self.loaded_files.keyIterator();
+        while (key_iter.next()) |key| {
+            const normalized = try self.normalizeLoadedFeatureEntry(key.*) orelse continue;
+            defer self.allocator.free(normalized);
+            if (std.mem.eql(u8, normalized, resolved_path.?)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    pub fn loadedFeatureMatchesCurrentLoadPath(self: *VM, feature: []const u8) VMError!bool {
+        const load_path = self.load_path orelse return false;
+        for (load_path.elements.items) |entry| {
+            if (!entry.isString()) continue;
+            const dir = entry.toStringObject().str;
+            const canonical_dir = try self.canonicalizeLoadPathEntry(dir);
+            defer self.allocator.free(canonical_dir);
+
+            const joined = try self.joinPathPartsAlloc(canonical_dir, feature);
+            defer self.allocator.free(joined);
+
+            const candidate = try self.normalizeAbsolutePathAlloc(joined);
+            defer self.allocator.free(candidate);
+            if (self.loaded_files.contains(candidate)) return true;
+
+            const with_rb = std.fmt.allocPrint(self.allocator, "{s}.rb", .{candidate}) catch return error.Fatal;
+            defer self.allocator.free(with_rb);
+            if (self.loaded_files.contains(with_rb)) return true;
+        }
+        return false;
+    }
+
+    pub fn searchLoadPath(self: *VM, feature: []const u8) VMError!?[]const u8 {
+        if (try self.resolveRequireFeature(feature)) |resolved| {
+            defer self.allocator.free(resolved.identity_path);
+            return resolved.load_path;
+        }
+        return null;
+    }
+
+    pub fn requireInProgressOwner(self: *VM, identity_path: []const u8) ?*value.ThreadObject {
+        return self.require_in_progress.get(identity_path);
+    }
+
+    pub fn beginRequireInProgress(self: *VM, identity_path: []const u8, owner: *value.ThreadObject) VMError!void {
+        const duped = self.allocator.dupe(u8, identity_path) catch return error.Fatal;
+        errdefer self.allocator.free(duped);
+        self.require_in_progress.put(duped, owner) catch return error.Fatal;
+    }
+
+    pub fn endRequireInProgress(self: *VM, identity_path: []const u8) void {
+        if (self.require_in_progress.fetchRemove(identity_path)) |entry| {
+            self.allocator.free(entry.key);
+        }
     }
 
     fn allocateOwnedMainChunk(self: *VM, program: *compiler.CompiledProgram) VMError!*Chunk {
@@ -10359,7 +10588,7 @@ pub const VM = struct {
     }
 
     /// Capture current call stack as a backtrace
-    fn captureBacktrace(self: *VM) VMError!?*value.ArrayObject {
+    fn captureBacktraceFromFrames(self: *VM, frames: []const CallFrame) VMError!?*value.ArrayObject {
         const array_obj = self.gc_allocator.create(value.ArrayObject) catch return error.Fatal;
         array_obj.* = .{
             .object = .{
@@ -10373,10 +10602,10 @@ pub const VM = struct {
         };
 
         // Walk the call frames and build backtrace strings
-        var i = self.frames.items.len;
+        var i = frames.len;
         while (i > 0) {
             i -= 1;
-            const frame = &self.frames.items[i];
+            const frame = &frames[i];
 
             const frame_line = self.backtraceLineForFrame(frame);
             const frame_source = frame.chunk.source_file orelse frame.chunk.name;
@@ -10405,6 +10634,14 @@ pub const VM = struct {
         }
 
         return array_obj;
+    }
+
+    fn captureBacktrace(self: *VM) VMError!?*value.ArrayObject {
+        return self.captureBacktraceFromFrames(self.frames.items);
+    }
+
+    pub fn captureThreadBacktrace(self: *VM, thread: *value.ThreadObject) VMError!?*value.ArrayObject {
+        return self.captureBacktraceFromFrames(thread.frames.items);
     }
 
     pub fn backtraceLineForFrame(_: *VM, frame: *const CallFrame) u32 {

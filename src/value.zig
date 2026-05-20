@@ -343,6 +343,7 @@ pub const ThreadObject = struct {
     abort_on_exception: bool = false,
     kill_requested: bool = false,
     waiting_on_queue: bool = false,
+    waiting_on_require: bool = false,
     preempt_requested: bool = false,
     ops_until_preempt: u32 = 0,
     io_wait: ?IoWait = null,

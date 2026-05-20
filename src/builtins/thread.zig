@@ -112,6 +112,9 @@ pub fn register(vm: *VM) !void {
     const inspect_sym = try vm.intern("inspect");
     try vm.thread_class.module.methods.put(inspect_sym, value.MethodEntry.builtin(&builtinThreadInspect, .{ .exact = 0 }));
 
+    const backtrace_sym = try vm.intern("backtrace");
+    try vm.thread_class.module.methods.put(backtrace_sym, value.MethodEntry.builtin(&builtinThreadBacktrace, .{ .exact = 0 }));
+
     const stop_q_sym = try vm.intern("stop?");
     try vm.thread_class.module.methods.put(stop_q_sym, value.MethodEntry.builtin(&builtinThreadStopQ, .{ .exact = 0 }));
 
@@ -607,10 +610,38 @@ fn builtinThreadInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     return try vm.newString(msg, false);
 }
 
+fn builtinThreadBacktrace(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const thread = receiver.toThreadObject();
+
+    if (thread.waiting_on_require) {
+        const arr = try vm.createArray();
+        arr.elements.append(vm.gc_allocator, try vm.newString("require", false)) catch return error.Fatal;
+        if (try vm.captureThreadBacktrace(thread)) |backtrace| {
+            for (backtrace.elements.items) |entry| {
+                arr.elements.append(vm.gc_allocator, entry) catch return error.Fatal;
+            }
+        }
+        return Value.fromObject(&arr.object);
+    }
+
+    if (thread.state == .terminated) {
+        if (thread.exception) |exc| {
+            if (exc.backtrace) |backtrace| return Value.fromObject(&backtrace.object);
+        }
+        return Value.nil();
+    }
+
+    if (try vm.captureThreadBacktrace(thread)) |backtrace| {
+        return Value.fromObject(&backtrace.object);
+    }
+    return Value.nil();
+}
+
 fn builtinThreadStopQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const thread = receiver.toThreadObject();
-    return Value.boolean(thread.waiting_on_queue or thread.state == .sleeping or thread.state == .terminated);
+    return Value.boolean(thread.waiting_on_queue or thread.waiting_on_require or thread.state == .sleeping or thread.state == .terminated);
 }
 
 fn builtinThreadReportOnException(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

@@ -494,7 +494,9 @@ fn builtinKernelRationalCoerce(vm: *VM, arg: Value, exception_mode: bool) VMErro
 }
 pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
+    try vm.resetLoadedFilesFromGlobal();
     const feature = try vm.coerceToPath(args[0], "no implicit conversion into String");
+    const owner_thread = vm.current_thread orelse try vm.ensureMainThread();
 
     // Builtin libraries whose classes are registered at VM startup:
     // `require 'name'` is a no-op after the first call, matching Ruby's "already loaded" semantics.
@@ -510,7 +512,7 @@ pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
         }
     }
 
-    const absolute_path = vm.searchLoadPath(feature) catch {
+    const resolved_feature = vm.resolveRequireFeature(feature) catch {
         const msg = std.fmt.allocPrint(vm.allocator, "cannot load such file -- {s}", .{feature}) catch return error.Fatal;
         defer vm.allocator.free(msg);
         const exc = vm.createException(vm.load_error_class, msg) catch return error.Fatal;
@@ -518,6 +520,12 @@ pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
         vm.setPendingException(exc);
         return error.Unwind;
     } orelse {
+        if (try vm.loadedFeatureMatches(feature, null)) {
+            return Value.boolean(false);
+        }
+        if (VM.isBareFeatureWithoutExt(feature) and try vm.loadedFeatureMatchesCurrentLoadPath(feature)) {
+            return Value.boolean(false);
+        }
         const msg = std.fmt.allocPrint(vm.allocator, "cannot load such file -- {s}", .{feature}) catch return error.Fatal;
         defer vm.allocator.free(msg);
         const exc = vm.createException(vm.load_error_class, msg) catch return error.Fatal;
@@ -525,9 +533,37 @@ pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
         vm.setPendingException(exc);
         return error.Unwind;
     };
+    const absolute_path = resolved_feature.load_path;
+    const identity_path = resolved_feature.identity_path;
 
-    if (vm.loaded_files.contains(absolute_path)) {
+    var waiting_on_require = false;
+    defer {
+        if (waiting_on_require) owner_thread.waiting_on_require = false;
+    }
+    while (vm.requireInProgressOwner(identity_path)) |in_progress_owner| {
+        if (in_progress_owner == owner_thread) {
+            try warning_builtin.writeWarning(vm, "warning: loading in progress, circular require considered harmful\n");
+            vm.allocator.free(absolute_path);
+            vm.allocator.free(identity_path);
+            return Value.boolean(false);
+        }
+
+        if (!waiting_on_require) {
+            owner_thread.waiting_on_require = true;
+            waiting_on_require = true;
+        }
+        try vm.threadYield();
+        try vm.resetLoadedFilesFromGlobal();
+    }
+
+    if (try vm.loadedFeatureMatches(feature, identity_path)) {
         vm.allocator.free(absolute_path);
+        vm.allocator.free(identity_path);
+        return Value.boolean(false);
+    }
+    if (VM.isBareFeatureWithoutExt(feature) and try vm.loadedFeatureMatchesCurrentLoadPath(feature)) {
+        vm.allocator.free(absolute_path);
+        vm.allocator.free(identity_path);
         return Value.boolean(false);
     }
 
@@ -536,6 +572,10 @@ pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
     } else if (std.mem.eql(u8, feature, "zlib") or std.mem.eql(u8, feature, "zlib.rb")) {
         zlib_builtin.register(vm) catch return error.Fatal;
     }
+
+    try vm.beginRequireInProgress(identity_path, owner_thread);
+    defer vm.allocator.free(identity_path);
+    defer vm.endRequireInProgress(identity_path);
 
     try vm.insertLoadedFile(absolute_path);
     try vm.syncLoadedFeaturesGlobals();
@@ -624,7 +664,9 @@ pub fn builtinKernelBinding(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 
 pub fn builtinKernelRequireRelative(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
+    try vm.resetLoadedFilesFromGlobal();
     const relative_path = try vm.coerceToPath(args[0], "no implicit conversion into String");
+    const owner_thread = vm.current_thread orelse try vm.ensureMainThread();
 
     const current_file = blk: {
         if (vm.frames.items.len > 0) {
@@ -641,18 +683,23 @@ pub fn builtinKernelRequireRelative(vm: *VM, _: Value, args: []Value, _: ?Block)
     const full_path = std.fs.path.join(vm.allocator, &[_][]const u8{ current_dir, relative_path }) catch return error.Fatal;
     defer vm.allocator.free(full_path);
 
-    var absolute_path: ?[]const u8 = null;
-    if (vm.fileExists(full_path)) {
-        absolute_path = vm.resolveAbsolutePath(full_path) catch return error.Fatal;
+    const storage_path = vm.expandPathLexical(full_path) catch return error.Fatal;
+    defer vm.allocator.free(storage_path);
+    var resolved_path: ?[]const u8 = null;
+    var identity_path: ?[]const u8 = null;
+    if (vm.fileExists(storage_path)) {
+        resolved_path = vm.allocator.dupe(u8, storage_path) catch return error.Fatal;
+        identity_path = vm.resolveAbsolutePath(storage_path) catch return error.Fatal;
     } else {
-        const with_rb = std.fmt.allocPrint(vm.allocator, "{s}.rb", .{full_path}) catch return error.Fatal;
+        const with_rb = std.fmt.allocPrint(vm.allocator, "{s}.rb", .{storage_path}) catch return error.Fatal;
         defer vm.allocator.free(with_rb);
         if (vm.fileExists(with_rb)) {
-            absolute_path = vm.resolveAbsolutePath(with_rb) catch return error.Fatal;
+            resolved_path = vm.allocator.dupe(u8, with_rb) catch return error.Fatal;
+            identity_path = vm.resolveAbsolutePath(with_rb) catch return error.Fatal;
         }
     }
 
-    if (absolute_path == null) {
+    if (resolved_path == null) {
         const msg = std.fmt.allocPrint(vm.allocator, "cannot load such file -- {s}", .{relative_path}) catch return error.Fatal;
         defer vm.allocator.free(msg);
         const exc = vm.createException(vm.load_error_class, msg) catch return error.Fatal;
@@ -660,24 +707,50 @@ pub fn builtinKernelRequireRelative(vm: *VM, _: Value, args: []Value, _: ?Block)
         return error.Unwind;
     }
 
-    const resolved_path = absolute_path.?;
+    const resolved_path_value = resolved_path.?;
+    const identity_path_value = identity_path.?;
 
-    if (vm.loaded_files.contains(resolved_path)) {
-        vm.allocator.free(resolved_path);
+    var waiting_on_require = false;
+    defer {
+        if (waiting_on_require) owner_thread.waiting_on_require = false;
+    }
+    while (vm.requireInProgressOwner(identity_path_value)) |in_progress_owner| {
+        if (in_progress_owner == owner_thread) {
+            try warning_builtin.writeWarning(vm, "warning: loading in progress, circular require considered harmful\n");
+            vm.allocator.free(resolved_path_value);
+            vm.allocator.free(identity_path_value);
+            return Value.boolean(false);
+        }
+
+        if (!waiting_on_require) {
+            owner_thread.waiting_on_require = true;
+            waiting_on_require = true;
+        }
+        try vm.threadYield();
+        try vm.resetLoadedFilesFromGlobal();
+    }
+
+    if (try vm.loadedFeatureMatches(relative_path, identity_path_value)) {
+        vm.allocator.free(resolved_path_value);
+        vm.allocator.free(identity_path_value);
         return Value.boolean(false);
     }
 
-    try vm.insertLoadedFile(resolved_path);
+    try vm.beginRequireInProgress(identity_path_value, owner_thread);
+    defer vm.allocator.free(identity_path_value);
+    defer vm.endRequireInProgress(identity_path_value);
+
+    try vm.insertLoadedFile(resolved_path_value);
     try vm.syncLoadedFeaturesGlobals();
-    vm.loadFile(resolved_path) catch |err| {
-        vm.removeLoadedFile(resolved_path);
-        vm.allocator.free(resolved_path);
+    vm.loadFile(resolved_path_value) catch |err| {
+        vm.removeLoadedFile(resolved_path_value);
+        vm.allocator.free(resolved_path_value);
         try vm.syncLoadedFeaturesGlobals();
         return err;
     };
 
     try vm.syncLoadedFeaturesGlobals();
-    vm.allocator.free(resolved_path);
+    vm.allocator.free(resolved_path_value);
     return Value.boolean(true);
 }
 
@@ -724,7 +797,7 @@ pub fn builtinKernelLoad(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
         return error.Unwind;
     }
 
-    vm.loaded_paths.append(vm.allocator, absolute_path.?) catch return error.Fatal;
+    defer vm.allocator.free(absolute_path.?);
     try vm.loadFile(absolute_path.?);
 
     return Value.boolean(true);
