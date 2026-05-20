@@ -5016,8 +5016,13 @@ pub fn builtinStringRpartition(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
 
     if (needle.len == 0) {
         const empty = try newEmptyStringWithEncoding(vm, string_obj.encoding);
-        const whole = try vm.newStringWithEncoding(string_obj.str, false, string_obj.encoding);
-        return newArrayWith3Values(vm, .{ whole, empty, empty });
+        if (string_obj.str.len == 0) {
+            return newArrayWith3Values(vm, .{ empty, empty, empty });
+        }
+        const split_at = string_obj.str.len - 1;
+        const before = try vm.newStringWithEncoding(string_obj.str[0..split_at], false, string_obj.encoding);
+        const after = try vm.newStringWithEncoding(string_obj.str[split_at..], false, string_obj.encoding);
+        return newArrayWith3Values(vm, .{ before, empty, after });
     }
 
     const idx = std.mem.lastIndexOf(u8, string_obj.str, needle) orelse {
