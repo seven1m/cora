@@ -579,6 +579,12 @@ pub fn register(vm: *VM) !void {
     const reverse_bang_sym = try vm.intern("reverse!");
     try vm.array_class.module.methods.put(reverse_bang_sym, value.MethodEntry.builtin(&builtinArrayReverseBang, .{ .exact = 0 }));
 
+    const rotate_sym = try vm.intern("rotate");
+    try vm.array_class.module.methods.put(rotate_sym, value.MethodEntry.builtin(&builtinArrayRotate, .{ .variadic = 0 }));
+
+    const rotate_bang_sym = try vm.intern("rotate!");
+    try vm.array_class.module.methods.put(rotate_bang_sym, value.MethodEntry.builtin(&builtinArrayRotateBang, .{ .variadic = 0 }));
+
     const pack_sym = try vm.intern("pack");
     try vm.array_class.module.methods.put(pack_sym, value.MethodEntry.builtin(&builtinArrayPack, .{ .variadic = 1 }));
 
@@ -2660,6 +2666,82 @@ pub fn builtinArrayReverseBang(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
 
     const array = receiver.toArrayObject();
     std.mem.reverse(Value, array.elements.items);
+    return receiver;
+}
+
+pub fn builtinArrayRotate(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+
+    const array = receiver.toArrayObject();
+    const len: i64 = @intCast(array.elements.items.len);
+    if (len <= 1) {
+        const out = try vm.createArray();
+        out.elements.appendSlice(vm.gc_allocator, array.elements.items) catch return error.Fatal;
+        return Value.fromObject(&out.object);
+    }
+
+    var offset: i64 = 1;
+    if (args.len == 1) {
+        offset = try args[0].coerceToI64ViaToInt(
+            vm,
+            "no implicit conversion into Integer",
+            "no implicit conversion into Integer",
+            "bignum too big to convert into `long`",
+        );
+    }
+
+    offset = @mod(offset, len);
+    if (offset < 0) offset += len;
+
+    const out = try vm.createArray();
+    const mid = @as(usize, @intCast(offset));
+    const tail = array.elements.items[mid..];
+    const head = array.elements.items[0..mid];
+    out.elements.appendSlice(vm.gc_allocator, tail) catch return error.Fatal;
+    out.elements.appendSlice(vm.gc_allocator, head) catch return error.Fatal;
+    return Value.fromObject(&out.object);
+}
+
+pub fn builtinArrayRotateBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
+    }
+
+    const array = receiver.toArrayObject();
+    const len: i64 = @intCast(array.elements.items.len);
+    if (len <= 1) return receiver;
+
+    var offset: i64 = 1;
+    if (args.len == 1) {
+        offset = try args[0].coerceToI64ViaToInt(
+            vm,
+            "no implicit conversion into Integer",
+            "no implicit conversion into Integer",
+            "bignum too big to convert into `long`",
+        );
+    }
+
+    offset = @mod(offset, len);
+    if (offset < 0) offset += len;
+    if (offset == 0) return receiver;
+
+    const snapshot = vm.allocator.alloc(Value, array.elements.items.len) catch return error.Fatal;
+    @memcpy(snapshot, array.elements.items);
+    defer vm.allocator.free(snapshot);
+
+    const mid = @as(usize, @intCast(offset));
+    var idx: usize = 0;
+    for (snapshot[mid..]) |elem| {
+        array.elements.items[idx] = elem;
+        idx += 1;
+    }
+    for (snapshot[0..mid]) |elem| {
+        array.elements.items[idx] = elem;
+        idx += 1;
+    }
+
     return receiver;
 }
 
