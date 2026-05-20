@@ -19,6 +19,8 @@ pub fn register(vm: *VM) !void {
     try enumerable_val.toModuleObject().methods.put(collect_sym, value.MethodEntry.builtin(&builtinEnumerableMap, .{ .exact = 0 }));
     const select_sym = try vm.intern("select");
     try enumerable_val.toModuleObject().methods.put(select_sym, value.MethodEntry.builtin(&builtinEnumerableSelect, .{ .exact = 0 }));
+    const filter_map_sym = try vm.intern("filter_map");
+    try enumerable_val.toModuleObject().methods.put(filter_map_sym, value.MethodEntry.builtin(&builtinEnumerableFilterMap, .{ .exact = 0 }));
     const each_with_object_sym = try vm.intern("each_with_object");
     try enumerable_val.toModuleObject().methods.put(each_with_object_sym, value.MethodEntry.builtin(&builtinEnumerableEachWithObject, .{ .exact = 1 }));
     const find_sym = try vm.intern("find");
@@ -138,6 +140,38 @@ fn builtinEnumerableSelect(vm: *VM, receiver: Value, args: []Value, block: ?Bloc
         if (result.controlFlowValue()) |return_value| return return_value;
         if (result.value.is_truthy()) {
             out.elements.append(vm.gc_allocator, collapseYieldValues(next_values.toArrayObject())) catch return error.Fatal;
+        }
+    }
+
+    return Value.fromObject(&out.object);
+}
+
+fn builtinEnumerableFilterMap(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const blk = block orelse {
+        const method_name = try vm.intern("filter_map");
+        if (try vm.checkCallMethodByName(receiver, "size", false, &.{}, null)) |size| {
+            return vm.createMethodEnumeratorWithSize(receiver, method_name, &.{}, size);
+        }
+        return vm.createMethodEnumerator(receiver, method_name, &.{});
+    };
+
+    const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
+    const out = try vm.createArray();
+
+    while (true) {
+        const next_values = vm.callMethodByName(enum_value, "next_values", &.{}, null) catch |err| {
+            if (err == error.Unwind and vm.pendingException() != null and vm.pendingException().?.object.class == vm.stop_iteration_class) {
+                vm.setPendingException(null);
+                break;
+            }
+            return err;
+        };
+        const yielded = next_values.toArrayObject().elements.items;
+        const result = try vm.yieldToBlock(blk, yielded);
+        if (result.controlFlowValue()) |return_value| return return_value;
+        if (result.value.is_truthy()) {
+            out.elements.append(vm.gc_allocator, result.value) catch return error.Fatal;
         }
     }
 
