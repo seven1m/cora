@@ -618,6 +618,10 @@ pub fn register(vm: *VM) !void {
     const ceil_sym = try vm.intern("ceil");
     try integer_singleton.module.methods.put(ceil_sym, value.MethodEntry.builtin(&builtinIntegerCeil, .{ .variadic = 0 }));
     try vm.integer_class.module.methods.put(ceil_sym, value.MethodEntry.builtin(&builtinIntegerCeil, .{ .variadic = 0 }));
+
+    const floor_sym = try vm.intern("floor");
+    try integer_singleton.module.methods.put(floor_sym, value.MethodEntry.builtin(&builtinIntegerFloor, .{ .variadic = 0 }));
+    try vm.integer_class.module.methods.put(floor_sym, value.MethodEntry.builtin(&builtinIntegerFloor, .{ .variadic = 0 }));
 }
 
 pub fn builtinIntegerPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -1241,6 +1245,26 @@ pub fn builtinIntegerSize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     const bit_count = receiver.toBigIntegerObject().value.bitCountAbs();
     const byte_count = if (bit_count == 0) 1 else @divFloor(bit_count + 7, 8);
     return Value.integer(@intCast(byte_count));
+}
+
+pub fn builtinIntegerFloor(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    try receiver.ensureInteger(vm);
+
+    if (args.len == 0) return receiver;
+
+    const ndigits = try args[0].integerArgToI64(vm, "argument is not an Integer", "ndigits is too large");
+    if (ndigits >= 0) return receiver;
+
+    const abs_ndigits: u64 = @intCast(-ndigits);
+    var factor = Value.integer(1);
+    var i: u64 = 0;
+    while (i < abs_ndigits) : (i += 1) {
+        factor = try mulIntegers(vm, factor, Value.integer(10));
+    }
+
+    const quotient = try divFloorIntegers(vm, receiver, factor);
+    return mulIntegers(vm, quotient, factor);
 }
 
 pub fn builtinIntegerTruncate(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
