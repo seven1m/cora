@@ -56,12 +56,10 @@ describe :io_write, shared: true do
   end
 
   it "writes to the current position after IO#read" do
-    CORAFIXME "IO#rewind is not implemented yet", exception: NoMethodError, message: /undefined method 'rewind'/ do
-      @file.read(5)
-      @file.send(@method, "abcd")
-      @file.rewind
-      @file.read.should == "01234abcd901234567890123456789"
-    end
+    @file.read(5)
+    @file.send(@method, "abcd")
+    @file.rewind
+    @file.read.should == "01234abcd901234567890123456789"
   end
 
   it "advances the file position by the count of given bytes" do

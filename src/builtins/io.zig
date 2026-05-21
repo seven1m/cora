@@ -141,6 +141,18 @@ pub fn register(vm: *VM) !void {
     const gets_sym = try vm.intern("gets");
     try vm.io_class.module.methods.put(gets_sym, value.MethodEntry.builtin(&builtinIoGets, .{ .variadic = 0 }));
 
+    const readline_sym = try vm.intern("readline");
+    try vm.io_class.module.methods.put(readline_sym, value.MethodEntry.builtin(&builtinIoReadline, .{ .variadic = 0 }));
+
+    const rewind_sym = try vm.intern("rewind");
+    try vm.io_class.module.methods.put(rewind_sym, value.MethodEntry.builtin(&builtinIoRewind, .{ .exact = 0 }));
+
+    const lineno_sym = try vm.intern("lineno");
+    try vm.io_class.module.methods.put(lineno_sym, value.MethodEntry.builtin(&builtinIoLineno, .{ .exact = 0 }));
+
+    const lineno_set_sym = try vm.intern("lineno=");
+    try vm.io_class.module.methods.put(lineno_set_sym, value.MethodEntry.builtin(&builtinIoLinenoSet, .{ .exact = 1 }));
+
     const each_sym = try vm.intern("each");
     try vm.io_class.module.methods.put(each_sym, value.MethodEntry.builtin(&builtinIoEach, .{ .exact = 0 }));
 
@@ -812,6 +824,7 @@ pub fn builtinIoGets(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
         out.append(vm.allocator, byte[0]) catch return error.Fatal;
         if (byte[0] == '\n') break;
     }
+    io.lineno += 1;
     return vm.newString(out.items, false);
 }
 
@@ -1571,4 +1584,44 @@ pub fn builtinIoSeek(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
         return vm.raiseErrnoFmt(std.posix.errno(result), "seek failed", .{});
     }
     return Value.integer(result);
+}
+
+pub fn builtinIoReadline(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    const line = try builtinIoGets(vm, receiver, args, block);
+    if (line.isNil()) {
+        return vm.raiseExceptionFmt(vm.eof_error_class, "end of file reached", .{});
+    }
+    return line;
+}
+
+pub fn builtinIoRewind(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const io = try requireIoReceiver(vm, receiver);
+    try ensureIoOpen(vm, io);
+
+    const result = std.c.lseek(@intCast(io.fd), 0, std.c.SEEK.SET);
+    if (result < 0) {
+        return vm.raiseErrnoFmt(std.posix.errno(result), "rewind failed", .{});
+    }
+    io.lineno = 0;
+    return Value.integer(0);
+}
+
+pub fn builtinIoLineno(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const io = try requireIoReceiver(vm, receiver);
+    try ensureIoOpen(vm, io);
+    return Value.integer(io.lineno);
+}
+
+pub fn builtinIoLinenoSet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const io = try requireIoReceiver(vm, receiver);
+    try ensureIoOpen(vm, io);
+
+    if (!args[0].isInteger()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Integer", .{});
+    }
+    io.lineno = args[0].toInteger();
+    return args[0];
 }
