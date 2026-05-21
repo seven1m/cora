@@ -659,6 +659,9 @@ pub fn register(vm: *VM) !void {
     const max_sym = try vm.intern("max");
     try vm.array_class.module.methods.put(max_sym, value.MethodEntry.builtin(&builtinArrayMax, .{ .exact = 0 }));
 
+    const min_sym = try vm.intern("min");
+    try vm.array_class.module.methods.put(min_sym, value.MethodEntry.builtin(&builtinArrayMin, .{ .exact = 0 }));
+
     const reverse_sym = try vm.intern("reverse");
     try vm.array_class.module.methods.put(reverse_sym, value.MethodEntry.builtin(&builtinArrayReverse, .{ .exact = 0 }));
 
@@ -2898,6 +2901,31 @@ pub fn builtinArrayMax(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
         if (try arrayValueLessThan(vm, max, item)) max = item;
     }
     return max;
+}
+
+pub fn builtinArrayMin(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const array = receiver.toArrayObject();
+    const items = array.elements.items;
+    if (items.len == 0) return Value.nil();
+
+    var min = items[0];
+    if (block) |blk| {
+        for (items[1..]) |item| {
+            const yield_args = [_]Value{ item, min };
+            const yielded = try vm.yieldToBlock(blk, &yield_args);
+            if (yielded.controlFlowValue()) |return_value| return return_value;
+
+            const sign = try arraySortBlockResultSign(vm, yielded.value);
+            if (sign < 0) min = item;
+        }
+        return min;
+    }
+
+    for (items[1..]) |item| {
+        if (try arrayValueLessThan(vm, item, min)) min = item;
+    }
+    return min;
 }
 
 const SortBlockCompareResult = union(enum) {
