@@ -143,6 +143,12 @@ pub fn register(vm: *VM) !void {
 
     const wait_writable_sym = try vm.intern("wait_writable");
     try vm.io_class.module.methods.put(wait_writable_sym, value.MethodEntry.builtin(&builtinIoWaitWritable, .{ .variadic = 0 }));
+
+    const binmode_sym = try vm.intern("binmode");
+    try vm.io_class.module.methods.put(binmode_sym, value.MethodEntry.builtin(&builtinIoBinmode, .{ .exact = 0 }));
+
+    const binmode_q_sym = try vm.intern("binmode?");
+    try vm.io_class.module.methods.put(binmode_q_sym, value.MethodEntry.builtin(&builtinIoBinmodeQ, .{ .exact = 0 }));
 }
 
 const PopenEnvEntry = struct {
@@ -705,6 +711,28 @@ pub fn builtinIoInternalEncoding(vm: *VM, receiver: Value, args: []Value, _: ?Bl
     const explicit = try vm.getInstanceVariable(receiver, "@internal_encoding");
     if (!explicit.isNil()) return explicit;
     return if (vm.default_internal_encoding) |encoding| Value.fromObject(&encoding.object) else Value.nil();
+}
+
+pub fn builtinIoBinmode(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    _ = try requireIoReceiver(vm, receiver);
+    try ensureIoOpen(vm, receiver.toIoObject());
+    const binary_encoding = Value.fromObject(&vm.encoding_ascii_8bit.object);
+    try vm.setInstanceVariable(receiver, "@external_encoding", binary_encoding);
+    try vm.setInstanceVariable(receiver, "@internal_encoding", Value.nil());
+    return receiver;
+}
+
+pub fn builtinIoBinmodeQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    _ = try requireIoReceiver(vm, receiver);
+    try ensureIoOpen(vm, receiver.toIoObject());
+    const ext = try vm.getInstanceVariable(receiver, "@external_encoding");
+    if (ext.isEncoding()) {
+        const encoding_obj = ext.toEncodingObject();
+        return Value.boolean(encoding_obj.encoding == .ascii_8bit);
+    }
+    return Value.boolean(false);
 }
 
 pub fn builtinIoNonblockQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

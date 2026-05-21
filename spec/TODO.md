@@ -1058,7 +1058,7 @@ Source baseline: ../ruby_spec compared to local spec/
 ### core/io
 - [ ] core/io/advise_spec.rb
 - [ ] core/io/autoclose_spec.rb
-- [ ] core/io/binmode_spec.rb
+- [-] core/io/binmode_spec.rb
 - [x] core/io/binread_spec.rb
 - [ ] core/io/binwrite_spec.rb
 
