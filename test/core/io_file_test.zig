@@ -70,6 +70,65 @@ test "File.write and File.read round trip content" {
     try std.testing.expectEqualSlices(u8, "hello", result.toArrayObject().elements.items[1].toStringObject().str);
 }
 
+test "File.read accepts optional length and offset" {
+    var path_buf: [128]u8 = undefined;
+    const path = try uniquePath(&path_buf);
+    const source = try std.fmt.allocPrint(
+        std.testing.allocator,
+        \\path = "{s}"
+        \\File.write(path, "abcdef")
+        \\[
+        \\  File.read(path, 2),
+        \\  File.read(path, 3, 2),
+        \\  File.read(path, 1, 6)
+        \\]
+    , .{path});
+    defer std.testing.allocator.free(source);
+
+    const result = try evalCode(source);
+    try std.testing.expect(result.isArray());
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqualSlices(u8, "ab", items[0].toStringObject().str);
+    try std.testing.expectEqualSlices(u8, "cde", items[1].toStringObject().str);
+    try std.testing.expect(items[2].isNil());
+}
+
+test "File.read rejects negative length and offset" {
+    var path_buf: [128]u8 = undefined;
+    const path = try uniquePath(&path_buf);
+    const source = try std.fmt.allocPrint(
+        std.testing.allocator,
+        \\path = "{s}"
+        \\File.write(path, "abcdef")
+        \\begin
+        \\  File.read(path, -1)
+        \\rescue => e
+        \\  [e.class == ArgumentError, e.message]
+        \\end
+    , .{path});
+    defer std.testing.allocator.free(source);
+
+    const result = try evalCode(source);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[0].toBool());
+
+    const source_offset = try std.fmt.allocPrint(
+        std.testing.allocator,
+        \\path = "{s}"
+        \\File.write(path, "abcdef")
+        \\begin
+        \\  File.read(path, 1, -1)
+        \\rescue => e
+        \\  [e.class == ArgumentError, e.message]
+        \\end
+    , .{path});
+    defer std.testing.allocator.free(source_offset);
+
+    const offset_result = try evalCode(source_offset);
+    try std.testing.expect(offset_result.isArray());
+    try std.testing.expectEqual(true, offset_result.toArrayObject().elements.items[0].toBool());
+}
+
 test "File.delete and File.unlink remove files and return the deleted count" {
     var path1_buf: [128]u8 = undefined;
     var path2_buf: [128]u8 = undefined;

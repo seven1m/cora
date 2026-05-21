@@ -764,11 +764,40 @@ pub fn builtinFileOpen(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!
 }
 
 pub fn builtinFileRead(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 1);
+    try vm.requireArgCountRange(args, 1, 3);
     const path = try vm.coerceToPath(args[0], "no implicit conversion into String");
     const file_val = try openFileWithMode(vm, path, .{ .read = true, .write = false, .append = false, .create = false, .truncate = false }, 0o666);
     defer _ = vm.callMethodByName(file_val, "close", &[_]Value{}, null) catch {};
-    return vm.callMethodByName(file_val, "read", &[_]Value{}, null);
+
+    if (args.len >= 3) {
+        const offset_val = args[2];
+        if (!offset_val.isInteger() and !offset_val.isNil()) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Integer", .{});
+        }
+        const offset: i64 = if (offset_val.isNil()) 0 else offset_val.toInteger();
+        if (offset < 0) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "negative offset {d} given", .{offset});
+        }
+        const fd = file_val.toIoObject().fd;
+        const result = std.c.lseek(fd, offset, 0);
+        if (result < 0) {
+            const errno_code = std.posix.errno(result);
+            return vm.raiseErrnoFmt(errno_code, "seek failed", .{});
+        }
+    }
+
+    if (args.len == 1) {
+        return vm.callMethodByName(file_val, "read", &[_]Value{}, null);
+    }
+
+    const len_val = args[1];
+    if (!len_val.isInteger() and !len_val.isNil()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Integer", .{});
+    }
+    if (len_val.isInteger() and len_val.toInteger() < 0) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "negative length {d} given", .{len_val.toInteger()});
+    }
+    return vm.callMethodByName(file_val, "read", args[1..2], null);
 }
 
 pub fn builtinFileWrite(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
