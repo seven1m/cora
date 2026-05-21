@@ -112,15 +112,49 @@ fn builtinUnboundMethodBind(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     try vm.requireArgCount(args, 1);
 
     const method_obj = unboundMethodObject(receiver);
-    const resolved = (try common.resolveExactMethodForReceiver(vm, args[0], method_obj.owner, method_obj.name)) orelse {
+    const bind_target = args[0];
+
+    if (!common.isCompatibleBindTarget(vm, bind_target, method_obj.owner)) {
         return vm.raiseExceptionFmt(
             vm.type_error_class,
             "bind argument must be an instance of {s}",
             .{common.ownerDisplayName(method_obj.owner)},
         );
-    };
+    }
 
-    return createBoundMethodObject(vm, args[0], method_obj.name, resolved, method_obj.owner);
+    // Use the captured entry so the bound method invokes the original
+    // implementation even if the method was removed/redefined since capture.
+    const captured_resolved: vm_mod.ResolvedMethod = .{
+        .name = method_obj.name,
+        .owner_class = if (method_obj.owner.isClass()) method_obj.owner.toClassObject() else vm.getClass(method_obj.owner),
+        .entry = method_obj.entry,
+    };
+    return createBoundMethodObject(vm, bind_target, method_obj.name, captured_resolved, method_obj.owner);
+}
+
+fn builtinUnboundMethodBindCall(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireMinArgCount(args, 1);
+
+    const method_obj = unboundMethodObject(receiver);
+    const bind_target = args[0];
+    const call_args = args[1..];
+
+    if (!common.isCompatibleBindTarget(vm, bind_target, method_obj.owner)) {
+        return vm.raiseExceptionFmt(
+            vm.type_error_class,
+            "bind argument must be an instance of {s}",
+            .{common.ownerDisplayName(method_obj.owner)},
+        );
+    }
+
+    // Use the captured entry so we invoke the original implementation
+    // even if the method was removed/redefined since the UnboundMethod was created.
+    const captured_resolved: vm_mod.ResolvedMethod = .{
+        .name = method_obj.name,
+        .owner_class = if (method_obj.owner.isClass()) method_obj.owner.toClassObject() else vm.getClass(method_obj.owner),
+        .entry = method_obj.entry,
+    };
+    return vm.invokeResolvedMethod(captured_resolved, bind_target, @constCast(call_args), block);
 }
 
 fn builtinUnboundMethodInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -172,6 +206,7 @@ pub fn createUnboundMethodObject(
         .arity = &builtinUnboundMethodArity,
         .parameters = &builtinUnboundMethodParameters,
         .bind = &builtinUnboundMethodBind,
+        .bind_call = &builtinUnboundMethodBindCall,
         .inspect = &builtinUnboundMethodInspect,
         .equal = &builtinUnboundMethodEqual,
         .source_location = &builtinUnboundMethodSourceLocation,

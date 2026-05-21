@@ -1,6 +1,7 @@
 const std = @import("std");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
+const kernel = @import("kernel.zig");
 
 pub const VM = vm_mod.VM;
 pub const VMError = vm_mod.VMError;
@@ -30,6 +31,7 @@ pub const UnboundMethodBuiltins = struct {
     arity: BuiltinMethodFn,
     parameters: BuiltinMethodFn,
     bind: BuiltinMethodFn,
+    bind_call: BuiltinMethodFn,
     inspect: BuiltinMethodFn,
     equal: BuiltinMethodFn,
     source_location: BuiltinMethodFn,
@@ -264,6 +266,15 @@ pub fn parametersForResolvedMethod(vm: *VM, resolved: vm_mod.ResolvedMethod) VME
     return Value.fromObject(&out.object);
 }
 
+/// Check whether `bind_target` is a valid receiver for an UnboundMethod whose
+/// owner is `owner` (a Class or Module Value).  Mirrors Ruby's is_a? semantics:
+/// the target must be an instance of the owner class or include the owner module.
+pub fn isCompatibleBindTarget(vm: *VM, bind_target: Value, owner: Value) bool {
+    var is_a_args = [1]Value{owner};
+    const result = kernel.builtinKernelIsA(vm, bind_target, &is_a_args, null) catch return false;
+    return result.is_truthy();
+}
+
 pub fn createBoundMethodObject(
     vm: *VM,
     receiver: Value,
@@ -334,6 +345,7 @@ pub fn createUnboundMethodObject(
         .name = method_name,
         .arity = try vm.methodArityValue(resolved),
         .owner = owner,
+        .entry = resolved.entry,
     };
 
     const method_val = Value.fromObject(&method_obj.object);
@@ -350,6 +362,9 @@ pub fn createUnboundMethodObject(
 
     const bind_sym = try vm.intern("bind");
     singleton.module.methods.put(bind_sym, MethodEntry.builtin(builtins.bind, .{ .exact = 1 })) catch return error.Fatal;
+
+    const bind_call_sym = try vm.intern("bind_call");
+    singleton.module.methods.put(bind_call_sym, MethodEntry.builtin(builtins.bind_call, .{ .variadic = 1 })) catch return error.Fatal;
 
     const inspect_sym = try vm.intern("inspect");
     singleton.module.methods.put(inspect_sym, MethodEntry.builtin(builtins.inspect, .{ .exact = 0 })) catch return error.Fatal;

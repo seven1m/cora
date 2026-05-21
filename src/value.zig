@@ -273,6 +273,7 @@ pub const UnboundMethodObject = struct {
     name: *SymbolObject,
     arity: Value,
     owner: Value,
+    entry: MethodEntry,
 };
 
 pub const ProcObject = struct {
