@@ -1001,7 +1001,12 @@ pub fn builtinIntegerModulo(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
             if (divisor == 0.0) {
                 return vm.raiseExceptionFmt(vm.zero_division_error_class, "divided by 0", .{});
             }
-            return try vm.newFloat(@mod(receiver.integerToF64(), divisor));
+            const a = receiver.integerToF64();
+            // Use @rem (truncated remainder, like C fmod) then adjust sign
+            // to match Ruby's floored modulo semantics.
+            var result = @rem(a, divisor);
+            if (result != 0.0 and (result < 0.0) != (divisor < 0.0)) result += divisor;
+            return try vm.newFloat(result);
         },
     };
 }
