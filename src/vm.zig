@@ -9217,7 +9217,13 @@ pub const VM = struct {
         chunk_ptr.* = Chunk.init(allocator, method_name);
         chunk_ptr.chunk_id = self.next_chunk_id;
         self.next_chunk_id += 1;
-        chunk_ptr.setSourceFile(self.current_loading_file orelse self.program.main_chunk.source_file) catch return error.Fatal;
+        const source_file = blk: {
+            if (self.currentRubyCallerFrame()) |frame| {
+                if (frame.chunk.source_file) |path| break :blk path;
+            }
+            break :blk self.current_loading_file orelse self.program.main_chunk.source_file;
+        };
+        chunk_ptr.setSourceFile(source_file) catch return error.Fatal;
         chunk_ptr.lexical_scope = self.current_lexical_scope;
         chunk_ptr.arity = if (kind == .reader) 0 else 1;
         chunk_ptr.locals_count = if (kind == .reader) 0 else 1;
@@ -10005,7 +10011,7 @@ pub const VM = struct {
         }
 
         const prev_file = self.current_loading_file;
-        self.current_loading_file = absolute_path;
+        self.current_loading_file = main_chunk.source_file orelse absolute_path;
         defer self.current_loading_file = prev_file;
 
         try self.executeChunk(main_chunk);
