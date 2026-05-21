@@ -266,6 +266,27 @@ fn parseMode(vm: *VM, mode_str: []const u8) VMError!FileMode {
     };
 }
 
+fn parseModeBits(vm: *VM, raw_mode: i64) VMError!FileMode {
+    if (raw_mode < 0) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "invalid access mode {d}", .{raw_mode});
+    }
+
+    const accmode = raw_mode & 0b11;
+    const read = accmode == 0 or accmode == 2;
+    const write = accmode == 1 or accmode == 2;
+    const append = (raw_mode & 1024) != 0;
+    const truncate = (raw_mode & 512) != 0;
+    const create = (raw_mode & 64) != 0 or append;
+
+    return .{
+        .read = read,
+        .write = write or append,
+        .append = append,
+        .create = create,
+        .truncate = truncate,
+    };
+}
+
 fn openFileWithMode(vm: *VM, path: []const u8, mode: FileMode, create_mode: std.c.mode_t) VMError!Value {
     if (builtin.os.tag == .windows) {
         return vm.raiseExceptionFmt(vm.runtime_error_class, "File is not implemented on Windows", .{});
@@ -294,11 +315,13 @@ fn pathAndMode(vm: *VM, args: []Value) VMError!struct { path: []const u8, mode: 
     try vm.requireArgCountRange(args, 1, 3);
     const path = try vm.coerceToPath(args[0], "no implicit conversion into String");
 
-    const mode_str: []const u8 = if (args.len >= 2) blk: {
-        if (args[1].isNil()) break :blk "r";
-        break :blk try args[1].coerceToStr(vm, "no implicit conversion into String");
-    } else "r";
-    const mode = try parseMode(vm, mode_str);
+    const mode = if (args.len >= 2 and !args[1].isNil()) blk: {
+        if (args[1].isInteger()) {
+            break :blk try parseModeBits(vm, args[1].toInteger());
+        }
+        const mode_str = try args[1].coerceToStr(vm, "no implicit conversion into String");
+        break :blk try parseMode(vm, mode_str);
+    } else try parseMode(vm, "r");
     const create_mode: std.c.mode_t = if (args.len == 3 and !args[2].isNil())
         try coerceModeBits(vm, args[2])
     else

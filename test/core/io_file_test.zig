@@ -195,6 +195,25 @@ test "File.open with block closes file automatically" {
     try std.testing.expectEqual(true, result.toBool());
 }
 
+test "File.open accepts integer mode flags" {
+    var path_buf: [128]u8 = undefined;
+    const path = try uniquePath(&path_buf);
+    const source = try std.fmt.allocPrint(
+        std.testing.allocator,
+        \\path = "{s}"
+        \\flags = File::RDWR | File::CREAT | File::BINARY
+        \\File.open(path, flags) do |io|
+        \\  io.write("x")
+        \\end
+        \\File.read(path)
+    , .{path});
+    defer std.testing.allocator.free(source);
+
+    const result = try evalCode(source);
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "x", result.toStringObject().str);
+}
+
 test "File.stat and IO#stat expose uid and gid" {
     var path_buf: [128]u8 = undefined;
     const path = try uniquePath(&path_buf);
