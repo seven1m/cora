@@ -126,6 +126,15 @@ pub fn register(vm: *VM) !void {
     const path_sym = try vm.intern("path");
     try vm.io_class.module.methods.put(path_sym, value.MethodEntry.builtin(&builtinIoPath, .{ .exact = 0 }));
 
+    const pos_sym = try vm.intern("pos");
+    try vm.io_class.module.methods.put(pos_sym, value.MethodEntry.builtin(&builtinIoPos, .{ .exact = 0 }));
+
+    const tell_sym = try vm.intern("tell");
+    try vm.io_class.module.methods.put(tell_sym, value.MethodEntry.builtin(&builtinIoPos, .{ .exact = 0 }));
+
+    const pos_set_sym = try vm.intern("pos=");
+    try vm.io_class.module.methods.put(pos_set_sym, value.MethodEntry.builtin(&builtinIoPosSet, .{ .exact = 1 }));
+
     const tty_q_sym = try vm.intern("tty?");
     try vm.io_class.module.methods.put(tty_q_sym, value.MethodEntry.builtin(&builtinIoTtyQ, .{ .exact = 0 }));
 
@@ -1463,6 +1472,41 @@ pub fn builtinIoPath(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
     }
     return Value.nil();
 }
+
+pub fn builtinIoPos(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const io = try requireIoReceiver(vm, receiver);
+    try ensureIoOpen(vm, io);
+
+    const result = std.c.lseek(@intCast(io.fd), 0, std.c.SEEK.CUR);
+    if (result < 0) {
+        return vm.raiseErrnoFmt(std.posix.errno(result), "seek failed", .{});
+    }
+    return Value.integer(result);
+}
+
+pub fn builtinIoPosSet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const io = try requireIoReceiver(vm, receiver);
+    try ensureIoOpen(vm, io);
+
+    const class_name = vm.className(args[0]);
+    const missing_message = std.fmt.allocPrint(vm.allocator, "no implicit conversion of {s} into Integer", .{class_name}) catch return error.Fatal;
+    defer vm.allocator.free(missing_message);
+    const offset = try args[0].coerceToI64ViaToInt(
+        vm,
+        missing_message,
+        "can't convert to Integer (to_int gives non-Integer)",
+        "bignum too big to convert into `long'",
+    );
+
+    const result = std.c.lseek(@intCast(io.fd), offset, std.c.SEEK.SET);
+    if (result < 0) {
+        return vm.raiseErrnoFmt(std.posix.errno(result), "seek failed", .{});
+    }
+    return Value.integer(result);
+}
+
 pub fn builtinIoNread(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const io = try requireIoReceiver(vm, receiver);
