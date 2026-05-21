@@ -6089,9 +6089,16 @@ pub const VM = struct {
                     block = frame.block;
                 }
 
-                // Get forwarding arguments from current method's environment
+                // Get forwarding positional arguments from current method's environment
                 var fwd_buf: [256]Value = undefined;
                 const fwd_args = self.getForwardingArguments(frame, &fwd_buf);
+
+                // Build forwarding keyword context from actual param slot values
+                // (includes defaults that were applied, not just what was explicitly passed).
+                const fwd_kw_ctx = try self.buildForwardingKeywordContext(frame);
+                if (fwd_kw_ctx) |ctx| {
+                    frame.forwarded_keyword_ctx = ctx;
+                }
 
                 try self.callSuper(fwd_args, block);
             },
@@ -7970,6 +7977,47 @@ pub const VM = struct {
         }
 
         return buf[0..out];
+    }
+
+    /// Build a BuiltinKeywordContext from the current frame's keyword parameter
+    /// slots. Used by FORWARDING_SUPER to forward actual keyword values (including
+    /// applied defaults) rather than just what was explicitly passed at the call site.
+    fn buildForwardingKeywordContext(self: *VM, frame: *CallFrame) VMError!?*BuiltinKeywordContext {
+        const ch = frame.chunk;
+        const total = ch.required_keywords.items.len + ch.optional_keywords.items.len;
+        if (total == 0) return null;
+
+        const ctx = self.gc_allocator.create(BuiltinKeywordContext) catch return error.Fatal;
+        ctx.* = .{};
+
+        const ep = frame.ep;
+        const lc = ch.locals_count;
+        var i: usize = 0;
+
+        for (ch.required_keywords.items) |kw| {
+            const name_str = switch (ch.constants.items[kw.name_idx]) {
+                .string => |s| s,
+                .symbol => |sym| sym.name,
+                else => return error.Fatal,
+            };
+            ctx.kw_keys_storage[i] = Value.fromObject(&(try self.intern(name_str)).object);
+            ctx.kw_values_storage[i] = (ep - lc + kw.param_slot)[0];
+            i += 1;
+        }
+        for (ch.optional_keywords.items) |kw| {
+            const name_str = switch (ch.constants.items[kw.name_idx]) {
+                .string => |s| s,
+                .symbol => |sym| sym.name,
+                else => return error.Fatal,
+            };
+            ctx.kw_keys_storage[i] = Value.fromObject(&(try self.intern(name_str)).object);
+            ctx.kw_values_storage[i] = (ep - lc + kw.param_slot)[0];
+            i += 1;
+        }
+
+        ctx.kw_keys = ctx.kw_keys_storage[0..total];
+        ctx.kw_values = ctx.kw_values_storage[0..total];
+        return ctx;
     }
 
     /// Call the superclass method with the given arguments
