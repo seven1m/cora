@@ -199,7 +199,7 @@ fn connectTCPSocket(vm: *VM, host_value: Value, port_value: Value) VMError!Value
         defer setSocketNonblocking(vm, posix_fd, false) catch {};
 
         if (std.c.connect(fd, addr, addrinfo.addrlen) == 0) {
-            return vm.newIo(try tcpSocketClass(vm), @intCast(fd), true, true, true, false, null, null);
+            return vm.newIo(try tcpSocketClass(vm), @intCast(fd), .{ .owns_fd = true, .readable = true, .writable = true });
         }
 
         const connect_errno = std.posix.errno(-1);
@@ -208,7 +208,7 @@ fn connectTCPSocket(vm: *VM, host_value: Value, port_value: Value) VMError!Value
                 try waitForConnectWritable(vm, posix_fd);
                 const so_error = socketConnectError(posix_fd);
                 if (so_error == .SUCCESS) {
-                    return vm.newIo(try tcpSocketClass(vm), @intCast(fd), true, true, true, false, null, null);
+                    return vm.newIo(try tcpSocketClass(vm), @intCast(fd), .{ .owns_fd = true, .readable = true, .writable = true });
                 }
                 last_errno = so_error;
             },
@@ -267,7 +267,7 @@ pub fn builtinTCPServerNew(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
 
     const tcp_server_name = try vm.intern("TCPServer");
     const tcp_server_entry = vm.object_class.module.constants.get(tcp_server_name) orelse return error.Fatal;
-    return vm.newIo(tcp_server_entry.value.toClassObject(), @intCast(fd), true, true, false, false, null, null);
+    return vm.newIo(tcp_server_entry.value.toClassObject(), @intCast(fd), .{ .owns_fd = true, .readable = true, .writable = false });
 }
 
 pub fn builtinTCPServerAccept(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -283,7 +283,7 @@ pub fn builtinTCPServerAccept(vm: *VM, receiver: Value, args: []Value, _: ?Block
 
     const tcp_socket_name = try vm.intern("TCPSocket");
     const tcp_socket_entry = vm.object_class.module.constants.get(tcp_socket_name) orelse return error.Fatal;
-    return vm.newIo(tcp_socket_entry.value.toClassObject(), @intCast(client_fd), true, true, true, false, null, null);
+    return vm.newIo(tcp_socket_entry.value.toClassObject(), @intCast(client_fd), .{ .owns_fd = true, .readable = true, .writable = true });
 }
 
 pub fn builtinTCPSocketOpen(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {

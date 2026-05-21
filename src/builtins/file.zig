@@ -311,7 +311,14 @@ fn openFileWithMode(vm: *VM, path: Value, mode: FileMode, create_mode: std.c.mod
     }
 
     const path_copy = vm.gc_allocator.dupe(u8, path_bytes) catch return error.Fatal;
-    return vm.newIo(vm.file_class, @intCast(fd), true, mode.read, mode.write, mode.append, path_copy, path_obj.encoding);
+    return vm.newIo(vm.file_class, @intCast(fd), .{
+        .owns_fd = true,
+        .readable = mode.read,
+        .writable = mode.write,
+        .append = mode.append,
+        .path = path_copy,
+        .path_encoding = path_obj.encoding,
+    });
 }
 
 fn pathAndMode(vm: *VM, args: []Value) VMError!struct { path: Value, mode: FileMode, create_mode: std.c.mode_t } {

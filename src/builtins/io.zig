@@ -533,7 +533,11 @@ fn popenSpawn(vm: *VM, receiver: Value, config: *PopenConfig) VMError!Value {
         closeFdIfOpen(child_stdout_fd);
     }
 
-    const io_value = try vm.newIo(io_class, parent_fd, true, config.readable, config.writable, false, null, null);
+    const io_value = try vm.newIo(io_class, parent_fd, .{
+        .owns_fd = true,
+        .readable = config.readable,
+        .writable = config.writable,
+    });
     try vm.setInstanceVariable(io_value, "@pid", Value.integer(pid));
     try vm.setInstanceVariable(io_value, "@child_process", Value.boolean(true));
     if (config.external_encoding) |encoding| {
@@ -576,8 +580,8 @@ pub fn builtinIoPipe(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
         _ = std.c.close(fds[1]);
     }
 
-    const read_io = try vm.newIo(io_class, @intCast(fds[0]), true, true, false, false, null, null);
-    const write_io = try vm.newIo(io_class, @intCast(fds[1]), true, false, true, false, null, null);
+    const read_io = try vm.newIo(io_class, @intCast(fds[0]), .{ .owns_fd = true, .readable = true, .writable = false });
+    const write_io = try vm.newIo(io_class, @intCast(fds[1]), .{ .owns_fd = true, .readable = false, .writable = true });
     try ensureIoNonblocking(vm, read_io.toIoObject());
     try ensureIoNonblocking(vm, write_io.toIoObject());
 

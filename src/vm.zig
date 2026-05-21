@@ -1465,9 +1465,9 @@ pub const VM = struct {
         const stdin_sym = try self.intern("STDIN");
         const stdout_sym = try self.intern("STDOUT");
         const stderr_sym = try self.intern("STDERR");
-        const stdin_obj = try self.newIo(self.io_class, 0, false, true, false, false, null, null);
-        const stdout_obj = try self.newIo(self.io_class, 1, false, false, true, false, null, null);
-        const stderr_obj = try self.newIo(self.io_class, 2, false, false, true, false, null, null);
+        const stdin_obj = try self.newIo(self.io_class, 0, .{ .owns_fd = false, .readable = true, .writable = false });
+        const stdout_obj = try self.newIo(self.io_class, 1, .{ .owns_fd = false, .readable = false, .writable = true });
+        const stderr_obj = try self.newIo(self.io_class, 2, .{ .owns_fd = false, .readable = false, .writable = true });
         self.object_class.module.constants.put(stdin_sym, .{ .value = stdin_obj }) catch return error.Fatal;
         self.object_class.module.constants.put(stdout_sym, .{ .value = stdout_obj }) catch return error.Fatal;
         self.object_class.module.constants.put(stderr_sym, .{ .value = stderr_obj }) catch return error.Fatal;
@@ -8281,28 +8281,27 @@ pub const VM = struct {
         return Value.fromObject(&fiber_obj.object);
     }
 
-    pub fn newIo(
-        self: *VM,
-        class_obj: *ClassObject,
-        fd: i32,
+    pub const IoInit = struct {
         owns_fd: bool,
         readable: bool,
         writable: bool,
-        append: bool,
-        path: ?[]const u8,
-        path_encoding: ?enc.Encoding,
-    ) VMError!Value {
+        append: bool = false,
+        path: ?[]const u8 = null,
+        path_encoding: ?enc.Encoding = null,
+    };
+
+    pub fn newIo(self: *VM, class_obj: *ClassObject, fd: i32, init: IoInit) VMError!Value {
         const io_obj = self.gc_allocator.create(value.IoObject) catch return error.Fatal;
         io_obj.* = .{
             .object = .{ .type_tag = .io, .flags = 0, .class = class_obj, .singleton_class = null, .instance_variables = null },
             .fd = fd,
-            .owns_fd = owns_fd,
+            .owns_fd = init.owns_fd,
             .closed = false,
-            .readable = readable,
-            .writable = writable,
-            .append = append,
-            .path = path,
-            .path_encoding = path_encoding,
+            .readable = init.readable,
+            .writable = init.writable,
+            .append = init.append,
+            .path = init.path,
+            .path_encoding = init.path_encoding,
         };
         self.io_objects.append(self.gc_allocator, io_obj) catch return error.Fatal;
         return Value.fromObject(&io_obj.object);
@@ -8599,7 +8598,7 @@ pub const VM = struct {
             },
             .range => self.newRange(class_obj),
             .fiber => try self.newFiber(class_obj, null),
-            .io => try self.newIo(class_obj, -1, false, false, false, false, null, null),
+            .io => try self.newIo(class_obj, -1, .{ .owns_fd = false, .readable = false, .writable = false }),
             .time => self.newTime(class_obj, 0),
             .instance => self.newInstance(class_obj),
         };
