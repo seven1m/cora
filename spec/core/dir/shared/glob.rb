@@ -12,10 +12,8 @@ describe :dir_glob, shared: true do
   end
 
   it "raises an Encoding::CompatibilityError if the argument encoding is not compatible with US-ASCII" do
-    CORAFIXME "Dir.glob does not yet reject incompatible pattern encodings", exception: SpecFailedException do
-      pattern = "files*".dup.force_encoding Encoding::UTF_16BE
-      -> { Dir.send(@method, pattern) }.should raise_error(Encoding::CompatibilityError)
-    end
+    pattern = "files*".dup.force_encoding Encoding::UTF_16BE
+    -> { Dir.send(@method, pattern) }.should raise_error(Encoding::CompatibilityError)
   end
 
   it "calls #to_path to convert a pattern" do

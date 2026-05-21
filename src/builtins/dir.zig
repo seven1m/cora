@@ -736,6 +736,17 @@ fn parseGlobKeywords(vm: *VM) VMError!GlobKeywords {
     return keywords;
 }
 
+fn coerceGlobPattern(vm: *VM, arg: Value) VMError![]const u8 {
+    const maybe_candidate = try vm.checkCallMethodByName(arg, "to_path", false, &[_]Value{}, null);
+    const candidate = maybe_candidate orelse arg;
+    const pattern_value = try candidate.coerceToStringValue(vm, "no implicit conversion into String");
+    const pattern_string = pattern_value.toStringObject();
+    if (!pattern_string.encoding.isAsciiCompatible()) {
+        return vm.raiseEncodingCompatibilityError(.{ .utf8 = .{} }, pattern_string.encoding);
+    }
+    return pattern_string.str;
+}
+
 fn buildGlobResult(vm: *VM, matches: *ArrayObject, block: ?Block) VMError!Value {
     if (block) |blk| {
         for (matches.elements.items) |entry| {
@@ -778,7 +789,7 @@ pub fn builtinDirGlob(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!V
 
     if (args[0].isArray()) {
         for (args[0].toArrayObject().elements.items) |pattern_val| {
-            const pattern = try vm.coerceToPath(pattern_val, "no implicit conversion into String");
+            const pattern = try coerceGlobPattern(vm, pattern_val);
             var expanded = expandBracesAlloc(vm.allocator, pattern, flags.noescape) catch return error.Fatal;
             defer {
                 for (expanded.items) |item| vm.allocator.free(item);
@@ -789,7 +800,7 @@ pub fn builtinDirGlob(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!V
             }
         }
     } else {
-        const pattern = try vm.coerceToPath(args[0], "no implicit conversion into String");
+        const pattern = try coerceGlobPattern(vm, args[0]);
         var expanded = expandBracesAlloc(vm.allocator, pattern, flags.noescape) catch return error.Fatal;
         defer {
             for (expanded.items) |item| vm.allocator.free(item);

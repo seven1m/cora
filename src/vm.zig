@@ -1465,9 +1465,9 @@ pub const VM = struct {
         const stdin_sym = try self.intern("STDIN");
         const stdout_sym = try self.intern("STDOUT");
         const stderr_sym = try self.intern("STDERR");
-        const stdin_obj = try self.newIo(self.io_class, 0, false, true, false, false, null);
-        const stdout_obj = try self.newIo(self.io_class, 1, false, false, true, false, null);
-        const stderr_obj = try self.newIo(self.io_class, 2, false, false, true, false, null);
+        const stdin_obj = try self.newIo(self.io_class, 0, false, true, false, false, null, null);
+        const stdout_obj = try self.newIo(self.io_class, 1, false, false, true, false, null, null);
+        const stderr_obj = try self.newIo(self.io_class, 2, false, false, true, false, null, null);
         self.object_class.module.constants.put(stdin_sym, .{ .value = stdin_obj }) catch return error.Fatal;
         self.object_class.module.constants.put(stdout_sym, .{ .value = stdout_obj }) catch return error.Fatal;
         self.object_class.module.constants.put(stderr_sym, .{ .value = stderr_obj }) catch return error.Fatal;
@@ -8290,6 +8290,7 @@ pub const VM = struct {
         writable: bool,
         append: bool,
         path: ?[]const u8,
+        path_encoding: ?enc.Encoding,
     ) VMError!Value {
         const io_obj = self.gc_allocator.create(value.IoObject) catch return error.Fatal;
         io_obj.* = .{
@@ -8301,6 +8302,7 @@ pub const VM = struct {
             .writable = writable,
             .append = append,
             .path = path,
+            .path_encoding = path_encoding,
         };
         self.io_objects.append(self.gc_allocator, io_obj) catch return error.Fatal;
         return Value.fromObject(&io_obj.object);
@@ -8597,7 +8599,7 @@ pub const VM = struct {
             },
             .range => self.newRange(class_obj),
             .fiber => try self.newFiber(class_obj, null),
-            .io => try self.newIo(class_obj, -1, false, false, false, false, null),
+            .io => try self.newIo(class_obj, -1, false, false, false, false, null, null),
             .time => self.newTime(class_obj, 0),
             .instance => self.newInstance(class_obj),
         };
@@ -9446,17 +9448,23 @@ pub const VM = struct {
     }
 
     pub fn coerceToPath(self: *VM, arg: Value, type_error_message: []const u8) VMError![]const u8 {
-        const maybe_candidate = try self.checkCallMethodByName(arg, "to_path", false, &[_]Value{}, null);
-        const candidate = maybe_candidate orelse arg;
-
-        return candidate.coerceToStr(self, type_error_message);
+        const path_value = try self.coerceToPathValue(arg, type_error_message);
+        return path_value.toStringObject().str;
     }
 
     pub fn coerceToPathValue(self: *VM, arg: Value, type_error_message: []const u8) VMError!Value {
         const maybe_candidate = try self.checkCallMethodByName(arg, "to_path", false, &[_]Value{}, null);
         const candidate = maybe_candidate orelse arg;
 
-        return candidate.coerceToStringValue(self, type_error_message);
+        const path_value = try candidate.coerceToStringValue(self, type_error_message);
+        const path_string = path_value.toStringObject();
+        if (!path_string.encoding.isAsciiCompatible()) {
+            return self.raiseEncodingCompatibilityError(.{ .utf8 = .{} }, path_string.encoding);
+        }
+        if (std.mem.indexOfScalar(u8, path_string.str, 0) != null) {
+            return self.raiseExceptionFmt(self.argument_error_class, "path name contains null byte", .{});
+        }
+        return path_value;
     }
 
     pub fn coerceToMethodNameString(self: *VM, arg: Value) VMError![]const u8 {

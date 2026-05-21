@@ -287,10 +287,13 @@ fn parseModeBits(vm: *VM, raw_mode: i64) VMError!FileMode {
     };
 }
 
-fn openFileWithMode(vm: *VM, path: []const u8, mode: FileMode, create_mode: std.c.mode_t) VMError!Value {
+fn openFileWithMode(vm: *VM, path: Value, mode: FileMode, create_mode: std.c.mode_t) VMError!Value {
     if (builtin.os.tag == .windows) {
         return vm.raiseExceptionFmt(vm.runtime_error_class, "File is not implemented on Windows", .{});
     }
+
+    const path_obj = path.toStringObject();
+    const path_bytes = path_obj.str;
 
     const flags: std.c.O = .{
         .ACCMODE = if (mode.read and mode.write) .RDWR else if (mode.write) .WRONLY else .RDONLY,
@@ -300,20 +303,20 @@ fn openFileWithMode(vm: *VM, path: []const u8, mode: FileMode, create_mode: std.
         .APPEND = mode.append,
     };
 
-    const path_z = try vm.allocCStringZ(path);
+    const path_z = try vm.allocCStringZ(path_bytes);
     defer vm.allocator.free(path_z);
     const fd = std.c.open(path_z.ptr, flags, create_mode);
     if (fd < 0) {
-        return vm.raiseErrnoFmt(std.posix.errno(fd), "failed to open file: {s}", .{path});
+        return vm.raiseErrnoFmt(std.posix.errno(fd), "failed to open file: {s}", .{path_bytes});
     }
 
-    const path_copy = vm.gc_allocator.dupe(u8, path) catch return error.Fatal;
-    return vm.newIo(vm.file_class, @intCast(fd), true, mode.read, mode.write, mode.append, path_copy);
+    const path_copy = vm.gc_allocator.dupe(u8, path_bytes) catch return error.Fatal;
+    return vm.newIo(vm.file_class, @intCast(fd), true, mode.read, mode.write, mode.append, path_copy, path_obj.encoding);
 }
 
-fn pathAndMode(vm: *VM, args: []Value) VMError!struct { path: []const u8, mode: FileMode, create_mode: std.c.mode_t } {
+fn pathAndMode(vm: *VM, args: []Value) VMError!struct { path: Value, mode: FileMode, create_mode: std.c.mode_t } {
     try vm.requireArgCountRange(args, 1, 3);
-    const path = try vm.coerceToPath(args[0], "no implicit conversion into String");
+    const path = try vm.coerceToPathValue(args[0], "no implicit conversion into String");
 
     const mode = if (args.len >= 2 and !args[1].isNil()) blk: {
         if (args[1].isInteger()) {
@@ -330,7 +333,7 @@ fn pathAndMode(vm: *VM, args: []Value) VMError!struct { path: []const u8, mode: 
 }
 
 const FileOpenConfig = struct {
-    path: []const u8,
+    path: Value,
     mode: FileMode,
     create_mode: std.c.mode_t,
     external_encoding: ?Value = null,
@@ -765,7 +768,7 @@ pub fn builtinFileOpen(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!
 
 pub fn builtinFileRead(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 1, 3);
-    const path = try vm.coerceToPath(args[0], "no implicit conversion into String");
+    const path = try vm.coerceToPathValue(args[0], "no implicit conversion into String");
     const file_val = try openFileWithMode(vm, path, .{ .read = true, .write = false, .append = false, .create = false, .truncate = false }, 0o666);
     defer _ = vm.callMethodByName(file_val, "close", &[_]Value{}, null) catch {};
 
@@ -802,7 +805,7 @@ pub fn builtinFileRead(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
 
 pub fn builtinFileWrite(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 2);
-    const path = try vm.coerceToPath(args[0], "no implicit conversion into String");
+    const path = try vm.coerceToPathValue(args[0], "no implicit conversion into String");
     const file_val = try openFileWithMode(vm, path, .{ .read = false, .write = true, .append = false, .create = true, .truncate = true }, 0o666);
     defer _ = vm.callMethodByName(file_val, "close", &[_]Value{}, null) catch {};
     return vm.callMethodByName(file_val, "write", args[1..2], null);
@@ -810,7 +813,7 @@ pub fn builtinFileWrite(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Val
 
 pub fn builtinFileBinread(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 1, 3);
-    const path = try vm.coerceToPath(args[0], "no implicit conversion into String");
+    const path = try vm.coerceToPathValue(args[0], "no implicit conversion into String");
     const file_val = try openFileWithMode(vm, path, .{ .read = true, .write = false, .append = false, .create = false, .truncate = false }, 0o666);
     defer _ = vm.callMethodByName(file_val, "close", &[_]Value{}, null) catch {};
 
@@ -1244,12 +1247,12 @@ pub fn builtinFilePath(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
     if (arg.isIo()) {
         const io = arg.toIoObject();
         if (io.path) |p| {
-            return vm.newString(p, false);
+            return vm.newStringWithEncoding(p, false, io.path_encoding orelse .{ .utf8 = .{} });
         }
         return Value.nil();
     }
-    const path = try vm.coerceToPath(arg, "no implicit conversion into String");
-    return vm.newString(path, false);
+    const path = try vm.coerceToPathValue(arg, "no implicit conversion into String");
+    return vm.newStringWithEncoding(path.toStringObject().str, false, path.toStringObject().encoding);
 }
 
 pub fn builtinFileStatFileQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

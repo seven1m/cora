@@ -40,6 +40,9 @@ pub fn register(vm: *VM) !void {
     const binread_sym = try vm.intern("binread");
     try io_singleton.module.methods.put(binread_sym, value.MethodEntry.builtin(&builtinIoBinread, .{ .variadic = 0 }));
 
+    const initialize_sym = try vm.intern("initialize");
+    try vm.io_class.module.methods.put(initialize_sym, value.MethodEntry.builtinWithVisibility(&builtinIoInitialize, .{ .variadic = 1 }, .private));
+
     const to_io_sym = try vm.intern("to_io");
     try vm.io_class.module.methods.put(to_io_sym, value.MethodEntry.builtin(&builtinIoToIo, .{ .exact = 0 }));
 
@@ -119,6 +122,9 @@ pub fn register(vm: *VM) !void {
 
     const fileno_sym = try vm.intern("fileno");
     try vm.io_class.module.methods.put(fileno_sym, value.MethodEntry.builtin(&builtinIoFileno, .{ .exact = 0 }));
+
+    const path_sym = try vm.intern("path");
+    try vm.io_class.module.methods.put(path_sym, value.MethodEntry.builtin(&builtinIoPath, .{ .exact = 0 }));
 
     const tty_q_sym = try vm.intern("tty?");
     try vm.io_class.module.methods.put(tty_q_sym, value.MethodEntry.builtin(&builtinIoTtyQ, .{ .exact = 0 }));
@@ -518,7 +524,7 @@ fn popenSpawn(vm: *VM, receiver: Value, config: *PopenConfig) VMError!Value {
         closeFdIfOpen(child_stdout_fd);
     }
 
-    const io_value = try vm.newIo(io_class, parent_fd, true, config.readable, config.writable, false, null);
+    const io_value = try vm.newIo(io_class, parent_fd, true, config.readable, config.writable, false, null, null);
     try vm.setInstanceVariable(io_value, "@pid", Value.integer(pid));
     try vm.setInstanceVariable(io_value, "@child_process", Value.boolean(true));
     if (config.external_encoding) |encoding| {
@@ -561,8 +567,8 @@ pub fn builtinIoPipe(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
         _ = std.c.close(fds[1]);
     }
 
-    const read_io = try vm.newIo(io_class, @intCast(fds[0]), true, true, false, false, null);
-    const write_io = try vm.newIo(io_class, @intCast(fds[1]), true, false, true, false, null);
+    const read_io = try vm.newIo(io_class, @intCast(fds[0]), true, true, false, false, null, null);
+    const write_io = try vm.newIo(io_class, @intCast(fds[1]), true, false, true, false, null, null);
     try ensureIoNonblocking(vm, read_io.toIoObject());
     try ensureIoNonblocking(vm, write_io.toIoObject());
 
@@ -824,6 +830,74 @@ pub fn builtinIoEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) VME
 fn requireIoReceiver(vm: *VM, receiver: Value) VMError!*IoObject {
     if (receiver.isIo()) return receiver.toIoObject();
     return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not an IO", .{});
+}
+
+const IoOpenMode = struct {
+    readable: bool,
+    writable: bool,
+    append: bool,
+};
+
+fn parseIoModeValue(vm: *VM, mode_value: Value) VMError!IoOpenMode {
+    if (mode_value.isInteger()) {
+        return switch (@as(i64, @intCast(@mod(mode_value.toInteger(), 4)))) {
+            0 => .{ .readable = true, .writable = false, .append = false },
+            1 => .{ .readable = false, .writable = true, .append = false },
+            2 => .{ .readable = true, .writable = true, .append = false },
+            else => .{ .readable = true, .writable = false, .append = false },
+        };
+    }
+
+    const mode = try mode_value.coerceToStr(vm, "no implicit conversion into String");
+    const plus = std.mem.indexOfScalar(u8, mode, '+') != null;
+    if (mode.len == 0 or mode[0] == 'r') {
+        return .{ .readable = true, .writable = plus, .append = false };
+    }
+    if (mode[0] == 'w') {
+        return .{ .readable = plus, .writable = true, .append = false };
+    }
+    if (mode[0] == 'a') {
+        return .{ .readable = plus, .writable = true, .append = true };
+    }
+    return vm.raiseExceptionFmt(vm.argument_error_class, "invalid access mode", .{});
+}
+
+pub fn builtinIoInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+    var path_value: ?Value = null;
+    var autoclose_value: ?Value = null;
+    var mode_keyword: ?Value = null;
+    try vm.consumeKeywordArgs(.{ "path", "autoclose", "mode" }, .{ &path_value, &autoclose_value, &mode_keyword });
+    try vm.validateKeywordArgsConsumed();
+
+    const io = try requireIoReceiver(vm, receiver);
+    const fd_value = try args[0].coerceToIntegerValue(vm, "no implicit conversion to Integer", "can't convert to Integer");
+    if (!fd_value.isInteger()) {
+        return vm.raiseExceptionFmt(vm.range_error_class, "bignum too big to convert into `long'", .{});
+    }
+
+    const mode_value = if (mode_keyword != null and !mode_keyword.?.isNil()) mode_keyword.? else if (args.len == 2 and !args[1].isNil()) args[1] else null;
+    const mode: IoOpenMode = if (mode_value) |val|
+        try parseIoModeValue(vm, val)
+    else
+        .{ .readable = true, .writable = false, .append = false };
+
+    io.fd = @intCast(fd_value.toInteger());
+    io.owns_fd = if (autoclose_value) |val| val.is_truthy() else true;
+    io.closed = false;
+    io.readable = mode.readable;
+    io.writable = mode.writable;
+    io.append = mode.append;
+    io.path = null;
+    io.path_encoding = null;
+
+    if (path_value) |val| {
+        const path = try vm.coerceToPathValue(val, "no implicit conversion into String");
+        io.path = vm.gc_allocator.dupe(u8, path.toStringObject().str) catch return error.Fatal;
+        io.path_encoding = path.toStringObject().encoding;
+    }
+
+    return Value.nil();
 }
 
 fn ensureIoOpen(vm: *VM, io: *IoObject) VMError!void {
@@ -1381,6 +1455,14 @@ pub fn builtinIoFileno(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
     return Value.integer(io.fd);
 }
 
+pub fn builtinIoPath(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const io = try requireIoReceiver(vm, receiver);
+    if (io.path) |path| {
+        return vm.newStringWithEncoding(path, false, io.path_encoding orelse .{ .utf8 = .{} });
+    }
+    return Value.nil();
+}
 pub fn builtinIoNread(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const io = try requireIoReceiver(vm, receiver);

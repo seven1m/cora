@@ -740,7 +740,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/file/null_spec.rb
 - [ ] core/file/open_spec.rb
 - [ ] core/file/owned_spec.rb
-- [ ] core/file/path_spec.rb
+- [x] core/file/path_spec.rb
 - [ ] core/file/pipe_spec.rb
 - [ ] core/file/printf_spec.rb
 - [x] core/file/read_spec.rb
@@ -1122,7 +1122,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/io/nonblock_spec.rb
 - [ ] core/io/open_spec.rb
 - [ ] core/io/output_spec.rb
-- [ ] core/io/path_spec.rb
+- [x] core/io/path_spec.rb
 - [ ] core/io/pid_spec.rb
 - [ ] core/io/pipe_spec.rb
 - [-] core/io/popen_spec.rb

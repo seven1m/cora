@@ -389,6 +389,7 @@ pub const IoObject = struct {
     writable: bool,
     append: bool,
     path: ?[]const u8,
+    path_encoding: ?Encoding = null,
 };
 
 pub const RegexpObject = struct {
