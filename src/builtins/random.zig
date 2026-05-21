@@ -86,7 +86,7 @@ fn randomBytes(vm: *VM, len: usize) VMError!Value {
 
     var prng = nextPrng(vm);
     prng.random().bytes(bytes);
-    return vm.newString(bytes, false);
+    return vm.newStringWithEncoding(bytes, false, .{ .ascii_8bit = .{} });
 }
 
 fn randomNumberFromArgs(vm: *VM, args: []Value) VMError!Value {

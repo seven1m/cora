@@ -15,6 +15,14 @@ test "Random.urandom returns a String of the requested length" {
     try std.testing.expectEqual(@as(i64, 8), result.toInteger());
 }
 
+test "Random.urandom returns ASCII-8BIT string with byte length semantics" {
+    const result = try evalCode("[s = Random.urandom(16), s.encoding.name, s.bytesize, s.length]");
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqualSlices(u8, "ASCII-8BIT", result.toArrayObject().elements.items[1].toStringObject().str);
+    try std.testing.expectEqual(@as(i64, 16), result.toArrayObject().elements.items[2].toInteger());
+    try std.testing.expectEqual(@as(i64, 16), result.toArrayObject().elements.items[3].toInteger());
+}
+
 test "Random formatter adds random_number for SecureRandom-style receivers" {
     const result = try evalCode(
         \\require "random/formatter"
