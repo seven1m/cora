@@ -96,6 +96,9 @@ pub fn register(vm: *VM) !void {
     const read_nonblock_sym = try vm.intern("read_nonblock");
     try vm.io_class.module.methods.put(read_nonblock_sym, value.MethodEntry.builtin(&builtinIoReadNonblock, .{ .variadic = 1 }));
 
+    const readpartial_sym = try vm.intern("readpartial");
+    try vm.io_class.module.methods.put(readpartial_sym, value.MethodEntry.builtin(&builtinIoReadpartial, .{ .variadic = 1 }));
+
     const write_sym = try vm.intern("write");
     try vm.io_class.module.methods.put(write_sym, value.MethodEntry.builtin(&builtinIoWrite, .{ .variadic = 0 }));
 
@@ -1302,6 +1305,41 @@ pub fn builtinIoReadNonblock(vm: *VM, receiver: Value, args: []Value, _: ?Block)
         if (outbuf) |buffer| {
             _ = try ioOutBufferValue(vm, buffer, "");
         }
+        return vm.raiseExceptionFmt(vm.eof_error_class, "end of file reached", .{});
+    }
+
+    return ioOutBufferValue(vm, outbuf, buf[0..@intCast(read_len)]);
+}
+
+// readpartial(maxlen[, outbuf]) — reads at most maxlen bytes in one syscall.
+// Unlike read(), raises EOFError instead of returning nil at end-of-file.
+pub fn builtinIoReadpartial(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+    const io = try requireIoReceiver(vm, receiver);
+    try ensureIoReadable(vm, io);
+
+    const len = try args[0].integerArgToI64(vm, "no implicit conversion into Integer", "integer too big to convert into `long`");
+    if (len < 0) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "negative length {d} given", .{len});
+    }
+
+    const outbuf = if (args.len == 2 and !args[1].isNil())
+        try args[1].coerceToStringValue(vm, "no implicit conversion into String")
+    else
+        null;
+
+    if (len == 0) return ioOutBufferValue(vm, outbuf, "");
+
+    const fd: std.posix.fd_t = @intCast(io.fd);
+    const buf = vm.allocator.alloc(u8, @intCast(len)) catch return error.Fatal;
+    defer vm.allocator.free(buf);
+
+    const read_len = std.c.read(fd, buf.ptr, buf.len);
+    if (read_len < 0) {
+        return vm.raiseErrnoFmt(std.posix.errno(read_len), "read failed", .{});
+    }
+    if (read_len == 0) {
+        if (outbuf) |buffer| _ = try ioOutBufferValue(vm, buffer, "");
         return vm.raiseExceptionFmt(vm.eof_error_class, "end of file reached", .{});
     }
 
