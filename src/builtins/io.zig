@@ -71,6 +71,12 @@ pub fn register(vm: *VM) !void {
     try vm.io_class.module.constants.put(excl_sym, .{ .value = Value.integer(0x400) });
     const null_sym = try vm.intern("NULL");
     try vm.io_class.module.constants.put(null_sym, .{ .value = try vm.newString(null_device_path, false) });
+    const seek_set_sym = try vm.intern("SEEK_SET");
+    try vm.io_class.module.constants.put(seek_set_sym, .{ .value = Value.integer(0) });
+    const seek_cur_sym = try vm.intern("SEEK_CUR");
+    try vm.io_class.module.constants.put(seek_cur_sym, .{ .value = Value.integer(1) });
+    const seek_end_sym = try vm.intern("SEEK_END");
+    try vm.io_class.module.constants.put(seek_end_sym, .{ .value = Value.integer(2) });
 
     const nonblock_q_sym = try vm.intern("nonblock?");
     try vm.io_class.module.methods.put(nonblock_q_sym, value.MethodEntry.builtin(&builtinIoNonblockQ, .{ .exact = 0 }));
