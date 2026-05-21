@@ -115,6 +115,16 @@ test "Empty keyword rest hash" {
     try std.testing.expectEqual(0, result.toHashObject().entries.items.len);
 }
 
+test "define_method block with keyword rest receives empty hash when no kwargs passed" {
+    const result = try evalCode(
+        \\klass = Class.new
+        \\klass.define_method(:greet) {|*messages, **kw| kw }
+        \\klass.new.greet("hello")
+    );
+    try std.testing.expect(result.isHash());
+    try std.testing.expectEqual(0, result.toHashObject().entries.items.len);
+}
+
 test "Multiple optional keywords called with no arguments" {
     const result = try evalCode(
         \\def foo(a: 10, b: 20, c: 30); a + b + c; end

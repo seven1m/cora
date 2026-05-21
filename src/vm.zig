@@ -7362,6 +7362,21 @@ pub const VM = struct {
                 try self.copyArgumentsWithRestParam(chunk_blk.chunk, current_frame.ep, args, .strict);
                 try self.bindMethodBlockParam(chunk_blk.chunk, current_frame, block);
 
+                if (chunk_blk.chunk.keyword_rest_index) |rest_idx| {
+                    const kw_hash = self.gc_allocator.create(value.HashObject) catch return error.Fatal;
+                    kw_hash.* = .{
+                        .object = .{ .type_tag = .hash, .flags = 0, .class = self.hash_class, .singleton_class = null, .instance_variables = null },
+                        .map = value.HashMapType.initContext(self.gc_allocator, .{ .vm = self }),
+                        .entries = .empty,
+                        .default_value = null,
+                        .default_proc = null,
+                        .compare_by_identity = false,
+                    };
+                    const f = &self.frames.items[self.frames.items.len - 1];
+                    const lc = f.chunk.locals_count;
+                    (f.ep - lc + rest_idx)[0] = Value.fromObject(&kw_hash.object);
+                }
+
                 const saved_frame_count = self.frames.items.len - 1;
                 try self.executeUntilReturn(saved_frame_count);
 
@@ -7571,6 +7586,21 @@ pub const VM = struct {
                         current_frame.super_defining_class = method.owner_class;
                         try self.copyArgumentsWithRestParam(chunk_blk.chunk, current_frame.ep, args, .strict);
                         try self.bindMethodBlockParam(chunk_blk.chunk, current_frame, block);
+
+                        if (chunk_blk.chunk.keyword_rest_index) |rest_idx| {
+                            const kw_hash = self.gc_allocator.create(value.HashObject) catch return error.Fatal;
+                            kw_hash.* = .{
+                                .object = .{ .type_tag = .hash, .flags = 0, .class = self.hash_class, .singleton_class = null, .instance_variables = null },
+                                .map = value.HashMapType.initContext(self.gc_allocator, .{ .vm = self }),
+                                .entries = .empty,
+                                .default_value = null,
+                                .default_proc = null,
+                                .compare_by_identity = false,
+                            };
+                            const f = &self.frames.items[self.frames.items.len - 1];
+                            const lc = f.chunk.locals_count;
+                            (f.ep - lc + rest_idx)[0] = Value.fromObject(&kw_hash.object);
+                        }
                     },
                     .receiver_builtin => |builtin_data| {
                         const result = try builtin_data.func(self, builtin_data.receiver, @constCast(args));
