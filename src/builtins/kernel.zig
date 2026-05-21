@@ -179,6 +179,9 @@ pub fn register(vm: *VM) !void {
     const print_sym = try vm.intern("print");
     try vm.kernel_module.methods.put(print_sym, MethodEntry.builtin(&builtinKernelPrint, .{ .variadic = 0 }));
 
+    const open_sym = try vm.intern("open");
+    try vm.kernel_module.methods.put(open_sym, MethodEntry.builtinWithVisibility(&builtinKernelOpen, .{ .variadic = 0 }, .private));
+
     const warn_sym = try vm.intern("warn");
     try vm.kernel_module.methods.put(warn_sym, MethodEntry.builtinWithVisibility(&builtinKernelWarn, .{ .variadic = 0 }, .private));
 
@@ -927,6 +930,11 @@ pub fn builtinKernelPrint(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
     _ = try vm.callMethodByName(stdout_target, "print", args, null);
     _ = try vm.callMethodByName(stdout_target, "flush", &[_]Value{}, null);
     return Value.nil();
+}
+
+pub fn builtinKernelOpen(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
+    const file_class_val = Value.fromObject(&vm.file_class.module.object);
+    return vm.callMethodByNameForwardingKeywords(file_class_val, "open", args, block);
 }
 
 const WarningLocation = struct {
