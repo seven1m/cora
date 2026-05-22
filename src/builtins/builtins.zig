@@ -8,6 +8,7 @@ const class_builtin = @import("class.zig");
 const encoding = @import("encoding.zig");
 const enumerator = @import("enumerator.zig");
 const env = @import("env.zig");
+const etc = @import("etc.zig");
 const exception = @import("exception.zig");
 const false_class = @import("false_class.zig");
 const dir = @import("dir.zig");
@@ -58,6 +59,7 @@ pub fn registerAll(vm: *VM) !void {
     try dir.register(vm);
     try enumerable.register(vm);
     try env.register(vm);
+    try etc.register(vm);
     try process.register(vm);
     try signal.register(vm);
     try warning.register(vm);
