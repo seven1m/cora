@@ -634,6 +634,7 @@ pub fn register(vm: *VM) !void {
     const floor_sym = try vm.intern("floor");
     try integer_singleton.module.methods.put(floor_sym, value.MethodEntry.builtin(&builtinIntegerFloor, .{ .variadic = 0 }));
     try vm.integer_class.module.methods.put(floor_sym, value.MethodEntry.builtin(&builtinIntegerFloor, .{ .variadic = 0 }));
+
 }
 
 pub fn builtinIntegerPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

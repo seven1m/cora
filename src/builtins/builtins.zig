@@ -23,6 +23,7 @@ const match_data = @import("match_data.zig");
 const marshal = @import("marshal.zig");
 const module_builtin = @import("module.zig");
 const nil_class = @import("nil_class.zig");
+const numeric = @import("numeric.zig");
 const object = @import("object.zig");
 const proc_builtin = @import("proc.zig");
 const process = @import("process.zig");
@@ -51,6 +52,7 @@ pub fn registerAll(vm: *VM) !void {
     try class_builtin.register(vm);
     try module_builtin.register(vm);
     try integer.register(vm);
+    try numeric.register(vm);
     try float.register(vm);
     try array.register(vm);
     try hash.register(vm);
