@@ -47,6 +47,9 @@ pub fn register(vm: *VM) !void {
     const utc_sym = try vm.intern("utc");
     try time_singleton.module.methods.put(utc_sym, value.MethodEntry.builtin(&builtinTimeUtc, .{ .variadic = 0 }));
 
+    const local_sym = try vm.intern("local");
+    try time_singleton.module.methods.put(local_sym, value.MethodEntry.builtin(&builtinTimeUtc, .{ .variadic = 0 }));
+
     const at_sym = try vm.intern("at");
     try time_singleton.module.methods.put(at_sym, value.MethodEntry.builtin(&builtinTimeAt, .{ .variadic = 1 }));
 
@@ -258,8 +261,8 @@ fn currentEpochNanoseconds() i64 {
 }
 
 fn constructUtcTime(vm: *VM, class_obj: *value.ClassObject, args: []Value) VMError!Value {
-    if (args.len == 0 or args.len > 6) {
-        try vm.requireArgCountRange(args, 1, 6);
+    if (args.len == 0 or args.len > 7) {
+        try vm.requireArgCountRange(args, 1, 7);
         unreachable;
     }
 
@@ -269,9 +272,13 @@ fn constructUtcTime(vm: *VM, class_obj: *value.ClassObject, args: []Value) VMErr
     const hour = if (args.len >= 4) try coerceIntegerComponent(vm, args[3]) else 0;
     const minute = if (args.len >= 5) try coerceIntegerComponent(vm, args[4]) else 0;
     const second = if (args.len >= 6) try coerceIntegerComponent(vm, args[5]) else 0;
+    const nanosecond = if (args.len >= 7) blk: {
+        const usec = try coerceIntegerComponent(vm, args[6]);
+        break :blk @as(u32, @intCast(usec * 1000));
+    } else 0;
 
     try validateUtcComponents(vm, year, month, day, hour, minute, second);
-    return vm.newTime(class_obj, epochNanosecondsFromUtcComponents(year, month, day, hour, minute, second, 0));
+    return vm.newTime(class_obj, epochNanosecondsFromUtcComponents(year, month, day, hour, minute, second, nanosecond));
 }
 
 fn parseFixedDigits(bytes: []const u8, start: usize, len: usize) ?i64 {
