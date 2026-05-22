@@ -6,6 +6,27 @@ const compiler = @import("compiler.zig");
 const vm = @import("vm.zig");
 const bdwgc = @import("bdwgc");
 
+/// Implements Ruby's -x flag: scans forward through `code` and returns the
+/// slice starting at the first line whose content begins with "#!" and contains
+/// "ruby" or "cora".  If no such line is found the original slice is returned
+/// unchanged so the script fails naturally (same behaviour as MRI).
+fn stripLeadingGarbage(code: []const u8) []const u8 {
+    var offset: usize = 0;
+    while (offset < code.len) {
+        const nl = std.mem.indexOfScalarPos(u8, code, offset, '\n');
+        const line_end = nl orelse code.len;
+        const line = std.mem.trimEnd(u8, code[offset..line_end], &[_]u8{'\r'});
+        if (std.mem.startsWith(u8, line, "#!") and
+            (std.mem.indexOf(u8, line, "ruby") != null or
+            std.mem.indexOf(u8, line, "cora") != null))
+        {
+            return code[offset..];
+        }
+        offset = (nl orelse break) + 1;
+    }
+    return code;
+}
+
 fn parseDashZeroSeparator(arg: []const u8, storage: *[1]u8) ![]const u8 {
     const suffix = arg[2..];
     const parsed = if (suffix.len == 0)
@@ -102,6 +123,7 @@ pub fn main(init: std.process.Init) !void {
     var print_ast = false;
     var dump_bytecode = false;
     var dump_jit_source = false;
+    var strip_leading_garbage = false;
     var backtrace_limit: ?usize = null;
     var input_record_separator: ?[]const u8 = null;
     var input_record_separator_storage: [1]u8 = undefined;
@@ -146,6 +168,8 @@ pub fn main(init: std.process.Init) !void {
                 std.debug.print("Error: --backtrace-limit requires a non-negative integer\n", .{});
                 return;
             };
+        } else if (std.mem.eql(u8, args[i], "-x")) {
+            strip_leading_garbage = true;
         } else if (std.mem.eql(u8, args[i], "--ast")) {
             print_ast = true;
         } else if (std.mem.eql(u8, args[i], "--dump-bytecode")) {
@@ -173,7 +197,7 @@ pub fn main(init: std.process.Init) !void {
     var code_buffer: ?[]u8 = null;
     defer if (code_buffer) |buf| allocator.free(buf);
 
-    const code = if (ruby_code) |code|
+    const raw_code = if (ruby_code) |code|
         code
     else if (filename) |file| blk: {
         source_file = file;
@@ -184,6 +208,7 @@ pub fn main(init: std.process.Init) !void {
 
         break :blk code_buffer.?;
     } else unreachable;
+    const code = if (strip_leading_garbage) stripLeadingGarbage(raw_code) else raw_code;
     var parser = prism.Parser.init(allocator, code, source_file) catch {
         std.debug.print("{s}: syntax error (SyntaxError)\n", .{source_file orelse "(eval)"});
         return;
