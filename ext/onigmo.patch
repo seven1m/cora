@@ -1,13 +1,31 @@
+diff --git a/regexec.c b/regexec.c
+index 1234567..abcdefg 100644
+--- a/regexec.c
++++ b/regexec.c
+@@ -30,11 +30,7 @@
+ 
+ #include "regint.h"
+ 
+-#ifdef RUBY
+-# undef USE_MATCH_RANGE_MUST_BE_INSIDE_OF_SPECIFIED_RANGE
+-#else
+-# define USE_MATCH_RANGE_MUST_BE_INSIDE_OF_SPECIFIED_RANGE
+-#endif
++#undef USE_MATCH_RANGE_MUST_BE_INSIDE_OF_SPECIFIED_RANGE
+ 
+ #ifndef USE_TOKEN_THREADED_VM
+ # ifdef __GNUC__
 diff --git a/regparse.c b/regparse.c
 index dd41be0..57e3d77 100644
 --- a/regparse.c
 +++ b/regparse.c
 @@ -2506,7 +2506,7 @@ get_name_end_code_point(OnigCodePoint start)
  }
-
+ 
  #ifdef USE_NAMED_GROUP
 -# ifdef RUBY
 +# if 1
  #  define ONIGENC_IS_CODE_NAME(enc, c)  TRUE
  # else
  #  define ONIGENC_IS_CODE_NAME(enc, c)  ONIGENC_IS_CODE_WORD(enc, c)
+

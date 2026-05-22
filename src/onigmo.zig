@@ -151,6 +151,51 @@ pub fn searchWithCapturesAt(allocator: std.mem.Allocator, regex: OnigRegex, text
     };
 }
 
+/// Backward (rightmost-match) search: finds the last match whose start byte
+/// position is <= end_offset.  Mirrors searchWithCapturesAt but passes the
+/// search range reversed so onig_search performs a backward scan.
+pub fn searchWithCapturesBackwardAt(allocator: std.mem.Allocator, regex: OnigRegex, text: []const u8, end_offset: usize) !SearchCaptures {
+    const region = c.onig_region_new() orelse return error.OutOfMemory;
+    defer c.onig_region_free(region, 1);
+
+    const str_ptr: [*c]const c.OnigUChar = @ptrCast(text.ptr);
+    const end_ptr = str_ptr + text.len;
+    const search_ptr = str_ptr + end_offset;
+    // Backward search: range < start causes onig_search to scan rightward
+    // looking for the rightmost match with start in [str_ptr, search_ptr].
+    const result = c.onig_search(regex, str_ptr, end_ptr, search_ptr, str_ptr, region, 0);
+    if (result == c.ONIG_MISMATCH) {
+        const empty_beg = try allocator.alloc(i64, 0);
+        const empty_end = try allocator.alloc(i64, 0);
+        return .{
+            .matched = false,
+            .match_index = -1,
+            .begin_offsets = empty_beg,
+            .end_offsets = empty_end,
+        };
+    }
+    if (result < 0) return error.InvalidByteSequence;
+
+    const regs: usize = @intCast(region.*.num_regs);
+    const begins = try allocator.alloc(i64, regs);
+    errdefer allocator.free(begins);
+    const ends = try allocator.alloc(i64, regs);
+    errdefer allocator.free(ends);
+
+    var i: usize = 0;
+    while (i < regs) : (i += 1) {
+        begins[i] = region.*.beg[i];
+        ends[i] = region.*.end[i];
+    }
+
+    return .{
+        .matched = true,
+        .match_index = result,
+        .begin_offsets = begins,
+        .end_offsets = ends,
+    };
+}
+
 pub fn nameToBackrefNumber(regex: OnigRegex, text: []const u8, name: []const u8) i32 {
     const region = c.onig_region_new() orelse return -1;
     defer c.onig_region_free(region, 1);

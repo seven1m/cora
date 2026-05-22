@@ -604,6 +604,109 @@ pub fn regexpMatchOp(vm: *VM, regexp_obj: *value.RegexpObject, arg: Value) VMErr
     return regexpMatchOpAt(vm, regexp_obj, arg, null, true);
 }
 
+/// Used by String#rindex: find the rightmost match whose start char index is
+/// <= max_char_pos.  Returns the char index of that match, or nil.
+///
+/// We use a forward scan (not onig's built-in backward search) because
+/// onig's backward search passes `orig_start` as the `right_range` boundary
+/// to `match_at`, which prevents any match that extends past the search start
+/// byte.  That truncates matches like /bla/ at "blablabla".rindex(/bla/, 5).
+pub fn regexpRindexAt(
+    vm: *VM,
+    regexp_obj: *value.RegexpObject,
+    arg: Value,
+    max_char_pos: ?i64,
+    update_last_match: bool,
+) VMError!Value {
+    const source_val_opt = try arg.coerceToMatchSource(vm);
+    if (source_val_opt == null) {
+        if (update_last_match) try vm.clearLastMatch();
+        return Value.nil();
+    }
+    const source_val = source_val_opt.?;
+    const source_obj = source_val.toStringObject();
+
+    if (enc.negotiate(source_obj.encoding, source_obj.str, regexp_obj.encoding, regexp_obj.pattern) == null) {
+        return vm.raiseExceptionFmt(
+            vm.encoding_compatibility_error_class,
+            "incompatible encoding regexp match ({s} regexp with {s} string)",
+            .{ regexp_obj.encoding.name(), source_obj.encoding.name() },
+        );
+    }
+
+    const char_len: i64 = @intCast(source_obj.encoding.charCount(source_obj.str));
+
+    const max_pos: i64 = blk: {
+        var pos = max_char_pos orelse char_len;
+        if (pos < 0) pos += char_len;
+        if (pos < 0) {
+            if (update_last_match) try vm.clearLastMatch();
+            return Value.nil();
+        }
+        if (pos > char_len) pos = char_len;
+        break :blk pos;
+    };
+
+    const effective_regexp = if (regexp_obj.encoding.eql(.{ .us_ascii = .{} }) and source_obj.encoding.isAsciiCompatible() and !source_obj.encoding.eql(.{ .us_ascii = .{} }))
+        (try vm.newRegexpWithEncoding(regexp_obj.pattern, regexp_obj.options, source_obj.encoding)).toRegexpObject()
+    else
+        regexp_obj;
+
+    if (effective_regexp.encoding.isUnicode() and !source_obj.encoding.isValid(source_obj.str)) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "invalid byte sequence in {s}", .{source_obj.encoding.name()});
+    }
+
+    // Convert max_pos (char index) to a byte offset and run onig's native
+    // backward search (range=str, start=str+byte_pos), mirroring MRI exactly.
+    // This works correctly now that USE_MATCH_RANGE_MUST_BE_INSIDE_OF_SPECIFIED_RANGE
+    // is patched out of onigmo (see ext/onigmo.patch).
+    const start_byte = source_obj.encoding.byteOffsetForCharIndex(source_obj.str, @intCast(max_pos)) orelse source_obj.str.len;
+
+    const search_result = onigmo.searchWithCapturesBackwardAt(vm.gc_allocator, effective_regexp.regex, source_obj.str, start_byte) catch |err| switch (err) {
+        error.InvalidByteSequence => {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "invalid byte sequence in {s}", .{source_obj.encoding.name()});
+        },
+        else => return error.Fatal,
+    };
+    defer vm.gc_allocator.free(search_result.begin_offsets);
+    defer vm.gc_allocator.free(search_result.end_offsets);
+
+    if (!search_result.matched) {
+        if (update_last_match) try vm.clearLastMatch();
+        return Value.nil();
+    }
+
+    var captures: std.ArrayList(value.Value) = .empty;
+    defer captures.deinit(vm.gc_allocator);
+
+    var begins = vm.gc_allocator.alloc(i64, search_result.begin_offsets.len) catch return error.Fatal;
+    defer vm.gc_allocator.free(begins);
+    var ends = vm.gc_allocator.alloc(i64, search_result.end_offsets.len) catch return error.Fatal;
+    defer vm.gc_allocator.free(ends);
+
+    for (search_result.begin_offsets, search_result.end_offsets, 0..) |beg, end_, idx| {
+        if (beg < 0 or end_ < 0) {
+            begins[idx] = beg;
+            ends[idx] = end_;
+            captures.append(vm.gc_allocator, value.Value.nil()) catch return error.Fatal;
+            continue;
+        }
+        begins[idx] = beg;
+        ends[idx] = end_;
+        const begin_usize: usize = @intCast(beg);
+        const end_usize: usize = @intCast(end_);
+        if (begin_usize > source_obj.str.len or end_usize > source_obj.str.len or begin_usize > end_usize) return error.Fatal;
+        const capture_str = try vm.newStringWithEncoding(source_obj.str[begin_usize..end_usize], false, source_obj.encoding);
+        captures.append(vm.gc_allocator, capture_str) catch return error.Fatal;
+    }
+
+    const md_val = try vm.newMatchData(regexp_obj, source_obj, captures.items, begins, ends);
+    const md = md_val.toMatchDataObject();
+    if (update_last_match) try vm.setLastMatch(md);
+
+    return value.Value.integer(@intCast(source_obj.encoding.charCount(source_obj.str[0..@as(usize, @intCast(search_result.match_index))])));
+}
+
 fn builtinRegexpMatchOp(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     if (!receiver.isRegexp()) {

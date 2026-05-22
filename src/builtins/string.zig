@@ -279,6 +279,9 @@ pub fn register(vm: *VM) !void {
     const string_index_sym = try vm.intern("index");
     try vm.string_class.module.methods.put(string_index_sym, value.MethodEntry.builtin(&builtinStringIndex, .{ .variadic = 0 }));
 
+    const string_rindex_sym = try vm.intern("rindex");
+    try vm.string_class.module.methods.put(string_rindex_sym, value.MethodEntry.builtin(&builtinStringRindex, .{ .variadic = 0 }));
+
     const string_partition_sym = try vm.intern("partition");
     try vm.string_class.module.methods.put(string_partition_sym, value.MethodEntry.builtin(&builtinStringPartition, .{ .exact = 1 }));
     const string_rpartition_sym = try vm.intern("rpartition");
@@ -4913,6 +4916,86 @@ pub fn builtinStringIndex(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     }
 
     return Value.nil();
+}
+
+pub fn builtinStringRindex(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+    const string_obj = receiver.toStringObject();
+    const char_len_i64: i64 = @intCast(string_obj.encoding.charCount(string_obj.str));
+
+    const raw_pos = if (args.len == 2)
+        try args[1].coerceToI64ViaToInt(
+            vm,
+            "no implicit conversion into Integer",
+            "no implicit conversion into Integer",
+            "bignum too big to convert into `long`",
+        )
+    else
+        null;
+
+    // Normalize the search position (max char index where match may start).
+    const max_char_pos: i64 = blk: {
+        var pos = raw_pos orelse char_len_i64;
+        if (pos < 0) pos += char_len_i64;
+        if (pos < 0) {
+            if (args[0].isRegexp()) try vm.clearLastMatch();
+            return Value.nil();
+        }
+        // Clamp to char_len (matching that allows empty match at end).
+        if (pos > char_len_i64) pos = char_len_i64;
+        break :blk pos;
+    };
+
+    // Regexp case: delegate to backward regexp search.
+    if (args[0].isRegexp()) {
+        return regexp_builtin.regexpRindexAt(vm, args[0].toRegexpObject(), receiver, max_char_pos, true);
+    }
+
+    // String/to_str case.
+    const needle_value = try args[0].coerceToStringValue(vm, "no implicit conversion into String");
+    const needle_obj = needle_value.toStringObject();
+    const needle = needle_obj.str;
+
+    if (enc.negotiate(string_obj.encoding, string_obj.str, needle_obj.encoding, needle) == null) {
+        return vm.raiseEncodingCompatibilityError(string_obj.encoding, needle_obj.encoding);
+    }
+
+    // Empty needle: return max_char_pos (already clamped to char_len).
+    if (needle.len == 0) {
+        return Value.integer(max_char_pos);
+    }
+
+    if (needle.len > string_obj.str.len) {
+        return Value.nil();
+    }
+
+    // Convert max_char_pos to a byte position.  The last match of needle must
+    // start at or before this byte.
+    const max_start_byte = string_obj.encoding.byteOffsetForCharIndex(string_obj.str, @intCast(max_char_pos)) orelse string_obj.str.len;
+
+    // Search backward: find the rightmost occurrence starting at byte <= max_start_byte.
+    // We work in the window string[0..max_start_byte + needle.len] (capped at str.len)
+    // so that a match beginning exactly at max_start_byte can still be found.
+    const window_end = @min(max_start_byte + needle.len, string_obj.str.len);
+    const haystack = string_obj.str[0..window_end];
+
+    var result_char_pos: ?i64 = null;
+    var pos: usize = 0;
+    while (pos + needle.len <= haystack.len) {
+        const found = std.mem.indexOfPos(u8, haystack, pos, needle) orelse break;
+        const found_end = found + needle.len;
+        if (string_obj.encoding.isCharBoundary(string_obj.str, found) and
+            string_obj.encoding.isCharBoundary(string_obj.str, found_end))
+        {
+            const char_pos: i64 = @intCast(string_obj.encoding.charCount(string_obj.str[0..found]));
+            if (char_pos <= max_char_pos) {
+                result_char_pos = char_pos;
+            }
+        }
+        pos = found + 1;
+    }
+
+    return if (result_char_pos) |cp| Value.integer(cp) else Value.nil();
 }
 
 pub fn builtinStringPartition(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

@@ -2019,7 +2019,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/string/prepend_spec.rb
 - [x] core/string/replace_spec.rb
 - [x] core/string/reverse_spec.rb
-- [ ] core/string/rindex_spec.rb
+- [x] core/string/rindex_spec.rb
 - [x] core/string/rjust_spec.rb
 - [ ] core/string/rpartition_spec.rb
 - [x] core/string/rstrip_spec.rb
