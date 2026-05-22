@@ -703,7 +703,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/file/blockdev_spec.rb
 - [ ] core/file/chardev_spec.rb
 - [ ] core/file/chmod_spec.rb
-- [ ] core/file/chown_spec.rb
+- [x] core/file/chown_spec.rb
 
 ### core/file/constants
 - [x] core/file/constants/constants_spec.rb

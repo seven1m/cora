@@ -44,6 +44,7 @@ fn callStat(path: [*:0]const u8, buf: *std.posix.Stat) c_int {
 }
 
 extern fn fnmatch(pattern: [*:0]const u8, string: [*:0]const u8, flags: c_int) c_int;
+extern fn chown(path: [*:0]const u8, owner: std.c.uid_t, group: std.c.gid_t) c_int;
 
 fn passwdDir(passwd: *const std.c.passwd) ?[]const u8 {
     const dir_z = passwd.dir orelse return null;
@@ -196,6 +197,10 @@ pub fn register(vm: *VM) !void {
 
     const chmod_sym = try vm.intern("chmod");
     try file_singleton.module.methods.put(chmod_sym, value.MethodEntry.builtin(&builtinFileChmod, .{ .variadic = 1 }));
+
+    const chown_sym = try vm.intern("chown");
+    try file_singleton.module.methods.put(chown_sym, value.MethodEntry.builtin(&builtinFileChown, .{ .variadic = 2 }));
+    try vm.file_class.module.methods.put(chown_sym, value.MethodEntry.builtin(&builtinFileInstanceChown, .{ .exact = 2 }));
 
     const umask_sym = try vm.intern("umask");
     try file_singleton.module.methods.put(umask_sym, value.MethodEntry.builtin(&builtinFileUmask, .{ .variadic = 0 }));
@@ -1162,6 +1167,68 @@ pub fn builtinFileChmod(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Val
     }
 
     return Value.integer(@intCast(changed));
+}
+
+// Coerce uid/gid arg: nil or -1 → (uid_t)-1 (no change), otherwise cast integer.
+fn coerceOwnerArg(vm: *VM, arg: Value) VMError!std.c.uid_t {
+    if (arg.isNil()) return @bitCast(@as(i32, -1));
+    const v = try arg.coerceToI64ViaToInt(
+        vm,
+        "can't convert nil into Integer",
+        "can't convert to Integer (to_int gives non-Integer)",
+        "integer out of range",
+    );
+    if (v == -1) return @bitCast(@as(i32, -1));
+    if (v < 0) return vm.raiseExceptionFmt(vm.range_error_class, "integer out of range", .{});
+    return @intCast(v);
+}
+
+pub fn builtinFileChown(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 2, std.math.maxInt(u8));
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "File.chown is not implemented on Windows", .{});
+    }
+
+    const uid = try coerceOwnerArg(vm, args[0]);
+    const gid = try coerceOwnerArg(vm, args[1]);
+    var changed: usize = 0;
+    for (args[2..]) |arg| {
+        const path = try vm.coerceToPath(arg, "no implicit conversion into String");
+        const path_z = try vm.allocCStringZ(path);
+        defer vm.allocator.free(path_z);
+
+        const result = chown(path_z.ptr, uid, gid);
+        if (result != 0) {
+            return vm.raiseErrnoFmt(std.posix.errno(result), "failed to chown: {s}", .{path});
+        }
+        changed += 1;
+    }
+
+    return Value.integer(@intCast(changed));
+}
+
+pub fn builtinFileInstanceChown(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 2);
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "File#chown is not implemented on Windows", .{});
+    }
+    if (!receiver.isIo()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not an IO", .{});
+    }
+
+    const io_obj = receiver.toIoObject();
+    if (io_obj.closed) {
+        return vm.raiseExceptionFmt(vm.io_error_class, "closed stream", .{});
+    }
+
+    const uid = try coerceOwnerArg(vm, args[0]);
+    const gid = try coerceOwnerArg(vm, args[1]);
+
+    const result = std.c.fchown(@intCast(io_obj.fd), uid, gid);
+    if (result != 0) {
+        return vm.raiseErrnoFmt(std.posix.errno(result), "fchown failed", .{});
+    }
+    return Value.integer(0);
 }
 
 pub fn builtinFileUmask(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

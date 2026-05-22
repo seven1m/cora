@@ -835,6 +835,10 @@ def platform_is_not(*args, **kwargs, &block)
   block.call if block
 end
 
+def as_superuser(&block)
+  block.call if Process.uid == 0
+end
+
 def little_endian(&block)
   block.call if [1].pack("S").unpack("C").first == 1
 end
