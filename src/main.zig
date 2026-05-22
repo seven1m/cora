@@ -18,7 +18,7 @@ fn stripLeadingGarbage(code: []const u8) []const u8 {
         const line = std.mem.trimEnd(u8, code[offset..line_end], &[_]u8{'\r'});
         if (std.mem.startsWith(u8, line, "#!") and
             (std.mem.indexOf(u8, line, "ruby") != null or
-            std.mem.indexOf(u8, line, "cora") != null))
+                std.mem.indexOf(u8, line, "cora") != null))
         {
             return code[offset..];
         }
@@ -137,6 +137,40 @@ fn configureLoadPath(
     try virtual_machine.syncLoadPathGlobals();
 }
 
+fn printHelp() void {
+    std.debug.print(
+        \\Usage: cora [options] (-e CODE | FILE) [args]
+        \\
+        \\Run Ruby code with the Cora interpreter.
+        \\
+        \\Input:
+        \\  -e CODE                Evaluate CODE instead of reading a file
+        \\  FILE                   Run Ruby source from FILE
+        \\
+        \\Inspection:
+        \\  --ast                  Parse and print Prism AST, then exit
+        \\  --dump-bytecode        Compile and print bytecode disassembly, then exit
+        \\  --dump-jit-source      Print TinyCC JIT source for compiled methods
+        \\
+        \\Load path and requires:
+        \\  -I PATH[:PATH...]      Add directories to $LOAD_PATH
+        \\
+        \\Runtime:
+        \\  --disable-gems         Skip RubyGems setup
+        \\  --backtrace-limit=N    Limit printed backtrace frames
+        \\  -0[OCTAL]              Set input record separator ($/) from octal byte
+        \\  -x                     Skip leading text before a Ruby shebang line
+        \\
+        \\Help:
+        \\  -h, --help             Show this help and exit
+        \\
+        \\Notes:
+        \\  - Script arguments after FILE are available to Ruby via ARGV
+        \\  - `--dump-jit-source` requires a build with -Dtcc-jit=true
+        \\
+    , .{});
+}
+
 pub fn main(init: std.process.Init) !void {
     bdwgc.init();
     defer bdwgc.deinit();
@@ -191,6 +225,9 @@ pub fn main(init: std.process.Init) !void {
                 std.debug.print("Error: -0 requires an octal byte value between 000 and 377\n", .{});
                 return;
             };
+        } else if (std.mem.eql(u8, args[i], "-h") or std.mem.eql(u8, args[i], "--help")) {
+            printHelp();
+            return;
         } else if (std.mem.startsWith(u8, args[i], "--backtrace-limit=")) {
             backtrace_limit = std.fmt.parseUnsigned(usize, args[i]["--backtrace-limit=".len..], 10) catch {
                 std.debug.print("Error: --backtrace-limit requires a non-negative integer\n", .{});
@@ -216,7 +253,7 @@ pub fn main(init: std.process.Init) !void {
     }
 
     if (ruby_code == null and filename == null) {
-        std.debug.print("Usage: cora [--ast] [--dump-bytecode] [--dump-jit-source] (-e <ruby code> | <filename>)\n", .{});
+        printHelp();
         return;
     }
     if (dump_jit_source and !build_options.tcc_jit) {
