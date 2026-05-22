@@ -548,7 +548,7 @@ pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
 
     // Builtin libraries whose classes are registered at VM startup:
     // `require 'name'` is a no-op after the first call, matching Ruby's "already loaded" semantics.
-    const builtin_libs = [_][]const u8{ "socket", "rbconfig" };
+    const builtin_libs = [_][]const u8{ "socket", "rbconfig", "fiber" };
     for (builtin_libs) |lib| {
         if (std.mem.eql(u8, feature, lib)) {
             if (vm.loaded_files.contains(lib)) {
