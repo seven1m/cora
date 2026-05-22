@@ -43,6 +43,8 @@ fn callStat(path: [*:0]const u8, buf: *std.posix.Stat) c_int {
     return @intCast(rc);
 }
 
+extern fn fnmatch(pattern: [*:0]const u8, string: [*:0]const u8, flags: c_int) c_int;
+
 fn passwdDir(passwd: *const std.c.passwd) ?[]const u8 {
     const dir_z = passwd.dir orelse return null;
     return std.mem.span(dir_z);
@@ -197,6 +199,11 @@ pub fn register(vm: *VM) !void {
 
     const umask_sym = try vm.intern("umask");
     try file_singleton.module.methods.put(umask_sym, value.MethodEntry.builtin(&builtinFileUmask, .{ .variadic = 0 }));
+
+    const fnmatch_sym = try vm.intern("fnmatch");
+    try file_singleton.module.methods.put(fnmatch_sym, value.MethodEntry.builtin(&builtinFileFnmatch, .{ .variadic = 2 }));
+    const fnmatch_q_sym = try vm.intern("fnmatch?");
+    try file_singleton.module.methods.put(fnmatch_q_sym, value.MethodEntry.builtin(&builtinFileFnmatch, .{ .variadic = 2 }));
 
     const rename_sym = try vm.intern("rename");
     try file_singleton.module.methods.put(rename_sym, value.MethodEntry.builtin(&builtinFileRename, .{ .exact = 2 }));
@@ -1334,4 +1341,43 @@ pub fn builtinFileStatExecutableQ(vm: *VM, receiver: Value, args: []Value, _: ?B
     try vm.requireArgCount(args, 0);
     const mode = try fileStatIntegerIvar(vm, receiver, "@mode");
     return Value.boolean(mode.isInteger() and (mode.toInteger() & 0o111) != 0);
+}
+
+// FNM flag constants (must match the values registered in `register`)
+const FNM_NOESCAPE: c_int = 0x01;
+const FNM_PATHNAME: c_int = 0x02;
+const FNM_DOTMATCH: c_int = 0x04;
+const FNM_CASEFOLD: c_int = 0x08;
+const FNM_EXTGLOB: c_int = 0x10;
+
+pub fn builtinFileFnmatch(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 2, 3);
+
+    const pattern_val = args[0];
+    const path_val = args[1];
+
+    if (!pattern_val.isString()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion of {s} into String", .{vm.className(pattern_val)});
+    }
+    if (!path_val.isString()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion of {s} into String", .{vm.className(path_val)});
+    }
+
+    var cflags: c_int = 0;
+    if (args.len == 3 and args[2].isInteger()) {
+        const flags = args[2].toInteger();
+        if (flags & 0x01 != 0) cflags |= FNM_NOESCAPE;
+        if (flags & 0x02 != 0) cflags |= FNM_PATHNAME;
+        if (flags & 0x04 != 0) cflags |= FNM_DOTMATCH;
+        if (flags & 0x08 != 0) cflags |= FNM_CASEFOLD;
+        if (flags & 0x10 != 0) cflags |= FNM_EXTGLOB;
+    }
+
+    const pattern_z = try vm.allocCStringZ(pattern_val.toStringObject().str);
+    defer vm.allocator.free(pattern_z);
+    const path_z = try vm.allocCStringZ(path_val.toStringObject().str);
+    defer vm.allocator.free(path_z);
+
+    const result = fnmatch(pattern_z.ptr, path_z.ptr, cflags);
+    return Value.boolean(result == 0);
 }

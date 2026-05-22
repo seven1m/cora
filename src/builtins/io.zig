@@ -35,7 +35,7 @@ pub fn register(vm: *VM) !void {
     try io_singleton.module.methods.put(popen_sym, value.MethodEntry.builtin(&builtinIoPopen, .{ .variadic = 0 }));
 
     const copy_stream_sym = try vm.intern("copy_stream");
-    try io_singleton.module.methods.put(copy_stream_sym, value.MethodEntry.builtin(&builtinIoCopyStream, .{ .exact = 2 }));
+    try io_singleton.module.methods.put(copy_stream_sym, value.MethodEntry.builtin(&builtinIoCopyStream, .{ .variadic = 2 }));
 
     const binread_sym = try vm.intern("binread");
     try io_singleton.module.methods.put(binread_sym, value.MethodEntry.builtin(&builtinIoBinread, .{ .variadic = 0 }));
@@ -613,9 +613,14 @@ pub fn builtinIoPipe(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
 }
 
 pub fn builtinIoCopyStream(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 2);
+    try vm.requireArgCountRange(args, 2, 4);
     const src_arg = args[0];
     const dst_arg = args[1];
+    // Optional length limit (3rd arg) — nil means unlimited
+    const max_len: ?i64 = if (args.len >= 3 and !args[2].isNil()) blk: {
+        if (!args[2].isInteger()) return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Integer", .{});
+        break :blk args[2].toInteger();
+    } else null;
 
     var total: i64 = 0;
     var buf: [8192]u8 = undefined;
@@ -661,7 +666,9 @@ pub fn builtinIoCopyStream(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
         const src = try requireIoReceiver(vm, src_arg);
         try ensureIoReadable(vm, src);
         while (true) {
-            const n = std.posix.read(@intCast(src.fd), &buf) catch break;
+            if (max_len) |limit| if (total >= limit) break;
+            const to_read = if (max_len) |limit| @min(buf.len, @as(usize, @intCast(limit - total))) else buf.len;
+            const n = std.posix.read(@intCast(src.fd), buf[0..to_read]) catch break;
             if (n == 0) break;
             try writeChunkToDst(vm, dst_arg, dst_fd, dst_is_fd, buf[0..n]);
             total += @intCast(n);
@@ -675,15 +682,19 @@ pub fn builtinIoCopyStream(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
         if (fd < 0) return vm.raiseErrnoFmt(std.posix.errno(fd), "failed to open: {s}", .{path});
         defer _ = std.c.close(fd);
         while (true) {
-            const n = std.posix.read(fd, &buf) catch break;
+            if (max_len) |limit| if (total >= limit) break;
+            const to_read = if (max_len) |limit| @min(buf.len, @as(usize, @intCast(limit - total))) else buf.len;
+            const n = std.posix.read(fd, buf[0..to_read]) catch break;
             if (n == 0) break;
             try writeChunkToDst(vm, dst_arg, dst_fd, dst_is_fd, buf[0..n]);
             total += @intCast(n);
         }
     } else {
         // IO-like source: call read in a loop until nil/empty/EOFError
-        var len_arg = Value.integer(8192);
         while (true) {
+            if (max_len) |limit| if (total >= limit) break;
+            const chunk_size = if (max_len) |limit| @min(@as(i64, 8192), limit - total) else @as(i64, 8192);
+            var len_arg = Value.integer(chunk_size);
             const chunk = vm.callMethodByName(src_arg, "read", @as([]Value, (&len_arg)[0..1]), null) catch |err| {
                 if (err == error.Unwind) {
                     vm.setPendingException(null);
