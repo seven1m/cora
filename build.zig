@@ -158,7 +158,15 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addImport("build_options", build_options_mod);
     exe.root_module.addImport("zio", zio.module("zio"));
 
-    b.installArtifact(exe);
+    const install_exe = b.addInstallArtifact(exe, .{});
+    b.getInstallStep().dependOn(&install_exe.step);
+
+    // Copy bin/gem (polyglot sh+ruby) alongside the cora binary.
+    const install_gem = b.addInstallFile(b.path("bin/gem"), "bin/gem");
+    install_gem.step.dependOn(&install_exe.step);
+    const chmod_gem = b.addSystemCommand(&.{ "chmod", "+x", b.getInstallPath(.bin, "gem") });
+    chmod_gem.step.dependOn(&install_gem.step);
+    b.getInstallStep().dependOn(&chmod_gem.step);
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());

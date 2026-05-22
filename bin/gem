@@ -1,0 +1,34 @@
+#!/bin/sh
+bindir=$(cd "${0%/*}" && pwd -P)
+cora="${bindir}/cora"
+if [ ! -x "${cora}" ]; then
+  cora="${bindir}/../zig-out/bin/cora"
+fi
+if [ ! -x "${cora}" ]; then
+  cora="cora"
+fi
+exec "${cora}" -x "$0" "$@"
+#!/usr/bin/env cora
+# frozen_string_literal: true
+
+bindir = File.dirname(File.expand_path(__FILE__))
+
+# Find rubygems across three layouts:
+#   installed:    prefix/bin/  -> prefix/lib/rubygems/lib
+#   dev (bin/):   bin/         -> ext/rubygems/lib
+#   dev (zig-out/bin/): zig-out/bin/ -> ext/rubygems/lib
+rubygems_lib = [
+  File.join(bindir, "..", "lib", "rubygems", "lib"),
+  File.join(bindir, "..", "ext", "rubygems", "lib"),
+  File.join(bindir, "..", "..", "ext", "rubygems", "lib"),
+].find { |p| File.directory?(p) }
+$LOAD_PATH.unshift(rubygems_lib) if rubygems_lib
+
+# Default gem home to ~/.gem/cora/4.0.0 (same convention as MRI's ~/.gem/ruby/3.4.0).
+# Honour any GEM_HOME already set in the environment.
+ENV["GEM_HOME"] ||= File.join(Dir.home, ".gem", RUBY_ENGINE, RUBY_VERSION)
+ENV["GEM_PATH"] ||= ENV["GEM_HOME"]
+
+require "thread"
+require "rubygems/gem_runner"
+Gem::GemRunner.new.run(ARGV.clone)
