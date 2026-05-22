@@ -179,6 +179,11 @@ pub fn register(vm: *VM) !void {
     const print_sym = try vm.intern("print");
     try vm.kernel_module.methods.put(print_sym, MethodEntry.builtin(&builtinKernelPrint, .{ .variadic = 0 }));
 
+    const sprintf_sym = try vm.intern("sprintf");
+    try vm.kernel_module.methods.put(sprintf_sym, MethodEntry.builtin(&builtinKernelSprintf, .{ .variadic = 1 }));
+    const format_sym = try vm.intern("format");
+    try vm.kernel_module.methods.put(format_sym, MethodEntry.builtin(&builtinKernelSprintf, .{ .variadic = 1 }));
+
     const open_sym = try vm.intern("open");
     try vm.kernel_module.methods.put(open_sym, MethodEntry.builtinWithVisibility(&builtinKernelOpen, .{ .variadic = 0 }, .private));
 
@@ -952,6 +957,18 @@ pub fn builtinKernelPrint(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
     _ = try vm.callMethodByName(stdout_target, "print", args, null);
     _ = try vm.callMethodByName(stdout_target, "flush", &[_]Value{}, null);
     return Value.nil();
+}
+
+pub fn builtinKernelSprintf(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, args.len);
+    const format_str = try args[0].coerceToStringValue(vm, "no implicit conversion into String");
+    const format_arg = if (args.len > 1) blk: {
+        const arr = try vm.createArray();
+        arr.elements.appendSlice(vm.gc_allocator, args[1..]) catch return error.Fatal;
+        break :blk Value.fromObject(&arr.object);
+    } else args[0];
+    var fmt_args = [_]Value{format_arg};
+    return vm.callMethodByName(format_str, "%", fmt_args[0..], null);
 }
 
 pub fn builtinKernelOpen(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
