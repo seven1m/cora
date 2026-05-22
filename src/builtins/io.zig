@@ -614,20 +614,90 @@ pub fn builtinIoPipe(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
 
 pub fn builtinIoCopyStream(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 2);
-    const src = try requireIoReceiver(vm, args[0]);
-    const dst = try requireIoReceiver(vm, args[1]);
-    try ensureIoReadable(vm, src);
-    try ensureIoWritable(vm, dst);
+    const src_arg = args[0];
+    const dst_arg = args[1];
 
     var total: i64 = 0;
     var buf: [8192]u8 = undefined;
-    while (true) {
-        const read_len = std.posix.read(@intCast(src.fd), &buf) catch {
-            return vm.raiseExceptionFmt(vm.io_error_class, "read failed", .{});
-        };
-        if (read_len == 0) break;
-        _ = try ioWriteBytes(vm, dst, buf[0..read_len]);
-        total += @intCast(read_len);
+
+    // Resolve destination: raw IO, string path, or IO-like (write method)
+    const dst_is_raw_io = dst_arg.isIo();
+    var dst_fd: i32 = -1;
+    var dst_opened = false;
+    if (dst_is_raw_io) {
+        const dst = try requireIoReceiver(vm, dst_arg);
+        try ensureIoWritable(vm, dst);
+        dst_fd = dst.fd;
+    } else if (dst_arg.isString()) {
+        const path = dst_arg.toStringObject().str;
+        const path_z = try vm.allocCStringZ(path);
+        defer vm.allocator.free(path_z);
+        const flags: std.c.O = .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true };
+        const fd = std.c.open(path_z.ptr, flags, @as(std.c.mode_t, 0o666));
+        if (fd < 0) return vm.raiseErrnoFmt(std.posix.errno(fd), "failed to open: {s}", .{path});
+        dst_fd = fd;
+        dst_opened = true;
+    }
+    defer if (dst_opened) {
+        _ = std.c.close(dst_fd);
+    };
+
+    const writeChunkToDst = struct {
+        fn call(vm2: *VM, dst_arg2: Value, dst_fd2: i32, dst_is_fd: bool, bytes: []const u8) VMError!void {
+            if (dst_is_fd) {
+                _ = std.c.write(dst_fd2, bytes.ptr, bytes.len);
+            } else {
+                const chunk = try vm2.newString(bytes, false);
+                var write_args = [1]Value{chunk};
+                _ = try vm2.callMethodByName(dst_arg2, "write", &write_args, null);
+            }
+        }
+    }.call;
+
+    const dst_is_fd = dst_is_raw_io or dst_opened;
+
+    // Read from source: raw IO, string path, or IO-like (read method)
+    if (src_arg.isIo()) {
+        const src = try requireIoReceiver(vm, src_arg);
+        try ensureIoReadable(vm, src);
+        while (true) {
+            const n = std.posix.read(@intCast(src.fd), &buf) catch break;
+            if (n == 0) break;
+            try writeChunkToDst(vm, dst_arg, dst_fd, dst_is_fd, buf[0..n]);
+            total += @intCast(n);
+        }
+    } else if (src_arg.isString()) {
+        const path = src_arg.toStringObject().str;
+        const path_z = try vm.allocCStringZ(path);
+        defer vm.allocator.free(path_z);
+        const flags: std.c.O = .{ .ACCMODE = .RDONLY };
+        const fd = std.c.open(path_z.ptr, flags, @as(std.c.mode_t, 0o666));
+        if (fd < 0) return vm.raiseErrnoFmt(std.posix.errno(fd), "failed to open: {s}", .{path});
+        defer _ = std.c.close(fd);
+        while (true) {
+            const n = std.posix.read(fd, &buf) catch break;
+            if (n == 0) break;
+            try writeChunkToDst(vm, dst_arg, dst_fd, dst_is_fd, buf[0..n]);
+            total += @intCast(n);
+        }
+    } else {
+        // IO-like source: call read in a loop until nil/empty/EOFError
+        var len_arg = Value.integer(8192);
+        while (true) {
+            const chunk = vm.callMethodByName(src_arg, "read", @as([]Value, (&len_arg)[0..1]), null) catch |err| {
+                if (err == error.Unwind) {
+                    vm.setPendingException(null);
+                    break;
+                }
+                return err;
+            };
+            if (chunk.isNil()) break;
+            if (!chunk.isString()) break;
+            const s = chunk.toStringObject().str;
+            if (s.len == 0) break;
+            try writeChunkToDst(vm, dst_arg, dst_fd, dst_is_fd, s);
+            total += @intCast(s.len);
+        }
     }
 
     return Value.integer(total);
