@@ -1391,10 +1391,10 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/module/alias_method_spec.rb
 - [ ] core/module/ancestors_spec.rb
 - [ ] core/module/append_features_spec.rb
-- [ ] core/module/attr_accessor_spec.rb
-- [ ] core/module/attr_reader_spec.rb
-- [ ] core/module/attr_spec.rb
-- [ ] core/module/attr_writer_spec.rb
+- [x] core/module/attr_accessor_spec.rb
+- [x] core/module/attr_reader_spec.rb
+- [x] core/module/attr_spec.rb
+- [x] core/module/attr_writer_spec.rb
 - [-] core/module/autoload_spec.rb
 - [ ] core/module/case_compare_spec.rb
 - [-] core/module/class_eval_spec.rb

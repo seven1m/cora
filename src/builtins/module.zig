@@ -828,6 +828,9 @@ pub fn register(vm: *VM) !void {
     const attr_accessor_sym = try vm.intern("attr_accessor");
     try vm.module_class.module.methods.put(attr_accessor_sym, value.MethodEntry.builtin(&builtinModuleAttrAccessor, .{ .variadic = 0 }));
 
+    const attr_sym = try vm.intern("attr");
+    try vm.module_class.module.methods.put(attr_sym, value.MethodEntry.builtin(&builtinModuleAttr, .{ .variadic = 0 }));
+
     const alias_method_sym = try vm.intern("alias_method");
     try vm.module_class.module.methods.put(alias_method_sym, value.MethodEntry.builtin(&builtinModuleAliasMethod, .{ .exact = 2 }));
 
@@ -1444,6 +1447,62 @@ pub fn builtinModuleAttrAccessor(vm: *VM, receiver: Value, args: []Value, _: ?Bl
         result_array.elements.append(vm.gc_allocator, Value.fromObject(&reader_sym.object)) catch return error.Fatal;
         result_array.elements.append(vm.gc_allocator, Value.fromObject(&writer_sym.object)) catch return error.Fatal;
     }
+    vm.markIntegerChangedForReceiver(receiver);
+    vm.bumpMethodStateVersion();
+
+    return Value.fromObject(&result_array.object);
+}
+
+pub fn builtinModuleAttr(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const methods = receiver.getModuleMethods() orelse {
+        const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
+        vm.setPendingException(exc);
+        return error.Unwind;
+    };
+
+    const visibility = currentDefaultVisibility(vm);
+    const result_array = try vm.createArray();
+
+    var writable = false;
+    var name_count = args.len;
+
+    if (args.len > 0) {
+        const last = args[args.len - 1];
+        if (last.isBool()) {
+            writable = last.isTrue();
+            name_count = args.len - 1;
+            if (writable) {
+                const verbose = vm.globals.get("$VERBOSE") orelse Value.FALSE;
+                if (verbose.is_truthy()) {
+                    try warning_builtin.writeWarning(vm, "warning: boolean argument is obsoleted\n");
+                }
+            }
+        }
+    }
+
+    for (args[0..name_count]) |arg| {
+        const name_str = try vm.coerceToMethodNameString(arg);
+        const reader_sym = try vm.intern(name_str);
+        const reader_chunk = try vm.createAccessorChunk(name_str, .reader);
+        methods.put(reader_sym, .{
+            .method = .{ .chunk = reader_chunk },
+            .visibility = visibility,
+        }) catch return error.Fatal;
+        result_array.elements.append(vm.gc_allocator, Value.fromObject(&reader_sym.object)) catch return error.Fatal;
+
+        if (writable) {
+            const writer_name = std.fmt.allocPrint(vm.program.allocator, "{s}=", .{name_str}) catch return error.Fatal;
+            defer vm.program.allocator.free(writer_name);
+            const writer_sym = try vm.intern(writer_name);
+            const writer_chunk = try vm.createAccessorChunk(name_str, .writer);
+            methods.put(writer_sym, .{
+                .method = .{ .chunk = writer_chunk },
+                .visibility = visibility,
+            }) catch return error.Fatal;
+            result_array.elements.append(vm.gc_allocator, Value.fromObject(&writer_sym.object)) catch return error.Fatal;
+        }
+    }
+
     vm.markIntegerChangedForReceiver(receiver);
     vm.bumpMethodStateVersion();
 

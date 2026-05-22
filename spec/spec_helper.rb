@@ -1375,8 +1375,9 @@ class OutputMatcher
 end
 
 class ComplainMatcher
-  def initialize(expected = nil, _opts = nil)
+  def initialize(expected = nil, opts = nil)
     @expected = expected
+    @opts = opts || {}
     @actual = nil
   end
 
@@ -1386,10 +1387,13 @@ class ComplainMatcher
     err = SpecCaptureIO.new
     old_err = $stderr
     $stderr = err
+    old_verbose = $VERBOSE
+    $VERBOSE = @opts[:verbose] if @opts.key?(:verbose)
     begin
       callable.call
     ensure
       $stderr = old_err
+      $VERBOSE = old_verbose
     end
     @actual = err.string
 
