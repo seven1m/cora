@@ -721,6 +721,11 @@ pub const Compiler = struct {
                 try self.current_chunk.emitOpU16(.SET_CONST, @intCast(idx), line);
             },
 
+            .shareable_constant => |shareable_const| {
+                const write_node = try self.parser.asNode(@ptrCast(shareable_const.write));
+                try self.compileNode(write_node, line);
+            },
+
             .constant_path_write => |const_path_write| {
                 try self.compileConstantPathWrite(const_path_write, line);
             },

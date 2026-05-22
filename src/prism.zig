@@ -22,6 +22,7 @@ pub const CallOrWriteNode = c.pm_call_or_write_node_t;
 pub const CaseNode = c.pm_case_node_t;
 pub const ClassNode = c.pm_class_node_t;
 pub const SingletonClassNode = c.pm_singleton_class_node_t;
+pub const ShareableConstantNode = c.pm_shareable_constant_node_t;
 pub const ConstantPathNode = c.pm_constant_path_node_t;
 pub const ConstantReadNode = c.pm_constant_read_node_t;
 pub const ConstantAndWriteNode = c.pm_constant_and_write_node_t;
@@ -159,6 +160,7 @@ pub const Node = union(enum) {
     case_node: *CaseNode,
     class: *ClassNode,
     singleton_class: *SingletonClassNode,
+    shareable_constant: *ShareableConstantNode,
     constant_path: *ConstantPathNode,
     constant_read: *ConstantReadNode,
     constant_and_write: *ConstantAndWriteNode,
@@ -522,6 +524,10 @@ pub const Parser = struct {
 
         if (node_type == c.PM_SINGLETON_CLASS_NODE) {
             return Node{ .singleton_class = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_SHAREABLE_CONSTANT_NODE) {
+            return Node{ .shareable_constant = @ptrCast(raw) };
         }
 
         if (node_type == c.PM_SELF_NODE) {

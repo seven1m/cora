@@ -12,6 +12,15 @@ test "Constants can be set and read" {
     try std.testing.expectEqual(@as(i64, 42), result.toInteger());
 }
 
+test "shareable constant wrapper compiles constant assignment" {
+    const result = try evalCode(
+        \\# shareable_constant_value: literal
+        \\FOO = {a: 1}
+        \\FOO[:a]
+    );
+    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
+}
+
 test "Constant path: simple module constant" {
     const result = try evalCode(
         \\module A
