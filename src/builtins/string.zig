@@ -1810,7 +1810,7 @@ fn transcodeWithEncodeOptions(
                 var fallback_args = [_]Value{char_val};
 
                 if (fallback.isProc()) {
-                    fallback_result = try vm.callProcObject(fallback.toProcObject(), fallback_args[0..], null, null);
+                    fallback_result = try vm.callProcObject(fallback.toProcObject(), fallback_args[0..], null, null, null);
                 } else if (try vm.checkCallMethodByName(fallback, "call", false, fallback_args[0..], null)) |result| {
                     fallback_result = result;
                 } else if (try vm.checkCallMethodByName(fallback, "[]", false, fallback_args[0..], null)) |result| {
@@ -1857,7 +1857,7 @@ fn transcodeWithEncodeOptions(
             var fallback_args = [_]Value{char_val};
 
             if (fallback.isProc()) {
-                fallback_result = try vm.callProcObject(fallback.toProcObject(), fallback_args[0..], null, null);
+                fallback_result = try vm.callProcObject(fallback.toProcObject(), fallback_args[0..], null, null, null);
             } else if (try vm.checkCallMethodByName(fallback, "call", false, fallback_args[0..], null)) |result| {
                 fallback_result = result;
             } else if (try vm.checkCallMethodByName(fallback, "[]", false, fallback_args[0..], null)) |result| {

@@ -48,7 +48,7 @@ pub fn builtinProcNew(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!V
 
 pub fn builtinProcCall(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     const proc_obj = receiver.toProcObject();
-    return vm.callProcObject(proc_obj, args, block, null);
+    return vm.callProcObject(proc_obj, args, block, null, null);
 }
 
 pub fn builtinProcIsLambda(_: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {

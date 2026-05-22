@@ -218,7 +218,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/basicobject/equal_spec.rb
 - [x] core/basicobject/equal_value_spec.rb
 - [x] core/basicobject/initialize_spec.rb
-- [ ] core/basicobject/instance_eval_spec.rb
+- [-] core/basicobject/instance_eval_spec.rb
 - [ ] core/basicobject/instance_exec_spec.rb
 - [ ] core/basicobject/method_missing_spec.rb
 - [x] core/basicobject/not_equal_spec.rb
@@ -1397,7 +1397,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/module/attr_writer_spec.rb
 - [-] core/module/autoload_spec.rb
 - [ ] core/module/case_compare_spec.rb
-- [ ] core/module/class_eval_spec.rb
+- [-] core/module/class_eval_spec.rb
 - [ ] core/module/class_exec_spec.rb
 - [ ] core/module/class_variable_defined_spec.rb
 - [ ] core/module/class_variable_get_spec.rb
@@ -1435,7 +1435,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/module/method_defined_spec.rb
 - [ ] core/module/method_removed_spec.rb
 - [ ] core/module/method_undefined_spec.rb
-- [ ] core/module/module_eval_spec.rb
+- [-] core/module/module_eval_spec.rb
 - [ ] core/module/module_exec_spec.rb
 - [ ] core/module/module_function_spec.rb
 - [ ] core/module/name_spec.rb

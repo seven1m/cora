@@ -109,6 +109,7 @@ pub const Chunk = struct {
     chunk_id: ?ChunkId = null,
     arity: u8 = 0,
     locals_count: u16 = 0, // Total number of locals (including params)
+    local_names: std.ArrayList([]const u8) = .empty,
     is_lambda: bool = false,
     optional_params: std.ArrayList(OptionalParam) = .empty,
     rest_param_index: ?u16 = null,
@@ -167,6 +168,10 @@ pub const Chunk = struct {
         self.line_info.deinit(self.allocator);
         self.code.deinit(self.allocator);
         self.optional_params.deinit(self.allocator);
+        for (self.local_names.items) |name| {
+            self.allocator.free(name);
+        }
+        self.local_names.deinit(self.allocator);
 
         for (self.exception_handlers.items) |*handler| {
             for (handler.rescue_handlers.items) |*rescue| {

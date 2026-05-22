@@ -642,7 +642,7 @@ pub fn builtinHashDefault(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     if (args.len == 1) {
         if (hash_obj.default_proc) |default_proc| {
             const call_args = [_]Value{ receiver, args[0] };
-            return vm.callProcObject(default_proc, call_args[0..], null, null);
+            return vm.callProcObject(default_proc, call_args[0..], null, null, null);
         }
     }
     return hash_obj.default_value orelse Value.nil();

@@ -106,7 +106,6 @@ fn setOsSignalMode(signo: c_int, mode: SignalTrapMode) void {
     std.posix.sigaction(sig, &act, null);
 }
 
-
 fn initializeDefaultSignalTrapModes(vm: *VM) void {
     var signo: usize = 0;
     while (signo < MAX_QUEUED_SIGNALS) : (signo += 1) {
@@ -255,6 +254,8 @@ pub const CallFrame = struct {
     next_target_frame_idx: ?usize = null,
     method_name: ?[]const u8 = null,
     super_defining_class: ?*ClassObject = null,
+    class_variable_scope: ?*LexicalScope = null,
+    method_definition_target: ?Value = null,
     active_rescue_exceptions: usize = 0,
     forwarded_keyword_ctx: ?*BuiltinKeywordContext = null,
     dir_returns_nil: bool = false,
@@ -2037,6 +2038,19 @@ pub const VM = struct {
         module: *value.ModuleObject,
         start_class: ?*ClassObject,
     } {
+        if (frame.class_variable_scope) |scope| {
+            return switch (scope.scope_module) {
+                .class => |class_obj| .{
+                    .module = &class_obj.module,
+                    .start_class = class_obj,
+                },
+                .module => |module| .{
+                    .module = module,
+                    .start_class = null,
+                },
+            };
+        }
+
         if (epLexScope(frame.ep)) |scope| {
             return switch (scope.scope_module) {
                 .class => |class_obj| .{
@@ -2056,7 +2070,7 @@ pub const VM = struct {
         };
     }
 
-    fn lookupClassVariable(
+    pub fn lookupClassVariable(
         _: *VM,
         owner_module: *value.ModuleObject,
         start_class: ?*ClassObject,
@@ -2077,6 +2091,17 @@ pub const VM = struct {
         }
 
         return null;
+    }
+
+    pub fn currentEvalParentLocalNames(self: *VM) ?[]const []const u8 {
+        const frame = self.currentRubyCallerFrame() orelse return null;
+        if (frame.chunk.local_names.items.len == 0) return null;
+        return frame.chunk.local_names.items;
+    }
+
+    pub fn currentRubyCallerLexicalScope(self: *VM) ?*LexicalScope {
+        const frame = self.currentRubyCallerFrame() orelse return null;
+        return epLexScope(frame.ep);
     }
 
     pub fn setupOutput(self: *VM) void {
@@ -3149,6 +3174,7 @@ pub const VM = struct {
         return_target_ep: ?[*]Value,
         break_target_frame_idx: ?usize,
         next_target_frame_idx: ?usize,
+        method_definition_target: ?Value,
     ) VMError!void {
         if (self.frames.items.len >= self.frames.capacity) {
             const exc = try self.createException(self.fiber_error_class, "fiber call stack overflow");
@@ -3189,6 +3215,7 @@ pub const VM = struct {
             .return_target_ep = return_target_ep,
             .break_target_frame_idx = break_target_frame_idx,
             .next_target_frame_idx = next_target_frame_idx,
+            .method_definition_target = method_definition_target,
         }) catch return error.Fatal;
 
         if (ch.lexical_scope) |scope| {
@@ -3444,7 +3471,7 @@ pub const VM = struct {
         const blk = fiber.block orelse return error.Fatal;
         switch (blk.kind) {
             .chunk => |chunk_blk| {
-                self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, chunk_blk.defining_self, .fiber, null, null, null, null) catch return error.Fatal;
+                self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, chunk_blk.defining_self, .fiber, null, null, null, null, null) catch return error.Fatal;
 
                 const current_frame = self.currentFrame();
                 self.copyArgumentsWithRestParam(chunk_blk.chunk, current_frame.ep, fiber.first_resume_args[0..fiber.first_resume_argc], .lenient) catch return error.Fatal;
@@ -3866,7 +3893,7 @@ pub const VM = struct {
         const blk = thread.block orelse return error.Fatal;
         switch (blk.kind) {
             .chunk => |chunk_blk| {
-                self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, chunk_blk.defining_self, .fiber, null, null, null, null) catch return error.Fatal;
+                self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, chunk_blk.defining_self, .fiber, null, null, null, null, null) catch return error.Fatal;
 
                 const current_frame = self.currentFrame();
                 const thread_args = thread.args orelse &[_]Value{};
@@ -5422,20 +5449,31 @@ pub const VM = struct {
                     const visibility: MethodVisibility = if (module_function_mode) .private else self.currentDefaultMethodVisibility();
 
                     // Get current self from the frame
-                    const current_self = frame.self_value;
-                    const methods = current_self.getModuleMethods() orelse &self.object_class.module.methods;
+                    const method_owner = if (frame.method_definition_target) |target|
+                        if (target.getModuleMethods()) |_|
+                            target
+                        else
+                            Value.fromObject(&(try self.getOrCreateSingletonClass(target)).module.object)
+                    else if (self.current_lexical_scope) |scope|
+                        switch (scope.scope_module) {
+                            .module => |module_obj| Value.fromObject(&module_obj.object),
+                            .class => |class_obj| Value.fromObject(&class_obj.module.object),
+                        }
+                    else
+                        frame.self_value;
+                    const methods = method_owner.getModuleMethods() orelse unreachable;
                     const entry: MethodEntry = .{
                         .method = .{ .chunk = chunk_ptr },
                         .visibility = visibility,
                     };
                     methods.put(method_name_sym, entry) catch return error.Fatal;
-                    self.markIntegerChangedForReceiver(current_self);
+                    self.markIntegerChangedForReceiver(method_owner);
                     self.bumpMethodStateVersion();
 
                     // module_function mode (set by Module#module_function with no args)
                     // also creates a public singleton method copy on the defining module.
-                    if (module_function_mode and current_self.isModule()) {
-                        const singleton_class = try self.getOrCreateSingletonClass(current_self);
+                    if (module_function_mode and method_owner.isModule()) {
+                        const singleton_class = try self.getOrCreateSingletonClass(method_owner);
                         var singleton_entry = entry;
                         singleton_entry.visibility = .public;
                         singleton_class.module.methods.put(method_name_sym, singleton_entry) catch return error.Fatal;
@@ -5693,6 +5731,7 @@ pub const VM = struct {
                             chunk_blk.return_target_ep,
                             break_target_frame_idx,
                             next_target_frame_idx,
+                            null,
                         );
 
                         const arity_mode: ArityMode = if (chunk_blk.chunk.is_lambda) .strict else .lenient;
@@ -5746,6 +5785,7 @@ pub const VM = struct {
                             chunk_blk.return_target_ep,
                             break_target_frame_idx,
                             next_target_frame_idx,
+                            null,
                         );
 
                         const arity_mode: ArityMode = if (chunk_blk.chunk.is_lambda) .strict else .lenient;
@@ -7319,6 +7359,7 @@ pub const VM = struct {
                     chunk_blk.return_target_ep,
                     break_target_frame_idx,
                     next_target_frame_idx,
+                    null,
                 );
 
                 const arity_mode: ArityMode = if (chunk_blk.chunk.is_lambda) .strict else .lenient;
@@ -7364,6 +7405,7 @@ pub const VM = struct {
                     receiver,
                     .method,
                     procCallBlock(block, chunk_blk.enclosing_block_proc),
+                    null,
                     null,
                     null,
                     null,
@@ -7431,7 +7473,14 @@ pub const VM = struct {
         return self.invokeResolvedMethod(r, receiver, forwarded_args[0 .. args.len - 1], block);
     }
 
-    pub fn callProcObject(self: *VM, proc_obj: *value.ProcObject, args: []const Value, block: ?Block, self_override: ?Value) VMError!Value {
+    pub fn callProcObject(
+        self: *VM,
+        proc_obj: *value.ProcObject,
+        args: []const Value,
+        block: ?Block,
+        self_override: ?Value,
+        method_definition_target: ?Value,
+    ) VMError!Value {
         return switch (proc_obj.block.kind) {
             .receiver_builtin => |builtin_data| builtin_data.func(self, builtin_data.receiver, @constCast(args)),
             .symbol => |sym| self.invokeSymbolProc(sym, args, block),
@@ -7450,6 +7499,7 @@ pub const VM = struct {
                     chunk_blk.return_target_ep,
                     null,
                     next_target_frame_idx,
+                    method_definition_target,
                 );
 
                 const current_frame = self.currentFrame();
@@ -7540,6 +7590,7 @@ pub const VM = struct {
                                     chunk_blk.return_target_ep,
                                     null,
                                     next_target_frame_idx,
+                                    null,
                                 );
 
                                 const current_frame = self.currentFrame();
@@ -7589,6 +7640,7 @@ pub const VM = struct {
                             receiver,
                             .method,
                             procCallBlock(block, chunk_blk.enclosing_block_proc),
+                            null,
                             null,
                             null,
                             null,
@@ -10112,7 +10164,11 @@ pub const VM = struct {
         self_value: Value,
         parent_ep: ?[*]Value,
         lexical_scope: ?*LexicalScope,
+        class_variable_scope: ?*LexicalScope = null,
+        method_definition_target: ?Value = null,
+        parent_local_names: ?[]const []const u8 = null,
         dir_returns_nil: bool = false,
+        line_offset: u32 = 0,
     };
 
     pub fn evalSourceWithEncodingAndContext(
@@ -10122,12 +10178,31 @@ pub const VM = struct {
         source_encoding: ?enc.Encoding,
         context: ?EvalContext,
     ) VMError!Value {
-        var parser = prism.Parser.initWithEncoding(self.allocator, source, source_file, source_encoding) catch {
+        var parse_source = source;
+        var owned_parse_source: ?[]u8 = null;
+        defer if (owned_parse_source) |buf| self.allocator.free(buf);
+
+        if (context) |ctx| {
+            if (ctx.line_offset > 0) {
+                const buf = self.allocator.alloc(u8, ctx.line_offset + source.len) catch return error.Fatal;
+                @memset(buf[0..ctx.line_offset], '\n');
+                @memcpy(buf[ctx.line_offset..], source);
+                parse_source = buf;
+                owned_parse_source = buf;
+            }
+        }
+
+        var parser = prism.Parser.initWithEncoding(self.allocator, parse_source, source_file, source_encoding) catch {
             return self.raiseExceptionFmt(self.syntax_error_class, "{s}: syntax error", .{source_file orelse "(eval)"});
         };
         defer parser.deinit();
 
-        var eval_program = compiler.Compiler.compile(self.allocator, &parser, self.next_chunk_id) catch |err| {
+        var eval_program = compiler.Compiler.compileWithContext(
+            self.allocator,
+            &parser,
+            self.next_chunk_id,
+            .{ .outer_local_names = if (context) |ctx| ctx.parent_local_names else null },
+        ) catch |err| {
             if (compiler.syntaxErrorMessage(err)) |message| {
                 return self.raiseExceptionFmt(self.syntax_error_class, "{s}: {s}", .{ source_file orelse "(eval)", message });
             }
@@ -10159,6 +10234,8 @@ pub const VM = struct {
                 ctx.self_value,
                 ctx.parent_ep,
                 ctx.lexical_scope,
+                ctx.class_variable_scope,
+                ctx.method_definition_target,
                 ctx.dir_returns_nil,
             );
         }
@@ -10197,7 +10274,7 @@ pub const VM = struct {
         parent_ep: ?[*]Value,
         lexical_scope: ?*LexicalScope,
     ) VMError!Value {
-        return self.executeChunkInContextWithOptions(target_chunk, self_value, parent_ep, lexical_scope, false);
+        return self.executeChunkInContextWithOptions(target_chunk, self_value, parent_ep, lexical_scope, null, null, false);
     }
 
     fn executeChunkInContextWithOptions(
@@ -10206,6 +10283,8 @@ pub const VM = struct {
         self_value: Value,
         parent_ep: ?[*]Value,
         lexical_scope: ?*LexicalScope,
+        class_variable_scope: ?*LexicalScope,
+        method_definition_target: ?Value,
         dir_returns_nil: bool,
     ) VMError!Value {
         const saved_stack_len = self.stack.items.len;
@@ -10230,6 +10309,8 @@ pub const VM = struct {
             .self_value = self_value,
             .block = null,
             .frame_type = .method,
+            .class_variable_scope = class_variable_scope,
+            .method_definition_target = method_definition_target,
             .dir_returns_nil = dir_returns_nil,
         }) catch return error.Fatal;
 
@@ -10801,11 +10882,11 @@ pub const VM = struct {
                         .{ frame_source, frame_line, method_name },
                     ) catch return error.Fatal
                 else
-                std.fmt.allocPrint(
-                    self.gc_allocator,
-                    "{s}:{d}:in '{s}#{s}'",
-                    .{ frame_source, frame_line, self.getClass(frame.self_value).module.name.name, method_name },
-                ) catch return error.Fatal
+                    std.fmt.allocPrint(
+                        self.gc_allocator,
+                        "{s}:{d}:in '{s}#{s}'",
+                        .{ frame_source, frame_line, self.getClass(frame.self_value).module.name.name, method_name },
+                    ) catch return error.Fatal
             else
                 std.fmt.allocPrint(
                     self.gc_allocator,

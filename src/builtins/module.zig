@@ -220,6 +220,51 @@ fn constantNameString(vm: *VM, arg: Value) VMError![]const u8 {
     return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion of {s} into String", .{vm.className(arg)});
 }
 
+fn classVariableNameString(vm: *VM, arg: Value) VMError![]const u8 {
+    const name = try constantNameString(vm, arg);
+    if (name.len < 3 or name[0] != '@' or name[1] != '@') {
+        return vm.raiseExceptionFmt(vm.name_error_class, "`{s}' is not allowed as a class variable name", .{name});
+    }
+    return name;
+}
+
+fn evalFilename(vm: *VM, source_file_arg: ?Value) VMError![]const u8 {
+    if (source_file_arg) |arg| {
+        return arg.coerceToStr(vm, "no implicit conversion into String");
+    }
+
+    if (vm.currentRubyCallerFrame()) |frame| {
+        const caller_source = frame.chunk.source_file orelse "(eval)";
+        const caller_line = vm.backtraceLineForFrame(frame);
+        return std.fmt.allocPrint(vm.gc_allocator, "(eval at {s}:{d})", .{ caller_source, caller_line }) catch return error.Fatal;
+    }
+
+    return "(eval)";
+}
+
+fn evalLineOffset(vm: *VM, lineno_arg: ?Value) VMError!u32 {
+    if (lineno_arg == null or lineno_arg.?.isNil()) return 0;
+    const lineno = try lineno_arg.?.coerceToI64ViaToInt(
+        vm,
+        "no implicit conversion into Integer",
+        "can't convert to Integer (to_int gives non-Integer)",
+        "bignum too big to convert into `long'",
+    );
+    if (lineno <= 1) return 0;
+    return @intCast(lineno - 1);
+}
+
+fn coerceEvalSourceValue(vm: *VM, arg: Value) VMError!Value {
+    return switch (try vm.probeToStringValue(arg)) {
+        .string => |coerced| coerced,
+        .missing, .nil_result => vm.raiseExceptionFmt(
+            vm.type_error_class,
+            "no implicit conversion of {s} into String",
+            .{vm.className(arg)},
+        ),
+    };
+}
+
 fn splitConstantName(allocator: std.mem.Allocator, name: []const u8, allow_root: bool) !std.ArrayList([]const u8) {
     var parts: std.ArrayList([]const u8) = .empty;
     errdefer parts.deinit(allocator);
@@ -761,6 +806,10 @@ fn copyMethodToModuleSingleton(vm: *VM, module_receiver: Value, name_sym: *Symbo
 }
 
 pub fn register(vm: *VM) !void {
+    const module_singleton = try vm.getOrCreateSingletonClass(Value.fromObject(&vm.module_class.module.object));
+    const nesting_sym = try vm.intern("nesting");
+    try module_singleton.module.methods.put(nesting_sym, value.MethodEntry.builtin(&builtinModuleNesting, .{ .exact = 0 }));
+
     const include_sym = try vm.intern("include");
     try vm.module_class.module.methods.put(include_sym, value.MethodEntry.builtin(&builtinModuleInclude, .{ .variadic = 0 }));
 
@@ -859,6 +908,12 @@ pub fn register(vm: *VM) !void {
 
     const class_eval_sym = try vm.intern("class_eval");
     try vm.module_class.module.methods.put(class_eval_sym, value.MethodEntry.builtin(&builtinModuleEval, .{ .variadic = 0 }));
+
+    const class_variable_get_sym = try vm.intern("class_variable_get");
+    try vm.module_class.module.methods.put(class_variable_get_sym, value.MethodEntry.builtin(&builtinModuleClassVariableGet, .{ .exact = 1 }));
+
+    const class_variable_set_sym = try vm.intern("class_variable_set");
+    try vm.module_class.module.methods.put(class_variable_set_sym, value.MethodEntry.builtin(&builtinModuleClassVariableSet, .{ .exact = 2 }));
 
     const ancestors_sym = try vm.intern("ancestors");
     try vm.module_class.module.methods.put(ancestors_sym, value.MethodEntry.builtin(&builtinModuleAncestors, .{ .exact = 0 }));
@@ -1628,11 +1683,65 @@ pub fn builtinModuleConstGet(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     return constant_value;
 }
 
-pub fn builtinModuleEval(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+pub fn builtinModuleNesting(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const blk = try vm.requireBlock(block);
-    const proc_obj = (try vm.newProc(blk)).toProcObject();
-    return vm.callProcObject(proc_obj, &.{}, null, receiver);
+    const out = try vm.createArray();
+    var scope = vm.current_lexical_scope;
+    while (scope) |current| {
+        const scope_value = switch (current.scope_module) {
+            .module => |module_obj| Value.fromObject(&module_obj.object),
+            .class => |class_obj| Value.fromObject(&class_obj.module.object),
+        };
+        out.elements.append(vm.gc_allocator, scope_value) catch return error.Fatal;
+        scope = current.parent;
+    }
+    return Value.fromObject(&out.object);
+}
+
+pub fn builtinModuleEval(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    if (block) |blk| {
+        try vm.requireArgCount(args, 0);
+        const proc_obj = (try vm.newProc(blk)).toProcObject();
+        var block_args = [_]Value{receiver};
+        return vm.callProcObject(proc_obj, block_args[0..], null, receiver, receiver);
+    }
+
+    try vm.requireArgCountRange(args, 1, 3);
+    const source_value = try coerceEvalSourceValue(vm, args[0]);
+    const lexical_scope = try vm.createLexicalScope(receiver, vm.current_lexical_scope);
+    return vm.evalSourceWithEncodingAndContext(
+        source_value.toStringObject().str,
+        try evalFilename(vm, if (args.len >= 2) args[1] else null),
+        source_value.toStringObject().encoding,
+        .{
+            .self_value = receiver,
+            .parent_ep = if (vm.currentRubyCallerFrame()) |frame| frame.ep else null,
+            .lexical_scope = lexical_scope,
+            .line_offset = try evalLineOffset(vm, if (args.len >= 3) args[2] else null),
+        },
+    );
+}
+
+pub fn builtinModuleClassVariableGet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const receiver_module = moduleFromValue(receiver) orelse {
+        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Module", .{});
+    };
+    const name = try classVariableNameString(vm, args[0]);
+    const name_sym = try vm.intern(name);
+    return vm.lookupClassVariable(receiver_module, if (receiver.isClass()) receiver.toClassObject() else null, name_sym) orelse
+        vm.raiseExceptionFmt(vm.name_error_class, "uninitialized class variable {s} in {s}", .{ name, storedModuleName(receiver) });
+}
+
+pub fn builtinModuleClassVariableSet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 2);
+    const receiver_module = moduleFromValue(receiver) orelse {
+        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Module", .{});
+    };
+    const name = try classVariableNameString(vm, args[0]);
+    const name_sym = try vm.intern(name);
+    receiver_module.class_variables.put(name_sym, args[1]) catch return error.Fatal;
+    return args[1];
 }
 
 pub fn builtinModuleFunction(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

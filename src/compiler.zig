@@ -193,6 +193,10 @@ pub fn syntaxErrorMessage(err: anyerror) ?[]const u8 {
 }
 
 pub const Compiler = struct {
+    pub const CompileContext = struct {
+        outer_local_names: ?[]const []const u8 = null,
+    };
+
     allocator: std.mem.Allocator,
     parser: *prism.Parser,
 
@@ -218,6 +222,31 @@ pub const Compiler = struct {
             .child_chunks = std.AutoHashMap(chunk.ChunkId, *Chunk).init(allocator),
             .chunk_counter = starting_chunk_id,
         };
+    }
+
+    fn seedOuterLocals(self: *Compiler, names: []const []const u8) !void {
+        var scope: std.ArrayList(Local) = .empty;
+        errdefer scope.deinit(self.allocator);
+        for (names) |name| {
+            try scope.append(self.allocator, .{
+                .name = name,
+                .depth = 0,
+                .is_captured = false,
+            });
+        }
+        try self.all_locals.append(self.allocator, scope);
+    }
+
+    fn finalizeChunkLocals(self: *Compiler, target_chunk: *Chunk) !void {
+        target_chunk.locals_count = @intCast(self.locals.items.len);
+        for (self.locals.items) |local| {
+            try target_chunk.local_names.append(
+                self.allocator,
+                try self.allocator.dupe(u8, local.name),
+            );
+        }
+        target_chunk.patchEpOffsets(null);
+        self.patchRescueTypeChunks(target_chunk, target_chunk.locals_count);
     }
 
     pub fn deinit(self: *Compiler) void {
@@ -295,9 +324,17 @@ pub const Compiler = struct {
         return id;
     }
 
-    pub fn compile(allocator: std.mem.Allocator, parser: *prism.Parser, starting_chunk_id: u16) !CompiledProgram {
+    pub fn compileWithContext(
+        allocator: std.mem.Allocator,
+        parser: *prism.Parser,
+        starting_chunk_id: u16,
+        context: CompileContext,
+    ) !CompiledProgram {
         var compiler = Compiler.init(allocator, parser, starting_chunk_id);
         defer compiler.deinit();
+        if (context.outer_local_names) |names| {
+            try compiler.seedOuterLocals(names);
+        }
 
         var main_chunk = Chunk.init(allocator, "main");
         try main_chunk.setSourceFile(parser.source_file);
@@ -322,9 +359,7 @@ pub const Compiler = struct {
         try compiler.current_chunk.emitOp(.HALT, 1);
 
         // Patch depth-0 GET_LOCAL/SET_LOCAL operands in the top-level chunk
-        main_chunk.locals_count = @intCast(compiler.locals.items.len);
-        main_chunk.patchEpOffsets(null);
-        compiler.patchRescueTypeChunks(&main_chunk, main_chunk.locals_count);
+        try compiler.finalizeChunkLocals(&main_chunk);
 
         return CompiledProgram{
             .allocator = allocator,
@@ -332,6 +367,10 @@ pub const Compiler = struct {
             .child_chunks = compiler.child_chunks,
             .next_chunk_id = compiler.chunk_counter,
         };
+    }
+
+    pub fn compile(allocator: std.mem.Allocator, parser: *prism.Parser, starting_chunk_id: u16) !CompiledProgram {
+        return compileWithContext(allocator, parser, starting_chunk_id, .{});
     }
 
     fn nodeLine(self: *Compiler, node: prism.Node) u32 {
@@ -3149,10 +3188,7 @@ pub const Compiler = struct {
             try self.current_chunk.emitOp(.PUSH_SELF, line);
             try self.current_chunk.emitOpU8(.RETURN, 0, line);
 
-            // Finalise locals_count and patch ep offsets
-            body_chunk_ptr.locals_count = @intCast(self.locals.items.len);
-            body_chunk_ptr.patchEpOffsets(null);
-            self.patchRescueTypeChunks(body_chunk_ptr, body_chunk_ptr.locals_count);
+            try self.finalizeChunkLocals(body_chunk_ptr);
 
             // Restore the original chunk and locals
             self.current_chunk = saved_chunk;
@@ -3218,10 +3254,7 @@ pub const Compiler = struct {
             try self.current_chunk.emitOp(.PUSH_SELF, line);
             try self.current_chunk.emitOpU8(.RETURN, 0, line);
 
-            // Finalise locals_count and patch ep offsets
-            body_chunk_ptr.locals_count = @intCast(self.locals.items.len);
-            body_chunk_ptr.patchEpOffsets(null);
-            self.patchRescueTypeChunks(body_chunk_ptr, body_chunk_ptr.locals_count);
+            try self.finalizeChunkLocals(body_chunk_ptr);
 
             // Restore the original chunk and locals
             self.current_chunk = saved_chunk;
@@ -3293,10 +3326,7 @@ pub const Compiler = struct {
         }
         try self.current_chunk.emitOpU8(.RETURN, 0, line);
 
-        // Finalise locals_count and patch ep offsets
-        body_chunk_ptr.locals_count = @intCast(self.locals.items.len);
-        body_chunk_ptr.patchEpOffsets(null);
-        self.patchRescueTypeChunks(body_chunk_ptr, body_chunk_ptr.locals_count);
+        try self.finalizeChunkLocals(body_chunk_ptr);
 
         self.current_chunk = saved_chunk;
         self.locals.deinit(self.allocator);
@@ -3696,8 +3726,7 @@ pub const Compiler = struct {
             self.current_chunk.keyword_rest_index == null and
             self.current_chunk.block_param_index == null;
 
-        // Patch depth-0 GET_LOCAL/SET_LOCAL operands to ep_offsets
-        method_chunk_ptr.patchEpOffsets(null);
+        try self.finalizeChunkLocals(method_chunk_ptr);
         // Patch default-expression sub-chunks (they share the method's local scope)
         for (method_chunk_ptr.optional_params.items) |opt| {
             if (self.child_chunks.get(opt.default_chunk_id)) |dc|
@@ -3707,9 +3736,6 @@ pub const Compiler = struct {
             if (self.child_chunks.get(kw.default_chunk_id)) |dc|
                 dc.patchEpOffsets(method_chunk_ptr.locals_count);
         }
-        // Patch rescue type expression sub-chunks
-        self.patchRescueTypeChunks(method_chunk_ptr, method_chunk_ptr.locals_count);
-
         // Restore the previous chunk
         self.current_chunk = saved_chunk;
         self.locals.deinit(self.allocator);
@@ -3823,8 +3849,7 @@ pub const Compiler = struct {
             self.current_chunk.keyword_rest_index == null and
             self.current_chunk.block_param_index == null;
 
-        // Patch depth-0 GET_LOCAL/SET_LOCAL operands to ep_offsets
-        block_chunk_ptr.patchEpOffsets(null);
+        try self.finalizeChunkLocals(block_chunk_ptr);
         for (block_chunk_ptr.optional_params.items) |opt| {
             if (self.child_chunks.get(opt.default_chunk_id)) |dc|
                 dc.patchEpOffsets(block_chunk_ptr.locals_count);
@@ -3833,7 +3858,6 @@ pub const Compiler = struct {
             if (self.child_chunks.get(kw.default_chunk_id)) |dc|
                 dc.patchEpOffsets(block_chunk_ptr.locals_count);
         }
-        self.patchRescueTypeChunks(block_chunk_ptr, block_chunk_ptr.locals_count);
 
         // Pop the all_locals stack
         _ = self.all_locals.pop();
@@ -3943,8 +3967,7 @@ pub const Compiler = struct {
             self.current_chunk.keyword_rest_index == null and
             self.current_chunk.block_param_index == null;
 
-        // Patch depth-0 GET_LOCAL/SET_LOCAL operands to ep_offsets
-        lambda_chunk_ptr.patchEpOffsets(null);
+        try self.finalizeChunkLocals(lambda_chunk_ptr);
         for (lambda_chunk_ptr.optional_params.items) |opt| {
             if (self.child_chunks.get(opt.default_chunk_id)) |dc|
                 dc.patchEpOffsets(lambda_chunk_ptr.locals_count);
@@ -3953,7 +3976,6 @@ pub const Compiler = struct {
             if (self.child_chunks.get(kw.default_chunk_id)) |dc|
                 dc.patchEpOffsets(lambda_chunk_ptr.locals_count);
         }
-        self.patchRescueTypeChunks(lambda_chunk_ptr, lambda_chunk_ptr.locals_count);
 
         // Pop the all_locals stack
         _ = self.all_locals.pop();
