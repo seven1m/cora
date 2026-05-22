@@ -368,7 +368,9 @@ fn resolveEncodingValue(vm: *VM, arg: Value) VMError!Value {
 fn fileOpenConfig(vm: *VM, args: []Value) VMError!FileOpenConfig {
     var external_encoding: ?Value = null;
     var internal_encoding: ?Value = null;
-    try vm.consumeKeywordArgs(.{ "external_encoding", "internal_encoding" }, .{ &external_encoding, &internal_encoding });
+    var autoclose: ?Value = null;
+    var path: ?Value = null;
+    try vm.consumeKeywordArgs(.{ "external_encoding", "internal_encoding", "autoclose", "path" }, .{ &external_encoding, &internal_encoding, &autoclose, &path });
     try vm.validateKeywordArgsConsumed();
 
     const parsed = try pathAndMode(vm, args);
@@ -761,6 +763,12 @@ fn raisePathStatError(vm: *VM, path_obj: *value.StringObject, err: anyerror) VME
 }
 
 pub fn builtinFileNew(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    if (args.len >= 1 and args[0].isInteger()) {
+        const instance = try vm.newObjectForClass(vm.file_class);
+        _ = try vm.callMethodByNameForwardingKeywords(instance, "initialize", args, null);
+        return instance;
+    }
+
     const config = try fileOpenConfig(vm, args);
     const file_val = try openFileWithMode(vm, config.path, config.mode, config.create_mode);
     try applyIoEncodingConfig(vm, file_val, config);
