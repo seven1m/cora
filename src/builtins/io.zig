@@ -188,6 +188,12 @@ pub fn register(vm: *VM) !void {
 
     const binmode_q_sym = try vm.intern("binmode?");
     try vm.io_class.module.methods.put(binmode_q_sym, value.MethodEntry.builtin(&builtinIoBinmodeQ, .{ .exact = 0 }));
+
+    const sync_sym = try vm.intern("sync");
+    try vm.io_class.module.methods.put(sync_sym, value.MethodEntry.builtin(&builtinIoSync, .{ .exact = 0 }));
+
+    const sync_eq_sym = try vm.intern("sync=");
+    try vm.io_class.module.methods.put(sync_eq_sym, value.MethodEntry.builtin(&builtinIoSyncEq, .{ .exact = 1 }));
 }
 
 const PopenEnvEntry = struct {
@@ -857,6 +863,19 @@ pub fn builtinIoBinmodeQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
         return Value.boolean(encoding_obj.encoding == .ascii_8bit);
     }
     return Value.boolean(false);
+}
+
+pub fn builtinIoSync(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const io = try requireIoReceiver(vm, receiver);
+    return Value.boolean(io.sync);
+}
+
+pub fn builtinIoSyncEq(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const io = try requireIoReceiver(vm, receiver);
+    io.sync = args[0].is_truthy();
+    return args[0];
 }
 
 pub fn builtinIoNonblockQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

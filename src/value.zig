@@ -392,6 +392,7 @@ pub const IoObject = struct {
     path: ?[]const u8,
     path_encoding: ?Encoding = null,
     lineno: i64 = 0,
+    sync: bool = false,
 };
 
 pub const RegexpObject = struct {

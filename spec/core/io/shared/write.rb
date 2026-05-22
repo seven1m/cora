@@ -40,13 +40,11 @@ describe :io_write, shared: true do
   end
 
   it "writes all of the string's bytes without buffering if mode is sync" do
-    CORAFIXME "IO#sync= is not implemented yet", exception: NoMethodError, message: /undefined method 'sync='/ do
-      @file.sync = true
-      written = @file.send(@method, "abcde")
-      written.should == 5
-      File.open(@filename) do |file|
-        file.read(10).should == "abcde56789"
-      end
+    @file.sync = true
+    written = @file.send(@method, "abcde")
+    written.should == 5
+    File.open(@filename) do |file|
+      file.read(10).should == "abcde56789"
     end
   end
 

@@ -1477,8 +1477,8 @@ pub const VM = struct {
         const stdout_sym = try self.intern("STDOUT");
         const stderr_sym = try self.intern("STDERR");
         const stdin_obj = try self.newIo(self.io_class, 0, .{ .owns_fd = false, .readable = true, .writable = false });
-        const stdout_obj = try self.newIo(self.io_class, 1, .{ .owns_fd = false, .readable = false, .writable = true });
-        const stderr_obj = try self.newIo(self.io_class, 2, .{ .owns_fd = false, .readable = false, .writable = true });
+        const stdout_obj = try self.newIo(self.io_class, 1, .{ .owns_fd = false, .readable = false, .writable = true, .sync = true });
+        const stderr_obj = try self.newIo(self.io_class, 2, .{ .owns_fd = false, .readable = false, .writable = true, .sync = true });
         self.object_class.module.constants.put(stdin_sym, .{ .value = stdin_obj }) catch return error.Fatal;
         self.object_class.module.constants.put(stdout_sym, .{ .value = stdout_obj }) catch return error.Fatal;
         self.object_class.module.constants.put(stderr_sym, .{ .value = stderr_obj }) catch return error.Fatal;
@@ -8480,6 +8480,7 @@ pub const VM = struct {
         append: bool = false,
         path: ?[]const u8 = null,
         path_encoding: ?enc.Encoding = null,
+        sync: bool = false,
     };
 
     pub fn newIo(self: *VM, class_obj: *ClassObject, fd: i32, init: IoInit) VMError!Value {
@@ -8494,6 +8495,7 @@ pub const VM = struct {
             .append = init.append,
             .path = init.path,
             .path_encoding = init.path_encoding,
+            .sync = init.sync,
         };
         self.io_objects.append(self.gc_allocator, io_obj) catch return error.Fatal;
         return Value.fromObject(&io_obj.object);
