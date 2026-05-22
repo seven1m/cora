@@ -99,6 +99,9 @@ pub fn register(vm: *VM) !void {
     const readpartial_sym = try vm.intern("readpartial");
     try vm.io_class.module.methods.put(readpartial_sym, value.MethodEntry.builtin(&builtinIoReadpartial, .{ .variadic = 1 }));
 
+    const chmod_sym = try vm.intern("chmod");
+    try vm.io_class.module.methods.put(chmod_sym, value.MethodEntry.builtin(&builtinIoChmod, .{ .exact = 1 }));
+
     const write_sym = try vm.intern("write");
     try vm.io_class.module.methods.put(write_sym, value.MethodEntry.builtin(&builtinIoWrite, .{ .variadic = 0 }));
 
@@ -1425,6 +1428,21 @@ pub fn builtinIoReadpartial(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     }
 
     return ioOutBufferValue(vm, outbuf, buf[0..@intCast(read_len)]);
+}
+
+// File#chmod(mode) — set permissions on the open file via fchmod
+pub fn builtinIoChmod(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const io = try requireIoReceiver(vm, receiver);
+    if (!args[0].isInteger()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into Integer", .{});
+    }
+    const mode: std.c.mode_t = @intCast(args[0].toInteger() & 0o7777);
+    const result = std.c.fchmod(@intCast(io.fd), mode);
+    if (result != 0) {
+        return vm.raiseErrnoFmt(std.posix.errno(result), "fchmod failed", .{});
+    }
+    return Value.integer(0);
 }
 
 pub fn builtinIoWrite(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
