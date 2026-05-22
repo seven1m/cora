@@ -47,7 +47,7 @@ const MAX_FIBER_STACK_SIZE: usize = 8_192;
 const MAX_FIBER_FRAMES: usize = 2048;
 // ENV_DATA_SIZE: number of Value slots per frame above the locals region.
 //   ep[0] = parent ep (raw ptr encoded as Value.raw, or 0 = no parent)
-//   ep[1] = lexical scope (raw ptr encoded as Value.raw, or 0 = no scope)
+//   ep[1] = lexical scope, or tagged FrameScopeContext for eval-only metadata
 //   ep[2] = locals_count (encoded as Value.integer so BDW won't chase it)
 pub const ENV_DATA_SIZE: usize = 3;
 const MAX_BUILTIN_KEYWORDS: usize = 256;
@@ -213,6 +213,14 @@ pub const HeapEnv = struct {
     env: []Value, // GC-owned; len = locals_count + ENV_DATA_SIZE
 };
 
+const FRAME_SCOPE_CONTEXT_TAG: usize = 1;
+
+const FrameScopeContext = struct {
+    lexical_scope: ?*LexicalScope,
+    class_variable_scope: ?*LexicalScope = null,
+    method_definition_target: ?Value = null,
+};
+
 pub const Block = struct {
     pub const ChunkData = struct {
         chunk: *Chunk,
@@ -254,8 +262,6 @@ pub const CallFrame = struct {
     next_target_frame_idx: ?usize = null,
     method_name: ?[]const u8 = null,
     super_defining_class: ?*ClassObject = null,
-    class_variable_scope: ?*LexicalScope = null,
-    method_definition_target: ?Value = null,
     active_rescue_exceptions: usize = 0,
     forwarded_keyword_ctx: ?*BuiltinKeywordContext = null,
     dir_returns_nil: bool = false,
@@ -414,6 +420,7 @@ pub const VM = struct {
     current_lexical_scope: ?*LexicalScope = null,
     toplevel_lexical_scope: ?*LexicalScope = null,
     lexical_scopes: std.ArrayList(*LexicalScope) = .empty,
+    frame_scope_contexts: std.ArrayList(*FrameScopeContext) = .empty,
 
     basic_object_class: *value.ClassObject,
     class_class: *value.ClassObject,
@@ -619,6 +626,7 @@ pub const VM = struct {
             .program = undefined,
             .current_lexical_scope = null,
             .toplevel_lexical_scope = null,
+            .frame_scope_contexts = .empty,
             .basic_object_class = undefined,
             .class_class = undefined,
             .integer_class = undefined,
@@ -1659,6 +1667,27 @@ pub const VM = struct {
         return scope;
     }
 
+    inline fn frameScopeValue(
+        self: *VM,
+        lexical_scope: ?*LexicalScope,
+        class_variable_scope: ?*LexicalScope,
+        method_definition_target: ?Value,
+    ) VMError!Value {
+        if (class_variable_scope == null and method_definition_target == null) {
+            return if (lexical_scope) |scope| .{ .raw = @intFromPtr(scope) } else .{ .raw = 0 };
+        }
+
+        const ctx = self.allocator.create(FrameScopeContext) catch return error.Fatal;
+        errdefer self.allocator.destroy(ctx);
+        ctx.* = .{
+            .lexical_scope = lexical_scope,
+            .class_variable_scope = class_variable_scope,
+            .method_definition_target = method_definition_target,
+        };
+        self.frame_scope_contexts.append(self.allocator, ctx) catch return error.Fatal;
+        return .{ .raw = @intFromPtr(ctx) | FRAME_SCOPE_CONTEXT_TAG };
+    }
+
     // Create new stack-allocated environment
     // Dereference environment pointer, following forwarding pointer if needed
     /// Encode a [*]Value ep pointer as a Value for storage in env-data slots.
@@ -1678,7 +1707,26 @@ pub const VM = struct {
     pub inline fn epLexScope(ep: [*]Value) ?*LexicalScope {
         const raw = ep[1].raw;
         if (raw == 0) return null;
+        if ((raw & FRAME_SCOPE_CONTEXT_TAG) != 0) return epFrameScopeContext(ep).?.lexical_scope;
         return @ptrFromInt(raw);
+    }
+
+    fn epFrameScopeContext(ep: [*]Value) ?*FrameScopeContext {
+        const raw = ep[1].raw;
+        if ((raw & FRAME_SCOPE_CONTEXT_TAG) == 0) return null;
+        return @ptrFromInt(raw & ~@as(usize, FRAME_SCOPE_CONTEXT_TAG));
+    }
+
+    fn epClassVariableScope(ep: [*]Value) ?*LexicalScope {
+        if (epFrameScopeContext(ep)) |ctx| {
+            if (ctx.class_variable_scope) |scope| return scope;
+            return ctx.lexical_scope;
+        }
+        return epLexScope(ep);
+    }
+
+    fn epMethodDefinitionTarget(ep: [*]Value) ?Value {
+        return if (epFrameScopeContext(ep)) |ctx| ctx.method_definition_target else null;
     }
 
     /// Read the locals_count stored in env-data[2] of an ep.
@@ -2038,20 +2086,7 @@ pub const VM = struct {
         module: *value.ModuleObject,
         start_class: ?*ClassObject,
     } {
-        if (frame.class_variable_scope) |scope| {
-            return switch (scope.scope_module) {
-                .class => |class_obj| .{
-                    .module = &class_obj.module,
-                    .start_class = class_obj,
-                },
-                .module => |module| .{
-                    .module = module,
-                    .start_class = null,
-                },
-            };
-        }
-
-        if (epLexScope(frame.ep)) |scope| {
+        if (epClassVariableScope(frame.ep)) |scope| {
             return switch (scope.scope_module) {
                 .class => |class_obj| .{
                     .module = &class_obj.module,
@@ -2342,6 +2377,10 @@ pub const VM = struct {
             self.allocator.destroy(scope);
         }
         self.lexical_scopes.deinit(self.allocator);
+        for (self.frame_scope_contexts.items) |ctx| {
+            self.allocator.destroy(ctx);
+        }
+        self.frame_scope_contexts.deinit(self.allocator);
         var owned_mutexes_iter = self.thread_owned_mutexes.valueIterator();
         while (owned_mutexes_iter.next()) |owned_mutexes| {
             owned_mutexes.deinit(self.allocator);
@@ -3197,10 +3236,8 @@ pub const VM = struct {
 
         const ep: [*]Value = self.stack.items[locals_base + locals_count ..].ptr;
         ep[0] = encodeEp(defining_ep);
-        ep[1] = if (ch.lexical_scope orelse self.current_lexical_scope) |ls|
-            .{ .raw = @intFromPtr(ls) }
-        else
-            .{ .raw = 0 };
+        const lexical_scope = ch.lexical_scope orelse self.current_lexical_scope;
+        ep[1] = try self.frameScopeValue(lexical_scope, null, method_definition_target);
         ep[2] = Value.integer(locals_count);
 
         self.frames.append(self.gc_allocator, CallFrame{
@@ -3215,7 +3252,6 @@ pub const VM = struct {
             .return_target_ep = return_target_ep,
             .break_target_frame_idx = break_target_frame_idx,
             .next_target_frame_idx = next_target_frame_idx,
-            .method_definition_target = method_definition_target,
         }) catch return error.Fatal;
 
         if (ch.lexical_scope) |scope| {
@@ -3252,7 +3288,7 @@ pub const VM = struct {
 
         // Write env_data:
         //   ep[0] = parent ep (current top frame's ep, or 0 if none)
-        //   ep[1] = lexical scope pointer
+        //   ep[1] = lexical scope pointer or eval frame-scope context
         //   ep[2] = locals_count (as Ruby integer for GC safety)
         const ep: [*]Value = self.stack.items[locals_base + locals_count ..].ptr;
         const parent_val: Value = if (self.frames.items.len > 0)
@@ -3260,10 +3296,7 @@ pub const VM = struct {
         else
             .{ .raw = 0 };
         ep[0] = parent_val;
-        ep[1] = if (ch.lexical_scope orelse self.current_lexical_scope) |ls|
-            .{ .raw = @intFromPtr(ls) }
-        else
-            .{ .raw = 0 };
+        ep[1] = try self.frameScopeValue(ch.lexical_scope orelse self.current_lexical_scope, null, null);
         ep[2] = Value.integer(locals_count);
 
         self.frames.append(self.gc_allocator, CallFrame{
@@ -5066,7 +5099,7 @@ pub const VM = struct {
                                                 // Write env_data
                                                 const new_ep: [*]Value = self.stack.items[new_locals_base + lc ..].ptr;
                                                 new_ep[0] = encodeEp(frame.ep);
-                                                new_ep[1] = if (method_chunk.lexical_scope orelse self.current_lexical_scope) |ls| .{ .raw = @intFromPtr(ls) } else .{ .raw = 0 };
+                                                new_ep[1] = try self.frameScopeValue(method_chunk.lexical_scope orelse self.current_lexical_scope, null, null);
                                                 new_ep[2] = Value.integer(lc);
 
                                                 self.frames.storage[self.frames.items.len] = CallFrame{
@@ -5449,7 +5482,7 @@ pub const VM = struct {
                     const visibility: MethodVisibility = if (module_function_mode) .private else self.currentDefaultMethodVisibility();
 
                     // Get current self from the frame
-                    const method_owner = if (frame.method_definition_target) |target|
+                    const method_owner = if (epMethodDefinitionTarget(frame.ep)) |target|
                         if (target.getModuleMethods()) |_|
                             target
                         else
@@ -6438,7 +6471,7 @@ pub const VM = struct {
                                                     if (argc > 0 and argc <= 32) @memcpy(self.stack.items[new_locals_base .. new_locals_base + argc], saved_args[0..argc]);
                                                     const new_ep: [*]Value = self.stack.items[new_locals_base + lc ..].ptr;
                                                     new_ep[0] = encodeEp(f.ep);
-                                                    new_ep[1] = if (method_chunk.lexical_scope orelse self.current_lexical_scope) |ls| .{ .raw = @intFromPtr(ls) } else .{ .raw = 0 };
+                                                    new_ep[1] = try self.frameScopeValue(method_chunk.lexical_scope orelse self.current_lexical_scope, null, null);
                                                     new_ep[2] = Value.integer(lc);
 
                                                     const new_fl = self.frames.items.len;
@@ -10297,7 +10330,7 @@ pub const VM = struct {
 
         const ep: [*]Value = self.stack.storage[locals_base + lc .. locals_base + lc + ENV_DATA_SIZE].ptr;
         ep[0] = if (parent_ep) |p| encodeEp(p) else .{ .raw = 0 };
-        ep[1] = if (lexical_scope orelse self.current_lexical_scope) |ls| .{ .raw = @intFromPtr(ls) } else .{ .raw = 0 };
+        ep[1] = try self.frameScopeValue(lexical_scope orelse self.current_lexical_scope, class_variable_scope, method_definition_target);
         ep[2] = Value.integer(lc);
 
         self.frames.append(self.gc_allocator, CallFrame{
@@ -10309,8 +10342,6 @@ pub const VM = struct {
             .self_value = self_value,
             .block = null,
             .frame_type = .method,
-            .class_variable_scope = class_variable_scope,
-            .method_definition_target = method_definition_target,
             .dir_returns_nil = dir_returns_nil,
         }) catch return error.Fatal;
 
