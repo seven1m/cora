@@ -55,6 +55,29 @@ Useful CLI flags:
 - `--dump-bytecode` - dump compiled bytecode
 - `--dump-jit-source` - dump generated TinyCC JIT C source when built with `-Dtcc-jit=true`
 
+### Debug Build
+
+For local development with full safety checks and debug info, build with:
+
+```bash
+zig build -Doptimize=Debug
+```
+
+`ReleaseSafe` is also available if you want runtime safety checks without the
+debug-build performance hit:
+
+```bash
+zig build -Doptimize=ReleaseSafe
+```
+
+### TinyCC JIT
+
+Build with the optional TinyCC JIT enabled:
+
+```bash
+zig build -Dtcc-jit=true
+```
+
 ## Testing
 
 Run the full Zig test suite:
@@ -73,26 +96,6 @@ Run matching tests and print each matched test name:
 
 ```bash
 zig build test -Dtest-filter="Proc" -Dtest-verbose
-```
-
-## Optimized Release Build
-
-Build an optimized release binary with:
-
-```bash
-zig build -Doptimize=ReleaseFast
-```
-
-Build with the optional TinyCC JIT enabled:
-
-```bash
-zig build -Doptimize=ReleaseFast -Dtcc-jit=true
-```
-
-If you want extra runtime safety checks in an optimized build, use:
-
-```bash
-zig build -Doptimize=ReleaseSafe
 ```
 
 ## Copyright & License

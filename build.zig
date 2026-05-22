@@ -96,7 +96,7 @@ fn linkOpenSSL(module: *std.Build.Module) void {
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
-    const optimize = b.standardOptimizeOption(.{});
+    const optimize = b.standardOptimizeOption(.{ .preferred_optimize_mode = .ReleaseFast });
     const test_verbose = b.option(bool, "test-verbose", "Print each test name") orelse false;
     const test_timing = b.option(bool, "test-timing", "Print elapsed time for each test") orelse false;
     const test_jobs = b.option(i32, "test-jobs", "Number of test worker processes (<=0 auto)") orelse 0;
