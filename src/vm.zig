@@ -7093,14 +7093,9 @@ pub const VM = struct {
                 return self.invokeBuiltinMethod(fun_ptr, receiver, resolved.name.name, args, block, keyword_ctx);
             },
             .proc => |proc_obj| {
-                if (keyword_ctx) |ctx| {
-                    if (ctx.kw_values.len > 0) {
-                        const exc = try self.createException(self.argument_error_class, "this method does not accept keyword arguments");
-                        self.setPendingException(exc);
-                        return error.Unwind;
-                    }
-                }
-                return self.callProcAsMethod(proc_obj, receiver, args, block, resolved.name.name, resolved.owner_class);
+                const kw_keys: ?[]const Value = if (keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_keys else null else null;
+                const kw_values: ?[]const Value = if (keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_values else null else null;
+                return self.callProcAsMethodWithKeywords(proc_obj, receiver, args, kw_keys, kw_values, block, resolved.name.name, resolved.owner_class);
             },
             .undefined => unreachable,
         }
@@ -7448,15 +7443,39 @@ pub const VM = struct {
         method_name: ?[]const u8,
         defining_class: ?*ClassObject,
     ) VMError!Value {
+        return self.callProcAsMethodWithKeywords(proc_obj, receiver, args, null, null, block, method_name, defining_class);
+    }
+
+    fn callProcAsMethodWithKeywords(
+        self: *VM,
+        proc_obj: *value.ProcObject,
+        receiver: Value,
+        args: []const Value,
+        kw_keys: ?[]const Value,
+        kw_values: ?[]const Value,
+        block: ?Block,
+        method_name: ?[]const u8,
+        defining_class: ?*ClassObject,
+    ) VMError!Value {
         return switch (proc_obj.block.kind) {
             .receiver_builtin => |builtin_data| builtin_data.func(self, builtin_data.receiver, @constCast(args)),
             .symbol => |sym| self.invokeSymbolProc(sym, args, block),
             .builtin => |func| func(self, @constCast(args)),
             .callable => |callable| self.callMethodByName(callable, "call", @constCast(args), block),
             .chunk => |chunk_blk| blk: {
+                const proc_chunk = chunk_blk.chunk;
+                const has_kw = kw_keys != null and kw_values != null and kw_values.?.len > 0;
+
+                // Reject kwargs if the chunk explicitly forbids them or has no keyword params.
+                if (has_kw and !chunkAcceptsKeywords(proc_chunk)) {
+                    const exc = try self.createException(self.argument_error_class, "this method does not accept keyword arguments");
+                    self.setPendingException(exc);
+                    return error.Unwind;
+                }
+
                 const saved_stack_len = self.stack.items.len;
                 try self.pushBlockFrame(
-                    chunk_blk.chunk,
+                    proc_chunk,
                     chunk_blk.defining_ep,
                     receiver,
                     .method,
@@ -7470,22 +7489,33 @@ pub const VM = struct {
                 const current_frame = self.currentFrame();
                 current_frame.method_name = method_name;
                 current_frame.super_defining_class = defining_class;
-                try self.copyArgumentsWithRestParam(chunk_blk.chunk, current_frame.ep, args, .strict);
-                try self.bindMethodBlockParam(chunk_blk.chunk, current_frame, block);
+                try self.copyArgumentsWithRestParam(proc_chunk, current_frame.ep, args, .strict);
+                try self.bindMethodBlockParam(proc_chunk, current_frame, block);
 
-                if (chunk_blk.chunk.keyword_rest_index) |rest_idx| {
-                    const kw_hash = self.gc_allocator.create(value.HashObject) catch return error.Fatal;
-                    kw_hash.* = .{
-                        .object = .{ .type_tag = .hash, .flags = 0, .class = self.hash_class, .singleton_class = null, .instance_variables = null },
-                        .map = value.HashMapType.initContext(self.gc_allocator, .{ .vm = self }),
-                        .entries = .empty,
-                        .default_value = null,
-                        .default_proc = null,
-                        .compare_by_identity = false,
-                    };
-                    const f = &self.frames.items[self.frames.items.len - 1];
-                    const lc = f.chunk.locals_count;
-                    (f.ep - lc + rest_idx)[0] = Value.fromObject(&kw_hash.object);
+                if (has_kw) {
+                    try self.bindKeywordArguments(proc_chunk, current_frame.ep, kw_keys.?, kw_values.?);
+                } else if (proc_chunk.optional_keywords.items.len > 0 or proc_chunk.keyword_rest_index != null) {
+                    for (proc_chunk.optional_keywords.items) |opt_kw| {
+                        const default_chunk = self.program.child_chunks.get(opt_kw.default_chunk_id).?;
+                        const default_value = try self.executeDefaultExpression(default_chunk, current_frame.ep);
+                        const f = &self.frames.items[self.frames.items.len - 1];
+                        const lc = f.chunk.locals_count;
+                        (f.ep - lc + opt_kw.param_slot)[0] = default_value;
+                    }
+                    if (proc_chunk.keyword_rest_index) |rest_idx| {
+                        const kw_hash = self.gc_allocator.create(value.HashObject) catch return error.Fatal;
+                        kw_hash.* = .{
+                            .object = .{ .type_tag = .hash, .flags = 0, .class = self.hash_class, .singleton_class = null, .instance_variables = null },
+                            .map = value.HashMapType.initContext(self.gc_allocator, .{ .vm = self }),
+                            .entries = .empty,
+                            .default_value = null,
+                            .default_proc = null,
+                            .compare_by_identity = false,
+                        };
+                        const f = &self.frames.items[self.frames.items.len - 1];
+                        const lc = f.chunk.locals_count;
+                        (f.ep - lc + rest_idx)[0] = Value.fromObject(&kw_hash.object);
+                    }
                 }
 
                 const saved_frame_count = self.frames.items.len - 1;
@@ -7494,6 +7524,14 @@ pub const VM = struct {
                 break :blk (try self.finishSubcallFromStack(saved_frame_count, saved_stack_len)).value();
             },
         };
+    }
+
+    /// Returns true if a chunk's parameter signature accepts keyword arguments.
+    inline fn chunkAcceptsKeywords(proc_chunk: *const Chunk) bool {
+        if (proc_chunk.no_keywords) return false;
+        return proc_chunk.keyword_rest_index != null or
+            proc_chunk.required_keywords.items.len > 0 or
+            proc_chunk.optional_keywords.items.len > 0;
     }
 
     fn invokeSymbolProc(self: *VM, symbol: *SymbolObject, args: []const Value, block: ?Block) VMError!Value {
@@ -7682,16 +7720,18 @@ pub const VM = struct {
                 try self.push(result);
             },
             .proc => |proc_obj| {
-                if (kwargc > 0) {
-                    const exc = try self.createException(self.argument_error_class, "this method does not accept keyword arguments");
-                    self.setPendingException(exc);
-                    return error.Unwind;
-                }
                 switch (proc_obj.block.kind) {
                     .chunk => |chunk_blk| {
+                        const proc_chunk = chunk_blk.chunk;
+                        // Reject kwargs if chunk has no keyword params.
+                        if (kwargc > 0 and !chunkAcceptsKeywords(proc_chunk)) {
+                            const exc = try self.createException(self.argument_error_class, "this method does not accept keyword arguments");
+                            self.setPendingException(exc);
+                            return error.Unwind;
+                        }
                         // De-recursed: push frame inline, return to dispatch loop
                         try self.pushBlockFrame(
-                            chunk_blk.chunk,
+                            proc_chunk,
                             chunk_blk.defining_ep,
                             receiver,
                             .method,
@@ -7705,37 +7745,68 @@ pub const VM = struct {
                         const current_frame = self.currentFrame();
                         current_frame.method_name = method.name.name;
                         current_frame.super_defining_class = method.owner_class;
-                        try self.copyArgumentsWithRestParam(chunk_blk.chunk, current_frame.ep, args, .strict);
-                        try self.bindMethodBlockParam(chunk_blk.chunk, current_frame, block);
+                        try self.copyArgumentsWithRestParam(proc_chunk, current_frame.ep, args, .strict);
+                        try self.bindMethodBlockParam(proc_chunk, current_frame, block);
 
-                        if (chunk_blk.chunk.keyword_rest_index) |rest_idx| {
-                            const kw_hash = self.gc_allocator.create(value.HashObject) catch return error.Fatal;
-                            kw_hash.* = .{
-                                .object = .{ .type_tag = .hash, .flags = 0, .class = self.hash_class, .singleton_class = null, .instance_variables = null },
-                                .map = value.HashMapType.initContext(self.gc_allocator, .{ .vm = self }),
-                                .entries = .empty,
-                                .default_value = null,
-                                .default_proc = null,
-                                .compare_by_identity = false,
-                            };
-                            const f = &self.frames.items[self.frames.items.len - 1];
-                            const lc = f.chunk.locals_count;
-                            (f.ep - lc + rest_idx)[0] = Value.fromObject(&kw_hash.object);
+                        if (kwargc > 0) {
+                            try self.bindKeywordArguments(proc_chunk, current_frame.ep, kw_keys.?[0..kwargc], kw_values.?[0..kwargc]);
+                        } else if (proc_chunk.optional_keywords.items.len > 0 or proc_chunk.keyword_rest_index != null) {
+                            for (proc_chunk.optional_keywords.items) |opt_kw| {
+                                const default_chunk_inline = self.program.child_chunks.get(opt_kw.default_chunk_id).?;
+                                const default_value = try self.executeDefaultExpression(default_chunk_inline, current_frame.ep);
+                                const f = &self.frames.items[self.frames.items.len - 1];
+                                const lc = f.chunk.locals_count;
+                                (f.ep - lc + opt_kw.param_slot)[0] = default_value;
+                            }
+                            if (proc_chunk.keyword_rest_index) |rest_idx| {
+                                const kw_hash = self.gc_allocator.create(value.HashObject) catch return error.Fatal;
+                                kw_hash.* = .{
+                                    .object = .{ .type_tag = .hash, .flags = 0, .class = self.hash_class, .singleton_class = null, .instance_variables = null },
+                                    .map = value.HashMapType.initContext(self.gc_allocator, .{ .vm = self }),
+                                    .entries = .empty,
+                                    .default_value = null,
+                                    .default_proc = null,
+                                    .compare_by_identity = false,
+                                };
+                                const f = &self.frames.items[self.frames.items.len - 1];
+                                const lc = f.chunk.locals_count;
+                                (f.ep - lc + rest_idx)[0] = Value.fromObject(&kw_hash.object);
+                            }
                         }
                     },
                     .receiver_builtin => |builtin_data| {
+                        if (kwargc > 0) {
+                            const exc = try self.createException(self.argument_error_class, "this method does not accept keyword arguments");
+                            self.setPendingException(exc);
+                            return error.Unwind;
+                        }
                         const result = try builtin_data.func(self, builtin_data.receiver, @constCast(args));
                         try self.push(result);
                     },
                     .symbol => |sym| {
+                        if (kwargc > 0) {
+                            const exc = try self.createException(self.argument_error_class, "this method does not accept keyword arguments");
+                            self.setPendingException(exc);
+                            return error.Unwind;
+                        }
                         const result = try self.invokeSymbolProc(sym, args, block);
                         try self.push(result);
                     },
                     .builtin => |func| {
+                        if (kwargc > 0) {
+                            const exc = try self.createException(self.argument_error_class, "this method does not accept keyword arguments");
+                            self.setPendingException(exc);
+                            return error.Unwind;
+                        }
                         const result = try func(self, @constCast(args));
                         try self.push(result);
                     },
                     .callable => |callable| {
+                        if (kwargc > 0) {
+                            const exc = try self.createException(self.argument_error_class, "this method does not accept keyword arguments");
+                            self.setPendingException(exc);
+                            return error.Unwind;
+                        }
                         const result = try self.callMethodByName(callable, "call", @constCast(args), block);
                         try self.push(result);
                     },
@@ -8209,14 +8280,9 @@ pub const VM = struct {
                 try self.push(result);
             },
             .proc => |proc_obj| {
-                if (frame.forwarded_keyword_ctx) |keyword_ctx| {
-                    if (keyword_ctx.kw_values.len > 0) {
-                        const exc = try self.createException(self.argument_error_class, "this method does not accept keyword arguments");
-                        self.setPendingException(exc);
-                        return error.Unwind;
-                    }
-                }
-                const result = try self.callProcAsMethod(proc_obj, receiver, args, block, resolved.name.name, resolved.owner_class);
+                const kw_keys: ?[]const Value = if (frame.forwarded_keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_keys else null else null;
+                const kw_values: ?[]const Value = if (frame.forwarded_keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_values else null else null;
+                const result = try self.callProcAsMethodWithKeywords(proc_obj, receiver, args, kw_keys, kw_values, block, resolved.name.name, resolved.owner_class);
                 try self.push(result);
             },
             .undefined => unreachable,
