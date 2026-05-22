@@ -1,3 +1,36 @@
+module MonitorMixin
+  def mon_initialize
+    @mon_mutex = Thread::Mutex.new
+    @mon_owner = nil
+    @mon_count = 0
+  end
+
+  def mon_enter
+    if @mon_owner != Thread.current
+      @mon_mutex.lock
+      @mon_owner = Thread.current
+    end
+    @mon_count += 1
+  end
+
+  def mon_exit
+    @mon_count -= 1
+    if @mon_count == 0
+      @mon_owner = nil
+      @mon_mutex.unlock
+    end
+  end
+
+  def synchronize
+    mon_enter
+    begin
+      yield
+    ensure
+      mon_exit
+    end
+  end
+end
+
 class Monitor
   def initialize
     @mutex = Thread::Mutex.new
