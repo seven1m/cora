@@ -4732,6 +4732,18 @@ pub const VM = struct {
                     return;
                 }
 
+                // Check included modules of the class/module itself.
+                var ii = module.included_modules.items.len;
+                while (ii > 0) {
+                    ii -= 1;
+                    const included = module.included_modules.items[ii];
+                    if (included.constants.get(name_sym)) |entry| {
+                        try self.warnDeprecatedConstant(included, name_sym);
+                        try self.push(entry.value);
+                        return;
+                    }
+                }
+
                 if (parent_val.isClass()) {
                     var superclass = parent_val.toClassObject().superclass;
                     while (superclass) |cls| : (superclass = cls.superclass) {
@@ -4742,6 +4754,17 @@ pub const VM = struct {
                             try self.warnDeprecatedConstant(&cls.module, name_sym);
                             try self.push(entry.value);
                             return;
+                        }
+                        // Check included modules of each superclass.
+                        var si = cls.module.included_modules.items.len;
+                        while (si > 0) {
+                            si -= 1;
+                            const included = cls.module.included_modules.items[si];
+                            if (included.constants.get(name_sym)) |entry| {
+                                try self.warnDeprecatedConstant(included, name_sym);
+                                try self.push(entry.value);
+                                return;
+                            }
                         }
                     }
                 }
