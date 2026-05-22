@@ -154,6 +154,7 @@ fn printHelp() void {
         \\
         \\Load path and requires:
         \\  -I PATH[:PATH...]      Add directories to $LOAD_PATH
+        \\  -r LIBRARY             Require LIBRARY before running the script
         \\
         \\Runtime:
         \\  --disable-gems         Skip RubyGems setup
@@ -175,6 +176,14 @@ fn printInvalidOptionAndExit(argv0: []const u8, arg: []const u8) noreturn {
     const exe_name = std.fs.path.basename(argv0);
     std.debug.print("{s}: invalid option {s}  (-h will show valid options) (RuntimeError)\n", .{ exe_name, arg });
     std.process.exit(1);
+}
+
+fn requireLibraries(virtual_machine: *vm.VM, libraries: []const []const u8) !void {
+    for (libraries) |library| {
+        const require_arg = try virtual_machine.newString(library, false);
+        var require_args = [_]Value{require_arg};
+        _ = try virtual_machine.callMethodByName(virtual_machine.main_self, "require", require_args[0..], null);
+    }
 }
 
 pub fn main(init: std.process.Init) !void {
@@ -200,6 +209,8 @@ pub fn main(init: std.process.Init) !void {
     defer script_args.deinit(allocator);
     var extra_load_paths: std.ArrayList([]const u8) = .empty;
     defer extra_load_paths.deinit(allocator);
+    var required_libraries: std.ArrayList([]const u8) = .empty;
+    defer required_libraries.deinit(allocator);
 
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
@@ -216,6 +227,16 @@ pub fn main(init: std.process.Init) !void {
                 std.debug.print("Error: -e requires an argument\n", .{});
                 return;
             }
+        } else if (std.mem.eql(u8, args[i], "-r")) {
+            if (i + 1 < args.len) {
+                try required_libraries.append(allocator, args[i + 1]);
+                i += 1;
+            } else {
+                std.debug.print("Error: -r requires an argument\n", .{});
+                return;
+            }
+        } else if (std.mem.startsWith(u8, args[i], "-r")) {
+            try required_libraries.append(allocator, args[i][2..]);
         } else if (std.mem.eql(u8, args[i], "-I")) {
             if (i + 1 < args.len) {
                 try appendColonSeparatedPaths(allocator, &extra_load_paths, args[i + 1]);
@@ -341,6 +362,7 @@ pub fn main(init: std.process.Init) !void {
     if (input_record_separator) |separator| {
         try virtual_machine.setInputRecordSeparator(separator, true);
     }
+    try requireLibraries(&virtual_machine, required_libraries.items);
 
     const result = virtual_machine.run();
 
