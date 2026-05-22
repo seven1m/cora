@@ -113,6 +113,7 @@ the top of the relevant file, in the same directory with a name like
 | `ext/onigmo/*` | K. Kosako, K. Takata, Yukihiro Matsumoto | BSD-style / Ruby BSDL |
 | `ext/prism/*`, `ext/prism-templates/*` | Shopify Inc. | MIT |
 | `ext/tinycc/*` | Fabrice Bellard and TinyCC contributors | LGPL 2.1 |
+| `ext/logger/*` | Yukihiro Matsumoto | Ruby license / 2-clause BSD |
 | `ext/rubygems/*` | Chad Fowler, Rich Kilmer, Jim Weirich, and others | RubyGems license / MIT |
 
 See each file/directory for the full copyright and license terms.

@@ -10,3 +10,6 @@
 [submodule "ext/rubygems"]
 	path = ext/rubygems
 	url = https://github.com/ruby/rubygems.git
+[submodule "ext/logger"]
+	path = ext/logger
+	url = https://github.com/ruby/logger
