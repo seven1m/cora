@@ -1,10 +1,11 @@
 # Cora Ruby Interpreter
 
-This is a Ruby interpreter written in Zig, mostly authored by AI with some oversight from a human.
-This is both an exploration of Zig and an LLM's ability to write code where the end result is well-defined.
+This is a Ruby interpreter in Zig, fully written by AI -- vibe-coded with taste.
 
-The goal is to get a working Ruby interpreter that can pass most or all of [ruby/spec](https://github.com/ruby/spec).
+The goal is to get a working Ruby interpreter that can pass most or all of [ruby/spec](https://github.com/ruby/spec)
+and to explore just-in-time compilation.
 
+This is my sandbox. I'm not trying to make anything better, faster, or groundbreaking.
 
 ## Features
 
