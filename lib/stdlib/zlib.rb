@@ -161,6 +161,32 @@ module Zlib
       @position >= @data.size
     end
 
+    def pos
+      @position
+    end
+
+    def pos=(new_pos)
+      @position = new_pos.to_i
+    end
+
+    def seek(offset, whence = IO::SEEK_SET)
+      new_pos = case whence
+      when IO::SEEK_SET then offset
+      when IO::SEEK_CUR then @position + offset
+      when IO::SEEK_END then @data.size + offset
+      else raise ArgumentError, "invalid whence value: #{whence}"
+      end
+      @position = [[new_pos, 0].max, @data.size].min
+      0
+    end
+
+    def getc
+      return nil if eof?
+      c = @data.getbyte(@position)
+      @position += 1
+      c
+    end
+
     def close
       return nil if @closed
 
