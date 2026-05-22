@@ -13,3 +13,6 @@
 [submodule "ext/logger"]
 	path = ext/logger
 	url = https://github.com/ruby/logger
+[submodule "ext/time"]
+	path = ext/time
+	url = https://github.com/ruby/time

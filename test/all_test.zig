@@ -7,6 +7,7 @@ const json_test = @import("json_test.zig");
 const logger_test = @import("logger_test.zig");
 const openssl_test = @import("openssl_test.zig");
 const rubygems_test = @import("rubygems_test.zig");
+const time_test = @import("time_test.zig");
 const zlib_test = @import("zlib_test.zig");
 
 const core_array_test = @import("core/array_test.zig");
@@ -91,6 +92,7 @@ comptime {
     _ = logger_test;
     _ = openssl_test;
     _ = rubygems_test;
+    _ = time_test;
     _ = zlib_test;
     _ = core_class_test;
     _ = core_argv_test;
