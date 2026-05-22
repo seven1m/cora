@@ -1,0 +1,2 @@
+module FakeGem
+end

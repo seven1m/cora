@@ -95,13 +95,22 @@ fn configureLoadPath(
             defer allocator.free(installed_stdlib);
             try appendLoadPathIfExists(virtual_machine, io, installed_stdlib);
 
+            const installed_rubygems = try std.fs.path.join(allocator, &.{ exe_dir, "..", "lib", "rubygems", "lib" });
+            defer allocator.free(installed_rubygems);
+            try appendLoadPathIfExists(virtual_machine, io, installed_rubygems);
+
             const repo_stdlib = try std.fs.path.join(allocator, &.{ exe_dir, "..", "..", "lib", "stdlib" });
             defer allocator.free(repo_stdlib);
             try appendLoadPathIfExists(virtual_machine, io, repo_stdlib);
+
+            const repo_rubygems = try std.fs.path.join(allocator, &.{ exe_dir, "..", "..", "ext", "rubygems", "lib" });
+            defer allocator.free(repo_rubygems);
+            try appendLoadPathIfExists(virtual_machine, io, repo_rubygems);
         }
     }
 
     try appendLoadPathIfExists(virtual_machine, io, "lib/stdlib");
+    try appendLoadPathIfExists(virtual_machine, io, "ext/rubygems/lib");
 
     for (extra_load_paths) |path| {
         try appendLoadPathIfExists(virtual_machine, io, path);
@@ -123,6 +132,7 @@ pub fn main(init: std.process.Init) !void {
     var print_ast = false;
     var dump_bytecode = false;
     var dump_jit_source = false;
+    var disable_gems = false;
     var strip_leading_garbage = false;
     var backtrace_limit: ?usize = null;
     var input_record_separator: ?[]const u8 = null;
@@ -176,6 +186,8 @@ pub fn main(init: std.process.Init) !void {
             dump_bytecode = true;
         } else if (std.mem.eql(u8, args[i], "--dump-jit-source")) {
             dump_jit_source = true;
+        } else if (std.mem.eql(u8, args[i], "--disable-gems")) {
+            disable_gems = true;
         } else if (!std.mem.startsWith(u8, args[i], "-")) {
             if (filename == null and ruby_code == null) {
                 filename = args[i];
@@ -258,6 +270,7 @@ pub fn main(init: std.process.Init) !void {
     defer virtual_machine.deinit();
     try configureLoadPath(allocator, &virtual_machine, init.io, args[0], source_file, extra_load_paths.items);
     virtual_machine.setTccJitEnabled(build_options.tcc_jit);
+    virtual_machine.setDisableGems(disable_gems);
     virtual_machine.setDumpJitSource(dump_jit_source);
     virtual_machine.setBacktraceLimit(backtrace_limit);
     try virtual_machine.setArgv(script_args.items);

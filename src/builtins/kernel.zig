@@ -507,6 +507,34 @@ fn builtinKernelRationalCoerce(vm: *VM, arg: Value, exception_mode: bool) VMErro
     }
     return null;
 }
+fn raiseLoadErrorForFeature(vm: *VM, feature: []const u8) VMError!Value {
+    const msg = std.fmt.allocPrint(vm.allocator, "cannot load such file -- {s}", .{feature}) catch return error.Fatal;
+    defer vm.allocator.free(msg);
+    const exc = vm.createException(vm.load_error_class, msg) catch return error.Fatal;
+    exc.path = (try vm.newString(feature, false)).toStringObject();
+    vm.setPendingException(exc);
+    return error.Unwind;
+}
+
+fn tryLazyLoadRubygems(vm: *VM, feature: []const u8) VMError!bool {
+    if (vm.disable_gems) return false;
+    if (vm.rubygems_loaded_on_miss) return false;
+    if (std.mem.eql(u8, feature, "rubygems") or std.mem.eql(u8, feature, "rubygems.rb")) return false;
+
+    vm.rubygems_loaded_on_miss = true;
+
+    const rubygems_arg = try vm.newString("rubygems", false);
+    var rubygems_args = [_]Value{rubygems_arg};
+    _ = vm.callMethodByName(vm.main_self, "require", rubygems_args[0..], null) catch |err| switch (err) {
+        error.Unwind => {
+            vm.setPendingException(null);
+            return false;
+        },
+        else => return err,
+    };
+    return true;
+}
+
 pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     try vm.resetLoadedFilesFromGlobal();
@@ -528,12 +556,7 @@ pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
     }
 
     const resolved_feature = vm.resolveRequireFeature(feature) catch {
-        const msg = std.fmt.allocPrint(vm.allocator, "cannot load such file -- {s}", .{feature}) catch return error.Fatal;
-        defer vm.allocator.free(msg);
-        const exc = vm.createException(vm.load_error_class, msg) catch return error.Fatal;
-        exc.path = (try vm.newString(feature, false)).toStringObject();
-        vm.setPendingException(exc);
-        return error.Unwind;
+        return raiseLoadErrorForFeature(vm, feature);
     } orelse {
         if (try vm.loadedFeatureMatches(feature, null)) {
             return Value.boolean(false);
@@ -541,12 +564,11 @@ pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
         if (VM.isBareFeatureWithoutExt(feature) and try vm.loadedFeatureMatchesCurrentLoadPath(feature)) {
             return Value.boolean(false);
         }
-        const msg = std.fmt.allocPrint(vm.allocator, "cannot load such file -- {s}", .{feature}) catch return error.Fatal;
-        defer vm.allocator.free(msg);
-        const exc = vm.createException(vm.load_error_class, msg) catch return error.Fatal;
-        exc.path = (try vm.newString(feature, false)).toStringObject();
-        vm.setPendingException(exc);
-        return error.Unwind;
+        if (try tryLazyLoadRubygems(vm, feature)) {
+            _ = try vm.callMethodByName(vm.main_self, "require", args, null);
+            return Value.boolean(true);
+        }
+        return raiseLoadErrorForFeature(vm, feature);
     };
     const absolute_path = resolved_feature.load_path;
     const identity_path = resolved_feature.identity_path;

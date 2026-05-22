@@ -574,6 +574,8 @@ pub const VM = struct {
     integer_changed: bool = false,
     random_counter: u64 = 0,
     recursion_guard: RecursionGuard = .{},
+    disable_gems: bool = false,
+    rubygems_loaded_on_miss: bool = false,
     tcc_jit_enabled: bool = false,
     dump_jit_source: bool = false,
     jit_chunk_states: JitChunkStates,
@@ -2342,6 +2344,10 @@ pub const VM = struct {
 
     pub fn setTccJitEnabled(self: *VM, enabled: bool) void {
         self.tcc_jit_enabled = enabled;
+    }
+
+    pub fn setDisableGems(self: *VM, disabled: bool) void {
+        self.disable_gems = disabled;
     }
 
     pub fn setDumpJitSource(self: *VM, enabled: bool) void {

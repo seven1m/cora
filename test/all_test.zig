@@ -5,6 +5,7 @@ const exit_test = @import("exit_test.zig");
 const fileutils_test = @import("fileutils_test.zig");
 const json_test = @import("json_test.zig");
 const openssl_test = @import("openssl_test.zig");
+const rubygems_test = @import("rubygems_test.zig");
 const zlib_test = @import("zlib_test.zig");
 
 const core_array_test = @import("core/array_test.zig");
@@ -87,6 +88,7 @@ comptime {
     _ = fileutils_test;
     _ = json_test;
     _ = openssl_test;
+    _ = rubygems_test;
     _ = zlib_test;
     _ = core_class_test;
     _ = core_argv_test;
