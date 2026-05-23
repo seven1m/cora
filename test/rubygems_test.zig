@@ -32,3 +32,28 @@ test "require lazily loads rubygems and activates fake gem from GEM_HOME" {
     try std.testing.expectEqualSlices(u8, "FakeGem\n", result.stdout);
     try std.testing.expectEqualSlices(u8, "", result.stderr);
 }
+
+test "require rubygems/gem_runner avoids circular require warning" {
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+    var threaded: std.Io.Threaded = .init(allocator, .{});
+    defer threaded.deinit();
+
+    const result = try std.process.run(allocator, threaded.io(), .{
+        .argv = &.{
+            "zig-out/bin/cora",
+            "-Iext/rubygems/lib",
+            "-e",
+            "require \"rubygems/gem_runner\"; puts :ok",
+        },
+        .stdout_limit = .limited(1024 * 1024),
+        .stderr_limit = .limited(1024 * 1024),
+    });
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+
+    try std.testing.expect(result.term == .exited and result.term.exited == 0);
+    try std.testing.expectEqualSlices(u8, "ok\n", result.stdout);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "circular require considered harmful") == null);
+}

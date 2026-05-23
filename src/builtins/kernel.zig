@@ -521,6 +521,13 @@ fn raiseLoadErrorForFeature(vm: *VM, feature: []const u8) VMError!Value {
     return error.Unwind;
 }
 
+fn shouldMarkRubygemsLoadedOnMiss(feature: []const u8) bool {
+    return std.mem.eql(u8, feature, "rubygems") or
+        std.mem.eql(u8, feature, "rubygems.rb") or
+        std.mem.eql(u8, feature, "rubygems/gem_runner") or
+        std.mem.eql(u8, feature, "rubygems/gem_runner.rb");
+}
+
 fn tryLazyLoadRubygems(vm: *VM, feature: []const u8) VMError!bool {
     if (vm.disable_gems) return false;
     if (vm.rubygems_loaded_on_miss) return false;
@@ -544,6 +551,9 @@ pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
     try vm.requireArgCount(args, 1);
     try vm.resetLoadedFilesFromGlobal();
     const feature = try vm.coerceToPath(args[0], "no implicit conversion into String");
+    if (shouldMarkRubygemsLoadedOnMiss(feature)) {
+        vm.rubygems_loaded_on_miss = true;
+    }
     const owner_thread = vm.current_thread orelse try vm.ensureMainThread();
 
     // Builtin libraries whose classes are registered at VM startup:
@@ -636,6 +646,14 @@ pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
     try vm.syncLoadedFeaturesGlobals();
     vm.allocator.free(absolute_path);
     return Value.boolean(true);
+}
+
+test "shouldMarkRubygemsLoadedOnMiss matches rubygems require targets" {
+    try std.testing.expect(shouldMarkRubygemsLoadedOnMiss("rubygems"));
+    try std.testing.expect(shouldMarkRubygemsLoadedOnMiss("rubygems.rb"));
+    try std.testing.expect(shouldMarkRubygemsLoadedOnMiss("rubygems/gem_runner"));
+    try std.testing.expect(shouldMarkRubygemsLoadedOnMiss("rubygems/gem_runner.rb"));
+    try std.testing.expect(!shouldMarkRubygemsLoadedOnMiss("set"));
 }
 
 pub fn builtinKernelAutoload(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
