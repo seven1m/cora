@@ -10626,7 +10626,8 @@ pub const VM = struct {
                     return error.Fatal;
                 };
                 const default_value = try self.executeDefaultExpression(default_chunk, ep);
-                setLocal(ep, lc, local_idx, default_value);
+                const current_ep = self.currentFrame().ep;
+                setLocal(current_ep, lc, local_idx, default_value);
                 local_idx += 1;
             }
         }

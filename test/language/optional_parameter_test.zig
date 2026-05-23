@@ -192,3 +192,18 @@ test "default expression side-effect locals are nil when default not used" {
     const result = evalCodeWithOutput(code, &stdout_buf, &stderr_buf);
     try std.testing.expectEqualStrings("[5, nil]\n", result.stdout);
 }
+
+test "optional default survives binding-driven environment promotion" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+
+    const code =
+        \\def run(_arg, value = (binding; 42))
+        \\  p value
+        \\end
+        \\run(:x)
+    ;
+
+    const result = evalCodeWithOutput(code, &stdout_buf, &stderr_buf);
+    try std.testing.expectEqualStrings("42\n", result.stdout);
+}
