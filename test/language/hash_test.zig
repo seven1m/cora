@@ -377,3 +377,25 @@ test "Hash literal evaluates pairs left-to-right" {
     try std.testing.expectEqual(@as(i64, 3), seen.toArrayObject().elements.items[2].toInteger());
     try std.testing.expectEqual(@as(i64, 4), seen.toArrayObject().elements.items[3].toInteger());
 }
+
+test "Large hash literal does not overflow the fiber stack" {
+    var source = std.ArrayList(u8).empty;
+    defer source.deinit(std.testing.allocator);
+
+    try source.appendSlice(std.testing.allocator, "h = {");
+    var i: usize = 0;
+    while (i < 300) : (i += 1) {
+        if (i > 0) try source.appendSlice(std.testing.allocator, ", ");
+        var pair_buf: [32]u8 = undefined;
+        const pair = try std.fmt.bufPrint(&pair_buf, "{d} => {d}", .{ i, i });
+        try source.appendSlice(std.testing.allocator, pair);
+    }
+    try source.appendSlice(std.testing.allocator, "}\n[h[0], h[299], h.size]");
+
+    const result = try evalCode(source.items);
+    try std.testing.expect(result.isArray());
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 0), items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 299), items[1].toInteger());
+    try std.testing.expectEqual(@as(i64, 300), items[2].toInteger());
+}

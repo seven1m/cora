@@ -934,56 +934,11 @@ pub const Compiler = struct {
             },
 
             .hash => |hash_node| {
-                if (hash_node.elements.size > std.math.maxInt(u16)) {
-                    return error.TooManyHashPairs;
-                }
-                const pair_count: u16 = @intCast(hash_node.elements.size);
-
-                // Compile key-value pairs left-to-right so side effects run in source order.
-                var i: usize = 0;
-                while (i < hash_node.elements.size) : (i += 1) {
-                    const assoc_raw = hash_node.elements.nodes[i];
-                    const assoc_node = try self.parser.asNode(assoc_raw);
-
-                    // Each element should be an AssocNode
-                    if (assoc_node != .assoc) {
-                        return error.ExpectedAssocNode;
-                    }
-
-                    // Compile key first, then value (Ruby evaluation order).
-                    const key_node = try self.parser.asNode(@ptrCast(assoc_node.assoc.key));
-                    try self.compileNode(key_node, line);
-
-                    const value_node = try self.parser.asNode(@ptrCast(assoc_node.assoc.value));
-                    try self.compileNode(value_node, line);
-                }
-
-                // Emit PUSH_HASH with pair count
-                try self.current_chunk.emitOpU16(.PUSH_HASH, pair_count, line);
+                try self.compileChunkedHashLiteral(hash_node.elements, line);
             },
 
             .keyword_hash => |hash_node| {
-                if (hash_node.elements.size > std.math.maxInt(u16)) {
-                    return error.TooManyHashPairs;
-                }
-                const pair_count: u16 = @intCast(hash_node.elements.size);
-
-                var i: usize = 0;
-                while (i < hash_node.elements.size) : (i += 1) {
-                    const assoc_raw = hash_node.elements.nodes[i];
-                    const assoc_node = try self.parser.asNode(assoc_raw);
-                    if (assoc_node != .assoc) {
-                        return error.ExpectedAssocNode;
-                    }
-
-                    const key_node = try self.parser.asNode(@ptrCast(assoc_node.assoc.key));
-                    try self.compileNode(key_node, line);
-
-                    const value_node = try self.parser.asNode(@ptrCast(assoc_node.assoc.value));
-                    try self.compileNode(value_node, line);
-                }
-
-                try self.current_chunk.emitOpU16(.PUSH_HASH, pair_count, line);
+                try self.compileChunkedHashLiteral(hash_node.elements, line);
             },
 
             .yield => |yield_node| {
@@ -3416,6 +3371,50 @@ pub const Compiler = struct {
                 .param_index = param_idx,
                 .default_chunk_id = @intCast(default_chunk_id),
             });
+        }
+    }
+
+    fn compileChunkedHashLiteral(
+        self: *Compiler,
+        elements: anytype,
+        line: u32,
+    ) !void {
+        if (elements.size > std.math.maxInt(u16)) {
+            return error.TooManyHashPairs;
+        }
+        if (elements.size == 0) {
+            try self.current_chunk.emitOpU16(.PUSH_HASH, 0, line);
+            return;
+        }
+
+        const max_chunk_pairs: usize = 0x100 / 2;
+        var first_chunk = true;
+        var chunk_pairs: u16 = 0;
+
+        var i: usize = 0;
+        while (i < elements.size) : (i += 1) {
+            const assoc_raw = elements.nodes[i];
+            const assoc_node = try self.parser.asNode(assoc_raw);
+            if (assoc_node != .assoc) {
+                return error.ExpectedAssocNode;
+            }
+
+            const key_node = try self.parser.asNode(@ptrCast(assoc_node.assoc.key));
+            try self.compileNode(key_node, line);
+
+            const value_node = try self.parser.asNode(@ptrCast(assoc_node.assoc.value));
+            try self.compileNode(value_node, line);
+            chunk_pairs += 1;
+
+            const is_last = i + 1 == elements.size;
+            if (chunk_pairs >= max_chunk_pairs or is_last) {
+                try self.current_chunk.emitOpU16(.PUSH_HASH, chunk_pairs, line);
+                if (!first_chunk) {
+                    try self.current_chunk.emitOp(.HASH_MERGE_KW, line);
+                }
+                first_chunk = false;
+                chunk_pairs = 0;
+            }
         }
     }
 
