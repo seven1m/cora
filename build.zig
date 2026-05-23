@@ -1,5 +1,7 @@
 const std = @import("std");
 
+const optimize_state_path = "zig-out/build-mode";
+
 fn pathExists(b: *std.Build, sub_path: []const u8) bool {
     const io = b.graph.io;
     const cwd: std.Io.Dir = .cwd();
@@ -10,6 +12,50 @@ fn pathExists(b: *std.Build, sub_path: []const u8) bool {
     };
 
     return true;
+}
+
+fn optimizeModeName(mode: std.builtin.OptimizeMode) []const u8 {
+    return switch (mode) {
+        .Debug => "Debug",
+        .ReleaseSafe => "ReleaseSafe",
+        .ReleaseFast => "ReleaseFast",
+        .ReleaseSmall => "ReleaseSmall",
+    };
+}
+
+fn parseOptimizeMode(raw: []const u8) ?std.builtin.OptimizeMode {
+    const trimmed = std.mem.trim(u8, raw, " \t\r\n");
+    if (std.mem.eql(u8, trimmed, "Debug")) return .Debug;
+    if (std.mem.eql(u8, trimmed, "ReleaseSafe")) return .ReleaseSafe;
+    if (std.mem.eql(u8, trimmed, "ReleaseFast")) return .ReleaseFast;
+    if (std.mem.eql(u8, trimmed, "ReleaseSmall")) return .ReleaseSmall;
+    return null;
+}
+
+fn readSavedOptimizeMode(b: *std.Build) ?std.builtin.OptimizeMode {
+    const io = b.graph.io;
+    const cwd: std.Io.Dir = .cwd();
+    const contents = cwd.readFileAlloc(io, optimize_state_path, b.allocator, .limited(64)) catch |err| switch (err) {
+        error.FileNotFound => return null,
+        else => std.debug.panic("failed to read '{s}': {s}", .{ optimize_state_path, @errorName(err) }),
+    };
+    defer b.allocator.free(contents);
+
+    return parseOptimizeMode(contents);
+}
+
+fn writeSavedOptimizeMode(b: *std.Build, mode: std.builtin.OptimizeMode) void {
+    const io = b.graph.io;
+    const cwd: std.Io.Dir = .cwd();
+    cwd.createDirPath(io, "zig-out") catch |err| {
+        std.debug.panic("failed to create zig-out: {s}", .{@errorName(err)});
+    };
+    cwd.writeFile(io, .{
+        .sub_path = optimize_state_path,
+        .data = optimizeModeName(mode),
+    }) catch |err| {
+        std.debug.panic("failed to write '{s}': {s}", .{ optimize_state_path, @errorName(err) });
+    };
 }
 
 fn buildOnigmo(b: *std.Build) *std.Build.Step {
@@ -96,14 +142,15 @@ fn linkOpenSSL(module: *std.Build.Module) void {
 
 fn optimizeOptionDefaultReleaseFast(b: *std.Build) std.builtin.OptimizeMode {
     if (b.option(std.builtin.OptimizeMode, "optimize", "Prioritize performance, safety, or binary size")) |mode| {
+        writeSavedOptimizeMode(b, mode);
         return mode;
     }
 
-    return switch (b.release_mode) {
-        .off, .any, .fast => .ReleaseFast,
-        .safe => .ReleaseSafe,
-        .small => .ReleaseSmall,
-    };
+    if (readSavedOptimizeMode(b)) |mode| {
+        return mode;
+    }
+
+    return .ReleaseFast;
 }
 
 pub fn build(b: *std.Build) void {
