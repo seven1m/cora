@@ -19,6 +19,8 @@ pub fn register(vm: *VM) !void {
     try enumerable_val.toModuleObject().methods.put(collect_sym, value.MethodEntry.builtin(&builtinEnumerableMap, .{ .exact = 0 }));
     const select_sym = try vm.intern("select");
     try enumerable_val.toModuleObject().methods.put(select_sym, value.MethodEntry.builtin(&builtinEnumerableSelect, .{ .exact = 0 }));
+    const find_all_sym = try vm.intern("find_all");
+    try enumerable_val.toModuleObject().methods.put(find_all_sym, value.MethodEntry.builtin(&builtinEnumerableSelect, .{ .exact = 0 }));
     const any_sym = try vm.intern("any?");
     try enumerable_val.toModuleObject().methods.put(any_sym, value.MethodEntry.builtin(&builtinEnumerableAny, .{ .variadic = 0 }));
     const filter_map_sym = try vm.intern("filter_map");
@@ -66,8 +68,7 @@ fn builtinEnumerableFlatMap(vm: *VM, receiver: Value, args: []Value, block: ?Blo
             }
             return err;
         };
-        const yielded = next_values.toArrayObject().elements.items;
-        const result = try vm.yieldToBlock(blk, yielded);
+        const result = try enumerableYieldCollapsed(vm, blk, next_values.toArrayObject());
         if (result.controlFlowValue()) |return_value| return return_value;
 
         const to_ary_result = try vm.probeToAry(result.value);
@@ -107,8 +108,7 @@ fn builtinEnumerableMap(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
             }
             return err;
         };
-        const yielded = next_values.toArrayObject().elements.items;
-        const result = try vm.yieldToBlock(blk, yielded);
+        const result = try enumerableYieldCollapsed(vm, blk, next_values.toArrayObject());
         if (result.controlFlowValue()) |return_value| return return_value;
         out.elements.append(vm.gc_allocator, result.value) catch return error.Fatal;
     }
@@ -137,8 +137,7 @@ fn builtinEnumerableSelect(vm: *VM, receiver: Value, args: []Value, block: ?Bloc
             }
             return err;
         };
-        const yielded = next_values.toArrayObject().elements.items;
-        const result = try vm.yieldToBlock(blk, yielded);
+        const result = try enumerableYieldCollapsed(vm, blk, next_values.toArrayObject());
         if (result.controlFlowValue()) |return_value| return return_value;
         if (result.value.is_truthy()) {
             out.elements.append(vm.gc_allocator, collapseYieldValues(next_values.toArrayObject())) catch return error.Fatal;
@@ -169,8 +168,7 @@ fn builtinEnumerableFilterMap(vm: *VM, receiver: Value, args: []Value, block: ?B
             }
             return err;
         };
-        const yielded = next_values.toArrayObject().elements.items;
-        const result = try vm.yieldToBlock(blk, yielded);
+        const result = try enumerableYieldCollapsed(vm, blk, next_values.toArrayObject());
         if (result.controlFlowValue()) |return_value| return return_value;
         if (result.value.is_truthy()) {
             out.elements.append(vm.gc_allocator, result.value) catch return error.Fatal;
@@ -200,8 +198,7 @@ fn builtinEnumerableAny(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
     if (block) |blk| {
         while (true) {
             const next_values = try enumerableNextValues(vm, enum_value) orelse break;
-            const yielded = next_values.elements.items;
-            const result = try vm.yieldToBlock(blk, yielded);
+            const result = try vm.yieldToBlock(blk, next_values.elements.items);
             if (result.controlFlowValue()) |return_value| return return_value;
             if (result.value.is_truthy()) return Value.boolean(true);
         }
@@ -242,6 +239,12 @@ fn enumerableNextValues(vm: *VM, enum_value: Value) VMError!?*value.ArrayObject 
 fn enumerableNextElement(vm: *VM, enum_value: Value) VMError!?Value {
     const next_values = try enumerableNextValues(vm, enum_value) orelse return null;
     return collapseYieldValues(next_values);
+}
+
+fn enumerableYieldCollapsed(vm: *VM, blk: Block, next_values: *value.ArrayObject) @TypeOf(vm.yieldToBlock(blk, &[_]Value{Value.nil()})) {
+    const element = collapseYieldValues(next_values);
+    const yield_args = [_]Value{element};
+    return vm.yieldToBlock(blk, &yield_args);
 }
 
 fn builtinEnumerableEntries(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
