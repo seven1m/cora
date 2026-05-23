@@ -94,9 +94,21 @@ fn linkOpenSSL(module: *std.Build.Module) void {
     module.linkSystemLibrary("crypto", .{});
 }
 
+fn optimizeOptionDefaultReleaseFast(b: *std.Build) std.builtin.OptimizeMode {
+    if (b.option(std.builtin.OptimizeMode, "optimize", "Prioritize performance, safety, or binary size")) |mode| {
+        return mode;
+    }
+
+    return switch (b.release_mode) {
+        .off, .any, .fast => .ReleaseFast,
+        .safe => .ReleaseSafe,
+        .small => .ReleaseSmall,
+    };
+}
+
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
-    const optimize = b.standardOptimizeOption(.{ .preferred_optimize_mode = .ReleaseFast });
+    const optimize = optimizeOptionDefaultReleaseFast(b);
     const test_verbose = b.option(bool, "test-verbose", "Print each test name") orelse false;
     const test_timing = b.option(bool, "test-timing", "Print elapsed time for each test") orelse false;
     const test_jobs = b.option(i32, "test-jobs", "Number of test worker processes (<=0 auto)") orelse 0;
