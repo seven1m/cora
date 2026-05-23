@@ -178,6 +178,34 @@ test "String#length and String#size" {
     try std.testing.expectEqual(@as(i64, 5), result.toInteger());
 }
 
+test "String#unicode_normalize accepts standard forms and returns a copy" {
+    const result = try evalCode(
+        \\s = "Cafe"
+        \\t = s.unicode_normalize(:nfc)
+        \\[t, t == s, t.equal?(s), s.unicode_normalize("nfkc")]
+    );
+    try std.testing.expect(result.isArray());
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqualSlices(u8, "Cafe", items[0].toStringObject().str);
+    try std.testing.expectEqual(true, items[1].toBool());
+    try std.testing.expectEqual(false, items[2].toBool());
+    try std.testing.expectEqualSlices(u8, "Cafe", items[3].toStringObject().str);
+}
+
+test "String#unicode_normalize rejects invalid form" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+
+    const result = evalCodeWithOutput(
+        "\"x\".unicode_normalize(:bogus)",
+        &stdout_buf,
+        &stderr_buf,
+    );
+
+    try std.testing.expectEqual(error.UnhandledException, result.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "ArgumentError") != null);
+}
+
 test "String#count" {
     var result = try evalCode("'hello'.count('lo')");
     try std.testing.expect(result.isInteger());

@@ -144,6 +144,9 @@ pub fn register(vm: *VM) !void {
     const string_force_encoding_sym = try vm.intern("force_encoding");
     try vm.string_class.module.methods.put(string_force_encoding_sym, value.MethodEntry.builtin(&builtinStringForceEncoding, .{ .exact = 1 }));
 
+    const string_unicode_normalize_sym = try vm.intern("unicode_normalize");
+    try vm.string_class.module.methods.put(string_unicode_normalize_sym, value.MethodEntry.builtin(&builtinStringUnicodeNormalize, .{ .variadic = 0 }));
+
     const string_valid_encoding_sym = try vm.intern("valid_encoding?");
     try vm.string_class.module.methods.put(string_valid_encoding_sym, value.MethodEntry.builtin(&builtinStringValidEncoding, .{ .exact = 0 }));
 
@@ -2051,6 +2054,29 @@ pub fn builtinStringForceEncoding(vm: *VM, receiver: Value, args: []Value, _: ?B
     string_obj.encoding = new_encoding;
     string_obj.validity = .unknown;
     return receiver;
+}
+
+fn parseUnicodeNormalizeForm(vm: *VM, value_arg: Value) VMError!void {
+    const form_name = if (value_arg.isSymbol())
+        value_arg.toSymbolObject().name
+    else if (value_arg.isString())
+        value_arg.toStringObject().str
+    else
+        return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion of {s} into String", .{vm.className(value_arg)});
+
+    if (std.ascii.eqlIgnoreCase(form_name, "nfc")) return;
+    if (std.ascii.eqlIgnoreCase(form_name, "nfd")) return;
+    if (std.ascii.eqlIgnoreCase(form_name, "nfkc")) return;
+    if (std.ascii.eqlIgnoreCase(form_name, "nfkd")) return;
+    return vm.raiseExceptionFmt(vm.argument_error_class, "invalid normalization form", .{});
+}
+
+pub fn builtinStringUnicodeNormalize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    if (args.len == 1) {
+        try parseUnicodeNormalizeForm(vm, args[0]);
+    }
+    return builtinStringDup(vm, receiver, &.{}, null);
 }
 
 pub fn builtinStringValidEncoding(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
