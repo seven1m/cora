@@ -171,6 +171,12 @@ fn printHelp() void {
     , .{});
 }
 
+fn printInvalidOptionAndExit(argv0: []const u8, arg: []const u8) noreturn {
+    const exe_name = std.fs.path.basename(argv0);
+    std.debug.print("{s}: invalid option {s}  (-h will show valid options) (RuntimeError)\n", .{ exe_name, arg });
+    std.process.exit(1);
+}
+
 pub fn main(init: std.process.Init) !void {
     bdwgc.init();
     defer bdwgc.deinit();
@@ -249,6 +255,8 @@ pub fn main(init: std.process.Init) !void {
             } else {
                 try script_args.append(allocator, args[i]);
             }
+        } else {
+            printInvalidOptionAndExit(args[0], args[i]);
         }
     }
 

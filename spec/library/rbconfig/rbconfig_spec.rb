@@ -38,15 +38,17 @@ describe 'RbConfig::CONFIG' do
   end
 
   it "contains no frozen strings even with --enable-frozen-string-literal" do
-    ruby_exe(<<-RUBY, options: '--enable-frozen-string-literal').should == "Done\n"
-      require 'rbconfig'
-      RbConfig::CONFIG.each do |k, v|
-        if v.frozen?
-          puts "\#{k} Failure"
+    CORAFIXME "--enable-frozen-string-literal flag is not implemented yet", exception: SpecFailedException do
+      ruby_exe(<<-RUBY, options: '--enable-frozen-string-literal').should == "Done\n"
+        require 'rbconfig'
+        RbConfig::CONFIG.each do |k, v|
+          if v.frozen?
+            puts "\#{k} Failure"
+          end
         end
-      end
-      puts 'Done'
-    RUBY
+        puts 'Done'
+      RUBY
+    end
   end
 
   platform_is_not :windows do

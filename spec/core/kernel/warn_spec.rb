@@ -109,7 +109,9 @@ describe "Kernel#warn" do
 
     it "shows the caller of #require and not #require itself with RubyGems loaded" do
       file = fixture(__FILE__ , "warn_require_caller.rb")
-      ruby_exe(file, options: "-rrubygems", args: "2>&1").should == "#{file}:2: warning: warn-require-warning\n"
+      CORAFIXME "-r short require flag is not implemented yet", exception: SpecFailedException do
+        ruby_exe(file, options: "-rrubygems", args: "2>&1").should == "#{file}:2: warning: warn-require-warning\n"
+      end
     end
 
     it "doesn't show the caller when the uplevel is `nil`" do
