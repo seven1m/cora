@@ -87,6 +87,49 @@ test "Singleton method on module" {
     try std.testing.expectEqualSlices(u8, "module method", result.toStringObject().str);
 }
 
+test "Singleton defs stay public under private and protected" {
+    const result = try evalCode(
+        \\class PrivateExample
+        \\  private
+        \\  def self.hidden
+        \\    1
+        \\  end
+        \\end
+        \\
+        \\class ProtectedExample
+        \\  protected
+        \\  def self.hidden
+        \\    2
+        \\  end
+        \\end
+        \\
+        \\obj = Object.new
+        \\class << obj
+        \\  private
+        \\end
+        \\def obj.hidden
+        \\  3
+        \\end
+        \\
+        \\[
+        \\  PrivateExample.respond_to?(:hidden),
+        \\  PrivateExample.hidden,
+        \\  ProtectedExample.respond_to?(:hidden),
+        \\  ProtectedExample.hidden,
+        \\  obj.respond_to?(:hidden),
+        \\  obj.hidden
+        \\]
+    );
+    try std.testing.expect(result.isArray());
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(true, items[0].toBool());
+    try std.testing.expectEqual(@as(i64, 1), items[1].toInteger());
+    try std.testing.expectEqual(true, items[2].toBool());
+    try std.testing.expectEqual(@as(i64, 2), items[3].toInteger());
+    try std.testing.expectEqual(true, items[4].toBool());
+    try std.testing.expectEqual(@as(i64, 3), items[5].toInteger());
+}
+
 test "Calling undefined class method raises NoMethodError" {
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;

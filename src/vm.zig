@@ -5556,7 +5556,6 @@ pub const VM = struct {
 
                 if (self.program.child_chunks.get(chunk_idx)) |chunk_ptr| {
                     chunk_ptr.lexical_scope = self.current_lexical_scope;
-                    const visibility = self.currentDefaultMethodVisibility();
 
                     // Pop the receiver from stack (compiled by compileMethod)
                     const receiver = self.pop();
@@ -5567,7 +5566,7 @@ pub const VM = struct {
                     // Store method on singleton class
                     singleton_class.module.methods.put(method_name_sym, .{
                         .method = .{ .chunk = chunk_ptr },
-                        .visibility = visibility,
+                        .visibility = .public,
                     }) catch return error.Fatal;
                     self.markIntegerChangedForReceiver(receiver);
                     self.bumpMethodStateVersion();
