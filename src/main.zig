@@ -90,6 +90,7 @@ fn configureLoadPath(
         std.Io.Dir.cwd().realPathFile(io, argv0, &exe_path_buffer) catch 0;
     if (exe_abs_len != 0) {
         const exe_abs = exe_path_buffer[0..exe_abs_len];
+        try virtual_machine.setRubyExecutablePath(exe_abs);
         if (std.fs.path.dirname(exe_abs)) |exe_dir| {
             const installed_stdlib = try std.fs.path.join(allocator, &.{ exe_dir, "..", "lib", "stdlib" });
             defer allocator.free(installed_stdlib);
@@ -123,6 +124,8 @@ fn configureLoadPath(
             defer allocator.free(repo_time);
             try appendLoadPathIfExists(virtual_machine, io, repo_time);
         }
+    } else {
+        try virtual_machine.setRubyExecutablePath(argv0);
     }
 
     try appendLoadPathIfExists(virtual_machine, io, "lib/stdlib");

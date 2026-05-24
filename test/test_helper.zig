@@ -131,6 +131,14 @@ pub fn evalCodeWithOutputAndPath(ruby_code: []const u8, stdout_buf: []u8, stderr
 
     var vm = VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic, threaded.io(), std.testing.environ);
     defer vm.deinit();
+    vm.setRubyExecutablePath("/tmp/cora-test") catch |err| {
+        return .{
+            .value = Value.nil(),
+            .stdout = "",
+            .stderr = "",
+            .err = err,
+        };
+    };
 
     var program = compiler.Compiler.compile(allocator, &parser, 1) catch |err| {
         if (compiler.syntaxErrorMessage(err)) |message| {

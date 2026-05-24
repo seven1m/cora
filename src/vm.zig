@@ -599,6 +599,7 @@ pub const VM = struct {
     // Type-erased writers (tests can override these)
     stdout: ?*std.Io.Writer = null,
     stderr: ?*std.Io.Writer = null,
+    ruby_executable_path: ?[]const u8 = null,
 
     pub fn initEmpty(
         allocator: std.mem.Allocator,
@@ -759,6 +760,7 @@ pub const VM = struct {
             .tcc_jit_enabled = false,
             .dump_jit_source = false,
             .jit_chunk_states = JitChunkStates.init(allocator),
+            .ruby_executable_path = null,
         };
     }
 
@@ -2170,6 +2172,10 @@ pub const VM = struct {
         try self.setGlobal("$PROGRAM_NAME", program_name_value);
     }
 
+    pub fn setRubyExecutablePath(self: *VM, path: []const u8) VMError!void {
+        self.ruby_executable_path = self.allocator.dupe(u8, path) catch return error.Fatal;
+    }
+
     pub fn setInputRecordSeparator(self: *VM, separator: []const u8, frozen: bool) VMError!void {
         const separator_value = try self.newString(separator, frozen);
         try self.setGlobal("$/", separator_value);
@@ -2313,6 +2319,9 @@ pub const VM = struct {
         }
         self.require_in_progress.deinit();
         self.loaded_paths.deinit(self.allocator);
+        if (self.ruby_executable_path) |path| {
+            self.allocator.free(path);
+        }
 
         self.stack.deinit(self.gc_allocator);
         self.frames.deinit(self.gc_allocator);

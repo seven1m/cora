@@ -27,6 +27,7 @@ const numeric = @import("numeric.zig");
 const object = @import("object.zig");
 const proc_builtin = @import("proc.zig");
 const process = @import("process.zig");
+const rbconfig = @import("rbconfig.zig");
 const signal = @import("signal.zig");
 const fiber = @import("fiber.zig");
 const thread = @import("thread.zig");
@@ -63,6 +64,7 @@ pub fn registerAll(vm: *VM) !void {
     try env.register(vm);
     try etc.register(vm);
     try process.register(vm);
+    try rbconfig.register(vm);
     try signal.register(vm);
     try warning.register(vm);
     try marshal.register(vm);
