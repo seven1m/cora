@@ -264,6 +264,10 @@ test "String#start_with? and #end_with?" {
     result = try evalCode("'hello'.start_with?('x')");
     try std.testing.expect(result.isBool());
     try std.testing.expectEqual(false, result.toBool());
+
+    result = try evalCode("\"--- \\xFFpayload\".b.start_with?(\"--- \")");
+    try std.testing.expect(result.isBool());
+    try std.testing.expectEqual(true, result.toBool());
 }
 
 test "String#prepend" {
