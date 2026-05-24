@@ -69,6 +69,8 @@ pub fn register(vm: *VM) !void {
     try vm.io_class.module.constants.put(creat_sym, .{ .value = Value.integer(0x200) });
     const excl_sym = try vm.intern("EXCL");
     try vm.io_class.module.constants.put(excl_sym, .{ .value = Value.integer(0x400) });
+    const binary_sym = try vm.intern("BINARY");
+    try vm.io_class.module.constants.put(binary_sym, .{ .value = Value.integer(0) });
     const null_sym = try vm.intern("NULL");
     try vm.io_class.module.constants.put(null_sym, .{ .value = try vm.newString(null_device_path, false) });
     const seek_set_sym = try vm.intern("SEEK_SET");

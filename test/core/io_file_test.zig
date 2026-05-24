@@ -31,6 +31,12 @@ test "standard stream fileno values are 0,1,2" {
     try std.testing.expectEqual(@as(i64, 2), result.toArrayObject().elements.items[2].toInteger());
 }
 
+test "IO exposes binary mode constant" {
+    const result = try evalCode("IO.const_defined?(:BINARY) && IO::BINARY == 0");
+    try std.testing.expect(result.isBool());
+    try std.testing.expectEqual(true, result.toBool());
+}
+
 test "File#tty? is false for regular files" {
     var path_buf: [128]u8 = undefined;
     const path = try uniquePath(&path_buf);
