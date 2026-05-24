@@ -5928,11 +5928,18 @@ pub const VM = struct {
                 const methods = current_self.getModuleMethods() orelse &self.object_class.module.methods;
 
                 const entry = if (current_self.isClass()) blk: {
-                    const resolved = self.lookupMethod(current_self.toClassObject(), old_name_sym) orelse break :blk null;
-                    break :blk resolved.entry;
-                } else if (current_self.isModule())
-                    methods.get(old_name_sym)
-                else
+                    const resolved = self.lookupMethodDetailed(current_self.toClassObject(), old_name_sym);
+                    break :blk switch (resolved) {
+                        .found => |found| found.entry,
+                        else => null,
+                    };
+                } else if (current_self.isModule()) blk: {
+                    const resolved = self.lookupModuleMethodDetailed(self.object_class, current_self.toModuleObject(), old_name_sym);
+                    break :blk switch (resolved) {
+                        .found => |found| found.entry,
+                        else => null,
+                    };
+                } else
                     methods.get(old_name_sym);
 
                 if (entry) |resolved_entry| {

@@ -151,3 +151,14 @@ test "alias_method undefined method raises NameError" {
     try std.testing.expectEqual(error.UnhandledException, result.err.?);
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, "NameError") != null);
 }
+
+test "alias can target inherited private methods in class_eval" {
+    const result = try evalCode(
+        \\kernel = Kernel.dup
+        \\kernel.class_eval do
+        \\  alias __raise__ raise
+        \\end
+        \\kernel.instance_methods(false).include?(:__raise__)
+    );
+    try std.testing.expect(result.isTrue());
+}

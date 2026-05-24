@@ -1568,43 +1568,26 @@ pub fn builtinModuleAliasMethod(vm: *VM, receiver: Value, args: []Value, _: ?Blo
         vm.setPendingException(exc);
         return error.Unwind;
     };
-    var lookup_class: *value.ClassObject = undefined;
-    if (receiver.isClass()) {
-        lookup_class = receiver.toClassObject();
-    } else if (receiver.isModule()) {
-        // For modules, look up in own methods only
-        if (getOwnDefinedMethodEntry(methods, old_name_sym)) |entry| {
-            methods.put(new_name_sym, entry) catch return error.Fatal;
-            vm.markIntegerChangedForReceiver(receiver);
-            vm.bumpMethodStateVersion();
-            return Value.fromObject(&new_name_sym.object);
-        }
-        const msg = std.fmt.allocPrint(
-            vm.gc_allocator,
-            "undefined method '{s}'",
-            .{old_name_str},
-        ) catch return error.Fatal;
-        const exc = try vm.createException(vm.name_error_class, msg);
-        vm.setPendingException(exc);
-        return error.Unwind;
-    } else {
+    if (!receiver.isClass() and !receiver.isModule()) {
         unreachable;
     }
 
-    // Look up old method via lookupMethod (walks inheritance chain)
-    if (vm.lookupMethod(lookup_class, old_name_sym)) |resolved| {
-        methods.put(new_name_sym, resolved.entry) catch return error.Fatal;
-        vm.markIntegerChangedForReceiver(receiver);
-        vm.bumpMethodStateVersion();
-    } else {
-        const msg = std.fmt.allocPrint(
-            vm.gc_allocator,
-            "undefined method '{s}'",
-            .{old_name_str},
-        ) catch return error.Fatal;
-        const exc = try vm.createException(vm.name_error_class, msg);
-        vm.setPendingException(exc);
-        return error.Unwind;
+    switch (resolveInstanceMethodLookup(vm, receiver, old_name_sym)) {
+        .found => |found| {
+            methods.put(new_name_sym, found.resolved.entry) catch return error.Fatal;
+            vm.markIntegerChangedForReceiver(receiver);
+            vm.bumpMethodStateVersion();
+        },
+        else => {
+            const msg = std.fmt.allocPrint(
+                vm.gc_allocator,
+                "undefined method '{s}'",
+                .{old_name_str},
+            ) catch return error.Fatal;
+            const exc = try vm.createException(vm.name_error_class, msg);
+            vm.setPendingException(exc);
+            return error.Unwind;
+        },
     }
 
     return Value.fromObject(&new_name_sym.object);
