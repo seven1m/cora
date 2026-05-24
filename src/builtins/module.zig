@@ -947,12 +947,56 @@ pub fn register(vm: *VM) !void {
 
     const inspect_sym = try vm.intern("inspect");
     try vm.module_class.module.methods.put(inspect_sym, value.MethodEntry.builtin(&builtinModuleToS, .{ .exact = 0 }));
+
+    const initialize_copy_sym = try vm.intern("initialize_copy");
+    try vm.module_class.module.methods.put(initialize_copy_sym, value.MethodEntry.builtinWithVisibility(&builtinModuleInitializeCopy, .{ .exact = 1 }, .private));
 }
 
 pub fn builtinModuleCaseEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const receiver_module = try receiverModuleForComparison(vm, receiver);
     return Value.boolean(classLookupChainContains(vm.getClass(args[0]), receiver_module));
+}
+
+pub fn builtinModuleInitializeCopy(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+
+    const other = args[0];
+    if (receiver.objectId() == other.objectId()) return receiver;
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen {s}", .{vm.className(receiver)});
+    }
+    if (vm.getClass(receiver) != vm.getClass(other)) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "initialize_copy should take same class object", .{});
+    }
+
+    if (receiver.isClass()) {
+        if (!other.isClass()) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "initialize_copy should take same class object", .{});
+        }
+        const receiver_class = receiver.toClassObject();
+        const other_class = other.toClassObject();
+        receiver_class.superclass = other_class.superclass;
+        receiver_class.object_type = other_class.object_type;
+        receiver_class.struct_members = other_class.struct_members;
+        receiver_class.struct_keyword_init = other_class.struct_keyword_init;
+        try vm.copyModuleMetadata(&other_class.module, &receiver_class.module, false);
+        try vm.copySingletonClassMetadataWithFreeze(other, receiver, false);
+        return receiver;
+    }
+
+    if (receiver.isModule()) {
+        if (!other.isModule()) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "initialize_copy should take same class object", .{});
+        }
+        try vm.copyModuleMetadata(other.toModuleObject(), receiver.toModuleObject(), false);
+        try vm.copySingletonClassMetadataWithFreeze(other, receiver, false);
+        return receiver;
+    }
+
+    const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
+    vm.setPendingException(exc);
+    return error.Unwind;
 }
 
 pub fn builtinModuleGreaterThan(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

@@ -8384,6 +8384,10 @@ pub const VM = struct {
     }
 
     pub fn copySingletonClassMetadata(self: *VM, source_val: Value, target_val: Value) VMError!void {
+        try self.copySingletonClassMetadataWithFreeze(source_val, target_val, true);
+    }
+
+    pub fn copySingletonClassMetadataWithFreeze(self: *VM, source_val: Value, target_val: Value, preserve_frozen: bool) VMError!void {
         const source_singleton = source_val.getSingletonClass() orelse return;
         const target_singleton = try self.getOrCreateSingletonClass(target_val);
 
@@ -8412,7 +8416,46 @@ pub const VM = struct {
             target_singleton.module.included_modules.append(self.gc_allocator, module_obj) catch return error.Fatal;
         }
 
-        target_singleton.module.object.flags |= source_singleton.module.object.flags & value.Object.FROZEN_FLAG;
+        if (preserve_frozen) {
+            target_singleton.module.object.flags |= source_singleton.module.object.flags & value.Object.FROZEN_FLAG;
+        }
+        self.bumpMethodStateVersion();
+    }
+
+    pub fn copyModuleMetadata(self: *VM, source: *const value.ModuleObject, target: *value.ModuleObject, preserve_frozen: bool) VMError!void {
+        var methods_iter = source.methods.iterator();
+        while (methods_iter.next()) |entry| {
+            target.methods.put(entry.key_ptr.*, entry.value_ptr.*) catch return error.Fatal;
+        }
+
+        var constants_iter = source.constants.iterator();
+        while (constants_iter.next()) |entry| {
+            target.constants.put(entry.key_ptr.*, entry.value_ptr.*) catch return error.Fatal;
+        }
+
+        var autoloads_iter = source.autoloads.iterator();
+        while (autoloads_iter.next()) |entry| {
+            target.autoloads.put(entry.key_ptr.*, entry.value_ptr.*) catch return error.Fatal;
+        }
+
+        var class_vars_iter = source.class_variables.iterator();
+        while (class_vars_iter.next()) |entry| {
+            target.class_variables.put(entry.key_ptr.*, entry.value_ptr.*) catch return error.Fatal;
+        }
+
+        try self.copyObjectInstanceVariables(&source.object, &target.object);
+
+        for (source.prepended_modules.items) |module_obj| {
+            target.prepended_modules.append(self.gc_allocator, module_obj) catch return error.Fatal;
+        }
+
+        for (source.included_modules.items) |module_obj| {
+            target.included_modules.append(self.gc_allocator, module_obj) catch return error.Fatal;
+        }
+
+        if (preserve_frozen) {
+            target.object.flags |= source.object.flags & value.Object.FROZEN_FLAG;
+        }
         self.bumpMethodStateVersion();
     }
 
@@ -8881,6 +8924,25 @@ pub const VM = struct {
             .time => self.newTime(class_obj, 0),
             .instance => self.newInstance(class_obj),
         };
+    }
+
+    pub fn allocateDupShell(self: *VM, receiver: Value) VMError!Value {
+        if (receiver.isClass()) {
+            if (receiver.toClassObject() == self.basic_object_class) {
+                return self.raiseExceptionFmt(self.type_error_class, "can't copy the root class", .{});
+            }
+
+            const anonymous = try self.intern("<anonymous>");
+            const source = receiver.toClassObject();
+            return self.newClassWithType(anonymous, source.superclass, source.object_type);
+        }
+
+        if (receiver.isModule()) {
+            const anonymous = try self.intern("<anonymous>");
+            return self.newModule(anonymous);
+        }
+
+        return self.newObjectForClass(self.getClass(receiver));
     }
 
     pub fn getInstanceVariable(self: *VM, receiver: Value, name: []const u8) VMError!Value {
