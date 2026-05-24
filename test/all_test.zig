@@ -5,6 +5,7 @@ const exit_test = @import("exit_test.zig");
 const fileutils_test = @import("fileutils_test.zig");
 const json_test = @import("json_test.zig");
 const logger_test = @import("logger_test.zig");
+const optparse_test = @import("optparse_test.zig");
 const openssl_test = @import("openssl_test.zig");
 const rbconfig_test = @import("rbconfig_test.zig");
 const rubygems_test = @import("rubygems_test.zig");
@@ -91,6 +92,7 @@ comptime {
     _ = fileutils_test;
     _ = json_test;
     _ = logger_test;
+    _ = optparse_test;
     _ = openssl_test;
     _ = rbconfig_test;
     _ = rubygems_test;

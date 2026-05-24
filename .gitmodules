@@ -16,3 +16,6 @@
 [submodule "ext/time"]
 	path = ext/time
 	url = https://github.com/ruby/time
+[submodule "ext/optparse"]
+	path = ext/optparse
+	url = https://github.com/ruby/optparse

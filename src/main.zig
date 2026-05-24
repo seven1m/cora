@@ -108,6 +108,10 @@ fn configureLoadPath(
             defer allocator.free(installed_time);
             try appendLoadPathIfExists(virtual_machine, io, installed_time);
 
+            const installed_optparse = try std.fs.path.join(allocator, &.{ exe_dir, "..", "lib", "optparse", "lib" });
+            defer allocator.free(installed_optparse);
+            try appendLoadPathIfExists(virtual_machine, io, installed_optparse);
+
             const repo_stdlib = try std.fs.path.join(allocator, &.{ exe_dir, "..", "..", "lib", "stdlib" });
             defer allocator.free(repo_stdlib);
             try appendLoadPathIfExists(virtual_machine, io, repo_stdlib);
@@ -123,6 +127,10 @@ fn configureLoadPath(
             const repo_time = try std.fs.path.join(allocator, &.{ exe_dir, "..", "..", "ext", "time", "lib" });
             defer allocator.free(repo_time);
             try appendLoadPathIfExists(virtual_machine, io, repo_time);
+
+            const repo_optparse = try std.fs.path.join(allocator, &.{ exe_dir, "..", "..", "ext", "optparse", "lib" });
+            defer allocator.free(repo_optparse);
+            try appendLoadPathIfExists(virtual_machine, io, repo_optparse);
         }
     } else {
         try virtual_machine.setRubyExecutablePath(argv0);
@@ -132,6 +140,7 @@ fn configureLoadPath(
     try appendLoadPathIfExists(virtual_machine, io, "ext/rubygems/lib");
     try appendLoadPathIfExists(virtual_machine, io, "ext/logger/lib");
     try appendLoadPathIfExists(virtual_machine, io, "ext/time/lib");
+    try appendLoadPathIfExists(virtual_machine, io, "ext/optparse/lib");
 
     for (extra_load_paths) |path| {
         try appendLoadPathIfExists(virtual_machine, io, path);
