@@ -6900,6 +6900,17 @@ pub const VM = struct {
         return result;
     }
 
+    pub fn invokeBuiltinMethodForwardingKeywords(
+        self: *VM,
+        builtin_method: BuiltinMethod,
+        receiver: Value,
+        method_name: []const u8,
+        args: []Value,
+        block: ?Block,
+    ) VMError!Value {
+        return self.invokeBuiltinMethod(builtin_method, receiver, method_name, args, block, self.builtin_keyword_ctx);
+    }
+
     pub fn popCurrentBuiltinFrame(self: *VM) void {
         std.debug.assert(self.frames.items.len > 0);
         std.debug.assert(self.frames.items[self.frames.items.len - 1].frame_type == .builtin);
