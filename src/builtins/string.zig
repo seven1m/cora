@@ -2624,6 +2624,19 @@ fn stringEachLineDummyBehavior(encoding: enc.Encoding) enum { whole_string, rais
     };
 }
 
+fn stringEachLineSeparatorCompatible(
+    receiver_encoding: enc.Encoding,
+    separator_encoding: enc.Encoding,
+    separator_bytes: []const u8,
+) bool {
+    if (receiver_encoding.eql(separator_encoding)) return true;
+    if (separator_bytes.len == 0) return true;
+    if (receiver_encoding.isDummy() or separator_encoding.isDummy()) return false;
+    return receiver_encoding.isAsciiCompatible() and
+        separator_encoding.isAsciiCompatible() and
+        enc.isAsciiOnly(separator_bytes);
+}
+
 fn stringEachLineImpl(vm: *VM, receiver: Value, args: []Value, block: ?Block, return_array_without_block: bool) VMError!Value {
     const blk = if (return_array_without_block) null else block;
     if (blk == null and !return_array_without_block) {
@@ -2656,7 +2669,7 @@ fn stringEachLineImpl(vm: *VM, receiver: Value, args: []Value, block: ?Block, re
             }
         }
 
-        if (!separator_obj.encoding.eql(snapshot_encoding) and enc.negotiate(snapshot_encoding, snapshot_bytes, separator_obj.encoding, separator_obj.str) == null) {
+        if (!stringEachLineSeparatorCompatible(snapshot_encoding, separator_obj.encoding, separator_obj.str)) {
             return vm.raiseEncodingCompatibilityError(snapshot_encoding, separator_obj.encoding);
         }
     }
@@ -2943,11 +2956,21 @@ fn matchStringBoundary(
             if (boundary_obj.str.len > receiver_bytes.len) {
                 break :blk .{ .matched = false, .start = 0, .end = 0 };
             }
-            if (enc.negotiate(receiver_encoding, receiver_bytes[0..boundary_obj.str.len], boundary_obj.encoding, boundary_obj.str) == null) {
-                return vm.raiseEncodingCompatibilityError(receiver_encoding, boundary_obj.encoding);
-            }
-            if (!std.mem.startsWith(u8, receiver_bytes, boundary_obj.str)) {
-                break :blk .{ .matched = false, .start = 0, .end = 0 };
+            const prefix_bytes = receiver_bytes[0..boundary_obj.str.len];
+            if (receiver_encoding == .ascii_8bit and boundary_obj.encoding.isAsciiCompatible()) {
+                if (!std.mem.startsWith(u8, receiver_bytes, boundary_obj.str)) {
+                    break :blk .{ .matched = false, .start = 0, .end = 0 };
+                }
+                if (enc.negotiate(receiver_encoding, prefix_bytes, boundary_obj.encoding, boundary_obj.str) == null) {
+                    return vm.raiseEncodingCompatibilityError(receiver_encoding, boundary_obj.encoding);
+                }
+            } else {
+                if (enc.negotiate(receiver_encoding, prefix_bytes, boundary_obj.encoding, boundary_obj.str) == null) {
+                    return vm.raiseEncodingCompatibilityError(receiver_encoding, boundary_obj.encoding);
+                }
+                if (!std.mem.startsWith(u8, receiver_bytes, boundary_obj.str)) {
+                    break :blk .{ .matched = false, .start = 0, .end = 0 };
+                }
             }
             break :blk .{
                 .matched = receiver_encoding.isCharBoundary(receiver_bytes, boundary_obj.str.len),

@@ -268,6 +268,10 @@ test "String#start_with? and #end_with?" {
     result = try evalCode("\"--- \\xFFpayload\".b.start_with?(\"--- \")");
     try std.testing.expect(result.isBool());
     try std.testing.expectEqual(true, result.toBool());
+
+    result = try evalCode("\"Rafael Fran\\xC3\\xA7a\".b.start_with?(\"!ruby/object:\")");
+    try std.testing.expect(result.isBool());
+    try std.testing.expectEqual(false, result.toBool());
 }
 
 test "String#prepend" {
@@ -329,6 +333,15 @@ test "String#chomp removes default line endings and explicit separator" {
     result = try evalCode("\"a/\".chomp(?/)");
     try std.testing.expect(result.isString());
     try std.testing.expectEqualSlices(u8, "a", result.toStringObject().str);
+}
+
+test "String#lines accepts ASCII separators on binary strings" {
+    const result = try evalCode("\"--- \\xFFpayload\\nnext\".b.lines.to_a");
+    try std.testing.expect(result.isArray());
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 2), items.len);
+    try std.testing.expectEqualSlices(u8, "--- \xFFpayload\n", items[0].toStringObject().str);
+    try std.testing.expectEqualSlices(u8, "next", items[1].toStringObject().str);
 }
 
 test "String#chars propagates break value" {
