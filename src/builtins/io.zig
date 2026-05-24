@@ -24,6 +24,10 @@ fn monotonicMilliseconds() i64 {
     return seconds * 1_000 + @divTrunc(nanoseconds, 1_000_000);
 }
 
+fn openFlagValue(flags: std.posix.O) i64 {
+    return @intCast(@as(c_int, @bitCast(flags)));
+}
+
 pub fn register(vm: *VM) !void {
     const io_class_val = Value.fromObject(&vm.io_class.module.object);
     const io_singleton = try vm.getOrCreateSingletonClass(io_class_val);
@@ -62,13 +66,13 @@ pub fn register(vm: *VM) !void {
     const rdwr_sym = try vm.intern("RDWR");
     try vm.io_class.module.constants.put(rdwr_sym, .{ .value = Value.integer(2) });
     const append_sym_const = try vm.intern("APPEND");
-    try vm.io_class.module.constants.put(append_sym_const, .{ .value = Value.integer(0x200) });
+    try vm.io_class.module.constants.put(append_sym_const, .{ .value = Value.integer(openFlagValue(.{ .APPEND = true })) });
     const trunc_sym = try vm.intern("TRUNC");
-    try vm.io_class.module.constants.put(trunc_sym, .{ .value = Value.integer(0x400) });
+    try vm.io_class.module.constants.put(trunc_sym, .{ .value = Value.integer(openFlagValue(.{ .TRUNC = true })) });
     const creat_sym = try vm.intern("CREAT");
-    try vm.io_class.module.constants.put(creat_sym, .{ .value = Value.integer(0x200) });
+    try vm.io_class.module.constants.put(creat_sym, .{ .value = Value.integer(openFlagValue(.{ .CREAT = true })) });
     const excl_sym = try vm.intern("EXCL");
-    try vm.io_class.module.constants.put(excl_sym, .{ .value = Value.integer(0x400) });
+    try vm.io_class.module.constants.put(excl_sym, .{ .value = Value.integer(openFlagValue(.{ .EXCL = true })) });
     const binary_sym = try vm.intern("BINARY");
     try vm.io_class.module.constants.put(binary_sym, .{ .value = Value.integer(0) });
     const null_sym = try vm.intern("NULL");
