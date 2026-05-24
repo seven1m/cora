@@ -120,5 +120,6 @@ the top of the relevant file, in the same directory with a name like
 | `ext/logger/*` | Yukihiro Matsumoto | Ruby license / 2-clause BSD |
 | `ext/optparse/*` | Yukihiro Matsumoto and Ruby contributors | Ruby license / 2-clause BSD |
 | `ext/rubygems/*` | Chad Fowler, Rich Kilmer, Jim Weirich, and others | RubyGems license / MIT |
+| `ext/uri/*` | Yukihiro Matsumoto and Ruby contributors | Ruby license / 2-clause BSD |
 
 See each file/directory for the full copyright and license terms.

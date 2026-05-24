@@ -19,3 +19,6 @@
 [submodule "ext/optparse"]
 	path = ext/optparse
 	url = https://github.com/ruby/optparse
+[submodule "ext/uri"]
+	path = ext/uri
+	url = https://github.com/ruby/uri
