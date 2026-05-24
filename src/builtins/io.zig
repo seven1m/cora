@@ -141,6 +141,9 @@ pub fn register(vm: *VM) !void {
     const fileno_sym = try vm.intern("fileno");
     try vm.io_class.module.methods.put(fileno_sym, value.MethodEntry.builtin(&builtinIoFileno, .{ .exact = 0 }));
 
+    const flock_sym = try vm.intern("flock");
+    try vm.io_class.module.methods.put(flock_sym, value.MethodEntry.builtin(&builtinIoFlock, .{ .exact = 1 }));
+
     const path_sym = try vm.intern("path");
     try vm.io_class.module.methods.put(path_sym, value.MethodEntry.builtin(&builtinIoPath, .{ .exact = 0 }));
 
@@ -1245,6 +1248,14 @@ fn ioStatusFlags(vm: *VM, io: *IoObject) VMError!c_int {
     return flags;
 }
 
+fn errnoWouldBlock(errno_code: std.posix.E) bool {
+    if (errno_code == .AGAIN) return true;
+    if (@hasField(std.posix.E, "WOULDBLOCK")) {
+        return errno_code == .WOULDBLOCK;
+    }
+    return false;
+}
+
 fn setIoNonblocking(vm: *VM, io: *IoObject, enabled: bool) VMError!void {
     const flags = try ioStatusFlags(vm, io);
     const nonblock_flag: c_int = @bitCast(std.posix.O{ .NONBLOCK = true });
@@ -1647,6 +1658,41 @@ pub fn builtinIoFileno(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
     try vm.requireArgCount(args, 0);
     const io = try requireIoReceiver(vm, receiver);
     return Value.integer(io.fd);
+}
+
+pub fn builtinIoFlock(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const io = try requireIoReceiver(vm, receiver);
+    try ensureIoOpen(vm, io);
+
+    if (@TypeOf(std.posix.system.flock) == void) {
+        return vm.raiseErrnoFmt(.NOSYS, "flock failed", .{});
+    }
+
+    const operation_value = try args[0].coerceToIntegerValue(vm, "no implicit conversion to Integer", "can't convert to Integer");
+    if (!operation_value.isInteger()) {
+        return vm.raiseExceptionFmt(vm.range_error_class, "bignum too big to convert into `int'", .{});
+    }
+
+    const operation = std.math.cast(i32, operation_value.toInteger()) orelse
+        return vm.raiseExceptionFmt(vm.range_error_class, "bignum too big to convert into `int'", .{});
+    const fd: std.posix.fd_t = @intCast(io.fd);
+
+    while (true) {
+        switch (std.posix.errno(std.posix.system.flock(fd, operation))) {
+            .SUCCESS => return Value.integer(0),
+            .INTR => {
+                try vm.checkAsyncEvents();
+                continue;
+            },
+            else => |errno_code| {
+                if ((operation & std.posix.LOCK.NB) != 0 and errnoWouldBlock(errno_code)) {
+                    return Value.FALSE;
+                }
+                return vm.raiseErrnoFmt(errno_code, "flock failed", .{});
+            },
+        }
+    }
 }
 
 pub fn builtinIoPath(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
