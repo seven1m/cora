@@ -198,6 +198,11 @@ pub fn builtinComparableEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block
     const other = args[0];
     if (receiver.raw == other.raw) return Value.boolean(true);
 
+    if (try vm.enterRecursionGuard(.comparable_equal, receiver, other)) {
+        return Value.boolean(false);
+    }
+    defer vm.leaveRecursionGuard(.comparable_equal, receiver, other);
+
     const sign = (try comparableSign(vm, receiver, other, .equality)) orelse return Value.boolean(false);
     return Value.boolean(sign == 0);
 }

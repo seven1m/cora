@@ -253,6 +253,12 @@ pub fn register(vm: *VM) !void {
     const inspect_sym = try vm.intern("inspect");
     try vm.kernel_module.methods.put(inspect_sym, MethodEntry.builtin(&builtinKernelInspect, .{ .exact = 0 }));
 
+    const case_equal_sym = try vm.intern("===");
+    try vm.kernel_module.methods.put(case_equal_sym, MethodEntry.builtin(&builtinKernelCaseEqual, .{ .exact = 1 }));
+
+    const compare_sym = try vm.intern("<=>");
+    try vm.kernel_module.methods.put(compare_sym, MethodEntry.builtin(&builtinKernelCompare, .{ .exact = 1 }));
+
     const itself_sym = try vm.intern("itself");
     try vm.kernel_module.methods.put(itself_sym, MethodEntry.builtin(&builtinKernelItself, .{ .exact = 0 }));
 
@@ -1851,6 +1857,23 @@ pub fn builtinKernelToS(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError
 
 pub fn builtinKernelInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     return builtinKernelToS(vm, receiver, args, null);
+}
+
+pub fn builtinKernelCaseEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (receiver.objectId() == args[0].objectId()) return Value.boolean(true);
+
+    const equal = try vm.callMethodByName(receiver, "==", args[0..1], null);
+    return Value.boolean(equal.is_truthy());
+}
+
+pub fn builtinKernelCompare(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (receiver.objectId() == args[0].objectId()) return Value.integer(0);
+
+    const equal = try vm.callMethodByName(receiver, "==", args[0..1], null);
+    if (equal.is_truthy()) return Value.integer(0);
+    return Value.nil();
 }
 
 fn builtinKernelItself(_: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {

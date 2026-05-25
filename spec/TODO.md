@@ -1181,13 +1181,13 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/kernel/block_given_spec.rb
 - [ ] core/kernel/caller_locations_spec.rb
 - [ ] core/kernel/caller_spec.rb
-- [ ] core/kernel/case_compare_spec.rb
+- [x] core/kernel/case_compare_spec.rb
 - [ ] core/kernel/catch_spec.rb
 - [ ] core/kernel/chomp_spec.rb
 - [ ] core/kernel/chop_spec.rb
 - [x] core/kernel/class_spec.rb
 - [-] core/kernel/clone_spec.rb
-- [ ] core/kernel/comparison_spec.rb
+- [x] core/kernel/comparison_spec.rb
 - [-] core/kernel/define_singleton_method_spec.rb
 - [ ] core/kernel/display_spec.rb
 - [ ] core/kernel/dup_spec.rb

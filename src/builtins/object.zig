@@ -16,8 +16,6 @@ pub fn register(vm: *VM) !void {
     const class_sym = try vm.intern("class");
     try vm.object_class.module.methods.put(class_sym, value.MethodEntry.builtin(&builtinObjectClass, .{ .exact = 0 }));
 
-    const case_equal_sym = try vm.intern("===");
-    try vm.object_class.module.methods.put(case_equal_sym, value.MethodEntry.builtin(&builtinObjectCaseEqual, .{ .exact = 1 }));
 }
 
 pub fn builtinObjectNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -46,9 +44,4 @@ pub fn builtinObjectClass(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     try vm.requireArgCount(args, 0);
     const class_obj = vm.getClass(receiver);
     return Value.fromObject(&class_obj.module.object);
-}
-
-pub fn builtinObjectCaseEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 1);
-    return vm.callMethodByName(receiver, "==", args[0..1], null);
 }

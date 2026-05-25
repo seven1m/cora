@@ -1980,7 +1980,7 @@ class Object
     __spec_expected_calls[method_name] = exp
     already_registered = false
     $__active_mocks.each do |entry|
-      if entry.equal?(self)
+      if entry.__id__ == self.__id__
         already_registered = true
         break
       end
@@ -1996,7 +1996,7 @@ class Object
     __spec_forbidden_calls[method_name] = true
     already_registered = false
     $__active_mocks.each do |entry|
-      if entry.equal?(self)
+      if entry.__id__ == self.__id__
         already_registered = true
         break
       end
