@@ -1724,26 +1724,30 @@ fn appendXmlNumericCharRef(
     try appendXmlEntity(vm, out, char_ref, target_encoding);
 }
 
+const TranscodeOptions = struct {
+    kw_invalid: ?Value = null,
+    kw_undef: ?Value = null,
+    kw_replace: ?Value = null,
+    kw_fallback: ?Value = null,
+    xml_mode: EncodeXmlMode = .none,
+};
+
 fn transcodeWithEncodeOptions(
     vm: *VM,
     receiver: Value,
     source_bytes: []const u8,
     from_encoding: enc.Encoding,
     target_encoding: enc.Encoding,
-    kw_invalid: ?Value,
-    kw_undef: ?Value,
-    kw_replace: ?Value,
-    kw_fallback: ?Value,
-    xml_mode: EncodeXmlMode,
+    opts: TranscodeOptions,
 ) VMError![]u8 {
     const effective_target_encoding = enc.effectiveTranscodeTargetEncoding(target_encoding);
 
     if (isTag(effective_target_encoding, .iso_2022_jp) and
-        kw_invalid == null and
-        kw_undef == null and
-        kw_replace == null and
-        kw_fallback == null and
-        xml_mode == .none)
+        opts.kw_invalid == null and
+        opts.kw_undef == null and
+        opts.kw_replace == null and
+        opts.kw_fallback == null and
+        opts.xml_mode == .none)
     {
         return transcodeToIso2022JpSimple(vm, source_bytes, from_encoding, effective_target_encoding);
     }
@@ -1751,6 +1755,11 @@ fn transcodeWithEncodeOptions(
     var out: std.ArrayList(u8) = .empty;
     defer out.deinit(vm.gc_allocator_atomic);
 
+    const kw_invalid = opts.kw_invalid;
+    const kw_undef = opts.kw_undef;
+    const kw_replace = opts.kw_replace;
+    const kw_fallback = opts.kw_fallback;
+    const xml_mode = opts.xml_mode;
     const invalid_replace = kw_invalid != null and kw_invalid.?.isSymbol() and std.mem.eql(u8, kw_invalid.?.toSymbolObject().name, "replace");
     const undef_replace = kw_undef != null and kw_undef.?.isSymbol() and std.mem.eql(u8, kw_undef.?.toSymbolObject().name, "replace");
     const replacement = if (kw_replace) |_| try replacementValueForEncode(vm, receiver, kw_replace) else Value.nil();
@@ -1990,18 +1999,13 @@ pub fn builtinStringEncode(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
         },
     }
 
-    const transcoded = try transcodeWithEncodeOptions(
-        vm,
-        receiver,
-        source_bytes,
-        from_encoding,
-        target_encoding,
-        kw_invalid,
-        kw_undef,
-        kw_replace,
-        kw_fallback,
-        xml_mode,
-    );
+    const transcoded = try transcodeWithEncodeOptions(vm, receiver, source_bytes, from_encoding, target_encoding, .{
+        .kw_invalid = kw_invalid,
+        .kw_undef = kw_undef,
+        .kw_replace = kw_replace,
+        .kw_fallback = kw_fallback,
+        .xml_mode = xml_mode,
+    });
     var encoded = try vm.newStringWithEncoding(transcoded, false, target_encoding);
     if (xml_mode == .attr) {
         const encoded_obj = encoded.toStringObject();
