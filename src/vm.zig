@@ -5168,16 +5168,11 @@ pub const VM = struct {
                                                 defer call_args_tmp.deinit(self.allocator);
                                                 const call_args = try call_args_tmp.copyFrom(self, self.stack.items[(receiver_index + 1)..(receiver_index + 1 + argc)]);
                                                 self.stack.shrinkRetainingCapacity(receiver_index);
-                                                try self.setupChunkCallFrame(
-                                                    method_chunk,
-                                                    receiver,
-                                                    call_args,
-                                                    null,
-                                                    null,
-                                                    cached.method_name.name,
-                                                    cached.owner_class,
-                                                    block,
-                                                );
+                                             try self.setupChunkCallFrame(method_chunk, receiver, call_args, .{
+                                                 .method_name = cached.method_name.name,
+                                                 .super_defining_class = cached.owner_class,
+                                                 .block = block,
+                                             });
                                             }
                                             return;
                                         },
@@ -5202,16 +5197,11 @@ pub const VM = struct {
                                             defer call_args_tmp.deinit(self.allocator);
                                             const call_args = try call_args_tmp.copyFrom(self, self.stack.items[(receiver_index + 1)..(receiver_index + 1 + argc)]);
                                             self.stack.shrinkRetainingCapacity(receiver_index);
-                                            try self.setupChunkCallFrame(
-                                                method_chunk,
-                                                receiver,
-                                                call_args,
-                                                null,
-                                                null,
-                                                method.name.name,
-                                                method.owner_class,
-                                                block,
-                                            );
+                                             try self.setupChunkCallFrame(method_chunk, receiver, call_args, .{
+                                                 .method_name = method.name.name,
+                                                 .super_defining_class = method.owner_class,
+                                                 .block = block,
+                                             });
                                         }
                                         return;
                                     },
@@ -6822,16 +6812,20 @@ pub const VM = struct {
         return error.Unwind;
     }
 
+    pub const ChunkCallOptions = struct {
+        kw_keys: ?[]const Value = null,
+        kw_values: ?[]const Value = null,
+        method_name: ?[]const u8 = null,
+        super_defining_class: ?*ClassObject = null,
+        block: ?Block = null,
+    };
+
     inline fn setupChunkCallFrame(
         self: *VM,
         method_chunk: *Chunk,
         receiver: Value,
         args: []const Value,
-        kw_keys: ?[]const Value,
-        kw_values: ?[]const Value,
-        method_name: ?[]const u8,
-        super_defining_class: ?*ClassObject,
-        block: ?Block,
+        opts: ChunkCallOptions,
     ) VMError!void {
         var args_temp: TempValueSlice = .{};
         defer args_temp.deinit(self.allocator);
@@ -6842,8 +6836,8 @@ pub const VM = struct {
             try args_temp.copyFrom(self, args)
         else
             args;
-        var effective_kw_keys = kw_keys;
-        var effective_kw_values = kw_values;
+        var effective_kw_keys = opts.kw_keys;
+        var effective_kw_values = opts.kw_values;
         var has_keywords = effective_kw_values != null and effective_kw_values.?.len > 0;
 
         if (has_keywords and
@@ -6877,10 +6871,10 @@ pub const VM = struct {
             return error.Unwind;
         }
 
-        try self.pushFrame(method_chunk, receiver, block);
+        try self.pushFrame(method_chunk, receiver, opts.block);
         const callee_frame = self.currentFrame();
-        callee_frame.method_name = method_name;
-        callee_frame.super_defining_class = super_defining_class;
+        callee_frame.method_name = opts.method_name;
+        callee_frame.super_defining_class = opts.super_defining_class;
         callee_frame.forwarded_keyword_ctx = if (has_keywords)
             try self.copyKeywordContext(effective_kw_keys.?, effective_kw_values.?)
         else
@@ -7320,16 +7314,13 @@ pub const VM = struct {
             .chunk => |method_chunk| {
                 const saved_frame_count = self.frames.items.len;
                 const saved_stack_len = self.stack.items.len;
-                try self.setupChunkCallFrame(
-                    method_chunk,
-                    receiver,
-                    dispatch.args,
-                    dispatch.kw_keys,
-                    dispatch.kw_values,
-                    resolved.name.name,
-                    resolved.owner_class,
-                    block,
-                );
+                try self.setupChunkCallFrame(method_chunk, receiver, dispatch.args, .{
+                    .kw_keys = dispatch.kw_keys,
+                    .kw_values = dispatch.kw_values,
+                    .method_name = resolved.name.name,
+                    .super_defining_class = resolved.owner_class,
+                    .block = block,
+                });
 
                 try self.executeUntilReturn(saved_frame_count);
                 return (try self.finishSubcallFromStack(saved_frame_count, saved_stack_len)).value();
@@ -7912,16 +7903,13 @@ pub const VM = struct {
 
         switch (method.entry.method) {
             .chunk => |method_chunk| {
-                try self.setupChunkCallFrame(
-                    method_chunk,
-                    receiver,
-                    dispatch.args,
-                    dispatch.kw_keys,
-                    dispatch.kw_values,
-                    method.name.name,
-                    method.owner_class,
-                    block,
-                );
+                try self.setupChunkCallFrame(method_chunk, receiver, dispatch.args, .{
+                    .kw_keys = dispatch.kw_keys,
+                    .kw_values = dispatch.kw_values,
+                    .method_name = method.name.name,
+                    .super_defining_class = method.owner_class,
+                    .block = block,
+                });
             },
             .builtin => |fun_ptr| {
                 // Special case: Proc#call on chunk proc — push frame inline to avoid recursion
@@ -8524,16 +8512,13 @@ pub const VM = struct {
             .chunk => |method_chunk| {
                 const kw_keys = if (frame.forwarded_keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_keys else null else null;
                 const kw_values = if (frame.forwarded_keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_values else null else null;
-                try self.setupChunkCallFrame(
-                    method_chunk,
-                    receiver,
-                    args,
-                    kw_keys,
-                    kw_values,
-                    resolved.name.name,
-                    resolved.owner_class,
-                    block,
-                );
+                try self.setupChunkCallFrame(method_chunk, receiver, args, .{
+                    .kw_keys = kw_keys,
+                    .kw_values = kw_values,
+                    .method_name = resolved.name.name,
+                    .super_defining_class = resolved.owner_class,
+                    .block = block,
+                });
             },
             .builtin => |fun_ptr| {
                 // For builtin methods, we need a mutable copy
