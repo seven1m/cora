@@ -2,6 +2,7 @@ const value_test = @import("value_test.zig");
 const prism_test = @import("prism_test.zig");
 const binary_test = @import("binary_test.zig");
 const exit_test = @import("exit_test.zig");
+const delegate_test = @import("delegate_test.zig");
 const fileutils_test = @import("fileutils_test.zig");
 const json_test = @import("json_test.zig");
 const logger_test = @import("logger_test.zig");
@@ -91,6 +92,7 @@ comptime {
     _ = prism_test;
     _ = binary_test;
     _ = exit_test;
+    _ = delegate_test;
     _ = fileutils_test;
     _ = json_test;
     _ = logger_test;

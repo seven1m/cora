@@ -104,6 +104,10 @@ fn configureLoadPath(
             defer allocator.free(installed_logger);
             try appendLoadPathIfExists(virtual_machine, io, installed_logger);
 
+            const installed_delegate = try std.fs.path.join(allocator, &.{ exe_dir, "..", "lib", "delegate", "lib" });
+            defer allocator.free(installed_delegate);
+            try appendLoadPathIfExists(virtual_machine, io, installed_delegate);
+
             const installed_time = try std.fs.path.join(allocator, &.{ exe_dir, "..", "lib", "time", "lib" });
             defer allocator.free(installed_time);
             try appendLoadPathIfExists(virtual_machine, io, installed_time);
@@ -128,6 +132,10 @@ fn configureLoadPath(
             defer allocator.free(repo_logger);
             try appendLoadPathIfExists(virtual_machine, io, repo_logger);
 
+            const repo_delegate = try std.fs.path.join(allocator, &.{ exe_dir, "..", "..", "ext", "delegate", "lib" });
+            defer allocator.free(repo_delegate);
+            try appendLoadPathIfExists(virtual_machine, io, repo_delegate);
+
             const repo_time = try std.fs.path.join(allocator, &.{ exe_dir, "..", "..", "ext", "time", "lib" });
             defer allocator.free(repo_time);
             try appendLoadPathIfExists(virtual_machine, io, repo_time);
@@ -147,6 +155,7 @@ fn configureLoadPath(
     try appendLoadPathIfExists(virtual_machine, io, "lib/stdlib");
     try appendLoadPathIfExists(virtual_machine, io, "ext/rubygems/lib");
     try appendLoadPathIfExists(virtual_machine, io, "ext/logger/lib");
+    try appendLoadPathIfExists(virtual_machine, io, "ext/delegate/lib");
     try appendLoadPathIfExists(virtual_machine, io, "ext/time/lib");
     try appendLoadPathIfExists(virtual_machine, io, "ext/optparse/lib");
     try appendLoadPathIfExists(virtual_machine, io, "ext/uri/lib");

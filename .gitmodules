@@ -22,3 +22,6 @@
 [submodule "ext/uri"]
 	path = ext/uri
 	url = https://github.com/ruby/uri
+[submodule "ext/delegate"]
+	path = ext/delegate
+	url = https://github.com/ruby/delegate
