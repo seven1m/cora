@@ -4877,6 +4877,16 @@ pub const VM = struct {
                 }
             },
 
+            .SETN => {
+                const depth = readByteFrom(frame, operands, &operand_cursor);
+                const len = self.stack.items.len;
+                if (len <= depth) {
+                    return error.Fatal;
+                }
+
+                self.stack.storage[len - 1 - depth] = self.peek(0);
+            },
+
             .SWAP => {
                 // Swap top two stack items
                 const a = self.pop();

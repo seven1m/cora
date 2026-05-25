@@ -6,6 +6,7 @@ const c = @cImport(@cInclude("prism.h"));
 pub const RawNode = c.pm_node_t;
 pub const RANGE_FLAGS_EXCLUDE_END = c.PM_RANGE_FLAGS_EXCLUDE_END;
 pub const CALL_NODE_FLAGS_SAFE_NAVIGATION = c.PM_CALL_NODE_FLAGS_SAFE_NAVIGATION;
+pub const CALL_NODE_FLAGS_ATTRIBUTE_WRITE = c.PM_CALL_NODE_FLAGS_ATTRIBUTE_WRITE;
 pub const LOOP_FLAGS_BEGIN_MODIFIER = c.PM_LOOP_FLAGS_BEGIN_MODIFIER;
 
 pub const ArgumentsNode = c.pm_arguments_node_t;

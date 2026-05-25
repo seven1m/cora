@@ -162,37 +162,29 @@ describe "Invoking a method" do
     end
 
     it "with *args in the [] expanded to individual arguments" do
-      CORAFIXME "assignment expressions return method result instead of assigned value", exception: SpecFailedException do
-        ary = [2,3]
-        (@obj[1, *ary] = 4).should == 4
-        @obj.result.should == [1,2,3,4]
-      end
+      ary = [2,3]
+      (@obj[1, *ary] = 4).should == 4
+      @obj.result.should == [1,2,3,4]
     end
 
     it "with multiple *args" do
-      CORAFIXME "assignment expressions return method result instead of assigned value", exception: SpecFailedException do
-        ary = [2,3]
-        post = [4,5]
-        (@obj[1, *ary] = *post).should == [4,5]
-        @obj.result.should == [1,2,3,[4,5]]
-      end
+      ary = [2,3]
+      post = [4,5]
+      (@obj[1, *ary] = *post).should == [4,5]
+      @obj.result.should == [1,2,3,[4,5]]
     end
 
     it "with multiple *args and does not unwrap the last splat" do
-      CORAFIXME "assignment expressions return method result instead of assigned value", exception: SpecFailedException do
-        ary = [2,3]
-        post = [4]
-        (@obj[1, *ary] = *post).should == [4]
-        @obj.result.should == [1,2,3,[4]]
-      end
+      ary = [2,3]
+      post = [4]
+      (@obj[1, *ary] = *post).should == [4]
+      @obj.result.should == [1,2,3,[4]]
     end
 
     it "with a *args and multiple rhs args" do
-      CORAFIXME "assignment expressions return method result instead of assigned value", exception: SpecFailedException do
-        ary = [2,3]
-        (@obj[1, *ary] = 4, 5).should == [4,5]
-        @obj.result.should == [1,2,3,[4,5]]
-      end
+      ary = [2,3]
+      (@obj[1, *ary] = 4, 5).should == [4,5]
+      @obj.result.should == [1,2,3,[4,5]]
     end
   end
 
@@ -250,32 +242,28 @@ end
 
 describe "Invoking a public setter method" do
   it 'returns the set value' do
-    CORAFIXME "setter assignment expressions return method result instead of assigned value", exception: SpecFailedException do
-      klass = Class.new do
-        def foobar=(*)
-          1
-        end
+    klass = Class.new do
+      def foobar=(*)
+        1
       end
-
-      (klass.new.foobar = 'bar').should == 'bar'
-      (klass.new.foobar = 'bar', 'baz').should == ["bar", "baz"]
     end
+
+    (klass.new.foobar = 'bar').should == 'bar'
+    (klass.new.foobar = 'bar', 'baz').should == ["bar", "baz"]
   end
 end
 
 describe "Invoking []= methods" do
   it 'returns the set value' do
-    CORAFIXME "index assignment expressions return method result instead of assigned value", exception: SpecFailedException do
-      klass = Class.new do
-        def []=(*)
-          1
-        end
+    klass = Class.new do
+      def []=(*)
+        1
       end
-
-      (klass.new[33] = 'bar').should == 'bar'
-      (klass.new[33] = 'bar', 'baz').should == ['bar', 'baz']
-      (klass.new[33, 34] = 'bar', 'baz').should == ['bar', 'baz']
     end
+
+    (klass.new[33] = 'bar').should == 'bar'
+    (klass.new[33] = 'bar', 'baz').should == ['bar', 'baz']
+    (klass.new[33, 34] = 'bar', 'baz').should == ['bar', 'baz']
   end
 end
 

@@ -37,6 +37,7 @@ pub const OpCode = enum(u8) {
     POP, // No operands
     DUP, // No operands
     DUP_N, // Operand: u8 (duplicate top N stack items in order)
+    SETN, // Operand: u8 (copy top stack item into the Nth slot below it)
     SWAP, // No operands - swaps top two stack items
     CASE_MATCH, // No operands
     WHEN_SPLAT, // Operand: u8 (0=truthy any, 1=case match any)
@@ -192,6 +193,7 @@ pub fn opcodeOperandSize(op: OpCode) usize {
 
         // 1-byte operands
         .DUP_N,
+        .SETN,
         .YIELD,
         .RETURN,
         .WHEN_SPLAT,
@@ -310,6 +312,7 @@ pub fn opcodeName(op: OpCode) []const u8 {
         .POP => "POP",
         .DUP => "DUP",
         .DUP_N => "DUP_N",
+        .SETN => "SETN",
         .SWAP => "SWAP",
         .CASE_MATCH => "CASE_MATCH",
         .WHEN_SPLAT => "WHEN_SPLAT",

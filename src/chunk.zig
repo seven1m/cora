@@ -543,7 +543,7 @@ pub const Chunk = struct {
                 try writer.print("{s} {d}\n", .{ bytecode.opcodeName(op), idx });
             },
 
-            .PUSH_RANGE, .INTERPOLATE_STRING, .RAISE, .CATCH_START, .DUP_N, .YIELD => {
+            .PUSH_RANGE, .INTERPOLATE_STRING, .RAISE, .CATCH_START, .DUP_N, .SETN, .YIELD => {
                 const idx = self.code.items[ip];
                 ip += 1;
                 try writer.print("{s} {d}\n", .{ bytecode.opcodeName(op), idx });

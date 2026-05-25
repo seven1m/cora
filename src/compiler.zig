@@ -743,6 +743,11 @@ pub const Compiler = struct {
                     return;
                 }
 
+                if ((call_node.base.flags & prism.CALL_NODE_FLAGS_ATTRIBUTE_WRITE) != 0) {
+                    try self.compileAttributeWriteCall(call_node, line);
+                    return;
+                }
+
                 const safe_navigation = call_node.receiver != null and
                     (call_node.base.flags & prism.CALL_NODE_FLAGS_SAFE_NAVIGATION) != 0;
 
@@ -2648,6 +2653,8 @@ pub const Compiler = struct {
             try self.current_chunk.emitOp(.PUSH_SELF, line);
         }
 
+        try self.current_chunk.emitOp(.PUSH_NIL, line);
+        try self.current_chunk.emitOp(.SWAP, line);
         try self.current_chunk.emitOp(.DUP, line);
 
         const read_name = try self.parser.getConstantName(call_write.read_name);
@@ -2660,14 +2667,17 @@ pub const Compiler = struct {
 
         const value_node = try self.parser.asNode(@ptrCast(call_write.value));
         try self.compileNode(value_node, line);
+        try self.current_chunk.emitOpU8(.SETN, 2, line);
 
         const write_name = try self.parser.getConstantName(call_write.write_name);
         const write_idx = try self.current_chunk.addConstant(.{ .string = write_name });
         try self.current_chunk.emitCall(@intCast(write_idx), 1, @intFromEnum(receiver_style), 0, line);
+        try self.current_chunk.emitOp(.POP, line);
         const jump_end = try self.current_chunk.emitJump(.JUMP, line);
 
         try self.current_chunk.patchJump(jump_existing);
-        try self.current_chunk.emitOp(.SWAP, line);
+        try self.current_chunk.emitOpU8(.SETN, 2, line);
+        try self.current_chunk.emitOp(.POP, line);
         try self.current_chunk.emitOp(.POP, line);
 
         try self.current_chunk.patchJump(jump_end);
@@ -2698,6 +2708,8 @@ pub const Compiler = struct {
             try self.current_chunk.emitOp(.PUSH_SELF, line);
         }
 
+        try self.current_chunk.emitOp(.PUSH_NIL, line);
+        try self.current_chunk.emitOp(.SWAP, line);
         try self.current_chunk.emitOp(.DUP, line);
 
         const read_name = try self.parser.getConstantName(call_write.read_name);
@@ -2710,14 +2722,17 @@ pub const Compiler = struct {
 
         const value_node = try self.parser.asNode(@ptrCast(call_write.value));
         try self.compileNode(value_node, line);
+        try self.current_chunk.emitOpU8(.SETN, 2, line);
 
         const write_name = try self.parser.getConstantName(call_write.write_name);
         const write_idx = try self.current_chunk.addConstant(.{ .string = write_name });
         try self.current_chunk.emitCall(@intCast(write_idx), 1, @intFromEnum(receiver_style), 0, line);
+        try self.current_chunk.emitOp(.POP, line);
         const jump_end = try self.current_chunk.emitJump(.JUMP, line);
 
         try self.current_chunk.patchJump(jump_existing);
-        try self.current_chunk.emitOp(.SWAP, line);
+        try self.current_chunk.emitOpU8(.SETN, 2, line);
+        try self.current_chunk.emitOp(.POP, line);
         try self.current_chunk.emitOp(.POP, line);
 
         try self.current_chunk.patchJump(jump_end);
@@ -2732,6 +2747,8 @@ pub const Compiler = struct {
             try self.current_chunk.emitOp(.PUSH_SELF, line);
         }
 
+        try self.current_chunk.emitOp(.PUSH_NIL, line);
+        try self.current_chunk.emitOp(.SWAP, line);
         try self.current_chunk.emitOp(.DUP, line);
 
         const read_name = try self.parser.getConstantName(call_write.read_name);
@@ -2745,10 +2762,77 @@ pub const Compiler = struct {
         const operator_idx = try self.current_chunk.addConstant(.{ .string = operator_name });
         const explicit_receiver_style: u8 = @intFromEnum(bytecode.ReceiverCallStyle.explicit);
         try self.current_chunk.emitCall(@intCast(operator_idx), 1, explicit_receiver_style, 0, line);
+        try self.current_chunk.emitOpU8(.SETN, 2, line);
 
         const write_name = try self.parser.getConstantName(call_write.write_name);
         const write_idx = try self.current_chunk.addConstant(.{ .string = write_name });
         try self.current_chunk.emitCall(@intCast(write_idx), 1, @intFromEnum(receiver_style), 0, line);
+        try self.current_chunk.emitOp(.POP, line);
+    }
+
+    fn compileAttributeWriteCall(self: *Compiler, call_node: *prism.CallNode, line: u32) !void {
+        const safe_navigation = call_node.receiver != null and
+            (call_node.base.flags & prism.CALL_NODE_FLAGS_SAFE_NAVIGATION) != 0;
+        var safe_nav_jump_nil: ?usize = null;
+
+        if (call_node.receiver) |receiver_ptr| {
+            const receiver_node = try self.parser.asNode(@ptrCast(receiver_ptr));
+            try self.compileNode(receiver_node, line);
+            if (safe_navigation) {
+                try self.current_chunk.emitOp(.DUP, line);
+                safe_nav_jump_nil = try self.current_chunk.emitJump(.JUMP_IF_NIL, line);
+            }
+        } else {
+            try self.current_chunk.emitOp(.PUSH_SELF, line);
+        }
+
+        try self.current_chunk.emitOp(.PUSH_NIL, line);
+        try self.current_chunk.emitOp(.SWAP, line);
+
+        const receiver_style: bytecode.ReceiverCallStyle = if (call_node.receiver != null) .explicit else .implicit_self;
+        const args_ptr = if (call_node.arguments != null) @as(*prism.ArgumentsNode, @ptrCast(call_node.arguments.?)) else null;
+        const compiled_args = try self.compileCallArguments(args_ptr, line);
+
+        if (compiled_args.args_array_mode) {
+            try self.current_chunk.emitOp(.DUP, line);
+            const minus_one_idx = try self.current_chunk.addConstant(.{ .integer = -1 });
+            try self.current_chunk.emitOpU16(.PUSH_CONST, @intCast(minus_one_idx), line);
+            const bracket_idx = try self.current_chunk.addConstant(.{ .string = "[]" });
+            const explicit_receiver_style: u8 = @intFromEnum(bytecode.ReceiverCallStyle.explicit);
+            try self.current_chunk.emitCall(@intCast(bracket_idx), 1, explicit_receiver_style, 0, line);
+            try self.current_chunk.emitOpU8(.SETN, 3, line);
+            try self.current_chunk.emitOp(.POP, line);
+        } else {
+            try self.current_chunk.emitOpU8(.SETN, compiled_args.argc + 1, line);
+        }
+
+        const method_name = try self.parser.getConstantName(call_node.name);
+        const method_idx = try self.current_chunk.addConstant(.{ .string = method_name });
+        const call_flags = bytecode.addKwHashFlag(
+            bytecode.encodeCallFlags(receiver_style, compiled_args.args_array_mode),
+            compiled_args.kw_hash_mode,
+        );
+
+        if (compiled_args.kwargc > 0 or compiled_args.kw_hash_mode) {
+            try self.current_chunk.emitCallKw(
+                @intCast(method_idx),
+                compiled_args.argc,
+                compiled_args.kwargc,
+                call_flags,
+                compiled_args.kw_metadata_idx orelse 0,
+                0,
+                line,
+            );
+        } else {
+            try self.current_chunk.emitCall(@intCast(method_idx), compiled_args.argc, call_flags, 0, line);
+        }
+        try self.current_chunk.emitOp(.POP, line);
+
+        if (safe_nav_jump_nil) |jump_nil| {
+            const jump_end = try self.current_chunk.emitJump(.JUMP, line);
+            try self.current_chunk.patchJump(jump_nil);
+            try self.current_chunk.patchJump(jump_end);
+        }
     }
 
     fn compileLocalOperatorWrite(self: *Compiler, var_write: *prism.LocalVariableOperatorWriteNode, line: u32) !void {
