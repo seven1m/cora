@@ -119,6 +119,14 @@ fn configureLoadPath(
             const repo_uri = try std.fs.path.join(allocator, &.{ exe_dir, "..", "..", "ext", "uri", "lib" });
             defer allocator.free(repo_uri);
             try appendLoadPathIfExists(virtual_machine, io, repo_uri);
+
+            const repo_tmpdir = try std.fs.path.join(allocator, &.{ exe_dir, "..", "..", "ext", "tmpdir", "lib" });
+            defer allocator.free(repo_tmpdir);
+            try appendLoadPathIfExists(virtual_machine, io, repo_tmpdir);
+
+            const repo_tempfile = try std.fs.path.join(allocator, &.{ exe_dir, "..", "..", "ext", "tempfile", "lib" });
+            defer allocator.free(repo_tempfile);
+            try appendLoadPathIfExists(virtual_machine, io, repo_tempfile);
         }
     } else {
         try virtual_machine.setRubyExecutablePath(argv0);

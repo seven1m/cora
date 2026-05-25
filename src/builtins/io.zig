@@ -147,6 +147,9 @@ pub fn register(vm: *VM) !void {
     const path_sym = try vm.intern("path");
     try vm.io_class.module.methods.put(path_sym, value.MethodEntry.builtin(&builtinIoPath, .{ .exact = 0 }));
 
+    const to_path_sym = try vm.intern("to_path");
+    try vm.io_class.module.methods.put(to_path_sym, value.MethodEntry.builtin(&builtinIoPath, .{ .exact = 0 }));
+
     const pos_sym = try vm.intern("pos");
     try vm.io_class.module.methods.put(pos_sym, value.MethodEntry.builtin(&builtinIoPos, .{ .exact = 0 }));
 

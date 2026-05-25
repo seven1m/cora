@@ -646,6 +646,18 @@ pub fn register(vm: *VM) !void {
 
     const executable_q_sym = try vm.intern("executable?");
     try vm.file_stat_class.module.methods.put(executable_q_sym, value.MethodEntry.builtin(&builtinFileStatExecutableQ, .{ .exact = 0 }));
+
+    const world_writable_q_sym = try vm.intern("world_writable?");
+    try vm.file_stat_class.module.methods.put(world_writable_q_sym, value.MethodEntry.builtin(&builtinFileStatWorldWritableQ, .{ .exact = 0 }));
+
+    const sticky_q_sym = try vm.intern("sticky?");
+    try vm.file_stat_class.module.methods.put(sticky_q_sym, value.MethodEntry.builtin(&builtinFileStatStickyQ, .{ .exact = 0 }));
+
+    const readable_q_sym = try vm.intern("readable?");
+    try vm.file_stat_class.module.methods.put(readable_q_sym, value.MethodEntry.builtin(&builtinFileStatReadableQ, .{ .exact = 0 }));
+
+    const writable_q_sym = try vm.intern("writable?");
+    try vm.file_stat_class.module.methods.put(writable_q_sym, value.MethodEntry.builtin(&builtinFileStatWritableQ, .{ .exact = 0 }));
 }
 
 fn parseMode(vm: *VM, mode_str: []const u8) VMError!FileMode {
@@ -757,7 +769,8 @@ fn fileOpenConfig(vm: *VM, args: []Value) VMError!FileOpenConfig {
     var internal_encoding: ?Value = null;
     var autoclose: ?Value = null;
     var path: ?Value = null;
-    try vm.consumeKeywordArgs(.{ "external_encoding", "internal_encoding", "autoclose", "path" }, .{ &external_encoding, &internal_encoding, &autoclose, &path });
+    var perm: ?Value = null;
+    try vm.consumeKeywordArgs(.{ "external_encoding", "internal_encoding", "autoclose", "path", "perm" }, .{ &external_encoding, &internal_encoding, &autoclose, &path, &perm });
     try vm.validateKeywordArgsConsumed();
 
     const parsed = try pathAndMode(vm, args);
@@ -766,6 +779,10 @@ fn fileOpenConfig(vm: *VM, args: []Value) VMError!FileOpenConfig {
         .mode = parsed.mode,
         .create_mode = parsed.create_mode,
     };
+
+    if (perm) |perm_val| {
+        config.create_mode = try coerceModeBits(vm, perm_val);
+    }
 
     if (external_encoding) |encoding_arg| {
         config.external_encoding = try resolveEncodingValue(vm, encoding_arg);
@@ -1840,6 +1857,38 @@ pub fn builtinFileStatExecutableQ(vm: *VM, receiver: Value, args: []Value, _: ?B
     try vm.requireArgCount(args, 0);
     const mode = try fileStatIntegerIvar(vm, receiver, "@mode");
     return Value.boolean(mode.isInteger() and (mode.toInteger() & 0o111) != 0);
+}
+
+// world_writable? returns the mode integer if world-writable, nil otherwise.
+// In Ruby: (mode & 0o002 != 0) ? (mode & 0o7777) : nil
+pub fn builtinFileStatWorldWritableQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const mode = try fileStatIntegerIvar(vm, receiver, "@mode");
+    if (!mode.isInteger()) return Value.nil();
+    const m = mode.toInteger();
+    if ((m & 0o002) != 0) return Value.integer(m & 0o7777);
+    return Value.nil();
+}
+
+// sticky? returns true if the sticky bit is set.
+pub fn builtinFileStatStickyQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const mode = try fileStatIntegerIvar(vm, receiver, "@mode");
+    return Value.boolean(mode.isInteger() and (mode.toInteger() & 0o1000) != 0);
+}
+
+// readable? returns true if world-readable or readable by owner/group.
+pub fn builtinFileStatReadableQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const mode = try fileStatIntegerIvar(vm, receiver, "@mode");
+    return Value.boolean(mode.isInteger() and (mode.toInteger() & 0o444) != 0);
+}
+
+// writable? returns true if world-writable or writable by owner/group.
+pub fn builtinFileStatWritableQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const mode = try fileStatIntegerIvar(vm, receiver, "@mode");
+    return Value.boolean(mode.isInteger() and (mode.toInteger() & 0o222) != 0);
 }
 
 pub fn builtinFileFnmatch(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

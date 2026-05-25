@@ -25,3 +25,9 @@
 [submodule "ext/delegate"]
 	path = ext/delegate
 	url = https://github.com/ruby/delegate
+[submodule "ext/tmpdir"]
+	path = ext/tmpdir
+	url = https://github.com/ruby/tmpdir
+[submodule "ext/tempfile"]
+	path = ext/tempfile
+	url = https://github.com/ruby/tempfile
