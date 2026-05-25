@@ -546,6 +546,9 @@ pub fn register(vm: *VM) !void {
     const basename_sym = try vm.intern("basename");
     try file_singleton.module.methods.put(basename_sym, value.MethodEntry.builtin(&builtinFileBasename, .{ .variadic = 0 }));
 
+    const extname_sym = try vm.intern("extname");
+    try file_singleton.module.methods.put(extname_sym, value.MethodEntry.builtin(&builtinFileExtname, .{ .exact = 1 }));
+
     const split_sym = try vm.intern("split");
     try file_singleton.module.methods.put(split_sym, value.MethodEntry.builtin(&builtinFileSplit, .{ .exact = 1 }));
 
@@ -958,6 +961,34 @@ fn dirnameBytesAlloc(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     const last_slash = std.mem.lastIndexOfScalar(u8, trimmed, '/') orelse return allocator.dupe(u8, ".");
     if (last_slash == 0) return allocator.dupe(u8, "/");
     return allocator.dupe(u8, trimmed[0..last_slash]);
+}
+
+fn extnameBytesAlloc(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
+    if (path.len == 0) return allocator.dupe(u8, "");
+
+    // Strip trailing slashes (keep at least one char)
+    var end = path.len;
+    while (end > 1 and path[end - 1] == '/') : (end -= 1) {}
+    const trimmed = path[0..end];
+
+    // Find start of basename (after last '/')
+    var p: usize = if (std.mem.lastIndexOfScalar(u8, trimmed, '/')) |slash|
+        slash + 1
+    else
+        0;
+
+    // Skip all leading dots in the basename (handles ".bashrc", "...", etc.)
+    while (p < trimmed.len and trimmed[p] == '.') : (p += 1) {}
+
+    // Find last '.' in the remaining basename characters
+    var e: ?usize = null;
+    var i = p;
+    while (i < trimmed.len) : (i += 1) {
+        if (trimmed[i] == '.') e = i;
+    }
+
+    if (e == null) return allocator.dupe(u8, "");
+    return allocator.dupe(u8, trimmed[e.?..]);
 }
 
 fn basenameBytesAlloc(allocator: std.mem.Allocator, path: []const u8, suffix_opt: ?[]const u8) ![]u8 {
@@ -1417,6 +1448,15 @@ pub fn builtinFileBasename(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
     const base = basenameBytesAlloc(vm.allocator, path_obj.str, suffix) catch return error.Fatal;
     defer vm.allocator.free(base);
     return try vm.newStringWithEncoding(base, false, path_obj.encoding);
+}
+
+pub fn builtinFileExtname(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const path_value = try vm.coerceToPathValue(args[0], "no implicit conversion into String");
+    const path_obj = path_value.toStringObject();
+    const ext = extnameBytesAlloc(vm.allocator, path_obj.str) catch return error.Fatal;
+    defer vm.allocator.free(ext);
+    return try vm.newStringWithEncoding(ext, false, path_obj.encoding);
 }
 
 pub fn builtinFileSplit(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
