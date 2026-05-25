@@ -3218,17 +3218,21 @@ pub const VM = struct {
     /// Push a frame for a block/proc/lambda invocation.
     /// Uses `defining_ep` (the ep of the scope where the block was defined) as the
     /// lexical parent (ep[0]), matching MRI's SPECVAL prev-ep convention.
+    pub const BlockFrameOptions = struct {
+        block: ?Block = null,
+        return_target_ep: ?[*]Value = null,
+        break_target_frame_idx: ?usize = null,
+        next_target_frame_idx: ?usize = null,
+        method_definition_target: ?Value = null,
+    };
+
     fn pushBlockFrame(
         self: *VM,
         ch: *Chunk,
         defining_ep: [*]Value,
         self_value: Value,
         frame_type: CallFrame.FrameType,
-        block: ?Block,
-        return_target_ep: ?[*]Value,
-        break_target_frame_idx: ?usize,
-        next_target_frame_idx: ?usize,
-        method_definition_target: ?Value,
+        opts: BlockFrameOptions,
     ) VMError!void {
         if (self.frames.items.len >= self.frames.capacity) {
             const exc = try self.createException(self.fiber_error_class, "fiber call stack overflow");
@@ -3252,7 +3256,7 @@ pub const VM = struct {
         const ep: [*]Value = self.stack.items[locals_base + locals_count ..].ptr;
         ep[0] = encodeEp(defining_ep);
         const lexical_scope = ch.lexical_scope orelse self.current_lexical_scope;
-        ep[1] = try self.frameScopeValue(lexical_scope, null, method_definition_target);
+        ep[1] = try self.frameScopeValue(lexical_scope, null, opts.method_definition_target);
         ep[2] = Value.integer(locals_count);
 
         self.frames.append(self.gc_allocator, CallFrame{
@@ -3262,11 +3266,11 @@ pub const VM = struct {
             .ep = ep,
             .stack_base = needed,
             .self_value = self_value,
-            .block = block,
+            .block = opts.block,
             .frame_type = frame_type,
-            .return_target_ep = return_target_ep,
-            .break_target_frame_idx = break_target_frame_idx,
-            .next_target_frame_idx = next_target_frame_idx,
+            .return_target_ep = opts.return_target_ep,
+            .break_target_frame_idx = opts.break_target_frame_idx,
+            .next_target_frame_idx = opts.next_target_frame_idx,
         }) catch return error.Fatal;
 
         if (ch.lexical_scope) |scope| {
@@ -3519,7 +3523,7 @@ pub const VM = struct {
         const blk = fiber.block orelse return error.Fatal;
         switch (blk.kind) {
             .chunk => |chunk_blk| {
-                self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, chunk_blk.defining_self, .fiber, null, null, null, null, null) catch return error.Fatal;
+                self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, chunk_blk.defining_self, .fiber, .{}) catch return error.Fatal;
 
                 const current_frame = self.currentFrame();
                 self.copyArgumentsWithRestParam(chunk_blk.chunk, current_frame.ep, fiber.first_resume_args[0..fiber.first_resume_argc], .lenient) catch return error.Fatal;
@@ -3941,7 +3945,7 @@ pub const VM = struct {
         const blk = thread.block orelse return error.Fatal;
         switch (blk.kind) {
             .chunk => |chunk_blk| {
-                self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, chunk_blk.defining_self, .fiber, null, null, null, null, null) catch return error.Fatal;
+                self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, chunk_blk.defining_self, .fiber, .{}) catch return error.Fatal;
 
                 const current_frame = self.currentFrame();
                 const thread_args = thread.args orelse &[_]Value{};
@@ -5875,17 +5879,12 @@ pub const VM = struct {
                         const ft: CallFrame.FrameType = if (chunk_blk.chunk.is_lambda) .lambda else .proc;
                         const break_target_frame_idx = if (self.frames.items.len > 0) self.frames.items.len - 1 else null;
                         const next_target_frame_idx = self.frames.items.len;
-                        try self.pushBlockFrame(
-                            chunk_blk.chunk,
-                            chunk_blk.defining_ep,
-                            chunk_blk.defining_self,
-                            ft,
-                            if (chunk_blk.enclosing_block_proc) |proc_obj| proc_obj.block else null,
-                            chunk_blk.return_target_ep,
-                            break_target_frame_idx,
-                            next_target_frame_idx,
-                            null,
-                        );
+                        try self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, chunk_blk.defining_self, ft, .{
+                            .block = if (chunk_blk.enclosing_block_proc) |proc_obj| proc_obj.block else null,
+                            .return_target_ep = chunk_blk.return_target_ep,
+                            .break_target_frame_idx = break_target_frame_idx,
+                            .next_target_frame_idx = next_target_frame_idx,
+                        });
 
                         const arity_mode: ArityMode = if (chunk_blk.chunk.is_lambda) .strict else .lenient;
                         const block_frame = self.currentFrame();
@@ -5929,17 +5928,12 @@ pub const VM = struct {
                         const ft: CallFrame.FrameType = if (chunk_blk.chunk.is_lambda) .lambda else .proc;
                         const break_target_frame_idx = if (self.frames.items.len > 0) self.frames.items.len - 1 else null;
                         const next_target_frame_idx = self.frames.items.len;
-                        try self.pushBlockFrame(
-                            chunk_blk.chunk,
-                            chunk_blk.defining_ep,
-                            chunk_blk.defining_self,
-                            ft,
-                            if (chunk_blk.enclosing_block_proc) |proc_obj| proc_obj.block else null,
-                            chunk_blk.return_target_ep,
-                            break_target_frame_idx,
-                            next_target_frame_idx,
-                            null,
-                        );
+                        try self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, chunk_blk.defining_self, ft, .{
+                            .block = if (chunk_blk.enclosing_block_proc) |proc_obj| proc_obj.block else null,
+                            .return_target_ep = chunk_blk.return_target_ep,
+                            .break_target_frame_idx = break_target_frame_idx,
+                            .next_target_frame_idx = next_target_frame_idx,
+                        });
 
                         const arity_mode: ArityMode = if (chunk_blk.chunk.is_lambda) .strict else .lenient;
                         const block_frame = self.currentFrame();
@@ -7663,17 +7657,12 @@ pub const VM = struct {
                 const ft: CallFrame.FrameType = if (chunk_blk.chunk.is_lambda) .lambda else .proc;
                 const break_target_frame_idx = self.frames.items.len;
                 const next_target_frame_idx = self.frames.items.len;
-                try self.pushBlockFrame(
-                    chunk_blk.chunk,
-                    chunk_blk.defining_ep,
-                    chunk_blk.defining_self,
-                    ft,
-                    if (chunk_blk.enclosing_block_proc) |proc_obj| proc_obj.block else null,
-                    chunk_blk.return_target_ep,
-                    break_target_frame_idx,
-                    next_target_frame_idx,
-                    null,
-                );
+                 try self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, chunk_blk.defining_self, ft, .{
+                     .block = if (chunk_blk.enclosing_block_proc) |proc_obj| proc_obj.block else null,
+                     .return_target_ep = chunk_blk.return_target_ep,
+                     .break_target_frame_idx = break_target_frame_idx,
+                     .next_target_frame_idx = next_target_frame_idx,
+                 });
 
                 const arity_mode: ArityMode = if (chunk_blk.chunk.is_lambda) .strict else .lenient;
                 const block_frame = self.currentFrame();
@@ -7736,17 +7725,9 @@ pub const VM = struct {
                 }
 
                 const saved_stack_len = self.stack.items.len;
-                try self.pushBlockFrame(
-                    proc_chunk,
-                    chunk_blk.defining_ep,
-                    receiver,
-                    .method,
-                    procCallBlock(block, chunk_blk.enclosing_block_proc),
-                    null,
-                    null,
-                    null,
-                    null,
-                );
+                try self.pushBlockFrame(proc_chunk, chunk_blk.defining_ep, receiver, .method, .{
+                    .block = procCallBlock(block, chunk_blk.enclosing_block_proc),
+                });
 
                 const current_frame = self.currentFrame();
                 current_frame.method_name = method_name;
@@ -7846,17 +7827,12 @@ pub const VM = struct {
                 const saved_stack_len = self.stack.items.len;
                 const ft: CallFrame.FrameType = if (chunk_blk.chunk.is_lambda) .lambda else .proc;
                 const next_target_frame_idx = self.frames.items.len;
-                try self.pushBlockFrame(
-                    chunk_blk.chunk,
-                    chunk_blk.defining_ep,
-                    self_override orelse chunk_blk.defining_self,
-                    ft,
-                    procCallBlock(block, chunk_blk.enclosing_block_proc),
-                    chunk_blk.return_target_ep,
-                    null,
-                    next_target_frame_idx,
-                    method_definition_target,
-                );
+                try self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, self_override orelse chunk_blk.defining_self, ft, .{
+                    .block = procCallBlock(block, chunk_blk.enclosing_block_proc),
+                    .return_target_ep = chunk_blk.return_target_ep,
+                    .next_target_frame_idx = next_target_frame_idx,
+                    .method_definition_target = method_definition_target,
+                });
 
                 const current_frame = self.currentFrame();
                 const mode: ArityMode = if (chunk_blk.chunk.is_lambda) .strict else .lenient;
@@ -7957,17 +7933,11 @@ pub const VM = struct {
                             if (std.mem.eql(u8, mn, "call") or std.mem.eql(u8, mn, "[]") or std.mem.eql(u8, mn, "yield")) {
                                 const ft: CallFrame.FrameType = if (chunk_blk.chunk.is_lambda) .lambda else .proc;
                                 const next_target_frame_idx = self.frames.items.len;
-                                try self.pushBlockFrame(
-                                    chunk_blk.chunk,
-                                    chunk_blk.defining_ep,
-                                    chunk_blk.defining_self,
-                                    ft,
-                                    procCallBlock(block, chunk_blk.enclosing_block_proc),
-                                    chunk_blk.return_target_ep,
-                                    null,
-                                    next_target_frame_idx,
-                                    null,
-                                );
+                                try self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, chunk_blk.defining_self, ft, .{
+                                    .block = procCallBlock(block, chunk_blk.enclosing_block_proc),
+                                    .return_target_ep = chunk_blk.return_target_ep,
+                                    .next_target_frame_idx = next_target_frame_idx,
+                                });
 
                                 const current_frame = self.currentFrame();
                                 const mode: ArityMode = if (chunk_blk.chunk.is_lambda) .strict else .lenient;
@@ -8004,17 +7974,9 @@ pub const VM = struct {
                             return error.Unwind;
                         }
                         // De-recursed: push frame inline, return to dispatch loop
-                        try self.pushBlockFrame(
-                            proc_chunk,
-                            chunk_blk.defining_ep,
-                            receiver,
-                            .method,
-                            procCallBlock(block, chunk_blk.enclosing_block_proc),
-                            null,
-                            null,
-                            null,
-                            null,
-                        );
+                        try self.pushBlockFrame(proc_chunk, chunk_blk.defining_ep, receiver, .method, .{
+                            .block = procCallBlock(block, chunk_blk.enclosing_block_proc),
+                        });
 
                         const current_frame = self.currentFrame();
                         current_frame.method_name = method.name.name;
