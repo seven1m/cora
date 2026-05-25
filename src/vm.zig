@@ -373,6 +373,12 @@ const TempKeywordPairs = struct {
     }
 };
 
+const Ruby2KeywordsDispatch = struct {
+    args: []const Value,
+    kw_keys: ?[]const Value = null,
+    kw_values: ?[]const Value = null,
+};
+
 const SymbolEncodingTag = std.meta.Tag(enc.Encoding);
 
 const SymbolKey = struct {
@@ -5218,7 +5224,7 @@ pub const VM = struct {
                     self.stack.shrinkRetainingCapacity(receiver_index);
                 }
 
-                try self.callMethodHelperForExecuteInstruction(frame, callsite_byte_offset, method_name_sym, call_style, receiver, args, null, null, block);
+                try self.callMethodHelperForExecuteInstruction(frame, callsite_byte_offset, args_array_mode, method_name_sym, call_style, receiver, args, null, null, block);
             },
 
             .CALL_KW => {
@@ -5329,7 +5335,7 @@ pub const VM = struct {
                 }
 
                 // Call method with keywords
-                try self.callMethodHelperForExecuteInstruction(frame, callsite_byte_offset, method_name_sym, call_style, receiver, args, kw_key_slice, kw_value_slice, block);
+                try self.callMethodHelperForExecuteInstruction(frame, callsite_byte_offset, args_array_mode, method_name_sym, call_style, receiver, args, kw_key_slice, kw_value_slice, block);
             },
 
             .RETURN => {
@@ -5939,8 +5945,7 @@ pub const VM = struct {
                         .found => |found| found.entry,
                         else => null,
                     };
-                } else
-                    methods.get(old_name_sym);
+                } else methods.get(old_name_sym);
 
                 if (entry) |resolved_entry| {
                     methods.put(new_name_sym, resolved_entry) catch return error.Fatal;
@@ -6864,6 +6869,122 @@ pub const VM = struct {
         }
     }
 
+    fn chunkSupportsRuby2Keywords(self: *VM, ch: *const Chunk) bool {
+        _ = self;
+        return ch.rest_param_index != null and
+            ch.post_required_count == 0 and
+            !ch.no_keywords and
+            ch.required_keywords.items.len == 0 and
+            ch.optional_keywords.items.len == 0 and
+            ch.keyword_rest_index == null;
+    }
+
+    fn methodAcceptsKeywords(self: *VM, entry: MethodEntry) bool {
+        _ = self;
+        return switch (entry.method) {
+            .chunk => |ch| chunkAcceptsKeywords(ch),
+            .proc => |proc_obj| switch (proc_obj.block.kind) {
+                .chunk => |chunk_blk| chunkAcceptsKeywords(chunk_blk.chunk),
+                else => false,
+            },
+            .builtin, .undefined => false,
+        };
+    }
+
+    fn methodSupportsRuby2Keywords(self: *VM, entry: MethodEntry) bool {
+        if (!entry.ruby2_keywords) return false;
+        return switch (entry.method) {
+            .chunk => |ch| self.chunkSupportsRuby2Keywords(ch),
+            .proc => |proc_obj| switch (proc_obj.block.kind) {
+                .chunk => |chunk_blk| self.chunkSupportsRuby2Keywords(chunk_blk.chunk),
+                else => false,
+            },
+            .builtin, .undefined => false,
+        };
+    }
+
+    pub fn copyHashInto(self: *VM, target: *value.HashObject, source: *const value.HashObject, copy_ivars: bool) VMError!void {
+        target.entries.clearRetainingCapacity();
+        target.map.clearRetainingCapacity();
+        target.default_value = null;
+        target.default_proc = null;
+        target.compare_by_identity = source.compare_by_identity;
+        target.default_value = source.default_value;
+        target.default_proc = source.default_proc;
+        target.object.flags &= ~@as(u32, value.HASH_RUBY2_KEYWORDS_FLAG);
+        target.object.flags |= source.object.flags & value.HASH_RUBY2_KEYWORDS_FLAG;
+        for (source.entries.items) |entry| {
+            try self.hashSetEntry(target, entry.key, entry.value);
+        }
+        if (copy_ivars) {
+            target.object.instance_variables = null;
+            try self.copyObjectInstanceVariables(&source.object, &target.object);
+        }
+    }
+
+    pub fn copyHashObject(self: *VM, source: *const value.HashObject) VMError!*value.HashObject {
+        const copied_value = try self.newObjectForClass(source.object.class orelse self.hash_class);
+        const copied = copied_value.toHashObject();
+        try self.copyHashInto(copied, source, true);
+        return copied;
+    }
+
+    fn normalizeRuby2KeywordsDispatch(
+        self: *VM,
+        entry: MethodEntry,
+        args: []const Value,
+        kw_keys: ?[]const Value,
+        kw_values: ?[]const Value,
+        args_array_mode: bool,
+        args_temp: *TempValueSlice,
+        kw_temp: *TempKeywordPairs,
+    ) VMError!Ruby2KeywordsDispatch {
+        if (kw_values) |vals| {
+            if (vals.len > 0 and self.methodSupportsRuby2Keywords(entry)) {
+                const marked_hash = try self.createHashFromKeywordPairs(kw_keys.?, vals);
+                marked_hash.toHashObject().object.flags |= value.HASH_RUBY2_KEYWORDS_FLAG;
+                const expanded = try args_temp.initUninitialized(self, args.len + 1);
+                if (args.len > 0) {
+                    std.mem.copyForwards(Value, expanded[0..args.len], args);
+                }
+                expanded[args.len] = marked_hash;
+                return .{ .args = expanded };
+            }
+        }
+
+        if (kw_values != null or args.len == 0) {
+            return .{ .args = args, .kw_keys = kw_keys, .kw_values = kw_values };
+        }
+
+        if (!args_array_mode) {
+            return .{ .args = args, .kw_keys = kw_keys, .kw_values = kw_values };
+        }
+
+        const last = args[args.len - 1];
+        if (!last.isHash() or (last.toHashObject().object.flags & value.HASH_RUBY2_KEYWORDS_FLAG) == 0) {
+            return .{ .args = args, .kw_keys = kw_keys, .kw_values = kw_values };
+        }
+
+        if (self.methodAcceptsKeywords(entry)) {
+            try kw_temp.initFromHash(self, last);
+            return .{
+                .args = args[0 .. args.len - 1],
+                .kw_keys = kw_temp.keys.slice,
+                .kw_values = kw_temp.values.slice,
+            };
+        }
+
+        if (self.methodSupportsRuby2Keywords(entry)) {
+            return .{ .args = args, .kw_keys = kw_keys, .kw_values = kw_values };
+        }
+
+        const expanded = try args_temp.copyFrom(self, args);
+        const copied_hash = try self.copyHashObject(last.toHashObject());
+        copied_hash.object.flags &= ~@as(u32, value.HASH_RUBY2_KEYWORDS_FLAG);
+        expanded[expanded.len - 1] = Value.fromObject(&copied_hash.object);
+        return .{ .args = expanded, .kw_keys = kw_keys, .kw_values = kw_values };
+    }
+
     fn keywordNameForContextIndex(self: *VM, ctx: *const BuiltinKeywordContext, idx: usize) VMError![]const u8 {
         _ = self;
         if (idx >= ctx.kw_keys.len) return error.Fatal;
@@ -7095,18 +7216,39 @@ pub const VM = struct {
         block: ?Block,
         keyword_ctx: ?*BuiltinKeywordContext,
     ) VMError!Value {
+        var dispatch_args_temp: TempValueSlice = .{};
+        defer dispatch_args_temp.deinit(self.allocator);
+        var dispatch_kw_temp: TempKeywordPairs = .{};
+        defer dispatch_kw_temp.deinit(self.allocator);
+        const raw_kw_keys: ?[]const Value = if (keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_keys else null else null;
+        const raw_kw_values: ?[]const Value = if (keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_values else null else null;
+        const dispatch: Ruby2KeywordsDispatch = if (raw_kw_values != null)
+            try self.normalizeRuby2KeywordsDispatch(
+                resolved.entry,
+                args,
+                raw_kw_keys,
+                raw_kw_values,
+                false,
+                &dispatch_args_temp,
+                &dispatch_kw_temp,
+            )
+        else
+            .{
+                .args = args,
+                .kw_keys = null,
+                .kw_values = null,
+            };
+
         switch (resolved.entry.method) {
             .chunk => |method_chunk| {
                 const saved_frame_count = self.frames.items.len;
                 const saved_stack_len = self.stack.items.len;
-                const kw_keys = if (keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_keys else null else null;
-                const kw_values = if (keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_values else null else null;
                 try self.setupChunkCallFrame(
                     method_chunk,
                     receiver,
-                    args,
-                    kw_keys,
-                    kw_values,
+                    dispatch.args,
+                    dispatch.kw_keys,
+                    dispatch.kw_values,
                     resolved.name.name,
                     resolved.owner_class,
                     block,
@@ -7116,12 +7258,23 @@ pub const VM = struct {
                 return (try self.finishSubcallFromStack(saved_frame_count, saved_stack_len)).value();
             },
             .builtin => |fun_ptr| {
-                return self.invokeBuiltinMethod(fun_ptr, receiver, resolved.name.name, args, block, keyword_ctx);
+                const dispatch_keyword_ctx = if (dispatch.kw_values) |vals|
+                    if (vals.len > 0) (try self.copyKeywordContext(dispatch.kw_keys.?, vals)).? else null
+                else
+                    null;
+                return self.invokeBuiltinMethod(fun_ptr, receiver, resolved.name.name, @constCast(dispatch.args), block, dispatch_keyword_ctx);
             },
             .proc => |proc_obj| {
-                const kw_keys: ?[]const Value = if (keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_keys else null else null;
-                const kw_values: ?[]const Value = if (keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_values else null else null;
-                return self.callProcAsMethodWithKeywords(proc_obj, receiver, args, kw_keys, kw_values, block, resolved.name.name, resolved.owner_class);
+                return self.callProcAsMethodWithKeywords(
+                    proc_obj,
+                    receiver,
+                    dispatch.args,
+                    dispatch.kw_keys,
+                    dispatch.kw_values,
+                    block,
+                    resolved.name.name,
+                    resolved.owner_class,
+                );
             },
             .undefined => unreachable,
         }
@@ -7658,6 +7811,7 @@ pub const VM = struct {
         self: *VM,
         frame: *CallFrame,
         callsite_byte_offset: usize,
+        args_array_mode: bool,
         method_name_sym: *SymbolObject,
         call_style: ReceiverCallStyle,
         receiver: Value,
@@ -7677,15 +7831,34 @@ pub const VM = struct {
         }
 
         const method = resolved.?;
+        var dispatch_args_temp: TempValueSlice = .{};
+        defer dispatch_args_temp.deinit(self.allocator);
+        var dispatch_kw_temp: TempKeywordPairs = .{};
+        defer dispatch_kw_temp.deinit(self.allocator);
+        const dispatch = if (args_array_mode or kwargc > 0)
+            try self.normalizeRuby2KeywordsDispatch(
+                method.entry,
+                args,
+                if (kw_keys) |keys| keys else null,
+                if (kw_values) |vals| vals else null,
+                args_array_mode,
+                &dispatch_args_temp,
+                &dispatch_kw_temp,
+            )
+        else
+            Ruby2KeywordsDispatch{ .args = args };
+        const dispatch_kwargc: usize = if (dispatch.kw_values) |vals| vals.len else 0;
+        const dispatch_kw_keys: ?[]Value = if (dispatch.kw_keys) |keys| @constCast(keys) else null;
+        const dispatch_kw_values: ?[]Value = if (dispatch.kw_values) |vals| @constCast(vals) else null;
 
         switch (method.entry.method) {
             .chunk => |method_chunk| {
                 try self.setupChunkCallFrame(
                     method_chunk,
                     receiver,
-                    args,
-                    if (kw_keys) |keys| keys else null,
-                    if (kw_values) |vals| vals else null,
+                    dispatch.args,
+                    dispatch.kw_keys,
+                    dispatch.kw_values,
                     method.name.name,
                     method.owner_class,
                     block,
@@ -7693,7 +7866,7 @@ pub const VM = struct {
             },
             .builtin => |fun_ptr| {
                 // Special case: Proc#call on chunk proc — push frame inline to avoid recursion
-                if (kwargc == 0 and receiver.isProc()) {
+                if (dispatch_kwargc == 0 and receiver.isProc()) {
                     const proc_obj = receiver.toProcObject();
                     switch (proc_obj.block.kind) {
                         .chunk => |chunk_blk| {
@@ -7715,7 +7888,7 @@ pub const VM = struct {
 
                                 const current_frame = self.currentFrame();
                                 const mode: ArityMode = if (chunk_blk.chunk.is_lambda) .strict else .lenient;
-                                try self.copyArgumentsWithRestParam(chunk_blk.chunk, current_frame.ep, args, mode);
+                                try self.copyArgumentsWithRestParam(chunk_blk.chunk, current_frame.ep, dispatch.args, mode);
                                 return;
                             }
                         },
@@ -7723,21 +7896,13 @@ pub const VM = struct {
                     }
                 }
 
-                const maybe_keyword_ctx: ?*BuiltinKeywordContext = if (kwargc > 0) blk: {
-                    const keyword_ctx = self.gc_allocator.create(BuiltinKeywordContext) catch return error.Fatal;
-                    keyword_ctx.* = .{
-                        .kw_keys_storage = undefined,
-                        .kw_values_storage = undefined,
-                    };
-                    @memcpy(keyword_ctx.kw_keys_storage[0..kwargc], kw_keys.?);
-                    @memcpy(keyword_ctx.kw_values_storage[0..kwargc], kw_values.?);
-                    keyword_ctx.kw_keys = keyword_ctx.kw_keys_storage[0..kwargc];
-                    keyword_ctx.kw_values = keyword_ctx.kw_values_storage[0..kwargc];
-                    break :blk keyword_ctx;
-                } else null;
+                const maybe_keyword_ctx = if (dispatch_kwargc > 0)
+                    try self.copyKeywordContext(dispatch.kw_keys.?, dispatch.kw_values.?)
+                else
+                    null;
 
                 const saved_frame_len = self.frames.items.len;
-                const result = try self.invokeBuiltinMethod(fun_ptr, receiver, method.name.name, @constCast(args), block, maybe_keyword_ctx);
+                const result = try self.invokeBuiltinMethod(fun_ptr, receiver, method.name.name, @constCast(dispatch.args), block, maybe_keyword_ctx);
                 if (self.frames.items.len < saved_frame_len) {
                     // Builtins can trigger block returns that unwind past this call helper. In
                     // that case the surviving frame already has the right stack state/result.
@@ -7750,7 +7915,7 @@ pub const VM = struct {
                     .chunk => |chunk_blk| {
                         const proc_chunk = chunk_blk.chunk;
                         // Reject kwargs if chunk has no keyword params.
-                        if (kwargc > 0 and !chunkAcceptsKeywords(proc_chunk)) {
+                        if (dispatch_kwargc > 0 and !chunkAcceptsKeywords(proc_chunk)) {
                             const exc = try self.createException(self.argument_error_class, "this method does not accept keyword arguments");
                             self.setPendingException(exc);
                             return error.Unwind;
@@ -7771,11 +7936,11 @@ pub const VM = struct {
                         const current_frame = self.currentFrame();
                         current_frame.method_name = method.name.name;
                         current_frame.super_defining_class = method.owner_class;
-                        try self.copyArgumentsWithRestParam(proc_chunk, current_frame.ep, args, .strict);
+                        try self.copyArgumentsWithRestParam(proc_chunk, current_frame.ep, dispatch.args, .strict);
                         try self.bindMethodBlockParam(proc_chunk, current_frame, block);
 
-                        if (kwargc > 0) {
-                            try self.bindKeywordArguments(proc_chunk, current_frame.ep, kw_keys.?[0..kwargc], kw_values.?[0..kwargc]);
+                        if (dispatch_kwargc > 0) {
+                            try self.bindKeywordArguments(proc_chunk, current_frame.ep, dispatch_kw_keys.?[0..dispatch_kwargc], dispatch_kw_values.?[0..dispatch_kwargc]);
                         } else if (proc_chunk.optional_keywords.items.len > 0 or proc_chunk.keyword_rest_index != null) {
                             for (proc_chunk.optional_keywords.items) |opt_kw| {
                                 const default_chunk_inline = self.program.child_chunks.get(opt_kw.default_chunk_id).?;
@@ -7801,39 +7966,39 @@ pub const VM = struct {
                         }
                     },
                     .receiver_builtin => |builtin_data| {
-                        if (kwargc > 0) {
+                        if (dispatch_kwargc > 0) {
                             const exc = try self.createException(self.argument_error_class, "this method does not accept keyword arguments");
                             self.setPendingException(exc);
                             return error.Unwind;
                         }
-                        const result = try builtin_data.func(self, builtin_data.receiver, @constCast(args));
+                        const result = try builtin_data.func(self, builtin_data.receiver, @constCast(dispatch.args));
                         try self.push(result);
                     },
                     .symbol => |sym| {
-                        if (kwargc > 0) {
+                        if (dispatch_kwargc > 0) {
                             const exc = try self.createException(self.argument_error_class, "this method does not accept keyword arguments");
                             self.setPendingException(exc);
                             return error.Unwind;
                         }
-                        const result = try self.invokeSymbolProc(sym, args, block);
+                        const result = try self.invokeSymbolProc(sym, dispatch.args, block);
                         try self.push(result);
                     },
                     .builtin => |func| {
-                        if (kwargc > 0) {
+                        if (dispatch_kwargc > 0) {
                             const exc = try self.createException(self.argument_error_class, "this method does not accept keyword arguments");
                             self.setPendingException(exc);
                             return error.Unwind;
                         }
-                        const result = try func(self, @constCast(args));
+                        const result = try func(self, @constCast(dispatch.args));
                         try self.push(result);
                     },
                     .callable => |callable| {
-                        if (kwargc > 0) {
+                        if (dispatch_kwargc > 0) {
                             const exc = try self.createException(self.argument_error_class, "this method does not accept keyword arguments");
                             self.setPendingException(exc);
                             return error.Unwind;
                         }
-                        const result = try self.callMethodByName(callable, "call", @constCast(args), block);
+                        const result = try self.callMethodByName(callable, "call", @constCast(dispatch.args), block);
                         try self.push(result);
                     },
                 }

@@ -776,6 +776,56 @@ fn raiseUndefinedMethodName(vm: *VM, name_sym: *SymbolObject) VMError!Value {
     return error.Unwind;
 }
 
+fn methodBodiesMatch(a: MethodEntry, b: MethodEntry) bool {
+    return switch (a.method) {
+        .chunk => |a_chunk| switch (b.method) {
+            .chunk => |b_chunk| a_chunk == b_chunk,
+            else => false,
+        },
+        .proc => |a_proc| switch (b.method) {
+            .proc => |b_proc| a_proc == b_proc,
+            else => false,
+        },
+        .builtin => |a_builtin| switch (b.method) {
+            .builtin => |b_builtin| a_builtin.function == b_builtin.function,
+            else => false,
+        },
+        .undefined => b.method == .undefined,
+    };
+}
+
+fn methodSupportsRuby2Keywords(entry: MethodEntry) bool {
+    return switch (entry.method) {
+        .chunk => |ch| ch.rest_param_index != null and
+            ch.post_required_count == 0 and
+            !ch.no_keywords and
+            ch.required_keywords.items.len == 0 and
+            ch.optional_keywords.items.len == 0 and
+            ch.keyword_rest_index == null,
+        .proc => |proc_obj| switch (proc_obj.block.kind) {
+            .chunk => |chunk_blk| blk: {
+                const ch = chunk_blk.chunk;
+                break :blk ch.rest_param_index != null and
+                    ch.post_required_count == 0 and
+                    !ch.no_keywords and
+                    ch.required_keywords.items.len == 0 and
+                    ch.optional_keywords.items.len == 0 and
+                    ch.keyword_rest_index == null;
+            },
+            else => false,
+        },
+        .builtin, .undefined => false,
+    };
+}
+
+fn markRuby2KeywordsEntries(methods: *std.AutoHashMap(*SymbolObject, MethodEntry), target: MethodEntry) void {
+    var iter = methods.iterator();
+    while (iter.next()) |method_entry| {
+        if (!methodBodiesMatch(method_entry.value_ptr.*, target)) continue;
+        method_entry.value_ptr.ruby2_keywords = true;
+    }
+}
+
 fn setClassMethodVisibility(vm: *VM, receiver: Value, args: []Value, visibility: MethodVisibility) VMError!Value {
     if (args.len == 0) return Value.nil();
 
@@ -810,6 +860,44 @@ fn setClassMethodVisibility(vm: *VM, receiver: Value, args: []Value, visibility:
         arr.elements.append(vm.gc_allocator, Value.fromObject(&name_sym.object)) catch return error.Fatal;
     }
     return Value.fromObject(&arr.object);
+}
+
+pub fn builtinModuleRuby2Keywords(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireMinArgCount(args, 1);
+    const methods = receiver.getModuleMethods() orelse {
+        const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
+        vm.setPendingException(exc);
+        return error.Unwind;
+    };
+
+    for (args) |arg| {
+        const name_sym = try vm.coerceToMethodNameSymbol(arg);
+        const found = switch (resolveInstanceMethodLookup(vm, receiver, name_sym)) {
+            .found => |resolved| resolved,
+            .undefined, .not_found => return raiseUndefinedMethodName(vm, name_sym),
+        };
+
+        if (!methodSupportsRuby2Keywords(found.resolved.entry)) {
+            const warning = std.fmt.allocPrint(
+                vm.allocator,
+                "warning: Skipping set of ruby2_keywords flag for {s} (method accepts keywords or post arguments or method does not accept argument splat)\n",
+                .{name_sym.name},
+            ) catch return error.Fatal;
+            defer vm.allocator.free(warning);
+            try warning_builtin.writeWarning(vm, warning);
+            continue;
+        }
+
+        if (found.owner.getModuleMethods()) |owner_methods| {
+            markRuby2KeywordsEntries(owner_methods, found.resolved.entry);
+        } else {
+            markRuby2KeywordsEntries(methods, found.resolved.entry);
+        }
+    }
+
+    vm.markIntegerChangedForReceiver(receiver);
+    vm.bumpMethodStateVersion();
+    return Value.nil();
 }
 
 fn copyMethodToModuleSingleton(vm: *VM, module_receiver: Value, name_sym: *SymbolObject, entry: value.MethodEntry) VMError!void {
@@ -871,6 +959,9 @@ pub fn register(vm: *VM) !void {
     const module_function_sym = try vm.intern("module_function");
     try vm.module_class.module.methods.put(module_function_sym, value.MethodEntry.builtinWithVisibility(&builtinModuleFunction, .{ .variadic = 0 }, .private));
 
+    const ruby2_keywords_sym = try vm.intern("ruby2_keywords");
+    try vm.module_class.module.methods.put(ruby2_keywords_sym, value.MethodEntry.builtinWithVisibility(&builtinModuleRuby2Keywords, .{ .variadic = 0 }, .private));
+
     const private_class_method_sym = try vm.intern("private_class_method");
     try vm.module_class.module.methods.put(private_class_method_sym, value.MethodEntry.builtin(&builtinModulePrivateClassMethod, .{ .variadic = 0 }));
 
@@ -927,6 +1018,12 @@ pub fn register(vm: *VM) !void {
 
     const class_eval_sym = try vm.intern("class_eval");
     try vm.module_class.module.methods.put(class_eval_sym, value.MethodEntry.builtin(&builtinModuleEval, .{ .variadic = 0 }));
+
+    const module_exec_sym = try vm.intern("module_exec");
+    try vm.module_class.module.methods.put(module_exec_sym, value.MethodEntry.builtin(&builtinModuleExec, .{ .variadic = 0 }));
+
+    const class_exec_sym = try vm.intern("class_exec");
+    try vm.module_class.module.methods.put(class_exec_sym, value.MethodEntry.builtin(&builtinModuleExec, .{ .variadic = 0 }));
 
     const class_variable_get_sym = try vm.intern("class_variable_get");
     try vm.module_class.module.methods.put(class_variable_get_sym, value.MethodEntry.builtin(&builtinModuleClassVariableGet, .{ .exact = 1 }));
@@ -1831,6 +1928,12 @@ pub fn builtinModuleEval(vm: *VM, receiver: Value, args: []Value, block: ?Block)
             .line_offset = try evalLineOffset(vm, if (args.len >= 3) args[2] else null),
         },
     );
+}
+
+pub fn builtinModuleExec(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    const blk = try vm.requireBlock(block);
+    const proc_obj = (try vm.newProc(blk)).toProcObject();
+    return vm.callProcObject(proc_obj, args, null, receiver, receiver);
 }
 
 pub fn builtinModuleClassVariableGet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

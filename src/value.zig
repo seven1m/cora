@@ -66,6 +66,8 @@ pub const Object = struct {
     instance_variables: ?std.array_hash_map.Auto(*SymbolObject, Value),
 };
 
+pub const HASH_RUBY2_KEYWORDS_FLAG: u32 = 0x2;
+
 pub const SymbolObject = struct {
     object: Object,
     name: []const u8,
@@ -162,6 +164,7 @@ pub const BuiltinArity = union(enum) {
 pub const MethodEntry = struct {
     method: Method,
     visibility: MethodVisibility = .public,
+    ruby2_keywords: bool = false,
 
     pub fn builtin(function: *const fn (*VM, Value, []Value, ?Block) VMError!Value, arity: BuiltinArity) MethodEntry {
         return .{
@@ -209,7 +212,7 @@ pub const ArrayObject = struct {
 pub const BindingObject = struct {
     object: Object,
     self_value: Value,
-    ep: ?[*]Value,   // heap-promoted ep pointer (always promoted on binding creation)
+    ep: ?[*]Value, // heap-promoted ep pointer (always promoted on binding creation)
     lexical_scope: ?*LexicalScope,
 };
 
@@ -241,6 +244,7 @@ pub const HashObject = struct {
     default_value: ?Value = null,
     default_proc: ?*ProcObject = null,
     compare_by_identity: bool = false,
+    ruby2_keywords: bool = false,
 };
 
 pub const RangeObject = struct {
@@ -279,6 +283,7 @@ pub const UnboundMethodObject = struct {
 pub const ProcObject = struct {
     object: Object,
     block: Block,
+    ruby2_keywords: bool = false,
 };
 
 pub const FiberObject = struct {

@@ -970,7 +970,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [-] core/hash/rehash_spec.rb
 - [x] core/hash/reject_spec.rb
 - [x] core/hash/replace_spec.rb
-- [ ] core/hash/ruby2_keywords_hash_spec.rb
+- [x] core/hash/ruby2_keywords_hash_spec.rb
 - [x] core/hash/select_spec.rb
 - [x] core/hash/shift_spec.rb
 - [x] core/hash/size_spec.rb
@@ -1463,7 +1463,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/module/remove_class_variable_spec.rb
 - [ ] core/module/remove_const_spec.rb
 - [ ] core/module/remove_method_spec.rb
-- [ ] core/module/ruby2_keywords_spec.rb
+- [x] core/module/ruby2_keywords_spec.rb
 - [ ] core/module/set_temporary_name_spec.rb
 - [ ] core/module/singleton_class_spec.rb
 - [-] core/module/to_s_spec.rb

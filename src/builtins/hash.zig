@@ -78,6 +78,18 @@ fn builtinHashTryConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
     };
 }
 
+fn builtinHashRuby2KeywordsHashQ(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireSingleArg(args, .hash, "Hash");
+    return Value.boolean((args[0].toHashObject().object.flags & value.HASH_RUBY2_KEYWORDS_FLAG) != 0);
+}
+
+fn builtinHashRuby2KeywordsHash(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireSingleArg(args, .hash, "Hash");
+    const copied = try vm.copyHashObject(args[0].toHashObject());
+    copied.object.flags |= value.HASH_RUBY2_KEYWORDS_FLAG;
+    return Value.fromObject(&copied.object);
+}
+
 pub fn register(vm: *VM) !void {
     const hash_class_val = Value.fromObject(&vm.hash_class.module.object);
     const hash_singleton = try vm.getOrCreateSingletonClass(hash_class_val);
@@ -87,6 +99,12 @@ pub fn register(vm: *VM) !void {
 
     const singleton_bracket_sym = try vm.intern("[]");
     try hash_singleton.module.methods.put(singleton_bracket_sym, value.MethodEntry.builtin(&builtinHashConstructor, .{ .variadic = 0 }));
+
+    const ruby2_keywords_hash_q_sym = try vm.intern("ruby2_keywords_hash?");
+    try hash_singleton.module.methods.put(ruby2_keywords_hash_q_sym, value.MethodEntry.builtin(&builtinHashRuby2KeywordsHashQ, .{ .exact = 1 }));
+
+    const ruby2_keywords_hash_sym = try vm.intern("ruby2_keywords_hash");
+    try hash_singleton.module.methods.put(ruby2_keywords_hash_sym, value.MethodEntry.builtin(&builtinHashRuby2KeywordsHash, .{ .exact = 1 }));
 
     const initialize_sym = try vm.intern("initialize");
     try vm.hash_class.module.methods.put(initialize_sym, value.MethodEntry.builtinWithVisibility(&builtinHashInitialize, .{ .variadic = 0 }, .private));
@@ -593,16 +611,7 @@ pub fn builtinHashInitializeCopy(vm: *VM, receiver: Value, args: []Value, _: ?Bl
 
     const source = args[0].toHashObject();
     const target = receiver.toHashObject();
-    target.entries.clearRetainingCapacity();
-    target.map.clearRetainingCapacity();
-    clearHashDefaultBehavior(target);
-    target.compare_by_identity = source.compare_by_identity;
-    if (source.default_proc) |default_proc| {
-        setHashDefaultProc(target, default_proc);
-    } else if (source.default_value) |default_value| {
-        setHashDefaultValue(target, default_value);
-    }
-    try copyHashEntries(vm, target, source);
+    try vm.copyHashInto(target, source, false);
     return receiver;
 }
 
