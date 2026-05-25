@@ -74,6 +74,14 @@ module ModuleSpecs
 
     private
     def private_parent() end
+
+    def method_to_undef() 1 end
+    def another_method_to_undef() 1 end
+  end
+
+  class Ancestor
+    def method_to_undef() 1 end
+    def another_method_to_undef() 1 end
   end
 
   module Basic

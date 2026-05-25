@@ -432,6 +432,22 @@ fn publicModuleName(vm: *VM, receiver: Value) VMError!?[]const u8 {
     return stored_name;
 }
 
+fn moduleMethodErrorOwnerName(vm: *VM, receiver: Value) VMError![]const u8 {
+    if (receiver.isClass()) {
+        if (receiver.toClassObject().attached_object) |attached_object| {
+            if (attached_object.isClass() or attached_object.isModule()) {
+                const attached_str_val = try builtinModuleToS(vm, attached_object, &[_]Value{}, null);
+                if (!attached_str_val.isString()) return error.Fatal;
+                return attached_str_val.toStringObject().str;
+            }
+        }
+    }
+
+    const receiver_str_val = try builtinModuleToS(vm, receiver, &[_]Value{}, null);
+    if (!receiver_str_val.isString()) return error.Fatal;
+    return receiver_str_val.toStringObject().str;
+}
+
 fn basicObjectToS(vm: *VM, receiver: Value) VMError!Value {
     const receiver_class = vm.getClass(receiver);
     const class_val = Value.fromObject(&receiver_class.module.object);
@@ -1602,19 +1618,28 @@ pub fn builtinModuleUndefMethod(vm: *VM, receiver: Value, args: []Value, _: ?Blo
 
     if (args.len == 0) return receiver;
 
+    var names: std.ArrayList(*SymbolObject) = .empty;
+    defer names.deinit(vm.gc_allocator);
     for (args) |arg| {
-        const name_sym = try vm.coerceToMethodNameSymbol(arg);
-        const exists = if (receiver.isClass())
-            vm.lookupMethod(receiver.toClassObject(), name_sym) != null
-        else if (receiver.isModule())
-            getOwnDefinedMethodEntry(methods, name_sym) != null
-        else
-            unreachable;
+        names.append(vm.gc_allocator, try vm.coerceToMethodNameSymbol(arg)) catch return error.Fatal;
+    }
+
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen {s}", .{vm.className(receiver)});
+    }
+
+    for (names.items) |name_sym| {
+        const exists = switch (resolveInstanceMethodLookup(vm, receiver, name_sym)) {
+            .found, .undefined => true,
+            .not_found => false,
+        };
         if (!exists) {
+            const owner_kind = if (receiver.isClass()) "class" else "module";
+            const owner_name = try moduleMethodErrorOwnerName(vm, receiver);
             const msg = std.fmt.allocPrint(
                 vm.gc_allocator,
-                "undefined method '{s}'",
-                .{name_sym.name},
+                "undefined method '{s}' for {s} '{s}'",
+                .{ name_sym.name, owner_kind, owner_name },
             ) catch return error.Fatal;
             const exc = try vm.createException(vm.name_error_class, msg);
             vm.setPendingException(exc);
