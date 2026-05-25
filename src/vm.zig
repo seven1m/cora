@@ -5218,7 +5218,7 @@ pub const VM = struct {
                     self.stack.shrinkRetainingCapacity(receiver_index);
                 }
 
-                try self.callMethodHelperForExecuteInstruction(frame, callsite_byte_offset, args_array_mode, method_name_sym, call_style, receiver, args, null, null, block);
+                try self.callMethodHelperForExecuteInstruction(frame, callsite_byte_offset, method_name_sym, call_style, receiver, args, .{ .args_array_mode = args_array_mode, .block = block });
             },
 
             .CALL_KW => {
@@ -5329,7 +5329,7 @@ pub const VM = struct {
                 }
 
                 // Call method with keywords
-                try self.callMethodHelperForExecuteInstruction(frame, callsite_byte_offset, args_array_mode, method_name_sym, call_style, receiver, args, kw_key_slice, kw_value_slice, block);
+                try self.callMethodHelperForExecuteInstruction(frame, callsite_byte_offset, method_name_sym, call_style, receiver, args, .{ .args_array_mode = args_array_mode, .kw_keys = kw_key_slice, .kw_values = kw_value_slice, .block = block });
             },
 
             .FORWARD_ARGS_CALL => {
@@ -5363,7 +5363,7 @@ pub const VM = struct {
                 const method_name_sym = try self.intern(method_name);
 
                 const receiver = self.pop();
-                try self.callMethodHelperForExecuteInstruction(frame, instr_idx, true, method_name_sym, call_style, receiver, fwd_args, kw_keys, kw_values, block);
+                try self.callMethodHelperForExecuteInstruction(frame, instr_idx, method_name_sym, call_style, receiver, fwd_args, .{ .args_array_mode = true, .kw_keys = kw_keys, .kw_values = kw_values, .block = block });
             },
 
             .FORWARD_ARGS_CALL_WITH_PREFIX => {
@@ -5412,7 +5412,7 @@ pub const VM = struct {
                 const method_name_sym = try self.intern(method_name);
 
                 const receiver = self.stack.storage[receiver_idx];
-                try self.callMethodHelperForExecuteInstruction(frame, instr_idx, true, method_name_sym, call_style, receiver, combined_args, kw_keys, kw_values, block);
+                try self.callMethodHelperForExecuteInstruction(frame, instr_idx, method_name_sym, call_style, receiver, combined_args, .{ .args_array_mode = true, .kw_keys = kw_keys, .kw_values = kw_values, .block = block });
             },
 
             .RETURN => {
@@ -7857,19 +7857,27 @@ pub const VM = struct {
     /// For a Chunk, it sets up the frame and returns.
     /// For a builtin function pointer, it calls it and pushes the return value onto the stack.
     /// Don't call this from anywhere else because stack unwinding won't work right.
+    pub const CallMethodOptions = struct {
+        args_array_mode: bool = false,
+        kw_keys: ?[]Value = null,
+        kw_values: ?[]Value = null,
+        block: ?Block = null,
+    };
+
     fn callMethodHelperForExecuteInstruction(
         self: *VM,
         frame: *CallFrame,
         callsite_byte_offset: usize,
-        args_array_mode: bool,
         method_name_sym: *SymbolObject,
         call_style: ReceiverCallStyle,
         receiver: Value,
         args: []const Value,
-        kw_keys: ?[]Value,
-        kw_values: ?[]Value,
-        block: ?Block,
+        opts: CallMethodOptions,
     ) VMError!void {
+        const args_array_mode = opts.args_array_mode;
+        const kw_keys = opts.kw_keys;
+        const kw_values = opts.kw_values;
+        const block = opts.block;
         const resolved = try self.resolveMethodForCallSite(frame, callsite_byte_offset, receiver, method_name_sym);
         const should_fallback = resolved == null or !self.isMethodCallable(receiver, resolved.?, call_style);
         const kwargc: usize = if (kw_values) |vals| vals.len else 0;
