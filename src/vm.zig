@@ -6654,7 +6654,8 @@ pub const VM = struct {
     fn isMethodCallable(self: *VM, receiver: Value, resolved: ResolvedMethod, call_style: ReceiverCallStyle) bool {
         switch (resolved.entry.visibility) {
             .public => return true,
-            .private => return call_style == .implicit_self,
+            .private => return call_style == .implicit_self or
+                (self.frames.items.len > 0 and receiver.eql(self.currentFrame().self_value)),
             .protected => {
                 if (self.frames.items.len == 0) return false;
                 const caller_self = self.currentFrame().self_value;

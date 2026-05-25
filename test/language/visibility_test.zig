@@ -4,7 +4,7 @@ const test_helper = @import("../test_helper.zig");
 const evalCode = test_helper.evalCode;
 const evalCodeWithOutput = test_helper.evalCodeWithOutput;
 
-test "private without args affects following defs and explicit self call fails" {
+test "private without args affects following defs and explicit self call works" {
     const ok = try evalCode(
         \\class C
         \\  private
@@ -20,9 +20,7 @@ test "private without args affects following defs and explicit self call fails" 
     );
     try std.testing.expectEqual(@as(i64, 11), ok.toInteger());
 
-    var stdout_buf: [8192]u8 = undefined;
-    var stderr_buf: [8192]u8 = undefined;
-    const bad = evalCodeWithOutput(
+    const explicit_self = try evalCode(
         \\class C
         \\  private
         \\  def hidden
@@ -34,11 +32,8 @@ test "private without args affects following defs and explicit self call fails" 
         \\  end
         \\end
         \\C.new.call_hidden
-    , &stdout_buf, &stderr_buf);
-
-    try std.testing.expectEqual(error.UnhandledException, bad.err.?);
-    try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "NoMethodError") != null);
-    try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "hidden") != null);
+    );
+    try std.testing.expectEqual(@as(i64, 11), explicit_self.toInteger());
 }
 
 test "public without args restores visibility for following defs" {

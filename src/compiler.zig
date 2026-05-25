@@ -3563,10 +3563,17 @@ pub const Compiler = struct {
             post_count = @as(u8, @intCast(params.posts.size));
             var i: usize = 0;
             while (i < params.posts.size) : (i += 1) {
-                const param_node = params.posts.nodes[i];
-                const param = @as(*prism.RequiredParameterNode, @ptrCast(param_node));
-                const param_name = try self.parser.getLocalVariableName(param.name);
-                try self.addLocal(param_name);
+                const param = try self.parser.asNode(params.posts.nodes[i]);
+                switch (param) {
+                    .required_parameter => |required_param| {
+                        const param_name = try self.parser.getLocalVariableName(required_param.name);
+                        try self.addLocal(param_name);
+                    },
+                    .multi_target => {
+                        try self.addLocal("");
+                    },
+                    else => return error.UnsupportedNode,
+                }
             }
         }
 
@@ -3599,12 +3606,31 @@ pub const Compiler = struct {
     }
 
     fn compileDestructuredRequiredParams(self: *Compiler, params: *prism.ParametersNode, line: u32) !void {
-        if (params.requireds.size == 0) return;
-
         var slot_index: u8 = 0;
         var i: usize = 0;
         while (i < params.requireds.size) : (i += 1) {
             const param = try self.parser.asNode(params.requireds.nodes[i]);
+            switch (param) {
+                .required_parameter => {},
+                .multi_target => |multi_target| {
+                    try self.current_chunk.emitOpU16(.GET_LOCAL, slot_index, line);
+                    try self.current_chunk.emitOp(.MULTI_ASSIGN_PREPARE, line);
+                    try self.compileNestedMultiTarget(multi_target, line);
+                    try self.current_chunk.emitOp(.POP, line);
+                },
+                else => return error.UnsupportedNode,
+            }
+            slot_index += 1;
+        }
+
+        slot_index += @intCast(params.optionals.size);
+        if (params.rest != null or params.keyword_rest != null) {
+            slot_index += 1;
+        }
+
+        i = 0;
+        while (i < params.posts.size) : (i += 1) {
+            const param = try self.parser.asNode(params.posts.nodes[i]);
             switch (param) {
                 .required_parameter => {},
                 .multi_target => |multi_target| {

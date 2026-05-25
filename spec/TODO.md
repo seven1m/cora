@@ -2430,7 +2430,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] language/return_spec.rb
 - [ ] language/safe_navigator_spec.rb
 - [ ] language/safe_spec.rb
-- [ ] language/send_spec.rb
+- [-] language/send_spec.rb
 - [ ] language/singleton_class_spec.rb
 - [ ] language/source_encoding_spec.rb
 - [ ] language/string_spec.rb
