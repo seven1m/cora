@@ -378,6 +378,48 @@ test "Hash literal evaluates pairs left-to-right" {
     try std.testing.expectEqual(@as(i64, 4), seen.toArrayObject().elements.items[3].toInteger());
 }
 
+test "Hash literal supports hash splat" {
+    const result = try evalCode("base = {a: 1, b: 2}\nh = {**base, c: 3}\n[h[:a], h[:b], h[:c], h.size]");
+    try std.testing.expect(result.isArray());
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 1), items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 2), items[1].toInteger());
+    try std.testing.expectEqual(@as(i64, 3), items[2].toInteger());
+    try std.testing.expectEqual(@as(i64, 3), items[3].toInteger());
+}
+
+test "Hash literal hash splat preserves evaluation order and last write wins" {
+    const result = try evalCode(
+        \\class HashSplatEvalOrder
+        \\  def initialize
+        \\    @seen = []
+        \\  end
+        \\  def t(n)
+        \\    @seen << n
+        \\    n
+        \\  end
+        \\  def seen
+        \\    @seen
+        \\  end
+        \\end
+        \\obj = HashSplatEvalOrder.new
+        \\mid = { obj.t(3) => obj.t(4) }
+        \\h = { obj.t(1) => obj.t(2), **mid, obj.t(3) => obj.t(5) }
+        \\[obj.seen, h[3]]
+    );
+    try std.testing.expect(result.isArray());
+    const items = result.toArrayObject().elements.items;
+    const seen = items[0];
+    try std.testing.expect(seen.isArray());
+    try std.testing.expectEqual(@as(i64, 3), seen.toArrayObject().elements.items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 4), seen.toArrayObject().elements.items[1].toInteger());
+    try std.testing.expectEqual(@as(i64, 1), seen.toArrayObject().elements.items[2].toInteger());
+    try std.testing.expectEqual(@as(i64, 2), seen.toArrayObject().elements.items[3].toInteger());
+    try std.testing.expectEqual(@as(i64, 3), seen.toArrayObject().elements.items[4].toInteger());
+    try std.testing.expectEqual(@as(i64, 5), seen.toArrayObject().elements.items[5].toInteger());
+    try std.testing.expectEqual(@as(i64, 5), items[1].toInteger());
+}
+
 test "Large hash literal does not overflow the fiber stack" {
     var source = std.ArrayList(u8).empty;
     defer source.deinit(std.testing.allocator);

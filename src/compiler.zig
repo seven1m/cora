@@ -3432,32 +3432,45 @@ pub const Compiler = struct {
         }
 
         const max_chunk_pairs: usize = 0x100 / 2;
-        var first_chunk = true;
         var chunk_pairs: u16 = 0;
+
+        try self.current_chunk.emitOpU16(.PUSH_HASH, 0, line);
 
         var i: usize = 0;
         while (i < elements.size) : (i += 1) {
-            const assoc_raw = elements.nodes[i];
-            const assoc_node = try self.parser.asNode(assoc_raw);
-            if (assoc_node != .assoc) {
-                return error.ExpectedAssocNode;
-            }
+            const elem = try self.parser.asNode(elements.nodes[i]);
+            switch (elem) {
+                .assoc => {
+                    const key_node = try self.parser.asNode(@ptrCast(elem.assoc.key));
+                    try self.compileNode(key_node, line);
 
-            const key_node = try self.parser.asNode(@ptrCast(assoc_node.assoc.key));
-            try self.compileNode(key_node, line);
+                    const value_node = try self.parser.asNode(@ptrCast(elem.assoc.value));
+                    try self.compileNode(value_node, line);
+                    chunk_pairs += 1;
 
-            const value_node = try self.parser.asNode(@ptrCast(assoc_node.assoc.value));
-            try self.compileNode(value_node, line);
-            chunk_pairs += 1;
+                    const is_last = i + 1 == elements.size;
+                    if (chunk_pairs >= max_chunk_pairs or is_last) {
+                        try self.current_chunk.emitOpU16(.PUSH_HASH, chunk_pairs, line);
+                        try self.current_chunk.emitOp(.HASH_MERGE_KW, line);
+                        chunk_pairs = 0;
+                    }
+                },
+                .assoc_splat => {
+                    if (chunk_pairs > 0) {
+                        try self.current_chunk.emitOpU16(.PUSH_HASH, chunk_pairs, line);
+                        try self.current_chunk.emitOp(.HASH_MERGE_KW, line);
+                        chunk_pairs = 0;
+                    }
 
-            const is_last = i + 1 == elements.size;
-            if (chunk_pairs >= max_chunk_pairs or is_last) {
-                try self.current_chunk.emitOpU16(.PUSH_HASH, chunk_pairs, line);
-                if (!first_chunk) {
+                    if (elem.assoc_splat.value) |value_ptr| {
+                        const value_node = try self.parser.asNode(@ptrCast(value_ptr));
+                        try self.compileNode(value_node, line);
+                    } else {
+                        try self.current_chunk.emitOp(.PUSH_NIL, line);
+                    }
                     try self.current_chunk.emitOp(.HASH_MERGE_KW, line);
-                }
-                first_chunk = false;
-                chunk_pairs = 0;
+                },
+                else => return error.ExpectedAssocNode,
             }
         }
     }
