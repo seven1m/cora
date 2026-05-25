@@ -214,6 +214,9 @@ pub fn register(vm: *VM) !void {
     const binding_sym = try vm.intern("binding");
     try vm.kernel_module.methods.put(binding_sym, value.MethodEntry.builtinWithVisibility(&builtinKernelBinding, .{ .exact = 0 }, .private));
 
+    const caller_sym = try vm.intern("caller");
+    try vm.kernel_module.methods.put(caller_sym, value.MethodEntry.builtinWithVisibility(&builtinKernelCaller, .{ .variadic = 0 }, .private));
+
     const proc_sym = try vm.intern("proc");
     try vm.kernel_module.methods.put(proc_sym, value.MethodEntry.builtin(&builtinKernelProc, .{ .exact = 0 }));
 
@@ -1058,6 +1061,155 @@ fn warningLocationForUplevel(vm: *VM, depth: usize) ?WarningLocation {
         remaining -= 1;
     }
     return null;
+}
+
+const CallerSlicePlan = union(enum) {
+    nil_result,
+    span: struct {
+        start: usize,
+        count: usize,
+    },
+};
+
+fn callerSliceIntegerArg(vm: *VM, value_arg: Value) VMError!i64 {
+    return value_arg.coerceToI64ViaToInt(
+        vm,
+        "no implicit conversion into Integer",
+        "can't convert to Integer (to_int gives non-Integer)",
+        "integer too big to convert",
+    );
+}
+
+fn planCallerSliceStartLength(vm: *VM, frame_count: usize, start_value: Value, length_value: ?Value) VMError!CallerSlicePlan {
+    const frame_count_i64: i64 = @intCast(frame_count);
+    const start = try callerSliceIntegerArg(vm, start_value);
+    if (start < 0) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "negative level ({d})", .{start});
+    }
+
+    if (start > frame_count_i64) return .nil_result;
+
+    if (length_value) |raw_length| {
+        const length = try callerSliceIntegerArg(vm, raw_length);
+        if (length < 0) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "negative size ({d})", .{length});
+        }
+        const remaining = frame_count_i64 - start;
+        return .{ .span = .{
+            .start = @intCast(start),
+            .count = @intCast(@min(length, remaining)),
+        } };
+    }
+
+    return .{ .span = .{
+        .start = @intCast(start),
+        .count = @intCast(frame_count_i64 - start),
+    } };
+}
+
+fn planCallerSliceRange(vm: *VM, frame_count: usize, range_obj: *value.RangeObject) VMError!CallerSlicePlan {
+    const frame_count_i64: i64 = @intCast(frame_count);
+
+    var start: i64 = 0;
+    if (!range_obj.begin.isNil()) {
+        start = try callerSliceIntegerArg(vm, range_obj.begin);
+        if (start < 0) start += frame_count_i64;
+    }
+    if (start < 0 or start > frame_count_i64) return .nil_result;
+
+    var finish: i64 = frame_count_i64;
+    if (!range_obj.end.isNil()) {
+        finish = try callerSliceIntegerArg(vm, range_obj.end);
+        if (finish < 0) finish += frame_count_i64;
+        if (!range_obj.exclude_end) finish += 1;
+    }
+
+    if (finish < start) {
+        return .{ .span = .{
+            .start = @intCast(start),
+            .count = 0,
+        } };
+    }
+
+    const clamped_end = @max(start, @min(finish, frame_count_i64));
+    return .{ .span = .{
+        .start = @intCast(start),
+        .count = @intCast(clamped_end - start),
+    } };
+}
+
+fn callerFrameLabel(vm: *VM, frame: *const vm_mod.CallFrame, next_frame: ?*const vm_mod.CallFrame) VMError![]const u8 {
+    if (frame.method_name) |method_name| {
+        return std.fmt.allocPrint(
+            vm.gc_allocator,
+            "{s}#{s}",
+            .{ vm.getClass(frame.self_value).module.name.name, method_name },
+        ) catch return error.Fatal;
+    }
+
+    if (std.mem.eql(u8, frame.chunk.name, "block")) {
+        const enclosing = if (next_frame) |parent|
+            try callerFrameLabel(vm, parent, null)
+        else
+            "<main>";
+        return std.fmt.allocPrint(vm.gc_allocator, "block in {s}", .{enclosing}) catch return error.Fatal;
+    }
+
+    return frame.chunk.name;
+}
+
+fn appendCallerEntry(
+    vm: *VM,
+    result: *value.ArrayObject,
+    frame: *const vm_mod.CallFrame,
+    next_frame: ?*const vm_mod.CallFrame,
+) VMError!void {
+    const source = frame.chunk.source_file orelse frame.chunk.name;
+    const label = try callerFrameLabel(vm, frame, next_frame);
+
+    const backtrace_str = std.fmt.allocPrint(
+        vm.gc_allocator,
+        "{s}:{d}:in '{s}'",
+        .{ source, vm.backtraceLineForFrame(frame), label },
+    ) catch return error.Fatal;
+    const string_value = try vm.newString(backtrace_str, false);
+    result.elements.append(vm.gc_allocator, string_value) catch return error.Fatal;
+}
+
+fn builtinKernelCaller(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 2);
+
+    var frames: std.ArrayList(*const vm_mod.CallFrame) = .empty;
+    defer frames.deinit(vm.gc_allocator);
+
+    var i = vm.frames.items.len;
+    while (i > 0) {
+        i -= 1;
+        const frame = &vm.frames.items[i];
+        if (frame.frame_type == .builtin) continue;
+        frames.append(vm.gc_allocator, frame) catch return error.Fatal;
+    }
+
+    const plan = if (args.len == 0)
+        try planCallerSliceStartLength(vm, frames.items.len, Value.integer(1), null)
+    else if (args.len == 1 and args[0].isRange())
+        try planCallerSliceRange(vm, frames.items.len, args[0].toRangeObject())
+    else
+        try planCallerSliceStartLength(vm, frames.items.len, args[0], if (args.len == 2) args[1] else null);
+
+    switch (plan) {
+        .nil_result => return Value.nil(),
+        .span => |span| {
+            const result = try vm.createArray();
+            var idx = span.start;
+            const end = span.start + span.count;
+            while (idx < end) : (idx += 1) {
+                const next_frame = if (idx + 1 < frames.items.len) frames.items[idx + 1] else null;
+                try appendCallerEntry(vm, result, frames.items[idx], next_frame);
+            }
+            return Value.fromObject(&result.object);
+        },
+    }
 }
 
 fn warningSupportsKeywordCategory(method: vm_mod.ResolvedMethod) bool {

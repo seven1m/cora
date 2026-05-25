@@ -1180,7 +1180,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/kernel/binding_spec.rb
 - [ ] core/kernel/block_given_spec.rb
 - [ ] core/kernel/caller_locations_spec.rb
-- [ ] core/kernel/caller_spec.rb
+- [-] core/kernel/caller_spec.rb
 - [x] core/kernel/case_compare_spec.rb
 - [ ] core/kernel/catch_spec.rb
 - [ ] core/kernel/chomp_spec.rb
