@@ -7333,16 +7333,13 @@ pub const VM = struct {
                 return self.invokeBuiltinMethod(fun_ptr, receiver, resolved.name.name, @constCast(dispatch.args), block, dispatch_keyword_ctx);
             },
             .proc => |proc_obj| {
-                return self.callProcAsMethodWithKeywords(
-                    proc_obj,
-                    receiver,
-                    dispatch.args,
-                    dispatch.kw_keys,
-                    dispatch.kw_values,
-                    block,
-                    resolved.name.name,
-                    resolved.owner_class,
-                );
+                return self.callProcAsMethod(proc_obj, receiver, dispatch.args, .{
+                    .kw_keys = dispatch.kw_keys,
+                    .kw_values = dispatch.kw_values,
+                    .block = block,
+                    .method_name = resolved.name.name,
+                    .defining_class = resolved.owner_class,
+                });
             },
             .undefined => unreachable,
         }
@@ -7676,29 +7673,26 @@ pub const VM = struct {
         return explicit_block orelse if (enclosing_block_proc) |proc_obj| proc_obj.block else null;
     }
 
+    pub const ProcCallOptions = struct {
+        kw_keys: ?[]const Value = null,
+        kw_values: ?[]const Value = null,
+        block: ?Block = null,
+        method_name: ?[]const u8 = null,
+        defining_class: ?*ClassObject = null,
+    };
+
     fn callProcAsMethod(
         self: *VM,
         proc_obj: *value.ProcObject,
         receiver: Value,
         args: []const Value,
-        block: ?Block,
-        method_name: ?[]const u8,
-        defining_class: ?*ClassObject,
+        opts: ProcCallOptions,
     ) VMError!Value {
-        return self.callProcAsMethodWithKeywords(proc_obj, receiver, args, null, null, block, method_name, defining_class);
-    }
-
-    fn callProcAsMethodWithKeywords(
-        self: *VM,
-        proc_obj: *value.ProcObject,
-        receiver: Value,
-        args: []const Value,
-        kw_keys: ?[]const Value,
-        kw_values: ?[]const Value,
-        block: ?Block,
-        method_name: ?[]const u8,
-        defining_class: ?*ClassObject,
-    ) VMError!Value {
+        const kw_keys = opts.kw_keys;
+        const kw_values = opts.kw_values;
+        const block = opts.block;
+        const method_name = opts.method_name;
+        const defining_class = opts.defining_class;
         return switch (proc_obj.block.kind) {
             .receiver_builtin => |builtin_data| builtin_data.func(self, builtin_data.receiver, @constCast(args)),
             .symbol => |sym| self.invokeSymbolProc(sym, args, block),
@@ -8538,7 +8532,13 @@ pub const VM = struct {
             .proc => |proc_obj| {
                 const kw_keys: ?[]const Value = if (frame.forwarded_keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_keys else null else null;
                 const kw_values: ?[]const Value = if (frame.forwarded_keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_values else null else null;
-                const result = try self.callProcAsMethodWithKeywords(proc_obj, receiver, args, kw_keys, kw_values, block, resolved.name.name, resolved.owner_class);
+                const result = try self.callProcAsMethod(proc_obj, receiver, args, .{
+                    .kw_keys = kw_keys,
+                    .kw_values = kw_values,
+                    .block = block,
+                    .method_name = resolved.name.name,
+                    .defining_class = resolved.owner_class,
+                });
                 try self.push(result);
             },
             .undefined => unreachable,
