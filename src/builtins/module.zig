@@ -1,6 +1,7 @@
 const std = @import("std");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
+const method_common = @import("method_common.zig");
 const method_reflection = @import("method_reflection.zig");
 const unbound_method = @import("unbound_method.zig");
 const warning_builtin = @import("warning.zig");
@@ -909,6 +910,20 @@ fn copyMethodToModuleSingleton(vm: *VM, module_receiver: Value, name_sym: *Symbo
     vm.bumpMethodStateVersion();
 }
 
+fn moduleFunctionLookup(vm: *VM, receiver: Value, name_sym: *SymbolObject) ?value.MethodEntry {
+    switch (resolveInstanceMethodLookup(vm, receiver, name_sym)) {
+        .found => |found| return found.resolved.entry,
+        .undefined, .not_found => {},
+    }
+
+    if (receiver.isModule()) {
+        const resolved = vm.lookupMethod(vm.module_class, name_sym) orelse return null;
+        return resolved.entry;
+    }
+
+    return null;
+}
+
 pub fn register(vm: *VM) !void {
     const module_singleton = try vm.getOrCreateSingletonClass(Value.fromObject(&vm.module_class.module.object));
     const nesting_sym = try vm.intern("nesting");
@@ -958,6 +973,7 @@ pub fn register(vm: *VM) !void {
 
     const module_function_sym = try vm.intern("module_function");
     try vm.module_class.module.methods.put(module_function_sym, value.MethodEntry.builtinWithVisibility(&builtinModuleFunction, .{ .variadic = 0 }, .private));
+    try vm.class_class.module.methods.put(module_function_sym, .{ .method = .{ .undefined = {} } });
 
     const ruby2_keywords_sym = try vm.intern("ruby2_keywords");
     try vm.module_class.module.methods.put(ruby2_keywords_sym, value.MethodEntry.builtinWithVisibility(&builtinModuleRuby2Keywords, .{ .variadic = 0 }, .private));
@@ -1478,12 +1494,9 @@ pub fn builtinModulePrepend(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 }
 
 pub fn builtinModuleDefineMethod(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 1);
-    const blk = try vm.requireBlock(block);
-
+    try vm.requireArgCountRange(args, 1, 2);
     const name_str = try vm.coerceToMethodNameString(args[0]);
     const name_sym = try vm.intern(name_str);
-    const proc_val = try vm.newProc(blk);
     const visibility = currentDefaultVisibility(vm);
 
     const methods = receiver.getModuleMethods() orelse {
@@ -1494,9 +1507,37 @@ pub fn builtinModuleDefineMethod(vm: *VM, receiver: Value, args: []Value, block:
     const module_function_mode = if (vm.current_lexical_scope) |scope| scope.module_function_mode else false;
     const effective_visibility: MethodVisibility = if (module_function_mode) .private else visibility;
 
-    const entry: value.MethodEntry = .{
-        .method = .{ .proc = proc_val.toProcObject() },
-        .visibility = effective_visibility,
+    const entry: value.MethodEntry = if (args.len == 2) blk: {
+        const body = args[1];
+        const method_name = if (body.isMethodObject())
+            body.toMethodObject().name
+        else if (body.isUnboundMethodObject())
+            body.toUnboundMethodObject().name
+        else
+            null;
+        const method_owner = if (body.isMethodObject())
+            body.toMethodObject().owner
+        else if (body.isUnboundMethodObject())
+            body.toUnboundMethodObject().owner
+        else
+            null;
+
+        if (method_name == null or method_owner == null) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "wrong argument type {s} (expected Proc/Method/UnboundMethod)", .{vm.className(body)});
+        }
+
+        const method_entry = method_common.methodEntryForOwner(method_owner.?, method_name.?) orelse {
+            return vm.raiseExceptionFmt(vm.name_error_class, "undefined method '{s}'", .{method_name.?.name});
+        };
+        var copied = method_entry;
+        copied.visibility = effective_visibility;
+        break :blk copied;
+    } else blk: {
+        const proc_val = try vm.newProc(try vm.requireBlock(block));
+        break :blk .{
+            .method = .{ .proc = proc_val.toProcObject() },
+            .visibility = effective_visibility,
+        };
     };
     methods.put(name_sym, entry) catch return error.Fatal;
     vm.markIntegerChangedForReceiver(receiver);
@@ -1910,6 +1951,14 @@ pub fn builtinModuleEval(vm: *VM, receiver: Value, args: []Value, block: ?Block)
     if (block) |blk| {
         try vm.requireArgCount(args, 0);
         const proc_obj = (try vm.newProc(blk)).toProcObject();
+        const chunk_blk = switch (proc_obj.block.kind) {
+            .chunk => |cb| cb,
+            else => unreachable,
+        };
+        const lexical_scope = try vm.createLexicalScope(receiver, vm.current_lexical_scope);
+        const saved_scope = chunk_blk.chunk.lexical_scope;
+        chunk_blk.chunk.lexical_scope = lexical_scope;
+        defer chunk_blk.chunk.lexical_scope = saved_scope;
         var block_args = [_]Value{receiver};
         return vm.callProcObject(proc_obj, block_args[0..], null, receiver, receiver);
     }
@@ -1959,6 +2008,10 @@ pub fn builtinModuleClassVariableSet(vm: *VM, receiver: Value, args: []Value, _:
 }
 
 pub fn builtinModuleFunction(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    if (receiver.isClass()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "module_function must be called for modules", .{});
+    }
+
     if (args.len == 0) {
         if (vm.current_lexical_scope) |scope| {
             scope.default_method_visibility = .private;
@@ -1972,7 +2025,7 @@ pub fn builtinModuleFunction(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     for (args) |arg| {
         const name_str = try vm.coerceToMethodNameString(arg);
         const name_sym = try vm.intern(name_str);
-        const existing = getOwnDefinedMethodEntry(methods, name_sym) orelse {
+        const existing = moduleFunctionLookup(vm, receiver, name_sym) orelse {
             const msg = std.fmt.allocPrint(
                 vm.gc_allocator,
                 "undefined method '{s}'",

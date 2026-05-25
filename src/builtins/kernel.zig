@@ -32,6 +32,11 @@ fn implicitAutoloadReceiver(vm: *VM) Value {
     return Value.fromObject(&vm.object_class.module.object);
 }
 
+fn nestedEvalLexicalScope(vm: *VM) VMError!?*value.LexicalScope {
+    const current = vm.current_lexical_scope orelse return null;
+    return vm.cloneLexicalScope(current, current.parent);
+}
+
 const BoundMethodLookup = struct {
     resolved: vm_mod.ResolvedMethod,
     owner: Value,
@@ -382,6 +387,9 @@ pub fn register(vm: *VM) !void {
     const private_methods_sym = try vm.intern("private_methods");
     try vm.kernel_module.methods.put(private_methods_sym, value.MethodEntry.builtin(&builtinKernelPrivateMethods, .{ .variadic = 0 }));
 
+    const public_methods_sym = try vm.intern("public_methods");
+    try vm.kernel_module.methods.put(public_methods_sym, value.MethodEntry.builtin(&builtinKernelPublicMethods, .{ .variadic = 0 }));
+
     const nil_sym = try vm.intern("nil?");
     try vm.kernel_module.methods.put(nil_sym, MethodEntry.builtin(&builtinKernelNil, .{ .exact = 0 }));
 
@@ -698,7 +706,17 @@ pub fn builtinKernelEval(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
         null;
 
     if (binding_arg.isNil()) {
-        return vm.evalSourceWithEncoding(source_obj.str, filename orelse "(eval)", source_obj.encoding);
+        return vm.evalSourceWithEncodingAndContext(
+            source_obj.str,
+            filename orelse "(eval)",
+            source_obj.encoding,
+            .{
+                .self_value = if (vm.frames.items.len > 0) vm.currentFrame().self_value else vm.main_self,
+                .parent_ep = if (vm.frames.items.len > 0) vm.currentFrame().ep else null,
+                .lexical_scope = try nestedEvalLexicalScope(vm),
+                .dir_returns_nil = filename == null,
+            },
+        );
     }
 
     if (!binding_arg.isBinding()) {
@@ -1752,7 +1770,7 @@ fn sameMethodContext(outer: *const vm_mod.CallFrame, inner: *const vm_mod.CallFr
         return true;
     }
 
-    return isEvalLikeFrame(outer);
+    return isEvalLikeFrame(outer) or isEvalLikeFrame(inner);
 }
 
 fn enclosingMethodFrame(vm: *VM) ?*const vm_mod.CallFrame {
@@ -1969,6 +1987,12 @@ pub fn builtinKernelPrivateMethods(vm: *VM, receiver: Value, args: []Value, _: ?
     try vm.requireArgCountRange(args, 0, 1);
     const include_super = if (args.len == 1) args[0].is_truthy() else true;
     return collectKernelMethods(vm, receiver, .private_only, include_super);
+}
+
+pub fn builtinKernelPublicMethods(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const include_super = if (args.len == 1) args[0].is_truthy() else true;
+    return collectKernelMethods(vm, receiver, .public_only, include_super);
 }
 
 pub fn builtinKernelInstanceVariableGet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

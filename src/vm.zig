@@ -1675,6 +1675,17 @@ pub const VM = struct {
         return scope;
     }
 
+    pub fn cloneLexicalScope(self: *VM, original: *LexicalScope, parent: ?*LexicalScope) VMError!*LexicalScope {
+        const scope_module_val = switch (original.scope_module) {
+            .class => |klass| Value.fromObject(&klass.module.object),
+            .module => |mod| Value.fromObject(&mod.object),
+        };
+        const scope = try self.createLexicalScope(scope_module_val, parent);
+        scope.default_method_visibility = original.default_method_visibility;
+        scope.module_function_mode = original.module_function_mode;
+        return scope;
+    }
+
     inline fn frameScopeValue(
         self: *VM,
         lexical_scope: ?*LexicalScope,
@@ -8469,11 +8480,25 @@ pub const VM = struct {
         const lexical_scope = frame.chunk.lexical_scope;
         const maybe_resolved = if (lexical_scope) |scope|
             switch (scope.scope_module) {
-                .module => |defining_module| self.lookupMethodForSuperFromScope(
-                    self.getClass(frame.self_value),
-                    .{ .module = defining_module },
-                    method_name_sym,
-                ),
+                .module => |defining_module| if (frame.super_defining_class) |explicit_defining_class|
+                    if (explicit_defining_class.attached_object != null and explicit_defining_class.attached_object.?.eql(frame.self_value))
+                        self.lookupMethodForSuperFromScope(
+                            explicit_defining_class,
+                            .{ .class = explicit_defining_class },
+                            method_name_sym,
+                        )
+                    else
+                        self.lookupMethodForSuperFromScope(
+                            self.getClass(frame.self_value),
+                            .{ .module = defining_module },
+                            method_name_sym,
+                        )
+                else
+                    self.lookupMethodForSuperFromScope(
+                        self.getClass(frame.self_value),
+                        .{ .module = defining_module },
+                        method_name_sym,
+                    ),
                 .class => |defining_class| if (frame.super_defining_class) |explicit_defining_class|
                     self.lookupMethodForSuperFromScope(
                         explicit_defining_class,

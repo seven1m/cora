@@ -1437,7 +1437,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/module/method_undefined_spec.rb
 - [-] core/module/module_eval_spec.rb
 - [ ] core/module/module_exec_spec.rb
-- [ ] core/module/module_function_spec.rb
+- [x] core/module/module_function_spec.rb
 - [ ] core/module/name_spec.rb
 - [ ] core/module/nesting_spec.rb
 - [ ] core/module/new_spec.rb
