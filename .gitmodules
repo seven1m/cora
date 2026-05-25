@@ -31,3 +31,6 @@
 [submodule "ext/tempfile"]
 	path = ext/tempfile
 	url = https://github.com/ruby/tempfile
+[submodule "ext/cgi"]
+	path = ext/cgi
+	url = https://github.com/ruby/cgi
