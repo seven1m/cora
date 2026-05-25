@@ -763,10 +763,16 @@ pub const Compiler = struct {
                 }
                 const receiver_style: bytecode.ReceiverCallStyle = if (call_node.receiver != null) .explicit else .implicit_self;
 
-                const compiled_args = try self.compileCallArguments(
-                    if (call_node.arguments != null) @as(*prism.ArgumentsNode, @ptrCast(call_node.arguments.?)) else null,
-                    line,
-                );
+                const args_ptr = if (call_node.arguments != null) @as(*prism.ArgumentsNode, @ptrCast(call_node.arguments.?)) else null;
+                // null = no forwarding; 0 = pure forwarding only; N>0 = N prefix args before `...`
+                const forwarding_prefix_argc = try self.callForwardingPrefixArgc(args_ptr);
+                const compiled_args = if (forwarding_prefix_argc) |prefix_argc|
+                    if (prefix_argc == 0)
+                        CompiledCallArguments{}
+                    else
+                        try self.compileForwardingPrefixArguments(args_ptr.?, line)
+                else
+                    try self.compileCallArguments(args_ptr, line);
 
                 // Check if there's a block attached to the call
                 var block_chunk_id: chunk.ChunkId = 0;
@@ -808,6 +814,12 @@ pub const Compiler = struct {
 
                 if (emitted_opt) {
                     // Specialized opcode already emitted.
+                } else if (forwarding_prefix_argc) |prefix_argc| {
+                    if (prefix_argc == 0) {
+                        try self.current_chunk.emitForwardArgsCall(@intCast(method_idx), call_flags, block_chunk_id, line);
+                    } else {
+                        try self.current_chunk.emitForwardArgsCallWithPrefix(@intCast(method_idx), call_flags, block_chunk_id, prefix_argc, line);
+                    }
                 } else if (compiled_args.kwargc > 0 or compiled_args.kw_hash_mode) {
                     try self.current_chunk.emitCallKw(
                         @intCast(method_idx),
@@ -1677,6 +1689,38 @@ pub const Compiler = struct {
         args_array_mode: bool = false,
         kw_hash_mode: bool = false,
     };
+
+    /// Returns null if no ForwardingArgumentsNode is present.
+    /// Returns 0 if the only argument is a ForwardingArgumentsNode (pure forwarding).
+    /// Returns N>0 if there are N explicit prefix args followed by a ForwardingArgumentsNode.
+    fn callForwardingPrefixArgc(self: *Compiler, args_ptr: ?*prism.ArgumentsNode) !?u8 {
+        const args = args_ptr orelse return null;
+        if (args.arguments.size == 0) return null;
+
+        var i: usize = 0;
+        while (i < args.arguments.size) : (i += 1) {
+            const arg_node = try self.parser.asNode(args.arguments.nodes[i]);
+            if (arg_node == .forwarding_arguments) {
+                return @intCast(i); // i == 0 means pure; i > 0 means prefix
+            }
+        }
+
+        return null;
+    }
+
+    /// Compile only the explicit prefix args that appear before ForwardingArgumentsNode.
+    /// Used for mixed forwarding calls like `foo(:bar, ...)`.
+    fn compileForwardingPrefixArguments(self: *Compiler, args: *prism.ArgumentsNode, line: u32) !CompiledCallArguments {
+        var result: CompiledCallArguments = .{};
+        var i: usize = 0;
+        while (i < args.arguments.size) : (i += 1) {
+            const arg_node = try self.parser.asNode(args.arguments.nodes[i]);
+            if (arg_node == .forwarding_arguments) break;
+            try self.compileNode(arg_node, line);
+            result.argc += 1;
+        }
+        return result;
+    }
 
     fn optIntegerMathOpcode(method_name: []const u8) ?bytecode.OpCode {
         if (std.mem.eql(u8, method_name, "+")) return .OPT_PLUS;
@@ -3636,6 +3680,7 @@ pub const Compiler = struct {
                 }
                 target_chunk.keyword_rest_index = @intCast(self.locals.items.len - 1);
             } else if (kw_rest_node == .forwarding_parameter) {
+                target_chunk.has_forwarding_parameter = true;
                 try self.addLocal("**");
                 target_chunk.keyword_rest_index = @intCast(self.locals.items.len - 1);
             } else if (kw_rest_node == .no_keywords_parameter) {

@@ -5338,6 +5338,89 @@ pub const VM = struct {
                 try self.callMethodHelperForExecuteInstruction(frame, callsite_byte_offset, args_array_mode, method_name_sym, call_style, receiver, args, kw_key_slice, kw_value_slice, block);
             },
 
+            .FORWARD_ARGS_CALL => {
+                const method_idx = readU16From(frame, operands, &operand_cursor);
+                const call_flags = readByteFrom(frame, operands, &operand_cursor);
+                const block_chunk_id = readU16From(frame, operands, &operand_cursor);
+                const call_style: ReceiverCallStyle = bytecode.decodeReceiverCallStyle(call_flags);
+
+                var block = try self.resolveBlock(block_chunk_id, frame);
+                if (block == null) {
+                    block = frame.block;
+                }
+
+                var fwd_buf: [256]Value = undefined;
+                const fwd_args = self.getForwardingArguments(frame, &fwd_buf);
+                const fwd_kw_ctx = try self.buildForwardingKeywordContext(frame);
+                const kw_keys: ?[]Value = if (fwd_kw_ctx) |ctx|
+                    if (ctx.kw_values.len > 0) @constCast(ctx.kw_keys) else null
+                else
+                    null;
+                const kw_values: ?[]Value = if (fwd_kw_ctx) |ctx|
+                    if (ctx.kw_values.len > 0) @constCast(ctx.kw_values) else null
+                else
+                    null;
+
+                const method_name = switch (frame.chunk.constants.items[method_idx]) {
+                    .string => |s| s,
+                    .symbol => |sym| sym.name,
+                    else => return error.Fatal,
+                };
+                const method_name_sym = try self.intern(method_name);
+
+                const receiver = self.pop();
+                try self.callMethodHelperForExecuteInstruction(frame, instr_idx, true, method_name_sym, call_style, receiver, fwd_args, kw_keys, kw_values, block);
+            },
+
+            .FORWARD_ARGS_CALL_WITH_PREFIX => {
+                const method_idx = readU16From(frame, operands, &operand_cursor);
+                const call_flags = readByteFrom(frame, operands, &operand_cursor);
+                const block_chunk_id = readU16From(frame, operands, &operand_cursor);
+                const prefix_argc = readByteFrom(frame, operands, &operand_cursor);
+                const call_style: ReceiverCallStyle = bytecode.decodeReceiverCallStyle(call_flags);
+
+                var block = try self.resolveBlock(block_chunk_id, frame);
+                if (block == null) {
+                    block = frame.block;
+                }
+
+                var fwd_buf: [256]Value = undefined;
+                const fwd_args = self.getForwardingArguments(frame, &fwd_buf);
+                const fwd_kw_ctx = try self.buildForwardingKeywordContext(frame);
+                const kw_keys: ?[]Value = if (fwd_kw_ctx) |ctx|
+                    if (ctx.kw_values.len > 0) @constCast(ctx.kw_keys) else null
+                else
+                    null;
+                const kw_values: ?[]Value = if (fwd_kw_ctx) |ctx|
+                    if (ctx.kw_values.len > 0) @constCast(ctx.kw_values) else null
+                else
+                    null;
+
+                // Read prefix args from stack (above the receiver).
+                // Stack layout: [..., receiver, prefix_arg_0, ..., prefix_arg_N-1] (top)
+                var combined_buf: [256]Value = undefined;
+                const stack_top = self.stack.items.len;
+                const receiver_idx = stack_top - prefix_argc - 1;
+                for (0..prefix_argc) |i| {
+                    combined_buf[i] = self.stack.items[receiver_idx + 1 + i];
+                }
+                @memcpy(combined_buf[prefix_argc .. prefix_argc + fwd_args.len], fwd_args);
+                const combined_args = combined_buf[0 .. prefix_argc + fwd_args.len];
+
+                // Pop prefix args and receiver off the stack.
+                self.stack.items = self.stack.storage[0..receiver_idx];
+
+                const method_name = switch (frame.chunk.constants.items[method_idx]) {
+                    .string => |s| s,
+                    .symbol => |sym| sym.name,
+                    else => return error.Fatal,
+                };
+                const method_name_sym = try self.intern(method_name);
+
+                const receiver = self.stack.storage[receiver_idx];
+                try self.callMethodHelperForExecuteInstruction(frame, instr_idx, true, method_name_sym, call_style, receiver, combined_args, kw_keys, kw_values, block);
+            },
+
             .RETURN => {
                 const return_mode = readByteFrom(frame, operands, &operand_cursor);
                 const current_frame = self.currentFrame();
@@ -8325,6 +8408,17 @@ pub const VM = struct {
         const ch = frame.chunk;
         const ep = frame.ep;
         const lc = ch.locals_count;
+
+        if (ch.has_forwarding_parameter) {
+            const rest_idx = ch.rest_param_index orelse return buf[0..0];
+            const rest_val = (ep - lc + rest_idx)[0];
+            if (!rest_val.isArray()) return buf[0..0];
+
+            const elems = rest_val.toArrayObject().elements.items;
+            @memcpy(buf[0..elems.len], elems);
+            return buf[0..elems.len];
+        }
+
         const param_count = ch.arity + ch.optional_params.items.len + ch.post_required_count;
 
         if (ch.rest_param_index == null) {
@@ -8360,6 +8454,22 @@ pub const VM = struct {
     /// applied defaults) rather than just what was explicitly passed at the call site.
     fn buildForwardingKeywordContext(self: *VM, frame: *CallFrame) VMError!?*BuiltinKeywordContext {
         const ch = frame.chunk;
+        if (ch.has_forwarding_parameter) {
+            const rest_idx = ch.keyword_rest_index orelse return null;
+            const kw_hash_val = (frame.ep - ch.locals_count + rest_idx)[0];
+            if (!kw_hash_val.isHash()) return null;
+
+            const len = kw_hash_val.toHashObject().entries.items.len;
+            if (len == 0) return null;
+
+            const ctx = self.gc_allocator.create(BuiltinKeywordContext) catch return error.Fatal;
+            ctx.* = .{};
+            _ = try self.extractKeywordPairsFromHash(kw_hash_val, ctx.kw_keys_storage[0..len], ctx.kw_values_storage[0..len]);
+            ctx.kw_keys = ctx.kw_keys_storage[0..len];
+            ctx.kw_values = ctx.kw_values_storage[0..len];
+            return ctx;
+        }
+
         const total = ch.required_keywords.items.len + ch.optional_keywords.items.len;
         if (total == 0) return null;
 

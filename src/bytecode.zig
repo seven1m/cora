@@ -44,6 +44,8 @@ pub const OpCode = enum(u8) {
     // Method calls
     CALL, // Operands: u16 (method name index), u8 (argc), u8 (call_flags), u16 (block chunk id)
     CALL_KW, // Operands: u16 method_idx, u8 argc, u8 kwargc, u8 call_flags, u16 kw_metadata_idx, u16 block_chunk_id
+    FORWARD_ARGS_CALL, // Operands: u16 method_idx, u8 call_flags, u16 block_chunk_id
+    FORWARD_ARGS_CALL_WITH_PREFIX, // Operands: u16 method_idx, u8 call_flags, u16 block_chunk_id, u8 prefix_argc
     RETURN, // Operand: u8 (0=implicit, 1=explicit)
 
     // Optimized ops for integer math
@@ -265,6 +267,12 @@ pub fn opcodeOperandSize(op: OpCode) usize {
 
         // CALL_KW: u16 method_idx + u8 argc + u8 kwargc + u8 call_flags + u16 kw_metadata_idx + u16 block_chunk_id = 9 bytes
         .CALL_KW => 9,
+
+        // FORWARD_ARGS_CALL: u16 method_idx + u8 call_flags + u16 block_chunk_id = 5 bytes
+        .FORWARD_ARGS_CALL => 5,
+
+        // FORWARD_ARGS_CALL_WITH_PREFIX: u16 method_idx + u8 call_flags + u16 block_chunk_id + u8 prefix_argc = 6 bytes
+        .FORWARD_ARGS_CALL_WITH_PREFIX => 6,
     };
 }
 
@@ -348,6 +356,8 @@ pub fn opcodeName(op: OpCode) []const u8 {
         .REDO => "REDO",
         .SUPER => "SUPER",
         .FORWARDING_SUPER => "FORWARDING_SUPER",
+        .FORWARD_ARGS_CALL => "FORWARD_ARGS_CALL",
+        .FORWARD_ARGS_CALL_WITH_PREFIX => "FORWARD_ARGS_CALL_WITH_PREFIX",
         .PUSH_REGEXP => "PUSH_REGEXP",
         .ALIAS_METHOD => "ALIAS_METHOD",
         .UNDEF_METHOD => "UNDEF_METHOD",

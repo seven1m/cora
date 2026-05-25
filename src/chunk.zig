@@ -123,6 +123,7 @@ pub const Chunk = struct {
     optional_keywords: std.ArrayList(OptionalKeyword) = .empty,
     keyword_rest_index: ?u16 = null,
     no_keywords: bool = false,
+    has_forwarding_parameter: bool = false,
     keyword_metadata: std.ArrayList(KeywordMetadata) = .empty,
     block_param_index: ?u16 = null,
 
@@ -370,6 +371,29 @@ pub const Chunk = struct {
         try self.code.append(self.allocator, @intCast(block_chunk_id >> 8));
     }
 
+    /// Emit FORWARD_ARGS_CALL: u16 method_idx, u8 call_flags, u16 block_chunk_id
+    pub fn emitForwardArgsCall(self: *Chunk, method_idx: u16, call_style: u8, block_chunk_id: u16, line: u32) !void {
+        try self.recordLine(line);
+        try self.code.append(self.allocator, @intFromEnum(OpCode.FORWARD_ARGS_CALL));
+        try self.code.append(self.allocator, @intCast(method_idx & 0xFF));
+        try self.code.append(self.allocator, @intCast(method_idx >> 8));
+        try self.code.append(self.allocator, call_style);
+        try self.code.append(self.allocator, @intCast(block_chunk_id & 0xFF));
+        try self.code.append(self.allocator, @intCast(block_chunk_id >> 8));
+    }
+
+    /// Emit FORWARD_ARGS_CALL_WITH_PREFIX: u16 method_idx, u8 call_flags, u16 block_chunk_id, u8 prefix_argc
+    pub fn emitForwardArgsCallWithPrefix(self: *Chunk, method_idx: u16, call_style: u8, block_chunk_id: u16, prefix_argc: u8, line: u32) !void {
+        try self.recordLine(line);
+        try self.code.append(self.allocator, @intFromEnum(OpCode.FORWARD_ARGS_CALL_WITH_PREFIX));
+        try self.code.append(self.allocator, @intCast(method_idx & 0xFF));
+        try self.code.append(self.allocator, @intCast(method_idx >> 8));
+        try self.code.append(self.allocator, call_style);
+        try self.code.append(self.allocator, @intCast(block_chunk_id & 0xFF));
+        try self.code.append(self.allocator, @intCast(block_chunk_id >> 8));
+        try self.code.append(self.allocator, prefix_argc);
+    }
+
     pub fn emitSuper(self: *Chunk, argc: u8, flags: u8, block_chunk_id: u16, line: u32) !void {
         try self.recordLine(line);
         try self.code.append(self.allocator, @intFromEnum(OpCode.SUPER));
@@ -597,6 +621,34 @@ pub const Chunk = struct {
                 const kw_metadata_idx = readU16(self.code.items, &ip);
                 const block_id = readU16(self.code.items, &ip);
                 try writer.print("CALL_KW {d}, {d}, {d}, {d}, {d}, {d}\n", .{ method_idx, argc, kwargc, call_flags, kw_metadata_idx, block_id });
+            },
+
+            .FORWARD_ARGS_CALL => {
+                const method_idx = readU16(self.code.items, &ip);
+                const call_flags = self.code.items[ip];
+                ip += 1;
+                const block_id = readU16(self.code.items, &ip);
+                try writer.print("FORWARD_ARGS_CALL {d}", .{method_idx});
+                if (method_idx < self.constants.items.len) {
+                    const c = self.constants.items[method_idx];
+                    if (c == .string) try writer.print(" (\"{s}\")", .{c.string});
+                }
+                try writer.print(", flags={d}, block={d}\n", .{ call_flags, block_id });
+            },
+
+            .FORWARD_ARGS_CALL_WITH_PREFIX => {
+                const method_idx = readU16(self.code.items, &ip);
+                const call_flags = self.code.items[ip];
+                ip += 1;
+                const block_id = readU16(self.code.items, &ip);
+                const prefix_argc = self.code.items[ip];
+                ip += 1;
+                try writer.print("FORWARD_ARGS_CALL_WITH_PREFIX {d}", .{method_idx});
+                if (method_idx < self.constants.items.len) {
+                    const c = self.constants.items[method_idx];
+                    if (c == .string) try writer.print(" (\"{s}\")", .{c.string});
+                }
+                try writer.print(", flags={d}, block={d}, prefix={d}\n", .{ call_flags, block_id, prefix_argc });
             },
 
             .DEF_METHOD, .DEF_SINGLETON_METHOD, .ALIAS_METHOD, .PUSH_REGEXP, .DEF_MODULE => {
