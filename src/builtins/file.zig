@@ -13,6 +13,387 @@ const Encoding = enc.Encoding;
 
 const null_device_path = if (builtin.os.tag == .windows) "NUL" else "/dev/null";
 
+fn openFlagValue(flags: std.posix.O) i64 {
+    return @intCast(@as(c_int, @bitCast(flags)));
+}
+
+// ─── Native fnmatch ───────────────────────────────────────────────────────────
+//
+// Ported from MRI's dir.c.  Ruby defines its own stable FNM_* flag values and
+// implements matching without calling the OS fnmatch(3), which avoids all
+// platform-specific flag-value differences.
+//
+//   FNM_NOESCAPE = 0x01  disable '\' escaping
+//   FNM_PATHNAME = 0x02  '*' and '?' do not match '/'
+//   FNM_DOTMATCH = 0x04  '*'/'?' match a leading '.'
+//   FNM_CASEFOLD = 0x08  case-insensitive (ASCII range)
+//   FNM_EXTGLOB  = 0x10  enable {a,b,...} brace expansion
+//
+// These are the values Ruby exposes in File::FNM_* and expects back as flags.
+
+/// Decode one UTF-8 codepoint at position i.  Invalid sequences fall back to
+/// treating the byte as a Latin-1 codepoint (matches MRI's behaviour).
+fn fnmDecodeChar(bytes: []const u8, i: usize) struct { cp: u21, len: usize } {
+    if (i >= bytes.len) return .{ .cp = 0, .len = 0 };
+    const seq_len = std.unicode.utf8ByteSequenceLength(bytes[i]) catch return .{ .cp = bytes[i], .len = 1 };
+    if (i + seq_len > bytes.len) return .{ .cp = bytes[i], .len = 1 };
+    const cp = std.unicode.utf8Decode(bytes[i .. i + seq_len]) catch return .{ .cp = bytes[i], .len = 1 };
+    return .{ .cp = cp, .len = seq_len };
+}
+
+/// Advance past one UTF-8 character at position i.
+fn fnmInc(bytes: []const u8, i: usize) usize {
+    return i + fnmDecodeChar(bytes, i).len;
+}
+
+/// Apply FNM_CASEFOLD to a codepoint (ASCII range; non-ASCII passes through).
+fn fnmUpper(cp: u21, nocase: bool) u21 {
+    if (!nocase or cp > 127) return cp;
+    return std.ascii.toUpper(@intCast(cp));
+}
+
+/// True if position i is "at the end" of s (end of string, or '/' in pathname mode).
+inline fn fnmIsEnd(s: []const u8, i: usize, pathname: bool) bool {
+    return i >= s.len or (pathname and s[i] == '/');
+}
+
+/// If escape mode is on and p[i] == '\\', return i+1; otherwise return i.
+inline fn fnmUnescape(p: []const u8, i: usize, escape: bool) usize {
+    if (escape and i < p.len and p[i] == '\\') return i + 1;
+    return i;
+}
+
+/// Match string s[si..] against a bracket expression p[0..] where p starts
+/// immediately after the opening '['.
+/// Returns the index in p just past the closing ']' on a match, null otherwise.
+fn fnmBracket(p: []const u8, s: []const u8, si: usize, flags: i64) ?usize {
+    const nocase = (flags & 0x08) != 0;
+    const escape = (flags & 0x01) == 0;
+    var ok = false;
+    var negate = false;
+    var pi: usize = 0;
+
+    if (pi >= p.len) return null;
+    if (p[pi] == '!' or p[pi] == '^') {
+        negate = true;
+        pi += 1;
+    }
+
+    while (pi < p.len and p[pi] != ']') {
+        // t1i: start of the pattern character (after any escape backslash)
+        var t1i = pi;
+        if (escape and t1i < p.len and p[t1i] == '\\') t1i += 1;
+        if (t1i >= p.len) return null;
+
+        const t1 = fnmDecodeChar(p, t1i);
+        pi = t1i + t1.len;
+        if (pi >= p.len) return null;
+
+        if (p[pi] == '-' and pi + 1 < p.len and p[pi + 1] != ']') {
+            // Range: [t1-t2]
+            var t2i = pi + 1;
+            if (escape and t2i < p.len and p[t2i] == '\\') t2i += 1;
+            if (t2i >= p.len) return null;
+            const t2 = fnmDecodeChar(p, t2i);
+            pi = t2i + t2.len;
+
+            if (ok) continue;
+
+            // Byte-exact endpoint match (MRI checks this first)
+            if (t1.len <= s.len - si and std.mem.eql(u8, p[t1i .. t1i + t1.len], s[si .. si + t1.len])) {
+                ok = true;
+                continue;
+            }
+            if (t2.len <= s.len - si and std.mem.eql(u8, p[t2i .. t2i + t2.len], s[si .. si + t2.len])) {
+                ok = true;
+                continue;
+            }
+
+            // Codepoint range check
+            const sc = fnmUpper(fnmDecodeChar(s, si).cp, nocase);
+            if (sc < fnmUpper(t1.cp, nocase)) continue;
+            if (sc > fnmUpper(t2.cp, nocase)) continue;
+        } else {
+            if (ok) continue;
+
+            // Byte-exact match
+            if (t1.len <= s.len - si and std.mem.eql(u8, p[t1i .. t1i + t1.len], s[si .. si + t1.len])) {
+                ok = true;
+                continue;
+            }
+            if (!nocase) continue;
+
+            // Case-insensitive codepoint match
+            const sc = fnmUpper(fnmDecodeChar(s, si).cp, true);
+            const pc = fnmUpper(t1.cp, true);
+            if (sc != pc) continue;
+        }
+        ok = true;
+    }
+
+    if (pi >= p.len) return null; // unclosed '['
+    return if (ok != negate) pi + 1 else null;
+}
+
+const FnmHelperResult = struct { pi: usize, si: usize, matched: bool };
+
+/// Match string s[s_start..] against pattern p[p_start..] for one path segment.
+/// Handles '*', '?', '[...]', ordinary chars, and backtracking across '*'.
+/// Ported from MRI's fnmatch_helper().
+fn fnmHelper(p: []const u8, p_start: usize, s: []const u8, s_start: usize, flags: i64) FnmHelperResult {
+    const period = (flags & 0x04) == 0; // !FNM_DOTMATCH → leading '.' must match literally
+    const pathname = (flags & 0x02) != 0;
+    const escape = (flags & 0x01) == 0;
+    const nocase = (flags & 0x08) != 0;
+
+    var pi = p_start;
+    var si = s_start;
+    var ptmp: ?usize = null; // saved pattern position after last '*'
+    var stmp: ?usize = null; // saved string position at last '*'
+
+    // Leading period: if string starts with '.' the pattern must too.
+    if (period and !fnmIsEnd(s, si, pathname) and s[si] == '.') {
+        const ui = fnmUnescape(p, pi, escape);
+        if (ui >= p.len or p[ui] != '.') {
+            return .{ .pi = pi, .si = si, .matched = false };
+        }
+    }
+
+    while (true) {
+        // Each iteration tries to match one pattern element.  On success, `continue`
+        // loops back to the top.  `break :step` falls through to backtracking.
+        step: {
+            const at_end = pi >= p.len or fnmIsEnd(p, pi, pathname);
+
+            if (at_end) {
+                // Pattern segment is done: match iff string segment is also done.
+                if (fnmIsEnd(s, si, pathname)) {
+                    return .{ .pi = pi, .si = si, .matched = true };
+                }
+                // String has more — try backtracking to last '*'.
+                break :step;
+            }
+
+            switch (p[pi]) {
+                '*' => {
+                    // Consume all consecutive '*'.
+                    while (pi < p.len and p[pi] == '*') pi += 1;
+                    // '*' at end of segment matches the rest unconditionally.
+                    const ui = fnmUnescape(p, pi, escape);
+                    if (fnmIsEnd(p, ui, pathname)) {
+                        pi = ui;
+                        return .{ .pi = pi, .si = si, .matched = true };
+                    }
+                    if (fnmIsEnd(s, si, pathname)) break :step;
+                    ptmp = pi;
+                    stmp = si;
+                    continue;
+                },
+                '?' => {
+                    if (fnmIsEnd(s, si, pathname)) break :step;
+                    pi += 1;
+                    si = fnmInc(s, si);
+                    continue;
+                },
+                '[' => {
+                    if (fnmIsEnd(s, si, pathname)) break :step;
+                    if (fnmBracket(p[pi + 1 ..], s, si, flags)) |bracket_end| {
+                        pi = pi + 1 + bracket_end;
+                        si = fnmInc(s, si);
+                        continue;
+                    }
+                    break :step;
+                },
+                else => {
+                    // Ordinary character (with possible backslash escape).
+                    // MRI checks ISEND(s) first, then ISEND(p).
+                    const ui = fnmUnescape(p, pi, escape);
+                    if (fnmIsEnd(s, si, pathname)) {
+                        // String ended: match iff pattern also ended here.
+                        return .{ .pi = ui, .si = si, .matched = fnmIsEnd(p, ui, pathname) };
+                    }
+                    if (fnmIsEnd(p, ui, pathname)) break :step;
+                    const pc = fnmDecodeChar(p, ui);
+                    const sc = fnmDecodeChar(s, si);
+                    if (pc.len <= s.len - si and
+                        std.mem.eql(u8, p[ui .. ui + pc.len], s[si .. si + pc.len]))
+                    {
+                        pi = ui + pc.len;
+                        si += pc.len;
+                        continue;
+                    }
+                    if (nocase and fnmUpper(pc.cp, true) == fnmUpper(sc.cp, true)) {
+                        pi = ui + pc.len;
+                        si += sc.len;
+                        continue;
+                    }
+                    break :step;
+                },
+            }
+        }
+
+        // `failed`: backtrack to the most recently saved '*' position.
+        if (ptmp) |sp| {
+            if (stmp) |ss| {
+                pi = sp;
+                si = fnmInc(s, ss);
+                stmp = si;
+                continue;
+            }
+        }
+        return .{ .pi = pi, .si = si, .matched = false };
+    }
+}
+
+/// Top-level match: handles FNM_PATHNAME (segment-by-segment) and `**/`.
+/// Ported from MRI's fnmatch().
+fn fnmMatch(pattern: []const u8, string: []const u8, flags: i64) bool {
+    const pathname = (flags & 0x02) != 0;
+    const period = (flags & 0x04) == 0;
+
+    if (!pathname) {
+        // Non-pathname mode: one call covers the whole string.
+        // Note: fnmHelper returns matched=true when '*' exhausts the pattern even
+        // if si hasn't reached string.len (because '*' matches the rest).  The
+        // ordinary-character and bracket paths return matched based on fnmIsEnd(s),
+        // so false positives from those paths are not possible.
+        const r = fnmHelper(pattern, 0, string, 0, flags);
+        return r.matched;
+    }
+
+    // Pathname mode: match segment by segment, with `**/` support.
+    var pi: usize = 0;
+    var si: usize = 0;
+    var ptmp: ?usize = null; // pattern pos saved after last `**/`
+    var stmp: ?usize = null; // string pos saved at last `**/`
+
+    while (true) {
+        // Consume any leading `**/` sequences and save as backtrack point.
+        if (pi + 2 < pattern.len and
+            pattern[pi] == '*' and pattern[pi + 1] == '*' and pattern[pi + 2] == '/')
+        {
+            while (pi + 2 < pattern.len and
+                pattern[pi] == '*' and pattern[pi + 1] == '*' and pattern[pi + 2] == '/')
+            {
+                pi += 3;
+            }
+            ptmp = pi;
+            stmp = si;
+        }
+
+        const r = fnmHelper(pattern, pi, string, si, flags);
+        if (r.matched) {
+            // Advance si to the segment boundary (in case '*' consumed past it)
+            var new_si = r.si;
+            while (new_si < string.len and string[new_si] != '/') {
+                new_si = fnmInc(string, new_si);
+            }
+            const new_pi = r.pi;
+            if (new_pi < pattern.len and new_si < string.len) {
+                // Both have more segments: skip the '/' separators and continue.
+                pi = new_pi + 1;
+                si = new_si + 1;
+                continue;
+            }
+            if (new_pi >= pattern.len and new_si >= string.len) {
+                return true;
+            }
+            // One side ended but not the other → fall through to backtrack.
+        }
+
+        // Try backtracking to the last `**/` save point.
+        if (ptmp != null and stmp != null) {
+            var new_stmp = stmp.?;
+            if (period and new_stmp < string.len and string[new_stmp] == '.') {
+                return false;
+            }
+            // Advance stmp past the current path segment.
+            while (new_stmp < string.len and string[new_stmp] != '/') {
+                new_stmp = fnmInc(string, new_stmp);
+            }
+            if (new_stmp < string.len) {
+                pi = ptmp.?;
+                stmp = new_stmp + 1;
+                si = new_stmp + 1;
+                continue;
+            }
+        }
+        return false;
+    }
+}
+
+/// Expand `{a,b,...}` brace alternatives and return true if any expanded pattern
+/// matches.  Handles nested braces via recursion.  Ported from MRI's
+/// ruby_brace_expand() + fnmatch_brace().
+fn fnmBraceMatch(pattern: []const u8, string: []const u8, flags: i64, allocator: std.mem.Allocator) std.mem.Allocator.Error!bool {
+    const escape = (flags & 0x01) == 0;
+
+    // Locate the outermost balanced { }.
+    var lbrace: ?usize = null;
+    var rbrace: ?usize = null;
+    var nest: i32 = 0;
+    var i: usize = 0;
+    while (i < pattern.len) {
+        if (pattern[i] == '{') {
+            if (nest == 0) lbrace = i;
+            nest += 1;
+        } else if (pattern[i] == '}' and lbrace != null) {
+            nest -= 1;
+            if (nest == 0) {
+                rbrace = i;
+                break;
+            }
+        } else if (escape and pattern[i] == '\\') {
+            i += 1;
+            if (i >= pattern.len) break;
+        }
+        i = fnmInc(pattern, i);
+    }
+
+    if (lbrace == null or rbrace == null) {
+        // No braces: plain match.
+        return fnmMatch(pattern, string, flags);
+    }
+
+    const lb = lbrace.?;
+    const rb = rbrace.?;
+    const prefix = pattern[0..lb];
+    const suffix = pattern[rb + 1 ..];
+
+    // Iterate through comma-separated alternatives inside { }.
+    var p: usize = lb + 1;
+    while (p <= rb) {
+        // Find the end of this alternative (next ',' or the closing '}').
+        var end = p;
+        var inner_nest: i32 = 0;
+        while (end < rb) {
+            if (pattern[end] == '{') inner_nest += 1;
+            if (pattern[end] == '}') {
+                if (inner_nest == 0) break;
+                inner_nest -= 1;
+            }
+            if (pattern[end] == ',' and inner_nest == 0) break;
+            if (escape and pattern[end] == '\\') {
+                end += 1;
+                if (end >= rb) break;
+            }
+            end = fnmInc(pattern, end);
+        }
+
+        const alt = pattern[p..end];
+        const expanded = try std.mem.concat(allocator, u8, &.{ prefix, alt, suffix });
+        defer allocator.free(expanded);
+
+        // Recurse to handle nested braces in the expanded pattern.
+        if (try fnmBraceMatch(expanded, string, flags, allocator)) return true;
+
+        if (end >= rb) break;
+        p = end + 1; // skip ','
+    }
+
+    return false;
+}
+
 const PosixStatMetadata = struct {
     uid: i64,
     gid: i64,
@@ -43,7 +424,7 @@ fn callStat(path: [*:0]const u8, buf: *std.posix.Stat) c_int {
     return @intCast(rc);
 }
 
-extern fn fnmatch(pattern: [*:0]const u8, string: [*:0]const u8, flags: c_int) c_int;
+// fnmatch is implemented natively below; no OS fnmatch(3) needed.
 extern fn chown(path: [*:0]const u8, owner: std.c.uid_t, group: std.c.gid_t) c_int;
 
 fn passwdDir(passwd: *const std.c.passwd) ?[]const u8 {
@@ -103,13 +484,13 @@ pub fn register(vm: *VM) !void {
         .{ "RDONLY", 0 },
         .{ "WRONLY", 1 },
         .{ "RDWR", 2 },
-        .{ "APPEND", 1024 },
-        .{ "TRUNC", 512 },
-        .{ "CREAT", 64 },
-        .{ "EXCL", 128 },
-        .{ "NONBLOCK", 2048 },
-        .{ "NOCTTY", 256 },
-        .{ "SYNC", 1052672 },
+        .{ "APPEND", openFlagValue(.{ .APPEND = true }) },
+        .{ "TRUNC", openFlagValue(.{ .TRUNC = true }) },
+        .{ "CREAT", openFlagValue(.{ .CREAT = true }) },
+        .{ "EXCL", openFlagValue(.{ .EXCL = true }) },
+        .{ "NONBLOCK", openFlagValue(.{ .NONBLOCK = true }) },
+        .{ "NOCTTY", openFlagValue(.{ .NOCTTY = true }) },
+        .{ "SYNC", openFlagValue(.{ .SYNC = true }) },
         .{ "BINARY", 0 },
         .{ "SHARE_DELETE", 0 },
         .{ "FNM_NOESCAPE", 0x01 },
@@ -283,12 +664,15 @@ fn parseModeBits(vm: *VM, raw_mode: i64) VMError!FileMode {
         return vm.raiseExceptionFmt(vm.argument_error_class, "invalid access mode {d}", .{raw_mode});
     }
 
-    const accmode = raw_mode & 0b11;
-    const read = accmode == 0 or accmode == 2;
-    const write = accmode == 1 or accmode == 2;
-    const append = (raw_mode & 1024) != 0;
-    const truncate = (raw_mode & 512) != 0;
-    const create = (raw_mode & 64) != 0 or append;
+    // Decode using OS-native flag layout by bitcasting back to the posix.O struct.
+    // This is the reverse of openFlagValue() and handles platform differences
+    // (e.g. O_CREAT=512 on macOS vs O_CREAT=64 on Linux).
+    const flags: std.posix.O = @bitCast(@as(c_int, @truncate(raw_mode)));
+    const read = flags.ACCMODE == .RDONLY or flags.ACCMODE == .RDWR;
+    const write = flags.ACCMODE == .WRONLY or flags.ACCMODE == .RDWR;
+    const append = flags.APPEND;
+    const truncate = flags.TRUNC;
+    const create = flags.CREAT or append;
 
     return .{
         .read = read,
@@ -1418,41 +1802,38 @@ pub fn builtinFileStatExecutableQ(vm: *VM, receiver: Value, args: []Value, _: ?B
     return Value.boolean(mode.isInteger() and (mode.toInteger() & 0o111) != 0);
 }
 
-// FNM flag constants (must match the values registered in `register`)
-const FNM_NOESCAPE: c_int = 0x01;
-const FNM_PATHNAME: c_int = 0x02;
-const FNM_DOTMATCH: c_int = 0x04;
-const FNM_CASEFOLD: c_int = 0x08;
-const FNM_EXTGLOB: c_int = 0x10;
-
 pub fn builtinFileFnmatch(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 2, 3);
 
     const pattern_val = args[0];
-    const path_val = args[1];
+    const path_val_raw = args[1];
 
     if (!pattern_val.isString()) {
         return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion of {s} into String", .{vm.className(pattern_val)});
     }
-    if (!path_val.isString()) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion of {s} into String", .{vm.className(path_val)});
-    }
 
-    var cflags: c_int = 0;
-    if (args.len == 3 and args[2].isInteger()) {
-        const flags = args[2].toInteger();
-        if (flags & 0x01 != 0) cflags |= FNM_NOESCAPE;
-        if (flags & 0x02 != 0) cflags |= FNM_PATHNAME;
-        if (flags & 0x04 != 0) cflags |= FNM_DOTMATCH;
-        if (flags & 0x08 != 0) cflags |= FNM_CASEFOLD;
-        if (flags & 0x10 != 0) cflags |= FNM_EXTGLOB;
-    }
+    // Path accepts String or any object responding to #to_path.
+    const path_val = try vm.coerceToPathValue(path_val_raw, "no implicit conversion of {s} into String");
 
-    const pattern_z = try vm.allocCStringZ(pattern_val.toStringObject().str);
-    defer vm.allocator.free(pattern_z);
-    const path_z = try vm.allocCStringZ(path_val.toStringObject().str);
-    defer vm.allocator.free(path_z);
+    // Flags: must be Integer or respond to #to_int; string/nil raises TypeError.
+    const flags: i64 = if (args.len == 3) blk: {
+        const f = args[2];
+        if (f.isInteger()) break :blk f.toInteger();
+        break :blk try f.coerceToI64ViaToInt(
+            vm,
+            "no implicit conversion of {s} into Integer",
+            "can't convert to Integer (to_int gives non-Integer)",
+            "integer out of range",
+        );
+    } else 0;
 
-    const result = fnmatch(pattern_z.ptr, path_z.ptr, cflags);
-    return Value.boolean(result == 0);
+    const pattern = pattern_val.toStringObject().str;
+    const path = path_val.toStringObject().str;
+
+    const matched = if ((flags & 0x10) != 0) // FNM_EXTGLOB
+        (fnmBraceMatch(pattern, path, flags, vm.allocator) catch return error.Fatal)
+    else
+        fnmMatch(pattern, path, flags);
+
+    return Value.boolean(matched);
 }
