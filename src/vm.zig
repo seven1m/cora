@@ -10663,33 +10663,19 @@ pub const VM = struct {
         }
 
         if (context) |ctx| {
-            return self.executeChunkInContextWithOptions(
-                eval_main_chunk,
-                ctx.self_value,
-                ctx.parent_ep,
-                ctx.lexical_scope,
-                ctx.class_variable_scope,
-                ctx.method_definition_target,
-                ctx.dir_returns_nil,
-            );
+            return self.executeChunkInContext(eval_main_chunk, ctx.self_value, ctx.parent_ep, ctx.lexical_scope, .{
+                .class_variable_scope = ctx.class_variable_scope,
+                .method_definition_target = ctx.method_definition_target,
+                .dir_returns_nil = ctx.dir_returns_nil,
+            });
         }
 
         if (self.frames.items.len > 0) {
             const current_frame = self.currentFrame();
-            return self.executeChunkInContext(
-                eval_main_chunk,
-                current_frame.self_value,
-                current_frame.ep,
-                self.current_lexical_scope,
-            );
+            return self.executeChunkInContext(eval_main_chunk, current_frame.self_value, current_frame.ep, self.current_lexical_scope, .{});
         }
 
-        return self.executeChunkInContext(
-            eval_main_chunk,
-            self.main_self,
-            null,
-            self.current_lexical_scope,
-        );
+        return self.executeChunkInContext(eval_main_chunk, self.main_self, null, self.current_lexical_scope, .{});
     }
 
     fn executeChunk(self: *VM, target_chunk: *Chunk) VMError!void {
@@ -10698,8 +10684,15 @@ pub const VM = struct {
             self.main_self,
             null,
             target_chunk.lexical_scope orelse self.toplevel_lexical_scope orelse self.current_lexical_scope,
+            .{},
         );
     }
+
+    pub const ChunkContextOptions = struct {
+        class_variable_scope: ?*LexicalScope = null,
+        method_definition_target: ?Value = null,
+        dir_returns_nil: bool = false,
+    };
 
     fn executeChunkInContext(
         self: *VM,
@@ -10707,19 +10700,7 @@ pub const VM = struct {
         self_value: Value,
         parent_ep: ?[*]Value,
         lexical_scope: ?*LexicalScope,
-    ) VMError!Value {
-        return self.executeChunkInContextWithOptions(target_chunk, self_value, parent_ep, lexical_scope, null, null, false);
-    }
-
-    fn executeChunkInContextWithOptions(
-        self: *VM,
-        target_chunk: *Chunk,
-        self_value: Value,
-        parent_ep: ?[*]Value,
-        lexical_scope: ?*LexicalScope,
-        class_variable_scope: ?*LexicalScope,
-        method_definition_target: ?Value,
-        dir_returns_nil: bool,
+        opts: ChunkContextOptions,
     ) VMError!Value {
         const saved_stack_len = self.stack.items.len;
         const lc = target_chunk.locals_count;
@@ -10731,7 +10712,7 @@ pub const VM = struct {
 
         const ep: [*]Value = self.stack.storage[locals_base + lc .. locals_base + lc + ENV_DATA_SIZE].ptr;
         ep[0] = if (parent_ep) |p| encodeEp(p) else .{ .raw = 0 };
-        ep[1] = try self.frameScopeValue(lexical_scope orelse self.current_lexical_scope, class_variable_scope, method_definition_target);
+        ep[1] = try self.frameScopeValue(lexical_scope orelse self.current_lexical_scope, opts.class_variable_scope, opts.method_definition_target);
         ep[2] = Value.integer(lc);
 
         self.frames.append(self.gc_allocator, CallFrame{
@@ -10743,7 +10724,7 @@ pub const VM = struct {
             .self_value = self_value,
             .block = null,
             .frame_type = .method,
-            .dir_returns_nil = dir_returns_nil,
+            .dir_returns_nil = opts.dir_returns_nil,
         }) catch return error.Fatal;
 
         if (lexical_scope) |scope| {
