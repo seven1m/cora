@@ -3585,7 +3585,7 @@ pub const Compiler = struct {
         };
     }
 
-    fn compileDestructuredBlockRequiredParams(self: *Compiler, params: *prism.ParametersNode, line: u32) !void {
+    fn compileDestructuredRequiredParams(self: *Compiler, params: *prism.ParametersNode, line: u32) !void {
         if (params.requireds.size == 0) return;
 
         var slot_index: u8 = 0;
@@ -3745,6 +3745,7 @@ pub const Compiler = struct {
             param_count = counts.param_count;
             rest_param_idx = counts.rest_param_idx;
             post_count = counts.post_count;
+            try self.compileDestructuredRequiredParams(params, line);
         }
 
         // Store parameter metadata on chunk
@@ -3862,7 +3863,7 @@ pub const Compiler = struct {
                     param_count = counts.param_count;
                     rest_param_idx = counts.rest_param_idx;
                     post_count = counts.post_count;
-                    try self.compileDestructuredBlockRequiredParams(params, line);
+                    try self.compileDestructuredRequiredParams(params, line);
                 }
             } else {
                 return error.UnsupportedNode;
@@ -3980,7 +3981,7 @@ pub const Compiler = struct {
                     param_count = counts.param_count;
                     rest_param_idx = counts.rest_param_idx;
                     post_count = counts.post_count;
-                    try self.compileDestructuredBlockRequiredParams(params, line);
+                    try self.compileDestructuredRequiredParams(params, line);
                 }
             } else {
                 return error.UnsupportedNode;
