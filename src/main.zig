@@ -176,7 +176,13 @@ fn requireLibraries(virtual_machine: *vm.VM, libraries: []const []const u8) !voi
     for (libraries) |library| {
         const require_arg = try virtual_machine.newString(library, false);
         var require_args = [_]Value{require_arg};
-        _ = try virtual_machine.callMethodByName(virtual_machine.main_self, "require", require_args[0..], null);
+        _ = virtual_machine.callMethodByName(virtual_machine.main_self, "require", require_args[0..], null) catch |err| switch (err) {
+            error.Unwind => {
+                virtual_machine.printUnhandledException();
+                std.process.exit(1);
+            },
+            else => return err,
+        };
     }
 }
 
@@ -356,6 +362,7 @@ pub fn main(init: std.process.Init) !void {
     if (input_record_separator) |separator| {
         try virtual_machine.setInputRecordSeparator(separator, true);
     }
+    virtual_machine.setupOutput();
     try requireLibraries(&virtual_machine, required_libraries.items);
 
     const result = virtual_machine.run();
