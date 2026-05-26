@@ -115,6 +115,27 @@ pub fn register(vm: *VM) !void {
     const backtrace_sym = try vm.intern("backtrace");
     try vm.thread_class.module.methods.put(backtrace_sym, value.MethodEntry.builtin(&builtinThreadBacktrace, .{ .exact = 0 }));
 
+    const path_sym = try vm.intern("path");
+    try vm.thread_backtrace_location_class.module.methods.put(path_sym, value.MethodEntry.builtin(&builtinThreadBacktraceLocationPath, .{ .exact = 0 }));
+
+    const absolute_path_sym = try vm.intern("absolute_path");
+    try vm.thread_backtrace_location_class.module.methods.put(absolute_path_sym, value.MethodEntry.builtin(&builtinThreadBacktraceLocationAbsolutePath, .{ .exact = 0 }));
+
+    const label_sym = try vm.intern("label");
+    try vm.thread_backtrace_location_class.module.methods.put(label_sym, value.MethodEntry.builtin(&builtinThreadBacktraceLocationLabel, .{ .exact = 0 }));
+
+    const base_label_sym = try vm.intern("base_label");
+    try vm.thread_backtrace_location_class.module.methods.put(base_label_sym, value.MethodEntry.builtin(&builtinThreadBacktraceLocationBaseLabel, .{ .exact = 0 }));
+
+    const lineno_sym = try vm.intern("lineno");
+    try vm.thread_backtrace_location_class.module.methods.put(lineno_sym, value.MethodEntry.builtin(&builtinThreadBacktraceLocationLineno, .{ .exact = 0 }));
+
+    const to_s_sym = try vm.intern("to_s");
+    try vm.thread_backtrace_location_class.module.methods.put(to_s_sym, value.MethodEntry.builtin(&builtinThreadBacktraceLocationToS, .{ .exact = 0 }));
+
+    const location_inspect_sym = try vm.intern("inspect");
+    try vm.thread_backtrace_location_class.module.methods.put(location_inspect_sym, value.MethodEntry.builtin(&builtinThreadBacktraceLocationToS, .{ .exact = 0 }));
+
     const stop_q_sym = try vm.intern("stop?");
     try vm.thread_class.module.methods.put(stop_q_sym, value.MethodEntry.builtin(&builtinThreadStopQ, .{ .exact = 0 }));
 
@@ -636,6 +657,49 @@ fn builtinThreadBacktrace(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
         return Value.fromObject(&backtrace.object);
     }
     return Value.nil();
+}
+
+fn builtinThreadBacktraceLocationPath(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return try vm.getInstanceVariable(receiver, "@path");
+}
+
+fn builtinThreadBacktraceLocationAbsolutePath(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return try vm.getInstanceVariable(receiver, "@absolute_path");
+}
+
+fn builtinThreadBacktraceLocationLabel(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return try vm.getInstanceVariable(receiver, "@label");
+}
+
+fn builtinThreadBacktraceLocationBaseLabel(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const label = try vm.getInstanceVariable(receiver, "@label");
+    const label_string = label.toStringObject().str;
+    const stripped = if (std.mem.startsWith(u8, label_string, "block in "))
+        label_string["block in ".len..]
+    else
+        label_string;
+    const hash_idx = std.mem.lastIndexOfScalar(u8, stripped, '#');
+    const dot_idx = std.mem.lastIndexOfScalar(u8, stripped, '.');
+    const split_idx = if (hash_idx != null and dot_idx != null)
+        @max(hash_idx.?, dot_idx.?)
+    else
+        hash_idx orelse dot_idx;
+    const base = if (split_idx) |idx| stripped[idx + 1 ..] else stripped;
+    return try vm.newString(base, false);
+}
+
+fn builtinThreadBacktraceLocationLineno(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return try vm.getInstanceVariable(receiver, "@lineno");
+}
+
+fn builtinThreadBacktraceLocationToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return try vm.getInstanceVariable(receiver, "@to_s");
 }
 
 fn builtinThreadStopQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

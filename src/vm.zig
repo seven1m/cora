@@ -469,6 +469,7 @@ pub const VM = struct {
     main_fiber: *value.FiberObject,
     current_fiber: *value.FiberObject,
     thread_class: *value.ClassObject,
+    thread_backtrace_location_class: *value.ClassObject,
     thread_group_class: *value.ClassObject,
     mutex_class: *value.ClassObject,
     queue_class: *value.ClassObject,
@@ -673,6 +674,7 @@ pub const VM = struct {
             .main_fiber = undefined,
             .current_fiber = undefined,
             .thread_class = undefined,
+            .thread_backtrace_location_class = undefined,
             .thread_group_class = undefined,
             .mutex_class = undefined,
             .queue_class = undefined,
@@ -909,6 +911,13 @@ pub const VM = struct {
         const thread_name_sym = try self.intern("Thread");
         const thread_class_val = try self.newClass(thread_name_sym, self.object_class);
         self.thread_class = thread_class_val.toClassObject();
+
+        const thread_backtrace_name_sym = try self.intern("Backtrace");
+        const thread_backtrace_module_val = try self.newModule(thread_backtrace_name_sym);
+
+        const thread_backtrace_location_name_sym = try self.intern("Location");
+        const thread_backtrace_location_class_val = try self.newClass(thread_backtrace_location_name_sym, self.object_class);
+        self.thread_backtrace_location_class = thread_backtrace_location_class_val.toClassObject();
 
         const thread_group_name_sym = try self.intern("ThreadGroup");
         const thread_group_class_val = try self.newClass(thread_group_name_sym, self.object_class);
@@ -1313,6 +1322,8 @@ pub const VM = struct {
         // Register Thread::Mutex alias
         const default_name_sym = try self.intern("Default");
         thread_group_class_val.toClassObject().module.constants.put(default_name_sym, .{ .value = self.default_thread_group }) catch return error.Fatal;
+        thread_class_val.toClassObject().module.constants.put(thread_backtrace_name_sym, .{ .value = thread_backtrace_module_val }) catch return error.Fatal;
+        thread_backtrace_module_val.toModuleObject().constants.put(thread_backtrace_location_name_sym, .{ .value = thread_backtrace_location_class_val }) catch return error.Fatal;
         thread_class_val.toClassObject().module.constants.put(mutex_name_sym, .{ .value = mutex_class_val }) catch return error.Fatal;
         thread_class_val.toClassObject().module.constants.put(queue_name_sym, .{ .value = queue_class_val }) catch return error.Fatal;
         thread_class_val.toClassObject().module.constants.put(sized_queue_name_sym, .{ .value = sized_queue_class_val }) catch return error.Fatal;
@@ -9262,6 +9273,29 @@ pub const VM = struct {
             .time => self.newTime(class_obj, 0),
             .instance => self.newInstance(class_obj),
         };
+    }
+
+    pub fn newBacktraceLocation(
+        self: *VM,
+        path: []const u8,
+        lineno: u32,
+        label: []const u8,
+    ) VMError!Value {
+        const location = try self.newObjectForClass(self.thread_backtrace_location_class);
+        const path_value = try self.newString(path, false);
+        const label_value = try self.newString(label, false);
+        const rendered = std.fmt.allocPrint(
+            self.gc_allocator,
+            "{s}:{d}:in '{s}'",
+            .{ path, lineno, label },
+        ) catch return error.Fatal;
+        const rendered_value = try self.newString(rendered, false);
+        try self.setInstanceVariable(location, "@path", path_value);
+        try self.setInstanceVariable(location, "@absolute_path", path_value);
+        try self.setInstanceVariable(location, "@label", label_value);
+        try self.setInstanceVariable(location, "@lineno", Value.integer(@intCast(lineno)));
+        try self.setInstanceVariable(location, "@to_s", rendered_value);
+        return location;
     }
 
     pub fn allocateDupShell(self: *VM, receiver: Value) VMError!Value {

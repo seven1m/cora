@@ -109,7 +109,7 @@ describe "Kernel#warn" do
 
     it "shows the caller of #require and not #require itself with RubyGems loaded" do
       file = fixture(__FILE__ , "warn_require_caller.rb")
-      CORAFIXME "caller_locations not implemented", exception: SpecFailedException, message: /undefined method 'caller_locations'/ do
+      CORAFIXME "RubyGems warn uplevel still drops caller prefix for proc-backed methods", exception: SpecFailedException, message: /Actual: "warn-require-warning\\n"/ do
         ruby_exe(file, options: "-rrubygems", args: "2>&1").should == "#{file}:2: warning: warn-require-warning\n"
       end
     end

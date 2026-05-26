@@ -235,6 +235,9 @@ pub fn register(vm: *VM) !void {
     const caller_sym = try vm.intern("caller");
     try vm.kernel_module.methods.put(caller_sym, value.MethodEntry.builtinWithVisibility(&builtinKernelCaller, .{ .variadic = 0 }, .private));
 
+    const caller_locations_sym = try vm.intern("caller_locations");
+    try vm.kernel_module.methods.put(caller_locations_sym, value.MethodEntry.builtinWithVisibility(&builtinKernelCallerLocations, .{ .variadic = 0 }, .private));
+
     const proc_sym = try vm.intern("proc");
     try vm.kernel_module.methods.put(proc_sym, value.MethodEntry.builtin(&builtinKernelProc, .{ .exact = 0 }));
 
@@ -1226,6 +1229,18 @@ fn appendCallerEntry(
     result.elements.append(vm.gc_allocator, string_value) catch return error.Fatal;
 }
 
+fn appendCallerLocationEntry(
+    vm: *VM,
+    result: *value.ArrayObject,
+    frame: *const vm_mod.CallFrame,
+    next_frame: ?*const vm_mod.CallFrame,
+) VMError!void {
+    const source = frame.chunk.source_file orelse frame.chunk.name;
+    const label = try callerFrameLabel(vm, frame, next_frame);
+    const location = try vm.newBacktraceLocation(source, vm.backtraceLineForFrame(frame), label);
+    result.elements.append(vm.gc_allocator, location) catch return error.Fatal;
+}
+
 fn builtinKernelCaller(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 2);
 
@@ -1256,6 +1271,42 @@ fn builtinKernelCaller(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
             while (idx < end) : (idx += 1) {
                 const next_frame = if (idx + 1 < frames.items.len) frames.items[idx + 1] else null;
                 try appendCallerEntry(vm, result, frames.items[idx], next_frame);
+            }
+            return Value.fromObject(&result.object);
+        },
+    }
+}
+
+fn builtinKernelCallerLocations(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 2);
+
+    var frames: std.ArrayList(*const vm_mod.CallFrame) = .empty;
+    defer frames.deinit(vm.gc_allocator);
+
+    var i = vm.frames.items.len;
+    while (i > 0) {
+        i -= 1;
+        const frame = &vm.frames.items[i];
+        if (frame.frame_type == .builtin) continue;
+        frames.append(vm.gc_allocator, frame) catch return error.Fatal;
+    }
+
+    const plan = if (args.len == 0)
+        try planCallerSliceStartLength(vm, frames.items.len, Value.integer(1), null)
+    else if (args.len == 1 and args[0].isRange())
+        try planCallerSliceRange(vm, frames.items.len, args[0].toRangeObject())
+    else
+        try planCallerSliceStartLength(vm, frames.items.len, args[0], if (args.len == 2) args[1] else null);
+
+    switch (plan) {
+        .nil_result => return Value.nil(),
+        .span => |span| {
+            const result = try vm.createArray();
+            var idx = span.start;
+            const end = span.start + span.count;
+            while (idx < end) : (idx += 1) {
+                const next_frame = if (idx + 1 < frames.items.len) frames.items[idx + 1] else null;
+                try appendCallerLocationEntry(vm, result, frames.items[idx], next_frame);
             }
             return Value.fromObject(&result.object);
         },
