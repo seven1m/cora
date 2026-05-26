@@ -6,6 +6,7 @@ const exit_test = @import("exit_test.zig");
 const delegate_test = @import("delegate_test.zig");
 const erb_test = @import("erb_test.zig");
 const fileutils_test = @import("fileutils_test.zig");
+const forwardable_test = @import("forwardable_test.zig");
 const json_test = @import("json_test.zig");
 const logger_test = @import("logger_test.zig");
 const optparse_test = @import("optparse_test.zig");
@@ -101,6 +102,7 @@ comptime {
     _ = delegate_test;
     _ = erb_test;
     _ = fileutils_test;
+    _ = forwardable_test;
     _ = json_test;
     _ = logger_test;
     _ = optparse_test;

@@ -37,3 +37,6 @@
 [submodule "ext/erb"]
 	path = ext/erb
 	url = https://github.com/ruby/erb
+[submodule "ext/forwardable"]
+	path = ext/forwardable
+	url = https://github.com/ruby/forwardable

@@ -108,6 +108,10 @@ fn configureLoadPath(
             defer allocator.free(repo_delegate);
             try appendLoadPathIfExists(virtual_machine, io, repo_delegate);
 
+            const repo_forwardable = try std.fs.path.join(allocator, &.{ exe_dir, "..", "..", "ext", "forwardable", "lib" });
+            defer allocator.free(repo_forwardable);
+            try appendLoadPathIfExists(virtual_machine, io, repo_forwardable);
+
             const repo_time = try std.fs.path.join(allocator, &.{ exe_dir, "..", "..", "ext", "time", "lib" });
             defer allocator.free(repo_time);
             try appendLoadPathIfExists(virtual_machine, io, repo_time);
