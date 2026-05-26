@@ -219,7 +219,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/basicobject/equal_value_spec.rb
 - [x] core/basicobject/initialize_spec.rb
 - [-] core/basicobject/instance_eval_spec.rb
-- [-] core/basicobject/instance_exec_spec.rb
+- [x] core/basicobject/instance_exec_spec.rb
 - [ ] core/basicobject/method_missing_spec.rb
 - [x] core/basicobject/not_equal_spec.rb
 - [x] core/basicobject/not_spec.rb
@@ -1418,13 +1418,13 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/module/equal_spec.rb
 - [ ] core/module/equal_value_spec.rb
 - [ ] core/module/extend_object_spec.rb
-- [ ] core/module/extended_spec.rb
+- [x] core/module/extended_spec.rb
 - [ ] core/module/freeze_spec.rb
 - [ ] core/module/gt_spec.rb
 - [ ] core/module/gte_spec.rb
 - [ ] core/module/include_spec.rb
 - [ ] core/module/included_modules_spec.rb
-- [ ] core/module/included_spec.rb
+- [x] core/module/included_spec.rb
 - [ ] core/module/initialize_copy_spec.rb
 - [ ] core/module/initialize_spec.rb
 - [x] core/module/instance_method_spec.rb

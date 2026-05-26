@@ -972,6 +972,18 @@ pub fn register(vm: *VM) !void {
     const include_sym = try vm.intern("include");
     try vm.module_class.module.methods.put(include_sym, value.MethodEntry.builtin(&builtinModuleInclude, .{ .variadic = 0 }));
 
+    const append_features_sym = try vm.intern("append_features");
+    try vm.module_class.module.methods.put(append_features_sym, value.MethodEntry.builtinWithVisibility(&builtinModuleAppendFeatures, .{ .exact = 1 }, .private));
+
+    const included_sym = try vm.intern("included");
+    try vm.module_class.module.methods.put(included_sym, value.MethodEntry.builtinWithVisibility(&builtinModuleIncluded, .{ .exact = 1 }, .private));
+
+    const extend_object_sym = try vm.intern("extend_object");
+    try vm.module_class.module.methods.put(extend_object_sym, value.MethodEntry.builtinWithVisibility(&builtinModuleExtendObject, .{ .exact = 1 }, .private));
+
+    const extended_sym = try vm.intern("extended");
+    try vm.module_class.module.methods.put(extended_sym, value.MethodEntry.builtinWithVisibility(&builtinModuleExtended, .{ .exact = 1 }, .private));
+
     const prepend_sym = try vm.intern("prepend");
     try vm.module_class.module.methods.put(prepend_sym, value.MethodEntry.builtin(&builtinModulePrepend, .{ .variadic = 0 }));
 
@@ -1551,16 +1563,72 @@ pub fn builtinModuleIncludeQ(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     return error.Unwind;
 }
 
-pub fn builtinModuleInclude(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireSingleArg(args, .module, "Module");
-    const target = receiver.getModuleObject() orelse {
+pub fn builtinModuleAppendFeatures(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const receiver_module = receiver.getModuleObject() orelse {
         const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
         vm.setPendingException(exc);
         return error.Unwind;
     };
-    const module = args[0].toModuleObject();
+    if (!args[0].isClass() and !args[0].isModule()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "wrong argument type {s} (expected Module)", .{vm.className(args[0])});
+    }
+    const target = args[0].getModuleObject() orelse {
+        const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
+        vm.setPendingException(exc);
+        return error.Unwind;
+    };
 
-    vm.includeModule(target, module) catch return error.Fatal;
+    vm.includeModule(target, receiver_module) catch return error.Fatal;
+    return receiver;
+}
+
+pub fn builtinModuleIncluded(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (!args[0].isClass() and !args[0].isModule()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "wrong argument type {s} (expected Module)", .{vm.className(args[0])});
+    }
+    return Value.nil();
+}
+
+pub fn builtinModuleExtendObject(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (!receiver.isModule()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Module", .{});
+    }
+
+    const singleton_class = try vm.getOrCreateSingletonClass(args[0]);
+    if ((singleton_class.module.object.flags & value.Object.FROZEN_FLAG) != 0) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen {s}", .{vm.className(args[0])});
+    }
+
+    try vm.includeModule(&singleton_class.module, receiver.toModuleObject());
+    vm.markIntegerChangedForReceiver(args[0]);
+    return args[0];
+}
+
+pub fn builtinModuleExtended(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    return Value.nil();
+}
+
+pub fn builtinModuleInclude(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireMinArgCount(args, 1);
+    _ = receiver.getModuleObject() orelse {
+        const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
+        vm.setPendingException(exc);
+        return error.Unwind;
+    };
+    var i = args.len;
+    while (i > 0) {
+        i -= 1;
+        if (!args[i].isClass() and !args[i].isModule()) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "wrong argument type {s} (expected Module)", .{vm.className(args[i])});
+        }
+        var hook_args = [_]Value{receiver};
+        _ = try vm.callMethodByName(args[i], "append_features", hook_args[0..], null);
+        _ = try vm.callMethodByName(args[i], "included", hook_args[0..], null);
+    }
 
     return receiver;
 }

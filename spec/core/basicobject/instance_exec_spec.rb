@@ -71,10 +71,8 @@ describe "BasicObject#instance_exec" do
   end
 
   it "sets class variables in the receiver" do
-    CORAFIXME "Module#included hooks not supported yet", exception: SpecFailedException do
-      BasicObjectSpecs::InstExec.class_variables.should include(:@@count)
-      BasicObjectSpecs::InstExec.send(:class_variable_get, :@@count).should == 2
-    end
+    BasicObjectSpecs::InstExec.class_variables.should include(:@@count)
+    BasicObjectSpecs::InstExec.send(:class_variable_get, :@@count).should == 2
   end
 
   it "raises a TypeError when defining methods on an immediate" do

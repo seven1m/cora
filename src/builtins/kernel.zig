@@ -2045,19 +2045,15 @@ pub fn builtinKernelDefineSingletonMethod(vm: *VM, receiver: Value, args: []Valu
 pub fn builtinKernelExtend(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireMinArgCount(args, 1);
 
-    const singleton_class = try vm.getOrCreateSingletonClass(receiver);
-    if ((singleton_class.module.object.flags & value.Object.FROZEN_FLAG) != 0) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen {s}", .{vm.className(receiver)});
-    }
-
     for (args) |arg| {
         if (!arg.isModule()) {
             return vm.raiseExceptionFmt(vm.type_error_class, "wrong argument type {s} (expected Module)", .{vm.className(arg)});
         }
-        try vm.includeModule(&singleton_class.module, arg.toModuleObject());
+        var hook_args = [_]Value{receiver};
+        _ = try vm.callMethodByName(arg, "extend_object", hook_args[0..], null);
+        _ = try vm.callMethodByName(arg, "extended", hook_args[0..], null);
     }
 
-    vm.markIntegerChangedForReceiver(receiver);
     return receiver;
 }
 

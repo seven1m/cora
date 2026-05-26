@@ -8585,8 +8585,16 @@ pub const VM = struct {
         const maybe_resolved = if (lexical_scope) |scope|
             switch (scope.scope_module) {
                 .module => |defining_module| if (frame.super_defining_class) |explicit_defining_class|
-                    if (explicit_defining_class.attached_object != null and explicit_defining_class.attached_object.?.eql(frame.self_value))
+                    if (explicit_defining_class.attached_object != null and
+                        explicit_defining_class.attached_object.?.eql(frame.self_value))
                         self.lookupMethodForSuperFromScope(
+                            explicit_defining_class,
+                            if (defining_module == &explicit_defining_class.module)
+                                .{ .class = explicit_defining_class }
+                            else
+                                .{ .module = defining_module },
+                            method_name_sym,
+                        ) orelse self.lookupMethodForSuperFromScope(
                             explicit_defining_class,
                             .{ .class = explicit_defining_class },
                             method_name_sym,
