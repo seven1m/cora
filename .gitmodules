@@ -40,3 +40,6 @@
 [submodule "ext/forwardable"]
 	path = ext/forwardable
 	url = https://github.com/ruby/forwardable
+[submodule "ext/timeout"]
+	path = ext/timeout
+	url = https://github.com/ruby/timeout
