@@ -296,6 +296,43 @@ test "Array#find_all aliases #select" {
     try std.testing.expectEqual(@as(i64, 4), result.toArrayObject().elements.items[1].toInteger());
 }
 
+test "Array#product builds cartesian products and yields self with block" {
+    var result = try evalCode("[1, 2].product([3, 4]).inspect");
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "[[1, 3], [1, 4], [2, 3], [2, 4]]", result.toStringObject().str);
+
+    result = try evalCode("a = [1, 2]; [a.product([3]) { |x| x }, a.product([]) { |x| x }]");
+    try std.testing.expect(result.isArray());
+    const pair = result.toArrayObject().elements.items;
+    try std.testing.expect(pair[0].isArray());
+    try std.testing.expect(pair[1].isArray());
+    try std.testing.expectEqual(@intFromPtr(pair[0].toArrayObject()), @intFromPtr(pair[1].toArrayObject()));
+}
+
+test "Array#product coerces arguments and raises RangeError on overflow" {
+    var result = try evalCode(
+        \\class ProductArrayLike
+        \\  def to_ary
+        \\    [2, 3]
+        \\  end
+        \\end
+        \\[1].product(ProductArrayLike.new).inspect
+    );
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "[[1, 2], [1, 3]]", result.toStringObject().str);
+
+    result = try evalCode(
+        \\a = (0..100).to_a
+        \\begin
+        \\  a.product(a, a, a, a, a, a, a, a, a, a)
+        \\rescue => e
+        \\  e.class == RangeError
+        \\end
+    );
+    try std.testing.expect(result.isBool());
+    try std.testing.expectEqual(true, result.toBool());
+}
+
 test "Array#max_by returns the element with the largest block result" {
     var result = try evalCode("[1, 2, 3].max_by { |n| -n }");
     try std.testing.expect(result.isInteger());

@@ -177,7 +177,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/array/plus_spec.rb
 - [x] core/array/pop_spec.rb
 - [x] core/array/prepend_spec.rb
-- [ ] core/array/product_spec.rb
+- [x] core/array/product_spec.rb
 - [x] core/array/push_spec.rb
 - [x] core/array/rassoc_spec.rb
 - [x] core/array/reject_spec.rb

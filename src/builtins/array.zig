@@ -108,6 +108,48 @@ fn arrayFindIndexByEquality(vm: *VM, elements: []Value, needle: Value) VMError!?
     return null;
 }
 
+fn arrayProductSize(vm: *VM, arrays: []const *value.ArrayObject) VMError!usize {
+    var total: usize = 1;
+    for (arrays) |array| {
+        total = std.math.mul(usize, total, array.elements.items.len) catch {
+            return vm.raiseExceptionFmt(vm.range_error_class, "too big to product", .{});
+        };
+    }
+    return total;
+}
+
+fn arrayProductEach(
+    vm: *VM,
+    arrays: []const *value.ArrayObject,
+    tuple: []Value,
+    depth: usize,
+    out: ?*value.ArrayObject,
+    blk: ?Block,
+) VMError!?Value {
+    if (depth == arrays.len) {
+        const product = try vm.createArray();
+        product.elements.appendSlice(vm.gc_allocator, tuple) catch return error.Fatal;
+        const product_value = Value.fromObject(&product.object);
+
+        if (blk) |block_| {
+            const yielded = try vm.yieldToBlock(block_, &[_]Value{product_value});
+            if (yielded.controlFlowValue()) |return_value| return return_value;
+        } else {
+            out.?.elements.append(vm.gc_allocator, product_value) catch return error.Fatal;
+        }
+        return null;
+    }
+
+    for (arrays[depth].elements.items) |element| {
+        tuple[depth] = element;
+        if (try arrayProductEach(vm, arrays, tuple, depth + 1, out, blk)) |return_value| {
+            return return_value;
+        }
+    }
+
+    return null;
+}
+
 fn arrayJoinAppendElement(
     vm: *VM,
     state: *JoinState,
@@ -627,6 +669,8 @@ pub fn register(vm: *VM) !void {
 
     const plus_sym = try vm.intern("+");
     try vm.array_class.module.methods.put(plus_sym, value.MethodEntry.builtin(&builtinArrayPlus, .{ .exact = 1 }));
+    const product_sym = try vm.intern("product");
+    try vm.array_class.module.methods.put(product_sym, value.MethodEntry.builtin(&builtinArrayProduct, .{ .variadic = 0 }));
 
     const to_s_sym = try vm.intern("to_s");
     try vm.array_class.module.methods.put(to_s_sym, value.MethodEntry.builtin(&builtinArrayToS, .{ .exact = 0 }));
@@ -1738,6 +1782,39 @@ pub fn builtinArrayMultiply(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
         }
     }
 
+    return Value.fromObject(&out.object);
+}
+
+pub fn builtinArrayProduct(vm: *VM, receiver: Value, args: []Value, blk: ?Block) VMError!Value {
+    const receiver_array = receiver.toArrayObject();
+
+    var arrays: std.ArrayList(*value.ArrayObject) = .empty;
+    defer arrays.deinit(vm.allocator);
+    arrays.append(vm.allocator, receiver_array) catch return error.Fatal;
+
+    for (args) |arg| {
+        const array_value = try vm.coerceToArrayValue(arg);
+        arrays.append(vm.allocator, array_value.toArrayObject()) catch return error.Fatal;
+    }
+
+    const total = try arrayProductSize(vm, arrays.items);
+    if (total == 0) {
+        return if (blk != null) receiver else Value.fromObject(&(try vm.createArray()).object);
+    }
+
+    const tuple = vm.allocator.alloc(Value, arrays.items.len) catch return error.Fatal;
+    defer vm.allocator.free(tuple);
+
+    if (blk) |block_| {
+        if (try arrayProductEach(vm, arrays.items, tuple, 0, null, block_)) |return_value| {
+            return return_value;
+        }
+        return receiver;
+    }
+
+    const out = try vm.createArray();
+    out.elements.ensureTotalCapacity(vm.gc_allocator, total) catch return error.Fatal;
+    _ = try arrayProductEach(vm, arrays.items, tuple, 0, out, null);
     return Value.fromObject(&out.object);
 }
 
