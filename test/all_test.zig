@@ -4,6 +4,7 @@ const binary_test = @import("binary_test.zig");
 const cgi_test = @import("cgi_test.zig");
 const exit_test = @import("exit_test.zig");
 const delegate_test = @import("delegate_test.zig");
+const erb_test = @import("erb_test.zig");
 const fileutils_test = @import("fileutils_test.zig");
 const json_test = @import("json_test.zig");
 const logger_test = @import("logger_test.zig");
@@ -97,6 +98,7 @@ comptime {
     _ = cgi_test;
     _ = exit_test;
     _ = delegate_test;
+    _ = erb_test;
     _ = fileutils_test;
     _ = json_test;
     _ = logger_test;

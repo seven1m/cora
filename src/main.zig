@@ -131,6 +131,10 @@ fn configureLoadPath(
             const repo_cgi = try std.fs.path.join(allocator, &.{ exe_dir, "..", "..", "ext", "cgi", "lib" });
             defer allocator.free(repo_cgi);
             try appendLoadPathIfExists(virtual_machine, io, repo_cgi);
+
+            const repo_erb = try std.fs.path.join(allocator, &.{ exe_dir, "..", "..", "ext", "erb", "lib" });
+            defer allocator.free(repo_erb);
+            try appendLoadPathIfExists(virtual_machine, io, repo_erb);
         }
     } else {
         try virtual_machine.setRubyExecutablePath(argv0);

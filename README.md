@@ -114,6 +114,7 @@ the top of the relevant file, in the same directory with a name like
 | `ext/dtoa.c` | David M. Gay, Lucent Technologies | custom permissive |
 | `ext/cgi/*` | Yukihiro Matsumoto and Ruby contributors | Ruby license / 2-clause BSD |
 | `ext/delegate/*` | Yukihiro Matsumoto and Ruby contributors | Ruby license / 2-clause BSD |
+| `ext/erb/*` | Masatoshi SEKI and Ruby contributors | Ruby license / 2-clause BSD |
 | `lib/stdlib/fileutils.rb` | Yukihiro Matsumoto and Ruby contributors | Ruby license / 2-clause BSD |
 | `lib/stdlib/random/*` | Yukihiro Matsumoto and Ruby contributors | Ruby license / 2-clause BSD |
 | `ext/onigmo/*` | K. Kosako, K. Takata, Yukihiro Matsumoto | BSD-style / Ruby BSDL |

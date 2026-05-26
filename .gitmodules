@@ -34,3 +34,6 @@
 [submodule "ext/cgi"]
 	path = ext/cgi
 	url = https://github.com/ruby/cgi
+[submodule "ext/erb"]
+	path = ext/erb
+	url = https://github.com/ruby/erb
