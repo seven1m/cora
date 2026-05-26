@@ -9215,6 +9215,32 @@ pub const VM = struct {
             return self.newModule(anonymous);
         }
 
+        if (receiver.isBinding()) {
+            const src = receiver.toBindingObject();
+            const dup_ptr = self.gc_allocator.create(value.BindingObject) catch return error.Fatal;
+            var names_copy: std.ArrayListUnmanaged([]const u8) = .empty;
+            for (src.local_names.items) |name| {
+                const duped = self.gc_allocator.dupe(u8, name) catch return error.Fatal;
+                names_copy.append(self.gc_allocator, duped) catch return error.Fatal;
+            }
+            dup_ptr.* = value.BindingObject{
+                .object = .{
+                    .type_tag = .binding,
+                    .flags = 0,
+                    .class = self.binding_class,
+                    .singleton_class = null,
+                    .instance_variables = null,
+                },
+                .self_value = src.self_value,
+                .ep = src.ep,
+                .lexical_scope = src.lexical_scope,
+                .local_names = names_copy,
+                .real_local_count = src.real_local_count,
+                .method_name = src.method_name,
+            };
+            return Value.fromObject(&dup_ptr.object);
+        }
+
         return self.newObjectForClass(self.getClass(receiver));
     }
 
@@ -10647,6 +10673,10 @@ pub const VM = struct {
         parent_local_names: ?[]const []const u8 = null,
         dir_returns_nil: bool = false,
         line_offset: u32 = 0,
+        // Optional binding to update with eval-created local variable names.
+        binding_to_update: ?*value.BindingObject = null,
+        // Method name to stamp on the eval frame (for __method__ in binding evals).
+        method_name: ?[]const u8 = null,
     };
 
     pub fn evalSourceWithEncodingAndContext(
@@ -10670,7 +10700,8 @@ pub const VM = struct {
             }
         }
 
-        var parser = prism.Parser.initWithEncoding(self.allocator, parse_source, source_file, source_encoding) catch {
+        const outer_names = if (context) |ctx| ctx.parent_local_names else null;
+        var parser = prism.Parser.initWithEncodingAndLocals(self.allocator, parse_source, source_file, source_encoding, outer_names) catch {
             return self.raiseExceptionFmt(self.syntax_error_class, "{s}: syntax error", .{source_file orelse "(eval)"});
         };
         defer parser.deinit();
@@ -10707,11 +10738,30 @@ pub const VM = struct {
         }
 
         if (context) |ctx| {
-            return self.executeChunkInContext(eval_main_chunk, ctx.self_value, ctx.parent_ep, ctx.lexical_scope, .{
+            const result = try self.executeChunkInContext(eval_main_chunk, ctx.self_value, ctx.parent_ep, ctx.lexical_scope, .{
                 .class_variable_scope = ctx.class_variable_scope,
                 .method_definition_target = ctx.method_definition_target,
                 .dir_returns_nil = ctx.dir_returns_nil,
+                .method_name = ctx.method_name,
             });
+            // Update binding's local variable names with any new names from the eval.
+            // eval_main_chunk is still alive here (deferred deinit fires after return).
+            if (ctx.binding_to_update) |binding| {
+                for (eval_main_chunk.local_names.items) |name| {
+                    var found = false;
+                    for (binding.local_names.items) |existing| {
+                        if (std.mem.eql(u8, existing, name)) {
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found) {
+                        const duped = self.gc_allocator.dupe(u8, name) catch return error.Fatal;
+                        binding.local_names.append(self.gc_allocator, duped) catch return error.Fatal;
+                    }
+                }
+            }
+            return result;
         }
 
         if (self.frames.items.len > 0) {
@@ -10736,6 +10786,7 @@ pub const VM = struct {
         class_variable_scope: ?*LexicalScope = null,
         method_definition_target: ?Value = null,
         dir_returns_nil: bool = false,
+        method_name: ?[]const u8 = null,
     };
 
     fn executeChunkInContext(
@@ -10769,6 +10820,7 @@ pub const VM = struct {
             .block = null,
             .frame_type = .method,
             .dir_returns_nil = opts.dir_returns_nil,
+            .method_name = opts.method_name,
         }) catch return error.Fatal;
 
         if (lexical_scope) |scope| {

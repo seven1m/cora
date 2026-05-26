@@ -214,6 +214,14 @@ pub const BindingObject = struct {
     self_value: Value,
     ep: ?[*]Value, // heap-promoted ep pointer (always promoted on binding creation)
     lexical_scope: ?*LexicalScope,
+    // Local variable names present in the binding's ep (gc-owned copies).
+    // The first `real_local_count` entries correspond to actual slots in `ep`.
+    // Entries beyond `real_local_count` were introduced via eval and have no
+    // backing slot in the ep (tracking only for Binding#local_variables).
+    local_names: std.ArrayListUnmanaged([]const u8) = .empty,
+    real_local_count: usize = 0,
+    // Method name where `binding` was called (borrowed from interned symbol or chunk name).
+    method_name: ?[]const u8 = null,
 };
 
 pub const HashEntry = struct {

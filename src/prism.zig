@@ -292,6 +292,19 @@ pub const Parser = struct {
         source_file: ?[]const u8,
         source_encoding: ?enc.Encoding,
     ) !Parser {
+        return initWithEncodingAndLocals(allocator, source, source_file, source_encoding, null);
+    }
+
+    /// Initialize parser with source code, optional encoding, and optional outer local variable
+    /// names.  The outer names are passed to Prism as a single enclosing scope so that `a` in
+    /// `eval("a")` is parsed as a local-variable read rather than a method call.
+    pub fn initWithEncodingAndLocals(
+        allocator: std.mem.Allocator,
+        source: []const u8,
+        source_file: ?[]const u8,
+        source_encoding: ?enc.Encoding,
+        outer_local_names: ?[]const []const u8,
+    ) !Parser {
         var parser: c.pm_parser_t = undefined;
         var options: c.pm_options_t = std.mem.zeroes(c.pm_options_t);
         defer c.pm_options_free(&options);
@@ -299,6 +312,19 @@ pub const Parser = struct {
         if (source_encoding) |encoding| {
             c.pm_options_encoding_set(&options, encoding.name().ptr);
             c.pm_options_encoding_locked_set(&options, true);
+        }
+
+        if (outer_local_names) |names| {
+            if (names.len > 0) {
+                _ = c.pm_options_scopes_init(&options, 1);
+                const scope = @constCast(c.pm_options_scope_get(&options, 0));
+                if (scope != null) {
+                    _ = c.pm_options_scope_init(scope, names.len);
+                    for (names, 0..) |name, i| {
+                        c.pm_string_constant_init(&scope.*.locals[i], name.ptr, name.len);
+                    }
+                }
+            }
         }
 
         c.pm_parser_init(&parser, source.ptr, source.len, &options);

@@ -4,6 +4,7 @@ const VM = vm_mod.VM;
 
 const array = @import("array.zig");
 const basic_object = @import("basic_object.zig");
+const binding_builtin = @import("binding.zig");
 const class_builtin = @import("class.zig");
 const encoding = @import("encoding.zig");
 const enumerator = @import("enumerator.zig");
@@ -52,6 +53,7 @@ pub fn registerAll(vm: *VM) !void {
     try object.register(vm);
     try class_builtin.register(vm);
     try module_builtin.register(vm);
+    try binding_builtin.register(vm);
     try integer.register(vm);
     try numeric.register(vm);
     try float.register(vm);

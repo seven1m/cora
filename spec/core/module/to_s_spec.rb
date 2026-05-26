@@ -45,7 +45,7 @@ describe "Module#to_s" do
   end
 
   it "always show the refinement name, even if the module is named" do
-    CORAFIXME "refinements are not implemented yet", exception: NoMethodError, message: /undefined method '(refine|remove_const)'/ do
+    CORAFIXME "refinements are not implemented yet", exception: SpecFailedException do
       module ModuleSpecs::RefinementInspect
         R = refine String do
         end

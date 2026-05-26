@@ -1068,6 +1068,18 @@ end
 
 class Module
   include SpecMatchers
+
+  # Stubs for refinements, which are not yet implemented.
+  # These allow fixture files that call `refine`/`using` to load without
+  # raising NoMethodError; specs that depend on actual refinement behaviour
+  # should be wrapped in CORAFIXME.
+  def refine(_klass, &_block)
+    self
+  end
+
+  def using(_mod)
+    self
+  end
 end
 
 class KindOfMatcher

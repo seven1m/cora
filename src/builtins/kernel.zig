@@ -37,6 +37,19 @@ fn nestedEvalLexicalScope(vm: *VM) VMError!?*value.LexicalScope {
     return vm.cloneLexicalScope(current, current.parent);
 }
 
+fn evalLineOffset(vm: *VM, lineno_arg: ?Value) VMError!u32 {
+    const arg = lineno_arg orelse return 0;
+    if (arg.isNil()) return 0;
+    const lineno = try arg.coerceToI64ViaToInt(
+        vm,
+        "no implicit conversion into Integer",
+        "can't convert to Integer (to_int gives non-Integer)",
+        "bignum too big to convert into `long'",
+    );
+    if (lineno <= 1) return 0;
+    return @intCast(lineno - 1);
+}
+
 const BoundMethodLookup = struct {
     resolved: vm_mod.ResolvedMethod,
     owner: Value,
@@ -704,6 +717,7 @@ pub fn builtinKernelEval(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
         try args[2].coerceToStr(vm, "no implicit conversion into String")
     else
         null;
+    const line_offset = try evalLineOffset(vm, if (args.len >= 4) args[3] else null);
 
     if (binding_arg.isNil()) {
         return vm.evalSourceWithEncodingAndContext(
@@ -714,7 +728,9 @@ pub fn builtinKernelEval(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
                 .self_value = if (vm.frames.items.len > 0) vm.currentFrame().self_value else vm.main_self,
                 .parent_ep = if (vm.frames.items.len > 0) vm.currentFrame().ep else null,
                 .lexical_scope = try nestedEvalLexicalScope(vm),
+                .parent_local_names = vm.currentEvalParentLocalNames(),
                 .dir_returns_nil = filename == null,
+                .line_offset = line_offset,
             },
         );
     }
@@ -724,6 +740,7 @@ pub fn builtinKernelEval(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     }
 
     const binding_obj = binding_arg.toBindingObject();
+    const real_names = binding_obj.local_names.items[0..binding_obj.real_local_count];
     return vm.evalSourceWithEncodingAndContext(
         source_obj.str,
         filename,
@@ -732,7 +749,11 @@ pub fn builtinKernelEval(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
             .self_value = binding_obj.self_value,
             .parent_ep = binding_obj.ep,
             .lexical_scope = binding_obj.lexical_scope,
+            .parent_local_names = if (real_names.len > 0) real_names else null,
             .dir_returns_nil = filename == null,
+            .line_offset = line_offset,
+            .binding_to_update = binding_obj,
+            .method_name = binding_obj.method_name,
         },
     );
 }
@@ -742,6 +763,17 @@ pub fn builtinKernelBinding(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 
     if (vm.currentRubyCallerFrame()) |frame| {
         const binding = try vm.createBinding(frame.self_value, frame.ep, vm.current_lexical_scope);
+        // Capture local variable names from the frame's chunk.
+        for (frame.chunk.local_names.items) |name| {
+            const duped = vm.gc_allocator.dupe(u8, name) catch return error.Fatal;
+            binding.local_names.append(vm.gc_allocator, duped) catch return error.Fatal;
+        }
+        binding.real_local_count = binding.local_names.items.len;
+        // Capture the method name where `binding` was called.
+        binding.method_name = if (std.mem.eql(u8, frame.chunk.name, "block"))
+            frame.method_name orelse null
+        else
+            frame.chunk.name;
         return Value.fromObject(&binding.object);
     }
 
@@ -1758,7 +1790,9 @@ pub fn builtinKernelPublicSend(vm: *VM, receiver: Value, args: []Value, block: ?
 
 fn isEvalLikeFrame(frame: *const vm_mod.CallFrame) bool {
     const source = frame.chunk.source_file orelse return false;
-    return std.mem.eql(u8, source, "(eval)");
+    if (std.mem.eql(u8, source, "(eval)")) return true;
+    if (std.mem.startsWith(u8, source, "(eval at ")) return true;
+    return false;
 }
 
 fn sameMethodContext(outer: *const vm_mod.CallFrame, inner: *const vm_mod.CallFrame) bool {
@@ -1801,7 +1835,12 @@ fn enclosingMethodFrame(vm: *VM) ?*const vm_mod.CallFrame {
 pub fn builtinKernelMagicMethod(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const frame = enclosingMethodFrame(vm) orelse return Value.nil();
-    const method_name = if (std.mem.eql(u8, frame.chunk.name, "block"))
+    // For eval frames (chunk name "main"), use the explicit method_name stored from
+    // the binding. For block frames, walk up to the enclosing method name.
+    // For all other frames, the chunk name is the original defined method name.
+    const method_name = if (std.mem.eql(u8, frame.chunk.name, "main"))
+        frame.method_name orelse return Value.nil()
+    else if (std.mem.eql(u8, frame.chunk.name, "block"))
         frame.method_name orelse frame.chunk.name
     else
         frame.chunk.name;
