@@ -472,6 +472,7 @@ pub const VM = struct {
     thread_backtrace_location_class: *value.ClassObject,
     thread_group_class: *value.ClassObject,
     mutex_class: *value.ClassObject,
+    condition_variable_class: *value.ClassObject,
     queue_class: *value.ClassObject,
     sized_queue_class: *value.ClassObject,
     thread_error_class: *value.ClassObject,
@@ -677,6 +678,7 @@ pub const VM = struct {
             .thread_backtrace_location_class = undefined,
             .thread_group_class = undefined,
             .mutex_class = undefined,
+            .condition_variable_class = undefined,
             .queue_class = undefined,
             .sized_queue_class = undefined,
             .thread_error_class = undefined,
@@ -927,6 +929,10 @@ pub const VM = struct {
         const mutex_name_sym = try self.intern("Mutex");
         const mutex_class_val = try self.newClass(mutex_name_sym, self.object_class);
         self.mutex_class = mutex_class_val.toClassObject();
+
+        const condition_variable_name_sym = try self.intern("ConditionVariable");
+        const condition_variable_class_val = try self.newClass(condition_variable_name_sym, self.object_class);
+        self.condition_variable_class = condition_variable_class_val.toClassObject();
 
         const queue_name_sym = try self.intern("Queue");
         const queue_class_val = try self.newClass(queue_name_sym, self.object_class);
@@ -1317,14 +1323,16 @@ pub const VM = struct {
         self.object_class.module.constants.put(thread_name_sym, .{ .value = thread_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(thread_group_name_sym, .{ .value = thread_group_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(mutex_name_sym, .{ .value = mutex_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(condition_variable_name_sym, .{ .value = condition_variable_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(queue_name_sym, .{ .value = queue_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(sized_queue_name_sym, .{ .value = sized_queue_class_val }) catch return error.Fatal;
-        // Register Thread::Mutex alias
+        // Register Thread synchronization aliases.
         const default_name_sym = try self.intern("Default");
         thread_group_class_val.toClassObject().module.constants.put(default_name_sym, .{ .value = self.default_thread_group }) catch return error.Fatal;
         thread_class_val.toClassObject().module.constants.put(thread_backtrace_name_sym, .{ .value = thread_backtrace_module_val }) catch return error.Fatal;
         thread_backtrace_module_val.toModuleObject().constants.put(thread_backtrace_location_name_sym, .{ .value = thread_backtrace_location_class_val }) catch return error.Fatal;
         thread_class_val.toClassObject().module.constants.put(mutex_name_sym, .{ .value = mutex_class_val }) catch return error.Fatal;
+        thread_class_val.toClassObject().module.constants.put(condition_variable_name_sym, .{ .value = condition_variable_class_val }) catch return error.Fatal;
         thread_class_val.toClassObject().module.constants.put(queue_name_sym, .{ .value = queue_class_val }) catch return error.Fatal;
         thread_class_val.toClassObject().module.constants.put(sized_queue_name_sym, .{ .value = sized_queue_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(regexp_name_sym, .{ .value = regexp_class_val }) catch return error.Fatal;
@@ -3847,6 +3855,13 @@ pub const VM = struct {
         mutex_obj.owner_thread = null;
         mutex_obj.owner_fiber = null;
         return mutex_obj;
+    }
+
+    pub fn newConditionVariable(self: *VM, class_val: Value) VMError!*value.ConditionVariableObject {
+        const cv_obj = self.gc_allocator.create(value.ConditionVariableObject) catch return error.Fatal;
+        cv_obj.object = .{ .type_tag = .condition_variable, .flags = 0, .class = class_val.toClassObject(), .singleton_class = null, .instance_variables = null };
+        cv_obj.waiters = .empty;
+        return cv_obj;
     }
 
     pub fn newQueue(self: *VM, class_val: Value) VMError!*value.QueueObject {
@@ -10019,6 +10034,7 @@ pub const VM = struct {
             .rational => arg.isRational(),
             .thread => arg.isThread(),
             .mutex => arg.isMutex(),
+            .condition_variable => arg.isConditionVariable(),
             .queue => arg.isQueue(),
             .time => arg.isTime(),
             .method => arg.isMethodObject(),

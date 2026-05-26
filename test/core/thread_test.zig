@@ -56,6 +56,44 @@ test "ThreadGroup default is available from Thread#group" {
     try std.testing.expectEqual(true, elems[2].toBool());
 }
 
+test "ConditionVariable is available without requiring thread" {
+    const result = try evalCode(
+        \\[
+        \\  defined?(ConditionVariable),
+        \\  defined?(Thread::ConditionVariable),
+        \\  ConditionVariable == Thread::ConditionVariable
+        \\]
+    );
+    try std.testing.expect(result.isArray());
+    const elems = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("constant", elems[0].toStringObject().str);
+    try std.testing.expectEqualStrings("constant", elems[1].toStringObject().str);
+    try std.testing.expectEqual(true, elems[2].toBool());
+}
+
+test "ConditionVariable wait and signal coordinate threads" {
+    const result = try evalCode(
+        \\mutex = Thread::Mutex.new
+        \\cv = ConditionVariable.new
+        \\ready = false
+        \\waiting = false
+        \\t = Thread.new do
+        \\  mutex.synchronize do
+        \\    waiting = true
+        \\    cv.wait(mutex, 1.0)
+        \\    ready
+        \\  end
+        \\end
+        \\Thread.pass until waiting
+        \\mutex.synchronize do
+        \\  ready = true
+        \\  cv.signal
+        \\end
+        \\t.value
+    );
+    try std.testing.expectEqual(true, result.toBool());
+}
+
 test "Thread#alive? returns true while running, false after termination" {
     const result = try evalCode(
         \\t = Thread.new { 42 }

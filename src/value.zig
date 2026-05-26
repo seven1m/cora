@@ -50,6 +50,7 @@ pub const ObjectTypeTag = enum(u8) {
     rational,
     thread,
     mutex,
+    condition_variable,
     queue,
     time,
     method,
@@ -379,6 +380,11 @@ pub const MutexObject = struct {
     };
 };
 
+pub const ConditionVariableObject = struct {
+    object: Object,
+    waiters: std.ArrayList(*ThreadObject) = .empty,
+};
+
 pub const QueueObject = struct {
     object: Object,
     items: std.ArrayList(Value) = .empty,
@@ -645,6 +651,10 @@ pub const Value = struct {
         return self.isObject() and self.objectTypeTag() == .mutex;
     }
 
+    pub inline fn isConditionVariable(self: Value) bool {
+        return self.isObject() and self.objectTypeTag() == .condition_variable;
+    }
+
     pub inline fn isQueue(self: Value) bool {
         return self.isObject() and self.objectTypeTag() == .queue;
     }
@@ -748,6 +758,10 @@ pub const Value = struct {
     }
 
     pub inline fn toMutexObject(self: Value) *MutexObject {
+        return @ptrFromInt(self.raw);
+    }
+
+    pub inline fn toConditionVariableObject(self: Value) *ConditionVariableObject {
         return @ptrFromInt(self.raw);
     }
 
@@ -1034,6 +1048,7 @@ pub const Value = struct {
                 .float => try writer.print("{d}", .{self.toFloatObject().val}),
                 .thread => try writer.print("#<Thread:0x{x}>", .{self.raw}),
                 .mutex => try writer.print("#<Mutex:0x{x}>", .{self.raw}),
+                .condition_variable => try writer.print("#<ConditionVariable:0x{x}>", .{self.raw}),
                 .queue => try writer.print("#<Thread::{s}:0x{x}>", .{ self.getObjectPointer().?.class.?.module.name.name, self.raw }),
                 .time => try writer.print("#<Time:0x{x}>", .{self.raw}),
                 .method => try writer.print("#<Method:0x{x}>", .{self.raw}),

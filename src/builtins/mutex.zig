@@ -206,7 +206,7 @@ fn builtinMutexSleep(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
 // Helpers
 // =============================================================================
 
-fn isOwnedByCurrentFiber(vm: *VM, mutex: *value.MutexObject) bool {
+pub fn isOwnedByCurrentFiber(vm: *VM, mutex: *value.MutexObject) bool {
     const current_thread = vm.current_thread;
     const current_fiber = vm.current_fiber;
 
@@ -217,7 +217,7 @@ fn isOwnedByCurrentFiber(vm: *VM, mutex: *value.MutexObject) bool {
     return true;
 }
 
-fn acquireMutex(vm: *VM, mutex: *value.MutexObject) VMError!void {
+pub fn acquireMutex(vm: *VM, mutex: *value.MutexObject) VMError!void {
     mutex.state = .locked;
     mutex.owner_thread = vm.current_thread;
     mutex.owner_fiber = vm.current_fiber;
@@ -233,7 +233,7 @@ fn acquireMutex(vm: *VM, mutex: *value.MutexObject) VMError!void {
     }
 }
 
-fn releaseMutex(vm: *VM, mutex: *value.MutexObject) void {
+pub fn releaseMutex(vm: *VM, mutex: *value.MutexObject) void {
     if (mutex.owner_thread) |owner_thread| {
         if (vm.thread_owned_mutexes.getPtr(owner_thread)) |owned_mutexes| {
             var i: usize = 0;
@@ -252,7 +252,7 @@ fn releaseMutex(vm: *VM, mutex: *value.MutexObject) void {
     vm.wakeNextMutexWaiter(mutex);
 }
 
-fn waitForMutex(vm: *VM, mutex: *value.MutexObject) VMError!void {
+pub fn waitForMutex(vm: *VM, mutex: *value.MutexObject) VMError!void {
     const current_thread = vm.current_thread;
     const main_thread = vm.main_thread;
 
