@@ -5712,6 +5712,8 @@ pub const VM = struct {
                     const method_owner = if (epMethodDefinitionTarget(frame.ep)) |target|
                         if (target.getModuleMethods()) |_|
                             target
+                        else if (target.isInteger() or target.isBigInteger() or target.isFloat() or target.isSymbol())
+                            return self.raiseExceptionFmt(self.type_error_class, "can't define singleton method for literals", .{})
                         else
                             Value.fromObject(&(try self.getOrCreateSingletonClass(target)).module.object)
                     else if (self.current_lexical_scope) |scope|

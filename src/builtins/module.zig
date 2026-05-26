@@ -1087,6 +1087,9 @@ pub fn register(vm: *VM) !void {
     const class_variable_set_sym = try vm.intern("class_variable_set");
     try vm.module_class.module.methods.put(class_variable_set_sym, value.MethodEntry.builtin(&builtinModuleClassVariableSet, .{ .exact = 2 }));
 
+    const class_variables_sym = try vm.intern("class_variables");
+    try vm.module_class.module.methods.put(class_variables_sym, value.MethodEntry.builtin(&builtinModuleClassVariables, .{ .variadic = 0 }));
+
     const ancestors_sym = try vm.intern("ancestors");
     try vm.module_class.module.methods.put(ancestors_sym, value.MethodEntry.builtin(&builtinModuleAncestors, .{ .exact = 0 }));
 
@@ -1237,6 +1240,47 @@ pub fn builtinModuleConstants(vm: *VM, receiver: Value, args: []Value, _: ?Block
 
     const out = try vm.createArray();
     for (constant_names.items) |name_sym| {
+        out.elements.append(vm.gc_allocator, Value.fromObject(&name_sym.object)) catch return error.Fatal;
+    }
+
+    return Value.fromObject(&out.object);
+}
+
+pub fn builtinModuleClassVariables(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const include_inherited = if (args.len == 1) args[0].is_truthy() else true;
+
+    var names: std.ArrayList(*SymbolObject) = .empty;
+    defer names.deinit(vm.gc_allocator);
+
+    var seen: std.AutoHashMap(*SymbolObject, void) = std.AutoHashMap(*SymbolObject, void).init(vm.gc_allocator);
+    defer seen.deinit();
+
+    if (receiver.isModule()) {
+        var it = receiver.toModuleObject().class_variables.iterator();
+        while (it.next()) |entry| {
+            try appendConstantSymbolUnique(vm, &names, &seen, entry.key_ptr.*);
+        }
+    } else if (receiver.isClass()) {
+        var current: ?*ClassObject = receiver.toClassObject();
+        while (current) |klass| {
+            var it = klass.module.class_variables.iterator();
+            while (it.next()) |entry| {
+                try appendConstantSymbolUnique(vm, &names, &seen, entry.key_ptr.*);
+            }
+            if (!include_inherited) break;
+            current = klass.superclass;
+        }
+    } else {
+        const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
+        vm.setPendingException(exc);
+        return error.Unwind;
+    }
+
+    method_reflection.sortSymbolsByName(names.items);
+
+    const out = try vm.createArray();
+    for (names.items) |name_sym| {
         out.elements.append(vm.gc_allocator, Value.fromObject(&name_sym.object)) catch return error.Fatal;
     }
 

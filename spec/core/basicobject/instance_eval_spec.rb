@@ -175,14 +175,12 @@ describe "BasicObject#instance_eval" do
   end
 
   it "raises a TypeError when defining methods on an immediate" do
-    CORAFIXME "instance_eval still allows method definition on some immediates", exception: SpecFailedException do
-      -> do
-        1.instance_eval { def foo; end }
-      end.should raise_error(TypeError)
-      -> do
-        :foo.instance_eval { def foo; end }
-      end.should raise_error(TypeError)
-    end
+    -> do
+      1.instance_eval { def foo; end }
+    end.should raise_error(TypeError)
+    -> do
+      :foo.instance_eval { def foo; end }
+    end.should raise_error(TypeError)
   end
 
   describe "class variables lookup" do
@@ -236,14 +234,12 @@ describe "BasicObject#instance_eval" do
   end
 
   it "raises a TypeError when defining methods on numerics" do
-    CORAFIXME "instance_eval still allows method definition on numerics", exception: SpecFailedException do
-      -> do
-        (1.0).instance_eval { def foo; end }
-      end.should raise_error(TypeError)
-      -> do
-        (1 << 64).instance_eval { def foo; end }
-      end.should raise_error(TypeError)
-    end
+    -> do
+      (1.0).instance_eval { def foo; end }
+    end.should raise_error(TypeError)
+    -> do
+      (1 << 64).instance_eval { def foo; end }
+    end.should raise_error(TypeError)
   end
 
   it "evaluates procs originating from methods" do

@@ -64,6 +64,9 @@ pub fn register(vm: *VM) !void {
     const instance_eval_sym = try vm.intern("instance_eval");
     try vm.basic_object_class.module.methods.put(instance_eval_sym, MethodEntry.builtin(&builtinBasicObjectInstanceEval, .{ .variadic = 0 }));
 
+    const instance_exec_sym = try vm.intern("instance_exec");
+    try vm.basic_object_class.module.methods.put(instance_exec_sym, MethodEntry.builtin(&builtinBasicObjectInstanceExec, .{ .variadic = 0 }));
+
     const id_sym = try vm.intern("__id__");
     try vm.basic_object_class.module.methods.put(id_sym, MethodEntry.builtin(&builtinBasicObjectId, .{ .exact = 0 }));
 
@@ -121,6 +124,17 @@ pub fn builtinBasicObjectInstanceEval(vm: *VM, receiver: Value, args: []Value, b
             .line_offset = try evalLineOffset(vm, if (args.len >= 3) args[2] else null),
         },
     );
+}
+
+pub fn builtinBasicObjectInstanceExec(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    const blk = block orelse {
+        const exc = try vm.createException(vm.local_jump_error_class, "no block given");
+        vm.setPendingException(exc);
+        return error.Unwind;
+    };
+
+    const proc_obj = (try vm.newProc(blk)).toProcObject();
+    return vm.callProcObject(proc_obj, args, null, receiver, receiver);
 }
 
 pub fn builtinBasicObjectId(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

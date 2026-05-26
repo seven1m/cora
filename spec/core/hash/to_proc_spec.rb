@@ -54,15 +54,13 @@ describe "Hash#to_proc" do
 
       context "to instance_exec" do
         it "always retrieves the original hash's values" do
-          CORAFIXME "Kernel#instance_exec is not implemented yet" do
-            hash = {foo: 1, bar: 2}
-            proc = hash.to_proc
+          hash = {foo: 1, bar: 2}
+          proc = hash.to_proc
 
-            hash.instance_exec(:foo, &proc).should == 1
+          hash.instance_exec(:foo, &proc).should == 1
 
-            hash2 = {quux: 1}
-            hash2.instance_exec(:foo, &proc).should == 1
-          end
+          hash2 = {quux: 1}
+          hash2.instance_exec(:foo, &proc).should == 1
         end
       end
     end
