@@ -15,6 +15,12 @@ const MethodVisibility = value.MethodVisibility;
 const SymbolObject = value.SymbolObject;
 const ClassObject = value.ClassObject;
 const MethodListFilter = method_reflection.MethodListFilter;
+const MethodQueryFilter = enum {
+    public_and_protected,
+    private_only,
+    protected_only,
+    public_only,
+};
 
 fn currentDefaultVisibility(vm: *VM) MethodVisibility {
     if (vm.current_lexical_scope) |scope| {
@@ -618,6 +624,16 @@ const InstanceMethodLookupResult = union(enum) {
     not_found,
 };
 
+fn methodEntryMatchesQuery(entry: value.MethodEntry, filter: MethodQueryFilter) bool {
+    if (entry.method == .undefined) return false;
+    return switch (filter) {
+        .public_and_protected => entry.visibility == .public or entry.visibility == .protected,
+        .private_only => entry.visibility == .private,
+        .protected_only => entry.visibility == .protected,
+        .public_only => entry.visibility == .public,
+    };
+}
+
 fn resolveModuleMethodLookup(module_obj: *value.ModuleObject, owner_class: *ClassObject, name_sym: *SymbolObject) InstanceMethodLookupResult {
     var i = module_obj.prepended_modules.items.len;
     while (i > 0) {
@@ -708,6 +724,30 @@ fn resolveInstanceMethodLookup(vm: *VM, receiver: Value, name_sym: *SymbolObject
     }
 
     return .not_found;
+}
+
+fn ownMethodDefined(
+    receiver: Value,
+    name_sym: *SymbolObject,
+    filter: MethodQueryFilter,
+) bool {
+    const methods = receiver.getModuleMethods() orelse return false;
+    const entry = methods.get(name_sym) orelse return false;
+    return methodEntryMatchesQuery(entry, filter);
+}
+
+fn methodDefined(
+    vm: *VM,
+    receiver: Value,
+    name_sym: *SymbolObject,
+    filter: MethodQueryFilter,
+    include_super: bool,
+) bool {
+    if (!include_super) return ownMethodDefined(receiver, name_sym, filter);
+    return switch (resolveInstanceMethodLookup(vm, receiver, name_sym)) {
+        .found => |lookup| methodEntryMatchesQuery(lookup.resolved.entry, filter),
+        .undefined, .not_found => false,
+    };
 }
 
 fn setVisibility(vm: *VM, receiver: Value, args: []Value, visibility: MethodVisibility) VMError!Value {
@@ -1068,6 +1108,9 @@ pub fn register(vm: *VM) !void {
     const method_defined_sym = try vm.intern("method_defined?");
     try vm.module_class.module.methods.put(method_defined_sym, value.MethodEntry.builtin(&builtinModuleMethodDefined, .{ .variadic = 0 }));
 
+    const private_method_defined_sym = try vm.intern("private_method_defined?");
+    try vm.module_class.module.methods.put(private_method_defined_sym, value.MethodEntry.builtin(&builtinModulePrivateMethodDefined, .{ .variadic = 0 }));
+
     const name_sym = try vm.intern("name");
     try vm.module_class.module.methods.put(name_sym, value.MethodEntry.builtin(&builtinModuleName, .{ .exact = 0 }));
 
@@ -1388,15 +1431,14 @@ pub fn builtinModuleMethodDefined(vm: *VM, receiver: Value, args: []Value, _: ?B
     try vm.requireArgCountRange(args, 1, 2);
     const include_super = if (args.len == 2) args[1].is_truthy() else true;
     const name_sym = try vm.coerceToMethodNameSymbol(args[0]);
+    return Value.boolean(methodDefined(vm, receiver, name_sym, .public_and_protected, include_super));
+}
 
-    const methods = try collectInstanceMethods(vm, receiver, .public_and_protected, include_super);
-    const items = methods.toArrayObject().elements.items;
-    for (items) |item| {
-        if (item.isSymbol() and item.toSymbolObject() == name_sym) {
-            return Value.boolean(true);
-        }
-    }
-    return Value.boolean(false);
+pub fn builtinModulePrivateMethodDefined(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+    const include_super = if (args.len == 2) args[1].is_truthy() else true;
+    const name_sym = try vm.coerceToMethodNameSymbol(args[0]);
+    return Value.boolean(methodDefined(vm, receiver, name_sym, .private_only, include_super));
 }
 
 pub fn builtinModuleInstanceMethod(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

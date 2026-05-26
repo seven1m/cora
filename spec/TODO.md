@@ -1447,7 +1447,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [-] core/module/private_class_method_spec.rb
 - [ ] core/module/private_constant_spec.rb
 - [ ] core/module/private_instance_methods_spec.rb
-- [ ] core/module/private_method_defined_spec.rb
+- [x] core/module/private_method_defined_spec.rb
 - [ ] core/module/private_spec.rb
 - [ ] core/module/protected_instance_methods_spec.rb
 - [ ] core/module/protected_method_defined_spec.rb
