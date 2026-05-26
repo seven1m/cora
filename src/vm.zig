@@ -42,6 +42,7 @@ extern "c" fn getenv(name: [*:0]const u8) ?[*:0]u8;
 extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
 extern "c" fn unsetenv(name: [*:0]const u8) c_int;
 extern "c" fn clock_gettime(clk_id: std.posix.CLOCK, tp: *std.posix.timespec) c_int;
+extern "c" fn strerror(errnum: c_int) [*:0]const u8;
 
 const MAX_FIBER_STACK_SIZE: usize = 8_192;
 const MAX_FIBER_FRAMES: usize = 2048;
@@ -1131,10 +1132,42 @@ pub const VM = struct {
         const eisconn_class_val = try self.newClass(eisconn_name_sym, self.system_call_error_class);
         const eagain_name_sym = try self.intern("EAGAIN");
         const eagain_class_val = try self.newClass(eagain_name_sym, self.system_call_error_class);
+        const ebadf_name_sym = try self.intern("EBADF");
+        const ebadf_class_val = try self.newClass(ebadf_name_sym, self.system_call_error_class);
+        const ebusy_name_sym = try self.intern("EBUSY");
+        const ebusy_class_val = try self.newClass(ebusy_name_sym, self.system_call_error_class);
+        const emfile_name_sym = try self.intern("EMFILE");
+        const emfile_class_val = try self.newClass(emfile_name_sym, self.system_call_error_class);
+        const eintr_name_sym = try self.intern("EINTR");
+        const eintr_class_val = try self.newClass(eintr_name_sym, self.system_call_error_class);
+        const eio_name_sym = try self.intern("EIO");
+        const eio_class_val = try self.newClass(eio_name_sym, self.system_call_error_class);
+        const eloop_name_sym = try self.intern("ELOOP");
+        const eloop_class_val = try self.newClass(eloop_name_sym, self.system_call_error_class);
+        const emlink_name_sym = try self.intern("EMLINK");
+        const emlink_class_val = try self.newClass(emlink_name_sym, self.system_call_error_class);
+        const enametoolong_name_sym = try self.intern("ENAMETOOLONG");
+        const enametoolong_class_val = try self.newClass(enametoolong_name_sym, self.system_call_error_class);
+        const enomem_name_sym = try self.intern("ENOMEM");
+        const enomem_class_val = try self.newClass(enomem_name_sym, self.system_call_error_class);
+        const enotconn_name_sym = try self.intern("ENOTCONN");
+        const enotconn_class_val = try self.newClass(enotconn_name_sym, self.system_call_error_class);
+        const enotsock_name_sym = try self.intern("ENOTSOCK");
+        const enotsock_class_val = try self.newClass(enotsock_name_sym, self.system_call_error_class);
+        const enotty_name_sym = try self.intern("ENOTTY");
+        const enotty_class_val = try self.newClass(enotty_name_sym, self.system_call_error_class);
+        const eoverflow_name_sym = try self.intern("EOVERFLOW");
+        const eoverflow_class_val = try self.newClass(eoverflow_name_sym, self.system_call_error_class);
         const eperm_name_sym = try self.intern("EPERM");
         const eperm_class_val = try self.newClass(eperm_name_sym, self.system_call_error_class);
+        const erange_name_sym = try self.intern("ERANGE");
+        const erange_class_val = try self.newClass(erange_name_sym, self.system_call_error_class);
         const erofs_name_sym = try self.intern("EROFS");
         const erofs_class_val = try self.newClass(erofs_name_sym, self.system_call_error_class);
+        const espipe_name_sym = try self.intern("ESPIPE");
+        const espipe_class_val = try self.newClass(espipe_name_sym, self.system_call_error_class);
+        const esrch_name_sym = try self.intern("ESRCH");
+        const esrch_class_val = try self.newClass(esrch_name_sym, self.system_call_error_class);
         const enospc_name_sym = try self.intern("ENOSPC");
         const enospc_class_val = try self.newClass(enospc_name_sym, self.system_call_error_class);
         const eproto_name_sym = try self.intern("EPROTO");
@@ -1334,8 +1367,24 @@ pub const VM = struct {
         self.errno_module.constants.put(einprogress_name_sym, .{ .value = einprogress_class_val }) catch return error.Fatal;
         self.errno_module.constants.put(eisconn_name_sym, .{ .value = eisconn_class_val }) catch return error.Fatal;
         self.errno_module.constants.put(eagain_name_sym, .{ .value = eagain_class_val }) catch return error.Fatal;
+        self.errno_module.constants.put(ebadf_name_sym, .{ .value = ebadf_class_val }) catch return error.Fatal;
+        self.errno_module.constants.put(ebusy_name_sym, .{ .value = ebusy_class_val }) catch return error.Fatal;
+        self.errno_module.constants.put(emfile_name_sym, .{ .value = emfile_class_val }) catch return error.Fatal;
+        self.errno_module.constants.put(eintr_name_sym, .{ .value = eintr_class_val }) catch return error.Fatal;
+        self.errno_module.constants.put(eio_name_sym, .{ .value = eio_class_val }) catch return error.Fatal;
+        self.errno_module.constants.put(eloop_name_sym, .{ .value = eloop_class_val }) catch return error.Fatal;
+        self.errno_module.constants.put(emlink_name_sym, .{ .value = emlink_class_val }) catch return error.Fatal;
+        self.errno_module.constants.put(enametoolong_name_sym, .{ .value = enametoolong_class_val }) catch return error.Fatal;
+        self.errno_module.constants.put(enomem_name_sym, .{ .value = enomem_class_val }) catch return error.Fatal;
+        self.errno_module.constants.put(enotconn_name_sym, .{ .value = enotconn_class_val }) catch return error.Fatal;
+        self.errno_module.constants.put(enotsock_name_sym, .{ .value = enotsock_class_val }) catch return error.Fatal;
+        self.errno_module.constants.put(enotty_name_sym, .{ .value = enotty_class_val }) catch return error.Fatal;
+        self.errno_module.constants.put(eoverflow_name_sym, .{ .value = eoverflow_class_val }) catch return error.Fatal;
         self.errno_module.constants.put(eperm_name_sym, .{ .value = eperm_class_val }) catch return error.Fatal;
+        self.errno_module.constants.put(erange_name_sym, .{ .value = erange_class_val }) catch return error.Fatal;
         self.errno_module.constants.put(erofs_name_sym, .{ .value = erofs_class_val }) catch return error.Fatal;
+        self.errno_module.constants.put(espipe_name_sym, .{ .value = espipe_class_val }) catch return error.Fatal;
+        self.errno_module.constants.put(esrch_name_sym, .{ .value = esrch_class_val }) catch return error.Fatal;
         self.errno_module.constants.put(enospc_name_sym, .{ .value = enospc_class_val }) catch return error.Fatal;
         self.errno_module.constants.put(eproto_name_sym, .{ .value = eproto_class_val }) catch return error.Fatal;
         self.errno_module.constants.put(enoexec_name_sym, .{ .value = enoexec_class_val }) catch return error.Fatal;
@@ -1366,8 +1415,24 @@ pub const VM = struct {
         try self.registerErrnoClass(.INPROGRESS, einprogress_class_val.toClassObject());
         try self.registerErrnoClass(.ISCONN, eisconn_class_val.toClassObject());
         try self.registerErrnoClass(.AGAIN, eagain_class_val.toClassObject());
+        try self.registerErrnoClass(.BADF, ebadf_class_val.toClassObject());
+        try self.registerErrnoClass(.BUSY, ebusy_class_val.toClassObject());
+        try self.registerErrnoClass(.MFILE, emfile_class_val.toClassObject());
+        try self.registerErrnoClass(.INTR, eintr_class_val.toClassObject());
+        try self.registerErrnoClass(.IO, eio_class_val.toClassObject());
+        try self.registerErrnoClass(.LOOP, eloop_class_val.toClassObject());
+        try self.registerErrnoClass(.MLINK, emlink_class_val.toClassObject());
+        try self.registerErrnoClass(.NAMETOOLONG, enametoolong_class_val.toClassObject());
+        try self.registerErrnoClass(.NOMEM, enomem_class_val.toClassObject());
+        try self.registerErrnoClass(.NOTCONN, enotconn_class_val.toClassObject());
+        try self.registerErrnoClass(.NOTSOCK, enotsock_class_val.toClassObject());
+        try self.registerErrnoClass(.NOTTY, enotty_class_val.toClassObject());
+        try self.registerErrnoClass(.OVERFLOW, eoverflow_class_val.toClassObject());
         try self.registerErrnoClass(.PERM, eperm_class_val.toClassObject());
+        try self.registerErrnoClass(.RANGE, erange_class_val.toClassObject());
         try self.registerErrnoClass(.ROFS, erofs_class_val.toClassObject());
+        try self.registerErrnoClass(.SPIPE, espipe_class_val.toClassObject());
+        try self.registerErrnoClass(.SRCH, esrch_class_val.toClassObject());
         try self.registerErrnoClass(.NOSPC, enospc_class_val.toClassObject());
         try self.registerErrnoClass(.PROTO, eproto_class_val.toClassObject());
         try self.registerErrnoClass(.NOEXEC, enoexec_class_val.toClassObject());
@@ -10161,6 +10226,23 @@ pub const VM = struct {
 
     pub fn errnoClass(self: *VM, errno_number: c_int) *value.ClassObject {
         return self.errno_classes.get(errno_number) orelse self.system_call_error_class;
+    }
+
+    pub fn errnoNumberForClass(self: *VM, class_obj: *value.ClassObject) ?c_int {
+        var it = self.errno_classes.iterator();
+        while (it.next()) |entry| {
+            if (entry.value_ptr.* == class_obj) return entry.key_ptr.*;
+        }
+        return null;
+    }
+
+    pub fn defaultExceptionMessageForClass(self: *VM, class_obj: *value.ClassObject) []const u8 {
+        if (self.isClassOrSubclassOf(class_obj, self.system_call_error_class)) {
+            if (self.errnoNumberForClass(class_obj)) |errno_number| {
+                return std.mem.span(strerror(errno_number));
+            }
+        }
+        return class_obj.module.name.name;
     }
 
     pub fn raiseErrnoFmt(self: *VM, errno_code: std.posix.E, comptime fmt: []const u8, args: anytype) VMError {

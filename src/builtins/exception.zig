@@ -8,6 +8,12 @@ const Block = vm_mod.Block;
 const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
+    const exception_class_val = Value.fromObject(&vm.exception_class.module.object);
+    const exception_singleton = try vm.getOrCreateSingletonClass(exception_class_val);
+
+    const exception_sym = try vm.intern("exception");
+    try exception_singleton.module.methods.put(exception_sym, value.MethodEntry.builtin(&builtinExceptionClassException, .{ .variadic = 0 }));
+
     const initialize_sym = try vm.intern("initialize");
     try vm.exception_class.module.methods.put(initialize_sym, value.MethodEntry.builtin(&builtinExceptionInitialize, .{ .variadic = 0 }));
 
@@ -16,6 +22,9 @@ pub fn register(vm: *VM) !void {
 
     const to_s_sym = try vm.intern("to_s");
     try vm.exception_class.module.methods.put(to_s_sym, value.MethodEntry.builtin(&builtinExceptionMessage, .{ .exact = 0 }));
+
+    const inspect_sym = try vm.intern("inspect");
+    try vm.exception_class.module.methods.put(inspect_sym, value.MethodEntry.builtin(&builtinExceptionInspect, .{ .exact = 0 }));
 
     const backtrace_sym = try vm.intern("backtrace");
     try vm.exception_class.module.methods.put(backtrace_sym, value.MethodEntry.builtin(&builtinExceptionBacktrace, .{ .exact = 0 }));
@@ -62,10 +71,23 @@ pub fn builtinExceptionInitialize(vm: *VM, receiver: Value, args: []Value, _: ?B
     const message = if (args.len == 1)
         try args[0].coerceToStr(vm, "no implicit conversion into String")
     else
-        vm.className(receiver);
+        vm.defaultExceptionMessageForClass(exc.object.class.?);
     const msg_val = try vm.newString(message, false);
     exc.message = msg_val.toStringObject();
     return receiver;
+}
+
+pub fn builtinExceptionClassException(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    if (!receiver.isClass()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Class", .{});
+    }
+
+    const class_obj = receiver.toClassObject();
+    if (!vm.isClassOrSubclassOf(class_obj, vm.exception_class)) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "exception class/object expected", .{});
+    }
+
+    return vm.newExceptionInstance(class_obj, args, block);
 }
 
 pub fn builtinSystemExitInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -108,6 +130,16 @@ pub fn builtinExceptionMessage(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
 
     const exc = receiver.toExceptionObject();
     return Value.fromObject(&exc.message.object);
+}
+
+pub fn builtinExceptionInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
+    const exc = receiver.toExceptionObject();
+    const class_name_val = try vm.callMethodByName(Value.fromObject(&exc.object.class.?.module.object), "name", &.{}, null);
+    const class_name = class_name_val.toStringObject().str;
+    const str = std.fmt.allocPrint(vm.gc_allocator, "#<{s}: {s}>", .{ class_name, exc.message.str }) catch return error.Fatal;
+    return try vm.newString(str, false);
 }
 
 pub fn builtinExceptionBacktrace(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

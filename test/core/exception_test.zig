@@ -31,6 +31,18 @@ test "raise accepts exception object with replacement message" {
     try std.testing.expectEqualStrings("new", elems[1].toStringObject().str);
 }
 
+test "Errno class exception builds default errno message" {
+    const result = try evalCode(
+        \\e = Errno::EMFILE.exception
+        \\[e.class.name, e.message, e.inspect]
+    );
+    try std.testing.expect(result.isArray());
+    const elems = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("Errno::EMFILE", elems[0].toStringObject().str);
+    try std.testing.expectEqualStrings("Too many open files", elems[1].toStringObject().str);
+    try std.testing.expectEqualStrings("#<Errno::EMFILE: Too many open files>", elems[2].toStringObject().str);
+}
+
 test "pending SIGINT raises Interrupt and explicit rescue catches it" {
     cora.vm.requestSignal(@intCast(@intFromEnum(std.posix.SIG.INT)));
     const result = try evalCode(

@@ -243,6 +243,46 @@ test "Dir.mkdir raises mapped Errno class for existing path" {
     try std.testing.expectEqualSlices(u8, "mkdir_ok", result.toSymbolObject().name);
 }
 
+test "Errno exposes common unix constants" {
+    const result = try evalCode(
+        \\[
+        \\  Errno::EBADF.name,
+        \\  Errno::EBUSY.name,
+        \\  Errno::EINTR.name,
+        \\  Errno::EIO.name,
+        \\  Errno::ELOOP.name,
+        \\  Errno::EMLINK.name,
+        \\  Errno::ENAMETOOLONG.name,
+        \\  Errno::ENOMEM.name,
+        \\  Errno::ENOTCONN.name,
+        \\  Errno::ENOTSOCK.name,
+        \\  Errno::ENOTTY.name,
+        \\  Errno::EOVERFLOW.name,
+        \\  Errno::ERANGE.name,
+        \\  Errno::ESPIPE.name,
+        \\  Errno::ESRCH.name
+        \\]
+    );
+
+    try std.testing.expect(result.isArray());
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqualSlices(u8, "Errno::EBADF", items[0].toStringObject().str);
+    try std.testing.expectEqualSlices(u8, "Errno::EBUSY", items[1].toStringObject().str);
+    try std.testing.expectEqualSlices(u8, "Errno::EINTR", items[2].toStringObject().str);
+    try std.testing.expectEqualSlices(u8, "Errno::EIO", items[3].toStringObject().str);
+    try std.testing.expectEqualSlices(u8, "Errno::ELOOP", items[4].toStringObject().str);
+    try std.testing.expectEqualSlices(u8, "Errno::EMLINK", items[5].toStringObject().str);
+    try std.testing.expectEqualSlices(u8, "Errno::ENAMETOOLONG", items[6].toStringObject().str);
+    try std.testing.expectEqualSlices(u8, "Errno::ENOMEM", items[7].toStringObject().str);
+    try std.testing.expectEqualSlices(u8, "Errno::ENOTCONN", items[8].toStringObject().str);
+    try std.testing.expectEqualSlices(u8, "Errno::ENOTSOCK", items[9].toStringObject().str);
+    try std.testing.expectEqualSlices(u8, "Errno::ENOTTY", items[10].toStringObject().str);
+    try std.testing.expectEqualSlices(u8, "Errno::EOVERFLOW", items[11].toStringObject().str);
+    try std.testing.expectEqualSlices(u8, "Errno::ERANGE", items[12].toStringObject().str);
+    try std.testing.expectEqualSlices(u8, "Errno::ESPIPE", items[13].toStringObject().str);
+    try std.testing.expectEqualSlices(u8, "Errno::ESRCH", items[14].toStringObject().str);
+}
+
 test "File.open with block closes file automatically" {
     var path_buf: [128]u8 = undefined;
     const path = try uniquePath(&path_buf);
