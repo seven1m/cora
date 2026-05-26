@@ -13,6 +13,7 @@ const optparse_test = @import("optparse_test.zig");
 const openssl_test = @import("openssl_test.zig");
 const rbconfig_test = @import("rbconfig_test.zig");
 const rubygems_test = @import("rubygems_test.zig");
+const singleton_test = @import("singleton_test.zig");
 const strscan_test = @import("strscan_test.zig");
 const tempfile_test = @import("tempfile_test.zig");
 const time_test = @import("time_test.zig");
@@ -110,6 +111,7 @@ comptime {
     _ = openssl_test;
     _ = rbconfig_test;
     _ = rubygems_test;
+    _ = singleton_test;
     _ = strscan_test;
     _ = tempfile_test;
     _ = time_test;

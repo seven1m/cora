@@ -43,3 +43,6 @@
 [submodule "ext/timeout"]
 	path = ext/timeout
 	url = https://github.com/ruby/timeout
+[submodule "ext/singleton"]
+	path = ext/singleton
+	url = https://github.com/ruby/singleton

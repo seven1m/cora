@@ -124,6 +124,7 @@ the top of the relevant file, in the same directory with a name like
 | `ext/logger/*` | Yukihiro Matsumoto | Ruby license / 2-clause BSD |
 | `ext/optparse/*` | Yukihiro Matsumoto and Ruby contributors | Ruby license / 2-clause BSD |
 | `ext/rubygems/*` | Chad Fowler, Rich Kilmer, Jim Weirich, and others | RubyGems license / MIT |
+| `ext/singleton/*` | Yukihiro Matsumoto and Ruby contributors | Ruby license / 2-clause BSD |
 | `ext/tempfile/*` | Yukihiro Matsumoto and Ruby contributors | Ruby license / 2-clause BSD |
 | `ext/timeout/*` | Network Applied Communication Laboratory, Inc., IPA Japan, and Ruby contributors | Ruby license / 2-clause BSD |
 | `ext/tmpdir/*` | Yukihiro Matsumoto and Ruby contributors | Ruby license / 2-clause BSD |
