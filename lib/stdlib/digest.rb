@@ -4,6 +4,19 @@ require "openssl"
 
 module Digest
   class Base < OpenSSL::Digest
+    class << self
+      def digest(data)
+        new(data).digest
+      end
+
+      def hexdigest(data)
+        new(data).hexdigest
+      end
+
+      def base64digest(data)
+        new(data).base64digest
+      end
+    end
   end
 
   class MD5 < Base

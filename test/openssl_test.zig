@@ -24,6 +24,21 @@ test "require lazily registers OpenSSL" {
     try std.testing.expectEqualStrings("", result.stderr);
 }
 
+test "Digest subclasses expose Ruby-compatible class helpers" {
+    var stdout_buf: [1024]u8 = undefined;
+    var stderr_buf: [1024]u8 = undefined;
+
+    const result = evalCodeWithOutput(
+        \\require "digest/sha1"
+        \\puts Digest::SHA1.hexdigest("foo")
+        \\puts Digest::SHA1.base64digest("foo")
+        \\puts Digest::SHA1.digest("foo").bytesize
+    , &stdout_buf, &stderr_buf);
+
+    try std.testing.expect(result.err == null);
+    try std.testing.expectEqualStrings("0beec7b5ea3f0fdbc95d0dd47f3c5bc275da8a33\nC+7Hteo/D9vJXQ3UfzxbwnXaijM=\n20\n", result.stdout);
+    try std.testing.expectEqualStrings("", result.stderr);
+}
 test "OpenSSL::Cipher accepts RubyGems default cipher names" {
     var stdout_buf: [1024]u8 = undefined;
     var stderr_buf: [1024]u8 = undefined;
