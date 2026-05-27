@@ -206,6 +206,12 @@ pub fn register(vm: *VM) !void {
 
     const sync_eq_sym = try vm.intern("sync=");
     try vm.io_class.module.methods.put(sync_eq_sym, value.MethodEntry.builtin(&builtinIoSyncEq, .{ .exact = 1 }));
+
+    const autoclose_q_sym = try vm.intern("autoclose?");
+    try vm.io_class.module.methods.put(autoclose_q_sym, value.MethodEntry.builtin(&builtinIoAutocloseQ, .{ .exact = 0 }));
+
+    const autoclose_eq_sym = try vm.intern("autoclose=");
+    try vm.io_class.module.methods.put(autoclose_eq_sym, value.MethodEntry.builtin(&builtinIoAutocloseEq, .{ .exact = 1 }));
 }
 
 const PopenEnvEntry = struct {
@@ -1048,6 +1054,19 @@ pub fn builtinIoInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     }
 
     return Value.nil();
+}
+
+fn builtinIoAutocloseQ(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
+    const io = try requireIoReceiver(vm, receiver);
+    try ensureIoOpen(vm, io);
+    return Value.boolean(io.owns_fd);
+}
+
+fn builtinIoAutocloseEq(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const io = try requireIoReceiver(vm, receiver);
+    try ensureIoOpen(vm, io);
+    io.owns_fd = args[0].is_truthy();
+    return args[0];
 }
 
 fn ensureIoOpen(vm: *VM, io: *IoObject) VMError!void {
