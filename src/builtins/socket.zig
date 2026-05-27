@@ -78,6 +78,9 @@ pub fn register(vm: *VM) !void {
     try basic_socket_class.module.methods.put(do_not_reverse_lookup_sym, value.MethodEntry.builtin(&builtinSocketDoNotReverseLookup, .{ .exact = 0 }));
     try basic_socket_class.module.methods.put(do_not_reverse_lookup_set_sym, value.MethodEntry.builtin(&builtinSocketSetDoNotReverseLookup, .{ .exact = 1 }));
 
+    const shutdown_sym = try vm.intern("shutdown");
+    try basic_socket_class.module.methods.put(shutdown_sym, value.MethodEntry.builtin(&builtinBasicSocketShutdown, .{ .variadic = 0 }));
+
     const addr_sym = try vm.intern("addr");
     try ip_socket_class.module.methods.put(addr_sym, value.MethodEntry.builtin(&builtinIPSocketAddr, .{ .variadic = 0 }));
 
@@ -100,6 +103,13 @@ pub fn register(vm: *VM) !void {
 
     const af_inet6_sym = try vm.intern("AF_INET6");
     try socket_class.module.constants.put(af_inet6_sym, .{ .value = Value.integer(std.posix.AF.INET6) });
+
+    const shut_rd_sym = try vm.intern("SHUT_RD");
+    try socket_class.module.constants.put(shut_rd_sym, .{ .value = Value.integer(std.posix.SHUT.RD) });
+    const shut_wr_sym = try vm.intern("SHUT_WR");
+    try socket_class.module.constants.put(shut_wr_sym, .{ .value = Value.integer(std.posix.SHUT.WR) });
+    const shut_rdwr_sym = try vm.intern("SHUT_RDWR");
+    try socket_class.module.constants.put(shut_rdwr_sym, .{ .value = Value.integer(std.posix.SHUT.RDWR) });
 }
 
 fn socketError(vm: *VM, comptime fmt: []const u8, args: anytype) VMError {
@@ -142,6 +152,23 @@ fn basicSocketDefaultReverseLookup(vm: *VM) VMError!Value {
 
 fn initializeSocketReverseLookup(vm: *VM, socket: Value) VMError!void {
     try vm.setInstanceVariable(socket, "@do_not_reverse_lookup", try basicSocketDefaultReverseLookup(vm));
+}
+
+fn shutdownHowFromName(vm: *VM, name: []const u8) VMError!c_int {
+    if (std.mem.eql(u8, name, "RD") or std.mem.eql(u8, name, "SHUT_RD")) return std.posix.SHUT.RD;
+    if (std.mem.eql(u8, name, "WR") or std.mem.eql(u8, name, "SHUT_WR")) return std.posix.SHUT.WR;
+    if (std.mem.eql(u8, name, "RDWR") or std.mem.eql(u8, name, "SHUT_RDWR")) return std.posix.SHUT.RDWR;
+    return raiseSocketErrorFmt(vm, "unknown shutdown argument: {s}", .{name});
+}
+
+fn shutdownHow(vm: *VM, arg: Value) VMError!c_int {
+    if (arg.isInteger()) {
+        const how = arg.toInteger();
+        if (how == std.posix.SHUT.RD or how == std.posix.SHUT.WR or how == std.posix.SHUT.RDWR) return @intCast(how);
+        return vm.raiseExceptionFmt(vm.argument_error_class, "invalid shutdown argument: {d}", .{how});
+    }
+    if (arg.isSymbol()) return shutdownHowFromName(vm, arg.toSymbolObject().name);
+    return shutdownHowFromName(vm, try arg.coerceToStr(vm, "no implicit conversion into String"));
 }
 
 fn socketNumericAddressMode(vm: *VM, receiver: Value, args: []Value) VMError!bool {
@@ -616,6 +643,21 @@ pub fn builtinSocketSetDoNotReverseLookup(vm: *VM, receiver: Value, args: []Valu
     try vm.requireArgCount(args, 1);
     try vm.setInstanceVariable(receiver, "@do_not_reverse_lookup", Value.boolean(args[0].is_truthy()));
     return args[0];
+}
+
+pub fn builtinBasicSocketShutdown(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    if (!receiver.isIo()) return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not an IO", .{});
+
+    const io = receiver.toIoObject();
+    if (io.closed) return vm.raiseExceptionFmt(vm.io_error_class, "closed stream", .{});
+
+    const how = if (args.len == 0) std.posix.SHUT.RDWR else try shutdownHow(vm, args[0]);
+    if (std.c.shutdown(@intCast(io.fd), how) != 0) {
+        return socketError(vm, "shutdown() failed", .{});
+    }
+
+    return Value.integer(0);
 }
 
 pub fn builtinIPSocketAddr(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

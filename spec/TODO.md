@@ -3763,6 +3763,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/socket/tcpserver/initialize_spec.rb
 - [ ] library/socket/tcpserver/listen_spec.rb
 - [ ] library/socket/tcpserver/new_spec.rb
+- [-] library/socket/tcpserver/shutdown_spec.rb
 - [ ] library/socket/tcpserver/sysaccept_spec.rb
 
 ### library/socket/tcpsocket
