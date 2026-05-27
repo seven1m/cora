@@ -67,6 +67,12 @@ pub fn register(vm: *VM) !void {
 
     try vm.time_class.module.methods.put(utc_sym, value.MethodEntry.builtin(&builtinTimeUtcInstance, .{ .exact = 0 }));
 
+    const getutc_sym = try vm.intern("getutc");
+    try vm.time_class.module.methods.put(getutc_sym, value.MethodEntry.builtin(&builtinTimeUtcInstance, .{ .exact = 0 }));
+
+    const gmtime_sym = try vm.intern("gmtime");
+    try vm.time_class.module.methods.put(gmtime_sym, value.MethodEntry.builtin(&builtinTimeUtcInstance, .{ .exact = 0 }));
+
     const utc_q_sym = try vm.intern("utc?");
     try vm.time_class.module.methods.put(utc_q_sym, value.MethodEntry.builtin(&builtinTimeUtcQ, .{ .exact = 0 }));
 
