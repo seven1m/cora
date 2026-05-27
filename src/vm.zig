@@ -9663,6 +9663,33 @@ pub const VM = struct {
         time_obj.* = .{
             .object = .{ .type_tag = .time, .flags = 0, .class = class_obj, .singleton_class = null, .instance_variables = null },
             .epoch_nanoseconds = epoch_nanoseconds,
+            .utc_offset_nanos = 0,
+            .is_utc = true,
+            .is_local = false,
+        };
+        return Value.fromObject(&time_obj.object);
+    }
+
+    pub fn newTimeWithOffset(self: *VM, class_obj: *ClassObject, epoch_nanoseconds: i64, utc_offset_nanos: i64) VMError!Value {
+        const time_obj = self.gc_allocator.create(value.TimeObject) catch return error.Fatal;
+        time_obj.* = .{
+            .object = .{ .type_tag = .time, .flags = 0, .class = class_obj, .singleton_class = null, .instance_variables = null },
+            .epoch_nanoseconds = epoch_nanoseconds,
+            .utc_offset_nanos = utc_offset_nanos,
+            .is_utc = false,
+            .is_local = false,
+        };
+        return Value.fromObject(&time_obj.object);
+    }
+
+    pub fn newTimeLocal(self: *VM, class_obj: *ClassObject, epoch_nanoseconds: i64, utc_offset_nanos: i64) VMError!Value {
+        const time_obj = self.gc_allocator.create(value.TimeObject) catch return error.Fatal;
+        time_obj.* = .{
+            .object = .{ .type_tag = .time, .flags = 0, .class = class_obj, .singleton_class = null, .instance_variables = null },
+            .epoch_nanoseconds = epoch_nanoseconds,
+            .utc_offset_nanos = utc_offset_nanos,
+            .is_utc = false,
+            .is_local = true,
         };
         return Value.fromObject(&time_obj.object);
     }

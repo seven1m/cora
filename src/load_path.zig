@@ -1,0 +1,16 @@
+pub const repo_load_paths = [_][]const u8{
+    "lib/stdlib",
+    "ext/rubygems/lib",
+    "ext/logger/lib",
+    "ext/delegate/lib",
+    "ext/forwardable/lib",
+    "ext/time/lib",
+    "ext/timeout/lib",
+    "ext/singleton/lib",
+    "ext/optparse/lib",
+    "ext/uri/lib",
+    "ext/tmpdir/lib",
+    "ext/tempfile/lib",
+    "ext/cgi/lib",
+    "ext/erb/lib",
+};

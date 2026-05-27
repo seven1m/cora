@@ -398,6 +398,13 @@ pub const QueueObject = struct {
 pub const TimeObject = struct {
     object: Object,
     epoch_nanoseconds: i64,
+    // UTC offset in nanoseconds (0 for UTC, nonzero for fixed offsets including local).
+    // Stored as nanoseconds to support sub-second Rational offsets.
+    utc_offset_nanos: i64 = 0,
+    // true when created via Time.utc / Time.gm; false for local/fixed-offset times.
+    is_utc: bool = true,
+    // true when in "local" timezone mode (no explicit offset); localtime() is a no-op.
+    is_local: bool = false,
 };
 
 pub const IoObject = struct {

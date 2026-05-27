@@ -3,6 +3,7 @@ const prism = @import("prism.zig");
 pub const Value = @import("value.zig").Value;
 const build_options = @import("build_options");
 const compiler = @import("compiler.zig");
+const load_path = @import("load_path.zig");
 const vm = @import("vm.zig");
 const bdwgc = @import("bdwgc");
 
@@ -92,61 +93,11 @@ fn configureLoadPath(
         const exe_abs = exe_path_buffer[0..exe_abs_len];
         try virtual_machine.setRubyExecutablePath(exe_abs);
         if (std.fs.path.dirname(exe_abs)) |exe_dir| {
-            const repo_stdlib = try std.fs.path.join(allocator, &.{ exe_dir, "..", "..", "lib", "stdlib" });
-            defer allocator.free(repo_stdlib);
-            try appendLoadPathIfExists(virtual_machine, io, repo_stdlib);
-
-            const repo_rubygems = try std.fs.path.join(allocator, &.{ exe_dir, "..", "..", "ext", "rubygems", "lib" });
-            defer allocator.free(repo_rubygems);
-            try appendLoadPathIfExists(virtual_machine, io, repo_rubygems);
-
-            const repo_logger = try std.fs.path.join(allocator, &.{ exe_dir, "..", "..", "ext", "logger", "lib" });
-            defer allocator.free(repo_logger);
-            try appendLoadPathIfExists(virtual_machine, io, repo_logger);
-
-            const repo_delegate = try std.fs.path.join(allocator, &.{ exe_dir, "..", "..", "ext", "delegate", "lib" });
-            defer allocator.free(repo_delegate);
-            try appendLoadPathIfExists(virtual_machine, io, repo_delegate);
-
-            const repo_forwardable = try std.fs.path.join(allocator, &.{ exe_dir, "..", "..", "ext", "forwardable", "lib" });
-            defer allocator.free(repo_forwardable);
-            try appendLoadPathIfExists(virtual_machine, io, repo_forwardable);
-
-            const repo_time = try std.fs.path.join(allocator, &.{ exe_dir, "..", "..", "ext", "time", "lib" });
-            defer allocator.free(repo_time);
-            try appendLoadPathIfExists(virtual_machine, io, repo_time);
-
-            const repo_timeout = try std.fs.path.join(allocator, &.{ exe_dir, "..", "..", "ext", "timeout", "lib" });
-            defer allocator.free(repo_timeout);
-            try appendLoadPathIfExists(virtual_machine, io, repo_timeout);
-
-            const repo_singleton = try std.fs.path.join(allocator, &.{ exe_dir, "..", "..", "ext", "singleton", "lib" });
-            defer allocator.free(repo_singleton);
-            try appendLoadPathIfExists(virtual_machine, io, repo_singleton);
-
-            const repo_optparse = try std.fs.path.join(allocator, &.{ exe_dir, "..", "..", "ext", "optparse", "lib" });
-            defer allocator.free(repo_optparse);
-            try appendLoadPathIfExists(virtual_machine, io, repo_optparse);
-
-            const repo_uri = try std.fs.path.join(allocator, &.{ exe_dir, "..", "..", "ext", "uri", "lib" });
-            defer allocator.free(repo_uri);
-            try appendLoadPathIfExists(virtual_machine, io, repo_uri);
-
-            const repo_tmpdir = try std.fs.path.join(allocator, &.{ exe_dir, "..", "..", "ext", "tmpdir", "lib" });
-            defer allocator.free(repo_tmpdir);
-            try appendLoadPathIfExists(virtual_machine, io, repo_tmpdir);
-
-            const repo_tempfile = try std.fs.path.join(allocator, &.{ exe_dir, "..", "..", "ext", "tempfile", "lib" });
-            defer allocator.free(repo_tempfile);
-            try appendLoadPathIfExists(virtual_machine, io, repo_tempfile);
-
-            const repo_cgi = try std.fs.path.join(allocator, &.{ exe_dir, "..", "..", "ext", "cgi", "lib" });
-            defer allocator.free(repo_cgi);
-            try appendLoadPathIfExists(virtual_machine, io, repo_cgi);
-
-            const repo_erb = try std.fs.path.join(allocator, &.{ exe_dir, "..", "..", "ext", "erb", "lib" });
-            defer allocator.free(repo_erb);
-            try appendLoadPathIfExists(virtual_machine, io, repo_erb);
+            for (load_path.repo_load_paths) |suffix| {
+                const repo_path = try std.fs.path.join(allocator, &.{ exe_dir, "..", "..", suffix });
+                defer allocator.free(repo_path);
+                try appendLoadPathIfExists(virtual_machine, io, repo_path);
+            }
         }
     } else {
         try virtual_machine.setRubyExecutablePath(argv0);

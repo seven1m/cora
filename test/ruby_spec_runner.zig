@@ -1,5 +1,6 @@
 const std = @import("std");
 const cora = @import("cora");
+const load_path = cora.load_path;
 const prism = cora.prism;
 const compiler = cora.compiler;
 const VM = cora.vm.VM;
@@ -266,6 +267,16 @@ pub fn evalFile(path: []const u8, stdout_buf: []u8, stderr_buf: []u8) EvalResult
     return evalCodeWithOutputAndPath(ruby_code, stdout_buf, stderr_buf, abs_path);
 }
 
+fn appendRepoLoadPaths(vm: *VM, io: std.Io) !void {
+    for (load_path.repo_load_paths) |path| {
+        var path_buffer: [4096]u8 = undefined;
+        const abs_len = std.Io.Dir.cwd().realPathFile(io, path, &path_buffer) catch 0;
+        if (abs_len == 0) continue;
+        try vm.appendLoadPath(path_buffer[0..abs_len]);
+    }
+    try vm.syncLoadPathGlobals();
+}
+
 fn evalCodeWithOutputAndPath(ruby_code: []const u8, stdout_buf: []u8, stderr_buf: []u8, source_path: ?[]const u8) EvalResult {
     bdwgc.init();
     defer bdwgc.deinit();
@@ -304,13 +315,13 @@ fn evalCodeWithOutputAndPath(ruby_code: []const u8, stdout_buf: []u8, stderr_buf
         };
     };
 
-    {
-        var path_buffer: [4096]u8 = undefined;
-        const abs_len = std.Io.Dir.cwd().realPathFile(threaded.io(), "lib/stdlib", &path_buffer) catch 0;
-        if (abs_len != 0) {
-            vm.appendLoadPath(path_buffer[0..abs_len]) catch {};
-        }
-    }
+    appendRepoLoadPaths(&vm, threaded.io()) catch |err| {
+        return .{
+            .stdout = "",
+            .stderr = "",
+            .err = err,
+        };
+    };
 
     var stdout_writer = TestWriter.init(stdout_buf);
     vm.stdout = &stdout_writer.interface;

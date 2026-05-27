@@ -1907,6 +1907,33 @@ def mock_to_path(path)
   obj
 end
 
+# mock_numeric creates a mock object that masquerades as a Numeric.
+# Used by specs that test #to_r / #to_int coercion paths.
+def mock_numeric(name = nil)
+  mock(name)
+end
+
+# with_timezone temporarily sets the TZ environment variable (Unix only),
+# runs the block, then restores the original value.  When an integer offset
+# is provided (mspec convention), we construct a POSIX TZ string like
+# "CST6" so the C library honours the offset reliably cross-platform.
+def with_timezone(tz_name, offset = nil)
+  old_tz = ENV["TZ"]
+  if offset
+    # POSIX TZ: name + hours-west (note: sign is inverted vs UTC offset)
+    ENV["TZ"] = "#{tz_name}#{-offset}"
+  else
+    ENV["TZ"] = tz_name
+  end
+  yield
+ensure
+  if old_tz.nil?
+    ENV.delete("TZ")
+  else
+    ENV["TZ"] = old_tz
+  end
+end
+
 class ExpectationTarget
   def initialize(actual)
     @actual = actual
