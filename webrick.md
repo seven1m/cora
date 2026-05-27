@@ -14,6 +14,6 @@ Missing features for basic WEBrick server use:
 
 Secondary/optional gaps:
 
-- [ ] Socket.gethostname missing. Used lazily for default :ServerName in /home/tim/pp/webrick/lib/webrick/config.rb:23 and /home/tim/pp/webrick/lib/webrick/utils.rb:47.
+- [x] Socket.gethostname. Default `:ServerName` path in `/home/tim/pp/webrick/lib/webrick/config.rb` and `/home/tim/pp/webrick/lib/webrick/utils.rb` now works.
 - [ ] IO#autoclose= missing. Used in /home/tim/pp/webrick/lib/webrick/utils.rb:62.
 - [ ] Process.daemon, Process.initgroups, Process::Sys.setuid/setgid missing. Affects daemon/priv-drop helpers in /home/tim/pp/webrick/lib/webrick/server.rb:41 and /home/tim/pp/webrick/lib/webrick/utils.rb:35.

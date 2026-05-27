@@ -47,6 +47,9 @@ pub fn register(vm: *VM) !void {
     const tcp_sym = try vm.intern("tcp");
     try socket_singleton.module.methods.put(tcp_sym, value.MethodEntry.builtin(&builtinSocketTcp, .{ .variadic = 0 }));
 
+    const gethostname_sym = try vm.intern("gethostname");
+    try socket_singleton.module.methods.put(gethostname_sym, value.MethodEntry.builtin(&builtinSocketGethostname, .{ .exact = 0 }));
+
     const do_not_reverse_lookup_sym = try vm.intern("do_not_reverse_lookup");
     try socket_singleton.module.methods.put(do_not_reverse_lookup_sym, value.MethodEntry.builtin(&builtinSocketDoNotReverseLookup, .{ .exact = 0 }));
 
@@ -314,6 +317,16 @@ pub fn builtinSocketTcp(vm: *VM, _: Value, args: []Value, block: ?Block) VMError
         return yielded.value;
     }
     return socket;
+}
+
+pub fn builtinSocketGethostname(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
+    var hostname_buffer: [std.posix.HOST_NAME_MAX]u8 = undefined;
+    const hostname = std.posix.gethostname(&hostname_buffer) catch {
+        return socketError(vm, "gethostname() failed", .{});
+    };
+    return vm.newString(hostname, false);
 }
 
 pub fn builtinSocketDoNotReverseLookup(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

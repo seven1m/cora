@@ -3722,7 +3722,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/socket/socket/getaddrinfo_spec.rb
 - [ ] library/socket/socket/gethostbyaddr_spec.rb
 - [ ] library/socket/socket/gethostbyname_spec.rb
-- [ ] library/socket/socket/gethostname_spec.rb
+- [x] library/socket/socket/gethostname_spec.rb
 - [ ] library/socket/socket/getifaddrs_spec.rb
 - [ ] library/socket/socket/getnameinfo_spec.rb
 - [ ] library/socket/socket/getservbyname_spec.rb
