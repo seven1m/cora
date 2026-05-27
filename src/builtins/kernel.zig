@@ -5,6 +5,7 @@ const value = @import("../value.zig");
 const method_reflection = @import("method_reflection.zig");
 const module_builtin = @import("module.zig");
 const method_builtin = @import("method.zig");
+const signal_builtin = @import("signal.zig");
 const method_common = @import("method_common.zig");
 const openssl_builtin = @import("openssl.zig");
 const rational_builtin = @import("rational.zig");
@@ -441,6 +442,9 @@ pub fn register(vm: *VM) !void {
 
     const fork_sym = try vm.intern("fork");
     try vm.kernel_module.methods.put(fork_sym, value.MethodEntry.builtin(&builtinKernelFork, .{ .exact = 0 }));
+
+    const trap_sym = try vm.intern("trap");
+    try vm.kernel_module.methods.put(trap_sym, value.MethodEntry.builtinWithVisibility(&builtinKernelTrap, .{ .variadic = 1 }, .private));
 
     const rational_sym = try vm.intern("Rational");
     try vm.kernel_module.methods.put(rational_sym, value.MethodEntry.builtin(&builtinKernelRational, .{ .variadic = 0 }));
@@ -2551,4 +2555,8 @@ pub fn builtinKernelFork(vm: *VM, _: Value, args: []Value, block: ?Block) VMErro
     }
 
     return Value.nil();
+}
+
+pub fn builtinKernelTrap(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
+    return signal_builtin.builtinSignalTrap(vm, Value.nil(), args, block);
 }

@@ -1272,7 +1272,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/kernel/to_enum_spec.rb
 - [ ] core/kernel/to_s_spec.rb
 - [ ] core/kernel/trace_var_spec.rb
-- [ ] core/kernel/trap_spec.rb
+- [x] core/kernel/trap_spec.rb
 - [ ] core/kernel/trust_spec.rb
 - [ ] core/kernel/untaint_spec.rb
 - [ ] core/kernel/untrace_var_spec.rb
