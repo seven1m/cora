@@ -2,8 +2,8 @@
 
 Missing features for basic WEBrick server use:
 
-- [ ] Socket.tcp_server_sockets
-- [ ] TCPServer.for_fd
+- [x] Socket.tcp_server_sockets
+- [x] TCPServer.for_fd
 - [ ] IO.select used in main accept loop in /home/tim/pp/webrick/lib/webrick/server.rb:173
 - [ ] TCPServer#accept_nonblock used in /home/tim/pp/webrick/lib/webrick/server.rb:256
 - [ ] TCPSocket#do_not_reverse_lookup= used in /home/tim/pp/webrick/lib/webrick/server.rb:184

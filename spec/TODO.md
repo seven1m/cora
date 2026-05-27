@@ -3744,7 +3744,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/socket/socket/socketpair_spec.rb
 - [ ] library/socket/socket/sysaccept_spec.rb
 - [ ] library/socket/socket/tcp_server_loop_spec.rb
-- [ ] library/socket/socket/tcp_server_sockets_spec.rb
+- [x] library/socket/socket/tcp_server_sockets_spec.rb
 - [ ] library/socket/socket/tcp_spec.rb
 - [ ] library/socket/socket/udp_server_loop_on_spec.rb
 - [ ] library/socket/socket/udp_server_loop_spec.rb

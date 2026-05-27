@@ -12,8 +12,18 @@ const ClassObject = value.ClassObject;
 pub fn register(vm: *VM) !void {
     if (builtin.os.tag == .windows) return;
 
+    const basic_socket_name = try vm.intern("BasicSocket");
+    const basic_socket_val = try vm.newClassWithType(basic_socket_name, vm.io_class, .io);
+    const basic_socket_class = basic_socket_val.toClassObject();
+    try vm.object_class.module.constants.put(basic_socket_name, .{ .value = basic_socket_val });
+
+    const ip_socket_name = try vm.intern("IPSocket");
+    const ip_socket_val = try vm.newClassWithType(ip_socket_name, basic_socket_class, .io);
+    const ip_socket_class = ip_socket_val.toClassObject();
+    try vm.object_class.module.constants.put(ip_socket_name, .{ .value = ip_socket_val });
+
     const socket_name = try vm.intern("Socket");
-    const socket_val = try vm.newClass(socket_name, vm.object_class);
+    const socket_val = try vm.newClassWithType(socket_name, basic_socket_class, .io);
     const socket_class = socket_val.toClassObject();
     try vm.object_class.module.constants.put(socket_name, .{ .value = socket_val });
 
@@ -22,15 +32,16 @@ pub fn register(vm: *VM) !void {
     try vm.object_class.module.constants.put(socket_error_name, .{ .value = socket_error_val });
 
     const tcp_server_name = try vm.intern("TCPServer");
-    const tcp_server_val = try vm.newClassWithType(tcp_server_name, vm.io_class, .io);
+    const tcp_server_val = try vm.newClassWithType(tcp_server_name, ip_socket_class, .io);
     const tcp_server_class = tcp_server_val.toClassObject();
     try vm.object_class.module.constants.put(tcp_server_name, .{ .value = tcp_server_val });
 
     const tcp_socket_name = try vm.intern("TCPSocket");
-    const tcp_socket_val = try vm.newClassWithType(tcp_socket_name, vm.io_class, .io);
+    const tcp_socket_val = try vm.newClassWithType(tcp_socket_name, ip_socket_class, .io);
     const tcp_socket_class = tcp_socket_val.toClassObject();
     try vm.object_class.module.constants.put(tcp_socket_name, .{ .value = tcp_socket_val });
 
+    const basic_socket_singleton = try vm.getOrCreateSingletonClass(basic_socket_val);
     const socket_singleton = try vm.getOrCreateSingletonClass(socket_val);
     const tcp_server_singleton = try vm.getOrCreateSingletonClass(tcp_server_val);
     const tcp_socket_singleton = try vm.getOrCreateSingletonClass(tcp_socket_val);
@@ -44,22 +55,30 @@ pub fn register(vm: *VM) !void {
     const open_sym = try vm.intern("open");
     try tcp_socket_singleton.module.methods.put(open_sym, value.MethodEntry.builtin(&builtinTCPSocketOpen, .{ .variadic = 0 }));
 
+    const for_fd_sym = try vm.intern("for_fd");
+    try tcp_server_singleton.module.methods.put(for_fd_sym, value.MethodEntry.builtin(&builtinTCPServerForFd, .{ .exact = 1 }));
+
     const tcp_sym = try vm.intern("tcp");
     try socket_singleton.module.methods.put(tcp_sym, value.MethodEntry.builtin(&builtinSocketTcp, .{ .variadic = 0 }));
+
+    const tcp_server_sockets_sym = try vm.intern("tcp_server_sockets");
+    try socket_singleton.module.methods.put(tcp_server_sockets_sym, value.MethodEntry.builtin(&builtinSocketTcpServerSockets, .{ .variadic = 1 }));
 
     const gethostname_sym = try vm.intern("gethostname");
     try socket_singleton.module.methods.put(gethostname_sym, value.MethodEntry.builtin(&builtinSocketGethostname, .{ .exact = 0 }));
 
     const do_not_reverse_lookup_sym = try vm.intern("do_not_reverse_lookup");
-    try socket_singleton.module.methods.put(do_not_reverse_lookup_sym, value.MethodEntry.builtin(&builtinSocketDoNotReverseLookup, .{ .exact = 0 }));
+    try basic_socket_singleton.module.methods.put(do_not_reverse_lookup_sym, value.MethodEntry.builtin(&builtinSocketDoNotReverseLookup, .{ .exact = 0 }));
 
     const do_not_reverse_lookup_set_sym = try vm.intern("do_not_reverse_lookup=");
-    try socket_singleton.module.methods.put(do_not_reverse_lookup_set_sym, value.MethodEntry.builtin(&builtinSocketSetDoNotReverseLookup, .{ .exact = 1 }));
+    try basic_socket_singleton.module.methods.put(do_not_reverse_lookup_set_sym, value.MethodEntry.builtin(&builtinSocketSetDoNotReverseLookup, .{ .exact = 1 }));
+    try basic_socket_class.module.methods.put(do_not_reverse_lookup_sym, value.MethodEntry.builtin(&builtinSocketDoNotReverseLookup, .{ .exact = 0 }));
+    try basic_socket_class.module.methods.put(do_not_reverse_lookup_set_sym, value.MethodEntry.builtin(&builtinSocketSetDoNotReverseLookup, .{ .exact = 1 }));
 
     const setsockopt_sym = try vm.intern("setsockopt");
     try tcp_socket_class.module.methods.put(setsockopt_sym, value.MethodEntry.builtin(&builtinTCPSocketSetsockopt, .{ .exact = 3 }));
 
-    try vm.setInstanceVariable(socket_val, "@do_not_reverse_lookup", Value.boolean(false));
+    try vm.setInstanceVariable(basic_socket_val, "@do_not_reverse_lookup", Value.boolean(true));
 
     const ipproto_tcp_sym = try vm.intern("IPPROTO_TCP");
     try socket_class.module.constants.put(ipproto_tcp_sym, .{ .value = Value.integer(std.posix.IPPROTO.TCP) });
@@ -92,6 +111,28 @@ fn tcpSocketClass(vm: *VM) VMError!*ClassObject {
     const tcp_socket_name = try vm.intern("TCPSocket");
     const tcp_socket_entry = vm.object_class.module.constants.get(tcp_socket_name) orelse return error.Fatal;
     return tcp_socket_entry.value.toClassObject();
+}
+
+fn socketClass(vm: *VM) VMError!*ClassObject {
+    const socket_name = try vm.intern("Socket");
+    const socket_entry = vm.object_class.module.constants.get(socket_name) orelse return error.Fatal;
+    return socket_entry.value.toClassObject();
+}
+
+fn tcpServerClass(vm: *VM) VMError!*ClassObject {
+    const tcp_server_name = try vm.intern("TCPServer");
+    const tcp_server_entry = vm.object_class.module.constants.get(tcp_server_name) orelse return error.Fatal;
+    return tcp_server_entry.value.toClassObject();
+}
+
+fn basicSocketDefaultReverseLookup(vm: *VM) VMError!Value {
+    const basic_socket_name = try vm.intern("BasicSocket");
+    const basic_socket_entry = vm.object_class.module.constants.get(basic_socket_name) orelse return error.Fatal;
+    return vm.getInstanceVariable(basic_socket_entry.value, "@do_not_reverse_lookup");
+}
+
+fn initializeSocketReverseLookup(vm: *VM, socket: Value) VMError!void {
+    try vm.setInstanceVariable(socket, "@do_not_reverse_lookup", try basicSocketDefaultReverseLookup(vm));
 }
 
 fn socketStatusFlags(vm: *VM, fd: std.posix.fd_t) VMError!c_int {
@@ -160,6 +201,108 @@ fn socketConnectError(fd: std.posix.fd_t) std.posix.E {
     return std.posix.errno(so_error);
 }
 
+const TcpListenerConfig = struct {
+    host: ?[]const u8,
+    port_arg: Value,
+};
+
+fn parseTcpListenerArgs(vm: *VM, args: []Value) VMError!TcpListenerConfig {
+    try vm.requireArgCountRange(args, 1, 2);
+
+    var host: ?[]const u8 = null;
+    var port_arg = args[0];
+    if (args.len == 2) {
+        if (!args[0].isNil()) {
+            host = try args[0].coerceToStr(vm, "no implicit conversion into String");
+        }
+        port_arg = args[1];
+    }
+    if (host) |host_bytes| {
+        if (host_bytes.len == 0) host = null;
+    }
+
+    return .{ .host = host, .port_arg = port_arg };
+}
+
+fn createTcpListener(vm: *VM, class_obj: *ClassObject, fd: std.posix.fd_t, owns_fd: bool) VMError!Value {
+    const socket = try vm.newIo(class_obj, @intCast(fd), .{ .owns_fd = owns_fd, .readable = true, .writable = false });
+    try initializeSocketReverseLookup(vm, socket);
+    return socket;
+}
+
+fn createTcpListeners(vm: *VM, args: []Value, class_obj: *ClassObject, all_matches: bool) VMError!Value {
+    const config = try parseTcpListenerArgs(vm, args);
+
+    const host_z = if (config.host) |host| try vm.allocCStringZ(host) else null;
+    defer if (host_z) |host| vm.allocator.free(host);
+
+    var service_buf: [32]u8 = undefined;
+    const service = if (config.port_arg.isNil())
+        ""
+    else if (config.port_arg.isString())
+        try config.port_arg.coerceToStr(vm, "no implicit conversion into String")
+    else blk: {
+        const port = try config.port_arg.integerArgToI64(vm, "no implicit conversion into String", "port out of range");
+        if (port < 0 or port > 65535) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "port out of range", .{});
+        }
+        break :blk std.fmt.bufPrint(&service_buf, "{d}", .{port}) catch return error.Fatal;
+    };
+
+    const service_z = try vm.allocCStringZ(service);
+    defer vm.allocator.free(service_z);
+
+    var hints = std.mem.zeroes(std.c.addrinfo);
+    hints.family = std.posix.AF.UNSPEC;
+    hints.socktype = std.posix.SOCK.STREAM;
+    hints.flags = .{ .PASSIVE = true };
+
+    var addrinfo_result: ?*std.c.addrinfo = null;
+    const gai = std.c.getaddrinfo(
+        if (host_z) |host| host.ptr else null,
+        service_z.ptr,
+        &hints,
+        &addrinfo_result,
+    );
+    if (@intFromEnum(gai) != 0) {
+        return raiseSocketErrorFmt(vm, "getaddrinfo failed for {s}:{s}", .{ config.host orelse "", service });
+    }
+    defer if (addrinfo_result) |result| std.c.freeaddrinfo(result);
+
+    const listeners = try vm.createArray();
+    var current = addrinfo_result;
+    while (current) |addrinfo| : (current = addrinfo.next) {
+        const addr = addrinfo.addr orelse continue;
+        if (addrinfo.socktype != std.posix.SOCK.STREAM) continue;
+
+        const fd = std.c.socket(@intCast(addrinfo.family), @intCast(addrinfo.socktype), @intCast(addrinfo.protocol));
+        if (fd < 0) continue;
+
+        const one: c_int = 1;
+        _ = std.c.setsockopt(fd, std.posix.SOL.SOCKET, std.posix.SO.REUSEADDR, &one, @sizeOf(c_int));
+
+        if (std.c.bind(fd, addr, addrinfo.addrlen) != 0) {
+            _ = std.c.close(fd);
+            continue;
+        }
+
+        if (std.c.listen(fd, 128) != 0) {
+            _ = std.c.close(fd);
+            continue;
+        }
+
+        const listener = try createTcpListener(vm, class_obj, @intCast(fd), true);
+        listeners.elements.append(vm.gc_allocator, listener) catch return error.Fatal;
+        if (!all_matches) break;
+    }
+
+    if (listeners.elements.items.len == 0) {
+        return socketError(vm, "listen() failed", .{});
+    }
+
+    return Value.fromObject(&listeners.object);
+}
+
 fn connectTCPSocket(vm: *VM, host_value: Value, port_value: Value) VMError!Value {
     const host = try host_value.coerceToStr(vm, "no implicit conversion into String");
     var service_buf: [32]u8 = undefined;
@@ -202,7 +345,9 @@ fn connectTCPSocket(vm: *VM, host_value: Value, port_value: Value) VMError!Value
         defer setSocketNonblocking(vm, posix_fd, false) catch {};
 
         if (std.c.connect(fd, addr, addrinfo.addrlen) == 0) {
-            return vm.newIo(try tcpSocketClass(vm), @intCast(fd), .{ .owns_fd = true, .readable = true, .writable = true });
+            const socket = try vm.newIo(try tcpSocketClass(vm), @intCast(fd), .{ .owns_fd = true, .readable = true, .writable = true });
+            try initializeSocketReverseLookup(vm, socket);
+            return socket;
         }
 
         const connect_errno = std.posix.errno(-1);
@@ -211,7 +356,9 @@ fn connectTCPSocket(vm: *VM, host_value: Value, port_value: Value) VMError!Value
                 try waitForConnectWritable(vm, posix_fd);
                 const so_error = socketConnectError(posix_fd);
                 if (so_error == .SUCCESS) {
-                    return vm.newIo(try tcpSocketClass(vm), @intCast(fd), .{ .owns_fd = true, .readable = true, .writable = true });
+                    const socket = try vm.newIo(try tcpSocketClass(vm), @intCast(fd), .{ .owns_fd = true, .readable = true, .writable = true });
+                    try initializeSocketReverseLookup(vm, socket);
+                    return socket;
                 }
                 last_errno = so_error;
             },
@@ -230,47 +377,8 @@ fn connectTCPSocket(vm: *VM, host_value: Value, port_value: Value) VMError!Value
 }
 
 pub fn builtinTCPServerNew(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCountRange(args, 1, 2);
-
-    const port: u16 = blk: {
-        const n = try args[0].integerArgToI64(vm, "no implicit conversion into Integer", "port out of range");
-        if (n < 0 or n > 65535) return vm.raiseExceptionFmt(vm.argument_error_class, "port out of range", .{});
-        break :blk @intCast(n);
-    };
-    _ = if (args.len >= 2) args[1] else Value.nil();
-
-    const fd = std.c.socket(std.posix.AF.INET, std.posix.SOCK.STREAM, 0);
-    if (fd < 0) return socketError(vm, "socket() failed", .{});
-
-    const one: c_int = 1;
-    _ = std.c.setsockopt(
-        fd,
-        std.posix.SOL.SOCKET,
-        std.posix.SO.REUSEADDR,
-        &one,
-        @sizeOf(c_int),
-    );
-
-    var addr: std.posix.sockaddr.in = .{
-        .family = std.posix.AF.INET,
-        .port = std.mem.nativeToBig(u16, port),
-        .addr = 0, // INADDR_ANY
-        .zero = .{ 0, 0, 0, 0, 0, 0, 0, 0 },
-    };
-
-    if (std.c.bind(fd, @ptrCast(&addr), @sizeOf(std.posix.sockaddr.in)) != 0) {
-        _ = std.c.close(fd);
-        return socketError(vm, "bind() failed on port {d}", .{port});
-    }
-
-    if (std.c.listen(fd, 128) != 0) {
-        _ = std.c.close(fd);
-        return socketError(vm, "listen() failed", .{});
-    }
-
-    const tcp_server_name = try vm.intern("TCPServer");
-    const tcp_server_entry = vm.object_class.module.constants.get(tcp_server_name) orelse return error.Fatal;
-    return vm.newIo(tcp_server_entry.value.toClassObject(), @intCast(fd), .{ .owns_fd = true, .readable = true, .writable = false });
+    const listeners = (try createTcpListeners(vm, args, try tcpServerClass(vm), false)).toArrayObject();
+    return listeners.elements.items[0];
 }
 
 pub fn builtinTCPServerAccept(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -286,7 +394,9 @@ pub fn builtinTCPServerAccept(vm: *VM, receiver: Value, args: []Value, _: ?Block
 
     const tcp_socket_name = try vm.intern("TCPSocket");
     const tcp_socket_entry = vm.object_class.module.constants.get(tcp_socket_name) orelse return error.Fatal;
-    return vm.newIo(tcp_socket_entry.value.toClassObject(), @intCast(client_fd), .{ .owns_fd = true, .readable = true, .writable = true });
+    const socket = try vm.newIo(tcp_socket_entry.value.toClassObject(), @intCast(client_fd), .{ .owns_fd = true, .readable = true, .writable = true });
+    try initializeSocketReverseLookup(vm, socket);
+    return socket;
 }
 
 pub fn builtinTCPSocketOpen(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
@@ -329,6 +439,24 @@ pub fn builtinSocketGethostname(vm: *VM, _: Value, args: []Value, _: ?Block) VME
     return vm.newString(hostname, false);
 }
 
+pub fn builtinSocketTcpServerSockets(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
+    const sockets = try createTcpListeners(vm, args, try socketClass(vm), true);
+    if (block) |blk| {
+        const yielded = vm.yieldToBlock(blk, &[_]Value{sockets}) catch |err| {
+            for (sockets.toArrayObject().elements.items) |socket| {
+                _ = vm.callMethodByName(socket, "close", &[_]Value{}, null) catch {};
+            }
+            return err;
+        };
+        for (sockets.toArrayObject().elements.items) |socket| {
+            _ = vm.callMethodByName(socket, "close", &[_]Value{}, null) catch {};
+        }
+        if (yielded.controlFlowValue()) |return_value| return return_value;
+        return yielded.value;
+    }
+    return sockets;
+}
+
 pub fn builtinSocketDoNotReverseLookup(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return vm.getInstanceVariable(receiver, "@do_not_reverse_lookup");
@@ -356,4 +484,10 @@ pub fn builtinTCPSocketSetsockopt(vm: *VM, receiver: Value, args: []Value, _: ?B
     }
 
     return Value.integer(0);
+}
+
+pub fn builtinTCPServerForFd(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const fd: std.posix.fd_t = @intCast(try args[0].integerArgToI64(vm, "no implicit conversion into Integer", "integer out of range"));
+    return createTcpListener(vm, try tcpServerClass(vm), fd, true);
 }
