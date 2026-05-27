@@ -563,6 +563,14 @@ test "Array#pack string directives" {
     result = try evalCode("['ab'].pack('Z4')");
     try std.testing.expect(result.isString());
     try std.testing.expectEqualSlices(u8, "ab\x00\x00", result.toStringObject().str);
+
+    result = try evalCode("['abc'].pack('H*')");
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "\xab\xc0", result.toStringObject().str);
+
+    result = try evalCode("['abc'].pack('h*')");
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "\xba\x0c", result.toStringObject().str);
 }
 
 test "Array#pack cursor directives" {

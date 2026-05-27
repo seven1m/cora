@@ -44,6 +44,8 @@ pub fn arrayPack(vm: *VM, items: []Value, format: []const u8) VMError!Value {
 
         switch (token.directive) {
             'A', 'a', 'Z' => try packStringDirective(vm, items, &arg_index, token, &out),
+            'H' => try packHexDirective(vm, items, &arg_index, token, &out, true),
+            'h' => try packHexDirective(vm, items, &arg_index, token, &out, false),
             'c' => try packIntegerDirective(vm, items, &arg_index, token, &out, 1, true, .native),
             'C' => try packIntegerDirective(vm, items, &arg_index, token, &out, 1, false, .native),
             's' => try packIntegerDirective(vm, items, &arg_index, token, &out, if (token.native_size) @sizeOf(c_short) else 2, true, token.endianness),
@@ -419,6 +421,43 @@ fn packStringDirective(
             try appendZeros(vm, out, width - used - 1);
         },
         else => unreachable,
+    }
+}
+
+fn packHexDirective(
+    vm: *VM,
+    items: []Value,
+    arg_index: *usize,
+    token: DirectiveToken,
+    out: *std.ArrayList(u8),
+    high_nibble_first: bool,
+) VMError!void {
+    if (arg_index.* >= items.len) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "too few arguments", .{});
+    }
+
+    const arg = items[arg_index.*];
+    arg_index.* += 1;
+
+    const str: []const u8 = if (arg.isNil())
+        ""
+    else
+        try arg.coerceToStr(vm, "no implicit conversion into String");
+    const nibble_count = if (token.star) str.len else token.count orelse 1;
+
+    var nibble_index: usize = 0;
+    while (nibble_index < nibble_count) : (nibble_index += 2) {
+        const first = if (nibble_index < str.len) hexNibble(str[nibble_index]) orelse 0 else 0;
+        const second_index = nibble_index + 1;
+        const second = if (second_index < nibble_count and second_index < str.len)
+            hexNibble(str[second_index]) orelse 0
+        else
+            0;
+        const byte_value = if (high_nibble_first)
+            (first << 4) | second
+        else
+            first | (second << 4);
+        out.append(vm.allocator, byte_value) catch return error.Fatal;
     }
 }
 
