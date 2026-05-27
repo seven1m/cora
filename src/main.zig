@@ -77,13 +77,8 @@ fn configureLoadPath(
     virtual_machine: *vm.VM,
     io: std.Io,
     argv0: []const u8,
-    script_path: ?[]const u8,
     extra_load_paths: []const []const u8,
 ) !void {
-    if (script_path) |path| {
-        try appendScriptDirectory(virtual_machine, io, path);
-    }
-
     var exe_path_buffer: [4096]u8 = undefined;
     const exe_abs_len = if (std.fs.path.isAbsolute(argv0))
         std.Io.Dir.realPathFileAbsolute(io, argv0, &exe_path_buffer) catch 0
@@ -331,7 +326,7 @@ pub fn main(init: std.process.Init) !void {
     var virtual_machine = vm.VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic, init.io, init.minimal.environ);
     try virtual_machine.prepare(&program);
     defer virtual_machine.deinit();
-    try configureLoadPath(allocator, &virtual_machine, init.io, args[0], source_file, extra_load_paths.items);
+    try configureLoadPath(allocator, &virtual_machine, init.io, args[0], extra_load_paths.items);
     virtual_machine.setTccJitEnabled(build_options.tcc_jit);
     virtual_machine.setDisableGems(disable_gems);
     virtual_machine.setDumpJitSource(dump_jit_source);
@@ -343,6 +338,10 @@ pub fn main(init: std.process.Init) !void {
     }
     virtual_machine.setupOutput();
     try requireLibraries(&virtual_machine, required_libraries.items);
+    if (filename) |path| {
+        try appendScriptDirectory(&virtual_machine, init.io, path);
+        try virtual_machine.syncLoadPathGlobals();
+    }
 
     const result = virtual_machine.run();
 
