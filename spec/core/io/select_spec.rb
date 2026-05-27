@@ -1,4 +1,5 @@
 require_relative '../../spec_helper'
+require 'socket'
 
 describe "IO.select" do
   before :each do
@@ -36,6 +37,25 @@ describe "IO.select" do
     result = IO.select [@rd], nil, nil, nil
     result.should == [[@rd], [], []]
     t.join
+  end
+
+  it "wakes a worker thread waiting on multiple descriptors while the main thread blocks on socket read" do
+    server = TCPServer.new('127.0.0.1', 0)
+    client = nil
+    waiter = Thread.new do
+      IO.select([@rd, server]).should == [[server], [], []]
+      sock = server.accept
+      sock.write('ok')
+      sock.close
+    end
+
+    client = TCPSocket.new('127.0.0.1', server.addr[1])
+    client.read(2).should == 'ok'
+    waiter.join
+  ensure
+    client.close if client && !client.closed?
+    server.close if server && !server.closed?
+    waiter.join if waiter
   end
 
   it "leaves out IO objects for which there is no I/O ready" do

@@ -1177,7 +1177,7 @@ fn waitForIo(vm: *VM, io: *IoObject, events: i16, timeout_ms: i32, include_hup: 
             try vm.checkAsyncEvents();
             if (ready_count == 0) {
                 if (deadline_ms != null and step_timeout_ms == 0) return false;
-                if (deadline_ms != null) continue;
+                try yieldSleepingMainThread(vm);
                 continue;
             }
             return (fds[0].revents & ready_mask) != 0;
