@@ -3672,7 +3672,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/socket/basicsocket/close_read_spec.rb
 - [ ] library/socket/basicsocket/close_write_spec.rb
 - [ ] library/socket/basicsocket/connect_address_spec.rb
-- [ ] library/socket/basicsocket/do_not_reverse_lookup_spec.rb
+- [x] library/socket/basicsocket/do_not_reverse_lookup_spec.rb
 - [ ] library/socket/basicsocket/for_fd_spec.rb
 - [ ] library/socket/basicsocket/getpeereid_spec.rb
 - [ ] library/socket/basicsocket/getpeername_spec.rb

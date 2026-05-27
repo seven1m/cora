@@ -67,6 +67,9 @@ pub fn register(vm: *VM) !void {
     const gethostname_sym = try vm.intern("gethostname");
     try socket_singleton.module.methods.put(gethostname_sym, value.MethodEntry.builtin(&builtinSocketGethostname, .{ .exact = 0 }));
 
+    const getaddrinfo_sym = try vm.intern("getaddrinfo");
+    try socket_singleton.module.methods.put(getaddrinfo_sym, value.MethodEntry.builtin(&builtinSocketGetaddrinfo, .{ .variadic = 2 }));
+
     const do_not_reverse_lookup_sym = try vm.intern("do_not_reverse_lookup");
     try basic_socket_singleton.module.methods.put(do_not_reverse_lookup_sym, value.MethodEntry.builtin(&builtinSocketDoNotReverseLookup, .{ .exact = 0 }));
 
@@ -74,6 +77,12 @@ pub fn register(vm: *VM) !void {
     try basic_socket_singleton.module.methods.put(do_not_reverse_lookup_set_sym, value.MethodEntry.builtin(&builtinSocketSetDoNotReverseLookup, .{ .exact = 1 }));
     try basic_socket_class.module.methods.put(do_not_reverse_lookup_sym, value.MethodEntry.builtin(&builtinSocketDoNotReverseLookup, .{ .exact = 0 }));
     try basic_socket_class.module.methods.put(do_not_reverse_lookup_set_sym, value.MethodEntry.builtin(&builtinSocketSetDoNotReverseLookup, .{ .exact = 1 }));
+
+    const addr_sym = try vm.intern("addr");
+    try ip_socket_class.module.methods.put(addr_sym, value.MethodEntry.builtin(&builtinIPSocketAddr, .{ .variadic = 0 }));
+
+    const peeraddr_sym = try vm.intern("peeraddr");
+    try ip_socket_class.module.methods.put(peeraddr_sym, value.MethodEntry.builtin(&builtinIPSocketPeeraddr, .{ .variadic = 0 }));
 
     const setsockopt_sym = try vm.intern("setsockopt");
     try tcp_socket_class.module.methods.put(setsockopt_sym, value.MethodEntry.builtin(&builtinTCPSocketSetsockopt, .{ .exact = 3 }));
@@ -133,6 +142,69 @@ fn basicSocketDefaultReverseLookup(vm: *VM) VMError!Value {
 
 fn initializeSocketReverseLookup(vm: *VM, socket: Value) VMError!void {
     try vm.setInstanceVariable(socket, "@do_not_reverse_lookup", try basicSocketDefaultReverseLookup(vm));
+}
+
+fn socketNumericAddressMode(vm: *VM, receiver: Value, args: []Value) VMError!bool {
+    try vm.requireArgCountRange(args, 0, 1);
+    if (args.len == 0) {
+        return (try vm.getInstanceVariable(receiver, "@do_not_reverse_lookup")).is_truthy();
+    }
+    if (args[0].isFalse()) return true;
+    if (args[0].isTrue()) return false;
+    if (args[0].isSymbol() and std.mem.eql(u8, args[0].toSymbolObject().name, "hostname")) return false;
+    return vm.raiseExceptionFmt(vm.argument_error_class, "invalid reverse lookup flag: expected true, false, or :hostname", .{});
+}
+
+fn sockaddrFamilyName(addr: *const std.c.sockaddr) []const u8 {
+    return switch (addr.family) {
+        std.posix.AF.INET => "AF_INET",
+        std.posix.AF.INET6 => "AF_INET6",
+        else => "AF_UNSPEC",
+    };
+}
+
+fn socketAddressInfo(
+    vm: *VM,
+    receiver: Value,
+    args: []Value,
+    comptime name_fn: anytype,
+) VMError!Value {
+    const numeric = try socketNumericAddressMode(vm, receiver, args);
+    if (!receiver.isIo()) return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not an IO", .{});
+
+    const io = receiver.toIoObject();
+    if (io.closed) return vm.raiseExceptionFmt(vm.io_error_class, "closed stream", .{});
+
+    var storage: std.c.sockaddr.storage = undefined;
+    var addr_len: std.posix.socklen_t = @sizeOf(std.c.sockaddr.storage);
+    if (name_fn(io.fd, @ptrCast(&storage), &addr_len) != 0) {
+        return vm.raiseErrnoFmt(std.posix.errno(-1), "socket address lookup failed", .{});
+    }
+
+    const addr: *std.c.sockaddr = @ptrCast(&storage);
+    var host_buffer: [std.posix.HOST_NAME_MAX + 1]u8 = undefined;
+    var ip_buffer: [47]u8 = undefined;
+    var service_buffer: [16]u8 = undefined;
+
+    const numeric_flags = std.c.NI{ .NUMERICHOST = true, .NUMERICSERV = true };
+    if (@intFromEnum(std.c.getnameinfo(addr, addr_len, ip_buffer[0..].ptr, @intCast(ip_buffer.len), service_buffer[0..].ptr, @intCast(service_buffer.len), numeric_flags)) != 0) {
+        return raiseSocketErrorFmt(vm, "getnameinfo failed", .{});
+    }
+
+    const hostname_flags = std.c.NI{ .NUMERICSERV = true };
+    if (numeric) {
+        @memcpy(host_buffer[0..ip_buffer.len], ip_buffer[0..ip_buffer.len]);
+    } else if (@intFromEnum(std.c.getnameinfo(addr, addr_len, host_buffer[0..].ptr, @intCast(host_buffer.len), null, 0, hostname_flags)) != 0) {
+        @memcpy(host_buffer[0..ip_buffer.len], ip_buffer[0..ip_buffer.len]);
+    }
+
+    const port = std.fmt.parseInt(i64, std.mem.sliceTo(service_buffer[0..], 0), 10) catch return error.Fatal;
+    const out = try vm.createArray();
+    out.elements.append(vm.gc_allocator, try vm.newString(sockaddrFamilyName(addr), false)) catch return error.Fatal;
+    out.elements.append(vm.gc_allocator, Value.integer(port)) catch return error.Fatal;
+    out.elements.append(vm.gc_allocator, try vm.newString(std.mem.sliceTo(host_buffer[0..], 0), false)) catch return error.Fatal;
+    out.elements.append(vm.gc_allocator, try vm.newString(std.mem.sliceTo(ip_buffer[0..], 0), false)) catch return error.Fatal;
+    return Value.fromObject(&out.object);
 }
 
 fn socketStatusFlags(vm: *VM, fd: std.posix.fd_t) VMError!c_int {
@@ -439,6 +511,84 @@ pub fn builtinSocketGethostname(vm: *VM, _: Value, args: []Value, _: ?Block) VME
     return vm.newString(hostname, false);
 }
 
+pub fn builtinSocketGetaddrinfo(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 2, 7);
+
+    const host = try args[0].coerceToStr(vm, "no implicit conversion into String");
+    const reverse_lookup = args.len >= 7 and args[6].is_truthy();
+
+    const service = if (args[1].isNil())
+        ""
+    else if (args[1].isString())
+        try args[1].coerceToStr(vm, "no implicit conversion into String")
+    else blk: {
+        const port = try args[1].integerArgToI64(vm, "no implicit conversion into String", "port out of range");
+        break :blk std.fmt.allocPrint(vm.gc_allocator, "{d}", .{port}) catch return error.Fatal;
+    };
+    defer if (!args[1].isNil() and !args[1].isString()) vm.gc_allocator.free(service);
+
+    const host_z = try vm.allocCStringZ(host);
+    defer vm.allocator.free(host_z);
+    const service_z = try vm.allocCStringZ(service);
+    defer vm.allocator.free(service_z);
+
+    var hints = std.mem.zeroes(std.c.addrinfo);
+    var family: c_int = std.posix.AF.UNSPEC;
+    var socktype: c_int = 0;
+    var protocol: c_int = 0;
+    if (args.len >= 3 and !args[2].isNil()) family = @intCast(try args[2].integerArgToI64(vm, "no implicit conversion into Integer", "integer out of range"));
+    if (args.len >= 4 and !args[3].isNil()) socktype = @intCast(try args[3].integerArgToI64(vm, "no implicit conversion into Integer", "integer out of range"));
+    if (args.len >= 5 and !args[4].isNil()) protocol = @intCast(try args[4].integerArgToI64(vm, "no implicit conversion into Integer", "integer out of range"));
+    hints.family = family;
+    hints.socktype = socktype;
+    hints.protocol = protocol;
+
+    var addrinfo_result: ?*std.c.addrinfo = null;
+    const gai = std.c.getaddrinfo(host_z.ptr, if (service.len == 0) null else service_z.ptr, &hints, &addrinfo_result);
+    if (@intFromEnum(gai) != 0) {
+        return raiseSocketErrorFmt(vm, "getaddrinfo failed for {s}:{s}", .{ host, service });
+    }
+    defer if (addrinfo_result) |result| std.c.freeaddrinfo(result);
+
+    const out = try vm.createArray();
+    var current = addrinfo_result;
+    while (current) |addrinfo| : (current = addrinfo.next) {
+        const addr = addrinfo.addr orelse continue;
+        var host_buffer: [std.posix.HOST_NAME_MAX + 1]u8 = undefined;
+        var ip_buffer: [47]u8 = undefined;
+        var service_buffer: [16]u8 = undefined;
+
+        const numeric_flags = std.c.NI{ .NUMERICHOST = true, .NUMERICSERV = true };
+        if (@intFromEnum(std.c.getnameinfo(addr, addrinfo.addrlen, ip_buffer[0..].ptr, @intCast(ip_buffer.len), service_buffer[0..].ptr, @intCast(service_buffer.len), numeric_flags)) != 0) {
+            continue;
+        }
+
+        if (reverse_lookup) {
+            const hostname_flags = std.c.NI{ .NUMERICSERV = true };
+            if (@intFromEnum(std.c.getnameinfo(addr, addrinfo.addrlen, host_buffer[0..].ptr, @intCast(host_buffer.len), null, 0, hostname_flags)) != 0) {
+                @memcpy(host_buffer[0..ip_buffer.len], ip_buffer[0..ip_buffer.len]);
+            }
+        } else {
+            const hostname_flags = std.c.NI{ .NUMERICSERV = true };
+            if (@intFromEnum(std.c.getnameinfo(addr, addrinfo.addrlen, host_buffer[0..].ptr, @intCast(host_buffer.len), null, 0, hostname_flags)) != 0) {
+                @memcpy(host_buffer[0..ip_buffer.len], ip_buffer[0..ip_buffer.len]);
+            }
+        }
+
+        const entry = try vm.createArray();
+        entry.elements.append(vm.gc_allocator, try vm.newString(sockaddrFamilyName(addr), false)) catch return error.Fatal;
+        entry.elements.append(vm.gc_allocator, try vm.newString(std.mem.sliceTo(service_buffer[0..], 0), false)) catch return error.Fatal;
+        entry.elements.append(vm.gc_allocator, try vm.newString(std.mem.sliceTo(host_buffer[0..], 0), false)) catch return error.Fatal;
+        entry.elements.append(vm.gc_allocator, try vm.newString(std.mem.sliceTo(ip_buffer[0..], 0), false)) catch return error.Fatal;
+        entry.elements.append(vm.gc_allocator, Value.integer(addrinfo.family)) catch return error.Fatal;
+        entry.elements.append(vm.gc_allocator, Value.integer(addrinfo.socktype)) catch return error.Fatal;
+        entry.elements.append(vm.gc_allocator, Value.integer(addrinfo.protocol)) catch return error.Fatal;
+        out.elements.append(vm.gc_allocator, Value.fromObject(&entry.object)) catch return error.Fatal;
+    }
+
+    return Value.fromObject(&out.object);
+}
+
 pub fn builtinSocketTcpServerSockets(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
     const sockets = try createTcpListeners(vm, args, try socketClass(vm), true);
     if (block) |blk| {
@@ -466,6 +616,14 @@ pub fn builtinSocketSetDoNotReverseLookup(vm: *VM, receiver: Value, args: []Valu
     try vm.requireArgCount(args, 1);
     try vm.setInstanceVariable(receiver, "@do_not_reverse_lookup", Value.boolean(args[0].is_truthy()));
     return args[0];
+}
+
+pub fn builtinIPSocketAddr(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    return socketAddressInfo(vm, receiver, args, std.c.getsockname);
+}
+
+pub fn builtinIPSocketPeeraddr(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    return socketAddressInfo(vm, receiver, args, std.c.getpeername);
 }
 
 pub fn builtinTCPSocketSetsockopt(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
