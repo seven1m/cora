@@ -606,6 +606,12 @@ pub fn register(vm: *VM) !void {
     const path_sym = try vm.intern("path");
     try file_singleton.module.methods.put(path_sym, value.MethodEntry.builtin(&builtinFilePath, .{ .variadic = 0 }));
 
+    const size_sym_file = try vm.intern("size");
+    try file_singleton.module.methods.put(size_sym_file, value.MethodEntry.builtin(&builtinFileSize, .{ .exact = 1 }));
+
+    const size_q_sym_file = try vm.intern("size?");
+    try file_singleton.module.methods.put(size_q_sym_file, value.MethodEntry.builtin(&builtinFileSizeQ, .{ .exact = 1 }));
+
     try vm.file_stat_class.module.methods.put(file_sym, value.MethodEntry.builtin(&builtinFileStatFileQ, .{ .exact = 0 }));
 
     const directory_q_sym = try vm.intern("directory?");
@@ -1550,6 +1556,53 @@ pub fn builtinFileStat(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
 
 pub fn builtinFileLstat(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     return builtinFileStat(vm, Value.nil(), args, null);
+}
+
+fn statSizeForValue(vm: *VM, arg: Value, nil_when_missing: bool) VMError!Value {
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "File.size is not implemented on Windows", .{});
+    }
+
+    if (arg.isIo()) {
+        const stat_value = try builtinIoStat(vm, arg, &[_]Value{}, null);
+        const size_value = try builtinFileStatSize(vm, stat_value, &[_]Value{}, null);
+        if (nil_when_missing and size_value.isInteger() and size_value.toInteger() == 0) return Value.nil();
+        return size_value;
+    }
+
+    const maybe_io = try vm.checkCallMethodByName(arg, "to_io", false, &[_]Value{}, null);
+    if (maybe_io) |io_value| {
+        if (!io_value.isIo()) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into IO", .{vm.className(arg)});
+        }
+        const stat_value = try builtinIoStat(vm, io_value, &[_]Value{}, null);
+        const size_value = try builtinFileStatSize(vm, stat_value, &[_]Value{}, null);
+        if (nil_when_missing and size_value.isInteger() and size_value.toInteger() == 0) return Value.nil();
+        return size_value;
+    }
+
+    const path_value = try vm.coerceToPathValue(arg, "no implicit conversion into String");
+    const path_obj = path_value.toStringObject();
+    const stat = std.Io.Dir.cwd().statFile(vm.io, path_obj.str, .{}) catch |err| switch (err) {
+        error.FileNotFound => {
+            if (nil_when_missing) return Value.nil();
+            return raisePathStatError(vm, path_obj, err);
+        },
+        else => return raisePathStatError(vm, path_obj, err),
+    };
+    const size_value = Value.integer(@intCast(stat.size));
+    if (nil_when_missing and stat.size == 0) return Value.nil();
+    return size_value;
+}
+
+pub fn builtinFileSize(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    return statSizeForValue(vm, args[0], false);
+}
+
+pub fn builtinFileSizeQ(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    return statSizeForValue(vm, args[0], true);
 }
 
 pub fn builtinIoStat(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

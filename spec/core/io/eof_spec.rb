@@ -43,10 +43,8 @@ describe "IO#eof?" do
   end
 
   it "returns true after reading with read" do
-    CORAFIXME "File.size is not implemented yet for IO#eof? size-based coverage", exception: NoMethodError, message: /undefined method 'size'/ do
-      @io.read(File.size(@name))
-      @io.should.eof?
-    end
+    @io.read(File.size(@name))
+    @io.should.eof?
   end
 
   it "returns true after reading with sysread" do
