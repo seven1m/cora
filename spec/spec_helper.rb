@@ -660,7 +660,15 @@ def ruby_cmd(script_path, options: nil, args: nil, env: nil)
   else
     command << shell_escape(script_path)
   end
-  command << args.to_s unless args.nil? || args == ""
+  unless args.nil? || args == ""
+    if args.is_a?(Array)
+      args.each do |arg|
+        command << shell_escape(arg)
+      end
+    else
+      command << args.to_s
+    end
+  end
 
   command.join(" ")
 end
@@ -699,6 +707,11 @@ def ruby_exe(script_path = nil, options: nil, args: nil, exit_status: nil, env: 
         argv << script_path
       end
     end
+    if args.is_a?(Array)
+      args.each { |arg| argv << arg.to_s }
+    elsif !args.nil? && args != ""
+      argv << args.to_s
+    end
     io = IO.popen(argv, "r")
     result = io.read
     io.close
@@ -726,7 +739,15 @@ def ruby_exe(script_path = nil, options: nil, args: nil, exit_status: nil, env: 
       command << shell_escape(script_path)
     end
   end
-  command << args.to_s unless args.nil? || args == ""
+  unless args.nil? || args == ""
+    if args.is_a?(Array)
+      args.each do |arg|
+        command << shell_escape(arg)
+      end
+    else
+      command << args.to_s
+    end
+  end
 
   result = `#{command.join(" ")}`
   exit_status
