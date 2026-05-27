@@ -218,6 +218,9 @@ pub fn register(vm: *VM) !void {
 
     const autoclose_eq_sym = try vm.intern("autoclose=");
     try vm.io_class.module.methods.put(autoclose_eq_sym, value.MethodEntry.builtin(&builtinIoAutocloseEq, .{ .exact = 1 }));
+
+    const reopen_sym = try vm.intern("reopen");
+    try vm.io_class.module.methods.put(reopen_sym, value.MethodEntry.builtin(&builtinIoReopen, .{ .variadic = 1 }));
 }
 
 const PopenEnvEntry = struct {
@@ -1011,28 +1014,30 @@ const IoOpenMode = struct {
     readable: bool,
     writable: bool,
     append: bool,
+    create: bool,
+    truncate: bool,
 };
 
 fn parseIoModeValue(vm: *VM, mode_value: Value) VMError!IoOpenMode {
     if (mode_value.isInteger()) {
         return switch (@as(i64, @intCast(@mod(mode_value.toInteger(), 4)))) {
-            0 => .{ .readable = true, .writable = false, .append = false },
-            1 => .{ .readable = false, .writable = true, .append = false },
-            2 => .{ .readable = true, .writable = true, .append = false },
-            else => .{ .readable = true, .writable = false, .append = false },
+            0 => .{ .readable = true, .writable = false, .append = false, .create = false, .truncate = false },
+            1 => .{ .readable = false, .writable = true, .append = false, .create = false, .truncate = false },
+            2 => .{ .readable = true, .writable = true, .append = false, .create = false, .truncate = false },
+            else => .{ .readable = true, .writable = false, .append = false, .create = false, .truncate = false },
         };
     }
 
     const mode = try mode_value.coerceToStr(vm, "no implicit conversion into String");
     const plus = std.mem.indexOfScalar(u8, mode, '+') != null;
     if (mode.len == 0 or mode[0] == 'r') {
-        return .{ .readable = true, .writable = plus, .append = false };
+        return .{ .readable = true, .writable = plus, .append = false, .create = false, .truncate = false };
     }
     if (mode[0] == 'w') {
-        return .{ .readable = plus, .writable = true, .append = false };
+        return .{ .readable = plus, .writable = true, .append = false, .create = true, .truncate = true };
     }
     if (mode[0] == 'a') {
-        return .{ .readable = plus, .writable = true, .append = true };
+        return .{ .readable = plus, .writable = true, .append = true, .create = true, .truncate = false };
     }
     return vm.raiseExceptionFmt(vm.argument_error_class, "invalid access mode", .{});
 }
@@ -1055,7 +1060,7 @@ pub fn builtinIoInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     const mode: IoOpenMode = if (mode_value) |val|
         try parseIoModeValue(vm, val)
     else
-        .{ .readable = true, .writable = false, .append = false };
+        .{ .readable = true, .writable = false, .append = false, .create = false, .truncate = false };
 
     io.fd = @intCast(fd_value.toInteger());
     io.owns_fd = if (autoclose_value) |val| val.is_truthy() else true;
@@ -1086,6 +1091,65 @@ fn builtinIoAutocloseEq(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     try ensureIoOpen(vm, io);
     io.owns_fd = args[0].is_truthy();
     return args[0];
+}
+
+fn builtinIoReopen(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+    const io = try requireIoReceiver(vm, receiver);
+
+    if (args[0].isIo()) {
+        const other = try requireIoReceiver(vm, args[0]);
+        try ensureIoOpen(vm, other);
+        if (std.c.dup2(@intCast(other.fd), @intCast(io.fd)) < 0) {
+            return vm.raiseErrnoFmt(std.posix.errno(-1), "dup2 failed", .{});
+        }
+        io.closed = false;
+        io.readable = other.readable;
+        io.writable = other.writable;
+        io.append = other.append;
+        io.path = other.path;
+        io.path_encoding = other.path_encoding;
+        return receiver;
+    }
+
+    const path_value = try vm.coerceToPathValue(args[0], "no implicit conversion into String");
+    const mode: IoOpenMode = if (args.len == 2 and !args[1].isNil())
+        try parseIoModeValue(vm, args[1])
+    else
+        .{
+            .readable = io.readable,
+            .writable = io.writable,
+            .append = io.append,
+            .create = io.writable or io.append,
+            .truncate = io.writable and !io.readable and !io.append,
+        };
+
+    const flags: std.c.O = .{
+        .ACCMODE = if (mode.readable and mode.writable) .RDWR else if (mode.writable) .WRONLY else .RDONLY,
+        .APPEND = mode.append,
+        .CREAT = mode.create,
+        .TRUNC = mode.truncate,
+    };
+    const path = path_value.toStringObject().str;
+    const path_z = try vm.allocCStringZ(path);
+    defer vm.allocator.free(path_z);
+    const fd = std.c.open(path_z.ptr, flags, @as(std.c.mode_t, 0o666));
+    if (fd < 0) {
+        return vm.raiseErrnoFmt(std.posix.errno(-1), "failed to open: {s}", .{path});
+    }
+    defer _ = std.c.close(fd);
+
+    if (std.c.dup2(@intCast(fd), @intCast(io.fd)) < 0) {
+        return vm.raiseErrnoFmt(std.posix.errno(-1), "dup2 failed", .{});
+    }
+
+    io.closed = false;
+    io.readable = mode.readable;
+    io.writable = mode.writable;
+    io.append = mode.append;
+    io.path = vm.gc_allocator.dupe(u8, path) catch return error.Fatal;
+    io.path_encoding = path_value.toStringObject().encoding;
+    return receiver;
 }
 
 fn ensureIoOpen(vm: *VM, io: *IoObject) VMError!void {
@@ -1566,13 +1630,13 @@ fn ioIsNonblocking(vm: *VM, io: *IoObject) VMError!bool {
 fn ioWriteBytes(vm: *VM, io: *IoObject, bytes: []const u8) VMError!usize {
     try ensureIoWritable(vm, io);
 
-    if (io.fd == 1) {
+    if (io.fd == 1 and io.path == null) {
         vm.setupOutput();
         vm.stdout.?.writeAll(bytes) catch return vm.raiseExceptionFmt(vm.io_error_class, "write failed", .{});
         _ = vm.stdout.?.flush() catch {};
         return bytes.len;
     }
-    if (io.fd == 2) {
+    if (io.fd == 2 and io.path == null) {
         vm.setupOutput();
         vm.stderr.?.writeAll(bytes) catch return vm.raiseExceptionFmt(vm.io_error_class, "write failed", .{});
         _ = vm.stderr.?.flush() catch {};

@@ -31,6 +31,27 @@ test "standard stream fileno values are 0,1,2" {
     try std.testing.expectEqual(@as(i64, 2), result.toArrayObject().elements.items[2].toInteger());
 }
 
+test "IO#reopen redirects an existing stream to a file path" {
+    var path_buf: [128]u8 = undefined;
+    const path = try uniquePath(&path_buf);
+    const source = try std.fmt.allocPrint(
+        std.testing.allocator,
+        \\path = "{s}"
+        \\file = File.open(path, "w")
+        \\copy = File.open(path + ".copy", "w")
+        \\file.reopen(path + ".copy", "w")
+        \\file.write("hello\n")
+        \\file.close
+        \\copy.close
+        \\File.read(path + ".copy")
+    , .{path});
+    defer std.testing.allocator.free(source);
+
+    const result = try evalCode(source);
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "hello\n", result.toStringObject().str);
+}
+
 test "IO exposes binary mode constant" {
     const result = try evalCode("IO.const_defined?(:BINARY) && IO::BINARY == 0");
     try std.testing.expect(result.isBool());

@@ -46,31 +46,29 @@ describe "Kernel#singleton_class" do
 
   context "for an IO object with a replaced singleton class" do
     it "looks up singleton methods from the fresh singleton class after an object instance got a new one" do
-      CORAFIXME "IO#reopen is not implemented yet", exception: NoMethodError, message: /undefined method 'reopen'/ do
-        proxy = -> io { io.foo }
-        if RUBY_ENGINE == 'truffleruby'
-          # We need an inline cache with only this object seen, the best way to do that is to use a Primitive
-          sclass = -> io { Primitive.singleton_class(io) }
-        else
-          sclass = -> io { io.singleton_class }
-        end
-
-        io = File.new(__FILE__)
-        io.define_singleton_method(:foo) { "old" }
-        sclass1 = sclass.call(io)
-        proxy.call(io).should == "old"
-
-        # IO#reopen is the only method which can replace an object's singleton class
-        io2 = File.new(__FILE__)
-        io.reopen(io2)
-        io.define_singleton_method(:foo) { "new" }
-        sclass2 = sclass.call(io)
-        sclass2.should_not.equal?(sclass1)
-        proxy.call(io).should == "new"
-      ensure
-        io2.close
-        io.close
+      proxy = -> io { io.foo }
+      if RUBY_ENGINE == 'truffleruby'
+        # We need an inline cache with only this object seen, the best way to do that is to use a Primitive
+        sclass = -> io { Primitive.singleton_class(io) }
+      else
+        sclass = -> io { io.singleton_class }
       end
+
+      io = File.new(__FILE__)
+      io.define_singleton_method(:foo) { "old" }
+      sclass1 = sclass.call(io)
+      proxy.call(io).should == "old"
+
+      # IO#reopen is the only method which can replace an object's singleton class
+      io2 = File.new(__FILE__)
+      io.reopen(io2)
+      io.define_singleton_method(:foo) { "new" }
+      sclass2 = sclass.call(io)
+      sclass2.should_not.equal?(sclass1)
+      proxy.call(io).should == "new"
+    ensure
+      io2.close
+      io.close
     end
   end
 end
