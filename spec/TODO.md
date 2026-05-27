@@ -2186,7 +2186,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/thread/exit_spec.rb
 - [ ] core/thread/fetch_spec.rb
 - [ ] core/thread/fork_spec.rb
-- [ ] core/thread/group_spec.rb
+- [x] core/thread/group_spec.rb
 - [ ] core/thread/handle_interrupt_spec.rb
 - [ ] core/thread/ignore_deadlock_spec.rb
 - [ ] core/thread/initialize_spec.rb
@@ -2220,11 +2220,11 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/thread/wakeup_spec.rb
 
 ### core/threadgroup
-- [ ] core/threadgroup/add_spec.rb
-- [ ] core/threadgroup/default_spec.rb
+- [x] core/threadgroup/add_spec.rb
+- [x] core/threadgroup/default_spec.rb
 - [ ] core/threadgroup/enclose_spec.rb
 - [ ] core/threadgroup/enclosed_spec.rb
-- [ ] core/threadgroup/list_spec.rb
+- [x] core/threadgroup/list_spec.rb
 
 ### core/time
 - [ ] core/time/_dump_spec.rb
