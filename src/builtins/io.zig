@@ -959,9 +959,39 @@ pub fn builtinIoNonblock(vm: *VM, receiver: Value, args: []Value, block: ?Block)
 }
 
 pub fn builtinIoGets(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCountRange(args, 0, 1);
+    try vm.requireArgCountRange(args, 0, 2);
     const io = try requireIoReceiver(vm, receiver);
     try ensureIoReadable(vm, io);
+
+    var separator: ?[]const u8 = "\n";
+    var limit: ?usize = null;
+
+    if (args.len >= 1) {
+        if (args[0].isNil()) {
+            separator = null;
+        } else if (args[0].isInteger()) {
+            const parsed_limit = try args[0].integerArgToI64(vm, "no implicit conversion into Integer", "integer too big to convert into `long`");
+            if (parsed_limit < 0) {
+                return vm.raiseExceptionFmt(vm.argument_error_class, "negative limit {d} given", .{parsed_limit});
+            }
+            limit = @intCast(parsed_limit);
+        } else {
+            separator = (try args[0].coerceToStringValue(vm, "no implicit conversion into String")).toStringObject().str;
+        }
+    }
+
+    if (args.len == 2 and !args[1].isNil()) {
+        const parsed_limit = try args[1].integerArgToI64(vm, "no implicit conversion into Integer", "integer too big to convert into `long`");
+        if (parsed_limit < 0) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "negative limit {d} given", .{parsed_limit});
+        }
+        limit = @intCast(parsed_limit);
+    }
+
+    if (limit != null and limit.? == 0) {
+        io.lineno += 1;
+        return vm.newString("", false);
+    }
 
     var out: std.ArrayList(u8) = .empty;
     defer out.deinit(vm.allocator);
@@ -974,7 +1004,16 @@ pub fn builtinIoGets(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
             break;
         }
         out.append(vm.allocator, byte[0]) catch return error.Fatal;
-        if (byte[0] == '\n') break;
+        if (limit) |max_len| {
+            if (out.items.len >= max_len) break;
+        }
+        if (separator) |sep| {
+            if (sep.len == 0) {
+                if (out.items.len >= 2 and std.mem.eql(u8, out.items[out.items.len - 2 ..], "\n\n")) break;
+            } else if (out.items.len >= sep.len and std.mem.eql(u8, out.items[out.items.len - sep.len ..], sep)) {
+                break;
+            }
+        }
     }
     io.lineno += 1;
     return vm.newString(out.items, false);
