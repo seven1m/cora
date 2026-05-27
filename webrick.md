@@ -19,11 +19,9 @@ Secondary/optional gaps:
 - [x] Process.daemon. Covers `WEBrick::Daemon.start` in `/home/tim/pp/webrick/lib/webrick/server.rb:41` and upstream `spec/core/process/daemon_spec.rb`.
 - [ ] Process.initgroups, Process::Sys.setuid/setgid missing. Still blocks priv-drop helper in `/home/tim/pp/webrick/lib/webrick/utils.rb:35`.
 - [ ] `URI.parse("/")` still fails for WEBrick origin-form request targets. `WEBrick::HTTPRequest#parse_uri` in `/home/tim/pp/cora/ext/webrick/lib/webrick/httprequest.rb:527` calls `URI::parse(str)`, and normal requests like `GET / HTTP/1.0` still die at `/home/tim/pp/cora/ext/webrick/lib/webrick/httprequest.rb:233` with `bad URI '/'`.
-- [ ] `Time#httpdate` still breaks response generation. `/home/tim/pp/cora/ext/time/lib/time.rb:699` uses `getutc.strftime('%a, %d %b %Y %T GMT')`, and Cora still raises `ArgumentError: unsupported strftime directive` on that format during `WEBrick::HTTPResponse#send_response`.
+- [x] `Time#httpdate` now works. Added `%a` (weekday name) and `%b` (month name) to strftime in `src/builtins/time.zig`.
 
 Live probe status:
 
 - Server boot and TCP accept work.
-- Full HTTP response works only with two Ruby-side workarounds:
-  1. send an absolute request-target like `GET http://127.0.0.1/ HTTP/1.0`
-  2. monkeypatch `Time#httpdate`
+- Full HTTP response works with an absolute request-target like `GET http://127.0.0.1/ HTTP/1.0`

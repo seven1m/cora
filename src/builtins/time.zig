@@ -473,6 +473,14 @@ fn buildStrftimeValue(vm: *VM, receiver: Value, format_bytes: []const u8) VMErro
                 try appendPaddedDecimal(&out, vm.allocator, parts.second, 2);
             },
             'Z' => out.appendSlice(vm.allocator, "UTC") catch return error.Fatal,
+            'a' => {
+                const weekday_names = [_][]const u8{ "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
+                out.appendSlice(vm.allocator, weekday_names[parts.weekday]) catch return error.Fatal;
+            },
+            'b' => {
+                const month_names = [_][]const u8{ "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+                out.appendSlice(vm.allocator, month_names[parts.month - 1]) catch return error.Fatal;
+            },
             'z' => {
                 if (!colon_modifier) {
                     return vm.raiseExceptionFmt(vm.argument_error_class, "unsupported strftime directive %z", .{});
