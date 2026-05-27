@@ -52,6 +52,9 @@ pub fn register(vm: *VM) !void {
     const accept_sym = try vm.intern("accept");
     try tcp_server_class.module.methods.put(accept_sym, value.MethodEntry.builtin(&builtinTCPServerAccept, .{ .exact = 0 }));
 
+    const accept_nonblock_sym = try vm.intern("accept_nonblock");
+    try tcp_server_class.module.methods.put(accept_nonblock_sym, value.MethodEntry.builtin(&builtinTCPServerAcceptNonblock, .{ .exact = 0 }));
+
     const open_sym = try vm.intern("open");
     try tcp_socket_singleton.module.methods.put(open_sym, value.MethodEntry.builtin(&builtinTCPSocketOpen, .{ .variadic = 0 }));
 
@@ -242,6 +245,15 @@ fn socketStatusFlags(vm: *VM, fd: std.posix.fd_t) VMError!c_int {
     return flags;
 }
 
+fn socketTraceEnabled() bool {
+    return std.c.getenv("CORA_SOCKET_TRACE") != null;
+}
+
+fn socketTrace(comptime fmt: []const u8, args: anytype) void {
+    if (!socketTraceEnabled()) return;
+    std.debug.print(fmt, args);
+}
+
 fn setSocketNonblocking(vm: *VM, fd: std.posix.fd_t, enabled: bool) VMError!void {
     const flags = try socketStatusFlags(vm, fd);
     const nonblock_flag: c_int = @intCast(std.c.SOCK.NONBLOCK);
@@ -290,6 +302,18 @@ fn waitForConnectWritable(vm: *VM, fd: std.posix.fd_t) VMError!void {
     }
 }
 
+fn socketReadableNow(vm: *VM, fd: std.posix.fd_t) VMError!bool {
+    var fds = [_]std.posix.pollfd{.{
+        .fd = fd,
+        .events = std.posix.POLL.IN,
+        .revents = 0,
+    }};
+    const ready_count = std.posix.poll(fds[0..], 0) catch return vm.raiseExceptionFmt(vm.io_error_class, "poll failed", .{});
+    const ready_mask = std.posix.POLL.IN | std.posix.POLL.ERR | std.posix.POLL.HUP;
+    socketTrace("[tcpserver.accept_nonblock] poll ready_count={} revents=0x{x}\n", .{ ready_count, fds[0].revents });
+    return ready_count != 0 and (fds[0].revents & ready_mask) != 0;
+}
+
 fn socketConnectError(fd: std.posix.fd_t) std.posix.E {
     var so_error: c_int = 0;
     var so_error_len: std.posix.socklen_t = @sizeOf(c_int);
@@ -327,6 +351,31 @@ fn createTcpListener(vm: *VM, class_obj: *ClassObject, fd: std.posix.fd_t, owns_
     const socket = try vm.newIo(class_obj, @intCast(fd), .{ .owns_fd = owns_fd, .readable = true, .writable = false });
     try initializeSocketReverseLookup(vm, socket);
     return socket;
+}
+
+fn wrapAcceptedTCPSocket(vm: *VM, fd: std.posix.fd_t) VMError!Value {
+    const socket = try vm.newIo(try tcpSocketClass(vm), @intCast(fd), .{ .owns_fd = true, .readable = true, .writable = true });
+    try initializeSocketReverseLookup(vm, socket);
+    return socket;
+}
+
+fn exceptionKeywordEnabled(vm: *VM) VMError!bool {
+    var exception_value: ?Value = null;
+    try vm.consumeKeywordArgs(.{"exception"}, .{&exception_value});
+    try vm.validateKeywordArgsConsumed();
+
+    const raw = exception_value orelse return true;
+    if (raw.isTrue()) return true;
+    if (raw.isFalse()) return false;
+    return vm.raiseExceptionFmt(vm.type_error_class, "expected true or false as exception", .{});
+}
+
+fn errnoWouldBlock(errno_code: std.posix.E) bool {
+    if (errno_code == .AGAIN) return true;
+    if (@hasField(std.posix.E, "WOULDBLOCK")) {
+        return errno_code == .WOULDBLOCK;
+    }
+    return false;
 }
 
 fn createTcpListeners(vm: *VM, args: []Value, class_obj: *ClassObject, all_matches: bool) VMError!Value {
@@ -491,11 +540,48 @@ pub fn builtinTCPServerAccept(vm: *VM, receiver: Value, args: []Value, _: ?Block
     const client_fd = std.c.accept(io.fd, @ptrCast(&client_addr), &addr_len);
     if (client_fd < 0) return socketError(vm, "accept() failed", .{});
 
-    const tcp_socket_name = try vm.intern("TCPSocket");
-    const tcp_socket_entry = vm.object_class.module.constants.get(tcp_socket_name) orelse return error.Fatal;
-    const socket = try vm.newIo(tcp_socket_entry.value.toClassObject(), @intCast(client_fd), .{ .owns_fd = true, .readable = true, .writable = true });
-    try initializeSocketReverseLookup(vm, socket);
-    return socket;
+    return wrapAcceptedTCPSocket(vm, @intCast(client_fd));
+}
+
+pub fn builtinTCPServerAcceptNonblock(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    if (!receiver.isIo()) return vm.raiseExceptionFmt(vm.type_error_class, "not a TCPServer", .{});
+
+    const io = receiver.toIoObject();
+    if (io.closed) return vm.raiseExceptionFmt(vm.io_error_class, "closed stream", .{});
+
+    const exception_enabled = try exceptionKeywordEnabled(vm);
+    const fd: std.posix.fd_t = @intCast(io.fd);
+    const flags = try socketStatusFlags(vm, fd);
+    socketTrace("[tcpserver.accept_nonblock] fd={} flags=0x{x} exception_enabled={}\n", .{ fd, flags, exception_enabled });
+    try setSocketNonblocking(vm, fd, true);
+    socketTrace("[tcpserver.accept_nonblock] listener flags after nonblock=0x{x}\n", .{try socketStatusFlags(vm, fd)});
+    if (!try socketReadableNow(vm, fd)) {
+        socketTrace("[tcpserver.accept_nonblock] socket not readable yet\n", .{});
+        if (!exception_enabled) return Value.fromObject(&(try vm.intern("wait_readable")).object);
+        return vm.raiseExceptionFmt(vm.io_eagain_wait_readable_class, "accept would block", .{});
+    }
+
+    var client_addr: std.posix.sockaddr.in = undefined;
+    var addr_len: std.posix.socklen_t = @sizeOf(std.posix.sockaddr.in);
+    while (true) {
+        socketTrace("[tcpserver.accept_nonblock] calling accept fd={}\n", .{fd});
+        const client_fd = std.c.accept(fd, @ptrCast(&client_addr), &addr_len);
+        if (client_fd >= 0) {
+            socketTrace("[tcpserver.accept_nonblock] accepted client_fd={}\n", .{client_fd});
+            try setSocketNonblocking(vm, @intCast(client_fd), true);
+            return wrapAcceptedTCPSocket(vm, @intCast(client_fd));
+        }
+
+        const errno_code = std.posix.errno(-1);
+        socketTrace("[tcpserver.accept_nonblock] accept failed errno={s}\n", .{@tagName(errno_code)});
+        if (errno_code == .INTR) continue;
+        if (errnoWouldBlock(errno_code)) {
+            if (!exception_enabled) return Value.fromObject(&(try vm.intern("wait_readable")).object);
+            return vm.raiseExceptionFmt(vm.io_eagain_wait_readable_class, "accept would block", .{});
+        }
+        return vm.raiseErrnoFmt(errno_code, "accept() failed", .{});
+    }
 }
 
 pub fn builtinTCPSocketOpen(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {

@@ -3757,7 +3757,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/socket/socket/unpack_sockaddr_un_spec.rb
 
 ### library/socket/tcpserver
-- [ ] library/socket/tcpserver/accept_nonblock_spec.rb
+- [-] library/socket/tcpserver/accept_nonblock_spec.rb
 - [ ] library/socket/tcpserver/accept_spec.rb
 - [ ] library/socket/tcpserver/gets_spec.rb
 - [ ] library/socket/tcpserver/initialize_spec.rb
