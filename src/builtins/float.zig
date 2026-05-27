@@ -72,6 +72,12 @@ fn appendScientificMantissa(writer: anytype, digits: []const u8) VMError!void {
 }
 
 pub fn register(vm: *VM) !void {
+    const infinity_sym = try vm.intern("INFINITY");
+    try vm.float_class.module.constants.put(infinity_sym, .{ .value = try vm.newFloat(std.math.inf(f64)) });
+
+    const nan_const_sym = try vm.intern("NAN");
+    try vm.float_class.module.constants.put(nan_const_sym, .{ .value = try vm.newFloat(std.math.nan(f64)) });
+
     const plus_sym = try vm.intern("+");
     try vm.float_class.module.methods.put(plus_sym, value.MethodEntry.builtin(&builtinFloatPlus, .{ .exact = 1 }));
 

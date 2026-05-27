@@ -1143,7 +1143,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/io/reopen_spec.rb
 - [x] core/io/rewind_spec.rb
 - [ ] core/io/seek_spec.rb
-- [ ] core/io/select_spec.rb
+- [x] core/io/select_spec.rb
 - [ ] core/io/set_encoding_by_bom_spec.rb
 - [ ] core/io/set_encoding_spec.rb
 - [ ] core/io/stat_spec.rb

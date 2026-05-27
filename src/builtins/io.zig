@@ -32,6 +32,9 @@ pub fn register(vm: *VM) !void {
     const io_class_val = Value.fromObject(&vm.io_class.module.object);
     const io_singleton = try vm.getOrCreateSingletonClass(io_class_val);
 
+    const select_sym = try vm.intern("select");
+    try io_singleton.module.methods.put(select_sym, value.MethodEntry.builtin(&builtinIoSelect, .{ .variadic = 1 }));
+
     const pipe_sym = try vm.intern("pipe");
     try io_singleton.module.methods.put(pipe_sym, value.MethodEntry.builtin(&builtinIoPipe, .{ .exact = 0 }));
 
@@ -110,6 +113,9 @@ pub fn register(vm: *VM) !void {
 
     const write_sym = try vm.intern("write");
     try vm.io_class.module.methods.put(write_sym, value.MethodEntry.builtin(&builtinIoWrite, .{ .variadic = 0 }));
+
+    const syswrite_sym = try vm.intern("syswrite");
+    try vm.io_class.module.methods.put(syswrite_sym, value.MethodEntry.builtin(&builtinIoWrite, .{ .exact = 1 }));
 
     const append_sym = try vm.intern("<<");
     try vm.io_class.module.methods.put(append_sym, value.MethodEntry.builtin(&builtinIoAppend, .{ .exact = 1 }));
@@ -217,6 +223,19 @@ pub fn register(vm: *VM) !void {
 const PopenEnvEntry = struct {
     key: []const u8,
     value: []const u8,
+};
+
+const IoSelectKind = enum {
+    read,
+    write,
+    except,
+};
+
+const IoSelectWatch = struct {
+    original: Value,
+    fd: i32,
+    events: i16,
+    kind: IoSelectKind,
 };
 
 const PopenConfig = struct {
@@ -1092,7 +1111,19 @@ fn ensureIoWritable(vm: *VM, io: *IoObject) VMError!void {
 fn timeoutArgToSeconds(vm: *VM, timeout: Value) VMError!?f64 {
     if (timeout.isNil()) return null;
     if (timeout.isInteger()) return timeout.integerToF64();
-    if (timeout.isFloat()) return timeout.toFloatObject().val;
+    if (timeout.isFloat()) {
+        const seconds = timeout.toFloatObject().val;
+        if (std.math.isNan(seconds)) {
+            return vm.raiseExceptionFmt(vm.range_error_class, "NaN out of Time range", .{});
+        }
+        if (std.math.isInf(seconds)) {
+            if (seconds < 0) {
+                return vm.raiseExceptionFmt(vm.argument_error_class, "time interval must not be negative", .{});
+            }
+            return null;
+        }
+        return seconds;
+    }
     return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into time interval", .{vm.className(timeout)});
 }
 
@@ -1196,6 +1227,237 @@ fn waitReadable(vm: *VM, io: *IoObject, timeout_ms: i32) VMError!bool {
 
 fn waitWritable(vm: *VM, io: *IoObject, timeout_ms: i32) VMError!bool {
     return waitForIo(vm, io, std.posix.POLL.OUT, timeout_ms, false);
+}
+
+fn requireSelectArrayArg(vm: *VM, arg: Value) VMError!?*value.ArrayObject {
+    if (arg.isNil()) return null;
+    if (arg.isArray()) return arg.toArrayObject();
+    return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion of {s} into Array", .{vm.className(arg)});
+}
+
+fn selectWatchEvent(kind: IoSelectKind) i16 {
+    return switch (kind) {
+        .read => std.posix.POLL.IN,
+        .write => std.posix.POLL.OUT,
+        .except => std.posix.POLL.PRI,
+    };
+}
+
+fn selectReadyMask(kind: IoSelectKind) i16 {
+    return switch (kind) {
+        .read => std.posix.POLL.IN | std.posix.POLL.ERR | std.posix.POLL.HUP,
+        .write => std.posix.POLL.OUT | std.posix.POLL.ERR,
+        .except => std.posix.POLL.PRI | std.posix.POLL.ERR,
+    };
+}
+
+fn selectWatchIo(vm: *VM, object: Value) VMError!*IoObject {
+    if (object.isIo()) return object.toIoObject();
+
+    const maybe_io = try vm.checkCallMethodByName(object, "to_io", false, &[_]Value{}, null);
+    const io_value = maybe_io orelse {
+        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into IO", .{vm.className(object)});
+    };
+    if (!io_value.isIo()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into IO", .{vm.className(object)});
+    }
+    return io_value.toIoObject();
+}
+
+fn appendSelectWatches(vm: *VM, watches: *std.ArrayList(IoSelectWatch), array: ?*value.ArrayObject, kind: IoSelectKind) VMError!void {
+    const source = array orelse return;
+    for (source.elements.items) |object| {
+        const io = try selectWatchIo(vm, object);
+        watches.append(vm.allocator, .{
+            .original = object,
+            .fd = io.fd,
+            .events = selectWatchEvent(kind),
+            .kind = kind,
+        }) catch return error.Fatal;
+    }
+}
+
+fn selectPollfds(vm: *VM, watches: []const IoSelectWatch) VMError!std.ArrayList(std.posix.pollfd) {
+    var pollfds: std.ArrayList(std.posix.pollfd) = .empty;
+    errdefer pollfds.deinit(vm.allocator);
+
+    pollfds.ensureTotalCapacity(vm.allocator, watches.len) catch return error.Fatal;
+    for (watches) |watch| {
+        pollfds.appendAssumeCapacity(.{
+            .fd = @intCast(watch.fd),
+            .events = watch.events,
+            .revents = 0,
+        });
+    }
+    return pollfds;
+}
+
+fn selectResetPollfds(pollfds: []std.posix.pollfd) void {
+    for (pollfds) |*pollfd| pollfd.revents = 0;
+}
+
+fn selectRaiseIfInvalid(vm: *VM, pollfds: []const std.posix.pollfd) VMError!void {
+    for (pollfds) |pollfd| {
+        if ((pollfd.revents & std.posix.POLL.NVAL) != 0) {
+            return vm.raiseErrnoFmt(.BADF, "poll failed", .{});
+        }
+    }
+}
+
+fn selectResult(vm: *VM, watches: []const IoSelectWatch, pollfds: []const std.posix.pollfd) VMError!Value {
+    const read_array = try vm.createArray();
+    const write_array = try vm.createArray();
+    const error_array = try vm.createArray();
+
+    var any_ready = false;
+    for (watches, pollfds) |watch, pollfd| {
+        if ((pollfd.revents & selectReadyMask(watch.kind)) == 0) continue;
+        any_ready = true;
+        const target = switch (watch.kind) {
+            .read => read_array,
+            .write => write_array,
+            .except => error_array,
+        };
+        target.elements.append(vm.gc_allocator, watch.original) catch return error.Fatal;
+    }
+
+    if (!any_ready) return Value.nil();
+
+    const result = try vm.createArray();
+    result.elements.append(vm.gc_allocator, Value.fromObject(&read_array.object)) catch return error.Fatal;
+    result.elements.append(vm.gc_allocator, Value.fromObject(&write_array.object)) catch return error.Fatal;
+    result.elements.append(vm.gc_allocator, Value.fromObject(&error_array.object)) catch return error.Fatal;
+    return Value.fromObject(&result.object);
+}
+
+fn yieldSleepingMainThread(vm: *VM) VMError!void {
+    const thread = vm.current_thread orelse return;
+    const main_thread = vm.main_thread orelse return;
+    if (thread != main_thread) return;
+
+    thread.state = .sleeping;
+    defer {
+        if (thread.state == .sleeping) thread.state = .running;
+    }
+    try vm.schedulerYield();
+}
+
+fn ioSelectWaitNoDescriptors(vm: *VM, timeout_ms: i32) VMError!Value {
+    const current_thread = vm.current_thread;
+    const is_worker_thread = current_thread != null and vm.main_thread != null and current_thread.? != vm.main_thread.?;
+    var dummy_pollfd = [_]std.posix.pollfd{undefined};
+
+    if (is_worker_thread and timeout_ms < 0) {
+        const thread = current_thread.?;
+        defer {
+            if (thread.state == .sleeping) thread.state = .running;
+        }
+
+        while (true) {
+            thread.state = .sleeping;
+            try vm.threadYield();
+        }
+    }
+
+    const deadline_ms = if (timeout_ms < 0) null else monotonicMilliseconds() + timeout_ms;
+    while (true) {
+        try vm.checkAsyncEvents();
+        const step_timeout_ms: i32 = if (deadline_ms) |deadline| blk: {
+            const remaining = deadline - monotonicMilliseconds();
+            if (remaining <= 0) break :blk 0;
+            break :blk @intCast(@min(remaining, 100));
+        } else 100;
+
+        const ready_count = std.c.poll(dummy_pollfd[0..].ptr, 0, step_timeout_ms);
+        if (ready_count < 0) {
+            const errno_code: std.posix.E = @enumFromInt(std.c._errno().*);
+            if (errno_code == .INTR) continue;
+            return vm.raiseErrnoFmt(errno_code, "poll failed", .{});
+        }
+        if (deadline_ms != null and step_timeout_ms == 0) return Value.nil();
+        try yieldSleepingMainThread(vm);
+    }
+}
+
+pub fn builtinIoSelect(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 4);
+
+    const read_arg = args[0];
+    const write_arg = if (args.len >= 2) args[1] else Value.nil();
+    const error_arg = if (args.len >= 3) args[2] else Value.nil();
+    const timeout_arg = if (args.len >= 4) args[3] else Value.nil();
+
+    const read_array = try requireSelectArrayArg(vm, read_arg);
+    const write_array = try requireSelectArrayArg(vm, write_arg);
+    const error_array = try requireSelectArrayArg(vm, error_arg);
+    const timeout_ms = try timeoutArgToPollMilliseconds(vm, timeout_arg);
+
+    var watches: std.ArrayList(IoSelectWatch) = .empty;
+    defer watches.deinit(vm.allocator);
+
+    try appendSelectWatches(vm, &watches, read_array, .read);
+    try appendSelectWatches(vm, &watches, write_array, .write);
+    try appendSelectWatches(vm, &watches, error_array, .except);
+
+    if (watches.items.len == 0) return ioSelectWaitNoDescriptors(vm, timeout_ms);
+
+    var pollfds = try selectPollfds(vm, watches.items);
+    defer pollfds.deinit(vm.allocator);
+
+    const current_thread = vm.current_thread;
+    const is_worker_thread = current_thread != null and vm.main_thread != null and current_thread.? != vm.main_thread.?;
+    if (!is_worker_thread) {
+        const deadline_ms = if (timeout_ms < 0) null else monotonicMilliseconds() + timeout_ms;
+
+        while (true) {
+            try vm.checkAsyncEvents();
+            selectResetPollfds(pollfds.items);
+
+            const step_timeout_ms: i32 = if (deadline_ms) |deadline| blk: {
+                const remaining = deadline - monotonicMilliseconds();
+                if (remaining <= 0) break :blk 0;
+                break :blk @intCast(@min(remaining, 100));
+            } else 100;
+
+            const ready_count = std.c.poll(pollfds.items.ptr, @intCast(pollfds.items.len), step_timeout_ms);
+            if (ready_count < 0) {
+                const errno_code: std.posix.E = @enumFromInt(std.c._errno().*);
+                if (errno_code == .INTR) continue;
+                return vm.raiseErrnoFmt(errno_code, "poll failed", .{});
+            }
+            try selectRaiseIfInvalid(vm, pollfds.items);
+            if (ready_count == 0) {
+                if (deadline_ms != null and step_timeout_ms == 0) return Value.nil();
+                try yieldSleepingMainThread(vm);
+                continue;
+            }
+
+            const result = try selectResult(vm, watches.items, pollfds.items);
+            if (!result.isNil()) return result;
+            if (deadline_ms != null and monotonicMilliseconds() >= deadline_ms.?) return Value.nil();
+            try yieldSleepingMainThread(vm);
+        }
+    }
+
+    const deadline_ms = if (timeout_ms < 0) null else monotonicMilliseconds() + timeout_ms;
+    while (true) {
+        selectResetPollfds(pollfds.items);
+        const ready_count = std.c.poll(pollfds.items.ptr, @intCast(pollfds.items.len), 0);
+        if (ready_count < 0) {
+            const errno_code: std.posix.E = @enumFromInt(std.c._errno().*);
+            if (errno_code == .INTR) continue;
+            return vm.raiseErrnoFmt(errno_code, "poll failed", .{});
+        }
+        try selectRaiseIfInvalid(vm, pollfds.items);
+        if (ready_count != 0) {
+            const result = try selectResult(vm, watches.items, pollfds.items);
+            if (!result.isNil()) return result;
+        }
+        if (deadline_ms) |deadline| {
+            if (monotonicMilliseconds() >= deadline) return Value.nil();
+        }
+        try vm.threadYield();
+    }
 }
 
 fn maybeRemainingSeekableBytes(io: *IoObject) ?usize {
