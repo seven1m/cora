@@ -10,6 +10,12 @@ const Block = vm_mod.Block;
 const Value = value.Value;
 
 extern "c" fn clock_gettime(clk_id: std.posix.CLOCK, tp: *std.posix.timespec) c_int;
+extern "c" fn getpgrp() std.c.pid_t;
+extern "c" fn setsid() std.c.pid_t;
+extern "c" fn chdir(path: [*:0]const u8) c_int;
+extern "c" fn open(path: [*:0]const u8, flags: c_int, ...) c_int;
+extern "c" fn dup2(oldfd: c_int, newfd: c_int) c_int;
+extern "c" fn close(fd: c_int) c_int;
 
 pub fn register(vm: *VM) !void {
     const process_obj = Value.fromObject(&vm.process_module.object);
@@ -23,6 +29,12 @@ pub fn register(vm: *VM) !void {
 
     const pid_sym = try vm.intern("pid");
     try process_singleton.module.methods.put(pid_sym, value.MethodEntry.builtin(&builtinProcessPid, .{ .exact = 0 }));
+
+    const daemon_sym = try vm.intern("daemon");
+    try process_singleton.module.methods.put(daemon_sym, value.MethodEntry.builtin(&builtinProcessDaemon, .{ .variadic = 0 }));
+
+    const getpgrp_sym = try vm.intern("getpgrp");
+    try process_singleton.module.methods.put(getpgrp_sym, value.MethodEntry.builtin(&builtinProcessGetpgrp, .{ .exact = 0 }));
 
     const clock_gettime_sym = try vm.intern("clock_gettime");
     try process_singleton.module.methods.put(clock_gettime_sym, value.MethodEntry.builtin(&builtinProcessClockGettime, .{ .variadic = 1 }));
@@ -96,6 +108,70 @@ pub fn builtinProcessPid(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
     }
 
     return Value.integer(@intCast(std.c.getpid()));
+}
+
+pub fn builtinProcessDaemon(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 2);
+
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "Process.daemon is not implemented on Windows", .{});
+    }
+
+    vm.setupOutput();
+    if (vm.stdout) |out| _ = out.flush() catch {};
+    if (vm.stderr) |err_out| _ = err_out.flush() catch {};
+
+    const stay_in_dir = args.len >= 1 and args[0].is_truthy();
+    const keep_stdio_open = args.len >= 2 and args[1].is_truthy();
+
+    const fork_rc = std.c.fork();
+    if (fork_rc < 0) {
+        return vm.raiseErrnoFmt(std.posix.errno(-1), "fork failed", .{});
+    }
+    if (fork_rc > 0) {
+        std.c._exit(0);
+    }
+
+    if (setsid() < 0) {
+        return vm.raiseErrnoFmt(std.posix.errno(-1), "setsid failed", .{});
+    }
+
+    if (!stay_in_dir) {
+        const root_path = try vm.allocCStringZ("/");
+        defer vm.allocator.free(root_path);
+        if (chdir(root_path.ptr) != 0) {
+            return vm.raiseErrnoFmt(std.posix.errno(-1), "chdir failed", .{});
+        }
+    }
+
+    if (!keep_stdio_open) {
+        const devnull_path = try vm.allocCStringZ("/dev/null");
+        defer vm.allocator.free(devnull_path);
+        const open_flags: std.c.O = .{ .ACCMODE = .RDWR };
+        const devnull_fd = open(devnull_path.ptr, @bitCast(open_flags), @as(c_uint, 0));
+        if (devnull_fd < 0) {
+            return vm.raiseErrnoFmt(std.posix.errno(-1), "open failed", .{});
+        }
+        defer {
+            if (devnull_fd > 2) _ = close(devnull_fd);
+        }
+
+        if (dup2(devnull_fd, 0) < 0 or dup2(devnull_fd, 1) < 0 or dup2(devnull_fd, 2) < 0) {
+            return vm.raiseErrnoFmt(std.posix.errno(-1), "dup2 failed", .{});
+        }
+    }
+
+    return Value.integer(0);
+}
+
+pub fn builtinProcessGetpgrp(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "Process.getpgrp is not implemented on Windows", .{});
+    }
+
+    return Value.integer(@intCast(getpgrp()));
 }
 
 pub fn builtinProcessClockGettime(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

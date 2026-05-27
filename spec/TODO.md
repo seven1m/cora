@@ -1618,7 +1618,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/process/clock_getres_spec.rb
 - [ ] core/process/clock_gettime_spec.rb
 - [ ] core/process/constants_spec.rb
-- [ ] core/process/daemon_spec.rb
+- [x] core/process/daemon_spec.rb
 - [ ] core/process/detach_spec.rb
 - [ ] core/process/egid_spec.rb
 - [ ] core/process/euid_spec.rb

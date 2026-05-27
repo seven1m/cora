@@ -945,6 +945,7 @@ pub fn builtinKernelExit(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
 
 pub fn builtinKernelExitBang(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
+    vm.skip_at_exit_handlers = true;
     const exc_value = try vm.newExceptionInstance(vm.system_exit_class, args, null);
     vm.setPendingException(exc_value.toExceptionObject());
     return error.Unwind;

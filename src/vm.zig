@@ -573,6 +573,7 @@ pub const VM = struct {
     indexed_yield_ctx: ?*IndexedYieldContext = null,
 
     at_exit_handlers: std.ArrayList(Value) = .empty,
+    skip_at_exit_handlers: bool = false,
     io_objects: std.ArrayList(*value.IoObject) = .empty,
     signal_trap_modes: [MAX_QUEUED_SIGNALS]SignalTrapMode = [_]SignalTrapMode{.system_default} ** MAX_QUEUED_SIGNALS,
     signal_trap_callables: [MAX_QUEUED_SIGNALS]Value = [_]Value{Value.nil()} ** MAX_QUEUED_SIGNALS,
@@ -2529,6 +2530,10 @@ pub const VM = struct {
     }
 
     pub fn runAtExitHandlers(self: *VM) VMError!void {
+        if (self.skip_at_exit_handlers) {
+            return;
+        }
+
         const original_exception = self.pendingException();
         var last_exception: ?*value.ExceptionObject = null;
 

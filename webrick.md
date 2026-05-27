@@ -16,4 +16,5 @@ Secondary/optional gaps:
 
 - [x] Socket.gethostname. Default `:ServerName` path in `/home/tim/pp/webrick/lib/webrick/config.rb` and `/home/tim/pp/webrick/lib/webrick/utils.rb` now works.
 - [x] IO#autoclose=. Used in /home/tim/pp/webrick/lib/webrick/utils.rb:62.
-- [ ] Process.daemon, Process.initgroups, Process::Sys.setuid/setgid missing. Affects daemon/priv-drop helpers in /home/tim/pp/webrick/lib/webrick/server.rb:41 and /home/tim/pp/webrick/lib/webrick/utils.rb:35.
+- [x] Process.daemon. Covers `WEBrick::Daemon.start` in `/home/tim/pp/webrick/lib/webrick/server.rb:41` and upstream `spec/core/process/daemon_spec.rb`.
+- [ ] Process.initgroups, Process::Sys.setuid/setgid missing. Still blocks priv-drop helper in `/home/tim/pp/webrick/lib/webrick/utils.rb:35`.
