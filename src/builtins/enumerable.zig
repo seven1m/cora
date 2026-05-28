@@ -45,6 +45,10 @@ pub fn register(vm: *VM) !void {
     try enumerable_val.toModuleObject().methods.put(flat_map_sym, value.MethodEntry.builtin(&builtinEnumerableFlatMap, .{ .exact = 0 }));
     const collect_concat_sym = try vm.intern("collect_concat");
     try enumerable_val.toModuleObject().methods.put(collect_concat_sym, value.MethodEntry.builtin(&builtinEnumerableFlatMap, .{ .exact = 0 }));
+    const include_sym = try vm.intern("include?");
+    try enumerable_val.toModuleObject().methods.put(include_sym, value.MethodEntry.builtin(&builtinEnumerableInclude, .{ .exact = 1 }));
+    const member_sym = try vm.intern("member?");
+    try enumerable_val.toModuleObject().methods.put(member_sym, value.MethodEntry.builtin(&builtinEnumerableInclude, .{ .exact = 1 }));
 }
 
 fn builtinEnumerableFlatMap(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -245,6 +249,15 @@ fn enumerableYieldCollapsed(vm: *VM, blk: Block, next_values: *value.ArrayObject
     const element = collapseYieldValues(next_values);
     const yield_args = [_]Value{element};
     return vm.yieldToBlock(blk, &yield_args);
+}
+
+fn builtinEnumerableInclude(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
+    while (try enumerableNextElement(vm, enum_value)) |element| {
+        if (try vm.valueEquals(element, args[0])) return Value.boolean(true);
+    }
+    return Value.boolean(false);
 }
 
 fn builtinEnumerableEntries(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
