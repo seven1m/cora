@@ -94,6 +94,39 @@ test "Lexical scope: top-level fallback" {
     try std.testing.expectEqual(@as(i64, 100), result.toInteger());
 }
 
+test ":: prefix resolves to top-level constant inside identically-named class" {
+    const result = try evalCode(
+        \\class Top
+        \\  X = 42
+        \\end
+        \\module B
+        \\  class Top < ::Top
+        \\    def get_x
+        \\      ::Top::X
+        \\    end
+        \\  end
+        \\end
+        \\B::Top.new.get_x
+    );
+    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
+}
+
+test ":: prefix reads Object constant not enclosing scope constant" {
+    const result = try evalCode(
+        \\X = 1
+        \\module M
+        \\  X = 2
+        \\  module N
+        \\    def self.check
+        \\      ::X
+        \\    end
+        \\  end
+        \\end
+        \\M::N.check
+    );
+    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
+}
+
 test "Unknown constant raises NameError" {
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;

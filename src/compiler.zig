@@ -702,7 +702,7 @@ pub const Compiler = struct {
                 } else {
                     const const_name = try self.parser.getConstantName(const_path.name);
                     const idx = try self.current_chunk.addConstant(.{ .string = const_name });
-                    try self.current_chunk.emitOpU16(.GET_CONST, @intCast(idx), line);
+                    try self.current_chunk.emitOpU16(.GET_TOPLEVEL_CONST, @intCast(idx), line);
                     return;
                 }
 
@@ -1431,7 +1431,7 @@ pub const Compiler = struct {
                 if (const_path.parent == null) {
                     const const_name = try self.parser.getConstantName(const_path.name);
                     const idx = try self.current_chunk.addConstant(.{ .string = const_name });
-                    try self.current_chunk.emitOpU16(.GET_CONST_OR_NIL, @intCast(idx), line);
+                    try self.current_chunk.emitOpU16(.GET_TOPLEVEL_CONST_OR_NIL, @intCast(idx), line);
                     try self.emitBoolToDefinedDescriptor("constant", line);
                     return;
                 }

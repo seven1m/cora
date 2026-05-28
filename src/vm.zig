@@ -4791,6 +4791,53 @@ pub const VM = struct {
                 }
             },
 
+            .GET_TOPLEVEL_CONST => {
+                const idx = readU16From(frame, operands, &operand_cursor);
+                const constant = constants[idx];
+                const name_sym = try self.intern(constant.string);
+
+                if (self.object_class.module.constants.get(name_sym)) |entry| {
+                    try self.warnDeprecatedConstant(&self.object_class.module, name_sym);
+                    try self.push(entry.value);
+                } else {
+                    switch (try self.triggerAutoload(&self.object_class.module, name_sym)) {
+                        .missing, .attempted => {},
+                        .loaded => |const_val| {
+                            try self.push(const_val);
+                            return;
+                        },
+                    }
+                    const msg = std.fmt.allocPrint(
+                        self.gc_allocator,
+                        "uninitialized constant {s}",
+                        .{constant.string},
+                    ) catch return error.Fatal;
+                    const exc = try self.createException(self.name_error_class, msg);
+                    self.setPendingException(exc);
+                    return error.Unwind;
+                }
+            },
+
+            .GET_TOPLEVEL_CONST_OR_NIL => {
+                const idx = readU16From(frame, operands, &operand_cursor);
+                const constant = constants[idx];
+                const name_sym = try self.intern(constant.string);
+
+                if (self.object_class.module.constants.get(name_sym)) |entry| {
+                    try self.warnDeprecatedConstant(&self.object_class.module, name_sym);
+                    try self.push(entry.value);
+                } else {
+                    switch (try self.triggerAutoload(&self.object_class.module, name_sym)) {
+                        .missing, .attempted => {},
+                        .loaded => |const_val| {
+                            try self.push(const_val);
+                            return;
+                        },
+                    }
+                    try self.push(Value.nil());
+                }
+            },
+
             .SET_CONST => {
                 const idx = readU16From(frame, operands, &operand_cursor);
                 const val = self.pop();
