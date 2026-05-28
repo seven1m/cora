@@ -1474,7 +1474,10 @@ fn ioSelectWaitNoDescriptors(vm: *VM, timeout_ms: i32) VMError!Value {
         const ready_count = std.c.poll(dummy_pollfd[0..].ptr, 0, step_timeout_ms);
         if (ready_count < 0) {
             const errno_code: std.posix.E = @enumFromInt(std.c._errno().*);
-            if (errno_code == .INTR) continue;
+            if (errno_code == .INTR) {
+                try vm.checkAsyncEvents();
+                continue;
+            }
             return vm.raiseErrnoFmt(errno_code, "poll failed", .{});
         }
         if (deadline_ms != null and step_timeout_ms == 0) return Value.nil();
@@ -1525,7 +1528,10 @@ pub fn builtinIoSelect(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
             const ready_count = std.c.poll(pollfds.items.ptr, @intCast(pollfds.items.len), step_timeout_ms);
             if (ready_count < 0) {
                 const errno_code: std.posix.E = @enumFromInt(std.c._errno().*);
-                if (errno_code == .INTR) continue;
+            if (errno_code == .INTR) {
+                try vm.checkAsyncEvents();
+                continue;
+            }
                 return vm.raiseErrnoFmt(errno_code, "poll failed", .{});
             }
             try selectRaiseIfInvalid(vm, pollfds.items);
@@ -1544,11 +1550,15 @@ pub fn builtinIoSelect(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
 
     const deadline_ms = if (timeout_ms < 0) null else monotonicMilliseconds() + timeout_ms;
     while (true) {
+        try vm.checkAsyncEvents();
         selectResetPollfds(pollfds.items);
         const ready_count = std.c.poll(pollfds.items.ptr, @intCast(pollfds.items.len), 0);
         if (ready_count < 0) {
             const errno_code: std.posix.E = @enumFromInt(std.c._errno().*);
-            if (errno_code == .INTR) continue;
+            if (errno_code == .INTR) {
+                try vm.checkAsyncEvents();
+                continue;
+            }
             return vm.raiseErrnoFmt(errno_code, "poll failed", .{});
         }
         try selectRaiseIfInvalid(vm, pollfds.items);

@@ -537,10 +537,16 @@ pub fn builtinTCPServerAccept(vm: *VM, receiver: Value, args: []Value, _: ?Block
 
     var client_addr: std.posix.sockaddr.in = undefined;
     var addr_len: std.posix.socklen_t = @sizeOf(std.posix.sockaddr.in);
-    const client_fd = std.c.accept(io.fd, @ptrCast(&client_addr), &addr_len);
-    if (client_fd < 0) return socketError(vm, "accept() failed", .{});
-
-    return wrapAcceptedTCPSocket(vm, @intCast(client_fd));
+    while (true) {
+        const client_fd = std.c.accept(io.fd, @ptrCast(&client_addr), &addr_len);
+        if (client_fd >= 0) return wrapAcceptedTCPSocket(vm, @intCast(client_fd));
+        const errno_code = std.posix.errno(-1);
+        if (errno_code == .INTR) {
+            try vm.checkAsyncEvents();
+            continue;
+        }
+        return socketError(vm, "accept() failed", .{});
+    }
 }
 
 pub fn builtinTCPServerAcceptNonblock(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
