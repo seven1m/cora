@@ -746,6 +746,11 @@ pub fn builtinBasicSocketShutdown(vm: *VM, receiver: Value, args: []Value, _: ?B
 
     const how = if (args.len == 0) std.posix.SHUT.RDWR else try shutdownHow(vm, args[0]);
     if (std.c.shutdown(@intCast(io.fd), how) != 0) {
+        const errno_code = std.posix.errno(-1);
+        // Darwin reports ENOTCONN when shutting down a listening TCP socket.
+        if (errno_code == .NOTCONN and vm.isClassOrSubclassOf(vm.getClass(receiver), try tcpServerClass(vm))) {
+            return Value.integer(0);
+        }
         return socketError(vm, "shutdown() failed", .{});
     }
 
