@@ -463,7 +463,7 @@ fn parseStringPercentSpec(vm: *VM, format: []const u8, index: *usize) VMError!St
     if (index.* >= format.len) return malformedStringPercent(vm);
     spec.conversion = format[index.*];
     switch (spec.conversion) {
-        '%', 'B', 'X', 'b', 'c', 'd', 'i', 'o', 'p', 's', 'u', 'x' => {},
+        '%', 'B', 'X', 'b', 'c', 'd', 'e', 'E', 'f', 'g', 'G', 'i', 'o', 'p', 's', 'u', 'x' => {},
         else => return malformedStringPercent(vm),
     }
     index.* += 1;
@@ -494,16 +494,25 @@ fn appendStringPercentFragment(
 fn coerceStringPercentInteger(vm: *VM, arg: Value) VMError!Value {
     if (arg.isInteger() or arg.isBigInteger()) return arg;
 
-    const maybe_integer = try vm.checkCallMethodByName(arg, "to_int", false, &[_]Value{}, null);
-    const coerced = maybe_integer orelse {
-        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Integer", .{vm.className(arg)});
-    };
-    if (coerced.isInteger() or coerced.isBigInteger()) return coerced;
-    return vm.raiseExceptionFmt(
-        vm.type_error_class,
-        "can't convert {s} to Integer ({s}#to_int gives {s})",
-        .{ vm.className(arg), vm.className(arg), vm.className(coerced) },
-    );
+    if (try vm.checkCallMethodByName(arg, "to_int", false, &[_]Value{}, null)) |coerced| {
+        if (coerced.isInteger() or coerced.isBigInteger()) return coerced;
+        return vm.raiseExceptionFmt(
+            vm.type_error_class,
+            "can't convert {s} to Integer ({s}#to_int gives {s})",
+            .{ vm.className(arg), vm.className(arg), vm.className(coerced) },
+        );
+    }
+
+    if (try vm.checkCallMethodByName(arg, "to_i", false, &[_]Value{}, null)) |coerced| {
+        if (coerced.isInteger() or coerced.isBigInteger()) return coerced;
+        return vm.raiseExceptionFmt(
+            vm.type_error_class,
+            "can't convert {s} to Integer ({s}#to_i gives {s})",
+            .{ vm.className(arg), vm.className(arg), vm.className(coerced) },
+        );
+    }
+
+    return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Integer", .{vm.className(arg)});
 }
 
 fn appendStringPercentPaddedText(
@@ -523,6 +532,74 @@ fn appendStringPercentPaddedText(
     if (spec.flags.left_justify) {
         appendRepeatedByte(out, vm.gc_allocator_atomic, ' ', pad_len) catch return error.Fatal;
     }
+}
+
+fn coerceStringPercentFloat(vm: *VM, arg: Value) VMError!Value {
+    if (arg.isFloat()) return arg;
+
+    if (try vm.checkCallMethodByName(arg, "to_f", false, &[_]Value{}, null)) |coerced| {
+        if (coerced.isFloat()) return coerced;
+    }
+
+    return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
+}
+
+fn appendStringPercentFloat(
+    vm: *VM,
+    out: *std.ArrayList(u8),
+    result_encoding: *enc.Encoding,
+    spec: StringPercentSpec,
+    arg: Value,
+) VMError!void {
+    const float_val = try coerceStringPercentFloat(vm, arg);
+    const f = float_val.toFloatObject().val;
+
+    if (std.math.isNan(f)) {
+        try appendStringPercentPaddedText(vm, out, result_encoding, spec, "NaN", .{ .us_ascii = .{} });
+        return;
+    }
+    if (std.math.isPositiveInf(f)) {
+        try appendStringPercentPaddedText(vm, out, result_encoding, spec, "Infinity", .{ .us_ascii = .{} });
+        return;
+    }
+    if (std.math.isNegativeInf(f)) {
+        try appendStringPercentPaddedText(vm, out, result_encoding, spec, "-Infinity", .{ .us_ascii = .{} });
+        return;
+    }
+
+    const string_val = try vm.callMethodByName(float_val, "to_s", &[_]Value{}, null);
+    const string_obj = string_val.toStringObject();
+    var str = string_obj.str;
+
+    // Truncate or extend decimal places to match precision
+    const precision = spec.precision orelse 6;
+    if (std.mem.indexOfScalar(u8, str, '.')) |dot| {
+        const actual_frac = str.len - dot - 1;
+        if (actual_frac > precision) {
+            str = str[0 .. dot + 1 + precision];
+        } else if (actual_frac < precision) {
+            var adjusted: std.ArrayList(u8) = .empty;
+            defer adjusted.deinit(vm.gc_allocator_atomic);
+            adjusted.appendSlice(vm.gc_allocator_atomic, str) catch return error.Fatal;
+            var i: usize = actual_frac;
+            while (i < precision) : (i += 1) {
+                adjusted.append(vm.gc_allocator_atomic, '0') catch return error.Fatal;
+            }
+            str = adjusted.items;
+        }
+    } else if (precision > 0) {
+        var adjusted: std.ArrayList(u8) = .empty;
+        defer adjusted.deinit(vm.gc_allocator_atomic);
+        adjusted.appendSlice(vm.gc_allocator_atomic, str) catch return error.Fatal;
+        adjusted.append(vm.gc_allocator_atomic, '.') catch return error.Fatal;
+        var i: usize = 0;
+        while (i < precision) : (i += 1) {
+            adjusted.append(vm.gc_allocator_atomic, '0') catch return error.Fatal;
+        }
+        str = adjusted.items;
+    }
+
+    try appendStringPercentPaddedText(vm, out, result_encoding, spec, str, string_obj.encoding);
 }
 
 fn appendStringPercentInteger(
@@ -1275,6 +1352,7 @@ pub fn builtinStringPercent(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
                 };
                 try appendStringPercentPaddedText(vm, &out, &result_encoding, spec, bytes, string_obj.encoding);
             },
+            'e', 'E', 'f', 'g', 'G' => try appendStringPercentFloat(vm, &out, &result_encoding, spec, arg),
             else => return malformedStringPercent(vm),
         }
     }
