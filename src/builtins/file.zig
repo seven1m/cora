@@ -636,6 +636,9 @@ pub fn register(vm: *VM) !void {
     const blksize_sym = try vm.intern("blksize");
     try vm.file_stat_class.module.methods.put(blksize_sym, value.MethodEntry.builtin(&builtinFileStatBlksize, .{ .exact = 0 }));
 
+    const ino_sym = try vm.intern("ino");
+    try vm.file_stat_class.module.methods.put(ino_sym, value.MethodEntry.builtin(&builtinFileStatIno, .{ .exact = 0 }));
+
     const atime_sym = try vm.intern("atime");
     try vm.file_stat_class.module.methods.put(atime_sym, value.MethodEntry.builtin(&builtinFileStatAtime, .{ .exact = 0 }));
 
@@ -1177,6 +1180,7 @@ fn buildFileStat(vm: *VM, stat: std.Io.File.Stat, posix_metadata: PosixStatMetad
     try vm.setInstanceVariable(stat_val, "@gid", Value.integer(posix_metadata.gid));
     try vm.setInstanceVariable(stat_val, "@size", Value.integer(@intCast(stat.size)));
     try vm.setInstanceVariable(stat_val, "@blksize", Value.integer(@intCast(stat.block_size)));
+    try vm.setInstanceVariable(stat_val, "@ino", Value.integer(@intCast(stat.inode)));
     try vm.setInstanceVariable(stat_val, "@atime", atime_value);
     try vm.setInstanceVariable(stat_val, "@ctime", try statTimestampToValue(vm, stat.ctime));
     try vm.setInstanceVariable(stat_val, "@mtime", try statTimestampToValue(vm, stat.mtime));
@@ -1898,6 +1902,11 @@ pub fn builtinFileStatSizeQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 pub fn builtinFileStatBlksize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return fileStatIntegerIvar(vm, receiver, "@blksize");
+}
+
+pub fn builtinFileStatIno(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return fileStatIntegerIvar(vm, receiver, "@ino");
 }
 
 pub fn builtinFileStatAtime(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
