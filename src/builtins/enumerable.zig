@@ -37,6 +37,8 @@ pub fn register(vm: *VM) !void {
     try enumerable_val.toModuleObject().methods.put(grep_sym, value.MethodEntry.builtin(&builtinEnumerableGrep, .{ .exact = 1 }));
     const inject_sym = try vm.intern("inject");
     try enumerable_val.toModuleObject().methods.put(inject_sym, value.MethodEntry.builtin(&builtinEnumerableInject, .{ .variadic = 0 }));
+    const reduce_sym = try vm.intern("reduce");
+    try enumerable_val.toModuleObject().methods.put(reduce_sym, value.MethodEntry.builtin(&builtinEnumerableInject, .{ .variadic = 0 }));
     const max_by_sym = try vm.intern("max_by");
     try enumerable_val.toModuleObject().methods.put(max_by_sym, value.MethodEntry.builtin(&builtinEnumerableMaxBy, .{ .exact = 0 }));
     const sort_by_sym = try vm.intern("sort_by");
@@ -49,6 +51,8 @@ pub fn register(vm: *VM) !void {
     try enumerable_val.toModuleObject().methods.put(include_sym, value.MethodEntry.builtin(&builtinEnumerableInclude, .{ .exact = 1 }));
     const member_sym = try vm.intern("member?");
     try enumerable_val.toModuleObject().methods.put(member_sym, value.MethodEntry.builtin(&builtinEnumerableInclude, .{ .exact = 1 }));
+    const sum_sym = try vm.intern("sum");
+    try enumerable_val.toModuleObject().methods.put(sum_sym, value.MethodEntry.builtin(&builtinEnumerableSum, .{ .variadic = 0 }));
 }
 
 fn builtinEnumerableFlatMap(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -430,6 +434,46 @@ fn builtinEnumerableInject(vm: *VM, receiver: Value, args: []Value, block: ?Bloc
         var method_args = [_]Value{element};
         accumulator = try vm.callMethodByName(accumulator, method_name, method_args[0..], null);
     }
+    return accumulator;
+}
+
+fn builtinEnumerableSum(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const init = if (args.len == 1) args[0] else Value.integer(0);
+
+    const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
+
+    var accumulator = init;
+    var compensation: f64 = 0.0;
+    var use_kahan = false;
+
+    while (try enumerableNextElement(vm, enum_value)) |element| {
+        var operand = element;
+
+        if (block) |blk| {
+            const yield_args = [_]Value{element};
+            const result = try vm.yieldToBlock(blk, &yield_args);
+            if (result.controlFlowValue()) |return_value| return return_value;
+            operand = result.value;
+        }
+
+        if (use_kahan) {
+            const acc_f64 = accumulator.toFloatObject().val;
+            const op_f64 = operand.toFloatObject().val;
+            const y = op_f64 - compensation;
+            const t = acc_f64 + y;
+            compensation = (t - acc_f64) - y;
+            accumulator = try vm.newFloat(t);
+        } else {
+            var plus_args = [_]Value{operand};
+            accumulator = try vm.callMethodByName(accumulator, "+", plus_args[0..], null);
+            if (accumulator.isFloat()) {
+                use_kahan = true;
+                compensation = 0.0;
+            }
+        }
+    }
+
     return accumulator;
 }
 

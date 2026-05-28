@@ -196,7 +196,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [-] core/array/slice_spec.rb
 - [ ] core/array/sort_by_spec.rb
 - [x] core/array/sort_spec.rb
-- [ ] core/array/sum_spec.rb
+- [x] core/array/sum_spec.rb
 - [x] core/array/take_spec.rb
 - [x] core/array/take_while_spec.rb
 - [x] core/array/to_a_spec.rb
@@ -471,7 +471,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/enumerable/slice_when_spec.rb
 - [ ] core/enumerable/sort_by_spec.rb
 - [ ] core/enumerable/sort_spec.rb
-- [ ] core/enumerable/sum_spec.rb
+- [-] core/enumerable/sum_spec.rb
 - [ ] core/enumerable/take_spec.rb
 - [ ] core/enumerable/take_while_spec.rb
 - [ ] core/enumerable/tally_spec.rb
