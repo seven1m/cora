@@ -612,6 +612,10 @@ pub fn register(vm: *VM) !void {
     const size_q_sym_file = try vm.intern("size?");
     try file_singleton.module.methods.put(size_q_sym_file, value.MethodEntry.builtin(&builtinFileSizeQ, .{ .exact = 1 }));
 
+    const mtime_sym_file = try vm.intern("mtime");
+    try file_singleton.module.methods.put(mtime_sym_file, value.MethodEntry.builtin(&builtinFileMtime, .{ .exact = 1 }));
+    try vm.file_class.module.methods.put(mtime_sym_file, value.MethodEntry.builtin(&builtinFileInstanceMtime, .{ .exact = 0 }));
+
     try vm.file_stat_class.module.methods.put(file_sym, value.MethodEntry.builtin(&builtinFileStatFileQ, .{ .exact = 0 }));
 
     const directory_q_sym = try vm.intern("directory?");
@@ -1556,6 +1560,26 @@ pub fn builtinFileStat(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
 
 pub fn builtinFileLstat(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     return builtinFileStat(vm, Value.nil(), args, null);
+}
+
+pub fn builtinFileMtime(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "File.mtime is not implemented on Windows", .{});
+    }
+
+    const path_value = try vm.coerceToPathValue(args[0], "no implicit conversion into String");
+    const path_obj = path_value.toStringObject();
+    const stat = std.Io.Dir.cwd().statFile(vm.io, path_obj.str, .{}) catch |err| return raisePathStatError(vm, path_obj, err);
+    const posix_metadata = try loadPosixStatMetadataForPath(vm, path_obj, @intCast(stat.permissions.toMode()));
+    const stat_val = try buildFileStat(vm, stat, posix_metadata);
+    return vm.getInstanceVariable(stat_val, "@mtime");
+}
+
+pub fn builtinFileInstanceMtime(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const stat_value = try builtinIoStat(vm, receiver, &[_]Value{}, null);
+    return builtinFileStatMtime(vm, stat_value, &[_]Value{}, null);
 }
 
 fn statSizeForValue(vm: *VM, arg: Value, nil_when_missing: bool) VMError!Value {
