@@ -3677,6 +3677,7 @@ pub const VM = struct {
         fiber.state = .running;
 
         while (true) {
+            self.clearPlacedPendingControlFlow();
             self.executeInstruction() catch |err| switch (err) {
                 error.Unwind => {
                     self.unwindStack() catch |unwind_err| switch (unwind_err) {
@@ -4120,6 +4121,7 @@ pub const VM = struct {
         self.resetThreadPreemptBudget(thread);
 
         while (true) {
+            self.clearPlacedPendingControlFlow();
             // Check kill request before each instruction
             if (thread.kill_requested) {
                 thread.kill_requested = false;
@@ -6443,11 +6445,7 @@ pub const VM = struct {
     /// has zero overhead from the bounded unwinding logic.
     pub fn executeFastLoop(self: *VM, target_len: usize, comptime bounded: bool, min_unwind_depth: usize) VMError!void {
         while (self.frames.items.len >= target_len) {
-            if (self.pendingControlFlow()) |cf| {
-                if ((cf.kind == .return_ or cf.kind == .next_) and cf.value_placed) {
-                    self.setPendingControlFlow(null);
-                }
-            }
+            self.clearPlacedPendingControlFlow();
             const frame_len = self.frames.items.len;
             const f = &self.frames.storage[frame_len - 1];
             const code = f.chunk.code.items;
@@ -6740,6 +6738,14 @@ pub const VM = struct {
             }
 
             try self.checkAsyncEventsWithUnwind(bounded, min_unwind_depth);
+        }
+    }
+
+    inline fn clearPlacedPendingControlFlow(self: *VM) void {
+        if (self.pendingControlFlow()) |cf| {
+            if ((cf.kind == .return_ or cf.kind == .next_) and cf.value_placed) {
+                self.setPendingControlFlow(null);
+            }
         }
     }
 

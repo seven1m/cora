@@ -30,6 +30,34 @@ test "Thread#value returns block result" {
     try std.testing.expectEqual(@as(i64, 6), result.toInteger());
 }
 
+test "Thread clears non-local block return before next instruction" {
+    const result = try evalCode(
+        \\def passthrough
+        \\  yield
+        \\end
+        \\
+        \\class ThreadReturnDefaultDemo
+        \\  def leaf(value)
+        \\    value
+        \\  end
+        \\
+        \\  def wrapper(size = 4096)
+        \\    passthrough { return leaf(size) }
+        \\  end
+        \\
+        \\  def run
+        \\    [wrapper(2083), wrapper]
+        \\  end
+        \\end
+        \\
+        \\Thread.new { ThreadReturnDefaultDemo.new.run }.value
+    );
+    try std.testing.expect(result.isArray());
+    const elems = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 2083), elems[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 4096), elems[1].toInteger());
+}
+
 test "Thread.current returns current thread" {
     const result = try evalCode(
         \\Thread.current == Thread.main
