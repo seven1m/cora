@@ -2029,7 +2029,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/string/size_spec.rb
 - [x] core/string/slice_spec.rb
 - [x] core/string/split_spec.rb
-- [ ] core/string/squeeze_spec.rb
+- [x] core/string/squeeze_spec.rb
 - [x] core/string/start_with_spec.rb
 - [x] core/string/string_spec.rb
 - [x] core/string/strip_spec.rb

@@ -276,6 +276,11 @@ pub fn register(vm: *VM) !void {
     const string_tr_s_bang_sym = try vm.intern("tr_s!");
     try vm.string_class.module.methods.put(string_tr_s_bang_sym, value.MethodEntry.builtin(&builtinStringTrSBang, .{ .exact = 2 }));
 
+    const string_squeeze_sym = try vm.intern("squeeze");
+    try vm.string_class.module.methods.put(string_squeeze_sym, value.MethodEntry.builtin(&builtinStringSqueeze, .{ .variadic = 0 }));
+    const string_squeeze_bang_sym = try vm.intern("squeeze!");
+    try vm.string_class.module.methods.put(string_squeeze_bang_sym, value.MethodEntry.builtin(&builtinStringSqueezeBang, .{ .variadic = 0 }));
+
     const string_include_sym = try vm.intern("include?");
     try vm.string_class.module.methods.put(string_include_sym, value.MethodEntry.builtin(&builtinStringInclude, .{ .exact = 1 }));
 
@@ -3303,6 +3308,79 @@ pub fn builtinStringDeleteBang(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
 
     const string_obj = receiver.toStringObject();
     const result = try stringDeleteCompute(vm, string_obj, args);
+    if (!result.modified) return Value.nil();
+
+    try warnSymbolToSMutation(vm, string_obj);
+    string_obj.str = result.bytes;
+    string_obj.validity = .unknown;
+    string_obj.symbol_to_s_source = null;
+    return receiver;
+}
+
+fn stringSqueezeCompute(vm: *VM, string_obj: *value.StringObject, args: []Value) VMError!StringDeleteResult {
+    const selectors = vm.allocator.alloc(StringDeleteSelector, args.len) catch return error.Fatal;
+    defer vm.allocator.free(selectors);
+    const selector_count = if (args.len > 0) try buildStringDeleteSelectors(vm, string_obj, args, selectors) else 0;
+    defer {
+        for (selectors[0..selector_count]) |*selector| {
+            selector.deinit(vm.allocator);
+        }
+    }
+
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(vm.gc_allocator_atomic);
+
+    var modified = false;
+    var index: usize = 0;
+    var prev_codepoint: ?u32 = null;
+    var prev_matched: bool = false;
+
+    while (index < string_obj.str.len) {
+        const start = index;
+        const parsed = string_obj.encoding.nextCodepoint(string_obj.str, &index);
+        if (parsed.len == 0) break;
+        if (!parsed.valid) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "invalid byte sequence in {s}", .{string_obj.encoding.name()});
+        }
+
+        const char_bytes = string_obj.str[start..index];
+        var matched_all = true;
+        for (selectors[0..selector_count]) |selector| {
+            if (!stringDeleteSelectorContains(selector, parsed.codepoint)) {
+                matched_all = false;
+                break;
+            }
+        }
+
+        if (matched_all and prev_matched and prev_codepoint != null and prev_codepoint.? == parsed.codepoint) {
+            modified = true;
+            continue;
+        }
+
+        out.appendSlice(vm.gc_allocator_atomic, char_bytes) catch return error.Fatal;
+        prev_codepoint = parsed.codepoint;
+        prev_matched = matched_all;
+    }
+
+    return .{
+        .bytes = out.toOwnedSlice(vm.gc_allocator_atomic) catch return error.Fatal,
+        .modified = modified,
+    };
+}
+
+pub fn builtinStringSqueeze(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const string_obj = receiver.toStringObject();
+    const result = try stringSqueezeCompute(vm, string_obj, args);
+    return try vm.newStringWithEncoding(result.bytes, false, string_obj.encoding);
+}
+
+pub fn builtinStringSqueezeBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
+    }
+
+    const string_obj = receiver.toStringObject();
+    const result = try stringSqueezeCompute(vm, string_obj, args);
     if (!result.modified) return Value.nil();
 
     try warnSymbolToSMutation(vm, string_obj);
