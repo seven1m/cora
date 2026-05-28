@@ -783,7 +783,7 @@ fn builtinRegexpClone(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
 
 fn builtinRegexpLastMatch(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
-    const current = vm.globals.get("$~") orelse Value.nil();
+    const current = vm.getGlobalValue("$~");
     if (args.len == 0) {
         return current;
     }

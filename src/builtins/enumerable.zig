@@ -324,7 +324,7 @@ fn builtinEnumerableGroupBy(vm: *VM, receiver: Value, args: []Value, block: ?Blo
 fn builtinEnumerableGrep(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
 
-    const saved_last_match = vm.globals.get("$~") orelse Value.nil();
+    const saved_last_match = vm.getGlobalValue("$~");
     errdefer if (block == null) {
         if (saved_last_match.isMatchData()) {
             vm.setLastMatch(saved_last_match.toMatchDataObject()) catch unreachable;

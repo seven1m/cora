@@ -880,7 +880,7 @@ fn findStringSubRegexpMatchAt(
     const match_index = try regexp_builtin.regexpMatchOpAt(vm, regexp_obj, receiver, start_char_index, true);
     if (match_index.isNil()) return null;
 
-    const md_value = vm.globals.get("$~") orelse return error.Fatal;
+    const md_value = vm.getGlobalValue("$~");
     if (!md_value.isMatchData()) return error.Fatal;
     const md = md_value.toMatchDataObject();
     if (md.begin_byte_offsets.items.len == 0 or md.end_byte_offsets.items.len == 0 or md.captures.items.len == 0) {
@@ -2457,7 +2457,7 @@ pub fn builtinStringBracketSet(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
             return vm.raiseExceptionFmt(vm.index_error_class, "index out of string", .{});
         }
 
-        const md_val = vm.globals.get("$~") orelse return error.Fatal;
+        const md_val = vm.getGlobalValue("$~");
         if (!md_val.isMatchData()) return error.Fatal;
         const md = md_val.toMatchDataObject();
 
@@ -2503,7 +2503,7 @@ pub fn builtinStringBracketSet(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
             return vm.raiseExceptionFmt(vm.index_error_class, "index out of string", .{});
         }
 
-        const md_val = vm.globals.get("$~") orelse return error.Fatal;
+        const md_val = vm.getGlobalValue("$~");
         if (!md_val.isMatchData()) return error.Fatal;
         const md = md_val.toMatchDataObject();
         if (md.begin_byte_offsets.items.len == 0 or md.end_byte_offsets.items.len == 0) {
@@ -5226,7 +5226,7 @@ pub fn builtinStringPartition(vm: *VM, receiver: Value, args: []Value, _: ?Block
             const empty = try newEmptyStringWithEncoding(vm, string_obj.encoding);
             return newArrayWith3Values(vm, .{ whole, empty, empty });
         }
-        const md_val = vm.globals.get("$~") orelse return error.Fatal;
+        const md_val = vm.getGlobalValue("$~");
         if (!md_val.isMatchData()) return error.Fatal;
         const md = md_val.toMatchDataObject();
         if (md.begin_byte_offsets.items.len == 0) return error.Fatal;
@@ -5290,7 +5290,7 @@ pub fn builtinStringRpartition(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
             const whole = try vm.newStringWithEncoding(string_obj.str, false, string_obj.encoding);
             return newArrayWith3Values(vm, .{ empty, empty, whole });
         }
-        const md_val = vm.globals.get("$~") orelse return error.Fatal;
+        const md_val = vm.getGlobalValue("$~");
         if (!md_val.isMatchData()) return error.Fatal;
         const md = md_val.toMatchDataObject();
         if (md.begin_byte_offsets.items.len == 0) return error.Fatal;
@@ -5369,7 +5369,7 @@ pub fn builtinStringScan(vm: *VM, receiver: Value, args: []Value, block: ?Block)
             const match_idx = try regexp_builtin.regexpMatchOp(vm, regexp_obj, sub);
             if (match_idx.isNil()) break;
 
-            const last_match = vm.globals.get("$~") orelse Value.nil();
+            const last_match = vm.getGlobalValue("$~");
             if (!last_match.isMatchData()) break;
             const md = last_match.toMatchDataObject();
 
@@ -5644,7 +5644,7 @@ fn regexpSliceSelection(
         return .{ .value = Value.nil() };
     }
 
-    const md_val = vm.globals.get("$~") orelse return error.Fatal;
+    const md_val = vm.getGlobalValue("$~");
     if (!md_val.isMatchData()) return error.Fatal;
     const md = md_val.toMatchDataObject();
 

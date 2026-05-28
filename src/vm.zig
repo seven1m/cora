@@ -3831,6 +3831,10 @@ pub const VM = struct {
         main_thread_obj.result = Value.nil();
         main_thread_obj.exception = null;
         main_thread_obj.terminated_normally = false;
+        main_thread_obj.regexp_last_match = Value.nil();
+        main_thread_obj.regexp_last_match_full = Value.nil();
+        main_thread_obj.regexp_last_match_pre = Value.nil();
+        main_thread_obj.regexp_last_match_post = Value.nil();
         main_thread_obj.fiber_locals = null;
         main_thread_obj.thread_variables = null;
         main_thread_obj.name = null;
@@ -3897,6 +3901,10 @@ pub const VM = struct {
         thread_obj.result = Value.nil();
         thread_obj.exception = null;
         thread_obj.terminated_normally = false;
+        thread_obj.regexp_last_match = Value.nil();
+        thread_obj.regexp_last_match_full = Value.nil();
+        thread_obj.regexp_last_match_pre = Value.nil();
+        thread_obj.regexp_last_match_post = Value.nil();
         thread_obj.fiber_locals = null;
         thread_obj.thread_variables = null;
         thread_obj.name = null;
@@ -4637,7 +4645,7 @@ pub const VM = struct {
                 const name_val = constants[name_idx];
                 const var_name = name_val.string;
 
-                const global_val = self.globals.get(var_name) orelse Value.nil();
+                const global_val = self.getGlobalValue(var_name);
                 try self.push(global_val);
             },
 
@@ -7794,7 +7802,7 @@ pub const VM = struct {
                 .non_local_return_occurred = false,
             },
             .callable => |callable| blk: {
-                const saved_last_match = self.globals.get("$~") orelse Value.nil();
+                const saved_last_match = self.getGlobalValue("$~");
                 try self.clearLastMatch();
                 const call_result = self.callMethodByName(callable, "call", @constCast(yield_args), null) catch |err| {
                     if (saved_last_match.isMatchData()) {
@@ -9312,6 +9320,20 @@ pub const VM = struct {
         try self.setLastMatch(null);
     }
 
+    fn currentRegexpPseudoGlobalSlot(self: *VM, name: []const u8) ?*Value {
+        const thread = self.current_thread orelse self.main_thread orelse return null;
+        if (std.mem.eql(u8, name, "$~")) return &thread.regexp_last_match;
+        if (std.mem.eql(u8, name, "$&")) return &thread.regexp_last_match_full;
+        if (std.mem.eql(u8, name, "$`")) return &thread.regexp_last_match_pre;
+        if (std.mem.eql(u8, name, "$'")) return &thread.regexp_last_match_post;
+        return null;
+    }
+
+    pub fn getGlobalValue(self: *VM, name: []const u8) Value {
+        if (self.currentRegexpPseudoGlobalSlot(name)) |slot| return slot.*;
+        return self.globals.get(name) orelse Value.nil();
+    }
+
     pub fn newObjectForClass(self: *VM, class_obj: *ClassObject) VMError!Value {
         if (self.isClassOrSubclassOf(class_obj, self.exception_class)) {
             const exc = try self.createException(class_obj, "");
@@ -9485,6 +9507,10 @@ pub const VM = struct {
     }
 
     pub fn setGlobal(self: *VM, name: []const u8, val: Value) VMError!void {
+        if (self.currentRegexpPseudoGlobalSlot(name)) |slot| {
+            slot.* = val;
+            return;
+        }
         if (self.globals.getPtr(name)) |existing| {
             existing.* = val;
             return;
@@ -9495,7 +9521,7 @@ pub const VM = struct {
 
     fn getBackrefCapture(self: *VM, capture_index: u16) Value {
         if (capture_index == 0) return Value.nil();
-        const match_val = self.globals.get("$~") orelse return Value.nil();
+        const match_val = self.getGlobalValue("$~");
         if (!match_val.isMatchData()) return Value.nil();
         const captures = match_val.toMatchDataObject().captures.items;
         const idx: usize = capture_index;

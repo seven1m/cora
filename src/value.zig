@@ -348,6 +348,10 @@ pub const ThreadObject = struct {
     result: Value = Value.nil(),
     exception: ?*ExceptionObject = null,
     terminated_normally: bool = false,
+    regexp_last_match: Value = Value.nil(),
+    regexp_last_match_full: Value = Value.nil(),
+    regexp_last_match_pre: Value = Value.nil(),
+    regexp_last_match_post: Value = Value.nil(),
     // Thread-local storage
     fiber_locals: ?std.AutoHashMap(*SymbolObject, Value) = null,
     thread_variables: ?std.AutoHashMap(*SymbolObject, Value) = null,
