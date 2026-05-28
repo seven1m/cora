@@ -101,6 +101,9 @@ pub fn register(vm: *VM) !void {
 
     const bracket_sym = try vm.intern("[]");
     try dir_singleton.module.methods.put(bracket_sym, value.MethodEntry.builtin(&builtinDirGlob, .{ .variadic = 0 }));
+
+    const entries_sym = try vm.intern("entries");
+    try dir_singleton.module.methods.put(entries_sym, value.MethodEntry.builtin(&builtinDirEntries, .{ .variadic = 0 }));
 }
 
 pub fn builtinDirPwd(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -237,6 +240,33 @@ pub fn builtinDirChildren(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
     while (iter.next(vm.io) catch return error.Fatal) |entry| {
         if (isDotLike(entry.name)) continue;
         result.elements.append(vm.gc_allocator, try vm.newString(entry.name, false)) catch return error.Fatal;
+    }
+
+    return Value.fromObject(&result.object);
+}
+
+pub fn builtinDirEntries(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    var encoding_value: ?Value = null;
+    try vm.consumeKeywordArgs(.{"encoding"}, .{&encoding_value});
+
+    const target = if (args.len == 1) blk: {
+        const maybe_to_path = try vm.checkCallMethodByName(args[0], "to_path", false, &.{}, null);
+        break :blk try vm.coerceToPath(maybe_to_path orelse args[0], "no implicit conversion into String");
+    } else
+        ".";
+
+    var dir = std.Io.Dir.cwd().openDir(vm.io, target, .{ .iterate = true }) catch {
+        return vm.raiseExceptionFmt(vm.system_call_error_class, "No such file or directory @ dir_entries - {s}", .{target});
+    };
+    defer dir.close(vm.io);
+
+    const result = try vm.createArray();
+    result.elements.append(vm.gc_allocator, try vm.newString(".", false)) catch return error.Fatal;
+    result.elements.append(vm.gc_allocator, try vm.newString("..", false)) catch return error.Fatal;
+    var iter = dir.iterate();
+    while (iter.next(vm.io) catch return error.Fatal) |dir_entry| {
+        result.elements.append(vm.gc_allocator, try vm.newString(dir_entry.name, false)) catch return error.Fatal;
     }
 
     return Value.fromObject(&result.object);
