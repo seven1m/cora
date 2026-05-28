@@ -239,7 +239,15 @@ const IoSelectWatch = struct {
     fd: i32,
     events: i16,
     kind: IoSelectKind,
+    pollfd_index: usize = 0,
+    fd_is_socket: bool = false,
 };
+
+fn selectFdIsSocket(fd: i32) bool {
+    var stat_buf: std.c.Stat = undefined;
+    if (std.c.fstat(@intCast(fd), &stat_buf) != 0) return false;
+    return std.c.S.ISSOCK(stat_buf.mode);
+}
 
 const PopenConfig = struct {
     env: std.ArrayList(PopenEnvEntry),
@@ -1350,7 +1358,7 @@ fn selectReadyMask(kind: IoSelectKind) i16 {
     return switch (kind) {
         .read => std.posix.POLL.IN | std.posix.POLL.ERR | std.posix.POLL.HUP,
         .write => std.posix.POLL.OUT | std.posix.POLL.ERR,
-        .except => std.posix.POLL.PRI | std.posix.POLL.ERR,
+        .except => std.posix.POLL.PRI,
     };
 }
 
@@ -1376,21 +1384,33 @@ fn appendSelectWatches(vm: *VM, watches: *std.ArrayList(IoSelectWatch), array: ?
             .fd = io.fd,
             .events = selectWatchEvent(kind),
             .kind = kind,
+            .fd_is_socket = selectFdIsSocket(io.fd),
         }) catch return error.Fatal;
     }
 }
 
-fn selectPollfds(vm: *VM, watches: []const IoSelectWatch) VMError!std.ArrayList(std.posix.pollfd) {
+fn selectPollfds(vm: *VM, watches: []IoSelectWatch) VMError!std.ArrayList(std.posix.pollfd) {
     var pollfds: std.ArrayList(std.posix.pollfd) = .empty;
     errdefer pollfds.deinit(vm.allocator);
+    var fd_to_index = std.AutoHashMap(i32, usize).init(vm.allocator);
+    defer fd_to_index.deinit();
 
     pollfds.ensureTotalCapacity(vm.allocator, watches.len) catch return error.Fatal;
-    for (watches) |watch| {
+    for (watches) |*watch| {
+        if (fd_to_index.get(watch.fd)) |index| {
+            watch.pollfd_index = index;
+            pollfds.items[index].events |= watch.events;
+            continue;
+        }
+
+        const index = pollfds.items.len;
         pollfds.appendAssumeCapacity(.{
             .fd = @intCast(watch.fd),
             .events = watch.events,
             .revents = 0,
         });
+        fd_to_index.put(watch.fd, index) catch return error.Fatal;
+        watch.pollfd_index = index;
     }
     return pollfds;
 }
@@ -1413,8 +1433,13 @@ fn selectResult(vm: *VM, watches: []const IoSelectWatch, pollfds: []const std.po
     const error_array = try vm.createArray();
 
     var any_ready = false;
-    for (watches, pollfds) |watch, pollfd| {
-        if ((pollfd.revents & selectReadyMask(watch.kind)) == 0) continue;
+    for (watches) |watch| {
+        const pollfd = pollfds[watch.pollfd_index];
+        const ready_mask = if (watch.kind == .except and !watch.fd_is_socket)
+            @as(i16, 0)
+        else
+            selectReadyMask(watch.kind);
+        if ((pollfd.revents & ready_mask) == 0) continue;
         any_ready = true;
         const target = switch (watch.kind) {
             .read => read_array,
