@@ -20,6 +20,7 @@ const time_test = @import("time_test.zig");
 const timeout_test = @import("timeout_test.zig");
 const tmpdir_test = @import("tmpdir_test.zig");
 const uri_test = @import("uri_test.zig");
+const webrick_test = @import("webrick_test.zig");
 const zlib_test = @import("zlib_test.zig");
 
 const core_array_test = @import("core/array_test.zig");
@@ -118,6 +119,7 @@ comptime {
     _ = timeout_test;
     _ = tmpdir_test;
     _ = uri_test;
+    _ = webrick_test;
     _ = zlib_test;
     _ = core_class_test;
     _ = core_argv_test;

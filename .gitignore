@@ -9,3 +9,4 @@ spec/.total-specs
 ext/prism
 ext/logger
 ext/time
+ext/webrick
