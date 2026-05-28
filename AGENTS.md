@@ -14,6 +14,7 @@ Prism AST -> bytecode -> VM execution.
 - Prefer `VM.coerceToHashValue` when `to_hash` is required and standard Ruby `TypeError` details should be preserved.
 - For Ruby truthiness checks on `Value`, use existing `Value.is_truthy()`. Do not add camelCase aliases like `isTruthy`.
 - Keep imports at the top of the file; avoid inline `@import(...)` expressions.
+- Prefer adding logging/tracing for concrete evidence when debugging over guessing.
 
 ## Task Routing
 
