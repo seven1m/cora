@@ -15,6 +15,9 @@ pub fn register(vm: *VM) !void {
     const call_sym = try vm.intern("call");
     try vm.proc_class.module.methods.put(call_sym, value.MethodEntry.builtin(&builtinProcCall, .{ .variadic = 0 }));
 
+    const bracket_sym = try vm.intern("[]");
+    try vm.proc_class.module.methods.put(bracket_sym, value.MethodEntry.builtin(&builtinProcCall, .{ .variadic = 0 }));
+
     const lambda_query_sym = try vm.intern("lambda?");
     try vm.proc_class.module.methods.put(lambda_query_sym, value.MethodEntry.builtin(&builtinProcIsLambda, .{ .exact = 0 }));
 
