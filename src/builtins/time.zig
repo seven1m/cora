@@ -879,10 +879,18 @@ fn buildStrftimeValue(vm: *VM, receiver: Value, format_bytes: []const u8) VMErro
             return vm.raiseExceptionFmt(vm.argument_error_class, "incomplete strftime directive", .{});
         }
 
-        var colon_modifier = false;
-        if (format_bytes[index] == ':') {
-            colon_modifier = true;
-            index += 1;
+        var dash_flag = false;
+        while (index < format_bytes.len) : (index += 1) {
+            switch (format_bytes[index]) {
+                '-' => dash_flag = true,
+                '0', '_' => {},
+                else => break,
+            }
+        }
+
+        var colon_count: usize = 0;
+        while (index < format_bytes.len and format_bytes[index] == ':') : (index += 1) {
+            colon_count += 1;
         }
 
         var width: usize = 0;
@@ -943,21 +951,27 @@ fn buildStrftimeValue(vm: *VM, receiver: Value, format_bytes: []const u8) VMErro
                 out.appendSlice(vm.allocator, month_names[parts.month - 1]) catch return error.Fatal;
             },
             'z' => {
-                if (!colon_modifier) {
-                    return vm.raiseExceptionFmt(vm.argument_error_class, "unsupported strftime directive %z", .{});
-                }
-                if (t.is_utc) {
-                    out.appendSlice(vm.allocator, "+00:00") catch return error.Fatal;
-                } else {
-                    const total_seconds = @divTrunc(t.utc_offset_nanos, nanos_per_second);
-                    const sign: u8 = if (total_seconds >= 0) '+' else '-';
-                    const abs_seconds = if (total_seconds >= 0) total_seconds else -total_seconds;
-                    const off_h = @divTrunc(abs_seconds, seconds_per_hour);
-                    const off_m = @divTrunc(@rem(abs_seconds, seconds_per_hour), seconds_per_minute);
-                    var buf: [16]u8 = undefined;
-                     const s = std.fmt.bufPrint(&buf, "{c}{d:0>2}:{d:0>2}", .{ sign, @as(u64, @intCast(off_h)), @as(u64, @intCast(off_m)) }) catch return error.Fatal;
-                    out.appendSlice(vm.allocator, s) catch return error.Fatal;
-                }
+                const total_seconds = if (colon_count >= 2) rounded: {
+                    const half_ns = nanos_per_second / 2;
+                    break :rounded if (t.utc_offset_nanos >= 0)
+                        @divTrunc(t.utc_offset_nanos + half_ns, nanos_per_second)
+                    else
+                        @divTrunc(t.utc_offset_nanos - half_ns, nanos_per_second);
+                } else @divTrunc(t.utc_offset_nanos, nanos_per_second);
+                const sign: u8 = if (total_seconds >= 0) if (dash_flag and t.is_utc) '-' else '+' else '-';
+                const abs_seconds = if (total_seconds >= 0) total_seconds else -total_seconds;
+                const off_h = @divTrunc(abs_seconds, seconds_per_hour);
+                const off_m = @divTrunc(@rem(abs_seconds, seconds_per_hour), seconds_per_minute);
+                var buf: [32]u8 = undefined;
+                const s = if (colon_count >= 2) blk: {
+                    const off_s = @rem(abs_seconds, seconds_per_minute);
+                    break :blk std.fmt.bufPrint(&buf, "{c}{d:0>2}:{d:0>2}:{d:0>2}", .{ sign, @as(u64, @intCast(off_h)), @as(u64, @intCast(off_m)), @as(u64, @intCast(off_s)) }) catch return error.Fatal;
+                } else if (colon_count == 1) blk: {
+                    break :blk std.fmt.bufPrint(&buf, "{c}{d:0>2}:{d:0>2}", .{ sign, @as(u64, @intCast(off_h)), @as(u64, @intCast(off_m)) }) catch return error.Fatal;
+                } else blk: {
+                    break :blk std.fmt.bufPrint(&buf, "{c}{d:0>2}{d:0>2}", .{ sign, @as(u64, @intCast(off_h)), @as(u64, @intCast(off_m)) }) catch return error.Fatal;
+                };
+                out.appendSlice(vm.allocator, s) catch return error.Fatal;
             },
             'c' => {
                 try appendPaddedDecimal(&out, vm.allocator, parts.year, 4);
