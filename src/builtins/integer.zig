@@ -588,6 +588,9 @@ pub fn register(vm: *VM) !void {
     const truncate_sym = try vm.intern("truncate");
     try vm.integer_class.module.methods.put(truncate_sym, value.MethodEntry.builtin(&builtinIntegerTruncate, .{ .variadic = 0 }));
 
+    const round_sym = try vm.intern("round");
+    try vm.integer_class.module.methods.put(round_sym, value.MethodEntry.builtin(&builtinIntegerRound, .{ .variadic = 0 }));
+
     const inspect_sym = try vm.intern("inspect");
     try vm.integer_class.module.methods.put(inspect_sym, value.MethodEntry.builtin(&builtinIntegerInspect, .{ .variadic = 0 }));
 
@@ -1425,6 +1428,73 @@ pub fn builtinIntegerTruncate(vm: *VM, receiver: Value, args: []Value, _: ?Block
 
     const quotient = try divTruncIntegers(vm, receiver, factor);
     return mulIntegers(vm, quotient, factor);
+}
+
+pub fn builtinIntegerRound(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    try receiver.ensureInteger(vm);
+
+    if (args.len == 0) return receiver;
+
+    const half_sym = try vm.consumeKeywordArg("half");
+    try vm.validateKeywordArgsConsumed();
+
+    const half_mode = if (half_sym) |half_val| blk: {
+        if (half_val.isNil()) break :blk @as([]const u8, "up");
+        if (!half_val.isSymbol()) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "invalid rounding mode: {s}", .{vm.className(half_val)});
+        }
+        const name = half_val.toSymbolObject().name;
+        if (!std.mem.eql(u8, name, "up") and
+            !std.mem.eql(u8, name, "down") and
+            !std.mem.eql(u8, name, "even"))
+        {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "invalid rounding mode: {s}", .{name});
+        }
+        break :blk name;
+    } else @as([]const u8, "up");
+
+    const ndigits_val = try args[0].coerceToIntegerValue(vm, "no implicit conversion into Integer", "no implicit conversion into Integer");
+    const ndigits = try ndigits_val.integerToI64(vm, "ndigits is too large");
+
+    if (ndigits > std.math.maxInt(i32) or ndigits < std.math.minInt(i32)) {
+        return vm.raiseExceptionFmt(vm.range_error_class, "ndigits is too large", .{});
+    }
+
+    if (ndigits >= 0) return receiver;
+
+    const abs_ndigits: u64 = @intCast(-ndigits);
+    const factor = try integerDecimalFactor(vm, abs_ndigits);
+    const half_factor = try divTruncIntegers(vm, factor, Value.integer(2));
+
+    const quotient = try divTruncIntegers(vm, receiver, factor);
+    const product = try mulIntegers(vm, quotient, factor);
+    const remainder = try subIntegers(vm, receiver, product);
+
+    if ((try builtinIntegerZero(vm, remainder, &.{}, null)).is_truthy()) return receiver;
+
+    const abs_remainder = try builtinIntegerAbs(vm, remainder, &.{}, null);
+    const cmp = try compareIntegers(vm, abs_remainder, half_factor);
+
+    if (cmp == .lt) return mulIntegers(vm, quotient, factor);
+
+    if (cmp == .gt) {
+        if (integerIsNegative(remainder)) {
+            return mulIntegers(vm, try subIntegers(vm, quotient, Value.integer(1)), factor);
+        }
+        return mulIntegers(vm, try addIntegers(vm, quotient, Value.integer(1)), factor);
+    }
+
+    if (std.mem.eql(u8, half_mode, "down")) return mulIntegers(vm, quotient, factor);
+
+    if (std.mem.eql(u8, half_mode, "even") and (try builtinIntegerEven(vm, quotient, &.{}, null)).is_truthy()) {
+        return mulIntegers(vm, quotient, factor);
+    }
+
+    if (integerIsNegative(remainder)) {
+        return mulIntegers(vm, try subIntegers(vm, quotient, Value.integer(1)), factor);
+    }
+    return mulIntegers(vm, try addIntegers(vm, quotient, Value.integer(1)), factor);
 }
 
 pub fn builtinIntegerCeil(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
