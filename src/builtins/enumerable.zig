@@ -53,6 +53,8 @@ pub fn register(vm: *VM) !void {
     try enumerable_val.toModuleObject().methods.put(member_sym, value.MethodEntry.builtin(&builtinEnumerableInclude, .{ .exact = 1 }));
     const sum_sym = try vm.intern("sum");
     try enumerable_val.toModuleObject().methods.put(sum_sym, value.MethodEntry.builtin(&builtinEnumerableSum, .{ .variadic = 0 }));
+    const count_sym = try vm.intern("count");
+    try enumerable_val.toModuleObject().methods.put(count_sym, value.MethodEntry.builtin(&builtinEnumerableCount, .{ .variadic = 0 }));
 }
 
 fn builtinEnumerableFlatMap(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -435,6 +437,42 @@ fn builtinEnumerableInject(vm: *VM, receiver: Value, args: []Value, block: ?Bloc
         accumulator = try vm.callMethodByName(accumulator, method_name, method_args[0..], null);
     }
     return accumulator;
+}
+
+fn builtinEnumerableCount(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+
+    const pattern = if (args.len == 1) args[0] else null;
+
+    if (pattern != null and block != null) {
+        try warning_builtin.warnBlockUnused(vm);
+    }
+
+    const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
+    var count: i64 = 0;
+
+    if (pattern) |pat| {
+        while (try enumerableNextElement(vm, enum_value)) |element| {
+            if (try vm.valueEquals(element, pat)) {
+                count += 1;
+            }
+        }
+    } else if (block) |blk| {
+        while (true) {
+            const next_values = try enumerableNextValues(vm, enum_value) orelse break;
+            const result = try vm.yieldToBlock(blk, next_values.elements.items);
+            if (result.controlFlowValue()) |return_value| return return_value;
+            if (result.value.is_truthy()) {
+                count += 1;
+            }
+        }
+    } else {
+        while (try enumerableNextElement(vm, enum_value)) |_| {
+            count += 1;
+        }
+    }
+
+    return Value.integer(count);
 }
 
 fn builtinEnumerableSum(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {

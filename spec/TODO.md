@@ -427,7 +427,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/enumerable/collect_concat_spec.rb
 - [ ] core/enumerable/collect_spec.rb
 - [ ] core/enumerable/compact_spec.rb
-- [ ] core/enumerable/count_spec.rb
+- [x] core/enumerable/count_spec.rb
 - [ ] core/enumerable/cycle_spec.rb
 - [x] core/enumerable/detect_spec.rb
 - [ ] core/enumerable/drop_spec.rb
