@@ -465,7 +465,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/enumerable/reduce_spec.rb
 - [ ] core/enumerable/reject_spec.rb
 - [ ] core/enumerable/reverse_each_spec.rb
-- [ ] core/enumerable/select_spec.rb
+- [x] core/enumerable/select_spec.rb
 - [ ] core/enumerable/slice_after_spec.rb
 - [ ] core/enumerable/slice_before_spec.rb
 - [ ] core/enumerable/slice_when_spec.rb
