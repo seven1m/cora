@@ -630,6 +630,9 @@ pub fn register(vm: *VM) !void {
     const lcm_sym = try vm.intern("lcm");
     try vm.integer_class.module.methods.put(lcm_sym, value.MethodEntry.builtin(&builtinIntegerLcm, .{ .exact = 1 }));
 
+    const gcdlcm_sym = try vm.intern("gcdlcm");
+    try vm.integer_class.module.methods.put(gcdlcm_sym, value.MethodEntry.builtin(&builtinIntegerGcdlcm, .{ .exact = 1 }));
+
     const digits_sym = try vm.intern("digits");
     try vm.integer_class.module.methods.put(digits_sym, value.MethodEntry.builtin(&builtinIntegerDigits, .{ .variadic = 0 }));
 
@@ -1709,6 +1712,15 @@ pub fn builtinIntegerLcm(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     defer result.deinit();
     result.mul(&quot, &b_saved) catch return error.Fatal;
     return vm.valueFromManagedInteger(&result);
+}
+
+pub fn builtinIntegerGcdlcm(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const gcd = try builtinIntegerGcd(vm, receiver, args, null);
+    const lcm = try builtinIntegerLcm(vm, receiver, args, null);
+    const arr = try vm.createArray();
+    arr.elements.append(vm.gc_allocator, gcd) catch return error.Fatal;
+    arr.elements.append(vm.gc_allocator, lcm) catch return error.Fatal;
+    return Value.fromObject(&arr.object);
 }
 
 pub fn builtinIntegerDigits(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
