@@ -5284,7 +5284,7 @@ pub fn builtinStringRpartition(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
     const string_obj = receiver.toStringObject();
 
     if (args[0].isRegexp()) {
-        const match_idx = try regexp_builtin.regexpMatchOp(vm, args[0].toRegexpObject(), receiver);
+        const match_idx = try regexp_builtin.regexpRindexAt(vm, args[0].toRegexpObject(), receiver, null, true);
         if (match_idx.isNil()) {
             const empty = try newEmptyStringWithEncoding(vm, string_obj.encoding);
             const whole = try vm.newStringWithEncoding(string_obj.str, false, string_obj.encoding);
