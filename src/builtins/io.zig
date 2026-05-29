@@ -473,13 +473,32 @@ fn buildPopenEnvp(vm: *VM, config: *PopenConfig) VMError!struct {
     };
 }
 
+fn resolveExecPath(vm: *VM, name: []const u8) VMError![:0]u8 {
+    if (std.mem.indexOfScalar(u8, name, '/') != null) {
+        return vm.allocCStringZ(name);
+    }
+    const path_env = std.c.getenv("PATH") orelse "/usr/local/bin:/usr/ucb:/usr/bin:/bin:.";
+    const path_str = std.mem.span(path_env);
+    var it = std.mem.splitScalar(u8, path_str, ':');
+    while (it.next()) |dir| {
+        const search_dir = if (dir.len == 0) "." else dir;
+        var buf: [std.fs.max_path_bytes]u8 = undefined;
+        const full = std.fmt.bufPrint(buf[0..], "{s}/{s}", .{ search_dir, name }) catch continue;
+        const full_z = vm.allocCStringZ(full) catch continue;
+        defer vm.allocator.free(full_z);
+        if (std.c.access(full_z.ptr, std.c.X_OK) != 0) continue;
+        return vm.allocCStringZ(full);
+    }
+    return vm.allocCStringZ(name);
+}
+
 fn buildPopenArgv(vm: *VM, config: *PopenConfig) VMError!struct {
     path_z: [:0]u8,
     arg_strings: std.ArrayList([:0]u8),
     argv: std.ArrayList(?[*:0]const u8),
 } {
     const exec_path = config.exec_path orelse if (config.shell_command != null) "/bin/sh" else unreachable;
-    const path_z = try vm.allocCStringZ(exec_path);
+    const path_z = try resolveExecPath(vm, exec_path);
     errdefer vm.allocator.free(path_z);
 
     var arg_strings: std.ArrayList([:0]u8) = .empty;
@@ -2101,8 +2120,11 @@ pub fn builtinIoClose(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
 
     const pid_value = try vm.getInstanceVariable(receiver, "@pid");
     if (pid_value.isInteger()) {
+        const child_pid = pid_value.toInteger();
+
         var status: c_int = 0;
-        const waited = std.c.waitpid(@intCast(pid_value.toInteger()), &status, 0);
+        const waited = std.c.waitpid(@intCast(child_pid), &status, 0);
+
         if (waited > 0) {
             try vm.setLastProcessStatusFromWaitStatus(status);
         }

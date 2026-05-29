@@ -297,4 +297,8 @@ describe "IO.popen" do
       end
     end
   end
+
+  it "resolves Array command via PATH" do
+    IO.popen(["env", "echo", "hello"]) { |io| io.read.should == "hello\n" }
+  end
 end
