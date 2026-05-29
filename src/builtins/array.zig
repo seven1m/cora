@@ -2255,11 +2255,64 @@ pub fn builtinArrayRindex(vm: *VM, receiver: Value, args: []Value, block: ?Block
 
 pub fn builtinArrayBsearch(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    if (block == null) {
+    const blk = block orelse {
         return try vm.createMethodEnumerator(receiver, try vm.intern("bsearch"), &.{});
+    };
+    const array_obj = receiver.toArrayObject();
+    const len = array_obj.elements.items.len;
+
+    if (len == 0) return Value.nil();
+
+    var low: usize = 0;
+    var high: usize = len;
+    var satisfied = false;
+
+    while (low < high) {
+        const mid = low + (high - low) / 2;
+        const element = array_obj.elements.items[mid];
+        const yield_result = try vm.yieldToBlock(blk, &[_]Value{element});
+        if (yield_result.controlFlowValue()) |return_value| return return_value;
+        const result = yield_result.value;
+
+        const smaller: bool = if (result.isTrue()) blk: {
+            satisfied = true;
+            break :blk true;
+        } else if (result.isFalse() or result.isNil()) blk: {
+            break :blk false;
+        } else if (result.isInteger()) blk: {
+            const val = result.toInteger();
+            if (val == 0) return element;
+            break :blk val < 0;
+        } else if (result.isFloat()) blk: {
+            const val = result.toFloatObject().val;
+            if (val == 0.0) return element;
+            break :blk val < 0.0;
+        } else if (result.isBigInteger()) blk: {
+            const val = result.toBigIntegerObject().value.toFloat(f64, .nearest_even)[0];
+            if (val == 0.0) return element;
+            break :blk val < 0.0;
+        } else if (result.isRational()) blk: {
+            const r = result.toRationalObject();
+            const num_f64 = r.numerator.integerToF64();
+            if (num_f64 == 0.0) return element;
+            const den_f64 = r.denominator.integerToF64();
+            const val = num_f64 / den_f64;
+            break :blk val < 0.0;
+        } else {
+            return vm.raiseExceptionFmt(vm.type_error_class, "wrong argument type {s} (expected numeric, true, false)", .{vm.className(result)});
+        };
+
+        if (smaller) {
+            high = mid;
+        } else {
+            low = mid + 1;
+        }
     }
 
-    return vm.raiseExceptionFmt(vm.runtime_error_class, "Array#bsearch is not implemented yet", .{});
+    if (satisfied) {
+        return array_obj.elements.items[low];
+    }
+    return Value.nil();
 }
 
 pub fn builtinArrayDig(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

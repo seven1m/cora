@@ -86,7 +86,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/array/assoc_spec.rb
 - [x] core/array/at_spec.rb
 - [ ] core/array/bsearch_index_spec.rb
-- [ ] core/array/bsearch_spec.rb
+- [x] core/array/bsearch_spec.rb
 - [x] core/array/clear_spec.rb
 - [x] core/array/clone_spec.rb
 - [x] core/array/collect_spec.rb
