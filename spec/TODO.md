@@ -1531,7 +1531,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/numeric/negative_spec.rb
 - [x] core/numeric/nonzero_spec.rb
 - [ ] core/numeric/numerator_spec.rb
-- [ ] core/numeric/numeric_spec.rb
+- [x] core/numeric/numeric_spec.rb
 - [ ] core/numeric/phase_spec.rb
 - [ ] core/numeric/polar_spec.rb
 - [x] core/numeric/positive_spec.rb

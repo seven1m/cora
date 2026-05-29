@@ -7,6 +7,11 @@ const Block = vm_mod.Block;
 const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
+    const comparable_sym = try vm.intern("Comparable");
+    if (vm.object_class.module.constants.get(comparable_sym)) |comparable_val| {
+        try vm.includeModule(&vm.numeric_class.module, comparable_val.value.toModuleObject());
+    }
+
     const zero_q_sym = try vm.intern("zero?");
     try vm.numeric_class.module.methods.put(zero_q_sym, value.MethodEntry.builtin(&builtinNumericZero, .{ .exact = 0 }));
 
