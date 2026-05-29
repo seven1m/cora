@@ -1547,7 +1547,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/numeric/truncate_spec.rb
 - [ ] core/numeric/uminus_spec.rb
 - [ ] core/numeric/uplus_spec.rb
-- [ ] core/numeric/zero_spec.rb
+- [x] core/numeric/zero_spec.rb
 
 ### core/objectspace
 - [ ] core/objectspace/_id2ref_spec.rb
