@@ -539,6 +539,9 @@ pub fn register(vm: *VM) !void {
     const size_sym = try vm.intern("size");
     try vm.array_class.module.methods.put(size_sym, value.MethodEntry.builtin(&builtinArrayLength, .{ .exact = 0 }));
 
+    const deconstruct_sym = try vm.intern("deconstruct");
+    try vm.array_class.module.methods.put(deconstruct_sym, value.MethodEntry.builtin(&builtinArrayDeconstruct, .{ .exact = 0 }));
+
     const map_sym = try vm.intern("map");
     try vm.array_class.module.methods.put(map_sym, value.MethodEntry.builtin(&builtinArrayMap, .{ .exact = 0 }));
 
@@ -1308,6 +1311,12 @@ pub fn builtinArrayLength(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     try vm.requireArgCount(args, 0);
     const array = receiver.toArrayObject();
     return Value.integer(@intCast(array.elements.items.len));
+}
+
+pub fn builtinArrayDeconstruct(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    _ = vm;
+    _ = args;
+    return receiver;
 }
 
 pub fn builtinArrayMap(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
