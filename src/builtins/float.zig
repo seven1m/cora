@@ -129,6 +129,12 @@ pub fn register(vm: *VM) !void {
     const infinite_sym = try vm.intern("infinite?");
     try vm.float_class.module.methods.put(infinite_sym, value.MethodEntry.builtin(&builtinFloatInfinite, .{ .exact = 0 }));
 
+    const negative_q_sym = try vm.intern("negative?");
+    try vm.float_class.module.methods.put(negative_q_sym, value.MethodEntry.builtin(&builtinFloatNegative, .{ .exact = 0 }));
+
+    const positive_q_sym = try vm.intern("positive?");
+    try vm.float_class.module.methods.put(positive_q_sym, value.MethodEntry.builtin(&builtinFloatPositive, .{ .exact = 0 }));
+
     const to_int_sym = try vm.intern("to_int");
     try vm.float_class.module.methods.put(to_int_sym, value.MethodEntry.builtin(&builtinFloatToInt, .{ .exact = 0 }));
 
@@ -278,6 +284,16 @@ pub fn builtinFloatInfinite(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     if (std.math.isPositiveInf(f)) return Value.integer(1);
     if (std.math.isNegativeInf(f)) return Value.integer(-1);
     return Value.nil();
+}
+
+pub fn builtinFloatNegative(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return Value.boolean(receiver.toFloatObject().val < 0.0);
+}
+
+pub fn builtinFloatPositive(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return Value.boolean(receiver.toFloatObject().val > 0.0);
 }
 
 pub fn builtinFloatToInt(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
