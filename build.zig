@@ -218,10 +218,17 @@ pub fn build(b: *std.Build) void {
     exe.root_module.link_libc = true;
     linkOpenSSL(exe.root_module);
 
+    // On Darwin aarch64, getcontext() is deprecated and does not save
+    // caller-saved registers (x0-x18), making GC root scanning unreliable.
+    const bdwgc_cflags: []const u8 = if (target.result.os.tag.isDarwin() and target.result.cpu.arch.isAARCH64())
+        "-DNO_GETCONTEXT"
+    else
+        "";
     const bdwgc = b.dependency("bdwgc_zig", .{
         .target = target,
         .optimize = optimize,
         .linkage = .static,
+        .CFLAGS_EXTRA = bdwgc_cflags,
     });
     const zio = b.dependency("zio", .{
         .target = target,
