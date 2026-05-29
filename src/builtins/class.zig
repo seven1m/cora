@@ -16,6 +16,9 @@ pub fn register(vm: *VM) !void {
 
     const class_equal_sym = try vm.intern("==");
     try vm.class_class.module.methods.put(class_equal_sym, value.MethodEntry.builtin(&builtinClassEqual, .{ .exact = 1 }));
+
+    const class_superclass_sym = try vm.intern("superclass");
+    try vm.class_class.module.methods.put(class_superclass_sym, value.MethodEntry.builtin(&builtinClassSuperclass, .{ .exact = 0 }));
 }
 
 fn singletonClassName(vm: *VM, class_ptr: *ClassObject) ?[]const u8 {
@@ -131,6 +134,16 @@ pub fn builtinClassEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
         return Value.boolean(false);
     }
     return Value.boolean(receiver.toClassObject() == args[0].toClassObject());
+}
+
+pub fn builtinClassSuperclass(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    if (!receiver.isClass()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Class", .{});
+    }
+    const class_ptr = receiver.toClassObject();
+    const superclass = class_ptr.superclass orelse return Value.nil();
+    return Value.fromObject(&superclass.module.object);
 }
 
 pub fn builtinClassAllocate(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
