@@ -1008,7 +1008,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/integer/constants_spec.rb
 - [x] core/integer/denominator_spec.rb
 - [-] core/integer/digits_spec.rb
-- [ ] core/integer/div_spec.rb
+- [x] core/integer/div_spec.rb
 - [ ] core/integer/divide_spec.rb
 - [ ] core/integer/divmod_spec.rb
 - [x] core/integer/downto_spec.rb

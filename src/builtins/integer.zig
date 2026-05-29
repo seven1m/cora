@@ -630,6 +630,9 @@ pub fn register(vm: *VM) !void {
     const digits_sym = try vm.intern("digits");
     try vm.integer_class.module.methods.put(digits_sym, value.MethodEntry.builtin(&builtinIntegerDigits, .{ .variadic = 0 }));
 
+    const div_sym = try vm.intern("div");
+    try vm.integer_class.module.methods.put(div_sym, value.MethodEntry.builtin(&builtinIntegerDiv, .{ .exact = 1 }));
+
     const ceil_sym = try vm.intern("ceil");
     try integer_singleton.module.methods.put(ceil_sym, value.MethodEntry.builtin(&builtinIntegerCeil, .{ .variadic = 0 }));
     try vm.integer_class.module.methods.put(ceil_sym, value.MethodEntry.builtin(&builtinIntegerCeil, .{ .variadic = 0 }));
@@ -1321,6 +1324,44 @@ pub fn builtinIntegerCeil(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
 
     const incremented = try addIntegers(vm, floored, Value.integer(1));
     return mulIntegers(vm, incremented, factor);
+}
+
+pub fn builtinIntegerDiv(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    try receiver.ensureInteger(vm);
+    const rhs = args[0];
+
+    if (!rhs.isInteger() and !rhs.isBigInteger() and !rhs.isFloat() and !rhs.isRational()) {
+        var coerce_args = [_]Value{receiver};
+        const maybe_coerced = try vm.checkCallMethodByName(rhs, "coerce", false, coerce_args[0..], null);
+        if (maybe_coerced) |coerced| {
+            if (coerced.isArray()) {
+                const items = coerced.toArrayObject().elements.items;
+                if (items.len == 2) {
+                    var div_args = [_]Value{items[1]};
+                    return vm.callMethodByName(items[0], "div", div_args[0..], null);
+                }
+            }
+        }
+        return vm.raiseExceptionFmt(vm.type_error_class, "argument is not numeric", .{});
+    }
+
+    if (rhs.isFloat() and rhs.toFloatObject().val == 0.0) {
+        return vm.raiseExceptionFmt(vm.zero_division_error_class, "divided by 0", .{});
+    }
+    if ((rhs.isInteger() or rhs.isBigInteger()) and (try vm.compareIntegerValues(rhs, Value.integer(0))) == .eq) {
+        return vm.raiseExceptionFmt(vm.zero_division_error_class, "divided by 0", .{});
+    }
+
+    if (rhs.isRational()) {
+        const rhs_rational = rhs.toRationalObject();
+        const numerator = try vm.mulIntegerValues(receiver, rhs_rational.denominator);
+        var divide_args = [_]Value{rhs_rational.numerator};
+        return builtinIntegerDivide(vm, numerator, divide_args[0..], null);
+    }
+
+    const divided = try builtinIntegerDivide(vm, receiver, args, null);
+    return vm.callMethodByName(divided, "floor", &.{}, null);
 }
 
 pub fn builtinIntegerInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
