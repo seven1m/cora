@@ -6,6 +6,7 @@ const method_reflection = @import("method_reflection.zig");
 const module_builtin = @import("module.zig");
 const method_builtin = @import("method.zig");
 const signal_builtin = @import("signal.zig");
+const object_builtin = @import("object.zig");
 const method_common = @import("method_common.zig");
 const openssl_builtin = @import("openssl.zig");
 const rational_builtin = @import("rational.zig");
@@ -183,6 +184,9 @@ fn isClassOrSubclassOf(class: *ClassObject, candidate_ancestor: *ClassObject) bo
 }
 
 pub fn register(vm: *VM) !void {
+    const class_sym = try vm.intern("class");
+    try vm.kernel_module.methods.put(class_sym, value.MethodEntry.builtin(&object_builtin.builtinObjectClass, .{ .exact = 0 }));
+
     const kernel_array_convert_sym = try vm.intern("Array");
     try vm.kernel_module.methods.put(kernel_array_convert_sym, value.MethodEntry.builtinWithVisibility(&builtinKernelArrayConvert, .{ .exact = 1 }, .private));
 
