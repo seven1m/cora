@@ -3830,6 +3830,7 @@ pub const VM = struct {
         main_thread_obj.coro = null;
         main_thread_obj.result = Value.nil();
         main_thread_obj.exception = null;
+        main_thread_obj.async_exception = null;
         main_thread_obj.terminated_normally = false;
         main_thread_obj.regexp_last_match = Value.nil();
         main_thread_obj.regexp_last_match_full = Value.nil();
@@ -3900,6 +3901,7 @@ pub const VM = struct {
         thread_obj.coro = null;
         thread_obj.result = Value.nil();
         thread_obj.exception = null;
+        thread_obj.async_exception = null;
         thread_obj.terminated_normally = false;
         thread_obj.regexp_last_match = Value.nil();
         thread_obj.regexp_last_match_full = Value.nil();
@@ -4144,6 +4146,21 @@ pub const VM = struct {
                 continue;
             }
 
+            // Deliver async exception (e.g. from Thread#raise)
+            if (thread.async_exception) |exc| {
+                thread.async_exception = null;
+                try self.captureAndSetExceptionBacktrace(exc);
+                // Call exc.exception() on the target thread (matching MRI rb_exc_exception)
+                const exc_val = Value.fromObject(&exc.object);
+                const raised_val = try self.callMethodByName(exc_val, "exception", &.{}, null);
+                self.setPendingException(raised_val.toExceptionObject());
+                self.unwindStack() catch |unwind_err| switch (unwind_err) {
+                    error.UnhandledException => return error.UnhandledException,
+                    else => return error.Fatal,
+                };
+                continue;
+            }
+
             var executed_op: ?bytecode.OpCode = null;
             if (self.frames.items.len > 0) {
                 const frame = &self.frames.storage[self.frames.items.len - 1];
@@ -4208,6 +4225,13 @@ pub const VM = struct {
             const io_wait = thread.io_wait orelse continue;
 
             if (thread.kill_requested) {
+                thread.io_wait = null;
+                thread.state = .running;
+                self.addRunnableThreadIfAbsent(thread);
+                continue;
+            }
+
+            if (thread.async_exception != null) {
                 thread.io_wait = null;
                 thread.state = .running;
                 self.addRunnableThreadIfAbsent(thread);
@@ -4384,6 +4408,17 @@ pub const VM = struct {
             thread.kill_requested = false;
             thread.state = .aborting;
             self.setPendingException(try self.createException(self.thread_kill_exception_class, ""));
+            return error.Unwind;
+        }
+
+        // Deliver async exception from Thread#raise
+        if (thread.async_exception) |exc| {
+            thread.async_exception = null;
+            try self.captureAndSetExceptionBacktrace(exc);
+            // Call exc.exception() on the target thread (matching MRI rb_exc_exception)
+            const exc_val = Value.fromObject(&exc.object);
+            const raised_val = try self.callMethodByName(exc_val, "exception", &.{}, null);
+            self.setPendingException(raised_val.toExceptionObject());
             return error.Unwind;
         }
     }
@@ -11595,9 +11630,17 @@ pub const VM = struct {
     }
 
     pub fn createException(self: *VM, class: *ClassObject, message: []const u8) VMError!*value.ExceptionObject {
+        return self.createExceptionOpt(class, message, true);
+    }
+
+    pub fn createExceptionWithoutBacktrace(self: *VM, class: *ClassObject, message: []const u8) VMError!*value.ExceptionObject {
+        return self.createExceptionOpt(class, message, false);
+    }
+
+    fn createExceptionOpt(self: *VM, class: *ClassObject, message: []const u8, capture_bt: bool) VMError!*value.ExceptionObject {
         const exc = self.gc_allocator.create(value.ExceptionObject) catch return error.Fatal;
         const msg_str = try self.newString(message, false);
-        const backtrace = try self.captureBacktrace();
+        const backtrace = if (capture_bt) try self.captureBacktrace() else null;
 
         exc.* = .{
             .object = .{
@@ -11668,6 +11711,12 @@ pub const VM = struct {
 
     fn captureBacktrace(self: *VM) VMError!?*value.ArrayObject {
         return self.captureBacktraceFromFrames(self.frames.items);
+    }
+
+    pub fn captureAndSetExceptionBacktrace(self: *VM, exc: *value.ExceptionObject) VMError!void {
+        if (exc.backtrace == null) {
+            exc.backtrace = try self.captureBacktrace();
+        }
     }
 
     pub fn captureThreadBacktrace(self: *VM, thread: *value.ThreadObject) VMError!?*value.ArrayObject {

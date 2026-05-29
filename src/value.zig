@@ -347,6 +347,7 @@ pub const ThreadObject = struct {
     // Result/exception communication
     result: Value = Value.nil(),
     exception: ?*ExceptionObject = null,
+    async_exception: ?*ExceptionObject = null,
     terminated_normally: bool = false,
     regexp_last_match: Value = Value.nil(),
     regexp_last_match_full: Value = Value.nil(),

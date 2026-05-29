@@ -13,6 +13,7 @@ pub fn register(vm: *VM) !void {
 
     const exception_sym = try vm.intern("exception");
     try exception_singleton.module.methods.put(exception_sym, value.MethodEntry.builtin(&builtinExceptionClassException, .{ .variadic = 0 }));
+    try vm.exception_class.module.methods.put(exception_sym, value.MethodEntry.builtin(&builtinExceptionInstanceException, .{ .variadic = 0 }));
 
     const initialize_sym = try vm.intern("initialize");
     try vm.exception_class.module.methods.put(initialize_sym, value.MethodEntry.builtin(&builtinExceptionInitialize, .{ .variadic = 0 }));
@@ -90,6 +91,24 @@ pub fn builtinExceptionClassException(vm: *VM, receiver: Value, args: []Value, b
     return vm.newExceptionInstance(class_obj, args, block);
 }
 
+pub fn builtinExceptionInstanceException(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    if (args.len == 0 or args[0].isNil()) return receiver;
+
+    const exc = receiver.toExceptionObject();
+    const msg = try args[0].coerceToStr(vm, "no implicit conversion into String");
+    const copy = try vm.createExceptionWithoutBacktrace(exc.object.class.?, msg);
+    const copy_val = Value.fromObject(&copy.object);
+
+    const ivar_names = try vm.getInstanceVariableNames(receiver);
+    for (ivar_names.elements.items) |name_val| {
+        const name_str = try vm.callMethodByName(name_val, "to_s", &.{}, null);
+        const val = try vm.getInstanceVariable(receiver, name_str.toStringObject().str);
+        try vm.setInstanceVariable(copy_val, name_str.toStringObject().str, val);
+    }
+
+    return copy_val;
+}
+
 pub fn builtinSystemExitInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 2);
 
@@ -137,7 +156,7 @@ pub fn builtinExceptionInspect(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
 
     const exc = receiver.toExceptionObject();
     const class_name_val = try vm.callMethodByName(Value.fromObject(&exc.object.class.?.module.object), "name", &.{}, null);
-    const class_name = class_name_val.toStringObject().str;
+    const class_name = if (class_name_val.isNil()) vm.className(receiver) else class_name_val.toStringObject().str;
     const str = std.fmt.allocPrint(vm.gc_allocator, "#<{s}: {s}>", .{ class_name, exc.message.str }) catch return error.Fatal;
     return try vm.newString(str, false);
 }

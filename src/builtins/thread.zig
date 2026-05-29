@@ -457,23 +457,54 @@ fn builtinThreadRaise(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
     const thread = receiver.toThreadObject();
     if (thread.state == .terminated) return Value.nil();
 
-    // Create exception
-    const exc = if (args.len == 0)
-        try vm.createException(vm.runtime_error_class, "")
-    else if (args[0].isString())
-        try vm.createException(vm.runtime_error_class, args[0].toStringObject().str)
-    else if (args[0].isException())
-        args[0].toExceptionObject()
-    else if (args[0].isClass()) blk: {
-        const msg = if (args.len > 1 and args[1].isString()) args[1].toStringObject().str else "";
-        break :blk try vm.createException(args[0].toClassObject(), msg);
-    } else try vm.createException(vm.runtime_error_class, "");
+    // Validate and create the exception
+    const exc = blk: {
+        if (args.len == 0) {
+            break :blk try vm.createExceptionWithoutBacktrace(vm.runtime_error_class, "");
+        }
 
-    thread.exception = exc;
-    thread.terminated_normally = false;
-    thread.state = .terminated;
-    vm.releaseThreadOwnedMutexes(thread);
-    removeFromRunnable(vm, thread);
+        if (args[0].isString()) {
+            break :blk try vm.createExceptionWithoutBacktrace(vm.runtime_error_class, args[0].toStringObject().str);
+        }
+
+        if (args[0].isException()) {
+            if (args.len > 1) {
+                // Call exception#exception(message) to create a copy, matching MRI semantics
+                const exc_val = args[0];
+                const copy_val = try vm.callMethodByName(exc_val, "exception", args[1..], null);
+                break :blk copy_val.toExceptionObject();
+            } else {
+                break :blk args[0].toExceptionObject();
+            }
+        }
+
+        if (args[0].isClass()) {
+            const class_obj = args[0].toClassObject();
+            if (!vm.isClassOrSubclassOf(class_obj, vm.exception_class)) {
+                return vm.raiseExceptionFmt(vm.type_error_class, "exception class/object expected", .{});
+            }
+            const msg = if (args.len > 1 and args[1].isString()) args[1].toStringObject().str else "";
+            break :blk try vm.createExceptionWithoutBacktrace(class_obj, msg);
+        }
+
+        // Non-Exception object: raise TypeError
+        return vm.raiseExceptionFmt(vm.type_error_class, "exception class/object expected", .{});
+    };
+
+    // Self-raise: deliver synchronously
+    const is_current = vm.current_thread != null and thread == vm.current_thread.?;
+    if (is_current) {
+        try vm.captureAndSetExceptionBacktrace(exc);
+        vm.setPendingException(exc);
+        return error.Unwind;
+    }
+
+    // Deliver exception asynchronously to the target thread
+    thread.async_exception = exc;
+    if (thread.state == .sleeping) {
+        thread.state = .running;
+        addToRunnableIfAbsent(vm, thread);
+    }
     return Value.nil();
 }
 
