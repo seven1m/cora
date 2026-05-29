@@ -3837,6 +3837,7 @@ pub const VM = struct {
         main_thread_obj.regexp_last_match_full = Value.nil();
         main_thread_obj.regexp_last_match_pre = Value.nil();
         main_thread_obj.regexp_last_match_post = Value.nil();
+        main_thread_obj.last_process_status = Value.nil();
         main_thread_obj.fiber_locals = null;
         main_thread_obj.thread_variables = null;
         main_thread_obj.name = null;
@@ -3908,6 +3909,7 @@ pub const VM = struct {
         thread_obj.regexp_last_match_full = Value.nil();
         thread_obj.regexp_last_match_pre = Value.nil();
         thread_obj.regexp_last_match_post = Value.nil();
+        thread_obj.last_process_status = Value.nil();
         thread_obj.fiber_locals = null;
         thread_obj.thread_variables = null;
         thread_obj.name = null;
@@ -9356,17 +9358,18 @@ pub const VM = struct {
         try self.setLastMatch(null);
     }
 
-    fn currentRegexpPseudoGlobalSlot(self: *VM, name: []const u8) ?*Value {
+    fn currentThreadGlobalSlot(self: *VM, name: []const u8) ?*Value {
         const thread = self.current_thread orelse self.main_thread orelse return null;
         if (std.mem.eql(u8, name, "$~")) return &thread.regexp_last_match;
         if (std.mem.eql(u8, name, "$&")) return &thread.regexp_last_match_full;
         if (std.mem.eql(u8, name, "$`")) return &thread.regexp_last_match_pre;
         if (std.mem.eql(u8, name, "$'")) return &thread.regexp_last_match_post;
+        if (std.mem.eql(u8, name, "$?")) return &thread.last_process_status;
         return null;
     }
 
     pub fn getGlobalValue(self: *VM, name: []const u8) Value {
-        if (self.currentRegexpPseudoGlobalSlot(name)) |slot| return slot.*;
+        if (self.currentThreadGlobalSlot(name)) |slot| return slot.*;
         return self.globals.get(name) orelse Value.nil();
     }
 
@@ -9543,7 +9546,7 @@ pub const VM = struct {
     }
 
     pub fn setGlobal(self: *VM, name: []const u8, val: Value) VMError!void {
-        if (self.currentRegexpPseudoGlobalSlot(name)) |slot| {
+        if (self.currentThreadGlobalSlot(name)) |slot| {
             slot.* = val;
             return;
         }
