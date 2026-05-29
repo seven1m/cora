@@ -15,6 +15,9 @@ pub fn register(vm: *VM) !void {
 
     const positive_q_sym = try vm.intern("positive?");
     try vm.numeric_class.module.methods.put(positive_q_sym, value.MethodEntry.builtin(&builtinNumericPositiveQ, .{ .exact = 0 }));
+
+    const negative_q_sym = try vm.intern("negative?");
+    try vm.numeric_class.module.methods.put(negative_q_sym, value.MethodEntry.builtin(&builtinNumericNegativeQ, .{ .exact = 0 }));
 }
 
 pub fn builtinNumericZero(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -35,5 +38,12 @@ pub fn builtinNumericPositiveQ(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
     try vm.requireArgCount(args, 0);
     var compare_args = [_]Value{Value.integer(0)};
     const result = try vm.callMethodByName(receiver, ">", compare_args[0..], null);
+    return Value.boolean(result.is_truthy());
+}
+
+pub fn builtinNumericNegativeQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    var compare_args = [_]Value{Value.integer(0)};
+    const result = try vm.callMethodByName(receiver, "<", compare_args[0..], null);
     return Value.boolean(result.is_truthy());
 }
