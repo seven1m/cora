@@ -313,6 +313,12 @@ pub fn register(vm: *VM) !void {
 
     const compare_sym = try vm.intern("<=>");
     try vm.rational_class.module.methods.put(compare_sym, value.MethodEntry.builtin(&builtinRationalCompare, .{ .exact = 1 }));
+
+    const unary_minus_sym = try vm.intern("-@");
+    try vm.rational_class.module.methods.put(unary_minus_sym, value.MethodEntry.builtin(&builtinRationalUnaryMinus, .{ .exact = 0 }));
+
+    const unary_plus_sym = try vm.intern("+@");
+    try vm.rational_class.module.methods.put(unary_plus_sym, value.MethodEntry.builtin(&builtinRationalUnaryPlus, .{ .exact = 0 }));
 }
 
 pub fn builtinRationalNewForbidden(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -457,4 +463,16 @@ pub fn builtinRationalCompare(vm: *VM, receiver: Value, args: []Value, _: ?Block
     if (cmp.isNil()) return Value.nil();
     if (!cmp.isInteger()) return Value.nil();
     return cmp;
+}
+
+pub fn builtinRationalUnaryMinus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const rational = receiver.toRationalObject();
+    const neg_num = try vm.mulIntegerValues(Value.integer(-1), rational.numerator);
+    return vm.newRationalValues(neg_num, rational.denominator);
+}
+
+pub fn builtinRationalUnaryPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return receiver;
 }

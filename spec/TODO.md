@@ -1522,8 +1522,8 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/numeric/finite_spec.rb
 - [ ] core/numeric/floor_spec.rb
 - [ ] core/numeric/i_spec.rb
-- [ ] core/numeric/imag_spec.rb
-- [ ] core/numeric/imaginary_spec.rb
+- [x] core/numeric/imag_spec.rb
+- [x] core/numeric/imaginary_spec.rb
 - [ ] core/numeric/infinite_spec.rb
 - [ ] core/numeric/integer_spec.rb
 - [ ] core/numeric/magnitude_spec.rb

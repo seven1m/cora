@@ -23,6 +23,12 @@ pub fn register(vm: *VM) !void {
 
     const negative_q_sym = try vm.intern("negative?");
     try vm.numeric_class.module.methods.put(negative_q_sym, value.MethodEntry.builtin(&builtinNumericNegativeQ, .{ .exact = 0 }));
+
+    const imag_sym = try vm.intern("imag");
+    try vm.numeric_class.module.methods.put(imag_sym, value.MethodEntry.builtin(&builtinNumericImag, .{ .exact = 0 }));
+
+    const imaginary_sym = try vm.intern("imaginary");
+    try vm.numeric_class.module.methods.put(imaginary_sym, value.MethodEntry.builtin(&builtinNumericImag, .{ .exact = 0 }));
 }
 
 pub fn builtinNumericZero(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -51,4 +57,9 @@ pub fn builtinNumericNegativeQ(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
     var compare_args = [_]Value{Value.integer(0)};
     const result = try vm.callMethodByName(receiver, "<", compare_args[0..], null);
     return Value.boolean(result.is_truthy());
+}
+
+pub fn builtinNumericImag(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return Value.integer(0);
 }
