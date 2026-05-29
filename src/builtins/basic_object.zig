@@ -73,6 +73,9 @@ pub fn register(vm: *VM) !void {
     const op_equal_sym = try vm.intern("==");
     try vm.basic_object_class.module.methods.put(op_equal_sym, MethodEntry.builtin(&builtinBasicObjectEqual, .{ .exact = 1 }));
 
+    const eql_sym = try vm.intern("eql?");
+    try vm.basic_object_class.module.methods.put(eql_sym, MethodEntry.builtin(&builtinBasicObjectEqual, .{ .exact = 1 }));
+
     const equal_sym = try vm.intern("equal?");
     try vm.basic_object_class.module.methods.put(equal_sym, MethodEntry.builtin(&builtinBasicObjectEqual, .{ .exact = 1 }));
 

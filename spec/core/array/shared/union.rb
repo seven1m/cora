@@ -33,32 +33,30 @@ describe :array_binary_union, shared: true do
 
   # MRI follows hashing semantics here, so doesn't actually call eql?/hash for Integer/Symbol
   it "acts as if using an intermediate hash to collect values" do
-    CORAFIXME "Array union uses == instead of eql?/hash for deduplication" do
-      not_supported_on :opal do
-        [5.0, 4.0].send(@method, [5, 4]).should == [5.0, 4.0, 5, 4]
-      end
-
-      str = "x"
-      [str].send(@method, [str.dup]).should == [str]
-
-      obj1 = mock('1')
-      obj2 = mock('2')
-      obj1.stub!(:hash).and_return(0)
-      obj2.stub!(:hash).and_return(0)
-      obj2.should_receive(:eql?).at_least(1).and_return(true)
-
-      [obj1].send(@method, [obj2]).should == [obj1]
-      [obj1, obj1, obj2, obj2].send(@method, [obj2]).should == [obj1]
-
-      obj1 = mock('3')
-      obj2 = mock('4')
-      obj1.stub!(:hash).and_return(0)
-      obj2.stub!(:hash).and_return(0)
-      obj2.should_receive(:eql?).at_least(1).and_return(false)
-
-      [obj1].send(@method, [obj2]).should == [obj1, obj2]
-      [obj1, obj1, obj2, obj2].send(@method, [obj2]).should == [obj1, obj2]
+    not_supported_on :opal do
+      [5.0, 4.0].send(@method, [5, 4]).should == [5.0, 4.0, 5, 4]
     end
+
+    str = "x"
+    [str].send(@method, [str.dup]).should == [str]
+
+    obj1 = mock('1')
+    obj2 = mock('2')
+    obj1.stub!(:hash).and_return(0)
+    obj2.stub!(:hash).and_return(0)
+    obj2.should_receive(:eql?).at_least(1).and_return(true)
+
+    [obj1].send(@method, [obj2]).should == [obj1]
+    [obj1, obj1, obj2, obj2].send(@method, [obj2]).should == [obj1]
+
+    obj1 = mock('3')
+    obj2 = mock('4')
+    obj1.stub!(:hash).and_return(0)
+    obj2.stub!(:hash).and_return(0)
+    obj2.should_receive(:eql?).at_least(1).and_return(false)
+
+    [obj1].send(@method, [obj2]).should == [obj1, obj2]
+    [obj1, obj1, obj2, obj2].send(@method, [obj2]).should == [obj1, obj2]
   end
 
   it "does not return subclass instances for Array subclasses" do

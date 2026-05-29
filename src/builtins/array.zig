@@ -672,6 +672,9 @@ pub fn register(vm: *VM) !void {
     const minus_sym = try vm.intern("-");
     try vm.array_class.module.methods.put(minus_sym, value.MethodEntry.builtin(&builtinArrayMinus, .{ .exact = 1 }));
 
+    const difference_sym = try vm.intern("difference");
+    try vm.array_class.module.methods.put(difference_sym, value.MethodEntry.builtin(&builtinArrayDifference, .{ .variadic = 0 }));
+
     const plus_sym = try vm.intern("+");
     try vm.array_class.module.methods.put(plus_sym, value.MethodEntry.builtin(&builtinArrayPlus, .{ .exact = 1 }));
     const product_sym = try vm.intern("product");
@@ -2560,6 +2563,34 @@ pub fn builtinArrayMinus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     return Value.fromObject(&result.object);
 }
 
+pub fn builtinArrayDifference(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    const left = receiver.toArrayObject();
+    const result = try vm.createArray();
+
+    // Convert all args to arrays first (one call to to_ary per arg)
+    var valid_arrays: std.ArrayList(*value.ArrayObject) = .empty;
+    defer valid_arrays.deinit(vm.allocator);
+    for (args) |arg| {
+        const ary_value = switch (try vm.probeToAry(arg)) {
+            .array => |v| v,
+            .missing => return vm.raiseExceptionFmt(vm.type_error_class, "wrong argument type {s} (expected Array)", .{vm.className(arg)}),
+            .nil_result => continue,
+        };
+        valid_arrays.append(vm.allocator, ary_value.toArrayObject()) catch return error.Fatal;
+    }
+
+    outer: for (left.elements.items) |elem| {
+        for (valid_arrays.items) |right| {
+            if (try arrayContainsEquivalent(vm, right.elements.items, elem)) {
+                continue :outer;
+            }
+        }
+        result.elements.append(vm.gc_allocator, elem) catch return error.Fatal;
+    }
+
+    return Value.fromObject(&result.object);
+}
+
 pub fn builtinArrayInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     if (try vm.enterRecursionGuard(.array_inspect, receiver, Value.nil())) {
@@ -2869,10 +2900,10 @@ pub fn builtinArrayPack(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
 }
 
 fn arrayContainsEquivalent(vm: *VM, haystack: []Value, needle: Value) VMError!bool {
-    var eq_args = [_]Value{needle};
     for (haystack) |item| {
         if (item.raw == needle.raw) return true;
-        const result = try vm.callMethodByName(item, "==", eq_args[0..], null);
+        var eql_args = [_]Value{item};
+        const result = try vm.callMethodByName(needle, "eql?", eql_args[0..], null);
         if (result.is_truthy()) return true;
     }
     return false;
