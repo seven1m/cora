@@ -244,9 +244,10 @@ const IoSelectWatch = struct {
 };
 
 fn selectFdIsSocket(fd: i32) bool {
-    var stat_buf: std.c.Stat = undefined;
-    if (std.c.fstat(@intCast(fd), &stat_buf) != 0) return false;
-    return std.c.S.ISSOCK(stat_buf.mode);
+    var optval: c_int = undefined;
+    var optlen: std.c.socklen_t = @sizeOf(c_int);
+    const rc = std.c.getsockopt(@intCast(fd), std.c.SOL.SOCKET, std.c.SO.TYPE, @ptrCast(&optval), &optlen);
+    return rc == 0;
 }
 
 const PopenConfig = struct {
