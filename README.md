@@ -13,6 +13,14 @@ and to explore just-in-time compilation.
 - Stack VM
 - Experimental JIT compiler using [TinyCC](https://bellard.org/tcc/)
 
+## What Works
+
+At least, the basics work with these:
+
+- rubygems
+- webrick
+- rack and rackup
+
 ## Prerequisites
 
 You need:
