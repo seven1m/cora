@@ -163,6 +163,14 @@ pub fn build(b: *std.Build) void {
     const coverage = b.option(bool, "coverage", "Run tests under kcov and generate an HTML coverage report") orelse false;
     const coverage_output_dir = b.option([]const u8, "coverage-output-dir", "Directory for kcov output") orelse "zig-out/kcov";
     const tcc_jit = b.option(bool, "tcc-jit", "Build TinyCC-backed proof-of-concept JIT support") orelse false;
+    const submodule_update = b.option(bool, "submodule-update", "Run `git submodule update --init` before building") orelse true;
+
+    const submodule_update_step = if (submodule_update) blk: {
+        const s = b.addSystemCommand(&.{ "git", "submodule", "update", "--init" });
+        s.setName("git submodule update --init");
+        break :blk &s.step;
+    } else null;
+
     const options = b.addOptions();
     options.addOption(bool, "test_verbose", test_verbose);
     options.addOption(bool, "test_timing", test_timing);
@@ -174,6 +182,12 @@ pub fn build(b: *std.Build) void {
     const prism_build_step = buildPrism(b);
     const onigmo_build_step = buildOnigmo(b);
     const tinycc_build_step = buildTinyCC(b);
+
+    if (submodule_update_step) |s| {
+        prism_build_step.dependOn(s);
+        onigmo_build_step.dependOn(s);
+        tinycc_build_step.dependOn(s);
+    }
 
     const exe = b.addExecutable(.{
         .name = "cora",
