@@ -510,6 +510,9 @@ pub fn register(vm: *VM) !void {
     const modulo_method_sym = try vm.intern("modulo");
     try vm.integer_class.module.methods.put(modulo_method_sym, value.MethodEntry.builtin(&builtinIntegerModulo, .{ .exact = 1 }));
 
+    const remainder_sym = try vm.intern("remainder");
+    try vm.integer_class.module.methods.put(remainder_sym, value.MethodEntry.builtin(&builtinIntegerRemainder, .{ .exact = 1 }));
+
     const ceildiv_sym = try vm.intern("ceildiv");
     try vm.integer_class.module.methods.put(ceildiv_sym, value.MethodEntry.builtin(&builtinIntegerCeildiv, .{ .exact = 1 }));
 
@@ -1550,6 +1553,68 @@ pub fn builtinIntegerChr(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     const bytes = buf[0..encoded_len];
 
     return try vm.newStringWithEncoding(bytes, false, target_encoding);
+}
+
+pub fn builtinIntegerRemainder(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    try receiver.ensureInteger(vm);
+
+    const rhs = args[0];
+
+    if (!rhs.isInteger() and !rhs.isBigInteger() and !rhs.isFloat() and !rhs.isRational()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "argument is not numeric", .{});
+    }
+
+    if (rhs.isRational()) {
+        const rat = rhs.toRationalObject();
+        if ((try vm.compareIntegerValues(rat.numerator, Value.integer(0))) == .eq) {
+            return vm.raiseExceptionFmt(vm.zero_division_error_class, "divided by 0", .{});
+        }
+        const product = try vm.mulIntegerValues(receiver, rat.denominator);
+        const rem = if (product.isInteger() and rat.numerator.isInteger()) blk: {
+            break :blk Value.integer(@rem(product.toInteger(), rat.numerator.toInteger()));
+        } else blk: {
+            var a = try product.integerToManaged(vm);
+            defer a.deinit();
+            var b = try rat.numerator.integerToManaged(vm);
+            defer b.deinit();
+            var quot = BigInt.init(vm.allocator) catch return error.Fatal;
+            defer quot.deinit();
+            var rem_val = BigInt.init(vm.allocator) catch return error.Fatal;
+            defer rem_val.deinit();
+            quot.divTrunc(&rem_val, &a, &b) catch return error.Fatal;
+            break :blk try vm.valueFromManagedInteger(&rem_val);
+        };
+        return try vm.newRationalValues(rem, rat.denominator);
+    }
+
+    if (rhs.isFloat()) {
+        const divisor = rhs.toFloatObject().val;
+        if (divisor == 0.0) {
+            return vm.raiseExceptionFmt(vm.zero_division_error_class, "divided by 0", .{});
+        }
+        const lhs_f = receiver.integerToF64();
+        return try vm.newFloat(@rem(lhs_f, divisor));
+    }
+
+    if ((try vm.compareIntegerValues(rhs, Value.integer(0))) == .eq) {
+        return vm.raiseExceptionFmt(vm.zero_division_error_class, "divided by 0", .{});
+    }
+
+    if (receiver.isInteger() and rhs.isInteger()) {
+        return Value.integer(@rem(receiver.toInteger(), rhs.toInteger()));
+    }
+
+    var a = try receiver.integerToManaged(vm);
+    defer a.deinit();
+    var b = try rhs.integerToManaged(vm);
+    defer b.deinit();
+    var quot = BigInt.init(vm.allocator) catch return error.Fatal;
+    defer quot.deinit();
+    var rem = BigInt.init(vm.allocator) catch return error.Fatal;
+    defer rem.deinit();
+    quot.divTrunc(&rem, &a, &b) catch return error.Fatal;
+    return try vm.valueFromManagedInteger(&rem);
 }
 
 pub fn builtinIntegerGcd(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
