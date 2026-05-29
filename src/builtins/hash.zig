@@ -330,7 +330,7 @@ pub fn register(vm: *VM) !void {
 }
 
 fn hashSubsetComparison(vm: *VM, receiver: Value, other: Value, is_strict: bool) VMError!Value {
-    const lhs = receiver.toHashObject();
+    const lhs = (try vm.coerceToHashValue(receiver)).toHashObject();
     const other_hash = (try vm.coerceToHashValue(other)).toHashObject();
 
     if (is_strict and lhs.entries.items.len == other_hash.entries.items.len) {
