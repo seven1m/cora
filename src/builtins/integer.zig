@@ -624,6 +624,9 @@ pub fn register(vm: *VM) !void {
     const gcd_sym = try vm.intern("gcd");
     try vm.integer_class.module.methods.put(gcd_sym, value.MethodEntry.builtin(&builtinIntegerGcd, .{ .exact = 1 }));
 
+    const lcm_sym = try vm.intern("lcm");
+    try vm.integer_class.module.methods.put(lcm_sym, value.MethodEntry.builtin(&builtinIntegerLcm, .{ .exact = 1 }));
+
     const digits_sym = try vm.intern("digits");
     try vm.integer_class.module.methods.put(digits_sym, value.MethodEntry.builtin(&builtinIntegerDigits, .{ .variadic = 0 }));
 
@@ -1545,6 +1548,61 @@ pub fn builtinIntegerGcd(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
         b.swap(&rem);
     }
     return vm.valueFromManagedInteger(&a);
+}
+
+pub fn builtinIntegerLcm(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    try receiver.ensureInteger(vm);
+    if (!args[0].isInteger() and !args[0].isBigInteger()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "not an integer", .{});
+    }
+    if (receiver.isInteger() and args[0].isInteger()) {
+        var a = receiver.toInteger();
+        var b = args[0].toInteger();
+        if (a < 0) a = -a;
+        if (b < 0) b = -b;
+        if (a == 0 or b == 0) return Value.integer(0);
+        var gcd_val = a;
+        var rem = b;
+        while (rem != 0) {
+            const temp = rem;
+            rem = @mod(gcd_val, rem);
+            gcd_val = temp;
+        }
+        const a_div_gcd = @divTrunc(a, gcd_val);
+        if (std.math.mul(i63, @as(i63, @intCast(a_div_gcd)), @as(i63, @intCast(b)))) |prod| {
+            return Value.integer(@as(i64, prod));
+        } else |_| {}
+    }
+    var a = try receiver.integerToManaged(vm);
+    defer a.deinit();
+    if (!a.isPositive()) a.negate();
+    var b = try args[0].integerToManaged(vm);
+    defer b.deinit();
+    if (!b.isPositive()) b.negate();
+    if (a.eqlZero() or b.eqlZero()) return Value.integer(0);
+    var a_saved = try receiver.integerToManaged(vm);
+    defer a_saved.deinit();
+    if (!a_saved.isPositive()) a_saved.negate();
+    var b_saved = try args[0].integerToManaged(vm);
+    defer b_saved.deinit();
+    if (!b_saved.isPositive()) b_saved.negate();
+    var quot = BigInt.init(vm.allocator) catch return error.Fatal;
+    defer quot.deinit();
+    var rem = BigInt.init(vm.allocator) catch return error.Fatal;
+    defer rem.deinit();
+    while (!b.eqlZero()) {
+        quot.divTrunc(&rem, &a, &b) catch return error.Fatal;
+        a.swap(&b);
+        b.swap(&rem);
+    }
+    var r_rem = BigInt.init(vm.allocator) catch return error.Fatal;
+    defer r_rem.deinit();
+    quot.divTrunc(&r_rem, &a_saved, &a) catch return error.Fatal;
+    var result = BigInt.init(vm.allocator) catch return error.Fatal;
+    defer result.deinit();
+    result.mul(&quot, &b_saved) catch return error.Fatal;
+    return vm.valueFromManagedInteger(&result);
 }
 
 pub fn builtinIntegerDigits(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

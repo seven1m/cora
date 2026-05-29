@@ -1020,6 +1020,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/integer/fdiv_spec.rb
 - [x] core/integer/floor_spec.rb
 - [x] core/integer/gcd_spec.rb
+- [x] core/integer/lcm_spec.rb
 - [ ] core/integer/gcdlcm_spec.rb
 - [x] core/integer/gt_spec.rb
 - [x] core/integer/gte_spec.rb
