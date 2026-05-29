@@ -44,6 +44,9 @@ pub fn register(vm: *VM) !void {
     const status_sym = try vm.intern("status");
     try vm.system_exit_class.module.methods.put(status_sym, value.MethodEntry.builtin(&builtinSystemExitStatus, .{ .exact = 0 }));
 
+    const success_sym = try vm.intern("success?");
+    try vm.system_exit_class.module.methods.put(success_sym, value.MethodEntry.builtin(&builtinSystemExitSuccess, .{ .exact = 0 }));
+
     const receiver_sym = try vm.intern("receiver");
     try vm.key_error_class.module.methods.put(receiver_sym, value.MethodEntry.builtin(&builtinKeyErrorReceiver, .{ .exact = 0 }));
 
@@ -182,6 +185,14 @@ pub fn builtinSystemExitStatus(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
     const status = try vm.getInstanceVariable(receiver, "@status");
     if (status.isNil()) return Value.integer(0);
     return status;
+}
+
+pub fn builtinSystemExitSuccess(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
+    const status = try vm.getInstanceVariable(receiver, "@status");
+    if (status.isNil()) return Value.boolean(true);
+    return Value.boolean(status.toInteger() == 0);
 }
 
 pub fn builtinSignalExceptionSigno(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

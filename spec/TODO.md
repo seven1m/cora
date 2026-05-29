@@ -2156,8 +2156,8 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/symbol/upcase_spec.rb
 
 ### core/systemexit
-- [ ] core/systemexit/initialize_spec.rb
-- [ ] core/systemexit/success_spec.rb
+- [x] core/systemexit/initialize_spec.rb
+- [x] core/systemexit/success_spec.rb
 
 ### core/thread
 - [ ] core/thread/abort_on_exception_spec.rb
