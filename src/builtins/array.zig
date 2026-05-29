@@ -663,6 +663,8 @@ pub fn register(vm: *VM) !void {
 
     const union_sym = try vm.intern("|");
     try vm.array_class.module.methods.put(union_sym, value.MethodEntry.builtin(&builtinArrayUnion, .{ .exact = 1 }));
+    const union_method_sym = try vm.intern("union");
+    try vm.array_class.module.methods.put(union_method_sym, value.MethodEntry.builtin(&builtinArrayUnion, .{ .variadic = 0 }));
 
     const minus_sym = try vm.intern("-");
     try vm.array_class.module.methods.put(minus_sym, value.MethodEntry.builtin(&builtinArrayMinus, .{ .exact = 1 }));
@@ -2509,9 +2511,7 @@ pub fn builtinArrayClone(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
 }
 
 pub fn builtinArrayUnion(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireSingleArg(args, .array, "Array");
     const left = receiver.toArrayObject();
-    const right = args[0].toArrayObject();
     const result = try vm.createArray();
 
     for (left.elements.items) |elem| {
@@ -2519,9 +2519,17 @@ pub fn builtinArrayUnion(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
             result.elements.append(vm.gc_allocator, elem) catch return error.Fatal;
         }
     }
-    for (right.elements.items) |elem| {
-        if (!(try arrayContainsEquivalent(vm, result.elements.items, elem))) {
-            result.elements.append(vm.gc_allocator, elem) catch return error.Fatal;
+    for (args) |arg| {
+        const ary_value = switch (try vm.probeToAry(arg)) {
+            .array => |v| v,
+            .missing => return vm.raiseExceptionFmt(vm.type_error_class, "wrong argument type {s} (expected Array)", .{vm.className(arg)}),
+            .nil_result => continue,
+        };
+        const right = ary_value.toArrayObject();
+        for (right.elements.items) |elem| {
+            if (!(try arrayContainsEquivalent(vm, result.elements.items, elem))) {
+                result.elements.append(vm.gc_allocator, elem) catch return error.Fatal;
+            }
         }
     }
 
@@ -2852,8 +2860,11 @@ pub fn builtinArrayPack(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
 }
 
 fn arrayContainsEquivalent(vm: *VM, haystack: []Value, needle: Value) VMError!bool {
+    var eq_args = [_]Value{needle};
     for (haystack) |item| {
-        if (try vm.valueEquals(item, needle)) return true;
+        if (item.raw == needle.raw) return true;
+        const result = try vm.callMethodByName(item, "==", eq_args[0..], null);
+        if (result.is_truthy()) return true;
     }
     return false;
 }
