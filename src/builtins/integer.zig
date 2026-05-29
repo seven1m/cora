@@ -650,6 +650,13 @@ pub fn register(vm: *VM) !void {
     try integer_singleton.module.methods.put(floor_sym, value.MethodEntry.builtin(&builtinIntegerFloor, .{ .variadic = 0 }));
     try vm.integer_class.module.methods.put(floor_sym, value.MethodEntry.builtin(&builtinIntegerFloor, .{ .variadic = 0 }));
 
+    const dup_sym = try vm.intern("dup");
+    try vm.integer_class.module.methods.put(dup_sym, value.MethodEntry.builtin(&builtinIntegerDup, .{ .exact = 0 }));
+}
+
+pub fn builtinIntegerDup(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return receiver;
 }
 
 pub fn builtinIntegerPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

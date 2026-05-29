@@ -1012,7 +1012,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/integer/divide_spec.rb
 - [ ] core/integer/divmod_spec.rb
 - [x] core/integer/downto_spec.rb
-- [ ] core/integer/dup_spec.rb
+- [x] core/integer/dup_spec.rb
 - [ ] core/integer/element_reference_spec.rb
 - [ ] core/integer/equal_value_spec.rb
 - [x] core/integer/even_spec.rb
