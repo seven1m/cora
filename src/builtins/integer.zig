@@ -579,6 +579,9 @@ pub fn register(vm: *VM) !void {
     const to_r_sym = try vm.intern("to_r");
     try vm.integer_class.module.methods.put(to_r_sym, value.MethodEntry.builtin(&builtinIntegerToR, .{ .exact = 0 }));
 
+    const rationalize_sym = try vm.intern("rationalize");
+    try vm.integer_class.module.methods.put(rationalize_sym, value.MethodEntry.builtin(&builtinIntegerRationalize, .{ .variadic = 0 }));
+
     const size_sym = try vm.intern("size");
     try vm.integer_class.module.methods.put(size_sym, value.MethodEntry.builtin(&builtinIntegerSize, .{ .exact = 0 }));
 
@@ -1371,6 +1374,12 @@ pub fn builtinIntegerNumerator(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
 
 pub fn builtinIntegerToR(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
+    try receiver.ensureInteger(vm);
+    return try vm.newRationalValues(receiver, Value.integer(1));
+}
+
+pub fn builtinIntegerRationalize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
     try receiver.ensureInteger(vm);
     return try vm.newRationalValues(receiver, Value.integer(1));
 }
