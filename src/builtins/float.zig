@@ -19,6 +19,7 @@ extern fn dtoa(
 ) [*:0]u8;
 extern fn freedtoa(s: [*]u8) void;
 extern fn pow(x: f64, y: f64) f64;
+extern fn nextafter(x: f64, y: f64) f64;
 
 const max_fixed_decimal_digits: c_int = 15;
 
@@ -77,6 +78,12 @@ pub fn register(vm: *VM) !void {
 
     const nan_const_sym = try vm.intern("NAN");
     try vm.float_class.module.constants.put(nan_const_sym, .{ .value = try vm.newFloat(std.math.nan(f64)) });
+
+    const max_sym = try vm.intern("MAX");
+    try vm.float_class.module.constants.put(max_sym, .{ .value = try vm.newFloat(std.math.floatMax(f64)) });
+
+    const epsilon_sym = try vm.intern("EPSILON");
+    try vm.float_class.module.constants.put(epsilon_sym, .{ .value = try vm.newFloat(std.math.floatEps(f64)) });
 
     const plus_sym = try vm.intern("+");
     try vm.float_class.module.methods.put(plus_sym, value.MethodEntry.builtin(&builtinFloatPlus, .{ .exact = 1 }));
@@ -158,6 +165,12 @@ pub fn register(vm: *VM) !void {
 
     const round_sym = try vm.intern("round");
     try vm.float_class.module.methods.put(round_sym, value.MethodEntry.builtin(&builtinFloatRound, .{ .variadic = 0 }));
+
+    const next_float_sym = try vm.intern("next_float");
+    try vm.float_class.module.methods.put(next_float_sym, value.MethodEntry.builtin(&builtinFloatNextFloat, .{ .exact = 0 }));
+
+    const prev_float_sym = try vm.intern("prev_float");
+    try vm.float_class.module.methods.put(prev_float_sym, value.MethodEntry.builtin(&builtinFloatPrevFloat, .{ .exact = 0 }));
 }
 
 pub fn builtinFloatPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -453,4 +466,16 @@ pub fn builtinFloatRound(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     }
     const factor = std.math.pow(f64, 10, @as(f64, @floatFromInt(-digits)));
     return try vm.newFloat(@round(f / factor) * factor);
+}
+
+pub fn builtinFloatNextFloat(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const f = receiver.toFloatObject().val;
+    return vm.newFloat(nextafter(f, std.math.inf(f64)));
+}
+
+pub fn builtinFloatPrevFloat(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const f = receiver.toFloatObject().val;
+    return vm.newFloat(nextafter(f, -std.math.inf(f64)));
 }

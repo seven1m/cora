@@ -876,12 +876,12 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/float/multiply_spec.rb
 - [x] core/float/nan_spec.rb
 - [x] core/float/negative_spec.rb
-- [ ] core/float/next_float_spec.rb
+- [x] core/float/next_float_spec.rb
 - [ ] core/float/numerator_spec.rb
 - [ ] core/float/phase_spec.rb
 - [ ] core/float/plus_spec.rb
 - [x] core/float/positive_spec.rb
-- [ ] core/float/prev_float_spec.rb
+- [x] core/float/prev_float_spec.rb
 - [ ] core/float/quo_spec.rb
 - [ ] core/float/rationalize_spec.rb
 - [ ] core/float/round_spec.rb
