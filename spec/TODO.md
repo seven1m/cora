@@ -851,7 +851,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [-] core/float/ceil_spec.rb
 - [ ] core/float/coerce_spec.rb
 - [ ] core/float/comparison_spec.rb
-- [ ] core/float/constants_spec.rb
+- [-] core/float/constants_spec.rb (CORAFIXME: Integer#** with negative exponent not supported)
 - [ ] core/float/denominator_spec.rb
 - [ ] core/float/divide_spec.rb
 - [ ] core/float/divmod_spec.rb

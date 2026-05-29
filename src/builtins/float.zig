@@ -86,6 +86,30 @@ pub fn register(vm: *VM) !void {
     const epsilon_sym = try vm.intern("EPSILON");
     try vm.float_class.module.constants.put(epsilon_sym, .{ .value = try vm.newFloat(std.math.floatEps(f64)) });
 
+    const dig_sym = try vm.intern("DIG");
+    try vm.float_class.module.constants.put(dig_sym, .{ .value = Value.integer(15) });
+
+    const mant_dig_sym = try vm.intern("MANT_DIG");
+    try vm.float_class.module.constants.put(mant_dig_sym, .{ .value = Value.integer(53) });
+
+    const max_10_exp_sym = try vm.intern("MAX_10_EXP");
+    try vm.float_class.module.constants.put(max_10_exp_sym, .{ .value = Value.integer(308) });
+
+    const min_10_exp_sym = try vm.intern("MIN_10_EXP");
+    try vm.float_class.module.constants.put(min_10_exp_sym, .{ .value = Value.integer(-307) });
+
+    const max_exp_sym = try vm.intern("MAX_EXP");
+    try vm.float_class.module.constants.put(max_exp_sym, .{ .value = Value.integer(1024) });
+
+    const min_exp_sym = try vm.intern("MIN_EXP");
+    try vm.float_class.module.constants.put(min_exp_sym, .{ .value = Value.integer(-1021) });
+
+    const min_sym = try vm.intern("MIN");
+    try vm.float_class.module.constants.put(min_sym, .{ .value = try vm.newFloat(std.math.floatMin(f64)) });
+
+    const radix_sym = try vm.intern("RADIX");
+    try vm.float_class.module.constants.put(radix_sym, .{ .value = Value.integer(2) });
+
     const plus_sym = try vm.intern("+");
     try vm.float_class.module.methods.put(plus_sym, value.MethodEntry.builtin(&builtinFloatPlus, .{ .exact = 1 }));
 
