@@ -2,6 +2,7 @@ const std = @import("std");
 const prism = @import("prism.zig");
 pub const Value = @import("value.zig").Value;
 const build_options = @import("build_options");
+const version = @import("version.zig");
 const compiler = @import("compiler.zig");
 const load_path = @import("load_path.zig");
 const vm = @import("vm.zig");
@@ -186,6 +187,8 @@ pub fn main(init: std.process.Init) !void {
     var required_libraries: std.ArrayList([]const u8) = .empty;
     defer required_libraries.deinit(allocator);
 
+    var verbose = false;
+
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
         if (filename != null) {
@@ -193,7 +196,9 @@ pub fn main(init: std.process.Init) !void {
             continue;
         }
 
-        if (std.mem.eql(u8, args[i], "-e")) {
+        if (std.mem.eql(u8, args[i], "-v")) {
+            verbose = true;
+        } else if (std.mem.eql(u8, args[i], "-e")) {
             if (i + 1 < args.len) {
                 ruby_code = args[i + 1];
                 i += 1;
@@ -226,6 +231,9 @@ pub fn main(init: std.process.Init) !void {
                 std.debug.print("Error: -0 requires an octal byte value between 000 and 377\n", .{});
                 return;
             };
+        } else if (std.mem.eql(u8, args[i], "--version")) {
+            std.debug.print("{s}\n", .{version.description});
+            return;
         } else if (std.mem.eql(u8, args[i], "-h") or std.mem.eql(u8, args[i], "--help")) {
             printHelp();
             return;
@@ -256,6 +264,10 @@ pub fn main(init: std.process.Init) !void {
     }
 
     if (ruby_code == null and filename == null) {
+        if (verbose) {
+            std.debug.print("{s}\n", .{version.description});
+            return;
+        }
         printHelp();
         return;
     }
@@ -325,6 +337,14 @@ pub fn main(init: std.process.Init) !void {
 
     var virtual_machine = vm.VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic, init.io, init.minimal.environ);
     try virtual_machine.prepare(&program);
+    if (verbose) {
+        var stdout_buf: [8192]u8 = undefined;
+        var stdout_w = std.Io.File.stdout().writer(init.io, &stdout_buf);
+        try stdout_w.interface.writeAll(version.description);
+        try stdout_w.interface.writeAll("\n");
+        try stdout_w.interface.flush();
+        try virtual_machine.setGlobal("$VERBOSE", Value.boolean(true));
+    }
     defer virtual_machine.deinit();
     try configureLoadPath(allocator, &virtual_machine, init.io, args[0], extra_load_paths.items);
     virtual_machine.setTccJitEnabled(build_options.tcc_jit);
