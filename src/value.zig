@@ -424,6 +424,9 @@ pub const IoObject = struct {
     path_encoding: ?Encoding = null,
     lineno: i64 = 0,
     sync: bool = false,
+    read_buf: ?[]u8 = null,
+    read_buf_offset: usize = 0,
+    read_buf_avail: usize = 0,
 };
 
 pub const RegexpObject = struct {

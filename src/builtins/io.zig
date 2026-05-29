@@ -967,6 +967,28 @@ pub fn builtinIoNonblock(vm: *VM, receiver: Value, args: []Value, block: ?Block)
     return yielded.value;
 }
 
+fn findLineEnd(data: []const u8, separator: ?[]const u8, limit: ?usize) ?usize {
+    if (limit) |max_len| {
+        if (data.len >= max_len) return max_len;
+    }
+    if (separator) |sep| {
+        if (sep.len == 0) {
+            if (std.mem.indexOf(u8, data, "\n\n")) |pos| return pos + 2;
+        } else {
+            if (std.mem.indexOf(u8, data, sep)) |pos| return pos + sep.len;
+        }
+    }
+    return null;
+}
+
+fn ensureIoReadBuf(vm: *VM, io: *IoObject) VMError!void {
+    if (io.read_buf == null) {
+        io.read_buf = vm.allocator.alloc(u8, 8192) catch return error.Fatal;
+        io.read_buf_offset = 0;
+        io.read_buf_avail = 0;
+    }
+}
+
 pub fn builtinIoGets(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 2);
     const io = try requireIoReceiver(vm, receiver);
@@ -1005,25 +1027,73 @@ pub fn builtinIoGets(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
     var out: std.ArrayList(u8) = .empty;
     defer out.deinit(vm.allocator);
 
-    var byte: [1]u8 = undefined;
+    // Phase 1: consume buffered data from previous gets call
+    if (io.read_buf) |buf| {
+        const avail = io.read_buf_avail - io.read_buf_offset;
+        if (avail > 0) {
+            out.appendSlice(vm.allocator, buf[io.read_buf_offset..io.read_buf_avail]) catch return error.Fatal;
+            io.read_buf_offset = io.read_buf_avail;
+        }
+        if (findLineEnd(out.items, separator, limit)) |end| {
+            if (end < out.items.len) {
+                const excess = out.items[end..];
+                try ensureIoReadBuf(vm, io);
+                @memcpy(io.read_buf.?[0..excess.len], excess);
+                io.read_buf_avail = excess.len;
+                io.read_buf_offset = 0;
+                out.shrinkRetainingCapacity(end);
+            }
+            io.lineno += 1;
+            return vm.newString(out.items, false);
+        }
+        io.read_buf_offset = 0;
+        io.read_buf_avail = 0;
+    }
+
+    // Phase 2: read chunks from fd, scanning byte-by-byte for separator/limit
+    var chunk: [8192]u8 = undefined;
     while (true) {
-        const n = try blockingIoRead(vm, io, byte[0..]);
+        const n = try blockingIoRead(vm, io, chunk[0..]);
         if (n == 0) {
             if (out.items.len == 0) return Value.nil();
             break;
         }
-        out.append(vm.allocator, byte[0]) catch return error.Fatal;
-        if (limit) |max_len| {
-            if (out.items.len >= max_len) break;
-        }
-        if (separator) |sep| {
-            if (sep.len == 0) {
-                if (out.items.len >= 2 and std.mem.eql(u8, out.items[out.items.len - 2 ..], "\n\n")) break;
-            } else if (out.items.len >= sep.len and std.mem.eql(u8, out.items[out.items.len - sep.len ..], sep)) {
-                break;
+
+        var i: usize = 0;
+        var done = false;
+        while (i < n and !done) {
+            out.append(vm.allocator, chunk[i]) catch return error.Fatal;
+            i += 1;
+
+            if (limit) |max_len| {
+                if (out.items.len >= max_len) done = true;
+            }
+            if (!done) {
+                if (separator) |sep| {
+                    if (sep.len == 0) {
+                        if (out.items.len >= 2 and out.items[out.items.len - 1] == '\n' and out.items[out.items.len - 2] == '\n')
+                            done = true;
+                    } else if (out.items.len >= sep.len) {
+                        if (std.mem.eql(u8, out.items[out.items.len - sep.len ..], sep))
+                            done = true;
+                    }
+                }
             }
         }
+
+        if (done) {
+            if (i < n) {
+                try ensureIoReadBuf(vm, io);
+                const remaining = n - i;
+                @memcpy(io.read_buf.?[0..remaining], chunk[i..n]);
+                io.read_buf_avail = remaining;
+                io.read_buf_offset = 0;
+            }
+            io.lineno += 1;
+            return vm.newString(out.items, false);
+        }
     }
+
     io.lineno += 1;
     return vm.newString(out.items, false);
 }
@@ -2018,6 +2088,13 @@ pub fn builtinIoClose(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
     const io = try requireIoReceiver(vm, receiver);
     if (io.closed) return Value.nil();
 
+    if (io.read_buf) |buf| {
+        vm.allocator.free(buf);
+        io.read_buf = null;
+    }
+    io.read_buf_offset = 0;
+    io.read_buf_avail = 0;
+
     if (io.owns_fd and io.fd >= 0) {
         _ = std.c.close(@intCast(io.fd));
     }
@@ -2235,6 +2312,13 @@ pub fn builtinIoRewind(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
     try vm.requireArgCount(args, 0);
     const io = try requireIoReceiver(vm, receiver);
     try ensureIoOpen(vm, io);
+
+    if (io.read_buf) |buf| {
+        vm.allocator.free(buf);
+        io.read_buf = null;
+    }
+    io.read_buf_offset = 0;
+    io.read_buf_avail = 0;
 
     const result = std.c.lseek(@intCast(io.fd), 0, std.c.SEEK.SET);
     if (result < 0) {
