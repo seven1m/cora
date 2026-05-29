@@ -1003,7 +1003,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/integer/ceildiv_spec.rb
 - [x] core/integer/chr_spec.rb
 - [x] core/integer/coerce_spec.rb
-- [ ] core/integer/comparison_spec.rb
+- [x] core/integer/comparison_spec.rb
 - [x] core/integer/complement_spec.rb
 - [ ] core/integer/constants_spec.rb
 - [x] core/integer/denominator_spec.rb

@@ -1163,20 +1163,40 @@ pub fn builtinIntegerCompare(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     const rhs = args[0];
 
     if (rhs.isFloat()) {
-        const lhs_f = receiver.integerToF64();
         const rhs_f = rhs.toFloatObject().val;
+        if (std.math.isNan(rhs_f)) return Value.nil();
+        if (std.math.isInf(rhs_f)) {
+            return if (rhs_f > 0) Value.integer(-1) else Value.integer(1);
+        }
+        const lhs_f = receiver.integerToF64();
+        if (std.math.isInf(lhs_f)) {
+            return if (lhs_f > 0) Value.integer(1) else Value.integer(-1);
+        }
         if (lhs_f < rhs_f) return Value.integer(-1);
         if (lhs_f > rhs_f) return Value.integer(1);
         return Value.integer(0);
     }
 
-    if (!rhs.isInteger() and !rhs.isBigInteger()) return Value.nil();
-    const order = try compareIntegers(vm, receiver, rhs);
-    return switch (order) {
-        .lt => Value.integer(-1),
-        .eq => Value.integer(0),
-        .gt => Value.integer(1),
-    };
+    if (rhs.isInteger() or rhs.isBigInteger()) {
+        const order = try compareIntegers(vm, receiver, rhs);
+        return switch (order) {
+            .lt => Value.integer(-1),
+            .eq => Value.integer(0),
+            .gt => Value.integer(1),
+        };
+    }
+
+    return try integerCoerceCompare(vm, receiver, rhs);
+}
+
+fn integerCoerceCompare(vm: *VM, lhs: Value, rhs: Value) VMError!Value {
+    var coerce_args = [_]Value{lhs};
+    const coerce_result = try vm.checkCallMethodByName(rhs, "coerce", false, &coerce_args, null) orelse return Value.nil();
+    if (!coerce_result.isArray()) return Value.nil();
+    const arr = coerce_result.toArrayObject();
+    if (arr.elements.items.len != 2) return Value.nil();
+    var cmp_args = [_]Value{arr.elements.items[1]};
+    return try vm.callMethodByName(arr.elements.items[0], "<=>", &cmp_args, null);
 }
 
 pub fn builtinIntegerPower(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

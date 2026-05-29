@@ -26,6 +26,7 @@ const max_fixed_decimal_digits: c_int = 15;
 fn coerceNumericArg(vm: *VM, arg: Value) VMError!f64 {
     if (arg.isFloat()) return arg.toFloatObject().val;
     if (arg.isInteger()) return @floatFromInt(arg.toInteger());
+    if (arg.isBigInteger()) return arg.toBigIntegerObject().value.toFloat(f64, .nearest_even)[0];
     return vm.raiseExceptionFmt(vm.type_error_class, "argument is not numeric", .{});
 }
 
@@ -239,6 +240,14 @@ pub fn builtinFloatCompare(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     const rhs_f = try coerceNumericArg(vm, args[0]);
 
     if (std.math.isNan(lhs) or std.math.isNan(rhs_f)) return Value.nil();
+
+    if (std.math.isInf(rhs_f) and args[0].isBigInteger()) {
+        if (std.math.isInf(lhs)) {
+            return if (lhs > 0) Value.integer(1) else Value.integer(-1);
+        }
+        return if (rhs_f > 0) Value.integer(-1) else Value.integer(1);
+    }
+
     if (lhs < rhs_f) return Value.integer(-1);
     if (lhs > rhs_f) return Value.integer(1);
     return Value.integer(0);
