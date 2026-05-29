@@ -1218,7 +1218,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/kernel/instance_variables_spec.rb
 - [x] core/kernel/is_a_spec.rb
 - [x] core/kernel/itself_spec.rb
-- [ ] core/kernel/kind_of_spec.rb
+- [x] core/kernel/kind_of_spec.rb
 - [ ] core/kernel/lambda_spec.rb
 - [ ] core/kernel/load_spec.rb
 - [ ] core/kernel/local_variables_spec.rb
