@@ -1913,6 +1913,13 @@ def mock_numeric(name = nil)
   mock(name)
 end
 
+# mock_int creates an object that responds to #to_int with the given value.
+def mock_int(val)
+  obj = Object.new
+  obj.define_singleton_method(:to_int) { val }
+  obj
+end
+
 # with_timezone temporarily sets the TZ environment variable (Unix only),
 # runs the block, then restores the original value.  When an integer offset
 # is provided (mspec convention), we construct a POSIX TZ string like

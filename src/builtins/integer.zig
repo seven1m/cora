@@ -462,6 +462,9 @@ pub fn register(vm: *VM) !void {
     const try_convert_sym = try vm.intern("try_convert");
     try integer_singleton.module.methods.put(try_convert_sym, value.MethodEntry.builtin(&builtinIntegerTryConvert, .{ .exact = 1 }));
 
+    const sqrt_sym = try vm.intern("sqrt");
+    try integer_singleton.module.methods.put(sqrt_sym, value.MethodEntry.builtin(&builtinIntegerSqrt, .{ .exact = 1 }));
+
     const plus_sym = try vm.intern("+");
     try vm.integer_class.module.methods.put(plus_sym, value.MethodEntry.builtin(&builtinIntegerPlus, .{ .exact = 1 }));
 
@@ -755,6 +758,87 @@ pub fn builtinIntegerTryConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VME
     const converted = maybe_converted orelse return Value.nil();
     if (converted.isNil()) return Value.nil();
     if (converted.isInteger() or converted.isBigInteger()) return converted;
+
+    return vm.raiseExceptionFmt(
+        vm.type_error_class,
+        "can't convert {s} to Integer ({s}#to_int gives {s})",
+        .{ vm.className(arg), vm.className(arg), vm.className(converted) },
+    );
+}
+
+pub fn builtinIntegerSqrt(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const arg = args[0];
+
+    if (arg.isBigInteger()) {
+        const big = arg.toBigIntegerObject().value;
+        if (!big.isPositive() and !big.eqlZero()) {
+            return vm.raiseExceptionFmt(vm.range_error_class, "Integer.sqrt: domain error", .{});
+        }
+        var result = BigInt.init(vm.allocator) catch return error.Fatal;
+        defer result.deinit();
+        BigInt.sqrt(&result, &big) catch |e| switch (e) {
+            error.OutOfMemory => return error.Fatal,
+            error.SqrtOfNegativeNumber => unreachable,
+        };
+        return vm.valueFromManagedInteger(&result);
+    }
+
+    if (arg.isInteger()) {
+        const n = arg.toInteger();
+        if (n < 0) {
+            return vm.raiseExceptionFmt(vm.range_error_class, "Integer.sqrt: domain error", .{});
+        }
+        const sqrt_n = std.math.sqrt(@as(f64, @floatFromInt(n)));
+        return Value.integer(@as(i64, @intFromFloat(sqrt_n)));
+    }
+
+    if (arg.isFloat()) {
+        const f = arg.toFloatObject().val;
+        if (f < 0) {
+            return vm.raiseExceptionFmt(vm.range_error_class, "Integer.sqrt: domain error", .{});
+        }
+        const n = @as(i64, @intFromFloat(@floor(f)));
+        const sqrt_n = std.math.sqrt(@as(f64, @floatFromInt(n)));
+        return Value.integer(@as(i64, @intFromFloat(sqrt_n)));
+    }
+
+    const maybe_converted = try vm.checkCallMethodByName(arg, "to_int", false, &[_]Value{}, null);
+    const converted = maybe_converted orelse {
+        return vm.raiseExceptionFmt(
+            vm.type_error_class,
+            "no implicit conversion of {s} into Integer",
+            .{vm.className(arg)},
+        );
+    };
+    if (converted.isNil()) {
+        return vm.raiseExceptionFmt(
+            vm.type_error_class,
+            "no implicit conversion of {s} into Integer",
+            .{vm.className(arg)},
+        );
+    }
+    if (converted.isInteger()) {
+        const n = converted.toInteger();
+        if (n < 0) {
+            return vm.raiseExceptionFmt(vm.range_error_class, "Integer.sqrt: domain error", .{});
+        }
+        const sqrt_n = std.math.sqrt(@as(f64, @floatFromInt(n)));
+        return Value.integer(@as(i64, @intFromFloat(sqrt_n)));
+    }
+    if (converted.isBigInteger()) {
+        const big = converted.toBigIntegerObject().value;
+        if (!big.isPositive() and !big.eqlZero()) {
+            return vm.raiseExceptionFmt(vm.range_error_class, "Integer.sqrt: domain error", .{});
+        }
+        var result = BigInt.init(vm.allocator) catch return error.Fatal;
+        defer result.deinit();
+        BigInt.sqrt(&result, &big) catch |e| switch (e) {
+            error.OutOfMemory => return error.Fatal,
+            error.SqrtOfNegativeNumber => unreachable,
+        };
+        return vm.valueFromManagedInteger(&result);
+    }
 
     return vm.raiseExceptionFmt(
         vm.type_error_class,
