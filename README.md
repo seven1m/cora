@@ -15,11 +15,15 @@ and to explore just-in-time compilation.
 
 ## What Works
 
-At least, the basics work with these:
+some gems that are known to work (though I haven't tested thoroughly):
 
-- rubygems
-- webrick
 - rack and rackup
+- webrick
+- sinatra
+- erb
+- ansi
+
+We are closing on 10,000 ruby specs passing, which by my math is about a third of the way to completion.
 
 ## Prerequisites
 
