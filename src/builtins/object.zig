@@ -7,9 +7,6 @@ const Block = vm_mod.Block;
 const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
-    const new_sym = try vm.intern("new");
-    try vm.object_class.module.methods.put(new_sym, value.MethodEntry.builtin(&builtinObjectNew, .{ .variadic = 0 }));
-
     const object_id_sym = try vm.intern("object_id");
     try vm.object_class.module.methods.put(object_id_sym, value.MethodEntry.builtin(&builtinObjectObjectId, .{ .exact = 0 }));
 
