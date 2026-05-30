@@ -16,8 +16,11 @@ fn unboundMethodObject(receiver: Value) *UnboundMethodObject {
 fn builtinMethodCall(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     const method_obj = receiver.toMethodObject();
 
-    const resolved = (try common.resolveExactMethodForReceiver(vm, method_obj.receiver, method_obj.owner, method_obj.name)) orelse {
-        return common.raiseUndefinedMethodName(vm, method_obj.name);
+    const owner_class = if (method_obj.owner.isClass()) method_obj.owner.toClassObject() else vm.getClass(method_obj.owner);
+    const resolved: vm_mod.ResolvedMethod = .{
+        .name = method_obj.name,
+        .owner_class = owner_class,
+        .entry = method_obj.entry,
     };
     return vm.invokeResolvedMethod(resolved, method_obj.receiver, args, block);
 }
@@ -41,8 +44,11 @@ fn builtinMethodParameters(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     try vm.requireArgCount(args, 0);
 
     const method_obj = receiver.toMethodObject();
-    const resolved = (try common.resolveExactMethodForReceiver(vm, method_obj.receiver, method_obj.owner, method_obj.name)) orelse {
-        return common.raiseUndefinedMethodName(vm, method_obj.name);
+    const owner_class = if (method_obj.owner.isClass()) method_obj.owner.toClassObject() else vm.getClass(method_obj.owner);
+    const resolved: vm_mod.ResolvedMethod = .{
+        .name = method_obj.name,
+        .owner_class = owner_class,
+        .entry = method_obj.entry,
     };
     return common.parametersForResolvedMethod(vm, resolved);
 }
@@ -51,10 +57,12 @@ fn builtinMethodUnbind(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
     try vm.requireArgCount(args, 0);
 
     const method_obj = receiver.toMethodObject();
-    const resolved = (try common.resolveExactMethodForReceiver(vm, method_obj.receiver, method_obj.owner, method_obj.name)) orelse {
-        return common.raiseUndefinedMethodName(vm, method_obj.name);
+    const owner_class = if (method_obj.owner.isClass()) method_obj.owner.toClassObject() else vm.getClass(method_obj.owner);
+    const resolved: vm_mod.ResolvedMethod = .{
+        .name = method_obj.name,
+        .owner_class = owner_class,
+        .entry = method_obj.entry,
     };
-
     return createUnboundMethodObject(vm, method_obj.name, resolved, method_obj.owner);
 }
 
@@ -62,8 +70,11 @@ fn builtinMethodSourceLocation(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
     try vm.requireArgCount(args, 0);
 
     const method_obj = receiver.toMethodObject();
-    const resolved = (try common.resolveExactMethodForReceiver(vm, method_obj.receiver, method_obj.owner, method_obj.name)) orelse {
-        return common.raiseUndefinedMethodName(vm, method_obj.name);
+    const owner_class = if (method_obj.owner.isClass()) method_obj.owner.toClassObject() else vm.getClass(method_obj.owner);
+    const resolved: vm_mod.ResolvedMethod = .{
+        .name = method_obj.name,
+        .owner_class = owner_class,
+        .entry = method_obj.entry,
     };
     return common.sourceLocationForResolvedMethod(vm, resolved);
 }
