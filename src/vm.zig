@@ -1193,6 +1193,8 @@ pub const VM = struct {
         const enoexec_class_val = try self.newClass(enoexec_name_sym, self.system_call_error_class);
         const eilseq_name_sym = try self.intern("EILSEQ");
         const eilseq_class_val = try self.newClass(eilseq_name_sym, self.system_call_error_class);
+        const eaddrinuse_name_sym = try self.intern("EADDRINUSE");
+        const eaddrinuse_class_val = try self.newClass(eaddrinuse_name_sym, self.system_call_error_class);
         const echild_name_sym = try self.intern("ECHILD");
         const echild_class_val = try self.newClass(echild_name_sym, self.system_call_error_class);
         const einval_name_sym = try self.intern("EINVAL");
@@ -1410,6 +1412,7 @@ pub const VM = struct {
         self.errno_module.constants.put(eproto_name_sym, .{ .value = eproto_class_val }) catch return error.Fatal;
         self.errno_module.constants.put(enoexec_name_sym, .{ .value = enoexec_class_val }) catch return error.Fatal;
         self.errno_module.constants.put(eilseq_name_sym, .{ .value = eilseq_class_val }) catch return error.Fatal;
+        self.errno_module.constants.put(eaddrinuse_name_sym, .{ .value = eaddrinuse_class_val }) catch return error.Fatal;
         self.errno_module.constants.put(echild_name_sym, .{ .value = echild_class_val }) catch return error.Fatal;
         self.errno_module.constants.put(einval_name_sym, .{ .value = einval_class_val }) catch return error.Fatal;
         self.errno_module.constants.put(enotdir_name_sym, .{ .value = enotdir_class_val }) catch return error.Fatal;
@@ -1459,6 +1462,9 @@ pub const VM = struct {
         try self.registerErrnoClass(.NOEXEC, enoexec_class_val.toClassObject());
         if (@hasField(std.posix.E, "ILSEQ")) {
             try self.registerErrnoClass(@field(std.posix.E, "ILSEQ"), eilseq_class_val.toClassObject());
+        }
+        if (@hasField(std.posix.E, "ADDRINUSE")) {
+            try self.registerErrnoClass(@field(std.posix.E, "ADDRINUSE"), eaddrinuse_class_val.toClassObject());
         }
         try self.registerErrnoClass(.CHILD, echild_class_val.toClassObject());
         try self.registerErrnoClass(.INVAL, einval_class_val.toClassObject());
