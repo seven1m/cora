@@ -88,6 +88,13 @@ pub fn builtinClassNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
         const anonymous_name = try vm.intern("<anonymous>");
         const class_val = try vm.newClass(anonymous_name, superclass);
 
+        // Call superclass.inherited(new_class)
+        const superclass_val = if (args.len == 1) args[0] else Value.nil();
+        if (!superclass_val.isNil() and superclass_val.isClass()) {
+            var inherited_args = [_]Value{class_val};
+            _ = try vm.callMethodByName(superclass_val, "inherited", inherited_args[0..], null);
+        }
+
         if (block) |blk| {
             const yield_result = switch (blk.kind) {
                 .chunk => |chunk_blk| chunk_blk_result: {

@@ -5742,6 +5742,12 @@ pub const VM = struct {
                         // Create new class
                         class_val = try self.newClass(target.name_sym, superclass);
                         target.owner_module.constants.put(target.name_sym, .{ .value = class_val }) catch return error.Fatal;
+
+                        // Call superclass.inherited(new_class) if superclass defines it
+                        if (!superclass_val.isNil() and superclass_val.isClass()) {
+                            var inherited_args = [_]Value{class_val};
+                            _ = try self.callMethodByName(superclass_val, "inherited", inherited_args[0..], null);
+                        }
                     }
 
                     // Execute class body if it exists
