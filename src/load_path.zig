@@ -13,5 +13,4 @@ pub const repo_load_paths = [_][]const u8{
     "ext/tempfile/lib",
     "ext/cgi/lib",
     "ext/erb/lib",
-    "ext/webrick/lib",
 };

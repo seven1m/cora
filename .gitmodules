@@ -46,6 +46,3 @@
 [submodule "ext/singleton"]
 	path = ext/singleton
 	url = https://github.com/ruby/singleton
-[submodule "ext/webrick"]
-	path = ext/webrick
-	url = https://github.com/ruby/webrick
