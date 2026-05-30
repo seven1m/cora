@@ -6491,6 +6491,91 @@ pub const VM = struct {
                 try self.callSuper(args[0..positional_argc], block);
             },
 
+            .SUPER_KW => {
+                const argc = readByteFrom(frame, operands, &operand_cursor);
+                const kwargc = readByteFrom(frame, operands, &operand_cursor);
+                const flags = readByteFrom(frame, operands, &operand_cursor);
+                const kw_metadata_idx = readU16From(frame, operands, &operand_cursor);
+                const block_chunk_id = readU16From(frame, operands, &operand_cursor);
+                const args_array_mode = (flags & bytecode.SUPER_FLAG_ARGS_ARRAY) != 0;
+                const kw_hash_mode = (flags & bytecode.SUPER_FLAG_KW_HASH) != 0;
+
+                const block = try self.resolveBlock(block_chunk_id, frame);
+
+                // Pop keyword values and build keyword context
+                var kw_key_slice: ?[]Value = null;
+                var kw_value_slice: ?[]Value = null;
+                var kw_pairs_temp: TempKeywordPairs = .{};
+                defer kw_pairs_temp.deinit(self.allocator);
+
+                if (kw_hash_mode) {
+                    const kw_hash = self.pop();
+                    try kw_pairs_temp.initFromHash(self, kw_hash);
+                    kw_key_slice = kw_pairs_temp.keys.slice;
+                    kw_value_slice = kw_pairs_temp.values.slice;
+                } else if (kwargc > 0) {
+                    try kw_pairs_temp.initUninitialized(self, kwargc);
+                    kw_key_slice = kw_pairs_temp.keys.slice;
+                    kw_value_slice = kw_pairs_temp.values.slice;
+                    var i: usize = kwargc;
+                    while (i > 0) {
+                        i -= 1;
+                        kw_value_slice.?[i] = self.pop();
+                    }
+                    const kw_meta = frame.chunk.keyword_metadata.items[kw_metadata_idx];
+                    for (0..kwargc) |idx| {
+                        const name_idx = kw_meta.names.items[idx];
+                        const key_name = switch (frame.chunk.constants.items[name_idx]) {
+                            .string => |s| s,
+                            .symbol => |sym| sym.name,
+                            else => return error.Fatal,
+                        };
+                        const key_sym = try self.intern(key_name);
+                        kw_key_slice.?[idx] = Value.fromObject(&key_sym.object);
+                    }
+                }
+
+                // Pop positional args
+                var args: [256]Value = undefined;
+                var positional_argc: usize = 0;
+                if (args_array_mode) {
+                    const positional = try self.expandSplatValue(self.pop());
+                    const elems = positional.toArrayObject().elements.items;
+                    if (elems.len > args.len) {
+                        const exc = try self.createException(self.argument_error_class, "too many arguments");
+                        self.setPendingException(exc);
+                        return error.Unwind;
+                    }
+                    for (elems, 0..) |elem, idx| {
+                        args[idx] = elem;
+                    }
+                    positional_argc = elems.len;
+                } else {
+                    var i: usize = 0;
+                    while (i < argc) : (i += 1) {
+                        args[argc - 1 - i] = self.pop();
+                    }
+                    positional_argc = argc;
+                }
+
+                // Build keyword context and temporarily set on frame for callSuper
+                const saved_kw_ctx = frame.forwarded_keyword_ctx;
+                frame.forwarded_keyword_ctx = null;
+                if (kw_key_slice) |keys| {
+                    const ctx = self.gc_allocator.create(BuiltinKeywordContext) catch return error.Fatal;
+                    ctx.* = .{
+                        .kw_keys_storage = undefined,
+                        .kw_values_storage = undefined,
+                    };
+                    @memcpy(ctx.kw_keys_storage[0..keys.len], keys);
+                    @memcpy(ctx.kw_values_storage[0..kw_value_slice.?.len], kw_value_slice.?);
+                    frame.forwarded_keyword_ctx = ctx;
+                }
+                defer frame.forwarded_keyword_ctx = saved_kw_ctx;
+
+                try self.callSuper(args[0..positional_argc], block);
+            },
+
             .FORWARDING_SUPER => {
                 const block_chunk_id = readU16From(frame, operands, &operand_cursor);
 

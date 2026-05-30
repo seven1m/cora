@@ -403,6 +403,18 @@ pub const Chunk = struct {
         try self.code.append(self.allocator, @intCast(block_chunk_id >> 8));
     }
 
+    pub fn emitSuperKw(self: *Chunk, argc: u8, kwargc: u8, flags: u8, kw_metadata_idx: u16, block_chunk_id: u16, line: u32) !void {
+        try self.recordLine(line);
+        try self.code.append(self.allocator, @intFromEnum(OpCode.SUPER_KW));
+        try self.code.append(self.allocator, argc);
+        try self.code.append(self.allocator, kwargc);
+        try self.code.append(self.allocator, flags);
+        try self.code.append(self.allocator, @intCast(kw_metadata_idx & 0xFF));
+        try self.code.append(self.allocator, @intCast(kw_metadata_idx >> 8));
+        try self.code.append(self.allocator, @intCast(block_chunk_id & 0xFF));
+        try self.code.append(self.allocator, @intCast(block_chunk_id >> 8));
+    }
+
     /// Emit a jump instruction and return the byte offset of the i16 operand (for patching).
     pub fn emitJump(self: *Chunk, op: OpCode, line: u32) !usize {
         try self.recordLine(line);
@@ -686,6 +698,17 @@ pub const Chunk = struct {
                 ip += 1;
                 const block_id = readU16(self.code.items, &ip);
                 try writer.print("SUPER {d}, {d}, {d}\n", .{ argc, flags, block_id });
+            },
+            .SUPER_KW => {
+                const argc = self.code.items[ip];
+                ip += 1;
+                const kwargc = self.code.items[ip];
+                ip += 1;
+                const flags = self.code.items[ip];
+                ip += 1;
+                const kw_mid = readU16(self.code.items, &ip);
+                const block_id = readU16(self.code.items, &ip);
+                try writer.print("SUPER_KW {d}, {d}, {d}, {d}, {d}\n", .{ argc, kwargc, flags, kw_mid, block_id });
             },
         }
 

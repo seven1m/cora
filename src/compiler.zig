@@ -1217,64 +1217,246 @@ pub const Compiler = struct {
             .super_node => |super_node| {
                 // super() or super(args): explicit arguments
                 var argc: u8 = 0;
+                var kwargc: u8 = 0;
+                var kw_metadata_idx: ?u16 = null;
                 var args_array_mode = false;
+                var kw_hash_mode = false;
+
                 if (super_node.arguments) |args_ptr| {
                     const args = @as(*prism.ArgumentsNode, @ptrCast(args_ptr));
-                    var has_splat = false;
-                    var i: usize = 0;
-                    while (i < args.arguments.size) : (i += 1) {
-                        const arg_node = try self.parser.asNode(args.arguments.nodes[i]);
-                        if (arg_node == .splat) {
-                            has_splat = true;
-                            break;
-                        }
-                    }
 
-                    if (!has_splat) {
-                        i = 0;
+                    // Check for keyword arguments via Prism flags
+                    const has_keywords = (args.base.flags & prism.ARGUMENTS_NODE_FLAGS_CONTAINS_KEYWORDS) != 0 or
+                        (args.base.flags & prism.ARGUMENTS_NODE_FLAGS_CONTAINS_KEYWORD_SPLAT) != 0;
+
+                    if (!has_keywords) {
+                        // No keywords: use regular SUPER
+                        var has_splat = false;
+                        var i: usize = 0;
                         while (i < args.arguments.size) : (i += 1) {
-                            const arg = args.arguments.nodes[i];
-                            const arg_node = try self.parser.asNode(arg);
-                            try self.compileNode(arg_node, line);
-                            argc += 1;
-                        }
-                    } else {
-                        args_array_mode = true;
-                        try self.current_chunk.emitOpU16(.PUSH_ARRAY, 0, line);
-
-                        i = 0;
-                        while (i < args.arguments.size) : (i += 1) {
-                            const arg = args.arguments.nodes[i];
-                            const arg_node = try self.parser.asNode(arg);
-
+                            const arg_node = try self.parser.asNode(args.arguments.nodes[i]);
                             if (arg_node == .splat) {
-                                const expr_ptr = arg_node.splat.expression orelse return error.UnsupportedNode;
-                                const expr = try self.parser.asNode(@ptrCast(expr_ptr));
-                                try self.compileNode(expr, line);
-                                try self.current_chunk.emitOp(.ARRAY_CONCAT_ARRAY, line);
-                            } else {
-                                try self.compileNode(arg_node, line);
-                                try self.current_chunk.emitOp(.ARRAY_APPEND, line);
+                                has_splat = true;
+                                break;
                             }
                         }
-                    }
-                }
 
-                // Compile optional block
-                var block_chunk_id: chunk.ChunkId = 0;
-                if (super_node.block) |block_ptr| {
-                    const block_node = try self.parser.asNode(@ptrCast(block_ptr));
-                    if (block_node == .block) {
-                        block_chunk_id = try self.compileBlock(block_node.block, line);
-                    } else if (block_node == .block_argument) {
-                        const expr = try self.parser.asNode(@ptrCast(block_node.block_argument.expression));
-                        try self.compileNode(expr, line);
-                        block_chunk_id = chunk.BLOCK_ARG_ON_STACK;
-                    }
-                }
+                        if (!has_splat) {
+                            i = 0;
+                            while (i < args.arguments.size) : (i += 1) {
+                                const arg = args.arguments.nodes[i];
+                                const arg_node = try self.parser.asNode(arg);
+                                try self.compileNode(arg_node, line);
+                                argc += 1;
+                            }
+                        } else {
+                            args_array_mode = true;
+                            try self.current_chunk.emitOpU16(.PUSH_ARRAY, 0, line);
 
-                const super_flags: u8 = if (args_array_mode) bytecode.SUPER_FLAG_ARGS_ARRAY else 0;
-                try self.current_chunk.emitSuper(argc, super_flags, block_chunk_id, line);
+                            i = 0;
+                            while (i < args.arguments.size) : (i += 1) {
+                                const arg = args.arguments.nodes[i];
+                                const arg_node = try self.parser.asNode(arg);
+
+                                if (arg_node == .splat) {
+                                    const expr_ptr = arg_node.splat.expression orelse return error.UnsupportedNode;
+                                    const expr = try self.parser.asNode(@ptrCast(expr_ptr));
+                                    try self.compileNode(expr, line);
+                                    try self.current_chunk.emitOp(.ARRAY_CONCAT_ARRAY, line);
+                                } else {
+                                    try self.compileNode(arg_node, line);
+                                    try self.current_chunk.emitOp(.ARRAY_APPEND, line);
+                                }
+                            }
+                        }
+
+                        // Compile optional block
+                        var block_chunk_id: chunk.ChunkId = 0;
+                        if (super_node.block) |block_ptr| {
+                            const block_node = try self.parser.asNode(@ptrCast(block_ptr));
+                            if (block_node == .block) {
+                                block_chunk_id = try self.compileBlock(block_node.block, line);
+                            } else if (block_node == .block_argument) {
+                                const expr = try self.parser.asNode(@ptrCast(block_node.block_argument.expression));
+                                try self.compileNode(expr, line);
+                                block_chunk_id = chunk.BLOCK_ARG_ON_STACK;
+                            }
+                        }
+
+                        const super_flags: u8 = if (args_array_mode) bytecode.SUPER_FLAG_ARGS_ARRAY else 0;
+                        try self.current_chunk.emitSuper(argc, super_flags, block_chunk_id, line);
+                    } else {
+                        // Has keywords: use SUPER_KW
+                        var kw_names: std.ArrayList(u16) = .empty;
+                        defer kw_names.deinit(self.allocator);
+
+                        var has_splat = false;
+                        var i: usize = 0;
+                        while (i < args.arguments.size) : (i += 1) {
+                            const arg_node = try self.parser.asNode(args.arguments.nodes[i]);
+                            if (arg_node == .splat) {
+                                has_splat = true;
+                            } else if (arg_node == .keyword_hash) {
+                                const kw_hash = arg_node.keyword_hash;
+                                var j: usize = 0;
+                                while (j < kw_hash.elements.size) : (j += 1) {
+                                    const elem = try self.parser.asNode(kw_hash.elements.nodes[j]);
+                                    if (elem == .assoc_splat) {
+                                        kw_hash_mode = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+
+                        // Compile arguments: positional first, then keywords
+                        if (!has_splat) {
+                            // Separate positional args from keyword hash
+                            // Find the keyword hash position
+                            var kw_hash_pos: ?usize = null;
+                            i = 0;
+                            while (i < args.arguments.size) : (i += 1) {
+                                const arg_node = try self.parser.asNode(args.arguments.nodes[i]);
+                                if (arg_node == .keyword_hash) {
+                                    kw_hash_pos = i;
+                                    break;
+                                }
+                            }
+
+                            // Compile positional args
+                            const pos_end = kw_hash_pos orelse args.arguments.size;
+                            i = 0;
+                            while (i < pos_end) : (i += 1) {
+                                const arg = args.arguments.nodes[i];
+                                const arg_node = try self.parser.asNode(arg);
+                                try self.compileNode(arg_node, line);
+                                argc += 1;
+                            }
+
+                            // Compile keyword args
+                            if (kw_hash_mode) {
+                                // **splat: compile the expression
+                                if (kw_hash_pos) |pos| {
+                                    const kw_node = try self.parser.asNode(args.arguments.nodes[pos]);
+                                    if (kw_node.keyword_hash.elements.size > 0) {
+                                        const first_elem = try self.parser.asNode(kw_node.keyword_hash.elements.nodes[0]);
+                                        if (first_elem == .assoc_splat) {
+                                            const expr = try self.parser.asNode(first_elem.assoc_splat.value orelse return error.UnsupportedNode);
+                                            try self.compileNode(expr, line);
+                                            // No kwargc for hash mode - the hash contains all key-value pairs
+                                            // kwargc will be determined at runtime from the hash
+                                        }
+                                    }
+                                }
+                                // kwargc = 0 for hash mode (count comes from hash at runtime)
+                            } else if (kw_hash_pos) |pos| {
+                                const kw_node = try self.parser.asNode(args.arguments.nodes[pos]);
+                                const kw_hash = kw_node.keyword_hash;
+                                var j: usize = 0;
+                                while (j < kw_hash.elements.size) : (j += 1) {
+                                    const elem = try self.parser.asNode(kw_hash.elements.nodes[j]);
+                                    if (elem == .assoc_splat) {
+                                        // Double splat inside keyword hash
+                                        const expr = try self.parser.asNode(elem.assoc_splat.value orelse return error.UnsupportedNode);
+                                        try self.compileNode(expr, line);
+                                        kwargc += 1;
+                                    } else if (elem == .assoc) {
+                                        // Key-value pair: key is a symbol, value is compiled
+                                        const key_node = try self.parser.asNode(elem.assoc.key);
+                                        const value_node = try self.parser.asNode(elem.assoc.value);
+                                        // Push value first
+                                        try self.compileNode(value_node, line);
+                                        kwargc += 1;
+                                        // Record key symbol
+                                        if (key_node == .symbol) {
+                                            const sym_name = prismStringSlice(key_node.symbol.unescaped);
+                                            const sym_idx = try self.current_chunk.addConstant(.{ .string = sym_name });
+                                            try kw_names.append(self.allocator, @intCast(sym_idx));
+                                        } else if (key_node == .string) {
+                                            const str_slice = prismStringSlice(key_node.string.unescaped);
+                                            const sym_idx = try self.current_chunk.addConstant(.{ .string = str_slice });
+                                            try kw_names.append(self.allocator, @intCast(sym_idx));
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            // With splat: use args array mode + handle keywords
+                            args_array_mode = true;
+                            try self.current_chunk.emitOpU16(.PUSH_ARRAY, 0, line);
+
+                            i = 0;
+                            while (i < args.arguments.size) : (i += 1) {
+                                const arg_node = try self.parser.asNode(args.arguments.nodes[i]);
+
+                                if (arg_node == .splat) {
+                                    const expr_ptr = arg_node.splat.expression orelse return error.UnsupportedNode;
+                                    const expr = try self.parser.asNode(@ptrCast(expr_ptr));
+                                    try self.compileNode(expr, line);
+                                    try self.current_chunk.emitOp(.ARRAY_CONCAT_ARRAY, line);
+                                } else if (arg_node == .keyword_hash) {
+                                    const kw_hash = arg_node.keyword_hash;
+                                    var j: usize = 0;
+                                    while (j < kw_hash.elements.size) : (j += 1) {
+                                        const elem = try self.parser.asNode(kw_hash.elements.nodes[j]);
+                                        if (elem == .assoc_splat) {
+                                            // **splat after splat: compile as hash append
+                                            const expr = try self.parser.asNode(elem.assoc_splat.value orelse return error.UnsupportedNode);
+                                            try self.compileNode(expr, line);
+                                            kw_hash_mode = true;
+                                        } else {
+                                            try self.compileNode(arg_node, line);
+                                            argc += 1;
+                                        }
+                                    }
+                                } else {
+                                    try self.compileNode(arg_node, line);
+                                    try self.current_chunk.emitOp(.ARRAY_APPEND, line);
+                                }
+                            }
+                        }
+
+                        // Build kw_metadata if there are explicit keyword keys
+                        if (!kw_hash_mode and kw_names.items.len > 0) {
+                            var kw_meta = chunk.KeywordMetadata{ .names = .empty };
+                            try kw_meta.names.appendSlice(self.allocator, kw_names.items);
+                            try self.current_chunk.keyword_metadata.append(self.allocator, kw_meta);
+                            kw_metadata_idx = @intCast(self.current_chunk.keyword_metadata.items.len - 1);
+                        }
+
+                        // Compile optional block
+                        var block_chunk_id: chunk.ChunkId = 0;
+                        if (super_node.block) |block_ptr| {
+                            const block_node = try self.parser.asNode(@ptrCast(block_ptr));
+                            if (block_node == .block) {
+                                block_chunk_id = try self.compileBlock(block_node.block, line);
+                            } else if (block_node == .block_argument) {
+                                const expr = try self.parser.asNode(@ptrCast(block_node.block_argument.expression));
+                                try self.compileNode(expr, line);
+                                block_chunk_id = chunk.BLOCK_ARG_ON_STACK;
+                            }
+                        }
+
+                        var super_flags: u8 = 0;
+                        if (args_array_mode) super_flags |= bytecode.SUPER_FLAG_ARGS_ARRAY;
+                        if (kw_hash_mode) super_flags |= bytecode.SUPER_FLAG_KW_HASH;
+                        try self.current_chunk.emitSuperKw(argc, kwargc, super_flags, kw_metadata_idx orelse 0, block_chunk_id, line);
+                    }
+                } else {
+                    // super() with no arguments: use regular SUPER
+                    var block_chunk_id: chunk.ChunkId = 0;
+                    if (super_node.block) |block_ptr| {
+                        const block_node = try self.parser.asNode(@ptrCast(block_ptr));
+                        if (block_node == .block) {
+                            block_chunk_id = try self.compileBlock(block_node.block, line);
+                        } else if (block_node == .block_argument) {
+                            const expr = try self.parser.asNode(@ptrCast(block_node.block_argument.expression));
+                            try self.compileNode(expr, line);
+                            block_chunk_id = chunk.BLOCK_ARG_ON_STACK;
+                        }
+                    }
+                    try self.current_chunk.emitSuper(0, 0, block_chunk_id, line);
+                }
             },
 
             .alias_method => |alias_node| {

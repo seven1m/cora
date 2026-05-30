@@ -106,6 +106,7 @@ pub const OpCode = enum(u8) {
 
     // Super calls
     SUPER, // Operands: u8 (argc), u8 (flags), u16 (block_chunk_id)
+    SUPER_KW, // Operands: u8 (argc), u8 (kwargc), u8 (flags), u16 (kw_metadata_idx), u16 (block_chunk_id)
     FORWARDING_SUPER, // Operand: u16 (block_chunk_id)
 
     // Regexp
@@ -129,6 +130,7 @@ pub const CALL_FLAG_ARGS_ARRAY: u8 = 0x02;
 pub const CALL_FLAG_KW_HASH: u8 = 0x04;
 
 pub const SUPER_FLAG_ARGS_ARRAY: u8 = CALL_FLAG_ARGS_ARRAY;
+pub const SUPER_FLAG_KW_HASH: u8 = CALL_FLAG_KW_HASH;
 
 pub fn encodeCallFlags(receiver_style: ReceiverCallStyle, args_array_mode: bool) u8 {
     var flags: u8 = 0;
@@ -258,7 +260,8 @@ pub fn opcodeOperandSize(op: OpCode) usize {
 
         // SUPER: u8 argc + u8 flags + u16 block_chunk_id = 4 bytes
         .SUPER => 4,
-
+        // SUPER_KW: u8 argc + u8 kwargc + u8 flags + u16 kw_metadata_idx + u16 block_chunk_id = 7 bytes
+        .SUPER_KW => 7,
         // FORWARDING_SUPER: u16 block_chunk_id = 2 bytes
         .FORWARDING_SUPER => 2,
 
@@ -364,6 +367,7 @@ pub fn opcodeName(op: OpCode) []const u8 {
         .NEXT => "NEXT",
         .REDO => "REDO",
         .SUPER => "SUPER",
+        .SUPER_KW => "SUPER_KW",
         .FORWARDING_SUPER => "FORWARDING_SUPER",
         .FORWARD_ARGS_CALL => "FORWARD_ARGS_CALL",
         .FORWARD_ARGS_CALL_WITH_PREFIX => "FORWARD_ARGS_CALL_WITH_PREFIX",
