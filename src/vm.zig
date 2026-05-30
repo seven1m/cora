@@ -5382,11 +5382,11 @@ pub const VM = struct {
                                                 defer call_args_tmp.deinit(self.allocator);
                                                 const call_args = try call_args_tmp.copyFrom(self, self.stack.items[(receiver_index + 1)..(receiver_index + 1 + argc)]);
                                                 self.stack.shrinkRetainingCapacity(receiver_index);
-                                             try self.setupChunkCallFrame(method_chunk, receiver, call_args, .{
-                                                 .method_name = cached.method_name.name,
-                                                 .super_defining_class = cached.owner_class,
-                                                 .block = block,
-                                             });
+                                                try self.setupChunkCallFrame(method_chunk, receiver, call_args, .{
+                                                    .method_name = cached.method_name.name,
+                                                    .super_defining_class = cached.owner_class,
+                                                    .block = block,
+                                                });
                                             }
                                             return;
                                         },
@@ -5411,11 +5411,11 @@ pub const VM = struct {
                                             defer call_args_tmp.deinit(self.allocator);
                                             const call_args = try call_args_tmp.copyFrom(self, self.stack.items[(receiver_index + 1)..(receiver_index + 1 + argc)]);
                                             self.stack.shrinkRetainingCapacity(receiver_index);
-                                             try self.setupChunkCallFrame(method_chunk, receiver, call_args, .{
-                                                 .method_name = method.name.name,
-                                                 .super_defining_class = method.owner_class,
-                                                 .block = block,
-                                             });
+                                            try self.setupChunkCallFrame(method_chunk, receiver, call_args, .{
+                                                .method_name = method.name.name,
+                                                .super_defining_class = method.owner_class,
+                                                .block = block,
+                                            });
                                         }
                                         return;
                                     },
@@ -7872,12 +7872,12 @@ pub const VM = struct {
                 const ft: CallFrame.FrameType = if (chunk_blk.chunk.is_lambda) .lambda else .proc;
                 const break_target_frame_idx = self.frames.items.len;
                 const next_target_frame_idx = self.frames.items.len;
-                 try self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, chunk_blk.defining_self, ft, .{
-                     .block = if (chunk_blk.enclosing_block_proc) |proc_obj| proc_obj.block else null,
-                     .return_target_ep = chunk_blk.return_target_ep,
-                     .break_target_frame_idx = break_target_frame_idx,
-                     .next_target_frame_idx = next_target_frame_idx,
-                 });
+                try self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, chunk_blk.defining_self, ft, .{
+                    .block = if (chunk_blk.enclosing_block_proc) |proc_obj| proc_obj.block else null,
+                    .return_target_ep = chunk_blk.return_target_ep,
+                    .break_target_frame_idx = break_target_frame_idx,
+                    .next_target_frame_idx = next_target_frame_idx,
+                });
 
                 const arity_mode: ArityMode = if (chunk_blk.chunk.is_lambda) .strict else .lenient;
                 const block_frame = self.currentFrame();
