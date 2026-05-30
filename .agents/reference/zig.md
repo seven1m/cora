@@ -1,5 +1,22 @@
 # Zig Tips
 
+## `catch |err| switch (err) { ... }` Is Just `try`
+
+A common anti-pattern: catching every error variant only to return/rethrow each one. This is exactly what `try` does:
+
+```zig
+// Instead of this:
+_ = vm.callMethodByName(superclass_val, "inherited", inherited_args[0..], null) catch |err| switch (err) {
+    error.Unwind => return err,
+    else => return err,
+};
+
+// Write this:
+_ = try vm.callMethodByName(superclass_val, "inherited", inherited_args[0..], null);
+```
+
+`try` propagates all error variants — whether `Unwind`, `Fatal`, or anything else.
+
 ## Tagged Union Payload Access
 
 When switching on a tagged union like `ToAryResult`, the payload is the value directly:
