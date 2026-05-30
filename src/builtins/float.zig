@@ -173,6 +173,9 @@ pub fn register(vm: *VM) !void {
     const to_i_sym = try vm.intern("to_i");
     try vm.float_class.module.methods.put(to_i_sym, value.MethodEntry.builtin(&builtinFloatToInt, .{ .exact = 0 }));
 
+    const to_f_sym = try vm.intern("to_f");
+    try vm.float_class.module.methods.put(to_f_sym, value.MethodEntry.builtin(&builtinFloatToF, .{ .exact = 0 }));
+
     const to_s_sym = try vm.intern("to_s");
     try vm.float_class.module.methods.put(to_s_sym, value.MethodEntry.builtin(&builtinFloatToS, .{ .exact = 0 }));
 
@@ -375,6 +378,11 @@ pub fn builtinFloatToInt(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     managed.shiftLeft(&managed, @intCast(exponent - 52)) catch return error.Fatal;
     if (sign) managed.negate();
     return vm.valueFromManagedInteger(&managed);
+}
+
+pub fn builtinFloatToF(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return receiver;
 }
 
 pub fn builtinFloatToR(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
