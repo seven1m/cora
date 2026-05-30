@@ -8689,16 +8689,30 @@ pub const VM = struct {
     fn callSuper(self: *VM, args: []const Value, block: ?Block) VMError!void {
         const frame = self.currentFrame();
 
+        // When super is used inside a block (proc/lambda), find the enclosing method
+        // frame to get the correct super_defining_class and lexical_scope.
+        var super_frame = frame;
+        if (frame.frame_type == .proc or frame.frame_type == .lambda or frame.frame_type == .fiber) {
+            var i: usize = self.frames.items.len;
+            while (i > 0) {
+                i -= 1;
+                if (self.frames.items[i].frame_type == .method) {
+                    super_frame = &self.frames.items[i];
+                    break;
+                }
+            }
+        }
+
         // Use explicit frame metadata when a method body comes from a Proc (define_method/define_singleton_method).
-        const method_name = frame.method_name orelse frame.chunk.name;
+        const method_name = super_frame.method_name orelse super_frame.chunk.name;
         const method_name_sym = try self.intern(method_name);
 
-        const lexical_scope = frame.chunk.lexical_scope;
+        const lexical_scope = super_frame.chunk.lexical_scope;
         const maybe_resolved = if (lexical_scope) |scope|
             switch (scope.scope_module) {
-                .module => |defining_module| if (frame.super_defining_class) |explicit_defining_class|
+                .module => |defining_module| if (super_frame.super_defining_class) |explicit_defining_class|
                     if (explicit_defining_class.attached_object != null and
-                        explicit_defining_class.attached_object.?.eql(frame.self_value))
+                        explicit_defining_class.attached_object.?.eql(super_frame.self_value))
                         self.lookupMethodForSuperFromScope(
                             explicit_defining_class,
                             if (defining_module == &explicit_defining_class.module)
@@ -8713,17 +8727,17 @@ pub const VM = struct {
                         )
                     else
                         self.lookupMethodForSuperFromScope(
-                            self.getClass(frame.self_value),
+                            self.getClass(super_frame.self_value),
                             .{ .module = defining_module },
                             method_name_sym,
                         )
                 else
                     self.lookupMethodForSuperFromScope(
-                        self.getClass(frame.self_value),
+                        self.getClass(super_frame.self_value),
                         .{ .module = defining_module },
                         method_name_sym,
                     ),
-                .class => |defining_class| if (frame.super_defining_class) |explicit_defining_class|
+                .class => |defining_class| if (super_frame.super_defining_class) |explicit_defining_class|
                     self.lookupMethodForSuperFromScope(
                         explicit_defining_class,
                         .{ .class = explicit_defining_class },
@@ -8736,7 +8750,7 @@ pub const VM = struct {
                         method_name_sym,
                     ),
             }
-        else if (frame.super_defining_class) |defining_class|
+        else if (super_frame.super_defining_class) |defining_class|
             self.lookupMethodForSuperFromScope(
                 defining_class,
                 .{ .class = defining_class },
@@ -8749,7 +8763,7 @@ pub const VM = struct {
             const msg = std.fmt.allocPrint(
                 self.gc_allocator,
                 "super: no superclass method '{s}' for {s}",
-                .{ method_name, self.getClass(frame.self_value).module.name.name },
+                .{ method_name, self.getClass(super_frame.self_value).module.name.name },
             ) catch return error.Fatal;
             const exc = try self.createException(self.no_method_error_class, msg);
             self.setPendingException(exc);
@@ -8757,11 +8771,11 @@ pub const VM = struct {
         };
 
         // Call with the same receiver (self)
-        const receiver = frame.self_value;
+        const receiver = super_frame.self_value;
 
         switch (resolved.entry.method) {
             .chunk => |method_chunk| {
-                const kw_keys = if (frame.forwarded_keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_keys else null else null;
+                const kw_keys = if (super_frame.forwarded_keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_keys else null else null;
                 const kw_values = if (frame.forwarded_keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_values else null else null;
                 try self.setupChunkCallFrame(method_chunk, receiver, args, .{
                     .kw_keys = kw_keys,
@@ -8775,12 +8789,12 @@ pub const VM = struct {
                 // For builtin methods, we need a mutable copy
                 var args_copy: [256]Value = undefined;
                 @memcpy(args_copy[0..args.len], args);
-                const result = try self.invokeBuiltinMethod(fun_ptr, receiver, resolved.name.name, args_copy[0..args.len], block, frame.forwarded_keyword_ctx);
+                const result = try self.invokeBuiltinMethod(fun_ptr, receiver, resolved.name.name, args_copy[0..args.len], block, super_frame.forwarded_keyword_ctx);
                 try self.push(result);
             },
             .proc => |proc_obj| {
-                const kw_keys: ?[]const Value = if (frame.forwarded_keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_keys else null else null;
-                const kw_values: ?[]const Value = if (frame.forwarded_keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_values else null else null;
+                const kw_keys: ?[]const Value = if (super_frame.forwarded_keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_keys else null else null;
+                const kw_values: ?[]const Value = if (super_frame.forwarded_keyword_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_values else null else null;
                 const result = try self.callProcAsMethod(proc_obj, receiver, args, .{
                     .kw_keys = kw_keys,
                     .kw_values = kw_values,
