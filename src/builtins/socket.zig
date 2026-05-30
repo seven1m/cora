@@ -101,6 +101,9 @@ pub fn register(vm: *VM) !void {
     const tcp_nodelay_sym = try vm.intern("TCP_NODELAY");
     try socket_class.module.constants.put(tcp_nodelay_sym, .{ .value = Value.integer(std.c.TCP.NODELAY) });
 
+    const af_unspec_sym = try vm.intern("AF_UNSPEC");
+    try socket_class.module.constants.put(af_unspec_sym, .{ .value = Value.integer(std.posix.AF.UNSPEC) });
+
     const af_inet_sym = try vm.intern("AF_INET");
     try socket_class.module.constants.put(af_inet_sym, .{ .value = Value.integer(std.posix.AF.INET) });
 
