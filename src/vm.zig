@@ -10735,6 +10735,30 @@ pub const VM = struct {
         const load_path_val = Value.fromObject(&load_path_obj.object);
         try self.setGlobal("$LOAD_PATH", load_path_val);
         try self.setGlobal("$:", load_path_val);
+
+        const load_path_singleton = try self.getOrCreateSingletonClass(load_path_val);
+        const resolve_feature_path_sym = try self.intern("resolve_feature_path");
+        load_path_singleton.module.methods.put(resolve_feature_path_sym, value.MethodEntry.builtin(&builtinLoadPathResolveFeaturePath, .{ .exact = 1 })) catch return error.Fatal;
+    }
+
+    pub fn builtinLoadPathResolveFeaturePath(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+        try vm.requireArgCount(args, 1);
+
+        const feature_val = try args[0].coerceToStringValue(vm, "no implicit conversion into String");
+        const feature = feature_val.toStringObject().str;
+
+        if (try vm.resolveRequireFeature(feature)) |resolved| {
+            defer vm.allocator.free(resolved.load_path);
+            defer vm.allocator.free(resolved.identity_path);
+
+            const rb_sym = try vm.intern("rb");
+            const result_array = try vm.createArray();
+            result_array.elements.append(vm.gc_allocator, Value.fromObject(&rb_sym.object)) catch return error.Fatal;
+            result_array.elements.append(vm.gc_allocator, try vm.newString(resolved.identity_path, false)) catch return error.Fatal;
+            return Value.fromObject(&result_array.object);
+        }
+
+        return Value.nil();
     }
 
     pub fn appendLoadPath(self: *VM, path: []const u8) VMError!void {
