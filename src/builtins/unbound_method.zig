@@ -150,19 +150,11 @@ fn builtinUnboundMethodBindCall(vm: *VM, receiver: Value, args: []Value, block: 
     const bind_target = args[0];
     const call_args = args[1..];
 
-    if (!common.isCompatibleBindTarget(vm, bind_target, method_obj.owner)) {
-        return vm.raiseExceptionFmt(
-            vm.type_error_class,
-            "bind argument must be an instance of {s}",
-            .{common.ownerDisplayName(method_obj.owner)},
-        );
-    }
-
-    // Use the captured entry so we invoke the original implementation
-    // even if the method was removed/redefined since the UnboundMethod was created.
+    // bind_call skips the type compatibility check (unlike bind).
+    const owner_class = if (method_obj.owner.isClass()) method_obj.owner.toClassObject() else vm.getClass(method_obj.owner);
     const captured_resolved: vm_mod.ResolvedMethod = .{
         .name = method_obj.name,
-        .owner_class = if (method_obj.owner.isClass()) method_obj.owner.toClassObject() else vm.getClass(method_obj.owner),
+        .owner_class = owner_class,
         .entry = method_obj.entry,
     };
     return vm.invokeResolvedMethod(captured_resolved, bind_target, @constCast(call_args), block);
