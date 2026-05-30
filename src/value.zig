@@ -279,6 +279,7 @@ pub const MethodObject = struct {
     name: *SymbolObject,
     arity: Value,
     owner: Value,
+    entry: MethodEntry,
 };
 
 pub const UnboundMethodObject = struct {

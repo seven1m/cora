@@ -296,6 +296,7 @@ pub fn createBoundMethodObject(
         .name = method_name,
         .arity = try vm.methodArityValue(resolved),
         .owner = owner,
+        .entry = resolved.entry,
     };
 
     const method_val = Value.fromObject(&method_obj.object);
