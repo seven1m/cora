@@ -11,6 +11,7 @@ const json_test = @import("json_test.zig");
 const logger_test = @import("logger_test.zig");
 const optparse_test = @import("optparse_test.zig");
 const openssl_test = @import("openssl_test.zig");
+const open3_test = @import("open3_test.zig");
 const rbconfig_test = @import("rbconfig_test.zig");
 const rubygems_test = @import("rubygems_test.zig");
 const singleton_test = @import("singleton_test.zig");
@@ -109,6 +110,7 @@ comptime {
     _ = logger_test;
     _ = optparse_test;
     _ = openssl_test;
+    _ = open3_test;
     _ = rbconfig_test;
     _ = rubygems_test;
     _ = singleton_test;

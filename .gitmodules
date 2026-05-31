@@ -46,3 +46,6 @@
 [submodule "ext/singleton"]
 	path = ext/singleton
 	url = https://github.com/ruby/singleton
+[submodule "ext/open3"]
+	path = ext/open3
+	url = https://github.com/ruby/open3

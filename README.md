@@ -129,6 +129,7 @@ the top of the relevant file, in the same directory with a name like
 | `ext/forwardable/*` | Keiju ISHITSUKA, Daniel J. Berger, Ruby contributors | Ruby license / 2-clause BSD |
 | `lib/stdlib/fileutils.rb` | Yukihiro Matsumoto and Ruby contributors | Ruby license / 2-clause BSD |
 | `lib/stdlib/random/*` | Yukihiro Matsumoto and Ruby contributors | Ruby license / 2-clause BSD |
+| `ext/open3/*` | Yukihiro Matsumoto and Ruby contributors | Ruby license / 2-clause BSD |
 | `ext/onigmo/*` | K. Kosako, K. Takata, Yukihiro Matsumoto | BSD-style / Ruby BSDL |
 | `ext/prism/*`, `ext/prism-templates/*` | Shopify Inc. | MIT |
 | `ext/tinycc/*` | Fabrice Bellard and TinyCC contributors | LGPL 2.1 |
