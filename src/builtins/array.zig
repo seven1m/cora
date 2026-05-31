@@ -708,6 +708,9 @@ pub fn register(vm: *VM) !void {
     const sort_bang_sym = try vm.intern("sort!");
     try vm.array_class.module.methods.put(sort_bang_sym, value.MethodEntry.builtin(&builtinArraySortBang, .{ .variadic = 0 }));
 
+    const sort_by_bang_sym = try vm.intern("sort_by!");
+    try vm.array_class.module.methods.put(sort_by_bang_sym, value.MethodEntry.builtin(&builtinArraySortByBang, .{ .exact = 0 }));
+
     const max_sym = try vm.intern("max");
     try vm.array_class.module.methods.put(max_sym, value.MethodEntry.builtin(&builtinArrayMax, .{ .exact = 0 }));
 
@@ -2868,6 +2871,66 @@ pub fn builtinArraySortBang(vm: *VM, receiver: Value, args: []Value, block: ?Blo
             j -= 1;
         }
         array.elements.items[j] = key;
+    }
+
+    return receiver;
+}
+
+pub fn builtinArraySortByBang(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
+    const blk = block orelse {
+        const method_name = try vm.intern("sort_by!");
+        if (try vm.checkCallMethodByName(receiver, "size", false, &.{}, null)) |size| {
+            return vm.createMethodEnumeratorWithSize(receiver, method_name, &.{}, size);
+        }
+        return vm.createMethodEnumerator(receiver, method_name, &.{});
+    };
+
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
+    }
+
+    const array = receiver.toArrayObject();
+    const len = array.elements.items.len;
+    if (len <= 1) return receiver;
+
+    const decorated = try vm.createArray();
+
+    var idx: usize = 0;
+    while (idx < array.elements.items.len) : (idx += 1) {
+        const element = array.elements.items[idx];
+        const result = try vm.yieldToBlock(blk, &[_]Value{element});
+        if (result.controlFlowValue()) |return_value| return return_value;
+
+        const pair = try vm.createArray();
+        pair.elements.append(vm.gc_allocator, result.value) catch return error.Fatal;
+        pair.elements.append(vm.gc_allocator, element) catch return error.Fatal;
+        decorated.elements.append(vm.gc_allocator, Value.fromObject(&pair.object)) catch return error.Fatal;
+    }
+
+    decorated.elements.ensureTotalCapacity(vm.gc_allocator, decorated.elements.items.len) catch return error.Fatal;
+
+    const pair_len = decorated.elements.items.len;
+    if (pair_len > 1) {
+        var i: usize = 1;
+        while (i < pair_len) : (i += 1) {
+            const pair = decorated.elements.items[i];
+            const pair_key = pair.toArrayObject().elements.items[0];
+            var j = i;
+            while (j > 0) {
+                const prev_pair = decorated.elements.items[j - 1];
+                const prev_key = prev_pair.toArrayObject().elements.items[0];
+                if (!try arrayValueLessThan(vm, pair_key, prev_key)) break;
+                decorated.elements.items[j] = prev_pair;
+                j -= 1;
+            }
+            decorated.elements.items[j] = pair;
+        }
+    }
+
+    for (decorated.elements.items, 0..) |pair_val, i| {
+        array.elements.items[i] = pair_val.toArrayObject().elements.items[1];
     }
 
     return receiver;
