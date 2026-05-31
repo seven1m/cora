@@ -1753,7 +1753,7 @@ Source baseline: ../ruby_spec compared to local spec/
 
 ### core/range
 - [ ] core/range/begin_spec.rb
-- [ ] core/range/bsearch_spec.rb
+- [x] core/range/bsearch_spec.rb
 - [ ] core/range/case_compare_spec.rb
 - [ ] core/range/clone_spec.rb
 - [ ] core/range/count_spec.rb
