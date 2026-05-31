@@ -712,6 +712,29 @@ test "Kernel#system updates $? and supports chdir keyword" {
     try std.testing.expectEqual(true, result.toArrayObject().elements.items[2].toBool());
 }
 
+test "Kernel#system works after ENV.replace" {
+    const result = try evalCode(
+        \\env = ENV.to_hash
+        \\ENV.replace(env)
+        \\ok = system("/usr/bin/env", "sh", "-c", "exit 0")
+        \\[ok, $?.exitstatus]
+    );
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[0].toBool());
+    try std.testing.expectEqual(@as(i64, 0), result.toArrayObject().elements.items[1].toInteger());
+}
+
+test "Kernel backticks work after ENV.replace" {
+    const result = try evalCode(
+        \\env = ENV.to_hash
+        \\ENV.replace(env)
+        \\[`printf hi`, $?.exitstatus]
+    );
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqualStrings("hi", result.toArrayObject().elements.items[0].toStringObject().str);
+    try std.testing.expectEqual(@as(i64, 0), result.toArrayObject().elements.items[1].toInteger());
+}
+
 test "Kernel#__dir__ returns dot for eval code" {
     const result = try evalCode("__dir__");
     try std.testing.expect(result.isString());

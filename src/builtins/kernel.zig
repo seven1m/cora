@@ -25,6 +25,8 @@ const MethodEntry = value.MethodEntry;
 const SymbolObject = value.SymbolObject;
 const MethodListFilter = method_reflection.MethodListFilter;
 
+extern "c" fn execve(path: [*:0]const u8, argv: [*:null]const ?[*:0]const u8, envp: [*:null]const ?[*:0]const u8) c_int;
+
 fn implicitAutoloadReceiver(vm: *VM) Value {
     if (vm.current_lexical_scope) |scope| {
         return switch (scope.scope_module) {
@@ -969,8 +971,76 @@ pub fn builtinKernelExitBang(vm: *VM, _: Value, args: []Value, _: ?Block) VMErro
     return error.Unwind;
 }
 
+fn closeFdIfOpen(fd: std.posix.fd_t) void {
+    if (fd >= 0) _ = std.c.close(fd);
+}
+
+fn openDevNullReadWrite(vm: *VM) VMError!std.posix.fd_t {
+    const path_z = try vm.allocCStringZ("/dev/null");
+    defer vm.allocator.free(path_z);
+    const flags: std.c.O = .{ .ACCMODE = .RDWR };
+    const fd = std.c.open(path_z.ptr, flags, @as(std.c.mode_t, 0));
+    if (fd < 0) {
+        return vm.raiseErrnoFmt(std.posix.errno(fd), "open failed", .{});
+    }
+    return fd;
+}
+
+fn buildKernelExecEnvBlock(vm: *VM, env_map: *const std.process.Environ.Map) VMError!std.process.Environ.PosixBlock {
+    return env_map.createPosixBlock(vm.allocator, .{}) catch return error.Fatal;
+}
+
+fn buildKernelExecArgv(
+    vm: *VM,
+    argv_items: []const []const u8,
+) VMError!struct {
+    arg_z_strings: std.ArrayList([:0]u8),
+    argv_ptrs: std.ArrayList(?[*:0]const u8),
+} {
+    var arg_z_strings: std.ArrayList([:0]u8) = .empty;
+    errdefer {
+        for (arg_z_strings.items) |item| vm.allocator.free(item);
+        arg_z_strings.deinit(vm.allocator);
+    }
+
+    var argv_ptrs: std.ArrayList(?[*:0]const u8) = .empty;
+    errdefer argv_ptrs.deinit(vm.allocator);
+
+    for (argv_items) |arg| {
+        const arg_z = try vm.allocCStringZ(arg);
+        arg_z_strings.append(vm.allocator, arg_z) catch return error.Fatal;
+        argv_ptrs.append(vm.allocator, arg_z.ptr) catch return error.Fatal;
+    }
+    argv_ptrs.append(vm.allocator, null) catch return error.Fatal;
+
+    return .{
+        .arg_z_strings = arg_z_strings,
+        .argv_ptrs = argv_ptrs,
+    };
+}
+
+fn waitForPid(vm: *VM, pid: std.c.pid_t) VMError!c_int {
+    var status: c_int = 0;
+    while (true) {
+        const waited = std.c.waitpid(pid, &status, 0);
+        if (waited > 0) return status;
+        if (waited == 0) continue;
+        switch (std.posix.errno(waited)) {
+            .INTR => {
+                try vm.checkAsyncEvents();
+                continue;
+            },
+            else => |errno_code| return vm.raiseErrnoFmt(errno_code, "waitpid failed", .{}),
+        }
+    }
+}
+
 pub fn builtinKernelSystem(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountAtLeast(args, 1);
+
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "Kernel#system is not implemented on Windows", .{});
+    }
 
     var chdir_value: ?Value = null;
     try vm.consumeKeywordArgs(.{"chdir"}, .{&chdir_value});
@@ -1013,42 +1083,54 @@ pub fn builtinKernelSystem(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
         }
     }
 
-    const run_result = std.process.run(vm.allocator, vm.io, .{
-        .argv = arg_storage.items,
-        .cwd = if (chdir_value) |value_arg|
-            .{ .path = try vm.coerceToPath(value_arg, "no implicit conversion into String") }
-        else
-            .inherit,
-        .environ_map = &env_map,
-        .stderr_limit = .limited(16 * 1024 * 1024),
-        .stdout_limit = .limited(16 * 1024 * 1024),
-    }) catch {
-        try vm.setGlobal("$?", Value.nil());
-        return Value.nil();
-    };
-    defer vm.allocator.free(run_result.stdout);
-    defer vm.allocator.free(run_result.stderr);
+    const chdir_path = if (chdir_value) |value_arg|
+        try vm.coerceToPath(value_arg, "no implicit conversion into String")
+    else
+        null;
 
-    const result = switch (run_result.term) {
-        .exited => |code| blk: {
-            try vm.setLastProcessStatus(@intCast(code));
-            break :blk Value.boolean(code == 0);
-        },
-        .signal => |sig| blk: {
-            try vm.setLastProcessStatus(128 + @as(i64, @intCast(@intFromEnum(sig))));
-            break :blk Value.boolean(false);
-        },
-        .stopped => |sig| blk: {
-            try vm.setLastProcessStatus(128 + @as(i64, @intCast(@intFromEnum(sig))));
-            break :blk Value.boolean(false);
-        },
-        else => blk: {
-            try vm.setLastProcessStatus(1);
-            break :blk Value.boolean(false);
-        },
-    };
+    const path_z = try vm.resolveExecPathFromEnvMap(&env_map, arg_storage.items[0]);
+    defer vm.allocator.free(path_z);
 
-    return result;
+    var argv_data = try buildKernelExecArgv(vm, arg_storage.items);
+    defer {
+        for (argv_data.arg_z_strings.items) |item| vm.allocator.free(item);
+        argv_data.arg_z_strings.deinit(vm.allocator);
+        argv_data.argv_ptrs.deinit(vm.allocator);
+    }
+
+    var env_block = try buildKernelExecEnvBlock(vm, &env_map);
+    defer env_block.deinit(vm.allocator);
+
+    vm.setupOutput();
+    if (vm.stdout) |out| _ = out.flush() catch {};
+    if (vm.stderr) |err_out| _ = err_out.flush() catch {};
+
+    const devnull_fd = try openDevNullReadWrite(vm);
+    defer closeFdIfOpen(devnull_fd);
+
+    const pid = std.c.fork();
+    if (pid < 0) {
+        return vm.raiseErrnoFmt(std.posix.errno(pid), "fork failed", .{});
+    }
+
+    if (pid == 0) {
+        apply: {
+            if (std.c.dup2(devnull_fd, 1) < 0) break :apply;
+            if (std.c.dup2(devnull_fd, 2) < 0) break :apply;
+            if (devnull_fd > 2) _ = std.c.close(devnull_fd);
+            if (chdir_path) |path| {
+                const dir_z = vm.allocCStringZ(path) catch std.c._exit(127);
+                defer vm.allocator.free(dir_z);
+                if (std.c.chdir(dir_z.ptr) != 0) std.c._exit(127);
+            }
+            _ = execve(path_z.ptr, @ptrCast(argv_data.argv_ptrs.items.ptr), @ptrCast(env_block.view().slice.ptr));
+        }
+        std.c._exit(127);
+    }
+
+    const status = try waitForPid(vm, pid);
+    try vm.setLastProcessStatusFromWaitStatus(status, pid);
+    return Value.boolean((status & 0x7f) == 0 and ((status >> 8) & 0xff) == 0);
 }
 
 pub fn builtinKernelPrint(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -2399,39 +2481,88 @@ pub fn builtinKernelP(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value
 
 pub fn builtinKernelBacktick(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const command = try args[0].coerceToStr(vm, "no implicit conversion into String");
 
-    const argv = if (builtin.os.tag == .windows)
-        [_][]const u8{ "cmd.exe", "/C", command }
-    else
-        [_][]const u8{ "/bin/sh", "-c", command };
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "Kernel#` is not implemented on Windows", .{});
+    }
+
+    const command = try args[0].coerceToStr(vm, "no implicit conversion into String");
 
     var env_map = try vm.currentEnvMap();
     defer env_map.deinit();
-    const run_result = std.process.run(vm.allocator, vm.io, .{
-        .argv = &argv,
-        .environ_map = &env_map,
-        .stderr_limit = .limited(16 * 1024 * 1024),
-        .stdout_limit = .limited(16 * 1024 * 1024),
-    }) catch |err| {
-        const msg = std.fmt.allocPrint(vm.gc_allocator, "failed to execute command: {s}", .{@errorName(err)}) catch return error.Fatal;
-        const exc = try vm.createException(vm.runtime_error_class, msg);
-        vm.setPendingException(exc);
-        return error.Unwind;
-    };
-    defer vm.allocator.free(run_result.stdout);
-    defer vm.allocator.free(run_result.stderr);
-    const stdout_bytes = run_result.stdout;
+    const argv = [_][]const u8{ "/bin/sh", "-c", command };
 
-    const exitstatus: i64 = switch (run_result.term) {
-        .exited => |code| @intCast(code),
-        .signal => |sig| 128 + @as(i64, @intCast(@intFromEnum(sig))),
-        .stopped => |sig| 128 + @as(i64, @intCast(@intFromEnum(sig))),
-        else => 1,
-    };
-    try vm.setLastProcessStatus(exitstatus);
+    var argv_data = try buildKernelExecArgv(vm, &argv);
+    defer {
+        for (argv_data.arg_z_strings.items) |item| vm.allocator.free(item);
+        argv_data.arg_z_strings.deinit(vm.allocator);
+        argv_data.argv_ptrs.deinit(vm.allocator);
+    }
 
-    return try vm.newString(stdout_bytes, false);
+    var env_block = try buildKernelExecEnvBlock(vm, &env_map);
+    defer env_block.deinit(vm.allocator);
+
+    var pipe_fds: [2]std.c.fd_t = undefined;
+    if (std.c.pipe(&pipe_fds) != 0) {
+        return vm.raiseErrnoFmt(std.posix.errno(-1), "pipe failed", .{});
+    }
+    errdefer {
+        closeFdIfOpen(pipe_fds[0]);
+        closeFdIfOpen(pipe_fds[1]);
+    }
+
+    vm.setupOutput();
+    if (vm.stdout) |out| _ = out.flush() catch {};
+    if (vm.stderr) |err_out| _ = err_out.flush() catch {};
+
+    const devnull_fd = try openDevNullReadWrite(vm);
+    defer closeFdIfOpen(devnull_fd);
+    const shell_path_z = try vm.allocCStringZ("/bin/sh");
+    defer vm.allocator.free(shell_path_z);
+
+    const pid = std.c.fork();
+    if (pid < 0) {
+        return vm.raiseErrnoFmt(std.posix.errno(pid), "fork failed", .{});
+    }
+
+    if (pid == 0) {
+        _ = std.c.close(pipe_fds[0]);
+        if (std.c.dup2(pipe_fds[1], 1) < 0) std.c._exit(127);
+        if (pipe_fds[1] > 1) _ = std.c.close(pipe_fds[1]);
+        if (std.c.dup2(devnull_fd, 2) < 0) std.c._exit(127);
+        if (devnull_fd > 2) _ = std.c.close(devnull_fd);
+        _ = execve(shell_path_z.ptr, @ptrCast(argv_data.argv_ptrs.items.ptr), @ptrCast(env_block.view().slice.ptr));
+        std.c._exit(127);
+    }
+
+    _ = std.c.close(pipe_fds[1]);
+    pipe_fds[1] = -1;
+
+    var stdout_bytes: std.ArrayList(u8) = .empty;
+    defer stdout_bytes.deinit(vm.allocator);
+
+    var buf: [4096]u8 = undefined;
+    while (true) {
+        const n = std.c.read(pipe_fds[0], &buf, buf.len);
+        if (n > 0) {
+            stdout_bytes.appendSlice(vm.allocator, buf[0..@intCast(n)]) catch return error.Fatal;
+            continue;
+        }
+        if (n == 0) break;
+        switch (std.posix.errno(n)) {
+            .INTR => {
+                try vm.checkAsyncEvents();
+                continue;
+            },
+            else => |errno_code| return vm.raiseErrnoFmt(errno_code, "read failed", .{}),
+        }
+    }
+    _ = std.c.close(pipe_fds[0]);
+    pipe_fds[0] = -1;
+
+    const status = try waitForPid(vm, pid);
+    try vm.setLastProcessStatusFromWaitStatus(status, pid);
+    return try vm.newString(stdout_bytes.items, false);
 }
 
 pub fn builtinProcessStatusExitstatus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

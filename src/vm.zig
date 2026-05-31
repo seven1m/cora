@@ -75,6 +75,23 @@ fn monotonicMilliseconds() i64 {
     return seconds * 1_000 + @divTrunc(nanoseconds, 1_000_000);
 }
 
+fn initOwnedEnvMap(vm: *VM) VMError!std.process.Environ.Map {
+    if (builtin.link_libc and builtin.os.tag != .windows) {
+        var env_map = std.process.Environ.Map.init(vm.allocator);
+        errdefer env_map.deinit();
+
+        var i: usize = 0;
+        while (std.c.environ[i]) |entry| : (i += 1) {
+            const key_value = std.mem.span(entry);
+            const equal_index = std.mem.indexOfScalar(u8, key_value, '=') orelse continue;
+            env_map.put(key_value[0..equal_index], key_value[equal_index + 1 ..]) catch return error.Fatal;
+        }
+        return env_map;
+    }
+
+    return std.process.Environ.createMap(vm.environ, vm.allocator) catch return error.Fatal;
+}
+
 fn signalHandler(sig: std.posix.SIG) callconv(.c) void {
     const signo: usize = @intCast(@intFromEnum(sig));
     if (signo < MAX_QUEUED_SIGNALS) {
@@ -600,6 +617,7 @@ pub const VM = struct {
     jit_chunk_states: JitChunkStates,
     io: std.Io,
     environ: std.process.Environ,
+    env_map: std.process.Environ.Map,
 
     // Buffered writers for production
     stdout_buffer: [4096]u8 = undefined,
@@ -625,6 +643,7 @@ pub const VM = struct {
             .gc_allocator_atomic = gc_allocator_atomic,
             .io = io,
             .environ = environ,
+            .env_map = std.process.Environ.Map.init(allocator),
             .stack = undefined,
             .frames = undefined,
             .symbols = std.HashMap(SymbolKey, *SymbolObject, SymbolKeyContext, std.hash_map.default_max_load_percentage).init(gc_allocator),
@@ -779,6 +798,7 @@ pub const VM = struct {
 
     pub fn prepare(self: *VM, program: *compiler.CompiledProgram) VMError!void {
         self.program = program;
+        self.env_map = try initOwnedEnvMap(self);
         try self.captureMainGcStackBase();
         self.registerVmRootForGc();
         self.zio_coroutines = .empty;
@@ -2296,20 +2316,7 @@ pub const VM = struct {
     }
 
     pub fn currentEnvMap(self: *VM) VMError!std.process.Environ.Map {
-        if (builtin.link_libc and builtin.os.tag != .windows) {
-            var env_map = std.process.Environ.Map.init(self.allocator);
-            errdefer env_map.deinit();
-
-            var i: usize = 0;
-            while (std.c.environ[i]) |entry| : (i += 1) {
-                const key_value = std.mem.span(entry);
-                const equal_index = std.mem.indexOfScalar(u8, key_value, '=') orelse continue;
-                env_map.put(key_value[0..equal_index], key_value[equal_index + 1 ..]) catch return error.Fatal;
-            }
-            return env_map;
-        }
-
-        return std.process.Environ.createMap(self.environ, self.allocator) catch return error.Fatal;
+        return self.env_map.clone(self.allocator) catch return error.Fatal;
     }
 
     pub fn resolveExecPathFromEnvMap(self: *VM, env_map: *const std.process.Environ.Map, name: []const u8) VMError![:0]u8 {
@@ -2346,9 +2353,7 @@ pub const VM = struct {
     }
 
     pub fn envGet(self: *VM, key: []const u8) VMError!Value {
-        var env_map = try self.currentEnvMap();
-        defer env_map.deinit();
-        const value_str = env_map.get(key) orelse return Value.nil();
+        const value_str = self.env_map.get(key) orelse return Value.nil();
         return self.newString(value_str, false);
     }
 
@@ -2381,6 +2386,7 @@ pub const VM = struct {
     }
 
     pub fn envSetString(self: *VM, key: []const u8, value_str: []const u8, sync_host: bool) VMError!Value {
+        self.env_map.put(key, value_str) catch return error.Fatal;
         if (sync_host) {
             try self.syncHostEnvSet(key, value_str);
         }
@@ -2388,6 +2394,7 @@ pub const VM = struct {
     }
 
     pub fn envUnset(self: *VM, key: []const u8, sync_host: bool) VMError!Value {
+        _ = self.env_map.orderedRemove(key);
         if (sync_host) {
             try self.syncHostEnvUnset(key);
         }
@@ -2396,10 +2403,7 @@ pub const VM = struct {
 
     pub fn envToHash(self: *VM) VMError!Value {
         const hash_obj = try self.createHash();
-        var env_map = try self.currentEnvMap();
-        defer env_map.deinit();
-
-        var iter = env_map.iterator();
+        var iter = self.env_map.iterator();
         while (iter.next()) |entry| {
             const key_val = try self.newString(entry.key_ptr.*, false);
             const value_val = try self.newString(entry.value_ptr.*, false);
@@ -2411,10 +2415,7 @@ pub const VM = struct {
 
     pub fn envToArray(self: *VM) VMError!Value {
         const array_obj = try self.createArray();
-        var env_map = try self.currentEnvMap();
-        defer env_map.deinit();
-
-        var iter = env_map.iterator();
+        var iter = self.env_map.iterator();
         while (iter.next()) |entry| {
             const pair = try self.createArray();
             const key_val = try self.newString(entry.key_ptr.*, false);
@@ -2428,22 +2429,14 @@ pub const VM = struct {
     }
 
     pub fn envSize(self: *VM) VMError!Value {
-        var env_map = try self.currentEnvMap();
-        defer env_map.deinit();
-
-        var count: usize = 0;
-        var iter = env_map.iterator();
-        while (iter.next()) |_| {
-            count += 1;
-        }
-
-        return Value.integer(@intCast(count));
+        return Value.integer(@intCast(self.env_map.count()));
     }
 
     pub fn deinit(self: *VM) void {
         if (self.gc_vm_root_registered) {
             self.unregisterVmRootForGc();
         }
+        self.env_map.deinit();
         var key_iter = self.loaded_files.keyIterator();
         while (key_iter.next()) |key| {
             self.allocator.free(key.*);
