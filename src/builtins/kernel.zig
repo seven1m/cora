@@ -444,6 +444,12 @@ pub fn register(vm: *VM) !void {
     const termsig_sym = try vm.intern("termsig");
     try vm.process_status_class.module.methods.put(termsig_sym, value.MethodEntry.builtin(&builtinProcessStatusTermsig, .{ .exact = 0 }));
 
+    const pid_sym = try vm.intern("pid");
+    try vm.process_status_class.module.methods.put(pid_sym, value.MethodEntry.builtin(&builtinProcessStatusPid, .{ .exact = 0 }));
+
+    const to_i_sym = try vm.intern("to_i");
+    try vm.process_status_class.module.methods.put(to_i_sym, value.MethodEntry.builtin(&builtinProcessStatusToI, .{ .exact = 0 }));
+
     const fork_sym = try vm.intern("fork");
     try vm.kernel_module.methods.put(fork_sym, value.MethodEntry.builtin(&builtinKernelFork, .{ .exact = 0 }));
 
@@ -2453,6 +2459,18 @@ pub fn builtinProcessStatusSignaled(vm: *VM, receiver: Value, args: []Value, _: 
 pub fn builtinProcessStatusTermsig(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return vm.getInstanceVariable(receiver, "@termsig");
+}
+
+pub fn builtinProcessStatusPid(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const pid = try vm.getInstanceVariable(receiver, "@pid");
+    if (pid.isNil()) return Value.nil();
+    return pid;
+}
+
+pub fn builtinProcessStatusToI(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return vm.getInstanceVariable(receiver, "@raw_status");
 }
 
 pub fn builtinKernelRand(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

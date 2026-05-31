@@ -112,6 +112,40 @@ test "Process.kill and Process.wait with WNOHANG work for popen child" {
     try std.testing.expect(elems[4].toInteger() > 0);
 }
 
+test "Process::Status#pid returns pid after Process.wait" {
+    if (builtin.os.tag == .windows) return;
+
+    const result = try evalCode(
+        \\io = IO.popen(["/usr/bin/env", "sh", "-lc", "true"], err: [:child, :out])
+        \\pid = io.pid
+        \\waited = Process.wait(pid)
+        \\status_pid = $?.pid
+        \\io.close
+        \\[waited, status_pid]
+    );
+    try std.testing.expect(result.isArray());
+    const elems = result.toArrayObject().elements.items;
+    const pid = elems[0].toInteger();
+    try std.testing.expect(pid > 0);
+    try std.testing.expectEqual(pid, elems[1].toInteger());
+}
+
+test "Process::Status#to_i returns raw wait status integer" {
+    if (builtin.os.tag == .windows) return;
+
+    const result = try evalCode(
+        \\io = IO.popen(["/usr/bin/env", "sh", "-lc", "exit 42"], err: [:child, :out])
+        \\pid = io.pid
+        \\_ = Process.wait(pid)
+        \\raw = $?.to_i
+        \\io.close
+        \\raw
+    );
+    try std.testing.expect(result.isInteger());
+    // exit 42 -> raw_status = (42 & 0xff) << 8 = 10752
+    try std.testing.expectEqual(@as(i64, 10752), result.toInteger());
+}
+
 test "nonblocking popen loop drains child output" {
     if (builtin.os.tag == .windows) return;
 

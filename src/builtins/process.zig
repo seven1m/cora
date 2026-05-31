@@ -251,7 +251,7 @@ pub fn builtinProcessWait(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
     }
     if (rc == 0) return Value.nil();
     if (rc > 0) {
-        try vm.setLastProcessStatusFromWaitStatus(status);
+        try vm.setLastProcessStatusFromWaitStatus(status, rc);
     }
     return Value.integer(@intCast(rc));
 }

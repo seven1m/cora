@@ -9696,10 +9696,10 @@ pub const VM = struct {
     }
 
     pub fn setLastProcessStatus(self: *VM, exitstatus: i64) VMError!void {
-        return self.setLastProcessStatusFromWaitStatus(@intCast((exitstatus & 0xff) << 8));
+        return self.setLastProcessStatusFromWaitStatus(@intCast((exitstatus & 0xff) << 8), null);
     }
 
-    pub fn setLastProcessStatusFromWaitStatus(self: *VM, wait_status: c_int) VMError!void {
+    pub fn setLastProcessStatusFromWaitStatus(self: *VM, wait_status: c_int, pid: ?i64) VMError!void {
         const status_obj = try self.newInstance(self.process_status_class);
         try self.setInstanceVariable(status_obj, "@raw_status", Value.integer(wait_status));
         if (processExited(wait_status)) {
@@ -9707,6 +9707,9 @@ pub const VM = struct {
         }
         if (processSignaled(wait_status)) {
             try self.setInstanceVariable(status_obj, "@termsig", Value.integer(wait_status & 0x7f));
+        }
+        if (pid) |p| {
+            try self.setInstanceVariable(status_obj, "@pid", Value.integer(p));
         }
         try self.setGlobal("$?", status_obj);
     }
