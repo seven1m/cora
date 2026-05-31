@@ -11782,6 +11782,10 @@ pub const VM = struct {
         const exc = self.gc_allocator.create(value.ExceptionObject) catch return error.Fatal;
         const msg_str = try self.newString(message, false);
         const backtrace = if (capture_bt) try self.captureBacktrace() else null;
+        const cause = self.pendingException() orelse if (self.rescued_exceptions.items.len > 0)
+            self.rescued_exceptions.items[self.rescued_exceptions.items.len - 1]
+        else
+            null;
 
         exc.* = .{
             .object = .{
@@ -11793,7 +11797,7 @@ pub const VM = struct {
             },
             .message = msg_str.toStringObject(),
             .backtrace = backtrace,
-            .cause = self.pendingException(),
+            .cause = cause,
             .receiver = null,
             .key = null,
         };

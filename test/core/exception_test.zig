@@ -31,6 +31,24 @@ test "raise accepts exception object with replacement message" {
     try std.testing.expectEqualStrings("new", elems[1].toStringObject().str);
 }
 
+test "Exception#cause returns nested exception" {
+    const result = try evalCode(
+        \\begin
+        \\  begin
+        \\    raise "inner"
+        \\  rescue
+        \\    raise "outer"
+        \\  end
+        \\rescue => e
+        \\  [e.message, e.cause.message]
+        \\end
+    );
+    try std.testing.expect(result.isArray());
+    const elems = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("outer", elems[0].toStringObject().str);
+    try std.testing.expectEqualStrings("inner", elems[1].toStringObject().str);
+}
+
 test "Errno class exception builds default errno message" {
     const result = try evalCode(
         \\e = Errno::EMFILE.exception

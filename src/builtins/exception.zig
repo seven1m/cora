@@ -30,6 +30,9 @@ pub fn register(vm: *VM) !void {
     const backtrace_sym = try vm.intern("backtrace");
     try vm.exception_class.module.methods.put(backtrace_sym, value.MethodEntry.builtin(&builtinExceptionBacktrace, .{ .exact = 0 }));
 
+    const cause_sym = try vm.intern("cause");
+    try vm.exception_class.module.methods.put(cause_sym, value.MethodEntry.builtin(&builtinExceptionCause, .{ .exact = 0 }));
+
     const full_message_sym = try vm.intern("full_message");
     try vm.exception_class.module.methods.put(full_message_sym, value.MethodEntry.builtin(&builtinExceptionFullMessage, .{ .variadic = 0 }));
 
@@ -170,6 +173,16 @@ pub fn builtinExceptionBacktrace(vm: *VM, receiver: Value, args: []Value, _: ?Bl
     const exc = receiver.toExceptionObject();
     if (exc.backtrace) |backtrace| {
         return Value.fromObject(&backtrace.object);
+    }
+    return Value.nil();
+}
+
+pub fn builtinExceptionCause(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
+    const exc = receiver.toExceptionObject();
+    if (exc.cause) |cause| {
+        return Value.fromObject(&cause.object);
     }
     return Value.nil();
 }
