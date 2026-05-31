@@ -6307,6 +6307,15 @@ pub const VM = struct {
                 try self.push(Value.NIL);
             },
 
+            .BLOCK_GIVEN => {
+                const top_frame = if (self.frames.items.len > 0)
+                    &self.frames.items[self.frames.items.len - 1]
+                else
+                    null;
+                const has_block = if (top_frame) |f| f.block != null else false;
+                try self.push(Value.boolean(has_block));
+            },
+
             .MULTI_ASSIGN_PREPARE => {
                 const receiver = self.pop();
 

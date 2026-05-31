@@ -1719,6 +1719,11 @@ pub const Compiler = struct {
                 });
             },
 
+            .yield => {
+                try self.current_chunk.emitOp(.BLOCK_GIVEN, line);
+                try self.emitBoolToDefinedDescriptor("yield", line);
+            },
+
             .call => |call_node| {
                 try self.compileDefinedCall(call_node, line);
             },

@@ -118,6 +118,9 @@ pub const OpCode = enum(u8) {
 
     // Multi-assignment
     MULTI_ASSIGN_PREPARE, // No operands
+
+    // Introspection
+    BLOCK_GIVEN, // No operands - pushes true/false if a block is available in the caller's frame
 };
 
 pub const ReceiverCallStyle = enum(u8) {
@@ -193,6 +196,7 @@ pub fn opcodeOperandSize(op: OpCode) usize {
         .NEXT,
         .YIELD_SPLAT,
         .MULTI_ASSIGN_PREPARE,
+        .BLOCK_GIVEN,
         => 0,
 
         // 1-byte operands
@@ -375,5 +379,6 @@ pub fn opcodeName(op: OpCode) []const u8 {
         .ALIAS_METHOD => "ALIAS_METHOD",
         .UNDEF_METHOD => "UNDEF_METHOD",
         .MULTI_ASSIGN_PREPARE => "MULTI_ASSIGN_PREPARE",
+        .BLOCK_GIVEN => "BLOCK_GIVEN",
     };
 }
