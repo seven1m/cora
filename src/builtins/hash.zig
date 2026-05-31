@@ -757,7 +757,7 @@ fn hashFilterBangShared(
         const yielded = try vm.yieldToBlock(blk, &yield_args);
         if (yielded.controlFlowValue()) |return_value| return return_value;
 
-        const should_delete = if (delete_if_truthy) yielded.value.isTruthy() else !yielded.value.isTruthy();
+        const should_delete = if (delete_if_truthy) yielded.value.isTruthy() else yielded.value.isFalsey();
         if (should_delete) {
             _ = try vm.hashDeleteEntry(hash_obj, entry.key);
             changed = true;
@@ -1565,7 +1565,7 @@ pub fn builtinHashReject(vm: *VM, receiver: Value, args: []Value, block: ?Block)
         const result = try vm.yieldToBlock(blk, &yield_args);
         if (result.controlFlowValue()) |return_value| return return_value;
 
-        if (!result.value.isTruthy()) {
+        if (result.value.isFalsey()) {
             keep_entries[keep_count] = entry;
             keep_count += 1;
         }

@@ -1286,7 +1286,7 @@ pub fn builtinIntegerEql(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
 
 pub fn builtinIntegerNotEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     const equal = try builtinIntegerEqual(vm, receiver, args, null);
-    return Value.boolean(!equal.isTruthy());
+    return Value.boolean(equal.isFalsey());
 }
 
 pub fn builtinIntegerLessThan(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

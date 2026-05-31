@@ -179,7 +179,7 @@ pub fn builtinEnvReject(vm: *VM, _: Value, args: []Value, block: ?Block) VMError
         const yield_args = [_]Value{ key_val, value_val };
         const yielded = try vm.yieldToBlock(block.?, &yield_args);
         if (yielded.controlFlowValue()) |return_value| return return_value;
-        if (!yielded.value.isTruthy()) {
+        if (yielded.value.isFalsey()) {
             try vm.hashSetEntry(result, key_val, value_val);
         }
     }

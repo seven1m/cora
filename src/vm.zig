@@ -5082,7 +5082,7 @@ pub const VM = struct {
                 const offset = readI16From(frame, operands, &operand_cursor);
                 const cond = self.pop();
 
-                if (!cond.isTruthy()) {
+                    if (cond.isFalsey()) {
                     try setFrameIp(frame, @intCast(@as(i32, @intCast(frame.ip)) + offset));
                 }
             },
@@ -6826,7 +6826,7 @@ pub const VM = struct {
                     const len = self.stack.items.len;
                     const cond = self.stack.storage[len - 1];
                     self.stack.items = self.stack.storage[0 .. len - 1];
-                    if (!cond.isTruthy()) {
+                if (cond.isFalsey()) {
                         f.ip = @intCast(@as(i32, @intCast(f.ip)) + offset);
                     }
                 },

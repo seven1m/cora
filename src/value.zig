@@ -549,6 +549,10 @@ pub const Value = struct {
         return self.raw == FALSE.raw;
     }
 
+    pub inline fn isFalsey(self: Value) bool {
+        return self.raw == FALSE.raw or self.raw == NIL.raw;
+    }
+
     pub inline fn isBool(self: Value) bool {
         return self.raw == TRUE.raw or self.raw == FALSE.raw;
     }

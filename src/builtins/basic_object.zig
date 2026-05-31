@@ -153,12 +153,12 @@ pub fn builtinBasicObjectEqual(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
 pub fn builtinBasicObjectNotEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const equal = try vm.callMethodByName(receiver, "==", args[0..1], null);
-    return Value.boolean(!equal.isTruthy());
+    return Value.boolean(equal.isFalsey());
 }
 
 pub fn builtinBasicObjectNot(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    return Value.boolean(!receiver.isTruthy());
+    return Value.boolean(receiver.isFalsey());
 }
 
 pub fn builtinBasicObjectMethodMissing(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

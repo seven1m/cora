@@ -1420,7 +1420,7 @@ pub fn builtinArrayReject(vm: *VM, receiver: Value, args: []Value, block: ?Block
         const yield_args = [_]Value{element};
         const yielded = try vm.yieldToBlock(blk, &yield_args);
         if (yielded.controlFlowValue()) |return_value| return return_value;
-        if (!yielded.value.isTruthy()) {
+        if (yielded.value.isFalsey()) {
             result.elements.append(vm.gc_allocator, element) catch return error.Fatal;
         }
     }
@@ -2049,7 +2049,7 @@ pub fn builtinArrayDropWhile(vm: *VM, receiver: Value, args: []Value, block: ?Bl
             const yield_args = [_]Value{element};
             const yielded = try vm.yieldToBlock(blk, &yield_args);
             if (yielded.controlFlowValue()) |return_value| return return_value;
-            if (!yielded.value.isTruthy()) {
+            if (yielded.value.isFalsey()) {
                 dropping = false;
                 result.elements.append(vm.gc_allocator, element) catch return error.Fatal;
             }
@@ -2277,7 +2277,7 @@ pub fn builtinArrayBsearch(vm: *VM, receiver: Value, args: []Value, block: ?Bloc
         const smaller: bool = if (result.isTrue()) blk: {
             satisfied = true;
             break :blk true;
-        } else if (result.isFalse() or result.isNil()) blk: {
+        } else if (result.isFalsey()) blk: {
             break :blk false;
         } else if (result.isInteger()) blk: {
             const val = result.toInteger();
@@ -2768,14 +2768,14 @@ pub fn builtinArrayAll(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
             const result = try vm.yieldToBlock(blk, &yield_args);
             if (result.controlFlowValue()) |return_value| return return_value;
 
-            if (!result.value.isTruthy()) return Value.boolean(false);
+            if (result.value.isFalsey()) return Value.boolean(false);
         }
         return Value.boolean(true);
     }
 
     var idx: usize = 0;
     while (idx < array_obj.elements.items.len) : (idx += 1) {
-        if (!array_obj.elements.items[idx].isTruthy()) return Value.boolean(false);
+        if (array_obj.elements.items[idx].isFalsey()) return Value.boolean(false);
     }
 
     return Value.boolean(true);

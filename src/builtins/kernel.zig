@@ -1720,7 +1720,7 @@ pub fn builtinKernelRespondToMissing(vm: *VM, _: Value, args: []Value, _: ?Block
 pub fn builtinKernelNotMatch(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const match_result = try vm.callMethodByName(receiver, "=~", args, null);
-    return Value.boolean(!match_result.isTruthy());
+    return Value.boolean(match_result.isFalsey());
 }
 
 pub fn builtinKernelInitializeCopy(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

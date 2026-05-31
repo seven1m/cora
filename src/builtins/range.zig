@@ -368,7 +368,7 @@ fn bsearchDispatch(vm: *VM, blk: Block, element: Value) VMError!struct { action:
     }
     const result = yield_result.value;
     if (result.isTrue()) return .{ .action = .smaller, .value = result };
-    if (result.isFalse() or result.isNil()) return .{ .action = .larger, .value = result };
+    if (result.isFalsey()) return .{ .action = .larger, .value = result };
     if (result.isInteger()) {
         const val = result.toInteger();
         if (val == 0) return .{ .action = .found, .value = result };
@@ -405,7 +405,7 @@ fn bsearchIntegerEndlessUp(vm: *VM, blk: Block, begin: i64) VMError!Value {
         },
         .larger => {},
     }
-    const begin_find_min = d0.value.isFalse() or d0.value.isNil();
+    const begin_find_min = d0.value.isFalsey();
     var pos: i64 = 1;
     var last_neg: ?i64 = null;
     var last_pos: ?i64 = null;
@@ -451,7 +451,7 @@ fn bsearchIntegerEndlessDown(vm: *VM, blk: Block, end_val: i64, exclude_end: boo
         .control_flow => return d0.value,
         .found => return Value.integer(first),
         .smaller => d0.value.isTrue(),
-        .larger => d0.value.isFalse() or d0.value.isNil(),
+        .larger => d0.value.isFalsey(),
     };
     if (!is_find_min) {
         const init_small = d0.action == .smaller;
@@ -491,7 +491,7 @@ fn bsearchIntegerEndlessDown(vm: *VM, blk: Block, end_val: i64, exclude_end: boo
                 last_true = probe;
             },
             .larger => {
-                if (d.value.isFalse() or d.value.isNil()) {
+                if (d.value.isFalsey()) {
                     return bsearchIntegerRange(vm, blk, probe + 1, last_true + 1, false);
                 }
                 return Value.nil();
