@@ -8,4 +8,8 @@ class Pathname
   end
 
   alias to_s to_path
+
+  def dirname
+    Pathname.new(File.dirname(@path))
+  end
 end
