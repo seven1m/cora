@@ -1066,6 +1066,67 @@ pub const Compiler = struct {
                 try self.compileRescueModifierNode(rescue_modifier_node, line);
             },
 
+            .match_write => |match_write_node| {
+                // Compile the inner =~ call (pushes match position onto stack)
+                const call_node = try self.parser.asNode(@ptrCast(match_write_node.call));
+                try self.compileNode(call_node, line);
+
+                const targets = &match_write_node.targets;
+                if (targets.size > 0) {
+                    try self.current_chunk.emitOp(.DUP, line);
+                    const jump_nil = try self.current_chunk.emitJump(.JUMP_IF_NIL, line);
+
+                    // Match succeeded — extract named captures from $~
+                    const last_match_idx = try self.current_chunk.addConstant(.{ .string = "$~" });
+                    try self.current_chunk.emitOpU16(.GET_GLOBAL, @intCast(last_match_idx), line);
+
+                    {
+                        var i: usize = 0;
+                        while (i < targets.size) : (i += 1) {
+                            const target_node = try self.parser.asNode(targets.nodes[i]);
+                            if (target_node == .local_variable_target) {
+                                const target = target_node.local_variable_target;
+                                const var_name = try self.parser.getLocalVariableName(target.name);
+                                const slot = try self.resolveOrCreateLocalSlot(var_name);
+
+                                if (i < targets.size - 1) {
+                                    try self.current_chunk.emitOp(.DUP, line);
+                                }
+
+                                const name_idx = try self.current_chunk.addConstant(.{ .string = var_name });
+                                try self.current_chunk.emitOpU16(.PUSH_SYMBOL, @intCast(name_idx), line);
+
+                                const bracket_idx = try self.current_chunk.addConstant(.{ .string = "[]" });
+                                try self.current_chunk.emitCall(@intCast(bracket_idx), 1, bytecode.encodeCallFlags(.explicit, false), 0, line);
+
+                                try self.emitSetLocalSlot(slot, line);
+                            }
+                        }
+                    }
+
+                    const jump_end = try self.current_chunk.emitJump(.JUMP, line);
+                    try self.current_chunk.patchJump(jump_nil);
+
+                    // Match failed — assign nil to each target local
+                    {
+                        var i: usize = 0;
+                        while (i < targets.size) : (i += 1) {
+                            const target_node = try self.parser.asNode(targets.nodes[i]);
+                            if (target_node == .local_variable_target) {
+                                const target = target_node.local_variable_target;
+                                const var_name = try self.parser.getLocalVariableName(target.name);
+                                const slot = try self.resolveOrCreateLocalSlot(var_name);
+
+                                try self.current_chunk.emitOp(.PUSH_NIL, line);
+                                try self.emitSetLocalSlot(slot, line);
+                            }
+                        }
+                    }
+
+                    try self.current_chunk.patchJump(jump_end);
+                }
+            },
+
             .rescue => {
                 std.debug.print("Error: rescue node should be handled by begin node\n", .{});
                 return error.UnsupportedNode;

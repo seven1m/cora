@@ -272,6 +272,7 @@ pub const Node = union(enum) {
     index_or_write: *IndexOrWriteNode,
     index_operator_write: *IndexOperatorWriteNode,
     call_target: *CallTargetNode,
+    match_write: *c.pm_match_write_node_t,
 };
 
 /// Parser wraps Prism's parser and AST lifecycle
@@ -902,6 +903,10 @@ pub const Parser = struct {
 
         if (node_type == c.PM_CALL_TARGET_NODE) {
             return Node{ .call_target = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_MATCH_WRITE_NODE) {
+            return Node{ .match_write = @ptrCast(raw) };
         }
 
         var stdout_buffer: [8192]u8 = undefined;
