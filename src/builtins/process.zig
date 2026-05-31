@@ -472,6 +472,9 @@ pub fn builtinProcessSpawn(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
         chdir_owns = chdir_path;
     }
 
+    const path_z = try vm.resolveExecPathFromEnvMap(&env_map, exec_path_str);
+    defer vm.allocator.free(path_z);
+
     vm.setupOutput();
     if (vm.stdout) |out| _ = out.flush() catch {};
     if (vm.stderr) |err_out| _ = err_out.flush() catch {};
@@ -482,8 +485,6 @@ pub fn builtinProcessSpawn(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
     }
 
     if (pid == 0) {
-        const path_z = resolveExecPathChild(vm, exec_path_str) orelse std.c._exit(127);
-
         // Apply fd redirections
         for (redirects.items) |r| {
             if (r.source_fd == -1) {
@@ -506,26 +507,6 @@ pub fn builtinProcessSpawn(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
 
     if (chdir_owns) |cp| vm.allocator.free(cp);
     return Value.integer(@intCast(pid));
-}
-
-fn resolveExecPathChild(vm: *VM, name: []const u8) ?[:0]u8 {
-    if (std.mem.indexOfScalar(u8, name, '/') != null) {
-        return vm.allocCStringZ(name) catch null;
-    }
-    var buf: [std.fs.max_path_bytes]u8 = undefined;
-    const path_env = std.c.getenv("PATH") orelse "/usr/local/bin:/usr/ucb:/usr/bin:/bin:.";
-    const path_str = std.mem.span(path_env);
-    var it = std.mem.splitScalar(u8, path_str, ':');
-    while (it.next()) |dir| {
-        const search_dir = if (dir.len == 0) "." else dir;
-        const full = std.fmt.bufPrint(buf[0..], "{s}/{s}", .{ search_dir, name }) catch continue;
-        const z = vm.allocCStringZ(full) catch continue;
-        if (std.c.access(z.ptr, std.c.X_OK) == 0) {
-            return z;
-        }
-        vm.allocator.free(z);
-    }
-    return null;
 }
 
 fn detachFunction(vm: *VM, args: []Value) VMError!Value {

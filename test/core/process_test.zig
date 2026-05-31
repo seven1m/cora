@@ -5,6 +5,31 @@ const test_helper = @import("../test_helper.zig");
 const evalCode = test_helper.evalCode;
 const evalCodeWithOutput = test_helper.evalCodeWithOutput;
 
+fn uniqueId() u64 {
+    return @intCast(std.Io.Clock.boot.now(std.testing.io).nanoseconds);
+}
+
+fn createPathScript(allocator: std.mem.Allocator, stem: []const u8, body: []const u8) ![]u8 {
+    const dir_path = try std.fmt.allocPrint(allocator, "/tmp/{s}-{d}", .{ stem, uniqueId() });
+    errdefer allocator.free(dir_path);
+    try std.Io.Dir.createDirAbsolute(std.testing.io, dir_path, .default_dir);
+    errdefer std.Io.Dir.cwd().deleteTree(std.testing.io, dir_path) catch {};
+
+    const script_path = try std.fmt.allocPrint(allocator, "{s}/cora-path-script", .{dir_path});
+    errdefer allocator.free(script_path);
+
+    const file = try std.Io.Dir.createFileAbsolute(std.testing.io, script_path, .{ .truncate = true });
+    defer file.close(std.testing.io);
+    try file.writeStreamingAll(std.testing.io, body);
+
+    const script_path_z = try allocator.dupeZ(u8, script_path);
+    defer allocator.free(script_path_z);
+    if (std.c.chmod(script_path_z, 0o755) != 0) return error.PermissionDenied;
+
+    allocator.free(script_path);
+    return dir_path;
+}
+
 test "Process constant exists and is a module" {
     const result = try evalCode("Process.is_a?(Module)");
     try std.testing.expect(result.isBool());
@@ -178,6 +203,38 @@ test "Process.spawn returns Integer pid" {
     try std.testing.expectEqual(true, result.toBool());
 }
 
+test "IO.popen uses ENV PATH for executable lookup" {
+    if (builtin.os.tag == .windows) return;
+
+    const allocator = std.testing.allocator;
+    const dir_path = try createPathScript(allocator, "cora-io-popen-path", "#!/bin/sh\necho io_path_ok\n");
+    defer allocator.free(dir_path);
+    defer std.Io.Dir.cwd().deleteTree(std.testing.io, dir_path) catch {};
+
+    const ruby_code = try std.fmt.allocPrint(
+        allocator,
+        \\old_path = ENV["PATH"]
+        \\ENV["PATH"] = "{s}"
+        \\io = IO.popen(["cora-path-script"], err: [:child, :out])
+        \\pid = io.pid
+        \\out = io.read
+        \\Process.wait(pid)
+        \\status = $?.exitstatus
+        \\io.close
+        \\ENV["PATH"] = old_path
+        \\[out, status]
+        ,
+        .{dir_path},
+    );
+    defer allocator.free(ruby_code);
+
+    const result = try evalCode(ruby_code);
+    try std.testing.expect(result.isArray());
+    const elems = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("io_path_ok\n", elems[0].toStringObject().str);
+    try std.testing.expectEqual(@as(i64, 0), elems[1].toInteger());
+}
+
 test "Process.spawn with array command runs process" {
     if (builtin.os.tag == .windows) return;
 
@@ -188,6 +245,38 @@ test "Process.spawn with array command runs process" {
         \\thr.value.exitstatus
     );
     try std.testing.expectEqual(@as(i64, 42), result.toInteger());
+}
+
+test "Process.spawn uses ENV PATH for executable lookup" {
+    if (builtin.os.tag == .windows) return;
+
+    const allocator = std.testing.allocator;
+    const dir_path = try createPathScript(allocator, "cora-process-spawn-path", "#!/bin/sh\necho process_path_ok\n");
+    defer allocator.free(dir_path);
+    defer std.Io.Dir.cwd().deleteTree(std.testing.io, dir_path) catch {};
+
+    const ruby_code = try std.fmt.allocPrint(
+        allocator,
+        \\r, w = IO.pipe
+        \\old_path = ENV["PATH"]
+        \\ENV["PATH"] = "{s}"
+        \\pid = Process.spawn("cora-path-script", {{out: w}})
+        \\w.close
+        \\Process.wait(pid)
+        \\out = r.read
+        \\r.close
+        \\ENV["PATH"] = old_path
+        \\[out, $?.exitstatus]
+        ,
+        .{dir_path},
+    );
+    defer allocator.free(ruby_code);
+
+    const result = try evalCode(ruby_code);
+    try std.testing.expect(result.isArray());
+    const elems = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("process_path_ok\n", elems[0].toStringObject().str);
+    try std.testing.expectEqual(@as(i64, 0), elems[1].toInteger());
 }
 
 test "Process.spawn with IO redirection works" {

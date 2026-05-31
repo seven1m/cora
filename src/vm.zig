@@ -2312,6 +2312,29 @@ pub const VM = struct {
         return std.process.Environ.createMap(self.environ, self.allocator) catch return error.Fatal;
     }
 
+    pub fn resolveExecPathFromEnvMap(self: *VM, env_map: *const std.process.Environ.Map, name: []const u8) VMError![:0]u8 {
+        if (std.mem.indexOfScalar(u8, name, '/') != null) {
+            return self.allocCStringZ(name);
+        }
+
+        const path_env = env_map.get("PATH") orelse "/usr/local/bin:/usr/ucb:/usr/bin:/bin:.";
+        var it = std.mem.splitScalar(u8, path_env, ':');
+        while (it.next()) |dir| {
+            const search_dir = if (dir.len == 0) "." else dir;
+            var buf: [std.fs.max_path_bytes]u8 = undefined;
+            const full = std.fmt.bufPrint(buf[0..], "{s}/{s}", .{ search_dir, name }) catch continue;
+            const full_z = self.allocCStringZ(full) catch continue;
+            errdefer self.allocator.free(full_z);
+            if (std.c.access(full_z.ptr, std.c.X_OK) != 0) {
+                self.allocator.free(full_z);
+                continue;
+            }
+            return full_z;
+        }
+
+        return self.allocCStringZ(name);
+    }
+
     pub fn allocCStringZ(self: *VM, bytes: []const u8) VMError![:0]u8 {
         const out = self.allocator.allocSentinel(u8, bytes.len, 0) catch return error.Fatal;
         @memcpy(out[0..bytes.len], bytes);
