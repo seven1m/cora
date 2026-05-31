@@ -130,6 +130,44 @@ test "Process::Status#pid returns pid after Process.wait" {
     try std.testing.expectEqual(pid, elems[1].toInteger());
 }
 
+test "Process.detach returns a Thread" {
+    if (builtin.os.tag == .windows) return;
+
+    const result = try evalCode(
+        \\pid = Process.fork { exit(0) }
+        \\thr = Process.detach(pid)
+        \\thr.join
+        \\thr.is_a?(Thread)
+    );
+    try std.testing.expect(result.isBool());
+    try std.testing.expectEqual(true, result.toBool());
+}
+
+test "Process.detach thread value has correct pid" {
+    if (builtin.os.tag == .windows) return;
+
+    const result = try evalCode(
+        \\pid = Process.fork { exit(0) }
+        \\thr = Process.detach(pid)
+        \\thr.join
+        \\status = thr.value
+        \\status.pid == pid
+    );
+    try std.testing.expectEqual(true, result.toBool());
+}
+
+test "Process.detach raises TypeError for non-integerable arg" {
+    if (builtin.os.tag == .windows) return;
+
+    var stdout_buf: [1024]u8 = undefined;
+    var stderr_buf: [4096]u8 = undefined;
+    const bad = evalCodeWithOutput(
+        \\Process.detach(Object.new)
+    , &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.UnhandledException, bad.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "TypeError") != null);
+}
+
 test "Process::Status#to_i returns raw wait status integer" {
     if (builtin.os.tag == .windows) return;
 

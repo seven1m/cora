@@ -45,6 +45,9 @@ pub fn register(vm: *VM) !void {
     const kill_sym = try vm.intern("kill");
     try process_singleton.module.methods.put(kill_sym, value.MethodEntry.builtin(&builtinProcessKill, .{ .variadic = 1 }));
 
+    const detach_sym = try vm.intern("detach");
+    try process_singleton.module.methods.put(detach_sym, value.MethodEntry.builtin(&builtinProcessDetach, .{ .exact = 1 }));
+
     const clock_realtime_sym = try vm.intern("CLOCK_REALTIME");
     try vm.process_module.constants.put(clock_realtime_sym, .{ .value = Value.integer(@intCast(@intFromEnum(std.posix.CLOCK.REALTIME))) });
 
@@ -254,6 +257,44 @@ pub fn builtinProcessWait(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
         try vm.setLastProcessStatusFromWaitStatus(status, rc);
     }
     return Value.integer(@intCast(rc));
+}
+
+pub fn builtinProcessDetach(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "Process.detach is not implemented on Windows", .{});
+    }
+
+    const pid = try args[0].integerArgToI64(vm, "no implicit conversion into Integer", "pid out of range");
+
+    const thread = try vm.newThreadUnstarted(vm.thread_class);
+    const thread_val = Value.fromObject(&thread.object);
+
+    const pid_value = Value.integer(pid);
+    const block = Block{ .kind = .{ .builtin = &detachFunction } };
+    var thread_args = [_]Value{pid_value};
+    try vm.configureThread(thread, block, thread_args[0..]);
+    try vm.startThread(thread);
+    try vm.schedulerYield();
+
+    return thread_val;
+}
+
+fn detachFunction(vm: *VM, args: []Value) VMError!Value {
+    const pid = args[0];
+    const process_val = Value.fromObject(&vm.process_module.object);
+    var wait_args = [_]Value{pid};
+    const wait_result = vm.callMethodByNameForwardingKeywords(process_val, "wait", wait_args[0..], null);
+    if (wait_result) |_| {
+        return vm.getGlobalValue("$?");
+    } else |err| {
+        if (err == error.Unwind and vm.pendingException() != null) {
+            // ECHILD means no child to wait for; just return nil
+            vm.setPendingException(null);
+        }
+        return Value.nil();
+    }
 }
 
 pub fn builtinProcessKill(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
