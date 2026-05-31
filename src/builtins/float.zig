@@ -461,45 +461,64 @@ pub fn builtinFloatInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     return builtinFloatToS(vm, receiver, args, null);
 }
 
+fn floatToIntegerValue(vm: *VM, f: f64) VMError!Value {
+    if (std.math.isNan(f) or std.math.isInf(f)) {
+        return vm.raiseExceptionFmt(vm.range_error_class, "float out of range of integer", .{});
+    }
+    const max_exact_f64: f64 = 9007199254740992.0; // 2^53
+    if (f >= -max_exact_f64 and f <= max_exact_f64) {
+        return Value.integer(@as(i64, @intFromFloat(f)));
+    }
+    var managed = std.math.big.int.Managed.init(vm.gc_allocator) catch return error.Fatal;
+    defer managed.deinit();
+    managed.ensureCapacity(32) catch return error.Fatal;
+    {
+        var mut = managed.toMutable();
+        _ = mut.setFloat(f, .nearest_even);
+        managed.setMetadata(mut.positive, mut.len);
+    }
+    return vm.valueFromManagedInteger(&managed);
+}
+
 pub fn builtinFloatCeil(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
     const f = receiver.toFloatObject().val;
     if (args.len == 0) {
-        return Value.integer(@as(i64, @intFromFloat(@ceil(f))));
+        return floatToIntegerValue(vm, @ceil(f));
     }
     const digits = try coercePrecisionArgToCInt(vm, args[0]);
     if (digits > 0) {
         return try vm.newFloat(f);
     }
     if (digits == 0) {
-        return Value.integer(@as(i64, @intFromFloat(@ceil(f))));
+        return floatToIntegerValue(vm, @ceil(f));
     }
     const factor = std.math.pow(f64, 10, @as(f64, @floatFromInt(-digits)));
-    return Value.integer(@as(i64, @intFromFloat(@ceil(f / factor) * factor)));
+    return floatToIntegerValue(vm, @ceil(f / factor) * factor);
 }
 
 pub fn builtinFloatFloor(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
     const f = receiver.toFloatObject().val;
     if (args.len == 0) {
-        return Value.integer(@as(i64, @intFromFloat(@floor(f))));
+        return floatToIntegerValue(vm, @floor(f));
     }
     const digits = try coercePrecisionArgToCInt(vm, args[0]);
     if (digits > 0) {
         return try vm.newFloat(f);
     }
     if (digits == 0) {
-        return Value.integer(@as(i64, @intFromFloat(@floor(f))));
+        return floatToIntegerValue(vm, @floor(f));
     }
     const factor = std.math.pow(f64, 10, @as(f64, @floatFromInt(-digits)));
-    return Value.integer(@as(i64, @intFromFloat(@floor(f / factor) * factor)));
+    return floatToIntegerValue(vm, @floor(f / factor) * factor);
 }
 
 pub fn builtinFloatRound(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
     const f = receiver.toFloatObject().val;
     if (args.len == 0) {
-        return Value.integer(@as(i64, @intFromFloat(@round(f))));
+        return floatToIntegerValue(vm, @round(f));
     }
     const digits = try args[0].integerToI64(vm, "invalid precision");
     if (digits >= 0) {
