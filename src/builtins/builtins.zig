@@ -34,6 +34,7 @@ const signal = @import("signal.zig");
 const fiber = @import("fiber.zig");
 const thread = @import("thread.zig");
 const mutex = @import("mutex.zig");
+const object_space = @import("object_space.zig");
 const queue = @import("queue.zig");
 const random = @import("random.zig");
 const rational = @import("rational.zig");
@@ -77,6 +78,7 @@ pub fn registerAll(vm: *VM) !void {
     try thread.register(vm);
     try mutex.register(vm);
     try condition_variable.register(vm);
+    try object_space.register(vm);
     try queue.register(vm);
     try random.register(vm);
     try rational.register(vm);

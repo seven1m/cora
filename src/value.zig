@@ -55,6 +55,7 @@ pub const ObjectTypeTag = enum(u8) {
     time,
     method,
     unbound_method,
+    weak_map,
 };
 
 pub const Object = struct {
@@ -402,6 +403,12 @@ pub const QueueObject = struct {
     max_size: ?usize = null,
 };
 
+pub const WeakMapObject = struct {
+    object: Object,
+    keys: std.ArrayList(Value) = .empty,
+    values: std.ArrayList(Value) = .empty,
+};
+
 pub const TimeObject = struct {
     object: Object,
     epoch_nanoseconds: i64,
@@ -676,6 +683,10 @@ pub const Value = struct {
         return self.isObject() and self.objectTypeTag() == .queue;
     }
 
+    pub inline fn isWeakMap(self: Value) bool {
+        return self.isObject() and self.objectTypeTag() == .weak_map;
+    }
+
     pub inline fn isTime(self: Value) bool {
         return self.isObject() and self.objectTypeTag() == .time;
     }
@@ -783,6 +794,10 @@ pub const Value = struct {
     }
 
     pub inline fn toQueueObject(self: Value) *QueueObject {
+        return @ptrFromInt(self.raw);
+    }
+
+    pub inline fn toWeakMapObject(self: Value) *WeakMapObject {
         return @ptrFromInt(self.raw);
     }
 
@@ -1067,6 +1082,7 @@ pub const Value = struct {
                 .mutex => try writer.print("#<Mutex:0x{x}>", .{self.raw}),
                 .condition_variable => try writer.print("#<ConditionVariable:0x{x}>", .{self.raw}),
                 .queue => try writer.print("#<Thread::{s}:0x{x}>", .{ self.getObjectPointer().?.class.?.module.name.name, self.raw }),
+                .weak_map => try writer.print("#<WeakMap:0x{x}>", .{self.raw}),
                 .time => try writer.print("#<Time:0x{x}>", .{self.raw}),
                 .method => try writer.print("#<Method:0x{x}>", .{self.raw}),
                 .unbound_method => try writer.print("#<UnboundMethod:0x{x}>", .{self.raw}),

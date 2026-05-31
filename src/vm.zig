@@ -493,6 +493,8 @@ pub const VM = struct {
     condition_variable_class: *value.ClassObject,
     queue_class: *value.ClassObject,
     sized_queue_class: *value.ClassObject,
+    object_space_module: *value.ModuleObject,
+    weak_map_class: *value.ClassObject,
     thread_error_class: *value.ClassObject,
     thread_kill_exception_class: *value.ClassObject,
     closed_queue_error_class: *value.ClassObject,
@@ -702,6 +704,8 @@ pub const VM = struct {
             .condition_variable_class = undefined,
             .queue_class = undefined,
             .sized_queue_class = undefined,
+            .object_space_module = undefined,
+            .weak_map_class = undefined,
             .thread_error_class = undefined,
             .thread_kill_exception_class = undefined,
             .closed_queue_error_class = undefined,
@@ -963,6 +967,14 @@ pub const VM = struct {
         const sized_queue_name_sym = try self.intern("SizedQueue");
         const sized_queue_class_val = try self.newClass(sized_queue_name_sym, self.queue_class);
         self.sized_queue_class = sized_queue_class_val.toClassObject();
+
+        const object_space_name_sym = try self.intern("ObjectSpace");
+        const object_space_module_val = try self.newModule(object_space_name_sym);
+        self.object_space_module = object_space_module_val.toModuleObject();
+
+        const weak_map_name_sym = try self.intern("WeakMap");
+        const weak_map_class_val = try self.newClass(weak_map_name_sym, self.object_class);
+        self.weak_map_class = weak_map_class_val.toClassObject();
 
         const regexp_name_sym = try self.intern("Regexp");
         const regexp_class_val = try self.newClass(regexp_name_sym, self.object_class);
@@ -1350,6 +1362,8 @@ pub const VM = struct {
         self.object_class.module.constants.put(condition_variable_name_sym, .{ .value = condition_variable_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(queue_name_sym, .{ .value = queue_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(sized_queue_name_sym, .{ .value = sized_queue_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(object_space_name_sym, .{ .value = object_space_module_val }) catch return error.Fatal;
+        self.object_space_module.constants.put(weak_map_name_sym, .{ .value = weak_map_class_val }) catch return error.Fatal;
         // Register Thread synchronization aliases.
         const default_name_sym = try self.intern("Default");
         thread_group_class_val.toClassObject().module.constants.put(default_name_sym, .{ .value = self.default_thread_group }) catch return error.Fatal;
@@ -3913,6 +3927,16 @@ pub const VM = struct {
         queue_obj.closed = false;
         queue_obj.max_size = null;
         return queue_obj;
+    }
+
+    pub fn newWeakMap(self: *VM, class_val: Value) VMError!*value.WeakMapObject {
+        const wm = self.gc_allocator.create(value.WeakMapObject) catch return error.Fatal;
+        wm.* = .{
+            .object = .{ .type_tag = .weak_map, .flags = 0, .class = class_val.toClassObject(), .singleton_class = null, .instance_variables = null },
+            .keys = .empty,
+            .values = .empty,
+        };
+        return wm;
     }
 
     pub fn newThreadUnstarted(self: *VM, class_obj: *value.ClassObject) VMError!*value.ThreadObject {
@@ -10354,6 +10378,7 @@ pub const VM = struct {
             .mutex => arg.isMutex(),
             .condition_variable => arg.isConditionVariable(),
             .queue => arg.isQueue(),
+            .weak_map => arg.isWeakMap(),
             .time => arg.isTime(),
             .method => arg.isMethodObject(),
             .unbound_method => arg.isUnboundMethodObject(),
