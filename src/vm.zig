@@ -8860,7 +8860,7 @@ pub const VM = struct {
                         )
                     else
                         self.lookupMethodForSuperFromScope(
-                            self.getClass(super_frame.self_value),
+                            explicit_defining_class,
                             .{ .module = defining_module },
                             method_name_sym,
                         )
