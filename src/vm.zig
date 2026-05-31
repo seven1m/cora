@@ -6959,6 +6959,13 @@ pub const VM = struct {
         return false;
     }
 
+    fn hasDispatchAncestor(self: *VM, receiver: Value, candidate_ancestor: *ClassObject) bool {
+        if (receiver.getSingletonClass()) |singleton_class| {
+            if (self.isClassOrSubclassOf(singleton_class, candidate_ancestor)) return true;
+        }
+        return self.isClassOrSubclassOf(self.getClass(receiver), candidate_ancestor);
+    }
+
     fn isMethodCallable(self: *VM, receiver: Value, resolved: ResolvedMethod, call_style: ReceiverCallStyle) bool {
         switch (resolved.entry.visibility) {
             .public => return true,
@@ -6967,10 +6974,8 @@ pub const VM = struct {
             .protected => {
                 if (self.frames.items.len == 0) return false;
                 const caller_self = self.currentFrame().self_value;
-                const caller_class = self.getClass(caller_self);
-                const receiver_class = self.getClass(receiver);
-                return self.isClassOrSubclassOf(caller_class, resolved.owner_class) and
-                    self.isClassOrSubclassOf(receiver_class, resolved.owner_class);
+                return self.hasDispatchAncestor(caller_self, resolved.owner_class) and
+                    self.hasDispatchAncestor(receiver, resolved.owner_class);
             },
         }
     }

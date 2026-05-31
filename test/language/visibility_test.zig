@@ -138,6 +138,34 @@ test "protected allows same-family receiver calls and blocks external calls" {
     try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "tok") != null);
 }
 
+test "protected class methods work through singleton-class ancestry" {
+    const result = try evalCode(
+        \\class Base
+        \\  class << self
+        \\    protected
+        \\    def tok
+        \\      5
+        \\    end
+        \\    def map
+        \\      tok
+        \\    end
+        \\    public
+        \\    def call_other(other)
+        \\      other.tok
+        \\    end
+        \\  end
+        \\end
+        \\class Child < Base
+        \\  map
+        \\end
+        \\[Base.send(:map), Child.send(:map), Base.call_other(Child)]
+    );
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(i64, 5), result.toArrayObject().elements.items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 5), result.toArrayObject().elements.items[1].toInteger());
+    try std.testing.expectEqual(@as(i64, 5), result.toArrayObject().elements.items[2].toInteger());
+}
+
 test "define_method respects current default visibility" {
     const ok = try evalCode(
         \\class C
