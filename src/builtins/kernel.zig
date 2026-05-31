@@ -13,6 +13,7 @@ const rational_builtin = @import("rational.zig");
 const stringio_builtin = @import("stringio.zig");
 const warning_builtin = @import("warning.zig");
 const zlib_builtin = @import("zlib.zig");
+const process_builtin = @import("process.zig");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -230,6 +231,9 @@ pub fn register(vm: *VM) !void {
 
     const system_sym = try vm.intern("system");
     try vm.kernel_module.methods.put(system_sym, value.MethodEntry.builtinWithVisibility(&builtinKernelSystem, .{ .variadic = 0 }, .private));
+
+    const spawn_sym = try vm.intern("spawn");
+    try vm.kernel_module.methods.put(spawn_sym, value.MethodEntry.builtinWithVisibility(&process_builtin.builtinProcessSpawn, .{ .variadic = 1 }, .private));
 
     const eval_sym = try vm.intern("eval");
     try vm.kernel_module.methods.put(eval_sym, value.MethodEntry.builtin(&builtinKernelEval, .{ .variadic = 0 }));
