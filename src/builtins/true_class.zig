@@ -43,7 +43,7 @@ pub fn builtinTrueClassEqual(vm: *VM, _: Value, args: []Value, _: ?Block) VMErro
 
 pub fn builtinTrueClassAnd(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    return Value.boolean(args[0].is_truthy());
+    return Value.boolean(args[0].isTruthy());
 }
 
 pub fn builtinTrueClassOr(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -53,5 +53,5 @@ pub fn builtinTrueClassOr(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
 
 pub fn builtinTrueClassXor(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    return Value.boolean(!args[0].is_truthy());
+    return Value.boolean(!args[0].isTruthy());
 }

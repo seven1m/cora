@@ -870,7 +870,7 @@ pub fn builtinIoToIo(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
 pub fn builtinIoPid(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const io = try requireIoReceiver(vm, receiver);
-    if (io.closed and (try vm.getInstanceVariable(receiver, "@child_process")).is_truthy()) {
+    if (io.closed and (try vm.getInstanceVariable(receiver, "@child_process")).isTruthy()) {
         return vm.raiseExceptionFmt(vm.io_error_class, "closed stream", .{});
     }
     return vm.getInstanceVariable(receiver, "@pid");
@@ -923,7 +923,7 @@ pub fn builtinIoSync(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
 pub fn builtinIoSyncEq(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const io = try requireIoReceiver(vm, receiver);
-    io.sync = args[0].is_truthy();
+    io.sync = args[0].isTruthy();
     return args[0];
 }
 
@@ -938,7 +938,7 @@ pub fn builtinIoNonblockSet(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     try vm.requireArgCount(args, 1);
     const io = try requireIoReceiver(vm, receiver);
     try ensureIoOpen(vm, io);
-    try setIoNonblocking(vm, io, args[0].is_truthy());
+    try setIoNonblocking(vm, io, args[0].isTruthy());
     return receiver;
 }
 
@@ -948,7 +948,7 @@ pub fn builtinIoNonblock(vm: *VM, receiver: Value, args: []Value, block: ?Block)
     try ensureIoOpen(vm, io);
 
     const blk = try vm.requireBlock(block);
-    const desired = if (args.len == 0) true else args[0].is_truthy();
+    const desired = if (args.len == 0) true else args[0].isTruthy();
     const original = try ioIsNonblocking(vm, io);
 
     if (original == desired) {
@@ -1181,7 +1181,7 @@ pub fn builtinIoInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
         .{ .readable = true, .writable = false, .append = false, .create = false, .truncate = false };
 
     io.fd = @intCast(fd_value.toInteger());
-    io.owns_fd = if (autoclose_value) |val| val.is_truthy() else true;
+    io.owns_fd = if (autoclose_value) |val| val.isTruthy() else true;
     io.closed = false;
     io.readable = mode.readable;
     io.writable = mode.writable;
@@ -1207,7 +1207,7 @@ fn builtinIoAutocloseQ(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!
 fn builtinIoAutocloseEq(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     const io = try requireIoReceiver(vm, receiver);
     try ensureIoOpen(vm, io);
-    io.owns_fd = args[0].is_truthy();
+    io.owns_fd = args[0].isTruthy();
     return args[0];
 }
 

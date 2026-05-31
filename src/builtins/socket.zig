@@ -180,7 +180,7 @@ fn shutdownHow(vm: *VM, arg: Value) VMError!c_int {
 fn socketNumericAddressMode(vm: *VM, receiver: Value, args: []Value) VMError!bool {
     try vm.requireArgCountRange(args, 0, 1);
     if (args.len == 0) {
-        return (try vm.getInstanceVariable(receiver, "@do_not_reverse_lookup")).is_truthy();
+        return (try vm.getInstanceVariable(receiver, "@do_not_reverse_lookup")).isTruthy();
     }
     if (args[0].isFalse()) return true;
     if (args[0].isTrue()) return false;
@@ -637,7 +637,7 @@ pub fn builtinSocketGetaddrinfo(vm: *VM, _: Value, args: []Value, _: ?Block) VME
     try vm.requireArgCountRange(args, 2, 7);
 
     const host = try args[0].coerceToStr(vm, "no implicit conversion into String");
-    const reverse_lookup = args.len >= 7 and args[6].is_truthy();
+    const reverse_lookup = args.len >= 7 and args[6].isTruthy();
 
     const service = if (args[1].isNil())
         ""
@@ -736,7 +736,7 @@ pub fn builtinSocketDoNotReverseLookup(vm: *VM, receiver: Value, args: []Value, 
 
 pub fn builtinSocketSetDoNotReverseLookup(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    try vm.setInstanceVariable(receiver, "@do_not_reverse_lookup", Value.boolean(args[0].is_truthy()));
+    try vm.setInstanceVariable(receiver, "@do_not_reverse_lookup", Value.boolean(args[0].isTruthy()));
     return args[0];
 }
 

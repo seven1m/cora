@@ -258,7 +258,7 @@ pub fn builtinFloatEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
 
     var reverse_args = [_]Value{receiver};
     const result = try vm.callMethodByName(args[0], "==", reverse_args[0..], null);
-    return Value.boolean(result.is_truthy());
+    return Value.boolean(result.isTruthy());
 }
 
 pub fn builtinFloatCompare(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

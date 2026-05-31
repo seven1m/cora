@@ -318,7 +318,7 @@ fn builtinMatchDataNamedCaptures(vm: *VM, receiver: Value, args: []Value, _: ?Bl
 
     const hash = try vm.createHash();
     for (groups) |group| {
-        const key = if (symbolize_names.is_truthy())
+        const key = if (symbolize_names.isTruthy())
             Value.fromObject(&(try vm.intern(group.name)).object)
         else
             try vm.newString(group.name, false);

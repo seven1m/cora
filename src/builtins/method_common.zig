@@ -272,7 +272,7 @@ pub fn parametersForResolvedMethod(vm: *VM, resolved: vm_mod.ResolvedMethod) VME
 pub fn isCompatibleBindTarget(vm: *VM, bind_target: Value, owner: Value) bool {
     var is_a_args = [1]Value{owner};
     const result = kernel.builtinKernelIsA(vm, bind_target, &is_a_args, null) catch return false;
-    return result.is_truthy();
+    return result.isTruthy();
 }
 
 pub fn createBoundMethodObject(

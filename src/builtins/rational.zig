@@ -426,7 +426,7 @@ pub fn builtinRationalEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     }
     var reverse_args = [_]Value{receiver};
     const result = try vm.callMethodByName(other, "==", reverse_args[0..], null);
-    return Value.boolean(result.is_truthy());
+    return Value.boolean(result.isTruthy());
 }
 
 pub fn builtinRationalCompare(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

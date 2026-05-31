@@ -35,13 +35,13 @@ pub fn builtinNumericZero(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     try vm.requireArgCount(args, 0);
     var compare_args = [_]Value{Value.integer(0)};
     const zero_result = try vm.callMethodByName(receiver, "==", compare_args[0..], null);
-    return Value.boolean(zero_result.is_truthy());
+    return Value.boolean(zero_result.isTruthy());
 }
 
 pub fn builtinNumericNonzero(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const zero_result = try vm.callMethodByName(receiver, "zero?", &[_]Value{}, null);
-    if (zero_result.is_truthy()) return Value.nil();
+    if (zero_result.isTruthy()) return Value.nil();
     return receiver;
 }
 
@@ -49,14 +49,14 @@ pub fn builtinNumericPositiveQ(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
     try vm.requireArgCount(args, 0);
     var compare_args = [_]Value{Value.integer(0)};
     const result = try vm.callMethodByName(receiver, ">", compare_args[0..], null);
-    return Value.boolean(result.is_truthy());
+    return Value.boolean(result.isTruthy());
 }
 
 pub fn builtinNumericNegativeQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     var compare_args = [_]Value{Value.integer(0)};
     const result = try vm.callMethodByName(receiver, "<", compare_args[0..], null);
-    return Value.boolean(result.is_truthy());
+    return Value.boolean(result.isTruthy());
 }
 
 pub fn builtinNumericImag(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

@@ -471,7 +471,7 @@ pub fn builtinKernelRational(vm: *VM, _: Value, args: []Value, _: ?Block) VMErro
 
     const kw_exception = try vm.consumeKeywordArg("exception");
     try vm.validateKeywordArgsConsumed();
-    const exception_mode = if (kw_exception) |value_| value_.is_truthy() else true;
+    const exception_mode = if (kw_exception) |value_| value_.isTruthy() else true;
 
     const numerator = args[0];
     const denominator = if (args.len == 2) args[1] else null;
@@ -1695,7 +1695,7 @@ pub fn builtinKernelRespondTo(vm: *VM, receiver: Value, args: []Value, _: ?Block
     try vm.requireArgCountRange(args, 1, 2);
 
     const method_name_sym = try vm.coerceToMethodNameSymbol(args[0]);
-    const include_private = if (args.len == 2) args[1].is_truthy() else false;
+    const include_private = if (args.len == 2) args[1].isTruthy() else false;
     if (try vm.findMethod(receiver, method_name_sym)) |resolved| {
         if (include_private or resolved.entry.visibility == .public) {
             return Value.boolean(true);
@@ -1707,7 +1707,7 @@ pub fn builtinKernelRespondTo(vm: *VM, receiver: Value, args: []Value, _: ?Block
         Value.boolean(include_private),
     };
     const hook_result = try vm.callMethodByName(receiver, "respond_to_missing?", &respond_args, null);
-    return Value.boolean(hook_result.is_truthy());
+    return Value.boolean(hook_result.isTruthy());
 }
 
 pub fn builtinKernelRespondToMissing(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -1720,7 +1720,7 @@ pub fn builtinKernelRespondToMissing(vm: *VM, _: Value, args: []Value, _: ?Block
 pub fn builtinKernelNotMatch(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const match_result = try vm.callMethodByName(receiver, "=~", args, null);
-    return Value.boolean(!match_result.is_truthy());
+    return Value.boolean(!match_result.isTruthy());
 }
 
 pub fn builtinKernelInitializeCopy(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -2160,25 +2160,25 @@ pub fn builtinKernelExtend(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 
 pub fn builtinKernelMethods(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
-    const include_super = if (args.len == 1) args[0].is_truthy() else true;
+    const include_super = if (args.len == 1) args[0].isTruthy() else true;
     return collectKernelMethods(vm, receiver, .public_and_protected, include_super);
 }
 
 pub fn builtinKernelSingletonMethods(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
-    const include_super = if (args.len == 1) args[0].is_truthy() else true;
+    const include_super = if (args.len == 1) args[0].isTruthy() else true;
     return collectSingletonMethods(vm, receiver, include_super);
 }
 
 pub fn builtinKernelPrivateMethods(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
-    const include_super = if (args.len == 1) args[0].is_truthy() else true;
+    const include_super = if (args.len == 1) args[0].isTruthy() else true;
     return collectKernelMethods(vm, receiver, .private_only, include_super);
 }
 
 pub fn builtinKernelPublicMethods(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
-    const include_super = if (args.len == 1) args[0].is_truthy() else true;
+    const include_super = if (args.len == 1) args[0].isTruthy() else true;
     return collectKernelMethods(vm, receiver, .public_only, include_super);
 }
 
@@ -2227,7 +2227,7 @@ pub fn builtinKernelCaseEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block
     if (receiver.objectId() == args[0].objectId()) return Value.boolean(true);
 
     const equal = try vm.callMethodByName(receiver, "==", args[0..1], null);
-    return Value.boolean(equal.is_truthy());
+    return Value.boolean(equal.isTruthy());
 }
 
 pub fn builtinKernelCompare(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -2235,7 +2235,7 @@ pub fn builtinKernelCompare(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     if (receiver.objectId() == args[0].objectId()) return Value.integer(0);
 
     const equal = try vm.callMethodByName(receiver, "==", args[0..1], null);
-    if (equal.is_truthy()) return Value.integer(0);
+    if (equal.isTruthy()) return Value.integer(0);
     return Value.nil();
 }
 

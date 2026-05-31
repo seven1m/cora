@@ -1274,7 +1274,7 @@ pub fn builtinIntegerEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 
     var reverse_args = [_]Value{receiver};
     const result = try vm.callMethodByName(args[0], "==", reverse_args[0..], null);
-    return Value.boolean(result.is_truthy());
+    return Value.boolean(result.isTruthy());
 }
 
 pub fn builtinIntegerEql(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -1286,7 +1286,7 @@ pub fn builtinIntegerEql(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
 
 pub fn builtinIntegerNotEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     const equal = try builtinIntegerEqual(vm, receiver, args, null);
-    return Value.boolean(!equal.is_truthy());
+    return Value.boolean(!equal.isTruthy());
 }
 
 pub fn builtinIntegerLessThan(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -1471,7 +1471,7 @@ pub fn builtinIntegerRound(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     const product = try mulIntegers(vm, quotient, factor);
     const remainder = try subIntegers(vm, receiver, product);
 
-    if ((try builtinIntegerZero(vm, remainder, &.{}, null)).is_truthy()) return receiver;
+    if ((try builtinIntegerZero(vm, remainder, &.{}, null)).isTruthy()) return receiver;
 
     const abs_remainder = try builtinIntegerAbs(vm, remainder, &.{}, null);
     const cmp = try compareIntegers(vm, abs_remainder, half_factor);
@@ -1487,7 +1487,7 @@ pub fn builtinIntegerRound(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 
     if (std.mem.eql(u8, half_mode, "down")) return mulIntegers(vm, quotient, factor);
 
-    if (std.mem.eql(u8, half_mode, "even") and (try builtinIntegerEven(vm, quotient, &.{}, null)).is_truthy()) {
+    if (std.mem.eql(u8, half_mode, "even") and (try builtinIntegerEven(vm, quotient, &.{}, null)).isTruthy()) {
         return mulIntegers(vm, quotient, factor);
     }
 

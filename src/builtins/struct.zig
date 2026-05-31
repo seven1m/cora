@@ -217,7 +217,7 @@ pub fn builtinStructNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
     const class_name_sym = try vm.intern(class_name);
     const struct_val = try vm.newClass(class_name_sym, vm.struct_class);
     struct_val.toClassObject().struct_members = members;
-    struct_val.toClassObject().struct_keyword_init = if (keyword_init) |value_arg| value_arg.is_truthy() else null;
+    struct_val.toClassObject().struct_keyword_init = if (keyword_init) |value_arg| value_arg.isTruthy() else null;
 
     if (name_arg) |name| {
         var const_args = [_]Value{ name, struct_val };

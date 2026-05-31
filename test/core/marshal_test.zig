@@ -8,14 +8,14 @@ test "Marshal round trips nested array and hash" {
         \\obj = {"a" => [1, :two, nil, true, false], "b" => {"c" => 3}}
         \\Marshal.load(Marshal.dump(obj)) == obj
     );
-    try std.testing.expect(result.is_truthy());
+    try std.testing.expect(result.isTruthy());
 }
 
 test "Marshal dump returns ASCII-8BIT string" {
     const result = try evalCode(
         \\Marshal.dump([1, "x"]).encoding == Encoding::ASCII_8BIT
     );
-    try std.testing.expect(result.is_truthy());
+    try std.testing.expect(result.isTruthy());
 }
 
 test "Marshal dump matches MRI bytes for basic values" {
@@ -56,7 +56,7 @@ test "Marshal dump can write to io-like object" {
         \\Marshal.dump([1, 2], sink)
         \\Marshal.load(sink) == [1, 2]
     );
-    try std.testing.expect(result.is_truthy());
+    try std.testing.expect(result.isTruthy());
 }
 
 test "Marshal round trips nested objects using marshal_dump and marshal_load" {
@@ -83,7 +83,7 @@ test "Marshal round trips nested objects using marshal_dump and marshal_load" {
         \\obj = MarshalSpec::UserMarshal.new(7)
         \\Marshal.load(Marshal.dump(obj)).value == 7
     );
-    try std.testing.expect(result.is_truthy());
+    try std.testing.expect(result.isTruthy());
 }
 
 test "Marshal round trips RubyGems Requirement defaults" {
@@ -94,5 +94,5 @@ test "Marshal round trips RubyGems Requirement defaults" {
         \\copy = Marshal.load(Marshal.dump(req))
         \\copy == req
     );
-    try std.testing.expect(result.is_truthy());
+    try std.testing.expect(result.isTruthy());
 }

@@ -557,7 +557,7 @@ pub const Value = struct {
         return (self.raw & 7) == 0 and self.raw > UNDEF.raw;
     }
 
-    pub inline fn is_truthy(self: Value) bool {
+    pub inline fn isTruthy(self: Value) bool {
         return (self.raw & ~@as(u64, 0x04)) != 0;
     }
 

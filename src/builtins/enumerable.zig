@@ -149,7 +149,7 @@ fn builtinEnumerableSelect(vm: *VM, receiver: Value, args: []Value, block: ?Bloc
         };
         const result = try enumerableYieldCollapsed(vm, blk, next_values.toArrayObject());
         if (result.controlFlowValue()) |return_value| return return_value;
-        if (result.value.is_truthy()) {
+        if (result.value.isTruthy()) {
             out.elements.append(vm.gc_allocator, collapseYieldValues(next_values.toArrayObject())) catch return error.Fatal;
         }
     }
@@ -180,7 +180,7 @@ fn builtinEnumerableFilterMap(vm: *VM, receiver: Value, args: []Value, block: ?B
         };
         const result = try enumerableYieldCollapsed(vm, blk, next_values.toArrayObject());
         if (result.controlFlowValue()) |return_value| return return_value;
-        if (result.value.is_truthy()) {
+        if (result.value.isTruthy()) {
             out.elements.append(vm.gc_allocator, result.value) catch return error.Fatal;
         }
     }
@@ -210,13 +210,13 @@ fn builtinEnumerableAny(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
             const next_values = try enumerableNextValues(vm, enum_value) orelse break;
             const result = try vm.yieldToBlock(blk, next_values.elements.items);
             if (result.controlFlowValue()) |return_value| return return_value;
-            if (result.value.is_truthy()) return Value.boolean(true);
+            if (result.value.isTruthy()) return Value.boolean(true);
         }
         return Value.boolean(false);
     }
 
     while (try enumerableNextElement(vm, enum_value)) |element| {
-        if (element.is_truthy()) return Value.boolean(true);
+        if (element.isTruthy()) return Value.boolean(true);
     }
     return Value.boolean(false);
 }
@@ -232,7 +232,7 @@ fn collapseYieldValues(yield_values: *value.ArrayObject) Value {
 fn enumerablePatternMatches(vm: *VM, pattern: Value, element: Value) VMError!bool {
     var match_args = [_]Value{element};
     const result = try vm.callMethodByName(pattern, "===", match_args[0..], null);
-    return result.is_truthy();
+    return result.isTruthy();
 }
 
 fn enumerableNextValues(vm: *VM, enum_value: Value) VMError!?*value.ArrayObject {
@@ -375,7 +375,7 @@ fn builtinEnumerableFind(vm: *VM, receiver: Value, args: []Value, block: ?Block)
         const yield_args = [_]Value{element};
         const result = try vm.yieldToBlock(blk, &yield_args);
         if (result.controlFlowValue()) |return_value| return return_value;
-        if (result.value.is_truthy()) return element;
+        if (result.value.isTruthy()) return element;
     }
 
     if (!ifnone.isNil()) {
@@ -462,7 +462,7 @@ fn builtinEnumerableCount(vm: *VM, receiver: Value, args: []Value, block: ?Block
             const next_values = try enumerableNextValues(vm, enum_value) orelse break;
             const result = try vm.yieldToBlock(blk, next_values.elements.items);
             if (result.controlFlowValue()) |return_value| return return_value;
-            if (result.value.is_truthy()) {
+            if (result.value.isTruthy()) {
                 count += 1;
             }
         }

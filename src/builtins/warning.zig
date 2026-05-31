@@ -32,7 +32,7 @@ pub fn builtinWarningGet(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
 pub fn builtinWarningSet(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 2);
     if (isDeprecatedCategory(args[0])) {
-        vm.warning_deprecated_enabled = args[1].is_truthy();
+        vm.warning_deprecated_enabled = args[1].isTruthy();
     }
     return args[1];
 }

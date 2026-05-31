@@ -1252,7 +1252,7 @@ pub fn builtinModuleLessThanEqual(vm: *VM, receiver: Value, args: []Value, _: ?B
 pub fn builtinModuleConstants(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
 
-    const include_inherited = if (args.len == 1) args[0].is_truthy() else true;
+    const include_inherited = if (args.len == 1) args[0].isTruthy() else true;
 
     var constant_names: std.ArrayList(*SymbolObject) = .empty;
     defer constant_names.deinit(vm.gc_allocator);
@@ -1287,7 +1287,7 @@ pub fn builtinModuleConstants(vm: *VM, receiver: Value, args: []Value, _: ?Block
 
 pub fn builtinModuleClassVariables(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
-    const include_inherited = if (args.len == 1) args[0].is_truthy() else true;
+    const include_inherited = if (args.len == 1) args[0].isTruthy() else true;
 
     var names: std.ArrayList(*SymbolObject) = .empty;
     defer names.deinit(vm.gc_allocator);
@@ -1328,7 +1328,7 @@ pub fn builtinModuleClassVariables(vm: *VM, receiver: Value, args: []Value, _: ?
 
 pub fn builtinModuleConstDefined(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 1, 2);
-    const inherit = if (args.len == 2) args[1].is_truthy() else true;
+    const inherit = if (args.len == 2) args[1].isTruthy() else true;
     const name = try constantNameString(vm, args[0]);
 
     if (std.mem.indexOf(u8, name, "::") != null) {
@@ -1410,7 +1410,7 @@ pub fn builtinModuleAutoload(vm: *VM, receiver: Value, args: []Value, _: ?Block)
 pub fn builtinModuleAutoloadQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 1, 2);
 
-    const inherit = if (args.len == 2) args[1].is_truthy() else true;
+    const inherit = if (args.len == 2) args[1].isTruthy() else true;
     const name = try constantNameString(vm, args[0]);
     if (!isValidConstantNameSegment(name)) {
         return vm.raiseExceptionFmt(vm.name_error_class, "wrong constant name {s}", .{name});
@@ -1488,52 +1488,52 @@ pub fn builtinModuleAncestors(vm: *VM, receiver: Value, args: []Value, _: ?Block
 
 pub fn builtinModuleInstanceMethods(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
-    const include_super = if (args.len == 1) args[0].is_truthy() else true;
+    const include_super = if (args.len == 1) args[0].isTruthy() else true;
     return collectInstanceMethods(vm, receiver, .public_and_protected, include_super);
 }
 
 pub fn builtinModulePrivateInstanceMethods(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
-    const include_super = if (args.len == 1) args[0].is_truthy() else true;
+    const include_super = if (args.len == 1) args[0].isTruthy() else true;
     return collectInstanceMethods(vm, receiver, .private_only, include_super);
 }
 
 pub fn builtinModuleProtectedInstanceMethods(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
-    const include_super = if (args.len == 1) args[0].is_truthy() else true;
+    const include_super = if (args.len == 1) args[0].isTruthy() else true;
     return collectInstanceMethods(vm, receiver, .protected_only, include_super);
 }
 
 pub fn builtinModulePublicInstanceMethods(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
-    const include_super = if (args.len == 1) args[0].is_truthy() else true;
+    const include_super = if (args.len == 1) args[0].isTruthy() else true;
     return collectInstanceMethods(vm, receiver, .public_only, include_super);
 }
 
 pub fn builtinModuleMethodDefined(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 1, 2);
-    const include_super = if (args.len == 2) args[1].is_truthy() else true;
+    const include_super = if (args.len == 2) args[1].isTruthy() else true;
     const name_sym = try vm.coerceToMethodNameSymbol(args[0]);
     return Value.boolean(methodDefined(vm, receiver, name_sym, .public_and_protected, include_super));
 }
 
 pub fn builtinModulePrivateMethodDefined(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 1, 2);
-    const include_super = if (args.len == 2) args[1].is_truthy() else true;
+    const include_super = if (args.len == 2) args[1].isTruthy() else true;
     const name_sym = try vm.coerceToMethodNameSymbol(args[0]);
     return Value.boolean(methodDefined(vm, receiver, name_sym, .private_only, include_super));
 }
 
 pub fn builtinModuleProtectedMethodDefined(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 1, 2);
-    const include_super = if (args.len == 2) args[1].is_truthy() else true;
+    const include_super = if (args.len == 2) args[1].isTruthy() else true;
     const name_sym = try vm.coerceToMethodNameSymbol(args[0]);
     return Value.boolean(methodDefined(vm, receiver, name_sym, .protected_only, include_super));
 }
 
 pub fn builtinModulePublicMethodDefined(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 1, 2);
-    const include_super = if (args.len == 2) args[1].is_truthy() else true;
+    const include_super = if (args.len == 2) args[1].isTruthy() else true;
     const name_sym = try vm.coerceToMethodNameSymbol(args[0]);
     return Value.boolean(methodDefined(vm, receiver, name_sym, .public_only, include_super));
 }
@@ -1877,7 +1877,7 @@ pub fn builtinModuleAttr(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
             name_count = args.len - 1;
             if (writable) {
                 const verbose = vm.globals.get("$VERBOSE") orelse Value.FALSE;
-                if (verbose.is_truthy()) {
+                if (verbose.isTruthy()) {
                     try warning_builtin.writeWarning(vm, "warning: boolean argument is obsoleted\n");
                 }
             }
@@ -2122,7 +2122,7 @@ pub fn builtinModuleDeprecateConstant(vm: *VM, receiver: Value, args: []Value, _
 
 pub fn builtinModuleConstGet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 1, 2);
-    const inherit = if (args.len == 2) args[1].is_truthy() else true;
+    const inherit = if (args.len == 2) args[1].isTruthy() else true;
     const name = try constantNameString(vm, args[0]);
 
     if (std.mem.indexOf(u8, name, "::") != null) {

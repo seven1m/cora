@@ -757,7 +757,7 @@ fn hashFilterBangShared(
         const yielded = try vm.yieldToBlock(blk, &yield_args);
         if (yielded.controlFlowValue()) |return_value| return return_value;
 
-        const should_delete = if (delete_if_truthy) yielded.value.is_truthy() else !yielded.value.is_truthy();
+        const should_delete = if (delete_if_truthy) yielded.value.isTruthy() else !yielded.value.isTruthy();
         if (should_delete) {
             _ = try vm.hashDeleteEntry(hash_obj, entry.key);
             changed = true;
@@ -1485,7 +1485,7 @@ pub fn builtinHashSelect(vm: *VM, receiver: Value, args: []Value, block: ?Block)
         const result = try vm.yieldToBlock(blk, &yield_args);
         if (result.controlFlowValue()) |return_value| return return_value;
 
-        if (result.value.is_truthy()) {
+        if (result.value.isTruthy()) {
             try vm.hashSetEntry(result_hash, entry.key, entry.value);
         }
     }
@@ -1565,7 +1565,7 @@ pub fn builtinHashReject(vm: *VM, receiver: Value, args: []Value, block: ?Block)
         const result = try vm.yieldToBlock(blk, &yield_args);
         if (result.controlFlowValue()) |return_value| return return_value;
 
-        if (!result.value.is_truthy()) {
+        if (!result.value.isTruthy()) {
             keep_entries[keep_count] = entry;
             keep_count += 1;
         }
@@ -1646,7 +1646,7 @@ pub fn builtinHashAny(vm: *VM, receiver: Value, args: []Value, block: ?Block) VM
             pair.elements.append(vm.gc_allocator, entry.value) catch return error.Fatal;
             var pattern_args = [_]Value{Value.fromObject(&pair.object)};
             const matched = try vm.callMethodByName(pat, "===", pattern_args[0..], null);
-            if (matched.is_truthy()) {
+            if (matched.isTruthy()) {
                 return Value.boolean(true);
             }
         }
@@ -1658,7 +1658,7 @@ pub fn builtinHashAny(vm: *VM, receiver: Value, args: []Value, block: ?Block) VM
             const yield_args = [_]Value{ entry.key, entry.value };
             const yielded = try vm.yieldToBlock(blk, &yield_args);
             if (yielded.controlFlowValue()) |return_value| return return_value;
-            if (yielded.value.is_truthy()) return Value.boolean(true);
+            if (yielded.value.isTruthy()) return Value.boolean(true);
         }
         return Value.boolean(false);
     }

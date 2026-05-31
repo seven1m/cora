@@ -61,7 +61,7 @@ fn arrayJoinWarnDefaultSeparator(vm: *VM) VMError!void {
 fn arrayPatternMatches(vm: *VM, pattern: Value, element: Value) VMError!bool {
     var match_args = [_]Value{element};
     const result = try vm.callMethodByName(pattern, "===", match_args[0..], null);
-    return result.is_truthy();
+    return result.isTruthy();
 }
 
 fn arrayProbePairElement(vm: *VM, element: Value, pair_index: usize) VMError!?struct { pair: *value.ArrayObject, item: Value } {
@@ -1397,7 +1397,7 @@ pub fn builtinArraySelect(vm: *VM, receiver: Value, args: []Value, block: ?Block
         const yield_args = [_]Value{element};
         const yielded = try vm.yieldToBlock(blk, &yield_args);
         if (yielded.controlFlowValue()) |return_value| return return_value;
-        if (yielded.value.is_truthy()) {
+        if (yielded.value.isTruthy()) {
             result.elements.append(vm.gc_allocator, element) catch return error.Fatal;
         }
     }
@@ -1420,7 +1420,7 @@ pub fn builtinArrayReject(vm: *VM, receiver: Value, args: []Value, block: ?Block
         const yield_args = [_]Value{element};
         const yielded = try vm.yieldToBlock(blk, &yield_args);
         if (yielded.controlFlowValue()) |return_value| return return_value;
-        if (!yielded.value.is_truthy()) {
+        if (!yielded.value.isTruthy()) {
             result.elements.append(vm.gc_allocator, element) catch return error.Fatal;
         }
     }
@@ -1450,7 +1450,7 @@ pub fn builtinArrayPartition(vm: *VM, receiver: Value, args: []Value, block: ?Bl
         const yielded = try vm.yieldToBlock(blk, &yield_args);
         if (yielded.controlFlowValue()) |return_value| return return_value;
 
-        const target = if (yielded.value.is_truthy()) truthy else falsey;
+        const target = if (yielded.value.isTruthy()) truthy else falsey;
         target.elements.append(vm.gc_allocator, element) catch return error.Fatal;
     }
 
@@ -1606,14 +1606,14 @@ pub fn builtinArrayAny(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
             const yield_args = [_]Value{element};
             const yielded = try vm.yieldToBlock(blk, &yield_args);
             if (yielded.controlFlowValue()) |return_value| return return_value;
-            if (yielded.value.is_truthy()) return Value.boolean(true);
+            if (yielded.value.isTruthy()) return Value.boolean(true);
         }
         return Value.boolean(false);
     }
 
     var idx: usize = 0;
     while (idx < array.elements.items.len) : (idx += 1) {
-        if (array.elements.items[idx].is_truthy()) return Value.boolean(true);
+        if (array.elements.items[idx].isTruthy()) return Value.boolean(true);
     }
     return Value.boolean(false);
 }
@@ -1644,14 +1644,14 @@ pub fn builtinArrayNone(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
             const yield_args = [_]Value{element};
             const yielded = try vm.yieldToBlock(blk, &yield_args);
             if (yielded.controlFlowValue()) |return_value| return return_value;
-            if (yielded.value.is_truthy()) return Value.boolean(false);
+            if (yielded.value.isTruthy()) return Value.boolean(false);
         }
         return Value.boolean(true);
     }
 
     var idx: usize = 0;
     while (idx < array.elements.items.len) : (idx += 1) {
-        if (array.elements.items[idx].is_truthy()) return Value.boolean(false);
+        if (array.elements.items[idx].isTruthy()) return Value.boolean(false);
     }
     return Value.boolean(true);
 }
@@ -1684,7 +1684,7 @@ pub fn builtinArrayOne(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
             const yield_args = [_]Value{element};
             const yielded = try vm.yieldToBlock(blk, &yield_args);
             if (yielded.controlFlowValue()) |return_value| return return_value;
-            if (yielded.value.is_truthy()) {
+            if (yielded.value.isTruthy()) {
                 matched += 1;
                 if (matched > 1) return Value.boolean(false);
             }
@@ -1694,7 +1694,7 @@ pub fn builtinArrayOne(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
 
     var idx: usize = 0;
     while (idx < array.elements.items.len) : (idx += 1) {
-        if (array.elements.items[idx].is_truthy()) {
+        if (array.elements.items[idx].isTruthy()) {
             matched += 1;
             if (matched > 1) return Value.boolean(false);
         }
@@ -2021,7 +2021,7 @@ pub fn builtinArrayTakeWhile(vm: *VM, receiver: Value, args: []Value, block: ?Bl
             const yield_args = [_]Value{element};
             const yielded = try vm.yieldToBlock(blk, &yield_args);
             if (yielded.controlFlowValue()) |return_value| return return_value;
-            if (yielded.value.is_truthy()) {
+            if (yielded.value.isTruthy()) {
                 result.elements.append(vm.gc_allocator, element) catch return error.Fatal;
             } else {
                 taking = false;
@@ -2049,7 +2049,7 @@ pub fn builtinArrayDropWhile(vm: *VM, receiver: Value, args: []Value, block: ?Bl
             const yield_args = [_]Value{element};
             const yielded = try vm.yieldToBlock(blk, &yield_args);
             if (yielded.controlFlowValue()) |return_value| return return_value;
-            if (!yielded.value.is_truthy()) {
+            if (!yielded.value.isTruthy()) {
                 dropping = false;
                 result.elements.append(vm.gc_allocator, element) catch return error.Fatal;
             }
@@ -2208,7 +2208,7 @@ pub fn builtinArrayIndex(vm: *VM, receiver: Value, args: []Value, block: ?Block)
     while (idx < array.elements.items.len) : (idx += 1) {
         const yielded = try vm.yieldToBlock(blk, &[_]Value{array.elements.items[idx]});
         if (yielded.controlFlowValue()) |return_value| return return_value;
-        if (yielded.value.is_truthy()) return Value.integer(@intCast(idx));
+        if (yielded.value.isTruthy()) return Value.integer(@intCast(idx));
     }
     return Value.nil();
 }
@@ -2248,7 +2248,7 @@ pub fn builtinArrayRindex(vm: *VM, receiver: Value, args: []Value, block: ?Block
         idx -= 1;
         const yielded = try vm.yieldToBlock(blk, &[_]Value{array.elements.items[idx]});
         if (yielded.controlFlowValue()) |return_value| return return_value;
-        if (yielded.value.is_truthy()) return Value.integer(@intCast(idx));
+        if (yielded.value.isTruthy()) return Value.integer(@intCast(idx));
     }
     return Value.nil();
 }
@@ -2360,7 +2360,7 @@ pub fn builtinArrayIntersectQ(vm: *VM, receiver: Value, args: []Value, _: ?Block
             if (elem.raw == other_elem.raw) return Value.boolean(true);
             var eql_args = [_]Value{other_elem};
             const result = try vm.callMethodByName(elem, "eql?", eql_args[0..], null);
-            if (result.is_truthy()) return Value.boolean(true);
+            if (result.isTruthy()) return Value.boolean(true);
         }
     }
     return Value.boolean(false);
@@ -2768,14 +2768,14 @@ pub fn builtinArrayAll(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
             const result = try vm.yieldToBlock(blk, &yield_args);
             if (result.controlFlowValue()) |return_value| return return_value;
 
-            if (!result.value.is_truthy()) return Value.boolean(false);
+            if (!result.value.isTruthy()) return Value.boolean(false);
         }
         return Value.boolean(true);
     }
 
     var idx: usize = 0;
     while (idx < array_obj.elements.items.len) : (idx += 1) {
-        if (!array_obj.elements.items[idx].is_truthy()) return Value.boolean(false);
+        if (!array_obj.elements.items[idx].isTruthy()) return Value.boolean(false);
     }
 
     return Value.boolean(true);
@@ -2805,7 +2805,7 @@ pub fn builtinArrayCount(vm: *VM, receiver: Value, args: []Value, block: ?Block)
             const yield_args = [_]Value{array_obj.elements.items[idx]};
             const result = try vm.yieldToBlock(blk, &yield_args);
             if (result.controlFlowValue()) |return_value| return return_value;
-            if (result.value.is_truthy()) count += 1;
+            if (result.value.isTruthy()) count += 1;
         }
         return Value.integer(@intCast(count));
     }
@@ -2957,7 +2957,7 @@ fn arrayContainsEquivalent(vm: *VM, haystack: []Value, needle: Value) VMError!bo
         if (item.raw == needle.raw) return true;
         var eql_args = [_]Value{item};
         const result = try vm.callMethodByName(needle, "eql?", eql_args[0..], null);
-        if (result.is_truthy()) return true;
+        if (result.isTruthy()) return true;
     }
     return false;
 }
@@ -3026,7 +3026,7 @@ fn arrayFilterBangShared(
             return return_value;
         }
 
-        if (yielded.value.is_truthy() == keep_truthy) {
+        if (yielded.value.isTruthy() == keep_truthy) {
             if (processed_len != kept_len) {
                 array.elements.items[kept_len] = element;
             }

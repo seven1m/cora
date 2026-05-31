@@ -128,8 +128,8 @@ pub fn builtinProcessDaemon(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
     if (vm.stdout) |out| _ = out.flush() catch {};
     if (vm.stderr) |err_out| _ = err_out.flush() catch {};
 
-    const stay_in_dir = args.len >= 1 and args[0].is_truthy();
-    const keep_stdio_open = args.len >= 2 and args[1].is_truthy();
+    const stay_in_dir = args.len >= 1 and args[0].isTruthy();
+    const keep_stdio_open = args.len >= 2 and args[1].isTruthy();
 
     const fork_rc = std.c.fork();
     if (fork_rc < 0) {

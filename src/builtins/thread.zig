@@ -353,7 +353,7 @@ fn builtinThreadGroupList(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
 
 fn builtinThreadGroupEnclosed(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    return Value.boolean((try vm.getInstanceVariable(receiver, "@enclosed")).is_truthy());
+    return Value.boolean((try vm.getInstanceVariable(receiver, "@enclosed")).isTruthy());
 }
 
 fn threadGroupForThread(vm: *VM, thread: *value.ThreadObject) VMError!Value {
@@ -803,7 +803,7 @@ fn builtinThreadReportOnException(vm: *VM, receiver: Value, args: []Value, _: ?B
 
 fn builtinThreadReportOnExceptionSet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    receiver.toThreadObject().report_on_exception = args[0].is_truthy();
+    receiver.toThreadObject().report_on_exception = args[0].isTruthy();
     return args[0];
 }
 

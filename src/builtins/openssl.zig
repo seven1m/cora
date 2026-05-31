@@ -255,7 +255,7 @@ fn contextIntegerIvar(vm: *VM, context: Value, name: []const u8) VMError!?i64 {
 fn contextBoolIvar(vm: *VM, context: Value, name: []const u8, default: bool) VMError!bool {
     const value_arg = try vm.getInstanceVariable(context, name);
     if (value_arg.isNil()) return default;
-    return value_arg.is_truthy();
+    return value_arg.isTruthy();
 }
 
 fn loadVerifyLocations(vm: *VM, ssl_ctx: *c.SSL_CTX, file: ?[]const u8, path: ?[]const u8) VMError!void {
@@ -288,7 +288,7 @@ fn configureSslCertStore(vm: *VM, ssl_ctx: *c.SSL_CTX, context: Value, verify_mo
 
     const cert_store = try vm.getInstanceVariable(context, "@cert_store");
     if (!cert_store.isNil()) {
-        if ((try vm.getInstanceVariable(cert_store, "@set_default_paths")).is_truthy()) {
+        if ((try vm.getInstanceVariable(cert_store, "@set_default_paths")).isTruthy()) {
             if (c.SSL_CTX_set_default_verify_paths(ssl_ctx) != 1) {
                 return raiseCurrentSslError(vm, "SSL_CTX_set_default_verify_paths failed");
             }
@@ -946,7 +946,7 @@ pub fn builtinOpenSSLKDFScrypt(vm: *VM, _: Value, args: []Value, _: ?Block) VMEr
 pub fn builtinOpenSSLSslSocketConnect(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 3);
     _ = args[1];
-    return sslConnectImpl(vm, args[0], args[2].is_truthy());
+    return sslConnectImpl(vm, args[0], args[2].isTruthy());
 }
 
 pub fn builtinOpenSSLSslSocketReadNonblock(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -966,7 +966,7 @@ pub fn builtinOpenSSLSslSocketReadNonblock(vm: *VM, _: Value, args: []Value, _: 
         return binaryString(vm, buffer[0..read_len]);
     }
 
-    const exception = args[3].is_truthy();
+    const exception = args[3].isTruthy();
     const err_code = c.SSL_get_error(state.ssl, 0);
     if (!exception) {
         if (err_code == c.SSL_ERROR_WANT_READ) return waitSymbol(vm, "wait_readable");
@@ -986,7 +986,7 @@ pub fn builtinOpenSSLSslSocketWriteNonblock(vm: *VM, _: Value, args: []Value, _:
         return Value.integer(@intCast(written_len));
     }
 
-    const exception = args[2].is_truthy();
+    const exception = args[2].isTruthy();
     const err_code = c.SSL_get_error(state.ssl, 0);
     if (!exception) {
         if (err_code == c.SSL_ERROR_WANT_READ) return waitSymbol(vm, "wait_readable");

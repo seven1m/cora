@@ -2031,7 +2031,7 @@ pub fn builtinStringEncode(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     var normalized_newlines: std.ArrayList(u8) = .empty;
     defer normalized_newlines.deinit(vm.gc_allocator_atomic);
     const source_bytes: []const u8 = blk: {
-        if (kw_universal_newline != null and kw_universal_newline.?.is_truthy()) {
+        if (kw_universal_newline != null and kw_universal_newline.?.isTruthy()) {
             var i: usize = 0;
             while (i < string_obj.str.len) : (i += 1) {
                 const b = string_obj.str[i];
@@ -2047,7 +2047,7 @@ pub fn builtinStringEncode(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
             break :blk normalized_newlines.items;
         }
 
-        if (kw_crlf_newline != null and kw_crlf_newline.?.is_truthy()) {
+        if (kw_crlf_newline != null and kw_crlf_newline.?.isTruthy()) {
             for (string_obj.str) |b| {
                 if (b == '\n') {
                     normalized_newlines.append(vm.gc_allocator_atomic, '\r') catch return error.Fatal;
@@ -2059,7 +2059,7 @@ pub fn builtinStringEncode(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
             break :blk normalized_newlines.items;
         }
 
-        if (kw_cr_newline != null and kw_cr_newline.?.is_truthy()) {
+        if (kw_cr_newline != null and kw_cr_newline.?.isTruthy()) {
             for (string_obj.str) |b| {
                 normalized_newlines.append(vm.gc_allocator_atomic, if (b == '\n') '\r' else b) catch return error.Fatal;
             }
@@ -2658,7 +2658,7 @@ fn parseStringEachLineOptions(vm: *VM, args: []Value) VMError!StringEachLineOpti
 
     return .{
         .separator = if (raw_separator.isNil()) null else (try raw_separator.coerceToStringValue(vm, "no implicit conversion into String")).toStringObject(),
-        .chomp = if (chomp_value) |value_| value_.is_truthy() else false,
+        .chomp = if (chomp_value) |value_| value_.isTruthy() else false,
     };
 }
 

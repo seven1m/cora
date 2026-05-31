@@ -44,7 +44,7 @@ pub fn builtinRangeInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block
         return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Range", .{});
     }
 
-    const exclude_end = if (args.len == 3) args[2].is_truthy() else false;
+    const exclude_end = if (args.len == 3) args[2].isTruthy() else false;
 
     receiver.toRangeObject().begin = args[0];
     receiver.toRangeObject().end = args[1];

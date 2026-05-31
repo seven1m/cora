@@ -168,7 +168,7 @@ fn builtinSizedQueuePush(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     try vm.validateKeywordArgsConsumed();
 
     const queue = receiver.toQueueObject();
-    const non_block = args.len == 2 and args[1].is_truthy();
+    const non_block = args.len == 2 and args[1].isTruthy();
     const timeout = try timeoutFromKeyword(vm, keyword_timeout);
 
     if (non_block and timeout != null) {
@@ -275,7 +275,7 @@ fn builtinQueuePop(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!V
     try vm.validateKeywordArgsConsumed();
 
     const queue = receiver.toQueueObject();
-    const non_block = args.len == 1 and args[0].is_truthy();
+    const non_block = args.len == 1 and args[0].isTruthy();
     const timeout = try timeoutFromKeyword(vm, keyword_timeout);
 
     if (non_block and timeout != null) {

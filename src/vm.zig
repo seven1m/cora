@@ -5082,7 +5082,7 @@ pub const VM = struct {
                 const offset = readI16From(frame, operands, &operand_cursor);
                 const cond = self.pop();
 
-                if (!cond.is_truthy()) {
+                if (!cond.isTruthy()) {
                     try setFrameIp(frame, @intCast(@as(i32, @intCast(frame.ip)) + offset));
                 }
             },
@@ -5091,7 +5091,7 @@ pub const VM = struct {
                 const offset = readI16From(frame, operands, &operand_cursor);
                 const cond = self.pop();
 
-                if (cond.is_truthy()) {
+                if (cond.isTruthy()) {
                     try setFrameIp(frame, @intCast(@as(i32, @intCast(frame.ip)) + offset));
                 }
             },
@@ -5168,14 +5168,14 @@ pub const VM = struct {
                     for (elements) |condition| {
                         var args = [_]Value{predicate};
                         const result = try self.callMethodByName(condition, "===", args[0..], null);
-                        if (result.is_truthy()) {
+                        if (result.isTruthy()) {
                             matched = true;
                             break;
                         }
                     }
                 } else {
                     for (elements) |condition| {
-                        if (condition.is_truthy()) {
+                        if (condition.isTruthy()) {
                             matched = true;
                             break;
                         }
@@ -6826,7 +6826,7 @@ pub const VM = struct {
                     const len = self.stack.items.len;
                     const cond = self.stack.storage[len - 1];
                     self.stack.items = self.stack.storage[0 .. len - 1];
-                    if (!cond.is_truthy()) {
+                    if (!cond.isTruthy()) {
                         f.ip = @intCast(@as(i32, @intCast(f.ip)) + offset);
                     }
                 },
@@ -7904,7 +7904,7 @@ pub const VM = struct {
             Value.boolean(include_private),
         };
         const responds = try self.callMethodByName(receiver, "respond_to?", respond_args[0..], null);
-        return responds.is_truthy();
+        return responds.isTruthy();
     }
 
     /// MRI-like check-call helper for optional conversion/probe calls.
@@ -8240,7 +8240,7 @@ pub const VM = struct {
     pub fn valueEquals(self: *VM, left: Value, right: Value) VMError!bool {
         var eq_args = [_]Value{right};
         const result = try self.callMethodByName(left, "==", eq_args[0..], null);
-        return result.is_truthy();
+        return result.isTruthy();
     }
 
     /// Used by executeInstruction to implement both CALL and CALL_KW
@@ -11600,7 +11600,7 @@ pub const VM = struct {
             }
             return err;
         };
-        return result.is_truthy();
+        return result.isTruthy();
     }
 
     pub fn hashFindEntryIndex(_: *VM, hash_obj: *value.HashObject, key: Value) VMError!?usize {

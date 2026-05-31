@@ -12,7 +12,7 @@ Prism AST -> bytecode -> VM execution.
 - Prefer shared VM coercion, dispatch, warning, and arity helpers over per-builtin ad hoc logic.
 - Prefer `VM.probeToHash` for optional `to_hash` probes where missing/nil should be handled by the caller.
 - Prefer `VM.coerceToHashValue` when `to_hash` is required and standard Ruby `TypeError` details should be preserved.
-- For Ruby truthiness checks on `Value`, use existing `Value.is_truthy()`. Do not add camelCase aliases like `isTruthy`.
+- For Ruby truthiness checks on `Value`, use `Value.isTruthy()`.
 - Keep imports at the top of the file; avoid inline `@import(...)` expressions.
 - Prefer adding logging/tracing for concrete evidence when debugging over guessing.
 - Blocking syscalls must retry on `EINTR` and call `vm.checkAsyncEvents()` before retrying, so that `Signal.trap` handlers fire promptly. Apply this pattern: `errno_code == .INTR => { try vm.checkAsyncEvents(); continue; }`.
