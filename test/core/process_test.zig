@@ -168,6 +168,43 @@ test "Process.detach raises TypeError for non-integerable arg" {
     try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "TypeError") != null);
 }
 
+test "Process.spawn returns Integer pid" {
+    if (builtin.os.tag == .windows) return;
+
+    const result = try evalCode(
+        \\pid = Process.spawn("true")
+        \\pid.is_a?(Integer)
+    );
+    try std.testing.expectEqual(true, result.toBool());
+}
+
+test "Process.spawn with array command runs process" {
+    if (builtin.os.tag == .windows) return;
+
+    const result = try evalCode(
+        \\pid = Process.spawn("/bin/sh", "-c", "exit 42")
+        \\thr = Process.detach(pid)
+        \\thr.join
+        \\thr.value.exitstatus
+    );
+    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
+}
+
+test "Process.spawn with IO redirection works" {
+    if (builtin.os.tag == .windows) return;
+
+    const result = try evalCode(
+        \\r, w = IO.pipe
+        \\pid = Process.spawn("/bin/sh", "-c", "echo hello", {out: w})
+        \\w.close
+        \\thr = Process.detach(pid)
+        \\thr.join
+        \\r.read.strip
+    );
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "hello", result.toStringObject().str);
+}
+
 test "Process::Status#to_i returns raw wait status integer" {
     if (builtin.os.tag == .windows) return;
 
