@@ -41,6 +41,8 @@ pub fn register(vm: *VM) !void {
     try enumerable_val.toModuleObject().methods.put(reduce_sym, value.MethodEntry.builtin(&builtinEnumerableInject, .{ .variadic = 0 }));
     const max_by_sym = try vm.intern("max_by");
     try enumerable_val.toModuleObject().methods.put(max_by_sym, value.MethodEntry.builtin(&builtinEnumerableMaxBy, .{ .exact = 0 }));
+    const min_by_sym = try vm.intern("min_by");
+    try enumerable_val.toModuleObject().methods.put(min_by_sym, value.MethodEntry.builtin(&builtinEnumerableMinBy, .{ .variadic = 0 }));
     const sort_by_sym = try vm.intern("sort_by");
     try enumerable_val.toModuleObject().methods.put(sort_by_sym, value.MethodEntry.builtin(&builtinEnumerableSortBy, .{ .exact = 0 }));
     const flat_map_sym = try vm.intern("flat_map");
@@ -542,6 +544,87 @@ fn builtinEnumerableMaxBy(vm: *VM, receiver: Value, args: []Value, block: ?Block
         var cmp_args = [_]Value{best_key};
         const cmp = try vm.callMethodByName(result.value, "<=>", cmp_args[0..], null);
         if (cmp.isInteger() and cmp.toInteger() > 0) {
+            best_value = element;
+            best_key = result.value;
+        }
+    }
+
+    return best_value orelse Value.nil();
+}
+
+fn builtinEnumerableMinBy(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+
+    const n_arg = if (args.len == 1 and !args[0].isNil()) args[0] else null;
+
+    if (n_arg) |n| {
+        if (!n.isInteger() or n.toInteger() < 0) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "negative array size (or size too big)", .{});
+        }
+    }
+
+    const blk = block orelse {
+        const method_name = try vm.intern("min_by");
+        if (n_arg) |n| {
+            if (try vm.checkCallMethodByName(receiver, "size", false, &.{}, null)) |size| {
+                return vm.createMethodEnumeratorWithSize(receiver, method_name, &.{n}, size);
+            }
+            return vm.createMethodEnumerator(receiver, method_name, &.{n});
+        }
+        if (try vm.checkCallMethodByName(receiver, "size", false, &.{}, null)) |size| {
+            return vm.createMethodEnumeratorWithSize(receiver, method_name, &.{}, size);
+        }
+        return vm.createMethodEnumerator(receiver, method_name, &.{});
+    };
+
+    const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
+
+    if (n_arg) |n| {
+        const n_i64 = n.toInteger();
+        if (n_i64 == 0) return Value.fromObject(&(try vm.createArray()).object);
+
+        const decorated = try vm.createArray();
+        var index: i64 = 0;
+
+        while (try enumerableNextElement(vm, enum_value)) |element| {
+            const result = try vm.yieldToBlock(blk, &.{element});
+            if (result.controlFlowValue()) |return_value| return return_value;
+
+            const entry = try vm.createArray();
+            entry.elements.append(vm.gc_allocator, result.value) catch return error.Fatal;
+            entry.elements.append(vm.gc_allocator, Value.integer(index)) catch return error.Fatal;
+            entry.elements.append(vm.gc_allocator, element) catch return error.Fatal;
+            decorated.elements.append(vm.gc_allocator, Value.fromObject(&entry.object)) catch return error.Fatal;
+            index += 1;
+        }
+
+        const sorted = try vm.callMethodByName(Value.fromObject(&decorated.object), "sort", &.{}, null);
+
+        const out = try vm.createArray();
+        const count = @min(n_i64, @as(i64, @intCast(sorted.toArrayObject().elements.items.len)));
+        for (sorted.toArrayObject().elements.items[0..@intCast(count)]) |entry| {
+            const tuple = entry.toArrayObject().elements.items;
+            out.elements.append(vm.gc_allocator, tuple[2]) catch return error.Fatal;
+        }
+        return Value.fromObject(&out.object);
+    }
+
+    var best_value: ?Value = null;
+    var best_key: Value = Value.nil();
+
+    while (try enumerableNextElement(vm, enum_value)) |element| {
+        const result = try vm.yieldToBlock(blk, &.{element});
+        if (result.controlFlowValue()) |return_value| return return_value;
+
+        if (best_value == null) {
+            best_value = element;
+            best_key = result.value;
+            continue;
+        }
+
+        var cmp_args = [_]Value{best_key};
+        const cmp = try vm.callMethodByName(result.value, "<=>", cmp_args[0..], null);
+        if (cmp.isInteger() and cmp.toInteger() < 0) {
             best_value = element;
             best_key = result.value;
         }
