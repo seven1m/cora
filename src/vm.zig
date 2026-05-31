@@ -1243,6 +1243,12 @@ pub const VM = struct {
         const econnrefused_class_val = try self.newClass(econnrefused_name_sym, self.system_call_error_class);
         const ehostdown_name_sym = try self.intern("EHOSTDOWN");
         const ehostdown_class_val = try self.newClass(ehostdown_name_sym, self.system_call_error_class);
+        const ehostunreach_name_sym = try self.intern("EHOSTUNREACH");
+        const ehostunreach_class_val = try self.newClass(ehostunreach_name_sym, self.system_call_error_class);
+        const eaddrnotavail_name_sym = try self.intern("EADDRNOTAVAIL");
+        const eaddrnotavail_class_val = try self.newClass(eaddrnotavail_name_sym, self.system_call_error_class);
+        const enetdown_name_sym = try self.intern("ENETDOWN");
+        const enetdown_class_val = try self.newClass(enetdown_name_sym, self.system_call_error_class);
         const etimedout_name_sym = try self.intern("ETIMEDOUT");
         const etimedout_class_val = try self.newClass(etimedout_name_sym, self.system_call_error_class);
         const econnaborted_name_sym = try self.intern("ECONNABORTED");
@@ -1460,6 +1466,9 @@ pub const VM = struct {
         self.errno_module.constants.put(econnreset_name_sym, .{ .value = econnreset_class_val }) catch return error.Fatal;
         self.errno_module.constants.put(epipe_name_sym, .{ .value = epipe_class_val }) catch return error.Fatal;
         self.errno_module.constants.put(enetunreach_name_sym, .{ .value = enetunreach_class_val }) catch return error.Fatal;
+        self.errno_module.constants.put(ehostunreach_name_sym, .{ .value = ehostunreach_class_val }) catch return error.Fatal;
+        self.errno_module.constants.put(eaddrnotavail_name_sym, .{ .value = eaddrnotavail_class_val }) catch return error.Fatal;
+        self.errno_module.constants.put(enetdown_name_sym, .{ .value = enetdown_class_val }) catch return error.Fatal;
         try self.registerErrnoClass(.NOENT, enoent_class_val.toClassObject());
         try self.registerErrnoClass(.EXIST, eexist_class_val.toClassObject());
         try self.registerErrnoClass(.NOTEMPTY, enotempty_class_val.toClassObject());
@@ -1514,6 +1523,9 @@ pub const VM = struct {
         try self.registerErrnoClass(.CONNRESET, econnreset_class_val.toClassObject());
         try self.registerErrnoClass(.PIPE, epipe_class_val.toClassObject());
         try self.registerErrnoClass(.NETUNREACH, enetunreach_class_val.toClassObject());
+        try self.registerErrnoClass(.HOSTUNREACH, ehostunreach_class_val.toClassObject());
+        try self.registerErrnoClass(.ADDRNOTAVAIL, eaddrnotavail_class_val.toClassObject());
+        try self.registerErrnoClass(.NETDOWN, enetdown_class_val.toClassObject());
         self.object_class.module.constants.put(enumerator_name_sym, .{ .value = enumerator_class_val }) catch return error.Fatal;
         self.enumerator_class.module.constants.put(yielder_name_sym, .{ .value = yielder_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(encoding_name_sym, .{ .value = encoding_class_val }) catch return error.Fatal;
