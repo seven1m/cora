@@ -5874,6 +5874,8 @@ pub const VM = struct {
                         self.markIntegerChangedForReceiver(Value.fromObject(&singleton_class.module.object));
                         self.bumpMethodStateVersion();
                     }
+
+                    try self.triggerMethodAdded(method_owner, method_name_sym);
                 } else {
                     std.debug.print("Error: undefined chunk {d}\n", .{chunk_idx});
                     return error.Fatal;
@@ -7907,6 +7909,14 @@ pub const VM = struct {
             return err;
         };
         return call_result;
+    }
+
+    /// Call method_added on receiver after a method is defined.
+    /// Uses checkCallMethodByName so it safely handles missing method_added.
+    pub fn triggerMethodAdded(self: *VM, receiver: Value, name_sym: *value.SymbolObject) VMError!void {
+        const method_added_name = "method_added";
+        var args = [_]Value{Value.fromObject(&name_sym.object)};
+        _ = try self.checkCallMethodByName(receiver, method_added_name, true, &args, null);
     }
 
     const SubcallOutcome = union(enum) {

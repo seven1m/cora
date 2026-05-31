@@ -964,6 +964,18 @@ fn moduleFunctionLookup(vm: *VM, receiver: Value, name_sym: *SymbolObject) ?valu
     return null;
 }
 
+/// Default no-op callback for Module#method_added
+pub fn builtinModuleMethodAdded(_: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    _ = args; // name symbol
+    return Value.nil();
+}
+
+/// Default no-op callback for Module#singleton_method_added
+pub fn builtinModuleSingletonMethodAdded(_: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    _ = args; // name symbol
+    return Value.nil();
+}
+
 pub fn register(vm: *VM) !void {
     const module_singleton = try vm.getOrCreateSingletonClass(Value.fromObject(&vm.module_class.module.object));
     const nesting_sym = try vm.intern("nesting");
@@ -1026,6 +1038,12 @@ pub fn register(vm: *VM) !void {
     const module_function_sym = try vm.intern("module_function");
     try vm.module_class.module.methods.put(module_function_sym, value.MethodEntry.builtinWithVisibility(&builtinModuleFunction, .{ .variadic = 0 }, .private));
     try vm.class_class.module.methods.put(module_function_sym, .{ .method = .{ .undefined = {} } });
+
+    const method_added_sym = try vm.intern("method_added");
+    try vm.module_class.module.methods.put(method_added_sym, value.MethodEntry.builtinWithVisibility(&builtinModuleMethodAdded, .{ .exact = 1 }, .private));
+
+    const singleton_method_added_sym = try vm.intern("singleton_method_added");
+    try vm.module_class.module.methods.put(singleton_method_added_sym, value.MethodEntry.builtinWithVisibility(&builtinModuleSingletonMethodAdded, .{ .exact = 1 }, .private));
 
     const ruby2_keywords_sym = try vm.intern("ruby2_keywords");
     try vm.module_class.module.methods.put(ruby2_keywords_sym, value.MethodEntry.builtinWithVisibility(&builtinModuleRuby2Keywords, .{ .variadic = 0 }, .private));
@@ -1709,6 +1727,8 @@ pub fn builtinModuleDefineMethod(vm: *VM, receiver: Value, args: []Value, block:
         try copyMethodToModuleSingleton(vm, receiver, name_sym, entry);
     }
 
+    try vm.triggerMethodAdded(receiver, name_sym);
+
     return Value.fromObject(&name_sym.object);
 }
 
@@ -1732,6 +1752,7 @@ pub fn builtinModuleAttrReader(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
             .method = .{ .chunk = chunk_ptr },
             .visibility = visibility,
         }) catch return error.Fatal;
+        try vm.triggerMethodAdded(receiver, method_sym);
 
         result_array.elements.append(vm.gc_allocator, Value.fromObject(&method_sym.object)) catch return error.Fatal;
     }
@@ -1763,6 +1784,7 @@ pub fn builtinModuleAttrWriter(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
             .method = .{ .chunk = chunk_ptr },
             .visibility = visibility,
         }) catch return error.Fatal;
+        try vm.triggerMethodAdded(receiver, method_sym);
 
         result_array.elements.append(vm.gc_allocator, Value.fromObject(&method_sym.object)) catch return error.Fatal;
     }
@@ -1799,10 +1821,12 @@ pub fn builtinModuleAttrAccessor(vm: *VM, receiver: Value, args: []Value, _: ?Bl
             .method = .{ .chunk = reader_chunk },
             .visibility = visibility,
         }) catch return error.Fatal;
+        try vm.triggerMethodAdded(receiver, reader_sym);
         methods.put(writer_sym, .{
             .method = .{ .chunk = writer_chunk },
             .visibility = visibility,
         }) catch return error.Fatal;
+        try vm.triggerMethodAdded(receiver, writer_sym);
 
         result_array.elements.append(vm.gc_allocator, Value.fromObject(&reader_sym.object)) catch return error.Fatal;
         result_array.elements.append(vm.gc_allocator, Value.fromObject(&writer_sym.object)) catch return error.Fatal;
@@ -1848,6 +1872,7 @@ pub fn builtinModuleAttr(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
             .method = .{ .chunk = reader_chunk },
             .visibility = visibility,
         }) catch return error.Fatal;
+        try vm.triggerMethodAdded(receiver, reader_sym);
         result_array.elements.append(vm.gc_allocator, Value.fromObject(&reader_sym.object)) catch return error.Fatal;
 
         if (writable) {
@@ -1859,6 +1884,7 @@ pub fn builtinModuleAttr(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
                 .method = .{ .chunk = writer_chunk },
                 .visibility = visibility,
             }) catch return error.Fatal;
+            try vm.triggerMethodAdded(receiver, writer_sym);
             result_array.elements.append(vm.gc_allocator, Value.fromObject(&writer_sym.object)) catch return error.Fatal;
         }
     }
