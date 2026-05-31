@@ -1147,6 +1147,12 @@ pub fn register(vm: *VM) !void {
     const private_method_defined_sym = try vm.intern("private_method_defined?");
     try vm.module_class.module.methods.put(private_method_defined_sym, value.MethodEntry.builtin(&builtinModulePrivateMethodDefined, .{ .variadic = 0 }));
 
+    const protected_method_defined_sym = try vm.intern("protected_method_defined?");
+    try vm.module_class.module.methods.put(protected_method_defined_sym, value.MethodEntry.builtin(&builtinModuleProtectedMethodDefined, .{ .variadic = 0 }));
+
+    const public_method_defined_sym = try vm.intern("public_method_defined?");
+    try vm.module_class.module.methods.put(public_method_defined_sym, value.MethodEntry.builtin(&builtinModulePublicMethodDefined, .{ .variadic = 0 }));
+
     const name_sym = try vm.intern("name");
     try vm.module_class.module.methods.put(name_sym, value.MethodEntry.builtin(&builtinModuleName, .{ .exact = 0 }));
 
@@ -1516,6 +1522,20 @@ pub fn builtinModulePrivateMethodDefined(vm: *VM, receiver: Value, args: []Value
     const include_super = if (args.len == 2) args[1].is_truthy() else true;
     const name_sym = try vm.coerceToMethodNameSymbol(args[0]);
     return Value.boolean(methodDefined(vm, receiver, name_sym, .private_only, include_super));
+}
+
+pub fn builtinModuleProtectedMethodDefined(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+    const include_super = if (args.len == 2) args[1].is_truthy() else true;
+    const name_sym = try vm.coerceToMethodNameSymbol(args[0]);
+    return Value.boolean(methodDefined(vm, receiver, name_sym, .protected_only, include_super));
+}
+
+pub fn builtinModulePublicMethodDefined(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+    const include_super = if (args.len == 2) args[1].is_truthy() else true;
+    const name_sym = try vm.coerceToMethodNameSymbol(args[0]);
+    return Value.boolean(methodDefined(vm, receiver, name_sym, .public_only, include_super));
 }
 
 pub fn builtinModuleInstanceMethod(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
