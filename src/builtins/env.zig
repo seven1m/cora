@@ -6,6 +6,7 @@ const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
 const Block = vm_mod.Block;
 const Value = value.Value;
+const warning_builtin = @import("warning.zig");
 
 pub fn register(vm: *VM) !void {
     const env_obj = vm.env_object orelse return error.Fatal;
@@ -79,6 +80,9 @@ pub fn register(vm: *VM) !void {
 
     const except_sym = try vm.intern("except");
     try env_singleton.module.methods.put(except_sym, value.MethodEntry.builtin(&builtinEnvExcept, .{ .variadic = 0 }));
+
+    const fetch_sym = try vm.intern("fetch");
+    try env_singleton.module.methods.put(fetch_sym, value.MethodEntry.builtin(&builtinEnvFetch, .{ .variadic = 0 }));
 }
 
 pub fn builtinEnvBracket(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -317,6 +321,37 @@ pub fn builtinEnvExcept(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Val
     }
 
     return Value.fromObject(&result.object);
+}
+
+pub fn builtinEnvFetch(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+
+    if (args.len == 2 and block != null) {
+        try warning_builtin.writeWarning(vm, "warning: block supersedes default value argument\n");
+    }
+
+    const key = try args[0].coerceToStr(vm, "no implicit conversion into String");
+
+    const value_opt = try vm.envGet(key);
+
+    if (!value_opt.isNil()) {
+        return value_opt;
+    }
+
+    if (block) |blk| {
+        const yield_args = [_]Value{args[0]};
+        const result = try vm.yieldToBlock(blk, &yield_args);
+        return result.value;
+    } else if (args.len == 2) {
+        return args[1];
+    } else {
+        const exc = try vm.createException(
+            vm.key_error_class,
+            std.fmt.allocPrint(vm.gc_allocator, "key not found: \"{s}\"", .{key}) catch return error.Fatal,
+        );
+        vm.setPendingException(exc);
+        return error.Unwind;
+    }
 }
 
 pub fn builtinEnvAssoc(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
