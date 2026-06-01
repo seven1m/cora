@@ -2,6 +2,10 @@
 
 require "openssl"
 
+def Digest(name)
+  Digest.const_get(name)
+end
+
 module Digest
   class Base < OpenSSL::Digest
     class << self
