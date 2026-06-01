@@ -589,6 +589,9 @@ pub fn register(vm: *VM) !void {
     const umask_sym = try vm.intern("umask");
     try file_singleton.module.methods.put(umask_sym, value.MethodEntry.builtin(&builtinFileUmask, .{ .variadic = 0 }));
 
+    const utime_sym = try vm.intern("utime");
+    try file_singleton.module.methods.put(utime_sym, value.MethodEntry.builtin(&builtinFileUtime, .{ .variadic = 2 }));
+
     const fnmatch_sym = try vm.intern("fnmatch");
     try file_singleton.module.methods.put(fnmatch_sym, value.MethodEntry.builtin(&builtinFileFnmatch, .{ .variadic = 2 }));
     const fnmatch_q_sym = try vm.intern("fnmatch?");
@@ -1774,8 +1777,46 @@ pub fn builtinFileUmask(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Val
     }
 
     const new_mask = try coerceModeBits(vm, args[0]);
-    const previous = std.c.umask(new_mask);
+    const previous = std.c.umask(@intCast(new_mask));
     return Value.integer(previous);
+}
+
+fn coerceTimeval(vm: *VM, arg: Value) VMError!i64 {
+    if (arg.isNil()) return @as(i64, 0);
+    if (arg.isInteger()) return arg.toInteger();
+    if (arg.isFloat()) return @intFromFloat(arg.toFloatObject().val);
+    const result = try vm.callMethodByName(arg, "to_i", &.{}, null);
+    if (result.isInteger()) return result.toInteger();
+    return vm.raiseExceptionFmt(vm.type_error_class, "can't convert into Integer", .{});
+}
+
+pub fn builtinFileUtime(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 3, std.math.maxInt(u8));
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "File.utime is not implemented on Windows", .{});
+    }
+
+    const atime_secs = try coerceTimeval(vm, args[0]);
+    const mtime_secs = try coerceTimeval(vm, args[1]);
+    var changed: usize = 0;
+
+    for (args[2..]) |arg| {
+        const path = try vm.coerceToPath(arg, "no implicit conversion into String");
+        const path_z = try vm.allocCStringZ(path);
+        defer vm.allocator.free(path_z);
+
+        var ts = [2]std.c.timespec{
+            .{ .sec = atime_secs, .nsec = 0x3fffffff },
+            .{ .sec = mtime_secs, .nsec = 0x3fffffff },
+        };
+        const result = std.c.utimensat(-100, path_z.ptr, &ts, 0);
+        if (result != 0) {
+            return vm.raiseErrnoFmt(std.posix.errno(result), "failed to utime: {s}", .{path});
+        }
+        changed += 1;
+    }
+
+    return Value.integer(@intCast(changed));
 }
 
 pub fn builtinFileRename(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
