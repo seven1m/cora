@@ -1858,11 +1858,18 @@ fn ioReadN(vm: *VM, io: *IoObject, len: usize) VMError!Value {
 }
 
 pub fn builtinIoRead(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCountRange(args, 0, 1);
+    try vm.requireArgCountRange(args, 0, 2);
     const io = try requireIoReceiver(vm, receiver);
 
+    const outbuf = if (args.len >= 2 and !args[1].isNil())
+        try args[1].coerceToStringValue(vm, "no implicit conversion into String")
+    else
+        null;
+
     if (args.len == 0 or args[0].isNil()) {
-        return ioReadAll(vm, io);
+        const data = try ioReadAll(vm, io);
+        const str = data.toStringObject().str;
+        return ioOutBufferValue(vm, outbuf, str);
     }
 
     if (!args[0].isInteger()) {
@@ -1872,7 +1879,16 @@ pub fn builtinIoRead(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
         return vm.raiseExceptionFmt(vm.argument_error_class, "negative length {d} given", .{args[0].toInteger()});
     }
 
-    return ioReadN(vm, io, @intCast(args[0].toInteger()));
+    const data = try ioReadN(vm, io, @intCast(args[0].toInteger()));
+    if (data.isNil()) {
+        if (outbuf) |buf| {
+            const string_obj = buf.toStringObject();
+            string_obj.str = "";
+            string_obj.validity = .unknown;
+        }
+        return Value.nil();
+    }
+    return ioOutBufferValue(vm, outbuf, data.toStringObject().str);
 }
 
 pub fn builtinIoReadNonblock(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
