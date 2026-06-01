@@ -105,6 +105,28 @@ class Pathname
     @path == "/"
   end
 
+  def realpath(basedir = nil)
+    Pathname.new(File.realpath(@path, basedir))
+  end
+
+  def sub(pattern, replacement = nil, &block)
+    if replacement
+      Pathname.new(@path.sub(pattern, replacement))
+    elsif block
+      Pathname.new(@path.sub(pattern, &block))
+    else
+      raise ArgumentError, "wrong number of arguments (given 1, expected 2)"
+    end
+  end
+
+  def open(*args, &block)
+    File.open(@path, *args, &block)
+  end
+
+  def read(*args)
+    File.read(@path, *args)
+  end
+
   def relative_path_from(base)
     base = base.to_s if base.is_a?(Pathname)
     base = base.to_str
