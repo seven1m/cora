@@ -23,6 +23,8 @@ pub fn register(vm: *VM) !void {
     try enumerable_val.toModuleObject().methods.put(find_all_sym, value.MethodEntry.builtin(&builtinEnumerableSelect, .{ .exact = 0 }));
     const any_sym = try vm.intern("any?");
     try enumerable_val.toModuleObject().methods.put(any_sym, value.MethodEntry.builtin(&builtinEnumerableAny, .{ .variadic = 0 }));
+    const all_sym = try vm.intern("all?");
+    try enumerable_val.toModuleObject().methods.put(all_sym, value.MethodEntry.builtin(&builtinEnumerableAll, .{ .variadic = 0 }));
     const filter_map_sym = try vm.intern("filter_map");
     try enumerable_val.toModuleObject().methods.put(filter_map_sym, value.MethodEntry.builtin(&builtinEnumerableFilterMap, .{ .exact = 0 }));
     const each_with_object_sym = try vm.intern("each_with_object");
@@ -221,6 +223,39 @@ fn builtinEnumerableAny(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
         if (element.isTruthy()) return Value.boolean(true);
     }
     return Value.boolean(false);
+}
+
+fn builtinEnumerableAll(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const pattern = if (args.len == 1) args[0] else null;
+
+    if (pattern != null and block != null) {
+        try warning_builtin.warnBlockUnused(vm);
+    }
+
+    const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
+
+    if (pattern) |pat| {
+        while (try enumerableNextElement(vm, enum_value)) |element| {
+            if (!try enumerablePatternMatches(vm, pat, element)) return Value.boolean(false);
+        }
+        return Value.boolean(true);
+    }
+
+    if (block) |blk| {
+        while (true) {
+            const next_values = try enumerableNextValues(vm, enum_value) orelse break;
+            const result = try vm.yieldToBlock(blk, next_values.elements.items);
+            if (result.controlFlowValue()) |return_value| return return_value;
+            if (result.value.isFalsey()) return Value.boolean(false);
+        }
+        return Value.boolean(true);
+    }
+
+    while (try enumerableNextElement(vm, enum_value)) |element| {
+        if (element.isFalsey()) return Value.boolean(false);
+    }
+    return Value.boolean(true);
 }
 
 fn collapseYieldValues(yield_values: *value.ArrayObject) Value {
