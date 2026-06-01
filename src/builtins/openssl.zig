@@ -90,6 +90,9 @@ pub fn register(vm: *VM) !void {
     const digest_hexdigest_sym = try vm.intern("hexdigest");
     try digest_class.module.methods.put(digest_hexdigest_sym, value.MethodEntry.builtin(&builtinOpenSSLDigestHexdigest, .{ .exact = 0 }));
 
+    const digest_hexdigest_bang_sym = try vm.intern("hexdigest!");
+    try digest_class.module.methods.put(digest_hexdigest_bang_sym, value.MethodEntry.builtin(&builtinOpenSSLDigestHexdigestBang, .{ .exact = 0 }));
+
     const digest_base64digest_sym = try vm.intern("base64digest");
     try digest_class.module.methods.put(digest_base64digest_sym, value.MethodEntry.builtin(&builtinOpenSSLDigestBase64digest, .{ .exact = 0 }));
 
@@ -717,6 +720,16 @@ pub fn builtinOpenSSLDigestHexdigest(vm: *VM, receiver: Value, args: []Value, _:
     const data = try digestDataBytes(vm, receiver);
     var digest_buf: [64]u8 = undefined;
     const len = computeDigest(alg, data, &digest_buf);
+    return digestHex(vm, digest_buf[0..len]);
+}
+
+pub fn builtinOpenSSLDigestHexdigestBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const alg = try digestAlgorithmForReceiver(vm, receiver);
+    const data = try digestDataBytes(vm, receiver);
+    var digest_buf: [64]u8 = undefined;
+    const len = computeDigest(alg, data, &digest_buf);
+    try setDigestState(vm, receiver, alg, "");
     return digestHex(vm, digest_buf[0..len]);
 }
 
