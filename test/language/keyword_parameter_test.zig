@@ -133,6 +133,33 @@ test "Multiple optional keywords called with no arguments" {
     try std.testing.expectEqual(60, result.toInteger());
 }
 
+test "non-local return in optional keyword default targets enclosing method" {
+    const result = try evalCode(
+        \\def foo(value: (proc { return 42 }.call))
+        \\  99
+        \\end
+        \\foo
+    );
+    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
+}
+
+test "non-local return in optional keyword default does not corrupt caller locals" {
+    const result = try evalCode(
+        \\def foo(value: (proc { return 42 }.call), **kw)
+        \\  99
+        \\end
+        \\def bar
+        \\  a = 1
+        \\  b = 2
+        \\  foo()
+        \\  a + b
+        \\end
+        \\bar()
+    );
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 3), result.toInteger());
+}
+
 test "Keyword syntax becomes positional hash when method has no keyword params" {
     var result = try evalCode(
         \\def foo(opts); opts; end

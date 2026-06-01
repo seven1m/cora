@@ -741,6 +741,7 @@ pub fn builtinKernelEval(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     else
         null;
     const line_offset = try evalLineOffset(vm, if (args.len >= 4) args[3] else null);
+    const caller_frame = vm.currentRubyFrame();
 
     if (binding_arg.isNil()) {
         return vm.evalSourceWithEncodingAndContext(
@@ -748,12 +749,13 @@ pub fn builtinKernelEval(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
             filename orelse "(eval)",
             source_obj.encoding,
             .{
-                .self_value = if (vm.frames.items.len > 0) vm.currentFrame().self_value else vm.main_self,
-                .parent_ep = if (vm.frames.items.len > 0) vm.currentFrame().ep else null,
+                .self_value = if (caller_frame) |frame| frame.self_value else vm.main_self,
+                .parent_ep = if (caller_frame) |frame| frame.ep else null,
                 .lexical_scope = try nestedEvalLexicalScope(vm),
                 .parent_local_names = vm.currentEvalParentLocalNames(),
                 .dir_returns_nil = filename == null,
                 .line_offset = line_offset,
+                .method_name = if (caller_frame) |frame| frame.method_name else null,
             },
         );
     }

@@ -55,7 +55,6 @@ pub const ExceptionHandler = struct {
 
 pub const OptionalParam = struct {
     param_index: u16,
-    default_chunk_id: ChunkId,
 };
 
 pub const KeywordMetadata = struct {
@@ -70,7 +69,6 @@ pub const RequiredKeyword = struct {
 pub const OptionalKeyword = struct {
     name_idx: u16,
     param_slot: u16,
-    default_chunk_id: ChunkId,
 };
 
 pub const CallSiteCache = struct {
@@ -107,11 +105,13 @@ pub const Chunk = struct {
     name: []const u8,
     name_owned: bool = false,
     chunk_id: ?ChunkId = null,
+    declaration_line: u32 = 1,
     arity: u8 = 0,
     locals_count: u16 = 0, // Total number of locals (including params)
     local_names: std.ArrayList([]const u8) = .empty,
     is_lambda: bool = false,
     optional_params: std.ArrayList(OptionalParam) = .empty,
+    optional_entry_offsets: std.ArrayList(u32) = .empty,
     rest_param_index: ?u16 = null,
     post_required_count: u8 = 0,
     lexical_scope: ?*LexicalScope = null,
@@ -169,6 +169,7 @@ pub const Chunk = struct {
         self.line_info.deinit(self.allocator);
         self.code.deinit(self.allocator);
         self.optional_params.deinit(self.allocator);
+        self.optional_entry_offsets.deinit(self.allocator);
         for (self.local_names.items) |name| {
             self.allocator.free(name);
         }
@@ -709,6 +710,13 @@ pub const Chunk = struct {
                 const kw_mid = readU16(self.code.items, &ip);
                 const block_id = readU16(self.code.items, &ip);
                 try writer.print("SUPER_KW {d}, {d}, {d}, {d}, {d}\n", .{ argc, kwargc, flags, kw_mid, block_id });
+            },
+            .ENTER_OPTIONAL_DEFAULTS => {
+                try writer.print("ENTER_OPTIONAL_DEFAULTS\n", .{});
+            },
+            .JUMP_IF_UNDEF => {
+                const jump_offset = readI16(self.code.items, &ip);
+                try writer.print("JUMP_IF_UNDEF {d}\n", .{jump_offset});
             },
         }
 

@@ -91,3 +91,72 @@ test "Ensure clause runs during throw unwinding" {
     try std.testing.expectEqualStrings("cleanup", elems[0].toSymbolObject().name);
     try std.testing.expectEqual(@as(i64, 5), elems[1].toInteger());
 }
+
+// Regression: non-local return from default expression inside ensure block
+// should override the original exception. MRI behavior: return from proc
+// called inside ensure overrides the exception that triggered the ensure.
+test "non-local return from default inside ensure overrides original exception" {
+    const result = try evalCode(
+        \\def outer
+        \\  my_proc = proc { return "proc_return" }
+        \\  begin
+        \\    raise "start unwind"
+        \\  ensure
+        \\    inner(my_proc)
+        \\  end
+        \\  "never"
+        \\end
+        \\
+        \\def inner(blk, x = blk.call)
+        \\  x
+        \\end
+        \\
+        \\outer
+    );
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualStrings("proc_return", result.toStringObject().str);
+}
+
+// Regression: non-local return from default expression corrupts the frame stack
+// of the calling method. After the non-local return pops the enclosing method frame,
+// executeDefaultExpression must not let copyArgumentsWithRestParam write into
+// the wrong frame's locals.
+test "non-local return in default param does not corrupt caller locals" {
+    const result = try evalCode(
+        \\def foo(value = (proc { return 42 }.call))
+        \\  99
+        \\end
+        \\def bar
+        \\  a = 1
+        \\  b = 2
+        \\  foo()
+        \\  a + b
+        \\end
+        \\bar()
+    );
+    // bar's locals a=1, b=2 should be untouched by foo's proc return
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 3), result.toInteger());
+}
+
+test "non-local return from keyword default inside ensure overrides original exception" {
+    const result = try evalCode(
+        \\def outer
+        \\  my_proc = proc { return "proc_return" }
+        \\  begin
+        \\    raise "start unwind"
+        \\  ensure
+        \\    inner(blk: my_proc)
+        \\  end
+        \\  "never"
+        \\end
+        \\
+        \\def inner(blk:, x: blk.call)
+        \\  x
+        \\end
+        \\
+        \\outer
+    );
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualStrings("proc_return", result.toStringObject().str);
+}

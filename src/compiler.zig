@@ -3671,13 +3671,12 @@ pub const Compiler = struct {
         try self.current_chunk.emitOpU16(.DEF_SINGLETON_CLASS, body_chunk_id, line);
     }
 
-    /// Process optional parameters and compile their default expressions
-    /// Phase 1: Register optional parameter names as locals (no default compilation).
-    /// Default expressions are compiled later by compileOptionalDefaults to keep
-    /// parameter slots contiguous (side-effect locals go after all params).
+    /// Register optional parameter names as locals. Default expressions compile
+    /// later into the owning chunk's prologue after all parameter locals exist.
     fn processOptionalParameters(
         self: *Compiler,
         params: *prism.ParametersNode,
+        target_chunk: *Chunk,
     ) !void {
         if (params.optionals.size > 0) {
             if (params.optionals.size > 255) {
@@ -3696,57 +3695,61 @@ pub const Compiler = struct {
                 const opt_param = opt_node.optional_parameter;
                 const param_name = try self.parser.getLocalVariableName(opt_param.name);
                 try self.addLocal(param_name);
+                try target_chunk.optional_params.append(self.allocator, .{
+                    .param_index = @intCast(self.locals.items.len - 1),
+                });
             }
         }
     }
 
-    /// Phase 2: Compile default expressions for optional parameters.
-    /// Called after all parameter names are registered so side-effect locals
-    /// (e.g., x in `a=(x=23)`) get slots after all parameters.
-    fn compileOptionalDefaults(
+    /// Compile inline parameter default prologue in the owning chunk.
+    fn compileInlineParamDefaults(
         self: *Compiler,
         params: *prism.ParametersNode,
         target_chunk: *Chunk,
-        optional_start_slot: u8,
         line: u32,
     ) !void {
-        if (params.optionals.size == 0) return;
+        if (target_chunk.optional_params.items.len > 0) {
+            try self.current_chunk.emitOp(.ENTER_OPTIONAL_DEFAULTS, line);
+            try target_chunk.optional_entry_offsets.append(self.allocator, @intCast(self.current_chunk.currentOffset()));
 
-        var i: usize = 0;
-        while (i < params.optionals.size) : (i += 1) {
-            const opt_node_ptr = params.optionals.nodes[i];
-            const opt_node = try self.parser.asNode(@ptrCast(opt_node_ptr));
-            const opt_param = opt_node.optional_parameter;
+            var i: usize = 0;
+            while (i < params.optionals.size) : (i += 1) {
+                const opt_node_ptr = params.optionals.nodes[i];
+                const opt_node = try self.parser.asNode(@ptrCast(opt_node_ptr));
+                const opt_param = opt_node.optional_parameter;
+                const param_idx = target_chunk.optional_params.items[i].param_index;
 
-            const param_idx = optional_start_slot + @as(u16, @intCast(i));
+                const value_node = try self.parser.asNode(@ptrCast(opt_param.value));
+                try self.compileNode(value_node, line);
+                try self.current_chunk.emitOpU16(.SET_LOCAL, param_idx, line);
+                try self.current_chunk.emitOp(.POP, line);
+                try target_chunk.optional_entry_offsets.append(self.allocator, @intCast(self.current_chunk.currentOffset()));
+            }
+        }
 
-            // Compile default expression into a mini-chunk
-            const default_chunk_ptr = try self.allocator.create(chunk.Chunk);
-            default_chunk_ptr.* = chunk.Chunk.init(self.allocator, "default");
-            try default_chunk_ptr.setSourceFile(self.parser.source_file);
-            default_chunk_ptr.source_encoding = self.parserSourceEncoding();
-            const default_chunk_id = try self.nextChunkId();
-            default_chunk_ptr.chunk_id = default_chunk_id;
-            try self.child_chunks.put(default_chunk_id, default_chunk_ptr);
+        var opt_kw_idx: usize = 0;
+        var kw_idx: usize = 0;
+        while (kw_idx < params.keywords.size) : (kw_idx += 1) {
+            const kw_node_ptr = params.keywords.nodes[kw_idx];
+            const kw_node = try self.parser.asNode(@ptrCast(kw_node_ptr));
+            if (kw_node != .optional_keyword_parameter) continue;
 
-            const saved_chunk_for_default = self.current_chunk;
-            self.current_chunk = default_chunk_ptr;
+            const opt_kw = target_chunk.optional_keywords.items[opt_kw_idx];
+            opt_kw_idx += 1;
 
-            // Compile the default value expression
-            const value_node = try self.parser.asNode(@ptrCast(opt_param.value));
-            try self.compileNode(value_node, line);
+            try self.current_chunk.emitOpU16(.GET_LOCAL, opt_kw.param_slot, line);
+            const jump_to_default = try self.current_chunk.emitJump(.JUMP_IF_UNDEF, line);
+            const jump_to_end = try self.current_chunk.emitJump(.JUMP, line);
+            try self.current_chunk.patchJump(jump_to_default);
 
-            // Default chunks implicitly return their value
-            try self.current_chunk.emitOpU8(.RETURN, 0, line);
+            const kw_param = kw_node.optional_keyword_parameter;
+            const default_expr = try self.parser.asNode(@ptrCast(kw_param.value));
+            try self.compileNode(default_expr, line);
+            try self.current_chunk.emitOpU16(.SET_LOCAL, opt_kw.param_slot, line);
+            try self.current_chunk.emitOp(.POP, line);
 
-            // Restore chunk (but NOT locals — side-effect locals persist)
-            self.current_chunk = saved_chunk_for_default;
-
-            // Record optional param metadata
-            try target_chunk.optional_params.append(self.allocator, .{
-                .param_index = param_idx,
-                .default_chunk_id = @intCast(default_chunk_id),
-            });
+            try self.current_chunk.patchJump(jump_to_end);
         }
     }
 
@@ -3818,7 +3821,6 @@ pub const Compiler = struct {
         self: *Compiler,
         params: *prism.ParametersNode,
         target_chunk: *Chunk,
-        line: u32,
     ) !ParameterCounts {
         var param_count: u8 = 0;
         var rest_param_idx: ?u16 = null;
@@ -3844,9 +3846,8 @@ pub const Compiler = struct {
             }
         }
 
-        // 2. Process optional parameters (names only — defaults compiled in step 7)
-        const optional_start_slot = @as(u8, @intCast(self.locals.items.len));
-        try self.processOptionalParameters(params);
+        // 2. Process optional parameters (names only — defaults compiled inline later)
+        try self.processOptionalParameters(params, target_chunk);
 
         // 3. Process rest parameter
         if (params.rest) |rest_ptr| {
@@ -3910,7 +3911,7 @@ pub const Compiler = struct {
         }
 
         // 5. Process keyword parameters
-        try self.processKeywordParameters(target_chunk, params, line);
+        try self.processKeywordParameters(target_chunk, params);
 
         // 6. Process block parameter
         if (params.block) |block_ptr| {
@@ -3925,10 +3926,6 @@ pub const Compiler = struct {
                 unreachable;
             }
         }
-
-        // 7. Compile optional defaults (after all param names are registered,
-        // so side-effect locals get slots after all parameters)
-        try self.compileOptionalDefaults(params, target_chunk, optional_start_slot, line);
 
         return .{
             .param_count = param_count,
@@ -3982,7 +3979,6 @@ pub const Compiler = struct {
         self: *Compiler,
         target_chunk: *Chunk,
         params: *prism.ParametersNode,
-        line: u32,
     ) !void {
         // Process keyword parameters
         if (params.keywords.size > 0) {
@@ -4007,29 +4003,10 @@ pub const Compiler = struct {
                     try self.addLocal(param_name);
                     const slot = @as(u8, @intCast(self.locals.items.len - 1));
 
-                    // Compile default expression into separate chunk (track immediately before compilation)
-                    const default_chunk_ptr = try self.allocator.create(Chunk);
-                    default_chunk_ptr.* = Chunk.init(self.allocator, "keyword_default");
-                    try default_chunk_ptr.setSourceFile(self.parser.source_file);
-                    default_chunk_ptr.source_encoding = self.parserSourceEncoding();
-                    const default_chunk_id = try self.nextChunkId();
-                    default_chunk_ptr.chunk_id = default_chunk_id;
-                    try self.child_chunks.put(default_chunk_id, default_chunk_ptr);
-
-                    const saved_chunk_kw = self.current_chunk;
-                    self.current_chunk = default_chunk_ptr;
-
-                    const default_expr = try self.parser.asNode(@ptrCast(kw_param.value));
-                    try self.compileNode(default_expr, line);
-                    try self.current_chunk.emitOpU8(.RETURN, 0, line);
-
-                    self.current_chunk = saved_chunk_kw;
-
                     const name_idx = try target_chunk.addConstant(.{ .string = param_name });
                     try target_chunk.optional_keywords.append(self.allocator, .{
                         .name_idx = @intCast(name_idx),
                         .param_slot = slot,
-                        .default_chunk_id = @intCast(default_chunk_id),
                     });
                 } else {
                     return error.UnsupportedNode;
@@ -4082,6 +4059,7 @@ pub const Compiler = struct {
         method_chunk_ptr.name_owned = true;
         try method_chunk_ptr.setSourceFile(self.parser.source_file);
         method_chunk_ptr.source_encoding = self.parserSourceEncoding();
+        method_chunk_ptr.declaration_line = line;
         const chunk_id = try self.nextChunkId();
         method_chunk_ptr.chunk_id = chunk_id;
         try self.child_chunks.put(chunk_id, method_chunk_ptr);
@@ -4112,11 +4090,12 @@ pub const Compiler = struct {
 
         if (def_node.parameters) |params_ptr| {
             const params = @as(*prism.ParametersNode, @ptrCast(params_ptr));
-            const counts = try self.processAllParameters(params, method_chunk_ptr, line);
+            const counts = try self.processAllParameters(params, method_chunk_ptr);
             param_count = counts.param_count;
             rest_param_idx = counts.rest_param_idx;
             post_count = counts.post_count;
             try self.compileDestructuredRequiredParams(params, line);
+            try self.compileInlineParamDefaults(params, method_chunk_ptr, line);
         }
 
         // Store parameter metadata on chunk
@@ -4148,15 +4127,6 @@ pub const Compiler = struct {
             self.current_chunk.block_param_index == null;
 
         try self.finalizeChunkLocals(method_chunk_ptr);
-        // Patch default-expression sub-chunks (they share the method's local scope)
-        for (method_chunk_ptr.optional_params.items) |opt| {
-            if (self.child_chunks.get(opt.default_chunk_id)) |dc|
-                dc.patchEpOffsets(method_chunk_ptr.locals_count);
-        }
-        for (method_chunk_ptr.optional_keywords.items) |kw| {
-            if (self.child_chunks.get(kw.default_chunk_id)) |dc|
-                dc.patchEpOffsets(method_chunk_ptr.locals_count);
-        }
         // Restore the previous chunk
         self.current_chunk = saved_chunk;
         self.locals.deinit(self.allocator);
@@ -4182,6 +4152,7 @@ pub const Compiler = struct {
         block_chunk_ptr.* = Chunk.init(self.allocator, "block");
         try block_chunk_ptr.setSourceFile(self.parser.source_file);
         block_chunk_ptr.source_encoding = self.parserSourceEncoding();
+        block_chunk_ptr.declaration_line = line;
         const chunk_id = try self.nextChunkId();
         block_chunk_ptr.chunk_id = chunk_id;
         try self.child_chunks.put(chunk_id, block_chunk_ptr);
@@ -4230,11 +4201,12 @@ pub const Compiler = struct {
                 const block_params = params_node.block_parameters;
                 if (block_params.parameters) |actual_params_ptr| {
                     const params = @as(*prism.ParametersNode, @ptrCast(actual_params_ptr));
-                    const counts = try self.processAllParameters(params, block_chunk_ptr, line);
+                    const counts = try self.processAllParameters(params, block_chunk_ptr);
                     param_count = counts.param_count;
                     rest_param_idx = counts.rest_param_idx;
                     post_count = counts.post_count;
                     try self.compileDestructuredRequiredParams(params, line);
+                    try self.compileInlineParamDefaults(params, block_chunk_ptr, line);
                 }
             } else {
                 return error.UnsupportedNode;
@@ -4271,14 +4243,6 @@ pub const Compiler = struct {
             self.current_chunk.block_param_index == null;
 
         try self.finalizeChunkLocals(block_chunk_ptr);
-        for (block_chunk_ptr.optional_params.items) |opt| {
-            if (self.child_chunks.get(opt.default_chunk_id)) |dc|
-                dc.patchEpOffsets(block_chunk_ptr.locals_count);
-        }
-        for (block_chunk_ptr.optional_keywords.items) |kw| {
-            if (self.child_chunks.get(kw.default_chunk_id)) |dc|
-                dc.patchEpOffsets(block_chunk_ptr.locals_count);
-        }
 
         // Pop the all_locals stack
         _ = self.all_locals.pop();
@@ -4299,6 +4263,7 @@ pub const Compiler = struct {
         lambda_chunk_ptr.is_lambda = true; // Mark as lambda
         try lambda_chunk_ptr.setSourceFile(self.parser.source_file);
         lambda_chunk_ptr.source_encoding = self.parserSourceEncoding();
+        lambda_chunk_ptr.declaration_line = line;
         const chunk_id = try self.nextChunkId();
         lambda_chunk_ptr.chunk_id = chunk_id;
         try self.child_chunks.put(chunk_id, lambda_chunk_ptr);
@@ -4348,11 +4313,12 @@ pub const Compiler = struct {
                 const block_params = params_node.block_parameters;
                 if (block_params.parameters) |actual_params_ptr| {
                     const params = @as(*prism.ParametersNode, @ptrCast(actual_params_ptr));
-                    const counts = try self.processAllParameters(params, lambda_chunk_ptr, line);
+                    const counts = try self.processAllParameters(params, lambda_chunk_ptr);
                     param_count = counts.param_count;
                     rest_param_idx = counts.rest_param_idx;
                     post_count = counts.post_count;
                     try self.compileDestructuredRequiredParams(params, line);
+                    try self.compileInlineParamDefaults(params, lambda_chunk_ptr, line);
                 }
             } else {
                 return error.UnsupportedNode;
@@ -4389,14 +4355,6 @@ pub const Compiler = struct {
             self.current_chunk.block_param_index == null;
 
         try self.finalizeChunkLocals(lambda_chunk_ptr);
-        for (lambda_chunk_ptr.optional_params.items) |opt| {
-            if (self.child_chunks.get(opt.default_chunk_id)) |dc|
-                dc.patchEpOffsets(lambda_chunk_ptr.locals_count);
-        }
-        for (lambda_chunk_ptr.optional_keywords.items) |kw| {
-            if (self.child_chunks.get(kw.default_chunk_id)) |dc|
-                dc.patchEpOffsets(lambda_chunk_ptr.locals_count);
-        }
 
         // Pop the all_locals stack
         _ = self.all_locals.pop();

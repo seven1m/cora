@@ -581,6 +581,36 @@ test "Kernel#eval uses caller self" {
     try std.testing.expectEqual(@as(i64, 42), result.toInteger());
 }
 
+test "Kernel#eval uses enclosing method context for super" {
+    const result = try evalCode(
+        \\class EvalSuperBase
+        \\  def value
+        \\    41
+        \\  end
+        \\end
+        \\class EvalSuperChild < EvalSuperBase
+        \\  def value
+        \\    eval("super() + 1")
+        \\  end
+        \\end
+        \\EvalSuperChild.new.value
+    );
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
+}
+
+test "Kernel#eval proc return targets enclosing method" {
+    const result = try evalCode(
+        \\def eval_proc_return
+        \\  eval("proc { return 42 }.call")
+        \\  99
+        \\end
+        \\eval_proc_return
+    );
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
+}
+
 test "Kernel#eval parses endless range literals" {
     const result = try evalCode(
         \\r = eval("(2..)")

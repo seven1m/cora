@@ -110,10 +110,7 @@ pub fn builtinProcSourceLocation(vm: *VM, receiver: Value, _: []Value, _: ?Block
         .receiver_builtin, .symbol, .builtin, .callable => return Value.nil(),
         .chunk => |chunk_blk| {
             if (chunk_blk.chunk.source_file) |source| {
-                const line = if (chunk_blk.chunk.line_info.items.len > 0 and chunk_blk.chunk.line_info.items[0].line != 0)
-                    chunk_blk.chunk.line_info.items[0].line
-                else
-                    1;
+                const line = chunk_blk.chunk.declaration_line;
                 const array = try vm.createArray();
                 array.elements.append(vm.gc_allocator, try vm.newString(source, false)) catch return error.Fatal;
                 array.elements.append(vm.gc_allocator, Value.integer(line)) catch return error.Fatal;

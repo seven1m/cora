@@ -181,11 +181,7 @@ pub fn sourceLocationForResolvedMethod(vm: *VM, resolved: vm_mod.ResolvedMethod)
     };
 
     const source = method_chunk.source_file orelse method_chunk.name;
-    const body_line: i64 = if (method_chunk.line_info.items.len > 0 and method_chunk.line_info.items[0].line != 0)
-        method_chunk.line_info.items[0].line
-    else
-        1;
-    const line = if (body_line > 1) body_line - 1 else 1;
+    const line: i64 = method_chunk.declaration_line;
 
     const array = try vm.createArray();
     array.elements.append(vm.gc_allocator, try vm.newString(source, false)) catch return error.Fatal;

@@ -207,3 +207,13 @@ test "optional default survives binding-driven environment promotion" {
     const result = evalCodeWithOutput(code, &stdout_buf, &stderr_buf);
     try std.testing.expectEqualStrings("42\n", result.stdout);
 }
+
+test "non-local return in optional default targets enclosing method" {
+    const result = try evalCode(
+        \\def foo(value = (proc { return 42 }.call))
+        \\  99
+        \\end
+        \\foo
+    );
+    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
+}

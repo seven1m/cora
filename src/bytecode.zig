@@ -36,6 +36,7 @@ pub const OpCode = enum(u8) {
     JUMP_IF_FALSE, // Operand: i16 (offset)
     JUMP_IF_TRUE, // Operand: i16 (offset)
     JUMP_IF_NIL, // Operand: i16 (offset)
+    JUMP_IF_UNDEF, // Operand: i16 (offset)
     POP, // No operands
     DUP, // No operands
     DUP_N, // Operand: u8 (duplicate top N stack items in order)
@@ -49,6 +50,7 @@ pub const OpCode = enum(u8) {
     CALL_KW, // Operands: u16 method_idx, u8 argc, u8 kwargc, u8 call_flags, u16 kw_metadata_idx, u16 block_chunk_id
     FORWARD_ARGS_CALL, // Operands: u16 method_idx, u8 call_flags, u16 block_chunk_id
     FORWARD_ARGS_CALL_WITH_PREFIX, // Operands: u16 method_idx, u8 call_flags, u16 block_chunk_id, u8 prefix_argc
+    ENTER_OPTIONAL_DEFAULTS, // No operands
     RETURN, // Operand: u8 (0=implicit, 1=explicit)
 
     // Optimized ops for integer math
@@ -171,6 +173,7 @@ pub fn opcodeOperandSize(op: OpCode) usize {
         .PUSH_TRUE,
         .PUSH_FALSE,
         .PUSH_SELF,
+        .ENTER_OPTIONAL_DEFAULTS,
         .POP,
         .DUP,
         .SWAP,
@@ -238,6 +241,7 @@ pub fn opcodeOperandSize(op: OpCode) usize {
         .JUMP_IF_FALSE,
         .JUMP_IF_TRUE,
         .JUMP_IF_NIL,
+        .JUMP_IF_UNDEF,
         .TRY_BEGIN,
         .REDO,
         .RETRY,
@@ -322,6 +326,7 @@ pub fn opcodeName(op: OpCode) []const u8 {
         .JUMP_IF_FALSE => "JUMP_IF_FALSE",
         .JUMP_IF_TRUE => "JUMP_IF_TRUE",
         .JUMP_IF_NIL => "JUMP_IF_NIL",
+        .JUMP_IF_UNDEF => "JUMP_IF_UNDEF",
         .POP => "POP",
         .DUP => "DUP",
         .DUP_N => "DUP_N",
@@ -331,6 +336,7 @@ pub fn opcodeName(op: OpCode) []const u8 {
         .WHEN_SPLAT => "WHEN_SPLAT",
         .CALL => "CALL",
         .CALL_KW => "CALL_KW",
+        .ENTER_OPTIONAL_DEFAULTS => "ENTER_OPTIONAL_DEFAULTS",
         .OPT_PLUS => "OPT_PLUS",
         .OPT_MINUS => "OPT_MINUS",
         .OPT_MULT => "OPT_MULT",

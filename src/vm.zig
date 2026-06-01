@@ -266,7 +266,18 @@ pub const Block = struct {
 };
 
 pub const CallFrame = struct {
-    pub const FrameType = enum { method, lambda, proc, fiber, builtin };
+    pub const FrameType = enum { method, lambda, proc, fiber, builtin, synthetic };
+
+    pub fn usesEnclosingMethodContext(frame_type: FrameType) bool {
+        return frame_type == .proc or
+            frame_type == .lambda or
+            frame_type == .fiber or
+            frame_type == .synthetic;
+    }
+
+    pub fn hasLocalReturnSemantics(frame_type: FrameType) bool {
+        return frame_type != .proc and frame_type != .fiber;
+    }
 
     chunk: *Chunk,
     ip: usize,
@@ -283,6 +294,7 @@ pub const CallFrame = struct {
     super_defining_class: ?*ClassObject = null,
     active_rescue_exceptions: usize = 0,
     forwarded_keyword_ctx: ?*BuiltinKeywordContext = null,
+    provided_optional_count: u16 = 0,
     dir_returns_nil: bool = false,
 };
 
@@ -1908,7 +1920,6 @@ pub const VM = struct {
             frame_idx -= 1;
             const frame = self.frames.items[frame_idx];
             if (frame.frame_type != .method) continue;
-            if (frame.method_name == null) continue;
             return frame.ep;
         }
 
@@ -3679,7 +3690,7 @@ pub const VM = struct {
                 self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, chunk_blk.defining_self, .fiber, .{}) catch return error.Fatal;
 
                 const current_frame = self.currentFrame();
-                self.copyArgumentsWithRestParam(chunk_blk.chunk, current_frame.ep, fiber.first_resume_args[0..fiber.first_resume_argc], .lenient) catch return error.Fatal;
+                self.copyArgumentsWithRestParam(chunk_blk.chunk, current_frame, fiber.first_resume_args[0..fiber.first_resume_argc], .lenient) catch return error.Fatal;
             },
             .symbol => |sym| {
                 const result = try self.invokeSymbolProc(sym, fiber.first_resume_args[0..fiber.first_resume_argc], null);
@@ -4132,7 +4143,7 @@ pub const VM = struct {
 
                 const current_frame = self.currentFrame();
                 const thread_args = thread.args orelse &[_]Value{};
-                self.copyArgumentsWithRestParam(chunk_blk.chunk, current_frame.ep, thread_args, .lenient) catch return error.Fatal;
+                self.copyArgumentsWithRestParam(chunk_blk.chunk, current_frame, thread_args, .lenient) catch return error.Fatal;
             },
             .symbol => |sym| {
                 const thread_args = thread.args orelse &[_]Value{};
@@ -4335,7 +4346,7 @@ pub const VM = struct {
 
     inline fn isThreadPreemptSafePoint(op: bytecode.OpCode) bool {
         return switch (op) {
-            .JUMP, .JUMP_IF_FALSE, .JUMP_IF_NIL, .RETURN => true,
+            .JUMP, .JUMP_IF_FALSE, .JUMP_IF_NIL, .JUMP_IF_UNDEF, .RETURN => true,
             else => false,
         };
     }
@@ -5105,6 +5116,21 @@ pub const VM = struct {
                 }
             },
 
+            .JUMP_IF_UNDEF => {
+                const offset = readI16From(frame, operands, &operand_cursor);
+                const cond = self.pop();
+
+                if (cond.raw == Value.UNDEF.raw) {
+                    try setFrameIp(frame, @intCast(@as(i32, @intCast(frame.ip)) + offset));
+                }
+            },
+
+            .ENTER_OPTIONAL_DEFAULTS => {
+                const provided = frame.provided_optional_count;
+                if (provided >= frame.chunk.optional_entry_offsets.items.len) return error.Fatal;
+                try setFrameIp(frame, frame.chunk.optional_entry_offsets.items[provided]);
+            },
+
             .POP => {
                 _ = self.pop();
             },
@@ -5711,7 +5737,7 @@ pub const VM = struct {
                 }
 
                 // Fast path: implicit return or explicit return from method/lambda
-                if (return_mode == 0 or (frame_type != .fiber and frame_type != .proc)) {
+                if (return_mode == 0 or CallFrame.hasLocalReturnSemantics(frame_type)) {
                     self.stack.shrinkRetainingCapacity(frame_locals_base);
                     // Inline fast popFrame: just decrement frame length
                     const new_frame_len = self.frames.items.len - 1;
@@ -6162,7 +6188,7 @@ pub const VM = struct {
 
                         const arity_mode: ArityMode = if (chunk_blk.chunk.is_lambda) .strict else .lenient;
                         const block_frame = self.currentFrame();
-                        try self.copyArgumentsWithRestParam(chunk_blk.chunk, block_frame.ep, yield_args[0..argc], arity_mode);
+                        try self.copyArgumentsWithRestParam(chunk_blk.chunk, block_frame, yield_args[0..argc], arity_mode);
                     },
                     .receiver_builtin => |builtin_data| {
                         const result = try builtin_data.func(self, builtin_data.receiver, yield_args[0..argc]);
@@ -6211,7 +6237,7 @@ pub const VM = struct {
 
                         const arity_mode: ArityMode = if (chunk_blk.chunk.is_lambda) .strict else .lenient;
                         const block_frame = self.currentFrame();
-                        try self.copyArgumentsWithRestParam(chunk_blk.chunk, block_frame.ep, splat_args, arity_mode);
+                        try self.copyArgumentsWithRestParam(chunk_blk.chunk, block_frame, splat_args, arity_mode);
                     },
                     .receiver_builtin => |builtin_data| {
                         const result = try builtin_data.func(self, builtin_data.receiver, @constCast(splat_args));
@@ -6842,12 +6868,30 @@ pub const VM = struct {
                         f.ip = @intCast(@as(i32, @intCast(f.ip)) + offset);
                     }
                 },
+                .JUMP_IF_UNDEF => {
+                    const lo: u16 = code[f.ip + 1];
+                    const hi: u16 = code[f.ip + 2];
+                    const offset: i16 = @bitCast(lo | (hi << 8));
+                    f.ip += 3;
+                    const len = self.stack.items.len;
+                    const cond = self.stack.storage[len - 1];
+                    self.stack.items = self.stack.storage[0 .. len - 1];
+                    if (cond.raw == Value.UNDEF.raw) {
+                        f.ip = @intCast(@as(i32, @intCast(f.ip)) + offset);
+                    }
+                },
                 .JUMP => {
                     const lo: u16 = code[f.ip + 1];
                     const hi: u16 = code[f.ip + 2];
                     const offset: i16 = @bitCast(lo | (hi << 8));
                     f.ip += 3;
                     f.ip = @intCast(@as(i32, @intCast(f.ip)) + offset);
+                },
+                .ENTER_OPTIONAL_DEFAULTS => {
+                    f.ip += 1;
+                    const provided = f.provided_optional_count;
+                    if (provided >= f.chunk.optional_entry_offsets.items.len) return error.Fatal;
+                    f.ip = f.chunk.optional_entry_offsets.items[provided];
                 },
                 .POP => {
                     f.ip += 1;
@@ -6887,7 +6931,7 @@ pub const VM = struct {
                         const len = self.stack.items.len;
                         self.stack.storage[len] = Value.NIL;
                         self.stack.items = self.stack.storage[0 .. len + 1];
-                    } else if (return_mode == 0 or f.frame_type == .method or f.frame_type == .lambda) {
+                    } else if (return_mode == 0 or CallFrame.hasLocalReturnSemantics(f.frame_type)) {
                         const s_len = self.stack.items.len;
                         const result = self.stack.storage[s_len - 1];
                         self.stack.items = self.stack.storage[0..f.locals_base];
@@ -7279,38 +7323,17 @@ pub const VM = struct {
                     (callee_frame.ep - lc + @as(u16, @intCast(i)))[0] = arg;
             }
         } else {
-            try self.copyArgumentsWithRestParam(method_chunk, callee_frame.ep, effective_args, .strict);
+            try self.copyArgumentsWithRestParam(method_chunk, callee_frame, effective_args, .strict);
         }
 
         if (has_keywords) {
             const keys = effective_kw_keys orelse return error.Fatal;
             const kw_vals = effective_kw_values.?;
-            try self.bindKeywordArguments(method_chunk, callee_frame.ep, keys, kw_vals);
+            try self.bindKeywordArguments(method_chunk, callee_frame, keys, kw_vals);
         } else {
-            if (method_chunk.optional_keywords.items.len > 0 or method_chunk.keyword_rest_index != null) {
-                for (method_chunk.optional_keywords.items) |opt_kw| {
-                    const default_chunk = self.program.child_chunks.get(opt_kw.default_chunk_id).?;
-                    const current_ep = self.currentFrame().ep;
-                    const default_value = try self.executeDefaultExpression(default_chunk, current_ep);
-                    const f = &self.frames.items[self.frames.items.len - 1];
-                    const lc = f.chunk.locals_count;
-                    (f.ep - lc + opt_kw.param_slot)[0] = default_value;
-                }
-
-                if (method_chunk.keyword_rest_index) |rest_idx| {
-                    const kw_hash = self.gc_allocator.create(value.HashObject) catch return error.Fatal;
-                    kw_hash.* = .{
-                        .object = .{ .type_tag = .hash, .flags = 0, .class = self.hash_class, .singleton_class = null, .instance_variables = null },
-                        .map = value.HashMapType.initContext(self.gc_allocator, .{ .vm = self }),
-                        .entries = .empty,
-                        .default_value = null,
-                        .default_proc = null,
-                        .compare_by_identity = false,
-                    };
-                    const f = &self.frames.items[self.frames.items.len - 1];
-                    const lc = f.chunk.locals_count;
-                    (f.ep - lc + rest_idx)[0] = Value.fromObject(&kw_hash.object);
-                }
+            if (method_chunk.required_keywords.items.len > 0 or method_chunk.optional_keywords.items.len > 0 or method_chunk.keyword_rest_index != null) {
+                var empty = [_]Value{};
+                try self.bindKeywordArguments(method_chunk, callee_frame, empty[0..], empty[0..]);
             }
         }
 
@@ -8050,7 +8073,7 @@ pub const VM = struct {
 
                 const arity_mode: ArityMode = if (chunk_blk.chunk.is_lambda) .strict else .lenient;
                 const block_frame = self.currentFrame();
-                try self.copyArgumentsWithRestParam(chunk_blk.chunk, block_frame.ep, yield_args, arity_mode);
+                try self.copyArgumentsWithRestParam(chunk_blk.chunk, block_frame, yield_args, arity_mode);
 
                 const saved_frame_count = self.frames.items.len - 1;
                 try self.executeUntilReturn(saved_frame_count);
@@ -8113,33 +8136,14 @@ pub const VM = struct {
                 const current_frame = self.currentFrame();
                 current_frame.method_name = method_name;
                 current_frame.super_defining_class = defining_class;
-                try self.copyArgumentsWithRestParam(proc_chunk, current_frame.ep, args, .strict);
+                try self.copyArgumentsWithRestParam(proc_chunk, current_frame, args, .strict);
                 try self.bindMethodBlockParam(proc_chunk, current_frame, block);
 
                 if (has_kw) {
-                    try self.bindKeywordArguments(proc_chunk, current_frame.ep, kw_keys.?, kw_values.?);
-                } else if (proc_chunk.optional_keywords.items.len > 0 or proc_chunk.keyword_rest_index != null) {
-                    for (proc_chunk.optional_keywords.items) |opt_kw| {
-                        const default_chunk = self.program.child_chunks.get(opt_kw.default_chunk_id).?;
-                        const default_value = try self.executeDefaultExpression(default_chunk, current_frame.ep);
-                        const f = &self.frames.items[self.frames.items.len - 1];
-                        const lc = f.chunk.locals_count;
-                        (f.ep - lc + opt_kw.param_slot)[0] = default_value;
-                    }
-                    if (proc_chunk.keyword_rest_index) |rest_idx| {
-                        const kw_hash = self.gc_allocator.create(value.HashObject) catch return error.Fatal;
-                        kw_hash.* = .{
-                            .object = .{ .type_tag = .hash, .flags = 0, .class = self.hash_class, .singleton_class = null, .instance_variables = null },
-                            .map = value.HashMapType.initContext(self.gc_allocator, .{ .vm = self }),
-                            .entries = .empty,
-                            .default_value = null,
-                            .default_proc = null,
-                            .compare_by_identity = false,
-                        };
-                        const f = &self.frames.items[self.frames.items.len - 1];
-                        const lc = f.chunk.locals_count;
-                        (f.ep - lc + rest_idx)[0] = Value.fromObject(&kw_hash.object);
-                    }
+                    try self.bindKeywordArguments(proc_chunk, current_frame, kw_keys.?, kw_values.?);
+                } else if (proc_chunk.required_keywords.items.len > 0 or proc_chunk.optional_keywords.items.len > 0 or proc_chunk.keyword_rest_index != null) {
+                    var empty = [_]Value{};
+                    try self.bindKeywordArguments(proc_chunk, current_frame, empty[0..], empty[0..]);
                 }
 
                 const saved_frame_count = self.frames.items.len - 1;
@@ -8217,7 +8221,7 @@ pub const VM = struct {
 
                 const current_frame = self.currentFrame();
                 const mode: ArityMode = if (chunk_blk.chunk.is_lambda) .strict else .lenient;
-                try self.copyArgumentsWithRestParam(chunk_blk.chunk, current_frame.ep, args, mode);
+                try self.copyArgumentsWithRestParam(chunk_blk.chunk, current_frame, args, mode);
 
                 const saved_frame_count = self.frames.items.len - 1;
                 try self.executeUntilReturn(saved_frame_count);
@@ -8301,13 +8305,13 @@ pub const VM = struct {
 
         switch (method.entry.method) {
             .chunk => |method_chunk| {
-                try self.setupChunkCallFrame(method_chunk, receiver, dispatch.args, .{
+                self.setupChunkCallFrame(method_chunk, receiver, dispatch.args, .{
                     .kw_keys = dispatch.kw_keys,
                     .kw_values = dispatch.kw_values,
                     .method_name = method.name.name,
                     .super_defining_class = method.owner_class,
                     .block = block,
-                });
+                }) catch |err| return err;
             },
             .builtin => |fun_ptr| {
                 // Special case: Proc#call on chunk proc — push frame inline to avoid recursion
@@ -8327,7 +8331,7 @@ pub const VM = struct {
 
                                 const current_frame = self.currentFrame();
                                 const mode: ArityMode = if (chunk_blk.chunk.is_lambda) .strict else .lenient;
-                                try self.copyArgumentsWithRestParam(chunk_blk.chunk, current_frame.ep, dispatch.args, mode);
+                                try self.copyArgumentsWithRestParam(chunk_blk.chunk, current_frame, dispatch.args, mode);
                                 return;
                             }
                         },
@@ -8367,33 +8371,14 @@ pub const VM = struct {
                         const current_frame = self.currentFrame();
                         current_frame.method_name = method.name.name;
                         current_frame.super_defining_class = method.owner_class;
-                        try self.copyArgumentsWithRestParam(proc_chunk, current_frame.ep, dispatch.args, .strict);
+                        try self.copyArgumentsWithRestParam(proc_chunk, current_frame, dispatch.args, .strict);
                         try self.bindMethodBlockParam(proc_chunk, current_frame, block);
 
                         if (dispatch_kwargc > 0) {
-                            try self.bindKeywordArguments(proc_chunk, current_frame.ep, dispatch_kw_keys.?[0..dispatch_kwargc], dispatch_kw_values.?[0..dispatch_kwargc]);
-                        } else if (proc_chunk.optional_keywords.items.len > 0 or proc_chunk.keyword_rest_index != null) {
-                            for (proc_chunk.optional_keywords.items) |opt_kw| {
-                                const default_chunk_inline = self.program.child_chunks.get(opt_kw.default_chunk_id).?;
-                                const default_value = try self.executeDefaultExpression(default_chunk_inline, current_frame.ep);
-                                const f = &self.frames.items[self.frames.items.len - 1];
-                                const lc = f.chunk.locals_count;
-                                (f.ep - lc + opt_kw.param_slot)[0] = default_value;
-                            }
-                            if (proc_chunk.keyword_rest_index) |rest_idx| {
-                                const kw_hash = self.gc_allocator.create(value.HashObject) catch return error.Fatal;
-                                kw_hash.* = .{
-                                    .object = .{ .type_tag = .hash, .flags = 0, .class = self.hash_class, .singleton_class = null, .instance_variables = null },
-                                    .map = value.HashMapType.initContext(self.gc_allocator, .{ .vm = self }),
-                                    .entries = .empty,
-                                    .default_value = null,
-                                    .default_proc = null,
-                                    .compare_by_identity = false,
-                                };
-                                const f = &self.frames.items[self.frames.items.len - 1];
-                                const lc = f.chunk.locals_count;
-                                (f.ep - lc + rest_idx)[0] = Value.fromObject(&kw_hash.object);
-                            }
+                            try self.bindKeywordArguments(proc_chunk, current_frame, dispatch_kw_keys.?[0..dispatch_kwargc], dispatch_kw_values.?[0..dispatch_kwargc]);
+                        } else if (proc_chunk.required_keywords.items.len > 0 or proc_chunk.optional_keywords.items.len > 0 or proc_chunk.keyword_rest_index != null) {
+                            var empty = [_]Value{};
+                            try self.bindKeywordArguments(proc_chunk, current_frame, empty[0..], empty[0..]);
                         }
                     },
                     .receiver_builtin => |builtin_data| {
@@ -8858,10 +8843,10 @@ pub const VM = struct {
     fn callSuper(self: *VM, args: []const Value, block: ?Block) VMError!void {
         const frame = self.currentFrame();
 
-        // When super is used inside a block (proc/lambda), find the enclosing method
+        // When super is used inside a block or synthetic helper frame, find the enclosing method
         // frame to get the correct super_defining_class and lexical_scope.
         var super_frame = frame;
-        if (frame.frame_type == .proc or frame.frame_type == .lambda or frame.frame_type == .fiber) {
+        if (CallFrame.usesEnclosingMethodContext(frame.frame_type)) {
             var i: usize = self.frames.items.len;
             while (i > 0) {
                 i -= 1;
@@ -11254,6 +11239,7 @@ pub const VM = struct {
                 .method_definition_target = ctx.method_definition_target,
                 .dir_returns_nil = ctx.dir_returns_nil,
                 .method_name = ctx.method_name,
+                .frame_type = .synthetic,
             });
             // Update binding's local variable names with any new names from the eval.
             // eval_main_chunk is still alive here (deferred deinit fires after return).
@@ -11298,6 +11284,7 @@ pub const VM = struct {
         method_definition_target: ?Value = null,
         dir_returns_nil: bool = false,
         method_name: ?[]const u8 = null,
+        frame_type: CallFrame.FrameType = .method,
     };
 
     fn executeChunkInContext(
@@ -11329,7 +11316,7 @@ pub const VM = struct {
             .stack_base = needed,
             .self_value = self_value,
             .block = null,
-            .frame_type = .method,
+            .frame_type = opts.frame_type,
             .dir_returns_nil = opts.dir_returns_nil,
             .method_name = opts.method_name,
         }) catch return error.Fatal;
@@ -11401,45 +11388,14 @@ pub const VM = struct {
 
     pub const ArityMode = enum { strict, lenient };
 
-    /// Execute a default parameter expression chunk and return its value.
-    /// The default chunk shares the calling frame's ep so it can read already-bound
-    /// parameters.  We push a frame with no locals of its own (locals_base = stack top,
-    /// stack_base = same) and reuse the parent ep.
-    fn executeDefaultExpression(
-        self: *VM,
-        default_chunk: *const Chunk,
-        parent_ep: [*]Value,
-    ) VMError!Value {
-        const saved_stack_len = self.stack.items.len;
-
-        // Push a minimal frame that shares the parent's ep.
-        // locals_base = stack_base = current top (no locals, no env_data pushed).
-        const default_frame = CallFrame{
-            .chunk = @constCast(default_chunk),
-            .ip = 0,
-            .locals_base = self.stack.items.len,
-            .ep = parent_ep,
-            .stack_base = self.stack.items.len,
-            .self_value = self.currentFrame().self_value,
-            .frame_type = .method,
-            .block = null,
-        };
-
-        self.frames.append(self.gc_allocator, default_frame) catch return error.Fatal;
-
-        // Execute instructions until this frame completes
-        const saved = self.frames.items.len - 1;
-        try self.executeUntilReturn(saved);
-        return (try self.finishSubcallFromStack(saved, saved_stack_len)).value();
-    }
-
     pub fn copyArgumentsWithRestParam(
         self: *VM,
         target_chunk: *const Chunk,
-        ep: [*]Value,
+        frame: *CallFrame,
         args: []const Value,
         mode: ArityMode,
     ) VMError!void {
+        const ep = frame.ep;
         const lc = target_chunk.locals_count;
         // Helper to read/write a local slot by 0-based index
         const setLocal = struct {
@@ -11499,6 +11455,7 @@ pub const VM = struct {
         }
 
         // 2. Handle optional parameters
+        frame.provided_optional_count = 0;
         if (optional_count > 0) {
             const args_remaining = if (arg_idx < effective_args.len) effective_args.len - arg_idx else 0;
             const args_available_for_optionals = if (args_remaining > target_chunk.post_required_count)
@@ -11510,6 +11467,7 @@ pub const VM = struct {
                 optional_count
             else
                 args_available_for_optionals;
+            frame.provided_optional_count = @intCast(optionals_from_args);
 
             i = 0;
             while (i < optionals_from_args) : (i += 1) {
@@ -11519,13 +11477,6 @@ pub const VM = struct {
             }
 
             while (i < optional_count) : (i += 1) {
-                const opt_info = target_chunk.optional_params.items[i];
-                const default_chunk = self.program.child_chunks.get(opt_info.default_chunk_id) orelse {
-                    return error.Fatal;
-                };
-                const default_value = try self.executeDefaultExpression(default_chunk, ep);
-                const current_ep = self.currentFrame().ep;
-                setLocal(current_ep, lc, local_idx, default_value);
                 local_idx += 1;
             }
         }
@@ -11758,11 +11709,12 @@ pub const VM = struct {
     fn bindKeywordArguments(
         self: *VM,
         target_chunk: *const Chunk,
-        ep: [*]Value,
+        frame: *CallFrame,
         kw_keys: []const Value,
         kw_values: []const Value,
     ) VMError!void {
         if (kw_keys.len != kw_values.len) return error.Fatal;
+        const ep = frame.ep;
         const lc = target_chunk.locals_count;
 
         var matched = self.allocator.alloc(bool, kw_values.len) catch return error.Fatal;
@@ -11808,9 +11760,7 @@ pub const VM = struct {
             }
 
             if (!found) {
-                const default_chunk = self.program.child_chunks.get(opt_kw.default_chunk_id).?;
-                const default_value = try self.executeDefaultExpression(default_chunk, ep);
-                (ep - lc + opt_kw.param_slot)[0] = default_value;
+                (ep - lc + opt_kw.param_slot)[0] = Value.UNDEF;
             }
         }
 
@@ -12128,8 +12078,6 @@ pub const VM = struct {
                             return;
                         return error.Unwind;
                     }
-                    // Handler found — if it's in a frame below our target (shouldn't happen),
-                    // propagate since the callee frame is gone.
                     if (self.frames.items.len < target_frame_depth) {
                         if (self.pendingControlFlow() != null)
                             return;
@@ -12198,7 +12146,7 @@ pub const VM = struct {
             .ep = ep,
             .stack_base = self.stack.items.len,
             .self_value = self_value,
-            .frame_type = .method,
+            .frame_type = .synthetic,
             .block = null,
         };
 
