@@ -5,6 +5,7 @@ pkgs.mkShell {
   packages = with pkgs; [
     autoconf
     automake
+    cacert
     git
     gnumake
     libtool
@@ -14,4 +15,6 @@ pkgs.mkShell {
     stdenv.cc
     zig_0_16
   ];
+
+  SSL_CERT_FILE = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
 }

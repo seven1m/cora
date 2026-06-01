@@ -173,16 +173,6 @@ module OpenSSL
     class Store
       attr_reader :files, :paths
 
-      CA_PATHS = [
-        "/etc/ssl/certs",
-        "/etc/pki/tls/certs",
-      ].freeze
-
-      CA_FILES = [
-        "/etc/ssl/cert.pem",
-        "/etc/pki/tls/cert.pem",
-      ].freeze
-
       def initialize
         @files = []
         @paths = []
@@ -190,9 +180,7 @@ module OpenSSL
       end
 
       def set_default_paths
-        @set_default_paths = false
-        CA_PATHS.each { |d| @paths << d if ::File.directory?(d) }
-        CA_FILES.each { |f| @files << f if ::File.file?(f) }
+        @set_default_paths = true
         self
       end
 
