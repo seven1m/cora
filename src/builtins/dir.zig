@@ -708,6 +708,8 @@ fn processPattern(ctx: *GlobContext, pattern: []const u8) VMError!void {
     const trimmed = if (directory_only) pattern[0 .. pattern.len - 1] else pattern;
     if (trimmed.len == 0 and directory_only) return;
 
+    ctx.return_relative = !absolute;
+
     const base_abs = if (absolute)
         ctx.vm.allocator.dupe(u8, "/") catch return error.Fatal
     else
