@@ -12071,6 +12071,7 @@ pub const VM = struct {
     fn executeUntilReturn(self: *VM, caller_frame_depth: usize) VMError!void {
         const target_frame_depth = caller_frame_depth + 1;
         while (self.frames.items.len >= target_frame_depth) {
+            self.clearPlacedPendingControlFlow();
             self.executeInstruction() catch |err| switch (err) {
                 error.Unwind => {
                     if (!try self.unwindStackUntilFrameDepth(caller_frame_depth)) {

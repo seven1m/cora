@@ -57,3 +57,67 @@ test "require rubygems/gem_runner avoids circular require warning" {
     try std.testing.expectEqualSlices(u8, "ok\n", result.stdout);
     try std.testing.expect(std.mem.indexOf(u8, result.stderr, "circular require considered harmful") == null);
 }
+
+test "__send__ preserves call state across Bundler plugin autoload" {
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+    var threaded: std.Io.Threaded = .init(allocator, .{});
+    defer threaded.deinit();
+
+    const code =
+        \\require "bundler"
+        \\module Bundler
+        \\  class SendAutoloadRegression
+        \\    def run
+        \\      Plugin.gemfile_install(Bundler.default_gemfile)
+        \\      puts Bundler.definition.class.name
+        \\    end
+        \\  end
+        \\end
+        \\Bundler::SendAutoloadRegression.new.__send__(:run)
+    ;
+
+    const result = try std.process.run(allocator, threaded.io(), .{
+        .argv = &.{ "zig-out/bin/cora", "-e", code },
+        .stdout_limit = .limited(1024 * 1024),
+        .stderr_limit = .limited(1024 * 1024),
+    });
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+
+    try std.testing.expect(result.term == .exited and result.term.exited == 0);
+    try std.testing.expectEqualSlices(u8, "Bundler::Definition\n", result.stdout);
+}
+
+test "Method#call preserves call state across Bundler plugin autoload" {
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+    var threaded: std.Io.Threaded = .init(allocator, .{});
+    defer threaded.deinit();
+
+    const code =
+        \\require "bundler"
+        \\module Bundler
+        \\  class MethodCallAutoloadRegression
+        \\    def run
+        \\      Plugin.gemfile_install(Bundler.default_gemfile)
+        \\      puts Bundler.definition.class.name
+        \\    end
+        \\  end
+        \\end
+        \\Bundler::MethodCallAutoloadRegression.new.method(:run).call
+    ;
+
+    const result = try std.process.run(allocator, threaded.io(), .{
+        .argv = &.{ "zig-out/bin/cora", "-e", code },
+        .stdout_limit = .limited(1024 * 1024),
+        .stderr_limit = .limited(1024 * 1024),
+    });
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+
+    try std.testing.expect(result.term == .exited and result.term.exited == 0);
+    try std.testing.expectEqualSlices(u8, "Bundler::Definition\n", result.stdout);
+}
