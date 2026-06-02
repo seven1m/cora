@@ -942,17 +942,46 @@ fn runSingleTerminalTestWorker(test_index: usize) void {
     const allocator = std.heap.page_allocator;
     const test_fns = builtin.test_functions;
 
-    var ruby_spec_tests = loadRubySpecTests(allocator) catch |err| {
+    // Zig tests come before ruby specs. If the index is for a Zig test,
+    // skip loading ruby specs entirely — the worker only needs the Zig
+    // test function.
+    if (test_index < test_fns.len) {
+        const result = executeTestAtIndex(test_fns, &.{}, test_index);
+        emitWorkerJsonResult(result);
+        return;
+    }
+
+    // Ruby spec: load and filter to match the parent's view.
+    var all_ruby_spec_tests = loadRubySpecTests(allocator) catch |err| {
         emitWorkerJsonResult(.{
             .outcome = .fail,
             .err_name = @errorName(err),
         });
         return;
     };
-    defer deinitRubySpecTests(allocator, &ruby_spec_tests);
+    defer deinitRubySpecTests(allocator, &all_ruby_spec_tests);
 
-    const total_tests = test_fns.len + ruby_spec_tests.items.len;
-    if (test_index >= total_tests) {
+    var filtered_ruby_spec_tests: std.ArrayList(RubySpecTest) = .empty;
+    defer {
+        for (filtered_ruby_spec_tests.items) |*test_case| {
+            test_case.* = undefined;
+        }
+        filtered_ruby_spec_tests.deinit(allocator);
+    }
+    for (all_ruby_spec_tests.items) |test_case| {
+        if (filterMatches(test_case.displayName())) {
+            filtered_ruby_spec_tests.append(allocator, test_case) catch |err| {
+                emitWorkerJsonResult(.{
+                    .outcome = .fail,
+                    .err_name = @errorName(err),
+                });
+                return;
+            };
+        }
+    }
+
+    const spec_index = test_index - test_fns.len;
+    if (spec_index >= filtered_ruby_spec_tests.items.len) {
         emitWorkerJsonResult(.{
             .outcome = .fail,
             .err_name = "InvalidWorkerTestIndex",
@@ -960,7 +989,7 @@ fn runSingleTerminalTestWorker(test_index: usize) void {
         return;
     }
 
-    const result = executeTestAtIndex(test_fns, ruby_spec_tests.items, test_index);
+    const result = executeTestAtIndex(test_fns, filtered_ruby_spec_tests.items, test_index);
     emitWorkerJsonResult(result);
 }
 
