@@ -3676,6 +3676,20 @@ pub const VM = struct {
         bdwgc.c.GC_push_all_eager(stack_start, stack_end);
     }
 
+    fn pushMainStackForGc(self: *VM) void {
+        const saved_sp = savedCoroutineStackPointer(&self.zio_main_context);
+        if (saved_sp == 0) return;
+
+        const stack_base = self.main_stack_base orelse @panic("pushMainStackForGc: main_stack_base not set");
+        const base_addr: usize = @intFromPtr(stack_base);
+        // Stacks grow downward on supported archs; saved SP must be below base
+        if (saved_sp >= base_addr) return;
+
+        const stack_start: *anyopaque = @ptrFromInt(saved_sp);
+        const stack_end: *anyopaque = @ptrFromInt(base_addr);
+        bdwgc.c.GC_push_all_eager(stack_start, stack_end);
+    }
+
     fn gcPushOtherRoots() callconv(.c) void {
         if (VM.previous_gc_push_other_roots) |push_other_roots| {
             push_other_roots();
@@ -3683,9 +3697,22 @@ pub const VM = struct {
 
         const self = VM.active_gc_roots_vm orelse return;
         const current_coro = FiberCoro.getCurrent();
+        var inside_real_coroutine = false;
         for (self.zio_coroutines.items) |coro_obj| {
-            if (current_coro != null and current_coro.? == coro_obj) continue;
+            if (current_coro != null and current_coro.? == coro_obj) {
+                inside_real_coroutine = true;
+                continue;
+            }
             pushCoroutineStackForGc(coro_obj);
+        }
+
+        // When running inside a real fiber/thread coroutine (not on the
+        // native C stack where zio_main_context is the fake active context),
+        // the native C stack is dormant and invisible to BDWGC's normal
+        // stack scan. Push it explicitly so temporary Value locals aren't
+        // prematurely collected.
+        if (inside_real_coroutine) {
+            self.pushMainStackForGc();
         }
     }
 
