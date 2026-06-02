@@ -526,7 +526,6 @@ pub const VM = struct {
     zio_main_context: FiberCoroContext = undefined,
     zio_stack_growth_ready: bool = false,
     zio_coroutines: std.ArrayList(*FiberCoro) = .empty,
-    gc_registered_coro_stacks: std.AutoHashMap(*FiberCoro, void) = undefined,
     gc_vm_root_registered: bool = false,
 
     // Exception classes
@@ -643,6 +642,9 @@ pub const VM = struct {
     stdout: ?*std.Io.Writer = null,
     stderr: ?*std.Io.Writer = null,
     ruby_executable_path: ?[]const u8 = null,
+
+    var active_gc_roots_vm: ?*VM = null;
+    var previous_gc_push_other_roots: bdwgc.c.GC_push_other_roots_proc = null;
 
     pub fn initEmpty(
         allocator: std.mem.Allocator,
@@ -797,7 +799,6 @@ pub const VM = struct {
             .zio_main_context = undefined,
             .zio_stack_growth_ready = false,
             .zio_coroutines = .empty,
-            .gc_registered_coro_stacks = std.AutoHashMap(*FiberCoro, void).init(allocator),
             .gc_vm_root_registered = false,
             .gc_thread_handle = null,
             .main_stack_base = null,
@@ -817,6 +818,7 @@ pub const VM = struct {
         self.env_map = try initOwnedEnvMap(self);
         try self.captureMainGcStackBase();
         self.registerVmRootForGc();
+        try self.registerPushOtherRootsForGc();
         self.zio_coroutines = .empty;
         zio.coro.setupStackGrowth() catch return error.Fatal;
         self.zio_stack_growth_ready = true;
@@ -2470,6 +2472,7 @@ pub const VM = struct {
     }
 
     pub fn deinit(self: *VM) void {
+        self.unregisterPushOtherRootsForGc();
         if (self.gc_vm_root_registered) {
             self.unregisterVmRootForGc();
         }
@@ -2492,12 +2495,10 @@ pub const VM = struct {
         self.stack.deinit(self.gc_allocator);
         self.frames.deinit(self.gc_allocator);
         for (self.zio_coroutines.items) |c| {
-            self.unregisterCoroutineStackForGc(c);
             zio.coro.stackFree(c.context.stack_info);
             self.allocator.destroy(c);
         }
         self.zio_coroutines.deinit(self.allocator);
-        self.gc_registered_coro_stacks.deinit();
         if (self.zio_stack_growth_ready) {
             zio.coro.cleanupStackGrowth();
             self.zio_stack_growth_ready = false;
@@ -3634,28 +3635,58 @@ pub const VM = struct {
         bdwgc.c.GC_set_stackbottom(gc_thread_handle, &boehm_stack_base);
     }
 
-    fn registerCoroutineStackForGc(self: *VM, coro_obj: *FiberCoro) VMError!void {
-        if (self.gc_registered_coro_stacks.contains(coro_obj)) return;
+    fn registerPushOtherRootsForGc(self: *VM) VMError!void {
+        if (VM.active_gc_roots_vm == self) return;
+        if (VM.active_gc_roots_vm != null) return error.Fatal;
 
-        const stack_info = coro_obj.context.stack_info;
-        if (stack_info.base <= stack_info.limit) return error.Fatal;
-
-        const stack_start: *anyopaque = @ptrFromInt(stack_info.limit);
-        const stack_end: *anyopaque = @ptrFromInt(stack_info.base);
-        bdwgc.c.GC_add_roots(stack_start, stack_end);
-        self.gc_registered_coro_stacks.put(coro_obj, {}) catch return error.Fatal;
+        VM.previous_gc_push_other_roots = bdwgc.c.GC_get_push_other_roots();
+        VM.active_gc_roots_vm = self;
+        bdwgc.c.GC_set_push_other_roots(gcPushOtherRoots);
     }
 
-    fn unregisterCoroutineStackForGc(self: *VM, coro_obj: *FiberCoro) void {
-        if (!self.gc_registered_coro_stacks.contains(coro_obj)) return;
+    fn unregisterPushOtherRootsForGc(self: *VM) void {
+        if (VM.active_gc_roots_vm != self) return;
 
+        bdwgc.c.GC_set_push_other_roots(VM.previous_gc_push_other_roots);
+        VM.active_gc_roots_vm = null;
+        VM.previous_gc_push_other_roots = null;
+    }
+
+    fn savedCoroutineStackPointer(context: *const FiberCoroContext) usize {
+        return switch (builtin.cpu.arch) {
+            .x86_64 => context.rsp,
+            .aarch64 => context.sp,
+            .arm, .thumb => context.sp,
+            .riscv64 => context.sp,
+            .riscv32 => context.sp,
+            .loongarch64 => context.sp,
+            else => @compileError("unsupported architecture"),
+        };
+    }
+
+    fn pushCoroutineStackForGc(coro_obj: *const FiberCoro) void {
         const stack_info = coro_obj.context.stack_info;
-        if (stack_info.base > stack_info.limit) {
-            const stack_start: *anyopaque = @ptrFromInt(stack_info.limit);
-            const stack_end: *anyopaque = @ptrFromInt(stack_info.base);
-            bdwgc.c.GC_remove_roots(stack_start, stack_end);
+        if (stack_info.base <= stack_info.limit) return;
+
+        const stack_ptr = savedCoroutineStackPointer(&coro_obj.context);
+        if (stack_ptr < stack_info.limit or stack_ptr > stack_info.base) return;
+
+        const stack_start: *anyopaque = @ptrFromInt(stack_ptr);
+        const stack_end: *anyopaque = @ptrFromInt(stack_info.base);
+        bdwgc.c.GC_push_all_eager(stack_start, stack_end);
+    }
+
+    fn gcPushOtherRoots() callconv(.c) void {
+        if (VM.previous_gc_push_other_roots) |push_other_roots| {
+            push_other_roots();
         }
-        _ = self.gc_registered_coro_stacks.remove(coro_obj);
+
+        const self = VM.active_gc_roots_vm orelse return;
+        const current_coro = FiberCoro.getCurrent();
+        for (self.zio_coroutines.items) |coro_obj| {
+            if (current_coro != null and current_coro.? == coro_obj) continue;
+            pushCoroutineStackForGc(coro_obj);
+        }
     }
 
     fn fiberEntrypoint(coro_obj: *FiberCoro, userdata: ?*anyopaque) void {
@@ -3777,8 +3808,6 @@ pub const VM = struct {
         errdefer self.allocator.destroy(coro_obj);
         zio.coro.stackAlloc(&coro_obj.context.stack_info, 8 * 1024 * 1024, 256 * 1024) catch return error.Fatal;
         errdefer zio.coro.stackFree(coro_obj.context.stack_info);
-        try self.registerCoroutineStackForGc(coro_obj);
-        errdefer self.unregisterCoroutineStackForGc(coro_obj);
         coro_obj.setup(&fiberEntrypoint, fiber);
         self.zio_coroutines.append(self.allocator, coro_obj) catch return error.Fatal;
         fiber.coro = coro_obj;
@@ -3859,11 +3888,6 @@ pub const VM = struct {
         self.restoreFiberState(caller);
         fiber.caller = null;
         try self.setCurrentStackBaseForGc(caller_stack_base);
-        if (fiber.state == .terminated) {
-            if (fiber.coro) |terminated_coro| {
-                self.unregisterCoroutineStackForGc(terminated_coro);
-            }
-        }
 
         return switch (fiber.coro_event) {
             .yielded => fiber.coro_result,
@@ -4094,8 +4118,6 @@ pub const VM = struct {
         errdefer self.allocator.destroy(coro_obj);
         zio.coro.stackAlloc(&coro_obj.context.stack_info, 8 * 1024 * 1024, 256 * 1024) catch return error.Fatal;
         errdefer zio.coro.stackFree(coro_obj.context.stack_info);
-        try self.registerCoroutineStackForGc(coro_obj);
-        errdefer self.unregisterCoroutineStackForGc(coro_obj);
         coro_obj.setup(&threadEntrypoint, thread);
         self.zio_coroutines.append(self.allocator, coro_obj) catch return error.Fatal;
         thread.coro = coro_obj;
@@ -4443,9 +4465,6 @@ pub const VM = struct {
             self.saveThreadState(thread);
 
             if (thread.state == .terminated) {
-                if (thread.coro) |terminated_coro| {
-                    self.unregisterCoroutineStackForGc(terminated_coro);
-                }
                 // Thread may have already removed itself from the queue
                 if (i < self.runnable_queue.items.len and self.runnable_queue.items[i] == thread) {
                     _ = self.runnable_queue.orderedRemove(i);
