@@ -16,6 +16,35 @@ pub const EucJpEncoding = struct {
             return .{ .valid = true, .len = 1, .codepoint = b0 };
         }
 
+        if (b0 == 0x8E) {
+            if (bytes.len - i < 2) {
+                index.* = bytes.len;
+                return .{ .valid = false, .len = 1, .codepoint = b0 };
+            }
+            const b1 = bytes[i + 1];
+            if (b1 >= 0xA1 and b1 <= 0xDF) {
+                index.* += 2;
+                return .{ .valid = true, .len = 2, .codepoint = 0xFF61 + @as(u32, b1 - 0xA1) };
+            }
+            index.* += 2;
+            return .{ .valid = false, .len = 2, .codepoint = b0 };
+        }
+
+        if (b0 == 0x8F) {
+            if (bytes.len - i < 3) {
+                index.* = bytes.len;
+                return .{ .valid = false, .len = 1, .codepoint = b0 };
+            }
+            const b1 = bytes[i + 1];
+            const b2 = bytes[i + 2];
+            if (b1 >= 0xA1 and b1 <= 0xFE and b2 >= 0xA1 and b2 <= 0xFE) {
+                index.* += 3;
+                return .{ .valid = true, .len = 3, .codepoint = (@as(u32, b0) << 16) | (@as(u32, b1) << 8) | b2 };
+            }
+            index.* += 3;
+            return .{ .valid = false, .len = 3, .codepoint = b0 };
+        }
+
         if (bytes.len - i < 2) {
             index.* = bytes.len;
             return .{ .valid = false, .len = 1, .codepoint = b0 };

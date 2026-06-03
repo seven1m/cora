@@ -16,6 +16,8 @@ const Block = vm_mod.Block;
 const Value = value.Value;
 const BigInt = std.math.big.int.Managed;
 
+extern "c" fn snprintf(str: [*]u8, size: usize, format: [*:0]const u8, ...) c_int;
+
 fn isTag(encoding: enc.Encoding, comptime tag: std.meta.Tag(enc.Encoding)) bool {
     return std.meta.activeTag(encoding) == tag;
 }
@@ -417,11 +419,24 @@ const StringPercentFlags = struct {
     alternate_form: bool = false,
 };
 
+const StringPercentName = union(enum) {
+    brace: []const u8,
+    angle: []const u8,
+};
+
 const StringPercentSpec = struct {
     flags: StringPercentFlags = .{},
     width: ?usize = null,
     precision: ?usize = null,
-    conversion: u8,
+    has_precision: bool = false,
+    conversion: u8 = 0,
+
+    arg_number: ?usize = null,
+
+    width_arg_number: ?usize = null,
+    precision_arg_number: ?usize = null,
+
+    name: ?StringPercentName = null,
 };
 
 fn malformedStringPercent(vm: *VM) VMError {
@@ -439,8 +454,105 @@ fn parseStringPercentNumber(format: []const u8, index: *usize) !?usize {
     return value_num;
 }
 
+fn parseStringPercentPositional(format: []const u8, index: *usize) ?usize {
+    const start = index.*;
+    var num: usize = 0;
+    while (index.* < format.len and std.ascii.isDigit(format[index.*])) : (index.* += 1) {
+        num = num * 10 + (format[index.*] - '0');
+    }
+    if (index.* > start and index.* < format.len and format[index.*] == '$') {
+        index.* += 1;
+        return num;
+    }
+    index.* = start;
+    return null;
+}
+
+fn parseStringPercentStarArg(format: []const u8, index: *usize) ?usize {
+    if (index.* >= format.len or format[index.*] != '*') return null;
+    index.* += 1;
+    const result = parseStringPercentPositional(format, index);
+    return result;
+}
+
+fn parseStringPercentName(format: []const u8, index: *usize) ?StringPercentName {
+    if (index.* >= format.len) return null;
+    const delimiter = format[index.*];
+    if (delimiter != '<' and delimiter != '{') return null;
+    const close: u8 = if (delimiter == '<') '>' else '}';
+    const start = index.* + 1;
+    var end = start;
+    while (end < format.len and format[end] != close) : (end += 1) {}
+    if (end >= format.len) return null;
+    const name = format[start..end];
+    index.* = end + 1;
+    if (delimiter == '<') {
+        return StringPercentName{ .angle = name };
+    } else {
+        return StringPercentName{ .brace = name };
+    }
+}
+
+fn formatStringHasNamedReferences(format: []const u8) bool {
+    var i: usize = 0;
+    while (i < format.len) {
+        if (format[i] != '%') {
+            i += 1;
+            continue;
+        }
+
+        i += 1;
+        if (i >= format.len) break;
+        if (format[i] == '%') {
+            i += 1;
+            continue;
+        }
+
+        _ = parseStringPercentPositional(format, &i);
+        if (parseStringPercentName(format, &i) != null) return true;
+
+        while (i < format.len) : (i += 1) {
+            switch (format[i]) {
+                '-', '+', ' ', '0', '#' => {},
+                else => break,
+            }
+        }
+
+        if (parseStringPercentName(format, &i) != null) return true;
+
+        if (i < format.len and format[i] == '*') {
+            i += 1;
+            _ = parseStringPercentPositional(format, &i);
+        } else {
+            _ = parseStringPercentNumber(format, &i) catch null;
+        }
+
+        if (parseStringPercentName(format, &i) != null) return true;
+
+        if (i < format.len and format[i] == '.') {
+            i += 1;
+            if (i < format.len and format[i] == '*') {
+                i += 1;
+                _ = parseStringPercentPositional(format, &i);
+            } else {
+                _ = parseStringPercentNumber(format, &i) catch null;
+            }
+        }
+
+        if (parseStringPercentName(format, &i) != null) return true;
+
+        if (i < format.len) i += 1;
+    }
+    return false;
+}
+
 fn parseStringPercentSpec(vm: *VM, format: []const u8, index: *usize) VMError!StringPercentSpec {
-    var spec: StringPercentSpec = .{ .conversion = 0 };
+    var spec: StringPercentSpec = .{};
+
+    spec.arg_number = parseStringPercentPositional(format, index);
+
+    spec.name = parseStringPercentName(format, index);
+
     while (index.* < format.len) : (index.* += 1) {
         switch (format[index.*]) {
             '-' => spec.flags.left_justify = true,
@@ -452,21 +564,72 @@ fn parseStringPercentSpec(vm: *VM, format: []const u8, index: *usize) VMError!St
         }
     }
 
-    spec.width = parseStringPercentNumber(format, index) catch return malformedStringPercent(vm);
+    if (spec.arg_number == null) {
+        spec.arg_number = parseStringPercentPositional(format, index);
+    }
+
+    spec.name = spec.name orelse parseStringPercentName(format, index);
+
+    if (index.* < format.len and format[index.*] == '*') {
+        spec.width_arg_number = parseStringPercentStarArg(format, index);
+        if (spec.width_arg_number == null) {
+            spec.width_arg_number = std.math.maxInt(usize);
+        }
+    } else {
+        spec.width = parseStringPercentNumber(format, index) catch null;
+    }
+
+    spec.name = spec.name orelse parseStringPercentName(format, index);
 
     if (index.* < format.len and format[index.*] == '.') {
         index.* += 1;
-        spec.precision = parseStringPercentNumber(format, index) catch return malformedStringPercent(vm);
-        if (spec.precision == null) return malformedStringPercent(vm);
+        spec.has_precision = true;
+        if (index.* < format.len and format[index.*] == '*') {
+            spec.precision_arg_number = parseStringPercentStarArg(format, index);
+            if (spec.precision_arg_number == null) {
+                spec.precision_arg_number = std.math.maxInt(usize);
+            }
+        } else {
+            spec.precision = parseStringPercentNumber(format, index) catch 0;
+        }
     }
 
-    if (index.* >= format.len) return malformedStringPercent(vm);
-    spec.conversion = format[index.*];
-    switch (spec.conversion) {
-        '%', 'B', 'X', 'b', 'c', 'd', 'e', 'E', 'f', 'g', 'G', 'i', 'o', 'p', 's', 'u', 'x' => {},
-        else => return malformedStringPercent(vm),
+    spec.name = spec.name orelse parseStringPercentName(format, index);
+
+    if (spec.name != null) {
+        switch (spec.name.?) {
+            .angle => {
+                if (index.* < format.len) {
+                    spec.conversion = format[index.*];
+                    index.* += 1;
+                } else {
+                    return malformedStringPercent(vm);
+                }
+            },
+            .brace => {
+                spec.conversion = 0;
+            },
+        }
+    } else {
+        if (index.* >= format.len) return malformedStringPercent(vm);
+        spec.conversion = format[index.*];
+        switch (spec.conversion) {
+            '%', 'A', 'B', 'X', 'a', 'b', 'c', 'd', 'e', 'E', 'f', 'g', 'G', 'i', 'o', 'p', 's', 'u', 'x' => {},
+            else => return malformedStringPercent(vm),
+        }
+        index.* += 1;
+
+        spec.name = spec.name orelse parseStringPercentName(format, index);
     }
-    index.* += 1;
+
+    if (spec.conversion == '%' and spec.arg_number != null) {
+        return malformedStringPercent(vm);
+    }
+
+    if (spec.name != null and spec.arg_number != null) {
+        return malformedStringPercent(vm);
+    }
+
     return spec;
 }
 
@@ -484,6 +647,10 @@ fn appendStringPercentFragment(
     bytes: []const u8,
     bytes_encoding: enc.Encoding,
 ) VMError!void {
+    if (out.items.len == 0 and enc.isAsciiOnly(bytes) and result_encoding.*.isAsciiCompatible()) {
+        out.appendSlice(vm.gc_allocator_atomic, bytes) catch return error.Fatal;
+        return;
+    }
     const next_encoding = resolveStringConcatEncoding(result_encoding.*, out.items, bytes_encoding, bytes) orelse {
         return vm.raiseEncodingCompatibilityError(result_encoding.*, bytes_encoding);
     };
@@ -493,6 +660,40 @@ fn appendStringPercentFragment(
 
 fn coerceStringPercentInteger(vm: *VM, arg: Value) VMError!Value {
     if (arg.isInteger() or arg.isBigInteger()) return arg;
+
+    if (arg.isString()) {
+        const str = arg.toStringObject().str;
+        var idx: usize = 0;
+        var radix: u8 = 10;
+        if (str.len > 1 and str[0] == '0') {
+            const prefix_char = std.ascii.toLower(str[1]);
+            switch (prefix_char) {
+                'b' => { radix = 2; idx = 2; },
+                'o' => { radix = 8; idx = 2; },
+                'd' => { radix = 10; idx = 2; },
+                'x' => { radix = 16; idx = 2; },
+                else => {
+                    radix = 8;
+                    idx = 1;
+                },
+            }
+        }
+        var int_val: i64 = 0;
+        while (idx < str.len) : (idx += 1) {
+            const ch = str[idx];
+            const digit_i64: i64 = switch (ch) {
+                '0'...'9' => @as(i64, @intCast(ch - '0')),
+                'a'...'f' => @as(i64, @intCast(ch - 'a' + 10)),
+                'A'...'F' => @as(i64, @intCast(ch - 'A' + 10)),
+                else => return vm.raiseExceptionFmt(vm.argument_error_class, "invalid value for Integer(): {s}", .{str}),
+            };
+            const digit_u8: u8 = @intCast(digit_i64);
+            if (digit_u8 >= radix) return vm.raiseExceptionFmt(vm.argument_error_class, "invalid value for Integer(): {s}", .{str});
+            int_val = int_val *| @as(i64, @intCast(radix));
+            int_val +|= digit_i64;
+        }
+        return Value.integer(int_val);
+    }
 
     if (try vm.checkCallMethodByName(arg, "to_int", false, &[_]Value{}, null)) |coerced| {
         if (coerced.isInteger() or coerced.isBigInteger()) return coerced;
@@ -534,6 +735,46 @@ fn appendStringPercentPaddedText(
     }
 }
 
+fn sliceStringPercentChars(bytes: []const u8, bytes_encoding: enc.Encoding, max_chars: usize) []const u8 {
+    var end: usize = 0;
+    var count: usize = 0;
+    while (end < bytes.len and count < max_chars) : (count += 1) {
+        const next = bytes_encoding.nextChar(bytes, &end);
+        if (next.len == 0) break;
+    }
+    return bytes[0..end];
+}
+
+fn buildStringPercentCFloatFormat(vm: *VM, spec: StringPercentSpec) VMError![:0]u8 {
+    var format: std.ArrayList(u8) = .empty;
+    defer format.deinit(vm.gc_allocator_atomic);
+
+    format.append(vm.gc_allocator_atomic, '%') catch return error.Fatal;
+    if (spec.flags.left_justify) format.append(vm.gc_allocator_atomic, '-') catch return error.Fatal;
+    if (spec.flags.show_sign) format.append(vm.gc_allocator_atomic, '+') catch return error.Fatal;
+    if (spec.flags.leading_space) format.append(vm.gc_allocator_atomic, ' ') catch return error.Fatal;
+    if (spec.flags.zero_pad) format.append(vm.gc_allocator_atomic, '0') catch return error.Fatal;
+    if (spec.flags.alternate_form) format.append(vm.gc_allocator_atomic, '#') catch return error.Fatal;
+
+    if (spec.width) |width| {
+        const width_str = std.fmt.allocPrint(vm.gc_allocator_atomic, "{d}", .{width}) catch return error.Fatal;
+        defer vm.gc_allocator_atomic.free(width_str);
+        format.appendSlice(vm.gc_allocator_atomic, width_str) catch return error.Fatal;
+    }
+
+    if (spec.has_precision) {
+        format.append(vm.gc_allocator_atomic, '.') catch return error.Fatal;
+        const precision = spec.precision orelse 0;
+        const precision_str = std.fmt.allocPrint(vm.gc_allocator_atomic, "{d}", .{precision}) catch return error.Fatal;
+        defer vm.gc_allocator_atomic.free(precision_str);
+        format.appendSlice(vm.gc_allocator_atomic, precision_str) catch return error.Fatal;
+    }
+
+    format.append(vm.gc_allocator_atomic, spec.conversion) catch return error.Fatal;
+    format.append(vm.gc_allocator_atomic, 0) catch return error.Fatal;
+    return format.toOwnedSliceSentinel(vm.gc_allocator_atomic, 0) catch return error.Fatal;
+}
+
 fn coerceStringPercentFloat(vm: *VM, arg: Value) VMError!Value {
     if (arg.isFloat()) return arg;
 
@@ -559,47 +800,64 @@ fn appendStringPercentFloat(
         return;
     }
     if (std.math.isPositiveInf(f)) {
-        try appendStringPercentPaddedText(vm, out, result_encoding, spec, "Infinity", .{ .us_ascii = .{} });
+        const text = if (spec.flags.show_sign) "+Inf" else if (spec.flags.leading_space) " Inf" else "Inf";
+        try appendStringPercentPaddedText(vm, out, result_encoding, spec, text, .{ .us_ascii = .{} });
         return;
     }
     if (std.math.isNegativeInf(f)) {
-        try appendStringPercentPaddedText(vm, out, result_encoding, spec, "-Infinity", .{ .us_ascii = .{} });
+        try appendStringPercentPaddedText(vm, out, result_encoding, spec, "-Inf", .{ .us_ascii = .{} });
         return;
     }
 
-    const string_val = try vm.callMethodByName(float_val, "to_s", &[_]Value{}, null);
-    const string_obj = string_val.toStringObject();
-    var str = string_obj.str;
+    const c_format = try buildStringPercentCFloatFormat(vm, spec);
+    defer vm.gc_allocator_atomic.free(c_format);
 
-    // Truncate or extend decimal places to match precision
-    const precision = spec.precision orelse 6;
-    if (std.mem.indexOfScalar(u8, str, '.')) |dot| {
-        const actual_frac = str.len - dot - 1;
-        if (actual_frac > precision) {
-            str = str[0 .. dot + 1 + precision];
-        } else if (actual_frac < precision) {
-            var adjusted: std.ArrayList(u8) = .empty;
-            defer adjusted.deinit(vm.gc_allocator_atomic);
-            adjusted.appendSlice(vm.gc_allocator_atomic, str) catch return error.Fatal;
-            var i: usize = actual_frac;
-            while (i < precision) : (i += 1) {
-                adjusted.append(vm.gc_allocator_atomic, '0') catch return error.Fatal;
-            }
-            str = adjusted.items;
-        }
-    } else if (precision > 0) {
-        var adjusted: std.ArrayList(u8) = .empty;
-        defer adjusted.deinit(vm.gc_allocator_atomic);
-        adjusted.appendSlice(vm.gc_allocator_atomic, str) catch return error.Fatal;
-        adjusted.append(vm.gc_allocator_atomic, '.') catch return error.Fatal;
-        var i: usize = 0;
-        while (i < precision) : (i += 1) {
-            adjusted.append(vm.gc_allocator_atomic, '0') catch return error.Fatal;
-        }
-        str = adjusted.items;
+    var dummy: [1]u8 = undefined;
+    const needed = snprintf(dummy[0..].ptr, 0, c_format.ptr, f);
+    if (needed < 0) return error.Fatal;
+
+    const buffer_len: usize = @intCast(needed);
+    const buffer = vm.gc_allocator_atomic.alloc(u8, buffer_len + 1) catch return error.Fatal;
+    defer vm.gc_allocator_atomic.free(buffer);
+
+    _ = snprintf(buffer.ptr, buffer_len + 1, c_format.ptr, f);
+    try appendStringPercentFragment(vm, out, result_encoding, buffer[0..buffer_len], .{ .us_ascii = .{} });
+}
+
+fn coerceStringPercentCharCodepoint(vm: *VM, arg: Value) VMError!i64 {
+    if (arg.isInteger() or arg.isBigInteger()) {
+        return arg.integerToI64(vm, "bignum too big to convert into `long`");
     }
 
-    try appendStringPercentPaddedText(vm, out, result_encoding, spec, str, string_obj.encoding);
+    if (try vm.checkCallMethodByName(arg, "to_int", false, &.{}, null)) |coerced| {
+        if (coerced.isInteger() or coerced.isBigInteger()) {
+            return coerced.integerToI64(vm, "bignum too big to convert into `long`");
+        }
+        return vm.raiseExceptionFmt(
+            vm.type_error_class,
+            "can't convert {s} to Integer ({s}#to_int gives {s})",
+            .{ vm.className(arg), vm.className(arg), vm.className(coerced) },
+        );
+    }
+
+    if (arg.isNil()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion from nil to integer", .{});
+    }
+    return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion of {s} into Integer", .{vm.className(arg)});
+}
+
+fn appendStringPercentEncodedChar(
+    vm: *VM,
+    out: *std.ArrayList(u8),
+    result_encoding: *enc.Encoding,
+    spec: StringPercentSpec,
+    cp: i64,
+) VMError!void {
+    var chr_args = [_]Value{vm.encodingToValue(result_encoding.*)};
+    const integer_value = Value.integer(cp);
+    const string_value = try vm.callMethodByName(integer_value, "chr", chr_args[0..], null);
+    const string_obj = string_value.toStringObject();
+    try appendStringPercentPaddedText(vm, out, result_encoding, spec, string_obj.str, string_obj.encoding);
 }
 
 fn appendStringPercentInteger(
@@ -615,15 +873,82 @@ fn appendStringPercentInteger(
     var base_args = [_]Value{Value.integer(base)};
     const digits_value = try vm.callMethodByName(integer_value, "to_s", base_args[0..], null);
     var digits = digits_value.toStringObject().str;
+    var twos_fill: ?u8 = null;
+    var twos_tail: []const u8 = "";
 
     var sign_byte: ?u8 = null;
     if (digits.len > 0 and digits[0] == '-') {
-        sign_byte = '-';
         digits = digits[1..];
+        const use_twos_complement = switch (spec.conversion) {
+            'b', 'B', 'o', 'x', 'X' => !spec.flags.show_sign and !spec.flags.leading_space,
+            else => false,
+        };
+        if (use_twos_complement and !integer_value.isBigInteger()) {
+            const bits_per_digit: usize = switch (spec.conversion) {
+                'b', 'B' => 1,
+                'o' => 3,
+                'x', 'X' => 4,
+                else => unreachable,
+            };
+            const abs_val: i64 = -integer_value.toInteger();
+            var n_bits: usize = digits.len *% bits_per_digit +% bits_per_digit;
+            if (spec.precision) |prec| {
+                n_bits = prec * bits_per_digit;
+            }
+            const radix_minus_one: u8 = switch (spec.conversion) {
+                'b', 'B' => 1,
+                'o' => 7,
+                'x', 'X' => 15,
+                else => unreachable,
+            };
+            const radix_chars = "0123456789abcdef";
+            const radix_minus_one_char = radix_chars[radix_minus_one];
+            if (n_bits < 63) {
+                const power = (@as(u64, 1) << @as(u6, @intCast(n_bits)));
+                const twos_u64 = power - @as(u64, @intCast(abs_val));
+                var tmp_buf: [130]u8 = undefined;
+                var tmp_len: usize = 0;
+                var remaining = twos_u64;
+                while (remaining > 0) {
+                    tmp_buf[tmp_len] = radix_chars[@as(usize, @intCast(remaining % base))];
+                    remaining /= base;
+                    tmp_len += 1;
+                }
+                if (tmp_len == 0) {
+                    tmp_buf[0] = '0';
+                    tmp_len = 1;
+                }
+                std.mem.reverse(u8, tmp_buf[0..tmp_len]);
+                var twos_digits = tmp_buf[0..tmp_len];
+                if (uppercase) {
+                    for (twos_digits) |*ch| {
+                        ch.* = std.ascii.toUpper(ch.*);
+                    }
+                }
+                var all_radix_minus_one = true;
+                for (twos_digits[1..]) |ch| {
+                    if (std.ascii.toLower(ch) != radix_minus_one_char) {
+                        all_radix_minus_one = false;
+                        break;
+                    }
+                }
+                const prefix_char: u8 = if (uppercase and spec.conversion == 'X') std.ascii.toUpper(radix_minus_one_char) else radix_minus_one_char;
+                twos_fill = prefix_char;
+                twos_tail = if (all_radix_minus_one) "" else twos_digits[1..];
+                sign_byte = null;
+                digits = "";
+            }
+        }
+        if (twos_fill == null) sign_byte = '-';
     } else if (spec.flags.show_sign) {
         sign_byte = '+';
     } else if (spec.flags.leading_space) {
         sign_byte = ' ';
+    }
+
+    const prec_zero = (spec.precision != null and spec.precision.? == 0) or (spec.has_precision and spec.precision == null);
+    if (prec_zero and digits.len == 1 and digits[0] == '0') {
+        digits = "";
     }
 
     var prefix: []const u8 = "";
@@ -637,6 +962,15 @@ fn appendStringPercentInteger(
             else => "",
         };
     }
+    if (twos_fill != null and spec.flags.alternate_form) {
+        prefix = switch (spec.conversion) {
+            'B' => "0B",
+            'X' => "0X",
+            'b' => "0b",
+            'x' => "0x",
+            else => prefix,
+        };
+    }
 
     const zeros_for_precision = if (spec.precision) |precision|
         if (precision > digits.len) precision - digits.len else 0
@@ -644,11 +978,13 @@ fn appendStringPercentInteger(
         0;
 
     const sign_len: usize = if (sign_byte == null) 0 else 1;
-    const raw_len = sign_len + prefix.len + zeros_for_precision + digits.len;
+    const twos_len: usize = if (twos_fill != null) 3 + twos_tail.len else 0;
+    const raw_len = sign_len + prefix.len + zeros_for_precision + digits.len + twos_len;
     const width = spec.width orelse 0;
-    const zero_pad_width = spec.flags.zero_pad and !spec.flags.left_justify and spec.precision == null;
+    const zero_pad_width = spec.flags.zero_pad and !spec.flags.left_justify and spec.precision == null and twos_fill == null;
     const zero_pad_count = if (zero_pad_width and width > raw_len) width - raw_len else 0;
-    const space_pad_count = if (!zero_pad_width and width > raw_len) width - raw_len else 0;
+    const twos_pad_count = if (twos_fill != null and spec.flags.zero_pad and width > raw_len) width - raw_len else 0;
+    const space_pad_count = if (!zero_pad_width and twos_pad_count == 0 and width > raw_len) width - raw_len else 0;
 
     if (!spec.flags.left_justify) {
         appendRepeatedByte(out, vm.gc_allocator_atomic, ' ', space_pad_count) catch return error.Fatal;
@@ -657,13 +993,19 @@ fn appendStringPercentInteger(
         out.append(vm.gc_allocator_atomic, byte) catch return error.Fatal;
     }
     out.appendSlice(vm.gc_allocator_atomic, prefix) catch return error.Fatal;
-    appendRepeatedByte(out, vm.gc_allocator_atomic, '0', zero_pad_count + zeros_for_precision) catch return error.Fatal;
-    if (uppercase) {
-        for (digits) |byte| {
-            out.append(vm.gc_allocator_atomic, std.ascii.toUpper(byte)) catch return error.Fatal;
-        }
+    if (twos_fill) |fill| {
+        out.appendSlice(vm.gc_allocator_atomic, "..") catch return error.Fatal;
+        appendRepeatedByte(out, vm.gc_allocator_atomic, fill, twos_pad_count + 1) catch return error.Fatal;
+        out.appendSlice(vm.gc_allocator_atomic, twos_tail) catch return error.Fatal;
     } else {
-        out.appendSlice(vm.gc_allocator_atomic, digits) catch return error.Fatal;
+        appendRepeatedByte(out, vm.gc_allocator_atomic, '0', zero_pad_count + zeros_for_precision) catch return error.Fatal;
+        if (uppercase) {
+            for (digits) |byte| {
+                out.append(vm.gc_allocator_atomic, std.ascii.toUpper(byte)) catch return error.Fatal;
+            }
+        } else {
+            out.appendSlice(vm.gc_allocator_atomic, digits) catch return error.Fatal;
+        }
     }
     if (spec.flags.left_justify) {
         appendRepeatedByte(out, vm.gc_allocator_atomic, ' ', space_pad_count) catch return error.Fatal;
@@ -1276,17 +1618,154 @@ pub fn builtinStringMultiply(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     return try vm.newStringWithEncoding(out, false, string_obj.encoding);
 }
 
+fn formatStringHasPositional(format: []const u8) bool {
+    var i: usize = 0;
+    while (i < format.len) {
+        if (format[i] != '%') {
+            i += 1;
+            continue;
+        }
+        i += 1;
+        if (i < format.len and std.ascii.isDigit(format[i])) {
+            const start = i;
+            while (i < format.len and std.ascii.isDigit(format[i])) i += 1;
+            if (i < format.len and format[i] == '$') return true;
+            i = start;
+        }
+    }
+    return false;
+}
+
+fn resolveStringPercentArg(
+    vm: *VM,
+    spec: StringPercentSpec,
+    arg_values: []const Value,
+    hash_arg: ?Value,
+    next_seq: *usize,
+    use_positional: bool,
+) VMError!Value {
+    if (spec.name) |name| {
+        const hash_value = hash_arg orelse return vm.raiseExceptionFmt(vm.argument_error_class, "one hash required", .{});
+        if (!hash_value.isHash()) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "one hash required", .{});
+        }
+        const name_str = switch (name) {
+            .brace => |n| n,
+            .angle => |n| n,
+        };
+        return lookupStringPercentHashValue(vm, hash_value, name_str);
+    }
+
+    if (use_positional or spec.arg_number != null) {
+        if (spec.arg_number == null) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "positional and non-positional arguments mixed", .{});
+        }
+        const idx = spec.arg_number.? - 1;
+        if (idx >= arg_values.len) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "too few arguments", .{});
+        }
+        return arg_values[idx];
+    }
+
+    if (next_seq.* >= arg_values.len) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "too few arguments", .{});
+    }
+    const arg = arg_values[next_seq.*];
+    next_seq.* += 1;
+    return arg;
+}
+
+fn raiseStringPercentKeyError(vm: *VM, hash_value: Value, name_str: []const u8) VMError {
+    const key_string = vm.newString(name_str, false) catch return error.Fatal;
+    const msg = std.fmt.allocPrint(vm.gc_allocator_atomic, "key not found: \"{s}\"", .{name_str}) catch return error.Fatal;
+    defer vm.gc_allocator_atomic.free(msg);
+    const exc = vm.createException(vm.key_error_class, msg) catch return error.Fatal;
+    exc.receiver = hash_value;
+    exc.key = key_string;
+    vm.setPendingException(exc);
+    return error.Unwind;
+}
+
+fn lookupStringPercentHashValue(vm: *VM, hash_value: Value, name_str: []const u8) VMError!Value {
+    const hash_obj = hash_value.toHashObject();
+    const key_sym = try vm.intern(name_str);
+    const key_val = Value.fromObject(&key_sym.object);
+    if (try hash_obj.map.getEntry(key_val)) |entry| {
+        return hash_obj.entries.items[entry.value_ptr.*].value;
+    }
+    return raiseStringPercentKeyError(vm, hash_value, name_str);
+}
+
 pub fn builtinStringPercent(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
 
     const format_string = receiver.toStringObject();
-    var single_arg = [_]Value{args[0]};
-    const arg_values = switch (try vm.probeToAry(args[0])) {
-        .array => |array_value| array_value.toArrayObject().elements.items,
-        .missing, .nil_result => single_arg[0..],
-    };
-    var next_arg_index: usize = 0;
+    const single_arg = args[0];
+    const has_named_refs = formatStringHasNamedReferences(format_string.str);
 
+    var hash_arg: ?Value = null;
+    var arg_values: []const Value = &.{};
+    var array_buf: [1]Value = undefined;
+
+    if (has_named_refs) {
+        const probe_hash = try vm.probeToHash(single_arg);
+        switch (probe_hash) {
+            .hash => |hv| {
+                hash_arg = hv;
+            },
+            .non_hash => |val| {
+                if (val.isHash()) {
+                    hash_arg = val;
+                } else {
+                    const probe_ary = try vm.probeToAry(val);
+                    switch (probe_ary) {
+                        .array => |av| {
+                            arg_values = av.toArrayObject().elements.items;
+                            if (arg_values.len > 0 and arg_values[arg_values.len - 1].isHash()) {
+                                hash_arg = arg_values[arg_values.len - 1];
+                            }
+                        },
+                        .missing, .nil_result => {
+                            array_buf = [_]Value{val};
+                            arg_values = array_buf[0..];
+                        },
+                    }
+                }
+            },
+            .missing, .nil_result => {
+                const probe_ary = try vm.probeToAry(single_arg);
+                switch (probe_ary) {
+                    .array => |av| {
+                        arg_values = av.toArrayObject().elements.items;
+                        if (arg_values.len > 0 and arg_values[arg_values.len - 1].isHash()) {
+                            hash_arg = arg_values[arg_values.len - 1];
+                        }
+                    },
+                    .missing, .nil_result => {
+                        array_buf = [_]Value{single_arg};
+                        arg_values = array_buf[0..];
+                    },
+                }
+            },
+        }
+    } else {
+        const probe_ary = try vm.probeToAry(single_arg);
+        switch (probe_ary) {
+            .array => |av| {
+                arg_values = av.toArrayObject().elements.items;
+            },
+            .missing, .nil_result => {
+                array_buf = [_]Value{single_arg};
+                arg_values = array_buf[0..];
+            },
+        }
+    }
+
+    const has_positional = formatStringHasPositional(format_string.str);
+    var seen_named = false;
+    var seen_unnamed = false;
+
+    var next_seq: usize = 0;
     var out: std.ArrayList(u8) = .empty;
     defer out.deinit(vm.gc_allocator_atomic);
     var result_encoding = format_string.encoding;
@@ -1300,64 +1779,160 @@ pub fn builtinStringPercent(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
         }
 
         index += 1;
-        const spec = try parseStringPercentSpec(vm, format_string.str, &index);
+        var spec = try parseStringPercentSpec(vm, format_string.str, &index);
+
+        if (spec.name != null) {
+            seen_named = true;
+        } else if (spec.conversion != '%') {
+            seen_unnamed = true;
+        }
+        if (seen_named and seen_unnamed) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "named and unnamed arguments mixed", .{});
+        }
+
         if (spec.conversion == '%') {
             out.append(vm.gc_allocator_atomic, '%') catch return error.Fatal;
             continue;
         }
 
-        if (next_arg_index >= arg_values.len) {
-            return vm.raiseExceptionFmt(vm.argument_error_class, "too few arguments", .{});
-        }
-        const arg = arg_values[next_arg_index];
-        next_arg_index += 1;
-
-        switch (spec.conversion) {
-            'B' => try appendStringPercentInteger(vm, &out, &result_encoding, spec, arg, 2, true),
-            'X' => try appendStringPercentInteger(vm, &out, &result_encoding, spec, arg, 16, true),
-            'b' => try appendStringPercentInteger(vm, &out, &result_encoding, spec, arg, 2, false),
-            'd', 'i', 'u' => try appendStringPercentInteger(vm, &out, &result_encoding, spec, arg, 10, false),
-            'o' => try appendStringPercentInteger(vm, &out, &result_encoding, spec, arg, 8, false),
-            'x' => try appendStringPercentInteger(vm, &out, &result_encoding, spec, arg, 16, false),
-            'p', 's', 'c' => {
-                const string_value = switch (spec.conversion) {
-                    'c' => switch (try vm.probeToStringValue(arg)) {
-                        .string => |string_value| string_value,
-                        .missing, .nil_result => blk: {
-                            const integer_value = try coerceStringPercentInteger(vm, arg);
-                            break :blk try vm.callMethodByName(integer_value, "chr", &[_]Value{}, null);
-                        },
-                    },
-                    'p' => try vm.callMethodByName(arg, "inspect", &[_]Value{}, null),
-                    's' => if (arg.isString()) arg else try vm.callMethodByName(arg, "to_s", &[_]Value{}, null),
-                    else => unreachable,
-                };
-                if (!string_value.isString()) {
-                    return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into String", .{vm.className(string_value)});
+        if (spec.width_arg_number) |wan| {
+            var width_arg_idx: usize = undefined;
+            if (wan == std.math.maxInt(usize)) {
+                if (has_positional) {
+                    return vm.raiseExceptionFmt(vm.argument_error_class, "positional and non-positional arguments mixed", .{});
                 }
+                width_arg_idx = next_seq;
+                next_seq += 1;
+            } else {
+                width_arg_idx = wan - 1;
+            }
+            if (width_arg_idx >= arg_values.len) {
+                return vm.raiseExceptionFmt(vm.argument_error_class, "too few arguments", .{});
+            }
+            const width_val = arg_values[width_arg_idx];
+            if (width_val.isInteger()) {
+                const w = width_val.toInteger();
+                if (w < 0) {
+                    spec.flags.left_justify = true;
+                    spec.width = @as(usize, @intCast(-w));
+                } else {
+                    spec.width = @as(usize, @intCast(w));
+                }
+            }
+        }
 
-                const string_obj = string_value.toStringObject();
-                const bytes = switch (spec.conversion) {
-                    'c' => blk: {
-                        if (string_obj.str.len == 0) break :blk "";
+        if (spec.precision_arg_number) |pan| {
+            var prec_arg_idx: usize = undefined;
+            if (pan == std.math.maxInt(usize)) {
+                if (has_positional) {
+                    return vm.raiseExceptionFmt(vm.argument_error_class, "positional and non-positional arguments mixed", .{});
+                }
+                prec_arg_idx = next_seq;
+                next_seq += 1;
+            } else {
+                prec_arg_idx = pan - 1;
+            }
+            if (prec_arg_idx >= arg_values.len) {
+                return vm.raiseExceptionFmt(vm.argument_error_class, "too few arguments", .{});
+            }
+            const prec_val = arg_values[prec_arg_idx];
+            if (prec_val.isInteger()) {
+                const p = prec_val.toInteger();
+                spec.precision = if (p >= 0) @as(usize, @intCast(p)) else 0;
+            }
+        }
+
+        if (spec.conversion == 0 and spec.name != null) {
+            const name_str = switch (spec.name.?) {
+                .brace => |n| n,
+                .angle => |n| n,
+            };
+            const hash_value = hash_arg orelse return vm.raiseExceptionFmt(vm.argument_error_class, "one hash required", .{});
+            const val = try lookupStringPercentHashValue(vm, hash_value, name_str);
+            switch (spec.name.?) {
+                .brace => {
+                    const str_val = try vm.callMethodByName(val, "to_s", &[_]Value{}, null);
+                    if (!str_val.isString()) {
+                        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into String", .{vm.className(str_val)});
+                    }
+                    const sobj = str_val.toStringObject();
+                    const bytes = if (spec.precision) |precision|
+                        sliceStringPercentChars(sobj.str, sobj.encoding, precision)
+                    else
+                        sobj.str;
+                    try appendStringPercentPaddedText(vm, &out, &result_encoding, spec, bytes, sobj.encoding);
+                },
+                .angle => {
+                    try appendFormattedValue(vm, &out, &result_encoding, spec, val);
+                },
+            }
+            continue;
+        }
+
+        const arg = try resolveStringPercentArg(vm, spec, arg_values, hash_arg, &next_seq, has_positional);
+
+        try appendFormattedValue(vm, &out, &result_encoding, spec, arg);
+    }
+
+    return try vm.newStringWithEncoding(out.items, false, result_encoding);
+}
+
+fn appendFormattedValue(
+    vm: *VM,
+    out: *std.ArrayList(u8),
+    result_encoding: *enc.Encoding,
+    spec: StringPercentSpec,
+    arg: Value,
+) VMError!void {
+    switch (spec.conversion) {
+        'A' => try appendStringPercentFloat(vm, out, result_encoding, spec, arg),
+        'B' => try appendStringPercentInteger(vm, out, result_encoding, spec, arg, 2, true),
+        'X' => try appendStringPercentInteger(vm, out, result_encoding, spec, arg, 16, true),
+        'a' => try appendStringPercentFloat(vm, out, result_encoding, spec, arg),
+        'b' => try appendStringPercentInteger(vm, out, result_encoding, spec, arg, 2, false),
+        'd', 'i', 'u' => try appendStringPercentInteger(vm, out, result_encoding, spec, arg, 10, false),
+        'o' => try appendStringPercentInteger(vm, out, result_encoding, spec, arg, 8, false),
+        'x' => try appendStringPercentInteger(vm, out, result_encoding, spec, arg, 16, false),
+        'c' => {
+            switch (try vm.probeToStringValue(arg)) {
+                .string => |string_value| {
+                    const string_obj = string_value.toStringObject();
+                    const bytes = if (string_obj.str.len == 0) "" else blk: {
                         var next_byte: usize = 0;
                         const char = string_obj.encoding.nextChar(string_obj.str, &next_byte);
                         if (char.len == 0) break :blk "";
                         break :blk string_obj.str[0..char.len];
-                    },
-                    else => if (spec.precision) |precision|
-                        string_obj.str[0..@min(string_obj.str.len, precision)]
-                    else
-                        string_obj.str,
-                };
-                try appendStringPercentPaddedText(vm, &out, &result_encoding, spec, bytes, string_obj.encoding);
-            },
-            'e', 'E', 'f', 'g', 'G' => try appendStringPercentFloat(vm, &out, &result_encoding, spec, arg),
-            else => return malformedStringPercent(vm),
-        }
-    }
+                    };
+                    try appendStringPercentPaddedText(vm, out, result_encoding, spec, bytes, string_obj.encoding);
+                },
+                .missing, .nil_result => {
+                    const cp = try coerceStringPercentCharCodepoint(vm, arg);
+                    try appendStringPercentEncodedChar(vm, out, result_encoding, spec, cp);
+                },
+            }
+        },
+        'p', 's' => {
+            const string_value = switch (spec.conversion) {
+                'p' => try vm.callMethodByName(arg, "inspect", &[_]Value{}, null),
+                's' => if (arg.isString()) arg else try vm.callMethodByName(arg, "to_s", &[_]Value{}, null),
+                else => unreachable,
+            };
+            if (!string_value.isString()) {
+                return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into String", .{vm.className(string_value)});
+            }
 
-    return try vm.newStringWithEncoding(out.items, false, result_encoding);
+            const string_obj = string_value.toStringObject();
+            const bytes = switch (spec.conversion) {
+                else => if (spec.precision) |precision|
+                    sliceStringPercentChars(string_obj.str, string_obj.encoding, precision)
+                else
+                    string_obj.str,
+            };
+            try appendStringPercentPaddedText(vm, out, result_encoding, spec, bytes, string_obj.encoding);
+        },
+        'e', 'E', 'f', 'g', 'G' => try appendStringPercentFloat(vm, out, result_encoding, spec, arg),
+        else => return malformedStringPercent(vm),
+    }
 }
 
 pub fn builtinStringAppend(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

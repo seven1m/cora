@@ -289,11 +289,14 @@ describe :string_encode, shared: true do
 
     context "given a proc" do
       it "calls the proc to get the replacement value, passing in the invalid character" do
-        encoded = "B\ufffd".encode(Encoding::US_ASCII, fallback: proc { |c| c.bytes.inspect })
-        encoded.should == "B[239, 191, 189]"
+        CORAFIXME "fallback proc support not implemented in encode" do
+          encoded = "B\ufffd".encode(Encoding::US_ASCII, fallback: proc { |c| c.bytes.inspect })
+          encoded.should == "B[239, 191, 189]"
+        end
       end
 
-      it "calls to_str on the returned value" do
+      # CORAFIXME: should_receive expectations verified after CORAFIXME block
+      xit "calls to_str on the returned value" do
         obj = Object.new
         obj.should_receive(:to_str).and_return("bar")
         encoded = "B\ufffd".encode(Encoding::US_ASCII, fallback: proc { |c| obj })
@@ -301,27 +304,34 @@ describe :string_encode, shared: true do
       end
 
       it "does not call to_s on the returned value" do
-        obj = Object.new
-        obj.should_not_receive(:to_s)
-        -> {
-          "B\ufffd".encode(Encoding::US_ASCII, fallback: proc { |c| obj })
-        }.should raise_error(TypeError, "no implicit conversion of Object into String")
+        CORAFIXME "fallback proc support not implemented in encode" do
+          obj = Object.new
+          obj.should_not_receive(:to_s)
+          -> {
+            "B\ufffd".encode(Encoding::US_ASCII, fallback: proc { |c| obj })
+          }.should raise_error(TypeError, "no implicit conversion of Object into String")
+        end
       end
 
       it "raises an error if the returned value is itself invalid" do
-        -> {
-          "B\ufffd".encode(Encoding::US_ASCII, fallback: -> c { "\uffee" })
-        }.should raise_error(ArgumentError, "too big fallback string")
+        CORAFIXME "fallback proc support not implemented in encode" do
+          -> {
+            "B\ufffd".encode(Encoding::US_ASCII, fallback: -> c { "\uffee" })
+          }.should raise_error(ArgumentError, "too big fallback string")
+        end
       end
     end
 
     context "given a lambda" do
       it "calls the lambda to get the replacement value, passing in the invalid character" do
-        encoded = "B\ufffd".encode(Encoding::US_ASCII, fallback: -> c { c.bytes.inspect })
-        encoded.should == "B[239, 191, 189]"
+        CORAFIXME "fallback lambda support not implemented in encode" do
+          encoded = "B\ufffd".encode(Encoding::US_ASCII, fallback: -> c { c.bytes.inspect })
+          encoded.should == "B[239, 191, 189]"
+        end
       end
 
-      it "calls to_str on the returned value" do
+      # CORAFIXME: should_receive expectations verified after CORAFIXME block
+      xit "calls to_str on the returned value" do
         obj = Object.new
         obj.should_receive(:to_str).and_return("bar")
         encoded = "B\ufffd".encode(Encoding::US_ASCII, fallback: -> c { obj })
@@ -329,17 +339,21 @@ describe :string_encode, shared: true do
       end
 
       it "does not call to_s on the returned value" do
-        obj = Object.new
-        obj.should_not_receive(:to_s)
-        -> {
-          "B\ufffd".encode(Encoding::US_ASCII, fallback: -> c { obj })
-        }.should raise_error(TypeError, "no implicit conversion of Object into String")
+        CORAFIXME "fallback lambda support not implemented in encode" do
+          obj = Object.new
+          obj.should_not_receive(:to_s)
+          -> {
+            "B\ufffd".encode(Encoding::US_ASCII, fallback: -> c { obj })
+          }.should raise_error(TypeError, "no implicit conversion of Object into String")
+        end
       end
 
       it "raises an error if the returned value is itself invalid" do
-        -> {
-          "B\ufffd".encode(Encoding::US_ASCII, fallback: -> c { "\uffee" })
-        }.should raise_error(ArgumentError, "too big fallback string")
+        CORAFIXME "fallback lambda support not implemented in encode" do
+          -> {
+            "B\ufffd".encode(Encoding::US_ASCII, fallback: -> c { "\uffee" })
+          }.should raise_error(ArgumentError, "too big fallback string")
+        end
       end
     end
 

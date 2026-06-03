@@ -206,9 +206,9 @@ pub fn register(vm: *VM) !void {
     try vm.kernel_module.methods.put(print_sym, MethodEntry.builtin(&builtinKernelPrint, .{ .variadic = 0 }));
 
     const sprintf_sym = try vm.intern("sprintf");
-    try vm.kernel_module.methods.put(sprintf_sym, MethodEntry.builtin(&builtinKernelSprintf, .{ .variadic = 1 }));
+    try vm.kernel_module.methods.put(sprintf_sym, MethodEntry.builtinWithVisibility(&builtinKernelSprintf, .{ .variadic = 1 }, .private));
     const format_sym = try vm.intern("format");
-    try vm.kernel_module.methods.put(format_sym, MethodEntry.builtin(&builtinKernelSprintf, .{ .variadic = 1 }));
+    try vm.kernel_module.methods.put(format_sym, MethodEntry.builtinWithVisibility(&builtinKernelSprintf, .{ .variadic = 1 }, .private));
 
     const open_sym = try vm.intern("open");
     try vm.kernel_module.methods.put(open_sym, MethodEntry.builtinWithVisibility(&builtinKernelOpen, .{ .variadic = 0 }, .private));
@@ -306,6 +306,8 @@ pub fn register(vm: *VM) !void {
     try kernel_singleton.module.methods.put(kernel_string_convert_sym, value.MethodEntry.builtin(&builtinKernelStringConvert, .{ .exact = 1 }));
     try kernel_singleton.module.methods.put(kernel_integer_convert_sym, value.MethodEntry.builtin(&builtinKernelIntegerConvert, .{ .exact = 1 }));
     try kernel_singleton.module.methods.put(kernel_hash_convert_sym, value.MethodEntry.builtin(&builtinKernelHashConvert, .{ .exact = 1 }));
+    try kernel_singleton.module.methods.put(sprintf_sym, MethodEntry.builtin(&builtinKernelSprintf, .{ .variadic = 1 }));
+    try kernel_singleton.module.methods.put(format_sym, MethodEntry.builtin(&builtinKernelSprintf, .{ .variadic = 1 }));
     try kernel_singleton.module.methods.put(autoload_sym, MethodEntry.builtin(&builtinKernelSingletonAutoload, .{ .exact = 2 }));
     try kernel_singleton.module.methods.put(autoload_q_sym, MethodEntry.builtin(&builtinKernelSingletonAutoloadQ, .{ .variadic = 0 }));
     try kernel_singleton.module.methods.put(warn_sym, MethodEntry.builtin(&builtinKernelWarn, .{ .variadic = 0 }));
@@ -1145,11 +1147,12 @@ pub fn builtinKernelPrint(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
 pub fn builtinKernelSprintf(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 1, args.len);
     const format_str = try args[0].coerceToStringValue(vm, "no implicit conversion into String");
-    const format_arg = if (args.len > 1) blk: {
-        const arr = try vm.createArray();
-        arr.elements.appendSlice(vm.gc_allocator, args[1..]) catch return error.Fatal;
-        break :blk Value.fromObject(&arr.object);
-    } else args[0];
+    const arr = try vm.createArray();
+    arr.elements.appendSlice(vm.gc_allocator, args[1..]) catch return error.Fatal;
+    if (try vm.consumeKeywordArgHash()) |kw_hash| {
+        arr.elements.append(vm.gc_allocator, kw_hash) catch return error.Fatal;
+    }
+    const format_arg = Value.fromObject(&arr.object);
     var fmt_args = [_]Value{format_arg};
     return vm.callMethodByName(format_str, "%", fmt_args[0..], null);
 }

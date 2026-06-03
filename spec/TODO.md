@@ -1201,7 +1201,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/kernel/extend_spec.rb
 - [ ] core/kernel/fail_spec.rb
 - [ ] core/kernel/fork_spec.rb
-- [ ] core/kernel/format_spec.rb
+- [-] core/kernel/format_spec.rb
 - [ ] core/kernel/freeze_spec.rb
 - [ ] core/kernel/frozen_spec.rb
 - [ ] core/kernel/gets_spec.rb
@@ -1259,7 +1259,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/kernel/singleton_methods_spec.rb
 - [ ] core/kernel/sleep_spec.rb
 - [ ] core/kernel/spawn_spec.rb
-- [ ] core/kernel/sprintf_spec.rb
+- [-] core/kernel/sprintf_spec.rb
 - [ ] core/kernel/srand_spec.rb
 - [ ] core/kernel/sub_spec.rb
 - [ ] core/kernel/syscall_spec.rb
