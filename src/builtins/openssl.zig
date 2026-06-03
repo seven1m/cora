@@ -218,20 +218,26 @@ fn raiseCurrentSslError(vm: *VM, prefix: []const u8) VMError {
 }
 
 fn sslStateFromReceiver(vm: *VM, receiver: Value) VMError!?*NativeSslSocket {
-    const handle_value = try vm.getInstanceVariable(receiver, "@__ssl_native");
-    if (handle_value.isNil()) return null;
-    if (!handle_value.isInteger()) return error.Fatal;
-    const ptr_value = handle_value.toInteger();
-    if (ptr_value <= 0) return error.Fatal;
-    return @ptrFromInt(@as(usize, @intCast(ptr_value)));
+    const typed_val = try vm.getInstanceVariable(receiver, "@__ssl_native");
+    if (typed_val.isNil()) return null;
+    if (!typed_val.isTypedData()) return error.Fatal;
+    return @ptrCast(@alignCast(typed_val.toTypedDataObject().data));
 }
 
 fn setSslStateOnReceiver(vm: *VM, receiver: Value, state: ?*NativeSslSocket) VMError!void {
-    const value_to_set = if (state) |ptr|
-        Value.integer(@intCast(@intFromPtr(ptr)))
-    else
-        Value.nil();
-    try vm.setInstanceVariable(receiver, "@__ssl_native", value_to_set);
+    if (state) |ptr| {
+        const callbacks = value.TypedDataCallbacks{
+            .dfree = struct {
+                fn destroy(ptr_: *anyopaque) callconv(.c) void {
+                    destroySslState(@ptrCast(@alignCast(ptr_)));
+                }
+            }.destroy,
+        };
+        const obj = try vm.newTypedData(vm.object_class, @ptrCast(ptr), callbacks);
+        try vm.setInstanceVariable(receiver, "@__ssl_native", obj);
+    } else {
+        try vm.setInstanceVariable(receiver, "@__ssl_native", Value.nil());
+    }
 }
 
 fn sslReceiverIo(vm: *VM, receiver: Value) VMError!*value.IoObject {
@@ -1056,8 +1062,7 @@ pub fn builtinOpenSSLSslSocketWriteNonblock(vm: *VM, _: Value, args: []Value, _:
 
 pub fn builtinOpenSSLSslSocketClose(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    if (try sslStateFromReceiver(vm, args[0])) |state| {
-        destroySslState(state);
+    if (try sslStateFromReceiver(vm, args[0])) |_| {
         try setSslStateOnReceiver(vm, args[0], null);
     }
     return Value.nil();
