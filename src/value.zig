@@ -56,6 +56,18 @@ pub const ObjectTypeTag = enum(u8) {
     method,
     unbound_method,
     weak_map,
+    typed_data,
+};
+
+pub const TypedDataCallbacks = struct {
+    dfree: ?*const fn (*anyopaque) callconv(.c) void = null,
+    dmark: ?*const fn (*anyopaque) callconv(.c) void = null,
+};
+
+pub const TypedDataObject = struct {
+    object: Object,
+    data: *anyopaque,
+    callbacks: TypedDataCallbacks,
 };
 
 pub const Object = struct {
@@ -196,6 +208,7 @@ pub const ObjectType = enum {
     io,
     time,
     weak_map,
+    typed_data,
 };
 
 pub const ClassObject = struct {
@@ -704,6 +717,10 @@ pub const Value = struct {
         return self.isObject() and self.objectTypeTag() == .unbound_method;
     }
 
+    pub inline fn isTypedData(self: Value) bool {
+        return self.isObject() and self.objectTypeTag() == .typed_data;
+    }
+
     // -- Convenience extractors for heap types --
 
     pub inline fn toStringObject(self: Value) *StringObject {
@@ -819,6 +836,10 @@ pub const Value = struct {
     }
 
     pub inline fn toInstanceObject(self: Value) *Object {
+        return @ptrFromInt(self.raw);
+    }
+
+    pub inline fn toTypedDataObject(self: Value) *TypedDataObject {
         return @ptrFromInt(self.raw);
     }
 
@@ -1091,6 +1112,7 @@ pub const Value = struct {
                 .time => try writer.print("#<Time:0x{x}>", .{self.raw}),
                 .method => try writer.print("#<Method:0x{x}>", .{self.raw}),
                 .unbound_method => try writer.print("#<UnboundMethod:0x{x}>", .{self.raw}),
+                .typed_data => try writer.print("#<Object:0x{x}>", .{self.raw}),
             }
         } else {
             try writer.print("<unknown>", .{});

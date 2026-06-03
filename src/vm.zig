@@ -5141,7 +5141,7 @@ pub const VM = struct {
                 const offset = readI16From(frame, operands, &operand_cursor);
                 const cond = self.pop();
 
-                    if (cond.isFalsey()) {
+                if (cond.isFalsey()) {
                     try setFrameIp(frame, @intCast(@as(i32, @intCast(frame.ip)) + offset));
                 }
             },
@@ -6900,7 +6900,7 @@ pub const VM = struct {
                     const len = self.stack.items.len;
                     const cond = self.stack.storage[len - 1];
                     self.stack.items = self.stack.storage[0 .. len - 1];
-                if (cond.isFalsey()) {
+                    if (cond.isFalsey()) {
                         f.ip = @intCast(@as(i32, @intCast(f.ip)) + offset);
                     }
                 },
@@ -9677,8 +9677,40 @@ pub const VM = struct {
                 const weak_map = try self.newWeakMap(Value.fromObject(&class_obj.module.object));
                 break :blk Value.fromObject(&weak_map.object);
             },
+            .typed_data => @panic("should not be reachable from user code"),
             .instance => self.newInstance(class_obj),
         };
+    }
+
+    fn typedDataFinalizer(obj: *anyopaque, _: ?*anyopaque) callconv(.c) void {
+        const typed: *value.TypedDataObject = @ptrCast(@alignCast(obj));
+        if (typed.callbacks.dfree) |dfree| {
+            dfree(typed.data);
+        }
+    }
+
+    pub fn newTypedData(
+        self: *VM,
+        class_obj: *ClassObject,
+        data: *anyopaque,
+        callbacks: value.TypedDataCallbacks,
+    ) VMError!Value {
+        const obj = self.gc_allocator.create(value.TypedDataObject) catch return error.Fatal;
+        obj.* = .{
+            .object = .{
+                .type_tag = .typed_data,
+                .flags = 0,
+                .class = class_obj,
+                .singleton_class = null,
+                .instance_variables = null,
+            },
+            .data = data,
+            .callbacks = callbacks,
+        };
+        if (callbacks.dfree != null) {
+            _ = bdwgc.registerFinalizer(&obj.object, typedDataFinalizer, data);
+        }
+        return Value.fromObject(&obj.object);
     }
 
     pub fn newBacktraceLocation(
@@ -10465,6 +10497,7 @@ pub const VM = struct {
             .time => arg.isTime(),
             .method => arg.isMethodObject(),
             .unbound_method => arg.isUnboundMethodObject(),
+            .typed_data => arg.isTypedData(),
         };
         if (!matches) {
             const msg = std.fmt.allocPrint(

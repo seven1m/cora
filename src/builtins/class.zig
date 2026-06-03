@@ -122,7 +122,8 @@ pub fn builtinClassNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
     }
 
     // OtherClass.new(...) instantiates OtherClass and calls initialize.
-    const instance = try vm.newObjectForClass(class_ptr);
+    const class_val = Value.fromObject(&class_ptr.module.object);
+    const instance = try vm.callMethodByName(class_val, "allocate", &[_]Value{}, null);
 
     const initialize_sym = try vm.intern("initialize");
     if (try vm.findMethod(instance, initialize_sym)) |resolved| {
