@@ -9513,6 +9513,11 @@ pub const VM = struct {
             .options = options,
             .regex = result.regex.?,
         };
+        _ = bdwgc.registerFinalizer(&regexp_obj.object, struct {
+            fn free_regex(_: *anyopaque, data: ?*anyopaque) callconv(.c) void {
+                onigmo.free(@ptrCast(@alignCast(data.?)));
+            }
+        }.free_regex, @ptrCast(@alignCast(regexp_obj.regex)));
         return Value.fromObject(&regexp_obj.object);
     }
 
