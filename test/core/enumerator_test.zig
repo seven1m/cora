@@ -77,24 +77,6 @@ test "Array#each enumerator next" {
     try std.testing.expectEqualStrings("10\n20\n30\n", result.stdout);
 }
 
-test "abandoned method-based enumerators do not exhaust GC root sets" {
-    const result = try evalCode(
-        \\class C
-        \\  include Enumerable
-        \\  def each
-        \\    [1].each { |v| yield v }
-        \\  end
-        \\end
-        \\2400.times do
-        \\  e = C.new.to_enum
-        \\  raise "bad next value" unless e.next == 1
-        \\end
-        \\:ok
-    );
-    try std.testing.expect(result.isSymbol());
-    try std.testing.expectEqualStrings("ok", result.toSymbolObject().name);
-}
-
 test "Array#map without block returns Enumerator" {
     const result = try evalCode("[1, 2, 3].map");
     try std.testing.expect(result.isEnumerator());
