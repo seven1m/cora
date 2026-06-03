@@ -23,6 +23,7 @@ const binary_encoding = enc.Encoding{ .ascii_8bit = .{} };
 const NativeSslSocket = struct {
     ssl_ctx: *c.SSL_CTX,
     ssl: *c.SSL,
+    allocator: std.mem.Allocator,
 };
 
 const DigestAlgorithm = enum {
@@ -378,8 +379,8 @@ fn createSslState(vm: *VM, receiver: Value) VMError!*NativeSslSocket {
         }
     }
 
-    const state = std.heap.c_allocator.create(NativeSslSocket) catch return error.Fatal;
-    state.* = .{ .ssl_ctx = ssl_ctx, .ssl = ssl };
+    const state = vm.allocator.create(NativeSslSocket) catch return error.Fatal;
+    state.* = .{ .ssl_ctx = ssl_ctx, .ssl = ssl, .allocator = vm.allocator };
     return state;
 }
 
@@ -387,7 +388,7 @@ fn destroySslState(state: *NativeSslSocket) void {
     _ = c.SSL_shutdown(state.ssl);
     c.SSL_free(state.ssl);
     c.SSL_CTX_free(state.ssl_ctx);
-    std.heap.c_allocator.destroy(state);
+    state.allocator.destroy(state);
 }
 
 fn waitSymbol(vm: *VM, name: []const u8) VMError!Value {
