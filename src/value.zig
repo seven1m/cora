@@ -195,6 +195,7 @@ pub const ObjectType = enum {
     fiber,
     io,
     time,
+    weak_map,
 };
 
 pub const ClassObject = struct {

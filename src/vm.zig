@@ -987,7 +987,7 @@ pub const VM = struct {
         self.object_space_module = object_space_module_val.toModuleObject();
 
         const weak_map_name_sym = try self.intern("WeakMap");
-        const weak_map_class_val = try self.newClass(weak_map_name_sym, self.object_class);
+        const weak_map_class_val = try self.newClassWithType(weak_map_name_sym, self.object_class, .weak_map);
         self.weak_map_class = weak_map_class_val.toClassObject();
 
         const regexp_name_sym = try self.intern("Regexp");
@@ -9637,6 +9637,10 @@ pub const VM = struct {
             .fiber => try self.newFiber(class_obj, null),
             .io => try self.newIo(class_obj, -1, .{ .owns_fd = false, .readable = false, .writable = false }),
             .time => self.newTime(class_obj, 0),
+            .weak_map => blk: {
+                const weak_map = try self.newWeakMap(Value.fromObject(&class_obj.module.object));
+                break :blk Value.fromObject(&weak_map.object);
+            },
             .instance => self.newInstance(class_obj),
         };
     }
