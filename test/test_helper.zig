@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const cora = @import("cora");
 const prism = cora.prism;
 const compiler = cora.compiler;
@@ -109,6 +110,7 @@ pub fn evalFile(path: []const u8, stdout_buf: []u8, stderr_buf: []u8) EvalResult
 
 pub fn evalCodeWithOutputAndPath(ruby_code: []const u8, stdout_buf: []u8, stderr_buf: []u8, source_path: ?[]const u8) EvalResult {
     bdwgc.init();
+    if (builtin.mode != .Debug) bdwgc.disableWarnings();
     defer bdwgc.deinit();
 
     const allocator = getAllocator();

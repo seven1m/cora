@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const prism = @import("prism.zig");
 pub const Value = @import("value.zig").Value;
 const build_options = @import("build_options");
@@ -163,6 +164,7 @@ fn requireLibraries(virtual_machine: *vm.VM, libraries: []const []const u8) !voi
 
 pub fn main(init: std.process.Init) !void {
     bdwgc.init();
+    if (builtin.mode != .Debug) bdwgc.disableWarnings();
     defer bdwgc.deinit();
 
     const allocator = init.gpa;

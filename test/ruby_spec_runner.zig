@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const cora = @import("cora");
 const load_path = cora.load_path;
 const prism = cora.prism;
@@ -279,6 +280,7 @@ fn appendRepoLoadPaths(vm: *VM, io: std.Io) !void {
 
 fn evalCodeWithOutputAndPath(ruby_code: []const u8, stdout_buf: []u8, stderr_buf: []u8, source_path: ?[]const u8) EvalResult {
     bdwgc.init();
+    if (builtin.mode != .Debug) bdwgc.disableWarnings();
     defer bdwgc.deinit();
 
     const allocator = std.heap.page_allocator;
