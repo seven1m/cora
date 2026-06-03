@@ -9361,6 +9361,16 @@ pub const VM = struct {
             .path_encoding = init.path_encoding,
             .sync = init.sync,
         };
+        _ = bdwgc.registerFinalizer(&io_obj.object, struct {
+            fn free_buf(obj: *anyopaque, data: ?*anyopaque) callconv(.c) void {
+                const vm_ptr: *VM = @ptrCast(@alignCast(data.?));
+                const io: *value.IoObject = @ptrCast(@alignCast(obj));
+                if (io.read_buf) |buf| {
+                    vm_ptr.allocator.free(buf);
+                    io.read_buf = null;
+                }
+            }
+        }.free_buf, @ptrCast(@alignCast(self)));
         self.io_objects.append(self.gc_allocator, io_obj) catch return error.Fatal;
         return Value.fromObject(&io_obj.object);
     }
