@@ -8166,12 +8166,23 @@ pub const VM = struct {
             .chunk => |chunk_blk| blk: {
                 const proc_chunk = chunk_blk.chunk;
                 const has_kw = kw_keys != null and kw_values != null and kw_values.?.len > 0;
+                var expanded_args: ?[]Value = null;
+                defer if (expanded_args) |buf| self.allocator.free(buf);
+                var args_to_bind = args;
 
-                // Reject kwargs if the chunk explicitly forbids them or has no keyword params.
                 if (has_kw and !chunkAcceptsKeywords(proc_chunk)) {
-                    const exc = try self.createException(self.argument_error_class, "this method does not accept keyword arguments");
-                    self.setPendingException(exc);
-                    return error.Unwind;
+                    if (proc_chunk.rest_param_index != null) {
+                        const kw_hash = try self.createHashFromKeywordPairs(kw_keys.?, kw_values.?);
+                        const buf = self.allocator.alloc(Value, args.len + 1) catch return error.Fatal;
+                        @memcpy(buf[0..args.len], args);
+                        buf[args.len] = kw_hash;
+                        expanded_args = buf;
+                        args_to_bind = buf;
+                    } else {
+                        const exc = try self.createException(self.argument_error_class, "this method does not accept keyword arguments");
+                        self.setPendingException(exc);
+                        return error.Unwind;
+                    }
                 }
 
                 const saved_stack_len = self.stack.items.len;
@@ -8182,10 +8193,10 @@ pub const VM = struct {
                 const current_frame = self.currentFrame();
                 current_frame.method_name = method_name;
                 current_frame.super_defining_class = defining_class;
-                try self.copyArgumentsWithRestParam(proc_chunk, current_frame, args, .strict);
+                try self.copyArgumentsWithRestParam(proc_chunk, current_frame, args_to_bind, .strict);
                 try self.bindMethodBlockParam(proc_chunk, current_frame, block);
 
-                if (has_kw) {
+                if (has_kw and expanded_args == null) {
                     try self.bindKeywordArguments(proc_chunk, current_frame, kw_keys.?, kw_values.?);
                 } else if (proc_chunk.required_keywords.items.len > 0 or proc_chunk.optional_keywords.items.len > 0 or proc_chunk.keyword_rest_index != null) {
                     var empty = [_]Value{};
@@ -8255,6 +8266,23 @@ pub const VM = struct {
             .builtin => |func| func(self, @constCast(args)),
             .callable => |callable| self.callMethodByName(callable, "call", @constCast(args), block),
             .chunk => |chunk_blk| blk: {
+                const kw_ctx = self.builtin_keyword_ctx;
+                const kw_keys = if (kw_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_keys else null else null;
+                const kw_values = if (kw_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_values else null else null;
+                const has_kw = kw_values != null;
+                var expanded_args: ?[]Value = null;
+                defer if (expanded_args) |buf| self.allocator.free(buf);
+                var args_to_bind = args;
+
+                if (has_kw and !chunkAcceptsKeywords(chunk_blk.chunk) and chunk_blk.chunk.rest_param_index != null) {
+                    const kw_hash = try self.createHashFromKeywordPairs(kw_keys.?, kw_values.?);
+                    const buf = self.allocator.alloc(Value, args.len + 1) catch return error.Fatal;
+                    @memcpy(buf[0..args.len], args);
+                    buf[args.len] = kw_hash;
+                    expanded_args = buf;
+                    args_to_bind = buf;
+                }
+
                 const saved_stack_len = self.stack.items.len;
                 const ft: CallFrame.FrameType = if (chunk_blk.chunk.is_lambda) .lambda else .proc;
                 const next_target_frame_idx = self.frames.items.len;
@@ -8267,7 +8295,13 @@ pub const VM = struct {
 
                 const current_frame = self.currentFrame();
                 const mode: ArityMode = if (chunk_blk.chunk.is_lambda) .strict else .lenient;
-                try self.copyArgumentsWithRestParam(chunk_blk.chunk, current_frame, args, mode);
+                try self.copyArgumentsWithRestParam(chunk_blk.chunk, current_frame, args_to_bind, mode);
+                if (has_kw and expanded_args == null) {
+                    try self.bindKeywordArguments(chunk_blk.chunk, current_frame, kw_keys.?, kw_values.?);
+                } else if (chunk_blk.chunk.required_keywords.items.len > 0 or chunk_blk.chunk.optional_keywords.items.len > 0 or chunk_blk.chunk.keyword_rest_index != null) {
+                    var empty = [_]Value{};
+                    try self.bindKeywordArguments(chunk_blk.chunk, current_frame, empty[0..], empty[0..]);
+                }
 
                 const saved_frame_count = self.frames.items.len - 1;
                 try self.executeUntilReturn(saved_frame_count);
