@@ -20,6 +20,7 @@ Prism AST -> bytecode -> VM execution.
 ## Task Routing
 
 - Compiler, VM, runtime model, memory model: `.agents/reference/architecture.md`
+- Debugging workflow, memory corruption triage: `.agents/reference/debugging.md`
 - TinyCC JIT, eligibility rules, and debug workflow: `.agents/reference/jit.md`
 - Builtins and Ruby-facing conventions: `.agents/reference/builtins.md`
 - Testing, CLI usage, and debug workflow: `.agents/reference/testing.md`
