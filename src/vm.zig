@@ -1646,6 +1646,7 @@ pub const VM = struct {
         try self.hashSetEntry(rbconfig_config, try self.newString("vendorlibdir", false), try self.newString(rbconfig_vendorlibdir, false));
         try self.hashSetEntry(rbconfig_config, try self.newString("sysconfdir", false), try self.newString("/etc", false));
         try self.hashSetEntry(rbconfig_config, try self.newString("mandir", false), try self.newString(rbconfig_mandir, false));
+        try self.hashSetEntry(rbconfig_config, try self.newString("EXEEXT", false), try self.newString("", false));
         try self.hashSetEntry(rbconfig_config, try self.newString("EXECUTABLE_EXTS", false), try self.newString("", false));
         try self.hashSetEntry(rbconfig_config, try self.newString("AR", false), try self.newString("ar", false));
         try self.hashSetEntry(rbconfig_config, try self.newString("STRIP", false), try self.newString("strip", false));
