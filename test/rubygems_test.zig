@@ -65,6 +65,17 @@ test "__send__ preserves call state across Bundler plugin autoload" {
     var threaded: std.Io.Threaded = .init(allocator, .{});
     defer threaded.deinit();
 
+    const gemfile = try std.Io.Dir.cwd().realPathFileAlloc(threaded.io(), "test/support/Gemfile", allocator);
+    defer allocator.free(gemfile);
+
+    const home = try std.Io.Dir.cwd().realPathFileAlloc(threaded.io(), "test", allocator);
+    defer allocator.free(home);
+
+    var env_map = std.process.Environ.Map.init(allocator);
+    defer env_map.deinit();
+    try env_map.put("BUNDLE_GEMFILE", gemfile);
+    try env_map.put("HOME", home);
+
     const code =
         \\require "bundler"
         \\module Bundler
@@ -79,7 +90,8 @@ test "__send__ preserves call state across Bundler plugin autoload" {
     ;
 
     const result = try std.process.run(allocator, threaded.io(), .{
-        .argv = &.{ "zig-out/bin/cora", "-e", code },
+        .argv = &.{ "zig-out/bin/cora", "-Iext/rubygems/bundler/lib", "-e", code },
+        .environ_map = &env_map,
         .stdout_limit = .limited(1024 * 1024),
         .stderr_limit = .limited(1024 * 1024),
     });
@@ -97,6 +109,17 @@ test "Method#call preserves call state across Bundler plugin autoload" {
     var threaded: std.Io.Threaded = .init(allocator, .{});
     defer threaded.deinit();
 
+    const gemfile = try std.Io.Dir.cwd().realPathFileAlloc(threaded.io(), "test/support/Gemfile", allocator);
+    defer allocator.free(gemfile);
+
+    const home = try std.Io.Dir.cwd().realPathFileAlloc(threaded.io(), "test", allocator);
+    defer allocator.free(home);
+
+    var env_map = std.process.Environ.Map.init(allocator);
+    defer env_map.deinit();
+    try env_map.put("BUNDLE_GEMFILE", gemfile);
+    try env_map.put("HOME", home);
+
     const code =
         \\require "bundler"
         \\module Bundler
@@ -111,7 +134,8 @@ test "Method#call preserves call state across Bundler plugin autoload" {
     ;
 
     const result = try std.process.run(allocator, threaded.io(), .{
-        .argv = &.{ "zig-out/bin/cora", "-e", code },
+        .argv = &.{ "zig-out/bin/cora", "-Iext/rubygems/bundler/lib", "-e", code },
+        .environ_map = &env_map,
         .stdout_limit = .limited(1024 * 1024),
         .stderr_limit = .limited(1024 * 1024),
     });
