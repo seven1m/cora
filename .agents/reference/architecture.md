@@ -46,7 +46,7 @@ Prefer not to add new opcodes when an existing mechanism can be extended. When a
 - `Proc#lambda?` is true only for lambdas.
 - `-> {}` and `lambda {}` create lambdas; `proc {}` and `Proc.new {}` create procs.
 
-**Environments:** `Environment` stores locals in a fixed-size 32-slot array, plus `parent` and `lexical_scope`. Environments start stack-allocated and are promoted to heap when captured.
+**Environments:** Frames store locals in stack slots plus a small `env_data` trailer addressed by `ep`. `ep[0]` is the parent environment pointer, `ep[1]` stores lexical-scope/frame context, and `ep[2]` stores `locals_count`. When a closure escapes, that environment is promoted to a heap `HeapEnv` whose layout mirrors the stack layout.
 
 **Lexical scopes:** Lexical scope chains track module/class context for constant lookup.
 
