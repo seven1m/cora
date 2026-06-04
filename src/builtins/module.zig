@@ -576,7 +576,23 @@ fn collectInstanceMethods(
 
     if (receiver.isModule()) {
         const module_obj = receiver.toModuleObject();
+        if (include_super) {
+            var i = module_obj.prepended_modules.items.len;
+            while (i > 0) {
+                i -= 1;
+                const prepended = module_obj.prepended_modules.items[i];
+                try method_reflection.collectMethodsFromTable(vm, &prepended.methods, filter, &names, &seen, &blocked);
+            }
+        }
         try method_reflection.collectMethodsFromTable(vm, &module_obj.methods, filter, &names, &seen, &blocked);
+        if (include_super) {
+            var j = module_obj.included_modules.items.len;
+            while (j > 0) {
+                j -= 1;
+                const included = module_obj.included_modules.items[j];
+                try method_reflection.collectMethodsFromTable(vm, &included.methods, filter, &names, &seen, &blocked);
+            }
+        }
     } else if (receiver.isClass()) {
         const class_obj = receiver.toClassObject();
         var current: ?*ClassObject = class_obj;
@@ -773,7 +789,10 @@ fn setVisibility(vm: *VM, receiver: Value, args: []Value, visibility: MethodVisi
         const entry = if (receiver.isClass()) blk: {
             const resolved = vm.lookupMethod(receiver.toClassObject(), name_sym) orelse break :blk null;
             break :blk resolved.entry;
-        } else getOwnDefinedMethodEntry(methods, name_sym);
+        } else switch (resolveInstanceMethodLookup(vm, receiver, name_sym)) {
+            .found => |lookup| lookup.resolved.entry,
+            .undefined, .not_found => null,
+        };
         const method_entry = entry orelse {
             const msg = std.fmt.allocPrint(
                 vm.gc_allocator,

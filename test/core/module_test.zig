@@ -637,3 +637,30 @@ test "Module instance_methods omits methods undefined via undef_method" {
         try std.testing.expect(!std.mem.eql(u8, name.toSymbolObject().name, "parent_pub"));
     }
 }
+
+test "Module instance method APIs include included module methods by default" {
+    const result = try evalCode(
+        \\module Mixin
+        \\  def mixed; end
+        \\end
+        \\module Host
+        \\  include Mixin
+        \\end
+        \\Host.instance_methods.include?(:mixed)
+    );
+    try std.testing.expect(result.isTruthy());
+}
+
+test "Module private accepts methods from included modules" {
+    const result = try evalCode(
+        \\module Mixin
+        \\  def mixed; end
+        \\end
+        \\module Host
+        \\  include Mixin
+        \\  private(*Mixin.instance_methods(false))
+        \\end
+        \\Host.private_instance_methods.include?(:mixed)
+    );
+    try std.testing.expect(result.isTruthy());
+}
