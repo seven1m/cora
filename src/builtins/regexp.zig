@@ -83,6 +83,8 @@ pub fn register(vm: *VM) !void {
     try regexp_singleton.module.methods.put(new_sym, value.MethodEntry.builtin(&builtinRegexpNew, .{ .variadic = 0 }));
     const escape_sym = try vm.intern("escape");
     try regexp_singleton.module.methods.put(escape_sym, value.MethodEntry.builtin(&builtinRegexpEscape, .{ .exact = 1 }));
+    const quote_sym = try vm.intern("quote");
+    try regexp_singleton.module.methods.put(quote_sym, value.MethodEntry.builtin(&builtinRegexpEscape, .{ .exact = 1 }));
     const last_match_sym = try vm.intern("last_match");
     try regexp_singleton.module.methods.put(last_match_sym, value.MethodEntry.builtin(&builtinRegexpLastMatch, .{ .variadic = 0 }));
     const union_sym = try vm.intern("union");
@@ -143,7 +145,7 @@ fn builtinRegexpNew(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
 fn builtinRegexpEscape(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
 
-    const string_value = try args[0].coerceToStringValue(vm, "no implicit conversion into String");
+    const string_value = try builtinRegexpEscapeCoerceArg(vm, args[0]);
     const string_obj = string_value.toStringObject();
 
     var out: std.ArrayList(u8) = .empty;
@@ -155,13 +157,49 @@ fn builtinRegexpEscape(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
                 out.append(vm.allocator, '\\') catch return error.Fatal;
                 out.append(vm.allocator, b) catch return error.Fatal;
             },
+            ' ', '#', '/' => {
+                out.append(vm.allocator, '\\') catch return error.Fatal;
+                out.append(vm.allocator, b) catch return error.Fatal;
+            },
+            '\t' => {
+                out.appendSlice(vm.allocator, "\\t") catch return error.Fatal;
+            },
+            '\n' => {
+                out.appendSlice(vm.allocator, "\\n") catch return error.Fatal;
+            },
+            '\r' => {
+                out.appendSlice(vm.allocator, "\\r") catch return error.Fatal;
+            },
+            '\x0c' => {
+                out.appendSlice(vm.allocator, "\\f") catch return error.Fatal;
+            },
             else => out.append(vm.allocator, b) catch return error.Fatal,
         }
     }
 
     const escaped = out.toOwnedSlice(vm.allocator) catch return error.Fatal;
     defer vm.allocator.free(escaped);
-    return try vm.newStringWithEncoding(escaped, false, string_obj.encoding);
+
+    const result_encoding = if (enc.isAsciiOnly(escaped))
+        enc.Encoding{ .us_ascii = .{} }
+    else
+        string_obj.encoding;
+
+    return try vm.newStringWithEncoding(escaped, false, result_encoding);
+}
+
+fn builtinRegexpEscapeCoerceArg(vm: *VM, arg: Value) VMError!Value {
+    if (arg.isString()) return arg;
+    if (arg.isSymbol()) return try vm.newString(arg.toSymbolObject().name, false);
+
+    const to_s_value = try vm.callMethodByName(arg, "to_s", &.{}, null);
+    if (to_s_value.isString()) return to_s_value;
+
+    return vm.raiseExceptionFmt(
+        vm.type_error_class,
+        "can't convert {s} into String",
+        .{vm.className(arg)},
+    );
 }
 
 fn builtinRegexpSource(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
