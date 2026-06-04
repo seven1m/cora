@@ -205,6 +205,9 @@ pub fn register(vm: *VM) !void {
     const print_sym = try vm.intern("print");
     try vm.kernel_module.methods.put(print_sym, MethodEntry.builtin(&builtinKernelPrint, .{ .variadic = 0 }));
 
+    const printf_sym = try vm.intern("printf");
+    try vm.kernel_module.methods.put(printf_sym, MethodEntry.builtinWithVisibility(&builtinKernelPrintf, .{ .variadic = 1 }, .private));
+
     const sprintf_sym = try vm.intern("sprintf");
     try vm.kernel_module.methods.put(sprintf_sym, MethodEntry.builtinWithVisibility(&builtinKernelSprintf, .{ .variadic = 1 }, .private));
     const format_sym = try vm.intern("format");
@@ -306,6 +309,7 @@ pub fn register(vm: *VM) !void {
     try kernel_singleton.module.methods.put(kernel_string_convert_sym, value.MethodEntry.builtin(&builtinKernelStringConvert, .{ .exact = 1 }));
     try kernel_singleton.module.methods.put(kernel_integer_convert_sym, value.MethodEntry.builtin(&builtinKernelIntegerConvert, .{ .exact = 1 }));
     try kernel_singleton.module.methods.put(kernel_hash_convert_sym, value.MethodEntry.builtin(&builtinKernelHashConvert, .{ .exact = 1 }));
+    try kernel_singleton.module.methods.put(printf_sym, MethodEntry.builtin(&builtinKernelPrintf, .{ .variadic = 1 }));
     try kernel_singleton.module.methods.put(sprintf_sym, MethodEntry.builtin(&builtinKernelSprintf, .{ .variadic = 1 }));
     try kernel_singleton.module.methods.put(format_sym, MethodEntry.builtin(&builtinKernelSprintf, .{ .variadic = 1 }));
     try kernel_singleton.module.methods.put(autoload_sym, MethodEntry.builtin(&builtinKernelSingletonAutoload, .{ .exact = 2 }));
@@ -1140,6 +1144,15 @@ pub fn builtinKernelSystem(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
 pub fn builtinKernelPrint(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     const stdout_target = vm.globals.get("$stdout") orelse return error.Fatal;
     _ = try vm.callMethodByName(stdout_target, "print", args, null);
+    _ = try vm.callMethodByName(stdout_target, "flush", &[_]Value{}, null);
+    return Value.nil();
+}
+
+pub fn builtinKernelPrintf(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    const stdout_target = vm.globals.get("$stdout") orelse return error.Fatal;
+    const formatted = try builtinKernelSprintf(vm, Value.nil(), args, null);
+    var print_args = [_]Value{formatted};
+    _ = try vm.callMethodByName(stdout_target, "print", &print_args, null);
     _ = try vm.callMethodByName(stdout_target, "flush", &[_]Value{}, null);
     return Value.nil();
 }
