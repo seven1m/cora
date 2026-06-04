@@ -639,9 +639,12 @@ fn digestAlgorithmForReceiver(vm: *VM, receiver: Value) VMError!DigestAlgorithm 
 }
 
 fn digestDupAndFinalize(ctx: *c.EVP_MD_CTX, out: *[64]u8) VMError!usize {
-    const duped = c.EVP_MD_CTX_dup(ctx);
+    const duped = c.EVP_MD_CTX_new();
     if (duped == null) return error.Fatal;
     defer c.EVP_MD_CTX_destroy(duped);
+    if (c.EVP_MD_CTX_copy_ex(duped, ctx) != 1) {
+        return error.Fatal;
+    }
     var len: c_uint = @intCast(out.len);
     if (c.EVP_DigestFinal_ex(duped, out, &len) != 1) {
         return error.Fatal;
