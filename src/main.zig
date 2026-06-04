@@ -63,17 +63,6 @@ fn appendLoadPathIfExists(virtual_machine: *vm.VM, io: std.Io, candidate: []cons
     try virtual_machine.appendLoadPath(path_buffer[0..abs_len]);
 }
 
-fn appendScriptDirectory(virtual_machine: *vm.VM, io: std.Io, script_path: []const u8) !void {
-    var path_buffer: [4096]u8 = undefined;
-    const abs_len = if (std.fs.path.isAbsolute(script_path))
-        std.Io.Dir.realPathFileAbsolute(io, script_path, &path_buffer) catch return
-    else
-        std.Io.Dir.cwd().realPathFile(io, script_path, &path_buffer) catch return;
-    const abs_path = path_buffer[0..abs_len];
-    const dir = std.fs.path.dirname(abs_path) orelse return;
-    try virtual_machine.appendLoadPath(dir);
-}
-
 fn configureLoadPath(
     allocator: std.mem.Allocator,
     virtual_machine: *vm.VM,
@@ -360,11 +349,6 @@ pub fn main(init: std.process.Init) !void {
     }
     virtual_machine.setupOutput();
     try requireLibraries(&virtual_machine, required_libraries.items);
-    if (filename) |path| {
-        try appendScriptDirectory(&virtual_machine, init.io, path);
-        try virtual_machine.syncLoadPathGlobals();
-    }
-
     const result = virtual_machine.run();
 
     const at_exit_result = virtual_machine.runAtExitHandlers();

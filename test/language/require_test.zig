@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const evalCodeWithOutput = @import("../test_helper.zig").evalCodeWithOutput;
+
 test "require loads RubyGems after extending $LOAD_PATH" {
     var gpa: std.heap.DebugAllocator(.{}) = .init;
     defer _ = gpa.deinit();
