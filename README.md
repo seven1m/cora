@@ -1,7 +1,8 @@
 # Cora Ruby Interpreter
 
 This is a Ruby interpreter in Zig, written by various LLMs, fully vibe coded. It's a mess in here. Sorry, not sorry.
-This is my sandbox. I'm not trying to make anything better, faster, or groundbreaking.
+
+This is my sandbox. I'm not trying to make anything better, faster, or groundbreaking. Just something for fun.
 
 The goal is to get a working Ruby interpreter that can pass most or all of [ruby/spec](https://github.com/ruby/spec)
 and to explore just-in-time compilation.
@@ -15,22 +16,24 @@ and to explore just-in-time compilation.
 
 ## What Works
 
-some gems that are known to work (though I haven't tested thoroughly):
+Some gems that are known to work, though I haven't tested each thoroughly:
 
+- rake
+- rubygems and bundler
 - rack and rackup
 - webrick
 - sinatra
 - erb
 - ansi
 
-We are closing on 10,000 ruby specs passing, which by my math is about a third of the way to completion.
+Cora has over on 10,000 ruby specs passing, which by my math is about a third of the way to being a complete Ruby.
 
 ## Prerequisites
 
-You need:
+To build Cora, you'll need:
 
 - Zig
-- `make`
+- GNU make
 - a C toolchain
 - autotools for the bundled Onigmo build, including `autoreconf`
 
@@ -109,6 +112,10 @@ Run matching tests and print each matched test name:
 ```bash
 zig build test -Dtest-filter="Proc" -Dtest-verbose
 ```
+
+## Contributing
+
+Go for it! LLM work welcome.
 
 ## Copyright & License
 
