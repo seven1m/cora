@@ -1885,18 +1885,16 @@ pub fn builtinKernelSleep(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
 
     if (args.len == 0 or args[0].isNil()) {
         const thread = vm.current_thread orelse {
-            try vm.schedulerYield();
+            try vm.sleepCurrentThreadForever();
             return Value.integer(0);
         };
 
         if (vm.main_thread != null and thread == vm.main_thread.?) {
-            // Avoid deadlocking the cooperative scheduler on indefinite main-thread sleep.
-            try vm.schedulerYield();
+            try vm.sleepCurrentThreadForever();
             return Value.integer(0);
         }
 
-        thread.state = .sleeping;
-        try vm.threadYield();
+        try vm.sleepCurrentThreadForever();
         return Value.integer(0);
     }
 
@@ -1910,12 +1908,8 @@ pub fn builtinKernelSleep(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
         return Value.integer(0);
     }
 
-    // Cooperative approximation: yield a bounded number of scheduler slices.
-    var spin_budget: u32 = @intFromFloat(@min(seconds * 1000.0, 1000.0));
-    if (spin_budget == 0) spin_budget = 1;
-    while (spin_budget > 0) : (spin_budget -= 1) {
-        try vm.threadYield();
-    }
+    const duration_ms = @as(i64, @intFromFloat(@ceil(seconds * 1000.0)));
+    try vm.timedSleepCurrentThread(duration_ms);
     return Value.integer(0);
 }
 

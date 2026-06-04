@@ -383,6 +383,7 @@ pub const ThreadObject = struct {
     waiting_on_require: bool = false,
     preempt_requested: bool = false,
     ops_until_preempt: u32 = 0,
+    sleep_deadline_ms: ?i64 = null,
     io_wait: ?IoWait = null,
     args: ?[]Value = null,
     main_fiber: ?*FiberObject = null,

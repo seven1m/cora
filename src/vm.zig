@@ -75,6 +75,25 @@ fn monotonicMilliseconds() i64 {
     return seconds * 1_000 + @divTrunc(nanoseconds, 1_000_000);
 }
 
+fn blockingSleepMilliseconds(self: *VM, sleep_ms: i64) VMError!void {
+    if (sleep_ms <= 0) return;
+
+    var ts = std.posix.timespec{
+        .sec = @intCast(@divTrunc(sleep_ms, 1000)),
+        .nsec = @intCast(@mod(sleep_ms, 1000) * 1_000_000),
+    };
+    while (true) {
+        switch (std.posix.errno(std.posix.system.nanosleep(&ts, &ts))) {
+            .SUCCESS => return,
+            .INTR => {
+                try self.checkAsyncEvents();
+                continue;
+            },
+            else => return,
+        }
+    }
+}
+
 fn initOwnedEnvMap(vm: *VM) VMError!std.process.Environ.Map {
     if (builtin.link_libc and builtin.os.tag != .windows) {
         var env_map = std.process.Environ.Map.init(vm.allocator);
@@ -3960,8 +3979,10 @@ pub const VM = struct {
         main_thread_obj.abort_on_exception = false;
         main_thread_obj.kill_requested = false;
         main_thread_obj.waiting_on_queue = false;
+        main_thread_obj.waiting_on_require = false;
         main_thread_obj.preempt_requested = false;
         main_thread_obj.ops_until_preempt = self.thread_preempt_quantum_ops;
+        main_thread_obj.sleep_deadline_ms = null;
         main_thread_obj.io_wait = null;
         main_thread_obj.args = null;
         main_thread_obj.main_fiber = self.main_fiber;
@@ -4045,6 +4066,7 @@ pub const VM = struct {
         thread_obj.waiting_on_require = false;
         thread_obj.preempt_requested = false;
         thread_obj.ops_until_preempt = self.thread_preempt_quantum_ops;
+        thread_obj.sleep_deadline_ms = null;
         thread_obj.io_wait = null;
         thread_obj.args = null;
         const root_fiber = self.gc_allocator.create(value.FiberObject) catch return error.Fatal;
@@ -4347,9 +4369,9 @@ pub const VM = struct {
         const now_ms = monotonicMilliseconds();
         for (self.thread_list.items) |thread| {
             if (thread.state != .sleeping) continue;
-            const io_wait = thread.io_wait orelse continue;
 
             if (thread.kill_requested) {
+                thread.sleep_deadline_ms = null;
                 thread.io_wait = null;
                 thread.state = .running;
                 self.addRunnableThreadIfAbsent(thread);
@@ -4357,14 +4379,27 @@ pub const VM = struct {
             }
 
             if (thread.async_exception != null) {
+                thread.sleep_deadline_ms = null;
                 thread.io_wait = null;
                 thread.state = .running;
                 self.addRunnableThreadIfAbsent(thread);
                 continue;
             }
 
+            if (thread.sleep_deadline_ms) |deadline_ms| {
+                if (now_ms >= deadline_ms) {
+                    thread.sleep_deadline_ms = null;
+                    thread.io_wait = null;
+                    thread.state = .running;
+                    self.addRunnableThreadIfAbsent(thread);
+                    continue;
+                }
+            }
+
+            const io_wait = thread.io_wait orelse continue;
             if (io_wait.deadline_ms) |deadline_ms| {
                 if (now_ms >= deadline_ms) {
+                    thread.sleep_deadline_ms = null;
                     thread.io_wait = null;
                     thread.state = .running;
                     self.addRunnableThreadIfAbsent(thread);
@@ -4385,8 +4420,94 @@ pub const VM = struct {
             if ((fds[0].revents & ready_mask) == 0) continue;
 
             thread.io_wait = null;
+            thread.sleep_deadline_ms = null;
             thread.state = .running;
             self.addRunnableThreadIfAbsent(thread);
+        }
+    }
+
+    pub fn timedSleepCurrentThread(self: *VM, duration_ms: i64) VMError!void {
+        if (duration_ms <= 0) {
+            try self.threadYield();
+            return;
+        }
+
+        const deadline_ms = monotonicMilliseconds() + duration_ms;
+        const thread = self.current_thread orelse {
+            while (true) {
+                const remaining_ms = deadline_ms - monotonicMilliseconds();
+                if (remaining_ms <= 0) return;
+                try blockingSleepMilliseconds(self, @min(remaining_ms, 10));
+            }
+        };
+
+        thread.sleep_deadline_ms = deadline_ms;
+        defer thread.sleep_deadline_ms = null;
+
+        if (self.main_thread != null and thread == self.main_thread.?) {
+            thread.state = .sleeping;
+            defer {
+                if (thread.state == .sleeping) thread.state = .running;
+            }
+
+            while (thread.state == .sleeping) {
+                try self.checkAsyncEvents();
+                self.wakeSleepingIoWaiters();
+                if (thread.state != .sleeping) break;
+
+                if (self.hasOtherRunnableThread(thread)) {
+                    try self.schedulerYield();
+                    continue;
+                }
+
+                const remaining_ms = deadline_ms - monotonicMilliseconds();
+                if (remaining_ms <= 0) {
+                    thread.state = .running;
+                    break;
+                }
+                try blockingSleepMilliseconds(self, @min(remaining_ms, 10));
+            }
+            return;
+        }
+
+        thread.state = .sleeping;
+        while (thread.state == .sleeping) {
+            try self.threadYield();
+        }
+    }
+
+    pub fn sleepCurrentThreadForever(self: *VM) VMError!void {
+        const thread = self.current_thread orelse {
+            while (true) {
+                try self.checkAsyncEvents();
+                try blockingSleepMilliseconds(self, 100);
+            }
+        };
+
+        if (self.main_thread != null and thread == self.main_thread.?) {
+            thread.state = .sleeping;
+            defer {
+                if (thread.state == .sleeping) thread.state = .running;
+            }
+
+            while (thread.state == .sleeping) {
+                try self.checkAsyncEvents();
+                self.wakeSleepingIoWaiters();
+                if (thread.state != .sleeping) break;
+
+                if (self.hasOtherRunnableThread(thread)) {
+                    try self.schedulerYield();
+                    continue;
+                }
+
+                try blockingSleepMilliseconds(self, 100);
+            }
+            return;
+        }
+
+        thread.state = .sleeping;
+        while (thread.state == .sleeping) {
+            try self.threadYield();
         }
     }
 

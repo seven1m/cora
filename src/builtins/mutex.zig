@@ -182,16 +182,16 @@ fn builtinMutexSleep(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
 
     releaseMutex(vm, mutex);
 
-    const current_thread = vm.current_thread orelse {
+    if (vm.current_thread == null) {
         try acquireMutex(vm, mutex);
         return Value.integer(0);
-    };
+    }
 
     if (timeout == null) {
-        current_thread.state = .sleeping;
-        try vm.threadYield();
+        try vm.sleepCurrentThreadForever();
     } else {
-        try vm.threadYield();
+        const duration_ms = @as(i64, @intFromFloat(@ceil(timeout.? * 1000.0)));
+        try vm.timedSleepCurrentThread(duration_ms);
     }
 
     if (mutex.state == .locked) {

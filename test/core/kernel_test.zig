@@ -663,6 +663,15 @@ test "Kernel#eval returns nil for __dir__ with top-level binding" {
     try std.testing.expect(result.isNil());
 }
 
+test "Kernel#sleep waits for requested duration" {
+    const start_ns = std.Io.Clock.boot.now(std.testing.io).nanoseconds;
+    const result = try evalCode("sleep 0.05");
+    const elapsed_ms = @divTrunc(std.Io.Clock.boot.now(std.testing.io).nanoseconds - start_ns, 1_000_000);
+
+    try std.testing.expect(result.isInteger());
+    try std.testing.expect(elapsed_ms >= 30);
+}
+
 test "File.realpath resolves the executing file directory" {
     const allocator = std.testing.allocator;
     const dir_path = try std.fmt.allocPrint(allocator, "/tmp/cora-file-realpath-{d}", .{uniqueId()});
