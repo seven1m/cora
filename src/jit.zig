@@ -72,9 +72,9 @@ pub fn validateChunk(ch: *chunk_mod.Chunk) !void {
         const op: bytecode.OpCode = @enumFromInt(ch.code.items[ip]);
         switch (op) {
             .GET_LOCAL => {
-                const idx = ch.code.items[ip + 1];
-                if (idx >= ch.locals_count) return error.NotEligible;
-                ip += 2;
+                const ep_offset = readU16(ch.code.items, ip + 1);
+                if (ep_offset == 0 or ep_offset > ch.locals_count) return error.NotEligible;
+                ip += 3;
             },
             .PUSH_I8, .PUSH_SELF, .OPT_EQ, .OPT_PLUS, .OPT_MINUS => {
                 ip += 1 + bytecode.opcodeOperandSize(op);
@@ -134,9 +134,10 @@ pub fn generateChunk(allocator: std.mem.Allocator, ch: *chunk_mod.Chunk) !Genera
         try writer.print("L{d}:\n", .{ip});
         switch (op) {
             .GET_LOCAL => {
-                const idx = ch.code.items[ip + 1];
-                try writer.print("  stack[sp++] = locals[{d}];\n", .{idx});
-                ip += 2;
+                const ep_offset = readU16(ch.code.items, ip + 1);
+                const local_idx = ch.locals_count - ep_offset;
+                try writer.print("  stack[sp++] = locals[{d}];\n", .{local_idx});
+                ip += 3;
             },
             .PUSH_I8 => {
                 const val: i8 = @bitCast(ch.code.items[ip + 1]);

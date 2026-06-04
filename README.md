@@ -90,7 +90,7 @@ zig build -Doptimize=ReleaseSafe
 Build with the optional TinyCC JIT enabled:
 
 ```bash
-zig build -Dtcc-jit=true
+zig build -Doptimize=ReleaseFast -Dtcc-jit=true
 ```
 
 ## Testing
