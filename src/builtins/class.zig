@@ -1,6 +1,7 @@
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 const array_builtin = @import("array.zig");
+const std = @import("std");
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
 const Block = vm_mod.Block;
@@ -31,9 +32,7 @@ fn singletonClassName(vm: *VM, class_ptr: *ClassObject) ?[]const u8 {
 }
 
 pub fn builtinClassNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
-    if (!receiver.isClass()) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Class", .{});
-    }
+    std.debug.assert(receiver.isClass());
 
     const class_ptr = receiver.toClassObject();
 
@@ -146,9 +145,7 @@ pub fn builtinClassEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
 
 pub fn builtinClassSuperclass(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    if (!receiver.isClass()) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Class", .{});
-    }
+    std.debug.assert(receiver.isClass());
     const class_ptr = receiver.toClassObject();
     const superclass = class_ptr.superclass orelse return Value.nil();
     return Value.fromObject(&superclass.module.object);
@@ -156,9 +153,7 @@ pub fn builtinClassSuperclass(vm: *VM, receiver: Value, args: []Value, _: ?Block
 
 pub fn builtinClassAllocate(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    if (!receiver.isClass()) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Class", .{});
-    }
+    std.debug.assert(receiver.isClass());
 
     const class_ptr = receiver.toClassObject();
     if (singletonClassName(vm, class_ptr)) |name| {

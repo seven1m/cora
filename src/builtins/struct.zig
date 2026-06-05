@@ -179,9 +179,7 @@ pub fn register(vm: *VM) !void {
 }
 
 pub fn builtinStructNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
-    if (!receiver.isClass()) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Class", .{});
-    }
+    std.debug.assert(receiver.isClass());
 
     const receiver_class = receiver.toClassObject();
     if (receiver_class != vm.struct_class) {
@@ -240,9 +238,7 @@ pub fn builtinStructSubclassSquareBrackets(vm: *VM, receiver: Value, args: []Val
 
 pub fn builtinStructClassMembers(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    if (!receiver.isClass()) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Class", .{});
-    }
+    std.debug.assert(receiver.isClass());
     return duplicateMembersArray(vm, try getStructMembersForClass(vm, receiver.toClassObject()));
 }
 

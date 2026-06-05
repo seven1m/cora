@@ -46,9 +46,7 @@ pub fn register(vm: *VM) !void {
 // =============================================================================
 
 fn builtinMutexNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
-    if (!receiver.isClass()) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Class", .{});
-    }
+    std.debug.assert(receiver.isClass());
     const mutex_obj = try vm.newMutex(Value.fromObject(&vm.mutex_class.module.object));
     const mutex_val = Value.fromObject(&mutex_obj.object);
     _ = try vm.callMethodByNameForwardingKeywords(mutex_val, "initialize", args, block);

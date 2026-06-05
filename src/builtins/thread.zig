@@ -163,9 +163,7 @@ pub fn register(vm: *VM) !void {
 // =============================================================================
 
 fn builtinThreadNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
-    if (!receiver.isClass()) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Class", .{});
-    }
+    std.debug.assert(receiver.isClass());
     const class_obj = receiver.toClassObject();
     const thread = try vm.newThreadUnstarted(class_obj);
     const thread_val = Value.fromObject(&thread.object);

@@ -1,5 +1,6 @@
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
+const std = @import("std");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -16,9 +17,7 @@ pub fn register(vm: *VM) !void {
 }
 
 pub fn builtinObjectNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
-    if (!receiver.isClass()) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Class", .{});
-    }
+    std.debug.assert(receiver.isClass());
     const class_ptr = receiver.toClassObject();
 
     if (vm.isClassOrSubclassOf(class_ptr, vm.exception_class)) {

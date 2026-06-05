@@ -5082,7 +5082,7 @@ pub const VM = struct {
                 else if (parent_val.isModule())
                     parent_val.toModuleObject()
                 else {
-                    return self.raiseExceptionFmt(self.type_error_class, "receiver is not a Module", .{});
+                    unreachable; // receiver is not a Module
                 };
 
                 if (module.constants.getPtr(name_sym)) |entry| {

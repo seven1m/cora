@@ -1836,9 +1836,7 @@ pub fn builtinArrayProduct(vm: *VM, receiver: Value, args: []Value, blk: ?Block)
 }
 
 pub fn builtinArrayClassBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    if (!receiver.isClass()) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Class", .{});
-    }
+    std.debug.assert(receiver.isClass());
 
     const out = try vm.newObjectForClass(receiver.toClassObject());
     const array = out.toArrayObject();

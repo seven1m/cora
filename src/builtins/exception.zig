@@ -85,9 +85,7 @@ pub fn builtinExceptionInitialize(vm: *VM, receiver: Value, args: []Value, _: ?B
 }
 
 pub fn builtinExceptionClassException(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
-    if (!receiver.isClass()) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Class", .{});
-    }
+    std.debug.assert(receiver.isClass());
 
     const class_obj = receiver.toClassObject();
     if (!vm.isClassOrSubclassOf(class_obj, vm.exception_class)) {

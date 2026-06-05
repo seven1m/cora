@@ -995,9 +995,7 @@ fn buildStrftimeValue(vm: *VM, receiver: Value, format_bytes: []const u8) VMErro
 }
 
 pub fn builtinTimeNew(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    if (!receiver.isClass()) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Class", .{});
-    }
+    std.debug.assert(receiver.isClass());
     const class_obj = receiver.toClassObject();
     if (args.len == 0) {
         // Time.new with no args: current local time
@@ -1063,9 +1061,7 @@ pub fn builtinTimeNew(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
 
 pub fn builtinTimeNow(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    if (!receiver.isClass()) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Class", .{});
-    }
+    std.debug.assert(receiver.isClass());
     const epoch_nanos = currentEpochNanoseconds();
     const epoch_seconds = floorDiv(epoch_nanos, nanos_per_second);
     const offset_nanos = localUtcOffsetNanos(vm.io, epoch_seconds);
@@ -1073,24 +1069,18 @@ pub fn builtinTimeNow(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
 }
 
 pub fn builtinTimeUtc(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    if (!receiver.isClass()) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Class", .{});
-    }
+    std.debug.assert(receiver.isClass());
     return constructUtcTime(vm, receiver.toClassObject(), args);
 }
 
 pub fn builtinTimeLocal(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    if (!receiver.isClass()) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Class", .{});
-    }
+    std.debug.assert(receiver.isClass());
     return constructLocalTime(vm, receiver.toClassObject(), args);
 }
 
 pub fn builtinTimeAt(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    if (!receiver.isClass()) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Class", .{});
-    }
+    std.debug.assert(receiver.isClass());
     const seconds = try coerceNumericSeconds(vm, args[0]);
     const epoch_nanoseconds = @as(i64, @intFromFloat(@floor(seconds * @as(f64, @floatFromInt(nanos_per_second)))));
     return vm.newTime(receiver.toClassObject(), epoch_nanoseconds);
@@ -1098,9 +1088,7 @@ pub fn builtinTimeAt(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
 
 pub fn builtinTimeLoad(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    if (!receiver.isClass()) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Class", .{});
-    }
+    std.debug.assert(receiver.isClass());
     const raw = try args[0].coerceToStr(vm, "no implicit conversion into String");
     const epoch_nanoseconds = parseMarshalDumpedUtcNanoseconds(raw) orelse {
         return vm.raiseExceptionFmt(vm.type_error_class, "marshaled time format differ", .{});

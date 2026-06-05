@@ -494,11 +494,11 @@ fn classLookupChainContains(class_obj: *ClassObject, target: *value.ModuleObject
     return false;
 }
 
-fn receiverModuleForComparison(vm: *VM, receiver: Value) VMError!*value.ModuleObject {
+fn receiverModuleForComparison(_: *VM, receiver: Value) VMError!*value.ModuleObject {
     if (receiver.isClass()) return &receiver.toClassObject().module;
     if (receiver.isModule()) return receiver.toModuleObject();
 
-    return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Module", .{});
+    unreachable; // receiver is not a Module
 }
 
 fn moduleLookupChainContainsValue(target: Value, module_obj: *value.ModuleObject) VMError!bool {
@@ -556,7 +556,7 @@ fn collectInstanceMethods(
         const class_obj = receiver.toClassObject();
         try method_reflection.collectClassChainMethods(vm, class_obj, include_super, filter, true, &names, &seen, &blocked);
     } else {
-        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Module", .{});
+        unreachable; // receiver is not a Module
     }
 
     return method_reflection.sortedSymbolArray(vm, names.items);
@@ -671,7 +671,7 @@ fn setVisibility(vm: *VM, receiver: Value, args: []Value, visibility: MethodVisi
     try normalizeVisibilityArgs(vm, args, &names);
 
     const methods = receiver.getModuleMethods() orelse {
-        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Module", .{});
+        unreachable; // receiver is not a Module
     };
 
     for (names.items) |name_sym| {
@@ -765,7 +765,7 @@ fn setClassMethodVisibility(vm: *VM, receiver: Value, args: []Value, visibility:
     if (args.len == 0) return Value.nil();
 
     if (!receiver.isClass() and !receiver.isModule()) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Module", .{});
+        unreachable; // receiver is not a Module
     }
 
     var names: std.ArrayList(*SymbolObject) = .empty;
@@ -798,7 +798,7 @@ fn setClassMethodVisibility(vm: *VM, receiver: Value, args: []Value, visibility:
 pub fn builtinModuleRuby2Keywords(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireMinArgCount(args, 1);
     const methods = receiver.getModuleMethods() orelse {
-        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Module", .{});
+        unreachable; // receiver is not a Module
     };
 
     for (args) |arg| {
@@ -1097,7 +1097,7 @@ pub fn builtinModuleInitializeCopy(vm: *VM, receiver: Value, args: []Value, _: ?
         return receiver;
     }
 
-    return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Module", .{});
+    unreachable; // receiver is not a Module
 }
 
 pub fn builtinModuleGreaterThan(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -1157,7 +1157,7 @@ pub fn builtinModuleConstants(vm: *VM, receiver: Value, args: []Value, _: ?Block
             current = klass.superclass;
         }
     } else {
-        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Module", .{});
+        unreachable; // receiver is not a Module
     }
 
     method_reflection.sortSymbolsByName(constant_names.items);
@@ -1196,7 +1196,7 @@ pub fn builtinModuleClassVariables(vm: *VM, receiver: Value, args: []Value, _: ?
             current = klass.superclass;
         }
     } else {
-        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Module", .{});
+        unreachable; // receiver is not a Module
     }
 
     method_reflection.sortSymbolsByName(names.items);
@@ -1232,7 +1232,7 @@ pub fn builtinModuleConstDefined(vm: *VM, receiver: Value, args: []Value, _: ?Bl
 pub fn builtinModuleConstSet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 2);
     const constants = constantsTable(receiver) orelse {
-        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Module", .{});
+        unreachable; // receiver is not a Module
     };
 
     const name = try constantNameString(vm, args[0]);
@@ -1301,7 +1301,7 @@ pub fn builtinModuleAutoloadQ(vm: *VM, receiver: Value, args: []Value, _: ?Block
 pub fn builtinModuleRemoveConst(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const constants = constantsTable(receiver) orelse {
-        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Module", .{});
+        unreachable; // receiver is not a Module
     };
 
     const name = try constantNameString(vm, args[0]);
@@ -1346,7 +1346,7 @@ pub fn builtinModuleAncestors(vm: *VM, receiver: Value, args: []Value, _: ?Block
             out.elements.append(vm.gc_allocator, ancestry.visibleValue(node)) catch return error.Fatal;
         }
     } else {
-        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Module", .{});
+        unreachable; // receiver is not a Module
     }
 
     return Value.fromObject(&out.object);
@@ -1461,19 +1461,19 @@ pub fn builtinModuleIncludeQ(vm: *VM, receiver: Value, args: []Value, _: ?Block)
         return Value.boolean(false);
     }
 
-    return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Module", .{});
+    unreachable; // receiver is not a Module
 }
 
 pub fn builtinModuleAppendFeatures(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const receiver_module = receiver.getModuleObject() orelse {
-        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Module", .{});
+        unreachable; // receiver is not a Module
     };
     if (!args[0].isClass() and !args[0].isModule()) {
         return vm.raiseExceptionFmt(vm.type_error_class, "wrong argument type {s} (expected Module)", .{vm.className(args[0])});
     }
     const target = args[0].getModuleObject() orelse {
-        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Module", .{});
+        unreachable; // receiver is not a Module
     };
 
     vm.includeModule(target, receiver_module) catch return error.Fatal;
@@ -1495,9 +1495,6 @@ pub fn builtinModuleIncluded(vm: *VM, _: Value, args: []Value, _: ?Block) VMErro
 
 pub fn builtinModuleExtendObject(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    if (!receiver.isModule()) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Module", .{});
-    }
 
     const singleton_class = try vm.getOrCreateSingletonClass(args[0]);
     if ((singleton_class.module.object.flags & value.Object.FROZEN_FLAG) != 0) {
@@ -1517,7 +1514,7 @@ pub fn builtinModuleExtended(vm: *VM, _: Value, args: []Value, _: ?Block) VMErro
 pub fn builtinModuleInclude(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireMinArgCount(args, 1);
     _ = receiver.getModuleObject() orelse {
-        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Module", .{});
+        unreachable; // receiver is not a Module
     };
     var i = args.len;
     while (i > 0) {
@@ -1536,7 +1533,7 @@ pub fn builtinModuleInclude(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 pub fn builtinModulePrepend(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireSingleArg(args, .module, "Module");
     const target = receiver.getModuleObject() orelse {
-        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Module", .{});
+        unreachable; // receiver is not a Module
     };
     const module = args[0].toModuleObject();
 
@@ -1552,7 +1549,7 @@ pub fn builtinModuleDefineMethod(vm: *VM, receiver: Value, args: []Value, block:
     const visibility = currentDefaultVisibility(vm);
 
     const methods = receiver.getModuleMethods() orelse {
-        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Module", .{});
+        unreachable; // receiver is not a Module
     };
     const module_function_mode = if (vm.current_lexical_scope) |scope| scope.module_function_mode else false;
     const effective_visibility: MethodVisibility = if (module_function_mode) .private else visibility;
@@ -1606,7 +1603,7 @@ pub fn builtinModuleAttrReader(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
     try vm.requireMinArgCount(args, 1);
 
     const methods = receiver.getModuleMethods() orelse {
-        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Module", .{});
+        unreachable; // receiver is not a Module
     };
 
     const result_array = try vm.createArray();
@@ -1634,7 +1631,7 @@ pub fn builtinModuleAttrWriter(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
     try vm.requireMinArgCount(args, 1);
 
     const methods = receiver.getModuleMethods() orelse {
-        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Module", .{});
+        unreachable; // receiver is not a Module
     };
 
     const result_array = try vm.createArray();
@@ -1664,7 +1661,7 @@ pub fn builtinModuleAttrAccessor(vm: *VM, receiver: Value, args: []Value, _: ?Bl
     try vm.requireMinArgCount(args, 1);
 
     const methods = receiver.getModuleMethods() orelse {
-        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Module", .{});
+        unreachable; // receiver is not a Module
     };
 
     const result_array = try vm.createArray();
@@ -1703,7 +1700,7 @@ pub fn builtinModuleAttrAccessor(vm: *VM, receiver: Value, args: []Value, _: ?Bl
 
 pub fn builtinModuleAttr(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     const methods = receiver.getModuleMethods() orelse {
-        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Module", .{});
+        unreachable; // receiver is not a Module
     };
 
     const visibility = currentDefaultVisibility(vm);
@@ -1768,7 +1765,7 @@ pub fn builtinModuleAliasMethod(vm: *VM, receiver: Value, args: []Value, _: ?Blo
 
     // Get method table from receiver (class or module)
     const methods = receiver.getModuleMethods() orelse {
-        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Module", .{});
+        unreachable; // receiver is not a Module
     };
     if (!receiver.isClass() and !receiver.isModule()) {
         unreachable;
@@ -1795,7 +1792,7 @@ pub fn builtinModuleAliasMethod(vm: *VM, receiver: Value, args: []Value, _: ?Blo
 
 pub fn builtinModuleUndefMethod(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     const methods = receiver.getModuleMethods() orelse {
-        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Module", .{});
+        unreachable; // receiver is not a Module
     };
 
     if (args.len == 0) return receiver;
@@ -1836,7 +1833,7 @@ pub fn builtinModuleRemoveMethod(vm: *VM, receiver: Value, args: []Value, _: ?Bl
     try vm.requireMinArgCount(args, 1);
 
     const methods = receiver.getModuleMethods() orelse {
-        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Module", .{});
+        unreachable; // receiver is not a Module
     };
 
     for (args) |arg| {
@@ -1881,7 +1878,7 @@ fn setConstantVisibility(vm: *VM, receiver: Value, args: []Value, private: bool)
     try vm.requireMinArgCount(args, 1);
 
     const constants = constantsTable(receiver) orelse {
-        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Module", .{});
+        unreachable; // receiver is not a Module
     };
     var names: std.ArrayList(*SymbolObject) = .empty;
     defer names.deinit(vm.gc_allocator);
@@ -1917,7 +1914,7 @@ pub fn builtinModuleDeprecateConstant(vm: *VM, receiver: Value, args: []Value, _
     try vm.requireMinArgCount(args, 1);
 
     const constants = constantsTable(receiver) orelse {
-        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Module", .{});
+        unreachable; // receiver is not a Module
     };
     var names: std.ArrayList(*SymbolObject) = .empty;
     defer names.deinit(vm.gc_allocator);
@@ -2016,7 +2013,7 @@ pub fn builtinModuleExec(vm: *VM, receiver: Value, args: []Value, block: ?Block)
 pub fn builtinModuleClassVariableGet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const receiver_module = moduleFromValue(receiver) orelse {
-        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Module", .{});
+        unreachable; // receiver is not a Module
     };
     const name = try classVariableNameString(vm, args[0]);
     const name_sym = try vm.intern(name);
@@ -2027,7 +2024,7 @@ pub fn builtinModuleClassVariableGet(vm: *VM, receiver: Value, args: []Value, _:
 pub fn builtinModuleClassVariableSet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 2);
     const receiver_module = moduleFromValue(receiver) orelse {
-        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Module", .{});
+        unreachable; // receiver is not a Module
     };
     const name = try classVariableNameString(vm, args[0]);
     const name_sym = try vm.intern(name);

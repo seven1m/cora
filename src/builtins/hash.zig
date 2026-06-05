@@ -486,9 +486,7 @@ fn populateHashFromPairsArray(vm: *VM, target: *value.HashObject, array_obj: *va
 }
 
 pub fn builtinHashConstructor(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    if (!receiver.isClass()) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Class", .{});
-    }
+    std.debug.assert(receiver.isClass());
 
     const result = try vm.newObjectForClass(receiver.toClassObject());
     const hash_obj = result.toHashObject();

@@ -77,9 +77,7 @@ pub fn register(vm: *VM) !void {
 }
 
 fn builtinQueueNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
-    if (!receiver.isClass()) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Class", .{});
-    }
+    std.debug.assert(receiver.isClass());
     const queue_obj = try vm.newQueue(receiver);
     const queue_val = Value.fromObject(&queue_obj.object);
     _ = try vm.callMethodByNameForwardingKeywords(queue_val, "initialize", args, block);

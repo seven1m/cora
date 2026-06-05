@@ -31,9 +31,7 @@ pub fn register(vm: *VM) !void {
 }
 
 fn builtinConditionVariableNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
-    if (!receiver.isClass()) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Class", .{});
-    }
+    std.debug.assert(receiver.isClass());
     const cv_obj = try vm.newConditionVariable(receiver);
     const cv_val = Value.fromObject(&cv_obj.object);
     _ = try vm.callMethodByNameForwardingKeywords(cv_val, "initialize", args, block);
