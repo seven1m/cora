@@ -2605,9 +2605,13 @@ pub fn builtinArrayUnion(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
 }
 
 pub fn builtinArrayMinus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireSingleArg(args, .array, "Array");
     const left = receiver.toArrayObject();
-    const right = args[0].toArrayObject();
+    const right_val = switch (try vm.probeToAry(args[0])) {
+        .array => |v| v,
+        .missing => return vm.raiseExceptionFmt(vm.type_error_class, "wrong argument type {s} (expected Array)", .{vm.className(args[0])}),
+        .nil_result => return Value.fromObject(&(try vm.createArray()).object),
+    };
+    const right = right_val.toArrayObject();
     const result = try vm.createArray();
 
     for (left.elements.items) |elem| {
