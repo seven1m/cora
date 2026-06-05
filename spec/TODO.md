@@ -1009,7 +1009,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/integer/denominator_spec.rb
 - [-] core/integer/digits_spec.rb
 - [x] core/integer/div_spec.rb
-- [ ] core/integer/divide_spec.rb
+- [x] core/integer/divide_spec.rb
 - [-] core/integer/divmod_spec.rb (CORAFIXME: float remainder precision for large bignums)
 - [x] core/integer/downto_spec.rb
 - [x] core/integer/dup_spec.rb

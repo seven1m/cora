@@ -1075,6 +1075,9 @@ pub fn builtinIntegerRightShift(vm: *VM, receiver: Value, args: []Value, _: ?Blo
 pub fn builtinIntegerDivide(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     try receiver.ensureInteger(vm);
+    if (!args[0].isInteger() and !args[0].isBigInteger() and !args[0].isFloat() and !args[0].isRational()) {
+        return coerceAndCallIntegerArithmetic(vm, receiver, args[0], "/");
+    }
     if (args[0].isRational()) {
         const rhs_rational = args[0].toRationalObject();
         const rhs_num = rhs_rational.numerator;
