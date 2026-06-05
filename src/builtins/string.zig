@@ -292,6 +292,12 @@ pub fn register(vm: *VM) !void {
     const string_rindex_sym = try vm.intern("rindex");
     try vm.string_class.module.methods.put(string_rindex_sym, value.MethodEntry.builtin(&builtinStringRindex, .{ .variadic = 0 }));
 
+    const string_byteindex_sym = try vm.intern("byteindex");
+    try vm.string_class.module.methods.put(string_byteindex_sym, value.MethodEntry.builtin(&builtinStringByteindex, .{ .variadic = 0 }));
+
+    const string_byterindex_sym = try vm.intern("byterindex");
+    try vm.string_class.module.methods.put(string_byterindex_sym, value.MethodEntry.builtin(&builtinStringByterindex, .{ .variadic = 0 }));
+
     const string_partition_sym = try vm.intern("partition");
     try vm.string_class.module.methods.put(string_partition_sym, value.MethodEntry.builtin(&builtinStringPartition, .{ .exact = 1 }));
     const string_rpartition_sym = try vm.intern("rpartition");
@@ -5788,6 +5794,144 @@ pub fn builtinStringRindex(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     }
 
     return if (result_char_pos) |cp| Value.integer(cp) else Value.nil();
+}
+
+pub fn builtinStringByteindex(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+    const string_obj = receiver.toStringObject();
+    const str_len_i64: i64 = @intCast(string_obj.str.len);
+
+    const raw_offset = if (args.len == 2)
+        try args[1].coerceToI64ViaToInt(
+            vm,
+            "no implicit conversion into Integer",
+            "no implicit conversion into Integer",
+            "bignum too big to convert into `long`",
+        )
+    else
+        null;
+
+    const offset: i64 = blk: {
+        var pos = raw_offset orelse 0;
+        if (pos < 0) pos += str_len_i64;
+        if (pos < 0 or pos > str_len_i64) {
+            if (args[0].isRegexp()) try vm.clearLastMatch();
+            return Value.nil();
+        }
+        break :blk pos;
+    };
+    const offset_usize: usize = @intCast(offset);
+
+    // Validate byte offset is on a character boundary (but allow end-of-string).
+    if (offset_usize > 0 and offset_usize < string_obj.str.len and !string_obj.encoding.isCharBoundary(string_obj.str, offset_usize)) {
+        return vm.raiseExceptionFmt(vm.index_error_class, "offset {d} does not land on character boundary", .{offset_usize});
+    }
+
+    if (args[0].isRegexp()) {
+        return regexp_builtin.regexpMatchOpAtByte(vm, args[0].toRegexpObject(), receiver, offset_usize, true);
+    }
+
+    const needle_value = try args[0].coerceToStringValue(vm, "no implicit conversion into String");
+    const needle_obj = needle_value.toStringObject();
+    const needle = needle_obj.str;
+
+    if (enc.negotiate(string_obj.encoding, string_obj.str, needle_obj.encoding, needle) == null) {
+        return vm.raiseEncodingCompatibilityError(string_obj.encoding, needle_obj.encoding);
+    }
+
+    if (needle.len == 0) {
+        return Value.integer(offset);
+    }
+
+    if (offset_usize > string_obj.str.len or needle.len > string_obj.str.len -| offset_usize) {
+        return Value.nil();
+    }
+
+    if (needle.len > string_obj.str.len) {
+        return Value.nil();
+    }
+
+    const found = std.mem.indexOfPos(u8, string_obj.str, offset_usize, needle);
+    if (found) |pos| {
+        const pos_i64: i64 = @intCast(pos);
+        return Value.integer(pos_i64);
+    }
+    return Value.nil();
+}
+
+pub fn builtinStringByterindex(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+    const string_obj = receiver.toStringObject();
+    const str_len_i64: i64 = @intCast(string_obj.str.len);
+
+    const raw_offset = if (args.len == 2)
+        try args[1].coerceToI64ViaToInt(
+            vm,
+            "no implicit conversion into Integer",
+            "no implicit conversion into Integer",
+            "bignum too big to convert into `long`",
+        )
+    else
+        null;
+
+    // Compute max byte offset for backward search.
+    const max_byte: i64 = blk: {
+        var pos = raw_offset orelse str_len_i64;
+        if (pos < 0) pos += str_len_i64;
+        if (pos < 0) {
+            if (args[0].isRegexp()) try vm.clearLastMatch();
+            return Value.nil();
+        }
+        if (pos > str_len_i64) pos = str_len_i64;
+        break :blk pos;
+    };
+    const max_byte_usize: usize = @intCast(max_byte);
+
+    // Validate byte offset is on a character boundary (but allow end-of-string).
+    if (max_byte_usize > 0 and max_byte_usize < string_obj.str.len and !string_obj.encoding.isCharBoundary(string_obj.str, max_byte_usize)) {
+        return vm.raiseExceptionFmt(vm.index_error_class, "offset {d} does not land on character boundary", .{max_byte_usize});
+    }
+
+    // Regexp case
+    if (args[0].isRegexp()) {
+        return regexp_builtin.regexpRindexAtByte(vm, args[0].toRegexpObject(), receiver, max_byte, true);
+    }
+
+    // String case
+    const needle_value = try args[0].coerceToStringValue(vm, "no implicit conversion into String");
+    const needle_obj = needle_value.toStringObject();
+    const needle = needle_obj.str;
+
+    if (enc.negotiate(string_obj.encoding, string_obj.str, needle_obj.encoding, needle) == null) {
+        return vm.raiseEncodingCompatibilityError(string_obj.encoding, needle_obj.encoding);
+    }
+
+    // Empty needle: return the max byte position (clamped to str_len for positive, 0 for negative after normalize).
+    if (needle.len == 0) {
+        return Value.integer(max_byte);
+    }
+
+    if (needle.len > string_obj.str.len) {
+        return Value.nil();
+    }
+
+    // Search backward for the rightmost occurrence starting at byte <= max_byte.
+    // Search in window [0, @min(max_byte + needle.len, str.len)].
+    const window_end = @min(max_byte_usize + needle.len, string_obj.str.len);
+    const haystack = string_obj.str[0..window_end];
+
+    var result_byte: ?i64 = null;
+    var pos: usize = 0;
+    while (pos + needle.len <= haystack.len) {
+        const found = std.mem.indexOfPos(u8, haystack, pos, needle) orelse break;
+        const found_i64: i64 = @intCast(found);
+        if (found_i64 <= max_byte) {
+            result_byte = found_i64;
+        }
+        pos = found + 1;
+    }
+
+    return if (result_byte) |b| Value.integer(b) else Value.nil();
 }
 
 pub fn builtinStringPartition(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

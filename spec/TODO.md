@@ -1951,8 +1951,8 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/string/append_spec.rb
 - [x] core/string/ascii_only_spec.rb
 - [x] core/string/b_spec.rb
-- [ ] core/string/byteindex_spec.rb
-- [ ] core/string/byterindex_spec.rb
+- [x] core/string/byteindex_spec.rb
+- [x] core/string/byterindex_spec.rb
 - [x] core/string/bytes_spec.rb
 - [x] core/string/bytesize_spec.rb
 - [x] core/string/byteslice_spec.rb
