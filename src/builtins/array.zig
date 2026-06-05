@@ -717,6 +717,9 @@ pub fn register(vm: *VM) !void {
     const min_sym = try vm.intern("min");
     try vm.array_class.module.methods.put(min_sym, value.MethodEntry.builtin(&builtinArrayMin, .{ .exact = 0 }));
 
+    const minmax_sym = try vm.intern("minmax");
+    try vm.array_class.module.methods.put(minmax_sym, value.MethodEntry.builtin(&builtinArrayMinMax, .{ .exact = 0 }));
+
     const reverse_sym = try vm.intern("reverse");
     try vm.array_class.module.methods.put(reverse_sym, value.MethodEntry.builtin(&builtinArrayReverse, .{ .exact = 0 }));
 
@@ -3183,6 +3186,53 @@ pub fn builtinArrayMin(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
         if (try arrayValueLessThan(vm, item, min)) min = item;
     }
     return min;
+}
+
+pub fn builtinArrayMinMax(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const array = receiver.toArrayObject();
+    const items = array.elements.items;
+
+    if (items.len == 0) {
+        const result = try vm.createArray();
+        result.elements.append(vm.gc_allocator, Value.nil()) catch return error.Fatal;
+        result.elements.append(vm.gc_allocator, Value.nil()) catch return error.Fatal;
+        return Value.fromObject(&result.object);
+    }
+
+    var min = items[0];
+    var max = items[0];
+
+    if (block) |blk| {
+        for (items[1..]) |item| {
+            {
+                const yield_args = [_]Value{ item, min };
+                const yielded = try vm.yieldToBlock(blk, &yield_args);
+                if (yielded.controlFlowValue()) |return_value| return return_value;
+                if ((try arraySortBlockResultSign(vm, yielded.value)) < 0) min = item;
+            }
+            {
+                const yield_args = [_]Value{ item, max };
+                const yielded = try vm.yieldToBlock(blk, &yield_args);
+                if (yielded.controlFlowValue()) |return_value| return return_value;
+                if ((try arraySortBlockResultSign(vm, yielded.value)) > 0) max = item;
+            }
+        }
+        const result = try vm.createArray();
+        result.elements.append(vm.gc_allocator, min) catch return error.Fatal;
+        result.elements.append(vm.gc_allocator, max) catch return error.Fatal;
+        return Value.fromObject(&result.object);
+    }
+
+    for (items[1..]) |item| {
+        if (try arrayValueLessThan(vm, item, min)) min = item;
+        if (try arrayValueLessThan(vm, max, item)) max = item;
+    }
+
+    const result = try vm.createArray();
+    result.elements.append(vm.gc_allocator, min) catch return error.Fatal;
+    result.elements.append(vm.gc_allocator, max) catch return error.Fatal;
+    return Value.fromObject(&result.object);
 }
 
 const SortBlockCompareResult = union(enum) {
