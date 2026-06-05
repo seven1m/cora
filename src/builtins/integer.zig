@@ -69,10 +69,19 @@ fn compareIntegerRelational(vm: *VM, receiver: Value, arg: Value, op_name: []con
             },
             .float => |f| {
                 const lhs = receiver.integerToF64();
-                if (std.mem.eql(u8, op_name, "<")) return Value.boolean(lhs < f);
-                if (std.mem.eql(u8, op_name, "<=")) return Value.boolean(lhs <= f);
-                if (std.mem.eql(u8, op_name, ">")) return Value.boolean(lhs > f);
-                if (std.mem.eql(u8, op_name, ">=")) return Value.boolean(lhs >= f);
+                if (lhs != f) {
+                    if (std.mem.eql(u8, op_name, "<")) return Value.boolean(lhs < f);
+                    if (std.mem.eql(u8, op_name, "<=")) return Value.boolean(lhs <= f);
+                    if (std.mem.eql(u8, op_name, ">")) return Value.boolean(lhs > f);
+                    if (std.mem.eql(u8, op_name, ">=")) return Value.boolean(lhs >= f);
+                    unreachable;
+                }
+                const float_as_int = try vm.callMethodByName(arg, "to_i", &.{}, null);
+                const ord = try compareIntegers(vm, receiver, float_as_int);
+                if (std.mem.eql(u8, op_name, "<")) return Value.boolean(ord == .lt);
+                if (std.mem.eql(u8, op_name, "<=")) return Value.boolean(ord == .lt or ord == .eq);
+                if (std.mem.eql(u8, op_name, ">")) return Value.boolean(ord == .gt);
+                if (std.mem.eql(u8, op_name, ">=")) return Value.boolean(ord == .gt or ord == .eq);
                 unreachable;
             },
         };
