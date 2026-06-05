@@ -21,6 +21,8 @@ pub fn register(vm: *VM) !void {
     try enumerable_val.toModuleObject().methods.put(select_sym, value.MethodEntry.builtin(&builtinEnumerableSelect, .{ .exact = 0 }));
     const find_all_sym = try vm.intern("find_all");
     try enumerable_val.toModuleObject().methods.put(find_all_sym, value.MethodEntry.builtin(&builtinEnumerableSelect, .{ .exact = 0 }));
+    const filter_sym = try vm.intern("filter");
+    try enumerable_val.toModuleObject().methods.put(filter_sym, value.MethodEntry.builtin(&builtinEnumerableSelect, .{ .exact = 0 }));
     const any_sym = try vm.intern("any?");
     try enumerable_val.toModuleObject().methods.put(any_sym, value.MethodEntry.builtin(&builtinEnumerableAny, .{ .variadic = 0 }));
     const all_sym = try vm.intern("all?");
