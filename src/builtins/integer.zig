@@ -657,6 +657,9 @@ pub fn register(vm: *VM) !void {
     const div_sym = try vm.intern("div");
     try vm.integer_class.module.methods.put(div_sym, value.MethodEntry.builtin(&builtinIntegerDiv, .{ .exact = 1 }));
 
+    const fdiv_sym = try vm.intern("fdiv");
+    try vm.integer_class.module.methods.put(fdiv_sym, value.MethodEntry.builtin(&builtinIntegerFdiv, .{ .exact = 1 }));
+
     const ceil_sym = try vm.intern("ceil");
     try integer_singleton.module.methods.put(ceil_sym, value.MethodEntry.builtin(&builtinIntegerCeil, .{ .variadic = 0 }));
     try vm.integer_class.module.methods.put(ceil_sym, value.MethodEntry.builtin(&builtinIntegerCeil, .{ .variadic = 0 }));
@@ -1094,6 +1097,78 @@ pub fn builtinIntegerDivide(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
         },
         .float => |divisor| try vm.newFloat(receiver.integerToF64() / divisor),
     };
+}
+
+fn getIntegerAbsManaged(vm: *VM, val: Value) !BigInt {
+    var result = BigInt.init(vm.allocator) catch return error.Fatal;
+    if (val.isInteger()) {
+        const i = val.toInteger();
+        result.set(@as(u64, @intCast(if (i < 0) -i else i))) catch return error.Fatal;
+    } else if (val.isBigInteger()) {
+        result.copy(val.toBigIntegerObject().value.toConst()) catch return error.Fatal;
+        if (!result.isPositive()) result.negate();
+    } else {
+        unreachable;
+    }
+    return result;
+}
+
+fn fdivBigInts(vm: *VM, a: Value, b: Value) !f64 {
+    const a_neg = integerIsNegative(a);
+    const b_neg = integerIsNegative(b);
+    const sign: f64 = if (a_neg != b_neg) -1.0 else 1.0;
+
+    var a_abs = try getIntegerAbsManaged(vm, a);
+    defer a_abs.deinit();
+    var b_abs = try getIntegerAbsManaged(vm, b);
+    defer b_abs.deinit();
+
+    const bits_a = a_abs.bitCountAbs();
+    const bits_b = b_abs.bitCountAbs();
+
+    const mantissa_bits: u64 = 53;
+    const scale_a: u64 = if (bits_a > mantissa_bits) bits_a - mantissa_bits else 0;
+    const scale_b: u64 = if (bits_b > mantissa_bits) bits_b - mantissa_bits else 0;
+
+    if (scale_a > 0) a_abs.shiftRight(&a_abs, scale_a) catch return error.Fatal;
+    if (scale_b > 0) b_abs.shiftRight(&b_abs, scale_b) catch return error.Fatal;
+
+    const a_f = a_abs.toFloat(f64, .nearest_even)[0];
+    const b_f = b_abs.toFloat(f64, .nearest_even)[0];
+
+    var result = a_f / b_f;
+    const exp_diff: i64 = @as(i64, @intCast(scale_a)) - @as(i64, @intCast(scale_b));
+    if (exp_diff > 0) {
+        result *= std.math.exp2(@as(f64, @floatFromInt(exp_diff)));
+    } else if (exp_diff < 0) {
+        result /= std.math.exp2(@as(f64, @floatFromInt(-exp_diff)));
+    }
+
+    return sign * result;
+}
+
+pub fn builtinIntegerFdiv(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    try receiver.ensureInteger(vm);
+    if (args[0].isRational()) {
+        const rhs_rational = args[0].toRationalObject();
+        const rhs_num_f = rhs_rational.numerator.integerToF64();
+        const rhs_den_f = rhs_rational.denominator.integerToF64();
+        return try vm.newFloat(receiver.integerToF64() * rhs_den_f / rhs_num_f);
+    }
+    if (args[0].isFloat()) {
+        return try vm.newFloat(receiver.integerToF64() / args[0].toFloatObject().val);
+    }
+    if (args[0].isInteger() or args[0].isBigInteger()) {
+        const lhs_f = receiver.integerToF64();
+        const rhs_f = args[0].integerToF64();
+        if (std.math.isFinite(lhs_f) and std.math.isFinite(rhs_f)) {
+            return try vm.newFloat(lhs_f / rhs_f);
+        }
+        const result = try fdivBigInts(vm, receiver, args[0]);
+        return try vm.newFloat(result);
+    }
+    return coerceAndCallIntegerArithmetic(vm, receiver, args[0], "fdiv");
 }
 
 pub fn builtinIntegerModulo(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

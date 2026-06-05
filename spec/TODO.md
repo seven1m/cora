@@ -1017,7 +1017,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/integer/equal_value_spec.rb
 - [x] core/integer/even_spec.rb
 - [ ] core/integer/exponent_spec.rb
-- [ ] core/integer/fdiv_spec.rb
+- [x] core/integer/fdiv_spec.rb
 - [x] core/integer/floor_spec.rb
 - [x] core/integer/gcd_spec.rb
 - [x] core/integer/lcm_spec.rb
