@@ -325,6 +325,9 @@ pub fn register(vm: *VM) !void {
     const gt_sym = try vm.intern(">");
     try vm.hash_class.module.methods.put(gt_sym, value.MethodEntry.builtin(&builtinHashGreaterThan, .{ .exact = 1 }));
 
+    const deconstruct_keys_sym = try vm.intern("deconstruct_keys");
+    try vm.hash_class.module.methods.put(deconstruct_keys_sym, value.MethodEntry.builtin(&builtinHashDeconstructKeys, .{ .exact = 1 }));
+
     const gte_sym = try vm.intern(">=");
     try vm.hash_class.module.methods.put(gte_sym, value.MethodEntry.builtin(&builtinHashGreaterThanOrEqual, .{ .exact = 1 }));
 }
@@ -1741,6 +1744,11 @@ pub fn builtinHashExcept(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     }
 
     return Value.fromObject(&result_hash.object);
+}
+
+pub fn builtinHashDeconstructKeys(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    return receiver;
 }
 
 pub fn builtinHashRehash(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
