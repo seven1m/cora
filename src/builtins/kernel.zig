@@ -381,6 +381,12 @@ pub fn register(vm: *VM) !void {
     const tap_sym = try vm.intern("tap");
     try vm.kernel_module.methods.put(tap_sym, MethodEntry.builtin(&builtinKernelTap, .{ .exact = 0 }));
 
+    const then_sym = try vm.intern("then");
+    try vm.kernel_module.methods.put(then_sym, MethodEntry.builtin(&builtinKernelThen, .{ .exact = 0 }));
+
+    const yield_self_sym = try vm.intern("yield_self");
+    try vm.kernel_module.methods.put(yield_self_sym, MethodEntry.builtin(&builtinKernelThen, .{ .exact = 0 }));
+
     const send_sym = try vm.intern("send");
     try vm.kernel_module.methods.put(send_sym, MethodEntry.builtin(&builtinKernelSend, .{ .variadic = 0 }));
 
@@ -1936,6 +1942,17 @@ pub fn builtinKernelTap(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
     const result = try vm.yieldToBlock(blk, &[_]Value{receiver});
     if (result.controlFlowValue()) |return_value| return return_value;
     return receiver;
+}
+
+pub fn builtinKernelThen(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    if (block) |blk| {
+        const result = try vm.yieldToBlock(blk, &[_]Value{receiver});
+        if (result.controlFlowValue()) |return_value| return return_value;
+        return result.value;
+    }
+    const then_sym = try vm.intern("then");
+    return vm.createMethodEnumeratorWithSize(receiver, then_sym, &.{}, Value.integer(1));
 }
 
 pub fn builtinKernelSend(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {

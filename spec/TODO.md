@@ -1270,7 +1270,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/kernel/tainted_spec.rb
 - [-] core/kernel/tap_spec.rb
 - [ ] core/kernel/test_spec.rb
-- [ ] core/kernel/then_spec.rb
+- [-] core/kernel/then_spec.rb
 - [ ] core/kernel/throw_spec.rb
 - [x] core/kernel/to_enum_spec.rb
 - [ ] core/kernel/to_s_spec.rb
@@ -1282,7 +1282,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/kernel/untrust_spec.rb
 - [ ] core/kernel/untrusted_spec.rb
 - [-] core/kernel/warn_spec.rb
-- [ ] core/kernel/yield_self_spec.rb
+- [-] core/kernel/yield_self_spec.rb
 
 ### core/main
 - [ ] core/main/define_method_spec.rb
