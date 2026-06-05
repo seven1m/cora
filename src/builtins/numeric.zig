@@ -45,7 +45,7 @@ pub fn register(vm: *VM) !void {
 
 pub fn builtinNumericIntegerQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    return Value.boolean(receiver.isInteger());
+    return Value.boolean(receiver.isInteger() or receiver.isBigInteger());
 }
 
 pub fn builtinNumericZero(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
