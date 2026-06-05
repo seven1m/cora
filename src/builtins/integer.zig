@@ -657,6 +657,9 @@ pub fn register(vm: *VM) !void {
     const div_sym = try vm.intern("div");
     try vm.integer_class.module.methods.put(div_sym, value.MethodEntry.builtin(&builtinIntegerDiv, .{ .exact = 1 }));
 
+    const divmod_sym = try vm.intern("divmod");
+    try vm.integer_class.module.methods.put(divmod_sym, value.MethodEntry.builtin(&builtinIntegerDivmod, .{ .exact = 1 }));
+
     const fdiv_sym = try vm.intern("fdiv");
     try vm.integer_class.module.methods.put(fdiv_sym, value.MethodEntry.builtin(&builtinIntegerFdiv, .{ .exact = 1 }));
 
@@ -1097,6 +1100,75 @@ pub fn builtinIntegerDivide(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
         },
         .float => |divisor| try vm.newFloat(receiver.integerToF64() / divisor),
     };
+}
+
+pub fn builtinIntegerDivmod(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    try receiver.ensureInteger(vm);
+
+    const arg = args[0];
+
+    if (arg.isInteger() or arg.isBigInteger()) {
+        const divisor_is_zero = if (arg.isInteger())
+            arg.toInteger() == 0
+        else if (arg.isBigInteger())
+            arg.toBigIntegerObject().value.eqlZero()
+        else
+            unreachable;
+        if (divisor_is_zero) {
+            return vm.raiseExceptionFmt(vm.zero_division_error_class, "divided by 0", .{});
+        }
+
+        const quot = try divFloorIntegers(vm, receiver, arg);
+        const rem = try modIntegers(vm, receiver, arg);
+
+        const result = try vm.createArray();
+        result.elements.append(vm.gc_allocator, quot) catch return error.Fatal;
+        result.elements.append(vm.gc_allocator, rem) catch return error.Fatal;
+        return Value.fromObject(&result.object);
+    }
+
+    if (arg.isFloat()) {
+        const arg_f = arg.toFloatObject().val;
+        if (arg_f == 0.0) {
+            return vm.raiseExceptionFmt(vm.zero_division_error_class, "divided by 0", .{});
+        }
+        if (std.math.isNan(arg_f)) {
+            const float_domain_error_name = try vm.intern("FloatDomainError");
+            const fde_entry = vm.object_class.module.constants.get(float_domain_error_name) orelse return error.Fatal;
+            return vm.raiseExceptionFmt(fde_entry.value.toClassObject(), "Computation results to 'NaN'(Not a Number)", .{});
+        }
+
+        const receiver_f = receiver.integerToF64();
+        const f = @floor(receiver_f / arg_f);
+        const mod = receiver_f - f * arg_f;
+
+        const i64_max_f = @as(f64, @floatFromInt(std.math.maxInt(i64)));
+        const i64_min_f = @as(f64, @floatFromInt(std.math.minInt(i64)));
+
+        const quot = if (f >= i64_min_f and f < i64_max_f) blk: {
+            const i = @as(i64, @intFromFloat(f));
+            if (i >= -4611686018427387904 and i <= 4611686018427387903) {
+                break :blk Value.integer(i);
+            }
+            var managed = BigInt.init(vm.allocator) catch return error.Fatal;
+            defer managed.deinit();
+            managed.set(i) catch return error.Fatal;
+            break :blk try vm.valueFromManagedInteger(&managed);
+        } else blk: {
+            var managed = BigInt.init(vm.allocator) catch return error.Fatal;
+            defer managed.deinit();
+            managed.set(@as(i64, @intFromFloat(f))) catch return error.Fatal;
+            break :blk try vm.valueFromManagedInteger(&managed);
+        };
+
+        const result = try vm.createArray();
+        result.elements.append(vm.gc_allocator, quot) catch return error.Fatal;
+        result.elements.append(vm.gc_allocator, try vm.newFloat(mod)) catch return error.Fatal;
+        return Value.fromObject(&result.object);
+    }
+
+    return vm.raiseExceptionFmt(vm.type_error_class, "argument is not numeric", .{});
 }
 
 fn getIntegerAbsManaged(vm: *VM, val: Value) !BigInt {
