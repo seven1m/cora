@@ -419,7 +419,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/encoding/undefined_conversion_error/source_encoding_spec.rb
 
 ### core/enumerable
-- [ ] core/enumerable/all_spec.rb
+- [x] core/enumerable/all_spec.rb
 - [x] core/enumerable/any_spec.rb
 - [ ] core/enumerable/chain_spec.rb
 - [ ] core/enumerable/chunk_spec.rb
