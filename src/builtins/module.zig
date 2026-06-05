@@ -1,4 +1,5 @@
 const std = @import("std");
+const ancestry = @import("../ancestry.zig");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 const method_common = @import("method_common.zig");
@@ -106,36 +107,48 @@ fn constantEntryOnModule(module_obj: *value.ModuleObject, name_sym: *SymbolObjec
 }
 
 fn lookupConstantOnModule(module_obj: *value.ModuleObject, name_sym: *SymbolObject) ?Value {
-    if (constantEntryOnModule(module_obj, name_sym)) |entry| return entry.value;
-
-    var i = module_obj.prepended_modules.items.len;
-    while (i > 0) {
-        i -= 1;
-        if (lookupConstantOnModule(module_obj.prepended_modules.items[i], name_sym)) |val| return val;
+    if (module_obj.origin != module_obj) {
+        var prepends = module_obj.super;
+        while (prepends) |node| : (prepends = node.super) {
+            if (node.is_origin_iclass) break;
+            if (!ancestry.isVisibleAncestor(node)) continue;
+            const owner = ancestry.visibleModule(node);
+            if (owner.constants.get(name_sym)) |entry| return entry.value;
+        }
     }
 
-    var j = module_obj.included_modules.items.len;
-    while (j > 0) {
-        j -= 1;
-        if (lookupConstantOnModule(module_obj.included_modules.items[j], name_sym)) |val| return val;
+    if (constantEntryOnModule(module_obj, name_sym)) |entry| return entry.value;
+
+    var current = if (module_obj.origin == module_obj) module_obj.super else module_obj.origin.super;
+    while (current) |node| : (current = node.super) {
+        if (node.object.type_tag == .class) break;
+        if (!ancestry.isVisibleAncestor(node)) continue;
+        const owner = ancestry.visibleModule(node);
+        if (owner.constants.get(name_sym)) |entry| return entry.value;
     }
 
     return null;
 }
 
 fn lookupAutoloadOnModule(module_obj: *value.ModuleObject, name_sym: *SymbolObject) ?[]const u8 {
-    if (module_obj.autoloads.get(name_sym)) |path| return path;
-
-    var i = module_obj.prepended_modules.items.len;
-    while (i > 0) {
-        i -= 1;
-        if (lookupAutoloadOnModule(module_obj.prepended_modules.items[i], name_sym)) |path| return path;
+    if (module_obj.origin != module_obj) {
+        var prepends = module_obj.super;
+        while (prepends) |node| : (prepends = node.super) {
+            if (node.is_origin_iclass) break;
+            if (!ancestry.isVisibleAncestor(node)) continue;
+            const owner = ancestry.visibleModule(node);
+            if (owner.autoloads.get(name_sym)) |path| return path;
+        }
     }
 
-    var j = module_obj.included_modules.items.len;
-    while (j > 0) {
-        j -= 1;
-        if (lookupAutoloadOnModule(module_obj.included_modules.items[j], name_sym)) |path| return path;
+    if (module_obj.autoloads.get(name_sym)) |path| return path;
+
+    var current = if (module_obj.origin == module_obj) module_obj.super else module_obj.origin.super;
+    while (current) |node| : (current = node.super) {
+        if (node.object.type_tag == .class) break;
+        if (!ancestry.isVisibleAncestor(node)) continue;
+        const owner = ancestry.visibleModule(node);
+        if (owner.autoloads.get(name_sym)) |path| return path;
     }
 
     return null;
@@ -144,19 +157,10 @@ fn lookupAutoloadOnModule(module_obj: *value.ModuleObject, name_sym: *SymbolObje
 fn lookupConstantOnReceiver(vm: *VM, receiver: Value, name_sym: *SymbolObject, inherit: bool) ?Value {
     if (receiver.isClass()) {
         var current: ?*ClassObject = receiver.toClassObject();
-        var first = true;
         while (current) |klass| {
-            if (first or inherit) {
-                if (lookupConstantOnModule(&klass.module, name_sym)) |val| return val;
-            }
-            if (!inherit and first) {
-                if (klass == vm.object_class) {
-                    if (lookupConstantOnModule(&vm.object_class.module, name_sym)) |val| return val;
-                }
-                break;
-            }
+            if (lookupConstantOnModule(&klass.module, name_sym)) |val| return val;
+            if (!inherit) break;
             current = klass.superclass;
-            first = false;
         }
         return null;
     }
@@ -175,19 +179,10 @@ fn lookupConstantOnReceiver(vm: *VM, receiver: Value, name_sym: *SymbolObject, i
 fn lookupAutoloadOnReceiver(vm: *VM, receiver: Value, name_sym: *SymbolObject, inherit: bool) ?[]const u8 {
     if (receiver.isClass()) {
         var current: ?*ClassObject = receiver.toClassObject();
-        var first = true;
         while (current) |klass| {
-            if (first or inherit) {
-                if (lookupAutoloadOnModule(&klass.module, name_sym)) |path| return path;
-            }
-            if (!inherit and first) {
-                if (klass == vm.object_class) {
-                    if (lookupAutoloadOnModule(&vm.object_class.module, name_sym)) |path| return path;
-                }
-                break;
-            }
+            if (lookupAutoloadOnModule(&klass.module, name_sym)) |path| return path;
+            if (!inherit) break;
             current = klass.superclass;
-            first = false;
         }
         return null;
     }
@@ -482,40 +477,19 @@ fn classIncludesModule(class_obj: *ClassObject, target: *value.ModuleObject) boo
 
 fn moduleLookupChainContains(module_obj: *value.ModuleObject, target: *value.ModuleObject) bool {
     if (module_obj == target) return true;
-
-    var i = module_obj.prepended_modules.items.len;
-    while (i > 0) {
-        i -= 1;
-        if (moduleLookupChainContains(module_obj.prepended_modules.items[i], target)) return true;
+    var current = module_obj.super;
+    while (current) |node| : (current = node.super) {
+        if (node == target) return true;
+        if (node.object.type_tag == .iclass and node.origin == target.origin and !node.is_origin_iclass) return true;
     }
-
-    i = module_obj.included_modules.items.len;
-    while (i > 0) {
-        i -= 1;
-        if (moduleLookupChainContains(module_obj.included_modules.items[i], target)) return true;
-    }
-
     return false;
 }
 
 fn classLookupChainContains(class_obj: *ClassObject, target: *value.ModuleObject) bool {
-    var current: ?*ClassObject = class_obj;
-    while (current) |klass| {
-        var i = klass.module.prepended_modules.items.len;
-        while (i > 0) {
-            i -= 1;
-            if (moduleLookupChainContains(klass.module.prepended_modules.items[i], target)) return true;
-        }
-
-        if (&klass.module == target) return true;
-
-        var j = klass.module.included_modules.items.len;
-        while (j > 0) {
-            j -= 1;
-            if (moduleLookupChainContains(klass.module.included_modules.items[j], target)) return true;
-        }
-
-        current = klass.superclass;
+    var current: ?*value.ModuleObject = &class_obj.module;
+    while (current) |node| : (current = node.super) {
+        if (node == target) return true;
+        if (node.object.type_tag == .iclass and node.origin == target.origin and !node.is_origin_iclass) return true;
     }
     return false;
 }
@@ -576,50 +550,13 @@ fn collectInstanceMethods(
 
     if (receiver.isModule()) {
         const module_obj = receiver.toModuleObject();
-        if (include_super) {
-            var i = module_obj.prepended_modules.items.len;
-            while (i > 0) {
-                i -= 1;
-                const prepended = module_obj.prepended_modules.items[i];
-                try method_reflection.collectMethodsFromTable(vm, &prepended.methods, filter, &names, &seen, &blocked);
-            }
-        }
-        try method_reflection.collectMethodsFromTable(vm, &module_obj.methods, filter, &names, &seen, &blocked);
-        if (include_super) {
-            var j = module_obj.included_modules.items.len;
-            while (j > 0) {
-                j -= 1;
-                const included = module_obj.included_modules.items[j];
-                try method_reflection.collectMethodsFromTable(vm, &included.methods, filter, &names, &seen, &blocked);
-            }
-        }
+        if (include_super)
+            try method_reflection.collectModuleAncestryMethods(vm, module_obj, filter, true, &names, &seen, &blocked)
+        else
+            try method_reflection.collectMethodsFromTable(vm, &module_obj.origin.methods, filter, &names, &seen, &blocked);
     } else if (receiver.isClass()) {
         const class_obj = receiver.toClassObject();
-        var current: ?*ClassObject = class_obj;
-        while (current) |klass| {
-            if (include_super) {
-                var i = klass.module.prepended_modules.items.len;
-                while (i > 0) {
-                    i -= 1;
-                    const prepended = klass.module.prepended_modules.items[i];
-                    try method_reflection.collectMethodsFromTable(vm, &prepended.methods, filter, &names, &seen, &blocked);
-                }
-            }
-
-            try method_reflection.collectMethodsFromTable(vm, &klass.module.methods, filter, &names, &seen, &blocked);
-
-            if (include_super) {
-                var j = klass.module.included_modules.items.len;
-                while (j > 0) {
-                    j -= 1;
-                    const included = klass.module.included_modules.items[j];
-                    try method_reflection.collectMethodsFromTable(vm, &included.methods, filter, &names, &seen, &blocked);
-                }
-            }
-
-            if (!include_super) break;
-            current = klass.superclass;
-        }
+        try method_reflection.collectClassChainMethods(vm, class_obj, include_super, filter, true, &names, &seen, &blocked);
     } else {
         const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");
         vm.setPendingException(exc);
@@ -651,42 +588,22 @@ fn methodEntryMatchesQuery(entry: value.MethodEntry, filter: MethodQueryFilter) 
 }
 
 fn resolveModuleMethodLookup(module_obj: *value.ModuleObject, owner_class: *ClassObject, name_sym: *SymbolObject) InstanceMethodLookupResult {
-    var i = module_obj.prepended_modules.items.len;
-    while (i > 0) {
-        i -= 1;
-        const prepended = module_obj.prepended_modules.items[i];
-        switch (resolveModuleMethodLookup(prepended, owner_class, name_sym)) {
-            .found => |found| return .{ .found = found },
-            .undefined => return .undefined,
-            .not_found => {},
+    var current: ?*value.ModuleObject = module_obj;
+    while (current) |node| : (current = node.super) {
+        if (ancestry.methodTableOwner(node).methods.get(name_sym)) |entry| {
+            return switch (entry.method) {
+                .undefined => .undefined,
+                else => .{ .found = .{
+                    .resolved = .{
+                        .name = name_sym,
+                        .owner_class = owner_class,
+                        .entry = entry,
+                    },
+                    .owner = ancestry.visibleValue(node),
+                } },
+            };
         }
     }
-
-    if (module_obj.methods.get(name_sym)) |entry| {
-        return switch (entry.method) {
-            .undefined => .undefined,
-            else => .{ .found = .{
-                .resolved = .{
-                    .name = name_sym,
-                    .owner_class = owner_class,
-                    .entry = entry,
-                },
-                .owner = Value.fromObject(&module_obj.object),
-            } },
-        };
-    }
-
-    i = module_obj.included_modules.items.len;
-    while (i > 0) {
-        i -= 1;
-        const included = module_obj.included_modules.items[i];
-        switch (resolveModuleMethodLookup(included, owner_class, name_sym)) {
-            .found => |found| return .{ .found = found },
-            .undefined => return .undefined,
-            .not_found => {},
-        }
-    }
-
     return .not_found;
 }
 
@@ -696,45 +613,23 @@ fn resolveInstanceMethodLookup(vm: *VM, receiver: Value, name_sym: *SymbolObject
     }
 
     if (receiver.isClass()) {
-        var current: ?*ClassObject = receiver.toClassObject();
-        while (current) |klass| {
-            var i = klass.module.prepended_modules.items.len;
-            while (i > 0) {
-                i -= 1;
-                const prepended = klass.module.prepended_modules.items[i];
-                switch (resolveModuleMethodLookup(prepended, klass, name_sym)) {
-                    .found => |found| return .{ .found = found },
-                    .undefined => return .undefined,
-                    .not_found => {},
-                }
-            }
-
-            if (klass.module.methods.get(name_sym)) |entry| {
+        var current: ?*value.ModuleObject = &receiver.toClassObject().module;
+        var owner_class = receiver.toClassObject();
+        while (current) |node| : (current = node.super) {
+            if (node.object.type_tag == .class) owner_class = @fieldParentPtr("module", node);
+            if (ancestry.methodTableOwner(node).methods.get(name_sym)) |entry| {
                 return switch (entry.method) {
                     .undefined => .undefined,
                     else => .{ .found = .{
                         .resolved = .{
                             .name = name_sym,
-                            .owner_class = klass,
+                            .owner_class = owner_class,
                             .entry = entry,
                         },
-                        .owner = Value.fromObject(&klass.module.object),
+                        .owner = ancestry.visibleValue(node),
                     } },
                 };
             }
-
-            i = klass.module.included_modules.items.len;
-            while (i > 0) {
-                i -= 1;
-                const included = klass.module.included_modules.items[i];
-                switch (resolveModuleMethodLookup(included, klass, name_sym)) {
-                    .found => |found| return .{ .found = found },
-                    .undefined => return .undefined,
-                    .not_found => {},
-                }
-            }
-
-            current = klass.superclass;
         }
         return .not_found;
     }
@@ -1210,6 +1105,7 @@ pub fn builtinModuleInitializeCopy(vm: *VM, receiver: Value, args: []Value, _: ?
         const receiver_class = receiver.toClassObject();
         const other_class = other.toClassObject();
         receiver_class.superclass = other_class.superclass;
+        receiver_class.module.super = other_class.module.super;
         receiver_class.object_type = other_class.object_type;
         receiver_class.struct_members = other_class.struct_members;
         receiver_class.struct_keyword_init = other_class.struct_keyword_init;
@@ -1473,28 +1369,21 @@ pub fn builtinModuleAncestors(vm: *VM, receiver: Value, args: []Value, _: ?Block
 
     const out = try vm.createArray();
 
-    if (receiver.isModule()) {
-        out.elements.append(vm.gc_allocator, Value.fromObject(&receiver.toModuleObject().object)) catch return error.Fatal;
-    } else if (receiver.isClass()) {
-        var current: ?*ClassObject = receiver.toClassObject();
-        while (current) |klass| {
-            var i = klass.module.prepended_modules.items.len;
-            while (i > 0) {
-                i -= 1;
-                const prepended = klass.module.prepended_modules.items[i];
-                out.elements.append(vm.gc_allocator, Value.fromObject(&prepended.object)) catch return error.Fatal;
+    if (receiver.isModule() or receiver.isClass()) {
+        const start = receiver.getModuleObject().?;
+        if (start.origin != start) {
+            var current = start.super;
+            while (current) |node| : (current = node.super) {
+                if (node.is_origin_iclass) break;
+                if (!ancestry.isVisibleAncestor(node)) continue;
+                out.elements.append(vm.gc_allocator, ancestry.visibleValue(node)) catch return error.Fatal;
             }
-
-            out.elements.append(vm.gc_allocator, Value.fromObject(&klass.module.object)) catch return error.Fatal;
-
-            var j = klass.module.included_modules.items.len;
-            while (j > 0) {
-                j -= 1;
-                const included = klass.module.included_modules.items[j];
-                out.elements.append(vm.gc_allocator, Value.fromObject(&included.object)) catch return error.Fatal;
-            }
-
-            current = klass.superclass;
+        }
+        out.elements.append(vm.gc_allocator, ancestry.visibleValue(start)) catch return error.Fatal;
+        var current = if (start.origin == start) start.super else start.origin.super;
+        while (current) |node| : (current = node.super) {
+            if (!ancestry.isVisibleAncestor(node)) continue;
+            out.elements.append(vm.gc_allocator, ancestry.visibleValue(node)) catch return error.Fatal;
         }
     } else {
         const exc = try vm.createException(vm.type_error_class, "receiver is not a Module");

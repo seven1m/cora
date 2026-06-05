@@ -202,6 +202,25 @@ test "Multiple exception types in one rescue clause" {
     try std.testing.expectEqual(@as(i64, 99), result.toInteger());
 }
 
+test "Rescue with transitive included module matches" {
+    const result = try evalCode(
+        \\module A
+        \\end
+        \\module B
+        \\  include A
+        \\end
+        \\class E < StandardError
+        \\  include B
+        \\end
+        \\begin
+        \\  raise E
+        \\rescue A
+        \\  77
+        \\end
+    );
+    try std.testing.expectEqual(@as(i64, 77), result.toInteger());
+}
+
 test "Rescue with dynamic ivar exception type matches" {
     const result = try evalCode(
         \\@klass = TypeError

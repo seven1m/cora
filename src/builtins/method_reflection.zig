@@ -1,4 +1,5 @@
 const std = @import("std");
+const ancestry = @import("../ancestry.zig");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 
@@ -69,22 +70,13 @@ pub fn collectModuleAncestryMethods(
     seen: *std.AutoHashMap(*SymbolObject, usize),
     blocked: *std.AutoHashMap(*SymbolObject, void),
 ) VMError!void {
-    if (include_mixin_ancestors) {
-        var i = module_obj.prepended_modules.items.len;
-        while (i > 0) {
-            i -= 1;
-            try collectModuleAncestryMethods(vm, module_obj.prepended_modules.items[i], filter, true, out, seen, blocked);
-        }
+    if (!include_mixin_ancestors) {
+        return collectMethodsFromTable(vm, &module_obj.origin.methods, filter, out, seen, blocked);
     }
 
-    try collectMethodsFromTable(vm, &module_obj.methods, filter, out, seen, blocked);
-
-    if (include_mixin_ancestors) {
-        var j = module_obj.included_modules.items.len;
-        while (j > 0) {
-            j -= 1;
-            try collectModuleAncestryMethods(vm, module_obj.included_modules.items[j], filter, true, out, seen, blocked);
-        }
+    var current: ?*value.ModuleObject = module_obj;
+    while (current) |node| : (current = node.super) {
+        try collectMethodsFromTable(vm, &node.methods, filter, out, seen, blocked);
     }
 }
 
@@ -98,30 +90,19 @@ pub fn collectClassChainMethods(
     seen: *std.AutoHashMap(*SymbolObject, usize),
     blocked: *std.AutoHashMap(*SymbolObject, void),
 ) VMError!void {
-    var current: ?*ClassObject = start_class;
-    while (current) |klass| {
-        if (include_mixin_ancestors) {
-            var i = klass.module.prepended_modules.items.len;
-            while (i > 0) {
-                i -= 1;
-                const prepended = klass.module.prepended_modules.items[i];
-                try collectModuleAncestryMethods(vm, prepended, filter, true, out, seen, blocked);
+    if (!include_mixin_ancestors) {
+        return collectMethodsFromTable(vm, &start_class.module.origin.methods, filter, out, seen, blocked);
+    }
+
+    var current: ?*value.ModuleObject = &start_class.module;
+    while (current) |node| : (current = node.super) {
+        try collectMethodsFromTable(vm, &node.methods, filter, out, seen, blocked);
+        if (!include_super) {
+            if (node != &start_class.module and node.object.type_tag == .class) break;
+            if (node.object.type_tag == .class and ancestry.nextVisibleClass(node.super) != null) {
+                break;
             }
         }
-
-        try collectMethodsFromTable(vm, &klass.module.methods, filter, out, seen, blocked);
-
-        if (include_mixin_ancestors) {
-            var j = klass.module.included_modules.items.len;
-            while (j > 0) {
-                j -= 1;
-                const included = klass.module.included_modules.items[j];
-                try collectModuleAncestryMethods(vm, included, filter, true, out, seen, blocked);
-            }
-        }
-
-        if (!include_super) break;
-        current = klass.superclass;
     }
 }
 

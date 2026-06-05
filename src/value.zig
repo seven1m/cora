@@ -46,6 +46,7 @@ pub const ObjectTypeTag = enum(u8) {
     yielder,
     module,
     class,
+    iclass,
     float,
     rational,
     thread,
@@ -143,8 +144,11 @@ pub const ModuleObject = struct {
     constants: std.AutoHashMap(*SymbolObject, ConstEntry),
     autoloads: std.AutoHashMap(*SymbolObject, []const u8),
     class_variables: std.AutoHashMap(*SymbolObject, Value),
-    prepended_modules: std.ArrayList(*ModuleObject) = .empty,
-    included_modules: std.ArrayList(*ModuleObject) = .empty,
+    super: ?*ModuleObject = null,
+    origin: *ModuleObject,
+    includer: ?*ModuleObject = null,
+    subclasses: std.ArrayList(*ModuleObject) = .empty,
+    is_origin_iclass: bool = false,
 };
 
 pub const ConstantVisibility = enum(u8) {
@@ -218,6 +222,10 @@ pub const ClassObject = struct {
     object_type: ObjectType = .instance,
     struct_members: ?*ArrayObject = null,
     struct_keyword_init: ?bool = null,
+};
+
+pub const IClassObject = struct {
+    module: ModuleObject,
 };
 
 pub const ArrayObject = struct {
@@ -626,6 +634,10 @@ pub const Value = struct {
         return self.isObject() and self.objectTypeTag() == .class;
     }
 
+    pub inline fn isIClass(self: Value) bool {
+        return self.isObject() and self.objectTypeTag() == .iclass;
+    }
+
     pub inline fn isModule(self: Value) bool {
         return self.isObject() and self.objectTypeTag() == .module;
     }
@@ -748,6 +760,10 @@ pub const Value = struct {
         return @ptrFromInt(self.raw);
     }
 
+    pub inline fn toIClassObject(self: Value) *IClassObject {
+        return @ptrFromInt(self.raw);
+    }
+
     pub inline fn toModuleObject(self: Value) *ModuleObject {
         return @ptrFromInt(self.raw);
     }
@@ -860,13 +876,14 @@ pub const Value = struct {
         if (!self.isObject()) return null;
         const tag = self.objectTypeTag();
         if (tag == .class) return &self.toClassObject().module;
+        if (tag == .iclass) return &self.toIClassObject().module;
         if (tag == .module) return self.toModuleObject();
         return null;
     }
 
     pub fn getModuleMethods(self: Value) ?*std.AutoHashMap(*SymbolObject, MethodEntry) {
         const module_obj = self.getModuleObject() orelse return null;
-        return &module_obj.methods;
+        return &module_obj.origin.methods;
     }
 
     pub fn objectId(self: Value) i64 {
@@ -1056,6 +1073,7 @@ pub const Value = struct {
                 .symbol => try writer.print(":{s}", .{self.toSymbolObject().name}),
                 .module => try writer.print("<Module {s}>", .{self.toModuleObject().name.name}),
                 .class => try writer.print("<Class {s}>", .{self.toClassObject().module.name.name}),
+                .iclass => try writer.print("<IClass {s}>", .{self.toIClassObject().module.name.name}),
                 .encoding_obj => try writer.print("#<Encoding:{s}>", .{self.toEncodingObject().encoding.name()}),
                 .instance => try writer.print("<{s} instance>", .{self.toInstanceObject().class.?.module.name.name}),
                 .array => {

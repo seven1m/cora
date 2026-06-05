@@ -1,4 +1,5 @@
 const std = @import("std");
+const ancestry = @import("../ancestry.zig");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 const kernel = @import("kernel.zig");
@@ -55,34 +56,12 @@ fn resolveMethodEntry(
 pub fn resolveMethodOwnerValue(vm: *VM, receiver: Value, method_name_sym: *SymbolObject) VMError!?Value {
     const scanClass = struct {
         fn run(class_obj: *ClassObject, name_sym: *SymbolObject) ?Value {
-            var current: ?*ClassObject = class_obj;
-            while (current) |klass| {
-                var i = klass.module.prepended_modules.items.len;
-                while (i > 0) {
-                    i -= 1;
-                    const prepended = klass.module.prepended_modules.items[i];
-                    if (prepended.methods.get(name_sym)) |entry| {
-                        if (entry.method == .undefined) return null;
-                        return Value.fromObject(&prepended.object);
-                    }
-                }
-
-                if (klass.module.methods.get(name_sym)) |entry| {
+            var current: ?*value.ModuleObject = &class_obj.module;
+            while (current) |node| : (current = node.super) {
+                if (ancestry.methodTableOwner(node).methods.get(name_sym)) |entry| {
                     if (entry.method == .undefined) return null;
-                    return Value.fromObject(&klass.module.object);
+                    return ancestry.visibleValue(node);
                 }
-
-                i = klass.module.included_modules.items.len;
-                while (i > 0) {
-                    i -= 1;
-                    const included = klass.module.included_modules.items[i];
-                    if (included.methods.get(name_sym)) |entry| {
-                        if (entry.method == .undefined) return null;
-                        return Value.fromObject(&included.object);
-                    }
-                }
-
-                current = klass.superclass;
             }
 
             return null;
@@ -102,38 +81,16 @@ fn scanClassForExactMethod(
     owner: Value,
     method_name_sym: *SymbolObject,
 ) ?vm_mod.ResolvedMethod {
-    var current: ?*ClassObject = start_class;
-    while (current) |klass| {
-        var i = klass.module.prepended_modules.items.len;
-        while (i > 0) {
-            i -= 1;
-            const prepended = klass.module.prepended_modules.items[i];
-            if (Value.fromObject(&prepended.object).raw != owner.raw) continue;
-            if (prepended.methods.get(method_name_sym)) |entry| {
-                return resolveMethodEntry(method_name_sym, klass, entry);
-            }
-            return null;
+    var current: ?*value.ModuleObject = &start_class.module;
+    var owner_class = start_class;
+    while (current) |node| : (current = node.super) {
+        if (node.object.type_tag == .class) owner_class = @fieldParentPtr("module", node);
+        const node_owner = ancestry.visibleValue(node);
+        if (node_owner.raw != owner.raw) continue;
+        if (ancestry.methodTableOwner(node).methods.get(method_name_sym)) |entry| {
+            return resolveMethodEntry(method_name_sym, owner_class, entry);
         }
-
-        if (Value.fromObject(&klass.module.object).raw == owner.raw) {
-            if (klass.module.methods.get(method_name_sym)) |entry| {
-                return resolveMethodEntry(method_name_sym, klass, entry);
-            }
-            return null;
-        }
-
-        i = klass.module.included_modules.items.len;
-        while (i > 0) {
-            i -= 1;
-            const included = klass.module.included_modules.items[i];
-            if (Value.fromObject(&included.object).raw != owner.raw) continue;
-            if (included.methods.get(method_name_sym)) |entry| {
-                return resolveMethodEntry(method_name_sym, klass, entry);
-            }
-            return null;
-        }
-
-        current = klass.superclass;
+        return null;
     }
 
     return null;

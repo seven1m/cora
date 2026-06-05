@@ -4,6 +4,7 @@ const bytecode = @import("bytecode.zig");
 const chunk = @import("chunk.zig");
 const compiler = @import("compiler.zig");
 const enc = @import("encoding.zig");
+const ancestry = @import("ancestry.zig");
 const fixed_buffer_list = @import("fixed_buffer_list.zig");
 const inspect_util = @import("inspect.zig");
 const jit = @import("jit.zig");
@@ -22,6 +23,8 @@ const version = @import("version.zig");
 const Value = value.Value;
 const Object = value.Object;
 const ClassObject = value.ClassObject;
+const ModuleObject = value.ModuleObject;
+const IClassObject = value.IClassObject;
 const FiberObject = value.FiberObject;
 const ThreadObject = value.ThreadObject;
 const LexicalScope = value.LexicalScope;
@@ -215,6 +218,8 @@ pub const VMError = error{
     // Triggers stack unwind internally
     // This shouldn't escape VM.run().
     Unwind,
+
+    CyclicInclude,
 };
 
 pub const BuiltinMethod = struct {
@@ -880,6 +885,7 @@ pub const VM = struct {
         const module_class_val = try self.newClass(module_name_sym, self.object_class);
         self.module_class = module_class_val.toClassObject();
         self.class_class.superclass = self.module_class;
+        self.class_class.module.super = &self.module_class.module;
 
         const numeric_name_sym = try self.intern("Numeric");
         const numeric_class_val = try self.newClass(numeric_name_sym, self.object_class);
@@ -1369,6 +1375,7 @@ pub const VM = struct {
 
         // --- Stage 3: Set Class's superclass to Module ---
         self.class_class.superclass = self.module_class;
+        self.class_class.module.super = &self.module_class.module;
 
         // --- Stage 4: Register constants in Object ---
         self.object_class.module.constants.put(class_name_sym, .{ .value = class_class_val }) catch return error.Fatal;
@@ -2093,7 +2100,7 @@ pub const VM = struct {
         _ = self;
         if (receiver.isClass()) return &receiver.toClassObject().module.autoloads;
         if (receiver.isModule()) return &receiver.toModuleObject().autoloads;
-        return null;
+        return .not_found;
     }
 
     pub fn registerAutoload(self: *VM, module_obj: *value.ModuleObject, name_sym: *value.SymbolObject, path: []const u8) VMError!void {
@@ -2181,94 +2188,38 @@ pub const VM = struct {
         return result;
     }
 
-    /// Walk included modules (and their included modules recursively) of a
-    /// module looking for a constant.  Does NOT re-check the module itself
-    /// since the lexical scope walk already covered it.
     fn findConstantInModuleAncestors(self: *VM, mod: *value.ModuleObject, name: *value.SymbolObject) VMError!?Value {
-        // Iterate from highest index (most recently included = highest priority)
-        var i = mod.included_modules.items.len;
-        while (i > 0) {
-            i -= 1;
-            const included = mod.included_modules.items[i];
-            if (included.constants.get(name)) |entry| {
-                try self.warnDeprecatedConstant(included, name);
+        var current = mod.super;
+        while (current) |node| : (current = node.super) {
+            if (node.is_origin_iclass) continue;
+            const owner = ancestry.visibleModule(node);
+            if (owner.constants.get(name)) |entry| {
+                try self.warnDeprecatedConstant(owner, name);
                 return entry.value;
             }
-            switch (try self.triggerAutoload(included, name)) {
+            switch (try self.triggerAutoload(owner, name)) {
                 .missing => {},
                 .loaded => |val| return val,
                 .attempted => {},
-            }
-            // Recurse into this included module's own included modules.
-            if (try self.findConstantInModuleAncestors(included, name)) |val| {
-                return val;
             }
         }
         return null;
     }
 
-    /// Walk the ancestors of a class — prepended modules, included modules,
-    /// then the superclass chain — looking for a constant.
     fn findConstantInClassAncestors(self: *VM, klass: *ClassObject, name: *value.SymbolObject, skip_object_autoload: bool) VMError!?Value {
-        var current: ?*ClassObject = klass;
-        var first = true;
-        while (current) |cls| {
-            defer current = cls.superclass;
-
-            // Prepended modules (highest index = most recently prepended = first)
-            var pi = cls.module.prepended_modules.items.len;
-            while (pi > 0) {
-                pi -= 1;
-                const prepended = cls.module.prepended_modules.items[pi];
-                if (prepended.constants.get(name)) |entry| {
-                    try self.warnDeprecatedConstant(prepended, name);
-                    return entry.value;
-                }
-                if (!skip_object_autoload or prepended != &self.object_class.module) {
-                    switch (try self.triggerAutoload(prepended, name)) {
-                        .missing => {},
-                        .loaded => |val| return val,
-                        .attempted => {},
-                    }
-                }
-                if (try self.findConstantInModuleAncestors(prepended, name)) |val| {
-                    return val;
-                }
+        var current = klass.module.super;
+        while (current) |node| : (current = node.super) {
+            if (node.is_origin_iclass) continue;
+            const owner = ancestry.visibleModule(node);
+            if (owner.constants.get(name)) |entry| {
+                try self.warnDeprecatedConstant(owner, name);
+                return entry.value;
             }
-
-            // The class itself — skip on the first iteration since the lexical
-            // scope walk already checked it.
-            if (!first) {
-                if (cls.module.constants.get(name)) |entry| {
-                    try self.warnDeprecatedConstant(&cls.module, name);
-                    return entry.value;
-                }
-                if (!skip_object_autoload or &cls.module != &self.object_class.module) {
-                    switch (try self.triggerAutoload(&cls.module, name)) {
-                        .missing => {},
-                        .loaded => |val| return val,
-                        .attempted => {},
-                    }
-                }
-            }
-            first = false;
-
-            // Included modules (highest index = most recently included = first)
-            var ii = cls.module.included_modules.items.len;
-            while (ii > 0) {
-                ii -= 1;
-                const included = cls.module.included_modules.items[ii];
-                if (included.constants.get(name)) |entry| {
-                    try self.warnDeprecatedConstant(included, name);
-                    return entry.value;
-                }
-                switch (try self.triggerAutoload(included, name)) {
+            if (!skip_object_autoload or owner != &self.object_class.module) {
+                switch (try self.triggerAutoload(owner, name)) {
                     .missing => {},
                     .loaded => |val| return val,
                     .attempted => {},
-                }
-                if (try self.findConstantInModuleAncestors(included, name)) |val| {
-                    return val;
                 }
             }
         }
@@ -2284,9 +2235,26 @@ pub const VM = struct {
     } {
         if (epClassVariableScope(frame.ep)) |scope| {
             return switch (scope.scope_module) {
-                .class => |class_obj| .{
-                    .module = &class_obj.module,
-                    .start_class = class_obj,
+                .class => |class_obj| blk: {
+                    if (class_obj.attached_object) |attached| {
+                        if (attached.isClass()) {
+                            const attached_class = attached.toClassObject();
+                            break :blk .{
+                                .module = &attached_class.module,
+                                .start_class = attached_class,
+                            };
+                        }
+                        if (attached.isModule()) {
+                            break :blk .{
+                                .module = attached.toModuleObject(),
+                                .start_class = null,
+                            };
+                        }
+                    }
+                    break :blk .{
+                        .module = &class_obj.module,
+                        .start_class = class_obj,
+                    };
                 },
                 .module => |module| .{
                     .module = module,
@@ -5196,40 +5164,17 @@ pub const VM = struct {
                     return;
                 }
 
-                // Check included modules of the class/module itself.
-                var ii = module.included_modules.items.len;
-                while (ii > 0) {
-                    ii -= 1;
-                    const included = module.included_modules.items[ii];
-                    if (included.constants.get(name_sym)) |entry| {
-                        try self.warnDeprecatedConstant(included, name_sym);
+                var current = module.super;
+                while (current) |node| : (current = node.super) {
+                    if (node.is_origin_iclass) continue;
+                    const owner = ancestry.visibleModule(node);
+                    if (owner.constants.get(name_sym)) |entry| {
+                        if (entry.flags.visibility == .private) {
+                            try self.raisePrivateConstantReference(owner, name_sym);
+                        }
+                        try self.warnDeprecatedConstant(owner, name_sym);
                         try self.push(entry.value);
                         return;
-                    }
-                }
-
-                if (parent_val.isClass()) {
-                    var superclass = parent_val.toClassObject().superclass;
-                    while (superclass) |cls| : (superclass = cls.superclass) {
-                        if (cls.module.constants.get(name_sym)) |entry| {
-                            if (entry.flags.visibility == .private) {
-                                try self.raisePrivateConstantReference(&cls.module, name_sym);
-                            }
-                            try self.warnDeprecatedConstant(&cls.module, name_sym);
-                            try self.push(entry.value);
-                            return;
-                        }
-                        // Check included modules of each superclass.
-                        var si = cls.module.included_modules.items.len;
-                        while (si > 0) {
-                            si -= 1;
-                            const included = cls.module.included_modules.items[si];
-                            if (included.constants.get(name_sym)) |entry| {
-                                try self.warnDeprecatedConstant(included, name_sym);
-                                try self.push(entry.value);
-                                return;
-                            }
-                        }
                     }
                 }
 
@@ -7307,27 +7252,10 @@ pub const VM = struct {
         module_obj: *value.ModuleObject,
         method_name: *value.SymbolObject,
     ) LookupMethodResult {
-        var i = module_obj.prepended_modules.items.len;
-        while (i > 0) {
-            i -= 1;
-            switch (self.lookupModuleMethodDetailed(owner_class, module_obj.prepended_modules.items[i], method_name)) {
-                .found => |resolved| return .{ .found = resolved },
-                .undefined => return .undefined,
-                .not_found => {},
-            }
-        }
-
-        if (module_obj.methods.get(method_name)) |entry| {
-            return self.resolveLookupEntry(method_name, owner_class, entry);
-        }
-
-        i = module_obj.included_modules.items.len;
-        while (i > 0) {
-            i -= 1;
-            switch (self.lookupModuleMethodDetailed(owner_class, module_obj.included_modules.items[i], method_name)) {
-                .found => |resolved| return .{ .found = resolved },
-                .undefined => return .undefined,
-                .not_found => {},
+        var current: ?*ModuleObject = module_obj;
+        while (current) |node| : (current = node.super) {
+            if (ancestry.methodTableOwner(node).methods.get(method_name)) |entry| {
+                return self.resolveLookupEntry(method_name, owner_class, entry);
             }
         }
 
@@ -7335,38 +7263,15 @@ pub const VM = struct {
     }
 
     pub fn lookupMethodDetailed(self: *VM, class: *ClassObject, method_name: *value.SymbolObject) LookupMethodResult {
-        var current_class: ?*ClassObject = class;
-        while (current_class) |c| {
-            // 1. Check prepended modules first (in reverse order - most recently prepended at highest index is checked first)
-            var i = c.module.prepended_modules.items.len;
-            while (i > 0) {
-                i -= 1;
-                const module = c.module.prepended_modules.items[i];
-                switch (self.lookupModuleMethodDetailed(c, module, method_name)) {
-                    .found => |resolved| return .{ .found = resolved },
-                    .undefined => return .undefined,
-                    .not_found => {},
-                }
+        var current: ?*ModuleObject = &class.module;
+        var owner_class = class;
+        while (current) |node| : (current = node.super) {
+            if (node.object.type_tag == .class) {
+                owner_class = @fieldParentPtr("module", node);
             }
-
-            // 2. Check class's own methods
-            if (c.module.methods.get(method_name)) |entry| {
-                return self.resolveLookupEntry(method_name, c, entry);
+            if (ancestry.methodTableOwner(node).methods.get(method_name)) |entry| {
+                return self.resolveLookupEntry(method_name, owner_class, entry);
             }
-
-            // 3. Check included modules (in reverse order - most recently included at highest index is checked first)
-            i = c.module.included_modules.items.len;
-            while (i > 0) {
-                i -= 1;
-                const module = c.module.included_modules.items[i];
-                switch (self.lookupModuleMethodDetailed(c, module, method_name)) {
-                    .found => |resolved| return .{ .found = resolved },
-                    .undefined => return .undefined,
-                    .not_found => {},
-                }
-            }
-
-            current_class = c.superclass;
         }
 
         return .not_found;
@@ -8777,55 +8682,29 @@ pub const VM = struct {
         self: *VM,
         owner_class: *ClassObject,
         module_obj: *value.ModuleObject,
-        is_class_module: bool,
         defining_scope: SuperLookupScope,
         method_name: *value.SymbolObject,
         found_owner: *bool,
     ) LookupMethodResult {
-        var i = module_obj.prepended_modules.items.len;
-        while (i > 0) {
-            i -= 1;
-            switch (self.lookupMethodForSuperInModuleChain(
-                owner_class,
-                module_obj.prepended_modules.items[i],
-                false,
-                defining_scope,
-                method_name,
-                found_owner,
-            )) {
-                .found => |resolved| return .{ .found = resolved },
-                .undefined => return .undefined,
-                .not_found => {},
+        var current: ?*ModuleObject = module_obj;
+        var current_owner_class = owner_class;
+        while (current) |node| : (current = node.super) {
+            if (node.object.type_tag == .class) {
+                current_owner_class = @fieldParentPtr("module", node);
             }
-        }
+            const visible_owner = ancestry.visibleModule(node);
+            const is_origin_shell = node.object.type_tag != .iclass and node.origin != node;
+            const matches_owner = switch (defining_scope) {
+                .class => |defining_class| visible_owner == &defining_class.module and current_owner_class == defining_class and !is_origin_shell,
+                .module => |defining_module| visible_owner == defining_module and !is_origin_shell,
+            };
 
-        const matches_owner = switch (defining_scope) {
-            .class => |defining_class| is_class_module and owner_class == defining_class,
-            .module => |defining_module| module_obj == defining_module,
-        };
-
-        if (found_owner.*) {
-            if (module_obj.methods.get(method_name)) |entry| {
-                return self.resolveLookupEntry(method_name, owner_class, entry);
-            }
-        } else if (matches_owner) {
-            found_owner.* = true;
-        }
-
-        i = module_obj.included_modules.items.len;
-        while (i > 0) {
-            i -= 1;
-            switch (self.lookupMethodForSuperInModuleChain(
-                owner_class,
-                module_obj.included_modules.items[i],
-                false,
-                defining_scope,
-                method_name,
-                found_owner,
-            )) {
-                .found => |resolved| return .{ .found = resolved },
-                .undefined => return .undefined,
-                .not_found => {},
+            if (found_owner.*) {
+                if (ancestry.methodTableOwner(node).methods.get(method_name)) |entry| {
+                    return self.resolveLookupEntry(method_name, current_owner_class, entry);
+                }
+            } else if (matches_owner) {
+                found_owner.* = true;
             }
         }
 
@@ -8838,26 +8717,17 @@ pub const VM = struct {
         defining_scope: SuperLookupScope,
         method_name: *value.SymbolObject,
     ) ?ResolvedMethod {
-        var current_class: ?*ClassObject = start_class;
         var found_owner = false;
-
-        while (current_class) |klass| {
-            switch (self.lookupMethodForSuperInModuleChain(
-                klass,
-                &klass.module,
-                true,
-                defining_scope,
-                method_name,
-                &found_owner,
-            )) {
-                .found => |resolved| return resolved,
-                .undefined => return null,
-                .not_found => {},
-            }
-            current_class = klass.superclass;
-        }
-
-        return null;
+        return switch (self.lookupMethodForSuperInModuleChain(
+            start_class,
+            &start_class.module,
+            defining_scope,
+            method_name,
+            &found_owner,
+        )) {
+            .found => |resolved| resolved,
+            .undefined, .not_found => null,
+        };
     }
 
     pub fn methodArityValue(_: *VM, resolved: ResolvedMethod) VMError!Value {
@@ -9228,8 +9098,11 @@ pub const VM = struct {
                 .constants = std.AutoHashMap(*value.SymbolObject, value.ConstEntry).init(self.gc_allocator),
                 .autoloads = std.AutoHashMap(*value.SymbolObject, []const u8).init(self.gc_allocator),
                 .class_variables = std.AutoHashMap(*value.SymbolObject, value.Value).init(self.gc_allocator),
+                .super = &singleton_superclass.module,
+                .origin = undefined,
             },
         };
+        singleton_class.module.origin = &singleton_class.module;
 
         // Link back to object
         obj_ptr.singleton_class = singleton_class;
@@ -9265,14 +9138,10 @@ pub const VM = struct {
         }
 
         try self.copyObjectInstanceVariables(&source_singleton.module.object, &target_singleton.module.object);
-
-        for (source_singleton.module.prepended_modules.items) |module_obj| {
-            target_singleton.module.prepended_modules.append(self.gc_allocator, module_obj) catch return error.Fatal;
-        }
-
-        for (source_singleton.module.included_modules.items) |module_obj| {
-            target_singleton.module.included_modules.append(self.gc_allocator, module_obj) catch return error.Fatal;
-        }
+        target_singleton.module.super = source_singleton.module.super;
+        target_singleton.module.origin = if (source_singleton.module.origin == &source_singleton.module) &target_singleton.module else source_singleton.module.origin;
+        target_singleton.module.includer = source_singleton.module.includer;
+        target_singleton.module.is_origin_iclass = source_singleton.module.is_origin_iclass;
 
         if (preserve_frozen) {
             target_singleton.module.object.flags |= source_singleton.module.object.flags & value.Object.FROZEN_FLAG;
@@ -9302,14 +9171,10 @@ pub const VM = struct {
         }
 
         try self.copyObjectInstanceVariables(&source.object, &target.object);
-
-        for (source.prepended_modules.items) |module_obj| {
-            target.prepended_modules.append(self.gc_allocator, module_obj) catch return error.Fatal;
-        }
-
-        for (source.included_modules.items) |module_obj| {
-            target.included_modules.append(self.gc_allocator, module_obj) catch return error.Fatal;
-        }
+        target.super = source.super;
+        target.origin = if (source.origin == source) target else source.origin;
+        target.includer = source.includer;
+        target.is_origin_iclass = source.is_origin_iclass;
 
         if (preserve_frozen) {
             target.object.flags |= source.object.flags & value.Object.FROZEN_FLAG;
@@ -9388,7 +9253,9 @@ pub const VM = struct {
             .constants = std.AutoHashMap(*value.SymbolObject, value.ConstEntry).init(self.gc_allocator),
             .autoloads = std.AutoHashMap(*SymbolObject, []const u8).init(self.gc_allocator),
             .class_variables = std.AutoHashMap(*SymbolObject, Value).init(self.gc_allocator),
+            .origin = undefined,
         };
+        module_obj.origin = module_obj;
         return Value.fromObject(&module_obj.object);
     }
 
@@ -9410,9 +9277,33 @@ pub const VM = struct {
                 .constants = std.AutoHashMap(*value.SymbolObject, value.ConstEntry).init(self.gc_allocator),
                 .autoloads = std.AutoHashMap(*SymbolObject, []const u8).init(self.gc_allocator),
                 .class_variables = std.AutoHashMap(*SymbolObject, Value).init(self.gc_allocator),
+                .super = if (superclass) |super| &super.module else null,
+                .origin = undefined,
             },
         };
+        class_obj.module.origin = &class_obj.module;
         return Value.fromObject(&class_obj.module.object);
+    }
+
+    fn newIClass(self: *VM, module_obj: *value.ModuleObject, super: ?*value.ModuleObject) VMError!*value.IClassObject {
+        const iclass = self.gc_allocator.create(value.IClassObject) catch return error.Fatal;
+        iclass.* = .{
+            .module = .{
+                .object = .{ .type_tag = .iclass, .flags = 0, .class = self.class_class, .singleton_class = null, .instance_variables = null },
+                .name = module_obj.name,
+                .methods = module_obj.origin.methods,
+                .constants = module_obj.origin.constants,
+                .autoloads = module_obj.origin.autoloads,
+                .class_variables = module_obj.origin.class_variables,
+                .super = super,
+                .origin = undefined,
+                .includer = null,
+                .subclasses = .empty,
+                .is_origin_iclass = false,
+            },
+        };
+        iclass.module.origin = &iclass.module;
+        return iclass;
     }
 
     pub fn newInstance(self: *VM, class_obj: *ClassObject) VMError!Value {
@@ -10486,13 +10377,122 @@ pub const VM = struct {
         return self.newEnumerator(.{ .method = .{ .receiver = receiver, .method_name = method_name } }, method_args, size, size_fn);
     }
 
-    fn moduleAffectsInteger(self: *VM, module: *value.ModuleObject) bool {
-        if (module == &self.integer_class.module) return true;
-        for (self.integer_class.module.prepended_modules.items) |prepended| {
-            if (prepended == module) return true;
+    fn classVisibleSuperclass(_: *VM, module_obj: *ModuleObject) ?*ClassObject {
+        var current = module_obj.super;
+        while (current) |mod| : (current = mod.super) {
+            switch (mod.object.type_tag) {
+                .class => return @fieldParentPtr("module", mod),
+                else => {},
+            }
         }
-        for (self.integer_class.module.included_modules.items) |included| {
-            if (included == module) return true;
+        return null;
+    }
+
+    pub fn classReal(_: *VM, module_obj: *ModuleObject) *ModuleObject {
+        if (module_obj.origin != module_obj) return module_obj.origin;
+        return module_obj;
+    }
+
+    fn syncVisibleSuperclass(self: *VM, module_obj: *ModuleObject) void {
+        if (module_obj.object.type_tag != .class) return;
+        const klass: *ClassObject = @fieldParentPtr("module", module_obj);
+        klass.superclass = self.classVisibleSuperclass(module_obj);
+    }
+
+    fn moduleInSuperChain(_: *VM, target: *ModuleObject, module_obj: *ModuleObject) bool {
+        const needle = module_obj.origin;
+        var current: ?*ModuleObject = target;
+        while (current) |node| : (current = node.super) {
+            if (node.origin == needle and node.object.type_tag != .iclass) return true;
+            if (node.origin == needle and node.object.type_tag == .iclass) return true;
+        }
+        return false;
+    }
+
+    fn ensureOrigin(self: *VM, module_obj: *ModuleObject) VMError!bool {
+        if (module_obj.origin != module_obj) return false;
+
+        const origin_iclass = try self.newIClass(module_obj, module_obj.super);
+        origin_iclass.module.includer = module_obj;
+        origin_iclass.module.is_origin_iclass = true;
+        module_obj.super = &origin_iclass.module;
+        module_obj.origin = &origin_iclass.module;
+        module_obj.methods = std.AutoHashMap(*SymbolObject, MethodEntry).init(self.gc_allocator);
+        self.syncVisibleSuperclass(module_obj);
+        return true;
+    }
+
+    fn includeClassNew(self: *VM, module_obj: *ModuleObject, super: ?*ModuleObject) VMError!*IClassObject {
+        const iclass = try self.newIClass(module_obj, super);
+        iclass.module.origin = module_obj.origin;
+        return iclass;
+    }
+
+    fn appendVisibleAncestors(
+        self: *VM,
+        out: *std.ArrayList(*ModuleObject),
+        start: *ModuleObject,
+    ) VMError!void {
+        if (start.origin != start) {
+            var current = start.super;
+            while (current) |node| : (current = node.super) {
+                if (node.is_origin_iclass) break;
+                if (!ancestry.isVisibleAncestor(node)) continue;
+                out.append(self.gc_allocator, if (node.object.type_tag == .iclass) node.origin else node) catch return error.Fatal;
+            }
+        }
+        out.append(self.gc_allocator, start) catch return error.Fatal;
+        var current = if (start.origin == start) start.super else start.origin.super;
+        while (current) |node| : (current = node.super) {
+            if (!ancestry.isVisibleAncestor(node)) continue;
+            out.append(self.gc_allocator, if (node.object.type_tag == .iclass) node.origin else node) catch return error.Fatal;
+        }
+    }
+
+    fn doIncludeModulesAt(self: *VM, target: *ModuleObject, module_obj: *ModuleObject, search_super: bool) VMError!bool {
+        if (target.origin == module_obj.origin) return error.CyclicInclude;
+        if (self.moduleInSuperChain(module_obj, target)) return error.CyclicInclude;
+        if (self.moduleInSuperChain(target, module_obj)) return false;
+
+        const insertion_point = if (search_super) target.origin else target;
+        var visible_ancestors: std.ArrayList(*ModuleObject) = .empty;
+        defer visible_ancestors.deinit(self.gc_allocator);
+        try self.appendVisibleAncestors(&visible_ancestors, module_obj);
+
+        var next_super = insertion_point.super;
+        var i = visible_ancestors.items.len;
+        var primary_iclass: ?*ModuleObject = null;
+        while (i > 0) {
+            i -= 1;
+            const visible_module = visible_ancestors.items[i];
+            const iclass = try self.includeClassNew(visible_module, next_super);
+            iclass.module.includer = target;
+            next_super = &iclass.module;
+            if (i == 0) primary_iclass = &iclass.module;
+        }
+        insertion_point.super = next_super;
+        if (primary_iclass) |site| {
+            module_obj.origin.subclasses.append(self.gc_allocator, site) catch return error.Fatal;
+        }
+        self.syncVisibleSuperclass(target);
+        return true;
+    }
+
+    fn propagateIncludedModule(self: *VM, owner: *ModuleObject, module_obj: *ModuleObject, search_super: bool) VMError!void {
+        for (owner.subclasses.items) |site| {
+            const includer = site.includer orelse continue;
+            _ = self.doIncludeModulesAt(includer, module_obj, search_super) catch |err| switch (err) {
+                error.CyclicInclude => continue,
+                else => return err,
+            };
+        }
+    }
+
+    fn moduleAffectsInteger(self: *VM, module_obj: *value.ModuleObject) bool {
+        if (module_obj == &self.integer_class.module) return true;
+        var current: ?*ModuleObject = &self.integer_class.module;
+        while (current) |node| : (current = node.super) {
+            if (node.origin == module_obj.origin and node.object.type_tag == .iclass) return true;
         }
         return false;
     }
@@ -10512,7 +10512,11 @@ pub const VM = struct {
     }
 
     pub fn includeModule(self: *VM, target: *value.ModuleObject, module: *value.ModuleObject) VMError!void {
-        target.included_modules.append(self.gc_allocator, module) catch return error.Fatal;
+        _ = self.doIncludeModulesAt(target, module, true) catch |err| switch (err) {
+            error.CyclicInclude => return self.raiseExceptionFmt(self.argument_error_class, "cyclic include detected", .{}),
+            else => return err,
+        };
+        try self.propagateIncludedModule(target.origin, module, true);
         if (target == &self.integer_class.module) {
             self.integer_changed = true;
         }
@@ -10520,7 +10524,12 @@ pub const VM = struct {
     }
 
     pub fn prependModule(self: *VM, target: *value.ModuleObject, module: *value.ModuleObject) VMError!void {
-        target.prepended_modules.append(self.gc_allocator, module) catch return error.Fatal;
+        _ = try self.ensureOrigin(target);
+        _ = self.doIncludeModulesAt(target, module, false) catch |err| switch (err) {
+            error.CyclicInclude => return self.raiseExceptionFmt(self.argument_error_class, "cyclic prepend detected", .{}),
+            else => return err,
+        };
+        try self.propagateIncludedModule(target.origin, module, false);
         if (target == &self.integer_class.module) {
             self.integer_changed = true;
         }
@@ -10624,6 +10633,7 @@ pub const VM = struct {
             .yielder => arg.isYielder(),
             .module => arg.isModule(),
             .class => arg.isClass(),
+            .iclass => arg.isIClass(),
             .float => arg.isFloat(),
             .rational => arg.isRational(),
             .thread => arg.isThread(),
@@ -12141,6 +12151,7 @@ pub const VM = struct {
     }
 
     fn captureBacktrace(self: *VM) VMError!?*value.ArrayObject {
+        if (self.frames.items.len == 0) return null;
         return self.captureBacktraceFromFrames(self.frames.items);
     }
 
@@ -12420,18 +12431,12 @@ pub const VM = struct {
             return self.matchesException(exception, rescue_type.toClassObject());
         } else if (rescue_type.isModule()) {
             const type_module = rescue_type.toModuleObject();
-            var current_class: ?*ClassObject = exception.object.class;
-            while (current_class) |class| {
-                if (&class.module == type_module) {
+            var current: ?*ModuleObject = &exception.object.class.?.module;
+            while (current) |node| : (current = node.super) {
+                if (node == type_module) return true;
+                if (node.object.type_tag == .iclass and node.origin == type_module.origin and !node.is_origin_iclass) {
                     return true;
                 }
-                for (class.module.prepended_modules.items) |module| {
-                    if (module == type_module) return true;
-                }
-                for (class.module.included_modules.items) |module| {
-                    if (module == type_module) return true;
-                }
-                current_class = class.superclass;
             }
             return false;
         } else {

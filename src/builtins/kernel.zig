@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const ancestry = @import("../ancestry.zig");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 const method_reflection = @import("method_reflection.zig");
@@ -107,21 +108,24 @@ fn collectSingletonMethods(vm: *VM, receiver: Value, include_super: bool) VMErro
         var current: ?*ClassObject = singleton_class;
         while (current) |klass| {
             if (klass.attached_object == null) break;
-            try method_reflection.collectModuleAncestryMethods(
-                vm,
-                &klass.module,
-                .public_and_protected,
-                true,
-                &names,
-                &seen,
-                &blocked,
-            );
+            var current_node: ?*ModuleObject = &klass.module;
+            while (current_node) |node| : (current_node = node.super) {
+                if (node != &klass.module and node.object.type_tag == .class) break;
+                try method_reflection.collectMethodsFromTable(
+                    vm,
+                    &node.methods,
+                    .public_and_protected,
+                    &names,
+                    &seen,
+                    &blocked,
+                );
+            }
             current = klass.superclass;
         }
     } else {
         try method_reflection.collectMethodsFromTable(
             vm,
-            &singleton_class.module.methods,
+            &singleton_class.module.origin.methods,
             .public_and_protected,
             &names,
             &seen,
@@ -152,25 +156,11 @@ fn resolveMethodEntry(
 }
 
 fn lookupSingletonMethodOnly(singleton_class: *ClassObject, method_name: *SymbolObject) ?BoundMethodLookup {
-    var i = singleton_class.module.prepended_modules.items.len;
-    while (i > 0) {
-        i -= 1;
-        const prepended = singleton_class.module.prepended_modules.items[i];
-        if (prepended.methods.get(method_name)) |entry| {
-            return resolveMethodEntry(method_name, singleton_class, Value.fromObject(&prepended.object), entry);
-        }
-    }
-
-    if (singleton_class.module.methods.get(method_name)) |entry| {
-        return resolveMethodEntry(method_name, singleton_class, Value.fromObject(&singleton_class.module.object), entry);
-    }
-
-    i = singleton_class.module.included_modules.items.len;
-    while (i > 0) {
-        i -= 1;
-        const included = singleton_class.module.included_modules.items[i];
-        if (included.methods.get(method_name)) |entry| {
-            return resolveMethodEntry(method_name, singleton_class, Value.fromObject(&included.object), entry);
+    var current: ?*ModuleObject = &singleton_class.module;
+    while (current) |node| : (current = node.super) {
+        if (ancestry.methodTableOwner(node).methods.get(method_name)) |entry| {
+            const owner = ancestry.visibleValue(node);
+            return resolveMethodEntry(method_name, singleton_class, owner, entry);
         }
     }
 
@@ -1646,31 +1636,16 @@ pub fn builtinKernelRaise(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
 
 fn moduleIncludedInChain(vm: *VM, receiver: Value, mod: *const ModuleObject) bool {
     if (receiver.getSingletonClass()) |sc| {
-        var current: ?*ClassObject = sc;
-        while (current) |c| {
-            const m = &c.module;
-            if (m == mod) return true;
-            for (m.prepended_modules.items) |prepended| {
-                if (prepended == mod) return true;
-            }
-            for (m.included_modules.items) |included| {
-                if (included == mod) return true;
-            }
-            if (c.attached_object != null) break;
-            current = c.superclass;
+        var current: ?*ModuleObject = &sc.module;
+        while (current) |node| : (current = node.super) {
+            if (node == mod) return true;
+            if (node.object.type_tag == .iclass and node.origin == mod.origin and !node.is_origin_iclass) return true;
         }
     }
-    var current: ?*ClassObject = vm.getClass(receiver);
-    while (current) |c| {
-        const m = &c.module;
-        if (m == mod) return true;
-        for (m.prepended_modules.items) |prepended| {
-            if (prepended == mod) return true;
-        }
-        for (m.included_modules.items) |included| {
-            if (included == mod) return true;
-        }
-        current = c.superclass;
+    var current: ?*ModuleObject = &vm.getClass(receiver).module;
+    while (current) |node| : (current = node.super) {
+        if (node == mod) return true;
+        if (node.object.type_tag == .iclass and node.origin == mod.origin and !node.is_origin_iclass) return true;
     }
     return false;
 }

@@ -83,6 +83,22 @@ test "class variable is visible in subclass" {
     try std.testing.expectEqual(@as(i64, 9), result.toInteger());
 }
 
+test "class variable write on singleton class is visible on attached class" {
+    const result = try evalCode(
+        \\class A
+        \\  class << self
+        \\    @@x = 1
+        \\  end
+        \\  def self.x
+        \\    @@x
+        \\  end
+        \\end
+        \\A.x
+    );
+
+    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
+}
+
 test "class variable target works in multi assignment" {
     const result = try evalCode(
         \\class A

@@ -468,17 +468,22 @@ test "Module ancestors returns lookup chain for class with prepend/include" {
     try std.testing.expectEqualSlices(u8, "BasicObject", entries[7].toClassObject().module.name.name);
 }
 
-test "Module ancestors on module returns self" {
+test "Module ancestors on module includes transitive mixins" {
     const result = try evalCode(
-        \\module M
+        \\module Inner
         \\end
-        \\M.ancestors
+        \\module Outer
+        \\  include Inner
+        \\end
+        \\Outer.ancestors
     );
     try std.testing.expect(result.isArray());
     const entries = result.toArrayObject().elements.items;
-    try std.testing.expectEqual(@as(usize, 1), entries.len);
+    try std.testing.expectEqual(@as(usize, 2), entries.len);
     try std.testing.expect(entries[0].isModule());
-    try std.testing.expectEqualSlices(u8, "M", entries[0].toModuleObject().name.name);
+    try std.testing.expectEqualSlices(u8, "Outer", entries[0].toModuleObject().name.name);
+    try std.testing.expect(entries[1].isModule());
+    try std.testing.expectEqualSlices(u8, "Inner", entries[1].toModuleObject().name.name);
 }
 
 test "Module ancestors validates arg count" {
@@ -488,6 +493,43 @@ test "Module ancestors validates arg count" {
     const bad = evalCodeWithOutput("Module.ancestors(false)", &stdout_buf, &stderr_buf);
     try std.testing.expectEqual(error.UnhandledException, bad.err.?);
     try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "ArgumentError") != null);
+}
+
+test "Module ancestry is consistent across lookup APIs" {
+    const result = try evalCode(
+        \\module A
+        \\  def a
+        \\  end
+        \\end
+        \\module B
+        \\  include A
+        \\end
+        \\class C
+        \\  include B
+        \\end
+        \\[
+        \\  C.new.respond_to?(:a),
+        \\  C.ancestors,
+        \\  B.ancestors,
+        \\  C.include?(A),
+        \\  C.new.is_a?(A)
+        \\]
+    );
+    const entries = result.toArrayObject().elements.items;
+    try std.testing.expect(entries[0].isTrue());
+    try std.testing.expect(entries[3].isTrue());
+    try std.testing.expect(entries[4].isTrue());
+
+    const class_ancestors = entries[1].toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 6), class_ancestors.len);
+    try std.testing.expectEqualSlices(u8, "C", class_ancestors[0].toClassObject().module.name.name);
+    try std.testing.expectEqualSlices(u8, "B", class_ancestors[1].toModuleObject().name.name);
+    try std.testing.expectEqualSlices(u8, "A", class_ancestors[2].toModuleObject().name.name);
+
+    const module_ancestors = entries[2].toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 2), module_ancestors.len);
+    try std.testing.expectEqualSlices(u8, "B", module_ancestors[0].toModuleObject().name.name);
+    try std.testing.expectEqualSlices(u8, "A", module_ancestors[1].toModuleObject().name.name);
 }
 
 test "Module comparison operators follow ancestry" {
