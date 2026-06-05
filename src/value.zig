@@ -971,20 +971,13 @@ pub const Value = struct {
                     vm_instance.pendingException() != null and
                     vm_instance.pendingException().?.object.class == vm_instance.no_method_error_class)
                 {
-                    const exc = try vm_instance.createException(
-                        vm_instance.type_error_class,
-                        missing_type_error_message,
-                    );
-                    vm_instance.setPendingException(exc);
-                    return error.Unwind;
+                    return vm_instance.raiseExceptionFmt(vm_instance.type_error_class, "{s}", .{missing_type_error_message});
                 }
                 return err;
             };
 
         if (!coerced.isInteger() and !coerced.isBigInteger()) {
-            const exc = try vm_instance.createException(vm_instance.type_error_class, non_integer_type_error_message);
-            vm_instance.setPendingException(exc);
-            return error.Unwind;
+            return vm_instance.raiseExceptionFmt(vm_instance.type_error_class, "{s}", .{non_integer_type_error_message});
         }
 
         return coerced;
@@ -1013,9 +1006,7 @@ pub const Value = struct {
         return switch (try vm_instance.probeToStringValue(self)) {
             .string => |coerced| coerced,
             .missing, .nil_result => {
-                const exc = try vm_instance.createException(vm_instance.type_error_class, type_error_message);
-                vm_instance.setPendingException(exc);
-                return error.Unwind;
+                return vm_instance.raiseExceptionFmt(vm_instance.type_error_class, "{s}", .{type_error_message});
             },
         };
     }

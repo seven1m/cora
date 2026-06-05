@@ -1683,13 +1683,7 @@ fn resolveStringPercentArg(
 
 fn raiseStringPercentKeyError(vm: *VM, hash_value: Value, name_str: []const u8) VMError {
     const key_string = vm.newString(name_str, false) catch return error.Fatal;
-    const msg = std.fmt.allocPrint(vm.gc_allocator_atomic, "key not found: \"{s}\"", .{name_str}) catch return error.Fatal;
-    defer vm.gc_allocator_atomic.free(msg);
-    const exc = vm.createException(vm.key_error_class, msg) catch return error.Fatal;
-    exc.receiver = hash_value;
-    exc.key = key_string;
-    vm.setPendingException(exc);
-    return error.Unwind;
+    return vm.raiseKeyErrorFmt(key_string, hash_value, "key not found: \"{s}\"", .{name_str});
 }
 
 fn lookupStringPercentHashValue(vm: *VM, hash_value: Value, name_str: []const u8) VMError!Value {

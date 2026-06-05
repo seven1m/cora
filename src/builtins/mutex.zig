@@ -133,9 +133,7 @@ fn builtinMutexOwnedQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
 fn builtinMutexSynchronize(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     _ = try vm.ensureMainThread();
-    const blk = block orelse {
-        return vm.raiseExceptionFmt(vm.argument_error_class, "no block given", .{});
-    };
+    const blk = try vm.requireBlock(block);
 
     const mutex = receiver.toMutexObject();
 

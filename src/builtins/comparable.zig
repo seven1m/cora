@@ -26,15 +26,7 @@ const ClampBounds = struct {
 
 fn comparableComparisonFailed(vm: *VM, receiver: Value, other: Value) VMError!void {
     const inspected_other = try other.inspect(vm);
-    vm.setPendingException(try vm.createException(
-        vm.argument_error_class,
-        std.fmt.allocPrint(
-            vm.gc_allocator,
-            "comparison of {s} with {s} failed",
-            .{ vm.className(receiver), inspected_other.toStringObject().str },
-        ) catch return error.Fatal,
-    ));
-    return error.Unwind;
+    return vm.raiseExceptionFmt(vm.argument_error_class, "comparison of {s} with {s} failed", .{ vm.className(receiver), inspected_other.toStringObject().str });
 }
 
 fn compareAgainstOther(vm: *VM, receiver: Value, other: Value) VMError!?Value {

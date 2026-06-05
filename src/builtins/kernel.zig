@@ -819,9 +819,7 @@ pub fn builtinKernelRequireRelative(vm: *VM, _: Value, args: []Value, _: ?Block)
             if (vm.currentFrame().chunk.source_file) |source_file| break :blk source_file;
         }
         break :blk vm.current_loading_file orelse {
-            const exc = vm.createException(vm.load_error_class, "cannot infer basepath") catch return error.Fatal;
-            vm.setPendingException(exc);
-            return error.Unwind;
+            return vm.raiseExceptionFmt(vm.load_error_class, "cannot infer basepath", .{});
         };
     };
 
@@ -846,11 +844,7 @@ pub fn builtinKernelRequireRelative(vm: *VM, _: Value, args: []Value, _: ?Block)
     }
 
     if (resolved_path == null) {
-        const msg = std.fmt.allocPrint(vm.allocator, "cannot load such file -- {s}", .{relative_path}) catch return error.Fatal;
-        defer vm.allocator.free(msg);
-        const exc = vm.createException(vm.load_error_class, msg) catch return error.Fatal;
-        vm.setPendingException(exc);
-        return error.Unwind;
+        return vm.raiseExceptionFmt(vm.load_error_class, "cannot load such file -- {s}", .{relative_path});
     }
 
     const resolved_path_value = resolved_path.?;
@@ -936,11 +930,7 @@ pub fn builtinKernelLoad(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
     }
 
     if (absolute_path == null) {
-        const msg = std.fmt.allocPrint(vm.allocator, "cannot load such file -- {s}", .{filename}) catch return error.Fatal;
-        defer vm.allocator.free(msg);
-        const exc = vm.createException(vm.load_error_class, msg) catch return error.Fatal;
-        vm.setPendingException(exc);
-        return error.Unwind;
+        return vm.raiseExceptionFmt(vm.load_error_class, "cannot load such file -- {s}", .{filename});
     }
 
     defer vm.allocator.free(absolute_path.?);
@@ -1595,12 +1585,7 @@ pub fn builtinKernelProc(vm: *VM, _: Value, args: []Value, block: ?Block) VMErro
     try vm.requireArgCount(args, 0);
 
     const blk = block orelse {
-        const exc = try vm.createException(
-            vm.argument_error_class,
-            "tried to create Proc object without a block",
-        );
-        vm.setPendingException(exc);
-        return error.Unwind;
+        return vm.raiseExceptionFmt(vm.argument_error_class, "tried to create Proc object without a block", .{});
     };
 
     return try vm.newProc(blk);
@@ -1610,12 +1595,7 @@ pub fn builtinKernelLambda(vm: *VM, _: Value, args: []Value, block: ?Block) VMEr
     try vm.requireArgCount(args, 0);
 
     const blk = block orelse {
-        const exc = try vm.createException(
-            vm.argument_error_class,
-            "tried to create Lambda without a block",
-        );
-        vm.setPendingException(exc);
-        return error.Unwind;
+        return vm.raiseExceptionFmt(vm.argument_error_class, "tried to create Lambda without a block", .{});
     };
 
     // Mark bytecode-backed blocks as lambda; symbol procs are already lambda-like.
@@ -1826,9 +1806,7 @@ pub fn builtinKernelCatch(vm: *VM, _: Value, args: []Value, block: ?Block) VMErr
     try vm.requireArgCountRange(args, 0, 1);
 
     const blk = block orelse {
-        const exc = try vm.createException(vm.local_jump_error_class, "no block given");
-        vm.setPendingException(exc);
-        return error.Unwind;
+        return vm.raiseExceptionFmt(vm.local_jump_error_class, "no block given", .{});
     };
     const tag = if (args.len == 1) args[0] else try vm.newInstance(vm.object_class);
 
@@ -1910,9 +1888,7 @@ pub fn builtinKernelSleep(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
 pub fn builtinKernelTap(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const blk = block orelse {
-        const exc = try vm.createException(vm.local_jump_error_class, "no block given");
-        vm.setPendingException(exc);
-        return error.Unwind;
+        return vm.raiseExceptionFmt(vm.local_jump_error_class, "no block given", .{});
     };
     const result = try vm.yieldToBlock(blk, &[_]Value{receiver});
     if (result.controlFlowValue()) |return_value| return return_value;

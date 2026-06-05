@@ -38,12 +38,7 @@ pub fn builtinProcNew(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!V
     try vm.requireArgCount(args, 0);
 
     const blk = block orelse {
-        const exc = try vm.createException(
-            vm.argument_error_class,
-            "tried to create Proc object without a block",
-        );
-        vm.setPendingException(exc);
-        return error.Unwind;
+        return vm.raiseExceptionFmt(vm.argument_error_class, "tried to create Proc object without a block", .{});
     };
 
     return try vm.newProc(blk);

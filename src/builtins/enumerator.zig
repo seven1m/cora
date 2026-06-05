@@ -66,11 +66,7 @@ pub fn register(vm: *VM) !void {
 fn builtinEnumeratorNew(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
 
-    const blk = block orelse {
-        const exc = try vm.createException(vm.argument_error_class, "no block given");
-        vm.setPendingException(exc);
-        return error.Unwind;
-    };
+    const blk = try vm.requireBlock(block);
 
     // Wrap the block as a ProcObject
     const proc_val = try vm.newProc(blk);
@@ -399,9 +395,7 @@ fn enumeratorFiberYieldBlock(vm: *VM, args: []Value) VMError!Value {
 }
 
 fn raiseStopIteration(vm: *VM) VMError {
-    const exc = try vm.createException(vm.stop_iteration_class, "StopIteration");
-    vm.setPendingException(exc);
-    return error.Unwind;
+    return vm.raiseExceptionFmt(vm.stop_iteration_class, "StopIteration", .{});
 }
 
 fn collapseYieldValues(yield_values: *value.ArrayObject) Value {

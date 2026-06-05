@@ -188,9 +188,7 @@ fn arrayJoinAppendElement(
     };
     const to_s_value = try vm.callMethodByName(elem, "to_s", &[_]Value{}, null);
     if (!to_s_value.isString()) {
-        const exc = try vm.createException(vm.type_error_class, "to_s did not return String");
-        vm.setPendingException(exc);
-        return error.Unwind;
+        return vm.raiseExceptionFmt(vm.type_error_class, "to_s did not return String", .{});
     }
     try arrayJoinAppendString(vm, state, to_s_value);
 }

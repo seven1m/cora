@@ -131,9 +131,7 @@ pub fn builtinBasicObjectInstanceEval(vm: *VM, receiver: Value, args: []Value, b
 
 pub fn builtinBasicObjectInstanceExec(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     const blk = block orelse {
-        const exc = try vm.createException(vm.local_jump_error_class, "no block given");
-        vm.setPendingException(exc);
-        return error.Unwind;
+        return vm.raiseExceptionFmt(vm.local_jump_error_class, "no block given", .{});
     };
 
     const proc_obj = (try vm.newProc(blk)).toProcObject();

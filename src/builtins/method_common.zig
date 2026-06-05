@@ -124,11 +124,7 @@ pub fn ownerDisplayNameFull(vm: *VM, owner: Value) VMError![]const u8 {
 }
 
 pub fn raiseUndefinedMethodName(vm: *VM, name_sym: *SymbolObject) VMError!Value {
-    const message = std.fmt.allocPrint(vm.gc_allocator, "undefined method '{s}'", .{name_sym.name}) catch return error.Fatal;
-    const exc = try vm.createException(vm.name_error_class, message);
-    try vm.setInstanceVariable(Value.fromObject(&exc.object), "@name", Value.fromObject(&name_sym.object));
-    vm.setPendingException(exc);
-    return error.Unwind;
+    return vm.raiseNameErrorFmt(name_sym, "undefined method '{s}'", .{name_sym.name});
 }
 
 pub fn sourceLocationForResolvedMethod(vm: *VM, resolved: vm_mod.ResolvedMethod) VMError!Value {

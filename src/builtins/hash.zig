@@ -1029,14 +1029,7 @@ pub fn builtinHashFetchValues(vm: *VM, receiver: Value, args: []Value, block: ?B
             array_obj.elements.append(vm.gc_allocator, result.value) catch return error.Fatal;
         } else {
             const key_str = try arg.inspect(vm);
-            const exc = try vm.createException(
-                vm.key_error_class,
-                std.fmt.allocPrint(vm.gc_allocator, "key not found: {s}", .{key_str.toStringObject().str}) catch return error.Fatal,
-            );
-            exc.receiver = receiver;
-            exc.key = arg;
-            vm.setPendingException(exc);
-            return error.Unwind;
+            return vm.raiseKeyErrorFmt(arg, receiver, "key not found: {s}", .{key_str.toStringObject().str});
         }
     }
 
@@ -1448,14 +1441,7 @@ pub fn builtinHashFetch(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
         return args[1];
     } else {
         const key_str = try key.inspect(vm);
-        const exc = try vm.createException(
-            vm.key_error_class,
-            std.fmt.allocPrint(vm.gc_allocator, "key not found: {s}", .{key_str.toStringObject().str}) catch return error.Fatal,
-        );
-        exc.receiver = receiver;
-        exc.key = key;
-        vm.setPendingException(exc);
-        return error.Unwind;
+        return vm.raiseKeyErrorFmt(key, receiver, "key not found: {s}", .{key_str.toStringObject().str});
     }
 }
 

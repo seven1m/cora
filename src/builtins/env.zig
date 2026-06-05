@@ -246,9 +246,7 @@ pub fn builtinEnvSelect(vm: *VM, _: Value, args: []Value, block: ?Block) VMError
     }
 
     try vm.requireArgCount(args, 0);
-    if (block == null) {
-        return vm.raiseExceptionFmt(vm.argument_error_class, "no block given", .{});
-    }
+    const blk = try vm.requireBlock(block);
 
     const result = try vm.createHash();
     var env_map = try vm.currentEnvMap();
@@ -260,7 +258,7 @@ pub fn builtinEnvSelect(vm: *VM, _: Value, args: []Value, block: ?Block) VMError
         const value_val = try vm.newString(entry.value_ptr.*, false);
 
         const yield_args = [_]Value{ key_val, value_val };
-        const yielded = try vm.yieldToBlock(block.?, &yield_args);
+        const yielded = try vm.yieldToBlock(blk, &yield_args);
         if (yielded.controlFlowValue()) |return_value| return return_value;
         if (yielded.value.isTruthy()) {
             try vm.hashSetEntry(result, key_val, value_val);
@@ -345,12 +343,7 @@ pub fn builtinEnvFetch(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!
     } else if (args.len == 2) {
         return args[1];
     } else {
-        const exc = try vm.createException(
-            vm.key_error_class,
-            std.fmt.allocPrint(vm.gc_allocator, "key not found: \"{s}\"", .{key}) catch return error.Fatal,
-        );
-        vm.setPendingException(exc);
-        return error.Unwind;
+        return vm.raiseExceptionFmt(vm.key_error_class, "key not found: \"{s}\"", .{key});
     }
 }
 

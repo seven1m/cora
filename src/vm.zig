@@ -1974,20 +1974,14 @@ pub const VM = struct {
 
     fn startNonLocalReturn(self: *VM, frame_type: CallFrame.FrameType, return_target_ep: ?[*]Value, result: Value) VMError!void {
         if (frame_type == .fiber) {
-            const exc = try self.createException(self.local_jump_error_class, "return from fiber");
-            self.setPendingException(exc);
-            return error.Unwind;
+            return self.raiseExceptionFmt(self.local_jump_error_class, "return from fiber", .{});
         }
 
         const target_ep = return_target_ep orelse {
-            const exc = try self.createException(self.local_jump_error_class, "unexpected return");
-            self.setPendingException(exc);
-            return error.Unwind;
+            return self.raiseExceptionFmt(self.local_jump_error_class, "unexpected return", .{});
         };
         const target_frame_idx = self.findActiveReturnTargetMethodFrameIndex(target_ep) orelse {
-            const exc = try self.createException(self.local_jump_error_class, "unexpected return");
-            self.setPendingException(exc);
-            return error.Unwind;
+            return self.raiseExceptionFmt(self.local_jump_error_class, "unexpected return", .{});
         };
 
         self.setPendingControlFlow(.{
@@ -2086,14 +2080,7 @@ pub const VM = struct {
     }
 
     fn raisePrivateConstantReference(self: *VM, module_obj: *value.ModuleObject, name_sym: *value.SymbolObject) VMError!void {
-        const msg = std.fmt.allocPrint(
-            self.gc_allocator,
-            "private constant {s}::{s} referenced",
-            .{ module_obj.name.name, name_sym.name },
-        ) catch return error.Fatal;
-        const exc = try self.createException(self.name_error_class, msg);
-        self.setPendingException(exc);
-        return error.Unwind;
+        return self.raiseExceptionFmt(self.name_error_class, "private constant {s}::{s} referenced", .{ module_obj.name.name, name_sym.name });
     }
 
     pub fn autoloadTableForReceiver(self: *VM, receiver: Value) ?*std.AutoHashMap(*SymbolObject, []const u8) {
@@ -3251,9 +3238,7 @@ pub const VM = struct {
     inline fn push(self: *VM, val: Value) VMError!void {
         const len = self.stack.items.len;
         if (len >= self.stack.capacity) {
-            const exc = try self.createException(self.fiber_error_class, "fiber stack overflow");
-            self.setPendingException(exc);
-            return error.Unwind;
+            return self.raiseExceptionFmt(self.fiber_error_class, "fiber stack overflow", .{});
         }
 
         self.stack.storage[len] = val;
@@ -3390,9 +3375,7 @@ pub const VM = struct {
         opts: BlockFrameOptions,
     ) VMError!void {
         if (self.frames.items.len >= self.frames.capacity) {
-            const exc = try self.createException(self.fiber_error_class, "fiber call stack overflow");
-            self.setPendingException(exc);
-            return error.Unwind;
+            return self.raiseExceptionFmt(self.fiber_error_class, "fiber call stack overflow", .{});
         }
 
         const locals_count = ch.locals_count;
@@ -3400,9 +3383,7 @@ pub const VM = struct {
         const needed = locals_base + locals_count + ENV_DATA_SIZE;
 
         if (needed > MAX_FIBER_STACK_SIZE) {
-            const exc = try self.createException(self.fiber_error_class, "fiber stack overflow");
-            self.setPendingException(exc);
-            return error.Unwind;
+            return self.raiseExceptionFmt(self.fiber_error_class, "fiber stack overflow", .{});
         }
 
         self.stack.items.len = needed;
@@ -3440,9 +3421,7 @@ pub const VM = struct {
 
     fn pushFrame(self: *VM, ch: *Chunk, self_value: Value, block: ?Block) VMError!void {
         if (self.frames.items.len >= self.frames.capacity) {
-            const exc = try self.createException(self.fiber_error_class, "fiber call stack overflow");
-            self.setPendingException(exc);
-            return error.Unwind;
+            return self.raiseExceptionFmt(self.fiber_error_class, "fiber call stack overflow", .{});
         }
 
         const locals_count = ch.locals_count;
@@ -3450,9 +3429,7 @@ pub const VM = struct {
         const needed = locals_base + locals_count + ENV_DATA_SIZE;
 
         if (needed > MAX_FIBER_STACK_SIZE) {
-            const exc = try self.createException(self.fiber_error_class, "fiber stack overflow");
-            self.setPendingException(exc);
-            return error.Unwind;
+            return self.raiseExceptionFmt(self.fiber_error_class, "fiber stack overflow", .{});
         }
 
         // Extend the value stack: locals (nil-initialised) + env_data slots.
@@ -3833,9 +3810,7 @@ pub const VM = struct {
     pub fn fiberYield(self: *VM, yield_value: Value) VMError!Value {
         const fiber = self.current_fiber;
         if (fiber == self.rootFiberForCurrentThread()) {
-            const exc = try self.createException(self.fiber_error_class, "can't yield from root fiber");
-            self.setPendingException(exc);
-            return error.Unwind;
+            return self.raiseExceptionFmt(self.fiber_error_class, "can't yield from root fiber", .{});
         }
 
         fiber.coro_result = yield_value;
@@ -4619,8 +4594,7 @@ pub const VM = struct {
         if (thread.kill_requested) {
             thread.kill_requested = false;
             thread.state = .aborting;
-            self.setPendingException(try self.createException(self.thread_kill_exception_class, ""));
-            return error.Unwind;
+            return self.raiseExceptionFmt(self.thread_kill_exception_class, "", .{});
         }
 
         // Deliver async exception from Thread#raise
@@ -4919,14 +4893,7 @@ pub const VM = struct {
                 if (self.lookupClassVariable(ctx.module, ctx.start_class, name_sym)) |val| {
                     try self.push(val);
                 } else {
-                    const msg = std.fmt.allocPrint(
-                        self.gc_allocator,
-                        "uninitialized class variable {s} in {s}",
-                        .{ var_name, ctx.module.name.name },
-                    ) catch return error.Fatal;
-                    const exc = try self.createException(self.name_error_class, msg);
-                    self.setPendingException(exc);
-                    return error.Unwind;
+                    return self.raiseExceptionFmt(self.name_error_class, "uninitialized class variable {s} in {s}", .{ var_name, ctx.module.name.name });
                 }
             },
 
@@ -5004,14 +4971,7 @@ pub const VM = struct {
                             },
                         }
                     }
-                    const msg = std.fmt.allocPrint(
-                        self.gc_allocator,
-                        "uninitialized constant {s}",
-                        .{constant.string},
-                    ) catch return error.Fatal;
-                    const exc = try self.createException(self.name_error_class, msg);
-                    self.setPendingException(exc);
-                    return error.Unwind;
+                    return self.raiseExceptionFmt(self.name_error_class, "uninitialized constant {s}", .{constant.string});
                 }
             },
 
@@ -5062,14 +5022,7 @@ pub const VM = struct {
                             return;
                         },
                     }
-                    const msg = std.fmt.allocPrint(
-                        self.gc_allocator,
-                        "uninitialized constant {s}",
-                        .{constant.string},
-                    ) catch return error.Fatal;
-                    const exc = try self.createException(self.name_error_class, msg);
-                    self.setPendingException(exc);
-                    return error.Unwind;
+                    return self.raiseExceptionFmt(self.name_error_class, "uninitialized constant {s}", .{constant.string});
                 }
             },
 
@@ -5129,9 +5082,7 @@ pub const VM = struct {
                 else if (parent_val.isModule())
                     parent_val.toModuleObject()
                 else {
-                    const exc = try self.createException(self.type_error_class, "receiver is not a Module");
-                    self.setPendingException(exc);
-                    return error.Unwind;
+                    return self.raiseExceptionFmt(self.type_error_class, "receiver is not a Module", .{});
                 };
 
                 if (module.constants.getPtr(name_sym)) |entry| {
@@ -5185,14 +5136,7 @@ pub const VM = struct {
                         return;
                     },
                 }
-                const msg = std.fmt.allocPrint(
-                    self.gc_allocator,
-                    "uninitialized constant {s}::{s}",
-                    .{ module.name.name, constant.string },
-                ) catch return error.Fatal;
-                const exc = try self.createException(self.name_error_class, msg);
-                self.setPendingException(exc);
-                return error.Unwind;
+                return self.raiseExceptionFmt(self.name_error_class, "uninitialized constant {s}::{s}", .{ module.name.name, constant.string });
             },
 
             .PUSH_SELF => {
@@ -5878,9 +5822,7 @@ pub const VM = struct {
                     const module_val = blk: {
                         if (target.existing_value) |em| {
                             if (em.isModule()) break :blk em;
-                            const exc = try self.createException(self.type_error_class, "constant is not a module");
-                            self.setPendingException(exc);
-                            return error.Unwind;
+                            return self.raiseExceptionFmt(self.type_error_class, "constant is not a module", .{});
                         }
 
                         const fresh_module = try self.newModule(target.name_sym);
@@ -5919,9 +5861,7 @@ pub const VM = struct {
                 if (superclass_val.isClass()) {
                     superclass = superclass_val.toClassObject();
                 } else if (!superclass_val.isNil()) {
-                    const exc = try self.createException(self.type_error_class, "superclass must be a Class");
-                    self.setPendingException(exc);
-                    return error.Unwind;
+                    return self.raiseExceptionFmt(self.type_error_class, "superclass must be a Class", .{});
                 }
 
                 const constant = constants[name_idx];
@@ -5935,9 +5875,7 @@ pub const VM = struct {
                             class_val = ec;
                         } else {
                             // Name exists but isn't a class - error
-                            const exc = try self.createException(self.type_error_class, "constant is not a class");
-                            self.setPendingException(exc);
-                            return error.Unwind;
+                            return self.raiseExceptionFmt(self.type_error_class, "constant is not a class", .{});
                         }
                     } else {
                         // Create new class
@@ -6113,9 +6051,7 @@ pub const VM = struct {
                 const value_to_append = self.pop();
                 const array_val = self.pop();
                 if (!array_val.isArray()) {
-                    const exc = try self.createException(self.type_error_class, "internal error: ARRAY_APPEND target is not an Array");
-                    self.setPendingException(exc);
-                    return error.Unwind;
+                    return self.raiseExceptionFmt(self.type_error_class, "internal error: ARRAY_APPEND target is not an Array", .{});
                 }
                 array_val.toArrayObject().elements.append(self.gc_allocator, value_to_append) catch return error.Fatal;
                 try self.push(array_val);
@@ -6125,9 +6061,7 @@ pub const VM = struct {
                 const other = self.pop();
                 const array_val = self.pop();
                 if (!array_val.isArray()) {
-                    const exc = try self.createException(self.type_error_class, "internal error: ARRAY_CONCAT_ARRAY target is not an Array");
-                    self.setPendingException(exc);
-                    return error.Unwind;
+                    return self.raiseExceptionFmt(self.type_error_class, "internal error: ARRAY_CONCAT_ARRAY target is not an Array", .{});
                 }
                 const other_array = try self.expandSplatValue(other);
                 for (other_array.toArrayObject().elements.items) |elem| {
@@ -6158,14 +6092,11 @@ pub const VM = struct {
 
             .HASH_SET_CONST_KEY => {
                 const key_name_idx = readU16From(frame, operands, &operand_cursor);
-                if (self.stack.items.len < 2) return error.Fatal;
 
                 const value_to_set = self.pop();
                 const target_hash_val = self.peek(0);
                 if (!target_hash_val.isHash()) {
-                    const exc = try self.createException(self.type_error_class, "internal error: HASH_SET_CONST_KEY target is not a Hash");
-                    self.setPendingException(exc);
-                    return error.Unwind;
+                    return self.raiseExceptionFmt(self.type_error_class, "internal error: HASH_SET_CONST_KEY target is not a Hash", .{});
                 }
 
                 if (key_name_idx >= frame.chunk.constants.items.len) return error.Fatal;
@@ -6179,13 +6110,11 @@ pub const VM = struct {
             },
 
             .HASH_MERGE_KW => {
-                if (self.stack.items.len < 2) return error.Fatal;
+
                 const source_val = self.pop();
                 const target_hash_val = self.peek(0);
                 if (!target_hash_val.isHash()) {
-                    const exc = try self.createException(self.type_error_class, "internal error: HASH_MERGE_KW target is not a Hash");
-                    self.setPendingException(exc);
-                    return error.Unwind;
+                    return self.raiseExceptionFmt(self.type_error_class, "internal error: HASH_MERGE_KW target is not a Hash", .{});
                 }
 
                 try self.mergeKwSplatInto(target_hash_val.toHashObject(), source_val);
@@ -6280,14 +6209,7 @@ pub const VM = struct {
                 }
 
                 // Check for block
-                const block = frame.block orelse {
-                    const exc = try self.createException(
-                        self.argument_error_class,
-                        "no block given",
-                    );
-                    self.setPendingException(exc);
-                    return error.Unwind;
-                };
+                const block = try self.requireBlock(frame.block);
                 switch (block.kind) {
                     .chunk => |chunk_blk| {
                         // De-recursed: push block frame inline, return to dispatch loop
@@ -6327,14 +6249,7 @@ pub const VM = struct {
             .YIELD_SPLAT => {
                 const args_array_val = try self.expandSplatValue(self.pop());
 
-                const block = frame.block orelse {
-                    const exc = try self.createException(
-                        self.argument_error_class,
-                        "no block given",
-                    );
-                    self.setPendingException(exc);
-                    return error.Unwind;
-                };
+                const block = try self.requireBlock(frame.block);
 
                 const splat_args = args_array_val.toArrayObject().elements.items;
                 switch (block.kind) {
@@ -8341,11 +8256,7 @@ pub const VM = struct {
 
     /// Ensure a block was given, or raise an error
     pub fn requireBlock(self: *VM, block: ?Block) VMError!Block {
-        return block orelse {
-            const exc = try self.createException(self.argument_error_class, "no block given");
-            self.setPendingException(exc);
-            return error.Unwind;
-        };
+        return block orelse return self.raiseExceptionFmt(self.argument_error_class, "no block given", .{});
     }
 
     /// Ruby-level equality helper using `==`.
@@ -8623,20 +8534,11 @@ pub const VM = struct {
                 Value.fromObject(&self.object_class.module.object)
             else
                 (try self.resolveConstantPathFrom(lexical_scope, normalized_owner_path, prefer_lexical)) orelse {
-                    const msg = std.fmt.allocPrint(
-                        self.gc_allocator,
-                        "uninitialized constant {s}",
-                        .{normalized_owner_path},
-                    ) catch return error.Fatal;
-                    const exc = try self.createException(self.name_error_class, msg);
-                    self.setPendingException(exc);
-                    return error.Unwind;
+                    return self.raiseExceptionFmt(self.name_error_class, "uninitialized constant {s}", .{normalized_owner_path});
                 };
 
             if (!owner_val.isClass() and !owner_val.isModule()) {
-                const exc = try self.createException(self.type_error_class, "constant path does not refer to class/module");
-                self.setPendingException(exc);
-                return error.Unwind;
+                return self.raiseExceptionFmt(self.type_error_class, "constant path does not refer to class/module", .{});
             }
 
             const owner_module = if (owner_val.isClass())
@@ -10876,6 +10778,34 @@ pub const VM = struct {
     ) VMError {
         const msg = std.fmt.allocPrint(self.gc_allocator, fmt, args) catch return error.Fatal;
         const exc = self.createException(exception_class, msg) catch return error.Fatal;
+        self.setPendingException(exc);
+        return error.Unwind;
+    }
+
+    pub fn raiseKeyErrorFmt(
+        self: *VM,
+        key: Value,
+        receiver: Value,
+        comptime fmt: []const u8,
+        args: anytype,
+    ) VMError {
+        const msg = std.fmt.allocPrint(self.gc_allocator, fmt, args) catch return error.Fatal;
+        const exc = self.createException(self.key_error_class, msg) catch return error.Fatal;
+        exc.key = key;
+        exc.receiver = receiver;
+        self.setPendingException(exc);
+        return error.Unwind;
+    }
+
+    pub fn raiseNameErrorFmt(
+        self: *VM,
+        name_sym: *value.SymbolObject,
+        comptime fmt: []const u8,
+        args: anytype,
+    ) VMError {
+        const msg = std.fmt.allocPrint(self.gc_allocator, fmt, args) catch return error.Fatal;
+        const exc = self.createException(self.name_error_class, msg) catch return error.Fatal;
+        try self.setInstanceVariable(Value.fromObject(&exc.object), "@name", Value.fromObject(&name_sym.object));
         self.setPendingException(exc);
         return error.Unwind;
     }

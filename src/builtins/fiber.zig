@@ -45,19 +45,13 @@ fn argsToValue(vm: *VM, args: []Value) VMError!Value {
 }
 
 fn raiseFiberError(vm: *VM, msg: []const u8) VMError!Value {
-    const exc = try vm.createException(vm.fiber_error_class, msg);
-    vm.setPendingException(exc);
-    return error.Unwind;
+    return vm.raiseExceptionFmt(vm.fiber_error_class, "{s}", .{msg});
 }
 
 pub fn builtinFiberNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
 
-    const blk = block orelse {
-        const exc = try vm.createException(vm.argument_error_class, "no block given");
-        vm.setPendingException(exc);
-        return error.Unwind;
-    };
+    const blk = try vm.requireBlock(block);
 
     const class_ptr = receiver.toClassObject();
     return try vm.newFiber(class_ptr, blk);
