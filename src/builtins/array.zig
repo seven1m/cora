@@ -660,6 +660,8 @@ pub fn register(vm: *VM) !void {
 
     const intersection_sym = try vm.intern("&");
     try vm.array_class.module.methods.put(intersection_sym, value.MethodEntry.builtin(&builtinArrayIntersection, .{ .exact = 1 }));
+    const intersection_method_sym = try vm.intern("intersection");
+    try vm.array_class.module.methods.put(intersection_method_sym, value.MethodEntry.builtin(&builtinArrayIntersection, .{ .variadic = 0 }));
 
     const intersect_q_sym = try vm.intern("intersect?");
     try vm.array_class.module.methods.put(intersect_q_sym, value.MethodEntry.builtin(&builtinArrayIntersectQ, .{ .exact = 1 }));
@@ -2334,15 +2336,26 @@ pub fn builtinArrayDig(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
 }
 
 pub fn builtinArrayIntersection(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireSingleArg(args, .array, "Array");
-    const left = receiver.toArrayObject();
-    const right = args[0].toArrayObject();
     const result = try vm.createArray();
-
-    for (left.elements.items) |elem| {
+    for (receiver.toArrayObject().elements.items) |elem| {
         if (try arrayContainsEquivalent(vm, result.elements.items, elem)) continue;
-        if (try arrayContainsEquivalent(vm, right.elements.items, elem)) {
-            result.elements.append(vm.gc_allocator, elem) catch return error.Fatal;
+        result.elements.append(vm.gc_allocator, elem) catch return error.Fatal;
+    }
+
+    for (args) |arg| {
+        const right_val = switch (try vm.probeToAry(arg)) {
+            .array => |v| v,
+            .missing => return vm.raiseExceptionFmt(vm.type_error_class, "wrong argument type {s} (expected Array)", .{vm.className(arg)}),
+            .nil_result => continue,
+        };
+        const right = right_val.toArrayObject();
+        var i: usize = 0;
+        while (i < result.elements.items.len) {
+            if (try arrayContainsEquivalent(vm, right.elements.items, result.elements.items[i])) {
+                i += 1;
+            } else {
+                _ = result.elements.orderedRemove(i);
+            }
         }
     }
 
