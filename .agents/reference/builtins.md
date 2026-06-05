@@ -38,6 +38,21 @@
 - Use `VM.raiseEncodingCompatibilityError` for the common `Encoding::CompatibilityError` format of `"incompatible character encodings: ..."`.
 - Prefer shared warning helpers in `src/builtins/warning.zig`, such as `writeWarning` and `warnBlockUnused`, over builtin-specific `$stderr` writers.
 
+## Exception Raising Helpers
+
+- Prefer `VM.raiseExceptionFmt(class, fmt, args)` over manual `createException` + `setPendingException` + `return error.Unwind`. This single helper handles allocation, creation, and pending-exception setup.
+- Use `VM.raiseNameErrorFmt(name_sym, fmt, args)` for `NameError` with `@name` ivar — replaces the pattern of `createException` + `setInstanceVariable("@name")` + `setPendingException`.
+- Use `VM.raiseKeyErrorFmt(key, receiver, fmt, args)` for `KeyError` with key and receiver fields.
+- Do not manually construct format strings with `std.fmt.allocPrint` just to pass them to `createException`; use the `*Fmt` helpers instead.
+
+## Block Validation
+
+- Use `VM.requireBlock(block)` to assert a block was provided. Returns the block or raises `ArgumentError("no block given")`.
+
+## Frozen Object Guards
+
+- Use `VM.guardNotFrozen(receiver)` to check if an object is frozen and raise `FrozenError("can't modify frozen ...")` if so. This replaces the repetitive `if (receiver.isFrozen()) { return vm.raiseExceptionFmt(...); }` pattern.
+
 ## Builtin Naming Conventions
 
 - For Ruby `!` methods, use a `Bang` suffix in the Zig handler name, for example `builtinStringUpcaseBang`.
