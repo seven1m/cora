@@ -32,6 +32,12 @@ pub fn register(vm: *VM) !void {
 
     const integer_q_sym = try vm.intern("integer?");
     try vm.numeric_class.module.methods.put(integer_q_sym, value.MethodEntry.builtin(&builtinNumericIntegerQ, .{ .exact = 0 }));
+
+    const real_sym = try vm.intern("real");
+    try vm.numeric_class.module.methods.put(real_sym, value.MethodEntry.builtin(&builtinNumericReal, .{ .exact = 0 }));
+
+    const real_q_sym = try vm.intern("real?");
+    try vm.numeric_class.module.methods.put(real_q_sym, value.MethodEntry.builtin(&builtinNumericRealQ, .{ .exact = 0 }));
 }
 
 pub fn builtinNumericIntegerQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -70,4 +76,14 @@ pub fn builtinNumericNegativeQ(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
 pub fn builtinNumericImag(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return Value.integer(0);
+}
+
+pub fn builtinNumericReal(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return receiver;
+}
+
+pub fn builtinNumericRealQ(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return Value.boolean(true);
 }
