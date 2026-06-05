@@ -41,6 +41,9 @@ pub fn register(vm: *VM) !void {
 
     const real_q_sym = try vm.intern("real?");
     try vm.numeric_class.module.methods.put(real_q_sym, value.MethodEntry.builtin(&builtinNumericRealQ, .{ .exact = 0 }));
+
+    const uplus_sym = try vm.intern("+@");
+    try vm.numeric_class.module.methods.put(uplus_sym, value.MethodEntry.builtin(&builtinNumericUplus, .{ .exact = 0 }));
 }
 
 pub fn builtinNumericIntegerQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -94,4 +97,9 @@ pub fn builtinNumericToInt(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 pub fn builtinNumericRealQ(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return Value.boolean(true);
+}
+
+pub fn builtinNumericUplus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return receiver;
 }
