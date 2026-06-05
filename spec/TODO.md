@@ -860,7 +860,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/float/equal_value_spec.rb
 - [ ] core/float/exponent_spec.rb
 - [ ] core/float/fdiv_spec.rb
-- [ ] core/float/finite_spec.rb
+- [x] core/float/finite_spec.rb
 - [ ] core/float/float_spec.rb
 - [-] core/float/floor_spec.rb
 - [ ] core/float/gt_spec.rb
