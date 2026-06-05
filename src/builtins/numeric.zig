@@ -36,6 +36,9 @@ pub fn register(vm: *VM) !void {
     const real_sym = try vm.intern("real");
     try vm.numeric_class.module.methods.put(real_sym, value.MethodEntry.builtin(&builtinNumericReal, .{ .exact = 0 }));
 
+    const to_int_sym = try vm.intern("to_int");
+    try vm.numeric_class.module.methods.put(to_int_sym, value.MethodEntry.builtin(&builtinNumericToInt, .{ .exact = 0 }));
+
     const real_q_sym = try vm.intern("real?");
     try vm.numeric_class.module.methods.put(real_q_sym, value.MethodEntry.builtin(&builtinNumericRealQ, .{ .exact = 0 }));
 }
@@ -81,6 +84,11 @@ pub fn builtinNumericImag(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
 pub fn builtinNumericReal(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return receiver;
+}
+
+pub fn builtinNumericToInt(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return vm.callMethodByName(receiver, "to_i", &.{}, null);
 }
 
 pub fn builtinNumericRealQ(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

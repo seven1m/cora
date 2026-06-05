@@ -1546,7 +1546,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/numeric/singleton_method_added_spec.rb
 - [ ] core/numeric/step_spec.rb
 - [ ] core/numeric/to_c_spec.rb
-- [ ] core/numeric/to_int_spec.rb
+- [x] core/numeric/to_int_spec.rb
 - [ ] core/numeric/truncate_spec.rb
 - [ ] core/numeric/uminus_spec.rb
 - [ ] core/numeric/uplus_spec.rb
