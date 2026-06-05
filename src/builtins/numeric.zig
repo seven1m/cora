@@ -29,6 +29,14 @@ pub fn register(vm: *VM) !void {
 
     const imaginary_sym = try vm.intern("imaginary");
     try vm.numeric_class.module.methods.put(imaginary_sym, value.MethodEntry.builtin(&builtinNumericImag, .{ .exact = 0 }));
+
+    const integer_q_sym = try vm.intern("integer?");
+    try vm.numeric_class.module.methods.put(integer_q_sym, value.MethodEntry.builtin(&builtinNumericIntegerQ, .{ .exact = 0 }));
+}
+
+pub fn builtinNumericIntegerQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return Value.boolean(receiver.isInteger());
 }
 
 pub fn builtinNumericZero(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
