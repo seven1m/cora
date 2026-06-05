@@ -10814,6 +10814,12 @@ pub const VM = struct {
         return self.errno_classes.get(errno_number) orelse self.system_call_error_class;
     }
 
+    pub fn guardNotFrozen(self: *VM, receiver: Value) VMError!void {
+        if (receiver.isFrozen()) {
+            return self.raiseExceptionFmt(self.frozen_error_class, "can't modify frozen {s}", .{self.className(receiver)});
+        }
+    }
+
     pub fn errnoNumberForClass(self: *VM, class_obj: *value.ClassObject) ?c_int {
         var it = self.errno_classes.iterator();
         while (it.next()) |entry| {

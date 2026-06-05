@@ -1067,9 +1067,7 @@ pub fn builtinModuleInitializeCopy(vm: *VM, receiver: Value, args: []Value, _: ?
 
     const other = args[0];
     if (receiver.objectId() == other.objectId()) return receiver;
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen {s}", .{vm.className(receiver)});
-    }
+    try vm.guardNotFrozen(receiver);
     if (vm.getClass(receiver) != vm.getClass(other)) {
         return vm.raiseExceptionFmt(vm.type_error_class, "initialize_copy should take same class object", .{});
     }
@@ -1258,12 +1256,10 @@ pub fn builtinModuleAutoload(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     try vm.requireArgCount(args, 2);
     try vm.resetLoadedFilesFromGlobal();
 
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen {s}", .{vm.className(receiver)});
-    }
+    try vm.guardNotFrozen(receiver);
 
     _ = constantsTable(receiver) orelse {
-        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Module", .{});
+        unreachable; // receiver is not a Module
     };
 
     const name = try constantNameString(vm, args[0]);
@@ -1810,9 +1806,7 @@ pub fn builtinModuleUndefMethod(vm: *VM, receiver: Value, args: []Value, _: ?Blo
         names.append(vm.gc_allocator, try vm.coerceToMethodNameSymbol(arg)) catch return error.Fatal;
     }
 
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen {s}", .{vm.className(receiver)});
-    }
+    try vm.guardNotFrozen(receiver);
 
     for (names.items) |name_sym| {
         const exists = switch (resolveInstanceMethodLookup(vm, receiver, name_sym)) {

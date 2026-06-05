@@ -1073,9 +1073,7 @@ pub fn builtinStringInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
         return receiver;
     }
 
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
-    }
+    try vm.guardNotFrozen(receiver);
 
     if (args.len == 0) {
         if (requested_encoding) |encoding| {
@@ -1098,9 +1096,7 @@ pub fn builtinStringInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
 pub fn builtinStringInitializeCopy(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
 
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
-    }
+    try vm.guardNotFrozen(receiver);
 
     const replacement_val = try args[0].coerceToStringValue(vm, "no implicit conversion into String");
     const replacement = replacement_val.toStringObject();
@@ -1433,9 +1429,7 @@ fn stringSub(vm: *VM, receiver: Value, args: []Value, block: ?Block, bang: bool)
     if (args.len == 1 and block == null) {
         return vm.raiseArgumentErrorWrongArgCount(args.len, 2);
     }
-    if (bang and receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
-    }
+    if (bang) try vm.guardNotFrozen(receiver);
 
     const snapshot = receiver.toStringObject().*;
     const match = (try findStringSubMatch(vm, receiver, args[0])) orelse {
@@ -1484,9 +1478,7 @@ fn stringGsub(vm: *VM, receiver: Value, args: []Value, block: ?Block, bang: bool
     if (args.len == 1 and block == null) {
         return vm.createMethodEnumerator(receiver, try vm.intern(if (bang) "gsub!" else "gsub"), args);
     }
-    if (bang and receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
-    }
+    if (bang) try vm.guardNotFrozen(receiver);
 
     const snapshot = receiver.toStringObject().*;
     var out: std.ArrayList(u8) = .empty;
@@ -1937,9 +1929,7 @@ fn appendFormattedValue(
 
 pub fn builtinStringAppend(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
-    }
+    try vm.guardNotFrozen(receiver);
 
     const snapshot = ConcatSelfSnapshot{
         .bytes = receiver.toStringObject().str,
@@ -1952,9 +1942,7 @@ pub fn builtinStringAppend(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 pub fn builtinStringConcat(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     _ = block;
     if (args.len == 0) return receiver;
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
-    }
+    try vm.guardNotFrozen(receiver);
 
     const snapshot = ConcatSelfSnapshot{
         .bytes = receiver.toStringObject().str,
@@ -1984,9 +1972,7 @@ pub fn builtinStringAppendAsBytes(vm: *VM, receiver: Value, args: []Value, _: ?B
         );
     }
 
-    if (receiver.isFrozen() and extra_len > 0) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
-    }
+    if (extra_len > 0) try vm.guardNotFrozen(receiver);
     if (extra_len == 0) return receiver;
 
     const string_obj = receiver.toStringObject();
@@ -2014,9 +2000,7 @@ pub fn builtinStringAppendAsBytes(vm: *VM, receiver: Value, args: []Value, _: ?B
 
 pub fn builtinStringReplace(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
-    }
+    try vm.guardNotFrozen(receiver);
     const string_obj = receiver.toStringObject();
     const other = args[0];
 
@@ -2682,9 +2666,7 @@ pub fn builtinStringEncode(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 }
 
 pub fn builtinStringEncodeBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
-    }
+    try vm.guardNotFrozen(receiver);
 
     const encoded = try builtinStringEncode(vm, receiver, args, null);
     const receiver_obj = receiver.toStringObject();
@@ -2697,9 +2679,7 @@ pub fn builtinStringEncodeBang(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
 
 pub fn builtinStringForceEncoding(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
-    }
+    try vm.guardNotFrozen(receiver);
 
     // Get the new encoding from argument
     const new_encoding: enc.Encoding = if (args[0].isEncoding())
@@ -2882,9 +2862,7 @@ pub fn builtinStringEmpty(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
 
 pub fn builtinStringClear(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
-    }
+    try vm.guardNotFrozen(receiver);
     const string_obj = receiver.toStringObject();
     string_obj.str = "";
     string_obj.validity = .unknown;
@@ -2938,9 +2916,7 @@ pub fn builtinStringSlice(vm: *VM, receiver: Value, args: []Value, block: ?Block
 
 pub fn builtinStringSliceBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 1, 2);
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
-    }
+    try vm.guardNotFrozen(receiver);
 
     const selection = try stringSliceSelection(vm, receiver, args);
     if (selection.start_byte == null or selection.end_byte == null) return Value.nil();
@@ -3006,9 +2982,7 @@ pub fn builtinStringByteSlice(vm: *VM, receiver: Value, args: []Value, _: ?Block
 
 pub fn builtinStringBracketSet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 2, 3);
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
-    }
+    try vm.guardNotFrozen(receiver);
 
     const string_obj = receiver.toStringObject();
     const bytes = string_obj.str;
@@ -3474,9 +3448,7 @@ pub fn builtinStringGetbyte(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 
 pub fn builtinStringSetbyte(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 2);
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
-    }
+    try vm.guardNotFrozen(receiver);
 
     var index = try args[0].coerceToI64ViaToInt(
         vm,
@@ -3513,9 +3485,7 @@ pub fn builtinStringSetbyte(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 
 pub fn builtinStringInsert(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 2);
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
-    }
+    try vm.guardNotFrozen(receiver);
 
     var index = try args[0].coerceToI64ViaToInt(
         vm,
@@ -3727,9 +3697,7 @@ pub fn builtinStringDeletePrefix(vm: *VM, receiver: Value, args: []Value, _: ?Bl
 
 pub fn builtinStringDeletePrefixBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
-    }
+    try vm.guardNotFrozen(receiver);
     const string_obj = receiver.toStringObject();
     const match = try matchStringBoundary(vm, string_obj.str, string_obj.encoding, args[0], .prefix);
     if (!match.matched) {
@@ -3757,9 +3725,7 @@ pub fn builtinStringDeleteSuffix(vm: *VM, receiver: Value, args: []Value, _: ?Bl
 
 pub fn builtinStringDeleteSuffixBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
-    }
+    try vm.guardNotFrozen(receiver);
     const string_obj = receiver.toStringObject();
     const match = try matchStringBoundary(vm, string_obj.str, string_obj.encoding, args[0], .suffix);
     if (!match.matched) {
@@ -3955,9 +3921,7 @@ pub fn builtinStringDelete(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 
 pub fn builtinStringDeleteBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountAtLeast(args, 1);
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
-    }
+    try vm.guardNotFrozen(receiver);
 
     const string_obj = receiver.toStringObject();
     const result = try stringDeleteCompute(vm, string_obj, args);
@@ -4028,9 +3992,7 @@ pub fn builtinStringSqueeze(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 }
 
 pub fn builtinStringSqueezeBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
-    }
+    try vm.guardNotFrozen(receiver);
 
     const string_obj = receiver.toStringObject();
     const result = try stringSqueezeCompute(vm, string_obj, args);
@@ -4368,9 +4330,7 @@ pub fn builtinStringTr(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
 
 pub fn builtinStringTrBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 2);
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
-    }
+    try vm.guardNotFrozen(receiver);
 
     const string_obj = receiver.toStringObject();
     const result = try stringTrCompute(vm, string_obj, args[0], args[1]);
@@ -4392,9 +4352,7 @@ pub fn builtinStringTrS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
 
 pub fn builtinStringTrSBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 2);
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
-    }
+    try vm.guardNotFrozen(receiver);
 
     const string_obj = receiver.toStringObject();
     const result = try stringTrSCompute(vm, string_obj, args[0], args[1]);
@@ -4442,9 +4400,7 @@ pub fn builtinStringInclude(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 
 pub fn builtinStringPrepend(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     if (args.len == 0) return receiver;
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
-    }
+    try vm.guardNotFrozen(receiver);
     const string_obj = receiver.toStringObject();
 
     var result = string_obj.str;
@@ -4873,9 +4829,7 @@ pub fn builtinStringStrip(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
 
 pub fn builtinStringStripBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
-    }
+    try vm.guardNotFrozen(receiver);
 
     const string_obj = receiver.toStringObject();
     const bounds = stringStripBounds(string_obj.str);
@@ -4895,9 +4849,7 @@ pub fn builtinStringLstrip(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 
 pub fn builtinStringLstripBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
-    }
+    try vm.guardNotFrozen(receiver);
 
     const string_obj = receiver.toStringObject();
     const bounds = stringStripBounds(string_obj.str);
@@ -4924,9 +4876,7 @@ pub fn builtinStringRstrip(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 
 pub fn builtinStringRstripBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
-    }
+    try vm.guardNotFrozen(receiver);
 
     const string_obj = receiver.toStringObject();
     const bounds = stringStripBounds(string_obj.str);
@@ -4953,9 +4903,7 @@ pub fn builtinStringChop(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
 
 pub fn builtinStringChopBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
-    }
+    try vm.guardNotFrozen(receiver);
 
     const string_obj = receiver.toStringObject();
     if (string_obj.str.len == 0) return Value.nil();
@@ -4973,9 +4921,7 @@ pub fn builtinStringChomp(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
 }
 
 pub fn builtinStringChompBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
-    }
+    try vm.guardNotFrozen(receiver);
 
     const string_obj = receiver.toStringObject();
     const chomp_end = try stringChompEnd(vm, string_obj.str, string_obj.encoding, args);
@@ -5020,9 +4966,7 @@ pub fn builtinStringReverse(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 
 pub fn builtinStringReverseBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
-    }
+    try vm.guardNotFrozen(receiver);
 
     const string_obj = receiver.toStringObject();
     const reversed = try reverseStringChars(vm, string_obj.str, string_obj.encoding);
@@ -5039,9 +4983,7 @@ pub fn builtinStringUpcase(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 
 pub fn builtinStringUpcaseBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     const options = try parseCaseMapOptions(vm, args, .upcase);
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
-    }
+    try vm.guardNotFrozen(receiver);
     const string_obj = receiver.toStringObject();
     const mapped = try mapStringCaseWithOptions(vm, string_obj.str, string_obj.encoding, options, .upcase);
     return applyMappedStringCaseBang(vm, receiver, string_obj, mapped, true);
@@ -5055,9 +4997,7 @@ pub fn builtinStringDowncase(vm: *VM, receiver: Value, args: []Value, _: ?Block)
 
 pub fn builtinStringDowncaseBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     const options = try parseCaseMapOptions(vm, args, .downcase);
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
-    }
+    try vm.guardNotFrozen(receiver);
     const string_obj = receiver.toStringObject();
     const mapped = try mapStringCaseWithOptions(vm, string_obj.str, string_obj.encoding, options, .downcase);
     return applyMappedStringCaseBang(vm, receiver, string_obj, mapped, false);
@@ -5071,9 +5011,7 @@ pub fn builtinStringSwapcase(vm: *VM, receiver: Value, args: []Value, _: ?Block)
 
 pub fn builtinStringSwapcaseBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     const options = try parseCaseMapOptions(vm, args, .swapcase);
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
-    }
+    try vm.guardNotFrozen(receiver);
     const string_obj = receiver.toStringObject();
     const mapped = try mapStringCaseWithOptions(vm, string_obj.str, string_obj.encoding, options, .swapcase);
     return applyMappedStringCaseBang(vm, receiver, string_obj, mapped, false);
@@ -5149,9 +5087,7 @@ pub fn builtinStringCapitalize(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
 
 pub fn builtinStringCapitalizeBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     const options = try parseCaseMapOptions(vm, args, .capitalize);
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
-    }
+    try vm.guardNotFrozen(receiver);
     const string_obj = receiver.toStringObject();
     const mapped = try mapStringCaseWithOptions(vm, string_obj.str, string_obj.encoding, options, .capitalize);
     return applyMappedStringCaseBang(vm, receiver, string_obj, mapped, false);
@@ -5288,9 +5224,7 @@ pub fn builtinStringNext(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
 
 pub fn builtinStringNextBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen String", .{});
-    }
+    try vm.guardNotFrozen(receiver);
 
     const string_obj = receiver.toStringObject();
     const next_bytes = try stringNextBytes(vm, string_obj.str);

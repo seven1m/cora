@@ -1709,9 +1709,7 @@ pub fn builtinKernelInitializeCopy(vm: *VM, receiver: Value, args: []Value, _: ?
         return receiver;
     }
 
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen {s}", .{vm.className(receiver)});
-    }
+    try vm.guardNotFrozen(receiver);
 
     if (vm.getClass(receiver) != vm.getClass(args[0])) {
         return vm.raiseExceptionFmt(vm.type_error_class, "initialize_copy should take same class object", .{});
