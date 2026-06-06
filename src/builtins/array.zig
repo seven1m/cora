@@ -792,6 +792,9 @@ pub fn register(vm: *VM) !void {
 
     const values_at_sym = try vm.intern("values_at");
     try vm.array_class.module.methods.put(values_at_sym, value.MethodEntry.builtin(&builtinArrayValuesAt, .{ .variadic = 0 }));
+
+    const transpose_sym = try vm.intern("transpose");
+    try vm.array_class.module.methods.put(transpose_sym, value.MethodEntry.builtin(&builtinArrayTranspose, .{ .exact = 0 }));
 }
 
 pub fn builtinArrayPush(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -3368,6 +3371,47 @@ pub fn builtinArrayValuesAt(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
                 result.elements.append(vm.gc_allocator, Value.nil()) catch return error.Fatal;
             }
         }
+    }
+
+    return Value.fromObject(&result.object);
+}
+
+pub fn builtinArrayTranspose(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const self = receiver.toArrayObject();
+    const outer_len = self.elements.items.len;
+
+    if (outer_len == 0) return Value.fromObject(&(try vm.createArray()).object);
+
+    var inner_arrays: std.ArrayList(*value.ArrayObject) = .empty;
+    defer inner_arrays.deinit(vm.allocator);
+
+    for (self.elements.items) |elem| {
+        const ary_val = switch (try vm.probeToAry(elem)) {
+            .array => |v| v,
+            .missing, .nil_result => return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion of {s} into Array", .{vm.className(elem)}),
+        };
+        inner_arrays.append(vm.allocator, ary_val.toArrayObject()) catch return error.Fatal;
+    }
+
+    const inner_len = inner_arrays.items[0].elements.items.len;
+    if (inner_len == 0) return Value.fromObject(&(try vm.createArray()).object);
+
+    for (inner_arrays.items[1..]) |inner| {
+        if (inner.elements.items.len != inner_len) {
+            return vm.raiseExceptionFmt(vm.index_error_class, "element size differs ({d} should be {d})", .{ inner.elements.items.len, inner_len });
+        }
+    }
+
+    const result = try vm.createArray();
+    var col: usize = 0;
+    while (col < inner_len) : (col += 1) {
+        const row_ary = try vm.createArray();
+        var row: usize = 0;
+        while (row < outer_len) : (row += 1) {
+            row_ary.elements.append(vm.gc_allocator, inner_arrays.items[row].elements.items[col]) catch return error.Fatal;
+        }
+        result.elements.append(vm.gc_allocator, Value.fromObject(&row_ary.object)) catch return error.Fatal;
     }
 
     return Value.fromObject(&result.object);

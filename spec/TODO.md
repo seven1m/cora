@@ -203,7 +203,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/array/to_ary_spec.rb
 - [x] core/array/to_h_spec.rb
 - [x] core/array/to_s_spec.rb
-- [ ] core/array/transpose_spec.rb
+- [x] core/array/transpose_spec.rb
 - [x] core/array/try_convert_spec.rb
 - [-] core/array/union_spec.rb
 - [x] core/array/uniq_spec.rb
