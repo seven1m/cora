@@ -279,12 +279,28 @@ const ArraySliceRangePlan = union(enum) {
 };
 
 fn coerceFillIndex(vm: *VM, value_to_coerce: Value) VMError!i64 {
-    return try value_to_coerce.coerceToI64ViaToInt(
-        vm,
-        "no implicit conversion into Integer",
-        "no implicit conversion into Integer",
-        "bignum too big to convert into `long`",
-    );
+    if (value_to_coerce.isNil()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion from nil to Integer", .{});
+    }
+    if (value_to_coerce.isInteger() or value_to_coerce.isBigInteger()) {
+        return value_to_coerce.integerToI64(vm, "bignum too big to convert into `long`");
+    }
+    const maybe_index = try vm.checkCallMethodByName(value_to_coerce, "to_int", false, &[_]Value{}, null);
+    const coerced = maybe_index orelse {
+        return vm.raiseExceptionFmt(
+            vm.type_error_class,
+            "no implicit conversion of {s} into Integer",
+            .{vm.className(value_to_coerce)},
+        );
+    };
+    if (!coerced.isInteger() and !coerced.isBigInteger()) {
+        return vm.raiseExceptionFmt(
+            vm.type_error_class,
+            "can't convert {s} to Integer ({s}#to_int gives {s})",
+            .{ vm.className(value_to_coerce), vm.className(value_to_coerce), vm.className(coerced) },
+        );
+    }
+    return coerced.integerToI64(vm, "bignum too big to convert into `long`");
 }
 
 fn coerceRotateOffset(vm: *VM, args: []Value, len: i64) VMError!usize {
@@ -426,7 +442,7 @@ fn planArrayFillFromRange(vm: *VM, array_len: i64, range: *value.RangeObject) VM
     else
         try coerceFillIndex(vm, range.end);
     if (!range.end.isNil() and finish < 0) finish += array_len;
-    if (!range.exclude_end) finish += 1;
+    if (!range.end.isNil() and !range.exclude_end) finish += 1;
 
     if (finish <= start) {
         return .{ .start = start, .count = 0 };
@@ -1182,7 +1198,9 @@ pub fn builtinArrayFill(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
 
     var plan = ArrayFillPlan{ .start = 0, .count = array_len };
     if (args.len >= 2) {
-        if (args[1].isRange()) {
+        if (args[1].isNil()) {
+            // nil index means fill all
+        } else if (args[1].isRange()) {
             if (args.len == 3) {
                 return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion of Integer into Range", .{});
             }
