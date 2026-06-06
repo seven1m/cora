@@ -336,6 +336,14 @@ pub fn builtinProcessSpawn(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
             const key = entry.key;
             const val = entry.value;
 
+            // Extract chdir from positional options hash (also handled via keyword args)
+            if (chdir_value == null and key.isSymbol()) {
+                if (std.mem.eql(u8, key.toSymbolObject().name, "chdir")) {
+                    chdir_value = val;
+                    continue;
+                }
+            }
+
             // Determine target fd(s) from key
             var targets: [2]i32 = .{ -1, -1 };
             var target_count: usize = 0;
@@ -474,10 +482,8 @@ pub fn builtinProcessSpawn(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
 
     // Prepare chdir path for child
     var chdir_path: ?[]const u8 = null;
-    var chdir_owns: ?[]const u8 = null;
     if (chdir_value) |cd_val| {
         chdir_path = try vm.coerceToPath(cd_val, "no implicit conversion into String");
-        chdir_owns = chdir_path;
     }
 
     const path_z = try vm.resolveExecPathFromEnvMap(&env_map, exec_path_str);
@@ -513,7 +519,6 @@ pub fn builtinProcessSpawn(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
         std.c._exit(127);
     }
 
-    if (chdir_owns) |cp| vm.allocator.free(cp);
     return Value.integer(@intCast(pid));
 }
 
