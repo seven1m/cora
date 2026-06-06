@@ -32,7 +32,7 @@ Cora has over on 10,000 ruby specs passing, which by my math is about a third of
 
 To build Cora, you'll need:
 
-- Zig
+- Zig 0.16.x
 - GNU make
 - a C toolchain
 - autotools for the bundled Onigmo build, including `autoreconf`
