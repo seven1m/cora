@@ -458,6 +458,56 @@ fn ensureArrayFillCapacity(vm: *VM, array: *value.ArrayObject, target_len: i64) 
     }
 }
 
+fn arraySetReplaceRange(vm: *VM, array: *value.ArrayObject, start: usize, len: usize, replacement: Value) VMError!void {
+    switch (try vm.probeToAry(replacement)) {
+        .array => |replacement_array| {
+            const replacement_obj = replacement_array.toArrayObject();
+            const new_items = replacement_obj.elements.items;
+            if (replacement_obj == array) {
+                const snapshot = vm.gc_allocator_atomic.alloc(Value, new_items.len) catch return error.Fatal;
+                defer vm.gc_allocator_atomic.free(snapshot);
+                @memcpy(snapshot, new_items);
+                array.elements.replaceRange(vm.gc_allocator, start, len, snapshot) catch return error.Fatal;
+            } else {
+                array.elements.replaceRange(vm.gc_allocator, start, len, new_items) catch return error.Fatal;
+            }
+        },
+        .missing, .nil_result => {
+            const scalar = [_]Value{replacement};
+            array.elements.replaceRange(vm.gc_allocator, start, len, &scalar) catch return error.Fatal;
+        },
+    }
+}
+
+fn arraySetPlanRange(vm: *VM, array_len: i64, range: *value.RangeObject) VMError!struct { start: i64, count: i64 } {
+    var start: i64 = 0;
+    if (!range.begin.isNil()) {
+        start = try range.begin.coerceToI64ViaToInt(
+            vm,
+            "no implicit conversion into Integer",
+            "no implicit conversion into Integer",
+            "bignum too big to convert into `long`",
+        );
+        if (start < 0) start += array_len;
+        if (start < 0) {
+            return vm.raiseExceptionFmt(vm.range_error_class, "{d}..{d} out of range", .{ start, start });
+        }
+    }
+    var finish: i64 = array_len;
+    if (!range.end.isNil()) {
+        finish = try range.end.coerceToI64ViaToInt(
+            vm,
+            "no implicit conversion into Integer",
+            "no implicit conversion into Integer",
+            "bignum too big to convert into `long`",
+        );
+        if (finish < 0) finish += array_len;
+        if (!range.exclude_end) finish += 1;
+    }
+    if (finish < start) return .{ .start = start, .count = 0 };
+    return .{ .start = start, .count = finish - start };
+}
+
 fn performArrayFill(vm: *VM, receiver: Value, plan: ArrayFillPlan, fill_value: ?Value, block: ?Block) VMError!Value {
     if (plan.count <= 0) return receiver;
 
@@ -1023,12 +1073,38 @@ pub fn builtinArrayBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 pub fn builtinArrayBracketSet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 2, 3);
 
+    if (receiver.isFrozen()) {
+        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
+    }
+
     const array = receiver.toArrayObject();
 
     if (args.len == 2) {
-        try vm.requireIntegerArg(args, 0, "Integer");
+        if (args[0].isRange()) {
+            const array_len: i64 = @intCast(array.elements.items.len);
+            const plan = try arraySetPlanRange(vm, array_len, args[0].toRangeObject());
+            const replacement = args[1];
+            const actual_start = plan.start;
+            const delete_count = plan.count;
 
-        const index = args[0].toInteger();
+            while (@as(i64, @intCast(array.elements.items.len)) < actual_start) {
+                array.elements.append(vm.gc_allocator, Value.nil()) catch return error.Fatal;
+            }
+
+            const replace_start: usize = @intCast(actual_start);
+            const current_len: i64 = @intCast(array.elements.items.len);
+            const replace_len: usize = @intCast(@min(delete_count, current_len - actual_start));
+
+            try arraySetReplaceRange(vm, array, replace_start, replace_len, replacement);
+            return replacement;
+        }
+
+        const index = try args[0].coerceToI64ViaToInt(
+            vm,
+            "no implicit conversion into Integer",
+            "no implicit conversion into Integer",
+            "bignum too big to convert into `long`",
+        );
         const len: i64 = @intCast(array.elements.items.len);
         const value_to_set = args[1];
 
@@ -1036,7 +1112,7 @@ pub fn builtinArrayBracketSet(vm: *VM, receiver: Value, args: []Value, _: ?Block
         if (actual_index < 0) {
             actual_index = len + actual_index;
             if (actual_index < 0) {
-                return vm.raiseExceptionFmt(vm.range_error_class, "index {d} too small for array", .{index});
+                return vm.raiseExceptionFmt(vm.index_error_class, "index {d} too small for array; minimum: -{d}", .{ index, len });
             }
         }
 
@@ -1091,21 +1167,7 @@ pub fn builtinArrayBracketSet(vm: *VM, receiver: Value, args: []Value, _: ?Block
     const current_len: i64 = @intCast(array.elements.items.len);
     const replace_len: usize = @intCast(@min(delete_count, current_len - actual_start));
 
-    switch (try vm.probeToAry(replacement)) {
-        .array => |replacement_array| {
-            array.elements.replaceRange(
-                vm.gc_allocator,
-                replace_start,
-                replace_len,
-                replacement_array.toArrayObject().elements.items,
-            ) catch return error.Fatal;
-        },
-        .missing, .nil_result => {
-            const scalar = [_]Value{replacement};
-            array.elements.replaceRange(vm.gc_allocator, replace_start, replace_len, &scalar) catch return error.Fatal;
-        },
-    }
-
+    try arraySetReplaceRange(vm, array, replace_start, replace_len, replacement);
     return replacement;
 }
 
