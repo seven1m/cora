@@ -10988,6 +10988,32 @@ pub const VM = struct {
             return error.Unwind;
         }
 
+        if (args.len == 3) {
+            if (!args[0].isClass()) {
+                return self.raiseExceptionFmt(self.type_error_class, "exception class/object expected", .{});
+            }
+            const class_obj = args[0].toClassObject();
+            const exc_val = if (self.isClassOrSubclassOf(class_obj, self.exception_class))
+                try self.newExceptionInstance(class_obj, args[1..2], null)
+            else blk: {
+                const msg_str = if (args[1].isString()) args[1].toStringObject().str else "";
+                const exc = self.createException(class_obj, msg_str) catch return error.Fatal;
+                break :blk Value.fromObject(&exc.object);
+            };
+            const exc = exc_val.toExceptionObject();
+            if (!args[2].isNil()) {
+                if (args[2].isArray()) {
+                    exc.backtrace = args[2].toArrayObject();
+                } else {
+                    return self.raiseExceptionFmt(self.type_error_class, "backtrace must be Array of String", .{});
+                }
+            } else {
+                exc.backtrace = null;
+            }
+            self.setPendingException(exc);
+            return error.Unwind;
+        }
+
         return self.raiseArgumentErrorWrongArgCountGeneric();
     }
 
