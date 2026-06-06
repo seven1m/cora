@@ -1726,7 +1726,7 @@ Source baseline: ../ruby_spec compared to local spec/
 
 ### core/queue
 - [x] core/queue/append_spec.rb
-- [ ] core/queue/clear_spec.rb
+- [x] core/queue/clear_spec.rb
 - [x] core/queue/close_spec.rb
 - [x] core/queue/closed_spec.rb
 - [-] core/queue/deq_spec.rb
