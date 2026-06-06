@@ -149,7 +149,7 @@ fn filterMatches(name: []const u8) bool {
     while (it.next()) |raw| {
         const part = std.mem.trim(u8, raw, " \t\r\n");
         if (part.len == 0) continue;
-        if (std.mem.indexOf(u8, name, part) != null) return true;
+        if (std.ascii.indexOfIgnoreCase(name, part) != null) return true;
     }
 
     return false;
