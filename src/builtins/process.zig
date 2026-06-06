@@ -252,15 +252,23 @@ pub fn builtinProcessWait(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
         0;
 
     var status: c_int = 0;
-    const rc = std.c.waitpid(wait_pid, &status, flags);
-    if (rc < 0) {
-        return vm.raiseErrnoFmt(std.posix.errno(rc), "waitpid failed", .{});
+    while (true) {
+        const rc = std.c.waitpid(wait_pid, &status, flags);
+        if (rc < 0) {
+            switch (std.posix.errno(rc)) {
+                .INTR => {
+                    try vm.checkAsyncEvents();
+                    continue;
+                },
+                else => |errno_code| return vm.raiseErrnoFmt(errno_code, "waitpid failed", .{}),
+            }
+        }
+        if (rc == 0) return Value.nil();
+        if (rc > 0) {
+            try vm.setLastProcessStatusFromWaitStatus(status, rc);
+        }
+        return Value.integer(@intCast(rc));
     }
-    if (rc == 0) return Value.nil();
-    if (rc > 0) {
-        try vm.setLastProcessStatusFromWaitStatus(status, rc);
-    }
-    return Value.integer(@intCast(rc));
 }
 
 pub fn builtinProcessDetach(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

@@ -2120,10 +2120,20 @@ pub fn builtinIoClose(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
         const child_pid = pid_value.toInteger();
 
         var status: c_int = 0;
-        const waited = std.c.waitpid(@intCast(child_pid), &status, 0);
-
-        if (waited > 0) {
-            try vm.setLastProcessStatusFromWaitStatus(status, waited);
+        while (true) {
+            const waited = std.c.waitpid(@intCast(child_pid), &status, 0);
+            if (waited > 0) {
+                try vm.setLastProcessStatusFromWaitStatus(status, waited);
+                break;
+            }
+            if (waited == 0) continue;
+            switch (std.posix.errno(waited)) {
+                .INTR => {
+                    try vm.checkAsyncEvents();
+                    continue;
+                },
+                else => break,
+            }
         }
         try vm.setInstanceVariable(receiver, "@pid", Value.nil());
     }
