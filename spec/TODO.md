@@ -209,7 +209,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/array/uniq_spec.rb
 - [x] core/array/unshift_spec.rb
 - [x] core/array/values_at_spec.rb
-- [ ] core/array/zip_spec.rb
+- [-] core/array/zip_spec.rb
 
 ### core/basicobject
 - [x] core/basicobject/__id__spec.rb
