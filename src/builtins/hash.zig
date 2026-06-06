@@ -584,6 +584,11 @@ pub fn builtinHashInitialize(vm: *VM, receiver: Value, args: []Value, block: ?Bl
     if (args.len == 1 and block != null) {
         return vm.raiseArgumentErrorWrongArgCount(args.len, 0);
     }
+
+    var keyword_capacity: ?Value = null;
+    try vm.consumeKeywordArgs(.{"capacity"}, .{&keyword_capacity});
+    try vm.validateKeywordArgsConsumed();
+
     try ensureMutableHash(vm, receiver);
 
     const hash_obj = receiver.toHashObject();
