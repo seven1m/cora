@@ -857,9 +857,7 @@ pub fn register(vm: *VM) !void {
 
 pub fn builtinArrayPush(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
-    }
+    try vm.guardNotFrozen(receiver);
     const array = receiver.toArrayObject();
     array.elements.append(vm.gc_allocator, args[0]) catch return error.Fatal;
 
@@ -867,9 +865,7 @@ pub fn builtinArrayPush(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
 }
 
 pub fn builtinArrayAppend(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
-    }
+    try vm.guardNotFrozen(receiver);
 
     const array = receiver.toArrayObject();
     for (args) |arg| {
@@ -880,9 +876,7 @@ pub fn builtinArrayAppend(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
 }
 
 pub fn builtinArrayConcat(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
-    }
+    try vm.guardNotFrozen(receiver);
 
     if (args.len == 0) return receiver;
 
@@ -918,9 +912,7 @@ pub fn builtinArrayConcat(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
 }
 
 pub fn builtinArrayUnshift(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
-    }
+    try vm.guardNotFrozen(receiver);
 
     const array = receiver.toArrayObject();
     for (args, 0..) |arg, idx| {
@@ -933,9 +925,7 @@ pub fn builtinArrayUnshift(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 pub fn builtinArrayInitialize(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 2);
 
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
-    }
+    try vm.guardNotFrozen(receiver);
 
     const array = receiver.toArrayObject();
     array.elements.clearRetainingCapacity();
@@ -1073,9 +1063,7 @@ pub fn builtinArrayBracket(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 pub fn builtinArrayBracketSet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 2, 3);
 
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
-    }
+    try vm.guardNotFrozen(receiver);
 
     const array = receiver.toArrayObject();
 
@@ -1252,9 +1240,7 @@ pub fn builtinArrayHash(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
 }
 
 pub fn builtinArrayFill(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
-    }
+    try vm.guardNotFrozen(receiver);
 
     if (block == null) {
         try vm.requireArgCountRange(args, 1, 3);
@@ -1474,9 +1460,7 @@ fn arrayMapBangShared(vm: *VM, receiver: Value, args: []Value, block: ?Block, me
         const size_value = Value.integer(@intCast(receiver.toArrayObject().elements.items.len));
         return try vm.createMethodEnumeratorWithSize(receiver, try vm.intern(method_name), &.{}, size_value);
     };
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
-    }
+    try vm.guardNotFrozen(receiver);
     const array = receiver.toArrayObject();
 
     var idx: usize = 0;
@@ -1608,9 +1592,7 @@ pub fn builtinArrayDelete(vm: *VM, receiver: Value, args: []Value, block: ?Block
         return Value.nil();
     }
 
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
-    }
+    try vm.guardNotFrozen(receiver);
 
     std.mem.copyForwards(Value, array.elements.items[0..kept_len], kept[0..kept_len]);
     array.elements.items.len = kept_len;
@@ -1633,9 +1615,7 @@ pub fn builtinArrayCompact(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 
 pub fn builtinArrayCompactBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
-    }
+    try vm.guardNotFrozen(receiver);
 
     const array = receiver.toArrayObject();
     var write_idx: usize = 0;
@@ -1668,9 +1648,7 @@ pub fn builtinArrayFlatten(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 }
 
 pub fn builtinArrayFlattenBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
-    }
+    try vm.guardNotFrozen(receiver);
 
     const remaining_depth = try arrayFlattenDepthArg(vm, args);
     if (remaining_depth == 0) return Value.nil();
@@ -1983,9 +1961,7 @@ pub fn builtinArrayUniq(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
 
 pub fn builtinArrayUniqBang(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
-    }
+    try vm.guardNotFrozen(receiver);
 
     const array = receiver.toArrayObject();
     var kept: std.ArrayList(Value) = .empty;
@@ -2548,9 +2524,7 @@ pub fn builtinArrayIntersectQ(vm: *VM, receiver: Value, args: []Value, _: ?Block
 
 pub fn builtinArrayClear(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
-    }
+    try vm.guardNotFrozen(receiver);
 
     const array = receiver.toArrayObject();
     array.elements.clearRetainingCapacity();
@@ -2559,9 +2533,7 @@ pub fn builtinArrayClear(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
 
 pub fn builtinArrayShift(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
-    }
+    try vm.guardNotFrozen(receiver);
 
     const array = receiver.toArrayObject();
     if (args.len == 0) {
@@ -2590,9 +2562,7 @@ pub fn builtinArrayShift(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
 
 pub fn builtinArrayPop(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
-    }
+    try vm.guardNotFrozen(receiver);
 
     const array = receiver.toArrayObject();
     if (args.len == 0) {
@@ -2622,9 +2592,7 @@ pub fn builtinArrayPop(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
 
 pub fn builtinArrayDeleteAt(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
-    }
+    try vm.guardNotFrozen(receiver);
 
     const index_value = try args[0].coerceToIntegerValue(vm, "no implicit conversion to Integer", "can't convert to Integer");
     const index = try index_value.integerToI64(vm, "index too big");
@@ -2639,9 +2607,7 @@ pub fn builtinArrayDeleteAt(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 
 pub fn builtinArraySliceBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 1, 2);
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
-    }
+    try vm.guardNotFrozen(receiver);
 
     const array = receiver.toArrayObject();
     const len: i64 = @intCast(array.elements.items.len);
@@ -2676,9 +2642,7 @@ pub fn builtinArraySliceBang(vm: *VM, receiver: Value, args: []Value, _: ?Block)
 }
 
 pub fn builtinArrayInsert(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
-    }
+    try vm.guardNotFrozen(receiver);
 
     if (args.len == 0) {
         return vm.raiseExceptionFmt(vm.argument_error_class, "wrong number of arguments (given 0, expected 1+)", .{});
@@ -2912,9 +2876,7 @@ pub fn builtinArrayToH(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
 
 pub fn builtinArrayReplace(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
-    }
+    try vm.guardNotFrozen(receiver);
 
     const replacement = try vm.coerceToArrayValue(args[0]);
 
@@ -3029,9 +2991,7 @@ pub fn builtinArraySort(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
 
 pub fn builtinArraySortBang(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
-    }
+    try vm.guardNotFrozen(receiver);
     const array = receiver.toArrayObject();
 
     var i: usize = 1;
@@ -3068,9 +3028,7 @@ pub fn builtinArraySortByBang(vm: *VM, receiver: Value, args: []Value, block: ?B
         return vm.createMethodEnumerator(receiver, method_name, &.{});
     };
 
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
-    }
+    try vm.guardNotFrozen(receiver);
 
     const array = receiver.toArrayObject();
     const len = array.elements.items.len;
@@ -3130,9 +3088,7 @@ pub fn builtinArrayReverse(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 
 pub fn builtinArrayReverseBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
-    }
+    try vm.guardNotFrozen(receiver);
 
     const array = receiver.toArrayObject();
     std.mem.reverse(Value, array.elements.items);
@@ -3162,9 +3118,7 @@ pub fn builtinArrayRotate(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
 pub fn builtinArrayRotateBang(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
 
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
-    }
+    try vm.guardNotFrozen(receiver);
 
     const array = receiver.toArrayObject();
     const len: i64 = @intCast(array.elements.items.len);
@@ -3217,9 +3171,7 @@ fn arrayFilterBangFinalize(
     const current_len = target.elements.items.len;
 
     if (kept_len < current_len and kept_len < processed_len) {
-        if (receiver.isFrozen()) {
-            return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
-        }
+        try vm.guardNotFrozen(receiver);
 
         const tail_len = if (processed_len < current_len) current_len - processed_len else 0;
         if (tail_len > 0) {
@@ -3250,9 +3202,7 @@ fn arrayFilterBangShared(
         const size_value = Value.integer(@intCast(receiver.toArrayObject().elements.items.len));
         return try vm.createMethodEnumeratorWithSize(receiver, try vm.intern(method_name), &.{}, size_value);
     };
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Array", .{});
-    }
+    try vm.guardNotFrozen(receiver);
 
     const array = receiver.toArrayObject();
     var processed_len: usize = 0;

@@ -378,9 +378,7 @@ fn hashGetValue(hash_obj: *value.HashObject, vm: *VM, key: Value) VMError!?Value
 }
 
 fn ensureMutableHash(vm: *VM, receiver: Value) VMError!void {
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Hash", .{});
-    }
+    try vm.guardNotFrozen(receiver);
 }
 
 fn clearHashDefaultBehavior(hash_obj: *value.HashObject) void {
@@ -611,9 +609,7 @@ pub fn builtinHashInitializeCopy(vm: *VM, receiver: Value, args: []Value, _: ?Bl
         return receiver;
     }
 
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Hash", .{});
-    }
+    try vm.guardNotFrozen(receiver);
 
     const source = args[0].toHashObject();
     const target = receiver.toHashObject();
@@ -721,9 +717,7 @@ pub fn builtinHashBracketSet(vm: *VM, receiver: Value, args: []Value, _: ?Block)
 
 pub fn builtinHashDelete(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Hash", .{});
-    }
+    try vm.guardNotFrozen(receiver);
 
     const hash_obj = receiver.toHashObject();
     const deleted = try vm.hashDeleteEntry(hash_obj, args[0]) orelse {

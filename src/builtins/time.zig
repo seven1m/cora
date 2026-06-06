@@ -938,7 +938,7 @@ fn buildStrftimeValue(vm: *VM, receiver: Value, format_bytes: []const u8) VMErro
                     const off_h = @divTrunc(abs_seconds, seconds_per_hour);
                     const off_m = @divTrunc(@rem(abs_seconds, seconds_per_hour), seconds_per_minute);
                     var buf: [16]u8 = undefined;
-                     const s = std.fmt.bufPrint(&buf, "{c}{d:0>2}{d:0>2}", .{ sign, @as(u64, @intCast(off_h)), @as(u64, @intCast(off_m)) }) catch return error.Fatal;
+                    const s = std.fmt.bufPrint(&buf, "{c}{d:0>2}{d:0>2}", .{ sign, @as(u64, @intCast(off_h)), @as(u64, @intCast(off_m)) }) catch return error.Fatal;
                     out.appendSlice(vm.allocator, s) catch return error.Fatal;
                 }
             },
@@ -1099,9 +1099,7 @@ pub fn builtinTimeLoad(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
 pub fn builtinTimeUtcInstance(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     if (receiver.toTimeObject().is_utc) return receiver;
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Time: {s}", .{""});
-    }
+    try vm.guardNotFrozen(receiver);
     const t = receiver.toTimeObject();
     t.utc_offset_nanos = 0;
     t.is_utc = true;
@@ -1127,9 +1125,7 @@ pub fn builtinTimeLocaltime(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
         const new_offset = localUtcOffsetNanos(vm.io, epoch_seconds);
         // If already at this exact offset (fixed), do nothing (even if frozen).
         if (!t.is_utc and t.utc_offset_nanos == new_offset) return receiver;
-        if (receiver.isFrozen()) {
-            return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Time: {s}", .{""});
-        }
+        try vm.guardNotFrozen(receiver);
         t.utc_offset_nanos = new_offset;
         t.is_utc = false;
         t.is_local = true;
@@ -1145,9 +1141,7 @@ pub fn builtinTimeLocaltime(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
             return vm.raiseExceptionFmt(vm.type_error_class, "utc_to_local must return a Time", .{});
         }
         const result_t = result.toTimeObject();
-        if (receiver.isFrozen()) {
-            return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Time: {s}", .{""});
-        }
+        try vm.guardNotFrozen(receiver);
         t.utc_offset_nanos = result_t.utc_offset_nanos;
         t.is_utc = result_t.is_utc;
         return receiver;
@@ -1155,9 +1149,7 @@ pub fn builtinTimeLocaltime(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 
     const new_offset = try parseUtcOffsetArg(vm, arg);
     if (!t.is_utc and t.utc_offset_nanos == new_offset) return receiver;
-    if (receiver.isFrozen()) {
-        return vm.raiseExceptionFmt(vm.frozen_error_class, "can't modify frozen Time: {s}", .{""});
-    }
+    try vm.guardNotFrozen(receiver);
     t.utc_offset_nanos = new_offset;
     t.is_utc = false;
     return receiver;
