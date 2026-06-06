@@ -69,11 +69,11 @@ describe :queue_deq, shared: true do
       q = @object.call
 
       t = Thread.new {
-        q.send(@method, timeout: TIME_TOLERANCE)
+        q.send(@method, timeout: TIME_TOLERANCE).should == 1
       }
-      Thread.pass
+      Thread.pass until t.status == "sleep" && q.num_waiting == 1
       q << 1
-      t.value.should == 1
+      t.join
     end
 
     it "returns nil if no item is available in time" do

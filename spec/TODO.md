@@ -1729,16 +1729,16 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/queue/clear_spec.rb
 - [x] core/queue/close_spec.rb
 - [x] core/queue/closed_spec.rb
-- [-] core/queue/deq_spec.rb
+- [x] core/queue/deq_spec.rb
 - [x] core/queue/empty_spec.rb
 - [x] core/queue/enq_spec.rb
 - [x] core/queue/freeze_spec.rb
 - [x] core/queue/initialize_spec.rb
 - [x] core/queue/length_spec.rb
 - [x] core/queue/num_waiting_spec.rb
-- [-] core/queue/pop_spec.rb
+- [x] core/queue/pop_spec.rb
 - [x] core/queue/push_spec.rb
-- [-] core/queue/shift_spec.rb
+- [x] core/queue/shift_spec.rb
 - [x] core/queue/size_spec.rb
 
 ### core/random
