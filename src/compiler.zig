@@ -1136,6 +1136,10 @@ pub const Compiler = struct {
                 try self.compileWhileStatement(while_node, line);
             },
 
+            .for_node => |for_node| {
+                try self.compileForStatement(for_node, line);
+            },
+
             .until_node => |until_node| {
                 try self.compileUntilStatement(until_node, line);
             },
@@ -4898,6 +4902,104 @@ pub const Compiler = struct {
         for (current_loop_ctx.break_jumps.items) |break_pos| {
             try self.current_chunk.patchJump(break_pos);
         }
+    }
+
+    fn compileForStatement(self: *Compiler, for_node: *prism.ForNode, line: u32) anyerror!void {
+        // for x in collection; body; end → collection.each { |x| body }
+
+        // Loop context for break/next/redo — use block type since body compiles as a block
+        const loop_idx = self.loop_stack.items.len;
+        try self.loop_stack.append(self.allocator, .{
+            .loop_type = .block,
+            .break_jumps = .empty,
+            .continue_target = 0,
+            .redo_target = 0,
+        });
+        defer {
+            var ctx = &self.loop_stack.items[loop_idx];
+            ctx.break_jumps.deinit(self.allocator);
+            _ = self.loop_stack.pop();
+        }
+
+        // Compile collection expression
+        const collection = try self.parser.asNode(@ptrCast(for_node.collection));
+        try self.compileNode(collection, line);
+
+        // Create block chunk for the for body
+        const block_chunk_ptr = try self.allocator.create(Chunk);
+        block_chunk_ptr.* = Chunk.init(self.allocator, "for_body");
+        try block_chunk_ptr.setSourceFile(self.parser.source_file);
+        block_chunk_ptr.source_encoding = self.parserSourceEncoding();
+        block_chunk_ptr.declaration_line = line;
+        const chunk_id = try self.nextChunkId();
+        block_chunk_ptr.chunk_id = chunk_id;
+        try self.child_chunks.put(chunk_id, block_chunk_ptr);
+
+        // Switch to block chunk
+        const saved_chunk = self.current_chunk;
+        const saved_rescue_context = self.saveRescueContext();
+        self.current_chunk = block_chunk_ptr;
+        self.in_rescue = 0;
+        self.active_retry_target = null;
+
+        // Push locals for closure lookups
+        try self.all_locals.append(self.allocator, self.locals);
+        const saved_locals = self.locals;
+        self.locals = .empty;
+
+        // Register loop variable(s) as locals of the block
+        const index_node = try self.parser.asNode(@ptrCast(for_node.index));
+        switch (index_node) {
+            .local_variable_target => |var_target| {
+                const var_name = try self.parser.getLocalVariableName(var_target.name);
+                _ = try self.resolveOrCreateLocalSlot(var_name);
+            },
+            .multi_target => {
+                // Dummy local for the iteration value; sub-variables created by compileNestedMultiTarget
+                _ = try self.resolveOrCreateLocalSlot("");
+            },
+            else => return error.UnsupportedNode,
+        }
+
+        block_chunk_ptr.arity = 1;
+        block_chunk_ptr.is_simple_positional = true;
+
+        // If multi-target, emit destructuring at body start
+        if (index_node == .multi_target) {
+            try self.current_chunk.emitOpU16(.GET_LOCAL, 0, line);
+            try self.current_chunk.emitOp(.MULTI_ASSIGN_PREPARE, line);
+            try self.compileNestedMultiTarget(index_node.multi_target, line);
+            try self.current_chunk.emitOp(.POP, line);
+        }
+
+        // Compile body
+        self.loop_stack.items[loop_idx].redo_target = self.current_chunk.currentOffset();
+        self.loop_stack.items[loop_idx].continue_target = self.current_chunk.currentOffset();
+        if (for_node.statements) |statements_ptr| {
+            const body = try self.parser.asNode(@ptrCast(statements_ptr));
+            try self.compileNode(body, line);
+        }
+        try self.current_chunk.emitOp(.PUSH_NIL, line);
+        try self.current_chunk.emitOpU8(.RETURN, 0, line);
+
+        // Record locals
+        block_chunk_ptr.locals_count = @intCast(self.locals.items.len);
+
+        try self.finalizeChunkLocals(block_chunk_ptr);
+
+        // Restore outer chunk
+        _ = self.all_locals.pop();
+        self.current_chunk = saved_chunk;
+        self.locals.deinit(self.allocator);
+        self.locals = saved_locals;
+        self.restoreRescueContext(saved_rescue_context);
+
+        // Emit call to .each with the block chunk; for always returns nil
+        const each_name_idx = try self.current_chunk.addConstant(.{ .string = "each" });
+        const call_flags = bytecode.encodeCallFlags(.explicit, false);
+        try self.current_chunk.emitCall(@intCast(each_name_idx), 0, call_flags, @intCast(chunk_id), line);
+        try self.current_chunk.emitOp(.POP, line);
+        try self.current_chunk.emitOp(.PUSH_NIL, line);
     }
 
     fn compileUntilStatement(self: *Compiler, until_node: *prism.UntilNode, line: u32) anyerror!void {

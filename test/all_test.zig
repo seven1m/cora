@@ -63,6 +63,7 @@ const language_constant_test = @import("language/constant_test.zig");
 const language_compound_assignment_test = @import("language/compound_assignment_test.zig");
 const language_multi_assign_test = @import("language/multi_assign_test.zig");
 const language_fiber_test = @import("language/fiber_test.zig");
+const language_for_test = @import("language/for_test.zig");
 const language_ensure_test = @import("language/ensure_test.zig");
 const language_forwarding_args_test = @import("language/forwarding_args_test.zig");
 const language_global_variable_test = @import("language/global_variable_test.zig");
@@ -161,6 +162,7 @@ comptime {
     _ = language_compound_assignment_test;
     _ = language_multi_assign_test;
     _ = language_fiber_test;
+    _ = language_for_test;
     _ = language_ensure_test;
     _ = language_forwarding_args_test;
     _ = language_global_variable_test;

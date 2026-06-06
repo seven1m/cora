@@ -79,6 +79,7 @@ pub const UndefNode = c.pm_undef_node_t;
 pub const WhenNode = c.pm_when_node_t;
 pub const YieldNode = c.pm_yield_node_t;
 pub const WhileNode = c.pm_while_node_t;
+pub const ForNode = c.pm_for_node_t;
 pub const UnlessNode = c.pm_unless_node_t;
 pub const UntilNode = c.pm_until_node_t;
 pub const BreakNode = c.pm_break_node_t;
@@ -220,6 +221,7 @@ pub const Node = union(enum) {
     when_node: *WhenNode,
     yield: *YieldNode,
     while_node: *WhileNode,
+    for_node: *ForNode,
     unless_node: *UnlessNode,
     until_node: *UntilNode,
     break_node: *BreakNode,
@@ -672,6 +674,10 @@ pub const Parser = struct {
 
         if (node_type == c.PM_WHILE_NODE) {
             return Node{ .while_node = @ptrCast(raw) };
+        }
+
+        if (node_type == c.PM_FOR_NODE) {
+            return Node{ .for_node = @ptrCast(raw) };
         }
 
         if (node_type == c.PM_UNTIL_NODE) {
