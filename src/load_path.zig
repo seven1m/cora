@@ -14,4 +14,5 @@ pub const repo_load_paths = [_][]const u8{
     "ext/cgi/lib",
     "ext/erb/lib",
     "ext/open3/lib",
+    "ext/shellwords/lib",
 };

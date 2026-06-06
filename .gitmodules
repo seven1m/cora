@@ -49,3 +49,6 @@
 [submodule "ext/open3"]
 	path = ext/open3
 	url = https://github.com/ruby/open3
+[submodule "ext/shellwords"]
+	path = ext/shellwords
+	url = https://github.com/ruby/shellwords
