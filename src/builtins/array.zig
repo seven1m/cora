@@ -797,6 +797,9 @@ pub fn register(vm: *VM) !void {
 
     const transpose_sym = try vm.intern("transpose");
     try vm.array_class.module.methods.put(transpose_sym, value.MethodEntry.builtin(&builtinArrayTranspose, .{ .exact = 0 }));
+
+    const combination_sym = try vm.intern("combination");
+    try vm.array_class.module.methods.put(combination_sym, value.MethodEntry.builtin(&builtinArrayCombination, .{ .exact = 1 }));
 }
 
 pub fn builtinArrayPush(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -3479,4 +3482,88 @@ pub fn builtinArrayTranspose(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     }
 
     return Value.fromObject(&result.object);
+}
+
+fn combinationBinomialSize(len: i64, n: i64) i64 {
+    if (n < 0 or n > len) return 0;
+    if (n == 0 or n == len) return 1;
+    const k = if (n > len - n) len - n else n;
+    var result: i64 = 1;
+    var i: i64 = 1;
+    while (i <= k) : (i += 1) {
+        result = @divTrunc(result * (len - k + i), i);
+    }
+    return result;
+}
+
+pub fn builtinArrayCombination(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+
+    const array = receiver.toArrayObject();
+    const len: i64 = @intCast(array.elements.items.len);
+
+    const n = try args[0].coerceToI64ViaToInt(
+        vm,
+        "no implicit conversion into Integer",
+        "no implicit conversion into Integer",
+        "bignum too big to convert into `long`",
+    );
+
+    const blk = block orelse {
+        const size = combinationBinomialSize(len, n);
+        return try vm.createMethodEnumeratorWithSize(
+            receiver,
+            try vm.intern("combination"),
+            args,
+            Value.integer(size),
+        );
+    };
+
+    if (n < 0) return receiver;
+    if (n > len) return receiver;
+
+    if (n == 0) {
+        const empty = try vm.createArray();
+        const yielded = try vm.yieldToBlock(blk, &[_]Value{Value.fromObject(&empty.object)});
+        if (yielded.controlFlowValue()) |return_value| return return_value;
+        return receiver;
+    }
+
+    const n_usize: usize = @intCast(n);
+    const len_usize: usize = @intCast(len);
+    var indices = vm.allocator.alloc(usize, n_usize) catch return error.Fatal;
+    defer vm.allocator.free(indices);
+
+    for (0..n_usize) |i| {
+        indices[i] = i;
+    }
+
+    while (true) {
+        const comb = try vm.createArray();
+        for (indices) |idx| {
+            comb.elements.append(vm.gc_allocator, array.elements.items[idx]) catch return error.Fatal;
+        }
+
+        const yielded = try vm.yieldToBlock(blk, &[_]Value{Value.fromObject(&comb.object)});
+        if (yielded.controlFlowValue()) |return_value| return return_value;
+
+        var found = false;
+        var i: usize = n_usize;
+        while (i > 0) {
+            i -= 1;
+            if (indices[i] < len_usize - n_usize + i) {
+                indices[i] += 1;
+                var j = i + 1;
+                while (j < n_usize) : (j += 1) {
+                    indices[j] = indices[j - 1] + 1;
+                }
+                found = true;
+                break;
+            }
+        }
+
+        if (!found) break;
+    }
+
+    return receiver;
 }
