@@ -1433,7 +1433,7 @@ fn warningSupportsKeywordCategory(method: vm_mod.ResolvedMethod) bool {
             }
             break :blk false;
         },
-        .undefined => false,
+        .undefined, .cext => false,
     };
 }
 
@@ -1452,7 +1452,7 @@ fn warningDispatchMode(method: vm_mod.ResolvedMethod) WarningDispatchMode {
             if (method_chunk.rest_param_index != null or method_chunk.keyword_rest_index != null) break :blk .positional_hash;
             break :blk .plain;
         },
-        .undefined => .plain,
+        .undefined, .cext => .plain,
     };
 }
 

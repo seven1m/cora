@@ -227,9 +227,15 @@ pub const BuiltinMethod = struct {
     arity: value.BuiltinArity = .{ .exact = 0 },
 };
 
+pub const CExtMethod = struct {
+    func: *anyopaque,
+    argc: i32,
+};
+
 pub const Method = union(enum) {
     chunk: *Chunk,
     builtin: BuiltinMethod,
+    cext: CExtMethod,
     proc: *value.ProcObject,
     undefined: void,
 };
@@ -666,6 +672,8 @@ pub const VM = struct {
     stdout: ?*std.Io.Writer = null,
     stderr: ?*std.Io.Writer = null,
     ruby_executable_path: ?[]const u8 = null,
+
+    cext_handles: std.ArrayList(std.DynLib) = .empty,
 
     var active_gc_roots_vm: ?*VM = null;
     var previous_gc_push_other_roots: bdwgc.c.GC_push_other_roots_proc = null;
@@ -2465,6 +2473,7 @@ pub const VM = struct {
         }
         self.require_in_progress.deinit();
         self.loaded_paths.deinit(self.allocator);
+        self.cext_handles.deinit(self.allocator);
         if (self.ruby_executable_path) |path| {
             self.allocator.free(path);
         }
@@ -7359,7 +7368,7 @@ pub const VM = struct {
                 .chunk => |chunk_blk| chunkAcceptsKeywords(chunk_blk.chunk),
                 else => false,
             },
-            .builtin, .undefined => false,
+            .builtin, .undefined, .cext => false,
         };
     }
 
@@ -7371,7 +7380,7 @@ pub const VM = struct {
                 .chunk => |chunk_blk| self.chunkSupportsRuby2Keywords(chunk_blk.chunk),
                 else => false,
             },
-            .builtin, .undefined => false,
+            .builtin, .undefined, .cext => false,
         };
     }
 
@@ -7507,6 +7516,21 @@ pub const VM = struct {
             return err;
         };
         return result;
+    }
+
+    fn dispatchCExtMethod(
+        _: *VM,
+        cext_method: CExtMethod,
+        receiver: Value,
+        args: []const Value,
+    ) VMError!Value {
+        _ = args;
+        if (cext_method.argc != 0) {
+            return error.Fatal;
+        }
+        const func: *const fn (u64) callconv(.c) u64 = @ptrCast(@alignCast(cext_method.func));
+        const result_raw = func(receiver.raw);
+        return .{ .raw = result_raw };
     }
 
     pub fn invokeBuiltinMethodForwardingKeywords(
@@ -7731,7 +7755,12 @@ pub const VM = struct {
                     if (vals.len > 0) (try self.copyKeywordContext(dispatch.kw_keys.?, vals)).? else null
                 else
                     null;
+
                 return self.invokeBuiltinMethod(fun_ptr, receiver, resolved.name.name, @constCast(dispatch.args), block, dispatch_keyword_ctx);
+            },
+            .cext => |cext_method| {
+                const result = try self.dispatchCExtMethod(cext_method, receiver, @constCast(dispatch.args));
+                return result;
             },
             .proc => |proc_obj| {
                 return self.callProcAsMethod(proc_obj, receiver, dispatch.args, .{
@@ -8373,6 +8402,15 @@ pub const VM = struct {
                 }
                 try self.push(result);
             },
+            .cext => |cext_method| {
+                if (dispatch_kwargc > 0) {
+                    const exc = try self.createException(self.argument_error_class, "C extensions do not accept keyword arguments");
+                    self.setPendingException(exc);
+                    return error.Unwind;
+                }
+                const result = try self.dispatchCExtMethod(cext_method, receiver, @constCast(dispatch.args));
+                try self.push(result);
+            },
             .proc => |proc_obj| {
                 switch (proc_obj.block.kind) {
                     .chunk => |chunk_blk| {
@@ -8653,6 +8691,7 @@ pub const VM = struct {
                 .symbol, .builtin, .callable => Value.integer(-2),
             },
             .builtin => |builtin_method| Value.integer(builtin_method.arity.asRubyArity()),
+            .cext => |cext_method| Value.integer(cext_method.argc),
             .undefined => unreachable,
         };
     }
@@ -8920,6 +8959,10 @@ pub const VM = struct {
                 var args_copy: [256]Value = undefined;
                 @memcpy(args_copy[0..args.len], args);
                 const result = try self.invokeBuiltinMethod(fun_ptr, receiver, resolved.name.name, args_copy[0..args.len], block, super_frame.forwarded_keyword_ctx);
+                try self.push(result);
+            },
+            .cext => |cext_method| {
+                const result = try self.dispatchCExtMethod(cext_method, receiver, args);
                 try self.push(result);
             },
             .proc => |proc_obj| {
@@ -11160,6 +11203,12 @@ pub const VM = struct {
             return try self.resolveAbsolutePath(with_rb);
         }
 
+        const with_so = std.fmt.allocPrint(self.allocator, "{s}.so", .{path}) catch return error.Fatal;
+        defer self.allocator.free(with_so);
+        if (self.fileExists(with_so)) {
+            return try self.resolveAbsolutePath(with_so);
+        }
+
         return null;
     }
 
@@ -11182,6 +11231,16 @@ pub const VM = struct {
         if (self.fileExists(with_rb)) {
             self.allocator.free(load_path);
             const stored = self.allocator.dupe(u8, with_rb) catch return error.Fatal;
+            errdefer self.allocator.free(stored);
+            const identity_path = try self.resolveAbsolutePath(stored);
+            return .{ .load_path = stored, .identity_path = identity_path };
+        }
+
+        const with_so = std.fmt.allocPrint(self.allocator, "{s}.so", .{load_path}) catch return error.Fatal;
+        defer self.allocator.free(with_so);
+        if (self.fileExists(with_so)) {
+            self.allocator.free(load_path);
+            const stored = self.allocator.dupe(u8, with_so) catch return error.Fatal;
             errdefer self.allocator.free(stored);
             const identity_path = try self.resolveAbsolutePath(stored);
             return .{ .load_path = stored, .identity_path = identity_path };
@@ -11226,6 +11285,16 @@ pub const VM = struct {
             if (self.fileExists(with_rb)) {
                 self.allocator.free(load_candidate);
                 const stored = self.allocator.dupe(u8, with_rb) catch return error.Fatal;
+                errdefer self.allocator.free(stored);
+                const identity_path = try self.resolveAbsolutePath(stored);
+                return .{ .load_path = stored, .identity_path = identity_path };
+            }
+
+            const with_so = std.fmt.allocPrint(self.allocator, "{s}.so", .{load_candidate}) catch return error.Fatal;
+            defer self.allocator.free(with_so);
+            if (self.fileExists(with_so)) {
+                self.allocator.free(load_candidate);
+                const stored = self.allocator.dupe(u8, with_so) catch return error.Fatal;
                 errdefer self.allocator.free(stored);
                 const identity_path = try self.resolveAbsolutePath(stored);
                 return .{ .load_path = stored, .identity_path = identity_path };
@@ -11321,6 +11390,10 @@ pub const VM = struct {
     }
 
     pub fn loadFile(self: *VM, absolute_path: []const u8) VMError!void {
+        if (std.mem.endsWith(u8, absolute_path, ".so") or std.mem.endsWith(u8, absolute_path, ".bundle")) {
+            return self.loadCExtFile(absolute_path);
+        }
+
         const code_buffer = std.Io.Dir.cwd().readFileAlloc(self.io, absolute_path, self.gc_allocator_atomic, .limited(std.math.maxInt(usize))) catch return error.Fatal;
 
         var parser = prism.Parser.init(self.allocator, code_buffer, absolute_path) catch return error.Fatal;
@@ -11352,6 +11425,27 @@ pub const VM = struct {
         defer self.current_loading_file = prev_file;
 
         try self.executeChunk(main_chunk);
+    }
+
+    fn loadCExtFile(self: *VM, absolute_path: []const u8) VMError!void {
+        const basename = std.fs.path.basename(absolute_path);
+        const stem = std.fs.path.stem(basename);
+        const init_name_fmt = std.fmt.allocPrint(self.allocator, "Init_{s}", .{stem}) catch return error.Fatal;
+        defer self.allocator.free(init_name_fmt);
+        const init_name: [:0]const u8 = self.allocator.dupeZ(u8, init_name_fmt) catch return error.Fatal;
+        defer self.allocator.free(init_name);
+
+        var lib = std.DynLib.open(absolute_path) catch {
+            return self.raiseExceptionFmt(self.load_error_class, "cannot load such file -- {s}", .{absolute_path});
+        };
+
+        const InitFn = *const fn () callconv(.c) void;
+        const init_fn: InitFn = lib.lookup(InitFn, init_name) orelse {
+            return self.raiseExceptionFmt(self.load_error_class, "undefined symbol: {s} in {s}", .{ init_name, absolute_path });
+        };
+
+        init_fn();
+        self.cext_handles.append(self.allocator, lib) catch return error.Fatal;
     }
 
     pub fn evalSource(self: *VM, source: []const u8, source_file: ?[]const u8) VMError!Value {

@@ -725,6 +725,10 @@ fn methodBodiesMatch(a: MethodEntry, b: MethodEntry) bool {
             .builtin => |b_builtin| a_builtin.function == b_builtin.function,
             else => false,
         },
+        .cext => |a_cext| switch (b.method) {
+            .cext => |b_cext| a_cext.func == b_cext.func,
+            else => false,
+        },
         .undefined => b.method == .undefined,
     };
 }
@@ -749,7 +753,7 @@ fn methodSupportsRuby2Keywords(entry: MethodEntry) bool {
             },
             else => false,
         },
-        .builtin, .undefined => false,
+        .builtin, .undefined, .cext => false,
     };
 }
 

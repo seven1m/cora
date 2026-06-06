@@ -8,6 +8,7 @@ const compiler = @import("compiler.zig");
 const load_path = @import("load_path.zig");
 const vm = @import("vm.zig");
 const bdwgc = @import("bdwgc");
+const cext = @import("cext.zig");
 
 /// Implements Ruby's -x flag: scans forward through `code` and returns the
 /// slice starting at the first line whose content begins with "#!" and contains
@@ -328,6 +329,7 @@ pub fn main(init: std.process.Init) !void {
 
     var virtual_machine = vm.VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic, init.io, init.minimal.environ);
     try virtual_machine.prepare(&program);
+    cext.setupGlobals(&virtual_machine);
     if (verbose) {
         var stdout_buf: [8192]u8 = undefined;
         var stdout_w = std.Io.File.stdout().writer(init.io, &stdout_buf);

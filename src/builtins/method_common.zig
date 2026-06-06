@@ -209,6 +209,20 @@ pub fn parametersForResolvedMethod(vm: *VM, resolved: vm_mod.ResolvedMethod) VME
                 try appendParameterDescriptor(vm, out, "rest");
             },
         },
+        .cext => |cext_method| {
+            const arity: i32 = @intCast(cext_method.argc);
+            if (arity >= 0) {
+                for (0..@intCast(arity)) |_| {
+                    try appendParameterDescriptor(vm, out, "req");
+                }
+            } else {
+                const required: u32 = @intCast(-arity - 1);
+                for (0..required) |_| {
+                    try appendParameterDescriptor(vm, out, "req");
+                }
+                try appendParameterDescriptor(vm, out, "rest");
+            }
+        },
         .undefined => unreachable,
     }
 

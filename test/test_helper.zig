@@ -5,6 +5,7 @@ const prism = cora.prism;
 const compiler = cora.compiler;
 const VM = cora.vm.VM;
 const Value = cora.value.Value;
+const cext = cora.cext;
 const bdwgc = @import("bdwgc");
 
 var gpa: std.heap.DebugAllocator(.{}) = .init;
@@ -163,6 +164,7 @@ pub fn evalCodeWithOutputAndPath(ruby_code: []const u8, stdout_buf: []u8, stderr
             .err = err,
         };
     };
+    cext.setupGlobals(&vm);
     {
         var path_buffer: [4096]u8 = undefined;
         const abs_len = std.Io.Dir.cwd().realPathFile(threaded.io(), "lib/stdlib", &path_buffer) catch 0;

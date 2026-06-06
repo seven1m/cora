@@ -135,6 +135,21 @@ fn buildTinyCC(b: *std.Build) *std.Build.Step {
     return tinycc_build_step;
 }
 
+fn buildCExtFixture(b: *std.Build) *std.Build.Step {
+    const fixture_build_step = b.step("cext-fixture", "Build C extension fixture for tests");
+
+    const fixture_so_path = "zig-out/cext/fixture.so";
+
+    const mkdir_step = b.addSystemCommand(&.{ "mkdir", "-p", "zig-out/cext" });
+    fixture_build_step.dependOn(&mkdir_step.step);
+
+    const compile_step = b.addSystemCommand(&.{ "gcc", "-shared", "-fPIC", "-I", "include/cora", "test/support/cext_fixture.c", "-o", fixture_so_path });
+    compile_step.step.dependOn(&mkdir_step.step);
+    fixture_build_step.dependOn(&compile_step.step);
+
+    return fixture_build_step;
+}
+
 fn linkOpenSSL(module: *std.Build.Module) void {
     module.linkSystemLibrary("ssl", .{});
     module.linkSystemLibrary("crypto", .{});
@@ -182,6 +197,7 @@ pub fn build(b: *std.Build) void {
     const prism_build_step = buildPrism(b);
     const onigmo_build_step = buildOnigmo(b);
     const tinycc_build_step = buildTinyCC(b);
+    const cext_fixture_step = buildCExtFixture(b);
 
     if (submodule_update_step) |s| {
         prism_build_step.dependOn(s);
@@ -217,6 +233,8 @@ pub fn build(b: *std.Build) void {
 
     exe.root_module.link_libc = true;
     linkOpenSSL(exe.root_module);
+
+    exe.rdynamic = true;
 
     // On Darwin aarch64, getcontext() is deprecated and does not save
     // caller-saved registers (x0-x18), making GC root scanning unreliable.
@@ -284,6 +302,7 @@ pub fn build(b: *std.Build) void {
 
     test_exe.step.dependOn(prism_build_step);
     test_exe.step.dependOn(onigmo_build_step);
+    test_exe.step.dependOn(cext_fixture_step);
     if (tcc_jit) {
         test_exe.step.dependOn(tinycc_build_step);
     }
@@ -298,6 +317,7 @@ pub fn build(b: *std.Build) void {
         test_exe.root_module.addIncludePath(b.path("zig-out/tinycc"));
     }
     test_exe.root_module.link_libc = true;
+    test_exe.rdynamic = true;
     linkOpenSSL(test_exe.root_module);
 
     test_exe.root_module.addImport("bdwgc", bdwgc.module("bdwgc"));
