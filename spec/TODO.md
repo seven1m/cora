@@ -112,7 +112,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/array/element_set_spec.rb
 - [x] core/array/empty_spec.rb
 - [x] core/array/eql_spec.rb
-- [ ] core/array/equal_value_spec.rb
+- [x] core/array/equal_value_spec.rb
 - [x] core/array/fetch_spec.rb
 - [x] core/array/fetch_values_spec.rb
 - [-] core/array/fill_spec.rb

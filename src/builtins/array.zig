@@ -1113,7 +1113,17 @@ pub fn builtinArrayEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     try vm.requireArgCount(args, 1);
     const other = args[0];
     if (!other.isArray()) {
-        return Value.boolean(false);
+        // MRI checks respond_to?(:to_ary) and then delegates to other.==(self)
+        const to_ary_sym_val = Value.fromObject(&(try vm.intern("to_ary")).object);
+        var respond_args = [_]Value{to_ary_sym_val};
+        _ = try vm.callMethodByName(other, "respond_to?", &respond_args, null);
+        // Sentinel prevents re-entrant delegation from causing recursion
+        const sentinel = Value{ .raw = 0 };
+        if (try vm.enterRecursionGuard(.array_equal, sentinel, sentinel)) {
+            return Value.boolean(false);
+        }
+        defer vm.leaveRecursionGuard(.array_equal, sentinel, sentinel);
+        return Value.boolean(try vm.valueEquals(other, receiver));
     }
 
     const left = receiver.toArrayObject();
@@ -1132,7 +1142,9 @@ pub fn builtinArrayEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     }
 
     for (left.elements.items, 0..) |elem, idx| {
-        if (!(try vm.valueEquals(elem, right.elements.items[idx]))) {
+        const other_elem = right.elements.items[idx];
+        if (elem.raw == other_elem.raw) continue;
+        if (!(try vm.valueEquals(elem, other_elem))) {
             return Value.boolean(false);
         }
     }
