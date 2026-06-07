@@ -578,6 +578,8 @@ pub fn register(vm: *VM) !void {
 
     const symlink_sym = try vm.intern("symlink");
     try file_singleton.module.methods.put(symlink_sym, value.MethodEntry.builtin(&builtinFileSymlink, .{ .exact = 2 }));
+    const symlink_q_singleton_sym = try vm.intern("symlink?");
+    try file_singleton.module.methods.put(symlink_q_singleton_sym, value.MethodEntry.builtin(&builtinFileSymlinkQ, .{ .exact = 1 }));
 
     const chmod_sym = try vm.intern("chmod");
     try file_singleton.module.methods.put(chmod_sym, value.MethodEntry.builtin(&builtinFileChmod, .{ .variadic = 1 }));
@@ -1677,6 +1679,17 @@ pub fn builtinFileSymlink(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
         return vm.raiseErrnoFmt(std.posix.errno(-1), "failed to create symlink: {s}", .{link});
     }
     return Value.integer(0);
+}
+
+pub fn builtinFileSymlinkQ(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (builtin.os.tag == .windows) {
+        return Value.boolean(false);
+    }
+
+    const path = try vm.coerceToPath(args[0], "no implicit conversion into String");
+    const stat = std.Io.Dir.cwd().statFile(vm.io, path, .{}) catch return Value.boolean(false);
+    return Value.boolean(stat.kind == .sym_link);
 }
 
 pub fn builtinFileChmod(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
