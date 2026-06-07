@@ -656,6 +656,7 @@ pub const VM = struct {
     stdout: ?*std.Io.Writer = null,
     stderr: ?*std.Io.Writer = null,
     ruby_executable_path: ?[]const u8 = null,
+    bootstrapped: bool = false,
 
     cext_handles: std.ArrayList(std.DynLib) = .empty,
 
@@ -1599,6 +1600,7 @@ pub const VM = struct {
         self.marshal_module.constants.put(marshal_minor_version_sym, .{ .value = Value.integer(8) }) catch return error.Fatal;
 
         _ = try rbconfig_data.buildRbConfigModule(self);
+        self.bootstrapped = true;
         try self.setArgv(&[_][]const u8{});
 
         const stdin_sym = try self.intern("STDIN");
@@ -2262,7 +2264,13 @@ pub const VM = struct {
     }
 
     pub fn setRubyExecutablePath(self: *VM, path: []const u8) VMError!void {
+        if (self.ruby_executable_path) |old_path| {
+            self.allocator.free(old_path);
+        }
         self.ruby_executable_path = self.allocator.dupe(u8, path) catch return error.Fatal;
+        if (self.bootstrapped) {
+            try rbconfig_data.refreshRuntimeConfig(self);
+        }
     }
 
     pub fn setInputRecordSeparator(self: *VM, separator: []const u8, frozen: bool) VMError!void {

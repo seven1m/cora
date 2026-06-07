@@ -190,19 +190,24 @@ pub fn buildRbConfigModule(vm: *VM) VMError!Value {
     const rbconfig_val = try vm.newModule(rbconfig_sym);
     const rbconfig_module = rbconfig_val.toModuleObject();
 
-    const mkconf_val = try buildConfigHash(vm, false);
-    const conf_val = try buildConfigHash(vm, true);
+    const mkconf_val = try buildMakefileConfigHash(vm);
+    const conf_val = try buildExpandedConfigHash(vm, mkconf_val);
+    const topdir_val = if (vm.ruby_executable_path != null) try topdirValue(vm, conf_val) else Value.nil();
 
-    rbconfig_module.constants.put(topdir_sym, .{ .value = Value.nil() }) catch return error.Fatal;
+    rbconfig_module.constants.put(topdir_sym, .{ .value = topdir_val }) catch return error.Fatal;
     rbconfig_module.constants.put(config_sym, .{ .value = conf_val }) catch return error.Fatal;
     rbconfig_module.constants.put(makefile_config_sym, .{ .value = mkconf_val }) catch return error.Fatal;
 
     vm.object_class.module.constants.put(rbconfig_sym, .{ .value = rbconfig_val }) catch return error.Fatal;
 
+    if (vm.ruby_executable_path != null) {
+        try refreshRuntimeConfig(vm);
+    }
+
     return rbconfig_val;
 }
 
-fn buildConfigHash(vm: *VM, comptime expand: bool) VMError!Value {
+fn buildMakefileConfigHash(vm: *VM) VMError!Value {
     const conf_obj = try vm.createHash();
     const conf_val = Value.fromObject(&conf_obj.object);
     const conf = conf_val.toHashObject();
@@ -211,14 +216,87 @@ fn buildConfigHash(vm: *VM, comptime expand: bool) VMError!Value {
         try vm.hashSetEntry(conf, try vm.newString(entry.key, false), try vm.newString(entry.value, false));
     }
 
-    if (expand) {
-        for (conf.entries.items) |*conf_entry| {
-            const expanded = expandValue(vm, conf_entry.value, conf_val) catch return error.Fatal;
-            conf_entry.value = expanded;
-        }
+    return conf_val;
+}
+
+fn buildExpandedConfigHash(vm: *VM, mkconf_val: Value) VMError!Value {
+    const conf_obj = try vm.createHash();
+    const conf_val = Value.fromObject(&conf_obj.object);
+
+    try rebuildExpandedConfig(vm, mkconf_val, conf_val);
+    return conf_val;
+}
+
+pub fn rebuildExpandedConfig(vm: *VM, mkconf_val: Value, conf_val: Value) VMError!void {
+    const mkconf = mkconf_val.toHashObject();
+    const conf = conf_val.toHashObject();
+
+    for (mkconf.entries.items) |entry| {
+        try vm.hashSetEntry(conf, entry.key, entry.value);
     }
 
-    return conf_val;
+    for (conf.entries.items) |*conf_entry| {
+        const expanded = expandValue(vm, conf_entry.value, conf_val) catch return error.Fatal;
+        conf_entry.value = expanded;
+    }
+}
+
+fn topdirValue(vm: *VM, conf_val: Value) VMError!Value {
+    if (!conf_val.isHash()) return Value.nil();
+    const conf = conf_val.toHashObject();
+    const topdir_key = try vm.newString("topdir", false);
+    const entry = try vm.hashGetEntry(conf, topdir_key);
+    return if (entry) |topdir| topdir.value else Value.nil();
+}
+
+fn setRbConfigConstant(vm: *VM, name: []const u8, value_val: Value) VMError!void {
+    const rbconfig_val = (try vm.resolveConstantPath("RbConfig")) orelse return;
+    const rbconfig_module = rbconfig_val.toModuleObject();
+    const name_sym = try vm.intern(name);
+    rbconfig_module.constants.put(name_sym, .{ .value = value_val }) catch return error.Fatal;
+}
+
+fn setConfigString(vm: *VM, config_val: Value, key: []const u8, raw_value: []const u8) VMError!void {
+    const key_val = try vm.newString(key, false);
+    const value_val = try vm.newString(raw_value, false);
+    try vm.hashSetEntry(config_val.toHashObject(), key_val, value_val);
+}
+
+fn runtimeRootFromExecutablePath(path: []const u8) []const u8 {
+    const exe_dir = std.fs.path.dirname(path) orelse ".";
+    if (std.mem.eql(u8, std.fs.path.basename(exe_dir), "bin")) {
+        return std.fs.path.dirname(exe_dir) orelse exe_dir;
+    }
+    return exe_dir;
+}
+
+pub fn refreshRuntimeConfig(vm: *VM) VMError!void {
+    const ruby_path = vm.ruby_executable_path orelse return;
+    const mkconf_val = (try vm.resolveConstantPath("RbConfig::MAKEFILE_CONFIG")) orelse return;
+    const conf_val = (try vm.resolveConstantPath("RbConfig::CONFIG")) orelse return;
+    if (!mkconf_val.isHash() or !conf_val.isHash()) return;
+
+    const runtime_root = runtimeRootFromExecutablePath(ruby_path);
+    try setConfigString(vm, mkconf_val, "prefix", runtime_root);
+    try setConfigString(vm, mkconf_val, "exec_prefix", "$(prefix)");
+    try setConfigString(vm, mkconf_val, "bindir", "$(exec_prefix)/bin");
+    try setConfigString(vm, mkconf_val, "libdir", "$(exec_prefix)/lib");
+    try setConfigString(vm, mkconf_val, "includedir", "$(prefix)/include");
+    try setConfigString(vm, mkconf_val, "rubylibprefix", "$(prefix)/lib");
+    try setConfigString(vm, mkconf_val, "rubylibdir", "$(rubylibprefix)/stdlib");
+    try setConfigString(vm, mkconf_val, "rubyarchdir", "$(rubylibdir)");
+    try setConfigString(vm, mkconf_val, "rubyhdrdir", "$(includedir)/cora");
+    try setConfigString(vm, mkconf_val, "rubyarchhdrdir", "$(rubyhdrdir)");
+    try setConfigString(vm, mkconf_val, "sitedir", "$(rubylibprefix)");
+    try setConfigString(vm, mkconf_val, "sitelibdir", "$(rubylibdir)");
+    try setConfigString(vm, mkconf_val, "sitearchdir", "$(rubyarchdir)");
+    try setConfigString(vm, mkconf_val, "vendordir", "$(rubylibprefix)");
+    try setConfigString(vm, mkconf_val, "vendorlibdir", "$(rubylibdir)");
+    try setConfigString(vm, mkconf_val, "vendorarchdir", "$(rubyarchdir)");
+    try setConfigString(vm, mkconf_val, "topdir", "$(prefix)");
+
+    try rebuildExpandedConfig(vm, mkconf_val, conf_val);
+    try setRbConfigConstant(vm, "TOPDIR", try topdirValue(vm, conf_val));
 }
 
 pub fn expandValue(vm: *VM, val: Value, config_val: Value) VMError!Value {

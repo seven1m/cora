@@ -146,7 +146,9 @@ pub fn evalCodeWithOutputAndPath(ruby_code: []const u8, stdout_buf: []u8, stderr
 
     var vm = VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic, threaded.io(), std.testing.environ);
     defer vm.deinit();
-    vm.setRubyExecutablePath("/tmp/cora-test") catch |err| {
+    var exe_path_buffer: [4096]u8 = undefined;
+    const exe_path_len = std.Io.Dir.cwd().realPathFile(threaded.io(), cora_executable_path, &exe_path_buffer) catch cora_executable_path.len;
+    vm.setRubyExecutablePath(exe_path_buffer[0..exe_path_len]) catch |err| {
         return .{
             .value = Value.nil(),
             .stdout = "",

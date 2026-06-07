@@ -16,10 +16,10 @@ pub fn register(vm: *VM) !void {
     try rbconfig_singleton.module.methods.put(ruby_sym, value.MethodEntry.builtin(&builtinRbConfigRuby, .{ .exact = 0 }));
 
     const expand_sym = try vm.intern("expand");
-    try rbconfig_singleton.module.methods.put(expand_sym, value.MethodEntry.builtin(&builtinRbConfigExpand, .{ .exact = 0 }));
+    try rbconfig_singleton.module.methods.put(expand_sym, value.MethodEntry.builtin(&builtinRbConfigExpand, .{ .variadic = 1 }));
 
     const fire_update_sym = try vm.intern("fire_update!");
-    try rbconfig_singleton.module.methods.put(fire_update_sym, value.MethodEntry.builtin(&builtinRbConfigFireUpdate, .{ .exact = 0 }));
+    try rbconfig_singleton.module.methods.put(fire_update_sym, value.MethodEntry.builtin(&builtinRbConfigFireUpdate, .{ .variadic = 2 }));
 }
 
 pub fn builtinRbConfigRuby(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -59,8 +59,8 @@ pub fn builtinRbConfigFireUpdate(vm: *VM, _: Value, args: []Value, _: ?Block) VM
         break :config c;
     };
 
+    if (!mkconf_val.isHash() or !conf_val.isHash()) return Value.nil();
     const mkconf = mkconf_val.toHashObject();
-    const conf = conf_val.toHashObject();
 
     if (try vm.hashGetEntry(mkconf, key_val)) |existing| {
         if (existing.value.isString() and val_val.isString()) {
@@ -71,69 +71,6 @@ pub fn builtinRbConfigFireUpdate(vm: *VM, _: Value, args: []Value, _: ?Block) VM
     }
 
     try vm.hashSetEntry(mkconf, key_val, val_val);
-
-    var changed_keys: std.ArrayList(Value) = .empty;
-    defer changed_keys.deinit(vm.allocator);
-    changed_keys.append(vm.allocator, key_val) catch return error.Fatal;
-
-    while (true) {
-        var new_keys: std.ArrayList(Value) = .empty;
-        defer new_keys.deinit(vm.allocator);
-
-        for (mkconf.entries.items) |entry| {
-            if (!entry.value.isString()) continue;
-            const entry_val_str = entry.value.toStringObject().str;
-
-            for (changed_keys.items) |ck| {
-                if (!ck.isString()) continue;
-                const ck_str = ck.toStringObject().str;
-                const ref_paren = std.fmt.allocPrint(vm.allocator, "$({s})", .{ck_str}) catch return error.Fatal;
-                defer vm.allocator.free(ref_paren);
-                const ref_brace = std.fmt.allocPrint(vm.allocator, "${{{s}}}", .{ck_str}) catch return error.Fatal;
-                defer vm.allocator.free(ref_brace);
-
-                if (std.mem.indexOf(u8, entry_val_str, ref_paren) != null or
-                    std.mem.indexOf(u8, entry_val_str, ref_brace) != null)
-                {
-                    var already: bool = false;
-                    for (changed_keys.items) |existing| {
-                        if (existing.isString() and std.mem.eql(u8, existing.toStringObject().str, entry.key.toStringObject().str)) {
-                            already = true;
-                            break;
-                        }
-                    }
-                    for (new_keys.items) |existing| {
-                        if (existing.isString() and std.mem.eql(u8, existing.toStringObject().str, entry.key.toStringObject().str)) {
-                            already = true;
-                            break;
-                        }
-                    }
-                    if (!already) {
-                        new_keys.append(vm.allocator, entry.key) catch return error.Fatal;
-                    }
-                    break;
-                }
-            }
-        }
-
-        if (new_keys.items.len == 0) break;
-        changed_keys.appendSlice(vm.allocator, new_keys.items) catch return error.Fatal;
-    }
-
-    for (changed_keys.items) |ck| {
-        if (try vm.hashGetEntry(mkconf, ck)) |mkentry| {
-            const mk_val = mkentry.value;
-            try vm.hashSetEntry(conf, ck, mk_val);
-            if (try vm.hashGetEntry(conf, ck)) |cfentry| {
-                const expanded = data.expandValue(vm, cfentry.value, conf_val) catch return error.Fatal;
-                try vm.hashSetEntry(conf, ck, expanded);
-            }
-        }
-    }
-
-    const result = try vm.createArray();
-    for (changed_keys.items) |ck| {
-        result.elements.append(vm.gc_allocator, ck) catch return error.Fatal;
-    }
-    return Value.fromObject(&result.object);
+    try data.rebuildExpandedConfig(vm, mkconf_val, conf_val);
+    return Value.nil();
 }
