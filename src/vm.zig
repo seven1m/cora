@@ -1746,6 +1746,7 @@ pub const VM = struct {
 
         // Create top-level self (Ruby "main" object)
         self.main_self = try self.newInstance(self.object_class);
+        try builtins.registerMainSelf(self);
 
         // --- Stage 6: Initialize top-level lexical scope ---
         self.current_lexical_scope = try self.createLexicalScope(Value.fromObject(&self.object_class.module.object), null);

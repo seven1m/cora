@@ -31,11 +31,6 @@ end
 
 $__spec_env = SpecEnv.new
 
-def $__spec_main.include(*modules)
-  Object.send(:include, *modules)
-end
-$__spec_main.singleton_class.send(:private, :include)
-
 TOLERANCE = 0.00003 unless defined?(TOLERANCE)
 TIME_TOLERANCE = 20.0 unless defined?(TIME_TOLERANCE)
 

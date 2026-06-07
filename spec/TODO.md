@@ -1286,7 +1286,7 @@ Source baseline: ../ruby_spec compared to local spec/
 
 ### core/main
 - [ ] core/main/define_method_spec.rb
-- [ ] core/main/include_spec.rb
+- [x] core/main/include_spec.rb
 - [ ] core/main/private_spec.rb
 - [ ] core/main/public_spec.rb
 - [ ] core/main/ruby2_keywords_spec.rb

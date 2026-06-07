@@ -1,6 +1,8 @@
 const vm_mod = @import("../vm.zig");
+const value = @import("../value.zig");
 
 const VM = vm_mod.VM;
+const MethodEntry = value.MethodEntry;
 
 const array = @import("array.zig");
 const basic_object = @import("basic_object.zig");
@@ -96,4 +98,24 @@ pub fn registerAll(vm: *VM) !void {
     try exception.register(vm);
     try encoding.register(vm);
     try enumerator.register(vm);
+}
+
+pub fn registerMainSelf(vm: *VM) !void {
+    const main_singleton = try vm.getOrCreateSingletonClass(vm.main_self);
+    const include_sym = try vm.intern("include");
+    const private_sym = try vm.intern("private");
+    const public_sym = try vm.intern("public");
+
+    main_singleton.module.methods.put(
+        include_sym,
+        MethodEntry.builtinWithVisibility(&module_builtin.builtinMainInclude, .{ .variadic = 0 }, .private),
+    ) catch return error.Fatal;
+    main_singleton.module.methods.put(
+        private_sym,
+        MethodEntry.builtinWithVisibility(&module_builtin.builtinMainPrivate, .{ .variadic = 0 }, .private),
+    ) catch return error.Fatal;
+    main_singleton.module.methods.put(
+        public_sym,
+        MethodEntry.builtinWithVisibility(&module_builtin.builtinMainPublic, .{ .variadic = 0 }, .private),
+    ) catch return error.Fatal;
 }

@@ -1534,6 +1534,21 @@ pub fn builtinModuleInclude(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     return receiver;
 }
 
+pub fn builtinMainInclude(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    const object_val = Value.fromObject(&vm.object_class.module.object);
+    return builtinModuleInclude(vm, object_val, args, null);
+}
+
+pub fn builtinMainPrivate(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    const object_val = Value.fromObject(&vm.object_class.module.object);
+    return builtinModulePrivate(vm, object_val, args, null);
+}
+
+pub fn builtinMainPublic(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    const object_val = Value.fromObject(&vm.object_class.module.object);
+    return builtinModulePublic(vm, object_val, args, null);
+}
+
 pub fn builtinModulePrepend(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireSingleArg(args, .module, "Module");
     const target = receiver.getModuleObject() orelse {
