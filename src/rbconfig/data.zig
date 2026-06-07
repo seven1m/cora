@@ -70,6 +70,7 @@ pub const makefile_config_entries = [_]ConfigEntry{
     .{ .key = "LIBEXT", .value = cfg.libext },
     .{ .key = "EXEEXT", .value = cfg.exeext },
     .{ .key = "OBJEXT", .value = cfg.objext },
+    .{ .key = "ASMEXT", .value = cfg.asmext },
     .{ .key = "EXECUTABLE_EXTS", .value = cfg.executable_exts },
     .{ .key = "ENABLE_SHARED", .value = cfg.enable_shared },
     .{ .key = "LIBRUBY", .value = cfg.libruby },
@@ -106,9 +107,15 @@ pub const makefile_config_entries = [_]ConfigEntry{
     .{ .key = "PATH_SEPARATOR", .value = cfg.path_separator },
     .{ .key = "NULLCMD", .value = cfg.nullcmd },
     .{ .key = "CFLAGS", .value = cfg.cflags },
+    .{ .key = "cppflags", .value = cfg.cppflags },
+    .{ .key = "CPPFLAGS", .value = cfg.cppflags },
     .{ .key = "CXXFLAGS", .value = cfg.cxxflags },
+    .{ .key = "COUTFLAG", .value = cfg.coutflag },
+    .{ .key = "CSRCFLAG", .value = cfg.csrcflag },
+    .{ .key = "OUTFLAG", .value = cfg.outflag },
     .{ .key = "LDFLAGS", .value = cfg.ldflags },
     .{ .key = "DLDFLAGS", .value = cfg.dldflags },
+    .{ .key = "EXTDLDFLAGS", .value = cfg.extdldflags },
     .{ .key = "CCDLFLAGS", .value = cfg.ccdlflags },
     .{ .key = "ARCH_FLAG", .value = cfg.arch_flag },
     .{ .key = "optflags", .value = cfg.optflags },
@@ -162,21 +169,40 @@ pub const makefile_config_entries = [_]ConfigEntry{
     .{ .key = "MKMF_VERBOSE", .value = cfg.mkmf_verbose },
     .{ .key = "configure_args", .value = cfg.configure_args },
     .{ .key = "CONFIGURE", .value = cfg.configure },
+    .{ .key = "CC_WRAPPER", .value = cfg.cc_wrapper },
+    .{ .key = "COMMON_MACROS", .value = cfg.common_macros },
+    .{ .key = "EXPORT_PREFIX", .value = cfg.export_prefix },
     .{ .key = "UNICODE_VERSION", .value = cfg.unicode_version },
     .{ .key = "UNICODE_EMOJI_VERSION", .value = cfg.unicode_emoji_version },
     .{ .key = "DEFS", .value = cfg.defs },
     .{ .key = "DOT", .value = cfg.dot },
     .{ .key = "DOXYGEN", .value = cfg.doxygen },
+    .{ .key = "rubyarchhdrdir", .value = cfg.rubyarchhdrdir },
+    .{ .key = "topdir", .value = cfg.destdir },
 };
 
 pub fn buildRbConfigModule(vm: *VM) VMError!Value {
     const rbconfig_sym = try vm.intern("RbConfig");
     const config_sym = try vm.intern("CONFIG");
+    const makefile_config_sym = try vm.intern("MAKEFILE_CONFIG");
     const topdir_sym = try vm.intern("TOPDIR");
 
     const rbconfig_val = try vm.newModule(rbconfig_sym);
     const rbconfig_module = rbconfig_val.toModuleObject();
 
+    const mkconf_val = try buildConfigHash(vm, false);
+    const conf_val = try buildConfigHash(vm, true);
+
+    rbconfig_module.constants.put(topdir_sym, .{ .value = Value.nil() }) catch return error.Fatal;
+    rbconfig_module.constants.put(config_sym, .{ .value = conf_val }) catch return error.Fatal;
+    rbconfig_module.constants.put(makefile_config_sym, .{ .value = mkconf_val }) catch return error.Fatal;
+
+    vm.object_class.module.constants.put(rbconfig_sym, .{ .value = rbconfig_val }) catch return error.Fatal;
+
+    return rbconfig_val;
+}
+
+fn buildConfigHash(vm: *VM, comptime expand: bool) VMError!Value {
     const conf_obj = try vm.createHash();
     const conf_val = Value.fromObject(&conf_obj.object);
     const conf = conf_val.toHashObject();
@@ -185,17 +211,14 @@ pub fn buildRbConfigModule(vm: *VM) VMError!Value {
         try vm.hashSetEntry(conf, try vm.newString(entry.key, false), try vm.newString(entry.value, false));
     }
 
-    for (conf.entries.items) |*conf_entry| {
-        const expanded = expandValue(vm, conf_entry.value, conf_val) catch return error.Fatal;
-        conf_entry.value = expanded;
+    if (expand) {
+        for (conf.entries.items) |*conf_entry| {
+            const expanded = expandValue(vm, conf_entry.value, conf_val) catch return error.Fatal;
+            conf_entry.value = expanded;
+        }
     }
 
-    rbconfig_module.constants.put(topdir_sym, .{ .value = Value.nil() }) catch return error.Fatal;
-    rbconfig_module.constants.put(config_sym, .{ .value = conf_val }) catch return error.Fatal;
-
-    vm.object_class.module.constants.put(rbconfig_sym, .{ .value = rbconfig_val }) catch return error.Fatal;
-
-    return rbconfig_val;
+    return conf_val;
 }
 
 pub fn expandValue(vm: *VM, val: Value, config_val: Value) VMError!Value {

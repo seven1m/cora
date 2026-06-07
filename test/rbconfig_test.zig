@@ -27,3 +27,25 @@ test "RbConfig::CONFIG initializes and expands values" {
     try std.testing.expectEqualSlices(u8, "/usr/bin", items[1].toStringObject().str);
     try std.testing.expectEqualSlices(u8, "4.0.0", items[2].toStringObject().str);
 }
+
+test "RbConfig::MAKEFILE_CONFIG stays raw and separate from CONFIG" {
+    const result = try evalCode(
+        \\require 'rbconfig'
+        \\raw = RbConfig::MAKEFILE_CONFIG
+        \\conf = RbConfig::CONFIG
+        \\raw["MAJOR"] = "9"
+        \\[
+        \\  raw.equal?(conf),
+        \\  raw["ruby_version"],
+        \\  conf["ruby_version"],
+        \\  RbConfig.fire_update!("MAJOR", "8"),
+        \\  conf["ruby_version"],
+        \\]
+    );
+    try std.testing.expect(result.isArray());
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(false, items[0].isTruthy());
+    try std.testing.expectEqualSlices(u8, "$(MAJOR).$(MINOR).$(TEENY)", items[1].toStringObject().str);
+    try std.testing.expectEqualSlices(u8, "4.0.0", items[2].toStringObject().str);
+    try std.testing.expectEqualSlices(u8, "8.0.0", items[4].toStringObject().str);
+}
