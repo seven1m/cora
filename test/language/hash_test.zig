@@ -225,6 +225,51 @@ test "Hash lookup does not dispatch hash for scalar builtins" {
     }
 }
 
+test "Hash lookup does not dispatch eql? for scalar builtins" {
+    const result = try evalCode(
+        \\class String
+        \\  def eql?(other)
+        \\    raise "String#eql? should not be called"
+        \\  end
+        \\end
+        \\class Symbol
+        \\  def eql?(other)
+        \\    raise "Symbol#eql? should not be called"
+        \\  end
+        \\end
+        \\class Integer
+        \\  def eql?(other)
+        \\    raise "Integer#eql? should not be called"
+        \\  end
+        \\end
+        \\class Float
+        \\  def eql?(other)
+        \\    raise "Float#eql? should not be called"
+        \\  end
+        \\end
+        \\class TrueClass
+        \\  def eql?(other)
+        \\    raise "TrueClass#eql? should not be called"
+        \\  end
+        \\end
+        \\class FalseClass
+        \\  def eql?(other)
+        \\    raise "FalseClass#eql? should not be called"
+        \\  end
+        \\end
+        \\hash = { true => 1, false => 2, 3 => 4, 5.0 => 6, "hello" => 7, :ok => 8 }
+        \\[hash[true], hash[false], hash[3], hash[5.0], hash["hello"], hash[:ok]]
+    );
+    try std.testing.expect(result.isArray());
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 1), items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 2), items[1].toInteger());
+    try std.testing.expectEqual(@as(i64, 4), items[2].toInteger());
+    try std.testing.expectEqual(@as(i64, 6), items[3].toInteger());
+    try std.testing.expectEqual(@as(i64, 7), items[4].toInteger());
+    try std.testing.expectEqual(@as(i64, 8), items[5].toInteger());
+}
+
 test "Hash fetch with existing key" {
     const result = try evalCode("h = {a: 1, b: 2}\nh.fetch(:a)");
     try std.testing.expectEqual(1, result.toInteger());

@@ -11862,6 +11862,9 @@ pub const VM = struct {
 
     pub fn hashKeysEqual(self: *VM, lookup_key: Value, stored_key: Value) VMError!bool {
         if (lookup_key.raw == stored_key.raw) return true;
+        if (usesBuiltinHashKeyEquality(lookup_key) and usesBuiltinHashKeyEquality(stored_key)) {
+            return lookup_key.eql(stored_key);
+        }
         var args = [_]Value{stored_key};
         const result = self.callMethodByName(lookup_key, "eql?", args[0..], null) catch |err| {
             if (err == error.Unwind and
@@ -11874,6 +11877,15 @@ pub const VM = struct {
             return err;
         };
         return result.isTruthy();
+    }
+
+    fn usesBuiltinHashKeyEquality(key: Value) bool {
+        return key.isNil() or
+            key.isBool() or
+            key.isInteger() or
+            key.isFloat() or
+            key.isString() or
+            key.isSymbol();
     }
 
     pub fn hashFindEntryIndex(_: *VM, hash_obj: *value.HashObject, key: Value) VMError!?usize {
