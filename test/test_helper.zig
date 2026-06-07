@@ -13,6 +13,18 @@ pub fn getAllocator() std.mem.Allocator {
     return gpa.allocator();
 }
 
+pub const cora_executable_path = "build/bin/cora";
+pub const cext_fixture_dir = "build/cext";
+
+pub fn appendRuntimeLoadPath(virtual_machine: *VM, io: std.Io, relative_path: []const u8) !void {
+    var rel_path_buffer: [4096]u8 = undefined;
+    const runtime_path = std.fmt.bufPrint(&rel_path_buffer, "build/{s}", .{relative_path}) catch return error.NameTooLong;
+
+    var abs_path_buffer: [4096]u8 = undefined;
+    const abs_len = std.Io.Dir.cwd().realPathFile(io, runtime_path, &abs_path_buffer) catch return error.FileNotFound;
+    try virtual_machine.appendLoadPath(abs_path_buffer[0..abs_len]);
+}
+
 pub const TestWriter = struct {
     buffer: []u8,
     used: usize = 0,
@@ -165,34 +177,22 @@ pub fn evalCodeWithOutputAndPath(ruby_code: []const u8, stdout_buf: []u8, stderr
         };
     };
     cext.setupGlobals(&vm);
-    {
-        var path_buffer: [4096]u8 = undefined;
-        const abs_len = std.Io.Dir.cwd().realPathFile(threaded.io(), "lib/stdlib", &path_buffer) catch 0;
-        if (abs_len != 0) {
-            vm.appendLoadPath(path_buffer[0..abs_len]) catch |err| {
-                return .{
-                    .value = Value.nil(),
-                    .stdout = "",
-                    .stderr = "",
-                    .err = err,
-                };
-            };
-        }
-    }
-    {
-        var path_buffer: [4096]u8 = undefined;
-        const abs_len = std.Io.Dir.cwd().realPathFile(threaded.io(), "ext/singleton/lib", &path_buffer) catch 0;
-        if (abs_len != 0) {
-            vm.appendLoadPath(path_buffer[0..abs_len]) catch |err| {
-                return .{
-                    .value = Value.nil(),
-                    .stdout = "",
-                    .stderr = "",
-                    .err = err,
-                };
-            };
-        }
-    }
+    appendRuntimeLoadPath(&vm, threaded.io(), "lib/stdlib") catch |err| {
+        return .{
+            .value = Value.nil(),
+            .stdout = "",
+            .stderr = "",
+            .err = err,
+        };
+    };
+    appendRuntimeLoadPath(&vm, threaded.io(), "ext/singleton/lib") catch |err| {
+        return .{
+            .value = Value.nil(),
+            .stdout = "",
+            .stderr = "",
+            .err = err,
+        };
+    };
     // Set up stdout capture
     var stdout_writer = TestWriter.init(stdout_buf);
     vm.stdout = &stdout_writer.interface;

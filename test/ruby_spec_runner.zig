@@ -270,8 +270,10 @@ pub fn evalFile(path: []const u8, stdout_buf: []u8, stderr_buf: []u8) EvalResult
 
 fn appendRepoLoadPaths(vm: *VM, io: std.Io) !void {
     for (load_path.repo_load_paths) |path| {
+        var rel_path_buffer: [4096]u8 = undefined;
+        const runtime_path = std.fmt.bufPrint(&rel_path_buffer, "build/{s}", .{path}) catch continue;
         var path_buffer: [4096]u8 = undefined;
-        const abs_len = std.Io.Dir.cwd().realPathFile(io, path, &path_buffer) catch 0;
+        const abs_len = std.Io.Dir.cwd().realPathFile(io, runtime_path, &path_buffer) catch 0;
         if (abs_len == 0) continue;
         try vm.appendLoadPath(path_buffer[0..abs_len]);
     }

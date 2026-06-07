@@ -166,7 +166,7 @@ test "Process.wait raises Interrupt instead of EINTR on SIGINT" {
 
     const result = try std.process.run(allocator, threaded.io(), .{
         .argv = &.{
-            "zig-out/bin/cora",
+            "build/bin/cora",
             "-e",
             "target = Process.spawn('/usr/bin/env', 'sh', '-lc', 'sleep 5'); sender = Process.spawn('/usr/bin/env', 'sh', '-lc', \"sleep 0.1; kill -INT #{Process.pid}\"); begin; Process.wait(target); rescue Interrupt; begin; Process.kill('KILL', target); rescue Exception; end; puts 'interrupt'; end",
         },
@@ -249,7 +249,7 @@ test "IO.popen uses ENV PATH for executable lookup" {
         \\io.close
         \\ENV["PATH"] = old_path
         \\[out, status]
-        ,
+    ,
         .{dir_path},
     );
     defer allocator.free(ruby_code);
@@ -293,7 +293,7 @@ test "Process.spawn uses ENV PATH for executable lookup" {
         \\r.close
         \\ENV["PATH"] = old_path
         \\[out, $?.exitstatus]
-        ,
+    ,
         .{dir_path},
     );
     defer allocator.free(ruby_code);

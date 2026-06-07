@@ -54,13 +54,13 @@ zig build
 This installs the main CLI at:
 
 ```bash
-zig-out/bin/cora
+build/bin/cora
 ```
 
 To run:
 
 ```bash
-zig-out/bin/cora [flags] [filename]
+build/bin/cora [flags] [filename]
 ```
 
 Useful CLI flags:

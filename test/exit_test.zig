@@ -8,7 +8,7 @@ test "exit propagates process status" {
     defer threaded.deinit();
 
     const result = try std.process.run(allocator, threaded.io(), .{
-        .argv = &.{ "zig-out/bin/cora", "-e", "exit 7" },
+        .argv = &.{ "build/bin/cora", "-e", "exit 7" },
         .stdout_limit = .limited(1024 * 1024),
         .stderr_limit = .limited(1024 * 1024),
     });
@@ -26,7 +26,7 @@ test "unknown cli flag exits with ruby-style error" {
     defer threaded.deinit();
 
     const result = try std.process.run(allocator, threaded.io(), .{
-        .argv = &.{ "zig-out/bin/cora", "--wat" },
+        .argv = &.{ "build/bin/cora", "--wat" },
         .stdout_limit = .limited(1024 * 1024),
         .stderr_limit = .limited(1024 * 1024),
     });

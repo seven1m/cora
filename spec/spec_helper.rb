@@ -510,7 +510,7 @@ def new_io(name, mode = "r:utf-8")
 end
 
 def cora_bin_path
-  "#{__dir__}/../zig-out/bin/cora"
+  "#{__dir__}/../build/bin/cora"
 end
 
 RUBY_EXE = [cora_bin_path] unless defined?(RUBY_EXE)

@@ -17,7 +17,7 @@ test "require lazily loads rubygems and activates fake gem from GEM_HOME" {
 
     const result = try std.process.run(allocator, threaded.io(), .{
         .argv = &.{
-            "zig-out/bin/cora",
+            "build/bin/cora",
             "-e",
             "require \"fake_gem\"; p FakeGem",
         },
@@ -42,8 +42,8 @@ test "require rubygems/gem_runner avoids circular require warning" {
 
     const result = try std.process.run(allocator, threaded.io(), .{
         .argv = &.{
-            "zig-out/bin/cora",
-            "-Iext/rubygems/lib",
+            "build/bin/cora",
+            "-Ibuild/ext/rubygems/lib",
             "-e",
             "require \"rubygems/gem_runner\"; puts :ok",
         },
@@ -90,7 +90,7 @@ test "__send__ preserves call state across Bundler plugin autoload" {
     ;
 
     const result = try std.process.run(allocator, threaded.io(), .{
-        .argv = &.{ "zig-out/bin/cora", "-Iext/rubygems/bundler/lib", "-e", code },
+        .argv = &.{ "build/bin/cora", "-Ibuild/ext/rubygems/bundler/lib", "-e", code },
         .environ_map = &env_map,
         .stdout_limit = .limited(1024 * 1024),
         .stderr_limit = .limited(1024 * 1024),
@@ -134,7 +134,7 @@ test "Method#call preserves call state across Bundler plugin autoload" {
     ;
 
     const result = try std.process.run(allocator, threaded.io(), .{
-        .argv = &.{ "zig-out/bin/cora", "-Iext/rubygems/bundler/lib", "-e", code },
+        .argv = &.{ "build/bin/cora", "-Ibuild/ext/rubygems/bundler/lib", "-e", code },
         .environ_map = &env_map,
         .stdout_limit = .limited(1024 * 1024),
         .stderr_limit = .limited(1024 * 1024),

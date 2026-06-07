@@ -4,7 +4,7 @@ const evalCode = test_helper.evalCode;
 
 test "C extension fixture loads and defines method" {
     const result = try evalCode(
-        \\$LOAD_PATH << "zig-out/cext"
+        \\$LOAD_PATH << "build/cext"
         \\require "fixture.so"
         \\"".cora_cext_test
     );
@@ -14,7 +14,7 @@ test "C extension fixture loads and defines method" {
 
 test "C extension method works on arbitrary receiver" {
     const result = try evalCode(
-        \\$LOAD_PATH << "zig-out/cext"
+        \\$LOAD_PATH << "build/cext"
         \\require "fixture.so"
         \\"hello".cora_cext_test
     );

@@ -255,7 +255,7 @@ pub fn compileState(
         .{ .name = "cora_jit_sub", .ptr = @ptrCast(&cora_jit_sub) },
     };
 
-    state.compilation = tcc.compile("zig-out/tinycc", generated.source_code, generated.symbol_name, &symbols, &errors) catch |err| {
+    state.compilation = tcc.compile("build/tinycc", generated.source_code, generated.symbol_name, &symbols, &errors) catch |err| {
         const message = if (errors.slice().len != 0) errors.slice() else @errorName(err);
         state.last_error = try allocator.dupe(u8, message);
         state.failed_method_state_version = method_state_version;

@@ -2,7 +2,7 @@
 bindir=$(cd "${0%/*}" && pwd -P)
 cora="${bindir}/cora"
 if [ ! -x "${cora}" ]; then
-  cora="${bindir}/../zig-out/bin/cora"
+  cora="${bindir}/../build/bin/cora"
 fi
 if [ ! -x "${cora}" ]; then
   cora="cora"

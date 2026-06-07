@@ -8,7 +8,7 @@ test "binary: simple puts" {
     defer threaded.deinit();
 
     const result = try std.process.run(allocator, threaded.io(), .{
-        .argv = &.{ "zig-out/bin/cora", "-e", "puts 1" },
+        .argv = &.{ "build/bin/cora", "-e", "puts 1" },
         .stdout_limit = .limited(1024 * 1024),
         .stderr_limit = .limited(1024 * 1024),
     });

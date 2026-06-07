@@ -1,6 +1,30 @@
 const std = @import("std");
 
-const optimize_state_path = "zig-out/build-mode";
+const optimize_state_path = "build/build-mode";
+const runtime_prefix = "build";
+const onigmo_build_root = "build/onigmo";
+const prism_build_root = "build/prism";
+const tinycc_build_root = "build/tinycc";
+const cext_build_root = "build/cext";
+const runtime_ext_dirs = [_][]const u8{
+    "cgi",
+    "delegate",
+    "erb",
+    "forwardable",
+    "logger",
+    "open3",
+    "optparse",
+    "prism-templates",
+    "rubygems",
+    "shellwords",
+    "singleton",
+    "tempfile",
+    "time",
+    "timeout",
+    "tinycc",
+    "tmpdir",
+    "uri",
+};
 
 comptime {
     @setEvalBranchQuota(20000);
@@ -51,8 +75,8 @@ fn readSavedOptimizeMode(b: *std.Build) ?std.builtin.OptimizeMode {
 fn writeSavedOptimizeMode(b: *std.Build, mode: std.builtin.OptimizeMode) void {
     const io = b.graph.io;
     const cwd: std.Io.Dir = .cwd();
-    cwd.createDirPath(io, "zig-out") catch |err| {
-        std.debug.panic("failed to create zig-out: {s}", .{@errorName(err)});
+    cwd.createDirPath(io, runtime_prefix) catch |err| {
+        std.debug.panic("failed to create {s}: {s}", .{ runtime_prefix, @errorName(err) });
     };
     cwd.writeFile(io, .{
         .sub_path = optimize_state_path,
@@ -65,27 +89,27 @@ fn writeSavedOptimizeMode(b: *std.Build, mode: std.builtin.OptimizeMode) void {
 fn buildOnigmo(b: *std.Build) *std.Build.Step {
     const onigmo_build_step = b.step("onigmo", "Build Onigmo library");
 
-    const libonigmo_path = "zig-out/onigmo/.libs/libonigmo.a";
+    const libonigmo_path = onigmo_build_root ++ "/.libs/libonigmo.a";
 
     const libonigmo_exists = pathExists(b, libonigmo_path);
 
     if (!libonigmo_exists) {
-        const copy_step = b.addSystemCommand(&.{ "sh", "-c", "mkdir -p zig-out/onigmo && cp -r ext/onigmo/* zig-out/onigmo/" });
+        const copy_step = b.addSystemCommand(&.{ "sh", "-c", "mkdir -p build/onigmo && cp -r ext/onigmo/* build/onigmo/" });
         onigmo_build_step.dependOn(&copy_step.step);
 
-        const patch_step = b.addSystemCommand(&.{ "sh", "-c", "cd zig-out/onigmo && patch -p1 < ../../ext/onigmo.patch 2>/dev/null; true" });
+        const patch_step = b.addSystemCommand(&.{ "sh", "-c", "cd build/onigmo && patch -p1 < ../../ext/onigmo.patch 2>/dev/null; true" });
         patch_step.step.dependOn(&copy_step.step);
         onigmo_build_step.dependOn(&patch_step.step);
 
-        const autogen_step = b.addSystemCommand(&.{ "sh", "-c", "cd zig-out/onigmo && sh autogen.sh" });
+        const autogen_step = b.addSystemCommand(&.{ "sh", "-c", "cd build/onigmo && sh autogen.sh" });
         autogen_step.step.dependOn(&patch_step.step);
         onigmo_build_step.dependOn(&autogen_step.step);
 
-        const configure_step = b.addSystemCommand(&.{ "sh", "-c", "cd zig-out/onigmo && ./configure --with-pic" });
+        const configure_step = b.addSystemCommand(&.{ "sh", "-c", "cd build/onigmo && ./configure --with-pic" });
         configure_step.step.dependOn(&autogen_step.step);
         onigmo_build_step.dependOn(&configure_step.step);
 
-        const make_step = b.addSystemCommand(&.{ "sh", "-c", "cd zig-out/onigmo && make -j CFLAGS='-std=gnu17'" });
+        const make_step = b.addSystemCommand(&.{ "sh", "-c", "cd build/onigmo && make -j CFLAGS='-std=gnu17'" });
         make_step.step.dependOn(&configure_step.step);
         onigmo_build_step.dependOn(&make_step.step);
     }
@@ -96,19 +120,19 @@ fn buildOnigmo(b: *std.Build) *std.Build.Step {
 fn buildPrism(b: *std.Build) *std.Build.Step {
     const prism_build_step = b.step("prism", "Build Prism library");
 
-    const libprism_path = "zig-out/prism/build/libprism.a";
+    const libprism_path = prism_build_root ++ "/build/libprism.a";
 
     const libprism_exists = pathExists(b, libprism_path);
 
     if (!libprism_exists) {
-        const copy_step = b.addSystemCommand(&.{ "sh", "-c", "mkdir -p zig-out/prism && cp -r ext/prism/* zig-out/prism/" });
+        const copy_step = b.addSystemCommand(&.{ "sh", "-c", "mkdir -p build/prism && cp -r ext/prism/* build/prism/" });
         prism_build_step.dependOn(&copy_step.step);
 
-        const overlay_step = b.addSystemCommand(&.{ "sh", "-c", "cp -r ext/prism-templates/* zig-out/prism/" });
+        const overlay_step = b.addSystemCommand(&.{ "sh", "-c", "cp -r ext/prism-templates/* build/prism/" });
         overlay_step.step.dependOn(&copy_step.step);
         prism_build_step.dependOn(&overlay_step.step);
 
-        const make_step = b.addSystemCommand(&.{ "make", "-C", "zig-out/prism", "static" });
+        const make_step = b.addSystemCommand(&.{ "make", "-C", "build/prism", "static" });
         make_step.step.dependOn(&overlay_step.step);
         prism_build_step.dependOn(&make_step.step);
     }
@@ -119,19 +143,19 @@ fn buildPrism(b: *std.Build) *std.Build.Step {
 fn buildTinyCC(b: *std.Build) *std.Build.Step {
     const tinycc_build_step = b.step("tinycc", "Build TinyCC library");
 
-    const libtcc_path = "zig-out/tinycc/libtcc.a";
+    const libtcc_path = tinycc_build_root ++ "/libtcc.a";
 
     const libtcc_exists = pathExists(b, libtcc_path);
 
     if (!libtcc_exists) {
-        const copy_step = b.addSystemCommand(&.{ "sh", "-c", "mkdir -p zig-out/tinycc && cp -r ext/tinycc/* zig-out/tinycc/" });
+        const copy_step = b.addSystemCommand(&.{ "sh", "-c", "mkdir -p build/tinycc && cp -r ext/tinycc/* build/tinycc/" });
         tinycc_build_step.dependOn(&copy_step.step);
 
-        const configure_step = b.addSystemCommand(&.{ "sh", "-c", "cd zig-out/tinycc && ./configure --with-pic" });
+        const configure_step = b.addSystemCommand(&.{ "sh", "-c", "cd build/tinycc && ./configure --with-pic" });
         configure_step.step.dependOn(&copy_step.step);
         tinycc_build_step.dependOn(&configure_step.step);
 
-        const make_step = b.addSystemCommand(&.{ "make", "-C", "zig-out/tinycc" });
+        const make_step = b.addSystemCommand(&.{ "make", "-C", "build/tinycc" });
         make_step.step.dependOn(&configure_step.step);
         tinycc_build_step.dependOn(&make_step.step);
     }
@@ -142,9 +166,9 @@ fn buildTinyCC(b: *std.Build) *std.Build.Step {
 fn buildCExtFixture(b: *std.Build) *std.Build.Step {
     const fixture_build_step = b.step("cext-fixture", "Build C extension fixture for tests");
 
-    const fixture_so_path = "zig-out/cext/fixture.so";
+    const fixture_so_path = cext_build_root ++ "/fixture.so";
 
-    const mkdir_step = b.addSystemCommand(&.{ "mkdir", "-p", "zig-out/cext" });
+    const mkdir_step = b.addSystemCommand(&.{ "mkdir", "-p", cext_build_root });
     fixture_build_step.dependOn(&mkdir_step.step);
 
     const compile_step = b.addSystemCommand(&.{ "gcc", "-shared", "-fPIC", "-I", "include/cora", "test/support/cext_fixture.c", "-o", fixture_so_path });
@@ -280,6 +304,8 @@ fn appendRubyHashStringKey(out: *std.ArrayList(u8), b: *std.Build, key: []const 
 }
 
 pub fn build(b: *std.Build) void {
+    b.resolveInstallPrefix(runtime_prefix, .{});
+
     const target = b.standardTargetOptions(.{});
     const optimize = optimizeOptionDefaultReleaseFast(b);
     const test_verbose = b.option(bool, "test-verbose", "Print each test name") orelse false;
@@ -287,7 +313,7 @@ pub fn build(b: *std.Build) void {
     const test_jobs = b.option(i32, "test-jobs", "Number of test worker processes (<=0 auto)") orelse 0;
     const test_timeout = b.option(u32, "test-timeout", "Per-test-file wall-clock timeout in seconds (0 = disabled)") orelse 0;
     const coverage = b.option(bool, "coverage", "Run tests under kcov and generate an HTML coverage report") orelse false;
-    const coverage_output_dir = b.option([]const u8, "coverage-output-dir", "Directory for kcov output") orelse "zig-out/kcov";
+    const coverage_output_dir = b.option([]const u8, "coverage-output-dir", "Directory for kcov output") orelse "build/kcov";
     const tcc_jit = b.option(bool, "tcc-jit", "Build TinyCC-backed proof-of-concept JIT support") orelse false;
     const submodule_update = b.option(bool, "submodule-update", "Run `git submodule update --init` before building") orelse true;
 
@@ -331,15 +357,15 @@ pub fn build(b: *std.Build) void {
         exe.step.dependOn(tinycc_build_step);
     }
 
-    exe.root_module.addObjectFile(b.path("zig-out/prism/build/libprism.a"));
-    exe.root_module.addIncludePath(b.path("zig-out/prism/include"));
-    exe.root_module.addObjectFile(b.path("zig-out/onigmo/.libs/libonigmo.a"));
-    exe.root_module.addIncludePath(b.path("zig-out/onigmo/"));
+    exe.root_module.addObjectFile(b.path(prism_build_root ++ "/build/libprism.a"));
+    exe.root_module.addIncludePath(b.path(prism_build_root ++ "/include"));
+    exe.root_module.addObjectFile(b.path(onigmo_build_root ++ "/.libs/libonigmo.a"));
+    exe.root_module.addIncludePath(b.path(onigmo_build_root ++ "/"));
     exe.root_module.addCSourceFile(.{ .file = b.path("ext/dtoa.c") });
     if (tcc_jit) {
-        exe.root_module.addObjectFile(b.path("zig-out/tinycc/libtcc.a"));
-        exe.root_module.addIncludePath(b.path("zig-out/tinycc"));
-        exe.root_module.addIncludePath(b.path("zig-out/tinycc"));
+        exe.root_module.addObjectFile(b.path(tinycc_build_root ++ "/libtcc.a"));
+        exe.root_module.addIncludePath(b.path(tinycc_build_root));
+        exe.root_module.addIncludePath(b.path(tinycc_build_root));
     }
 
     exe.root_module.link_libc = true;
@@ -370,17 +396,28 @@ pub fn build(b: *std.Build) void {
     const install_exe = b.addInstallArtifact(exe, .{});
     b.getInstallStep().dependOn(&install_exe.step);
 
-    // Generate lib/stdlib/rbconfig/sizeof.rb at build time
+    for (runtime_ext_dirs) |dir_name| {
+        const install_ext_dir = b.addInstallDirectory(.{
+            .source_dir = b.path(b.fmt("ext/{s}", .{dir_name})),
+            .install_dir = .prefix,
+            .install_subdir = b.fmt("ext/{s}", .{dir_name}),
+        });
+        b.getInstallStep().dependOn(&install_ext_dir.step);
+    }
+
+    const install_stdlib = b.addInstallDirectory(.{
+        .source_dir = b.path("lib/stdlib"),
+        .install_dir = .prefix,
+        .install_subdir = "lib/stdlib",
+    });
+    b.getInstallStep().dependOn(&install_stdlib.step);
+
+    // Generate build/lib/stdlib/rbconfig/sizeof.rb at build time.
     const sizeof_rb_content = buildSizeofRb(b);
     const sizeof_rb_write = b.addWriteFiles();
     const sizeof_rb_file = sizeof_rb_write.add("rbconfig/sizeof.rb", sizeof_rb_content);
     const install_sizeof_rb = b.addInstallFile(sizeof_rb_file, "lib/stdlib/rbconfig/sizeof.rb");
     b.getInstallStep().dependOn(&install_sizeof_rb.step);
-
-    const update_sizeof_rb = b.addUpdateSourceFiles();
-    update_sizeof_rb.addBytesToSource(sizeof_rb_content, "lib/stdlib/rbconfig/sizeof.rb");
-    const update_sizeof_rb_step = b.step("update-sizeof-rb", "Regenerate lib/stdlib/rbconfig/sizeof.rb");
-    update_sizeof_rb_step.dependOn(&update_sizeof_rb.step);
 
     // Copy bin/gem (polyglot sh+ruby) alongside the cora binary.
     const install_gem = b.addInstallFile(b.path("bin/gem"), "bin/gem");
@@ -388,6 +425,10 @@ pub fn build(b: *std.Build) void {
     const chmod_gem = b.addSystemCommand(&.{ "chmod", "+x", b.getInstallPath(.bin, "gem") });
     chmod_gem.step.dependOn(&install_gem.step);
     b.getInstallStep().dependOn(&chmod_gem.step);
+
+    const install_cext_fixture = b.addInstallFile(b.path(cext_build_root ++ "/fixture.so"), "cext/fixture.so");
+    install_cext_fixture.step.dependOn(cext_fixture_step);
+    b.getInstallStep().dependOn(&install_cext_fixture.step);
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
@@ -429,15 +470,15 @@ pub fn build(b: *std.Build) void {
     if (tcc_jit) {
         test_exe.step.dependOn(tinycc_build_step);
     }
-    test_exe.root_module.addObjectFile(b.path("zig-out/prism/build/libprism.a"));
-    test_exe.root_module.addIncludePath(b.path("zig-out/prism/include"));
-    test_exe.root_module.addObjectFile(b.path("zig-out/onigmo/.libs/libonigmo.a"));
-    test_exe.root_module.addIncludePath(b.path("zig-out/onigmo/"));
+    test_exe.root_module.addObjectFile(b.path(prism_build_root ++ "/build/libprism.a"));
+    test_exe.root_module.addIncludePath(b.path(prism_build_root ++ "/include"));
+    test_exe.root_module.addObjectFile(b.path(onigmo_build_root ++ "/.libs/libonigmo.a"));
+    test_exe.root_module.addIncludePath(b.path(onigmo_build_root ++ "/"));
     test_exe.root_module.addCSourceFile(.{ .file = b.path("ext/dtoa.c") });
     if (tcc_jit) {
-        test_exe.root_module.addObjectFile(b.path("zig-out/tinycc/libtcc.a"));
-        test_exe.root_module.addIncludePath(b.path("zig-out/tinycc"));
-        test_exe.root_module.addIncludePath(b.path("zig-out/tinycc"));
+        test_exe.root_module.addObjectFile(b.path(tinycc_build_root ++ "/libtcc.a"));
+        test_exe.root_module.addIncludePath(b.path(tinycc_build_root));
+        test_exe.root_module.addIncludePath(b.path(tinycc_build_root));
     }
     test_exe.root_module.link_libc = true;
     test_exe.rdynamic = true;
@@ -454,12 +495,12 @@ pub fn build(b: *std.Build) void {
     cora_mod.addImport("bdwgc", bdwgc.module("bdwgc"));
     cora_mod.addImport("build_options", build_options_mod);
     cora_mod.addImport("zio", zio.module("zio"));
-    cora_mod.addIncludePath(b.path("zig-out/prism/include"));
-    cora_mod.addIncludePath(b.path("zig-out/onigmo/"));
-    cora_mod.addObjectFile(b.path("zig-out/onigmo/.libs/libonigmo.a"));
+    cora_mod.addIncludePath(b.path(prism_build_root ++ "/include"));
+    cora_mod.addIncludePath(b.path(onigmo_build_root ++ "/"));
+    cora_mod.addObjectFile(b.path(onigmo_build_root ++ "/.libs/libonigmo.a"));
     linkOpenSSL(cora_mod);
     if (tcc_jit) {
-        cora_mod.addIncludePath(b.path("zig-out/tinycc"));
+        cora_mod.addIncludePath(b.path(tinycc_build_root));
     }
     test_exe.root_module.addImport("cora", cora_mod);
 
@@ -478,7 +519,7 @@ pub fn build(b: *std.Build) void {
             const run = b.addSystemCommand(&.{
                 "kcov",
                 "--clean",
-                "--exclude-pattern=/nix/store,.zig-cache,zig-out/ext,zig-out/prism,zig-out/onigmo",
+                "--exclude-pattern=/nix/store,.zig-cache,build/ext,build/prism,build/onigmo,build/tinycc",
                 b.fmt("--include-pattern={s}", .{include_pattern}),
                 coverage_output_dir,
             });
@@ -502,7 +543,7 @@ pub fn build(b: *std.Build) void {
     const watch_cmd = b.addSystemCommand(&.{
         "sh",
         "-c",
-        "find . \\( -path ./zig-out -o -path ./ext \\) -prune -o \\( -name '*.zig' -o -name '*.rb' \\) -print | entr -c -s 'zig build test'",
+        "find . \\( -path ./build -o -path ./ext \\) -prune -o \\( -name '*.zig' -o -name '*.rb' \\) -print | entr -c -s 'zig build test'",
     });
     const watch_step = b.step("watch", "Watch source files and rebuild/test on changes (requires entr)");
     watch_step.dependOn(&watch_cmd.step);

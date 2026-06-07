@@ -64,6 +64,30 @@ fn appendLoadPathIfExists(virtual_machine: *vm.VM, io: std.Io, candidate: []cons
     try virtual_machine.appendLoadPath(path_buffer[0..abs_len]);
 }
 
+fn appendLoadPathsRelativeToRoot(
+    allocator: std.mem.Allocator,
+    virtual_machine: *vm.VM,
+    io: std.Io,
+    root_dir: []const u8,
+) !usize {
+    var appended: usize = 0;
+    for (load_path.repo_load_paths) |suffix| {
+        const runtime_path = try std.fs.path.join(allocator, &.{ root_dir, suffix });
+        defer allocator.free(runtime_path);
+
+        var path_buffer: [4096]u8 = undefined;
+        const abs_len = if (std.fs.path.isAbsolute(runtime_path))
+            std.Io.Dir.realPathFileAbsolute(io, runtime_path, &path_buffer) catch 0
+        else
+            std.Io.Dir.cwd().realPathFile(io, runtime_path, &path_buffer) catch 0;
+        if (abs_len == 0) continue;
+
+        try virtual_machine.appendLoadPath(path_buffer[0..abs_len]);
+        appended += 1;
+    }
+    return appended;
+}
+
 fn configureLoadPath(
     allocator: std.mem.Allocator,
     virtual_machine: *vm.VM,
@@ -80,10 +104,14 @@ fn configureLoadPath(
         const exe_abs = exe_path_buffer[0..exe_abs_len];
         try virtual_machine.setRubyExecutablePath(exe_abs);
         if (std.fs.path.dirname(exe_abs)) |exe_dir| {
-            for (load_path.repo_load_paths) |suffix| {
-                const repo_path = try std.fs.path.join(allocator, &.{ exe_dir, "..", "..", suffix });
-                defer allocator.free(repo_path);
-                try appendLoadPathIfExists(virtual_machine, io, repo_path);
+            const runtime_root = try std.fs.path.join(allocator, &.{ exe_dir, ".." });
+            defer allocator.free(runtime_root);
+
+            const runtime_count = try appendLoadPathsRelativeToRoot(allocator, virtual_machine, io, runtime_root);
+            if (runtime_count == 0) {
+                const legacy_root = try std.fs.path.join(allocator, &.{ exe_dir, "..", ".." });
+                defer allocator.free(legacy_root);
+                _ = try appendLoadPathsRelativeToRoot(allocator, virtual_machine, io, legacy_root);
             }
         }
     } else {

@@ -9,7 +9,7 @@ test "require tmpdir and get Dir.tmpdir" {
 
     const result = try std.process.run(allocator, threaded.io(), .{
         .argv = &.{
-            "zig-out/bin/cora",
+            "build/bin/cora",
             "-e",
             \\require 'tmpdir'
             \\dir = Dir.tmpdir
@@ -36,7 +36,7 @@ test "Dir.mktmpdir creates and removes a directory" {
 
     const result = try std.process.run(allocator, threaded.io(), .{
         .argv = &.{
-            "zig-out/bin/cora",
+            "build/bin/cora",
             "-e",
             \\require 'tmpdir'
             \\path = nil

@@ -8,7 +8,7 @@ test "require open3" {
     defer threaded.deinit();
 
     const result = try std.process.run(allocator, threaded.io(), .{
-        .argv = &.{ "zig-out/bin/cora", "-e", "require \"open3\"; puts Open3::VERSION" },
+        .argv = &.{ "build/bin/cora", "-e", "require \"open3\"; puts Open3::VERSION" },
         .stdout_limit = .limited(1024 * 1024),
         .stderr_limit = .limited(1024 * 1024),
     });
@@ -27,7 +27,7 @@ test "Open3.popen3" {
     defer threaded.deinit();
 
     const result = try std.process.run(allocator, threaded.io(), .{
-        .argv = &.{ "zig-out/bin/cora", "-e", "require \"open3\"; stdin, stdout, stderr, wait_thr = Open3.popen3(\"echo\", \"hello\"); puts stdout.read.strip; stdin.close; stdout.close; stderr.close" },
+        .argv = &.{ "build/bin/cora", "-e", "require \"open3\"; stdin, stdout, stderr, wait_thr = Open3.popen3(\"echo\", \"hello\"); puts stdout.read.strip; stdin.close; stdout.close; stderr.close" },
         .stdout_limit = .limited(1024 * 1024),
         .stderr_limit = .limited(1024 * 1024),
     });

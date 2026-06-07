@@ -1,10 +1,8 @@
+build
 .zig-cache
-zig-out
 zig-pkg
-.spec-port-loop/
 spec/tmp
 spec/.total-specs
-lib/stdlib/rbconfig/sizeof.rb
 
 # ignore ext/prism and ext/logger so my editor's fuzzy finder doesn't search in them
 ext/prism

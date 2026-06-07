@@ -50,20 +50,8 @@ fn evalCodeWithLogger(code: []const u8, stdout_buf: []u8, stderr_buf: []u8) test
         return .{ .value = Value.nil(), .stdout = "", .stderr = "", .err = err };
     };
 
-    {
-        var path_buffer: [4096]u8 = undefined;
-        const abs_len = std.Io.Dir.cwd().realPathFile(threaded.io(), "lib/stdlib", &path_buffer) catch 0;
-        if (abs_len != 0) {
-            vm.appendLoadPath(path_buffer[0..abs_len]) catch {};
-        }
-    }
-    {
-        var path_buffer: [4096]u8 = undefined;
-        const abs_len = std.Io.Dir.cwd().realPathFile(threaded.io(), "ext/logger/lib", &path_buffer) catch 0;
-        if (abs_len != 0) {
-            vm.appendLoadPath(path_buffer[0..abs_len]) catch {};
-        }
-    }
+    test_helper.appendRuntimeLoadPath(&vm, threaded.io(), "lib/stdlib") catch {};
+    test_helper.appendRuntimeLoadPath(&vm, threaded.io(), "ext/logger/lib") catch {};
 
     var stdout_writer = test_helper.TestWriter.init(stdout_buf);
     vm.stdout = &stdout_writer.interface;

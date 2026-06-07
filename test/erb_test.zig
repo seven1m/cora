@@ -9,7 +9,7 @@ test "require erb and render a basic template" {
 
     const result = try std.process.run(allocator, threaded.io(), .{
         .argv = &.{
-            "zig-out/bin/cora",
+            "build/bin/cora",
             "-e",
             \\require "erb"
             \\template = ERB.new("sum=<%= 1 + 2 %>")

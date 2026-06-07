@@ -1,7 +1,7 @@
 # → zig build -Doptimize=ReleaseFast -Dtcc-jit=true
-# → time zig-out/bin/cora examples/fib.rb
+# → time build/bin/cora examples/fib.rb
 # 832040
-# zig-out/bin/cora examples/fib.rb  0.06s user 0.00s system 99% cpu 0.069 total
+# build/bin/cora examples/fib.rb  0.06s user 0.00s system 99% cpu 0.069 total
 
 def fib(n)
   if n == 0
