@@ -412,6 +412,13 @@ pub fn build(b: *std.Build) void {
     });
     b.getInstallStep().dependOn(&install_stdlib.step);
 
+    const install_headers = b.addInstallDirectory(.{
+        .source_dir = b.path("include/cora"),
+        .install_dir = .prefix,
+        .install_subdir = "include/cora",
+    });
+    b.getInstallStep().dependOn(&install_headers.step);
+
     // Generate build/lib/stdlib/rbconfig/sizeof.rb at build time.
     const sizeof_rb_content = buildSizeofRb(b);
     const sizeof_rb_write = b.addWriteFiles();
