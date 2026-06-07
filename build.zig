@@ -2,6 +2,10 @@ const std = @import("std");
 
 const optimize_state_path = "zig-out/build-mode";
 
+comptime {
+    @setEvalBranchQuota(20000);
+}
+
 fn pathExists(b: *std.Build, sub_path: []const u8) bool {
     const io = b.graph.io;
     const cwd: std.Io.Dir = .cwd();
@@ -168,6 +172,113 @@ fn optimizeOptionDefaultReleaseFast(b: *std.Build) std.builtin.OptimizeMode {
     return .ReleaseFast;
 }
 
+fn buildSizeofRb(b: *std.Build) []const u8 {
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(b.allocator);
+
+    out.appendSlice(b.allocator, "# frozen_string_literal: true\n") catch @panic("OOM building sizeof.rb");
+    out.appendSlice(b.allocator, "# Generated at build time by zig build\n") catch @panic("OOM building sizeof.rb");
+    out.appendSlice(b.allocator, "module RbConfig\n") catch @panic("OOM building sizeof.rb");
+    out.appendSlice(b.allocator, "  SIZEOF = {\n") catch @panic("OOM building sizeof.rb");
+    for (sizeof_entries) |entry| {
+        appendRubyHashStringKey(&out, b, entry.key);
+        out.print(b.allocator, " => {d},\n", .{entry.value}) catch @panic("OOM building sizeof.rb");
+    }
+    out.appendSlice(b.allocator, "  }.freeze\n") catch @panic("OOM building sizeof.rb");
+    out.appendSlice(b.allocator, "  LIMITS = {\n") catch @panic("OOM building sizeof.rb");
+    for (limits_entries) |entry| {
+        appendRubyHashStringKey(&out, b, entry.key);
+        out.print(b.allocator, " => {s},\n", .{entry.value_str}) catch @panic("OOM building sizeof.rb");
+    }
+    out.appendSlice(b.allocator, "  }.freeze\n") catch @panic("OOM building sizeof.rb");
+    out.appendSlice(b.allocator, "end\n") catch @panic("OOM building sizeof.rb");
+
+    return b.dupe(out.items);
+}
+
+const sizeof_entry = struct { key: []const u8, value: usize };
+
+const sizeof_entries = [_]sizeof_entry{
+    .{ .key = "int", .value = @sizeOf(c_int) },
+    .{ .key = "short", .value = @sizeOf(c_short) },
+    .{ .key = "long", .value = @sizeOf(c_long) },
+    .{ .key = "long long", .value = @sizeOf(c_longlong) },
+    .{ .key = "void*", .value = @sizeOf(*anyopaque) },
+    .{ .key = "float", .value = @sizeOf(f32) },
+    .{ .key = "double", .value = @sizeOf(f64) },
+    .{ .key = "size_t", .value = @sizeOf(usize) },
+    .{ .key = "ptrdiff_t", .value = @sizeOf(isize) },
+    .{ .key = "int8_t", .value = @sizeOf(i8) },
+    .{ .key = "uint8_t", .value = @sizeOf(u8) },
+    .{ .key = "int16_t", .value = @sizeOf(i16) },
+    .{ .key = "uint16_t", .value = @sizeOf(u16) },
+    .{ .key = "int32_t", .value = @sizeOf(i32) },
+    .{ .key = "uint32_t", .value = @sizeOf(u32) },
+    .{ .key = "int64_t", .value = @sizeOf(i64) },
+    .{ .key = "uint64_t", .value = @sizeOf(u64) },
+    .{ .key = "intptr_t", .value = @sizeOf(isize) },
+    .{ .key = "uintptr_t", .value = @sizeOf(usize) },
+    .{ .key = "ssize_t", .value = @sizeOf(isize) },
+};
+
+const limits_entry = struct { key: []const u8, value_str: []const u8 };
+
+const fixnum_max = @divTrunc(std.math.maxInt(i64), 2);
+const fixnum_min = @divTrunc(std.math.minInt(i64), 2);
+
+const limits_entries = [_]limits_entry{
+    .{ .key = "FIXNUM_MAX", .value_str = comptimeStr(fixnum_max) },
+    .{ .key = "FIXNUM_MIN", .value_str = comptimeStr(fixnum_min) },
+    .{ .key = "CHAR_BIT", .value_str = comptimeStr(@as(i64, @sizeOf(u8) * 8)) },
+    .{ .key = "INT_MAX", .value_str = comptimeStr(std.math.maxInt(c_int)) },
+    .{ .key = "INT_MIN", .value_str = comptimeStr(std.math.minInt(c_int)) },
+    .{ .key = "UINT_MAX", .value_str = comptimeStr(std.math.maxInt(c_uint)) },
+    .{ .key = "LONG_MAX", .value_str = comptimeStr(std.math.maxInt(c_long)) },
+    .{ .key = "LONG_MIN", .value_str = comptimeStr(std.math.minInt(c_long)) },
+    .{ .key = "ULONG_MAX", .value_str = comptimeStr(std.math.maxInt(c_ulong)) },
+    .{ .key = "SHORT_MAX", .value_str = comptimeStr(std.math.maxInt(c_short)) },
+    .{ .key = "SHORT_MIN", .value_str = comptimeStr(std.math.minInt(c_short)) },
+    .{ .key = "USHORT_MAX", .value_str = comptimeStr(std.math.maxInt(c_ushort)) },
+    .{ .key = "LLONG_MAX", .value_str = comptimeStr(std.math.maxInt(c_longlong)) },
+    .{ .key = "LLONG_MIN", .value_str = comptimeStr(std.math.minInt(c_longlong)) },
+    .{ .key = "ULLONG_MAX", .value_str = comptimeStr(std.math.maxInt(c_ulonglong)) },
+    .{ .key = "SIZE_MAX", .value_str = comptimeStr(std.math.maxInt(usize)) },
+    .{ .key = "PTRDIFF_MAX", .value_str = comptimeStr(std.math.maxInt(isize)) },
+    .{ .key = "PTRDIFF_MIN", .value_str = comptimeStr(std.math.minInt(isize)) },
+    .{ .key = "INT8_MAX", .value_str = comptimeStr(std.math.maxInt(i8)) },
+    .{ .key = "INT8_MIN", .value_str = comptimeStr(std.math.minInt(i8)) },
+    .{ .key = "UINT8_MAX", .value_str = comptimeStr(std.math.maxInt(u8)) },
+    .{ .key = "INT16_MAX", .value_str = comptimeStr(std.math.maxInt(i16)) },
+    .{ .key = "INT16_MIN", .value_str = comptimeStr(std.math.minInt(i16)) },
+    .{ .key = "UINT16_MAX", .value_str = comptimeStr(std.math.maxInt(u16)) },
+    .{ .key = "INT32_MAX", .value_str = comptimeStr(std.math.maxInt(i32)) },
+    .{ .key = "INT32_MIN", .value_str = comptimeStr(std.math.minInt(i32)) },
+    .{ .key = "UINT32_MAX", .value_str = comptimeStr(std.math.maxInt(u32)) },
+    .{ .key = "INT64_MAX", .value_str = comptimeStr(std.math.maxInt(i64)) },
+    .{ .key = "INT64_MIN", .value_str = comptimeStr(std.math.minInt(i64)) },
+    .{ .key = "UINT64_MAX", .value_str = comptimeStr(std.math.maxInt(u64)) },
+    .{ .key = "INTPTR_MAX", .value_str = comptimeStr(std.math.maxInt(isize)) },
+    .{ .key = "INTPTR_MIN", .value_str = comptimeStr(std.math.minInt(isize)) },
+    .{ .key = "UINTPTR_MAX", .value_str = comptimeStr(std.math.maxInt(usize)) },
+};
+
+fn comptimeStr(val: anytype) []const u8 {
+    @setEvalBranchQuota(20000);
+    return std.fmt.comptimePrint("{}", .{val});
+}
+
+fn appendRubyHashStringKey(out: *std.ArrayList(u8), b: *std.Build, key: []const u8) void {
+    out.appendSlice(b.allocator, "    \"") catch @panic("OOM building sizeof.rb");
+    for (key) |c| {
+        switch (c) {
+            '\\' => out.appendSlice(b.allocator, "\\\\") catch @panic("OOM building sizeof.rb"),
+            '"' => out.appendSlice(b.allocator, "\\\"") catch @panic("OOM building sizeof.rb"),
+            else => out.append(b.allocator, c) catch @panic("OOM building sizeof.rb"),
+        }
+    }
+    out.appendSlice(b.allocator, "\"") catch @panic("OOM building sizeof.rb");
+}
+
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = optimizeOptionDefaultReleaseFast(b);
@@ -258,6 +369,18 @@ pub fn build(b: *std.Build) void {
 
     const install_exe = b.addInstallArtifact(exe, .{});
     b.getInstallStep().dependOn(&install_exe.step);
+
+    // Generate lib/stdlib/rbconfig/sizeof.rb at build time
+    const sizeof_rb_content = buildSizeofRb(b);
+    const sizeof_rb_write = b.addWriteFiles();
+    const sizeof_rb_file = sizeof_rb_write.add("rbconfig/sizeof.rb", sizeof_rb_content);
+    const install_sizeof_rb = b.addInstallFile(sizeof_rb_file, "lib/stdlib/rbconfig/sizeof.rb");
+    b.getInstallStep().dependOn(&install_sizeof_rb.step);
+
+    const update_sizeof_rb = b.addUpdateSourceFiles();
+    update_sizeof_rb.addBytesToSource(sizeof_rb_content, "lib/stdlib/rbconfig/sizeof.rb");
+    const update_sizeof_rb_step = b.step("update-sizeof-rb", "Regenerate lib/stdlib/rbconfig/sizeof.rb");
+    update_sizeof_rb_step.dependOn(&update_sizeof_rb.step);
 
     // Copy bin/gem (polyglot sh+ruby) alongside the cora binary.
     const install_gem = b.addInstallFile(b.path("bin/gem"), "bin/gem");

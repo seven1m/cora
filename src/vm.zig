@@ -19,6 +19,7 @@ const warning_builtin = @import("builtins/warning.zig");
 const zio = @import("zio");
 const bdwgc = @import("bdwgc");
 const version = @import("version.zig");
+const rbconfig_data = @import("rbconfig/data.zig");
 
 const Value = value.Value;
 const Object = value.Object;
@@ -187,23 +188,6 @@ fn parseThreadPreemptQuantumOps() u32 {
     const value_slice = std.mem.span(value_z);
     const parsed = std.fmt.parseInt(u32, value_slice, 10) catch return DEFAULT_THREAD_PREEMPT_QUANTUM_OPS;
     return if (parsed == 0) DEFAULT_THREAD_PREEMPT_QUANTUM_OPS else parsed;
-}
-
-fn rbConfigHostOs() []const u8 {
-    return switch (builtin.os.tag) {
-        .linux => "linux",
-        .macos => "darwin",
-        .windows => "mswin",
-        else => @tagName(builtin.os.tag),
-    };
-}
-
-fn rbConfigSharedLibraryExtension() []const u8 {
-    return switch (builtin.os.tag) {
-        .windows => "dll",
-        .macos => "bundle",
-        else => "so",
-    };
 }
 
 pub const VMError = error{
@@ -1585,21 +1569,9 @@ pub const VM = struct {
         const ruby_description_sym = try self.intern("RUBY_DESCRIPTION");
         const marshal_major_version_sym = try self.intern("MAJOR_VERSION");
         const marshal_minor_version_sym = try self.intern("MINOR_VERSION");
-        const rbconfig_sym = try self.intern("RbConfig");
-        const config_sym = try self.intern("CONFIG");
-        const topdir_sym = try self.intern("TOPDIR");
         const rbconfig_ruby_engine = "cora";
         const rbconfig_ruby_version = version.ruby_version;
-        const rbconfig_prefix = "/usr";
-        const rbconfig_libdir = "/usr/lib";
         const ruby_platform = comptime std.fmt.comptimePrint("{s}-{s}", .{ @tagName(builtin.cpu.arch), @tagName(builtin.os.tag) });
-        const rbconfig_rubylibprefix = rbconfig_libdir;
-        const rbconfig_rubylibdir = comptime std.fmt.comptimePrint("{s}/ruby/{s}", .{ rbconfig_rubylibprefix, rbconfig_ruby_version });
-        const rbconfig_archdir = comptime std.fmt.comptimePrint("{s}/{s}", .{ rbconfig_rubylibdir, ruby_platform });
-        const rbconfig_sitelibdir = comptime std.fmt.comptimePrint("{s}/site_ruby/{s}", .{ rbconfig_rubylibprefix, rbconfig_ruby_version });
-        const rbconfig_vendordir = comptime std.fmt.comptimePrint("{s}/vendor_ruby", .{rbconfig_rubylibprefix});
-        const rbconfig_vendorlibdir = comptime std.fmt.comptimePrint("{s}/{s}", .{ rbconfig_vendordir, rbconfig_ruby_version });
-        const rbconfig_mandir = comptime std.fmt.comptimePrint("{s}/share/man", .{rbconfig_prefix});
         const ruby_engine_val = try self.newString(rbconfig_ruby_engine, true);
         const ruby_version_val = try self.newString(rbconfig_ruby_version, true);
         const ruby_platform_val = try self.newString(ruby_platform, true);
@@ -1626,48 +1598,7 @@ pub const VM = struct {
         self.marshal_module.constants.put(marshal_major_version_sym, .{ .value = Value.integer(4) }) catch return error.Fatal;
         self.marshal_module.constants.put(marshal_minor_version_sym, .{ .value = Value.integer(8) }) catch return error.Fatal;
 
-        const rbconfig_val = try self.newModule(rbconfig_sym);
-        const rbconfig_module = rbconfig_val.toModuleObject();
-        const rbconfig_config_obj = try self.createHash();
-        const rbconfig_config_val = Value.fromObject(&rbconfig_config_obj.object);
-        const rbconfig_config = rbconfig_config_val.toHashObject();
-        try self.hashSetEntry(rbconfig_config, try self.newString("MAJOR", false), try self.newString("4", false));
-        try self.hashSetEntry(rbconfig_config, try self.newString("MINOR", false), try self.newString("0", false));
-        try self.hashSetEntry(rbconfig_config, try self.newString("TEENY", false), try self.newString("0", false));
-        try self.hashSetEntry(rbconfig_config, try self.newString("PATCHLEVEL", false), try self.newString("0", false));
-        try self.hashSetEntry(rbconfig_config, try self.newString("host_cpu", false), try self.newString(@tagName(builtin.cpu.arch), false));
-        try self.hashSetEntry(rbconfig_config, try self.newString("host_os", false), try self.newString(rbConfigHostOs(), false));
-        try self.hashSetEntry(rbconfig_config, try self.newString("host_vendor", false), try self.newString("unknown", false));
-        try self.hashSetEntry(rbconfig_config, try self.newString("arch", false), try self.newString(ruby_platform, false));
-        try self.hashSetEntry(rbconfig_config, try self.newString("DLEXT", false), try self.newString(rbConfigSharedLibraryExtension(), false));
-        try self.hashSetEntry(rbconfig_config, try self.newString("SOEXT", false), try self.newString(rbConfigSharedLibraryExtension(), false));
-        try self.hashSetEntry(rbconfig_config, try self.newString("ENABLE_SHARED", false), try self.newString("no", false));
-        try self.hashSetEntry(rbconfig_config, try self.newString("LIBRUBY", false), try self.newString("libcora-static.a", false));
-        try self.hashSetEntry(rbconfig_config, try self.newString("LIBRUBY_SO", false), try self.newString("libcora.so", false));
-        try self.hashSetEntry(rbconfig_config, try self.newString("LIBPATHENV", false), try self.newString("LD_LIBRARY_PATH", false));
-        try self.hashSetEntry(rbconfig_config, try self.newString("libdirname", false), try self.newString("libdir", false));
-        try self.hashSetEntry(rbconfig_config, try self.newString("libdir", false), try self.newString(rbconfig_libdir, false));
-        try self.hashSetEntry(rbconfig_config, try self.newString("bindir", false), try self.newString("/usr/bin", false));
-        try self.hashSetEntry(rbconfig_config, try self.newString("prefix", false), try self.newString(rbconfig_prefix, false));
-        try self.hashSetEntry(rbconfig_config, try self.newString("platform", false), try self.newString(ruby_platform, false));
-        try self.hashSetEntry(rbconfig_config, try self.newString("target_os", false), try self.newString(rbConfigHostOs(), false));
-        try self.hashSetEntry(rbconfig_config, try self.newString("ruby_version", false), try self.newString(rbconfig_ruby_version, false));
-        try self.hashSetEntry(rbconfig_config, try self.newString("ruby_install_name", false), try self.newString(rbconfig_ruby_engine, false));
-        try self.hashSetEntry(rbconfig_config, try self.newString("rubylibprefix", false), try self.newString(rbconfig_rubylibprefix, false));
-        try self.hashSetEntry(rbconfig_config, try self.newString("rubylibdir", false), try self.newString(rbconfig_rubylibdir, false));
-        try self.hashSetEntry(rbconfig_config, try self.newString("archdir", false), try self.newString(rbconfig_archdir, false));
-        try self.hashSetEntry(rbconfig_config, try self.newString("sitelibdir", false), try self.newString(rbconfig_sitelibdir, false));
-        try self.hashSetEntry(rbconfig_config, try self.newString("vendordir", false), try self.newString(rbconfig_vendordir, false));
-        try self.hashSetEntry(rbconfig_config, try self.newString("vendorlibdir", false), try self.newString(rbconfig_vendorlibdir, false));
-        try self.hashSetEntry(rbconfig_config, try self.newString("sysconfdir", false), try self.newString("/etc", false));
-        try self.hashSetEntry(rbconfig_config, try self.newString("mandir", false), try self.newString(rbconfig_mandir, false));
-        try self.hashSetEntry(rbconfig_config, try self.newString("EXEEXT", false), try self.newString("", false));
-        try self.hashSetEntry(rbconfig_config, try self.newString("EXECUTABLE_EXTS", false), try self.newString("", false));
-        try self.hashSetEntry(rbconfig_config, try self.newString("AR", false), try self.newString("ar", false));
-        try self.hashSetEntry(rbconfig_config, try self.newString("STRIP", false), try self.newString("strip", false));
-        rbconfig_module.constants.put(config_sym, .{ .value = rbconfig_config_val }) catch return error.Fatal;
-        rbconfig_module.constants.put(topdir_sym, .{ .value = Value.nil() }) catch return error.Fatal;
-        self.object_class.module.constants.put(rbconfig_sym, .{ .value = rbconfig_val }) catch return error.Fatal;
+        _ = try rbconfig_data.buildRbConfigModule(self);
         try self.setArgv(&[_][]const u8{});
 
         const stdin_sym = try self.intern("STDIN");
