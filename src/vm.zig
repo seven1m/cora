@@ -11347,6 +11347,10 @@ pub const VM = struct {
     }
 
     pub fn loadFile(self: *VM, absolute_path: []const u8) VMError!void {
+        return self.loadFileWrapped(absolute_path, false);
+    }
+
+    pub fn loadFileWrapped(self: *VM, absolute_path: []const u8, wrap: bool) VMError!void {
         if (std.mem.endsWith(u8, absolute_path, ".so") or std.mem.endsWith(u8, absolute_path, ".bundle")) {
             return self.loadCExtFile(absolute_path);
         }
@@ -11381,7 +11385,15 @@ pub const VM = struct {
         self.current_loading_file = main_chunk.source_file orelse absolute_path;
         defer self.current_loading_file = prev_file;
 
-        try self.executeChunk(main_chunk);
+        if (!wrap) {
+            try self.executeChunk(main_chunk);
+            return;
+        }
+
+        const anonymous_sym = try self.intern("<anonymous>");
+        const wrapper_val = try self.newModule(anonymous_sym);
+        const wrapper_scope = try self.createLexicalScope(wrapper_val, self.current_lexical_scope);
+        _ = try self.executeChunkInContext(main_chunk, wrapper_val, null, wrapper_scope, .{});
     }
 
     fn loadCExtFile(self: *VM, absolute_path: []const u8) VMError!void {

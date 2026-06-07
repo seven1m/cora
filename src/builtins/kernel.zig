@@ -895,8 +895,9 @@ pub fn builtinKernelRequireRelative(vm: *VM, _: Value, args: []Value, _: ?Block)
 }
 
 pub fn builtinKernelLoad(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 1);
+    try vm.requireArgCountRange(args, 1, 2);
     const filename = try vm.coerceToPath(args[0], "no implicit conversion into String");
+    const wrap = args.len >= 2 and args[1].isTruthy();
 
     var absolute_path: ?[]const u8 = null;
 
@@ -934,7 +935,7 @@ pub fn builtinKernelLoad(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
     }
 
     defer vm.allocator.free(absolute_path.?);
-    try vm.loadFile(absolute_path.?);
+    try vm.loadFileWrapped(absolute_path.?, wrap);
 
     return Value.boolean(true);
 }
