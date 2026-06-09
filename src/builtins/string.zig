@@ -3583,26 +3583,17 @@ fn matchStringBoundary(
 ) VMError!StringBoundaryMatch {
     const boundary_val = try arg.coerceToStringValue(vm, "no implicit conversion into String");
     const boundary_obj = boundary_val.toStringObject();
+    if (enc.negotiate(receiver_encoding, receiver_bytes, boundary_obj.encoding, boundary_obj.str) == null) {
+        return vm.raiseEncodingCompatibilityError(receiver_encoding, boundary_obj.encoding);
+    }
+
     return switch (kind) {
         .prefix => blk: {
             if (boundary_obj.str.len > receiver_bytes.len) {
                 break :blk .{ .matched = false, .start = 0, .end = 0 };
             }
-            const prefix_bytes = receiver_bytes[0..boundary_obj.str.len];
-            if (receiver_encoding == .ascii_8bit and boundary_obj.encoding.isAsciiCompatible()) {
-                if (!std.mem.startsWith(u8, receiver_bytes, boundary_obj.str)) {
-                    break :blk .{ .matched = false, .start = 0, .end = 0 };
-                }
-                if (enc.negotiate(receiver_encoding, prefix_bytes, boundary_obj.encoding, boundary_obj.str) == null) {
-                    return vm.raiseEncodingCompatibilityError(receiver_encoding, boundary_obj.encoding);
-                }
-            } else {
-                if (enc.negotiate(receiver_encoding, prefix_bytes, boundary_obj.encoding, boundary_obj.str) == null) {
-                    return vm.raiseEncodingCompatibilityError(receiver_encoding, boundary_obj.encoding);
-                }
-                if (!std.mem.startsWith(u8, receiver_bytes, boundary_obj.str)) {
-                    break :blk .{ .matched = false, .start = 0, .end = 0 };
-                }
+            if (!std.mem.startsWith(u8, receiver_bytes, boundary_obj.str)) {
+                break :blk .{ .matched = false, .start = 0, .end = 0 };
             }
             break :blk .{
                 .matched = receiver_encoding.isCharBoundary(receiver_bytes, boundary_obj.str.len),
@@ -3615,9 +3606,6 @@ fn matchStringBoundary(
                 break :blk .{ .matched = false, .start = 0, .end = 0 };
             }
             const start = receiver_bytes.len - boundary_obj.str.len;
-            if (enc.negotiate(receiver_encoding, receiver_bytes[start..], boundary_obj.encoding, boundary_obj.str) == null) {
-                return vm.raiseEncodingCompatibilityError(receiver_encoding, boundary_obj.encoding);
-            }
             if (!std.mem.endsWith(u8, receiver_bytes, boundary_obj.str)) {
                 break :blk .{ .matched = false, .start = 0, .end = 0 };
             }

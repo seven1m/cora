@@ -375,6 +375,17 @@ pub fn negotiate(enc1: Encoding, str1: []const u8, enc2: Encoding, str2: []const
         return enc1;
     }
 
+    // ASCII-8BIT with non-ASCII content is compatible with other
+    // ASCII-compatible encodings when the other side is ASCII-only.
+    // The result is ASCII-8BIT since the bytes cannot be assumed valid
+    // in the other encoding.
+    if (enc1_is_binary and enc2.isAsciiCompatible() and isAsciiOnly(str2)) {
+        return enc1;
+    }
+    if (enc2_is_binary and enc1.isAsciiCompatible() and isAsciiOnly(str1)) {
+        return enc2;
+    }
+
     // US-ASCII is compatible with any ASCII-compatible encoding because its
     // contents are necessarily ASCII-only.
     const enc1_is_ascii = (enc1 == .us_ascii);

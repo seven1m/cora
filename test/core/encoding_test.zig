@@ -330,3 +330,88 @@ test "String#b preserves content" {
     try std.testing.expect(result.isString());
     try std.testing.expectEqualSlices(u8, "hello", result.toStringObject().str);
 }
+
+test "ASCII-8BIT(non-ASCII) compatible with UTF-8(ASCII-only) via negotiate" {
+    _ = try evalCode("\"\\x80\".force_encoding('ASCII-8BIT').include?('#')");
+    _ = try evalCode("\"\\x80\".force_encoding('ASCII-8BIT').start_with?('#')");
+    _ = try evalCode("\"\\x80\".force_encoding('ASCII-8BIT').end_with?('#')");
+    _ = try evalCode("\"\\x80\".force_encoding('ASCII-8BIT').index('#')");
+    _ = try evalCode("\"\\x80\".force_encoding('ASCII-8BIT').rindex('#')");
+    _ = try evalCode("\"\\x80\".force_encoding('ASCII-8BIT').delete_prefix('#')");
+    _ = try evalCode("\"\\x80\".force_encoding('ASCII-8BIT').delete_suffix('#')");
+}
+
+test "ASCII-8BIT(non-ASCII) incompatible with UTF-8(non-ASCII) via negotiate" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+
+    {
+        const result = evalCodeWithOutput(
+            "\"\\x80\".force_encoding('ASCII-8BIT').include?(\"\\xC3\\xA9\")",
+            &stdout_buf,
+            &stderr_buf,
+        );
+        try std.testing.expectEqual(error.UnhandledException, result.err.?);
+        try std.testing.expect(std.mem.indexOf(u8, result.stderr, "CompatibilityError") != null);
+    }
+    {
+        const result = evalCodeWithOutput(
+            "\"\\x80\".force_encoding('ASCII-8BIT').start_with?(\"\\xC3\\xA9\")",
+            &stdout_buf,
+            &stderr_buf,
+        );
+        try std.testing.expectEqual(error.UnhandledException, result.err.?);
+        try std.testing.expect(std.mem.indexOf(u8, result.stderr, "CompatibilityError") != null);
+    }
+    {
+        const result = evalCodeWithOutput(
+            "\"\\x80\".force_encoding('ASCII-8BIT').end_with?(\"\\xC3\\xA9\")",
+            &stdout_buf,
+            &stderr_buf,
+        );
+        try std.testing.expectEqual(error.UnhandledException, result.err.?);
+        try std.testing.expect(std.mem.indexOf(u8, result.stderr, "CompatibilityError") != null);
+    }
+    {
+        const result = evalCodeWithOutput(
+            "\"\\x80\".force_encoding('ASCII-8BIT').index(\"\\xC3\\xA9\")",
+            &stdout_buf,
+            &stderr_buf,
+        );
+        try std.testing.expectEqual(error.UnhandledException, result.err.?);
+        try std.testing.expect(std.mem.indexOf(u8, result.stderr, "CompatibilityError") != null);
+    }
+}
+
+test "ASCII-8BIT encoding compatibility for concat" {
+    // ASCII-8BIT(non-ASCII) + UTF-8(ASCII-only) should be ASCII-8BIT.
+    const result = try evalCode(
+        "(\"\\x80\".force_encoding('ASCII-8BIT') + '#').encoding.name",
+    );
+    try std.testing.expectEqualSlices(u8, "ASCII-8BIT", result.toStringObject().str);
+
+    // ASCII-8BIT(non-ASCII) + UTF-8(non-ASCII) should raise.
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+    const err_result = evalCodeWithOutput(
+        "\"\\x80\".force_encoding('ASCII-8BIT') + \"\\xC3\\xA9\"",
+        &stdout_buf,
+        &stderr_buf,
+    );
+    try std.testing.expectEqual(error.UnhandledException, err_result.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, err_result.stderr, "CompatibilityError") != null);
+}
+
+test "ASCII-8BIT encoding compatibility raises before length check" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+
+    // start_with? should raise even when needle is longer than receiver.
+    const result = evalCodeWithOutput(
+        "\"\\x80\".force_encoding('ASCII-8BIT').start_with?(\"\\xC3\\xA9\\xC3\\xA9\")",
+        &stdout_buf,
+        &stderr_buf,
+    );
+    try std.testing.expectEqual(error.UnhandledException, result.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, "CompatibilityError") != null);
+}
