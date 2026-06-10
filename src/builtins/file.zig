@@ -617,6 +617,9 @@ pub fn register(vm: *VM) !void {
     const size_q_sym_file = try vm.intern("size?");
     try file_singleton.module.methods.put(size_q_sym_file, value.MethodEntry.builtin(&builtinFileSizeQ, .{ .exact = 1 }));
 
+    const zero_q_sym_file = try vm.intern("zero?");
+    try file_singleton.module.methods.put(zero_q_sym_file, value.MethodEntry.builtin(&builtinFileZeroQ, .{ .exact = 1 }));
+
     const mtime_sym_file = try vm.intern("mtime");
     try file_singleton.module.methods.put(mtime_sym_file, value.MethodEntry.builtin(&builtinFileMtime, .{ .exact = 1 }));
     try vm.file_class.module.methods.put(mtime_sym_file, value.MethodEntry.builtin(&builtinFileInstanceMtime, .{ .exact = 0 }));
@@ -1636,6 +1639,12 @@ pub fn builtinFileSize(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
 pub fn builtinFileSizeQ(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     return statSizeForValue(vm, args[0], true);
+}
+
+pub fn builtinFileZeroQ(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const size_value = try statSizeForValue(vm, args[0], false);
+    return Value.boolean(size_value.isInteger() and size_value.toInteger() == 0);
 }
 
 pub fn builtinIoStat(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
