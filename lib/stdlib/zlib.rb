@@ -130,6 +130,7 @@ module Zlib
       @io = io
       data = io.read
       @data = Zlib.__inflate(String(data || ""), GZIP)
+      @data_len = @data.bytesize
       @position = 0
       @closed = false
     end
@@ -138,14 +139,14 @@ module Zlib
       ensure_open
 
       chunk = if length.nil?
-        slice = @data[@position..] || +""
-        @position = @data.size
+        slice = @data.byteslice(@position, @data_len - @position) || +""
+        @position = @data_len
         slice
       else
         raise ArgumentError, "negative length #{length} given" if length < 0
         return nil if eof?
 
-        slice = @data[@position, length] || +""
+        slice = @data.byteslice(@position, length) || +""
         @position += slice.size
         slice
       end
@@ -158,7 +159,7 @@ module Zlib
     end
 
     def eof?
-      @position >= @data.size
+      @position >= @data_len
     end
 
     def pos
@@ -173,10 +174,10 @@ module Zlib
       new_pos = case whence
       when IO::SEEK_SET then offset
       when IO::SEEK_CUR then @position + offset
-      when IO::SEEK_END then @data.size + offset
+      when IO::SEEK_END then @data_len + offset
       else raise ArgumentError, "invalid whence value: #{whence}"
       end
-      @position = [[new_pos, 0].max, @data.size].min
+      @position = [[new_pos, 0].max, @data_len].min
       0
     end
 
