@@ -12,6 +12,7 @@ const IoObject = value.IoObject;
 
 extern "c" fn clock_gettime(clk_id: std.posix.CLOCK, tp: *std.posix.timespec) c_int;
 extern "c" fn execve(path: [*:0]const u8, argv: [*:null]const ?[*:0]const u8, envp: [*:null]const ?[*:0]const u8) c_int;
+extern "c" fn dup(oldfd: c_int) c_int;
 
 const null_device_path = if (builtin.os.tag == .windows) "NUL" else "/dev/null";
 
@@ -49,6 +50,9 @@ pub fn register(vm: *VM) !void {
 
     const initialize_sym = try vm.intern("initialize");
     try vm.io_class.module.methods.put(initialize_sym, value.MethodEntry.builtinWithVisibility(&builtinIoInitialize, .{ .variadic = 1 }, .private));
+
+    const initialize_copy_sym = try vm.intern("initialize_copy");
+    try vm.io_class.module.methods.put(initialize_copy_sym, value.MethodEntry.builtinWithVisibility(&builtinIoInitializeCopy, .{ .exact = 1 }, .private));
 
     const to_io_sym = try vm.intern("to_io");
     try vm.io_class.module.methods.put(to_io_sym, value.MethodEntry.builtin(&builtinIoToIo, .{ .exact = 0 }));
@@ -1199,6 +1203,34 @@ pub fn builtinIoInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     }
 
     return Value.nil();
+}
+
+fn builtinIoInitializeCopy(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+
+    const source = try requireIoReceiver(vm, args[0]);
+    try ensureIoOpen(vm, source);
+
+    const io = try requireIoReceiver(vm, receiver);
+    const duplicated_fd = dup(@intCast(source.fd));
+    if (duplicated_fd < 0) {
+        return vm.raiseErrnoFmt(std.posix.errno(-1), "dup failed", .{});
+    }
+
+    io.fd = duplicated_fd;
+    io.owns_fd = true;
+    io.closed = false;
+    io.readable = source.readable;
+    io.writable = source.writable;
+    io.append = source.append;
+    io.path = source.path;
+    io.path_encoding = source.path_encoding;
+    io.lineno = source.lineno;
+    io.sync = source.sync;
+    io.read_buf = null;
+    io.read_buf_offset = 0;
+    io.read_buf_avail = 0;
+    return receiver;
 }
 
 fn builtinIoAutocloseQ(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
