@@ -751,7 +751,10 @@ pub fn builtinIoCopyStream(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
         // IO-like source: call read in a loop until nil/empty/EOFError
         while (true) {
             if (max_len) |limit| if (total >= limit) break;
-            const chunk_size = if (max_len) |limit| @min(@as(i64, 8192), limit - total) else @as(i64, 8192);
+            const chunk_size = if (max_len) |limit|
+                limit - total
+            else
+                @as(i64, 8192);
             var len_arg = Value.integer(chunk_size);
             const chunk = vm.callMethodByName(src_arg, "read", @as([]Value, (&len_arg)[0..1]), null) catch |err| {
                 if (err == error.Unwind) {

@@ -453,6 +453,43 @@ test "IO.copy_stream copies bytes between open files" {
     try std.testing.expectEqualSlices(u8, "hello", result.toStringObject().str);
 }
 
+test "IO.copy_stream uses single read for limited io-like source" {
+    var dst_buf: [128]u8 = undefined;
+    const dst = try uniquePath(&dst_buf);
+
+    const source = try std.fmt.allocPrint(
+        std.testing.allocator,
+        \\class CopyStreamSource
+        \\  attr_reader :calls
+        \\  def initialize(data)
+        \\    @data = data
+        \\    @pos = 0
+        \\    @calls = 0
+        \\  end
+        \\
+        \\  def read(len)
+        \\    @calls += 1
+        \\    return nil if @pos >= @data.bytesize
+        \\    chunk = @data[@pos, len]
+        \\    @pos += chunk.bytesize
+        \\    chunk
+        \\  end
+        \\end
+        \\
+        \\src = CopyStreamSource.new("hello world")
+        \\File.open("{s}", "wb") do |to|
+        \\  IO.copy_stream(src, to, 5)
+        \\end
+        \\[File.read("{s}"), src.calls]
+    , .{ dst, dst });
+    defer std.testing.allocator.free(source);
+
+    const result = try evalCode(source);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqualSlices(u8, "hello", result.toArrayObject().elements.items[0].toStringObject().str);
+    try std.testing.expectEqual(@as(i64, 1), result.toArrayObject().elements.items[1].toInteger());
+}
+
 test "Dir.children and File::Stat#directory? support vendored fileutils traversal" {
     var root_buf: [128]u8 = undefined;
     const root = try uniquePath(&root_buf);
