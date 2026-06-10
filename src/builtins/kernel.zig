@@ -840,6 +840,13 @@ pub fn builtinKernelRequireRelative(vm: *VM, _: Value, args: []Value, _: ?Block)
         if (vm.fileExists(with_rb)) {
             resolved_path = vm.allocator.dupe(u8, with_rb) catch return error.Fatal;
             identity_path = vm.resolveAbsolutePath(with_rb) catch return error.Fatal;
+        } else {
+            const with_so = std.fmt.allocPrint(vm.allocator, "{s}.so", .{storage_path}) catch return error.Fatal;
+            defer vm.allocator.free(with_so);
+            if (vm.fileExists(with_so)) {
+                resolved_path = vm.allocator.dupe(u8, with_so) catch return error.Fatal;
+                identity_path = vm.resolveAbsolutePath(with_so) catch return error.Fatal;
+            }
         }
     }
 
