@@ -9,6 +9,7 @@ const basic_object = @import("basic_object.zig");
 const binding_builtin = @import("binding.zig");
 const class_builtin = @import("class.zig");
 const condition_variable = @import("condition_variable.zig");
+const data = @import("data.zig");
 const encoding = @import("encoding.zig");
 const enumerator = @import("enumerator.zig");
 const env = @import("env.zig");
@@ -80,6 +81,7 @@ pub fn registerAll(vm: *VM) !void {
     try thread.register(vm);
     try mutex.register(vm);
     try condition_variable.register(vm);
+    try data.register(vm);
     try object_space.register(vm);
     try queue.register(vm);
     try random.register(vm);
