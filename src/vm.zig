@@ -23,6 +23,9 @@ const rbconfig_data = @import("rbconfig/data.zig");
 
 const Value = value.Value;
 const Object = value.Object;
+
+extern fn __sigsetjmp(buf: *anyopaque, savesigs: c_int) c_int;
+extern fn siglongjmp(buf: *anyopaque, val: c_int) noreturn;
 const ClassObject = value.ClassObject;
 const ModuleObject = value.ModuleObject;
 const IClassObject = value.IClassObject;
@@ -322,7 +325,7 @@ pub const PendingThrow = struct {
     value: Value,
 };
 
-const PendingControlFlow = struct {
+pub const PendingControlFlow = struct {
     kind: Kind,
     value: Value,
     target_frame_idx: ?usize = null,
@@ -660,6 +663,8 @@ pub const VM = struct {
     bootstrapped: bool = false,
 
     cext_handles: std.ArrayList(std.DynLib) = .empty,
+    cext_jmp_buf: ?*[200]u8 = null,
+    cext_nlr_value: Value = Value.nil(),
 
     var active_gc_roots_vm: ?*VM = null;
     var previous_gc_push_other_roots: bdwgc.c.GC_push_other_roots_proc = null;
@@ -2661,7 +2666,7 @@ pub const VM = struct {
         self.pending_unwind = if (pending_throw) |t| .{ .throw_ = t } else null;
     }
 
-    inline fn pendingControlFlow(self: *VM) ?PendingControlFlow {
+    pub inline fn pendingControlFlow(self: *VM) ?PendingControlFlow {
         if (self.pending_unwind) |pending| {
             if (pending == .control_flow) return pending.control_flow;
         }
@@ -7466,52 +7471,144 @@ pub const VM = struct {
     }
 
     fn dispatchCExtMethod(
-        _: *VM,
+        self: *VM,
         cext_method: CExtMethod,
         receiver: Value,
         args: []const Value,
+        block: ?Block,
     ) VMError!Value {
-        const argc: i32 = cext_method.argc;
-        if (argc < 0) {
-            // Variadic: func(int argc, VALUE *argv, VALUE self)
-            const func: *const fn (c_int, [*c]const u64, u64) callconv(.c) u64 = @ptrCast(@alignCast(cext_method.func));
-            const args_raw: [*c]const u64 = @ptrCast(args.ptr);
-            const result_raw = func(@intCast(args.len), args_raw, receiver.raw);
+        // Push a frame so that rb_yield / rb_funcall can find the block
+        // and so non-local return can unwind through C code.
+        const saved_frame_len = self.frames.items.len;
+        // Don't go through pushBuiltinFrame - it may fail silently if
+        // currentRubyFrame returns null. Push directly.
+        if (self.frames.items.len >= self.frames.capacity) {
+            const exc = try self.createException(self.fiber_error_class, "fiber call stack overflow");
+            self.setPendingException(exc);
+            return error.Unwind;
+        }
+        const caller_frame = self.currentFrame();
+        self.frames.append(self.gc_allocator, .{
+            .chunk = caller_frame.chunk,
+            .ip = caller_frame.ip,
+            .locals_base = self.stack.items.len,
+            .ep = caller_frame.ep,
+            .stack_base = self.stack.items.len,
+            .self_value = receiver,
+            .block = block,
+            .frame_type = .builtin,
+            .method_name = "(c extension)",
+            .dir_returns_nil = caller_frame.dir_returns_nil,
+        }) catch return error.Fatal;
+
+        defer if (self.frames.items.len > saved_frame_len and
+            self.frames.items[self.frames.items.len - 1].frame_type == .builtin)
+        {
+            self.popBuiltinFrame();
+        };
+
+        // setjmp/longjmp guard: when rb_funcall detects a non-local return,
+        // it longjmps here, skipping the C function's normal return.
+        var jmp_buf: [200]u8 align(@alignOf(c_int)) = @splat(0);
+        const prev_jmp = self.cext_jmp_buf;
+        self.cext_jmp_buf = &jmp_buf;
+        defer self.cext_jmp_buf = prev_jmp;
+
+        if (__sigsetjmp(&jmp_buf, 0) == 0) {
+            // First pass: call the C function.
+            const argc: i32 = cext_method.argc;
+            const result_raw: u64 = if (argc < 0) blk: {
+                const func: *const fn (c_int, [*c]const u64, u64) callconv(.c) u64 = @ptrCast(@alignCast(cext_method.func));
+                const args_raw: [*c]const u64 = @ptrCast(args.ptr);
+                break :blk func(@intCast(args.len), args_raw, receiver.raw);
+            } else if (argc > 8) blk: {
+                const func: *const fn (c_int, [*c]const u64, u64) callconv(.c) u64 = @ptrCast(@alignCast(cext_method.func));
+                const args_raw: [*c]const u64 = @ptrCast(args.ptr);
+                break :blk func(@intCast(args.len), args_raw, receiver.raw);
+            } else switch (argc) {
+                0 => blk: {
+                    const func: *const fn (u64) callconv(.c) u64 = @ptrCast(@alignCast(cext_method.func));
+                    break :blk func(receiver.raw);
+                },
+                1 => blk: {
+                    const func: *const fn (u64, u64) callconv(.c) u64 = @ptrCast(@alignCast(cext_method.func));
+                    const a0 = if (args.len > 0) args[0].raw else @as(u64, 0);
+                    break :blk func(receiver.raw, a0);
+                },
+                2 => blk: {
+                    const func: *const fn (u64, u64, u64) callconv(.c) u64 = @ptrCast(@alignCast(cext_method.func));
+                    const a0 = if (args.len > 0) args[0].raw else @as(u64, 0);
+                    const a1 = if (args.len > 1) args[1].raw else @as(u64, 0);
+                    break :blk func(receiver.raw, a0, a1);
+                },
+                3 => blk: {
+                    const func: *const fn (u64, u64, u64, u64) callconv(.c) u64 = @ptrCast(@alignCast(cext_method.func));
+                    const a0 = if (args.len > 0) args[0].raw else @as(u64, 0);
+                    const a1 = if (args.len > 1) args[1].raw else @as(u64, 0);
+                    const a2 = if (args.len > 2) args[2].raw else @as(u64, 0);
+                    break :blk func(receiver.raw, a0, a1, a2);
+                },
+                4 => blk: {
+                    const func: *const fn (u64, u64, u64, u64, u64) callconv(.c) u64 = @ptrCast(@alignCast(cext_method.func));
+                    const a0 = if (args.len > 0) args[0].raw else @as(u64, 0);
+                    const a1 = if (args.len > 1) args[1].raw else @as(u64, 0);
+                    const a2 = if (args.len > 2) args[2].raw else @as(u64, 0);
+                    const a3 = if (args.len > 3) args[3].raw else @as(u64, 0);
+                    break :blk func(receiver.raw, a0, a1, a2, a3);
+                },
+                5 => blk: {
+                    const func: *const fn (u64, u64, u64, u64, u64, u64) callconv(.c) u64 = @ptrCast(@alignCast(cext_method.func));
+                    const a0 = if (args.len > 0) args[0].raw else @as(u64, 0);
+                    const a1 = if (args.len > 1) args[1].raw else @as(u64, 0);
+                    const a2 = if (args.len > 2) args[2].raw else @as(u64, 0);
+                    const a3 = if (args.len > 3) args[3].raw else @as(u64, 0);
+                    const a4 = if (args.len > 4) args[4].raw else @as(u64, 0);
+                    break :blk func(receiver.raw, a0, a1, a2, a3, a4);
+                },
+                6 => blk: {
+                    const func: *const fn (u64, u64, u64, u64, u64, u64, u64) callconv(.c) u64 = @ptrCast(@alignCast(cext_method.func));
+                    const a0 = if (args.len > 0) args[0].raw else @as(u64, 0);
+                    const a1 = if (args.len > 1) args[1].raw else @as(u64, 0);
+                    const a2 = if (args.len > 2) args[2].raw else @as(u64, 0);
+                    const a3 = if (args.len > 3) args[3].raw else @as(u64, 0);
+                    const a4 = if (args.len > 4) args[4].raw else @as(u64, 0);
+                    const a5 = if (args.len > 5) args[5].raw else @as(u64, 0);
+                    break :blk func(receiver.raw, a0, a1, a2, a3, a4, a5);
+                },
+                7 => blk: {
+                    const func: *const fn (u64, u64, u64, u64, u64, u64, u64, u64) callconv(.c) u64 = @ptrCast(@alignCast(cext_method.func));
+                    const a0 = if (args.len > 0) args[0].raw else @as(u64, 0);
+                    const a1 = if (args.len > 1) args[1].raw else @as(u64, 0);
+                    const a2 = if (args.len > 2) args[2].raw else @as(u64, 0);
+                    const a3 = if (args.len > 3) args[3].raw else @as(u64, 0);
+                    const a4 = if (args.len > 4) args[4].raw else @as(u64, 0);
+                    const a5 = if (args.len > 5) args[5].raw else @as(u64, 0);
+                    const a6 = if (args.len > 6) args[6].raw else @as(u64, 0);
+                    break :blk func(receiver.raw, a0, a1, a2, a3, a4, a5, a6);
+                },
+                8 => blk: {
+                    const func: *const fn (u64, u64, u64, u64, u64, u64, u64, u64, u64) callconv(.c) u64 = @ptrCast(@alignCast(cext_method.func));
+                    const a0 = if (args.len > 0) args[0].raw else @as(u64, 0);
+                    const a1 = if (args.len > 1) args[1].raw else @as(u64, 0);
+                    const a2 = if (args.len > 2) args[2].raw else @as(u64, 0);
+                    const a3 = if (args.len > 3) args[3].raw else @as(u64, 0);
+                    const a4 = if (args.len > 4) args[4].raw else @as(u64, 0);
+                    const a5 = if (args.len > 5) args[5].raw else @as(u64, 0);
+                    const a6 = if (args.len > 6) args[6].raw else @as(u64, 0);
+                    const a7 = if (args.len > 7) args[7].raw else @as(u64, 0);
+                    break :blk func(receiver.raw, a0, a1, a2, a3, a4, a5, a6, a7);
+                },
+                else => unreachable,
+            };
             return .{ .raw = result_raw };
         }
-        switch (argc) {
-            0 => {
-                const func: *const fn (u64) callconv(.c) u64 = @ptrCast(@alignCast(cext_method.func));
-                return .{ .raw = func(receiver.raw) };
-            },
-            1 => {
-                const func: *const fn (u64, u64) callconv(.c) u64 = @ptrCast(@alignCast(cext_method.func));
-                const a0 = if (args.len > 0) args[0].raw else @as(u64, 0);
-                return .{ .raw = func(receiver.raw, a0) };
-            },
-            2 => {
-                const func: *const fn (u64, u64, u64) callconv(.c) u64 = @ptrCast(@alignCast(cext_method.func));
-                const a0 = if (args.len > 0) args[0].raw else @as(u64, 0);
-                const a1 = if (args.len > 1) args[1].raw else @as(u64, 0);
-                return .{ .raw = func(receiver.raw, a0, a1) };
-            },
-            3 => {
-                const func: *const fn (u64, u64, u64, u64) callconv(.c) u64 = @ptrCast(@alignCast(cext_method.func));
-                const a0 = if (args.len > 0) args[0].raw else @as(u64, 0);
-                const a1 = if (args.len > 1) args[1].raw else @as(u64, 0);
-                const a2 = if (args.len > 2) args[2].raw else @as(u64, 0);
-                return .{ .raw = func(receiver.raw, a0, a1, a2) };
-            },
-            4 => {
-                const func: *const fn (u64, u64, u64, u64, u64) callconv(.c) u64 = @ptrCast(@alignCast(cext_method.func));
-                const a0 = if (args.len > 0) args[0].raw else @as(u64, 0);
-                const a1 = if (args.len > 1) args[1].raw else @as(u64, 0);
-                const a2 = if (args.len > 2) args[2].raw else @as(u64, 0);
-                const a3 = if (args.len > 3) args[3].raw else @as(u64, 0);
-                return .{ .raw = func(receiver.raw, a0, a1, a2, a3) };
-            },
-            else => return error.Fatal,
+        // Second pass: longjmp from a C API function landed here.
+        if (!self.cext_nlr_value.isNil()) {
+            const nlr = self.cext_nlr_value;
+            self.cext_nlr_value = Value.nil();
+            return nlr;
         }
+        return error.Fatal;
     }
 
     pub fn invokeBuiltinMethodForwardingKeywords(
@@ -7740,7 +7837,7 @@ pub const VM = struct {
                 return self.invokeBuiltinMethod(fun_ptr, receiver, resolved.name.name, @constCast(dispatch.args), block, dispatch_keyword_ctx);
             },
             .cext => |cext_method| {
-                const result = try self.dispatchCExtMethod(cext_method, receiver, @constCast(dispatch.args));
+                const result = try self.dispatchCExtMethod(cext_method, receiver, @constCast(dispatch.args), block);
                 return result;
             },
             .proc => |proc_obj| {
@@ -8077,6 +8174,11 @@ pub const VM = struct {
 
                 const saved_frame_count = self.frames.items.len - 1;
                 try self.executeUntilReturn(saved_frame_count);
+                // Save NLR value before finishSubcallFromStack clears it.
+                const was_nlr = self.pendingControlFlow() != null;
+                if (was_nlr) {
+                    self.cext_nlr_value = self.pendingControlFlow().?.value;
+                }
                 const outcome = try self.finishSubcallFromStack(saved_frame_count, saved_stack_len);
                 break :blk YieldResult{
                     .value = outcome.value(),
@@ -8389,7 +8491,7 @@ pub const VM = struct {
                     self.setPendingException(exc);
                     return error.Unwind;
                 }
-                const result = try self.dispatchCExtMethod(cext_method, receiver, @constCast(dispatch.args));
+                const result = try self.dispatchCExtMethod(cext_method, receiver, @constCast(dispatch.args), block);
                 try self.push(result);
             },
             .proc => |proc_obj| {
@@ -8943,7 +9045,7 @@ pub const VM = struct {
                 try self.push(result);
             },
             .cext => |cext_method| {
-                const result = try self.dispatchCExtMethod(cext_method, receiver, args);
+                const result = try self.dispatchCExtMethod(cext_method, receiver, args, null);
                 try self.push(result);
             },
             .proc => |proc_obj| {
@@ -12440,6 +12542,11 @@ pub const VM = struct {
                 _ = self.popStackAboveOrNil(saved_stack_len);
             }
             self.setPendingControlFlow(null);
+            // If a non-local return happened and we're inside a C extension call,
+            // save the value so rb_funcall/rb_yield can longjmp back to dispatchCExtMethod.
+            if (cf.kind == .return_) {
+                self.cext_nlr_value = result;
+            }
             return switch (cf.kind) {
                 .return_ => .{ .non_local_return = result },
                 .break_ => .{ .broke = result },

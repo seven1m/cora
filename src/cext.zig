@@ -380,6 +380,22 @@ fn symName(id: VALUE) []const u8 {
 
 // ─── Method dispatch ────────────────────────────────────────────────────────
 
+extern fn siglongjmp(buf: *anyopaque, val: c_int) noreturn;
+
+fn checkNLR(vm: *VM) void {
+    if (vm.cext_jmp_buf != null) {
+        if (!vm.cext_nlr_value.isNil()) {
+            siglongjmp(vm.cext_jmp_buf.?, 1);
+        }
+        if (vm.pendingControlFlow()) |cf| {
+            if (cf.kind == .return_) {
+                vm.cext_nlr_value = cf.value;
+                siglongjmp(vm.cext_jmp_buf.?, 1);
+            }
+        }
+    }
+}
+
 export fn rb_funcall(recv_raw: VALUE, mid: VALUE, argc: c_int, ...) VALUE {
     const vm = getVM();
     var ap = @cVaStart();
@@ -391,7 +407,17 @@ export fn rb_funcall(recv_raw: VALUE, mid: VALUE, argc: c_int, ...) VALUE {
     while (i < argc) : (i += 1) {
         args[@intCast(i)] = Value{ .raw = @cVaArg(&ap, VALUE) };
     }
-    const result = vm.callMethodByName(Value{ .raw = recv_raw }, name, args, null) catch return 0;
+    const saved_frame_count = vm.frames.items.len;
+    const result = vm.callMethodByName(Value{ .raw = recv_raw }, name, args, null) catch |err| switch (err) {
+        error.Unwind => { checkNLR(vm); return 0; },
+        else => return 0,
+    };
+    // Detect non-local return that was processed internally by
+    // finishSubcallFromStack (chunk methods) and saved to cext_nlr_value.
+    checkNLR(vm);
+    if (vm.frames.items.len < saved_frame_count) {
+        checkNLR(vm);
+    }
     return result.raw;
 }
 
@@ -402,7 +428,15 @@ export fn rb_funcallv(recv_raw: VALUE, mid: VALUE, argc: c_int, argv: [*c]const 
         @as([*]Value, @ptrCast(@constCast(argv)))[0..@intCast(argc)]
     else
         &[_]Value{};
-    const result = vm.callMethodByName(Value{ .raw = recv_raw }, name, args, null) catch return 0;
+    const saved_frame_count = vm.frames.items.len;
+    const result = vm.callMethodByName(Value{ .raw = recv_raw }, name, args, null) catch |err| switch (err) {
+        error.Unwind => { checkNLR(vm); return 0; },
+        else => return 0,
+    };
+    checkNLR(vm);
+    if (vm.frames.items.len < saved_frame_count) {
+        checkNLR(vm);
+    }
     return result.raw;
 }
 
@@ -777,7 +811,32 @@ export fn Check_TypedStruct(obj_raw: VALUE, ty: ?*const anyopaque) ?*anyopaque {
     return null;
 }
 
-// ─── Require ────────────────────────────────────────────────────────────────
+// ─── Yield ─────────────────────────────────────────────────────────────────
+
+export fn rb_yield(val_raw: VALUE) VALUE {
+    const vm = getVM();
+    const current_frame = vm.currentFrame();
+    if (current_frame.block) |blk| {
+        const saved_frame_count = vm.frames.items.len;
+        const result = vm.yieldToBlock(blk, &[_]Value{Value{ .raw = val_raw }}) catch |err| switch (err) {
+            error.Unwind => { checkNLR(vm); return 0; },
+            else => return 0,
+        };
+        if (result.non_local_return_occurred) {
+            checkNLR(vm);
+        }
+        if (vm.frames.items.len < saved_frame_count) {
+            checkNLR(vm);
+        }
+        return result.value.raw;
+    }
+    return 0;
+}
+
+export fn rb_yield_values(n: c_int, ...) VALUE {
+    _ = n;
+    return 0;
+}
 
 export fn rb_require(name: [*c]const u8) void {
     const vm = getVM();

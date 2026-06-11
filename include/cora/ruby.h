@@ -220,6 +220,8 @@ VALUE  rb_funcall(VALUE recv, ID mid, int argc, ...);
 VALUE  rb_funcallv(VALUE recv, ID mid, int argc, const VALUE *argv);
 VALUE  rb_funcallv_public(VALUE recv, ID mid, int argc, const VALUE *argv);
 #define rb_funcall3 rb_funcallv
+VALUE  rb_yield(VALUE val);
+VALUE  rb_yield_values(int n, ...);
 
 VALUE  rb_attr_get(VALUE obj, ID id);
 VALUE  rb_ivar_get(VALUE obj, ID id);
