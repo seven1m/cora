@@ -417,7 +417,11 @@ fn parsePopenArgs(vm: *VM, args: []Value) VMError!PopenConfig {
     }
 
     if (index < args.len) {
-        try parsePopenMode(vm, args[index], &config);
+        if (args[index].isHash()) {
+            try parsePopenExecOptions(vm, args[index].toHashObject(), &config);
+        } else {
+            try parsePopenMode(vm, args[index], &config);
+        }
         index += 1;
     }
     if (index != args.len) {
