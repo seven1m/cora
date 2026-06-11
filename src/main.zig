@@ -118,6 +118,17 @@ fn configureLoadPath(
         try virtual_machine.setRubyExecutablePath(argv0);
     }
 
+    if (virtual_machine.load_path) |lp| {
+        if (lp.elements.items.len > 0) {
+            // Set sitelibdir to the last stdlib entry so RubyGems'
+            // load_path_insert_index returns its index instead of 0.
+            // This puts gem LOAD_PATH entries after all built-in stdlib
+            // dirs, so the pure-Ruby stdlib implementations take priority
+            // over gem versions that need native extensions.
+            try virtual_machine.setSitelibdirValue(lp.elements.items[lp.elements.items.len - 1]);
+        }
+    }
+
     for (extra_load_paths) |path| {
         try appendLoadPathIfExists(virtual_machine, io, path);
     }

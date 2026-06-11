@@ -11180,6 +11180,14 @@ pub const VM = struct {
         load_path_singleton.module.methods.put(resolve_feature_path_sym, value.MethodEntry.builtin(&builtinLoadPathResolveFeaturePath, .{ .exact = 1 })) catch return error.Fatal;
     }
 
+    pub fn setSitelibdirValue(self: *VM, path_val: Value) VMError!void {
+        const conf_val = (try self.resolveConstantPath("RbConfig::CONFIG")) orelse return;
+        if (!conf_val.isHash()) return;
+        const conf = conf_val.toHashObject();
+        const key = try self.newString("sitelibdir", false);
+        try self.hashSetEntry(conf, key, path_val);
+    }
+
     pub fn builtinLoadPathResolveFeaturePath(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
         try vm.requireArgCount(args, 1);
 
