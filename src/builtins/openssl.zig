@@ -89,6 +89,9 @@ pub fn register(vm: *VM) !void {
     const digest_reset_sym = try vm.intern("reset");
     try digest_class.module.methods.put(digest_reset_sym, value.MethodEntry.builtin(&builtinOpenSSLDigestReset, .{ .exact = 0 }));
 
+    const digest_new_instance_sym = try vm.intern("new");
+    try digest_class.module.methods.put(digest_new_instance_sym, value.MethodEntry.builtin(&builtinOpenSSLDigestNew, .{ .exact = 0 }));
+
     const digest_digest_sym = try vm.intern("digest");
     try digest_class.module.methods.put(digest_digest_sym, value.MethodEntry.builtin(&builtinOpenSSLDigestDigest, .{ .exact = 0 }));
 
@@ -746,6 +749,19 @@ pub fn builtinOpenSSLDigestReset(vm: *VM, receiver: Value, args: []Value, _: ?Bl
         return raiseDigestError(vm, canonicalDigestName(alg));
     }
     return receiver;
+}
+
+pub fn builtinOpenSSLDigestNew(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const alg = try digestAlgorithmForReceiver(vm, receiver);
+    const name_str = canonicalDigestName(alg);
+    const alg_name_val = try vm.newString(name_str, false);
+    var init_args: [2]Value = [_]Value{ alg_name_val, Value.nil() };
+    if (args.len == 1 and !args[0].isNil()) {
+        init_args[1] = args[0];
+        return vm.callMethodByName(Value.fromObject(&vm.getClass(receiver).module.object), "new", init_args[0..2], null);
+    }
+    return vm.callMethodByName(Value.fromObject(&vm.getClass(receiver).module.object), "new", init_args[0..1], null);
 }
 
 pub fn builtinOpenSSLDigestName(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
