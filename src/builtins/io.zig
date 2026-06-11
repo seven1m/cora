@@ -2077,7 +2077,14 @@ pub fn builtinIoChmod(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
 pub fn builtinIoWrite(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const io = try requireIoReceiver(vm, receiver);
-    const str = try args[0].coerceToStr(vm, "no implicit conversion into String");
+    var str_obj = args[0];
+    if (!str_obj.isString()) {
+        str_obj = try vm.callMethodByName(str_obj, "to_s", &[_]Value{}, null);
+        if (!str_obj.isString()) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into String", .{});
+        }
+    }
+    const str = str_obj.toStringObject().str;
     const written = try ioWriteBytes(vm, io, str);
     return Value.integer(@intCast(written));
 }
@@ -2085,7 +2092,14 @@ pub fn builtinIoWrite(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
 pub fn builtinIoAppend(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const io = try requireIoReceiver(vm, receiver);
-    const str = try args[0].coerceToStr(vm, "no implicit conversion into String");
+    var str_obj = args[0];
+    if (!str_obj.isString()) {
+        str_obj = try vm.callMethodByName(str_obj, "to_s", &[_]Value{}, null);
+        if (!str_obj.isString()) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into String", .{});
+        }
+    }
+    const str = str_obj.toStringObject().str;
     _ = try ioWriteBytes(vm, io, str);
     return receiver;
 }
