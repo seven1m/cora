@@ -100,7 +100,7 @@ pub const RbConfig = struct {
     libruby_relative: []const u8 = "no",
     librubyarg: []const u8 = "$(LIBRUBYARG_STATIC)",
     librubyarg_shared: []const u8 = "-Wl,-rpath,$(libdir) -L$(libdir)",
-    librubyarg_static: []const u8 = "-Wl,-rpath,$(libdir) -L$(libdir) -l$(RUBY_SO_NAME)-static $(MAINLIBS)",
+    librubyarg_static: []const u8 = "-Wl,-rpath,$(libdir) -L$(libdir) $(MAINLIBS)",
     libruby_lib_version: []const u8 = "",
     libruby_lib_version_style: []const u8 = "3\t/* full */",
     ruby_so_name_dup: []const u8 = "cora",
@@ -169,7 +169,7 @@ pub const RbConfig = struct {
     try_header: []const u8 = "",
 
     solibs: []const u8 = "$(MAINLIBS)",
-    mainlibs: []const u8 = "-ldl -lcrypt -lm -lpthread",
+    mainlibs: []const u8 = "-ldl -lm -lpthread",
     libs: []const u8 = "-lm -lpthread",
     dldlibs: []const u8 = "-lc",
     common_libs: []const u8 = "",
