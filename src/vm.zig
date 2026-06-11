@@ -576,6 +576,7 @@ pub const VM = struct {
     encoding_undefined_conversion_error_class: *value.ClassObject,
     encoding_invalid_byte_sequence_error_class: *value.ClassObject,
     range_error_class: *value.ClassObject,
+    float_domain_error_class: *value.ClassObject,
     regexp_error_class: *value.ClassObject,
     index_error_class: *value.ClassObject,
     stop_iteration_class: *value.ClassObject,
@@ -787,6 +788,7 @@ pub const VM = struct {
             .encoding_undefined_conversion_error_class = undefined,
             .encoding_invalid_byte_sequence_error_class = undefined,
             .range_error_class = undefined,
+            .float_domain_error_class = undefined,
             .regexp_error_class = undefined,
             .index_error_class = undefined,
             .stop_iteration_class = undefined,
@@ -1190,6 +1192,10 @@ pub const VM = struct {
         const range_error_class_val = try self.newClass(range_error_name_sym, self.standard_error_class);
         self.range_error_class = range_error_class_val.toClassObject();
 
+        const float_domain_error_name_sym = try self.intern("FloatDomainError");
+        const float_domain_error_class_val = try self.newClass(float_domain_error_name_sym, self.range_error_class);
+        self.float_domain_error_class = float_domain_error_class_val.toClassObject();
+
         const regexp_error_name_sym = try self.intern("RegexpError");
         const regexp_error_class_val = try self.newClass(regexp_error_name_sym, self.standard_error_class);
         self.regexp_error_class = regexp_error_class_val.toClassObject();
@@ -1463,6 +1469,7 @@ pub const VM = struct {
         self.object_class.module.constants.put(load_error_name_sym, .{ .value = load_error_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(encoding_error_name_sym, .{ .value = encoding_error_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(range_error_name_sym, .{ .value = range_error_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(float_domain_error_name_sym, .{ .value = float_domain_error_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(regexp_error_name_sym, .{ .value = regexp_error_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(index_error_name_sym, .{ .value = index_error_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(stop_iteration_name_sym, .{ .value = stop_iteration_class_val }) catch return error.Fatal;

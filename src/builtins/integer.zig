@@ -1137,9 +1137,7 @@ pub fn builtinIntegerDivmod(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
             return vm.raiseExceptionFmt(vm.zero_division_error_class, "divided by 0", .{});
         }
         if (std.math.isNan(arg_f)) {
-            const float_domain_error_name = try vm.intern("FloatDomainError");
-            const fde_entry = vm.object_class.module.constants.get(float_domain_error_name) orelse return error.Fatal;
-            return vm.raiseExceptionFmt(fde_entry.value.toClassObject(), "Computation results to 'NaN'(Not a Number)", .{});
+            return vm.raiseExceptionFmt(vm.float_domain_error_class, "Computation results to 'NaN'(Not a Number)", .{});
         }
 
         const receiver_f = receiver.integerToF64();

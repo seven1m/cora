@@ -1168,9 +1168,9 @@ Source baseline: ../ruby_spec compared to local spec/
 ### core/kernel
 - [x] core/kernel/Array_spec.rb
 - [ ] core/kernel/Complex_spec.rb
-- [ ] core/kernel/Float_spec.rb
+- [-] core/kernel/Float_spec.rb (CORAFIXME: hex float binary exponent not supported; Complex not implemented)
 - [x] core/kernel/Hash_spec.rb
-- [ ] core/kernel/Integer_spec.rb
+- [-] core/kernel/Integer_spec.rb (CORAFIXME: Integer#quo not implemented)
 - [-] core/kernel/Rational_spec.rb
 - [x] core/kernel/String_spec.rb
 - [ ] core/kernel/__callee___spec.rb

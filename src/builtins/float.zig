@@ -75,10 +75,6 @@ fn appendScientificMantissa(writer: anytype, digits: []const u8) VMError!void {
 }
 
 pub fn register(vm: *VM) !void {
-    const float_domain_error_sym = try vm.intern("FloatDomainError");
-    const float_domain_error_val = try vm.newClass(float_domain_error_sym, vm.range_error_class);
-    try vm.object_class.module.constants.put(float_domain_error_sym, .{ .value = float_domain_error_val });
-
     const infinity_sym = try vm.intern("INFINITY");
     try vm.float_class.module.constants.put(infinity_sym, .{ .value = try vm.newFloat(std.math.inf(f64)) });
 
@@ -359,17 +355,12 @@ pub fn builtinFloatPositive(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     return Value.boolean(receiver.toFloatObject().val > 0.0);
 }
 
-fn floatDomainErrorClass(vm: *VM) !*ClassObject {
-    const name = try vm.intern("FloatDomainError");
-    const entry = vm.object_class.module.constants.get(name) orelse return error.Fatal;
-    return entry.value.toClassObject();
-}
 
 pub fn builtinFloatToInt(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const f = receiver.toFloatObject().val;
     if (std.math.isNan(f) or std.math.isInf(f)) {
-        return vm.raiseExceptionFmt(try floatDomainErrorClass(vm), "float out of range of integer", .{});
+        return vm.raiseExceptionFmt(vm.float_domain_error_class, "float out of range of integer", .{});
     }
 
     const bits: u64 = @bitCast(f);

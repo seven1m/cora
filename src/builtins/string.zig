@@ -5221,7 +5221,7 @@ pub fn builtinStringNextBang(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     return receiver;
 }
 
-fn parseStringToInteger(vm: *VM, s: []const u8, requested_base: i64, default_base_when_zero: u8) VMError!Value {
+pub fn parseStringToInteger(vm: *VM, s: []const u8, requested_base: i64, default_base_when_zero: u8) VMError!struct { value: Value, end_pos: usize } {
     if ((requested_base < 2 or requested_base > 36) and requested_base != 0) {
         return vm.raiseExceptionFmt(vm.argument_error_class, "invalid radix {d}", .{requested_base});
     }
@@ -5312,27 +5312,27 @@ fn parseStringToInteger(vm: *VM, s: []const u8, requested_base: i64, default_bas
         value_big.?.addScalar(&value_big.?, d) catch return error.Fatal;
     }
 
-    if (!saw_digit) return Value.integer(0);
+    if (!saw_digit) return .{ .value = Value.integer(0), .end_pos = i };
 
     if (value_big) |*big| {
         if (negative and !big.eqlZero()) {
             big.negate();
         }
-        return vm.valueFromManagedInteger(big);
+        return .{ .value = try vm.valueFromManagedInteger(big), .end_pos = i };
     }
 
-    if (!negative) return Value.integer(value_i64);
+    if (!negative) return .{ .value = Value.integer(value_i64), .end_pos = i };
     if (std.math.negate(value_i64)) |neg| {
-        return Value.integer(neg);
+        return .{ .value = Value.integer(neg), .end_pos = i };
     } else |_| {
         var promoted = BigInt.initSet(vm.allocator, value_i64) catch return error.Fatal;
         defer promoted.deinit();
         promoted.negate();
-        return vm.valueFromManagedInteger(&promoted);
+        return .{ .value = try vm.valueFromManagedInteger(&promoted), .end_pos = i };
     }
 }
 
-fn parseStringToFloat(vm: *VM, s: []const u8) VMError!f64 {
+pub fn parseStringToFloat(vm: *VM, s: []const u8) VMError!struct { value: f64, end_pos: usize } {
     var normalized: std.ArrayList(u8) = .empty;
     defer normalized.deinit(vm.allocator);
 
@@ -5401,9 +5401,9 @@ fn parseStringToFloat(vm: *VM, s: []const u8) VMError!f64 {
         break;
     }
 
-    if (!saw_mantissa_digit) return 0.0;
-    if (saw_exponent and !saw_exponent_digit) return 0.0;
-    return std.fmt.parseFloat(f64, normalized.items) catch 0.0;
+    if (!saw_mantissa_digit) return .{ .value = 0.0, .end_pos = i };
+    if (saw_exponent and !saw_exponent_digit) return .{ .value = 0.0, .end_pos = i };
+    return .{ .value = std.fmt.parseFloat(f64, normalized.items) catch 0.0, .end_pos = i };
 }
 
 pub fn builtinStringToI(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -5419,7 +5419,7 @@ pub fn builtinStringToI(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
         );
     }
 
-    return parseStringToInteger(vm, receiver.toStringObject().str, requested_base, 10);
+    return (try parseStringToInteger(vm, receiver.toStringObject().str, requested_base, 10)).value;
 }
 
 pub fn builtinStringToF(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -5436,7 +5436,7 @@ pub fn builtinStringToF(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
 
     const trimmed = std.mem.trim(u8, string_obj.str, " \t\n\r\x0B\x0C");
     const parsed = try parseStringToFloat(vm, trimmed);
-    return vm.newFloat(parsed);
+    return vm.newFloat(parsed.value);
 }
 
 pub fn builtinStringToR(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -5449,12 +5449,12 @@ pub fn builtinStringToR(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
 
 pub fn builtinStringOct(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    return parseStringToInteger(vm, receiver.toStringObject().str, 0, 8);
+    return (try parseStringToInteger(vm, receiver.toStringObject().str, 0, 8)).value;
 }
 
 pub fn builtinStringHex(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    return parseStringToInteger(vm, receiver.toStringObject().str, 16, 10);
+    return (try parseStringToInteger(vm, receiver.toStringObject().str, 16, 10)).value;
 }
 
 fn appendSymbolErrorEscapedBytes(writer: anytype, input: []const u8) !void {

@@ -15,6 +15,7 @@ const stringio_builtin = @import("stringio.zig");
 const warning_builtin = @import("warning.zig");
 const zlib_builtin = @import("zlib.zig");
 const process_builtin = @import("process.zig");
+const string_builtin = @import("string.zig");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -187,7 +188,10 @@ pub fn register(vm: *VM) !void {
     try vm.kernel_module.methods.put(kernel_string_convert_sym, value.MethodEntry.builtinWithVisibility(&builtinKernelStringConvert, .{ .exact = 1 }, .private));
 
     const kernel_integer_convert_sym = try vm.intern("Integer");
-    try vm.kernel_module.methods.put(kernel_integer_convert_sym, value.MethodEntry.builtinWithVisibility(&builtinKernelIntegerConvert, .{ .exact = 1 }, .private));
+    try vm.kernel_module.methods.put(kernel_integer_convert_sym, value.MethodEntry.builtinWithVisibility(&builtinKernelIntegerConvert, .{ .variadic = 1 }, .private));
+
+    const kernel_float_convert_sym = try vm.intern("Float");
+    try vm.kernel_module.methods.put(kernel_float_convert_sym, value.MethodEntry.builtinWithVisibility(&builtinKernelFloatConvert, .{ .exact = 1 }, .private));
 
     const puts_sym = try vm.intern("puts");
     try vm.kernel_module.methods.put(puts_sym, MethodEntry.builtin(&builtinKernelPuts, .{ .variadic = 0 }));
@@ -297,7 +301,8 @@ pub fn register(vm: *VM) !void {
     const kernel_singleton = try vm.getOrCreateSingletonClass(kernel_module_val);
     try kernel_singleton.module.methods.put(kernel_array_convert_sym, value.MethodEntry.builtin(&builtinKernelArrayConvert, .{ .exact = 1 }));
     try kernel_singleton.module.methods.put(kernel_string_convert_sym, value.MethodEntry.builtin(&builtinKernelStringConvert, .{ .exact = 1 }));
-    try kernel_singleton.module.methods.put(kernel_integer_convert_sym, value.MethodEntry.builtin(&builtinKernelIntegerConvert, .{ .exact = 1 }));
+    try kernel_singleton.module.methods.put(kernel_integer_convert_sym, value.MethodEntry.builtin(&builtinKernelIntegerConvert, .{ .variadic = 1 }));
+    try kernel_singleton.module.methods.put(kernel_float_convert_sym, value.MethodEntry.builtin(&builtinKernelFloatConvert, .{ .exact = 1 }));
     try kernel_singleton.module.methods.put(kernel_hash_convert_sym, value.MethodEntry.builtin(&builtinKernelHashConvert, .{ .exact = 1 }));
     try kernel_singleton.module.methods.put(printf_sym, MethodEntry.builtin(&builtinKernelPrintf, .{ .variadic = 1 }));
     try kernel_singleton.module.methods.put(sprintf_sym, MethodEntry.builtin(&builtinKernelSprintf, .{ .variadic = 1 }));
@@ -2331,21 +2336,193 @@ fn builtinKernelStringConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMErr
     return converted;
 }
 
-fn builtinKernelIntegerConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+fn builtinKernelFloatConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
 
-    const arg = args[0];
-    if (arg.isInteger() or arg.isBigInteger()) return arg;
+    const kw_exception = try vm.consumeKeywordArg("exception");
+    try vm.validateKeywordArgsConsumed();
+    const exception_mode = if (kw_exception) |value_| value_.isTruthy() else true;
 
-    if (try vm.checkCallMethodByName(arg, "to_int", true, &[_]Value{}, null)) |coerced| {
-        if (coerced.isInteger() or coerced.isBigInteger()) return coerced;
+    const arg = args[0];
+
+    if (arg.isFloat()) return arg;
+
+    if (arg.isInteger() or arg.isBigInteger()) {
+        if (arg.isBigInteger()) {
+            return vm.newFloat(arg.toBigIntegerObject().value.toFloat(f64, .nearest_even)[0]);
+        }
+        return vm.newFloat(@floatFromInt(arg.toInteger()));
+    }
+
+    if (arg.isNil()) {
+        if (!exception_mode) return Value.nil();
+        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert nil into Float", .{});
+    }
+
+    if (arg.isString()) {
+        const str = arg.toStringObject().str;
+        if (std.mem.indexOfScalar(u8, str, 0) != null) {
+            if (!exception_mode) return Value.nil();
+            return vm.raiseExceptionFmt(vm.argument_error_class, "invalid value for Float(): \"{s}\"", .{str});
+        }
+
+        const trimmed = std.mem.trim(u8, str, " \t\n\r\x0B\x0C");
+        if (trimmed.len == 0) {
+            if (!exception_mode) return Value.nil();
+            return vm.raiseExceptionFmt(vm.argument_error_class, "invalid value for Float(): \"{s}\"", .{str});
+        }
+
+        const parsed = try string_builtin.parseStringToFloat(vm, trimmed);
+        if (parsed.end_pos < trimmed.len) {
+            var remaining = trimmed[parsed.end_pos..];
+            remaining = std.mem.trim(u8, remaining, " \t\n\r\x0B\x0C");
+            if (remaining.len > 0) {
+                // Try parsing as hex integer if remaining starts with x/X
+                if (remaining[0] == 'x' or remaining[0] == 'X') {
+                    const int_parsed = try string_builtin.parseStringToInteger(vm, trimmed, 0, 10);
+                    if (int_parsed.end_pos == trimmed.len or std.mem.trim(u8, trimmed[int_parsed.end_pos..], " \t\n\r\x0B\x0C").len == 0) {
+                        if (int_parsed.value.isInteger()) {
+                            return vm.newFloat(@floatFromInt(int_parsed.value.toInteger()));
+                        }
+                        if (int_parsed.value.isBigInteger()) {
+                            return vm.newFloat(int_parsed.value.toBigIntegerObject().value.toFloat(f64, .nearest_even)[0]);
+                        }
+                    }
+                }
+                if (!exception_mode) return Value.nil();
+                return vm.raiseExceptionFmt(vm.argument_error_class, "invalid value for Float(): \"{s}\"", .{str});
+            }
+        }
+
+        if (parsed.end_pos == 0) {
+            if (!exception_mode) return Value.nil();
+            return vm.raiseExceptionFmt(vm.argument_error_class, "invalid value for Float(): \"{s}\"", .{str});
+        }
+
+        return vm.newFloat(parsed.value);
+    }
+
+    if (try vm.checkCallMethodByName(arg, "to_f", true, &[_]Value{}, null)) |coerced| {
+        if (coerced.isFloat()) return coerced;
+        if (!exception_mode) return Value.nil();
         return vm.raiseExceptionFmt(
             vm.type_error_class,
-            "can't convert {s} to Integer ({s}#to_int gives {s})",
+            "can't convert {s} to Float ({s}#to_f gives {s})",
             .{ vm.className(arg), vm.className(arg), vm.className(coerced) },
         );
     }
 
+    if (!exception_mode) return Value.nil();
+    return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
+}
+
+fn builtinKernelIntegerConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+
+    const kw_exception = try vm.consumeKeywordArg("exception");
+    try vm.validateKeywordArgsConsumed();
+    const exception_mode = if (kw_exception) |value_| value_.isTruthy() else true;
+
+    const arg = args[0];
+    const has_base = args.len == 2;
+
+    if (has_base and !arg.isString()) {
+        if (!exception_mode) return Value.nil();
+        return vm.raiseExceptionFmt(vm.argument_error_class, "can't convert {s} into Integer", .{vm.className(arg)});
+    }
+
+    if (arg.isInteger() or arg.isBigInteger()) return arg;
+
+    if (arg.isNil()) {
+        if (!exception_mode) return Value.nil();
+        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert nil into Integer", .{});
+    }
+
+    if (arg.isFloat()) {
+        const float_val = arg.toFloatObject().val;
+        if (std.math.isNan(float_val) or std.math.isInf(float_val)) {
+            if (!exception_mode) return Value.nil();
+            return vm.raiseExceptionFmt(vm.float_domain_error_class, "NaN", .{});
+        }
+        return vm.callMethodByName(arg, "to_i", &[_]Value{}, null);
+    }
+
+    if (arg.isRational()) {
+        return vm.callMethodByName(arg, "to_i", &[_]Value{}, null);
+    }
+
+    if (arg.isString()) {
+        const str = arg.toStringObject().str;
+
+        var base: i64 = 0;
+        if (has_base) {
+            const base_arg = args[1];
+            if (base_arg.isInteger()) {
+                base = base_arg.toInteger();
+            } else if (base_arg.isBigInteger()) {
+                base = base_arg.toBigIntegerObject().value.toInt(i64) catch {
+                    return vm.raiseExceptionFmt(vm.argument_error_class, "invalid radix {s}", .{vm.className(base_arg)});
+                };
+            } else if (try vm.checkCallMethodByName(base_arg, "to_int", true, &[_]Value{}, null)) |int_val| {
+                if (int_val.isInteger()) {
+                    base = int_val.toInteger();
+                } else if (int_val.isBigInteger()) {
+                    base = int_val.toBigIntegerObject().value.toInt(i64) catch {
+                        return vm.raiseExceptionFmt(vm.argument_error_class, "base is too large", .{});
+                    };
+                } else {
+                    return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion of {s} into Integer", .{vm.className(base_arg)});
+                }
+            } else {
+                return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion of {s} into Integer", .{vm.className(base_arg)});
+            }
+        }
+
+        if (std.mem.indexOfScalar(u8, str, 0) != null) {
+            if (!exception_mode) return Value.nil();
+            return vm.raiseExceptionFmt(vm.argument_error_class, "invalid value for Integer(): \"{s}\"", .{str});
+        }
+
+        const trimmed = std.mem.trim(u8, str, " \t\n\r\x0B\x0C");
+        if (trimmed.len == 0) {
+            if (!exception_mode) return Value.nil();
+            return vm.raiseExceptionFmt(vm.argument_error_class, "invalid value for Integer(): \"{s}\"", .{str});
+        }
+
+        const parsed = try string_builtin.parseStringToInteger(vm, trimmed, base, 10);
+        if (parsed.end_pos < trimmed.len) {
+            var remaining = trimmed[parsed.end_pos..];
+            remaining = std.mem.trim(u8, remaining, " \t\n\r\x0B\x0C");
+            if (remaining.len > 0) {
+                if (!exception_mode) return Value.nil();
+                return vm.raiseExceptionFmt(vm.argument_error_class, "invalid value for Integer(): \"{s}\"", .{str});
+            }
+        }
+
+        if (parsed.value.isInteger() or parsed.value.isBigInteger()) {
+            return parsed.value;
+        }
+        if (!exception_mode) return Value.nil();
+        return vm.raiseExceptionFmt(vm.argument_error_class, "invalid value for Integer(): \"{s}\"", .{str});
+    }
+
+    // Try to_int first
+    if (try vm.checkCallMethodByName(arg, "to_int", true, &[_]Value{}, null)) |coerced| {
+        if (coerced.isInteger() or coerced.isBigInteger()) return coerced;
+    }
+
+    // Try to_i
+    if (try vm.checkCallMethodByName(arg, "to_i", true, &[_]Value{}, null)) |to_i_result| {
+        if (to_i_result.isInteger() or to_i_result.isBigInteger()) return to_i_result;
+        if (!exception_mode) return Value.nil();
+        return vm.raiseExceptionFmt(
+            vm.type_error_class,
+            "can't convert {s} to Integer ({s}#to_i gives {s})",
+            .{ vm.className(arg), vm.className(arg), vm.className(to_i_result) },
+        );
+    }
+
+    if (!exception_mode) return Value.nil();
     return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Integer", .{vm.className(arg)});
 }
 
