@@ -1038,8 +1038,10 @@ fn basenameBytesAlloc(allocator: std.mem.Allocator, path: []const u8, suffix_opt
 
     const basename = if (std.mem.eql(u8, trimmed, "/"))
         trimmed
+    else if (std.mem.lastIndexOfScalar(u8, trimmed, '/')) |slash_idx|
+        trimmed[slash_idx + 1 ..]
     else
-        trimmed[(std.mem.lastIndexOfScalar(u8, trimmed, '/') orelse return allocator.dupe(u8, trimmed)) + 1 ..];
+        trimmed;
 
     var result = basename;
     if (suffix_opt) |suffix| {
