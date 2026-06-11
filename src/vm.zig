@@ -7472,23 +7472,46 @@ pub const VM = struct {
         args: []const Value,
     ) VMError!Value {
         const argc: i32 = cext_method.argc;
-        if (argc == 0) {
-            const func: *const fn (u64) callconv(.c) u64 = @ptrCast(@alignCast(cext_method.func));
-            const result_raw = func(receiver.raw);
+        if (argc < 0) {
+            // Variadic: func(int argc, VALUE *argv, VALUE self)
+            const func: *const fn (c_int, [*c]const u64, u64) callconv(.c) u64 = @ptrCast(@alignCast(cext_method.func));
+            const args_raw: [*c]const u64 = @ptrCast(args.ptr);
+            const result_raw = func(@intCast(args.len), args_raw, receiver.raw);
             return .{ .raw = result_raw };
         }
-        if (argc > 0) {
-            const func: *const fn (u64, u64) callconv(.c) u64 = @ptrCast(@alignCast(cext_method.func));
-            if (args.len > 0) {
-                return .{ .raw = func(receiver.raw, args[0].raw) };
-            }
-            return .{ .raw = func(receiver.raw, 0) };
+        switch (argc) {
+            0 => {
+                const func: *const fn (u64) callconv(.c) u64 = @ptrCast(@alignCast(cext_method.func));
+                return .{ .raw = func(receiver.raw) };
+            },
+            1 => {
+                const func: *const fn (u64, u64) callconv(.c) u64 = @ptrCast(@alignCast(cext_method.func));
+                const a0 = if (args.len > 0) args[0].raw else @as(u64, 0);
+                return .{ .raw = func(receiver.raw, a0) };
+            },
+            2 => {
+                const func: *const fn (u64, u64, u64) callconv(.c) u64 = @ptrCast(@alignCast(cext_method.func));
+                const a0 = if (args.len > 0) args[0].raw else @as(u64, 0);
+                const a1 = if (args.len > 1) args[1].raw else @as(u64, 0);
+                return .{ .raw = func(receiver.raw, a0, a1) };
+            },
+            3 => {
+                const func: *const fn (u64, u64, u64, u64) callconv(.c) u64 = @ptrCast(@alignCast(cext_method.func));
+                const a0 = if (args.len > 0) args[0].raw else @as(u64, 0);
+                const a1 = if (args.len > 1) args[1].raw else @as(u64, 0);
+                const a2 = if (args.len > 2) args[2].raw else @as(u64, 0);
+                return .{ .raw = func(receiver.raw, a0, a1, a2) };
+            },
+            4 => {
+                const func: *const fn (u64, u64, u64, u64, u64) callconv(.c) u64 = @ptrCast(@alignCast(cext_method.func));
+                const a0 = if (args.len > 0) args[0].raw else @as(u64, 0);
+                const a1 = if (args.len > 1) args[1].raw else @as(u64, 0);
+                const a2 = if (args.len > 2) args[2].raw else @as(u64, 0);
+                const a3 = if (args.len > 3) args[3].raw else @as(u64, 0);
+                return .{ .raw = func(receiver.raw, a0, a1, a2, a3) };
+            },
+            else => return error.Fatal,
         }
-        // argc < 0 means variadic: func(int argc, VALUE *argv, VALUE self)
-        const func: *const fn (c_int, [*c]const u64, u64) callconv(.c) u64 = @ptrCast(@alignCast(cext_method.func));
-        const args_raw: [*c]const u64 = @ptrCast(args.ptr);
-        const result_raw = func(@intCast(args.len), args_raw, receiver.raw);
-        return .{ .raw = result_raw };
     }
 
     pub fn invokeBuiltinMethodForwardingKeywords(
