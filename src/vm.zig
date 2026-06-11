@@ -9609,7 +9609,10 @@ pub const VM = struct {
                 break :blk Value.fromObject(&weak_map.object);
             },
             .typed_data => @panic("should not be reachable from user code"),
-            .instance => self.newInstance(class_obj),
+            .instance => if (class_obj.cext_alloc_func) |alloc_fn| blk: {
+                const func: *const fn (u64) callconv(.c) u64 = @ptrCast(@alignCast(alloc_fn));
+                break :blk Value{ .raw = func(Value.fromObject(&class_obj.module.object).raw) };
+            } else self.newInstance(class_obj),
         };
     }
 

@@ -222,6 +222,7 @@ pub const ClassObject = struct {
     object_type: ObjectType = .instance,
     struct_members: ?*ArrayObject = null,
     struct_keyword_init: ?bool = null,
+    cext_alloc_func: ?*anyopaque = null,
 };
 
 pub const IClassObject = struct {

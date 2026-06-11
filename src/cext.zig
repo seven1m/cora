@@ -526,8 +526,9 @@ export fn rb_define_class_under(outer_raw: VALUE, name_ptr: [*c]const u8, super_
 }
 
 export fn rb_define_alloc_func(klass_raw: VALUE, func: ?*anyopaque) void {
-    _ = klass_raw;
-    _ = func;
+    if (klass_raw == 0 or func == null) return;
+    const class_ptr: *value.ClassObject = @ptrFromInt(klass_raw);
+    class_ptr.cext_alloc_func = func;
 }
 
 export fn rb_define_singleton_method(obj_raw: VALUE, name_ptr: [*c]const u8, func: ?*anyopaque, argc: c_int) void {
@@ -754,7 +755,7 @@ export fn TypedData_Wrap_Struct(klass_raw: VALUE, ty: ?*const anyopaque, data: ?
     const vm = getVM();
     _ = ty;
     const klass: *value.ClassObject = @ptrFromInt(klass_raw);
-    const obj = vm.newObjectForClass(klass) catch return 0;
+    const obj = vm.newInstance(klass) catch return 0;
     if (data) |d| {
         vm.setInstanceVariable(obj, "@data", Value.integer(@as(i64, @intCast(@intFromPtr(d))))) catch {};
     }
