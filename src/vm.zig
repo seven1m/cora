@@ -10605,6 +10605,14 @@ pub const VM = struct {
         );
     }
 
+    pub fn coerceViaToS(self: *VM, arg: Value) VMError![]const u8 {
+        const str_val = try self.callMethodByName(arg, "to_s", &[_]Value{}, null);
+        if (!str_val.isString()) {
+            return self.raiseExceptionFmt(self.type_error_class, "to_s did not return String", .{});
+        }
+        return str_val.toStringObject().str;
+    }
+
     pub fn probeToAryWithVisibility(self: *VM, arg: Value, include_private: bool) VMError!ToAryResult {
         if (arg.isArray()) return .{ .array = arg };
 

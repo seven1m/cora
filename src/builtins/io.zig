@@ -2077,14 +2077,7 @@ pub fn builtinIoChmod(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
 pub fn builtinIoWrite(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const io = try requireIoReceiver(vm, receiver);
-    var str_obj = args[0];
-    if (!str_obj.isString()) {
-        str_obj = try vm.callMethodByName(str_obj, "to_s", &[_]Value{}, null);
-        if (!str_obj.isString()) {
-            return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into String", .{});
-        }
-    }
-    const str = str_obj.toStringObject().str;
+    const str = if (args[0].isString()) args[0].toStringObject().str else try vm.coerceViaToS(args[0]);
     const written = try ioWriteBytes(vm, io, str);
     return Value.integer(@intCast(written));
 }
@@ -2092,14 +2085,7 @@ pub fn builtinIoWrite(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
 pub fn builtinIoAppend(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const io = try requireIoReceiver(vm, receiver);
-    var str_obj = args[0];
-    if (!str_obj.isString()) {
-        str_obj = try vm.callMethodByName(str_obj, "to_s", &[_]Value{}, null);
-        if (!str_obj.isString()) {
-            return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion into String", .{});
-        }
-    }
-    const str = str_obj.toStringObject().str;
+    const str = if (args[0].isString()) args[0].toStringObject().str else try vm.coerceViaToS(args[0]);
     _ = try ioWriteBytes(vm, io, str);
     return receiver;
 }
@@ -2110,11 +2096,7 @@ pub fn builtinIoWriteNonblock(vm: *VM, receiver: Value, args: []Value, _: ?Block
     try ensureIoWritable(vm, io);
 
     const exception_enabled = try exceptionKeywordEnabled(vm);
-    const str_val = try vm.callMethodByName(args[0], "to_s", &[_]Value{}, null);
-    if (!str_val.isString()) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "to_s did not return String", .{});
-    }
-    const str = str_val.toStringObject().str;
+    const str = try vm.coerceViaToS(args[0]);
     if (str.len == 0) return Value.integer(0);
     try ensureIoNonblocking(vm, io);
 
@@ -2140,11 +2122,7 @@ pub fn builtinIoWriteNonblock(vm: *VM, receiver: Value, args: []Value, _: ?Block
 pub fn builtinIoPrint(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     const io = try requireIoReceiver(vm, receiver);
     for (args) |arg| {
-        const str_val = try vm.callMethodByName(arg, "to_s", &[_]Value{}, null);
-        if (!str_val.isString()) {
-            return vm.raiseExceptionFmt(vm.type_error_class, "to_s did not return String", .{});
-        }
-        _ = try ioWriteBytes(vm, io, str_val.toStringObject().str);
+        _ = try ioWriteBytes(vm, io, try vm.coerceViaToS(arg));
     }
     return Value.nil();
 }
@@ -2172,11 +2150,7 @@ fn ioPutsValue(vm: *VM, io: *IoObject, arg: Value) VMError!void {
         return;
     }
 
-    const str_val = try vm.callMethodByName(arg, "to_s", &[_]Value{}, null);
-    if (!str_val.isString()) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "to_s did not return String", .{});
-    }
-    const str = str_val.toStringObject().str;
+    const str = try vm.coerceViaToS(arg);
     _ = try ioWriteBytes(vm, io, str);
     if (!std.mem.endsWith(u8, str, "\n")) {
         _ = try ioWriteBytes(vm, io, "\n");

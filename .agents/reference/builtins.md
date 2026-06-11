@@ -27,6 +27,7 @@
 - `Value.coerceToStringValue` in `src/value.zig` is the canonical implicit String coercion path for `to_str` semantics that should raise `TypeError` on failure.
 - `Value.coerceToStr` should be used when you need `[]const u8` bytes after the same implicit coercion.
 - `VM.probeToStringValue` is the preferred optional/cooperative `to_str` probe helper when missing `to_str` or nil should map to fallback behavior.
+- `VM.coerceViaToS` in `src/vm.zig` is the canonical path for explicit `to_s` coercion that raises `TypeError` ("to_s did not return String").
 - Use `VM.checkCallMethodByName(..., "to_str", false, ...)` only when no shared `to_str` probe helper matches the semantics.
 - If you only need capability probing, such as checking `to_str` support for `String#==` reverse dispatch, prefer `respond_to?` semantics rather than forcing coercion.
 - Use `VM.coerceToPath` for path arguments (`to_path` and then String coercion).
