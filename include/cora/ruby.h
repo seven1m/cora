@@ -4,6 +4,11 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <stdlib.h>
+#include <stdio.h>
+#include <limits.h>
+#include <string.h>
+#include <ctype.h>
+#include <sys/time.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -29,6 +34,11 @@ typedef struct { int _; } rb_encoding;
 
 #define INT2FIX(x) (((VALUE)(x)) << 1 | RUBY_FIXNUM_FLAG)
 #define FIX2LONG(x) ((long)((x) >> 1))
+#define FIX2INT(x)  ((int)FIX2LONG(x))
+#define LONG2FIX(x) INT2FIX(x)
+
+#define FIXNUM_MAX ((VALUE)(LONG_MAX >> 1))
+#define FIXNUM_MIN ((VALUE)(LONG_MIN >> 1))
 
 #define T_NONE     0x00
 #define T_OBJECT   0x01
@@ -134,6 +144,23 @@ extern VALUE rb_eNoMemoryError; /* same as rb_eNoMemError */
 #define RSTRING_END(str)  (RSTRING_PTR(str) + RSTRING_LEN(str))
 #define ENCODING_GET(str) rb_encoding_get(str)
 
+#define RB_INTEGER_TYPE_P(obj) (FIXNUM_P(obj) || TYPE(obj) == T_BIGNUM)
+
+#define ID2SYM(id) ((VALUE)(id))
+#define SYM2ID(sym) ((ID)(sym))
+
+#define HAVE_GMTIME_R 1
+#define HAVE_LOCALTIME_R 1
+
+VALUE rb_hash(VALUE obj);
+#define DBL2NUM(v) rb_float_new(v)
+VALUE rb_float_new(double v);
+VALUE rb_enc_str_asciicompat_p(VALUE str);
+
+#define NUM2SIZET(v) ((size_t)NUM2LONG(v))
+#define PRI_SIZE_PREFIX "l"
+#define PRIsVALUE "s"
+
 /* array macros */
 VALUE rb_ary_entry(VALUE ary, long offset);
 long  RARRAY_LEN(VALUE ary);
@@ -149,6 +176,35 @@ const VALUE *rb_ary_const_ptr(VALUE ary);
 #define SafeStringValue(v)   StringValue(v)
 
 #define RB_GC_GUARD(v) ((void)(v))
+
+#define RUBY_EXTERN extern
+#define ISDIGIT(c) isdigit(c)
+#define ISLOWER(c) islower(c)
+#define ISUPPER(c) isupper(c)
+#define TOUPPER(c) toupper(c)
+#define TOLOWER(c) tolower(c)
+#define STRTOUL strtoul
+
+static inline int rb_type(VALUE obj) { (void)obj; return T_NONE; }
+#define TYPE(obj) rb_type(obj)
+#define RB_TYPE_P(obj, type) (rb_type(obj) == (type))
+
+#define RB_OBJ_WRITE(a, b, c) ((void)0)
+#define RB_OBJ_WRITTEN(a, b, c) RB_OBJ_WRITE(a, b, c)
+
+#define RETURN_ENUMERATOR(obj, argc, argv) ((void)0)
+
+#define CLASS_OF(obj) rb_class_of(obj)
+
+#define SIZEOF_LONG (sizeof(long))
+#define DECIMAL_SIZE_OF_BITS(b) (((b) * 643 + 2136) / 2137)
+
+double rb_float_value(VALUE v);
+#define RFLOAT_VALUE(v) rb_float_value(v)
+double rb_num2dbl(VALUE v);
+#define NUM2DBL(v) rb_num2dbl(v)
+
+VALUE rb_usascii_str_new(const char *ptr, long len);
 
 /* integer conversion */
 VALUE INT2NUM(long v);
@@ -174,8 +230,9 @@ typedef struct rb_data_type_struct {
 
 #define RUBY_TYPED_DEFAULT_FREE NULL
 #define RUBY_TYPED_NEVER_FREE   ((void (*)(void *))(-1))
-#define RUBY_TYPED_FREE_IMMEDIATELY  NULL
+#define RUBY_TYPED_FREE_IMMEDIATELY  0
 #define RUBY_TYPED_WB_PROTECTED  1
+#define RUBY_TYPED_FROZEN_SHAREABLE 0
 
 VALUE TypedData_Wrap_Struct(VALUE klass, const rb_data_type_t *type, void *data);
 VALUE rb_data_typed_object_alloc(VALUE klass, const rb_data_type_t *type);
@@ -185,6 +242,14 @@ void *Check_TypedStruct(VALUE obj, const rb_data_type_t *type);
      TypedData_Wrap_Struct(klass, type, data))
 #define TypedData_Get_Struct(obj, type_name, type, data) \
     ((data) = (type_name *)Check_TypedStruct(obj, type))
+
+#define RTYPEDDATA_DATA(obj) Check_TypedStruct(obj, NULL)
+#define DATA_PTR(obj) Check_TypedStruct(obj, NULL)
+
+void rb_data_set_typeddata(VALUE obj, void *data);
+
+typedef struct { int basic; const rb_data_type_t *type; int typed_flag; void *data; } RTypedData;
+#define RTYPEDDATA(obj) ((RTypedData *)(uintptr_t)(obj))
 
 /* Check_Type */
 void Check_Type(VALUE obj, int type);
@@ -198,6 +263,7 @@ VALUE  rb_string_value(VALUE *ptr);
 
 VALUE  rb_str_new(const char *ptr, long len);
 VALUE  rb_str_new_cstr(const char *ptr);
+VALUE  rb_usascii_str_new(const char *ptr, long len);
 VALUE  rb_str_new2(const char *ptr);
 #define rb_str_new_cstr rb_str_new2
 VALUE  rb_usascii_str_new_cstr(const char *ptr);
@@ -283,7 +349,77 @@ void         *xcalloc(size_t n, size_t size);
 void         *xrealloc(void *ptr, size_t size);
 void          xfree(void *ptr);
 
+#include "ruby/util.h"
+#include "ruby/missing.h"
+#include "ruby/st.h"
+
 #define RUBY_API_VERSION_CODE 30200
+
+extern VALUE rb_cRational;
+extern VALUE rb_cTime;
+extern VALUE rb_mComparable;
+
+VALUE rb_define_class(const char *name, VALUE super);
+void  rb_include_module(VALUE klass, VALUE module);
+void  rb_define_alias(VALUE klass, const char *name, const char *def);
+VALUE rb_singleton_class(VALUE obj);
+VALUE rb_obj_is_kind_of(VALUE obj, VALUE klass);
+VALUE rb_cmpint(VALUE val, VALUE a, VALUE b);
+
+VALUE rb_hash_new(void);
+VALUE rb_hash_aref(VALUE hash, VALUE key);
+VALUE rb_hash_aset(VALUE hash, VALUE key, VALUE val);
+VALUE rb_hash_delete(VALUE hash, VALUE key);
+
+VALUE rb_str_append(VALUE str, VALUE str2);
+VALUE rb_str_cat(VALUE str, const char *ptr, long len);
+VALUE rb_str_dup(VALUE str);
+VALUE rb_str_to_inum(VALUE str, int base, int badcheck);
+VALUE rb_str_subseq(VALUE str, long beg, long len);
+VALUE rb_str_new_frozen(VALUE str);
+long  rb_strlen_lit(const char *ptr);
+
+VALUE rb_reg_new(const char *source, long len, int options);
+VALUE rb_reg_nth_match(long nth, VALUE match);
+
+void rb_warn(const char *fmt, ...);
+int  rb_warning(const char *fmt, ...);
+
+VALUE rb_ary_freeze(VALUE ary);
+VALUE rb_ary_new2(long len);
+
+VALUE rb_obj_freeze(VALUE obj);
+void  rb_check_frozen(VALUE obj);
+void  rb_check_arity(int argc, int min, int max);
+void *rb_check_typeddata(VALUE obj, const void *data_type);
+void  rb_gc_mark(VALUE ptr);
+void  rb_gc_register_mark_object(VALUE obj);
+VALUE rb_marshal_load(VALUE source);
+
+VALUE rb_enc_copy(VALUE dest, VALUE src);
+VALUE rb_enc_sprintf(rb_encoding *enc, const char *fmt, ...);
+VALUE rb_str_format(int argc, const VALUE *argv, VALUE fmt);
+
+void rb_sys_fail(const char *msg);
+void rb_undef_method(VALUE klass, const char *name);
+ID   rb_intern_const(const char *name);
+VALUE rb_int_positive_pow(long x, unsigned long y);
+
+VALUE rb_cstr_to_inum(const char *str, int base, int badcheck);
+int   rb_match_busy(VALUE match);
+long  rb_memhash(const void *ptr, long len);
+
+VALUE rb_num_coerce_cmp(VALUE x, VALUE y, ID cmp);
+VALUE rb_rational_new(VALUE num, VALUE den);
+VALUE rb_rational_new1(VALUE num);
+VALUE rb_rational_num(VALUE rat);
+VALUE rb_rational_den(VALUE rat);
+VALUE rb_rational_new2(VALUE num, VALUE den);
+
+VALUE rb_backref_get(void);
+void  rb_backref_set(VALUE val);
+void  rb_category_warn(int category, const char *fmt, ...);
+void  rb_copy_generic_ivar(VALUE clone, VALUE obj);
 
 #ifdef __cplusplus
 }

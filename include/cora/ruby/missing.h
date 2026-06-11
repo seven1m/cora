@@ -3,4 +3,7 @@
 
 #include "../ruby.h"
 
+#include <strings.h>
+#define STRNCASECMP strncasecmp
+
 #endif

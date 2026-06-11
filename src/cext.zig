@@ -85,6 +85,9 @@ pub export var rb_eEOFError: VALUE = 0;
 pub export var rb_eEncodingError: VALUE = 0;
 pub export var rb_eEncCompatError: VALUE = 0;
 
+pub export var rb_cRational: VALUE = 0;
+pub export var rb_mComparable: VALUE = 0;
+
 pub fn setupGlobals(vm: *VM) void {
     cext_globals.setCurrentVM(vm);
 
@@ -161,6 +164,12 @@ pub fn setupGlobals(vm: *VM) void {
     rb_eEOFError = Value.fromObject(&vm.eof_error_class.module.object).raw;
     rb_eEncodingError = Value.fromObject(&vm.encoding_error_class.module.object).raw;
     rb_eEncCompatError = Value.fromObject(&vm.encoding_compatibility_error_class.module.object).raw;
+
+    rb_cRational = Value.fromObject(&vm.rational_class.module.object).raw;
+    const comparable_sym = vm.intern("Comparable") catch return;
+    if (vm.object_class.module.constants.get(comparable_sym)) |entry| {
+        rb_mComparable = entry.value.raw;
+    }
 }
 
 const encoding_instances = blk: {
@@ -889,4 +898,516 @@ export fn UINT2NUM(v: c_uint) VALUE {
 
 export fn ULONG2NUM(v: c_ulong) VALUE {
     return Value.integer(@intCast(v)).raw;
+}
+
+// ─── Module/class definition continued ──────────────────────────────────────
+
+export fn rb_define_class(name_ptr: [*c]const u8, super_raw: VALUE) VALUE {
+    const vm = getVM();
+    const name = std.mem.span(name_ptr);
+    const sym = vm.intern(name) catch return 0;
+    if (vm.object_class.module.constants.get(sym)) |entry| {
+        return entry.value.raw;
+    }
+    const super_class: ?*value.ClassObject = if (super_raw != 0) @ptrFromInt(super_raw) else null;
+    const val = vm.newClass(sym, super_class) catch return 0;
+    vm.object_class.module.constants.put(sym, .{ .value = val }) catch return 0;
+    return val.raw;
+}
+
+export fn rb_include_module(klass_raw: VALUE, module_raw: VALUE) void {
+    const vm = getVM();
+    const klass = Value{ .raw = klass_raw };
+    const target_mod = if (klass.isClass()) &klass.toClassObject().module else @as(*value.ModuleObject, @ptrFromInt(klass_raw));
+    const module_mod: *value.ModuleObject = @ptrFromInt(module_raw);
+    vm.includeModule(target_mod, module_mod) catch return;
+}
+
+export fn rb_define_alias(klass_raw: VALUE, new_name_ptr: [*c]const u8, old_name_ptr: [*c]const u8) void {
+    const vm = getVM();
+    const new_name = std.mem.span(new_name_ptr);
+    const old_name = std.mem.span(old_name_ptr);
+    const new_sym = vm.intern(new_name) catch return;
+    const old_sym = vm.intern(old_name) catch return;
+    const klass = Value{ .raw = klass_raw };
+    const mod = if (klass.isClass()) &klass.toClassObject().module else @as(*value.ModuleObject, @ptrFromInt(klass_raw));
+    if (mod.methods.get(old_sym)) |entry| {
+        mod.methods.put(new_sym, entry) catch return;
+    }
+}
+
+export fn rb_singleton_class(obj_raw: VALUE) VALUE {
+    const vm = getVM();
+    const singleton = vm.getOrCreateSingletonClass(Value{ .raw = obj_raw }) catch return 0;
+    return Value.fromObject(&singleton.module.object).raw;
+}
+
+// ─── Object type checking ────────────────────────────────────────────────────
+
+export fn rb_obj_is_kind_of(obj_raw: VALUE, klass_raw: VALUE) VALUE {
+    const vm = getVM();
+    var args = [_]Value{Value{ .raw = klass_raw }};
+    const result = vm.callMethodByName(Value{ .raw = obj_raw }, "kind_of?", &args, null) catch return 0;
+    return result.raw;
+}
+
+export fn rb_cmpint(val_raw: VALUE, a_raw: VALUE, b_raw: VALUE) VALUE {
+    _ = a_raw;
+    _ = b_raw;
+    const vm = getVM();
+    const val = Value{ .raw = val_raw };
+    if (val.isNil()) return 0;
+    if (!val.isInteger()) {
+        _ = vm.raiseExceptionFmt(@ptrFromInt(rb_eArgError), "comparison failed", .{}) catch {};
+        return 0;
+    }
+    return val_raw;
+}
+
+// ─── Hash functions ──────────────────────────────────────────────────────────
+
+export fn rb_hash_new() VALUE {
+    const vm = getVM();
+    const hash_obj = vm.createHash() catch return 0;
+    return Value.fromObject(&hash_obj.object).raw;
+}
+
+export fn rb_hash_aref(hash_raw: VALUE, key_raw: VALUE) VALUE {
+    const vm = getVM();
+    const val = Value{ .raw = hash_raw };
+    const hash_obj = val.toHashObject();
+    const entry = vm.hashGetEntry(hash_obj, Value{ .raw = key_raw }) catch return 0;
+    return if (entry) |e| e.value.raw else 0;
+}
+
+export fn rb_hash_aset(hash_raw: VALUE, key_raw: VALUE, val_raw: VALUE) VALUE {
+    const vm = getVM();
+    const val = Value{ .raw = hash_raw };
+    const hash_obj = val.toHashObject();
+    vm.hashSetEntry(hash_obj, Value{ .raw = key_raw }, Value{ .raw = val_raw }) catch return 0;
+    return val_raw;
+}
+
+export fn rb_hash_delete(hash_raw: VALUE, key_raw: VALUE) VALUE {
+    const vm = getVM();
+    const val = Value{ .raw = hash_raw };
+    const hash_obj = val.toHashObject();
+    const deleted = vm.hashDeleteEntry(hash_obj, Value{ .raw = key_raw }) catch return 0;
+    return if (deleted) |v| v.raw else 0;
+}
+
+// ─── String functions continued ──────────────────────────────────────────────
+
+export fn rb_str_append(str_raw: VALUE, str2_raw: VALUE) VALUE {
+    const vm = getVM();
+    var args = [_]Value{Value{ .raw = str2_raw }};
+    const result = vm.callMethodByName(Value{ .raw = str_raw }, "<<", &args, null) catch return str_raw;
+    return result.raw;
+}
+
+export fn rb_str_dup(str_raw: VALUE) VALUE {
+    const vm = getVM();
+    const result = vm.callMethodByName(Value{ .raw = str_raw }, "dup", &[_]Value{}, null) catch return 0;
+    return result.raw;
+}
+
+export fn rb_str_cat(str_raw: VALUE, ptr: [*c]const u8, len: c_long) VALUE {
+    if (ptr == null or len <= 0) return str_raw;
+    const vm = getVM();
+    const s = ptr[0..@intCast(len)];
+    const str_val = vm.newString(s, false) catch return 0;
+    var args = [_]Value{str_val};
+    const result = vm.callMethodByName(Value{ .raw = str_raw }, "<<", &args, null) catch return str_raw;
+    return result.raw;
+}
+
+export fn rb_hash(obj_raw: VALUE) VALUE {
+    const vm = getVM();
+    const result = vm.callMethodByName(Value{ .raw = obj_raw }, "to_hash", &[_]Value{}, null) catch return 0;
+    return result.raw;
+}
+
+export fn rb_float_new(v: f64) VALUE {
+    const vm = getVM();
+    const float_obj = vm.gc_allocator.create(value.FloatObject) catch return 0;
+    float_obj.* = .{
+        .object = .{ .type_tag = .float, .flags = 0, .class = vm.float_class, .singleton_class = null, .instance_variables = null },
+        .val = v,
+    };
+    return Value.fromObject(&float_obj.object).raw;
+}
+
+export fn rb_enc_str_asciicompat_p(str_raw: VALUE) VALUE {
+    _ = str_raw;
+    return Value.TRUE.raw;
+}
+
+export fn rb_str_to_inum(str_raw: VALUE, base: c_int, badcheck: c_int) VALUE {
+    const vm = getVM();
+    var args = [_]Value{ Value.integer(base) };
+    const result = vm.callMethodByName(Value{ .raw = str_raw }, "to_i", &args, null) catch return 0;
+    _ = badcheck;
+    return result.raw;
+}
+
+export fn rb_str_subseq(str_raw: VALUE, beg: c_long, len: c_long) VALUE {
+    const vm = getVM();
+    var args = [_]Value{ Value.integer(beg), Value.integer(len) };
+    const result = vm.callMethodByName(Value{ .raw = str_raw }, "[]", &args, null) catch return 0;
+    return result.raw;
+}
+
+export fn rb_str_new_frozen(str_raw: VALUE) VALUE {
+    const vm = getVM();
+    const result = vm.callMethodByName(Value{ .raw = str_raw }, "freeze", &[_]Value{}, null) catch return 0;
+    return result.raw;
+}
+
+export fn rb_strlen_lit(ptr: [*c]const u8) c_long {
+    if (ptr == null) return 0;
+    return @intCast(std.mem.sliceTo(ptr, 0).len);
+}
+
+// ─── Regex ──────────────────────────────────────────────────────────────────
+
+export fn rb_reg_new(source: [*c]const u8, len: c_long, options: c_int) VALUE {
+    const vm = getVM();
+    const s = if (source != null) source[0..@intCast(len)] else "";
+    _ = options;
+    var args = [_]Value{vm.newString(s, false) catch return 0};
+    const result = vm.callMethodByName(vm.main_self, "Regexp", &args, null) catch return 0;
+    return result.raw;
+}
+
+export fn rb_reg_nth_match(nth: c_long, match_raw: VALUE) VALUE {
+    const vm = getVM();
+    var args = [_]Value{ Value.integer(nth) };
+    const result = vm.callMethodByName(Value{ .raw = match_raw }, "[]", &args, null) catch return 0;
+    return result.raw;
+}
+
+// ─── Warnings ────────────────────────────────────────────────────────────────
+
+export fn rb_warn(fmt: [*c]const u8, ...) void {
+    if (fmt == null) return;
+    const msg = std.mem.span(fmt);
+    const vm = getVM();
+    var args = [_]Value{vm.newString(msg, false) catch return};
+    _ = vm.callMethodByName(vm.main_self, "warn", &args, null) catch {};
+}
+
+export fn rb_warning(fmt: [*c]const u8, ...) c_int {
+    _ = fmt;
+    return 1;
+}
+
+export fn rb_usascii_str_new(ptr: [*c]const u8, len: c_long) VALUE {
+    return rb_str_new(ptr, len);
+}
+
+export fn rb_float_value(v: VALUE) f64 {
+    const val = Value{ .raw = v };
+    if (val.isFloat()) {
+        return val.toFloatObject().val;
+    }
+    return 0.0;
+}
+
+export fn rb_num2dbl(v: VALUE) f64 {
+    const val = Value{ .raw = v };
+    if (val.isFloat()) {
+        return val.toFloatObject().val;
+    }
+    if (val.isInteger()) {
+        return @floatFromInt(val.toInteger());
+    }
+    if (val.isRational()) {
+        const rat = val.toRationalObject();
+        const num = Value{ .raw = rat.numerator.raw };
+        const den = Value{ .raw = rat.denominator.raw };
+        if (num.isInteger() and den.isInteger()) {
+            return @as(f64, @floatFromInt(num.toInteger())) / @as(f64, @floatFromInt(den.toInteger()));
+        }
+    }
+    return 0.0;
+}
+
+// ─── Array ───────────────────────────────────────────────────────────────────
+
+export fn rb_ary_freeze(ary_raw: VALUE) VALUE {
+    const vm = getVM();
+    _ = vm.callMethodByName(Value{ .raw = ary_raw }, "freeze", &[_]Value{}, null) catch {};
+    return ary_raw;
+}
+
+export fn rb_ary_new2(len: c_long) VALUE {
+    _ = len;
+    return rb_ary_new();
+}
+
+// ─── Freeze / check frozen ───────────────────────────────────────────────────
+
+export fn rb_obj_freeze(obj_raw: VALUE) VALUE {
+    const vm = getVM();
+    _ = vm.callMethodByName(Value{ .raw = obj_raw }, "freeze", &[_]Value{}, null) catch {};
+    return obj_raw;
+}
+
+export fn rb_check_frozen(obj_raw: VALUE) void {
+    const val = Value{ .raw = obj_raw };
+    if (val.isFrozen()) {
+        const vm = getVM();
+        _ = vm.raiseExceptionFmt(@ptrFromInt(rb_eFrozenError), "can't modify frozen object", .{}) catch {};
+    }
+}
+
+export fn rb_check_arity(argc: c_int, min: c_int, max: c_int) void {
+    _ = argc;
+    _ = min;
+    _ = max;
+}
+
+export fn rb_check_typeddata(obj_raw: VALUE, data_type: ?*const anyopaque) ?*anyopaque {
+    _ = data_type;
+    const vm = getVM();
+    const data_val = vm.getInstanceVariable(Value{ .raw = obj_raw }, "@data") catch return null;
+    if (data_val.isInteger()) {
+        return @ptrFromInt(@as(usize, @intCast(data_val.toInteger())));
+    }
+    return null;
+}
+
+// ─── GC ──────────────────────────────────────────────────────────────────────
+
+export fn rb_gc_mark(ptr: VALUE) void {
+    _ = ptr;
+}
+
+export fn rb_gc_register_mark_object(obj: VALUE) void {
+    _ = obj;
+}
+
+// ─── Marshal ─────────────────────────────────────────────────────────────────
+
+export fn rb_marshal_load(source_raw: VALUE) VALUE {
+    const vm = getVM();
+    const result = vm.callMethodByName(vm.main_self, "Marshal", &[_]Value{}, null) catch return 0;
+    if (result.raw == 0) return 0;
+    var load_args = [_]Value{ Value{ .raw = source_raw } };
+    const loaded = vm.callMethodByName(result, "load", &load_args, null) catch return 0;
+    return loaded.raw;
+}
+
+// ─── Encoding ────────────────────────────────────────────────────────────────
+
+export fn rb_enc_copy(dest_raw: VALUE, src_raw: VALUE) VALUE {
+    _ = src_raw;
+    return dest_raw;
+}
+
+export fn rb_enc_sprintf(enc_ptr: ?*anyopaque, fmt: [*c]const u8, ...) VALUE {
+    _ = enc_ptr;
+    if (fmt == null) return 0;
+    const vm = getVM();
+    const s = std.mem.span(fmt);
+    const str_val = vm.newString(s, false) catch return 0;
+    return str_val.raw;
+}
+
+export fn rb_str_format(argc: c_int, argv: [*c]const VALUE, fmt_raw: VALUE) VALUE {
+    const vm = getVM();
+    const args: []Value = if (argv != null and argc > 0)
+        @as([*]Value, @ptrCast(@constCast(argv)))[0..@intCast(argc)]
+    else
+        &[_]Value{};
+    const result = vm.callMethodByName(Value{ .raw = fmt_raw }, "%", args, null) catch return 0;
+    return result.raw;
+}
+
+// ─── System ──────────────────────────────────────────────────────────────────
+
+export fn rb_sys_fail(msg: [*c]const u8) void {
+    if (msg == null) return;
+    const vm = getVM();
+    _ = vm.raiseExceptionFmt(@ptrFromInt(rb_eSystemCallError), "{s}", .{std.mem.span(msg)}) catch {};
+}
+
+export fn rb_undef_method(klass_raw: VALUE, name_ptr: [*c]const u8) void {
+    const vm = getVM();
+    const name = std.mem.span(name_ptr);
+    const sym = vm.intern(name) catch return;
+    const klass = Value{ .raw = klass_raw };
+    const mod = if (klass.isClass()) &klass.toClassObject().module else @as(*value.ModuleObject, @ptrFromInt(klass_raw));
+    _ = mod.methods.remove(sym);
+}
+
+// ─── Intern ──────────────────────────────────────────────────────────────────
+
+export fn rb_intern_const(name: [*c]const u8) VALUE {
+    return rb_intern(name);
+}
+
+// ─── Integer ─────────────────────────────────────────────────────────────────
+
+export fn rb_int_positive_pow(x: c_long, y: c_ulong) VALUE {
+    var result: i64 = 1;
+    var base: i64 = x;
+    var exp: u64 = y;
+    while (exp > 0) {
+        if (exp & 1 == 1) {
+            result = result *% base;
+        }
+        exp >>= 1;
+        if (exp > 0) {
+            base = base *% base;
+        }
+    }
+    return Value.integer(result).raw;
+}
+
+export fn rb_cstr_to_inum(str: [*c]const u8, base: c_int, badcheck: c_int) VALUE {
+    if (str == null) return 0;
+    const vm = getVM();
+    const s = vm.newString(std.mem.span(str), false) catch return 0;
+    return rb_str_to_inum(s.raw, base, badcheck);
+}
+
+// ─── Match ───────────────────────────────────────────────────────────────────
+
+export fn rb_match_busy(match_raw: VALUE) c_int {
+    _ = match_raw;
+    return 0;
+}
+
+// ─── Memory hash ─────────────────────────────────────────────────────────────
+
+export fn rb_memhash(ptr: ?*const anyopaque, len: c_long) c_long {
+    if (ptr == null or len <= 0) return 0;
+    const bytes: [*]const u8 = @ptrCast(ptr);
+    var h: u64 = 5381;
+    var i: c_long = 0;
+    while (i < len) : (i += 1) {
+        h = ((h << 5) + h) + bytes[@intCast(i)];
+    }
+    return @intCast(h & 0x7fffffffffffffff);
+}
+
+// ─── Numeric coercion ────────────────────────────────────────────────────────
+
+export fn rb_num_coerce_cmp(x_raw: VALUE, y_raw: VALUE, cmp_id: VALUE) VALUE {
+    _ = cmp_id;
+    const vm = getVM();
+    var args = [_]Value{ Value{ .raw = y_raw } };
+    const result = vm.callMethodByName(Value{ .raw = x_raw }, "<=>", &args, null) catch return 0;
+    return result.raw;
+}
+
+// ─── Rational ────────────────────────────────────────────────────────────────
+
+export fn rb_rational_new(num_raw: VALUE, den_raw: VALUE) VALUE {
+    const vm = getVM();
+    const rat = vm.newRationalValues(
+        Value{ .raw = num_raw },
+        Value{ .raw = den_raw },
+    ) catch return 0;
+    return rat.raw;
+}
+
+export fn rb_rational_new1(num_raw: VALUE) VALUE {
+    return rb_rational_new(num_raw, INT2NUM(1));
+}
+
+export fn rb_rational_num(rat_raw: VALUE) VALUE {
+    const val = Value{ .raw = rat_raw };
+    if (val.isRational()) {
+        return val.toRationalObject().numerator.raw;
+    }
+    return 0;
+}
+
+export fn rb_rational_den(rat_raw: VALUE) VALUE {
+    const val = Value{ .raw = rat_raw };
+    if (val.isRational()) {
+        return val.toRationalObject().denominator.raw;
+    }
+    return 0;
+}
+
+export fn rb_rational_new2(num_raw: VALUE, den_raw: VALUE) VALUE {
+    return rb_rational_new(num_raw, den_raw);
+}
+
+// ─── Backref ─────────────────────────────────────────────────────────────────
+
+export fn rb_backref_get() VALUE {
+    return Value.NIL.raw;
+}
+
+export fn rb_backref_set(val: VALUE) void {
+    _ = val;
+}
+
+// ─── Category warn ───────────────────────────────────────────────────────────
+
+export fn rb_category_warn(category: c_int, fmt: [*c]const u8, ...) void {
+    _ = category;
+    rb_warn(fmt);
+}
+
+// ─── Copy generic ivar ───────────────────────────────────────────────────────
+
+export fn rb_copy_generic_ivar(clone_raw: VALUE, obj_raw: VALUE) void {
+    _ = clone_raw;
+    _ = obj_raw;
+}
+
+// ─── Temp buffer ─────────────────────────────────────────────────────────────
+
+export fn rb_alloc_tmp_buffer(store: *volatile VALUE, size: usize) ?*anyopaque {
+    const ptr = xmalloc(size);
+    store.* = @intFromPtr(ptr);
+    return ptr;
+}
+
+export fn rb_free_tmp_buffer(store: *volatile VALUE) void {
+    if (store.* != 0) {
+        xfree(@ptrFromInt(store.*));
+        store.* = 0;
+    }
+}
+
+// ─── Data scanning ───────────────────────────────────────────────────────────
+
+export fn ruby_scan_digits(str_ptr: [*c]const u8, len: isize, base: c_int, retlen: ?*usize, overflow: ?*c_int) c_ulong {
+    if (str_ptr == null or len <= 0) {
+        if (retlen) |r| r.* = 0;
+        return 0;
+    }
+    const str = str_ptr[0..@intCast(len)];
+    var i: usize = 0;
+    var result: c_ulong = 0;
+    const b: c_ulong = @intCast(base);
+
+    while (i < str.len) : (i += 1) {
+        const c = str[i];
+        const digit: c_ulong = if (c >= '0' and c <= '9')
+            @intCast(c - '0')
+        else if (c >= 'a' and c <= 'z')
+            @intCast(c - 'a' + 10)
+        else if (c >= 'A' and c <= 'Z')
+            @intCast(c - 'A' + 10)
+        else
+            break;
+
+        if (digit >= b) break;
+
+        const prev = result;
+        result = result *% b +% digit;
+        if (overflow != null and result < prev) {
+            overflow.?.* = 1;
+        }
+    }
+
+    if (retlen) |r| r.* = i;
+    return result;
 }

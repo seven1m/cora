@@ -97,6 +97,8 @@ pub const makefile_config_entries = [_]ConfigEntry{
     .{ .key = "INSTALL_DATA", .value = cfg.install_data },
     .{ .key = "CP", .value = cfg.cp },
     .{ .key = "RM", .value = cfg.rm },
+    .{ .key = "RMALL", .value = cfg.rmall },
+    .{ .key = "RMDIRS", .value = cfg.rmdirs },
     .{ .key = "MKDIR_P", .value = cfg.mkdir_p },
     .{ .key = "MAKEDIRS", .value = cfg.makedirs },
     .{ .key = "LN_S", .value = cfg.ln_s },

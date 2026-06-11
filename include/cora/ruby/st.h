@@ -3,4 +3,7 @@
 
 #include "../ruby.h"
 
+typedef long st_index_t;
+#define ST2FIX(x) LONG2FIX(x)
+
 #endif
