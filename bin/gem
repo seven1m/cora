@@ -16,11 +16,6 @@ bindir = File.dirname(File.expand_path(__FILE__))
 rubygems_lib = File.join(bindir, "..", "ext", "rubygems", "lib")
 $LOAD_PATH.unshift(rubygems_lib) if rubygems_lib
 
-# Default gem home to ~/.gem/cora/4.0.0 (same convention as MRI's ~/.gem/ruby/3.4.0).
-# Honour any GEM_HOME already set in the environment.
-ENV["GEM_HOME"] ||= File.join(Dir.home, ".gem", RUBY_ENGINE, RUBY_VERSION)
-ENV["GEM_PATH"] ||= ENV["GEM_HOME"]
-
 require "thread"
 require "rubygems/gem_runner"
 Gem::GemRunner.new.run(ARGV.clone)

@@ -16,5 +16,9 @@ pkgs.mkShell {
     zig_0_16
   ];
 
+  shellHook = ''
+    export GEM_HOME="$PWD/.gem"
+    export GEM_PATH="$PWD/.gem"
+  '';
   SSL_CERT_FILE = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
 }
