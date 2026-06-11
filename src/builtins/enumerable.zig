@@ -1,3 +1,4 @@
+const std = @import("std");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 const warning_builtin = @import("warning.zig");
@@ -13,6 +14,8 @@ pub fn register(vm: *VM) !void {
     const enumerable_val = enumerable_entry.value;
     const entries_sym = try vm.intern("entries");
     try enumerable_val.toModuleObject().methods.put(entries_sym, value.MethodEntry.builtin(&builtinEnumerableEntries, .{ .variadic = 0 }));
+    const to_a_sym = try vm.intern("to_a");
+    try enumerable_val.toModuleObject().methods.put(to_a_sym, value.MethodEntry.builtin(&builtinEnumerableToA, .{ .exact = 0 }));
     const map_sym = try vm.intern("map");
     try enumerable_val.toModuleObject().methods.put(map_sym, value.MethodEntry.builtin(&builtinEnumerableMap, .{ .exact = 0 }));
     const collect_sym = try vm.intern("collect");
@@ -31,6 +34,8 @@ pub fn register(vm: *VM) !void {
     try enumerable_val.toModuleObject().methods.put(filter_map_sym, value.MethodEntry.builtin(&builtinEnumerableFilterMap, .{ .exact = 0 }));
     const each_with_object_sym = try vm.intern("each_with_object");
     try enumerable_val.toModuleObject().methods.put(each_with_object_sym, value.MethodEntry.builtin(&builtinEnumerableEachWithObject, .{ .exact = 1 }));
+    const each_slice_sym = try vm.intern("each_slice");
+    try enumerable_val.toModuleObject().methods.put(each_slice_sym, value.MethodEntry.builtin(&builtinEnumerableEachSlice, .{ .exact = 1 }));
     const find_sym = try vm.intern("find");
     try enumerable_val.toModuleObject().methods.put(find_sym, value.MethodEntry.builtin(&builtinEnumerableFind, .{ .variadic = 0 }));
     const detect_sym = try vm.intern("detect");
@@ -310,6 +315,16 @@ fn builtinEnumerableEntries(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     return vm.callMethodByName(receiver, "to_a", &.{}, null);
 }
 
+fn builtinEnumerableToA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
+    const out = try vm.createArray();
+    while (try enumerableNextElement(vm, enum_value)) |element| {
+        out.elements.append(vm.gc_allocator, element) catch return error.Fatal;
+    }
+    return Value.fromObject(&out.object);
+}
+
 fn builtinEnumerableEachWithObject(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const memo = args[0];
@@ -329,6 +344,76 @@ fn builtinEnumerableEachWithObject(vm: *VM, receiver: Value, args: []Value, bloc
     }
 
     return memo;
+}
+
+fn builtinEnumerableEachSlice(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const n_value = if (try vm.checkCallMethodByName(args[0], "to_int", false, &[_]Value{}, null)) |coerced|
+        coerced
+    else
+        args[0];
+
+    if (!n_value.isInteger()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "no implicit conversion of {s} into Integer", .{vm.className(n_value)});
+    }
+
+    const n = n_value.toInteger();
+    if (n <= 0) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "invalid slice size", .{});
+    }
+
+    const n_usize: usize = @intCast(n);
+
+    const blk = block orelse {
+        const method_name = try vm.intern("each_slice");
+        if (try vm.checkCallMethodByName(receiver, "size", false, &.{}, null)) |size_val| {
+            if (size_val.isInteger()) {
+                const size = size_val.toInteger();
+                const slice_count = @divTrunc(size + n - 1, n);
+                return vm.createMethodEnumeratorWithSize(receiver, method_name, args, Value.integer(slice_count));
+            }
+        }
+        return vm.createMethodEnumerator(receiver, method_name, args);
+    };
+
+    const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
+    var slice: std.ArrayList(Value) = .empty;
+    defer slice.deinit(vm.allocator);
+
+    while (true) {
+        const next_values = vm.callMethodByName(enum_value, "next_values", &.{}, null) catch |err| {
+            if (err == error.Unwind and vm.pendingException() != null and vm.pendingException().?.object.class == vm.stop_iteration_class) {
+                vm.setPendingException(null);
+                break;
+            }
+            return err;
+        };
+
+        const element = collapseYieldValues(next_values.toArrayObject());
+        slice.append(vm.allocator, element) catch return error.Fatal;
+
+        if (slice.items.len == n_usize) {
+            const slice_ary = try vm.createArray();
+            for (slice.items) |elem| {
+                slice_ary.elements.append(vm.gc_allocator, elem) catch return error.Fatal;
+            }
+            const yield_args = [_]Value{Value.fromObject(&slice_ary.object)};
+            const result = try vm.yieldToBlock(blk, &yield_args);
+            slice.clearRetainingCapacity();
+            if (result.controlFlowValue()) |return_value| return return_value;
+        }
+    }
+
+    if (slice.items.len > 0) {
+        const slice_ary = try vm.createArray();
+        for (slice.items) |elem| {
+            slice_ary.elements.append(vm.gc_allocator, elem) catch return error.Fatal;
+        }
+        const yield_args = [_]Value{Value.fromObject(&slice_ary.object)};
+        _ = try vm.yieldToBlock(blk, &yield_args);
+    }
+
+    return receiver;
 }
 
 fn builtinEnumerableGroupBy(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {

@@ -434,7 +434,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/enumerable/drop_while_spec.rb
 - [ ] core/enumerable/each_cons_spec.rb
 - [ ] core/enumerable/each_entry_spec.rb
-- [ ] core/enumerable/each_slice_spec.rb
+- [x] core/enumerable/each_slice_spec.rb
 - [ ] core/enumerable/each_with_index_spec.rb
 - [x] core/enumerable/each_with_object_spec.rb
 - [ ] core/enumerable/entries_spec.rb
