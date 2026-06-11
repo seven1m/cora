@@ -48,6 +48,9 @@ pub fn register(vm: *VM) !void {
     const binread_sym = try vm.intern("binread");
     try io_singleton.module.methods.put(binread_sym, value.MethodEntry.builtin(&builtinIoBinread, .{ .variadic = 0 }));
 
+    const foreach_sym = try vm.intern("foreach");
+    try io_singleton.module.methods.put(foreach_sym, value.MethodEntry.builtin(&builtinIoForeach, .{ .variadic = 0 }));
+
     const initialize_sym = try vm.intern("initialize");
     try vm.io_class.module.methods.put(initialize_sym, value.MethodEntry.builtinWithVisibility(&builtinIoInitialize, .{ .variadic = 1 }, .private));
 
@@ -1110,6 +1113,48 @@ pub fn builtinIoTtyQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
     const io = try requireIoReceiver(vm, receiver);
     try ensureIoOpen(vm, io);
     return Value.boolean(std.c.isatty(@intCast(io.fd)) == 1);
+}
+
+pub fn builtinIoForeach(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 3);
+    const path = try vm.coerceToPathValue(args[0], "no implicit conversion into String");
+    const path_obj = path.toStringObject();
+
+    const path_z = try vm.allocCStringZ(path_obj.str);
+    defer vm.allocator.free(path_z);
+    const flags: std.c.O = .{
+        .ACCMODE = .RDONLY,
+        .CLOEXEC = true,
+    };
+    const mode: std.c.mode_t = 0o666;
+    const fd = std.c.open(path_z.ptr, flags, mode);
+    if (fd < 0) {
+        return vm.raiseErrnoFmt(std.posix.errno(fd), "failed to open file: {s}", .{path_obj.str});
+    }
+
+    const path_copy = vm.gc_allocator.dupe(u8, path_obj.str) catch return error.Fatal;
+    const io_val = try vm.newIo(vm.file_class, @intCast(fd), .{
+        .owns_fd = true,
+        .readable = true,
+        .writable = false,
+        .path = path_copy,
+        .path_encoding = path_obj.encoding,
+    });
+
+    if (block) |blk| {
+        defer _ = vm.callMethodByName(io_val, "close", &[_]Value{}, null) catch {};
+        var empty_args = [_]Value{};
+        while (true) {
+            const line = try builtinIoGets(vm, io_val, empty_args[0..], null);
+            if (line.isNil()) break;
+            const yield_args = [_]Value{line};
+            const result = try vm.yieldToBlock(blk, &yield_args);
+            if (result.controlFlowValue()) |return_value| return return_value;
+        }
+        return Value.nil();
+    }
+
+    return vm.createMethodEnumerator(io_val, try vm.intern("each_line"), args[1..]);
 }
 
 pub fn builtinIoEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
