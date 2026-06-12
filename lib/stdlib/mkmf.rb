@@ -345,7 +345,7 @@ MESSAGE
 
     def self::message(*s)
       log_open
-      @log.print(sprintf(*s))
+      @log.printf(*s)
     end
 
     def self::logfile file
@@ -2075,11 +2075,6 @@ SRC
     end
   end
 
-  def dir_glob_exts(srcdir, exts)
-    glob_root = File.expand_path(srcdir)
-    exts.flat_map {|ext| Dir[File.join(glob_root, "*.#{ext}")]}
-  end
-
   def configuration(srcdir)
     mk = []
     verbose = with_config('verbose') ?  "1" : (CONFIG['MKMF_VERBOSE'] || "0")
@@ -2415,11 +2410,11 @@ RULES
       target_prefix = ""
     end
 
-    srcprefix ||= "."
+    srcprefix ||= "$(srcdir)/#{srcprefix}".chomp('/')
     RbConfig.expand(srcdir = srcprefix.dup)
 
     ext = ".#{$OBJEXT}"
-    orig_srcs = dir_glob_exts(srcdir, SRC_EXT)
+    orig_srcs = Dir[File.join(srcdir, "*.{#{SRC_EXT.join(%q{,})}}")]
     if not $objs
       srcs = $srcs || orig_srcs
       $objs = []
@@ -2440,7 +2435,7 @@ RULES
     end
     $srcs = srcs
 
-    hdrs = dir_glob_exts(srcdir, HDR_EXT)
+    hdrs = Dir[File.join(srcdir, "*.{#{HDR_EXT.join(%q{,})}}")]
 
     target = nil if $objs.empty?
 
@@ -2656,9 +2651,9 @@ site-install-rb: install-rb
     asm_command = compile_command.sub(/compiling/, 'translating') % ASSEMBLE_CXX
     CXX_EXT.each do |e|
       each_compile_rules do |rule|
-        mfile.print(sprintf(rule, e, $OBJEXT))
+        mfile.printf(rule, e, $OBJEXT)
         mfile.print(command)
-        mfile.print(sprintf(rule, e, $ASMEXT))
+        mfile.printf(rule, e, $ASMEXT)
         mfile.print(asm_command)
       end
     end
@@ -2666,9 +2661,9 @@ site-install-rb: install-rb
     asm_command = compile_command.sub(/compiling/, 'translating') % ASSEMBLE_C
     C_EXT.each do |e|
       each_compile_rules do |rule|
-        mfile.print(sprintf(rule, e, $OBJEXT))
+        mfile.printf(rule, e, $OBJEXT)
         mfile.print(command)
-        mfile.print(sprintf(rule, e, $ASMEXT))
+        mfile.printf(rule, e, $ASMEXT)
         mfile.print(asm_command)
       end
     end
