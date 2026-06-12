@@ -1132,7 +1132,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/io/pos_spec.rb
 - [ ] core/io/pread_spec.rb
 - [ ] core/io/print_spec.rb
-- [ ] core/io/printf_spec.rb
+- [x] core/io/printf_spec.rb
 - [ ] core/io/putc_spec.rb
 - [ ] core/io/puts_spec.rb
 - [ ] core/io/pwrite_spec.rb

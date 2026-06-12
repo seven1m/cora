@@ -500,7 +500,7 @@ def fixture(spec_file, fixture_name)
   "#{base}/fixtures/#{fixture_name}"
 end
 
-def new_io(name, mode = "r:utf-8")
+def new_io(name, mode = "w:utf-8")
   File.open(name, mode)
 end
 

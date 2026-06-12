@@ -133,6 +133,9 @@ pub fn register(vm: *VM) !void {
     const print_sym = try vm.intern("print");
     try vm.io_class.module.methods.put(print_sym, value.MethodEntry.builtin(&builtinIoPrint, .{ .variadic = 0 }));
 
+    const printf_sym = try vm.intern("printf");
+    try vm.io_class.module.methods.put(printf_sym, value.MethodEntry.builtin(&builtinIoPrintf, .{ .variadic = 1 }));
+
     const puts_sym = try vm.intern("puts");
     try vm.io_class.module.methods.put(puts_sym, value.MethodEntry.builtin(&builtinIoPuts, .{ .variadic = 0 }));
 
@@ -2124,6 +2127,21 @@ pub fn builtinIoPrint(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
     for (args) |arg| {
         _ = try ioWriteBytes(vm, io, try vm.coerceViaToS(arg));
     }
+    return Value.nil();
+}
+
+pub fn builtinIoPrintf(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, args.len);
+    const io = try requireIoReceiver(vm, receiver);
+    try ensureIoOpen(vm, io);
+    const format_str = try args[0].coerceToStringValue(vm, "no implicit conversion of %s into String");
+    const arr = try vm.createArray();
+    arr.elements.appendSlice(vm.gc_allocator, args[1..]) catch return error.Fatal;
+    const format_arg = Value.fromObject(&arr.object);
+    var fmt_args = [_]Value{format_arg};
+    const result = try vm.callMethodByName(format_str, "%", fmt_args[0..], null);
+    const result_str = try vm.coerceViaToS(result);
+    _ = try ioWriteBytes(vm, io, result_str);
     return Value.nil();
 }
 
