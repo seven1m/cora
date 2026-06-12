@@ -253,8 +253,7 @@ pub fn builtinDirEntries(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
     const target = if (args.len == 1) blk: {
         const maybe_to_path = try vm.checkCallMethodByName(args[0], "to_path", false, &.{}, null);
         break :blk try vm.coerceToPath(maybe_to_path orelse args[0], "no implicit conversion into String");
-    } else
-        ".";
+    } else ".";
 
     var dir = std.Io.Dir.cwd().openDir(vm.io, target, .{ .iterate = true }) catch {
         return vm.raiseExceptionFmt(vm.system_call_error_class, "No such file or directory @ dir_entries - {s}", .{target});
@@ -791,9 +790,14 @@ fn buildGlobResult(vm: *VM, matches: *ArrayObject, block: ?Block) VMError!Value 
 }
 
 pub fn builtinDirGlob(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
-    try vm.requireArgCountRange(args, 1, 2);
+    try vm.requireArgCountRange(args, 0, 2);
     if (builtin.os.tag == .windows) {
         return vm.raiseExceptionFmt(vm.not_implemented_error_class, "Dir.glob is not implemented on Windows", .{});
+    }
+
+    if (args.len == 0) {
+        const empty = try vm.createArray();
+        return Value.fromObject(&empty.object);
     }
 
     const keywords = try parseGlobKeywords(vm);
