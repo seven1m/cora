@@ -523,18 +523,28 @@ pub fn builtinProcessSpawn(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
 }
 
 fn detachFunction(vm: *VM, args: []Value) VMError!Value {
-    const pid = args[0];
-    const process_val = Value.fromObject(&vm.process_module.object);
-    var wait_args = [_]Value{pid};
-    const wait_result = vm.callMethodByNameForwardingKeywords(process_val, "wait", wait_args[0..], null);
-    if (wait_result) |_| {
-        return vm.getGlobalValue("$?");
-    } else |err| {
-        if (err == error.Unwind and vm.pendingException() != null) {
-            // ECHILD means no child to wait for; just return nil
-            vm.setPendingException(null);
+    const pid = try args[0].integerArgToI64(vm, "no implicit conversion into Integer", "pid out of range");
+
+    var status: c_int = 0;
+    while (true) {
+        const rc = std.c.waitpid(@intCast(pid), &status, std.posix.W.NOHANG);
+        if (rc > 0) {
+            try vm.setLastProcessStatusFromWaitStatus(status, rc);
+            return vm.getGlobalValue("$?");
         }
-        return Value.nil();
+        if (rc == 0) {
+            try vm.threadYield();
+            continue;
+        }
+
+        switch (std.posix.errno(rc)) {
+            .INTR => {
+                try vm.checkAsyncEvents();
+                continue;
+            },
+            .CHILD => return Value.nil(),
+            else => |errno_code| return vm.raiseErrnoFmt(errno_code, "waitpid failed", .{}),
+        }
     }
 }
 
