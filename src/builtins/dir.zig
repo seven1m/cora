@@ -654,7 +654,7 @@ fn globWalk(ctx: *GlobContext, dir_abs: []const u8, rel_prefix: []const u8, segm
     }
 
     const segment = segments[seg_idx];
-    if (segment.len == 0) {
+    if (segment.len == 0 or std.mem.eql(u8, segment, ".")) {
         try globWalk(ctx, dir_abs, rel_prefix, segments, seg_idx + 1, directory_only);
         return;
     }
