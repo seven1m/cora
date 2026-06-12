@@ -234,7 +234,8 @@ pub fn rebuildExpandedConfig(vm: *VM, mkconf_val: Value, conf_val: Value) VMErro
     const conf = conf_val.toHashObject();
 
     for (mkconf.entries.items) |entry| {
-        try vm.hashSetEntry(conf, entry.key, entry.value);
+        const copy = try vm.newString(entry.value.toStringObject().str, false);
+        try vm.hashSetEntry(conf, entry.key, copy);
     }
 
     for (conf.entries.items) |*conf_entry| {
@@ -356,7 +357,9 @@ pub fn expandValue(vm: *VM, val: Value, config_val: Value) VMError!Value {
         i += 1;
     }
 
-    return try vm.newString(buf[0..buf_len], val.isFrozen());
+    const new_str = vm.gc_allocator_atomic.dupe(u8, buf[0..buf_len]) catch return error.Fatal;
+    val.toStringObject().str = new_str;
+    return val;
 }
 
 fn resolveConfigVar(vm: *VM, var_name: []const u8, config_val: Value) VMError!?Value {
