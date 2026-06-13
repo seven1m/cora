@@ -1,0 +1,11 @@
+#!/bin/sh
+
+bindir=$(cd "${0%/*}" && pwd -P)
+cora="${bindir}/../build/bin/cora"
+
+if [ ! -x "${cora}" ]; then
+  echo "build/bin/cora not found; run \`zig build\`" >&2
+  exit 1
+fi
+
+exec "${cora}" "$@"
