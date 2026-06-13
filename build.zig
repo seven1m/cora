@@ -3,6 +3,7 @@ const std = @import("std");
 const optimize_state_path = "build/build-mode";
 const runtime_prefix = "build";
 const onigmo_build_root = "build/onigmo";
+const psych_build_root = "build/psych";
 const prism_build_root = "build/prism";
 const tinycc_build_root = "build/tinycc";
 const cext_build_root = "build/cext";
@@ -14,6 +15,7 @@ const runtime_ext_dirs = [_][]const u8{
     "logger",
     "open3",
     "optparse",
+    "psych",
     "prism-templates",
     "rubygems",
     "shellwords",
@@ -24,6 +26,7 @@ const runtime_ext_dirs = [_][]const u8{
     "tinycc",
     "tmpdir",
     "uri",
+    "yaml",
 };
 
 comptime {
@@ -161,6 +164,43 @@ fn buildTinyCC(b: *std.Build) *std.Build.Step {
     }
 
     return tinycc_build_step;
+}
+
+const PsychBuild = struct {
+    step: *std.Build.Step,
+    extconf_step: *std.Build.Step,
+};
+
+fn buildPsych(b: *std.Build) PsychBuild {
+    const psych_build_step = b.step("psych", "Build Psych native extension");
+    const psych_so_path = psych_build_root ++ "/ext/psych.so";
+
+    if (!pathExists(b, psych_so_path)) {
+        const mkdir_step = b.addSystemCommand(&.{ "mkdir", "-p", psych_build_root ++ "/ext" });
+        psych_build_step.dependOn(&mkdir_step.step);
+
+        const extconf_step = b.addSystemCommand(&.{
+            "sh",
+            "-c",
+            "repo_root=\"$PWD\" && cd build/psych/ext && \"$repo_root\"/build/bin/cora \"$repo_root\"/ext/psych/ext/psych/extconf.rb",
+        });
+        extconf_step.step.dependOn(&mkdir_step.step);
+        psych_build_step.dependOn(&extconf_step.step);
+
+        const make_step = b.addSystemCommand(&.{ "make", "-C", psych_build_root ++ "/ext" });
+        make_step.step.dependOn(&extconf_step.step);
+        psych_build_step.dependOn(&make_step.step);
+
+        return .{
+            .step = psych_build_step,
+            .extconf_step = &extconf_step.step,
+        };
+    }
+
+    return .{
+        .step = psych_build_step,
+        .extconf_step = psych_build_step,
+    };
 }
 
 fn buildCExtFixture(b: *std.Build) *std.Build.Step {
@@ -332,12 +372,15 @@ pub fn build(b: *std.Build) void {
     const build_options_mod = options.createModule();
 
     const prism_build_step = buildPrism(b);
+    const psych_build = buildPsych(b);
+    const psych_build_step = psych_build.step;
     const onigmo_build_step = buildOnigmo(b);
     const tinycc_build_step = buildTinyCC(b);
     const cext_fixture_step = buildCExtFixture(b);
 
     if (submodule_update_step) |s| {
         prism_build_step.dependOn(s);
+        psych_build_step.dependOn(s);
         onigmo_build_step.dependOn(s);
         tinycc_build_step.dependOn(s);
     }
@@ -412,12 +455,19 @@ pub fn build(b: *std.Build) void {
     });
     b.getInstallStep().dependOn(&install_stdlib.step);
 
+    const install_psych_so = b.addInstallFile(b.path(psych_build_root ++ "/ext/psych.so"), "ext/psych/lib/psych.so");
+    install_psych_so.step.dependOn(psych_build_step);
+    b.getInstallStep().dependOn(&install_psych_so.step);
+
     const install_headers = b.addInstallDirectory(.{
         .source_dir = b.path("include/cora"),
         .install_dir = .prefix,
         .install_subdir = "include/cora",
     });
     b.getInstallStep().dependOn(&install_headers.step);
+
+    const install_oniguruma_header = b.addInstallFile(b.path("ext/onigmo/onigmo.h"), "include/cora/ruby/oniguruma.h");
+    b.getInstallStep().dependOn(&install_oniguruma_header.step);
 
     // Generate build/lib/stdlib/rbconfig/sizeof.rb at build time.
     const sizeof_rb_content = buildSizeofRb(b);
@@ -432,6 +482,12 @@ pub fn build(b: *std.Build) void {
     const chmod_gem = b.addSystemCommand(&.{ "chmod", "+x", b.getInstallPath(.bin, "gem") });
     chmod_gem.step.dependOn(&install_gem.step);
     b.getInstallStep().dependOn(&chmod_gem.step);
+    psych_build.extconf_step.dependOn(&install_exe.step);
+    psych_build.extconf_step.dependOn(&install_stdlib.step);
+    psych_build.extconf_step.dependOn(&install_headers.step);
+    psych_build.extconf_step.dependOn(&install_oniguruma_header.step);
+    psych_build.extconf_step.dependOn(&install_sizeof_rb.step);
+    psych_build.extconf_step.dependOn(&chmod_gem.step);
 
     const install_cext_fixture = b.addInstallFile(b.path(cext_build_root ++ "/fixture.so"), "cext/fixture.so");
     install_cext_fixture.step.dependOn(cext_fixture_step);

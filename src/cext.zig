@@ -473,8 +473,12 @@ export fn rb_ivar_set(obj_raw: VALUE, id: VALUE, val_raw: VALUE) VALUE {
 export fn rb_respond_to(obj_raw: VALUE, id: VALUE) c_int {
     const vm = getVM();
     const name = symName(id);
-    const result = vm.checkCallMethodByName(Value{ .raw = obj_raw }, name, false, &[_]Value{}, null) catch return 0;
-    return @intFromBool(result != null);
+    const method_name_sym = vm.intern(name) catch return 0;
+    const resolved = vm.findMethod(Value{ .raw = obj_raw }, method_name_sym) catch return 0;
+    if (resolved) |method| {
+        return @intFromBool(method.entry.visibility != .private);
+    }
+    return 0;
 }
 
 export fn rb_class_of(obj_raw: VALUE) VALUE {
@@ -755,10 +759,36 @@ export fn rb_enc_get(obj_raw: VALUE) ?*anyopaque {
 }
 
 export fn rb_enc_left_char_head(str: [*c]const u8, start: [*c]const u8, end: [*c]const u8, enc_ptr: ?*anyopaque) ?[*]u8 {
-    _ = start;
-    _ = end;
-    _ = enc_ptr;
-    return @constCast(str);
+    const str_addr = @intFromPtr(str);
+    const start_addr = @intFromPtr(start);
+    const end_addr = @intFromPtr(end);
+
+    if (start_addr <= str_addr) return @constCast(str);
+    if (end_addr <= str_addr) return @constCast(str);
+
+    const slice_len = end_addr - str_addr;
+    const offset = @min(start_addr - str_addr, slice_len);
+    if (offset == 0) return @constCast(str);
+
+    const opaque_ptr: *anyopaque = enc_ptr orelse @ptrCast(@constCast(&encoding_instances[0]));
+    const encoding: *const enc.Encoding = @ptrCast(@alignCast(opaque_ptr));
+    const slice = str[0..slice_len];
+
+    if (encoding.isSingleByte()) {
+        return @constCast(str + offset);
+    }
+
+    var i: usize = 0;
+    var last_boundary: usize = 0;
+    while (i < offset) {
+        last_boundary = i;
+        const result = encoding.nextChar(slice, &i);
+        if (result.len == 0) return @constCast(str + last_boundary);
+        if (i > offset) return @constCast(str + last_boundary);
+    }
+
+    if (i == offset) return @constCast(str + offset);
+    return @constCast(str + last_boundary);
 }
 
 // ─── Memory ─────────────────────────────────────────────────────────────────

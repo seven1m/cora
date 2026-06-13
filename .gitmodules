@@ -52,3 +52,9 @@
 [submodule "ext/shellwords"]
 	path = ext/shellwords
 	url = https://github.com/ruby/shellwords
+[submodule "ext/yaml"]
+	path = ext/yaml
+	url = https://github.com/ruby/yaml
+[submodule "ext/psych"]
+	path = ext/psych
+	url = https://github.com/ruby/psych

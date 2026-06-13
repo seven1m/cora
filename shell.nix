@@ -9,6 +9,7 @@ pkgs.mkShell {
     git
     gnumake
     libtool
+    libyaml
     m4
     openssl
     pkg-config

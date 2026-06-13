@@ -20,6 +20,7 @@ Some gems that are known to work, though I haven't tested each thoroughly:
 
 - rake
 - rubygems and bundler
+- psych and yaml
 - rack and rackup
 - webrick
 - sinatra

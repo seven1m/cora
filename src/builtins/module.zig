@@ -162,15 +162,37 @@ fn lookupConstantOnReceiver(vm: *VM, receiver: Value, name_sym: *SymbolObject, i
             if (!inherit) break;
             current = klass.superclass;
         }
+        if (inherit) {
+            if (lookupConstantOnEnclosingNamespaces(vm, receiver, name_sym)) |val| return val;
+        }
         return null;
     }
 
     if (receiver.isModule()) {
         if (lookupConstantOnModule(receiver.toModuleObject(), name_sym)) |val| return val;
         if (inherit) {
+            if (lookupConstantOnEnclosingNamespaces(vm, receiver, name_sym)) |val| return val;
             if (lookupConstantOnModule(&vm.object_class.module, name_sym)) |val| return val;
         }
         return null;
+    }
+
+    return null;
+}
+
+fn lookupConstantOnEnclosingNamespaces(vm: *VM, receiver: Value, name_sym: *SymbolObject) ?Value {
+    const module_obj = moduleFromValue(receiver) orelse return null;
+    const classpath = module_obj.classpath orelse return null;
+    var end = classpath.str.len;
+
+    while (true) {
+        const sep = std.mem.lastIndexOf(u8, classpath.str[0..end], "::") orelse break;
+        const owner_path = classpath.str[0..sep];
+        const owner = vm.resolveConstantPath(owner_path) catch return null;
+        if (owner) |owner_val| {
+            if (lookupConstantOnReceiver(vm, owner_val, name_sym, false)) |val| return val;
+        }
+        end = sep;
     }
 
     return null;
