@@ -27,6 +27,7 @@ var process_io: std.Io = std.testing.io;
 const ZigTestFn = @TypeOf(builtin.test_functions[0]);
 const worker_result_prefix = "__cora_worker_result__ ";
 var failed_test_names: std.ArrayListUnmanaged([]const u8) = .{ .items = &.{}, .capacity = 0 };
+const non_tty_progress_interval: usize = 1000;
 
 const CliOptions = struct {
     listen: bool = false,
@@ -184,22 +185,34 @@ fn runRubySpecTest(test_case: RubySpecTest) TestRunResult {
     switch (test_case) {
         .spec => |spec| {
             const run_result = ruby_spec_runner.runSpec(spec.path);
-            var spec_total_delta: usize = 0;
+            var spec_stats = ruby_spec_runner.SpecStats{};
+            var has_stats = false;
             if (run_result.stats) |stats| {
-                spec_total_delta = stats.total;
+                has_stats = true;
+                spec_stats = stats;
+            } else {
+                std.debug.print("WARNING: missing ruby spec stats for {s}\n", .{spec.path});
             }
             return .{
+                .is_ruby_spec = true,
                 .outcome = if (run_result.outcome == .pass) .pass else .fail,
                 .err_name = if (run_result.outcome == .pass) null else "SpecFailed",
-                .spec_total_delta = spec_total_delta,
-                .spec_completed_delta = spec_total_delta,
+                .spec_total_delta = if (has_stats) spec_stats.total else 0,
+                .spec_completed_delta = if (has_stats) spec_stats.total else 0,
+                .ruby_passed_delta = if (has_stats) blk: {
+                    break :blk (spec_stats.total -| spec_stats.failed) -| spec_stats.skipped;
+                } else 0,
+                .ruby_failed_delta = if (has_stats) spec_stats.failed else 0,
+                .ruby_skipped_delta = if (has_stats) spec_stats.skipped else 0,
             };
         },
         .no_specs_found => {
             std.debug.print("No spec files found in spec/\n", .{});
             return .{
+                .is_ruby_spec = true,
                 .outcome = .fail,
                 .err_name = "NoSpecsFound",
+                .ruby_failed_delta = 0,
             };
         },
     }
@@ -212,6 +225,7 @@ const TestOutcome = enum {
 };
 
 const TestRunResult = struct {
+    is_ruby_spec: bool = false,
     outcome: TestOutcome = .pass,
     err_name: ?[]const u8 = null,
     err_name_owned: bool = false,
@@ -220,10 +234,14 @@ const TestRunResult = struct {
     fuzz: bool = false,
     spec_total_delta: usize = 0,
     spec_completed_delta: usize = 0,
+    ruby_passed_delta: usize = 0,
+    ruby_failed_delta: usize = 0,
+    ruby_skipped_delta: usize = 0,
     elapsed_ns: u64 = 0,
 };
 
 const WorkerJsonResult = struct {
+    is_ruby_spec: bool = false,
     outcome: TestOutcome,
     err_name: ?[]const u8 = null,
     log_err_count: usize = 0,
@@ -231,6 +249,9 @@ const WorkerJsonResult = struct {
     fuzz: bool = false,
     spec_total_delta: usize = 0,
     spec_completed_delta: usize = 0,
+    ruby_passed_delta: usize = 0,
+    ruby_failed_delta: usize = 0,
+    ruby_skipped_delta: usize = 0,
     elapsed_ns: u64 = 0,
 };
 
@@ -352,16 +373,21 @@ fn executeTestAtIndex(test_fns: []const ZigTestFn, ruby_spec_tests: []const Ruby
         std.debug.print("TEST {s}\n", .{test_name});
     }
     const ruby_result = runRubySpecTest(ruby_spec_test);
+    result.is_ruby_spec = ruby_result.is_ruby_spec;
     result.outcome = ruby_result.outcome;
     result.err_name = ruby_result.err_name;
     result.spec_total_delta = ruby_result.spec_total_delta;
     result.spec_completed_delta = ruby_result.spec_completed_delta;
+    result.ruby_passed_delta = ruby_result.ruby_passed_delta;
+    result.ruby_failed_delta = ruby_result.ruby_failed_delta;
+    result.ruby_skipped_delta = ruby_result.ruby_skipped_delta;
     if (timing) result.elapsed_ns = getTimeNsec() - start_ts;
     return result;
 }
 
 fn emitWorkerJsonResult(result: TestRunResult) void {
     const payload = WorkerJsonResult{
+        .is_ruby_spec = result.is_ruby_spec,
         .outcome = result.outcome,
         .err_name = result.err_name,
         .log_err_count = result.log_err_count,
@@ -369,6 +395,9 @@ fn emitWorkerJsonResult(result: TestRunResult) void {
         .fuzz = result.fuzz,
         .spec_total_delta = result.spec_total_delta,
         .spec_completed_delta = result.spec_completed_delta,
+        .ruby_passed_delta = result.ruby_passed_delta,
+        .ruby_failed_delta = result.ruby_failed_delta,
+        .ruby_skipped_delta = result.ruby_skipped_delta,
         .elapsed_ns = result.elapsed_ns,
     };
 
@@ -404,12 +433,16 @@ fn parseWorkerResult(allocator: std.mem.Allocator, term: std.process.Child.Term,
         defer parsed.deinit();
 
         var result = TestRunResult{
+            .is_ruby_spec = parsed.value.is_ruby_spec,
             .outcome = parsed.value.outcome,
             .log_err_count = parsed.value.log_err_count,
             .leak = parsed.value.leak,
             .fuzz = parsed.value.fuzz,
             .spec_total_delta = parsed.value.spec_total_delta,
             .spec_completed_delta = parsed.value.spec_completed_delta,
+            .ruby_passed_delta = parsed.value.ruby_passed_delta,
+            .ruby_failed_delta = parsed.value.ruby_failed_delta,
+            .ruby_skipped_delta = parsed.value.ruby_skipped_delta,
             .elapsed_ns = parsed.value.elapsed_ns,
         };
         if (parsed.value.err_name) |name| {
@@ -541,9 +574,12 @@ fn printBufferedWorkerBlock(have_tty: bool, data: []const u8) void {
 }
 
 const RunSummary = struct {
-    ok_count: usize = 0,
-    skip_count: usize = 0,
-    fail_count: usize = 0,
+    zig_passed: usize = 0,
+    zig_skipped: usize = 0,
+    zig_failed: usize = 0,
+    ruby_passed: usize = 0,
+    ruby_skipped: usize = 0,
+    ruby_failed: usize = 0,
     fuzz_count: usize = 0,
     leaks: usize = 0,
     log_err_count: usize = 0,
@@ -556,6 +592,22 @@ fn printElapsedSuffix(elapsed_ns: u64) void {
     std.debug.print(" [{d}ms]", .{elapsed_ms});
 }
 
+fn printNonTtyProgress(completed_specs: usize, known_total_specs: usize) void {
+    if (known_total_specs == 0) {
+        std.debug.print("{d} specs\n", .{completed_specs});
+    } else {
+        std.debug.print("{d}/{d} specs\n", .{ completed_specs, known_total_specs });
+    }
+}
+
+fn printNonTtyProgressMilestones(previous_completed_specs: usize, completed_specs: usize, known_total_specs: usize) void {
+    if (completed_specs < non_tty_progress_interval) return;
+    var milestone = ((previous_completed_specs / non_tty_progress_interval) + 1) * non_tty_progress_interval;
+    while (milestone <= completed_specs) : (milestone += non_tty_progress_interval) {
+        printNonTtyProgress(milestone, known_total_specs);
+    }
+}
+
 fn printTerminalOutcome(
     have_tty: bool,
     completed_specs: usize,
@@ -563,6 +615,29 @@ fn printTerminalOutcome(
     test_name: TestName,
     result: TestRunResult,
 ) void {
+    if (!have_tty and !verbose and !timing) {
+        if (result.outcome == .fail) {
+            if (known_total_specs == 0) {
+                std.debug.print("{d} specs {s}...FAIL ({s})\n", .{
+                    completed_specs,
+                    test_name.display,
+                    result.err_name orelse "UnknownError",
+                });
+            } else {
+                std.debug.print("{d}/{d} specs {s}...FAIL ({s})\n", .{
+                    completed_specs,
+                    known_total_specs,
+                    test_name.display,
+                    result.err_name orelse "UnknownError",
+                });
+            }
+            return;
+        }
+        const previous_completed_specs = completed_specs - result.spec_completed_delta;
+        printNonTtyProgressMilestones(previous_completed_specs, completed_specs, known_total_specs);
+        return;
+    }
+
     if (have_tty and !verbose and !timing) {
         switch (result.outcome) {
             .skip => {
@@ -616,15 +691,42 @@ fn applyResult(summary: *RunSummary, result: TestRunResult, test_name: TestName)
     summary.leaks += @intFromBool(result.leak);
     summary.fuzz_count += @intFromBool(result.fuzz);
     summary.completed_specs += result.spec_completed_delta;
-    switch (result.outcome) {
-        .pass => summary.ok_count += 1,
-        .skip => summary.skip_count += 1,
-        .fail => {
-            summary.fail_count += 1;
-            const source_dupe = std.heap.page_allocator.dupe(u8, test_name.source) catch return;
-            failed_test_names.append(std.heap.page_allocator, source_dupe) catch {};
-        },
+    if (result.is_ruby_spec) {
+        summary.ruby_passed += result.ruby_passed_delta;
+        summary.ruby_skipped += result.ruby_skipped_delta;
+        summary.ruby_failed += result.ruby_failed_delta;
+    } else {
+        switch (result.outcome) {
+            .pass => summary.zig_passed += 1,
+            .skip => summary.zig_skipped += 1,
+            .fail => summary.zig_failed += 1,
+        }
     }
+    if (result.outcome == .fail) {
+        const source_dupe = std.heap.page_allocator.dupe(u8, test_name.source) catch return;
+        failed_test_names.append(std.heap.page_allocator, source_dupe) catch {};
+    }
+}
+
+fn printSummary(summary: RunSummary) void {
+    const zig_total = summary.zig_passed + summary.zig_skipped + summary.zig_failed;
+    const ruby_total = summary.ruby_passed + summary.ruby_skipped + summary.ruby_failed;
+    std.debug.print("\n", .{});
+    std.debug.print("| test type  | passed | skipped | failed | total |\n", .{});
+    std.debug.print("|------------|--------|---------|--------|-------|\n", .{});
+    std.debug.print("| zig tests  | {d:<6} | {d:<7} | {d:<6} | {d:<5} |\n", .{
+        summary.zig_passed,
+        summary.zig_skipped,
+        summary.zig_failed,
+        zig_total,
+    });
+    std.debug.print("| ruby specs | {d:<6} | {d:<7} | {d:<6} | {d:<5} |\n", .{
+        summary.ruby_passed,
+        summary.ruby_skipped,
+        summary.ruby_failed,
+        ruby_total,
+    });
+    std.debug.print("\n", .{});
 }
 
 fn deinitTestRunResult(allocator: std.mem.Allocator, result: *TestRunResult) void {
@@ -1088,6 +1190,9 @@ fn mainTerminal() void {
 
         const interactive_tty = (std.Io.File.stderr().isTty(process_io) catch false) and !verbose;
         const initial_total = if (test_filter_raw.len == 0) (saved_total orelse 0) else 0;
+        if (!interactive_tty and !timing) {
+            printNonTtyProgress(0, initial_total);
+        }
         const summary = runProcessWorkerQueue(
             allocator,
             child_exe_path,
@@ -1099,16 +1204,7 @@ fn mainTerminal() void {
             initial_total,
         );
 
-        if (summary.ok_count == total_tests) {
-            std.debug.print("All {d} tests passed.\n", .{summary.ok_count});
-        } else {
-            std.debug.print("{d} passed; {d} skipped; {d} failed.\n", .{
-                summary.ok_count,
-                summary.skip_count,
-                summary.fail_count,
-            });
-        }
-        std.debug.print("Executed {d} specs.\n", .{summary.completed_specs});
+        printSummary(summary);
         if (failed_test_names.items.len > 0) {
             std.debug.print("\nFailing specs:\n", .{});
             for (failed_test_names.items) |name| {
@@ -1139,6 +1235,9 @@ fn mainTerminal() void {
         .estimated_total_items = total_tests,
     });
     const have_tty = (std.Io.File.stderr().isTty(process_io) catch false) and !verbose;
+    if (!have_tty and !timing) {
+        printNonTtyProgress(0, summary.known_total_specs);
+    }
 
     var async_frame_buffer: []align(builtin.target.stackAlignment()) u8 = undefined;
     async_frame_buffer = &[_]u8{};
@@ -1159,16 +1258,7 @@ fn mainTerminal() void {
 
     if (have_tty) std.debug.print("\n", .{});
     root_node.end();
-    if (summary.ok_count == total_tests) {
-        std.debug.print("All {d} tests passed.\n", .{summary.ok_count});
-    } else {
-        std.debug.print("{d} passed; {d} skipped; {d} failed.\n", .{
-            summary.ok_count,
-            summary.skip_count,
-            summary.fail_count,
-        });
-    }
-    std.debug.print("Executed {d} specs.\n", .{summary.completed_specs});
+    printSummary(summary);
     if (failed_test_names.items.len > 0) {
         std.debug.print("\nFailing specs:\n", .{});
         for (failed_test_names.items) |name| {
