@@ -527,7 +527,7 @@ export fn rb_define_const(klass_raw: VALUE, name_ptr: [*c]const u8, val_raw: VAL
     const klass = Value{ .raw = klass_raw };
     const mod = if (klass.isClass()) &klass.toClassObject().module else if (klass.raw == rb_cModule) @as(*value.ModuleObject, @ptrFromInt(klass_raw)) else return;
     const sym = vm.intern(name) catch return;
-    mod.constants.put(sym, .{ .value = Value{ .raw = val_raw } }) catch return;
+    vm.setConstant(mod, sym, Value{ .raw = val_raw }) catch return;
 }
 
 // ─── Module/class definition ────────────────────────────────────────────────
@@ -541,7 +541,7 @@ export fn rb_define_module(name_ptr: [*c]const u8) VALUE {
         return entry.value.raw;
     }
     const val = vm.newModule(sym) catch return 0;
-    vm.object_class.module.constants.put(sym, .{ .value = val }) catch return 0;
+    vm.setConstant(&vm.object_class.module, sym, val) catch return 0;
     return val.raw;
 }
 
@@ -552,7 +552,7 @@ export fn rb_define_module_under(outer_raw: VALUE, name_ptr: [*c]const u8) VALUE
     const outer = Value{ .raw = outer_raw };
     const val = vm.newModule(sym) catch return 0;
     const mod = if (outer.isClass()) &outer.toClassObject().module else @as(*value.ModuleObject, @ptrFromInt(outer_raw));
-    mod.constants.put(sym, .{ .value = val }) catch return 0;
+    vm.setConstant(mod, sym, val) catch return 0;
     return val.raw;
 }
 
@@ -564,7 +564,7 @@ export fn rb_define_class_under(outer_raw: VALUE, name_ptr: [*c]const u8, super_
     const val = vm.newClass(sym, super_class) catch return 0;
     const outer = Value{ .raw = outer_raw };
     const mod = if (outer.isClass()) &outer.toClassObject().module else @as(*value.ModuleObject, @ptrFromInt(outer_raw));
-    mod.constants.put(sym, .{ .value = val }) catch return 0;
+    vm.setConstant(mod, sym, val) catch return 0;
     return val.raw;
 }
 
@@ -911,7 +911,7 @@ export fn rb_define_class(name_ptr: [*c]const u8, super_raw: VALUE) VALUE {
     }
     const super_class: ?*value.ClassObject = if (super_raw != 0) @ptrFromInt(super_raw) else null;
     const val = vm.newClass(sym, super_class) catch return 0;
-    vm.object_class.module.constants.put(sym, .{ .value = val }) catch return 0;
+    vm.setConstant(&vm.object_class.module, sym, val) catch return 0;
     return val.raw;
 }
 

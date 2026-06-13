@@ -1741,6 +1741,10 @@ pub const VM = struct {
         self.encoding_class.module.constants.put(encoding_converter_not_found_error_name_sym, .{ .value = encoding_converter_not_found_error_class_val }) catch return error.Fatal;
         self.encoding_class.module.constants.put(encoding_undefined_conversion_error_name_sym, .{ .value = encoding_undefined_conversion_error_class_val }) catch return error.Fatal;
         self.encoding_class.module.constants.put(encoding_invalid_byte_sequence_error_name_sym, .{ .value = encoding_invalid_byte_sequence_error_class_val }) catch return error.Fatal;
+        try self.setNamespacePathRecursive(
+            Value.fromObject(&self.object_class.module.object),
+            (try self.getOrCreateCanonicalFString("Object", .{ .utf8 = .{} })).toStringObject(),
+        );
 
         // --- Stage 5: Register built-in methods ---
         builtins.registerAll(self) catch return error.Fatal;
@@ -1764,6 +1768,18 @@ pub const VM = struct {
         try self.includeModule(&self.symbol_class.module, comparable_module_val.toModuleObject());
         try self.includeModule(&self.time_class.module, comparable_module_val.toModuleObject());
         try self.includeModule(&self.rational_class.module, comparable_module_val.toModuleObject());
+        try self.setNamespacePathRecursive(
+            Value.fromObject(&self.object_class.module.object),
+            (try self.getOrCreateCanonicalFString("Object", .{ .utf8 = .{} })).toStringObject(),
+        );
+        try self.setNamespacePathRecursive(
+            queue_class_val,
+            (try self.getOrCreateCanonicalFString("Thread::Queue", .{ .utf8 = .{} })).toStringObject(),
+        );
+        try self.setNamespacePathRecursive(
+            sized_queue_class_val,
+            (try self.getOrCreateCanonicalFString("Thread::SizedQueue", .{ .utf8 = .{} })).toStringObject(),
+        );
 
         // Create top-level self (Ruby "main" object)
         self.main_self = try self.newInstance(self.object_class);
@@ -2059,6 +2075,102 @@ pub const VM = struct {
     pub fn clearAutoload(self: *VM, module_obj: *value.ModuleObject, name_sym: *value.SymbolObject) void {
         _ = self;
         _ = autoloadTableForModule(module_obj).remove(name_sym);
+    }
+
+    fn namespaceModule(value_or_namespace: Value) ?*value.ModuleObject {
+        if (value_or_namespace.isClass()) return &value_or_namespace.toClassObject().module;
+        if (value_or_namespace.isModule()) return value_or_namespace.toModuleObject();
+        return null;
+    }
+
+    fn namespacePath(module_obj: *value.ModuleObject) ?*StringObject {
+        return module_obj.classpath;
+    }
+
+    fn namespacePathPermanent(module_obj: *value.ModuleObject) bool {
+        return module_obj.classpath_permanent;
+    }
+
+    fn buildConstPathString(self: *VM, head: *StringObject, tail: *value.SymbolObject) VMError!*StringObject {
+        const path = std.fmt.allocPrint(self.gc_allocator, "{s}::{s}", .{ head.str, tail.name }) catch return error.Fatal;
+        return (try self.getOrCreateCanonicalFString(path, head.encoding)).toStringObject();
+    }
+
+    fn temporaryNamespacePath(self: *VM, namespace: Value) VMError!*StringObject {
+        const module_obj = namespaceModule(namespace) orelse return error.Fatal;
+        if (module_obj.classpath) |classpath| return classpath;
+
+        const type_name = if (namespace.isClass()) "Class" else "Module";
+        const text = std.fmt.allocPrint(self.gc_allocator, "#<{s}:0x{x}>", .{ type_name, namespace.objectId() }) catch return error.Fatal;
+        return (try self.getOrCreateCanonicalFString(text, .{ .utf8 = .{} })).toStringObject();
+    }
+
+    fn setNamespacePathRecursive(self: *VM, namespace: Value, path: *StringObject) VMError!void {
+        const module_obj = namespaceModule(namespace) orelse return;
+        module_obj.classpath = path;
+        module_obj.classpath_permanent = true;
+
+        var it = module_obj.constants.iterator();
+        while (it.next()) |entry| {
+            const child = entry.value_ptr.*.value;
+            const child_module = namespaceModule(child) orelse continue;
+            if (child_module.classpath_permanent) continue;
+
+            const child_path = if (module_obj == &self.object_class.module)
+                (try self.getOrCreateCanonicalFString(entry.key_ptr.*.name, path.encoding)).toStringObject()
+            else
+                try self.buildConstPathString(path, entry.key_ptr.*);
+            try self.setNamespacePathRecursive(child, child_path);
+        }
+    }
+
+    fn updateNamespacePathOnConstantSet(
+        self: *VM,
+        owner_module: *value.ModuleObject,
+        name_sym: *value.SymbolObject,
+        val: Value,
+    ) VMError!void {
+        const namespace_val = namespaceModule(val) orelse return;
+        if (namespace_val.classpath_permanent) return;
+
+        const owner_val = Value.fromObject(&owner_module.object);
+        if (owner_module == &self.object_class.module) {
+            const top_level_path = (try self.getOrCreateCanonicalFString(name_sym.name, .{ .utf8 = .{} })).toStringObject();
+            try self.setNamespacePathRecursive(val, top_level_path);
+            return;
+        }
+
+        const owner_path = if (namespacePath(owner_module)) |path|
+            path
+        else
+            try self.temporaryNamespacePath(owner_val);
+
+        if (namespacePathPermanent(owner_module)) {
+            try self.setNamespacePathRecursive(val, try self.buildConstPathString(owner_path, name_sym));
+            return;
+        }
+
+        if (namespace_val.classpath == null) {
+            namespace_val.classpath = try self.buildConstPathString(owner_path, name_sym);
+            namespace_val.classpath_permanent = false;
+        }
+    }
+
+    pub fn setConstant(self: *VM, owner_module: *value.ModuleObject, name_sym: *value.SymbolObject, val: Value) VMError!void {
+        if (owner_module.constants.getPtr(name_sym)) |entry| {
+            entry.value = val;
+        } else {
+            owner_module.constants.put(name_sym, .{ .value = val }) catch return error.Fatal;
+        }
+        _ = owner_module.autoloads.remove(name_sym);
+        try self.updateNamespacePathOnConstantSet(owner_module, name_sym, val);
+    }
+
+    pub fn publicModuleName(self: *VM, receiver: Value) ?[]const u8 {
+        _ = self;
+        if (receiver.isClass() and receiver.toClassObject().attached_object != null) return null;
+        const module_obj = namespaceModule(receiver) orelse return null;
+        return if (module_obj.classpath) |classpath| classpath.str else null;
     }
 
     const TriggerAutoloadResult = union(enum) {
@@ -5023,17 +5135,9 @@ pub const VM = struct {
                 // Set in current lexical scope's module (or Object if no scope)
                 if (epLexScope(frame.ep)) |scope| {
                     const module = scope.getModule();
-                    if (module.constants.getPtr(name_sym)) |entry| {
-                        entry.value = val;
-                    } else {
-                        module.constants.put(name_sym, .{ .value = val }) catch return error.Fatal;
-                    }
+                    try self.setConstant(module, name_sym, val);
                 } else {
-                    if (self.object_class.module.constants.getPtr(name_sym)) |entry| {
-                        entry.value = val;
-                    } else {
-                        self.object_class.module.constants.put(name_sym, .{ .value = val }) catch return error.Fatal;
-                    }
+                    try self.setConstant(&self.object_class.module, name_sym, val);
                 }
                 try self.push(val);
             },
@@ -5053,12 +5157,7 @@ pub const VM = struct {
                     unreachable; // receiver is not a Module
                 };
 
-                if (module.constants.getPtr(name_sym)) |entry| {
-                    entry.value = val;
-                } else {
-                    module.constants.put(name_sym, .{ .value = val }) catch return error.Fatal;
-                }
-                _ = module.autoloads.remove(name_sym);
+                try self.setConstant(module, name_sym, val);
                 try self.push(val);
             },
 
@@ -5794,7 +5893,7 @@ pub const VM = struct {
                         }
 
                         const fresh_module = try self.newModule(target.name_sym);
-                        target.owner_module.constants.put(target.name_sym, .{ .value = fresh_module }) catch return error.Fatal;
+                        try self.setConstant(target.owner_module, target.name_sym, fresh_module);
                         break :blk fresh_module;
                     };
 
@@ -5848,7 +5947,7 @@ pub const VM = struct {
                     } else {
                         // Create new class
                         class_val = try self.newClass(target.name_sym, superclass);
-                        target.owner_module.constants.put(target.name_sym, .{ .value = class_val }) catch return error.Fatal;
+                        try self.setConstant(target.owner_module, target.name_sym, class_val);
 
                         // Call superclass.inherited(new_class) if superclass defines it
                         if (!superclass_val.isNil() and superclass_val.isClass()) {
@@ -8585,7 +8684,8 @@ pub const VM = struct {
     }
 
     pub inline fn className(self: *VM, val: Value) []const u8 {
-        return self.getClass(val).module.name.name;
+        const class_obj = self.getClass(val);
+        return if (class_obj.module.classpath) |classpath| classpath.str else class_obj.module.name.name;
     }
 
     pub fn resolveConstantPath(self: *VM, path: []const u8) VMError!?Value {

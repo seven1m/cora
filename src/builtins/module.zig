@@ -358,80 +358,8 @@ fn warnDeprecatedConstant(vm: *VM, receiver: Value, name_sym: *SymbolObject) VME
     try warning_builtin.writeWarning(vm, warning);
 }
 
-fn isSyntheticSingletonName(name: []const u8) bool {
-    return std.mem.startsWith(u8, name, "#<Class:#");
-}
-
-fn isAnonymousStoredName(name: []const u8) bool {
-    return std.mem.eql(u8, name, "<anonymous>");
-}
-
-fn findNestedConstantPath(
-    vm: *VM,
-    owner: Value,
-    owner_path: []const u8,
-    target: Value,
-    seen: *std.AutoHashMap(usize, void),
-) VMError!?[]const u8 {
-    const constants = constantsTable(owner) orelse return null;
-    const owner_key: usize = @intCast(owner.raw);
-    if (seen.contains(owner_key)) return null;
-    seen.put(owner_key, {}) catch return error.Fatal;
-
-    var it = constants.iterator();
-    while (it.next()) |entry| {
-        const child = entry.value_ptr.*.value;
-        if (!child.isModule() and !child.isClass()) continue;
-
-        const path = std.fmt.allocPrint(vm.gc_allocator, "{s}::{s}", .{ owner_path, entry.key_ptr.*.name }) catch return error.Fatal;
-        if (child.raw == target.raw) return path;
-    }
-
-    it = constants.iterator();
-    while (it.next()) |entry| {
-        const child = entry.value_ptr.*.value;
-        if (!child.isModule() and !child.isClass()) continue;
-
-        const path = std.fmt.allocPrint(vm.gc_allocator, "{s}::{s}", .{ owner_path, entry.key_ptr.*.name }) catch return error.Fatal;
-        if (try findNestedConstantPath(vm, child, path, target, seen)) |found| return found;
-    }
-
-    return null;
-}
-
-fn findConstantPathFromObject(vm: *VM, target: Value) VMError!?[]const u8 {
-    var seen = std.AutoHashMap(usize, void).init(vm.allocator);
-    defer seen.deinit();
-
-    var it = vm.object_class.module.constants.iterator();
-    while (it.next()) |entry| {
-        const child = entry.value_ptr.*.value;
-        if (!child.isModule() and !child.isClass()) continue;
-
-        const path = entry.key_ptr.*.name;
-        if (child.raw == target.raw) return path;
-    }
-
-    it = vm.object_class.module.constants.iterator();
-    while (it.next()) |entry| {
-        const child = entry.value_ptr.*.value;
-        if (!child.isModule() and !child.isClass()) continue;
-        if (child.raw == Value.fromObject(&vm.object_class.module.object).raw) continue;
-
-        const path = entry.key_ptr.*.name;
-        if (try findNestedConstantPath(vm, child, path, target, &seen)) |found| return found;
-    }
-
-    return null;
-}
-
 fn publicModuleName(vm: *VM, receiver: Value) VMError!?[]const u8 {
-    if (receiver.isClass() and receiver.toClassObject().attached_object != null) return null;
-    const stored_name = storedModuleName(receiver);
-    if (isSyntheticSingletonName(stored_name)) return null;
-    if (try findConstantPathFromObject(vm, receiver)) |path| return path;
-    if (isAnonymousStoredName(stored_name)) return null;
-    return stored_name;
+    return vm.publicModuleName(receiver);
 }
 
 fn moduleMethodErrorOwnerName(vm: *VM, receiver: Value) VMError![]const u8 {
@@ -1235,7 +1163,7 @@ pub fn builtinModuleConstDefined(vm: *VM, receiver: Value, args: []Value, _: ?Bl
 
 pub fn builtinModuleConstSet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 2);
-    const constants = constantsTable(receiver) orelse {
+    _ = constantsTable(receiver) orelse {
         unreachable; // receiver is not a Module
     };
 
@@ -1245,14 +1173,7 @@ pub fn builtinModuleConstSet(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     }
 
     const name_sym = try vm.intern(name);
-    if (constants.getPtr(name_sym)) |entry| {
-        entry.value = args[1];
-    } else {
-        constants.put(name_sym, .{ .value = args[1] }) catch return error.Fatal;
-    }
-    if (autoloadTable(receiver)) |table| {
-        _ = table.remove(name_sym);
-    }
+    try vm.setConstant(moduleFromValue(receiver).?, name_sym, args[1]);
     return args[1];
 }
 

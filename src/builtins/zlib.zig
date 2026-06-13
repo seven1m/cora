@@ -24,41 +24,41 @@ pub fn register(vm: *VM) !void {
 
     const zlib_val = try vm.newModule(zlib_name);
     const zlib_mod = zlib_val.toModuleObject();
-    try vm.object_class.module.constants.put(zlib_name, .{ .value = zlib_val });
+    try vm.setConstant(&vm.object_class.module, zlib_name, zlib_val);
 
     const error_name = try vm.intern("Error");
     const error_val = try vm.newClass(error_name, vm.standard_error_class);
-    try zlib_mod.constants.put(error_name, .{ .value = error_val });
+    try vm.setConstant(zlib_mod, error_name, error_val);
 
     const data_error_name = try vm.intern("DataError");
     const data_error_val = try vm.newClass(data_error_name, error_val.toClassObject());
-    try zlib_mod.constants.put(data_error_name, .{ .value = data_error_val });
+    try vm.setConstant(zlib_mod, data_error_name, data_error_val);
 
     const stream_error_name = try vm.intern("StreamError");
     const stream_error_val = try vm.newClass(stream_error_name, error_val.toClassObject());
-    try zlib_mod.constants.put(stream_error_name, .{ .value = stream_error_val });
+    try vm.setConstant(zlib_mod, stream_error_name, stream_error_val);
 
     const buf_error_name = try vm.intern("BufError");
     const buf_error_val = try vm.newClass(buf_error_name, error_val.toClassObject());
-    try zlib_mod.constants.put(buf_error_name, .{ .value = buf_error_val });
+    try vm.setConstant(zlib_mod, buf_error_name, buf_error_val);
 
     const gzip_file_name = try vm.intern("GzipFile");
     const gzip_file_val = try vm.newClass(gzip_file_name, vm.object_class);
     const gzip_file_class = gzip_file_val.toClassObject();
-    try zlib_mod.constants.put(gzip_file_name, .{ .value = gzip_file_val });
+    try vm.setConstant(zlib_mod, gzip_file_name, gzip_file_val);
 
     const gzip_error_name = try vm.intern("Error");
     const gzip_error_val = try vm.newClass(gzip_error_name, error_val.toClassObject());
-    try gzip_file_class.module.constants.put(gzip_error_name, .{ .value = gzip_error_val });
+    try vm.setConstant(&gzip_file_class.module, gzip_error_name, gzip_error_val);
 
     const deflate_name = try vm.intern("Deflate");
-    try zlib_mod.constants.put(deflate_name, .{ .value = try vm.newClass(deflate_name, vm.object_class) });
+    try vm.setConstant(zlib_mod, deflate_name, try vm.newClass(deflate_name, vm.object_class));
     const inflate_name = try vm.intern("Inflate");
-    try zlib_mod.constants.put(inflate_name, .{ .value = try vm.newClass(inflate_name, vm.object_class) });
+    try vm.setConstant(zlib_mod, inflate_name, try vm.newClass(inflate_name, vm.object_class));
     const gzip_reader_name = try vm.intern("GzipReader");
-    try zlib_mod.constants.put(gzip_reader_name, .{ .value = try vm.newClass(gzip_reader_name, vm.object_class) });
+    try vm.setConstant(zlib_mod, gzip_reader_name, try vm.newClass(gzip_reader_name, vm.object_class));
     const gzip_writer_name = try vm.intern("GzipWriter");
-    try zlib_mod.constants.put(gzip_writer_name, .{ .value = try vm.newClass(gzip_writer_name, vm.object_class) });
+    try vm.setConstant(zlib_mod, gzip_writer_name, try vm.newClass(gzip_writer_name, vm.object_class));
 
     const zlib_singleton = try vm.getOrCreateSingletonClass(zlib_val);
     try zlib_singleton.module.methods.put(try vm.intern("__deflate"), value.MethodEntry.builtin(&builtinZlibDeflate, .{ .exact = 3 }));

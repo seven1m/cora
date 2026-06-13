@@ -108,13 +108,11 @@ describe "Invoking a method" do
 
   ruby_version_is "4.0" do
     it "raises TypeError if 'to_proc' doesn't return a Proc" do
-      CORAFIXME "qualified class names in block coercion TypeError differ", exception: SpecFailedException do
-        o = LangSendSpecs::RawToProc.new(42)
+      o = LangSendSpecs::RawToProc.new(42)
 
-        -> {
-          specs.makeproc(&o)
-        }.should raise_error(TypeError, "can't convert LangSendSpecs::RawToProc to Proc (LangSendSpecs::RawToProc#to_proc gives Integer)")
-      end
+      -> {
+        specs.makeproc(&o)
+      }.should raise_error(TypeError, "can't convert LangSendSpecs::RawToProc to Proc (LangSendSpecs::RawToProc#to_proc gives Integer)")
     end
 
     it "raises TypeError if block object isn't a Proc and doesn't respond to `to_proc`" do

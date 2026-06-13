@@ -140,6 +140,8 @@ pub const LexicalScope = struct {
 pub const ModuleObject = struct {
     object: Object,
     name: *SymbolObject,
+    classpath: ?*StringObject = null,
+    classpath_permanent: bool = false,
     methods: std.AutoHashMap(*SymbolObject, MethodEntry),
     constants: std.AutoHashMap(*SymbolObject, ConstEntry),
     autoloads: std.AutoHashMap(*SymbolObject, []const u8),

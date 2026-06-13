@@ -39,11 +39,11 @@ pub fn register(vm: *VM) !void {
     if (vm.object_class.module.constants.contains(openssl_name)) return;
     const openssl_val = try vm.newModule(openssl_name);
     const openssl_mod = openssl_val.toModuleObject();
-    try vm.object_class.module.constants.put(openssl_name, .{ .value = openssl_val });
+    try vm.setConstant(&vm.object_class.module, openssl_name, openssl_val);
 
     const openssl_error_name = try vm.intern("OpenSSLError");
     const openssl_error_val = try vm.newClass(openssl_error_name, vm.standard_error_class);
-    try openssl_mod.constants.put(openssl_error_name, .{ .value = openssl_error_val });
+    try vm.setConstant(openssl_mod, openssl_error_name, openssl_error_val);
 
     const openssl_singleton = try vm.getOrCreateSingletonClass(openssl_val);
     const fixed_length_secure_compare_sym = try vm.intern("fixed_length_secure_compare");
@@ -64,11 +64,11 @@ pub fn register(vm: *VM) !void {
     const digest_name = try vm.intern("Digest");
     const digest_val = try vm.newClass(digest_name, vm.object_class);
     const digest_class = digest_val.toClassObject();
-    try openssl_mod.constants.put(digest_name, .{ .value = digest_val });
+    try vm.setConstant(openssl_mod, digest_name, digest_val);
 
     const digest_error_name = try vm.intern("DigestError");
     const digest_error_val = try vm.newClass(digest_error_name, openssl_error_val.toClassObject());
-    try digest_class.module.constants.put(digest_error_name, .{ .value = digest_error_val });
+    try vm.setConstant(&digest_class.module, digest_error_name, digest_error_val);
 
     const digest_allocate_sym = try vm.intern("allocate");
     const digest_singleton = try vm.getOrCreateSingletonClass(digest_val);
@@ -119,11 +119,11 @@ pub fn register(vm: *VM) !void {
 
     const hmac_name = try vm.intern("HMAC");
     const hmac_val = try vm.newClass(hmac_name, vm.object_class);
-    try openssl_mod.constants.put(hmac_name, .{ .value = hmac_val });
+    try vm.setConstant(openssl_mod, hmac_name, hmac_val);
 
     const hmac_error_name = try vm.intern("HMACError");
     const hmac_error_val = try vm.newClass(hmac_error_name, openssl_error_val.toClassObject());
-    try openssl_mod.constants.put(hmac_error_name, .{ .value = hmac_error_val });
+    try vm.setConstant(openssl_mod, hmac_error_name, hmac_error_val);
 
     const hmac_singleton = try vm.getOrCreateSingletonClass(hmac_val);
     try hmac_singleton.module.methods.put(digest_digest_sym, value.MethodEntry.builtin(&builtinOpenSSLHMACDigest, .{ .exact = 3 }));
@@ -132,11 +132,11 @@ pub fn register(vm: *VM) !void {
     const random_name = try vm.intern("Random");
     const random_val = try vm.newModule(random_name);
     const random_mod = random_val.toModuleObject();
-    try openssl_mod.constants.put(random_name, .{ .value = random_val });
+    try vm.setConstant(openssl_mod, random_name, random_val);
 
     const random_error_name = try vm.intern("RandomError");
     const random_error_val = try vm.newClass(random_error_name, openssl_error_val.toClassObject());
-    try random_mod.constants.put(random_error_name, .{ .value = random_error_val });
+    try vm.setConstant(random_mod, random_error_name, random_error_val);
 
     const random_singleton = try vm.getOrCreateSingletonClass(random_val);
     const random_bytes_sym = try vm.intern("random_bytes");
@@ -147,11 +147,11 @@ pub fn register(vm: *VM) !void {
     const kdf_name = try vm.intern("KDF");
     const kdf_val = try vm.newModule(kdf_name);
     const kdf_mod = kdf_val.toModuleObject();
-    try openssl_mod.constants.put(kdf_name, .{ .value = kdf_val });
+    try vm.setConstant(openssl_mod, kdf_name, kdf_val);
 
     const kdf_error_name = try vm.intern("KDFError");
     const kdf_error_val = try vm.newClass(kdf_error_name, openssl_error_val.toClassObject());
-    try kdf_mod.constants.put(kdf_error_name, .{ .value = kdf_error_val });
+    try vm.setConstant(kdf_mod, kdf_error_name, kdf_error_val);
 
     const kdf_singleton = try vm.getOrCreateSingletonClass(kdf_val);
     const pbkdf2_sym = try vm.intern("pbkdf2_hmac");
