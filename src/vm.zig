@@ -1443,6 +1443,9 @@ pub const VM = struct {
         self.object_class.module.constants.put(errno_name_sym, .{ .value = errno_module_val }) catch return error.Fatal;
         self.object_class.module.constants.put(comparable_name_sym, .{ .value = comparable_module_val }) catch return error.Fatal;
         self.object_class.module.constants.put(enumerable_name_sym, .{ .value = enumerable_module_val }) catch return error.Fatal;
+
+        const set_name_sym = try self.intern("Set");
+        try self.registerAutoload(&self.object_class.module, set_name_sym, "set");
         self.object_class.module.constants.put(exception_name_sym, .{ .value = exception_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(system_exit_name_sym, .{ .value = system_exit_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(signal_exception_name_sym, .{ .value = signal_exception_class_val }) catch return error.Fatal;

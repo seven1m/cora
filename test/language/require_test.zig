@@ -130,6 +130,25 @@ test "stdlib require loads set by default" {
     try std.testing.expectEqualSlices(u8, "[true, 3, 2]\n", result.stdout);
 }
 
+test "top level Set autoloads stdlib set" {
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+    var threaded: std.Io.Threaded = .init(allocator, .{});
+    defer threaded.deinit();
+
+    const result = try std.process.run(allocator, threaded.io(), .{
+        .argv = &.{ "build/bin/cora", "-e", "puts Set.new([1, 2, 2]).size" },
+        .stdout_limit = .limited(1024 * 1024),
+        .stderr_limit = .limited(1024 * 1024),
+    });
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+
+    try std.testing.expect(result.term == .exited and result.term.exited == 0);
+    try std.testing.expectEqualSlices(u8, "2\n", result.stdout);
+}
+
 test "stdlib require loads thread condition variable" {
     var gpa: std.heap.DebugAllocator(.{}) = .init;
     defer _ = gpa.deinit();
