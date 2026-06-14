@@ -136,7 +136,11 @@ the top of the relevant file, in the same directory with a name like
 | `ext/erb/*` | Masatoshi SEKI and Ruby contributors | Ruby license / 2-clause BSD |
 | `ext/forwardable/*` | Keiju ISHITSUKA, Daniel J. Berger, Ruby contributors | Ruby license / 2-clause BSD |
 | `lib/stdlib/fileutils.rb` | Yukihiro Matsumoto and Ruby contributors | Ruby license / 2-clause BSD |
+| `lib/stdlib/mkmf.rb` | Yukihiro Matsumoto and Ruby contributors | Ruby license / 2-clause BSD |
+| `lib/stdlib/monitor.rb` | Yukihiro Matsumoto and Ruby contributors | Ruby license / 2-clause BSD |
+| `lib/stdlib/pathname.rb` | Yukihiro Matsumoto and Ruby contributors | Ruby license / 2-clause BSD |
 | `lib/stdlib/random/*` | Yukihiro Matsumoto and Ruby contributors | Ruby license / 2-clause BSD |
+| `lib/stdlib/securerandom.rb` | Yukihiro Matsumoto and Ruby contributors | Ruby license / 2-clause BSD |
 | `ext/open3/*` | Yukihiro Matsumoto and Ruby contributors | Ruby license / 2-clause BSD |
 | `ext/onigmo/*` | K. Kosako, K. Takata, Yukihiro Matsumoto | BSD-style / Ruby BSDL |
 | `ext/prism/*`, `ext/prism-templates/*` | Shopify Inc. | MIT |
