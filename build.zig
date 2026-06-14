@@ -7,6 +7,8 @@ const psych_build_root = "build/psych";
 const prism_build_root = "build/prism";
 const tinycc_build_root = "build/tinycc";
 const cext_build_root = "build/cext";
+const psych_gem_version = "5.4.0";
+const yaml_gem_version = "0.4.0";
 const runtime_ext_dirs = [_][]const u8{
     "cgi",
     "delegate",
@@ -455,9 +457,26 @@ pub fn build(b: *std.Build) void {
     });
     b.getInstallStep().dependOn(&install_stdlib.step);
 
-    const install_psych_so = b.addInstallFile(b.path(psych_build_root ++ "/ext/psych.so"), "ext/psych/lib/psych.so");
-    install_psych_so.step.dependOn(psych_build_step);
-    b.getInstallStep().dependOn(&install_psych_so.step);
+    const install_psych_default_gem = b.addInstallDirectory(.{
+        .source_dir = b.path("ext/psych"),
+        .install_dir = .prefix,
+        .install_subdir = "lib/gems/4.0.0/gems/psych-" ++ psych_gem_version,
+    });
+    b.getInstallStep().dependOn(&install_psych_default_gem.step);
+
+    const install_yaml_default_gem = b.addInstallDirectory(.{
+        .source_dir = b.path("ext/yaml"),
+        .install_dir = .prefix,
+        .install_subdir = "lib/gems/4.0.0/gems/yaml-" ++ yaml_gem_version,
+    });
+    b.getInstallStep().dependOn(&install_yaml_default_gem.step);
+
+    const install_psych_default_gem_so = b.addInstallFile(
+        b.path(psych_build_root ++ "/ext/psych.so"),
+        "lib/gems/4.0.0/gems/psych-" ++ psych_gem_version ++ "/lib/psych.so",
+    );
+    install_psych_default_gem_so.step.dependOn(psych_build_step);
+    b.getInstallStep().dependOn(&install_psych_default_gem_so.step);
 
     const install_headers = b.addInstallDirectory(.{
         .source_dir = b.path("include/cora"),
@@ -488,6 +507,43 @@ pub fn build(b: *std.Build) void {
     psych_build.extconf_step.dependOn(&install_oniguruma_header.step);
     psych_build.extconf_step.dependOn(&install_sizeof_rb.step);
     psych_build.extconf_step.dependOn(&chmod_gem.step);
+
+    const write_psych_default_spec = b.addSystemCommand(&.{
+        "build/bin/cora",
+        "-e",
+        \\require "rubygems"
+        \\root = Dir.pwd
+        \\Dir.mkdir("#{root}/build/lib/gems/4.0.0/specifications") unless File.directory?("#{root}/build/lib/gems/4.0.0/specifications")
+        \\Dir.mkdir("#{root}/build/lib/gems/4.0.0/specifications/default") unless File.directory?("#{root}/build/lib/gems/4.0.0/specifications/default")
+        \\Dir.chdir("ext/psych") do
+        \\  spec = Gem::Specification.load("psych.gemspec")
+        \\  File.write("#{root}/build/lib/gems/4.0.0/specifications/default/#{spec.full_name}.gemspec", spec.to_ruby)
+        \\end
+        ,
+    });
+    write_psych_default_spec.step.dependOn(&install_exe.step);
+    write_psych_default_spec.step.dependOn(&install_stdlib.step);
+    write_psych_default_spec.step.dependOn(&install_psych_default_gem.step);
+    write_psych_default_spec.step.dependOn(&install_psych_default_gem_so.step);
+    b.getInstallStep().dependOn(&write_psych_default_spec.step);
+
+    const write_yaml_default_spec = b.addSystemCommand(&.{
+        "build/bin/cora",
+        "-e",
+        \\require "rubygems"
+        \\root = Dir.pwd
+        \\Dir.mkdir("#{root}/build/lib/gems/4.0.0/specifications") unless File.directory?("#{root}/build/lib/gems/4.0.0/specifications")
+        \\Dir.mkdir("#{root}/build/lib/gems/4.0.0/specifications/default") unless File.directory?("#{root}/build/lib/gems/4.0.0/specifications/default")
+        \\Dir.chdir("ext/yaml") do
+        \\  spec = Gem::Specification.load("yaml.gemspec")
+        \\  File.write("#{root}/build/lib/gems/4.0.0/specifications/default/#{spec.full_name}.gemspec", spec.to_ruby)
+        \\end
+        ,
+    });
+    write_yaml_default_spec.step.dependOn(&install_exe.step);
+    write_yaml_default_spec.step.dependOn(&install_stdlib.step);
+    write_yaml_default_spec.step.dependOn(&install_yaml_default_gem.step);
+    b.getInstallStep().dependOn(&write_yaml_default_spec.step);
 
     const install_cext_fixture = b.addInstallFile(b.path(cext_build_root ++ "/fixture.so"), "cext/fixture.so");
     install_cext_fixture.step.dependOn(cext_fixture_step);

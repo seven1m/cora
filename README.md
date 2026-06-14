@@ -143,6 +143,7 @@ the top of the relevant file, in the same directory with a name like
 | `ext/tinycc/*` | Fabrice Bellard and TinyCC contributors | LGPL 2.1 |
 | `ext/logger/*` | Yukihiro Matsumoto | Ruby license / 2-clause BSD |
 | `ext/optparse/*` | Yukihiro Matsumoto and Ruby contributors | Ruby license / 2-clause BSD |
+| `ext/psych/*` | Aaron Patterson, SHIBATA Hiroshi, Charles Oliver Nutter, and contributors | MIT |
 | `ext/rubygems/*` | Chad Fowler, Rich Kilmer, Jim Weirich, and others | RubyGems license / MIT |
 | `ext/singleton/*` | Yukihiro Matsumoto and Ruby contributors | Ruby license / 2-clause BSD |
 | `ext/tempfile/*` | Yukihiro Matsumoto and Ruby contributors | Ruby license / 2-clause BSD |
@@ -151,5 +152,6 @@ the top of the relevant file, in the same directory with a name like
 | `ext/shellwords/*` | Akinori MUSHA and Ruby contributors | Ruby license / 2-clause BSD |
 | `ext/uri/*` | Yukihiro Matsumoto and Ruby contributors | Ruby license / 2-clause BSD |
 | `ext/webrick/*` | Yukihiro Matsumoto and Ruby contributors | Ruby license / 2-clause BSD |
+| `ext/yaml/*` | Aaron Patterson, SHIBATA Hiroshi, and Ruby contributors | Ruby license / 2-clause BSD |
 
 See each file/directory for the full copyright and license terms.
