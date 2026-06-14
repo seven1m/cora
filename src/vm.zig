@@ -2603,6 +2603,10 @@ pub const VM = struct {
         }
         self.jit_chunk_states.deinit();
         for (self.io_objects.items) |io_obj| {
+            if (io_obj.read_buf) |buf| {
+                self.allocator.free(buf);
+                io_obj.read_buf = null;
+            }
             if (io_obj.owns_fd and !io_obj.closed and io_obj.fd >= 0) {
                 _ = std.c.close(@intCast(io_obj.fd));
                 io_obj.closed = true;
