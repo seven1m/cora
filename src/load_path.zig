@@ -1,3 +1,9 @@
+const ruby_gem_api_version = "4.0.0";
+
+fn defaultGemLibPath(comptime name: []const u8, comptime version: []const u8) []const u8 {
+    return "lib/gems/" ++ ruby_gem_api_version ++ "/gems/" ++ name ++ "-" ++ version ++ "/lib";
+}
+
 pub const repo_load_paths = [_][]const u8{
     "lib/stdlib",
     "ext/rubygems/lib",
@@ -17,6 +23,6 @@ pub const repo_load_paths = [_][]const u8{
     "ext/erb/lib",
     "ext/open3/lib",
     "ext/shellwords/lib",
-    "lib/gems/4.0.0/gems/psych-5.4.0/lib",
-    "lib/gems/4.0.0/gems/strscan-3.1.9/lib",
+    defaultGemLibPath("psych", "5.4.0"),
+    defaultGemLibPath("strscan", "3.1.9"),
 };
