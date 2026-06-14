@@ -17,5 +17,6 @@ pub const repo_load_paths = [_][]const u8{
     "ext/erb/lib",
     "ext/open3/lib",
     "ext/shellwords/lib",
-    "build/lib/gems/4.0.0/gems/psych-5.4.0/lib"
+    "lib/gems/4.0.0/gems/psych-5.4.0/lib",
+    "lib/gems/4.0.0/gems/strscan-3.1.9/lib",
 };

@@ -4,10 +4,12 @@ const optimize_state_path = "build/build-mode";
 const runtime_prefix = "build";
 const onigmo_build_root = "build/onigmo";
 const psych_build_root = "build/psych";
+const strscan_build_root = "build/strscan";
 const prism_build_root = "build/prism";
 const tinycc_build_root = "build/tinycc";
 const cext_build_root = "build/cext";
 const psych_gem_version = "5.4.0";
+const strscan_gem_version = "3.1.9";
 const yaml_gem_version = "0.4.0";
 const runtime_ext_dirs = [_][]const u8{
     "cgi",
@@ -22,6 +24,7 @@ const runtime_ext_dirs = [_][]const u8{
     "rubygems",
     "shellwords",
     "singleton",
+    "strscan",
     "tempfile",
     "time",
     "timeout",
@@ -173,6 +176,11 @@ const PsychBuild = struct {
     extconf_step: *std.Build.Step,
 };
 
+const StrscanBuild = struct {
+    step: *std.Build.Step,
+    extconf_step: *std.Build.Step,
+};
+
 fn buildPsych(b: *std.Build) PsychBuild {
     const psych_build_step = b.step("psych", "Build Psych native extension");
     const psych_so_path = psych_build_root ++ "/ext/psych.so";
@@ -202,6 +210,42 @@ fn buildPsych(b: *std.Build) PsychBuild {
     return .{
         .step = psych_build_step,
         .extconf_step = psych_build_step,
+    };
+}
+
+fn buildStrscan(b: *std.Build) StrscanBuild {
+    const strscan_build_step = b.step("strscan", "Build Strscan native extension");
+    const strscan_so_path = strscan_build_root ++ "/ext/strscan/strscan.so";
+
+    if (!pathExists(b, strscan_so_path)) {
+        const copy_step = b.addSystemCommand(&.{ "sh", "-c", "mkdir -p build/strscan && cp -r ext/strscan/. build/strscan/" });
+        strscan_build_step.dependOn(&copy_step.step);
+
+        const patch_step = b.addSystemCommand(&.{ "sh", "-c", "cd build/strscan && patch -p1 < ../../ext/strscan.patch" });
+        patch_step.step.dependOn(&copy_step.step);
+        strscan_build_step.dependOn(&patch_step.step);
+
+        const extconf_step = b.addSystemCommand(&.{
+            "sh",
+            "-c",
+            "repo_root=\"$PWD\" && cd build/strscan/ext/strscan && \"$repo_root\"/build/bin/cora extconf.rb",
+        });
+        extconf_step.step.dependOn(&patch_step.step);
+        strscan_build_step.dependOn(&extconf_step.step);
+
+        const make_step = b.addSystemCommand(&.{ "make", "-C", strscan_build_root ++ "/ext/strscan" });
+        make_step.step.dependOn(&extconf_step.step);
+        strscan_build_step.dependOn(&make_step.step);
+
+        return .{
+            .step = strscan_build_step,
+            .extconf_step = &extconf_step.step,
+        };
+    }
+
+    return .{
+        .step = strscan_build_step,
+        .extconf_step = strscan_build_step,
     };
 }
 
@@ -376,6 +420,8 @@ pub fn build(b: *std.Build) void {
     const prism_build_step = buildPrism(b);
     const psych_build = buildPsych(b);
     const psych_build_step = psych_build.step;
+    const strscan_build = buildStrscan(b);
+    const strscan_build_step = strscan_build.step;
     const onigmo_build_step = buildOnigmo(b);
     const tinycc_build_step = buildTinyCC(b);
     const cext_fixture_step = buildCExtFixture(b);
@@ -383,6 +429,7 @@ pub fn build(b: *std.Build) void {
     if (submodule_update_step) |s| {
         prism_build_step.dependOn(s);
         psych_build_step.dependOn(s);
+        strscan_build_step.dependOn(s);
         onigmo_build_step.dependOn(s);
         tinycc_build_step.dependOn(s);
     }
@@ -464,6 +511,14 @@ pub fn build(b: *std.Build) void {
     });
     b.getInstallStep().dependOn(&install_psych_default_gem.step);
 
+    const install_strscan_default_gem = b.addInstallDirectory(.{
+        .source_dir = b.path(strscan_build_root),
+        .install_dir = .prefix,
+        .install_subdir = "lib/gems/4.0.0/gems/strscan-" ++ strscan_gem_version,
+    });
+    install_strscan_default_gem.step.dependOn(strscan_build_step);
+    b.getInstallStep().dependOn(&install_strscan_default_gem.step);
+
     const install_yaml_default_gem = b.addInstallDirectory(.{
         .source_dir = b.path("ext/yaml"),
         .install_dir = .prefix,
@@ -477,6 +532,13 @@ pub fn build(b: *std.Build) void {
     );
     install_psych_default_gem_so.step.dependOn(psych_build_step);
     b.getInstallStep().dependOn(&install_psych_default_gem_so.step);
+
+    const install_strscan_default_gem_so = b.addInstallFile(
+        b.path(strscan_build_root ++ "/ext/strscan/strscan.so"),
+        "lib/gems/4.0.0/gems/strscan-" ++ strscan_gem_version ++ "/lib/strscan.so",
+    );
+    install_strscan_default_gem_so.step.dependOn(strscan_build_step);
+    b.getInstallStep().dependOn(&install_strscan_default_gem_so.step);
 
     const install_headers = b.addInstallDirectory(.{
         .source_dir = b.path("include/cora"),
@@ -507,6 +569,12 @@ pub fn build(b: *std.Build) void {
     psych_build.extconf_step.dependOn(&install_oniguruma_header.step);
     psych_build.extconf_step.dependOn(&install_sizeof_rb.step);
     psych_build.extconf_step.dependOn(&chmod_gem.step);
+    strscan_build.extconf_step.dependOn(&install_exe.step);
+    strscan_build.extconf_step.dependOn(&install_stdlib.step);
+    strscan_build.extconf_step.dependOn(&install_headers.step);
+    strscan_build.extconf_step.dependOn(&install_oniguruma_header.step);
+    strscan_build.extconf_step.dependOn(&install_sizeof_rb.step);
+    strscan_build.extconf_step.dependOn(&chmod_gem.step);
 
     const write_psych_default_spec = b.addSystemCommand(&.{
         "build/bin/cora",
@@ -526,6 +594,25 @@ pub fn build(b: *std.Build) void {
     write_psych_default_spec.step.dependOn(&install_psych_default_gem.step);
     write_psych_default_spec.step.dependOn(&install_psych_default_gem_so.step);
     b.getInstallStep().dependOn(&write_psych_default_spec.step);
+
+    const write_strscan_default_spec = b.addSystemCommand(&.{
+        "build/bin/cora",
+        "-e",
+        \\require "rubygems"
+        \\root = Dir.pwd
+        \\Dir.mkdir("#{root}/build/lib/gems/4.0.0/specifications") unless File.directory?("#{root}/build/lib/gems/4.0.0/specifications")
+        \\Dir.mkdir("#{root}/build/lib/gems/4.0.0/specifications/default") unless File.directory?("#{root}/build/lib/gems/4.0.0/specifications/default")
+        \\Dir.chdir("build/strscan") do
+        \\  spec = Gem::Specification.load("strscan.gemspec")
+        \\  File.write("#{root}/build/lib/gems/4.0.0/specifications/default/#{spec.full_name}.gemspec", spec.to_ruby)
+        \\end
+        ,
+    });
+    write_strscan_default_spec.step.dependOn(&install_exe.step);
+    write_strscan_default_spec.step.dependOn(&install_stdlib.step);
+    write_strscan_default_spec.step.dependOn(&install_strscan_default_gem.step);
+    write_strscan_default_spec.step.dependOn(&install_strscan_default_gem_so.step);
+    b.getInstallStep().dependOn(&write_strscan_default_spec.step);
 
     const write_yaml_default_spec = b.addSystemCommand(&.{
         "build/bin/cora",

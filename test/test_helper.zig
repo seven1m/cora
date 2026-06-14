@@ -195,6 +195,22 @@ pub fn evalCodeWithOutputAndPath(ruby_code: []const u8, stdout_buf: []u8, stderr
             .err = err,
         };
     };
+    appendRuntimeLoadPath(&vm, threaded.io(), "lib/gems/4.0.0/gems/psych-5.4.0/lib") catch |err| {
+        return .{
+            .value = Value.nil(),
+            .stdout = "",
+            .stderr = "",
+            .err = err,
+        };
+    };
+    appendRuntimeLoadPath(&vm, threaded.io(), "lib/gems/4.0.0/gems/strscan-3.1.9/lib") catch |err| {
+        return .{
+            .value = Value.nil(),
+            .stdout = "",
+            .stderr = "",
+            .err = err,
+        };
+    };
     // Set up stdout capture
     var stdout_writer = TestWriter.init(stdout_buf);
     vm.stdout = &stdout_writer.interface;

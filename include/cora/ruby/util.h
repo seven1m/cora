@@ -18,6 +18,8 @@ void *rb_alloc_tmp_buffer(volatile VALUE *store, size_t size);
 void  rb_free_tmp_buffer(volatile VALUE *store);
 #define ALLOCV_N(type, v, n) ((type*)rb_alloc_tmp_buffer(&(v), (size_t)(n) * sizeof(type)))
 #define ALLOCV_END(v) rb_free_tmp_buffer(&(v))
+#define RB_ALLOCV_N(type, v, n) ALLOCV_N(type, v, n)
+#define RB_ALLOCV_END(v) ALLOCV_END(v)
 
 void *ruby_xmalloc(size_t size);
 void *ruby_xcalloc(size_t n, size_t size);

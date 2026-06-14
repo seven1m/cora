@@ -18,10 +18,15 @@ typedef uint64_t VALUE;
 typedef unsigned long ID;
 typedef struct { int _; } rb_encoding;
 
+#ifndef _
+#define _(args) args
+#endif
+
 #define Qfalse ((VALUE)0x00)
 #define Qtrue  ((VALUE)0x02)
 #define Qnil   ((VALUE)0x04)
 #define Qundef ((VALUE)0x06)
+#define RUBY_Qnil Qnil
 
 #define RUBY_IMMEDIATE_MASK 0x03
 #define RUBY_FIXNUM_FLAG    0x01
@@ -30,7 +35,10 @@ typedef struct { int _; } rb_encoding;
 #define IMMEDIATE_P(x)   ((x) & RUBY_IMMEDIATE_MASK)
 #define FIXNUM_P(x)      (IMMEDIATE_P(x) == RUBY_FIXNUM_FLAG)
 #define NIL_P(x)         ((x) == Qnil)
+#define RB_NIL_P(x)      NIL_P(x)
 #define RTEST(x)         ((x) & ~Qnil)
+#define RB_LIKELY(x)     (x)
+#define RB_UNLIKELY(x)   (x)
 
 #define INT2FIX(x) (((VALUE)(x)) << 1 | RUBY_FIXNUM_FLAG)
 #define FIX2LONG(x) ((long)((x) >> 1))
@@ -142,7 +150,12 @@ extern VALUE rb_eNoMemoryError; /* same as rb_eNoMemError */
 #define RSTRING_PTR(str)  rb_string_ptr(str)
 #define RSTRING_LEN(str)  rb_string_len(str)
 #define RSTRING_END(str)  (RSTRING_PTR(str) + RSTRING_LEN(str))
+#define RSTRING_GETMEM(str, ptrvar, lenvar) \
+    ((ptrvar) = RSTRING_PTR(str),           \
+     (lenvar) = RSTRING_LEN(str))
 #define ENCODING_GET(str) rb_encoding_get(str)
+#define RB_ENCODING_GET(str) ENCODING_GET(str)
+#define ENCODING_GET_INLINED(str) ENCODING_GET(str)
 
 #define RB_INTEGER_TYPE_P(obj) (FIXNUM_P(obj) || TYPE(obj) == T_BIGNUM)
 
@@ -184,12 +197,15 @@ const VALUE *rb_ary_const_ptr(VALUE ary);
 #define TOUPPER(c) toupper(c)
 #define TOLOWER(c) tolower(c)
 #define STRTOUL strtoul
+#define rb_isdigit(c) isdigit((unsigned char)(c))
+#define rb_isxdigit(c) isxdigit((unsigned char)(c))
+#define MEMCPY(dest, src, type, n) memcpy((dest), (src), sizeof(type) * (n))
 
-static inline int rb_type(VALUE obj) { (void)obj; return T_NONE; }
+int rb_type(VALUE obj);
 #define TYPE(obj) rb_type(obj)
 #define RB_TYPE_P(obj, type) (rb_type(obj) == (type))
 
-#define RB_OBJ_WRITE(a, b, c) ((void)0)
+#define RB_OBJ_WRITE(a, b, c) ((void)(a), (*(VALUE *)(b) = (VALUE)(c)))
 #define RB_OBJ_WRITTEN(a, b, c) RB_OBJ_WRITE(a, b, c)
 
 #define RETURN_ENUMERATOR(obj, argc, argv) ((void)0)
@@ -222,10 +238,13 @@ typedef struct rb_data_type_struct {
         void (*dmark)(void*);
         void (*dfree)(void*);
         size_t (*dsize)(const void*);
-        void *reserved[2];
+        void (*dcompact)(void*);
+        void (*handle_weak_references)(void*);
+        void *reserved[7];
     } function;
     const void *parent;
     void *data;
+    VALUE flags;
 } rb_data_type_t;
 
 #define RUBY_TYPED_DEFAULT_FREE NULL
@@ -233,6 +252,7 @@ typedef struct rb_data_type_struct {
 #define RUBY_TYPED_FREE_IMMEDIATELY  0
 #define RUBY_TYPED_WB_PROTECTED  1
 #define RUBY_TYPED_FROZEN_SHAREABLE 0
+#define RUBY_TYPED_EMBEDDABLE 0
 
 VALUE TypedData_Wrap_Struct(VALUE klass, const rb_data_type_t *type, void *data);
 VALUE rb_data_typed_object_alloc(VALUE klass, const rb_data_type_t *type);
@@ -260,6 +280,19 @@ long   rb_string_len(VALUE str);
 char  *rb_string_value_cstr(VALUE *ptr);
 char  *rb_string_value_ptr(VALUE *ptr);
 VALUE  rb_string_value(VALUE *ptr);
+VALUE  rb_str_cat2(VALUE str, const char *ptr);
+VALUE  rb_str_dump(VALUE str);
+VALUE  rb_sprintf(const char *fmt, ...);
+VALUE  rb_sym2str(VALUE symbol);
+VALUE  rb_check_hash_type(VALUE obj);
+int    rb_get_kwargs(VALUE keyword_hash, const ID *table, int required, int optional, VALUE *values);
+void   rb_memerror(void);
+long   rb_enc_strlen(const char *head, const char *tail, rb_encoding *enc);
+int    rb_enc_mbclen(const char *p, const char *e, rb_encoding *enc);
+rb_encoding *rb_enc_check(VALUE str1, VALUE str2);
+long   rb_memsearch(const void *x, long m, const void *y, long n, rb_encoding *enc);
+void   rb_must_asciicompat(VALUE obj);
+void   rb_enc_raise(rb_encoding *enc, VALUE exc, const char *fmt, ...);
 
 VALUE  rb_str_new(const char *ptr, long len);
 VALUE  rb_str_new_cstr(const char *ptr);
@@ -281,6 +314,9 @@ ID     rb_intern(const char *name);
 VALUE  rb_const_get(VALUE klass, ID id);
 VALUE  rb_const_get_at(VALUE klass, ID id);
 void   rb_define_const(VALUE klass, const char *name, VALUE val);
+int    rb_const_defined(VALUE klass, ID id);
+void   rb_const_set(VALUE klass, ID id, VALUE val);
+void   rb_alias(VALUE klass, ID dst, ID src);
 
 VALUE  rb_funcall(VALUE recv, ID mid, int argc, ...);
 VALUE  rb_funcallv(VALUE recv, ID mid, int argc, const VALUE *argv);
@@ -406,8 +442,11 @@ ID   rb_intern_const(const char *name);
 VALUE rb_int_positive_pow(long x, unsigned long y);
 
 VALUE rb_cstr_to_inum(const char *str, int base, int badcheck);
+#define rb_cstr2inum(str, base) rb_cstr_to_inum((str), (base), 1)
 int   rb_match_busy(VALUE match);
 long  rb_memhash(const void *ptr, long len);
+
+static inline int rb_long2int(long n) { return (int)n; }
 
 VALUE rb_num_coerce_cmp(VALUE x, VALUE y, ID cmp);
 VALUE rb_rational_new(VALUE num, VALUE den);

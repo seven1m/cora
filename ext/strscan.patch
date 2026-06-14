@@ -1,0 +1,97 @@
+diff -ruN a/Rakefile b/Rakefile
+--- a/Rakefile
++++ b/Rakefile
+@@ -39,7 +39,7 @@
+     ext.ext_dir = 'ext/jruby'
+   end
+   extra_require_path = "lib"
+-elsif RUBY_ENGINE == "ruby"
++elsif RUBY_ENGINE == "ruby" || RUBY_ENGINE == "cora"
+   require 'rake/extensiontask'
+   Rake::ExtensionTask.new("strscan") do |x|
+     extra_require_path = x.lib_dir.sub!(%r[(?:\A|/)\Klib(?=/|\z)]) {
+diff -ruN a/ext/strscan/extconf.rb b/ext/strscan/extconf.rb
+--- a/ext/strscan/extconf.rb
++++ b/ext/strscan/extconf.rb
+@@ -1,9 +1,10 @@
+ # frozen_string_literal: true
+ require 'mkmf'
+-if RUBY_ENGINE == 'ruby'
++if RUBY_ENGINE == 'ruby' || RUBY_ENGINE == 'cora'
+   $INCFLAGS << " -I$(top_srcdir)" if $extmk
+   have_func("onig_region_memsize(NULL)")
+   have_func("rb_reg_onig_match", "ruby/re.h")
++  $defs << " -DHAVE_RB_REG_ONIG_MATCH"
+   have_func("rb_deprecate_constant")
+   have_func("rb_int_parse_cstr", "ruby.h") # RUBY_VERSION >= 2.5
+   have_func("rb_gc_location", "ruby.h") # RUBY_VERSION >= 2.7
+diff -ruN a/ext/strscan/strscan.c b/ext/strscan/strscan.c
+--- a/ext/strscan/strscan.c
++++ b/ext/strscan/strscan.c
+@@ -294,7 +294,8 @@
+     VALUE str, options;
+ 
+     p = check_strscan(self);
+-    rb_scan_args(argc, argv, "11", &str, &options);
++    str = argc > 0 ? argv[0] : Qnil;
++    options = argc > 1 ? argv[1] : Qnil;
+     options = rb_check_hash_type(options);
+     if (!NIL_P(options)) {
+         VALUE fixed_anchor;
+@@ -616,14 +617,13 @@
+ {
+     const int at = 0;
+     OnigRegion *regs = &(p->regs);
+-    onig_region_clear(regs);
+-    if (onig_region_set(regs, at, 0, 0)) return;
++    onig_region_clear(regs);
++    if (onig_region_set(regs, at, 0, 0)) return;
+     if (p->fixed_anchor_p) {
+         regs->beg[at] = pos + p->curr;
+         regs->end[at] = pos + p->curr + length;
+     }
+-    else
+-    {
++    else {
+         regs->beg[at] = pos;
+         regs->end[at] = pos + length;
+     }
+@@ -753,11 +755,11 @@
+     if (RB_TYPE_P(pattern, T_REGEXP)) {
+         OnigPosition ret;
+         RB_OBJ_WRITE(self, &p->regex, pattern);
+-        ret = rb_reg_onig_match(p->regex,
+-                                p->str,
+-                                headonly ? strscan_match : strscan_search,
+-                                (void *)p,
+-                                &(p->regs));
++        ret = rb_reg_onig_match(p->regex,
++                                p->str,
++                                headonly ? strscan_match : strscan_search,
++                                (void *)p,
++                                &(p->regs));
+ 
+         if (ret == ONIG_MISMATCH) {
+             return Qnil;
+@@ -1850,7 +1855,8 @@
+     int base = 10;
+ 
+     GET_SCANNER(self, p);
+-    rb_scan_args(argc, argv, "11", &rb_specifier, &rb_base);
++    rb_specifier = argc > 0 ? argv[0] : Qnil;
++    rb_base = argc > 1 ? argv[1] : Qnil;
+     if (argc > 1)
+         base = NUM2INT(rb_base);
+     i = resolve_capture_index(p, rb_specifier);
+diff -ruN a/lib/strscan.rb b/lib/strscan.rb
+--- a/lib/strscan.rb
++++ b/lib/strscan.rb
+@@ -1,7 +1,7 @@
+ # frozen_string_literal: true
+ 
+ case RUBY_ENGINE
+-when 'ruby'
++when 'ruby', 'cora'
+   require 'strscan.so'
+   require_relative 'strscan/strscan'
+ when 'jruby'

@@ -5,6 +5,7 @@ const vm_mod = @import("vm.zig");
 const VM = vm_mod.VM;
 const enc = @import("encoding.zig");
 const cext_globals = @import("cext_globals.zig");
+const onigmo = @import("onigmo.zig");
 
 pub const VALUE = u64;
 
@@ -312,6 +313,129 @@ export fn rb_string_value(ptr: *VALUE) VALUE {
     return ptr.*;
 }
 
+export fn rb_str_cat2(str_raw: VALUE, ptr: [*c]const u8) VALUE {
+    if (ptr == null) return str_raw;
+    return rb_str_cat(str_raw, ptr, @intCast(std.mem.span(ptr).len));
+}
+
+export fn rb_str_dump(str_raw: VALUE) VALUE {
+    const vm = getVM();
+    const result = vm.callMethodByName(Value{ .raw = str_raw }, "dump", &[_]Value{}, null) catch return 0;
+    return result.raw;
+}
+
+export fn rb_sprintf(fmt: [*c]const u8, ...) VALUE {
+    if (fmt == null) return 0;
+    const vm = getVM();
+    const str_val = vm.newString(std.mem.span(fmt), false) catch return 0;
+    return str_val.raw;
+}
+
+export fn rb_sym2str(symbol_raw: VALUE) VALUE {
+    const vm = getVM();
+    const symbol = Value{ .raw = symbol_raw };
+    if (!symbol.isSymbol()) return 0;
+    const str_val = vm.newString(symbol.toSymbolObject().name, false) catch return 0;
+    return str_val.raw;
+}
+
+export fn rb_check_hash_type(obj_raw: VALUE) VALUE {
+    const vm = getVM();
+    const obj = Value{ .raw = obj_raw };
+    return switch (vm.probeToHash(obj) catch return 0) {
+        .hash => |hash| hash.raw,
+        else => Value.NIL.raw,
+    };
+}
+
+export fn rb_get_kwargs(keyword_hash_raw: VALUE, table: [*c]const c_ulong, required: c_int, optional: c_int, values: [*c]VALUE) c_int {
+    const vm = getVM();
+    const keyword_hash = Value{ .raw = keyword_hash_raw };
+    if (!keyword_hash.isHash() or values == null) return 0;
+
+    const total: usize = @intCast(@max(required + optional, 0));
+    var found: c_int = 0;
+    var i: usize = 0;
+    while (i < total) : (i += 1) {
+        values[i] = Value.NIL.raw;
+        const key_raw = table[i];
+        const key = Value{ .raw = key_raw };
+        const value_raw = rb_hash_aref(keyword_hash_raw, key.raw);
+        if (value_raw != Value.NIL.raw) {
+            values[i] = value_raw;
+            found += 1;
+            continue;
+        }
+        if (required > 0 and i < @as(usize, @intCast(required))) {
+            const name = if (key.isSymbol()) key.toSymbolObject().name else "keyword";
+            _ = vm.raiseExceptionFmt(vm.argument_error_class, "missing keyword: {s}", .{name}) catch {};
+            return -1;
+        }
+    }
+    return found;
+}
+
+export fn rb_memerror() void {
+    const vm = getVM();
+    _ = vm.raiseExceptionFmt(vm.standard_error_class, "failed to allocate memory", .{}) catch {};
+}
+
+export fn rb_enc_strlen(head: [*c]const u8, tail: [*c]const u8, enc_ptr: ?*anyopaque) c_long {
+    if (head == null or tail == null) return 0;
+    const opaque_ptr: *anyopaque = enc_ptr orelse @ptrCast(@constCast(&encoding_instances[0]));
+    const enc_obj: *const enc.Encoding = @ptrCast(@alignCast(opaque_ptr));
+    var p = head;
+    var len: c_long = 0;
+    while (@intFromPtr(p) < @intFromPtr(tail)) {
+        const remaining: usize = @intFromPtr(tail) - @intFromPtr(p);
+        var byte_index: usize = 0;
+        const result = enc_obj.nextCodepoint(p[0..remaining], &byte_index);
+        p += if (result.len > 0) result.len else 1;
+        len += 1;
+    }
+    return len;
+}
+
+export fn rb_enc_mbclen(p: [*c]const u8, e: [*c]const u8, enc_ptr: ?*anyopaque) c_int {
+    if (p == null or e == null or @intFromPtr(p) >= @intFromPtr(e)) return 0;
+    var len_out: c_int = 0;
+    _ = rb_enc_codepoint_len(@ptrCast(p), @ptrCast(e), &len_out, enc_ptr);
+    return len_out;
+}
+
+export fn rb_enc_check(str1_raw: VALUE, str2_raw: VALUE) ?*anyopaque {
+    _ = str2_raw;
+    return rb_enc_get(str1_raw);
+}
+
+export fn rb_memsearch(x0: ?*const anyopaque, m: c_long, y0: ?*const anyopaque, n: c_long, enc_ptr: ?*anyopaque) c_long {
+    _ = enc_ptr;
+    if (x0 == null or y0 == null or m < 0 or n < 0) return -1;
+    const needle_len: usize = @intCast(m);
+    const haystack_len: usize = @intCast(n);
+    const needle: []const u8 = @as([*]const u8, @ptrCast(x0.?))[0..needle_len];
+    const haystack: []const u8 = @as([*]const u8, @ptrCast(y0.?))[0..haystack_len];
+    const idx = std.mem.indexOf(u8, haystack, needle) orelse return -1;
+    return @intCast(idx);
+}
+
+export fn rb_must_asciicompat(obj_raw: VALUE) void {
+    const obj = Value{ .raw = obj_raw };
+    if (!obj.isString()) return;
+    if (!obj.toStringObject().encoding.isAsciiCompatible()) {
+        const vm = getVM();
+        _ = vm.raiseExceptionFmt(vm.encoding_error_class, "ASCII incompatible encoding", .{}) catch {};
+    }
+}
+
+export fn rb_enc_raise(enc_ptr: ?*anyopaque, exc_raw: VALUE, fmt: [*c]const u8, ...) void {
+    _ = enc_ptr;
+    if (fmt == null) return;
+    const vm = getVM();
+    const exc: *value.ClassObject = @ptrFromInt(exc_raw);
+    _ = vm.raiseExceptionFmt(exc, "{s}", .{std.mem.span(fmt)}) catch {};
+}
+
 export fn rb_str_export_to_enc(str_raw: VALUE, enc_ptr: ?*anyopaque) VALUE {
     _ = enc_ptr;
     return str_raw;
@@ -486,6 +610,26 @@ export fn rb_class_of(obj_raw: VALUE) VALUE {
     return Value.fromObject(&vm.getClass(Value{ .raw = obj_raw }).module.object).raw;
 }
 
+export fn rb_type(obj_raw: VALUE) c_int {
+    const val = Value{ .raw = obj_raw };
+    if (val.isNil()) return 0x11;
+    if (val.isBool()) return if (val.toBool()) 0x12 else 0x13;
+    if (val.isInteger()) return 0x15;
+    if (val.isSymbol()) return 0x14;
+    if (val.isFloat()) return 0x04;
+    return switch (val.objectTypeTag()) {
+        .string => 0x05,
+        .regexp => 0x06,
+        .array => 0x07,
+        .hash => 0x08,
+        .class => 0x02,
+        .module => 0x03,
+        .match_data => 0x0d,
+        .rational => 0x0f,
+        else => 0x01,
+    };
+}
+
 export fn rb_obj_class(obj_raw: VALUE) VALUE {
     return rb_class_of(obj_raw);
 }
@@ -532,6 +676,37 @@ export fn rb_define_const(klass_raw: VALUE, name_ptr: [*c]const u8, val_raw: VAL
     const mod = if (klass.isClass()) &klass.toClassObject().module else if (klass.raw == rb_cModule) @as(*value.ModuleObject, @ptrFromInt(klass_raw)) else return;
     const sym = vm.intern(name) catch return;
     vm.setConstant(mod, sym, Value{ .raw = val_raw }) catch return;
+}
+
+export fn rb_const_defined(klass_raw: VALUE, id: VALUE) c_int {
+    const vm = getVM();
+    const name = symName(id);
+    const klass = Value{ .raw = klass_raw };
+    const mod = if (klass.isClass()) &klass.toClassObject().module else if (klass.raw == rb_cModule) @as(*value.ModuleObject, @ptrFromInt(klass_raw)) else return 0;
+    const sym = vm.intern(name) catch return 0;
+    return @intFromBool(mod.constants.contains(sym));
+}
+
+export fn rb_const_set(klass_raw: VALUE, id: VALUE, val_raw: VALUE) void {
+    const vm = getVM();
+    const name = symName(id);
+    const klass = Value{ .raw = klass_raw };
+    const mod = if (klass.isClass()) &klass.toClassObject().module else if (klass.raw == rb_cModule) @as(*value.ModuleObject, @ptrFromInt(klass_raw)) else return;
+    const sym = vm.intern(name) catch return;
+    vm.setConstant(mod, sym, Value{ .raw = val_raw }) catch return;
+}
+
+export fn rb_alias(klass_raw: VALUE, dst: VALUE, src: VALUE) void {
+    const vm = getVM();
+    const dst_name = symName(dst);
+    const src_name = symName(src);
+    const dst_sym = vm.intern(dst_name) catch return;
+    const src_sym = vm.intern(src_name) catch return;
+    const klass = Value{ .raw = klass_raw };
+    const mod = if (klass.isClass()) &klass.toClassObject().module else @as(*value.ModuleObject, @ptrFromInt(klass_raw));
+    if (mod.methods.get(src_sym)) |entry| {
+        mod.methods.put(dst_sym, entry) catch return;
+    }
 }
 
 // ─── Module/class definition ────────────────────────────────────────────────
@@ -672,10 +847,44 @@ export fn rb_jump_tag(state: c_int) void {
 // ─── Argument scanning ──────────────────────────────────────────────────────
 
 export fn rb_scan_args(argc: c_int, argv: [*c]const VALUE, fmt: [*c]const u8, ...) c_int {
-    _ = argc;
-    _ = argv;
-    _ = fmt;
-    return 0;
+    const fmt_slice = if (fmt != null) std.mem.span(fmt) else "";
+    var required: usize = 0;
+    var optional: usize = 0;
+
+    if (fmt_slice.len > 0 and std.ascii.isDigit(fmt_slice[0])) {
+        required = @intCast(fmt_slice[0] - '0');
+    }
+    if (fmt_slice.len > 1 and std.ascii.isDigit(fmt_slice[1])) {
+        optional = @intCast(fmt_slice[1] - '0');
+    }
+
+    var ap = @cVaStart();
+    defer @cVaEnd(&ap);
+
+    var consumed: usize = 0;
+    var i: usize = 0;
+    while (i < required) : (i += 1) {
+        const out: *VALUE = @cVaArg(&ap, *VALUE);
+        if (@as(usize, @intCast(argc)) > consumed and argv != null) {
+            out.* = argv[consumed];
+            consumed += 1;
+        } else {
+            out.* = Value.NIL.raw;
+        }
+    }
+
+    i = 0;
+    while (i < optional) : (i += 1) {
+        const out: *VALUE = @cVaArg(&ap, *VALUE);
+        if (@as(usize, @intCast(argc)) > consumed and argv != null) {
+            out.* = argv[consumed];
+            consumed += 1;
+        } else {
+            out.* = Value.NIL.raw;
+        }
+    }
+
+    return argc;
 }
 
 // ─── Encoding ───────────────────────────────────────────────────────────────
@@ -1114,6 +1323,28 @@ export fn rb_reg_nth_match(nth: c_long, match_raw: VALUE) VALUE {
     var args = [_]Value{ Value.integer(nth) };
     const result = vm.callMethodByName(Value{ .raw = match_raw }, "[]", &args, null) catch return 0;
     return result.raw;
+}
+
+export fn cora_rregexp_ptr(regexp_raw: VALUE) onigmo.OnigRegex {
+    const regexp = Value{ .raw = regexp_raw };
+    return regexp.toRegexpObject().regex;
+}
+
+export fn rb_reg_onig_match(
+    re_raw: VALUE,
+    str_raw: VALUE,
+    match_fn: ?*const fn (reg: onigmo.OnigRegex, str: VALUE, regs: ?*anyopaque, args: ?*anyopaque) callconv(.c) isize,
+    args: ?*anyopaque,
+    regs: ?*anyopaque,
+) isize {
+    if (match_fn == null) return 0;
+    const regexp = Value{ .raw = re_raw };
+    const result = match_fn.?(regexp.toRegexpObject().regex, str_raw, regs, args);
+    if (result < 0 and result != -1) {
+        const vm = getVM();
+        _ = vm.raiseExceptionFmt(vm.runtime_error_class, "regexp buffer overflow", .{}) catch {};
+    }
+    return result;
 }
 
 // ─── Warnings ────────────────────────────────────────────────────────────────
