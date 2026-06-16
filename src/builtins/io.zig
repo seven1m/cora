@@ -1,6 +1,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const enc = @import("../encoding.zig");
+const encoding_builtin = @import("encoding.zig");
+const warning_builtin = @import("warning.zig");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 
@@ -50,6 +52,9 @@ pub fn register(vm: *VM) !void {
 
     const foreach_sym = try vm.intern("foreach");
     try io_singleton.module.methods.put(foreach_sym, value.MethodEntry.builtin(&builtinIoForeach, .{ .variadic = 0 }));
+
+    const open_sym = try vm.intern("open");
+    try io_singleton.module.methods.put(open_sym, value.MethodEntry.builtin(&builtinIoOpen, .{ .variadic = 0 }));
 
     const initialize_sym = try vm.intern("initialize");
     try vm.io_class.module.methods.put(initialize_sym, value.MethodEntry.builtinWithVisibility(&builtinIoInitialize, .{ .variadic = 1 }, .private));
@@ -1199,30 +1204,155 @@ const IoOpenMode = struct {
     append: bool,
     create: bool,
     truncate: bool,
+    binary: bool = false,
+    textmode: bool = false,
 };
 
-fn parseIoModeValue(vm: *VM, mode_value: Value) VMError!IoOpenMode {
-    if (mode_value.isInteger()) {
-        return switch (@as(i64, @intCast(@mod(mode_value.toInteger(), 4)))) {
-            0 => .{ .readable = true, .writable = false, .append = false, .create = false, .truncate = false },
-            1 => .{ .readable = false, .writable = true, .append = false, .create = false, .truncate = false },
-            2 => .{ .readable = true, .writable = true, .append = false, .create = false, .truncate = false },
-            else => .{ .readable = true, .writable = false, .append = false, .create = false, .truncate = false },
-        };
+const IoModeParse = struct {
+    mode: IoOpenMode,
+    external_encoding: ?Value = null,
+    internal_encoding: ?Value = null,
+    had_encoding_suffix: bool = false,
+};
+
+fn resolveIoEncodingValue(vm: *VM, arg: Value) VMError!Value {
+    if (arg.isEncoding()) return arg;
+    var normalized = arg;
+    if (arg.isString()) {
+        const name = arg.toStringObject().str;
+        if (name.len >= 4 and std.ascii.eqlIgnoreCase(name[0..4], "bom|")) {
+            normalized = try vm.newString(name[4..], false);
+        }
+    }
+    var find_args = [_]Value{normalized};
+    return encoding_builtin.builtinEncodingFind(vm, Value.nil(), find_args[0..], null);
+}
+
+fn applyCombinedIoEncodingArg(vm: *VM, parse: *IoModeParse, arg: Value) VMError!void {
+    if (arg.isEncoding()) {
+        parse.external_encoding = arg;
+        parse.internal_encoding = null;
+        return;
     }
 
-    const mode = try mode_value.coerceToStr(vm, "no implicit conversion into String");
-    const plus = std.mem.indexOfScalar(u8, mode, '+') != null;
-    if (mode.len == 0 or mode[0] == 'r') {
-        return .{ .readable = true, .writable = plus, .append = false, .create = false, .truncate = false };
+    const spec = try arg.coerceToStr(vm, "no implicit conversion into String");
+    if (std.mem.indexOfScalar(u8, spec, ':')) |sep| {
+        if (sep > 0) {
+            parse.external_encoding = try resolveIoEncodingValue(vm, try vm.newString(spec[0..sep], false));
+        }
+        if (sep + 1 < spec.len and spec[sep + 1] != '-') {
+            parse.internal_encoding = try resolveIoEncodingValue(vm, try vm.newString(spec[sep + 1 ..], false));
+        } else {
+            parse.internal_encoding = null;
+        }
+        return;
     }
-    if (mode[0] == 'w') {
-        return .{ .readable = plus, .writable = true, .append = false, .create = true, .truncate = true };
+
+    parse.external_encoding = try resolveIoEncodingValue(vm, try vm.newString(spec, false));
+    parse.internal_encoding = null;
+}
+
+fn parseIoModeBits(vm: *VM, raw_mode: i64) VMError!IoModeParse {
+    if (raw_mode < 0) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "invalid access mode {d}", .{raw_mode});
     }
-    if (mode[0] == 'a') {
-        return .{ .readable = plus, .writable = true, .append = true, .create = true, .truncate = false };
+
+    const flags: std.posix.O = @bitCast(@as(c_int, @truncate(raw_mode)));
+    const read = flags.ACCMODE == .RDONLY or flags.ACCMODE == .RDWR;
+    const write = flags.ACCMODE == .WRONLY or flags.ACCMODE == .RDWR;
+    return .{
+        .mode = .{
+            .readable = read,
+            .writable = write,
+            .append = flags.APPEND,
+            .create = flags.CREAT or flags.APPEND,
+            .truncate = flags.TRUNC,
+        },
+    };
+}
+
+fn parseIoModeString(vm: *VM, mode_value: Value) VMError!IoModeParse {
+    const raw_mode = try mode_value.coerceToStr(vm, "no implicit conversion into String");
+    if (raw_mode.len == 0) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "invalid access mode", .{});
     }
-    return vm.raiseExceptionFmt(vm.argument_error_class, "invalid access mode", .{});
+
+    const mode_part = raw_mode[0 .. (std.mem.indexOfScalar(u8, raw_mode, ':') orelse raw_mode.len)];
+    const encoding_part = if (mode_part.len < raw_mode.len) raw_mode[mode_part.len + 1 ..] else "";
+    if (mode_part.len == 0) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "invalid access mode", .{});
+    }
+
+    var parse = switch (mode_part[0]) {
+        'r' => IoModeParse{ .mode = .{ .readable = true, .writable = false, .append = false, .create = false, .truncate = false } },
+        'w' => IoModeParse{ .mode = .{ .readable = false, .writable = true, .append = false, .create = true, .truncate = true } },
+        'a' => IoModeParse{ .mode = .{ .readable = false, .writable = true, .append = true, .create = true, .truncate = false } },
+        else => return vm.raiseExceptionFmt(vm.argument_error_class, "invalid access mode", .{}),
+    };
+
+    for (mode_part[1..]) |ch| {
+        switch (ch) {
+            '+' => {
+                parse.mode.readable = true;
+                parse.mode.writable = true;
+            },
+            'b' => parse.mode.binary = true,
+            't' => parse.mode.textmode = true,
+            else => return vm.raiseExceptionFmt(vm.argument_error_class, "invalid access mode", .{}),
+        }
+    }
+
+    if (encoding_part.len > 0) {
+        try applyCombinedIoEncodingArg(vm, &parse, try vm.newString(encoding_part, false));
+        parse.had_encoding_suffix = true;
+    }
+    return parse;
+}
+
+fn parseIoModeValue(vm: *VM, mode_value: Value) VMError!IoModeParse {
+    if (mode_value.isInteger()) return parseIoModeBits(vm, mode_value.toInteger());
+    if (try vm.checkCallMethodByName(mode_value, "to_int", false, &[_]Value{}, null)) |coerced| {
+        if (!coerced.isInteger()) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "can't convert to Integer (to_int gives non-Integer)", .{});
+        }
+        return parseIoModeBits(vm, coerced.toInteger());
+    }
+    return parseIoModeString(vm, mode_value);
+}
+
+fn ignoreBenignIoCloseError(vm: *VM) bool {
+    const exc = vm.pendingException() orelse return false;
+    if (exc.object.class != vm.io_error_class) return false;
+    if (!std.mem.eql(u8, exc.message.str, "closed stream")) return false;
+    vm.setPendingException(null);
+    return true;
+}
+
+fn closeIoOpenedForBlock(vm: *VM, io_value: Value) VMError!void {
+    _ = vm.callMethodByName(io_value, "close", &[_]Value{}, null) catch |err| {
+        if (err == error.Unwind and ignoreBenignIoCloseError(vm)) return;
+        return err;
+    };
+}
+
+pub fn builtinIoOpen(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    if (!receiver.isClass()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Class", .{});
+    }
+    const instance = try vm.newObjectForClass(receiver.toClassObject());
+    _ = try vm.callMethodByNameForwardingKeywords(instance, "initialize", args, null);
+
+    if (block) |blk| {
+        var yield_args: [1]Value = .{instance};
+        const yielded = vm.yieldToBlock(blk, &yield_args) catch |err| {
+            closeIoOpenedForBlock(vm, instance) catch {};
+            return err;
+        };
+        try closeIoOpenedForBlock(vm, instance);
+        return yielded.value;
+    }
+
+    return instance;
 }
 
 pub fn builtinIoInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -1230,7 +1360,19 @@ pub fn builtinIoInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     var path_value: ?Value = null;
     var autoclose_value: ?Value = null;
     var mode_keyword: ?Value = null;
-    try vm.consumeKeywordArgs(.{ "path", "autoclose", "mode" }, .{ &path_value, &autoclose_value, &mode_keyword });
+    var flags_keyword: ?Value = null;
+    var encoding_keyword: ?Value = null;
+    var external_encoding_keyword: ?Value = null;
+    var internal_encoding_keyword: ?Value = null;
+    var binmode_keyword: ?Value = null;
+    var textmode_keyword: ?Value = null;
+    var universal_newline_keyword: ?Value = null;
+    var cr_newline_keyword: ?Value = null;
+    var crlf_newline_keyword: ?Value = null;
+    try vm.consumeKeywordArgs(
+        .{ "path", "autoclose", "mode", "flags", "encoding", "external_encoding", "internal_encoding", "binmode", "textmode", "universal_newline", "cr_newline", "crlf_newline" },
+        .{ &path_value, &autoclose_value, &mode_keyword, &flags_keyword, &encoding_keyword, &external_encoding_keyword, &internal_encoding_keyword, &binmode_keyword, &textmode_keyword, &universal_newline_keyword, &cr_newline_keyword, &crlf_newline_keyword },
+    );
     try vm.validateKeywordArgsConsumed();
 
     const io = try requireIoReceiver(vm, receiver);
@@ -1239,22 +1381,98 @@ pub fn builtinIoInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
         return vm.raiseExceptionFmt(vm.range_error_class, "bignum too big to convert into `long'", .{});
     }
     const fd: c_int = @intCast(fd_value.toInteger());
-    if (std.c.fcntl(fd, std.c.F.GETFL, @as(c_int, 0)) < 0) {
+    if (vm.isClosedFd(fd)) {
+        return vm.raiseExceptionFmt(vm.io_error_class, "closed stream", .{});
+    }
+    const status_flags = std.c.fcntl(fd, std.c.F.GETFL, @as(c_int, 0));
+    if (status_flags < 0) {
         return vm.raiseErrnoFmt(std.posix.errno(-1), "invalid file descriptor", .{});
+    }
+    if (flags_keyword) |flag_val| {
+        _ = try flag_val.coerceToIntegerValue(vm, "no implicit conversion to Integer", "can't convert to Integer");
+    }
+
+    if (args.len == 2 and !args[1].isNil() and mode_keyword != null and !mode_keyword.?.isNil()) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "mode specified twice", .{});
     }
 
     const mode_value = if (mode_keyword != null and !mode_keyword.?.isNil()) mode_keyword.? else if (args.len == 2 and !args[1].isNil()) args[1] else null;
-    const mode: IoOpenMode = if (mode_value) |val|
+    var parsed = if (mode_value) |val|
         try parseIoModeValue(vm, val)
     else
-        .{ .readable = true, .writable = false, .append = false, .create = false, .truncate = false };
+        IoModeParse{ .mode = .{ .readable = true, .writable = false, .append = false, .create = false, .truncate = false } };
+
+    if (mode_value != null) {
+        const current_flags: std.posix.O = @bitCast(status_flags);
+        const current_readable = current_flags.ACCMODE == .RDONLY or current_flags.ACCMODE == .RDWR;
+        const current_writable = current_flags.ACCMODE == .WRONLY or current_flags.ACCMODE == .RDWR;
+        if ((parsed.mode.readable and !current_readable) or (parsed.mode.writable and !current_writable)) {
+            return vm.raiseErrnoFmt(.INVAL, "incompatible access mode", .{});
+        }
+    }
+
+    if (parsed.had_encoding_suffix and (encoding_keyword != null or external_encoding_keyword != null or internal_encoding_keyword != null)) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "encoding specified twice", .{});
+    }
+
+    if (encoding_keyword != null and (external_encoding_keyword != null or internal_encoding_keyword != null)) {
+        try warning_builtin.writeWarning(vm, "warning: Ignoring encoding parameter\n");
+        encoding_keyword = null;
+    }
+
+    if (parsed.mode.binary or parsed.mode.textmode) {
+        if (binmode_keyword != null or textmode_keyword != null or
+            (universal_newline_keyword != null and universal_newline_keyword.?.isTruthy()) or
+            (cr_newline_keyword != null and cr_newline_keyword.?.isTruthy()) or
+            (crlf_newline_keyword != null and crlf_newline_keyword.?.isTruthy()))
+        {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "binmode/textmode specified twice", .{});
+        }
+    }
+    if (binmode_keyword != null and textmode_keyword != null and binmode_keyword.?.isTruthy() and textmode_keyword.?.isTruthy()) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "both textmode and binmode specified", .{});
+    }
+    if (parsed.mode.binary and ((universal_newline_keyword != null and universal_newline_keyword.?.isTruthy()) or
+        (cr_newline_keyword != null and cr_newline_keyword.?.isTruthy()) or
+        (crlf_newline_keyword != null and crlf_newline_keyword.?.isTruthy())))
+    {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "newline decorator with binary mode", .{});
+    }
+
+    if (encoding_keyword) |encoding_arg| {
+        try applyCombinedIoEncodingArg(vm, &parsed, encoding_arg);
+    }
+    if (external_encoding_keyword) |encoding_arg| {
+        parsed.external_encoding = try resolveIoEncodingValue(vm, encoding_arg);
+    }
+    if (internal_encoding_keyword) |encoding_arg| {
+        if (!encoding_arg.isString() and !encoding_arg.isEncoding()) {
+            parsed.internal_encoding = try resolveIoEncodingValue(vm, encoding_arg);
+        } else {
+            const maybe_str = try encoding_arg.coerceToStr(vm, "no implicit conversion into String");
+            if (std.mem.eql(u8, maybe_str, "-")) {
+                parsed.internal_encoding = null;
+            } else {
+                parsed.internal_encoding = try resolveIoEncodingValue(vm, encoding_arg);
+            }
+        }
+    }
+    if (parsed.external_encoding != null and parsed.internal_encoding != null and parsed.external_encoding.?.raw == parsed.internal_encoding.?.raw) {
+        parsed.internal_encoding = null;
+    }
+    if (binmode_keyword != null and binmode_keyword.?.isTruthy()) parsed.mode.binary = true;
+    if (textmode_keyword != null and textmode_keyword.?.isTruthy()) parsed.mode.textmode = true;
+    if (parsed.mode.binary and parsed.external_encoding == null and parsed.internal_encoding == null and !parsed.had_encoding_suffix) {
+        parsed.external_encoding = Value.fromObject(&vm.encoding_ascii_8bit.object);
+    }
 
     io.fd = fd;
+    vm.removeClosedFd(fd);
     io.owns_fd = if (autoclose_value) |val| val.isTruthy() else true;
     io.closed = false;
-    io.readable = mode.readable;
-    io.writable = mode.writable;
-    io.append = mode.append;
+    io.readable = parsed.mode.readable;
+    io.writable = parsed.mode.writable;
+    io.append = parsed.mode.append;
     io.path = null;
     io.path_encoding = null;
 
@@ -1262,6 +1480,17 @@ pub fn builtinIoInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
         const path = try vm.coerceToPathValue(val, "no implicit conversion into String");
         io.path = vm.gc_allocator.dupe(u8, path.toStringObject().str) catch return error.Fatal;
         io.path_encoding = path.toStringObject().encoding;
+    }
+
+    if (parsed.external_encoding) |encoding| {
+        try vm.setInstanceVariable(receiver, "@external_encoding", encoding);
+    } else {
+        try vm.setInstanceVariable(receiver, "@external_encoding", Value.nil());
+    }
+    if (parsed.internal_encoding) |encoding| {
+        try vm.setInstanceVariable(receiver, "@internal_encoding", encoding);
+    } else {
+        try vm.setInstanceVariable(receiver, "@internal_encoding", Value.nil());
     }
 
     return Value.nil();
@@ -1329,7 +1558,7 @@ fn builtinIoReopen(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!V
 
     const path_value = try vm.coerceToPathValue(args[0], "no implicit conversion into String");
     const mode: IoOpenMode = if (args.len == 2 and !args[1].isNil())
-        try parseIoModeValue(vm, args[1])
+        (try parseIoModeValue(vm, args[1])).mode
     else
         .{
             .readable = io.readable,
@@ -2223,6 +2452,7 @@ pub fn builtinIoClose(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
     io.read_buf_avail = 0;
 
     if (io.owns_fd and io.fd >= 0) {
+        vm.markClosedFd(io.fd);
         _ = std.c.close(@intCast(io.fd));
     }
 

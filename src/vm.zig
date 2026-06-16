@@ -635,6 +635,7 @@ pub const VM = struct {
     at_exit_handlers: std.ArrayList(Value) = .empty,
     skip_at_exit_handlers: bool = false,
     io_objects: std.ArrayList(*value.IoObject) = .empty,
+    closed_fds: std.ArrayList(i32) = .empty,
     signal_trap_modes: [MAX_QUEUED_SIGNALS]SignalTrapMode = [_]SignalTrapMode{.system_default} ** MAX_QUEUED_SIGNALS,
     signal_trap_callables: [MAX_QUEUED_SIGNALS]Value = [_]Value{Value.nil()} ** MAX_QUEUED_SIGNALS,
     exit_signal_trap_mode: SignalTrapMode = .system_default,
@@ -9549,6 +9550,7 @@ pub const VM = struct {
     };
 
     pub fn newIo(self: *VM, class_obj: *ClassObject, fd: i32, init: IoInit) VMError!Value {
+        self.removeClosedFd(fd);
         const io_obj = self.gc_allocator.create(value.IoObject) catch return error.Fatal;
         io_obj.* = .{
             .object = .{ .type_tag = .io, .flags = 0, .class = class_obj, .singleton_class = null, .instance_variables = null },
@@ -9574,6 +9576,31 @@ pub const VM = struct {
         }.free_buf, @ptrCast(@alignCast(self)));
         self.io_objects.append(self.gc_allocator, io_obj) catch return error.Fatal;
         return Value.fromObject(&io_obj.object);
+    }
+
+    pub fn markClosedFd(self: *VM, fd: i32) void {
+        if (fd < 0) return;
+        for (self.closed_fds.items) |existing| {
+            if (existing == fd) return;
+        }
+        self.closed_fds.append(self.gc_allocator, fd) catch return;
+    }
+
+    pub fn removeClosedFd(self: *VM, fd: i32) void {
+        if (fd < 0) return;
+        for (self.closed_fds.items, 0..) |existing, i| {
+            if (existing == fd) {
+                _ = self.closed_fds.swapRemove(i);
+                return;
+            }
+        }
+    }
+
+    pub fn isClosedFd(self: *VM, fd: i32) bool {
+        for (self.closed_fds.items) |existing| {
+            if (existing == fd) return true;
+        }
+        return false;
     }
 
     pub fn newRange(self: *VM, class_obj: *ClassObject) VMError!Value {
