@@ -61,3 +61,6 @@
 [submodule "ext/strscan"]
 	path = ext/strscan
 	url = https://github.com/ruby/strscan
+[submodule "ext/csv"]
+	path = ext/csv
+	url = https://github.com/ruby/csv

@@ -25,4 +25,5 @@ pub const repo_load_paths = [_][]const u8{
     "ext/shellwords/lib",
     defaultGemLibPath("psych", "5.4.0"),
     defaultGemLibPath("strscan", "3.1.9"),
+    defaultGemLibPath("csv", "3.3.6"),
 };

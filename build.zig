@@ -6,14 +6,17 @@ const ruby_gem_api_version = "4.0.0";
 const onigmo_build_root = "build/onigmo";
 const psych_build_root = "build/psych";
 const strscan_build_root = "build/strscan";
+const csv_build_root = "build/csv";
 const prism_build_root = "build/prism";
 const tinycc_build_root = "build/tinycc";
 const cext_build_root = "build/cext";
 const psych_gem_version = "5.4.0";
 const strscan_gem_version = "3.1.9";
+const csv_gem_version = "3.3.6";
 const yaml_gem_version = "0.4.0";
 const runtime_ext_dirs = [_][]const u8{
     "cgi",
+    "csv",
     "delegate",
     "erb",
     "forwardable",
@@ -586,6 +589,7 @@ pub fn build(b: *std.Build) void {
 
     const install_psych_default_gem = addInstallDefaultGemDir(b, b.path("ext/psych"), "psych", psych_gem_version, null);
     const install_strscan_default_gem = addInstallDefaultGemDir(b, b.path(strscan_build_root), "strscan", strscan_gem_version, strscan_build_step);
+    const install_csv_default_gem = addInstallDefaultGemDir(b, b.path("ext/csv"), "csv", csv_gem_version, null);
     const install_yaml_default_gem = addInstallDefaultGemDir(b, b.path("ext/yaml"), "yaml", yaml_gem_version, null);
 
     const install_psych_default_gem_so = addInstallDefaultGemNativeLib(
@@ -650,6 +654,11 @@ pub fn build(b: *std.Build) void {
         &install_stdlib.step,
         install_strscan_default_gem,
         install_strscan_default_gem_so,
+    });
+    _ = addWriteDefaultGemSpec(b, "ext/csv", &.{
+        &install_exe.step,
+        &install_stdlib.step,
+        install_csv_default_gem,
     });
     _ = addWriteDefaultGemSpec(b, "ext/yaml", &.{
         &install_exe.step,
