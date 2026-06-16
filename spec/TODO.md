@@ -1114,7 +1114,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/io/getbyte_spec.rb
 - [ ] core/io/getc_spec.rb
 - [ ] core/io/gets_spec.rb
-- [ ] core/io/initialize_spec.rb
+- [x] core/io/initialize_spec.rb
 - [ ] core/io/inspect_spec.rb
 - [ ] core/io/internal_encoding_spec.rb
 - [ ] core/io/io_spec.rb
@@ -1123,7 +1123,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/io/lineno_spec.rb
 - [ ] core/io/new_spec.rb
 - [ ] core/io/nonblock_spec.rb
-- [ ] core/io/open_spec.rb
+- [x] core/io/open_spec.rb
 - [ ] core/io/output_spec.rb
 - [x] core/io/path_spec.rb
 - [ ] core/io/pid_spec.rb

@@ -604,8 +604,11 @@ def touch(path)
   end
 end
 
-def new_fd(path, mode = "r")
+def new_fd(path, mode = "w")
   open_mode = mode.to_s.split(":", 2).first
+  if !File.exist?(path) && !open_mode.include?("w") && !open_mode.include?("a")
+    File.open(path, "w") {}
+  end
   file = File.open(path, open_mode)
   fd = file.fileno
   file.autoclose = false
