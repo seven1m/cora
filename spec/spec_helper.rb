@@ -604,6 +604,15 @@ def touch(path)
   end
 end
 
+def new_fd(path, mode = "r")
+  open_mode = mode.to_s.split(":", 2).first
+  file = File.open(path, open_mode)
+  fd = file.fileno
+  file.autoclose = false
+  file.close
+  fd
+end
+
 def rm_r(*paths)
   i = 0
   while i < paths.length
@@ -853,6 +862,10 @@ end
 
 def as_superuser(&block)
   block.call if Process.uid == 0
+end
+
+def as_user(&block)
+  block.call
 end
 
 def little_endian(&block)

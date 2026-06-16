@@ -13,6 +13,8 @@ const Encoding = enc.Encoding;
 
 const null_device_path = if (builtin.os.tag == .windows) "NUL" else "/dev/null";
 
+extern "c" fn mkfifo(path: [*:0]const u8, mode: std.c.mode_t) c_int;
+
 fn openFlagValue(flags: std.posix.O) i64 {
     return @intCast(@as(c_int, @bitCast(flags)));
 }
@@ -459,6 +461,8 @@ const FileMode = struct {
     append: bool,
     create: bool,
     truncate: bool,
+    excl: bool = false,
+    binary: bool = false,
 };
 
 pub fn register(vm: *VM) !void {
@@ -563,9 +567,13 @@ pub fn register(vm: *VM) !void {
     const lstat_sym = try vm.intern("lstat");
     try file_singleton.module.methods.put(lstat_sym, value.MethodEntry.builtin(&builtinFileLstat, .{ .exact = 1 }));
     try vm.io_class.module.methods.put(stat_sym, value.MethodEntry.builtin(&builtinIoStat, .{ .exact = 0 }));
+    try vm.file_class.module.methods.put(lstat_sym, value.MethodEntry.builtin(&builtinIoStat, .{ .exact = 0 }));
 
     const exist_sym = try vm.intern("exist?");
     try file_singleton.module.methods.put(exist_sym, value.MethodEntry.builtin(&builtinFileExist, .{ .exact = 1 }));
+
+    const readable_sym = try vm.intern("readable?");
+    try file_singleton.module.methods.put(readable_sym, value.MethodEntry.builtin(&builtinFileReadable, .{ .exact = 1 }));
 
     const writable_sym = try vm.intern("writable?");
     try file_singleton.module.methods.put(writable_sym, value.MethodEntry.builtin(&builtinFileWritable, .{ .exact = 1 }));
@@ -583,6 +591,9 @@ pub fn register(vm: *VM) !void {
 
     const chmod_sym = try vm.intern("chmod");
     try file_singleton.module.methods.put(chmod_sym, value.MethodEntry.builtin(&builtinFileChmod, .{ .variadic = 1 }));
+
+    const mkfifo_sym = try vm.intern("mkfifo");
+    try file_singleton.module.methods.put(mkfifo_sym, value.MethodEntry.builtin(&builtinFileMkfifo, .{ .variadic = 1 }));
 
     const chown_sym = try vm.intern("chown");
     try file_singleton.module.methods.put(chown_sym, value.MethodEntry.builtin(&builtinFileChown, .{ .variadic = 2 }));
@@ -686,13 +697,44 @@ fn parseMode(vm: *VM, mode_str: []const u8) VMError!FileMode {
         return vm.raiseExceptionFmt(vm.argument_error_class, "invalid access mode", .{});
     }
 
-    const plus = std.mem.indexOfScalar(u8, mode_str, '+') != null;
-    return switch (mode_str[0]) {
-        'r' => .{ .read = true, .write = plus, .append = false, .create = false, .truncate = false },
-        'w' => .{ .read = plus, .write = true, .append = false, .create = true, .truncate = true },
-        'a' => .{ .read = plus, .write = true, .append = true, .create = true, .truncate = false },
-        else => vm.raiseExceptionFmt(vm.argument_error_class, "invalid access mode {s}", .{mode_str}),
+    const mode_part = mode_str[0 .. (std.mem.indexOfScalar(u8, mode_str, ':') orelse mode_str.len)];
+    if (mode_part.len == 0) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "invalid access mode", .{});
+    }
+
+    var mode = switch (mode_part[0]) {
+        'r' => FileMode{ .read = true, .write = false, .append = false, .create = false, .truncate = false },
+        'w' => FileMode{ .read = false, .write = true, .append = false, .create = true, .truncate = true },
+        'a' => FileMode{ .read = false, .write = true, .append = true, .create = true, .truncate = false },
+        else => return vm.raiseExceptionFmt(vm.argument_error_class, "invalid access mode {s}", .{mode_str}),
     };
+
+    for (mode_part[1..]) |ch| {
+        switch (ch) {
+            '+' => {
+                mode.read = true;
+                mode.write = true;
+            },
+            'b' => mode.binary = true,
+            'x' => {
+                if (mode_part[0] != 'w') {
+                    return vm.raiseExceptionFmt(vm.argument_error_class, "invalid access mode {s}", .{mode_str});
+                }
+                mode.excl = true;
+            },
+            else => return vm.raiseExceptionFmt(vm.argument_error_class, "invalid access mode {s}", .{mode_str}),
+        }
+    }
+
+    return mode;
+}
+
+fn applyExtraModeBits(mode: *FileMode, raw_mode: i64) void {
+    const flags: std.posix.O = @bitCast(@as(c_int, @truncate(raw_mode)));
+    mode.append = mode.append or flags.APPEND;
+    mode.create = mode.create or flags.CREAT or flags.APPEND;
+    mode.truncate = mode.truncate or flags.TRUNC;
+    mode.excl = mode.excl or flags.EXCL;
 }
 
 fn parseModeBits(vm: *VM, raw_mode: i64) VMError!FileMode {
@@ -712,10 +754,11 @@ fn parseModeBits(vm: *VM, raw_mode: i64) VMError!FileMode {
 
     return .{
         .read = read,
-        .write = write or append,
+        .write = write,
         .append = append,
         .create = create,
         .truncate = truncate,
+        .excl = flags.EXCL,
     };
 }
 
@@ -727,30 +770,60 @@ fn openFileWithMode(vm: *VM, path: Value, mode: FileMode, create_mode: std.c.mod
     const path_obj = path.toStringObject();
     const path_bytes = path_obj.str;
 
-    const flags: std.c.O = .{
+    var flags: std.c.O = .{
         .ACCMODE = if (mode.read and mode.write) .RDWR else if (mode.write) .WRONLY else .RDONLY,
         .CLOEXEC = true,
         .CREAT = mode.create,
         .TRUNC = mode.truncate,
         .APPEND = mode.append,
+        .EXCL = mode.excl,
     };
+    const forced_nonblock = vm.current_thread != null;
+    if (forced_nonblock) flags.NONBLOCK = true;
 
     const path_z = try vm.allocCStringZ(path_bytes);
     defer vm.allocator.free(path_z);
-    const fd = std.c.open(path_z.ptr, flags, create_mode);
-    if (fd < 0) {
-        return vm.raiseErrnoFmt(std.posix.errno(fd), "failed to open file: {s}", .{path_bytes});
-    }
+    while (true) {
+        const fd = std.c.open(path_z.ptr, flags, create_mode);
+        if (fd >= 0) {
+            if (forced_nonblock) {
+                const status_flags = std.c.fcntl(fd, std.c.F.GETFL, @as(c_int, 0));
+                if (status_flags >= 0) {
+                    const nonblock_flag: c_int = @bitCast(std.posix.O{ .NONBLOCK = true });
+                    _ = std.c.fcntl(fd, std.c.F.SETFL, status_flags & ~nonblock_flag);
+                }
+                if (mode.read and !mode.write) {
+                    try vm.threadYield();
+                }
+            }
 
-    const path_copy = vm.gc_allocator.dupe(u8, path_bytes) catch return error.Fatal;
-    return vm.newIo(vm.file_class, @intCast(fd), .{
-        .owns_fd = true,
-        .readable = mode.read,
-        .writable = mode.write,
-        .append = mode.append,
-        .path = path_copy,
-        .path_encoding = path_obj.encoding,
-    });
+            const path_copy = vm.gc_allocator.dupe(u8, path_bytes) catch return error.Fatal;
+            return vm.newIo(vm.file_class, @intCast(fd), .{
+                .owns_fd = true,
+                .readable = mode.read,
+                .writable = mode.write,
+                .append = mode.append,
+                .path = path_copy,
+                .path_encoding = path_obj.encoding,
+            });
+        }
+
+        const errno_code = std.posix.errno(fd);
+        switch (errno_code) {
+            .INTR => {
+                try vm.checkAsyncEvents();
+                continue;
+            },
+            .NXIO => {
+                if (forced_nonblock) {
+                    try vm.threadYield();
+                    continue;
+                }
+            },
+            else => {},
+        }
+        return vm.raiseErrnoFmt(errno_code, "failed to open file: {s}", .{path_bytes});
+    }
 }
 
 fn pathAndMode(vm: *VM, args: []Value) VMError!struct { path: Value, mode: FileMode, create_mode: std.c.mode_t } {
@@ -777,6 +850,7 @@ const FileOpenConfig = struct {
     create_mode: std.c.mode_t,
     external_encoding: ?Value = null,
     internal_encoding: ?Value = null,
+    newline: ?Value = null,
 };
 
 fn resolveEncodingValue(vm: *VM, arg: Value) VMError!Value {
@@ -791,14 +865,55 @@ fn fileOpenConfig(vm: *VM, args: []Value) VMError!FileOpenConfig {
     var autoclose: ?Value = null;
     var path: ?Value = null;
     var perm: ?Value = null;
-    try vm.consumeKeywordArgs(.{ "external_encoding", "internal_encoding", "autoclose", "path", "perm" }, .{ &external_encoding, &internal_encoding, &autoclose, &path, &perm });
+    var mode_kw: ?Value = null;
+    var flags_kw: ?Value = null;
+    var newline_kw: ?Value = null;
+    try vm.consumeKeywordArgs(
+        .{ "external_encoding", "internal_encoding", "autoclose", "path", "perm", "mode", "flags", "newline" },
+        .{ &external_encoding, &internal_encoding, &autoclose, &path, &perm, &mode_kw, &flags_kw, &newline_kw },
+    );
     try vm.validateKeywordArgsConsumed();
 
-    const parsed = try pathAndMode(vm, args);
+    try vm.requireArgCountRange(args, 1, 3);
+    if (args[0].isInteger()) {
+        return .{
+            .path = args[0],
+            .mode = .{ .read = true, .write = false, .append = false, .create = false, .truncate = false },
+            .create_mode = 0o666,
+            .newline = newline_kw,
+        };
+    }
+
+    const path_value = path orelse args[0];
+    const coerced_path = try vm.coerceToPathValue(path_value, "no implicit conversion into String");
+
+    const mode_arg = if (mode_kw != null and !mode_kw.?.isNil())
+        mode_kw.?
+    else if (args.len >= 2 and !args[1].isNil())
+        args[1]
+    else
+        Value.nil();
+
+    var mode = if (!mode_arg.isNil()) blk: {
+        if (mode_arg.isInteger()) break :blk try parseModeBits(vm, mode_arg.toInteger());
+        break :blk try parseMode(vm, try mode_arg.coerceToStr(vm, "no implicit conversion into String"));
+    } else try parseMode(vm, "r");
+
+    if (flags_kw) |flags_arg| {
+        const raw_flags = try flags_arg.coerceToI64ViaToInt(
+            vm,
+            "no implicit conversion into Integer",
+            "can't convert to Integer (to_int gives non-Integer)",
+            "integer out of range",
+        );
+        applyExtraModeBits(&mode, raw_flags);
+    }
+
     var config = FileOpenConfig{
-        .path = parsed.path,
-        .mode = parsed.mode,
-        .create_mode = parsed.create_mode,
+        .path = coerced_path,
+        .mode = mode,
+        .create_mode = if (args.len == 3 and !args[2].isNil()) try coerceModeBits(vm, args[2]) else 0o666,
+        .newline = newline_kw,
     };
 
     if (perm) |perm_val| {
@@ -814,6 +929,12 @@ fn fileOpenConfig(vm: *VM, args: []Value) VMError!FileOpenConfig {
     if (config.external_encoding != null and config.internal_encoding != null and config.external_encoding.?.raw == config.internal_encoding.?.raw) {
         config.internal_encoding = null;
     }
+    if (config.mode.binary and config.newline != null) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "newline decorator with binary mode", .{});
+    }
+    if (config.mode.binary and config.external_encoding == null) {
+        config.external_encoding = Value.fromObject(&vm.encoding_ascii_8bit.object);
+    }
     return config;
 }
 
@@ -824,6 +945,21 @@ fn applyIoEncodingConfig(vm: *VM, io_value: Value, config: FileOpenConfig) VMErr
     if (config.internal_encoding) |encoding| {
         try vm.setInstanceVariable(io_value, "@internal_encoding", encoding);
     }
+}
+
+fn ignoreBenignCloseError(vm: *VM) bool {
+    const exc = vm.pendingException() orelse return false;
+    if (exc.object.class != vm.io_error_class) return false;
+    if (!std.mem.eql(u8, exc.message.str, "closed stream")) return false;
+    vm.setPendingException(null);
+    return true;
+}
+
+fn closeFileOpenedForBlock(vm: *VM, file_val: Value) VMError!void {
+    _ = vm.callMethodByName(file_val, "close", &[_]Value{}, null) catch |err| {
+        if (err == error.Unwind and ignoreBenignCloseError(vm)) return;
+        return err;
+    };
 }
 
 fn currentHome(vm: *VM) VMError![]const u8 {
@@ -1233,16 +1369,30 @@ pub fn builtinFileNew(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value
 
 pub fn builtinFileOpen(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
     const config = try fileOpenConfig(vm, args);
+    if (config.path.isInteger()) {
+        const instance = try vm.newObjectForClass(vm.file_class);
+        _ = try vm.callMethodByNameForwardingKeywords(instance, "initialize", args, null);
+        if (block) |blk| {
+            var yield_args: [1]Value = .{instance};
+            const yielded = vm.yieldToBlock(blk, &yield_args) catch |err| {
+                closeFileOpenedForBlock(vm, instance) catch {};
+                return err;
+            };
+            try closeFileOpenedForBlock(vm, instance);
+            return yielded.value;
+        }
+        return instance;
+    }
     const file_val = try openFileWithMode(vm, config.path, config.mode, config.create_mode);
     try applyIoEncodingConfig(vm, file_val, config);
 
     if (block) |blk| {
         var yield_args: [1]Value = .{file_val};
         const yielded = vm.yieldToBlock(blk, &yield_args) catch |err| {
-            _ = vm.callMethodByName(file_val, "close", &[_]Value{}, null) catch {};
+            closeFileOpenedForBlock(vm, file_val) catch {};
             return err;
         };
-        _ = vm.callMethodByName(file_val, "close", &[_]Value{}, null) catch {};
+        try closeFileOpenedForBlock(vm, file_val);
         return yielded.value;
     }
 
@@ -1874,6 +2024,18 @@ pub fn builtinFileExist(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Val
     return Value.boolean(true);
 }
 
+pub fn builtinFileReadable(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "File.readable? is not implemented on Windows", .{});
+    }
+
+    const path = try vm.coerceToPath(args[0], "no implicit conversion into String");
+    const path_z = try vm.allocCStringZ(path);
+    defer vm.allocator.free(path_z);
+    return Value.boolean(std.c.access(path_z.ptr, std.c.R_OK) == 0);
+}
+
 pub fn builtinFileWritable(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     if (builtin.os.tag == .windows) {
@@ -1884,6 +2046,23 @@ pub fn builtinFileWritable(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
     const path_z = try vm.allocCStringZ(path);
     defer vm.allocator.free(path_z);
     return Value.boolean(std.c.access(path_z.ptr, std.c.W_OK) == 0);
+}
+
+pub fn builtinFileMkfifo(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "File.mkfifo is not implemented on Windows", .{});
+    }
+
+    const path = try vm.coerceToPath(args[0], "no implicit conversion into String");
+    const mode: std.c.mode_t = if (args.len == 2) try coerceModeBits(vm, args[1]) else 0o666;
+    const path_z = try vm.allocCStringZ(path);
+    defer vm.allocator.free(path_z);
+
+    if (mkfifo(path_z.ptr, mode) != 0) {
+        return vm.raiseErrnoFmt(std.posix.errno(-1), "failed to mkfifo: {s}", .{path});
+    }
+    return Value.integer(0);
 }
 
 pub fn builtinFileExecutable(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

@@ -48,10 +48,8 @@ describe "IO#eof?" do
   end
 
   it "returns true after reading with sysread" do
-    CORAFIXME "File.size and IO#sysread are not implemented yet for IO#eof? sysread coverage", exception: NoMethodError, message: /undefined method '(size|sysread)'/ do
-      @io.sysread(File.size(@name))
-      @io.should.eof?
-    end
+    @io.sysread(File.size(@name))
+    @io.should.eof?
   end
 
   it "returns true after reading with readlines" do

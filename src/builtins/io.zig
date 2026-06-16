@@ -115,6 +115,9 @@ pub fn register(vm: *VM) !void {
     const readpartial_sym = try vm.intern("readpartial");
     try vm.io_class.module.methods.put(readpartial_sym, value.MethodEntry.builtin(&builtinIoReadpartial, .{ .variadic = 1 }));
 
+    const sysread_sym = try vm.intern("sysread");
+    try vm.io_class.module.methods.put(sysread_sym, value.MethodEntry.builtin(&builtinIoReadpartial, .{ .variadic = 1 }));
+
     const chmod_sym = try vm.intern("chmod");
     try vm.io_class.module.methods.put(chmod_sym, value.MethodEntry.builtin(&builtinIoChmod, .{ .exact = 1 }));
 
@@ -126,6 +129,9 @@ pub fn register(vm: *VM) !void {
 
     const append_sym = try vm.intern("<<");
     try vm.io_class.module.methods.put(append_sym, value.MethodEntry.builtin(&builtinIoAppend, .{ .exact = 1 }));
+
+    const fsync_sym = try vm.intern("fsync");
+    try vm.io_class.module.methods.put(fsync_sym, value.MethodEntry.builtin(&builtinIoFsync, .{ .exact = 0 }));
 
     const write_nonblock_sym = try vm.intern("write_nonblock");
     try vm.io_class.module.methods.put(write_nonblock_sym, value.MethodEntry.builtin(&builtinIoWriteNonblock, .{ .variadic = 1 }));
@@ -1232,6 +1238,10 @@ pub fn builtinIoInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     if (!fd_value.isInteger()) {
         return vm.raiseExceptionFmt(vm.range_error_class, "bignum too big to convert into `long'", .{});
     }
+    const fd: c_int = @intCast(fd_value.toInteger());
+    if (std.c.fcntl(fd, std.c.F.GETFL, @as(c_int, 0)) < 0) {
+        return vm.raiseErrnoFmt(std.posix.errno(-1), "invalid file descriptor", .{});
+    }
 
     const mode_value = if (mode_keyword != null and !mode_keyword.?.isNil()) mode_keyword.? else if (args.len == 2 and !args[1].isNil()) args[1] else null;
     const mode: IoOpenMode = if (mode_value) |val|
@@ -1239,7 +1249,7 @@ pub fn builtinIoInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     else
         .{ .readable = true, .writable = false, .append = false, .create = false, .truncate = false };
 
-    io.fd = @intCast(fd_value.toInteger());
+    io.fd = fd;
     io.owns_fd = if (autoclose_value) |val| val.isTruthy() else true;
     io.closed = false;
     io.readable = mode.readable;
@@ -2091,6 +2101,17 @@ pub fn builtinIoAppend(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
     const str = if (args[0].isString()) args[0].toStringObject().str else try vm.coerceViaToS(args[0]);
     _ = try ioWriteBytes(vm, io, str);
     return receiver;
+}
+
+pub fn builtinIoFsync(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const io = try requireIoReceiver(vm, receiver);
+    try ensureIoOpen(vm, io);
+    const fd: std.posix.fd_t = @intCast(io.fd);
+    if (std.c.fsync(fd) != 0) {
+        return vm.raiseErrnoFmt(std.posix.errno(-1), "fsync failed", .{});
+    }
+    return Value.integer(0);
 }
 
 pub fn builtinIoWriteNonblock(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

@@ -21,15 +21,13 @@ platform_is_not :windows do
     end
 
     it "writes all of the string's bytes but does not buffer them" do
-      CORAFIXME "IO#sysread is not implemented yet", exception: NoMethodError, message: /undefined method 'sysread'/ do
-        written = @file.write_nonblock("abcde")
-        written.should == 5
-        File.open(@filename) do |file|
-          file.sysread(10).should == "abcde56789"
-          file.seek(0)
-          @file.fsync
-          file.sysread(10).should == "abcde56789"
-        end
+      written = @file.write_nonblock("abcde")
+      written.should == 5
+      File.open(@filename) do |file|
+        file.sysread(10).should == "abcde56789"
+        file.seek(0)
+        @file.fsync
+        file.sysread(10).should == "abcde56789"
       end
     end
 
