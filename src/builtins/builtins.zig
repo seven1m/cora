@@ -4,6 +4,7 @@ const value = @import("../value.zig");
 const VM = vm_mod.VM;
 const MethodEntry = value.MethodEntry;
 
+const argf = @import("argf.zig");
 const array = @import("array.zig");
 const basic_object = @import("basic_object.zig");
 const binding_builtin = @import("binding.zig");
@@ -68,6 +69,7 @@ pub fn registerAll(vm: *VM) !void {
     try file.register(vm);
     try dir.register(vm);
     try enumerable.register(vm);
+    try argf.register(vm);
     try env.register(vm);
     try etc.register(vm);
     try process.register(vm);

@@ -42,7 +42,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] command_line/syntax_error_spec.rb
 
 ### core/argf
-- [ ] core/argf/argf_spec.rb
+- [x] core/argf/argf_spec.rb
 - [ ] core/argf/argv_spec.rb
 - [ ] core/argf/binmode_spec.rb
 - [ ] core/argf/close_spec.rb
