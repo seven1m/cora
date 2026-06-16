@@ -786,6 +786,7 @@ fn marshalEncodingName(encoding: enc.Encoding) []const u8 {
         .utf32be => "UTF-32BE",
         .cesu8 => "CESU-8",
         .cp437 => "CP437",
+        .cp866 => "IBM866",
         .iso_2022_jp => "ISO-2022-JP",
     };
 }
@@ -809,6 +810,7 @@ fn marshalEncodingByName(vm: *VM, name: []const u8) VMError!enc.Encoding {
     if (std.ascii.eqlIgnoreCase(name, "UTF-32BE")) return .{ .utf32be = .{} };
     if (std.ascii.eqlIgnoreCase(name, "CESU-8")) return .{ .cesu8 = .{} };
     if (std.ascii.eqlIgnoreCase(name, "CP437")) return .{ .cp437 = .{} };
+    if (std.ascii.eqlIgnoreCase(name, "IBM866")) return .{ .cp866 = .{} };
     if (std.ascii.eqlIgnoreCase(name, "ISO-2022-JP")) return .{ .iso_2022_jp = .{} };
     return vm.raiseExceptionFmt(vm.argument_error_class, "unsupported marshal encoding", .{});
 }

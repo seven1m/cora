@@ -17,6 +17,7 @@ const EncodingLookup = enum {
     windows_31j,
     euc_jp,
     cp437,
+    cp866,
     iso_2022_jp,
     iso_8859_1,
     iso_8859_9,
@@ -93,7 +94,8 @@ const encoding_name_map = std.StaticStringMap(EncodingLookup).initComptime(.{
     .{ "IBM863", .iso_8859_15 },
     .{ "IBM864", .iso_8859_15 },
     .{ "IBM865", .iso_8859_15 },
-    .{ "IBM866", .iso_8859_15 },
+    .{ "IBM866", .cp866 },
+    .{ "CP866", .cp866 },
     .{ "IBM869", .iso_8859_15 },
     .{ "WINDOWS_1258", .iso_8859_15 },
     .{ "GB1988", .iso_8859_15 },
@@ -267,6 +269,7 @@ pub fn builtinEncodingFind(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
             .windows_31j => Value.fromObject(&vm.encoding_windows_31j.object),
             .euc_jp => Value.fromObject(&vm.encoding_euc_jp.object),
             .cp437 => Value.fromObject(&vm.encoding_cp437.object),
+            .cp866 => Value.fromObject(&vm.encoding_cp866.object),
             .iso_8859_1 => Value.fromObject(&vm.encoding_iso_8859_1.object),
             .iso_8859_9 => Value.fromObject(&vm.encoding_iso_8859_9.object),
             .iso_8859_15 => Value.fromObject(&vm.encoding_iso_8859_15.object),
@@ -308,6 +311,7 @@ pub fn builtinEncodingList(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
         Value.fromObject(&vm.encoding_iso_8859_9.object),
         Value.fromObject(&vm.encoding_iso_8859_15.object),
         Value.fromObject(&vm.encoding_cp437.object),
+        Value.fromObject(&vm.encoding_cp866.object),
     };
     array.elements.appendSlice(vm.gc_allocator, &encodings) catch return error.Fatal;
     return Value.fromObject(&array.object);
