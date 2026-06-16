@@ -859,7 +859,32 @@ fn resolveEncodingValue(vm: *VM, arg: Value) VMError!Value {
     return encoding_builtin.builtinEncodingFind(vm, Value.nil(), find_args[0..], null);
 }
 
+fn applyCombinedEncodingArg(vm: *VM, config: *FileOpenConfig, arg: Value) VMError!void {
+    if (arg.isEncoding()) {
+        config.external_encoding = arg;
+        config.internal_encoding = null;
+        return;
+    }
+
+    const spec = try arg.coerceToStr(vm, "no implicit conversion into String");
+    if (std.mem.indexOfScalar(u8, spec, ':')) |sep| {
+        if (sep > 0) {
+            config.external_encoding = try resolveEncodingValue(vm, try vm.newString(spec[0..sep], false));
+        }
+        if (sep + 1 < spec.len and spec[sep + 1] != '-') {
+            config.internal_encoding = try resolveEncodingValue(vm, try vm.newString(spec[sep + 1 ..], false));
+        } else {
+            config.internal_encoding = null;
+        }
+        return;
+    }
+
+    config.external_encoding = try resolveEncodingValue(vm, arg);
+    config.internal_encoding = null;
+}
+
 fn fileOpenConfig(vm: *VM, args: []Value) VMError!FileOpenConfig {
+    var encoding_kw: ?Value = null;
     var external_encoding: ?Value = null;
     var internal_encoding: ?Value = null;
     var autoclose: ?Value = null;
@@ -869,8 +894,8 @@ fn fileOpenConfig(vm: *VM, args: []Value) VMError!FileOpenConfig {
     var flags_kw: ?Value = null;
     var newline_kw: ?Value = null;
     try vm.consumeKeywordArgs(
-        .{ "external_encoding", "internal_encoding", "autoclose", "path", "perm", "mode", "flags", "newline" },
-        .{ &external_encoding, &internal_encoding, &autoclose, &path, &perm, &mode_kw, &flags_kw, &newline_kw },
+        .{ "encoding", "external_encoding", "internal_encoding", "autoclose", "path", "perm", "mode", "flags", "newline" },
+        .{ &encoding_kw, &external_encoding, &internal_encoding, &autoclose, &path, &perm, &mode_kw, &flags_kw, &newline_kw },
     );
     try vm.validateKeywordArgsConsumed();
 
@@ -920,6 +945,9 @@ fn fileOpenConfig(vm: *VM, args: []Value) VMError!FileOpenConfig {
         config.create_mode = try coerceModeBits(vm, perm_val);
     }
 
+    if (encoding_kw) |encoding_arg| {
+        try applyCombinedEncodingArg(vm, &config, encoding_arg);
+    }
     if (external_encoding) |encoding_arg| {
         config.external_encoding = try resolveEncodingValue(vm, encoding_arg);
     }
