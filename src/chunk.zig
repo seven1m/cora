@@ -664,7 +664,7 @@ pub const Chunk = struct {
                 try writer.print(", flags={d}, block={d}, prefix={d}\n", .{ call_flags, block_id, prefix_argc });
             },
 
-            .DEF_METHOD, .DEF_SINGLETON_METHOD, .ALIAS_METHOD, .PUSH_REGEXP, .DEF_MODULE => {
+            .DEF_METHOD, .DEF_SINGLETON_METHOD, .ALIAS_METHOD, .ALIAS_GLOBAL_VARIABLE, .PUSH_REGEXP, .DEF_MODULE => {
                 const a = readU16(self.code.items, &ip);
                 const b = readU16(self.code.items, &ip);
                 try writer.print("{s} {d} {d}", .{ bytecode.opcodeName(op), a, b });

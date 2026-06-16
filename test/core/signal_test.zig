@@ -50,8 +50,8 @@ test "Signal.trap dispatches queued signal to Ruby handler" {
     cora.vm.requestSignal(@intCast(@intFromEnum(std.posix.SIG.INT)));
     try vm.checkAsyncEvents();
 
-    const handled = vm.globals.get("$handled") orelse return error.TestExpectedEqual;
-    const last_signo = vm.globals.get("$last_signo") orelse return error.TestExpectedEqual;
+    const handled = vm.getGlobalValue("$handled");
+    const last_signo = vm.getGlobalValue("$last_signo");
     try std.testing.expectEqual(@as(i64, 1), handled.toInteger());
     try std.testing.expectEqual(@as(i64, @intCast(@intFromEnum(std.posix.SIG.INT))), last_signo.toInteger());
 }
@@ -82,8 +82,8 @@ test "Signal.trap dispatches while IO.gets waits on a pipe" {
     try vm.prepare(&program);
     _ = try vm.run();
 
-    const reader = vm.globals.get("$r") orelse return error.TestExpectedEqual;
-    const writer = vm.globals.get("$w") orelse return error.TestExpectedEqual;
+    const reader = vm.getGlobalValue("$r");
+    const writer = vm.getGlobalValue("$w");
     const writer_fd: std.posix.fd_t = @intCast(writer.toIoObject().fd);
 
     const Worker = struct {
@@ -109,6 +109,6 @@ test "Signal.trap dispatches while IO.gets waits on a pipe" {
     const line = try vm.callMethodByName(reader, "gets", &.{}, null);
     try std.testing.expectEqualStrings("x\n", line.toStringObject().str);
 
-    const handled = vm.globals.get("$handled") orelse return error.TestExpectedEqual;
+    const handled = vm.getGlobalValue("$handled");
     try std.testing.expectEqual(@as(i64, 1), handled.toInteger());
 }

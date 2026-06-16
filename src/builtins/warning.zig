@@ -50,7 +50,8 @@ pub fn builtinWarningWarn(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
 }
 
 pub fn writeWarning(vm: *VM, message: []const u8) VMError!void {
-    const stderr_target = vm.globals.get("$stderr") orelse return;
+    const stderr_target = vm.getGlobalValue("$stderr");
+    if (stderr_target.isNil()) return;
     const warning_val = try vm.newString(message, false);
     var args = [_]Value{warning_val};
     _ = try vm.callMethodByName(stderr_target, "write", args[0..], null);

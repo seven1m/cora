@@ -71,8 +71,8 @@ test "VM.setInputRecordSeparator updates $/ and $-0" {
     try vm.prepare(&program);
     try vm.setInputRecordSeparator(":", true);
 
-    const input_record_separator = vm.globals.get("$/") orelse return error.TestExpectedEqual;
-    const dash_zero = vm.globals.get("$-0") orelse return error.TestExpectedEqual;
+    const input_record_separator = vm.getGlobalValue("$/");
+    const dash_zero = vm.getGlobalValue("$-0");
 
     try std.testing.expect(input_record_separator.isString());
     try std.testing.expect(dash_zero.isString());

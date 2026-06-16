@@ -953,7 +953,7 @@ pub fn builtinKernelLoad(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
 }
 
 pub fn builtinKernelPuts(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
-    const stdout_target = vm.globals.get("$stdout") orelse return error.Fatal;
+    const stdout_target = vm.getGlobalValue("$stdout");
     _ = try vm.callMethodByName(stdout_target, "puts", args, null);
     return Value.nil();
 }
@@ -1141,14 +1141,14 @@ pub fn builtinKernelSystem(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
 }
 
 pub fn builtinKernelPrint(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
-    const stdout_target = vm.globals.get("$stdout") orelse return error.Fatal;
+    const stdout_target = vm.getGlobalValue("$stdout");
     _ = try vm.callMethodByName(stdout_target, "print", args, null);
     _ = try vm.callMethodByName(stdout_target, "flush", &[_]Value{}, null);
     return Value.nil();
 }
 
 pub fn builtinKernelPrintf(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
-    const stdout_target = vm.globals.get("$stdout") orelse return error.Fatal;
+    const stdout_target = vm.getGlobalValue("$stdout");
     const formatted = try builtinKernelSprintf(vm, Value.nil(), args, null);
     var print_args = [_]Value{formatted};
     _ = try vm.callMethodByName(stdout_target, "print", &print_args, null);
@@ -1581,7 +1581,7 @@ pub fn builtinKernelWarn(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     try vm.consumeKeywordArgs(.{ "uplevel", "category" }, .{ &uplevel_value, &category_value });
     try vm.validateKeywordArgsConsumed();
 
-    const verbose = vm.globals.get("$VERBOSE") orelse Value.nil();
+    const verbose = vm.getGlobalValue("$VERBOSE");
     if (verbose.isNil()) return Value.nil();
     if (args.len == 0) return Value.nil();
 
@@ -2613,7 +2613,7 @@ pub fn builtinKernelDir(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Val
 }
 
 pub fn builtinKernelP(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
-    const stdout_target = vm.globals.get("$stdout") orelse return error.Fatal;
+    const stdout_target = vm.getGlobalValue("$stdout");
     if (args.len == 0) {
         _ = try vm.callMethodByName(stdout_target, "puts", &[_]Value{}, null);
         return Value.nil();

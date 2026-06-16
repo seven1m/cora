@@ -162,3 +162,83 @@ test "alias can target inherited private methods in class_eval" {
     );
     try std.testing.expect(result.isTrue());
 }
+
+test "alias global variable copies value" {
+    const result = try evalCode(
+        \\$bar = 42
+        \\alias $foo $bar
+        \\$foo
+    );
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
+}
+
+test "alias global variable returns nil" {
+    const result = try evalCode(
+        \\alias $foo $bar
+    );
+    try std.testing.expect(result.isNil());
+}
+
+test "alias undefined global variable sets nil" {
+    const result = try evalCode(
+        \\alias $foo $undefined_xyz
+        \\$foo
+    );
+    try std.testing.expect(result.isNil());
+}
+
+test "alias global variable with backref name" {
+    const result = try evalCode(
+        \\"waterbuffalo" =~ /buff/
+        \\alias $MATCH $&
+        \\$MATCH
+    );
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "buff", result.toStringObject().str);
+}
+
+test "alias global variable shares the slot" {
+    const result = try evalCode(
+        \\$bar = 42
+        \\alias $foo $bar
+        \\$bar = 100
+        \\$foo
+    );
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 100), result.toInteger());
+}
+
+test "alias global variable updates original on write" {
+    const result = try evalCode(
+        \\$bar = 42
+        \\alias $foo $bar
+        \\$foo = 999
+        \\$bar
+    );
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 999), result.toInteger());
+}
+
+test "alias global variable re-alias breaks prior alias chain" {
+    // Matches MRI: re-aliasing $b to $c does not update $a, which still
+    // references the old $b slot (nil here).
+    const result = try evalCode(
+        \\$c = 1
+        \\alias $a $b
+        \\alias $b $c
+        \\$c = 99
+        \\$a
+    );
+    try std.testing.expect(result.isNil());
+}
+
+test "alias global variable self alias is a no-op" {
+    const result = try evalCode(
+        \\$a = 7
+        \\alias $a $a
+        \\$a
+    );
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 7), result.toInteger());
+}

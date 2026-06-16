@@ -1822,7 +1822,7 @@ pub fn builtinArrayJoin(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
 
     const array = receiver.toArrayObject();
     const uses_default_separator = args.len == 0 or args[0].isNil();
-    const global_separator = if (uses_default_separator) vm.globals.get("$,") orelse Value.nil() else Value.nil();
+    const global_separator = if (uses_default_separator) vm.getGlobalValue("$,") else Value.nil();
 
     if (array.elements.items.len == 0) {
         if (uses_default_separator and !global_separator.isNil()) {

@@ -116,6 +116,7 @@ pub const OpCode = enum(u8) {
 
     // Aliasing
     ALIAS_METHOD, // Operands: u16 (new_name constant index), u16 (old_name constant index)
+    ALIAS_GLOBAL_VARIABLE, // Operands: u16 (new_name constant index), u16 (old_name constant index)
     UNDEF_METHOD, // Operand: u8 (argc) - method names are on the stack
 
     // Multi-assignment
@@ -279,6 +280,9 @@ pub fn opcodeOperandSize(op: OpCode) usize {
         // ALIAS_METHOD: u16 new_name + u16 old_name = 4 bytes
         .ALIAS_METHOD => 4,
 
+        // ALIAS_GLOBAL_VARIABLE: u16 new_name + u16 old_name = 4 bytes
+        .ALIAS_GLOBAL_VARIABLE => 4,
+
         // CALL: u16 method_idx + u8 argc + u8 call_flags + u16 block_chunk_id = 6 bytes
         .CALL => 6,
 
@@ -383,6 +387,7 @@ pub fn opcodeName(op: OpCode) []const u8 {
         .FORWARD_ARGS_CALL_WITH_PREFIX => "FORWARD_ARGS_CALL_WITH_PREFIX",
         .PUSH_REGEXP => "PUSH_REGEXP",
         .ALIAS_METHOD => "ALIAS_METHOD",
+        .ALIAS_GLOBAL_VARIABLE => "ALIAS_GLOBAL_VARIABLE",
         .UNDEF_METHOD => "UNDEF_METHOD",
         .MULTI_ASSIGN_PREPARE => "MULTI_ASSIGN_PREPARE",
         .BLOCK_GIVEN => "BLOCK_GIVEN",

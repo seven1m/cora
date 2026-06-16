@@ -3201,7 +3201,7 @@ fn parseStringEachLineOptions(vm: *VM, args: []Value) VMError!StringEachLineOpti
     try vm.validateKeywordArgsConsumed();
 
     const raw_separator = if (args.len == 0)
-        vm.globals.get("$/") orelse Value.nil()
+        vm.getGlobalValue("$/")
     else
         args[0];
 
@@ -4659,7 +4659,7 @@ pub fn builtinStringSplit(vm: *VM, receiver: Value, args: []Value, block: ?Block
     var use_default_separator = false;
 
     if (args.len == 0 or args[0].isNil()) {
-        const field_separator = vm.globals.get("$;") orelse Value.nil();
+        const field_separator = vm.getGlobalValue("$;");
         if (!field_separator.isNil()) {
             try warning_builtin.writeWarning(vm, "warning: $; is set to non-nil value\n");
             effective_separator = field_separator;
@@ -4756,7 +4756,7 @@ fn stringChompEnd(vm: *VM, bytes: []const u8, encoding: enc.Encoding, args: []Va
 
     var separator_value: Value = undefined;
     if (args.len == 0) {
-        separator_value = vm.globals.get("$/") orelse Value.nil();
+        separator_value = vm.getGlobalValue("$/");
     } else {
         separator_value = args[0];
     }

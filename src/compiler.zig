@@ -1528,6 +1528,10 @@ pub const Compiler = struct {
                 try self.compileAliasMethod(alias_node, line);
             },
 
+            .alias_global_variable => |alias_node| {
+                try self.compileAliasGlobalVariable(alias_node, line);
+            },
+
             .undef_node => |undef_node| {
                 try self.compileUndefMethod(undef_node, line);
             },
@@ -3472,6 +3476,19 @@ pub const Compiler = struct {
         const old_name_idx = try self.current_chunk.addConstant(.{ .string = old_name });
 
         try self.current_chunk.emitOpU16U16(.ALIAS_METHOD, @intCast(new_name_idx), @intCast(old_name_idx), line);
+    }
+
+    fn compileAliasGlobalVariable(self: *Compiler, alias_node: *prism.AliasGlobalVariableNode, line: u32) anyerror!void {
+        // `alias $new $old` - new_name and old_name are GlobalVariableReadNode or BackReferenceReadNode
+        const new_name_node: *prism.GlobalVariableReadNode = @ptrCast(alias_node.new_name);
+        const new_name = try self.parser.getConstantName(@intCast(new_name_node.name));
+        const new_name_idx = try self.current_chunk.addConstant(.{ .string = new_name });
+
+        const old_name_node: *prism.GlobalVariableReadNode = @ptrCast(alias_node.old_name);
+        const old_name = try self.parser.getConstantName(@intCast(old_name_node.name));
+        const old_name_idx = try self.current_chunk.addConstant(.{ .string = old_name });
+
+        try self.current_chunk.emitOpU16U16(.ALIAS_GLOBAL_VARIABLE, @intCast(new_name_idx), @intCast(old_name_idx), line);
     }
 
     fn compileUndefMethod(self: *Compiler, undef_node: *prism.UndefNode, line: u32) anyerror!void {

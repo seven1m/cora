@@ -249,6 +249,15 @@ pub const HeapEnv = struct {
     env: []Value, // GC-owned; len = locals_count + ENV_DATA_SIZE
 };
 
+const GlobalSlot = struct {
+    storage: Storage,
+
+    const Storage = union(enum) {
+        regular: Value,
+        thread_local: []const u8,
+    };
+};
+
 const FRAME_SCOPE_CONTEXT_TAG: usize = 1;
 
 const FrameScopeContext = struct {
@@ -463,7 +472,7 @@ pub const VM = struct {
     frames: *FiberFrameStack,
 
     symbols: std.HashMap(SymbolKey, *SymbolObject, SymbolKeyContext, std.hash_map.default_max_load_percentage),
-    globals: std.StringHashMap(Value),
+    globals: std.StringHashMap(*GlobalSlot),
     fstring_cache: std.StringHashMap(Value),
     canonical_fstrings: std.ArrayList(Value) = .empty,
     packed_pointer_targets: std.AutoHashMap(*StringObject, PackedPointerTargets),
@@ -687,7 +696,7 @@ pub const VM = struct {
             .stack = undefined,
             .frames = undefined,
             .symbols = std.HashMap(SymbolKey, *SymbolObject, SymbolKeyContext, std.hash_map.default_max_load_percentage).init(gc_allocator),
-            .globals = std.StringHashMap(Value).init(gc_allocator),
+            .globals = std.StringHashMap(*GlobalSlot).init(gc_allocator),
             .fstring_cache = std.StringHashMap(Value).init(gc_allocator),
             .canonical_fstrings = .empty,
             .packed_pointer_targets = std.AutoHashMap(*StringObject, PackedPointerTargets).init(gc_allocator),
@@ -6447,6 +6456,37 @@ pub const VM = struct {
                 try self.push(Value.NIL);
             },
 
+            .ALIAS_GLOBAL_VARIABLE => {
+                const new_name_idx = readU16From(frame, operands, &operand_cursor);
+                const old_name_idx = readU16From(frame, operands, &operand_cursor);
+
+                const new_name = constants[new_name_idx].string;
+                const old_name = constants[old_name_idx].string;
+
+                // Find or create the slot that old_name resolves to
+                const old_slot = self.globals.get(old_name) orelse blk: {
+                    const slot = self.gc_allocator.create(GlobalSlot) catch return error.Fatal;
+                    if (self.currentThreadGlobalSlot(old_name)) |_| {
+                        slot.storage = .{ .thread_local = old_name };
+                    } else {
+                        slot.storage = .{ .regular = Value.nil() };
+                        const owned = self.allocator.dupe(u8, old_name) catch return error.Fatal;
+                        self.globals.put(owned, slot) catch return error.Fatal;
+                    }
+                    break :blk slot;
+                };
+
+                // Bind new_name to the same slot
+                if (self.globals.fetchRemove(new_name)) |kv| {
+                    self.allocator.free(kv.key);
+                }
+                const owned_new = self.allocator.dupe(u8, new_name) catch return error.Fatal;
+                self.globals.put(owned_new, old_slot) catch return error.Fatal;
+
+                // alias returns nil in Ruby
+                try self.push(Value.NIL);
+            },
+
             .UNDEF_METHOD => {
                 const argc = operands[operand_cursor];
                 operand_cursor += 1;
@@ -9796,7 +9836,11 @@ pub const VM = struct {
 
     pub fn getGlobalValue(self: *VM, name: []const u8) Value {
         if (self.currentThreadGlobalSlot(name)) |slot| return slot.*;
-        return self.globals.get(name) orelse Value.nil();
+        const entry = self.globals.get(name) orelse return Value.nil();
+        return switch (entry.storage) {
+            .regular => |v| v,
+            .thread_local => |tl_name| if (self.currentThreadGlobalSlot(tl_name)) |tl_slot| tl_slot.* else Value.nil(),
+        };
     }
 
     pub fn newObjectForClass(self: *VM, class_obj: *ClassObject) VMError!Value {
@@ -10015,12 +10059,19 @@ pub const VM = struct {
             slot.* = val;
             return;
         }
-        if (self.globals.getPtr(name)) |existing| {
-            existing.* = val;
+        if (self.globals.getPtr(name)) |slot_ptr| {
+            switch (slot_ptr.*.storage) {
+                .regular => |*v| v.* = val,
+                .thread_local => |tl_name| if (self.currentThreadGlobalSlot(tl_name)) |tl_slot| {
+                    tl_slot.* = val;
+                },
+            }
             return;
         }
+        const new_slot = self.gc_allocator.create(GlobalSlot) catch return error.Fatal;
+        new_slot.storage = .{ .regular = val };
         const owned_name = self.allocator.dupe(u8, name) catch return error.Fatal;
-        self.globals.put(owned_name, val) catch return error.Fatal;
+        self.globals.put(owned_name, new_slot) catch return error.Fatal;
     }
 
     fn getBackrefCapture(self: *VM, capture_index: u16) Value {
@@ -11226,7 +11277,7 @@ pub const VM = struct {
     }
 
     pub fn resetLoadedFilesFromGlobal(self: *VM) VMError!void {
-        const loaded_val = self.globals.get("$LOADED_FEATURES") orelse return;
+        const loaded_val = self.getGlobalValue("$LOADED_FEATURES");
         if (!loaded_val.isArray()) return;
 
         var key_iter = self.loaded_files.keyIterator();

@@ -1677,7 +1677,7 @@ pub fn builtinModuleAttr(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
             writable = last.isTrue();
             name_count = args.len - 1;
             if (writable) {
-                const verbose = vm.globals.get("$VERBOSE") orelse Value.FALSE;
+                const verbose = vm.getGlobalValue("$VERBOSE");
                 if (verbose.isTruthy()) {
                     try warning_builtin.writeWarning(vm, "warning: boolean argument is obsoleted\n");
                 }
