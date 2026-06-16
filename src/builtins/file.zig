@@ -855,7 +855,14 @@ const FileOpenConfig = struct {
 
 fn resolveEncodingValue(vm: *VM, arg: Value) VMError!Value {
     if (arg.isEncoding()) return arg;
-    var find_args = [_]Value{arg};
+    var normalized = arg;
+    if (arg.isString()) {
+        const name = arg.toStringObject().str;
+        if (name.len >= 4 and std.ascii.eqlIgnoreCase(name[0..4], "bom|")) {
+            normalized = try vm.newString(name[4..], false);
+        }
+    }
+    var find_args = [_]Value{normalized};
     return encoding_builtin.builtinEncodingFind(vm, Value.nil(), find_args[0..], null);
 }
 
@@ -893,9 +900,12 @@ fn fileOpenConfig(vm: *VM, args: []Value) VMError!FileOpenConfig {
     var mode_kw: ?Value = null;
     var flags_kw: ?Value = null;
     var newline_kw: ?Value = null;
+    var universal_newline_kw: ?Value = null;
+    var cr_newline_kw: ?Value = null;
+    var crlf_newline_kw: ?Value = null;
     try vm.consumeKeywordArgs(
-        .{ "encoding", "external_encoding", "internal_encoding", "autoclose", "path", "perm", "mode", "flags", "newline" },
-        .{ &encoding_kw, &external_encoding, &internal_encoding, &autoclose, &path, &perm, &mode_kw, &flags_kw, &newline_kw },
+        .{ "encoding", "external_encoding", "internal_encoding", "autoclose", "path", "perm", "mode", "flags", "newline", "universal_newline", "cr_newline", "crlf_newline" },
+        .{ &encoding_kw, &external_encoding, &internal_encoding, &autoclose, &path, &perm, &mode_kw, &flags_kw, &newline_kw, &universal_newline_kw, &cr_newline_kw, &crlf_newline_kw },
     );
     try vm.validateKeywordArgsConsumed();
 
@@ -957,7 +967,11 @@ fn fileOpenConfig(vm: *VM, args: []Value) VMError!FileOpenConfig {
     if (config.external_encoding != null and config.internal_encoding != null and config.external_encoding.?.raw == config.internal_encoding.?.raw) {
         config.internal_encoding = null;
     }
-    if (config.mode.binary and config.newline != null) {
+    if (config.mode.binary and (config.newline != null or
+        (universal_newline_kw != null and universal_newline_kw.?.isTruthy()) or
+        (cr_newline_kw != null and cr_newline_kw.?.isTruthy()) or
+        (crlf_newline_kw != null and crlf_newline_kw.?.isTruthy())))
+    {
         return vm.raiseExceptionFmt(vm.argument_error_class, "newline decorator with binary mode", .{});
     }
     if (config.mode.binary and config.external_encoding == null) {
