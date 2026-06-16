@@ -1,6 +1,6 @@
 # Cora Ruby Interpreter
 
-This is a Ruby interpreter in Zig, written by various LLMs, fully vibe coded. It's a mess in here. Sorry, not sorry.
+This is a Ruby interpreter in Zig, written by various LLMs, fully vibe coded.
 
 This is my sandbox. I'm not trying to make anything better, faster, or groundbreaking. Just something for fun.
 
