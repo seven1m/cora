@@ -44,6 +44,12 @@ pub fn register(vm: *VM) !void {
 
     const uplus_sym = try vm.intern("+@");
     try vm.numeric_class.module.methods.put(uplus_sym, value.MethodEntry.builtin(&builtinNumericUplus, .{ .exact = 0 }));
+
+    const abs_sym = try vm.intern("abs");
+    try vm.numeric_class.module.methods.put(abs_sym, value.MethodEntry.builtin(&builtinNumericAbs, .{ .exact = 0 }));
+
+    const magnitude_sym = try vm.intern("magnitude");
+    try vm.numeric_class.module.methods.put(magnitude_sym, value.MethodEntry.builtin(&builtinNumericAbs, .{ .exact = 0 }));
 }
 
 pub fn builtinNumericIntegerQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -101,5 +107,15 @@ pub fn builtinNumericRealQ(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
 
 pub fn builtinNumericUplus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
+    return receiver;
+}
+
+pub fn builtinNumericAbs(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    var compare_args = [_]Value{Value.integer(0)};
+    const less_than_zero = try vm.callMethodByName(receiver, "<", compare_args[0..], null);
+    if (less_than_zero.isTruthy()) {
+        return vm.callMethodByName(receiver, "-@", &.{}, null);
+    }
     return receiver;
 }

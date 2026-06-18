@@ -1506,7 +1506,7 @@ Source baseline: ../ruby_spec compared to local spec/
 
 ### core/numeric
 - [ ] core/numeric/abs2_spec.rb
-- [ ] core/numeric/abs_spec.rb
+- [x] core/numeric/abs_spec.rb
 - [ ] core/numeric/angle_spec.rb
 - [ ] core/numeric/arg_spec.rb
 - [ ] core/numeric/ceil_spec.rb
@@ -1528,7 +1528,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/numeric/imaginary_spec.rb
 - [ ] core/numeric/infinite_spec.rb
 - [x] core/numeric/integer_spec.rb
-- [ ] core/numeric/magnitude_spec.rb
+- [x] core/numeric/magnitude_spec.rb
 - [ ] core/numeric/modulo_spec.rb
 - [x] core/numeric/negative_spec.rb
 - [x] core/numeric/nonzero_spec.rb
