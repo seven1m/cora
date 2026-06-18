@@ -889,6 +889,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/float/to_i_spec.rb
 - [x] core/float/to_int_spec.rb
 - [ ] core/float/to_r_spec.rb
+- [x] core/float/to_f_spec.rb
 - [x] core/float/to_s_spec.rb
 - [ ] core/float/truncate_spec.rb
 - [ ] core/float/uminus_spec.rb
