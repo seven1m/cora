@@ -1918,10 +1918,26 @@ def mock_to_path(path)
   obj
 end
 
+class NumericMockObject < Numeric
+  def initialize(name = nil, options = {})
+    @name = name || "numeric_mock"
+    @null = options[:null_object]
+  end
+
+  def method_missing(sym, *args, &block)
+    @null ? self : super
+  end
+
+  def singleton_method_added(val)
+  end
+end
+
 # mock_numeric creates a mock object that masquerades as a Numeric.
 # Used by specs that test #to_r / #to_int coercion paths.
-def mock_numeric(name = nil)
-  mock(name)
+def mock_numeric(name = nil, options = {})
+  m = NumericMockObject.new(name, options)
+  $__active_mocks << m
+  m
 end
 
 # mock_int creates an object that responds to #to_int with the given value.

@@ -50,6 +50,9 @@ pub fn register(vm: *VM) !void {
 
     const magnitude_sym = try vm.intern("magnitude");
     try vm.numeric_class.module.methods.put(magnitude_sym, value.MethodEntry.builtin(&builtinNumericAbs, .{ .exact = 0 }));
+
+    const abs2_sym = try vm.intern("abs2");
+    try vm.numeric_class.module.methods.put(abs2_sym, value.MethodEntry.builtin(&builtinNumericAbs2, .{ .exact = 0 }));
 }
 
 pub fn builtinNumericIntegerQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -118,4 +121,10 @@ pub fn builtinNumericAbs(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
         return vm.callMethodByName(receiver, "-@", &.{}, null);
     }
     return receiver;
+}
+
+pub fn builtinNumericAbs2(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    var mul_args = [_]Value{receiver};
+    return vm.callMethodByName(receiver, "*", &mul_args, null);
 }
