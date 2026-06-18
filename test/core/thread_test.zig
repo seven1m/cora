@@ -348,3 +348,34 @@ test "Thread#wakeup wakes a sleeping thread" {
     );
     try std.testing.expectEqual(false, result.toBool());
 }
+
+test "Thread.pass works inside Fiber in non-main Thread" {
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+    var threaded: std.Io.Threaded = .init(allocator, .{});
+    defer threaded.deinit();
+
+    const result = try std.process.run(allocator, threaded.io(), .{
+        .argv = &.{
+            "build/bin/cora",
+            "-e",
+            \\t = Thread.new do
+            \\  f = Fiber.new do
+            \\    Thread.pass
+            \\    :ok
+            \\  end
+            \\  p f.resume
+            \\end
+            \\p t.value
+            ,
+        },
+        .stdout_limit = .limited(1024 * 1024),
+        .stderr_limit = .limited(1024 * 1024),
+    });
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+
+    try std.testing.expect(result.term == .exited and result.term.exited == 0);
+    try std.testing.expectEqualSlices(u8, ":ok\n:ok\n", result.stdout);
+}

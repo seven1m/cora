@@ -3976,23 +3976,52 @@ pub const VM = struct {
             self.setCurrentStackBaseForGc(caller_stack_base) catch {};
         }
 
-        target_coro.step();
+        while (true) {
+            target_coro.parent_context_ptr.store(parent_context, .release);
+            try self.setCurrentStackBaseForGc(target_stack_base);
+            self.setCurrentFiber(fiber);
+            self.restoreFiberState(fiber);
 
-        self.saveFiberState(fiber);
-        self.setCurrentFiber(caller);
-        self.restoreFiberState(caller);
-        fiber.caller = null;
-        try self.setCurrentStackBaseForGc(caller_stack_base);
+            target_coro.step();
 
-        return switch (fiber.coro_event) {
-            .yielded => fiber.coro_result,
-            .returned => fiber.coro_result,
-            .raised => {
-                self.setPendingException(fiber.coro_exception orelse return error.Fatal);
-                return error.Unwind;
-            },
-            .none => error.Fatal,
-        };
+            self.saveFiberState(fiber);
+            self.setCurrentFiber(caller);
+            self.restoreFiberState(caller);
+            try self.setCurrentStackBaseForGc(caller_stack_base);
+
+            switch (fiber.coro_event) {
+                .yielded => {
+                    fiber.caller = null;
+                    return fiber.coro_result;
+                },
+                .returned => {
+                    fiber.caller = null;
+                    return fiber.coro_result;
+                },
+                .raised => {
+                    fiber.caller = null;
+                    self.setPendingException(fiber.coro_exception orelse return error.Fatal);
+                    return error.Unwind;
+                },
+                .thread_yield => {
+                    const root_fiber = self.rootFiberForCurrentThread();
+                    if (caller == root_fiber) {
+                        const thread = self.current_thread orelse return error.Fatal;
+                        try self.yieldCurrentThreadCoroutine(thread);
+                        continue;
+                    }
+
+                    caller.coro_event = .thread_yield;
+                    caller.state = .suspended;
+                    const caller_coro = caller.coro orelse return error.Fatal;
+                    caller_coro.yield();
+                    caller.state = .running;
+                    caller.coro_event = .none;
+                    continue;
+                },
+                .none => return error.Fatal,
+            }
+        }
     }
 
     // =========================================================================
@@ -4680,17 +4709,7 @@ pub const VM = struct {
         try self.setCurrentStackBaseForGc(caller_stack_base);
     }
 
-    /// Yield to scheduler, used by Thread.pass and join loops
-    pub fn threadYield(self: *VM) VMError!void {
-        try self.checkAsyncEvents();
-
-        const thread = self.current_thread orelse return self.schedulerYield();
-        const main = self.main_thread orelse return self.schedulerYield();
-        if (thread == main) {
-            // Main thread: run scheduler directly
-            return self.schedulerYield();
-        }
-        // Non-main thread: yield the coroutine
+    fn yieldCurrentThreadCoroutine(self: *VM, thread: *value.ThreadObject) VMError!void {
         if (thread.coro) |c| c.yield();
 
         // After resuming, check if we've been killed
@@ -4709,6 +4728,30 @@ pub const VM = struct {
             const raised_val = try self.callMethodByName(exc_val, "exception", &.{}, null);
             self.setPendingException(raised_val.toExceptionObject());
             return error.Unwind;
+        }
+    }
+
+    /// Yield to scheduler, used by Thread.pass and join loops
+    pub fn threadYield(self: *VM) VMError!void {
+        try self.checkAsyncEvents();
+
+        const thread = self.current_thread orelse return self.schedulerYield();
+        const main = self.main_thread orelse return self.schedulerYield();
+        if (thread == main) {
+            // Main thread: run scheduler directly
+            return self.schedulerYield();
+        }
+
+        const fiber = self.current_fiber;
+        const root_fiber = thread.main_fiber orelse self.main_fiber;
+        if (fiber.owner_thread == thread and fiber.coro != null and fiber != root_fiber) {
+            fiber.coro_event = .thread_yield;
+            fiber.state = .suspended;
+            fiber.coro.?.yield();
+            fiber.state = .running;
+            fiber.coro_event = .none;
+        } else {
+            try self.yieldCurrentThreadCoroutine(thread);
         }
     }
 

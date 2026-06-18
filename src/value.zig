@@ -328,6 +328,7 @@ pub const FiberObject = struct {
         yielded,
         returned,
         raised,
+        thread_yield,
     };
 
     object: Object,
