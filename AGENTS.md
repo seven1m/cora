@@ -5,7 +5,9 @@ Prism AST -> bytecode -> VM execution.
 
 ## Read This First
 
-- Main entrypoints: `src/compiler.zig`, `src/vm.zig`, `src/value.zig`, `src/chunk.zig`, `src/bytecode.zig`, `src/prism.zig`, `src/main.zig`
+- Main entrypoints: `src/compiler.zig`, `src/vm.zig`, `src/value.zig`, `src/chunk.zig`, `src/bytecode.zig`, `src/prism.zig`, `src/cext.zig`, `src/load_path.zig`, `src/main.zig`
+- C extension ABI: `include/cora/ruby.h` + `src/cext.zig`. The test fixture is `test/support/cext_fixture.c` exercised from `test/core/cext_test.zig`.
+- Stdlib lives in `lib/stdlib/`. Vendored gem sources live in `ext/<gem>/` as git submodules.
 - Prefer reading the relevant `.agents/reference/*.md` file for the task you are doing before making changes.
 - Prefer general and reusable bytecode/runtime changes over feature-specific one-offs.
 - Do not expose runtime-only implementation details to Ruby code via fake hidden local variables, ivars, or methods.
@@ -23,6 +25,7 @@ Prism AST -> bytecode -> VM execution.
 - Debugging workflow, memory corruption triage: `.agents/reference/debugging.md`
 - TinyCC JIT, eligibility rules, and debug workflow: `.agents/reference/jit.md`
 - Builtins and Ruby-facing conventions: `.agents/reference/builtins.md`
+- Native C extensions, builtin gems, `lib/stdlib/` vs `ext/`: `.agents/reference/native-extensions.md`
 - Testing, CLI usage, and debug workflow: `.agents/reference/testing.md`
 - Ruby spec workflow: `.agents/reference/ruby-specs.md`
 - Zig tips: `.agents/reference/zig.md`
@@ -45,9 +48,15 @@ zig build test -Dtest-filter="Proc"
 zig build test -Dtest-filter="Proc" -Dtest-verbose
 zig build test -Dtest-filter="Proc" -Dtest-verbose -Dtest-timing
 zig build test -Dtest-filter="Proc" -Dtest-verbose -Dtest-timing -Dtest-timeout=10
+zig build test -Dtest-jobs=8
 zig build run -- [flags] [filename]
 build/bin/cora [flags] [filename]
+bin/gem [gem-args]                  # polyglot sh+Ruby wrapper; uses bin/cora
 ```
+
+The TinyCC JIT and per-gem native extension build steps (`psych`, `strscan`,
+`onigmo`, `tinycc`, `cext-fixture`) are documented in
+`.agents/reference/native-extensions.md`.
 
 ## Nix
 

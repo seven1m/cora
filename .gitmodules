@@ -64,3 +64,6 @@
 [submodule "ext/csv"]
 	path = ext/csv
 	url = https://github.com/ruby/csv
+[submodule "ext/json"]
+	path = ext/json
+	url = https://github.com/ruby/json

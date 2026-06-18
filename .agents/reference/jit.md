@@ -66,7 +66,7 @@ This is normal for a bytecode-to-C proof of concept. It keeps codegen simple and
 
 ## Debugging Tips
 
-- Use `zig-out/bin/cora --dump-bytecode file.rb` to inspect chunk shape before deciding whether a method should be JIT-eligible.
-- Use `zig-out/bin/cora --dump-jit-source file.rb` on a `-Dtcc-jit=true` build to see the emitted C.
+- Use `build/bin/cora --dump-bytecode file.rb` to inspect chunk shape before deciding whether a method should be JIT-eligible.
+- Use `build/bin/cora --dump-jit-source file.rb` on a `-Dtcc-jit=true` build to see the emitted C.
 - For mixed scripts, only eligible methods print JIT source; non-eligible methods stay interpreted silently.
 - `test/core/jit_tcc_test.zig` is the smallest focused place to extend or debug the current JIT.

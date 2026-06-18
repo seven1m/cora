@@ -10,7 +10,11 @@
 **Key files:**
 - `src/main.zig` - CLI entry point
 - `src/prism.zig` - Prism C library wrapper with typed Node union
-- `zig-out/prism` - generated Prism C/header sources when you need to inspect parser internals
+- `build/prism` - generated Prism C/header sources when you need to inspect parser internals
+- `src/cext.zig` - Ruby C extension ABI implementation (`rb_*` exports for `dlopen`'d `.so` files)
+- `include/cora/ruby.h` - C header that ext authors `#include` to get the `VALUE` ABI Cora supports
+- `src/load_path.zig` - static `repo_load_paths` table that registers vendored gems at startup
+- `bin/cora`, `bin/gem` - polyglot wrapper scripts installed alongside the binary
 - `src/compiler.zig` - converts Prism AST to bytecode chunks
 - `src/chunk.zig` - bytecode chunks, constants, line info, handlers
 - `src/bytecode.zig` - `OpCode` definitions
@@ -33,7 +37,9 @@ Prefer not to add new opcodes when an existing mechanism can be extended. When a
 
 **Symbol interning:** `VM.intern(str)` creates a GC-allocated `SymbolObject` with canonical string storage and caches it in a HashMap. The same symbol string should map to the same symbol object identity.
 
-**Classes/modules:** Classes store module-like method tables plus superclass and prepended/included module lists. Method lookup walks prepended modules -> class methods -> included modules -> superclass.
+**Classes/modules:** Classes store module-like method tables plus superclass and prepended/included module lists. Method lookup walks prepended modules -> class methods -> included modules -> superclass. `Class#new` consults `ClassObject.cext_alloc_func` first when present, so a C extension can install its own allocator for the Ruby wrapper.
+
+**Method entries:** A `MethodEntry.method` is one of `.undefined`, `.builtin`, or `.cext` (`{ func: *anyopaque, argc: c_int }`). C extension methods are registered by `rb_define_method`/`rb_define_module_function`/etc. in `src/cext.zig`, bump `VM.method_state_version` so JIT/lookup caches invalidate, and dispatch goes through `cext_method` arms in `src/vm.zig` and `src/builtins/method_common.zig`. Keyword arguments are rejected from the C path. See `.agents/reference/native-extensions.md` for the supported C ABI surface and the cext fixture.
 
 **Value types:** Primitives include integer, float, boolean, and nil. Heap-allocated types include object instances, symbols, strings, modules, classes, arrays, hashes, ranges, exceptions, procs, fibers, regexps, and encodings.
 
