@@ -8380,10 +8380,11 @@ pub const VM = struct {
 
                 const saved_frame_count = self.frames.items.len - 1;
                 try self.executeUntilReturn(saved_frame_count);
-                // Save NLR value before finishSubcallFromStack clears it.
-                const was_nlr = self.pendingControlFlow() != null;
-                if (was_nlr) {
-                    self.cext_nlr_value = self.pendingControlFlow().?.value;
+                // Save only non-local return values for C extension longjmp handling.
+                if (self.pendingControlFlow()) |cf| {
+                    if (cf.kind == .return_) {
+                        self.cext_nlr_value = cf.value;
+                    }
                 }
                 const outcome = try self.finishSubcallFromStack(saved_frame_count, saved_stack_len);
                 break :blk YieldResult{

@@ -41,3 +41,18 @@ test "JSON.parse raises JSON::ParserError for invalid input" {
     try std.testing.expectEqualStrings("JSON::ParserError\nexpected object key, got EOF\n", result.stdout);
     try std.testing.expectEqualStrings("", result.stderr);
 }
+
+test "JSON.parse object result is not poisoned by block next" {
+    var stdout_buf: [2048]u8 = undefined;
+    var stderr_buf: [2048]u8 = undefined;
+
+    const result = evalCodeWithOutput(
+        \\require "json"
+        \\[1].each { next 7 }
+        \\puts JSON.parse('{"a":1}').inspect
+    , &stdout_buf, &stderr_buf);
+
+    try std.testing.expect(result.err == null);
+    try std.testing.expectEqualStrings("{\"a\" => 1}\n", result.stdout);
+    try std.testing.expectEqualStrings("", result.stderr);
+}
