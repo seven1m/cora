@@ -171,7 +171,6 @@ fn lookupConstantOnReceiver(vm: *VM, receiver: Value, name_sym: *SymbolObject, i
     if (receiver.isModule()) {
         if (lookupConstantOnModule(receiver.toModuleObject(), name_sym)) |val| return val;
         if (inherit) {
-            if (lookupConstantOnEnclosingNamespaces(vm, receiver, name_sym)) |val| return val;
             if (lookupConstantOnModule(&vm.object_class.module, name_sym)) |val| return val;
         }
         return null;

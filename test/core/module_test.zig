@@ -191,6 +191,47 @@ test "qualified constant paths inherit constants from superclass" {
     try std.testing.expectEqual(@as(i64, 42), result.toInteger());
 }
 
+test "Module const_defined? does not search enclosing namespaces for explicit receiver" {
+    const result = try evalCode(
+        \\module A
+        \\  module B
+        \\  end
+        \\  X = 1
+        \\end
+        \\A::B.const_defined?(:X)
+    );
+    try std.testing.expect(result.isFalse());
+}
+
+test "Module const_get does not search enclosing namespaces for explicit receiver" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+    const bad = evalCodeWithOutput(
+        \\module A
+        \\  module B
+        \\  end
+        \\  X = 1
+        \\end
+        \\A::B.const_get(:X)
+    , &stdout_buf, &stderr_buf);
+    try std.testing.expectEqual(error.UnhandledException, bad.err.?);
+    try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "NameError") != null);
+    try std.testing.expect(std.mem.indexOf(u8, bad.stderr, "uninitialized constant B::X") != null);
+}
+
+test "Class const_get searches enclosing namespaces for explicit receiver" {
+    const result = try evalCode(
+        \\module A
+        \\  X = 1
+        \\  class B
+        \\  end
+        \\end
+        \\A::B.const_get(:X)
+    );
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 1), result.toInteger());
+}
+
 test "Module module_function creates module singleton method and privatizes instance method" {
     var result = try evalCode(
         \\module M

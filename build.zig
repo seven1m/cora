@@ -349,16 +349,12 @@ fn buildJson(b: *std.Build) JsonBuild {
         const copy_step = b.addSystemCommand(&.{ "sh", "-c", "mkdir -p build/json && cp -r ext/json/. build/json/" });
         json_build_step.dependOn(&copy_step.step);
 
-        const patch_step = b.addSystemCommand(&.{ "sh", "-c", "cd build/json && patch -p1 < ../../ext/json.patch" });
-        patch_step.step.dependOn(&copy_step.step);
-        json_build_step.dependOn(&patch_step.step);
-
         const parser_extconf_step = b.addSystemCommand(&.{
             "sh",
             "-c",
             "repo_root=\"$PWD\" && cd build/json/ext/json/ext/parser && \"$repo_root\"/build/bin/cora extconf.rb",
         });
-        parser_extconf_step.step.dependOn(&patch_step.step);
+        parser_extconf_step.step.dependOn(&copy_step.step);
         json_build_step.dependOn(&parser_extconf_step.step);
 
         const parser_make_step = b.addSystemCommand(&.{ "make", "-C", json_build_root ++ "/ext/json/ext/parser" });
@@ -370,7 +366,7 @@ fn buildJson(b: *std.Build) JsonBuild {
             "-c",
             "repo_root=\"$PWD\" && cd build/json/ext/json/ext/generator && \"$repo_root\"/build/bin/cora extconf.rb",
         });
-        generator_extconf_step.step.dependOn(&patch_step.step);
+        generator_extconf_step.step.dependOn(&copy_step.step);
         json_build_step.dependOn(&generator_extconf_step.step);
 
         const generator_make_step = b.addSystemCommand(&.{ "make", "-C", json_build_root ++ "/ext/json/ext/generator" });
