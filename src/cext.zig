@@ -678,12 +678,17 @@ extern fn siglongjmp(buf: *anyopaque, val: c_int) noreturn;
 extern fn __sigsetjmp(buf: *anyopaque, savesigs: c_int) c_int;
 fn checkNLR(vm: *VM) void {
     if (vm.cext_jmp_buf != null) {
-        if (!vm.cext_nlr_value.isNil()) {
-            siglongjmp(vm.cext_jmp_buf.?, 1);
+        if (vm.cext_pending_control_flow) |cf| {
+            // Only .return_ is propagated as a C extension non-local return.
+            // Other control flow kinds (next/break/redo/retry) stay local to
+            // the Ruby block and must not trigger a longjmp.
+            if (cf.kind == .return_) {
+                siglongjmp(vm.cext_jmp_buf.?, 1);
+            }
         }
         if (vm.pendingControlFlow()) |cf| {
             if (cf.kind == .return_) {
-                vm.cext_nlr_value = cf.value;
+                vm.cext_pending_control_flow = cf;
                 siglongjmp(vm.cext_jmp_buf.?, 1);
             }
         }
@@ -707,7 +712,8 @@ export fn rb_funcall(recv_raw: VALUE, mid: VALUE, argc: c_int, ...) VALUE {
         else => return 0,
     };
     // Detect non-local return that was processed internally by
-    // finishSubcallFromStack (chunk methods) and saved to cext_nlr_value.
+    // finishSubcallFromStack (chunk methods) and saved to
+    // cext_pending_control_flow.
     checkNLR(vm);
     if (vm.frames.items.len < saved_frame_count) {
         checkNLR(vm);

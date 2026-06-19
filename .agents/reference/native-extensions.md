@@ -155,9 +155,13 @@ yet.
 
 `rb_yield` and `rb_funcall` may trigger non-local returns (e.g. block `return`
 or proc unwinding). Cora installs a setjmp/longjmp-style buffer on
-`VM.cext_jmp_buf` before entering C extension code, and stores the unwound
-value on `VM.cext_nlr_value`. The C frame returns normally and the caller in
-`src/vm.zig` checks `cext_nlr_value` to continue unwinding the Ruby stack.
+`VM.cext_jmp_buf` before entering C extension code, and mirrors the unwound
+`PendingControlFlow` on `VM.cext_pending_control_flow`. The mirror only ever
+holds `.return_`; other control flow kinds (`next`, `break`, `redo`, `retry`)
+stay local to the Ruby block and must not be projected to the C side as a
+non-local return. The C frame returns normally and the caller in
+`src/vm.zig` checks `cext_pending_control_flow` to continue unwinding the
+Ruby stack.
 
 Keyword arguments are rejected with `ArgumentError` from the C dispatch path
 (`"C extensions do not accept keyword arguments"`).

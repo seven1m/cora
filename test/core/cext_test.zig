@@ -94,3 +94,75 @@ test "C extension nested rb_funcall NLR unwinds through multiple C frames" {
     );
     try std.testing.expectEqual(@as(i64, 88), result.toInteger());
 }
+
+test "C extension rb_yield `next` does not leak as non-local return" {
+    // A block doing `next` should return the next's value to the C extension
+    // and must not be misinterpreted as a non-local return. After the yield,
+    // the C code does another rb_funcall to confirm the boundary state is
+    // clean.
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\CoraCExt.yield_next_then_value(123) { |marker| next marker }
+    );
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualStrings("123", result.toStringObject().str);
+}
+
+test "C extension rb_yield `break` returns the break value to C" {
+    // A block doing `break` should hand the break value back to the C side
+    // as a normal yield return. It must not be projected as an NLR.
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\CoraCExt.yield_break(7) { |marker| break marker + 100 }
+    );
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 107), result.toInteger());
+}
+
+test "C extension `next` in callback does not pollute later C calls" {
+    // Direct repro for the JSON.parse-style bug: a `next` in a callback must
+    // not cause a later C extension call (within or across frames) to see a
+    // stale scalar from the previous non-local return path. The C code does
+    // an rb_funcall on the value returned from rb_yield, which depends on
+    // the boundary state being clean.
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\CoraCExt.yield_next_then_call_to_s(:first) { |m| next m; :unreachable }
+    );
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualStrings("first", result.toStringObject().str);
+}
+
+test "C extension real non-local `return` still crosses C boundary" {
+    // Sanity check: even after the refactor, a real `return` from a block
+    // invoked via rb_yield must still escape the surrounding method.
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\def outer
+        \\  CoraCExt.yield_break(:ignored) { |_| return 999 }
+        \\  :after
+        \\end
+        \\outer
+    );
+    try std.testing.expectEqual(@as(i64, 999), result.toInteger());
+}
+
+test "C extension real non-local `return` through rb_funcall still works" {
+    // Sanity check: a `return` from a proc called via rb_funcall still
+    // escapes the surrounding method.
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\def outer
+        \\  callback = proc { return 314 }
+        \\  CoraCExt.funcall_nlr(callback)
+        \\  :after
+        \\end
+        \\outer
+    );
+    try std.testing.expectEqual(@as(i64, 314), result.toInteger());
+}

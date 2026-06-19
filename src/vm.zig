@@ -676,7 +676,7 @@ pub const VM = struct {
 
     cext_handles: std.ArrayList(std.DynLib) = .empty,
     cext_jmp_buf: ?*[200]u8 = null,
-    cext_nlr_value: Value = Value.nil(),
+    cext_pending_control_flow: ?PendingControlFlow = null,
 
     var active_gc_roots_vm: ?*VM = null;
     var previous_gc_push_other_roots: bdwgc.c.GC_push_other_roots_proc = null;
@@ -7806,10 +7806,12 @@ pub const VM = struct {
             return .{ .raw = result_raw };
         }
         // Second pass: longjmp from a C API function landed here.
-        if (!self.cext_nlr_value.isNil()) {
-            const nlr = self.cext_nlr_value;
-            self.cext_nlr_value = Value.nil();
-            return nlr;
+        if (self.cext_pending_control_flow) |cf| {
+            // checkNLR only longjmps for .return_, so we can rely on that
+            // invariant here. Any other kind is a programming error.
+            if (cf.kind != .return_) return error.Fatal;
+            self.cext_pending_control_flow = null;
+            return cf.value;
         }
         if (self.pendingException() != null) {
             return error.Unwind;
@@ -8380,10 +8382,12 @@ pub const VM = struct {
 
                 const saved_frame_count = self.frames.items.len - 1;
                 try self.executeUntilReturn(saved_frame_count);
-                // Save only non-local return values for C extension longjmp handling.
+                // Mirror only .return_ to the C extension boundary state. Other
+                // control flow kinds (next/break/redo/retry) must not be projected
+                // to the C side as a non-local return.
                 if (self.pendingControlFlow()) |cf| {
                     if (cf.kind == .return_) {
-                        self.cext_nlr_value = cf.value;
+                        self.cext_pending_control_flow = cf;
                     }
                 }
                 const outcome = try self.finishSubcallFromStack(saved_frame_count, saved_stack_len);
@@ -12806,10 +12810,11 @@ pub const VM = struct {
                 _ = self.popStackAboveOrNil(saved_stack_len);
             }
             self.setPendingControlFlow(null);
-            // If a non-local return happened and we're inside a C extension call,
-            // save the value so rb_funcall/rb_yield can longjmp back to dispatchCExtMethod.
+            // Mirror only .return_ to the C extension boundary state. Other
+            // control flow kinds (next/break/redo/retry) must not be projected
+            // to the C side as a non-local return.
             if (cf.kind == .return_) {
-                self.cext_nlr_value = result;
+                self.cext_pending_control_flow = cf;
             }
             return switch (cf.kind) {
                 .return_ => .{ .non_local_return = result },
