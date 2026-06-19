@@ -1,6 +1,7 @@
 const std = @import("std");
 const value = @import("value.zig");
 const Value = value.Value;
+const StringObject = value.StringObject;
 const vm_mod = @import("vm.zig");
 const VM = vm_mod.VM;
 const enc = @import("encoding.zig");
@@ -260,6 +261,18 @@ export fn rb_isspace(c: c_uint) c_int {
 
 // ─── String functions ───────────────────────────────────────────────────────
 
+fn allocMutableString(vm: *VM, len: usize) VALUE {
+    const buf = vm.gc_allocator_atomic.alloc(u8, len) catch return 0;
+    @memset(buf, 0);
+    const string_obj = vm.gc_allocator.create(StringObject) catch return 0;
+    string_obj.* = .{
+        .object = .{ .type_tag = .string, .flags = 0, .class = vm.string_class, .singleton_class = null, .instance_variables = null },
+        .str = buf,
+        .encoding = .{ .utf8 = .{} },
+    };
+    return Value.fromObject(&string_obj.object).raw;
+}
+
 export fn rb_str_new(ptr: [*c]const u8, len: c_long) VALUE {
     const vm = getVM();
     const s: []const u8 = if (ptr != null) ptr[0..@intCast(len)] else &.{};
@@ -286,8 +299,106 @@ export fn rb_enc_str_new(ptr: [*c]const u8, len: c_long, enc_ptr: ?*anyopaque) V
     return rb_str_new(ptr, len);
 }
 
+export fn rb_utf8_str_new(ptr: [*c]const u8, len: c_long) VALUE {
+    return rb_str_new(ptr, len);
+}
+
 export fn rb_utf8_str_new_cstr(ptr: [*c]const u8) VALUE {
     return rb_str_new2(ptr);
+}
+
+export fn rb_str_buf_new(len: c_long) VALUE {
+    const vm = getVM();
+    return allocMutableString(vm, @intCast(@max(len, 0)));
+}
+
+export fn rb_str_set_len(str_raw: VALUE, len: c_long) void {
+    if (len < 0) return;
+    const str = Value{ .raw = str_raw };
+    if (!str.isString()) return;
+    const obj = str.toStringObject();
+    const new_len: usize = @intCast(len);
+    if (new_len <= obj.str.len) {
+        obj.str = obj.str[0..new_len];
+    }
+}
+
+export fn rb_str_tmp_new(len: c_long) VALUE {
+    return rb_str_buf_new(len);
+}
+
+export fn rb_str_catf(str_raw: VALUE, fmt: [*c]const u8, ...) VALUE {
+    if (fmt == null) return str_raw;
+    const vm = getVM();
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(vm.allocator);
+
+    const str = Value{ .raw = str_raw };
+    if (str.isString()) {
+        out.appendSlice(vm.allocator, str.toStringObject().str) catch return str_raw;
+    }
+
+    const fmt_slice = std.mem.span(fmt);
+    var ap = @cVaStart();
+    defer @cVaEnd(&ap);
+
+    var i: usize = 0;
+    while (i < fmt_slice.len) : (i += 1) {
+        if (fmt_slice[i] != '%') {
+            out.append(vm.allocator, fmt_slice[i]) catch return str_raw;
+            continue;
+        }
+        i += 1;
+        if (i >= fmt_slice.len) break;
+        if (fmt_slice[i] == '%') {
+            out.append(vm.allocator, '%') catch return str_raw;
+            continue;
+        }
+        if (fmt_slice[i] == 'l' and i + 1 < fmt_slice.len and fmt_slice[i + 1] == 'd') {
+            const val = @cVaArg(&ap, c_long);
+            out.print(vm.allocator, "{d}", .{val}) catch return str_raw;
+            i += 1;
+            continue;
+        }
+        if (fmt_slice[i] == 's') {
+            const cstr = @cVaArg(&ap, [*c]const u8);
+            out.appendSlice(vm.allocator, if (cstr != null) std.mem.span(cstr) else "") catch return str_raw;
+            continue;
+        }
+        if (fmt_slice[i] == 'c') {
+            const ch = @cVaArg(&ap, c_int);
+            out.append(vm.allocator, @intCast(ch)) catch return str_raw;
+            continue;
+        }
+        out.append(vm.allocator, fmt_slice[i]) catch return str_raw;
+    }
+
+    const result = vm.newString(out.items, false) catch return str_raw;
+    return result.raw;
+}
+
+export fn rb_str_intern(str_raw: VALUE) VALUE {
+    const vm = getVM();
+    const str = Value{ .raw = str_raw };
+    if (!str.isString()) return 0;
+    const sym = vm.intern(str.toStringObject().str) catch return 0;
+    return Value.fromObject(&sym.object).raw;
+}
+
+export fn rb_str_concat(str_raw: VALUE, str2_raw: VALUE) VALUE {
+    return rb_str_append(str_raw, str2_raw);
+}
+
+export fn rb_str_substr(str_raw: VALUE, beg: c_long, len: c_long) VALUE {
+    return rb_str_subseq(str_raw, beg, len);
+}
+
+export fn rb_str_new_shared(str_raw: VALUE) VALUE {
+    return rb_str_dup(str_raw);
+}
+
+export fn rb_str_freeze(str_raw: VALUE) VALUE {
+    return rb_obj_freeze(str_raw);
 }
 
 export fn rb_string_value_cstr(ptr: *VALUE) ?[*]u8 {
@@ -325,6 +436,52 @@ export fn rb_str_dump(str_raw: VALUE) VALUE {
 }
 
 export fn rb_sprintf(fmt: [*c]const u8, ...) VALUE {
+    var ap = @cVaStart();
+    defer @cVaEnd(&ap);
+    if (fmt == null) return 0;
+    const vm = getVM();
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(vm.allocator);
+    const s = std.mem.span(fmt);
+    var i: usize = 0;
+    while (i < s.len) : (i += 1) {
+        if (s[i] != '%') {
+            out.append(vm.allocator, s[i]) catch return 0;
+            continue;
+        }
+        i += 1;
+        if (i >= s.len) break;
+        if (s[i] == '%') {
+            out.append(vm.allocator, '%') catch return 0;
+            continue;
+        }
+        if (s[i] == 'l' and i + 1 < s.len and s[i + 1] == 'd') {
+            var buf: [32]u8 = undefined;
+            const rendered = std.fmt.bufPrint(&buf, "{d}", .{@cVaArg(&ap, c_long)}) catch return 0;
+            out.appendSlice(vm.allocator, rendered) catch return 0;
+            i += 1;
+            continue;
+        }
+        if (s[i] == 'd') {
+            var buf: [32]u8 = undefined;
+            const rendered = std.fmt.bufPrint(&buf, "{d}", .{@cVaArg(&ap, c_int)}) catch return 0;
+            out.appendSlice(vm.allocator, rendered) catch return 0;
+            continue;
+        }
+        if (s[i] == 's') {
+            const ptr = @cVaArg(&ap, [*c]const u8);
+            out.appendSlice(vm.allocator, if (ptr != null) std.mem.span(ptr) else "(null)") catch return 0;
+            continue;
+        }
+        out.append(vm.allocator, '%') catch return 0;
+        out.append(vm.allocator, s[i]) catch return 0;
+    }
+    const str_val = vm.newString(out.items, false) catch return 0;
+    return str_val.raw;
+}
+
+export fn rb_vsprintf(fmt: [*c]const u8, ap: std.builtin.VaList) VALUE {
+    _ = ap;
     if (fmt == null) return 0;
     const vm = getVM();
     const str_val = vm.newString(std.mem.span(fmt), false) catch return 0;
@@ -481,6 +638,10 @@ export fn rb_ary_push(ary_raw: VALUE, item_raw: VALUE) VALUE {
     return ary_raw;
 }
 
+export fn rb_ary_new_from_values(n: c_long, elts: [*c]const VALUE) VALUE {
+    return rb_ary_new4(n, elts);
+}
+
 export fn rb_ary_entry(ary_raw: VALUE, offset: c_long) VALUE {
     const val = Value{ .raw = ary_raw };
     const arr = val.toArrayObject();
@@ -514,7 +675,7 @@ fn symName(id: VALUE) []const u8 {
 // ─── Method dispatch ────────────────────────────────────────────────────────
 
 extern fn siglongjmp(buf: *anyopaque, val: c_int) noreturn;
-
+extern fn __sigsetjmp(buf: *anyopaque, savesigs: c_int) c_int;
 fn checkNLR(vm: *VM) void {
     if (vm.cext_jmp_buf != null) {
         if (!vm.cext_nlr_value.isNil()) {
@@ -571,6 +732,11 @@ export fn rb_funcallv(recv_raw: VALUE, mid: VALUE, argc: c_int, argv: [*c]const 
         checkNLR(vm);
     }
     return result.raw;
+}
+
+export fn rb_proc_call_with_block(recv_raw: VALUE, argc: c_int, argv: [*c]const VALUE, block_raw: VALUE) VALUE {
+    _ = block_raw;
+    return rb_funcallv(recv_raw, rb_intern("call"), argc, argv);
 }
 
 export fn rb_attr_get(obj_raw: VALUE, id: VALUE) VALUE {
@@ -729,8 +895,11 @@ export fn rb_define_module_under(outer_raw: VALUE, name_ptr: [*c]const u8) VALUE
     const name = std.mem.span(name_ptr);
     const sym = vm.intern(name) catch return 0;
     const outer = Value{ .raw = outer_raw };
-    const val = vm.newModule(sym) catch return 0;
     const mod = if (outer.isClass()) &outer.toClassObject().module else @as(*value.ModuleObject, @ptrFromInt(outer_raw));
+    if (mod.constants.get(sym)) |entry| {
+        return entry.value.raw;
+    }
+    const val = vm.newModule(sym) catch return 0;
     vm.setConstant(mod, sym, val) catch return 0;
     return val.raw;
 }
@@ -739,10 +908,13 @@ export fn rb_define_class_under(outer_raw: VALUE, name_ptr: [*c]const u8, super_
     const vm = getVM();
     const name = std.mem.span(name_ptr);
     const sym = vm.intern(name) catch return 0;
-    const super_class: ?*value.ClassObject = if (super_raw != 0) @ptrFromInt(super_raw) else null;
-    const val = vm.newClass(sym, super_class) catch return 0;
     const outer = Value{ .raw = outer_raw };
     const mod = if (outer.isClass()) &outer.toClassObject().module else @as(*value.ModuleObject, @ptrFromInt(outer_raw));
+    if (mod.constants.get(sym)) |entry| {
+        return entry.value.raw;
+    }
+    const super_class: ?*value.ClassObject = if (super_raw != 0) @ptrFromInt(super_raw) else null;
+    const val = vm.newClass(sym, super_class) catch return 0;
     vm.setConstant(mod, sym, val) catch return 0;
     return val.raw;
 }
@@ -808,25 +980,52 @@ export fn rb_raise(exc_raw: VALUE, fmt: [*c]const u8, ...) void {
     const vm = getVM();
     const msg_raw = if (fmt != null) std.mem.span(fmt) else "";
     _ = vm.raiseExceptionFmt(@ptrFromInt(exc_raw), "{s}", .{msg_raw}) catch {};
+    if (vm.cext_jmp_buf) |buf| {
+        siglongjmp(buf, 1);
+    }
 }
 
 export fn rb_exc_raise(exc_raw: VALUE) void {
     const vm = getVM();
     const val = Value{ .raw = exc_raw };
     vm.setPendingException(val.toExceptionObject());
+    if (vm.cext_jmp_buf) |buf| {
+        siglongjmp(buf, 1);
+    }
 }
 
 export fn rb_exc_set_message(exc_raw: VALUE, msg_raw: VALUE) void {
-    _ = exc_raw;
-    _ = msg_raw;
+    const exc = Value{ .raw = exc_raw };
+    const msg = Value{ .raw = msg_raw };
+    if (!exc.isException() or !msg.isString()) return;
+    exc.toExceptionObject().message = msg.toStringObject();
+}
+
+export fn rb_exc_new_str(klass_raw: VALUE, msg_raw: VALUE) VALUE {
+    const vm = getVM();
+    const msg = Value{ .raw = msg_raw };
+    if (!msg.isString()) return 0;
+    const klass: *value.ClassObject = @ptrFromInt(klass_raw);
+    const exc = vm.createException(klass, msg.toStringObject().str) catch return 0;
+    return Value.fromObject(&exc.object).raw;
 }
 
 export fn rb_protect(proc: ?*const fn (VALUE) callconv(.c) VALUE, data: VALUE, state: *c_int) VALUE {
+    const vm = getVM();
     state.* = 0;
-    if (proc) |p| {
-        return p(data);
+    var jmp_buf: [200]u8 align(@alignOf(c_int)) = @splat(0);
+    const prev_jmp = vm.cext_jmp_buf;
+    vm.cext_jmp_buf = &jmp_buf;
+    defer vm.cext_jmp_buf = prev_jmp;
+
+    if (__sigsetjmp(&jmp_buf, 0) == 0) {
+        if (proc) |p| {
+            return p(data);
+        }
+        return 0;
     }
-    return 0;
+    state.* = 1;
+    return Value.NIL.raw;
 }
 
 export fn rb_ensure(b_proc: ?*const fn (VALUE) callconv(.c) VALUE, data1: VALUE, e_proc: ?*const fn (VALUE) callconv(.c) VALUE, data2: VALUE) VALUE {
@@ -840,8 +1039,29 @@ export fn rb_ensure(b_proc: ?*const fn (VALUE) callconv(.c) VALUE, data1: VALUE,
     return result;
 }
 
+export fn rb_rescue(
+    b_proc: ?*const fn (VALUE) callconv(.c) VALUE,
+    data1: VALUE,
+    r_proc: ?*const fn (VALUE, VALUE) callconv(.c) VALUE,
+    data2: VALUE,
+) VALUE {
+    const vm = getVM();
+    const result = if (b_proc) |bp| bp(data1) else 0;
+    if (vm.pendingException()) |exc| {
+        vm.setPendingException(null);
+        if (r_proc) |rp| {
+            return rp(data2, Value.fromObject(&exc.object).raw);
+        }
+    }
+    return result;
+}
+
 export fn rb_jump_tag(state: c_int) void {
-    _ = state;
+    if (state == 0) return;
+    const vm = getVM();
+    if (vm.cext_jmp_buf) |buf| {
+        siglongjmp(buf, 1);
+    }
 }
 
 // ─── Argument scanning ──────────────────────────────────────────────────────
@@ -958,9 +1178,9 @@ export fn rb_enc_find_index(name: [*c]const u8) c_int {
     return -1;
 }
 
-export fn rb_enc_associate_index(obj_raw: VALUE, idx: c_int) void {
-    _ = obj_raw;
+export fn rb_enc_associate_index(obj_raw: VALUE, idx: c_int) VALUE {
     _ = idx;
+    return obj_raw;
 }
 
 export fn rb_enc_get(obj_raw: VALUE) ?*anyopaque {
@@ -1022,6 +1242,26 @@ export fn xrealloc(ptr: ?*anyopaque, size: usize) ?*anyopaque {
 
 export fn xfree(ptr: ?*anyopaque) void {
     std.c.free(ptr);
+}
+
+export fn ruby_xmalloc(size: usize) ?*anyopaque {
+    return xmalloc(size);
+}
+
+export fn ruby_xcalloc(n: usize, size: usize) ?*anyopaque {
+    return xcalloc(n, size);
+}
+
+export fn ruby_xrealloc(ptr: ?*anyopaque, size: usize) ?*anyopaque {
+    return xrealloc(ptr, size);
+}
+
+export fn ruby_xrealloc2(ptr: ?*anyopaque, n: usize, size: usize) ?*anyopaque {
+    return xrealloc(ptr, n * size);
+}
+
+export fn ruby_xfree(ptr: ?*anyopaque) void {
+    xfree(ptr);
 }
 
 // ─── Type checking ──────────────────────────────────────────────────────────
@@ -1211,6 +1451,11 @@ export fn rb_hash_new() VALUE {
     return Value.fromObject(&hash_obj.object).raw;
 }
 
+export fn rb_hash_new_capa(capa: c_long) VALUE {
+    _ = capa;
+    return rb_hash_new();
+}
+
 export fn rb_hash_aref(hash_raw: VALUE, key_raw: VALUE) VALUE {
     const vm = getVM();
     const val = Value{ .raw = hash_raw };
@@ -1233,6 +1478,30 @@ export fn rb_hash_delete(hash_raw: VALUE, key_raw: VALUE) VALUE {
     const hash_obj = val.toHashObject();
     const deleted = vm.hashDeleteEntry(hash_obj, Value{ .raw = key_raw }) catch return 0;
     return if (deleted) |v| v.raw else 0;
+}
+
+export fn rb_hash_size(hash_raw: VALUE) c_long {
+    const hash = Value{ .raw = hash_raw };
+    if (!hash.isHash()) return 0;
+    return @intCast(hash.toHashObject().entries.items.len);
+}
+
+export fn rb_hash_foreach(hash_raw: VALUE, func: ?*const fn (VALUE, VALUE, VALUE) callconv(.c) c_int, arg: VALUE) c_int {
+    const hash = Value{ .raw = hash_raw };
+    if (!hash.isHash() or func == null) return 0;
+    for (hash.toHashObject().entries.items) |entry| {
+        const result = func.?(entry.key.raw, entry.value.raw, arg);
+        if (result != 0) return result;
+    }
+    return 0;
+}
+
+export fn rb_hash_bulk_insert(argc: c_long, argv: [*c]const VALUE, hash_raw: VALUE) void {
+    if (argv == null or argc <= 0) return;
+    var i: c_long = 0;
+    while (i + 1 < argc) : (i += 2) {
+        _ = rb_hash_aset(hash_raw, argv[@intCast(i)], argv[@intCast(i + 1)]);
+    }
 }
 
 // ─── String functions continued ──────────────────────────────────────────────
@@ -1279,6 +1548,12 @@ export fn rb_float_new(v: f64) VALUE {
 export fn rb_enc_str_asciicompat_p(str_raw: VALUE) VALUE {
     _ = str_raw;
     return Value.TRUE.raw;
+}
+
+export fn rb_enc_str_coderange(str_raw: VALUE) c_int {
+    const str = Value{ .raw = str_raw };
+    if (!str.isString()) return 0;
+    return if (str.toStringObject().encoding.isAsciiCompatible()) 2 else 0;
 }
 
 export fn rb_str_to_inum(str_raw: VALUE, base: c_int, badcheck: c_int) VALUE {
@@ -1393,6 +1668,12 @@ export fn rb_num2dbl(v: VALUE) f64 {
     return 0.0;
 }
 
+export fn rb_cstr_to_dbl(str: [*c]const u8, badcheck: c_int) f64 {
+    _ = badcheck;
+    if (str == null) return 0.0;
+    return std.fmt.parseFloat(f64, std.mem.span(str)) catch 0.0;
+}
+
 // ─── Array ───────────────────────────────────────────────────────────────────
 
 export fn rb_ary_freeze(ary_raw: VALUE) VALUE {
@@ -1406,12 +1687,101 @@ export fn rb_ary_new2(len: c_long) VALUE {
     return rb_ary_new();
 }
 
+export fn rb_inspect(obj_raw: VALUE) VALUE {
+    const vm = getVM();
+    const result = vm.callMethodByName(Value{ .raw = obj_raw }, "inspect", &[_]Value{}, null) catch return 0;
+    return result.raw;
+}
+
+export fn rb_class_name(klass_raw: VALUE) VALUE {
+    const vm = getVM();
+    const result = vm.callMethodByName(Value{ .raw = klass_raw }, "name", &[_]Value{}, null) catch return 0;
+    return result.raw;
+}
+
+export fn rb_convert_type(obj_raw: VALUE, t: c_int, tname: [*c]const u8, method: [*c]const u8) VALUE {
+    _ = tname;
+    const vm = getVM();
+    const meth = if (method != null) std.mem.span(method) else return 0;
+    const result = vm.callMethodByName(Value{ .raw = obj_raw }, meth, &[_]Value{}, null) catch return 0;
+    if (rb_type(result.raw) != t) return 0;
+    return result.raw;
+}
+
+export fn rb_obj_hide(obj_raw: VALUE) VALUE {
+    return obj_raw;
+}
+
+export fn rb_proc_arity(proc_raw: VALUE) c_int {
+    const vm = getVM();
+    const result = vm.callMethodByName(Value{ .raw = proc_raw }, "arity", &[_]Value{}, null) catch return 0;
+    if (result.isInteger()) return @intCast(result.toInteger());
+    return 0;
+}
+
+export fn rb_errinfo() VALUE {
+    const vm = getVM();
+    if (vm.pendingException()) |exc| return Value.fromObject(&exc.object).raw;
+    return Value.NIL.raw;
+}
+
+export fn rb_set_errinfo(val_raw: VALUE) void {
+    const vm = getVM();
+    const val = Value{ .raw = val_raw };
+    if (val.isNil()) {
+        vm.setPendingException(null);
+    } else if (val.isException()) {
+        vm.setPendingException(val.toExceptionObject());
+    }
+}
+
+export fn rb_global_variable(obj: *VALUE) void {
+    _ = obj;
+}
+
+export fn rb_gc_mark_movable(ptr: VALUE) void {
+    _ = ptr;
+}
+
+export fn rb_gc_location(ptr: VALUE) VALUE {
+    return ptr;
+}
+
+export fn rb_io_write(io_raw: VALUE, str_raw: VALUE) VALUE {
+    const vm = getVM();
+    var args = [_]Value{Value{ .raw = str_raw }};
+    const result = vm.callMethodByName(Value{ .raw = io_raw }, "write", &args, null) catch return 0;
+    return result.raw;
+}
+
+export fn rb_io_flush(io_raw: VALUE) VALUE {
+    const vm = getVM();
+    const result = vm.callMethodByName(Value{ .raw = io_raw }, "flush", &[_]Value{}, null) catch return io_raw;
+    return result.raw;
+}
+
+export fn rb_obj_frozen_p(obj_raw: VALUE) c_int {
+    const obj = Value{ .raw = obj_raw };
+    return @intFromBool(obj.isFrozen());
+}
+
+export fn rb_struct_get(obj_raw: VALUE, idx: c_long) VALUE {
+    const vm = getVM();
+    var args = [_]Value{Value.integer(idx)};
+    const result = vm.callMethodByName(Value{ .raw = obj_raw }, "[]", &args, null) catch return 0;
+    return result.raw;
+}
+
 // ─── Freeze / check frozen ───────────────────────────────────────────────────
 
 export fn rb_obj_freeze(obj_raw: VALUE) VALUE {
     const vm = getVM();
     _ = vm.callMethodByName(Value{ .raw = obj_raw }, "freeze", &[_]Value{}, null) catch {};
     return obj_raw;
+}
+
+export fn rb_str_modify(str_raw: VALUE) void {
+    _ = str_raw;
 }
 
 export fn rb_check_frozen(obj_raw: VALUE) void {
@@ -1468,10 +1838,47 @@ export fn rb_enc_copy(dest_raw: VALUE, src_raw: VALUE) VALUE {
 
 export fn rb_enc_sprintf(enc_ptr: ?*anyopaque, fmt: [*c]const u8, ...) VALUE {
     _ = enc_ptr;
+    var ap = @cVaStart();
+    defer @cVaEnd(&ap);
     if (fmt == null) return 0;
     const vm = getVM();
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(vm.allocator);
     const s = std.mem.span(fmt);
-    const str_val = vm.newString(s, false) catch return 0;
+    var i: usize = 0;
+    while (i < s.len) : (i += 1) {
+        if (s[i] != '%') {
+            out.append(vm.allocator, s[i]) catch return 0;
+            continue;
+        }
+        i += 1;
+        if (i >= s.len) break;
+        if (s[i] == '%') {
+            out.append(vm.allocator, '%') catch return 0;
+            continue;
+        }
+        if (s[i] == 'l' and i + 1 < s.len and s[i + 1] == 'd') {
+            var buf: [32]u8 = undefined;
+            const rendered = std.fmt.bufPrint(&buf, "{d}", .{@cVaArg(&ap, c_long)}) catch return 0;
+            out.appendSlice(vm.allocator, rendered) catch return 0;
+            i += 1;
+            continue;
+        }
+        if (s[i] == 'd') {
+            var buf: [32]u8 = undefined;
+            const rendered = std.fmt.bufPrint(&buf, "{d}", .{@cVaArg(&ap, c_int)}) catch return 0;
+            out.appendSlice(vm.allocator, rendered) catch return 0;
+            continue;
+        }
+        if (s[i] == 's') {
+            const ptr = @cVaArg(&ap, [*c]const u8);
+            out.appendSlice(vm.allocator, if (ptr != null) std.mem.span(ptr) else "(null)") catch return 0;
+            continue;
+        }
+        out.append(vm.allocator, '%') catch return 0;
+        out.append(vm.allocator, s[i]) catch return 0;
+    }
+    const str_val = vm.newString(out.items, false) catch return 0;
     return str_val.raw;
 }
 

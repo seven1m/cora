@@ -7811,6 +7811,9 @@ pub const VM = struct {
             self.cext_nlr_value = Value.nil();
             return nlr;
         }
+        if (self.pendingException() != null) {
+            return error.Unwind;
+        }
         return error.Fatal;
     }
 

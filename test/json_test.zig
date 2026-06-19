@@ -8,6 +8,7 @@ test "require loads simple json dump and parse helpers" {
 
     const result = evalCodeWithOutput(
         \\require "json"
+        \\puts JSON::VERSION
         \\data = {"a" => 1, "b" => [true, false, nil, "x"], "c" => {"d" => 1.5}}
         \\json = JSON.dump(data)
         \\puts json
@@ -16,7 +17,7 @@ test "require loads simple json dump and parse helpers" {
 
     try std.testing.expect(result.err == null);
     try std.testing.expectEqualStrings(
-        "{\"a\":1,\"b\":[true,false,null,\"x\"],\"c\":{\"d\":1.5}}\n{\"a\" => 1, \"b\" => [true, false, nil, \"x\"], \"c\" => {\"d\" => 1.5}}\n",
+        "2.19.9\n{\"a\":1,\"b\":[true,false,null,\"x\"],\"c\":{\"d\":1.5}}\n{\"a\" => 1, \"b\" => [true, false, nil, \"x\"], \"c\" => {\"d\" => 1.5}}\n",
         result.stdout,
     );
     try std.testing.expectEqualStrings("", result.stderr);
@@ -37,6 +38,6 @@ test "JSON.parse raises JSON::ParserError for invalid input" {
     , &stdout_buf, &stderr_buf);
 
     try std.testing.expect(result.err == null);
-    try std.testing.expectEqualStrings("JSON::ParserError\nexpected string\n", result.stdout);
+    try std.testing.expectEqualStrings("JSON::ParserError\nexpected object key, got EOF\n", result.stdout);
     try std.testing.expectEqualStrings("", result.stderr);
 }

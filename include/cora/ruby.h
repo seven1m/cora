@@ -5,6 +5,8 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdarg.h>
+#include <stdbool.h>
 #include <limits.h>
 #include <string.h>
 #include <ctype.h>
@@ -17,6 +19,10 @@ extern "C" {
 typedef uint64_t VALUE;
 typedef unsigned long ID;
 typedef struct { int _; } rb_encoding;
+
+#ifndef HAVE_STDBOOL_H
+#define HAVE_STDBOOL_H 1
+#endif
 
 #ifndef _
 #define _(args) args
@@ -32,13 +38,21 @@ typedef struct { int _; } rb_encoding;
 #define RUBY_FIXNUM_FLAG    0x01
 #define RUBY_FLONUM_MASK    0x02
 
-#define IMMEDIATE_P(x)   ((x) & RUBY_IMMEDIATE_MASK)
-#define FIXNUM_P(x)      (IMMEDIATE_P(x) == RUBY_FIXNUM_FLAG)
+#define IMMEDIATE_P(x)   ((((VALUE)(x)) & RUBY_FIXNUM_FLAG) || ((VALUE)(x)) <= Qundef)
+#define FIXNUM_P(x)      ((((VALUE)(x)) & RUBY_FIXNUM_FLAG) != 0)
 #define NIL_P(x)         ((x) == Qnil)
 #define RB_NIL_P(x)      NIL_P(x)
 #define RTEST(x)         ((x) & ~Qnil)
 #define RB_LIKELY(x)     (x)
 #define RB_UNLIKELY(x)   (x)
+#define RB_SPECIAL_CONST_P(obj) IMMEDIATE_P(obj)
+#define RB_FIXNUM_P(obj) FIXNUM_P(obj)
+#define RB_FLONUM_P(obj) 0
+#define RB_STATIC_SYM_P(obj) (TYPE(obj) == T_SYMBOL)
+#define RB_SYMBOL_P(obj) (TYPE(obj) == T_SYMBOL)
+#define RB_BUILTIN_TYPE(obj) TYPE(obj)
+#define RBASIC_CLASS(obj) rb_class_of(obj)
+#define RB_OBJ_FROZEN_RAW(obj) rb_obj_frozen_p(obj)
 
 #define INT2FIX(x) (((VALUE)(x)) << 1 | RUBY_FIXNUM_FLAG)
 #define FIX2LONG(x) ((long)((x) >> 1))
@@ -47,6 +61,8 @@ typedef struct { int _; } rb_encoding;
 
 #define FIXNUM_MAX ((VALUE)(LONG_MAX >> 1))
 #define FIXNUM_MIN ((VALUE)(LONG_MIN >> 1))
+#define LL2NUM(x) LONG2NUM((long)(x))
+#define ULL2NUM(x) ULONG2NUM((unsigned long)(x))
 
 #define T_NONE     0x00
 #define T_OBJECT   0x01
@@ -155,9 +171,14 @@ extern VALUE rb_eNoMemoryError; /* same as rb_eNoMemError */
      (lenvar) = RSTRING_LEN(str))
 #define ENCODING_GET(str) rb_encoding_get(str)
 #define RB_ENCODING_GET(str) ENCODING_GET(str)
+#define RB_ENCODING_GET_INLINED(str) ENCODING_GET(str)
 #define ENCODING_GET_INLINED(str) ENCODING_GET(str)
 
 #define RB_INTEGER_TYPE_P(obj) (FIXNUM_P(obj) || TYPE(obj) == T_BIGNUM)
+#define ENC_CODERANGE_7BIT 1
+#define ENC_CODERANGE_VALID 2
+#define RUBY_ENC_CODERANGE_UNKNOWN 0
+#define RB_ENC_CODERANGE(str) rb_enc_str_coderange(str)
 
 #define ID2SYM(id) ((VALUE)(id))
 #define SYM2ID(sym) ((ID)(sym))
@@ -169,6 +190,7 @@ VALUE rb_hash(VALUE obj);
 #define DBL2NUM(v) rb_float_new(v)
 VALUE rb_float_new(double v);
 VALUE rb_enc_str_asciicompat_p(VALUE str);
+double rb_cstr_to_dbl(const char *str, int badcheck);
 
 #define NUM2SIZET(v) ((size_t)NUM2LONG(v))
 #define PRI_SIZE_PREFIX "l"
@@ -199,18 +221,27 @@ const VALUE *rb_ary_const_ptr(VALUE ary);
 #define STRTOUL strtoul
 #define rb_isdigit(c) isdigit((unsigned char)(c))
 #define rb_isxdigit(c) isxdigit((unsigned char)(c))
+#define rb_isalpha(c) isalpha((unsigned char)(c))
+#define rb_tolower(c) tolower((unsigned char)(c))
 #define MEMCPY(dest, src, type, n) memcpy((dest), (src), sizeof(type) * (n))
+#define MEMMOVE(dest, src, type, n) memmove((dest), (src), sizeof(type) * (n))
+#define ST_CONTINUE 0
+#define UNREACHABLE ((void)0)
+#define UNREACHABLE_RETURN(val) return (val)
 
 int rb_type(VALUE obj);
 #define TYPE(obj) rb_type(obj)
 #define RB_TYPE_P(obj, type) (rb_type(obj) == (type))
 
-#define RB_OBJ_WRITE(a, b, c) ((void)(a), (*(VALUE *)(b) = (VALUE)(c)))
+#define RB_OBJ_WRITE(a, b, c) ((void)(a), ((uintptr_t)(b) <= (uintptr_t)Qundef ? (void)0 : (*(VALUE *)(b) = (VALUE)(c))))
 #define RB_OBJ_WRITTEN(a, b, c) RB_OBJ_WRITE(a, b, c)
+#define RB_OBJ_FREEZE(obj) rb_obj_freeze(obj)
 
 #define RETURN_ENUMERATOR(obj, argc, argv) ((void)0)
 
 #define CLASS_OF(obj) rb_class_of(obj)
+#define RHASH_SIZE(obj) rb_hash_size(obj)
+#define RSTRUCT_GET(obj, idx) rb_struct_get(obj, idx)
 
 #define SIZEOF_LONG (sizeof(long))
 #define DECIMAL_SIZE_OF_BITS(b) (((b) * 643 + 2136) / 2137)
@@ -248,6 +279,7 @@ typedef struct rb_data_type_struct {
 } rb_data_type_t;
 
 #define RUBY_TYPED_DEFAULT_FREE NULL
+#define RUBY_DEFAULT_FREE RUBY_TYPED_DEFAULT_FREE
 #define RUBY_TYPED_NEVER_FREE   ((void (*)(void *))(-1))
 #define RUBY_TYPED_FREE_IMMEDIATELY  0
 #define RUBY_TYPED_WB_PROTECTED  1
@@ -283,6 +315,7 @@ VALUE  rb_string_value(VALUE *ptr);
 VALUE  rb_str_cat2(VALUE str, const char *ptr);
 VALUE  rb_str_dump(VALUE str);
 VALUE  rb_sprintf(const char *fmt, ...);
+VALUE  rb_vsprintf(const char *fmt, va_list ap);
 VALUE  rb_sym2str(VALUE symbol);
 VALUE  rb_check_hash_type(VALUE obj);
 int    rb_get_kwargs(VALUE keyword_hash, const ID *table, int required, int optional, VALUE *values);
@@ -293,6 +326,7 @@ rb_encoding *rb_enc_check(VALUE str1, VALUE str2);
 long   rb_memsearch(const void *x, long m, const void *y, long n, rb_encoding *enc);
 void   rb_must_asciicompat(VALUE obj);
 void   rb_enc_raise(rb_encoding *enc, VALUE exc, const char *fmt, ...);
+void   rb_str_modify(VALUE str);
 
 VALUE  rb_str_new(const char *ptr, long len);
 VALUE  rb_str_new_cstr(const char *ptr);
@@ -302,13 +336,24 @@ VALUE  rb_str_new2(const char *ptr);
 VALUE  rb_usascii_str_new_cstr(const char *ptr);
 #define rb_usascii_str_new2 rb_usascii_str_new_cstr
 VALUE  rb_enc_str_new(const char *ptr, long len, rb_encoding *enc);
+VALUE  rb_utf8_str_new(const char *ptr, long len);
 VALUE  rb_utf8_str_new_cstr(const char *ptr);
 VALUE  rb_str_export_to_enc(VALUE str, rb_encoding *enc);
+VALUE  rb_str_buf_new(long len);
+void   rb_str_set_len(VALUE str, long len);
+VALUE  rb_str_tmp_new(long len);
+VALUE  rb_str_catf(VALUE str, const char *fmt, ...);
+VALUE  rb_str_intern(VALUE str);
+VALUE  rb_str_concat(VALUE str, VALUE str2);
+VALUE  rb_str_substr(VALUE str, long beg, long len);
+VALUE  rb_str_new_shared(VALUE str);
+VALUE  rb_str_freeze(VALUE str);
 
 VALUE  rb_ary_new(void);
 VALUE  rb_ary_new3(long n, ...);
 VALUE  rb_ary_new4(long n, const VALUE *elts);
 VALUE  rb_ary_push(VALUE ary, VALUE item);
+VALUE  rb_ary_new_from_values(long n, const VALUE *elts);
 
 ID     rb_intern(const char *name);
 VALUE  rb_const_get(VALUE klass, ID id);
@@ -322,6 +367,7 @@ VALUE  rb_funcall(VALUE recv, ID mid, int argc, ...);
 VALUE  rb_funcallv(VALUE recv, ID mid, int argc, const VALUE *argv);
 VALUE  rb_funcallv_public(VALUE recv, ID mid, int argc, const VALUE *argv);
 #define rb_funcall3 rb_funcallv
+VALUE  rb_proc_call_with_block(VALUE recv, int argc, const VALUE *argv, VALUE block);
 VALUE  rb_yield(VALUE val);
 VALUE  rb_yield_values(int n, ...);
 
@@ -338,8 +384,10 @@ VALUE  rb_obj_class(VALUE obj);
 void   rb_raise(VALUE exc, const char *fmt, ...);
 void   rb_exc_raise(VALUE exc);
 void   rb_exc_set_message(VALUE exc, VALUE msg);
+VALUE  rb_exc_new_str(VALUE klass, VALUE str);
 VALUE  rb_protect(VALUE (*proc)(VALUE), VALUE data, int *state);
 VALUE  rb_ensure(VALUE (*b_proc)(VALUE), VALUE data1, VALUE (*e_proc)(VALUE), VALUE data2);
+VALUE  rb_rescue(VALUE (*b_proc)(VALUE), VALUE data1, VALUE (*r_proc)(VALUE, VALUE), VALUE data2);
 void   rb_jump_tag(int state);
 
 int    rb_respond_to(VALUE obj, ID id);
@@ -358,6 +406,7 @@ void   rb_define_method(VALUE klass, const char *name, void *func, int argc);
 
 void   rb_require(const char *name);
 VALUE  rb_path_to_class(VALUE path);
+#define rb_path2class(path) rb_path_to_class(rb_str_new2(path))
 
 rb_encoding *rb_utf8_encoding(void);
 rb_encoding *rb_usascii_encoding(void);
@@ -370,8 +419,9 @@ int          rb_ascii8bit_encindex(void);
 int          rb_enc_get_index(VALUE obj);
 int          rb_to_encoding_index(VALUE enc);
 int          rb_enc_find_index(const char *name);
-void         rb_enc_associate_index(VALUE obj, int idx);
+VALUE        rb_enc_associate_index(VALUE obj, int idx);
 VALUE        rb_enc_str_new(const char *ptr, long len, rb_encoding *enc);
+int          rb_enc_str_coderange(VALUE obj);
 
 int           rb_encoding_get(VALUE str);
 rb_encoding  *rb_enc_from_index(int idx);
@@ -384,6 +434,7 @@ void         *xmalloc(size_t size);
 void         *xcalloc(size_t n, size_t size);
 void         *xrealloc(void *ptr, size_t size);
 void          xfree(void *ptr);
+void         *ruby_xrealloc2(void *ptr, size_t n, size_t size);
 
 #include "ruby/util.h"
 #include "ruby/missing.h"
@@ -403,9 +454,12 @@ VALUE rb_obj_is_kind_of(VALUE obj, VALUE klass);
 VALUE rb_cmpint(VALUE val, VALUE a, VALUE b);
 
 VALUE rb_hash_new(void);
+VALUE rb_hash_new_capa(long capa);
 VALUE rb_hash_aref(VALUE hash, VALUE key);
 VALUE rb_hash_aset(VALUE hash, VALUE key, VALUE val);
 VALUE rb_hash_delete(VALUE hash, VALUE key);
+long  rb_hash_size(VALUE hash);
+int   rb_hash_foreach(VALUE hash, int (*func)(VALUE, VALUE, VALUE), VALUE arg);
 
 VALUE rb_str_append(VALUE str, VALUE str2);
 VALUE rb_str_cat(VALUE str, const char *ptr, long len);
@@ -423,6 +477,20 @@ int  rb_warning(const char *fmt, ...);
 
 VALUE rb_ary_freeze(VALUE ary);
 VALUE rb_ary_new2(long len);
+VALUE rb_inspect(VALUE obj);
+VALUE rb_class_name(VALUE klass);
+VALUE rb_convert_type(VALUE obj, int type, const char *tname, const char *method);
+VALUE rb_obj_hide(VALUE obj);
+int   rb_proc_arity(VALUE proc);
+VALUE rb_errinfo(void);
+void  rb_set_errinfo(VALUE val);
+void  rb_global_variable(VALUE *obj);
+void  rb_gc_mark_movable(VALUE ptr);
+VALUE rb_gc_location(VALUE ptr);
+VALUE rb_io_write(VALUE io, VALUE str);
+VALUE rb_io_flush(VALUE io);
+int   rb_obj_frozen_p(VALUE obj);
+VALUE rb_struct_get(VALUE obj, long idx);
 
 VALUE rb_obj_freeze(VALUE obj);
 void  rb_check_frozen(VALUE obj);

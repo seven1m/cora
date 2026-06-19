@@ -6,12 +6,14 @@ const ruby_gem_api_version = "4.0.0";
 const onigmo_build_root = "build/onigmo";
 const psych_build_root = "build/psych";
 const strscan_build_root = "build/strscan";
+const json_build_root = "build/json";
 const csv_build_root = "build/csv";
 const prism_build_root = "build/prism";
 const tinycc_build_root = "build/tinycc";
 const cext_build_root = "build/cext";
 const psych_gem_version = "5.4.0";
 const strscan_gem_version = "3.1.9";
+const json_gem_version = "2.19.9";
 const csv_gem_version = "3.3.6";
 const yaml_gem_version = "0.4.0";
 const runtime_ext_dirs = [_][]const u8{
@@ -264,6 +266,12 @@ const StrscanBuild = struct {
     extconf_step: *std.Build.Step,
 };
 
+const JsonBuild = struct {
+    step: *std.Build.Step,
+    parser_extconf_step: *std.Build.Step,
+    generator_extconf_step: *std.Build.Step,
+};
+
 fn buildPsych(b: *std.Build) PsychBuild {
     const psych_build_step = b.step("psych", "Build Psych native extension");
     const psych_so_path = psych_build_root ++ "/ext/psych.so";
@@ -329,6 +337,57 @@ fn buildStrscan(b: *std.Build) StrscanBuild {
     return .{
         .step = strscan_build_step,
         .extconf_step = strscan_build_step,
+    };
+}
+
+fn buildJson(b: *std.Build) JsonBuild {
+    const json_build_step = b.step("json", "Build JSON native extensions");
+    const parser_so_path = json_build_root ++ "/ext/json/ext/parser/parser.so";
+    const generator_so_path = json_build_root ++ "/ext/json/ext/generator/generator.so";
+
+    if (!pathExists(b, parser_so_path) or !pathExists(b, generator_so_path)) {
+        const copy_step = b.addSystemCommand(&.{ "sh", "-c", "mkdir -p build/json && cp -r ext/json/. build/json/" });
+        json_build_step.dependOn(&copy_step.step);
+
+        const patch_step = b.addSystemCommand(&.{ "sh", "-c", "cd build/json && patch -p1 < ../../ext/json.patch" });
+        patch_step.step.dependOn(&copy_step.step);
+        json_build_step.dependOn(&patch_step.step);
+
+        const parser_extconf_step = b.addSystemCommand(&.{
+            "sh",
+            "-c",
+            "repo_root=\"$PWD\" && cd build/json/ext/json/ext/parser && \"$repo_root\"/build/bin/cora extconf.rb",
+        });
+        parser_extconf_step.step.dependOn(&patch_step.step);
+        json_build_step.dependOn(&parser_extconf_step.step);
+
+        const parser_make_step = b.addSystemCommand(&.{ "make", "-C", json_build_root ++ "/ext/json/ext/parser" });
+        parser_make_step.step.dependOn(&parser_extconf_step.step);
+        json_build_step.dependOn(&parser_make_step.step);
+
+        const generator_extconf_step = b.addSystemCommand(&.{
+            "sh",
+            "-c",
+            "repo_root=\"$PWD\" && cd build/json/ext/json/ext/generator && \"$repo_root\"/build/bin/cora extconf.rb",
+        });
+        generator_extconf_step.step.dependOn(&patch_step.step);
+        json_build_step.dependOn(&generator_extconf_step.step);
+
+        const generator_make_step = b.addSystemCommand(&.{ "make", "-C", json_build_root ++ "/ext/json/ext/generator" });
+        generator_make_step.step.dependOn(&generator_extconf_step.step);
+        json_build_step.dependOn(&generator_make_step.step);
+
+        return .{
+            .step = json_build_step,
+            .parser_extconf_step = &parser_extconf_step.step,
+            .generator_extconf_step = &generator_extconf_step.step,
+        };
+    }
+
+    return .{
+        .step = json_build_step,
+        .parser_extconf_step = json_build_step,
+        .generator_extconf_step = json_build_step,
     };
 }
 
@@ -505,6 +564,8 @@ pub fn build(b: *std.Build) void {
     const psych_build_step = psych_build.step;
     const strscan_build = buildStrscan(b);
     const strscan_build_step = strscan_build.step;
+    const json_build = buildJson(b);
+    const json_build_step = json_build.step;
     const onigmo_build_step = buildOnigmo(b);
     const tinycc_build_step = buildTinyCC(b);
     const cext_fixture_step = buildCExtFixture(b);
@@ -513,6 +574,7 @@ pub fn build(b: *std.Build) void {
         prism_build_step.dependOn(s);
         psych_build_step.dependOn(s);
         strscan_build_step.dependOn(s);
+        json_build_step.dependOn(s);
         onigmo_build_step.dependOn(s);
         tinycc_build_step.dependOn(s);
     }
@@ -586,9 +648,16 @@ pub fn build(b: *std.Build) void {
         .install_subdir = "lib/stdlib",
     });
     b.getInstallStep().dependOn(&install_stdlib.step);
+    const remove_legacy_json_stdlib = b.addSystemCommand(&.{ "rm", "-f", b.getInstallPath(.prefix, "lib/stdlib/json.rb") });
+    remove_legacy_json_stdlib.step.dependOn(&install_stdlib.step);
+    b.getInstallStep().dependOn(&remove_legacy_json_stdlib.step);
+    const remove_legacy_json_ext_stdlib = b.addSystemCommand(&.{ "rm", "-f", b.getInstallPath(.prefix, "lib/stdlib/json/ext.rb") });
+    remove_legacy_json_ext_stdlib.step.dependOn(&install_stdlib.step);
+    b.getInstallStep().dependOn(&remove_legacy_json_ext_stdlib.step);
 
     const install_psych_default_gem = addInstallDefaultGemDir(b, b.path("ext/psych"), "psych", psych_gem_version, null);
     const install_strscan_default_gem = addInstallDefaultGemDir(b, b.path(strscan_build_root), "strscan", strscan_gem_version, strscan_build_step);
+    const install_json_default_gem = addInstallDefaultGemDir(b, b.path(json_build_root), "json", json_gem_version, json_build_step);
     const install_csv_default_gem = addInstallDefaultGemDir(b, b.path("ext/csv"), "csv", csv_gem_version, null);
     const install_yaml_default_gem = addInstallDefaultGemDir(b, b.path("ext/yaml"), "yaml", yaml_gem_version, null);
 
@@ -608,7 +677,22 @@ pub fn build(b: *std.Build) void {
         "strscan.so",
         strscan_build_step,
     );
-
+    const install_json_default_gem_parser_so = addInstallDefaultGemNativeLib(
+        b,
+        b.path(json_build_root ++ "/ext/json/ext/parser/parser.so"),
+        "json",
+        json_gem_version,
+        "json/ext/parser.so",
+        json_build_step,
+    );
+    const install_json_default_gem_generator_so = addInstallDefaultGemNativeLib(
+        b,
+        b.path(json_build_root ++ "/ext/json/ext/generator/generator.so"),
+        "json",
+        json_gem_version,
+        "json/ext/generator.so",
+        json_build_step,
+    );
     const install_headers = b.addInstallDirectory(.{
         .source_dir = b.path("include/cora"),
         .install_dir = .prefix,
@@ -642,6 +726,8 @@ pub fn build(b: *std.Build) void {
     };
     addStepDependencies(psych_build.extconf_step, &native_gem_env_steps);
     addStepDependencies(strscan_build.extconf_step, &native_gem_env_steps);
+    addStepDependencies(json_build.parser_extconf_step, &native_gem_env_steps);
+    addStepDependencies(json_build.generator_extconf_step, &native_gem_env_steps);
 
     _ = addWriteDefaultGemSpec(b, "ext/psych", &.{
         &install_exe.step,
@@ -654,6 +740,13 @@ pub fn build(b: *std.Build) void {
         &install_stdlib.step,
         install_strscan_default_gem,
         install_strscan_default_gem_so,
+    });
+    _ = addWriteDefaultGemSpec(b, "build/json", &.{
+        &install_exe.step,
+        &install_stdlib.step,
+        install_json_default_gem,
+        install_json_default_gem_parser_so,
+        install_json_default_gem_generator_so,
     });
     _ = addWriteDefaultGemSpec(b, "ext/csv", &.{
         &install_exe.step,

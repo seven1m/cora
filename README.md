@@ -136,6 +136,7 @@ the top of the relevant file, in the same directory with a name like
 | `ext/delegate/*` | Yukihiro Matsumoto and Ruby contributors | Ruby license / 2-clause BSD |
 | `ext/erb/*` | Masatoshi SEKI and Ruby contributors | Ruby license / 2-clause BSD |
 | `ext/forwardable/*` | Keiju ISHITSUKA, Daniel J. Berger, Ruby contributors | Ruby license / 2-clause BSD |
+| `ext/json/*` | Florian Frank, Yukihiro Matsumoto, and Ruby contributors | Ruby license / 2-clause BSD |
 | `lib/stdlib/fileutils.rb` | Yukihiro Matsumoto and Ruby contributors | Ruby license / 2-clause BSD |
 | `lib/stdlib/mkmf.rb` | Yukihiro Matsumoto and Ruby contributors | Ruby license / 2-clause BSD |
 | `lib/stdlib/monitor.rb` | Yukihiro Matsumoto and Ruby contributors | Ruby license / 2-clause BSD |
