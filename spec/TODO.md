@@ -595,7 +595,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/env/each_value_spec.rb
 - [ ] core/env/element_reference_spec.rb
 - [ ] core/env/element_set_spec.rb
-- [ ] core/env/empty_spec.rb
+- [-] core/env/empty_spec.rb
 - [x] core/env/except_spec.rb
 - [ ] core/env/fetch_spec.rb
 - [ ] core/env/filter_spec.rb

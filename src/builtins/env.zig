@@ -75,6 +75,9 @@ pub fn register(vm: *VM) !void {
     const clear_sym = try vm.intern("clear");
     try env_singleton.module.methods.put(clear_sym, value.MethodEntry.builtin(&builtinEnvClear, .{ .exact = 0 }));
 
+    const empty_q_sym = try vm.intern("empty?");
+    try env_singleton.module.methods.put(empty_q_sym, value.MethodEntry.builtin(&builtinEnvEmpty, .{ .exact = 0 }));
+
     const replace_sym = try vm.intern("replace");
     try env_singleton.module.methods.put(replace_sym, value.MethodEntry.builtin(&builtinEnvReplace, .{ .exact = 1 }));
 
@@ -411,6 +414,13 @@ pub fn builtinEnvClear(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
     try vm.requireArgCount(args, 0);
     try clearCurrentEnv(vm);
     return vm.env_object.?;
+}
+
+pub fn builtinEnvEmpty(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    var env_map = try vm.currentEnvMap();
+    defer env_map.deinit();
+    return Value.boolean(env_map.count() == 0);
 }
 
 pub fn builtinEnvReplace(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
