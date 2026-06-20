@@ -51,6 +51,12 @@ pub fn register(vm: *VM) !void {
     const magnitude_sym = try vm.intern("magnitude");
     try vm.numeric_class.module.methods.put(magnitude_sym, value.MethodEntry.builtin(&builtinNumericAbs, .{ .exact = 0 }));
 
+    const finite_q_sym = try vm.intern("finite?");
+    try vm.numeric_class.module.methods.put(finite_q_sym, value.MethodEntry.builtin(&builtinNumericFinite, .{ .exact = 0 }));
+
+    const infinite_q_sym = try vm.intern("infinite?");
+    try vm.numeric_class.module.methods.put(infinite_q_sym, value.MethodEntry.builtin(&builtinNumericInfinite, .{ .exact = 0 }));
+
     const abs2_sym = try vm.intern("abs2");
     try vm.numeric_class.module.methods.put(abs2_sym, value.MethodEntry.builtin(&builtinNumericAbs2, .{ .exact = 0 }));
 }
@@ -121,6 +127,16 @@ pub fn builtinNumericAbs(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
         return vm.callMethodByName(receiver, "-@", &.{}, null);
     }
     return receiver;
+}
+
+pub fn builtinNumericFinite(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return Value.boolean(true);
+}
+
+pub fn builtinNumericInfinite(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return Value.nil();
 }
 
 pub fn builtinNumericAbs2(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

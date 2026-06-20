@@ -1522,12 +1522,12 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/numeric/dup_spec.rb
 - [ ] core/numeric/eql_spec.rb
 - [ ] core/numeric/fdiv_spec.rb
-- [ ] core/numeric/finite_spec.rb
+- [x] core/numeric/finite_spec.rb
 - [ ] core/numeric/floor_spec.rb
 - [ ] core/numeric/i_spec.rb
 - [x] core/numeric/imag_spec.rb
 - [x] core/numeric/imaginary_spec.rb
-- [ ] core/numeric/infinite_spec.rb
+- [x] core/numeric/infinite_spec.rb
 - [x] core/numeric/integer_spec.rb
 - [x] core/numeric/magnitude_spec.rb
 - [ ] core/numeric/modulo_spec.rb
