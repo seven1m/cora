@@ -501,6 +501,9 @@ pub fn register(vm: *VM) !void {
     const bit_length_sym = try vm.intern("bit_length");
     try vm.integer_class.module.methods.put(bit_length_sym, value.MethodEntry.builtin(&builtinIntegerBitLength, .{ .exact = 0 }));
 
+    const element_reference_sym = try vm.intern("[]");
+    try vm.integer_class.module.methods.put(element_reference_sym, value.MethodEntry.builtin(&builtinIntegerElementReference, .{ .variadic = 0 }));
+
     const unary_plus_sym = try vm.intern("+@");
     try vm.integer_class.module.methods.put(unary_plus_sym, value.MethodEntry.builtin(&builtinIntegerUnaryPlus, .{ .exact = 0 }));
 
@@ -1439,6 +1442,80 @@ pub fn builtinIntegerEql(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     try receiver.ensureInteger(vm);
     if (!args[0].isInteger() and !args[0].isBigInteger()) return Value.boolean(false);
     return Value.boolean((try compareIntegers(vm, receiver, args[0])) == .eq);
+}
+
+pub fn builtinIntegerElementReference(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try receiver.ensureInteger(vm);
+    if (args.len != 1) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "wrong number of arguments (given {d}, expected 1)", .{args.len});
+    }
+
+    const bit = try args[0].coerceToIntegerValue(
+        vm,
+        "no implicit conversion into Integer",
+        "no implicit conversion into Integer",
+    );
+
+    const b = if (bit.isInteger()) bit.toInteger() else blk: {
+        const big = bit.toBigIntegerObject().value;
+        if (!big.isPositive() and !big.eqlZero()) return Value.integer(0);
+        break :blk @as(i64, std.math.maxInt(i64));
+    };
+    if (b < 0) return Value.integer(0);
+
+    if (receiver.isInteger()) {
+        const val = receiver.toInteger();
+        if (b >= 63) return Value.integer(if (val < 0) @as(i64, 1) else 0);
+        const shift: u6 = @intCast(b);
+        return Value.integer((val >> shift) & 1);
+    }
+
+    if (receiver.isBigInteger()) {
+        var managed = try receiver.integerToManaged(vm);
+        defer managed.deinit();
+
+        const abs_bits = managed.bitCountAbs();
+        const is_neg = !managed.isPositive() and !managed.eqlZero();
+        const ub = @as(u64, @intCast(@as(u63, @intCast(b))));
+
+        if (ub >= abs_bits) return Value.integer(if (is_neg) @as(i64, 1) else 0);
+
+        var shifted = BigInt.init(vm.allocator) catch return error.Fatal;
+        defer shifted.deinit();
+        shifted.shiftRight(&managed, ub) catch return error.Fatal;
+
+        var two = BigInt.init(vm.allocator) catch return error.Fatal;
+        defer two.deinit();
+        two.set(2) catch return error.Fatal;
+
+        if (!is_neg) {
+            var dummy = BigInt.init(vm.allocator) catch return error.Fatal;
+            defer dummy.deinit();
+            var rem = BigInt.init(vm.allocator) catch return error.Fatal;
+            defer rem.deinit();
+            dummy.divTrunc(&rem, &shifted, &two) catch return error.Fatal;
+            return Value.integer(if (rem.eqlZero()) @as(i64, 0) else 1);
+        } else {
+            managed.abs();
+            var one = BigInt.init(vm.allocator) catch return error.Fatal;
+            defer one.deinit();
+            one.set(1) catch return error.Fatal;
+            var sub_one = BigInt.init(vm.allocator) catch return error.Fatal;
+            defer sub_one.deinit();
+            sub_one.sub(&managed, &one) catch return error.Fatal;
+            var shifted2 = BigInt.init(vm.allocator) catch return error.Fatal;
+            defer shifted2.deinit();
+            shifted2.shiftRight(&sub_one, ub) catch return error.Fatal;
+            var dummy2 = BigInt.init(vm.allocator) catch return error.Fatal;
+            defer dummy2.deinit();
+            var rem2 = BigInt.init(vm.allocator) catch return error.Fatal;
+            defer rem2.deinit();
+            dummy2.divTrunc(&rem2, &shifted2, &two) catch return error.Fatal;
+            return Value.integer(if (rem2.eqlZero()) @as(i64, 1) else 0);
+        }
+    }
+
+    unreachable;
 }
 
 pub fn builtinIntegerNotEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

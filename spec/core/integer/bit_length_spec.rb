@@ -9,10 +9,8 @@ describe "Integer#bit_length" do
       3.bit_length.should == 2
       4.bit_length.should == 3
       n = fixnum_max.bit_length
-      CORAFIXME "Integer#[] is not implemented" do
-        fixnum_max[n].should == 0
-        fixnum_max[n - 1].should == 1
-      end
+      fixnum_max[n].should == 0
+      fixnum_max[n - 1].should == 1
 
       0.bit_length.should == 0
       1.bit_length.should == 1
@@ -30,10 +28,8 @@ describe "Integer#bit_length" do
       -4.bit_length.should == 2
       -5.bit_length.should == 3
       n = fixnum_min.bit_length
-      CORAFIXME "Integer#[] is not implemented" do
-        fixnum_min[n].should == 1
-        fixnum_min[n - 1].should == 0
-      end
+      fixnum_min[n].should == 1
+      fixnum_min[n - 1].should == 0
 
       (-2**12 - 1).bit_length.should == 13
       (-2**12).bit_length.should == 12
