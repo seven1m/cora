@@ -1680,6 +1680,9 @@ class SpecMockExpectation
 
   def and_return(*values)
     @return_values = values
+    if !@max_calls.nil? && values.length > @max_calls
+      @max_calls = values.length
+    end
     self
   end
 

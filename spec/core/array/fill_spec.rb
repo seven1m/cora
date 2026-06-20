@@ -229,13 +229,11 @@ describe "Array#fill with (filler, index, length)" do
   end
 
   it "tries to convert the second and third arguments to Integers using #to_int" do
-    CORAFIXME "mock should_receive call count tracking not working", exception: SpecFailedException, message: /Expected to_int/ do
-      obj = mock('to_int')
-      obj.should_receive(:to_int).and_return(2, 2)
-      filler = mock('filler')
-      filler.should_not_receive(:to_int)
-      [1, 2, 3, 4, 5].fill(filler, obj, obj).should == [1, 2, filler, filler, 5]
-    end
+    obj = mock('to_int')
+    obj.should_receive(:to_int).and_return(2, 2)
+    filler = mock('filler')
+    filler.should_not_receive(:to_int)
+    [1, 2, 3, 4, 5].fill(filler, obj, obj).should == [1, 2, filler, filler, 5]
   end
 
   it "raises a TypeError if the index is not numeric" do
