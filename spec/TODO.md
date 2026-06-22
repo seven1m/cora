@@ -1514,8 +1514,8 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/numeric/clone_spec.rb
 - [ ] core/numeric/coerce_spec.rb
 - [ ] core/numeric/comparison_spec.rb
-- [ ] core/numeric/conj_spec.rb
-- [ ] core/numeric/conjugate_spec.rb
+- [x] core/numeric/conj_spec.rb
+- [x] core/numeric/conjugate_spec.rb
 - [ ] core/numeric/denominator_spec.rb
 - [ ] core/numeric/div_spec.rb
 - [ ] core/numeric/divmod_spec.rb
