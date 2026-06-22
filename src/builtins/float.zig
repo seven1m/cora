@@ -203,6 +203,9 @@ pub fn register(vm: *VM) !void {
 
     const prev_float_sym = try vm.intern("prev_float");
     try vm.float_class.module.methods.put(prev_float_sym, value.MethodEntry.builtin(&builtinFloatPrevFloat, .{ .exact = 0 }));
+
+    const coerce_sym = try vm.intern("coerce");
+    try vm.float_class.module.methods.put(coerce_sym, value.MethodEntry.builtin(&builtinFloatCoerce, .{ .exact = 1 }));
 }
 
 pub fn builtinFloatPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -549,4 +552,32 @@ pub fn builtinFloatPrevFloat(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     try vm.requireArgCount(args, 0);
     const f = receiver.toFloatObject().val;
     return vm.newFloat(nextafter(f, -std.math.inf(f64)));
+}
+
+pub fn builtinFloatCoerce(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const arg = args[0];
+
+    const arg_float = try coerceArgToFloat(vm, arg);
+
+    const result = try vm.createArray();
+    result.elements.append(vm.gc_allocator, arg_float) catch return error.Fatal;
+    result.elements.append(vm.gc_allocator, receiver) catch return error.Fatal;
+    return Value.fromObject(&result.object);
+}
+
+fn coerceArgToFloat(vm: *VM, arg: Value) VMError!Value {
+    if (arg.isFloat()) return arg;
+    if (arg.isInteger()) return try vm.newFloat(@floatFromInt(arg.toInteger()));
+    if (arg.isBigInteger()) return try vm.newFloat(arg.toBigIntegerObject().value.toFloat(f64, .nearest_even)[0]);
+
+    const maybe_to_f = try vm.checkCallMethodByName(arg, "to_f", false, &[_]Value{}, null);
+    if (maybe_to_f) |to_f_result| {
+        if (to_f_result.isFloat()) return to_f_result;
+        if (to_f_result.isInteger()) return try vm.newFloat(@floatFromInt(to_f_result.toInteger()));
+        if (to_f_result.isBigInteger()) return try vm.newFloat(to_f_result.toBigIntegerObject().value.toFloat(f64, .nearest_even)[0]);
+        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} to Float ({s}#to_f gives {s})", .{ vm.className(arg), vm.className(arg), vm.className(to_f_result) });
+    }
+
+    return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} to Float", .{vm.className(arg)});
 }
