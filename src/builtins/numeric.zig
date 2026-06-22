@@ -65,6 +65,9 @@ pub fn register(vm: *VM) !void {
 
     const conjugate_sym = try vm.intern("conjugate");
     try vm.numeric_class.module.methods.put(conjugate_sym, value.MethodEntry.builtin(&builtinNumericConj, .{ .exact = 0 }));
+
+    const denominator_sym = try vm.intern("denominator");
+    try vm.numeric_class.module.methods.put(denominator_sym, value.MethodEntry.builtin(&builtinNumericDenominator, .{ .exact = 0 }));
 }
 
 pub fn builtinNumericIntegerQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -154,4 +157,10 @@ pub fn builtinNumericAbs2(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
 pub fn builtinNumericConj(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return receiver;
+}
+
+pub fn builtinNumericDenominator(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const to_r_result = try vm.callMethodByName(receiver, "to_r", &.{}, null);
+    return vm.callMethodByName(to_r_result, "denominator", &.{}, null);
 }
