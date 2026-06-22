@@ -543,6 +543,9 @@ pub fn register(vm: *VM) !void {
     const power_sym = try vm.intern("**");
     try vm.integer_class.module.methods.put(power_sym, value.MethodEntry.builtin(&builtinIntegerPower, .{ .exact = 1 }));
 
+    const pow_sym = try vm.intern("pow");
+    try vm.integer_class.module.methods.put(pow_sym, value.MethodEntry.builtin(&builtinIntegerPow, .{ .variadic = 1 }));
+
     const equal_sym = try vm.intern("==");
     try vm.integer_class.module.methods.put(equal_sym, value.MethodEntry.builtin(&builtinIntegerEqual, .{ .exact = 1 }));
 
@@ -1419,6 +1422,90 @@ pub fn builtinIntegerPower(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     defer out.deinit();
     out.pow(&a, exponent_u32) catch return error.Fatal;
     return vm.valueFromManagedInteger(&out);
+}
+
+pub fn builtinIntegerPow(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try receiver.ensureInteger(vm);
+    if (args.len == 2) {
+        if (!args[1].isInteger() and !args[1].isBigInteger()) {
+            if (args[1].isNumeric()) {
+                return vm.raiseExceptionFmt(vm.type_error_class, "2nd argument not allowed unless all arguments are integers", .{});
+            }
+            return vm.raiseExceptionFmt(vm.type_error_class, "argument is not numeric", .{});
+        }
+        const modulus = args[1];
+        if (!args[0].isInteger() and !args[0].isBigInteger()) {
+            if (args[0].isNumeric()) {
+                return vm.raiseExceptionFmt(vm.type_error_class, "2nd argument not allowed unless all arguments are integers", .{});
+            }
+            return vm.raiseExceptionFmt(vm.type_error_class, "argument is not numeric", .{});
+        }
+        if (modulus.isInteger() and modulus.toInteger() == 0) {
+            return vm.raiseExceptionFmt(vm.zero_division_error_class, "divided by 0", .{});
+        }
+        if (modulus.isBigInteger() and modulus.toBigIntegerObject().value.eqlZero()) {
+            return vm.raiseExceptionFmt(vm.zero_division_error_class, "divided by 0", .{});
+        }
+        const exp = args[0];
+        if (exp.isInteger() and exp.toInteger() < 0) {
+            return vm.raiseExceptionFmt(vm.range_error_class, "pow() 2nd argument not allowed unless all arguments are integers", .{});
+        }
+        if (exp.isBigInteger() and !exp.toBigIntegerObject().value.isPositive()) {
+            return vm.raiseExceptionFmt(vm.range_error_class, "pow() 2nd argument not allowed unless all arguments are integers", .{});
+        }
+
+        var base_val = try receiver.integerToManaged(vm);
+        defer base_val.deinit();
+        var mod_val = try modulus.integerToManaged(vm);
+        defer mod_val.deinit();
+
+        var abs_mod = BigInt.init(vm.allocator) catch return error.Fatal;
+        defer abs_mod.deinit();
+        abs_mod.copy(mod_val.toConst()) catch return error.Fatal;
+        abs_mod.setSign(true);
+
+        var result = BigInt.init(vm.allocator) catch return error.Fatal;
+        defer result.deinit();
+        result.set(1) catch return error.Fatal;
+
+        var base = BigInt.init(vm.allocator) catch return error.Fatal;
+        defer base.deinit();
+        var tmp = BigInt.init(vm.allocator) catch return error.Fatal;
+        defer tmp.deinit();
+        var rem = BigInt.init(vm.allocator) catch return error.Fatal;
+        defer rem.deinit();
+
+        base.divFloor(&rem, &base_val, &abs_mod) catch return error.Fatal;
+        base.copy(rem.toConst()) catch return error.Fatal;
+
+        var exp_copy = try args[0].integerToManaged(vm);
+        defer exp_copy.deinit();
+
+        while (!exp_copy.eqlZero()) {
+            if (exp_copy.isOdd()) {
+                tmp.mul(&result, &base) catch return error.Fatal;
+                result.divFloor(&rem, &tmp, &abs_mod) catch return error.Fatal;
+                result.copy(rem.toConst()) catch return error.Fatal;
+            }
+            exp_copy.shiftRight(&exp_copy, 1) catch return error.Fatal;
+            if (!exp_copy.eqlZero()) {
+                tmp.mul(&base, &base) catch return error.Fatal;
+                base.divFloor(&rem, &tmp, &abs_mod) catch return error.Fatal;
+                base.copy(rem.toConst()) catch return error.Fatal;
+            }
+        }
+
+        const mod_is_neg = if (modulus.isInteger()) modulus.toInteger() < 0 else !modulus.toBigIntegerObject().value.isPositive() and !modulus.toBigIntegerObject().value.eqlZero();
+        if (mod_is_neg and !result.eqlZero()) {
+            result.add(&result, &mod_val) catch return error.Fatal;
+        }
+        if (result.eqlZero()) {
+            result.setSign(true);
+        }
+
+        return vm.valueFromManagedInteger(&result);
+    }
+    return try vm.callMethodByName(receiver, "**", args[0..1], null);
 }
 
 pub fn builtinIntegerEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

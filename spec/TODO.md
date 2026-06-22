@@ -1038,7 +1038,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/integer/odd_spec.rb
 - [x] core/integer/ord_spec.rb
 - [x] core/integer/plus_spec.rb
-- [ ] core/integer/pow_spec.rb
+- [x] core/integer/pow_spec.rb
 - [x] core/integer/pred_spec.rb
 - [x] core/integer/rationalize_spec.rb
 - [x] core/integer/remainder_spec.rb
