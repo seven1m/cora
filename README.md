@@ -1,11 +1,11 @@
 # Cora Ruby Interpreter
 
-This is a Ruby interpreter in Zig, written by various LLMs, fully vibe coded.
+This is a Ruby interpreter in Zig, written by various LLMs, ala Agentic Engineering.
 
-This is my sandbox. I'm not trying to make anything better, faster, or groundbreaking. Just something for fun.
+This is my sandbox. I might try to make something better or faster or more flexible with it, but really I'm just having fun.
 
-The goal is to get a working Ruby interpreter that can pass most or all of [ruby/spec](https://github.com/ruby/spec)
-and to explore just-in-time compilation.
+The goal is to get a working Ruby interpreter that can pass most or all of [ruby/spec](https://github.com/ruby/spec),
+to explore just-in-time compilation, and to possibly look into gradual typing or other enhancements.
 
 ## Features
 
@@ -25,7 +25,6 @@ Some gems that are known to work, though I haven't tested each thoroughly:
 - webrick
 - sinatra
 - erb
-- ansi
 
 Cora has over on 10,000 ruby specs passing, which by my math is about a third of the way to being a complete Ruby.
 
