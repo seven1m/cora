@@ -60,6 +60,56 @@ pub export fn cora_jit_sub(a: u64, b: u64, ok: *u8) u64 {
     return @bitCast(result +% 1);
 }
 
+pub export fn cora_jit_mul(a: u64, b: u64, ok: *u8) u64 {
+    if ((a & b & 1) == 0) {
+        ok.* = 0;
+        return 0;
+    }
+    const a_signed: i64 = @bitCast(a);
+    const b_signed: i64 = @bitCast(b);
+    const li: i64 = a_signed >> 1;
+    const ri: i64 = b_signed >> 1;
+    const result, const overflow = @mulWithOverflow(li, ri);
+    if (overflow != 0) {
+        ok.* = 0;
+        return 0;
+    }
+    // Result must fit in i63 to be representable as a tagged integer.
+    // Top two bits must match the sign bit (all 0s or all 1s).
+    if ((result >> 62) != (result >> 63)) {
+        ok.* = 0;
+        return 0;
+    }
+    return (@as(u64, @bitCast(result)) << 1) | 1;
+}
+
+pub export fn cora_jit_div(a: u64, b: u64, ok: *u8) u64 {
+    if ((a & b & 1) == 0) {
+        ok.* = 0;
+        return 0;
+    }
+    const a_signed: i64 = @bitCast(a);
+    const b_signed: i64 = @bitCast(b);
+    const li: i64 = a_signed >> 1;
+    const ri: i64 = b_signed >> 1;
+    if (ri == 0) {
+        ok.* = 0;
+        return 0;
+    }
+    // Floor division: C truncates toward zero, so adjust when signs differ and there's a remainder.
+    const q: i64 = @divTrunc(li, ri);
+    const r: i64 = li -% q *% ri;
+    var result: i64 = q;
+    if (r != 0 and ((r < 0) != (ri < 0))) {
+        result -= 1;
+    }
+    if ((result >> 62) != (result >> 63)) {
+        ok.* = 0;
+        return 0;
+    }
+    return (@as(u64, @bitCast(result)) << 1) | 1;
+}
+
 pub fn validateChunk(ch: *chunk_mod.Chunk) !void {
     if (!available) return error.Unavailable;
     if (!ch.is_simple_positional or ch.arity != 1) return error.NotEligible;
@@ -76,7 +126,7 @@ pub fn validateChunk(ch: *chunk_mod.Chunk) !void {
                 if (ep_offset == 0 or ep_offset > ch.locals_count) return error.NotEligible;
                 ip += 3;
             },
-            .PUSH_I8, .PUSH_SELF, .OPT_EQ, .OPT_PLUS, .OPT_MINUS => {
+            .PUSH_I8, .PUSH_SELF, .OPT_EQ, .OPT_PLUS, .OPT_MINUS, .OPT_MULT, .OPT_DIV => {
                 ip += 1 + bytecode.opcodeOperandSize(op);
             },
             .JUMP_IF_FALSE, .JUMP => {
@@ -117,6 +167,8 @@ pub fn generateChunk(allocator: std.mem.Allocator, ch: *chunk_mod.Chunk) !Genera
         \\typedef unsigned char u8;
         \\extern u64 cora_jit_add(u64 a, u64 b, u8 *ok);
         \\extern u64 cora_jit_sub(u64 a, u64 b, u8 *ok);
+        \\extern u64 cora_jit_mul(u64 a, u64 b, u8 *ok);
+        \\extern u64 cora_jit_div(u64 a, u64 b, u8 *ok);
         \\
     );
     try writer.print("u64 {s}(u64 self_raw, u64 arg0_raw, u8 *ok) {{\n", .{symbol_name});
@@ -168,6 +220,24 @@ pub fn generateChunk(allocator: std.mem.Allocator, ch: *chunk_mod.Chunk) !Genera
             .OPT_MINUS => {
                 try writer.writeAll(
                     \\  stack[sp - 2] = cora_jit_sub(stack[sp - 2], stack[sp - 1], ok);
+                    \\  if (!*ok) return 0ULL;
+                    \\  sp -= 1;
+                    \\
+                );
+                ip += 1;
+            },
+            .OPT_MULT => {
+                try writer.writeAll(
+                    \\  stack[sp - 2] = cora_jit_mul(stack[sp - 2], stack[sp - 1], ok);
+                    \\  if (!*ok) return 0ULL;
+                    \\  sp -= 1;
+                    \\
+                );
+                ip += 1;
+            },
+            .OPT_DIV => {
+                try writer.writeAll(
+                    \\  stack[sp - 2] = cora_jit_div(stack[sp - 2], stack[sp - 1], ok);
                     \\  if (!*ok) return 0ULL;
                     \\  sp -= 1;
                     \\
@@ -253,6 +323,8 @@ pub fn compileState(
     const symbols = [_]tcc.ExternalSymbol{
         .{ .name = "cora_jit_add", .ptr = @ptrCast(&cora_jit_add) },
         .{ .name = "cora_jit_sub", .ptr = @ptrCast(&cora_jit_sub) },
+        .{ .name = "cora_jit_mul", .ptr = @ptrCast(&cora_jit_mul) },
+        .{ .name = "cora_jit_div", .ptr = @ptrCast(&cora_jit_div) },
     };
 
     state.compilation = tcc.compile("build/tinycc", generated.source_code, generated.symbol_name, &symbols, &errors) catch |err| {
