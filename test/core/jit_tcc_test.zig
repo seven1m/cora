@@ -242,6 +242,51 @@ test "TinyCC JIT cora_jit_mul bails on i63 overflow" {
     try std.testing.expectEqual(@as(u8, 0), ok);
 }
 
+test "TinyCC JIT accepts comparison-op chunk and executes it" {
+    if (!build_options.tcc_jit) return error.SkipZigTest;
+
+    // Exercises all four comparison ops (LT/GE/GT/LE) plus OPT_EQ in one chunk.
+    // For n=75: not <0, not >=100, >50 → 3.
+    const source =
+        \\def band(n)
+        \\  if n < 0
+        \\    1
+        \\  elsif n >= 100
+        \\    4
+        \\  elsif n > 50
+        \\    3
+        \\  elsif n <= 10
+        \\    2
+        \\  else
+        \\    0
+        \\  end
+        \\end
+        \\
+        \\band(75)
+    ;
+
+    bdwgc.init();
+    defer bdwgc.deinit();
+
+    const allocator = std.testing.allocator;
+    var parser = try prism.Parser.init(allocator, source, null);
+    defer parser.deinit();
+
+    var program = try compiler.Compiler.compile(allocator, &parser, 1);
+    defer program.deinit();
+
+    const band_chunk = findChunkByName(&program, "band") orelse return error.TestUnexpectedResult;
+    try jit.validateChunk(band_chunk);
+
+    var vm = VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic, std.testing.io, std.testing.environ);
+    defer vm.deinit();
+    try vm.prepare(&program);
+    vm.setTccJitEnabled(true);
+
+    const result = try vm.run();
+    try std.testing.expectEqual(Value.integer(3).raw, result.raw);
+}
+
 test "TinyCC JIT generated source includes mul and div helper calls" {
     if (!build_options.tcc_jit) return error.SkipZigTest;
 

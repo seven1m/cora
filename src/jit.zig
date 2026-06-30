@@ -110,6 +110,38 @@ pub export fn cora_jit_div(a: u64, b: u64, ok: *u8) u64 {
     return (@as(u64, @bitCast(result)) << 1) | 1;
 }
 
+pub export fn cora_jit_lt(a: u64, b: u64, ok: *u8) u64 {
+    if ((a & b & 1) == 0) {
+        ok.* = 0;
+        return 0;
+    }
+    return if (@as(i64, @bitCast(a)) < @as(i64, @bitCast(b))) @as(u64, 2) else @as(u64, 0);
+}
+
+pub export fn cora_jit_gt(a: u64, b: u64, ok: *u8) u64 {
+    if ((a & b & 1) == 0) {
+        ok.* = 0;
+        return 0;
+    }
+    return if (@as(i64, @bitCast(a)) > @as(i64, @bitCast(b))) @as(u64, 2) else @as(u64, 0);
+}
+
+pub export fn cora_jit_le(a: u64, b: u64, ok: *u8) u64 {
+    if ((a & b & 1) == 0) {
+        ok.* = 0;
+        return 0;
+    }
+    return if (@as(i64, @bitCast(a)) <= @as(i64, @bitCast(b))) @as(u64, 2) else @as(u64, 0);
+}
+
+pub export fn cora_jit_ge(a: u64, b: u64, ok: *u8) u64 {
+    if ((a & b & 1) == 0) {
+        ok.* = 0;
+        return 0;
+    }
+    return if (@as(i64, @bitCast(a)) >= @as(i64, @bitCast(b))) @as(u64, 2) else @as(u64, 0);
+}
+
 pub fn validateChunk(ch: *chunk_mod.Chunk) !void {
     if (!available) return error.Unavailable;
     if (!ch.is_simple_positional or ch.arity != 1) return error.NotEligible;
@@ -126,7 +158,7 @@ pub fn validateChunk(ch: *chunk_mod.Chunk) !void {
                 if (ep_offset == 0 or ep_offset > ch.locals_count) return error.NotEligible;
                 ip += 3;
             },
-            .PUSH_I8, .PUSH_SELF, .OPT_EQ, .OPT_PLUS, .OPT_MINUS, .OPT_MULT, .OPT_DIV => {
+            .PUSH_I8, .PUSH_SELF, .OPT_EQ, .OPT_PLUS, .OPT_MINUS, .OPT_MULT, .OPT_DIV, .OPT_LT, .OPT_GT, .OPT_LE, .OPT_GE => {
                 ip += 1 + bytecode.opcodeOperandSize(op);
             },
             .JUMP_IF_FALSE, .JUMP => {
@@ -169,6 +201,10 @@ pub fn generateChunk(allocator: std.mem.Allocator, ch: *chunk_mod.Chunk) !Genera
         \\extern u64 cora_jit_sub(u64 a, u64 b, u8 *ok);
         \\extern u64 cora_jit_mul(u64 a, u64 b, u8 *ok);
         \\extern u64 cora_jit_div(u64 a, u64 b, u8 *ok);
+        \\extern u64 cora_jit_lt(u64 a, u64 b, u8 *ok);
+        \\extern u64 cora_jit_gt(u64 a, u64 b, u8 *ok);
+        \\extern u64 cora_jit_le(u64 a, u64 b, u8 *ok);
+        \\extern u64 cora_jit_ge(u64 a, u64 b, u8 *ok);
         \\
     );
     try writer.print("u64 {s}(u64 self_raw, u64 arg0_raw, u8 *ok) {{\n", .{symbol_name});
@@ -238,6 +274,42 @@ pub fn generateChunk(allocator: std.mem.Allocator, ch: *chunk_mod.Chunk) !Genera
             .OPT_DIV => {
                 try writer.writeAll(
                     \\  stack[sp - 2] = cora_jit_div(stack[sp - 2], stack[sp - 1], ok);
+                    \\  if (!*ok) return 0ULL;
+                    \\  sp -= 1;
+                    \\
+                );
+                ip += 1;
+            },
+            .OPT_LT => {
+                try writer.writeAll(
+                    \\  stack[sp - 2] = cora_jit_lt(stack[sp - 2], stack[sp - 1], ok);
+                    \\  if (!*ok) return 0ULL;
+                    \\  sp -= 1;
+                    \\
+                );
+                ip += 1;
+            },
+            .OPT_GT => {
+                try writer.writeAll(
+                    \\  stack[sp - 2] = cora_jit_gt(stack[sp - 2], stack[sp - 1], ok);
+                    \\  if (!*ok) return 0ULL;
+                    \\  sp -= 1;
+                    \\
+                );
+                ip += 1;
+            },
+            .OPT_LE => {
+                try writer.writeAll(
+                    \\  stack[sp - 2] = cora_jit_le(stack[sp - 2], stack[sp - 1], ok);
+                    \\  if (!*ok) return 0ULL;
+                    \\  sp -= 1;
+                    \\
+                );
+                ip += 1;
+            },
+            .OPT_GE => {
+                try writer.writeAll(
+                    \\  stack[sp - 2] = cora_jit_ge(stack[sp - 2], stack[sp - 1], ok);
                     \\  if (!*ok) return 0ULL;
                     \\  sp -= 1;
                     \\
@@ -325,6 +397,10 @@ pub fn compileState(
         .{ .name = "cora_jit_sub", .ptr = @ptrCast(&cora_jit_sub) },
         .{ .name = "cora_jit_mul", .ptr = @ptrCast(&cora_jit_mul) },
         .{ .name = "cora_jit_div", .ptr = @ptrCast(&cora_jit_div) },
+        .{ .name = "cora_jit_lt", .ptr = @ptrCast(&cora_jit_lt) },
+        .{ .name = "cora_jit_gt", .ptr = @ptrCast(&cora_jit_gt) },
+        .{ .name = "cora_jit_le", .ptr = @ptrCast(&cora_jit_le) },
+        .{ .name = "cora_jit_ge", .ptr = @ptrCast(&cora_jit_ge) },
     };
 
     state.compilation = tcc.compile("build/tinycc", generated.source_code, generated.symbol_name, &symbols, &errors) catch |err| {
