@@ -40,10 +40,10 @@ To build Cora, you'll need:
 If you have the [Nix](https://nixos.org/download/) package manager, you can fetch all the dependencies easily with:
 
 ```bash
-nix-shell
+nix develop
 ```
 
-If you have [direnv](https://direnv.net/), it will automatically load the nix shell when you `cd` into the cora directory.
+If you have [direnv](https://direnv.net/), it will automatically load the dev shell when you `cd` into the cora directory.
 
 ## Build
 

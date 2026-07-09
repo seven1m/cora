@@ -60,8 +60,21 @@ The TinyCC JIT and per-gem native extension build steps (`psych`, `strscan`,
 
 ## Nix
 
-Unless you're running in a nix-shell already, you will need to prefix all zig commands like this:
+The dev environment is a flake (`flake.nix` + `flake.lock`) pinned to a specific
+`nixos-unstable` revision. Prefer:
 
 ```bash
-nix-shell --command "zig build ..."
+nix develop -c zig build ...
 ```
+
+`shell.nix` is a thin [flake-compat](https://github.com/edolstra/flake-compat)
+shim that lets plain `nix-shell` work on stable Nix without flake support.
+`direnv`'s `use flake .` (see `.envrc`) loads the dev shell on `cd`.
+
+Note: flakes derive the flake source from `git ls-files`, so `flake.nix`,
+`flake.lock`, and the `flake-compat` entry inside `flake.lock` must all be
+tracked (i.e. `git add`ed) for `nix develop` and direnv to work.
+
+Refresh pinned versions with `nix flake update`. After that, re-run
+`direnv reload` (or re-`cd`) and plain `nix-shell` will pick up the new
+packages too.

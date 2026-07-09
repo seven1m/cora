@@ -4,6 +4,7 @@ zig-pkg
 spec/tmp
 spec/.total-specs
 .gem
+.direnv
 
 # ignore ext/prism and ext/logger so my editor's fuzzy finder doesn't search in them
 ext/prism
