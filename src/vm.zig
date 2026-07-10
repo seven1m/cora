@@ -6946,6 +6946,12 @@ pub const VM = struct {
                     self.stack.storage[len] = val;
                     self.stack.items = self.stack.storage[0 .. len + 1];
                 },
+                .SET_LOCAL => {
+                    const ep_offset: u16 = @as(u16, code[f.ip + 1]) | (@as(u16, code[f.ip + 2]) << 8);
+                    f.ip += 3;
+                    const len = self.stack.items.len;
+                    (f.ep - ep_offset)[0] = self.stack.storage[len - 1];
+                },
                 .PUSH_I8 => {
                     const val: i8 = @bitCast(code[f.ip + 1]);
                     f.ip += 2;
