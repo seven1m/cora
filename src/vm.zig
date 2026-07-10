@@ -64,6 +64,7 @@ const SMALL_CALL_VALUES: usize = 16;
 const DEFAULT_THREAD_PREEMPT_QUANTUM_OPS: u32 = 10_000;
 const MAX_QUEUED_SIGNALS: usize = 128;
 var queued_signal_counts: [MAX_QUEUED_SIGNALS]u32 = [_]u32{0} ** MAX_QUEUED_SIGNALS;
+var queued_signals_pending: u32 = 0;
 
 pub const SignalTrapMode = enum {
     system_default,
@@ -122,6 +123,7 @@ fn signalHandler(sig: std.posix.SIG) callconv(.c) void {
     const signo: usize = @intCast(@intFromEnum(sig));
     if (signo < MAX_QUEUED_SIGNALS) {
         _ = @atomicRmw(u32, &queued_signal_counts[signo], .Add, 1, .seq_cst);
+        _ = @atomicRmw(u32, &queued_signals_pending, .Xchg, 1, .release);
     }
 }
 
@@ -183,6 +185,7 @@ pub fn requestSignal(signo: c_int) void {
     const idx: usize = @intCast(signo);
     if (idx < MAX_QUEUED_SIGNALS) {
         _ = @atomicRmw(u32, &queued_signal_counts[idx], .Add, 1, .seq_cst);
+        _ = @atomicRmw(u32, &queued_signals_pending, .Xchg, 1, .release);
     }
 }
 
@@ -2874,6 +2877,11 @@ pub const VM = struct {
     }
 
     fn drainQueuedSignalsToAsyncExceptions(self: *VM) VMError!void {
+        // Clear before draining so a concurrent signal keeps the flag set for
+        // the next safepoint, even if it arrives after this scan starts.
+        if (@atomicLoad(u32, &queued_signals_pending, .acquire) == 0) return;
+        _ = @atomicRmw(u32, &queued_signals_pending, .Xchg, 0, .acq_rel);
+
         var signo: usize = 1;
         while (signo < MAX_QUEUED_SIGNALS) : (signo += 1) {
             const count = @atomicRmw(u32, &queued_signal_counts[signo], .Xchg, 0, .seq_cst);
