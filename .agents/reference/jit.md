@@ -10,9 +10,9 @@
 
 ## Build And Runtime
 
-- Build with TinyCC support using `zig build -Dtcc-jit=true` or `zig build test -Dtcc-jit=true`.
-- If Cora is built with `-Dtcc-jit=true`, the JIT is enabled by default at runtime.
-- `--dump-jit-source` prints generated C to `stderr` the first time an eligible chunk is compiled.
+- TinyCC support is built into every Cora binary and test build.
+- The JIT is disabled by default; enable it with `--jit`.
+- `--dump-jit-source` prints generated C to `stderr` the first time an eligible chunk is compiled when JIT is enabled.
 - `--dump-bytecode` is still useful, but it exits before lazy JIT compilation happens.
 
 ## Current JIT Scope
@@ -67,6 +67,6 @@ This is normal for a bytecode-to-C proof of concept. It keeps codegen simple and
 ## Debugging Tips
 
 - Use `build/bin/cora --dump-bytecode file.rb` to inspect chunk shape before deciding whether a method should be JIT-eligible.
-- Use `build/bin/cora --dump-jit-source file.rb` on a `-Dtcc-jit=true` build to see the emitted C.
+- Use `build/bin/cora --jit --dump-jit-source file.rb` to see the emitted C.
 - For mixed scripts, only eligible methods print JIT source; non-eligible methods stay interpreted silently.
 - `test/core/jit_tcc_test.zig` is the smallest focused place to extend or debug the current JIT.

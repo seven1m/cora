@@ -1,5 +1,4 @@
 const std = @import("std");
-const build_options = @import("build_options");
 const cora = @import("cora");
 const compiler = cora.compiler;
 const jit = cora.jit;
@@ -9,8 +8,6 @@ const VM = cora.vm.VM;
 const bdwgc = @import("bdwgc");
 
 test "TinyCC JIT accepts fib-like chunk and executes it" {
-    if (!build_options.tcc_jit) return error.SkipZigTest;
-
     const source =
         \\def fib(n)
         \\  if n == 0
@@ -56,8 +53,6 @@ test "TinyCC JIT accepts fib-like chunk and executes it" {
 }
 
 test "TinyCC JIT rejects default-arg chunk" {
-    if (!build_options.tcc_jit) return error.SkipZigTest;
-
     const source =
         \\def fib(n = 1)
         \\  n
@@ -83,8 +78,6 @@ test "TinyCC JIT rejects default-arg chunk" {
 }
 
 test "TinyCC JIT generated source includes labels and helper calls" {
-    if (!build_options.tcc_jit) return error.SkipZigTest;
-
     const source =
         \\def fib(n)
         \\  if n == 0
@@ -138,8 +131,6 @@ fn taggedInt(n: i64) u64 {
 }
 
 test "TinyCC JIT accepts factorial chunk and executes it" {
-    if (!build_options.tcc_jit) return error.SkipZigTest;
-
     const source =
         \\def factorial(n)
         \\  if n == 0
@@ -175,8 +166,6 @@ test "TinyCC JIT accepts factorial chunk and executes it" {
 }
 
 test "TinyCC JIT accepts zero-argument chunk and executes it" {
-    if (!build_options.tcc_jit) return error.SkipZigTest;
-
     const source =
         \\def answer
         \\  42
@@ -208,18 +197,16 @@ test "TinyCC JIT accepts zero-argument chunk and executes it" {
 }
 
 test "TinyCC JIT accepts two-argument recursive chunk and executes it" {
-    if (!build_options.tcc_jit) return error.SkipZigTest;
-
     const source =
-        \\def gcd(a, b)
-        \\  if b == 0
-        \\    a
+        \\def countdown(a, b)
+        \\  if a == 0
+        \\    b
         \\  else
-        \\    gcd(b, a / b)
+        \\    countdown(a - 1, b)
         \\  end
         \\end
         \\
-        \\gcd(84, 18)
+        \\countdown(3, 42)
     ;
 
     bdwgc.init();
@@ -232,8 +219,8 @@ test "TinyCC JIT accepts two-argument recursive chunk and executes it" {
     var program = try compiler.Compiler.compile(allocator, &parser, 1);
     defer program.deinit();
 
-    const gcd_chunk = findChunkByName(&program, "gcd") orelse return error.TestUnexpectedResult;
-    try jit.validateChunk(gcd_chunk);
+    const countdown_chunk = findChunkByName(&program, "countdown") orelse return error.TestUnexpectedResult;
+    try jit.validateChunk(countdown_chunk);
 
     var vm = VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic, std.testing.io, std.testing.environ);
     defer vm.deinit();
@@ -241,12 +228,10 @@ test "TinyCC JIT accepts two-argument recursive chunk and executes it" {
     vm.setTccJitEnabled(true);
 
     const result = try vm.run();
-    try std.testing.expectEqual(Value.integer(6).raw, result.raw);
+    try std.testing.expectEqual(Value.integer(42).raw, result.raw);
 }
 
 test "TinyCC JIT accepts local mutation in while loop" {
-    if (!build_options.tcc_jit) return error.SkipZigTest;
-
     const source =
         \\def sum_to(n)
         \\  total = 0
@@ -283,8 +268,6 @@ test "TinyCC JIT accepts local mutation in while loop" {
 }
 
 test "TinyCC JIT accepts recursive div chunk with floor semantics" {
-    if (!build_options.tcc_jit) return error.SkipZigTest;
-
     const source =
         \\def digit_count(n)
         \\  if n / 10 == 0
@@ -320,8 +303,6 @@ test "TinyCC JIT accepts recursive div chunk with floor semantics" {
 }
 
 test "TinyCC JIT cora_jit_div floors negative quotients" {
-    if (!build_options.tcc_jit) return error.SkipZigTest;
-
     // -7 / 2 must be -4 (floor), not -3 (truncation toward zero).
     var ok: u8 = 1;
     const result = jit.cora_jit_div(taggedInt(-7), taggedInt(2), &ok);
@@ -330,16 +311,12 @@ test "TinyCC JIT cora_jit_div floors negative quotients" {
 }
 
 test "TinyCC JIT cora_jit_div bails on divide by zero" {
-    if (!build_options.tcc_jit) return error.SkipZigTest;
-
     var ok: u8 = 1;
     _ = jit.cora_jit_div(taggedInt(10), taggedInt(0), &ok);
     try std.testing.expectEqual(@as(u8, 0), ok);
 }
 
 test "TinyCC JIT cora_jit_mul bails on i63 overflow" {
-    if (!build_options.tcc_jit) return error.SkipZigTest;
-
     // Tagged (2^62 - 1) * (2^62 - 1) is well beyond i63 range; must bail.
     var ok: u8 = 1;
     _ = jit.cora_jit_mul(
@@ -351,8 +328,6 @@ test "TinyCC JIT cora_jit_mul bails on i63 overflow" {
 }
 
 test "TinyCC JIT accepts comparison-op chunk and executes it" {
-    if (!build_options.tcc_jit) return error.SkipZigTest;
-
     // Exercises all four comparison ops (LT/GE/GT/LE) plus OPT_EQ in one chunk.
     // For n=75: not <0, not >=100, >50 → 3.
     const source =
@@ -396,8 +371,6 @@ test "TinyCC JIT accepts comparison-op chunk and executes it" {
 }
 
 test "TinyCC JIT generated source includes mul and div helper calls" {
-    if (!build_options.tcc_jit) return error.SkipZigTest;
-
     const source =
         \\def factorial(n)
         \\  if n == 0

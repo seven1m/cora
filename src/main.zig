@@ -2,7 +2,6 @@ const std = @import("std");
 const builtin = @import("builtin");
 const prism = @import("prism.zig");
 pub const Value = @import("value.zig").Value;
-const build_options = @import("build_options");
 const version = @import("version.zig");
 const compiler = @import("compiler.zig");
 const load_path = @import("load_path.zig");
@@ -156,6 +155,7 @@ fn printHelp() void {
         \\  -r LIBRARY             Require LIBRARY before running the script
         \\
         \\Runtime:
+        \\  --jit                  Enable the experimental TinyCC JIT
         \\  --disable-gems         Skip RubyGems setup
         \\  --backtrace-limit=N    Limit printed backtrace frames
         \\  -0[OCTAL]              Set input record separator ($/) from octal byte
@@ -166,7 +166,7 @@ fn printHelp() void {
         \\
         \\Notes:
         \\  - Script arguments after FILE are available to Ruby via ARGV
-        \\  - `--dump-jit-source` requires a build with -Dtcc-jit=true
+        \\  - The JIT is disabled by default; use `--jit` to enable it
         \\
     , .{});
 }
@@ -205,6 +205,7 @@ pub fn main(init: std.process.Init) !void {
     var print_ast = false;
     var dump_bytecode = false;
     var dump_jit_source = false;
+    var jit_enabled = false;
     var disable_gems = false;
     var strip_leading_garbage = false;
     var backtrace_limit: ?usize = null;
@@ -281,6 +282,8 @@ pub fn main(init: std.process.Init) !void {
             dump_bytecode = true;
         } else if (std.mem.eql(u8, args[i], "--dump-jit-source")) {
             dump_jit_source = true;
+        } else if (std.mem.eql(u8, args[i], "--jit")) {
+            jit_enabled = true;
         } else if (std.mem.eql(u8, args[i], "--disable-gems")) {
             disable_gems = true;
         } else if (!std.mem.startsWith(u8, args[i], "-")) {
@@ -302,11 +305,6 @@ pub fn main(init: std.process.Init) !void {
         printHelp();
         return;
     }
-    if (dump_jit_source and !build_options.tcc_jit) {
-        std.debug.print("Error: --dump-jit-source requires building with -Dtcc-jit=true\n", .{});
-        return;
-    }
-
     var code_buffer: ?[]u8 = null;
     defer if (code_buffer) |buf| allocator.free(buf);
 
@@ -379,7 +377,7 @@ pub fn main(init: std.process.Init) !void {
     }
     defer virtual_machine.deinit();
     try configureLoadPath(allocator, &virtual_machine, init.io, args[0], extra_load_paths.items);
-    virtual_machine.setTccJitEnabled(build_options.tcc_jit);
+    virtual_machine.setTccJitEnabled(jit_enabled);
     virtual_machine.setDisableGems(disable_gems);
     virtual_machine.setDumpJitSource(dump_jit_source);
     virtual_machine.setBacktraceLimit(backtrace_limit);

@@ -132,7 +132,7 @@ fn addWriteDefaultGemSpec(
                 \\  spec = Gem::Specification.load(gemspec_name)
                 \\  File.write(File.join(spec_dir, spec.full_name + ".gemspec"), spec.to_ruby)
                 \\end
-                ,
+            ,
                 .{ ruby_gem_api_version, ruby_gem_api_version, gemspec_dir },
             ),
         },
@@ -546,7 +546,6 @@ pub fn build(b: *std.Build) void {
     const test_timeout = b.option(u32, "test-timeout", "Per-test-file wall-clock timeout in seconds (0 = disabled)") orelse 0;
     const coverage = b.option(bool, "coverage", "Run tests under kcov and generate an HTML coverage report") orelse false;
     const coverage_output_dir = b.option([]const u8, "coverage-output-dir", "Directory for kcov output") orelse "build/kcov";
-    const tcc_jit = b.option(bool, "tcc-jit", "Build TinyCC-backed proof-of-concept JIT support") orelse false;
     const submodule_update = b.option(bool, "submodule-update", "Run `git submodule update --init` before building") orelse true;
 
     const submodule_update_step = if (submodule_update) blk: {
@@ -560,7 +559,6 @@ pub fn build(b: *std.Build) void {
     options.addOption(bool, "test_timing", test_timing);
     options.addOption(i32, "test_jobs", test_jobs);
     options.addOption(u32, "test_timeout", test_timeout);
-    options.addOption(bool, "tcc_jit", tcc_jit);
     const build_options_mod = options.createModule();
 
     const prism_build_step = buildPrism(b);
@@ -594,20 +592,15 @@ pub fn build(b: *std.Build) void {
 
     exe.step.dependOn(prism_build_step);
     exe.step.dependOn(onigmo_build_step);
-    if (tcc_jit) {
-        exe.step.dependOn(tinycc_build_step);
-    }
+    exe.step.dependOn(tinycc_build_step);
 
     exe.root_module.addObjectFile(b.path(prism_build_root ++ "/build/libprism.a"));
     exe.root_module.addIncludePath(b.path(prism_build_root ++ "/include"));
     exe.root_module.addObjectFile(b.path(onigmo_build_root ++ "/.libs/libonigmo.a"));
     exe.root_module.addIncludePath(b.path(onigmo_build_root ++ "/"));
     exe.root_module.addCSourceFile(.{ .file = b.path("ext/dtoa.c") });
-    if (tcc_jit) {
-        exe.root_module.addObjectFile(b.path(tinycc_build_root ++ "/libtcc.a"));
-        exe.root_module.addIncludePath(b.path(tinycc_build_root));
-        exe.root_module.addIncludePath(b.path(tinycc_build_root));
-    }
+    exe.root_module.addObjectFile(b.path(tinycc_build_root ++ "/libtcc.a"));
+    exe.root_module.addIncludePath(b.path(tinycc_build_root));
 
     exe.root_module.link_libc = true;
     linkOpenSSL(exe.root_module);
@@ -804,19 +797,14 @@ pub fn build(b: *std.Build) void {
     test_exe.step.dependOn(prism_build_step);
     test_exe.step.dependOn(onigmo_build_step);
     test_exe.step.dependOn(cext_fixture_step);
-    if (tcc_jit) {
-        test_exe.step.dependOn(tinycc_build_step);
-    }
+    test_exe.step.dependOn(tinycc_build_step);
     test_exe.root_module.addObjectFile(b.path(prism_build_root ++ "/build/libprism.a"));
     test_exe.root_module.addIncludePath(b.path(prism_build_root ++ "/include"));
     test_exe.root_module.addObjectFile(b.path(onigmo_build_root ++ "/.libs/libonigmo.a"));
     test_exe.root_module.addIncludePath(b.path(onigmo_build_root ++ "/"));
     test_exe.root_module.addCSourceFile(.{ .file = b.path("ext/dtoa.c") });
-    if (tcc_jit) {
-        test_exe.root_module.addObjectFile(b.path(tinycc_build_root ++ "/libtcc.a"));
-        test_exe.root_module.addIncludePath(b.path(tinycc_build_root));
-        test_exe.root_module.addIncludePath(b.path(tinycc_build_root));
-    }
+    test_exe.root_module.addObjectFile(b.path(tinycc_build_root ++ "/libtcc.a"));
+    test_exe.root_module.addIncludePath(b.path(tinycc_build_root));
     test_exe.root_module.link_libc = true;
     test_exe.rdynamic = true;
     linkOpenSSL(test_exe.root_module);
@@ -836,9 +824,7 @@ pub fn build(b: *std.Build) void {
     cora_mod.addIncludePath(b.path(onigmo_build_root ++ "/"));
     cora_mod.addObjectFile(b.path(onigmo_build_root ++ "/.libs/libonigmo.a"));
     linkOpenSSL(cora_mod);
-    if (tcc_jit) {
-        cora_mod.addIncludePath(b.path(tinycc_build_root));
-    }
+    cora_mod.addIncludePath(b.path(tinycc_build_root));
     test_exe.root_module.addImport("cora", cora_mod);
 
     const ruby_spec_runner_mod = b.createModule(.{

@@ -29,9 +29,8 @@ top-level gem/library smoke tests (`test/strscan_test.zig`,
 `test/json_test.zig`, etc.), and integration helpers/spec runner code. When
 adding a new test file, add it to `test/all_test.zig`.
 
-The `test` step automatically builds the Prism static lib, Onigmo, and the
-C extension fixture (`build/cext/fixture.so`). Build TinyCC first via
-`-Dtcc-jit=true` if any of your tests need it.
+The `test` step automatically builds the Prism static lib, Onigmo, TinyCC, and
+the C extension fixture (`build/cext/fixture.so`).
 
 ## Focused/Skipped Specs
 
@@ -63,7 +62,8 @@ Input:
 Inspection:
 - `--ast` - dump Prism AST, then exit
 - `--dump-bytecode` - dump compiled bytecode (opcodes, constants, chunks), then exit
-- `--dump-jit-source` - print TinyCC JIT C source for compiled methods; requires `-Dtcc-jit=true`
+- `--jit` - enable the experimental TinyCC JIT (disabled by default)
+- `--dump-jit-source` - print TinyCC JIT C source for compiled methods when JIT is enabled
 
 Load path and requires:
 - `-I PATH[:PATH...]` - add directories to `$LOAD_PATH` (colon-separated)
@@ -92,7 +92,7 @@ zig build onigmo             # build Onigmo only
 zig build prism              # build Prism only
 zig build psych              # build the psych native extension only
 zig build strscan            # build the strscan native extension only
-zig build tinycc             # build TinyCC only (needed for -Dtcc-jit=true)
+zig build tinycc             # build TinyCC only
 zig build cext-fixture       # build build/cext/fixture.so for the cext test suite
 ```
 
@@ -101,7 +101,6 @@ Options that change what gets built:
 - `-Doptimize=ReleaseFast` (default), `-Doptimize=Debug`,
   `-Doptimize=ReleaseSafe`, `-Doptimize=ReleaseSmall` - optimization mode
   (persisted to `build/build-mode` between runs).
-- `-Dtcc-jit=true` - link TinyCC and enable the experimental JIT.
 - `-Dsubmodule-update=false` - skip the auto-run of `git submodule update
   --init` at the start of the build.
 - `-Dtest-verbose`, `-Dtest-timing`, `-Dtest-jobs=N`, `-Dtest-timeout=N`,

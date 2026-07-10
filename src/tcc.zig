@@ -1,8 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const build_options = @import("build_options");
 
-pub const available = build_options.tcc_jit;
+pub const available = true;
 
 const c = if (available) @cImport({
     @cInclude("libtcc.h");

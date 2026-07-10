@@ -84,7 +84,7 @@ zig build onigmo             # just build Onigmo
 zig build prism              # just build Prism
 zig build psych              # just build the psych native extension
 zig build strscan            # just build the strscan native extension
-zig build tinycc             # just build TinyCC (for -Dtcc-jit=true)
+zig build tinycc             # just build TinyCC
 zig build cext-fixture       # build the test fixture .so used by cext_test
 ```
 
@@ -94,7 +94,6 @@ zig build cext-fixture       # build the test fixture .so used by cext_test
 zig build -Doptimize=ReleaseFast        # default; writes the result to build/bin/cora
 zig build -Doptimize=Debug              # full safety + debug info
 zig build -Doptimize=ReleaseSafe        # release performance with runtime safety
-zig build -Dtcc-jit=true                # include TinyCC-backed JIT support
 zig build -Dsubmodule-update=false      # skip `git submodule update --init`
 zig build test -Dtest-jobs=8            # parallelize tests across workers
 ```

@@ -68,7 +68,8 @@ Useful CLI flags:
 - `-e` - run a code string
 - `--ast` - dump the Prism AST
 - `--dump-bytecode` - dump compiled bytecode
-- `--dump-jit-source` - dump generated TinyCC JIT C source when built with `-Dtcc-jit=true`
+- `--jit` - enable the experimental TinyCC JIT (disabled by default)
+- `--dump-jit-source` - dump generated TinyCC JIT C source when JIT is enabled
 
 ### Debug Build
 
@@ -87,10 +88,11 @@ zig build -Doptimize=ReleaseSafe
 
 ### TinyCC JIT
 
-Build with the optional TinyCC JIT enabled:
+Enable the experimental TinyCC-based JIT compiler at runtime with `--jit`:
 
 ```bash
-zig build -Doptimize=ReleaseFast -Dtcc-jit=true
+zig build -Doptimize=ReleaseFast
+build/bin/cora --jit examples/fib.rb
 ```
 
 ## Testing

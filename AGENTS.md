@@ -35,7 +35,7 @@ Prism AST -> bytecode -> VM execution.
 - Parsing: Prism C library parses Ruby source and stores the AST on `Parser.ast`.
 - Compilation: `Compiler.compile()` walks the Prism AST and emits bytecode chunks.
 - Execution: `VM.run()` interprets bytecode with a stack-based VM.
-- TinyCC JIT is optional at build time and compiles eligible method chunks lazily on first call.
+- TinyCC JIT is built into every binary, disabled by default at runtime, and compiles eligible method chunks lazily on first call when enabled with `--jit`.
 - Locals live in `Environment`, not `CallFrame`.
 - Chunks represent module/class bodies, methods, blocks, procs, and lambdas.
 - GC owns Ruby heap objects. Parser strings and constant-pool strings are generally borrowed from the AST.
