@@ -244,6 +244,44 @@ test "TinyCC JIT accepts two-argument recursive chunk and executes it" {
     try std.testing.expectEqual(Value.integer(6).raw, result.raw);
 }
 
+test "TinyCC JIT accepts local mutation in while loop" {
+    if (!build_options.tcc_jit) return error.SkipZigTest;
+
+    const source =
+        \\def sum_to(n)
+        \\  total = 0
+        \\  while n > 0
+        \\    total = total + n
+        \\    n = n - 1
+        \\  end
+        \\  total
+        \\end
+        \\
+        \\sum_to(10)
+    ;
+
+    bdwgc.init();
+    defer bdwgc.deinit();
+
+    const allocator = std.testing.allocator;
+    var parser = try prism.Parser.init(allocator, source, null);
+    defer parser.deinit();
+
+    var program = try compiler.Compiler.compile(allocator, &parser, 1);
+    defer program.deinit();
+
+    const sum_to_chunk = findChunkByName(&program, "sum_to") orelse return error.TestUnexpectedResult;
+    try jit.validateChunk(sum_to_chunk);
+
+    var vm = VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic, std.testing.io, std.testing.environ);
+    defer vm.deinit();
+    try vm.prepare(&program);
+    vm.setTccJitEnabled(true);
+
+    const result = try vm.run();
+    try std.testing.expectEqual(Value.integer(55).raw, result.raw);
+}
+
 test "TinyCC JIT accepts recursive div chunk with floor semantics" {
     if (!build_options.tcc_jit) return error.SkipZigTest;
 

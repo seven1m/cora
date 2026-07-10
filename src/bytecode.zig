@@ -321,7 +321,14 @@ pub fn maxStackDepth(allocator: std.mem.Allocator, code: []const u8) !u16 {
 
         var next_depth = depth;
         switch (op) {
-            .GET_LOCAL, .PUSH_I8, .PUSH_SELF => next_depth += 1,
+            .GET_LOCAL, .PUSH_NIL, .PUSH_I8, .PUSH_SELF => next_depth += 1,
+            .SET_LOCAL => {
+                if (next_depth == 0) return error.InvalidBytecode;
+            },
+            .POP => {
+                if (next_depth == 0) return error.InvalidBytecode;
+                next_depth -= 1;
+            },
             .OPT_EQ, .OPT_PLUS, .OPT_MINUS, .OPT_MULT, .OPT_DIV, .OPT_LT, .OPT_GT, .OPT_LE, .OPT_GE => {
                 if (next_depth < 2) return error.InvalidBytecode;
                 next_depth -= 1;

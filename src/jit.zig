@@ -158,7 +158,12 @@ pub fn validateChunk(ch: *chunk_mod.Chunk) !void {
                 if (ep_offset == 0 or ep_offset > ch.locals_count) return error.NotEligible;
                 ip += 3;
             },
-            .PUSH_I8, .PUSH_SELF, .OPT_EQ, .OPT_PLUS, .OPT_MINUS, .OPT_MULT, .OPT_DIV, .OPT_LT, .OPT_GT, .OPT_LE, .OPT_GE => {
+            .SET_LOCAL => {
+                const ep_offset = readU16(ch.code.items, ip + 1);
+                if (ep_offset == 0 or ep_offset > ch.locals_count) return error.NotEligible;
+                ip += 3;
+            },
+            .PUSH_NIL, .POP, .PUSH_I8, .PUSH_SELF, .OPT_EQ, .OPT_PLUS, .OPT_MINUS, .OPT_MULT, .OPT_DIV, .OPT_LT, .OPT_GT, .OPT_LE, .OPT_GE => {
                 ip += 1 + bytecode.opcodeOperandSize(op);
             },
             .JUMP_IF_FALSE, .JUMP => {
@@ -230,6 +235,20 @@ pub fn generateChunk(allocator: std.mem.Allocator, ch: *chunk_mod.Chunk) !Genera
                 const local_idx = ch.locals_count - ep_offset;
                 try writer.print("  stack[sp++] = locals[{d}];\n", .{local_idx});
                 ip += 3;
+            },
+            .SET_LOCAL => {
+                const ep_offset = readU16(ch.code.items, ip + 1);
+                const local_idx = ch.locals_count - ep_offset;
+                try writer.print("  locals[{d}] = stack[sp - 1];\n", .{local_idx});
+                ip += 3;
+            },
+            .PUSH_NIL => {
+                try writer.writeAll("  stack[sp++] = 0ULL;\n");
+                ip += 1;
+            },
+            .POP => {
+                try writer.writeAll("  sp -= 1;\n");
+                ip += 1;
             },
             .PUSH_I8 => {
                 const val: i8 = @bitCast(ch.code.items[ip + 1]);
