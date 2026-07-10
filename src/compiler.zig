@@ -246,6 +246,10 @@ pub const Compiler = struct {
             );
         }
         target_chunk.patchEpOffsets(null);
+        target_chunk.max_stack_depth = bytecode.maxStackDepth(self.allocator, target_chunk.code.items) catch |err| switch (err) {
+            error.UnsupportedOpcode => null,
+            else => return err,
+        };
         self.patchRescueTypeChunks(target_chunk, target_chunk.locals_count);
     }
 

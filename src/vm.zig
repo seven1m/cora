@@ -3190,7 +3190,7 @@ pub const VM = struct {
         args: []const Value,
     ) VMError!?Value {
         if (!self.tcc_jit_enabled or !jit.available) return null;
-        if (self.integer_changed or args.len != 1 or !args[0].isInteger()) return null;
+        if (self.integer_changed or args.len > 2 or (args.len > 0 and !args[0].isInteger()) or (args.len == 2 and !args[1].isInteger())) return null;
 
         const state = try self.getOrCreateJitState(method_chunk);
         if (state.compiled_method_state_version != self.method_state_version or state.entry == null) {
@@ -3205,7 +3205,12 @@ pub const VM = struct {
 
         const entry = state.entry orelse return null;
         var ok: u8 = 1;
-        const raw = entry(receiver.raw, args[0].raw, &ok);
+        const raw = entry(
+            receiver.raw,
+            if (args.len > 0) args[0].raw else 0,
+            if (args.len == 2) args[1].raw else 0,
+            &ok,
+        );
         if (ok == 0) return null;
         return Value{ .raw = raw };
     }
@@ -6243,7 +6248,6 @@ pub const VM = struct {
             },
 
             .HASH_MERGE_KW => {
-
                 const source_val = self.pop();
                 const target_hash_val = self.peek(0);
                 if (!target_hash_val.isHash()) {

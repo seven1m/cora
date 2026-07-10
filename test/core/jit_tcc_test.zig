@@ -174,6 +174,76 @@ test "TinyCC JIT accepts factorial chunk and executes it" {
     try std.testing.expectEqual(Value.integer(720).raw, result.raw);
 }
 
+test "TinyCC JIT accepts zero-argument chunk and executes it" {
+    if (!build_options.tcc_jit) return error.SkipZigTest;
+
+    const source =
+        \\def answer
+        \\  42
+        \\end
+        \\
+        \\answer
+    ;
+
+    bdwgc.init();
+    defer bdwgc.deinit();
+
+    const allocator = std.testing.allocator;
+    var parser = try prism.Parser.init(allocator, source, null);
+    defer parser.deinit();
+
+    var program = try compiler.Compiler.compile(allocator, &parser, 1);
+    defer program.deinit();
+
+    const answer_chunk = findChunkByName(&program, "answer") orelse return error.TestUnexpectedResult;
+    try jit.validateChunk(answer_chunk);
+
+    var vm = VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic, std.testing.io, std.testing.environ);
+    defer vm.deinit();
+    try vm.prepare(&program);
+    vm.setTccJitEnabled(true);
+
+    const result = try vm.run();
+    try std.testing.expectEqual(Value.integer(42).raw, result.raw);
+}
+
+test "TinyCC JIT accepts two-argument recursive chunk and executes it" {
+    if (!build_options.tcc_jit) return error.SkipZigTest;
+
+    const source =
+        \\def gcd(a, b)
+        \\  if b == 0
+        \\    a
+        \\  else
+        \\    gcd(b, a / b)
+        \\  end
+        \\end
+        \\
+        \\gcd(84, 18)
+    ;
+
+    bdwgc.init();
+    defer bdwgc.deinit();
+
+    const allocator = std.testing.allocator;
+    var parser = try prism.Parser.init(allocator, source, null);
+    defer parser.deinit();
+
+    var program = try compiler.Compiler.compile(allocator, &parser, 1);
+    defer program.deinit();
+
+    const gcd_chunk = findChunkByName(&program, "gcd") orelse return error.TestUnexpectedResult;
+    try jit.validateChunk(gcd_chunk);
+
+    var vm = VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic, std.testing.io, std.testing.environ);
+    defer vm.deinit();
+    try vm.prepare(&program);
+    vm.setTccJitEnabled(true);
+
+    const result = try vm.run();
+    try std.testing.expectEqual(Value.integer(6).raw, result.raw);
+}
+
 test "TinyCC JIT accepts recursive div chunk with floor semantics" {
     if (!build_options.tcc_jit) return error.SkipZigTest;
 

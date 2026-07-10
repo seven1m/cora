@@ -297,6 +297,80 @@ pub fn opcodeOperandSize(op: OpCode) usize {
     };
 }
 
+/// Return the maximum evaluation-stack depth for the currently verified subset.
+/// Chunks containing other opcodes return `error.UnsupportedOpcode`.
+pub fn maxStackDepth(allocator: std.mem.Allocator, code: []const u8) !u16 {
+    var depths = try allocator.alloc(?usize, code.len + 1);
+    defer allocator.free(depths);
+    @memset(depths, null);
+
+    var worklist: std.ArrayList(usize) = .empty;
+    defer worklist.deinit(allocator);
+    depths[0] = 0;
+    try worklist.append(allocator, 0);
+
+    var maximum: usize = 0;
+    while (worklist.pop()) |ip| {
+        const depth = depths[ip] orelse return error.InvalidBytecode;
+        if (ip == code.len) continue;
+
+        const op: OpCode = @enumFromInt(code[ip]);
+        const operand_size = opcodeOperandSize(op);
+        const next_ip = ip + 1 + operand_size;
+        if (next_ip > code.len) return error.InvalidBytecode;
+
+        var next_depth = depth;
+        switch (op) {
+            .GET_LOCAL, .PUSH_I8, .PUSH_SELF => next_depth += 1,
+            .OPT_EQ, .OPT_PLUS, .OPT_MINUS, .OPT_MULT, .OPT_DIV, .OPT_LT, .OPT_GT, .OPT_LE, .OPT_GE => {
+                if (next_depth < 2) return error.InvalidBytecode;
+                next_depth -= 1;
+            },
+            .JUMP_IF_FALSE => {
+                if (next_depth == 0) return error.InvalidBytecode;
+                next_depth -= 1;
+            },
+            .CALL => {
+                if (ip + 3 >= code.len) return error.InvalidBytecode;
+                const argc: usize = code[ip + 3];
+                if (next_depth < argc + 1) return error.InvalidBytecode;
+                next_depth -= argc;
+            },
+            .RETURN => {
+                if (next_depth == 0) return error.InvalidBytecode;
+                continue;
+            },
+            .JUMP => {},
+            else => return error.UnsupportedOpcode,
+        }
+        maximum = @max(maximum, next_depth);
+
+        const destinations: []const usize = switch (op) {
+            .JUMP => &.{try jumpDestination(code, ip)},
+            .JUMP_IF_FALSE => &.{ try jumpDestination(code, ip), next_ip },
+            else => &.{next_ip},
+        };
+        for (destinations) |destination| {
+            if (destination > code.len) return error.InvalidBytecode;
+            if (depths[destination]) |existing| {
+                if (existing != next_depth) return error.InvalidBytecode;
+                continue;
+            }
+            depths[destination] = next_depth;
+            try worklist.append(allocator, destination);
+        }
+    }
+    return std.math.cast(u16, maximum) orelse error.StackTooDeep;
+}
+
+fn jumpDestination(code: []const u8, ip: usize) !usize {
+    if (ip + 2 >= code.len) return error.InvalidBytecode;
+    const offset: i16 = @bitCast(@as(u16, code[ip + 1]) | (@as(u16, code[ip + 2]) << 8));
+    const destination: i64 = @as(i64, @intCast(ip + 3)) + offset;
+    if (destination < 0 or destination > code.len) return error.InvalidBytecode;
+    return @intCast(destination);
+}
+
 pub fn opcodeName(op: OpCode) []const u8 {
     return switch (op) {
         .PUSH_NIL => "PUSH_NIL",

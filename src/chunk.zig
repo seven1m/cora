@@ -131,6 +131,10 @@ pub const Chunk = struct {
     /// (no optional/rest/keyword/block params).
     is_simple_positional: bool = false,
 
+    /// Maximum evaluation-stack depth, when the shared bytecode verifier supports
+    /// this chunk's instruction set.
+    max_stack_depth: ?u16 = null,
+
     // Callsite caches indexed by callsite_id
     callsite_caches: std.ArrayList(?CallSiteCache) = .empty,
     callsite_descriptors: std.ArrayList(?CallSiteDescriptor) = .empty,

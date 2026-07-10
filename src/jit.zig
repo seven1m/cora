@@ -4,7 +4,7 @@ const chunk_mod = @import("chunk.zig");
 const tcc = @import("tcc.zig");
 
 pub const available = tcc.available;
-pub const CompiledFn = *const fn (u64, u64, *u8) callconv(.c) u64;
+pub const CompiledFn = *const fn (u64, u64, u64, *u8) callconv(.c) u64;
 
 pub const State = struct {
     compilation: tcc.Compilation = .{},
@@ -144,7 +144,7 @@ pub export fn cora_jit_ge(a: u64, b: u64, ok: *u8) u64 {
 
 pub fn validateChunk(ch: *chunk_mod.Chunk) !void {
     if (!available) return error.Unavailable;
-    if (!ch.is_simple_positional or ch.arity != 1) return error.NotEligible;
+    if (!ch.is_simple_positional or ch.arity > 2) return error.NotEligible;
     if (ch.optional_params.items.len != 0 or ch.rest_param_index != null or ch.post_required_count != 0) return error.NotEligible;
     if (ch.required_keywords.items.len != 0 or ch.optional_keywords.items.len != 0 or ch.keyword_rest_index != null or ch.no_keywords) return error.NotEligible;
     if (ch.block_param_index != null or ch.exception_handlers.items.len != 0) return error.NotEligible;
@@ -168,7 +168,7 @@ pub fn validateChunk(ch: *chunk_mod.Chunk) !void {
             .CALL => {
                 const desc = try decodeCallDescriptor(ch, ip);
                 const method_name = try resolveMethodName(ch, desc.method_idx);
-                if (desc.argc != 1 or desc.block_chunk_id != 0) return error.NotEligible;
+                if (desc.argc != ch.arity or desc.block_chunk_id != 0) return error.NotEligible;
                 if (bytecode.decodeReceiverCallStyle(desc.call_flags) != .implicit_self) return error.NotEligible;
                 if (bytecode.argsArrayMode(desc.call_flags) or bytecode.kwHashMode(desc.call_flags)) return error.NotEligible;
                 if (!std.mem.eql(u8, method_name, ch.name)) return error.NotEligible;
@@ -181,11 +181,14 @@ pub fn validateChunk(ch: *chunk_mod.Chunk) !void {
             else => return error.NotEligible,
         }
     }
+
+    if (ch.max_stack_depth == null) return error.NotEligible;
 }
 
 pub fn generateChunk(allocator: std.mem.Allocator, ch: *chunk_mod.Chunk) !GeneratedChunk {
     if (!available) return error.Unavailable;
     try validateChunk(ch);
+    const stack_capacity = ch.max_stack_depth orelse return error.NotEligible;
 
     const symbol_name = try dupeZ(allocator, try std.fmt.allocPrint(allocator, "cora_jit_chunk_{d}", .{ch.chunk_id orelse 0}));
     errdefer allocator.free(symbol_name);
@@ -207,14 +210,15 @@ pub fn generateChunk(allocator: std.mem.Allocator, ch: *chunk_mod.Chunk) !Genera
         \\extern u64 cora_jit_ge(u64 a, u64 b, u8 *ok);
         \\
     );
-    try writer.print("u64 {s}(u64 self_raw, u64 arg0_raw, u8 *ok) {{\n", .{symbol_name});
-    try writer.writeAll("  u64 stack[64];\n");
+    try writer.print("u64 {s}(u64 self_raw, u64 arg0_raw, u64 arg1_raw, u8 *ok) {{\n", .{symbol_name});
+    try writer.print("  u64 stack[{d}];\n", .{@max(stack_capacity, 1)});
     try writer.print("  u64 locals[{d}] = {{0}};\n", .{@max(ch.locals_count, 1)});
     try writer.writeAll(
         \\  unsigned long sp = 0;
-        \\  locals[0] = arg0_raw;
         \\
     );
+    if (ch.arity > 0) try writer.writeAll("  locals[0] = arg0_raw;\n");
+    if (ch.arity > 1) try writer.writeAll("  locals[1] = arg1_raw;\n");
 
     var ip: usize = 0;
     while (ip < ch.code.items.len) {
@@ -330,19 +334,21 @@ pub fn generateChunk(allocator: std.mem.Allocator, ch: *chunk_mod.Chunk) !Genera
             },
             .CALL => {
                 const next_ip = ip + 7;
+                try writer.print("  if (stack[sp - {d}] != self_raw) {{\n", .{ch.arity + 1});
                 try writer.writeAll(
-                    \\  if (stack[sp - 2] != self_raw) {
                     \\    *ok = 0;
                     \\    return 0ULL;
                     \\  }
                     \\
                 );
-                try writer.print("  stack[sp - 2] = {s}(self_raw, stack[sp - 1], ok);\n", .{symbol_name});
-                try writer.writeAll(
-                    \\  if (!*ok) return 0ULL;
-                    \\  sp -= 1;
-                    \\
-                );
+                if (ch.arity == 0) {
+                    try writer.print("  stack[sp - 1] = {s}(self_raw, 0ULL, 0ULL, ok);\n", .{symbol_name});
+                } else if (ch.arity == 1) {
+                    try writer.print("  stack[sp - 2] = {s}(self_raw, stack[sp - 1], 0ULL, ok);\n", .{symbol_name});
+                } else {
+                    try writer.print("  stack[sp - 3] = {s}(self_raw, stack[sp - 2], stack[sp - 1], ok);\n", .{symbol_name});
+                }
+                try writer.print("  if (!*ok) return 0ULL;\n  sp -= {d};\n", .{ch.arity});
                 if (next_ip < ch.code.items.len) {
                     try writer.print("  goto L{d};\n", .{next_ip});
                 }
