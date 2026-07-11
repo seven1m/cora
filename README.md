@@ -13,6 +13,7 @@ to explore just-in-time compilation, and to possibly look into gradual typing or
 - Bytecode compiler
 - Stack VM
 - Experimental JIT compiler using [TinyCC](https://bellard.org/tcc/)
+- Experimental App packaging into a single executable
 
 ## What Works
 
@@ -70,6 +71,21 @@ Useful CLI flags:
 - `--dump-bytecode` - dump compiled bytecode
 - `--jit` - enable the experimental TinyCC JIT (disabled by default)
 - `--dump-jit-source` - dump generated TinyCC JIT C source when JIT is enabled
+
+### Package an Application
+
+Package a Ruby application as a single executable with `--pack`:
+
+```bash
+build/bin/cora --pack -o my-app path/to/main.rb
+./my-app [args]
+```
+
+Cora appends the application files to its own executable, then extracts them
+to a private temporary directory each time the packaged binary starts. The
+entrypoint's parent directory is packaged by default; use `--pack-root DIR` to
+choose a project root and `.coraignore` to exclude exact file paths or directory
+prefixes.
 
 ### Debug Build
 

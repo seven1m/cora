@@ -8,6 +8,7 @@ const load_path = @import("load_path.zig");
 const vm = @import("vm.zig");
 const bdwgc = @import("bdwgc");
 const cext = @import("cext.zig");
+const pack = @import("app_pack.zig");
 
 /// Implements Ruby's -x flag: scans forward through `code` and returns the
 /// slice starting at the first line whose content begins with "#!" and contains
@@ -157,6 +158,9 @@ fn printHelp() void {
         \\Runtime:
         \\  --jit                  Enable the experimental TinyCC JIT
         \\  --disable-gems         Skip RubyGems setup
+        \\  --pack                 Package ENTRYPOINT into a self-contained executable
+        \\  -o FILE                Output path used with --pack
+        \\  --pack-root DIR        Project root used with --pack
         \\  --backtrace-limit=N    Limit printed backtrace frames
         \\  -0[OCTAL]              Set input record separator ($/) from octal byte
         \\  -x                     Skip leading text before a Ruby shebang line
@@ -200,6 +204,12 @@ pub fn main(init: std.process.Init) !void {
     const args = try init.minimal.args.toSlice(init.arena.allocator());
     vm.installDefaultSignalHandlers();
 
+    var extracted_package = pack.maybeExtract(allocator, init.io) catch |err| {
+        std.debug.print("Error: invalid packaged application: {}\n", .{err});
+        return;
+    };
+    defer if (extracted_package) |*package| package.deinit(allocator, init.io);
+
     var ruby_code: ?[]const u8 = null;
     var filename: ?[]const u8 = null;
     var print_ast = false;
@@ -220,9 +230,16 @@ pub fn main(init: std.process.Init) !void {
     defer required_libraries.deinit(allocator);
 
     var verbose = false;
+    var pack_mode = false;
+    var pack_output: ?[]const u8 = null;
+    var pack_root: ?[]const u8 = null;
 
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
+        if (extracted_package != null) {
+            try script_args.append(allocator, args[i]);
+            continue;
+        }
         if (filename != null) {
             try script_args.append(allocator, args[i]);
             continue;
@@ -230,6 +247,22 @@ pub fn main(init: std.process.Init) !void {
 
         if (std.mem.eql(u8, args[i], "-v")) {
             verbose = true;
+        } else if (std.mem.eql(u8, args[i], "--pack")) {
+            pack_mode = true;
+        } else if (std.mem.eql(u8, args[i], "-o")) {
+            if (i + 1 >= args.len) {
+                std.debug.print("Error: -o requires an argument\n", .{});
+                return;
+            }
+            pack_output = args[i + 1];
+            i += 1;
+        } else if (std.mem.eql(u8, args[i], "--pack-root")) {
+            if (i + 1 >= args.len) {
+                std.debug.print("Error: --pack-root requires an argument\n", .{});
+                return;
+            }
+            pack_root = args[i + 1];
+            i += 1;
         } else if (std.mem.eql(u8, args[i], "-e")) {
             if (i + 1 < args.len) {
                 ruby_code = args[i + 1];
@@ -295,6 +328,30 @@ pub fn main(init: std.process.Init) !void {
         } else {
             printInvalidOptionAndExit(args[0], args[i]);
         }
+    }
+
+    if (pack_mode) {
+        const entrypoint = filename orelse {
+            std.debug.print("Error: --pack requires an entrypoint\n", .{});
+            return;
+        };
+        const output = pack_output orelse {
+            std.debug.print("Error: --pack requires -o OUTPUT\n", .{});
+            return;
+        };
+        pack.create(allocator, init.io, entrypoint, pack_root, output) catch |err| {
+            std.debug.print("Error: could not package application: {}\n", .{err});
+        };
+        return;
+    }
+
+    if (pack_output != null or pack_root != null) {
+        std.debug.print("Error: -o and --pack-root are only valid with --pack\n", .{});
+        return;
+    }
+
+    if (extracted_package) |package| {
+        filename = package.entrypoint;
     }
 
     if (ruby_code == null and filename == null) {
@@ -377,6 +434,10 @@ pub fn main(init: std.process.Init) !void {
     }
     defer virtual_machine.deinit();
     try configureLoadPath(allocator, &virtual_machine, init.io, args[0], extra_load_paths.items);
+    if (extracted_package) |package| {
+        try virtual_machine.appendLoadPath(package.root);
+        try virtual_machine.syncLoadPathGlobals();
+    }
     virtual_machine.setTccJitEnabled(jit_enabled);
     virtual_machine.setDisableGems(disable_gems);
     virtual_machine.setDumpJitSource(dump_jit_source);

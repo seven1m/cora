@@ -1,6 +1,7 @@
 const value_test = @import("value_test.zig");
 const prism_test = @import("prism_test.zig");
 const binary_test = @import("binary_test.zig");
+const application_pack_test = @import("application_pack_test.zig");
 const cgi_test = @import("cgi_test.zig");
 const exit_test = @import("exit_test.zig");
 const delegate_test = @import("delegate_test.zig");
@@ -103,6 +104,7 @@ comptime {
     _ = value_test;
     _ = prism_test;
     _ = binary_test;
+    _ = application_pack_test;
     _ = cgi_test;
     _ = exit_test;
     _ = delegate_test;
