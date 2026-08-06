@@ -102,6 +102,23 @@ test "block break - nested blocks use innermost" {
     try std.testing.expectEqual(@as(i64, 99), result.toInteger());
 }
 
+test "block break - forwarded block exits the receiving method" {
+    const result = try evalCode(
+        \\def inner
+        \\  yield
+        \\end
+        \\
+        \\def outer(&block)
+        \\  inner(&block)
+        \\  :continued
+        \\end
+        \\
+        \\outer { break :stopped }
+    );
+    try std.testing.expect(result.isSymbol());
+    try std.testing.expectEqualStrings("stopped", result.toSymbolObject().name);
+}
+
 test "block break - different from loop break" {
     const result = try evalCode(
         \\def test

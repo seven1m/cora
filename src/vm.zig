@@ -275,6 +275,7 @@ pub const Block = struct {
         defining_ep: [*]Value,
         defining_self: Value,
         return_target_ep: ?[*]Value,
+        break_target_ep: ?[*]Value = null,
         enclosing_block_proc: ?*value.ProcObject = null,
     };
 
@@ -2043,6 +2044,10 @@ pub const VM = struct {
                     if (blk.kind.chunk.return_target_ep) |rte| {
                         if (@intFromPtr(rte) == old_raw)
                             blk.kind.chunk.return_target_ep = new_ep;
+                    }
+                    if (blk.kind.chunk.break_target_ep) |bte| {
+                        if (@intFromPtr(bte) == old_raw)
+                            blk.kind.chunk.break_target_ep = new_ep;
                     }
                 }
             }
@@ -6359,7 +6364,10 @@ pub const VM = struct {
                     .chunk => |chunk_blk| {
                         // De-recursed: push block frame inline, return to dispatch loop
                         const ft: CallFrame.FrameType = if (chunk_blk.chunk.is_lambda) .lambda else .proc;
-                        const break_target_frame_idx = if (self.frames.items.len > 0) self.frames.items.len - 1 else null;
+                        const break_target_frame_idx = if (self.frames.items.len > 0)
+                            try self.blockBreakTargetFrameIndex(chunk_blk, self.frames.items.len - 1)
+                        else
+                            null;
                         const next_target_frame_idx = self.frames.items.len;
                         try self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, chunk_blk.defining_self, ft, .{
                             .block = if (chunk_blk.enclosing_block_proc) |proc_obj| proc_obj.block else null,
@@ -6401,7 +6409,10 @@ pub const VM = struct {
                     .chunk => |chunk_blk| {
                         // De-recursed: push block frame inline, return to dispatch loop
                         const ft: CallFrame.FrameType = if (chunk_blk.chunk.is_lambda) .lambda else .proc;
-                        const break_target_frame_idx = if (self.frames.items.len > 0) self.frames.items.len - 1 else null;
+                        const break_target_frame_idx = if (self.frames.items.len > 0)
+                            try self.blockBreakTargetFrameIndex(chunk_blk, self.frames.items.len - 1)
+                        else
+                            null;
                         const next_target_frame_idx = self.frames.items.len;
                         try self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, chunk_blk.defining_self, ft, .{
                             .block = if (chunk_blk.enclosing_block_proc) |proc_obj| proc_obj.block else null,
@@ -7477,6 +7488,11 @@ pub const VM = struct {
 
         try self.pushFrame(method_chunk, receiver, opts.block);
         const callee_frame = self.currentFrame();
+        if (callee_frame.block) |*blk| {
+            if (blk.kind == .chunk and blk.source_proc == null and blk.kind.chunk.break_target_ep == null) {
+                blk.kind.chunk.break_target_ep = callee_frame.ep;
+            }
+        }
         callee_frame.method_name = opts.method_name;
         callee_frame.super_defining_class = opts.super_defining_class;
         callee_frame.forwarded_keyword_ctx = if (has_keywords)
@@ -8341,6 +8357,12 @@ pub const VM = struct {
         }
     };
 
+    fn blockBreakTargetFrameIndex(self: *VM, chunk_blk: Block.ChunkData, fallback: usize) VMError!usize {
+        const target_ep = chunk_blk.break_target_ep orelse return fallback;
+        return self.findActiveReturnTargetMethodFrameIndex(target_ep) orelse
+            self.raiseExceptionFmt(self.local_jump_error_class, "break from proc-closure", .{});
+    }
+
     /// Yield to a block with arguments, handling break and exceptions
     /// Returns the block's result value and whether a break occurred
     pub fn yieldToBlock(self: *VM, block: Block, yield_args: []const Value) VMError!YieldResult {
@@ -8385,7 +8407,7 @@ pub const VM = struct {
             .chunk => |chunk_blk| blk: {
                 const saved_stack_len = self.stack.items.len;
                 const ft: CallFrame.FrameType = if (chunk_blk.chunk.is_lambda) .lambda else .proc;
-                const break_target_frame_idx = self.frames.items.len;
+                const break_target_frame_idx = try self.blockBreakTargetFrameIndex(chunk_blk, self.frames.items.len);
                 const next_target_frame_idx = self.frames.items.len;
                 try self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, chunk_blk.defining_self, ft, .{
                     .block = if (chunk_blk.enclosing_block_proc) |proc_obj| proc_obj.block else null,
@@ -10596,6 +10618,10 @@ pub const VM = struct {
                     .defining_ep = self.promoteFrameToHeap(chunk_blk.defining_ep) catch return error.Fatal,
                     .defining_self = chunk_blk.defining_self,
                     .return_target_ep = if (chunk_blk.return_target_ep) |target_ep|
+                        self.promoteFrameToHeap(target_ep) catch return error.Fatal
+                    else
+                        null,
+                    .break_target_ep = if (chunk_blk.break_target_ep) |target_ep|
                         self.promoteFrameToHeap(target_ep) catch return error.Fatal
                     else
                         null,
