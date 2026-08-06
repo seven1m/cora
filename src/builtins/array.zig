@@ -573,6 +573,9 @@ pub fn register(vm: *VM) !void {
     const each_sym = try vm.intern("each");
     try vm.array_class.module.methods.put(each_sym, value.MethodEntry.builtin(&builtinArrayEach, .{ .exact = 0 }));
 
+    const cycle_sym = try vm.intern("cycle");
+    try vm.array_class.module.methods.put(cycle_sym, value.MethodEntry.builtin(&builtinArrayCycle, .{ .variadic = 0 }));
+
     const reverse_each_sym = try vm.intern("reverse_each");
     try vm.array_class.module.methods.put(reverse_each_sym, value.MethodEntry.builtin(&builtinArrayReverseEach, .{ .exact = 0 }));
 
@@ -1345,6 +1348,54 @@ pub fn builtinArrayEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
     }
 
     return receiver;
+}
+
+fn arrayCycleCount(vm: *VM, arg: Value) VMError!i64 {
+    return arg.coerceToI64ViaToInt(
+        vm,
+        "no implicit conversion into Integer",
+        "no implicit conversion into Integer",
+        "bignum too big to convert into `long`",
+    );
+}
+
+fn arrayCycleEnumeratorSize(vm: *VM, receiver: Value, method_args: ?*value.ArrayObject) VMError!Value {
+    const len: i64 = @intCast(receiver.toArrayObject().elements.items.len);
+    if (len == 0) return Value.integer(0);
+
+    const args = if (method_args) |array| array.elements.items else &.{};
+    if (args.len == 0 or args[0].isNil()) return vm.newFloat(std.math.inf(f64));
+
+    const count = try arrayCycleCount(vm, args[0]);
+    if (count <= 0) return Value.integer(0);
+
+    const size = Value.integer(len);
+    var multiply_args = [_]Value{Value.integer(count)};
+    return vm.callMethodByName(size, "*", &multiply_args, null);
+}
+
+pub fn builtinArrayCycle(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const blk = block orelse {
+        return vm.createMethodEnumeratorWithSizeFn(receiver, try vm.intern("cycle"), args, &arrayCycleEnumeratorSize);
+    };
+
+    const array = receiver.toArrayObject();
+    if (array.elements.items.len == 0) return Value.nil();
+
+    const count: ?i64 = if (args.len == 0 or args[0].isNil()) null else try arrayCycleCount(vm, args[0]);
+    if (count != null and count.? <= 0) return Value.nil();
+
+    var iteration: i64 = 0;
+    while (count == null or iteration < count.?) : (iteration += 1) {
+        var idx: usize = 0;
+        while (idx < array.elements.items.len) : (idx += 1) {
+            const yielded = try vm.yieldToBlock(blk, &.{array.elements.items[idx]});
+            if (yielded.controlFlowValue()) |return_value| return return_value;
+        }
+    }
+
+    return Value.nil();
 }
 
 pub fn builtinArrayReverseEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
