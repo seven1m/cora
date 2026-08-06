@@ -20,6 +20,9 @@ pub fn register(vm: *VM) !void {
 
     const class_superclass_sym = try vm.intern("superclass");
     try vm.class_class.module.methods.put(class_superclass_sym, value.MethodEntry.builtin(&builtinClassSuperclass, .{ .exact = 0 }));
+
+    const initialize_sym = try vm.intern("initialize");
+    try vm.class_class.module.methods.put(initialize_sym, value.MethodEntry.builtinWithVisibility(&builtinClassInitialize, .{ .variadic = 0 }, .private));
 }
 
 fn singletonClassName(vm: *VM, class_ptr: *ClassObject) ?[]const u8 {
@@ -160,6 +163,55 @@ pub fn builtinClassSuperclass(vm: *VM, receiver: Value, args: []Value, _: ?Block
     }
     const superclass = class_ptr.superclass orelse return Value.nil();
     return Value.fromObject(&superclass.module.object);
+}
+
+pub fn builtinClassInitialize(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    std.debug.assert(receiver.isClass());
+
+    const class_ptr = receiver.toClassObject();
+    if (!isUninitializedClass(vm, class_ptr)) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "already initialized class", .{});
+    }
+
+    var superclass = vm.object_class;
+    if (args.len == 1) {
+        if (!args[0].isClass()) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "superclass must be an instance of Class", .{});
+        }
+        superclass = args[0].toClassObject();
+        if (superclass == vm.class_class) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "can't make subclass of Class", .{});
+        }
+    }
+
+    class_ptr.superclass = superclass;
+    class_ptr.module.super = &superclass.module;
+    class_ptr.object_type = superclass.object_type;
+
+    var inherited_args = [_]Value{receiver};
+    _ = try vm.callMethodByName(Value.fromObject(&superclass.module.object), "inherited", inherited_args[0..], null);
+
+    if (block) |blk| {
+        const yield_result = switch (blk.kind) {
+            .chunk => |chunk_blk| chunk_blk_result: {
+                chunk_blk.chunk.lexical_scope = try vm.createLexicalScope(receiver, vm.current_lexical_scope);
+                const class_body_block = Block{
+                    .kind = .{ .chunk = .{
+                        .chunk = chunk_blk.chunk,
+                        .defining_ep = chunk_blk.defining_ep,
+                        .defining_self = receiver,
+                        .return_target_ep = chunk_blk.return_target_ep,
+                    } },
+                };
+                break :chunk_blk_result try vm.yieldToBlock(class_body_block, &[_]Value{});
+            },
+            .receiver_builtin, .symbol, .builtin, .callable => try vm.yieldToBlock(blk, &[_]Value{}),
+        };
+        if (yield_result.controlFlowValue()) |return_value| return return_value;
+    }
+
+    return receiver;
 }
 
 pub fn builtinClassAllocate(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
