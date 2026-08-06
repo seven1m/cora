@@ -973,7 +973,7 @@ class SpecExpectation
     if @actual == expected
       :noop
     else
-      raise SpecFailedException, "Expected: #{expected.inspect}\nActual: #{@actual.inspect}"
+      Kernel.raise SpecFailedException, "Expected: #{expected.inspect}\nActual: #{@actual.inspect}"
     end
   end
 
@@ -981,7 +981,7 @@ class SpecExpectation
     if @actual != expected
       :noop
     else
-      raise SpecFailedException, "Expected value not to equal: #{expected.inspect}"
+      Kernel.raise SpecFailedException, "Expected value not to equal: #{expected.inspect}"
     end
   end
 
@@ -989,8 +989,12 @@ class SpecExpectation
     if matcher.matches?(@actual)
       :noop
     else
-      raise SpecFailedException, matcher.failure_message(@actual)
+      Kernel.raise SpecFailedException, matcher.failure_message(@actual)
     end
+  end
+
+  def raise(expected = nil, expected_message = nil, &verifier)
+    match(RaiseErrorMatcher.new(expected, expected_message, verifier))
   end
 
   def method_missing(name, *args, &block)
@@ -998,7 +1002,7 @@ class SpecExpectation
     if result
       :noop
     else
-      raise SpecFailedException, "Expected #{@actual.inspect}.#{name} to be truthy"
+      Kernel.raise SpecFailedException, "Expected #{@actual.inspect}.#{name} to be truthy"
     end
   end
 
