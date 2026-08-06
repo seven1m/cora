@@ -855,7 +855,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/float/denominator_spec.rb
 - [ ] core/float/divide_spec.rb
 - [ ] core/float/divmod_spec.rb
-- [ ] core/float/dup_spec.rb
+- [x] core/float/dup_spec.rb
 - [ ] core/float/eql_spec.rb
 - [ ] core/float/equal_value_spec.rb
 - [ ] core/float/exponent_spec.rb
@@ -885,11 +885,10 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/float/quo_spec.rb
 - [ ] core/float/rationalize_spec.rb
 - [ ] core/float/round_spec.rb
-- [ ] core/float/to_f_spec.rb
+- [x] core/float/to_f_spec.rb
 - [x] core/float/to_i_spec.rb
 - [x] core/float/to_int_spec.rb
 - [ ] core/float/to_r_spec.rb
-- [x] core/float/to_f_spec.rb
 - [x] core/float/to_s_spec.rb
 - [ ] core/float/truncate_spec.rb
 - [x] core/float/uminus_spec.rb
