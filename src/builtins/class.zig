@@ -31,10 +31,18 @@ fn singletonClassName(vm: *VM, class_ptr: *ClassObject) ?[]const u8 {
     return null;
 }
 
+fn isUninitializedClass(vm: *VM, class_ptr: *ClassObject) bool {
+    return class_ptr != vm.basic_object_class and class_ptr.superclass == null;
+}
+
 pub fn builtinClassNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     std.debug.assert(receiver.isClass());
 
     const class_ptr = receiver.toClassObject();
+
+    if (isUninitializedClass(vm, class_ptr)) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "can't instantiate uninitialized class", .{});
+    }
 
     if (singletonClassName(vm, class_ptr)) |name| {
         return vm.raiseExceptionFmt(vm.no_method_error_class, "undefined method 'new' for {s}", .{name});
@@ -147,6 +155,9 @@ pub fn builtinClassSuperclass(vm: *VM, receiver: Value, args: []Value, _: ?Block
     try vm.requireArgCount(args, 0);
     std.debug.assert(receiver.isClass());
     const class_ptr = receiver.toClassObject();
+    if (isUninitializedClass(vm, class_ptr)) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "uninitialized class", .{});
+    }
     const superclass = class_ptr.superclass orelse return Value.nil();
     return Value.fromObject(&superclass.module.object);
 }
@@ -158,6 +169,10 @@ pub fn builtinClassAllocate(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     const class_ptr = receiver.toClassObject();
     if (singletonClassName(vm, class_ptr)) |name| {
         return vm.raiseExceptionFmt(vm.type_error_class, "allocator undefined for {s}", .{name});
+    }
+    if (class_ptr == vm.class_class) {
+        const anonymous_name = try vm.intern("<anonymous>");
+        return vm.newClass(anonymous_name, null);
     }
     if (class_ptr.object_type == .string) {
         return vm.newStringForClassWithEncoding(class_ptr, "", false, .{ .ascii_8bit = .{} });
