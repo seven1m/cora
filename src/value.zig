@@ -224,6 +224,7 @@ pub const ClassObject = struct {
     object_type: ObjectType = .instance,
     struct_members: ?*ArrayObject = null,
     struct_keyword_init: ?bool = null,
+    builtin_alloc_func: ?*const fn (*VM, Value, []Value, ?Block) VMError!Value = null,
     cext_alloc_func: ?*anyopaque = null,
 };
 

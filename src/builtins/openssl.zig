@@ -64,6 +64,7 @@ pub fn register(vm: *VM) !void {
     const digest_name = try vm.intern("Digest");
     const digest_val = try vm.newClass(digest_name, vm.object_class);
     const digest_class = digest_val.toClassObject();
+    digest_class.builtin_alloc_func = &builtinOpenSSLDigestAllocate;
     try vm.setConstant(openssl_mod, digest_name, digest_val);
 
     const digest_error_name = try vm.intern("DigestError");

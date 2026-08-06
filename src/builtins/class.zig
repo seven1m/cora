@@ -93,6 +93,9 @@ pub fn builtinClassNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
                 return vm.raiseExceptionFmt(vm.type_error_class, "superclass must be a Class", .{});
             }
             superclass = args[0].toClassObject();
+            if (superclass.attached_object != null) {
+                return vm.raiseExceptionFmt(vm.type_error_class, "can't make subclass of singleton class", .{});
+            }
         }
 
         const anonymous_name = try vm.intern("<anonymous>");
@@ -132,8 +135,7 @@ pub fn builtinClassNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
     }
 
     // OtherClass.new(...) instantiates OtherClass and calls initialize.
-    const class_val = Value.fromObject(&class_ptr.module.object);
-    const instance = try vm.callMethodByName(class_val, "allocate", &[_]Value{}, null);
+    const instance = try vm.newObjectForClass(class_ptr);
 
     const initialize_sym = try vm.intern("initialize");
     if (try vm.findMethod(instance, initialize_sym)) |resolved| {

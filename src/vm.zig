@@ -276,6 +276,7 @@ pub const Block = struct {
         defining_self: Value,
         return_target_ep: ?[*]Value,
         break_target_ep: ?[*]Value = null,
+        break_target_is_builtin: bool = false,
         enclosing_block_proc: ?*value.ProcObject = null,
     };
 
@@ -6365,7 +6366,7 @@ pub const VM = struct {
                         // De-recursed: push block frame inline, return to dispatch loop
                         const ft: CallFrame.FrameType = if (chunk_blk.chunk.is_lambda) .lambda else .proc;
                         const break_target_frame_idx = if (self.frames.items.len > 0)
-                            try self.blockBreakTargetFrameIndex(chunk_blk, self.frames.items.len - 1)
+                            self.blockBreakTargetFrameIndex(chunk_blk, self.frames.items.len - 1)
                         else
                             null;
                         const next_target_frame_idx = self.frames.items.len;
@@ -6410,7 +6411,7 @@ pub const VM = struct {
                         // De-recursed: push block frame inline, return to dispatch loop
                         const ft: CallFrame.FrameType = if (chunk_blk.chunk.is_lambda) .lambda else .proc;
                         const break_target_frame_idx = if (self.frames.items.len > 0)
-                            try self.blockBreakTargetFrameIndex(chunk_blk, self.frames.items.len - 1)
+                            self.blockBreakTargetFrameIndex(chunk_blk, self.frames.items.len - 1)
                         else
                             null;
                         const next_target_frame_idx = self.frames.items.len;
@@ -7698,7 +7699,8 @@ pub const VM = struct {
         self.builtin_keyword_ctx = keyword_ctx;
         defer self.builtin_keyword_ctx = previous_ctx;
 
-        const result = builtin_method.function(self, receiver, args, block) catch |err| {
+        const bound_block = if (self.frames.items.len > saved_frame_len) self.currentFrame().block else block;
+        const result = builtin_method.function(self, receiver, args, bound_block) catch |err| {
             if (self.pendingException() != null) {
                 return error.Unwind;
             }
@@ -8068,6 +8070,13 @@ pub const VM = struct {
                 });
 
                 try self.executeUntilReturn(saved_frame_count);
+                if (self.pendingControlFlow()) |cf| {
+                    if (cf.kind == .break_) {
+                        if (cf.target_frame_idx) |target_frame_idx| {
+                            if (target_frame_idx < saved_frame_count) return error.Unwind;
+                        }
+                    }
+                }
                 return (try self.finishSubcallFromStack(saved_frame_count, saved_stack_len)).value();
             },
             .builtin => |fun_ptr| {
@@ -8223,6 +8232,13 @@ pub const VM = struct {
             .method_name = method_name,
             .dir_returns_nil = caller_frame.dir_returns_nil,
         }) catch return error.Fatal;
+        const builtin_frame = self.currentFrame();
+        if (builtin_frame.block) |*blk| {
+            if (blk.kind == .chunk and blk.source_proc == null and blk.kind.chunk.break_target_ep == null) {
+                blk.kind.chunk.break_target_ep = builtin_frame.ep;
+                blk.kind.chunk.break_target_is_builtin = true;
+            }
+        }
     }
 
     pub fn popBuiltinFrame(self: *VM) void {
@@ -8357,10 +8373,17 @@ pub const VM = struct {
         }
     };
 
-    fn blockBreakTargetFrameIndex(self: *VM, chunk_blk: Block.ChunkData, fallback: usize) VMError!usize {
+    fn blockBreakTargetFrameIndex(self: *VM, chunk_blk: Block.ChunkData, fallback: usize) ?usize {
         const target_ep = chunk_blk.break_target_ep orelse return fallback;
-        return self.findActiveReturnTargetMethodFrameIndex(target_ep) orelse
-            self.raiseExceptionFmt(self.local_jump_error_class, "break from proc-closure", .{});
+        const target_raw = @intFromPtr(target_ep);
+        var frame_idx = self.frames.items.len;
+        while (frame_idx > 0) {
+            frame_idx -= 1;
+            const frame = self.frames.items[frame_idx];
+            const expected_type: CallFrame.FrameType = if (chunk_blk.break_target_is_builtin) .builtin else .method;
+            if (frame.frame_type == expected_type and @intFromPtr(frame.ep) == target_raw) return frame_idx;
+        }
+        return null;
     }
 
     /// Yield to a block with arguments, handling break and exceptions
@@ -8407,7 +8430,7 @@ pub const VM = struct {
             .chunk => |chunk_blk| blk: {
                 const saved_stack_len = self.stack.items.len;
                 const ft: CallFrame.FrameType = if (chunk_blk.chunk.is_lambda) .lambda else .proc;
-                const break_target_frame_idx = try self.blockBreakTargetFrameIndex(chunk_blk, self.frames.items.len);
+                const break_target_frame_idx = self.blockBreakTargetFrameIndex(chunk_blk, self.frames.items.len);
                 const next_target_frame_idx = self.frames.items.len;
                 try self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, chunk_blk.defining_self, ft, .{
                     .block = if (chunk_blk.enclosing_block_proc) |proc_obj| proc_obj.block else null,
@@ -9968,6 +9991,9 @@ pub const VM = struct {
     }
 
     pub fn newObjectForClass(self: *VM, class_obj: *ClassObject) VMError!Value {
+        if (self.findBuiltinAllocFunc(class_obj)) |alloc_fn| {
+            return alloc_fn(self, Value.fromObject(&class_obj.module.object), &.{}, null);
+        }
         if (self.isClassOrSubclassOf(class_obj, self.exception_class)) {
             const exc = try self.createException(class_obj, "");
             return Value.fromObject(&exc.object);
@@ -10021,6 +10047,15 @@ pub const VM = struct {
                 break :blk Value{ .raw = func(Value.fromObject(&class_obj.module.object).raw) };
             } else self.newInstance(class_obj),
         };
+    }
+
+    fn findBuiltinAllocFunc(_: *VM, class_obj: *ClassObject) ?*const fn (*VM, Value, []Value, ?Block) VMError!Value {
+        var current: ?*ClassObject = class_obj;
+        while (current) |klass| {
+            if (klass.builtin_alloc_func) |alloc_fn| return alloc_fn;
+            current = klass.superclass;
+        }
+        return null;
     }
 
     fn findCextAllocFunc(self: *VM, class_obj: *ClassObject) ?*anyopaque {
@@ -10625,6 +10660,7 @@ pub const VM = struct {
                         self.promoteFrameToHeap(target_ep) catch return error.Fatal
                     else
                         null,
+                    .break_target_is_builtin = chunk_blk.break_target_is_builtin,
                     .enclosing_block_proc = chunk_blk.enclosing_block_proc,
                 } } },
             },

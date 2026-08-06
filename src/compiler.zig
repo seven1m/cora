@@ -3458,7 +3458,8 @@ pub const Compiler = struct {
             const parent_node = try self.parser.asNode(@ptrCast(parent));
             try self.compileNode(parent_node, line);
         } else {
-            try self.current_chunk.emitOp(.PUSH_SELF, line);
+            const object_idx = try self.current_chunk.addConstant(.{ .string = "Object" });
+            try self.current_chunk.emitOpU16(.GET_TOPLEVEL_CONST, @intCast(object_idx), line);
         }
 
         const value_node = try self.parser.asNode(@ptrCast(const_path_write.value));
