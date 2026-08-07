@@ -277,8 +277,6 @@ pub const Block = struct {
         chunk: *Chunk,
         defining_ep: [*]Value,
         defining_self: Value,
-        break_target_ep: ?[*]Value = null,
-        break_target_is_builtin: bool = false,
         enclosing_block_proc: ?*value.ProcObject = null,
     };
 
@@ -320,7 +318,6 @@ pub const CallFrame = struct {
     self_value: Value,
     block: ?Block = null,
     frame_type: FrameType = .method,
-    break_target_frame_idx: ?usize = null,
     next_target_frame_idx: ?usize = null,
     method_name: ?[]const u8 = null,
     super_defining_class: ?*ClassObject = null,
@@ -355,6 +352,13 @@ pub const PendingControlFlow = struct {
         retry_,
     };
 };
+
+fn sameControlFlowIdentity(lhs: PendingControlFlow, rhs: PendingControlFlow) bool {
+    return lhs.kind == rhs.kind and
+        lhs.value.raw == rhs.value.raw and
+        lhs.target_frame == rhs.target_frame and
+        lhs.target_ip == rhs.target_ip;
+}
 
 const PendingUnwind = union(enum) {
     exception: *value.ExceptionObject,
@@ -682,7 +686,6 @@ pub const VM = struct {
 
     cext_handles: std.ArrayList(std.DynLib) = .empty,
     cext_jmp_buf: ?*[200]u8 = null,
-    cext_pending_control_flow: ?PendingControlFlow = null,
 
     var active_gc_roots_vm: ?*VM = null;
     var previous_gc_push_other_roots: bdwgc.c.GC_push_other_roots_proc = null;
@@ -2054,10 +2057,6 @@ pub const VM = struct {
                 if (blk.kind == .chunk) {
                     if (@intFromPtr(blk.kind.chunk.defining_ep) == old_raw)
                         blk.kind.chunk.defining_ep = new_ep;
-                    if (blk.kind.chunk.break_target_ep) |bte| {
-                        if (@intFromPtr(bte) == old_raw)
-                            blk.kind.chunk.break_target_ep = new_ep;
-                    }
                 }
             }
         }
@@ -3489,7 +3488,6 @@ pub const VM = struct {
     /// lexical parent (ep[0]), matching MRI's SPECVAL prev-ep convention.
     pub const BlockFrameOptions = struct {
         block: ?Block = null,
-        break_target_frame_idx: ?usize = null,
         next_target_frame_idx: ?usize = null,
         method_definition_target: ?Value = null,
     };
@@ -3533,7 +3531,6 @@ pub const VM = struct {
             .self_value = self_value,
             .block = opts.block,
             .frame_type = frame_type,
-            .break_target_frame_idx = opts.break_target_frame_idx,
             .next_target_frame_idx = opts.next_target_frame_idx,
         }) catch return error.Fatal;
 
@@ -6374,14 +6371,9 @@ pub const VM = struct {
                     .chunk => |chunk_blk| {
                         // De-recursed: push block frame inline, return to dispatch loop
                         const ft: CallFrame.FrameType = if (chunk_blk.chunk.is_lambda) .lambda else .proc;
-                        const break_target_frame_idx = if (self.frames.items.len > 0)
-                            self.blockBreakTargetFrameIndex(chunk_blk, self.frames.items.len - 1)
-                        else
-                            null;
                         const next_target_frame_idx = self.frames.items.len;
                         try self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, chunk_blk.defining_self, ft, .{
                             .block = if (chunk_blk.enclosing_block_proc) |proc_obj| proc_obj.block else null,
-                            .break_target_frame_idx = break_target_frame_idx,
                             .next_target_frame_idx = next_target_frame_idx,
                         });
 
@@ -6418,14 +6410,9 @@ pub const VM = struct {
                     .chunk => |chunk_blk| {
                         // De-recursed: push block frame inline, return to dispatch loop
                         const ft: CallFrame.FrameType = if (chunk_blk.chunk.is_lambda) .lambda else .proc;
-                        const break_target_frame_idx = if (self.frames.items.len > 0)
-                            self.blockBreakTargetFrameIndex(chunk_blk, self.frames.items.len - 1)
-                        else
-                            null;
                         const next_target_frame_idx = self.frames.items.len;
                         try self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, chunk_blk.defining_self, ft, .{
                             .block = if (chunk_blk.enclosing_block_proc) |proc_obj| proc_obj.block else null,
-                            .break_target_frame_idx = break_target_frame_idx,
                             .next_target_frame_idx = next_target_frame_idx,
                         });
 
@@ -6653,15 +6640,16 @@ pub const VM = struct {
                     return;
                 }
 
-                const target_frame_idx = current_frame.break_target_frame_idx orelse {
-                    const exc = try self.createException(self.local_jump_error_class, "unexpected break");
+                const target = self.findActiveBreakTarget(current_frame) orelse {
+                    const exc = try self.createException(self.local_jump_error_class, "break from proc-closure");
                     self.setPendingException(exc);
                     return error.Unwind;
                 };
                 self.setPendingControlFlow(.{
                     .kind = .break_,
                     .value = result,
-                    .target_frame = &self.frames.items[target_frame_idx],
+                    .target_frame = target.frame,
+                    .target_ip = target.continuation_byte_offset,
                 });
                 return error.Unwind;
             },
@@ -7496,11 +7484,6 @@ pub const VM = struct {
 
         try self.pushFrame(method_chunk, receiver, opts.block);
         const callee_frame = self.currentFrame();
-        if (callee_frame.block) |*blk| {
-            if (blk.kind == .chunk and blk.source_proc == null and blk.kind.chunk.break_target_ep == null) {
-                blk.kind.chunk.break_target_ep = callee_frame.ep;
-            }
-        }
         callee_frame.method_name = opts.method_name;
         callee_frame.super_defining_class = opts.super_defining_class;
         callee_frame.forwarded_keyword_ctx = if (has_keywords)
@@ -7696,6 +7679,7 @@ pub const VM = struct {
         block: ?Block,
         keyword_ctx: ?*BuiltinKeywordContext,
     ) VMError!Value {
+        const pending_control_flow_before = self.pendingControlFlow();
         const saved_frame_len = self.frames.items.len;
         try self.pushBuiltinFrame(receiver, method_name, block);
         defer if (self.frames.items.len > saved_frame_len and self.frames.items[self.frames.items.len - 1].frame_type == .builtin) {
@@ -7713,6 +7697,13 @@ pub const VM = struct {
             }
             return err;
         };
+        if (self.pendingControlFlow()) |pending_after| {
+            if (pending_control_flow_before == null or
+                !sameControlFlowIdentity(pending_control_flow_before.?, pending_after))
+            {
+                return error.Unwind;
+            }
+        }
         return result;
     }
 
@@ -7723,6 +7714,7 @@ pub const VM = struct {
         args: []const Value,
         block: ?Block,
     ) VMError!Value {
+        const pending_control_flow_before = self.pendingControlFlow();
         // Push a frame so that rb_yield / rb_funcall can find the block
         // and so non-local return can unwind through C code.
         const saved_frame_len = self.frames.items.len;
@@ -7846,17 +7838,17 @@ pub const VM = struct {
                 },
                 else => unreachable,
             };
+            if (self.pendingControlFlow()) |pending_after| {
+                if (pending_control_flow_before == null or
+                    !sameControlFlowIdentity(pending_control_flow_before.?, pending_after))
+                {
+                    return error.Unwind;
+                }
+            }
             return .{ .raw = result_raw };
         }
         // Second pass: longjmp from a C API function landed here.
-        if (self.cext_pending_control_flow) |cf| {
-            // checkNLR only longjmps for .return_, so we can rely on that
-            // invariant here. Any other kind is a programming error.
-            if (cf.kind != .return_) return error.Fatal;
-            self.cext_pending_control_flow = null;
-            return cf.value;
-        }
-        if (self.pendingException() != null) {
+        if (self.pendingControlFlow() != null or self.pendingException() != null) {
             return error.Unwind;
         }
         return error.Fatal;
@@ -8238,13 +8230,6 @@ pub const VM = struct {
             .method_name = method_name,
             .dir_returns_nil = caller_frame.dir_returns_nil,
         }) catch return error.Fatal;
-        const builtin_frame = self.currentFrame();
-        if (builtin_frame.block) |*blk| {
-            if (blk.kind == .chunk and blk.source_proc == null and blk.kind.chunk.break_target_ep == null) {
-                blk.kind.chunk.break_target_ep = builtin_frame.ep;
-                blk.kind.chunk.break_target_is_builtin = true;
-            }
-        }
     }
 
     pub fn popBuiltinFrame(self: *VM) void {
@@ -8379,15 +8364,30 @@ pub const VM = struct {
         }
     };
 
-    fn blockBreakTargetFrameIndex(self: *VM, chunk_blk: Block.ChunkData, fallback: usize) ?usize {
-        const target_ep = chunk_blk.break_target_ep orelse return fallback;
-        const target_raw = @intFromPtr(target_ep);
+    const BreakTarget = struct {
+        frame: *CallFrame,
+        continuation_byte_offset: usize,
+    };
+
+    fn findActiveBreakTarget(self: *VM, block_frame: *const CallFrame) ?BreakTarget {
+        const defining_ep = decodeEp(block_frame.ep[0]) orelse return null;
+        const block_chunk_id = block_frame.chunk.chunk_id orelse return null;
+        const defining_ep_raw = @intFromPtr(defining_ep);
         var frame_idx = self.frames.items.len;
         while (frame_idx > 0) {
             frame_idx -= 1;
-            const frame = self.frames.items[frame_idx];
-            const expected_type: CallFrame.FrameType = if (chunk_blk.break_target_is_builtin) .builtin else .method;
-            if (frame.frame_type == expected_type and @intFromPtr(frame.ep) == target_raw) return frame_idx;
+            const frame = &self.frames.items[frame_idx];
+            if (frame.frame_type == .builtin or @intFromPtr(frame.ep) != defining_ep_raw) continue;
+            for (frame.chunk.block_call_handlers.items) |handler| {
+                if (handler.block_chunk_id == block_chunk_id and
+                    handler.continuation_byte_offset == frame.ip)
+                {
+                    return .{
+                        .frame = frame,
+                        .continuation_byte_offset = handler.continuation_byte_offset,
+                    };
+                }
+            }
         }
         return null;
     }
@@ -8436,11 +8436,9 @@ pub const VM = struct {
             .chunk => |chunk_blk| blk: {
                 const saved_stack_len = self.stack.items.len;
                 const ft: CallFrame.FrameType = if (chunk_blk.chunk.is_lambda) .lambda else .proc;
-                const break_target_frame_idx = self.blockBreakTargetFrameIndex(chunk_blk, self.frames.items.len);
                 const next_target_frame_idx = self.frames.items.len;
                 try self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, chunk_blk.defining_self, ft, .{
                     .block = if (chunk_blk.enclosing_block_proc) |proc_obj| proc_obj.block else null,
-                    .break_target_frame_idx = break_target_frame_idx,
                     .next_target_frame_idx = next_target_frame_idx,
                 });
 
@@ -8450,14 +8448,6 @@ pub const VM = struct {
 
                 const saved_frame_count = self.frames.items.len - 1;
                 try self.executeUntilReturn(saved_frame_count);
-                // Mirror only .return_ to the C extension boundary state. Other
-                // control flow kinds (next/break/redo/retry) must not be projected
-                // to the C side as a non-local return.
-                if (self.pendingControlFlow()) |cf| {
-                    if (cf.kind == .return_) {
-                        self.cext_pending_control_flow = cf;
-                    }
-                }
                 const outcome = try self.finishSubcallFromStack(saved_frame_count, saved_stack_len);
                 break :blk YieldResult{
                     .value = outcome.value(),
@@ -10655,11 +10645,6 @@ pub const VM = struct {
                     .chunk = chunk_blk.chunk,
                     .defining_ep = self.promoteFrameToHeap(chunk_blk.defining_ep) catch return error.Fatal,
                     .defining_self = chunk_blk.defining_self,
-                    .break_target_ep = if (chunk_blk.break_target_ep) |target_ep|
-                        self.promoteFrameToHeap(target_ep) catch return error.Fatal
-                    else
-                        null,
-                    .break_target_is_builtin = chunk_blk.break_target_is_builtin,
                     .enclosing_block_proc = chunk_blk.enclosing_block_proc,
                 } } },
             },
@@ -12752,9 +12737,18 @@ pub const VM = struct {
     }
 
     fn unwindStackUntilFrameDepth(self: *VM, min_frame_len: usize) VMError!bool {
-        const stop_frame_len = self.controlFlowStopFrameLen(min_frame_len);
-        while (self.frames.items.len > stop_frame_len) {
+        while (self.frames.items.len > min_frame_len) {
             const frame_idx = self.frames.items.len - 1;
+
+            if (self.pendingControlFlow()) |cf| {
+                if (cf.kind == .break_ and cf.target_frame == &self.frames.items[frame_idx]) {
+                    const target_ip = cf.target_ip orelse return error.Fatal;
+                    try setFrameIp(&self.frames.items[frame_idx], target_ip);
+                    try self.push(cf.value);
+                    self.setPendingControlFlow(null);
+                    return true;
+                }
+            }
 
             if (self.pendingControlFlow() != null) {
                 if (try self.findEnsureHandler(frame_idx)) |ensure_byte_offset| {
@@ -12793,7 +12787,8 @@ pub const VM = struct {
 
             const popped_control_flow_target = if (self.pendingControlFlow()) |cf|
                 switch (cf.kind) {
-                    .return_, .break_, .next_ => cf.target_frame == &self.frames.items[frame_idx],
+                    .return_, .next_ => cf.target_frame == &self.frames.items[frame_idx],
+                    .break_ => false,
                     .redo_, .retry_ => false,
                 }
             else
@@ -12808,22 +12803,7 @@ pub const VM = struct {
             }
         }
 
-        if (self.pendingControlFlow() != null) {
-            try self.placePendingControlFlowValue();
-        }
-
         return false;
-    }
-
-    fn controlFlowStopFrameLen(self: *VM, min_frame_len: usize) usize {
-        if (self.pendingControlFlow()) |cf| {
-            switch (cf.kind) {
-                .return_, .break_, .next_ => if (self.frameStorageIndex(cf.target_frame)) |target_frame_idx|
-                    return @min(min_frame_len, target_frame_idx),
-                .redo_, .retry_ => {},
-            }
-        }
-        return min_frame_len;
     }
 
     fn placePendingControlFlowValue(self: *VM) VMError!void {
@@ -12885,13 +12865,8 @@ pub const VM = struct {
             const result = cf.value;
             if (cf.value_placed) {
                 _ = self.popStackAboveOrNil(saved_stack_len);
-            }
-            self.setPendingControlFlow(null);
-            // Mirror only .return_ to the C extension boundary state. Other
-            // control flow kinds (next/break/redo/retry) must not be projected
-            // to the C side as a non-local return.
-            if (cf.kind == .return_) {
-                self.cext_pending_control_flow = cf;
+                self.setPendingControlFlow(null);
+                return .{ .returned = result };
             }
             return switch (cf.kind) {
                 .return_ => .{ .non_local_return = result },

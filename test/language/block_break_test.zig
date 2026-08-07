@@ -141,6 +141,50 @@ test "block break - forwarded block exits the receiving method" {
     try std.testing.expectEqualStrings("stopped", result.toSymbolObject().name);
 }
 
+test "block break - forwarded through nested builtins exits the original call site" {
+    const result = try evalCode(
+        \\def receive
+        \\  yield
+        \\  :continued
+        \\end
+        \\send(:send, :receive) { break :stopped }
+    );
+    try std.testing.expect(result.isSymbol());
+    try std.testing.expectEqualStrings("stopped", result.toSymbolObject().name);
+}
+
+test "block break - forwarded through Class#new exits the original call site" {
+    const result = try evalCode(
+        \\klass = Class.new do
+        \\  def initialize
+        \\    yield
+        \\    :continued
+        \\  end
+        \\end
+        \\klass.new { break :stopped }
+    );
+    try std.testing.expect(result.isSymbol());
+    try std.testing.expectEqualStrings("stopped", result.toSymbolObject().name);
+}
+
+test "block break - proc call raises after its original call site returned" {
+    const result = try evalCode(
+        \\def orphaned_break
+        \\  saved = proc { break :bad }
+        \\  begin
+        \\    saved.call
+        \\  rescue => error
+        \\    [error.class.name, error.message]
+        \\  end
+        \\end
+        \\orphaned_break
+    );
+    try std.testing.expect(result.isArray());
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("LocalJumpError", values[0].toStringObject().str);
+    try std.testing.expectEqualStrings("break from proc-closure", values[1].toStringObject().str);
+}
+
 test "block break - different from loop break" {
     const result = try evalCode(
         \\def test

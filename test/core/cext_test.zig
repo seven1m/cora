@@ -110,12 +110,22 @@ test "C extension rb_yield `next` does not leak as non-local return" {
 }
 
 test "C extension rb_yield `break` returns the break value to C" {
-    // A block doing `break` should hand the break value back to the C side
-    // as a normal yield return. It must not be projected as an NLR.
+    // Returning rb_yield directly makes the break value observable at the
+    // Ruby call site, but does not by itself prove whether the C frame unwound.
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"
         \\require "fixture.so"
         \\CoraCExt.yield_break(7) { |marker| break marker + 100 }
+    );
+    try std.testing.expect(result.isInteger());
+    try std.testing.expectEqual(@as(i64, 107), result.toInteger());
+}
+
+test "C extension rb_yield `break` unwinds past code after the yield" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\CoraCExt.yield_break_then_value(7) { |marker| break marker + 100 }
     );
     try std.testing.expect(result.isInteger());
     try std.testing.expectEqual(@as(i64, 107), result.toInteger());

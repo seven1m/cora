@@ -67,6 +67,15 @@ cext_yield_break(VALUE self, VALUE marker)
     return rb_yield(marker);
 }
 
+// A block `break` must unwind past the C frame; code after rb_yield must not run.
+static VALUE
+cext_yield_break_then_value(VALUE self, VALUE marker)
+{
+    (void)self;
+    rb_yield(marker);
+    return rb_str_new2("continued-after-break");
+}
+
 // Yield to a block, then issue a fresh C-level call. If a previous `next`
 // leaked into the C extension NLR state, this would surface as a stale value
 // or a mis-dispatch. The C code uses the value returned from rb_yield for
@@ -89,6 +98,7 @@ void Init_fixture(void)
     rb_define_module_function(mCoraCExt, "deep_nlr", cext_deep_nlr, 1);
     rb_define_module_function(mCoraCExt, "yield_next_then_value", cext_yield_next_then_value, 1);
     rb_define_module_function(mCoraCExt, "yield_break", cext_yield_break, 1);
+    rb_define_module_function(mCoraCExt, "yield_break_then_value", cext_yield_break_then_value, 1);
     rb_define_module_function(mCoraCExt, "yield_next_then_call_to_s", cext_yield_next_then_call_to_s, 1);
 
     rb_define_method(rb_cString, "cora_cext_test", cora_cext_test, 0);
