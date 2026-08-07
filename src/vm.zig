@@ -58,7 +58,10 @@ const MAX_FIBER_FRAMES: usize = 2048;
 //   ep[0] = parent ep (raw ptr encoded as Value.raw, or 0 = no parent)
 //   ep[1] = lexical scope, or tagged FrameScopeContext for eval-only metadata
 //   ep[2] = locals_count (encoded as Value.integer so BDW won't chase it)
-pub const ENV_DATA_SIZE: usize = 3;
+//   ep[3] = environment role (method boundary vs non-local block environment)
+pub const ENV_DATA_SIZE: usize = 4;
+
+const EnvironmentRole = enum(u8) { method, block, lambda, fiber, synthetic };
 const MAX_BUILTIN_KEYWORDS: usize = 256;
 const SMALL_CALL_VALUES: usize = 16;
 const DEFAULT_THREAD_PREEMPT_QUANTUM_OPS: u32 = 10_000;
@@ -1939,6 +1942,25 @@ pub const VM = struct {
         return @intCast(ep[2].toInteger());
     }
 
+    fn environmentRoleForFrameType(frame_type: CallFrame.FrameType) EnvironmentRole {
+        return switch (frame_type) {
+            .method => .method,
+            .proc => .block,
+            .lambda => .lambda,
+            .fiber => .fiber,
+            .synthetic => .synthetic,
+            .builtin => unreachable,
+        };
+    }
+
+    fn setEpEnvironmentRole(ep: [*]Value, role: EnvironmentRole) void {
+        ep[3] = Value.integer(@intFromEnum(role));
+    }
+
+    fn epEnvironmentRole(ep: [*]Value) EnvironmentRole {
+        return @enumFromInt(ep[3].toInteger());
+    }
+
     /// Get a pointer to local slot `idx` (0-based) from an ep and its locals_count.
     pub inline fn localSlot(ep: [*]Value, locals_count: u16, idx: u16) *Value {
         return @ptrCast(ep - locals_count + idx);
@@ -3523,6 +3545,7 @@ pub const VM = struct {
         const lexical_scope = ch.lexical_scope orelse self.current_lexical_scope;
         ep[1] = try self.frameScopeValue(lexical_scope, null, opts.method_definition_target);
         ep[2] = Value.integer(locals_count);
+        setEpEnvironmentRole(ep, environmentRoleForFrameType(frame_type));
 
         self.frames.append(self.gc_allocator, CallFrame{
             .chunk = ch,
@@ -3570,6 +3593,7 @@ pub const VM = struct {
         //   ep[0] = parent ep (current top frame's ep, or 0 if none)
         //   ep[1] = lexical scope pointer or eval frame-scope context
         //   ep[2] = locals_count (as Ruby integer for GC safety)
+        //   ep[3] = method environment role
         const ep: [*]Value = self.stack.items[locals_base + locals_count ..].ptr;
         const parent_val: Value = if (self.frames.items.len > 0)
             encodeEp(self.frames.items[self.frames.items.len - 1].ep)
@@ -3578,6 +3602,7 @@ pub const VM = struct {
         ep[0] = parent_val;
         ep[1] = try self.frameScopeValue(ch.lexical_scope orelse self.current_lexical_scope, null, null);
         ep[2] = Value.integer(locals_count);
+        setEpEnvironmentRole(ep, .method);
 
         self.frames.append(self.gc_allocator, CallFrame{
             .chunk = ch,
@@ -5661,6 +5686,7 @@ pub const VM = struct {
                                                 new_ep[0] = encodeEp(frame.ep);
                                                 new_ep[1] = try self.frameScopeValue(method_chunk.lexical_scope orelse self.current_lexical_scope, null, null);
                                                 new_ep[2] = Value.integer(lc);
+                                                setEpEnvironmentRole(new_ep, .method);
 
                                                 self.frames.storage[self.frames.items.len] = CallFrame{
                                                     .chunk = method_chunk,
@@ -7232,6 +7258,7 @@ pub const VM = struct {
                                                     new_ep[0] = encodeEp(f.ep);
                                                     new_ep[1] = try self.frameScopeValue(method_chunk.lexical_scope orelse self.current_lexical_scope, null, null);
                                                     new_ep[2] = Value.integer(lc);
+                                                    setEpEnvironmentRole(new_ep, .method);
 
                                                     const new_fl = self.frames.items.len;
                                                     self.frames.storage[new_fl] = CallFrame{
@@ -12089,6 +12116,7 @@ pub const VM = struct {
         ep[0] = if (parent_ep) |p| encodeEp(p) else .{ .raw = 0 };
         ep[1] = try self.frameScopeValue(lexical_scope orelse self.current_lexical_scope, opts.class_variable_scope, opts.method_definition_target);
         ep[2] = Value.integer(lc);
+        setEpEnvironmentRole(ep, environmentRoleForFrameType(opts.frame_type));
 
         self.frames.append(self.gc_allocator, CallFrame{
             .chunk = target_chunk,

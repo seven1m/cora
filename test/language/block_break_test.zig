@@ -1,6 +1,28 @@
 const std = @import("std");
+const cora = @import("cora");
 const test_helper = @import("../test_helper.zig");
 const evalCode = test_helper.evalCode;
+
+test "compiler records literal block call-site handlers" {
+    const allocator = test_helper.getAllocator();
+    var parser = try cora.prism.Parser.init(allocator,
+        \\receiver.foo { 1 }
+        \\receiver.foo(key: 1) { 2 }
+    , null);
+    defer parser.deinit();
+
+    var program = try cora.compiler.Compiler.compile(allocator, &parser, 1);
+    defer program.deinit();
+
+    const handlers = program.main_chunk.block_call_handlers.items;
+    try std.testing.expectEqual(@as(usize, 2), handlers.len);
+    for (handlers) |handler| {
+        try std.testing.expect(handler.block_chunk_id != 0);
+        try std.testing.expect(handler.continuation_byte_offset > handler.call_byte_offset);
+    }
+    try std.testing.expectEqual(@as(usize, 7), handlers[0].continuation_byte_offset - handlers[0].call_byte_offset);
+    try std.testing.expectEqual(@as(usize, 10), handlers[1].continuation_byte_offset - handlers[1].call_byte_offset);
+}
 
 test "block break - basic with value" {
     const result = try evalCode(

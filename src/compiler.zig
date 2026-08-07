@@ -821,6 +821,7 @@ pub const Compiler = struct {
                     }
                 }
 
+                const call_byte_offset = self.current_chunk.currentOffset();
                 if (emitted_opt) {
                     // Specialized opcode already emitted.
                 } else if (forwarding_prefix_argc) |prefix_argc| {
@@ -842,6 +843,7 @@ pub const Compiler = struct {
                 } else {
                     try self.current_chunk.emitCall(@intCast(method_idx), compiled_args.argc, call_flags, block_chunk_id, line);
                 }
+                try self.recordBlockCallHandler(block_chunk_id, call_byte_offset);
 
                 if (safe_nav_jump_nil) |jump_nil| {
                     const jump_end = try self.current_chunk.emitJump(.JUMP, line);
@@ -1280,7 +1282,9 @@ pub const Compiler = struct {
                     }
                 }
 
+                const call_byte_offset = self.current_chunk.currentOffset();
                 try self.current_chunk.emitOpU16(.FORWARDING_SUPER, block_chunk_id, line);
+                try self.recordBlockCallHandler(block_chunk_id, call_byte_offset);
             },
 
             .super_node => |super_node| {
@@ -1353,7 +1357,9 @@ pub const Compiler = struct {
                         }
 
                         const super_flags: u8 = if (args_array_mode) bytecode.SUPER_FLAG_ARGS_ARRAY else 0;
+                        const call_byte_offset = self.current_chunk.currentOffset();
                         try self.current_chunk.emitSuper(argc, super_flags, block_chunk_id, line);
+                        try self.recordBlockCallHandler(block_chunk_id, call_byte_offset);
                     } else {
                         // Has keywords: use SUPER_KW
                         var kw_names: std.ArrayList(u16) = .empty;
@@ -1509,7 +1515,9 @@ pub const Compiler = struct {
                         var super_flags: u8 = 0;
                         if (args_array_mode) super_flags |= bytecode.SUPER_FLAG_ARGS_ARRAY;
                         if (kw_hash_mode) super_flags |= bytecode.SUPER_FLAG_KW_HASH;
+                        const call_byte_offset = self.current_chunk.currentOffset();
                         try self.current_chunk.emitSuperKw(argc, kwargc, super_flags, kw_metadata_idx orelse 0, block_chunk_id, line);
+                        try self.recordBlockCallHandler(block_chunk_id, call_byte_offset);
                     }
                 } else {
                     // super() with no arguments: use regular SUPER
@@ -1524,7 +1532,9 @@ pub const Compiler = struct {
                             block_chunk_id = chunk.BLOCK_ARG_ON_STACK;
                         }
                     }
+                    const call_byte_offset = self.current_chunk.currentOffset();
                     try self.current_chunk.emitSuper(0, 0, block_chunk_id, line);
+                    try self.recordBlockCallHandler(block_chunk_id, call_byte_offset);
                 }
             },
 
@@ -4172,6 +4182,15 @@ pub const Compiler = struct {
         try self.current_chunk.emitOpU16(.PUSH_SYMBOL, @intCast(name_idx), line);
     }
 
+    fn recordBlockCallHandler(self: *Compiler, block_chunk_id: chunk.ChunkId, call_byte_offset: usize) !void {
+        if (block_chunk_id == 0 or block_chunk_id == chunk.BLOCK_ARG_ON_STACK) return;
+        try self.current_chunk.block_call_handlers.append(self.allocator, .{
+            .block_chunk_id = block_chunk_id,
+            .call_byte_offset = call_byte_offset,
+            .continuation_byte_offset = self.current_chunk.currentOffset(),
+        });
+    }
+
     fn compileBlock(self: *Compiler, block_node: *prism.BlockNode, line: u32) !u16 {
         // Allocate chunk on heap and track it immediately (before compilation can fail)
         const block_chunk_ptr = try self.allocator.create(Chunk);
@@ -5019,7 +5038,9 @@ pub const Compiler = struct {
         // Emit call to .each with the block chunk; for always returns nil
         const each_name_idx = try self.current_chunk.addConstant(.{ .string = "each" });
         const call_flags = bytecode.encodeCallFlags(.explicit, false);
+        const call_byte_offset = self.current_chunk.currentOffset();
         try self.current_chunk.emitCall(@intCast(each_name_idx), 0, call_flags, @intCast(chunk_id), line);
+        try self.recordBlockCallHandler(chunk_id, call_byte_offset);
         try self.current_chunk.emitOp(.POP, line);
         try self.current_chunk.emitOp(.PUSH_NIL, line);
     }
