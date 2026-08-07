@@ -13,11 +13,9 @@ describe "Module#name" do
   end
 
   it "is not nil for a nested module created with the module keyword" do
-    CORAFIXME "module definitions with non-constant receivers are not implemented", exception: NameError, message: /uninitialized constant m/ do
-      m = Module.new
-      module m::N; end
-      m::N.name.should =~ /\A#<Module:0x[0-9a-f]+>::N\z/
-    end
+    m = Module.new
+    module m::N; end
+    m::N.name.should =~ /\A#<Module:0x[0-9a-f]+>::N\z/
   end
 
   it "returns nil for a singleton class" do
@@ -27,15 +25,13 @@ describe "Module#name" do
   end
 
   it "changes when the module is reachable through a constant path" do
-    CORAFIXME "module definitions with non-constant receivers are not implemented", exception: NameError, message: /constant Anonymous::WasAnnon not defined|uninitialized constant m/ do
-      m = Module.new
-      module m::N; end
-      m::N.name.should =~ /\A#<Module:0x\h+>::N\z/
-      ModuleSpecs::Anonymous::WasAnnon = m::N
-      m::N.name.should == "ModuleSpecs::Anonymous::WasAnnon"
-    ensure
-      ModuleSpecs::Anonymous.send(:remove_const, :WasAnnon)
-    end
+    m = Module.new
+    module m::N; end
+    m::N.name.should =~ /\A#<Module:0x\h+>::N\z/
+    ModuleSpecs::Anonymous::WasAnnon = m::N
+    m::N.name.should == "ModuleSpecs::Anonymous::WasAnnon"
+  ensure
+    ModuleSpecs::Anonymous.send(:remove_const, :WasAnnon)
   end
 
   it "may be the repeated in different module objects" do
@@ -63,13 +59,11 @@ describe "Module#name" do
   end
 
   it "is set after it is removed from a constant under an anonymous module" do
-    CORAFIXME "module definitions with non-constant receivers are not implemented", exception: NameError, message: /uninitialized constant m/ do
-      m = Module.new
-      module m::Child; end
-      child = m::Child
-      m.send(:remove_const, :Child)
-      child.name.should =~ /\A#<Module:0x\h+>::Child\z/
-    end
+    m = Module.new
+    module m::Child; end
+    child = m::Child
+    m.send(:remove_const, :Child)
+    child.name.should =~ /\A#<Module:0x\h+>::Child\z/
   end
 
   it "is set when opened with the module keyword" do
@@ -108,14 +102,12 @@ describe "Module#name" do
   end
 
   it "is not modified when assigned to a different anonymous module" do
-    CORAFIXME "module definitions with non-constant receivers are not implemented", exception: NameError, message: /uninitialized constant m/ do
-      m = Module.new
-      module m::M; end
-      first_name = m::M.name.dup
-      module m::N; end
-      m::N::F = m::M
-      m::M.name.should == first_name
-    end
+    m = Module.new
+    module m::M; end
+    first_name = m::M.name.dup
+    module m::N; end
+    m::N::F = m::M
+    m::M.name.should == first_name
   end
 
   # http://bugs.ruby-lang.org/issues/6067
@@ -183,7 +175,7 @@ describe "Module#name" do
   end
 
   it "is set in #const_added callback for a nested module when an outer module defined in the top-level scope" do
-    CORAFIXME "module definitions with non-constant receivers and const_added callbacks are not implemented", exception: NameError, message: /uninitialized constant self/ do
+    CORAFIXME "Module#const_added callback is not implemented", exception: SpecFailedException do
       ScratchPad.record []
 
       ModuleSpecs::NameSpecs::NamedModule = Module.new do

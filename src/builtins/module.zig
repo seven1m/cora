@@ -1103,11 +1103,16 @@ pub fn builtinModuleConstants(vm: *VM, receiver: Value, args: []Value, _: ?Block
     if (receiver.isModule()) {
         try collectOwnConstantSymbols(vm, receiver.toModuleObject(), &constant_names, &seen);
     } else if (receiver.isClass()) {
-        var current: ?*ClassObject = receiver.toClassObject();
+        const receiver_class = receiver.toClassObject();
+        var current: ?*ClassObject = receiver_class;
         while (current) |klass| {
             try collectOwnConstantSymbols(vm, &klass.module, &constant_names, &seen);
             if (!include_inherited) break;
-            current = klass.superclass;
+            const superclass = klass.superclass;
+            // MRI's rb_mod_const_of stops before Object unless Object itself
+            // is the receiver.
+            if (superclass == vm.object_class and receiver_class != vm.object_class) break;
+            current = superclass;
         }
     } else {
         unreachable; // receiver is not a Module

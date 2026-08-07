@@ -13,6 +13,21 @@ test "Modules" {
     try std.testing.expectEqualSlices(u8, "Foo", result.toModuleObject().name.name);
 }
 
+test "module definition evaluates a local namespace target" {
+    const result = try evalCode(
+        \\owner = Module.new
+        \\module owner::Nested
+        \\  VALUE = 4
+        \\end
+        \\[owner::Nested::VALUE, owner.constants]
+    );
+    const elems = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 4), elems[0].toInteger());
+    const constants = elems[1].toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 1), constants.len);
+    try std.testing.expectEqualStrings("Nested", constants[0].toSymbolObject().name);
+}
+
 test "Module include" {
     var result = try evalCode(
         \\module Foo

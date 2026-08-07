@@ -1020,7 +1020,7 @@ class SpecNegatedExpectation
     if @actual != expected
       :noop
     else
-      raise SpecFailedException, "Expected value not to equal: #{expected.inspect}"
+      Kernel.raise SpecFailedException, "Expected value not to equal: #{expected.inspect}"
     end
   end
 
@@ -1028,22 +1028,26 @@ class SpecNegatedExpectation
     if @actual == expected
       :noop
     else
-      raise SpecFailedException, "Expected: #{expected.inspect}\nActual: #{@actual.inspect}"
+      Kernel.raise SpecFailedException, "Expected: #{expected.inspect}\nActual: #{@actual.inspect}"
     end
   end
 
   def match(matcher)
     if matcher.matches?(@actual)
-      raise SpecFailedException, "Expected value not to match: #{@actual.inspect}"
+      Kernel.raise SpecFailedException, "Expected value not to match: #{@actual.inspect}"
     else
       :noop
     end
   end
 
+  def raise(expected = nil, expected_message = nil, &verifier)
+    match(RaiseErrorMatcher.new(expected, expected_message, verifier))
+  end
+
   def method_missing(name, *args, &block)
     result = @actual.send(name, *args, &block)
     if result
-      raise SpecFailedException, "Expected #{@actual.inspect}.#{name} to be falsey"
+      Kernel.raise SpecFailedException, "Expected #{@actual.inspect}.#{name} to be falsey"
     else
       :noop
     end

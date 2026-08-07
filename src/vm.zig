@@ -385,6 +385,12 @@ const SavedUnwind = struct {
     pending_unwind: ?PendingUnwind = null,
 };
 
+const DefinitionTarget = struct {
+    owner_module: *value.ModuleObject,
+    existing_value: ?Value,
+    name_sym: *value.SymbolObject,
+};
+
 pub const BuiltinKeywordContext = struct {
     kw_keys_storage: [256]Value = undefined,
     kw_values_storage: [256]Value = undefined,
@@ -6067,10 +6073,11 @@ pub const VM = struct {
             .DEF_MODULE => {
                 const name_idx = readU16From(frame, operands, &operand_cursor);
                 const body_chunk_id = readU16From(frame, operands, &operand_cursor);
+                const definition_owner = self.pop();
 
                 const constant = constants[name_idx];
                 if (constant == .string) {
-                    const target = try self.resolveDefinitionTarget(epLexScope(frame.ep), constant.string);
+                    const target = try self.resolveDefinitionTargetForOwner(epLexScope(frame.ep), definition_owner, constant.string);
 
                     const module_val = blk: {
                         if (target.existing_value) |em| {
@@ -6109,6 +6116,7 @@ pub const VM = struct {
 
                 // Pop superclass (or nil)
                 const superclass_val = self.pop();
+                const definition_owner = self.pop();
 
                 var superclass: *value.ClassObject = self.object_class;
                 if (superclass_val.isClass()) {
@@ -6119,7 +6127,7 @@ pub const VM = struct {
 
                 const constant = constants[name_idx];
                 if (constant == .string) {
-                    const target = try self.resolveDefinitionTarget(epLexScope(frame.ep), constant.string);
+                    const target = try self.resolveDefinitionTargetForOwner(epLexScope(frame.ep), definition_owner, constant.string);
 
                     var class_val: Value = undefined;
                     if (target.existing_value) |ec| {
@@ -8908,11 +8916,7 @@ pub const VM = struct {
         self: *VM,
         lexical_scope: ?*LexicalScope,
         raw_name: []const u8,
-    ) VMError!struct {
-        owner_module: *value.ModuleObject,
-        existing_value: ?Value,
-        name_sym: *value.SymbolObject,
-    } {
+    ) VMError!DefinitionTarget {
         if (std.mem.lastIndexOf(u8, raw_name, "::")) |sep| {
             const owner_path = raw_name[0..sep];
             const child_name = raw_name[sep + 2 ..];
@@ -8945,6 +8949,25 @@ pub const VM = struct {
         const name_sym = try self.intern(raw_name);
         const owner_module = if (lexical_scope) |scope| scope.getModule() else &self.object_class.module;
 
+        return .{
+            .owner_module = owner_module,
+            .existing_value = if (owner_module.constants.get(name_sym)) |entry| entry.value else null,
+            .name_sym = name_sym,
+        };
+    }
+
+    fn resolveDefinitionTargetForOwner(
+        self: *VM,
+        lexical_scope: ?*LexicalScope,
+        owner: Value,
+        name: []const u8,
+    ) VMError!DefinitionTarget {
+        if (owner.isNil()) return self.resolveDefinitionTarget(lexical_scope, name);
+
+        const owner_module = namespaceModule(owner) orelse {
+            return self.raiseExceptionFmt(self.type_error_class, "class/module required for constant definition", .{});
+        };
+        const name_sym = try self.intern(name);
         return .{
             .owner_module = owner_module,
             .existing_value = if (owner_module.constants.get(name_sym)) |entry| entry.value else null,

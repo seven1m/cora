@@ -86,6 +86,20 @@ test "class definition target does not reuse outer lexical constant" {
     try std.testing.expect(!result.toBool());
 }
 
+test "class definition evaluates a local namespace target" {
+    const result = try evalCode(
+        \\owner = Class.new
+        \\class owner::Child < owner
+        \\end
+        \\[owner::Child.superclass == owner, owner.constants]
+    );
+    const elems = result.toArrayObject().elements.items;
+    try std.testing.expect(elems[0].toBool());
+    const constants = elems[1].toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 1), constants.len);
+    try std.testing.expectEqualStrings("Child", constants[0].toSymbolObject().name);
+}
+
 test "Class hierarchy is set up correctly" {
     bdwgc.init();
     defer bdwgc.deinit();

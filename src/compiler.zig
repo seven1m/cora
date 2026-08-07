@@ -3517,11 +3517,30 @@ pub const Compiler = struct {
     }
 
     fn compileModule(self: *Compiler, module_node: *prism.ModuleNode, line: u32) anyerror!void {
-        // Preserve constant paths for definitions like A::B.
-        const module_name = if (module_node.constant_path) |path|
-            self.constantPathNameForDefinition(try self.parser.asNode(@ptrCast(path)))
-        else
-            try self.parser.getConstantName(module_node.name);
+        var module_name = try self.parser.getConstantName(module_node.name);
+        var body_name = module_name;
+
+        // Pass an explicitly evaluated namespace to DEF_MODULE. Nil tells the
+        // VM to use the current lexical target for a bare constant.
+        if (module_node.constant_path) |path| {
+            const path_node = try self.parser.asNode(@ptrCast(path));
+            switch (path_node) {
+                .constant_read => try self.current_chunk.emitOp(.PUSH_NIL, line),
+                .constant_path => |constant_path| {
+                    module_name = try self.parser.getConstantName(constant_path.name);
+                    body_name = self.nodeSourceSlice(path_node);
+                    if (constant_path.parent) |parent| {
+                        try self.compileNode(try self.parser.asNode(@ptrCast(parent)), line);
+                    } else {
+                        const object_idx = try self.current_chunk.addConstant(.{ .string = "Object" });
+                        try self.current_chunk.emitOpU16(.GET_TOPLEVEL_CONST, @intCast(object_idx), line);
+                    }
+                },
+                else => unreachable,
+            }
+        } else {
+            try self.current_chunk.emitOp(.PUSH_NIL, line);
+        }
 
         // Add the module name as a constant
         const idx = try self.current_chunk.addConstant(.{ .string = module_name });
@@ -3531,7 +3550,7 @@ pub const Compiler = struct {
         if (module_node.body) |body_ptr| {
             // Allocate chunk on heap and track it immediately (before compilation can fail)
             const body_chunk_ptr = try self.allocator.create(Chunk);
-            body_chunk_ptr.* = Chunk.init(self.allocator, try self.allocator.dupe(u8, module_name));
+            body_chunk_ptr.* = Chunk.init(self.allocator, try self.allocator.dupe(u8, body_name));
             body_chunk_ptr.name_owned = true;
             try body_chunk_ptr.setSourceFile(self.parser.source_file);
             body_chunk_ptr.source_encoding = self.parserSourceEncoding();
@@ -3574,11 +3593,30 @@ pub const Compiler = struct {
     }
 
     fn compileClass(self: *Compiler, class_node: *prism.ClassNode, line: u32) anyerror!void {
-        // Preserve constant paths for definitions like A::B.
-        const class_name = if (class_node.constant_path) |path|
-            self.constantPathNameForDefinition(try self.parser.asNode(@ptrCast(path)))
-        else
-            try self.parser.getConstantName(class_node.name);
+        var class_name = try self.parser.getConstantName(class_node.name);
+        var body_name = class_name;
+
+        // Keep the evaluated owner separate from the final constant name.
+        // This supports dynamic namespaces such as `class parent::Child`.
+        if (class_node.constant_path) |path| {
+            const path_node = try self.parser.asNode(@ptrCast(path));
+            switch (path_node) {
+                .constant_read => try self.current_chunk.emitOp(.PUSH_NIL, line),
+                .constant_path => |constant_path| {
+                    class_name = try self.parser.getConstantName(constant_path.name);
+                    body_name = self.nodeSourceSlice(path_node);
+                    if (constant_path.parent) |parent| {
+                        try self.compileNode(try self.parser.asNode(@ptrCast(parent)), line);
+                    } else {
+                        const object_idx = try self.current_chunk.addConstant(.{ .string = "Object" });
+                        try self.current_chunk.emitOpU16(.GET_TOPLEVEL_CONST, @intCast(object_idx), line);
+                    }
+                },
+                else => unreachable,
+            }
+        } else {
+            try self.current_chunk.emitOp(.PUSH_NIL, line);
+        }
 
         // Add the class name as a constant
         const idx = try self.current_chunk.addConstant(.{ .string = class_name });
@@ -3597,7 +3635,7 @@ pub const Compiler = struct {
         if (class_node.body) |body_ptr| {
             // Allocate chunk on heap and track it immediately (before compilation can fail)
             const body_chunk_ptr = try self.allocator.create(Chunk);
-            body_chunk_ptr.* = Chunk.init(self.allocator, try self.allocator.dupe(u8, class_name));
+            body_chunk_ptr.* = Chunk.init(self.allocator, try self.allocator.dupe(u8, body_name));
             body_chunk_ptr.name_owned = true;
             try body_chunk_ptr.setSourceFile(self.parser.source_file);
             body_chunk_ptr.source_encoding = self.parserSourceEncoding();
@@ -3637,19 +3675,6 @@ pub const Compiler = struct {
 
         // Emit DEF_CLASS instruction with the body chunk ID
         try self.current_chunk.emitOpU16U16(.DEF_CLASS, @intCast(idx), body_chunk_id, line);
-    }
-
-    fn constantPathNameForDefinition(self: *Compiler, node: prism.Node) []const u8 {
-        switch (node) {
-            .constant_read => |const_read| {
-                return self.parser.getConstantName(const_read.name) catch unreachable;
-            },
-            .constant_path => |const_path| {
-                _ = const_path;
-                return self.nodeSourceSlice(node);
-            },
-            else => unreachable,
-        }
     }
 
     fn nodeSourceSlice(self: *Compiler, node: prism.Node) []const u8 {
