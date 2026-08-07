@@ -180,7 +180,7 @@ def record_failure(group_desc, it_desc, error)
   if error.respond_to?(:class) && error.class && error.class != SpecFailedException
     message = "#{error.class}: #{message}"
   end
-  backtrace = error.backtrace.reject { |l| l =~ /spec\/spec_helper\.rb/ }
+  backtrace = (error.backtrace || []).reject { |l| l =~ /spec\/spec_helper\.rb/ }
   $__failures << [group_desc, it_desc, message, backtrace]
 end
 
