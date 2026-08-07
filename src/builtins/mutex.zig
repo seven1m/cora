@@ -150,7 +150,7 @@ fn builtinMutexSynchronize(vm: *VM, receiver: Value, args: []Value, block: ?Bloc
     };
     releaseMutex(vm, mutex);
 
-    return yield_result.controlFlowValue() orelse yield_result.value;
+    return yield_result;
 }
 
 fn builtinMutexSleep(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

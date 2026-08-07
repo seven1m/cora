@@ -159,8 +159,7 @@ fn enumeratorWithIndexYieldBlock(vm: *VM, args: []Value) VMError!Value {
     defer vm.indexed_yield_ctx = yield_ctx;
 
     const yielded = try vm.yieldToBlock(yield_ctx.block, &yield_args_buf);
-    if (yielded.controlFlowValue()) |return_value| return return_value;
-    return yielded.value;
+    return yielded;
 }
 
 fn enumeratorWithIndexImpl(vm: *VM, receiver: Value, args: []Value, block: ?Block, method_name: []const u8) VMError!Value {
@@ -311,8 +310,7 @@ fn builtinEnumeratorMap(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
         };
 
         const mapped = try vm.yieldToBlock(blk, &[_]Value{next_val});
-        if (mapped.controlFlowValue()) |return_value| return return_value;
-        out.elements.append(vm.gc_allocator, mapped.value) catch return error.Fatal;
+        out.elements.append(vm.gc_allocator, mapped) catch return error.Fatal;
     }
 
     return Value.fromObject(&out.object);
@@ -325,8 +323,7 @@ fn builtinYielderPush(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
     const yielder_obj = receiver.toYielderObject();
 
     const yield_args = [_]Value{args[0]};
-    const result = try vm.yieldToBlock(yielder_obj.block, &yield_args);
-    if (result.controlFlowValue()) |return_value| return return_value;
+    _ = try vm.yieldToBlock(yielder_obj.block, &yield_args);
 
     // Return self for chaining (y << 1 << 2 << 3)
     return receiver;
@@ -335,8 +332,7 @@ fn builtinYielderPush(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
 fn builtinYielderYield(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     const yielder_obj = receiver.toYielderObject();
     const result = try vm.yieldToBlock(yielder_obj.block, args);
-    if (result.controlFlowValue()) |return_value| return return_value;
-    return result.value;
+    return result;
 }
 
 // --- Helper functions ---

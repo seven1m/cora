@@ -160,8 +160,7 @@ pub fn builtinDirChdir(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!
         defer vm.allocator.free(previous_z);
         defer _ = std.c.chdir(previous_z.ptr);
         const yielded = try vm.yieldToBlock(blk, &[_]Value{});
-        if (yielded.controlFlowValue()) |return_value| return return_value;
-        return yielded.value;
+        return yielded;
     }
 
     return Value.integer(0);
@@ -781,8 +780,7 @@ fn coerceGlobPattern(vm: *VM, arg: Value) VMError![]const u8 {
 fn buildGlobResult(vm: *VM, matches: *ArrayObject, block: ?Block) VMError!Value {
     if (block) |blk| {
         for (matches.elements.items) |entry| {
-            const yielded = try vm.yieldToBlock(blk, &[_]Value{entry});
-            if (yielded.controlFlowValue()) |return_value| return return_value;
+            _ = try vm.yieldToBlock(blk, &[_]Value{entry});
         }
         return Value.nil();
     }

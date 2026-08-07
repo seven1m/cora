@@ -664,8 +664,7 @@ pub fn builtinIoPopen(vm: *VM, receiver: Value, args: []Value, block: ?Block) VM
             return err;
         };
         _ = builtinIoClose(vm, io_value, &[_]Value{}, null) catch {};
-        if (yielded.controlFlowValue()) |return_value| return return_value;
-        return yielded.value;
+        return yielded;
     }
     return io_value;
 }
@@ -981,8 +980,7 @@ pub fn builtinIoNonblock(vm: *VM, receiver: Value, args: []Value, block: ?Block)
 
     if (original == desired) {
         const yielded = try vm.yieldToBlock(blk, &[_]Value{receiver});
-        if (yielded.controlFlowValue()) |return_value| return return_value;
-        return yielded.value;
+        return yielded;
     }
 
     try setIoNonblocking(vm, io, desired);
@@ -991,8 +989,7 @@ pub fn builtinIoNonblock(vm: *VM, receiver: Value, args: []Value, block: ?Block)
         return err;
     };
     try setIoNonblocking(vm, io, original);
-    if (yielded.controlFlowValue()) |return_value| return return_value;
-    return yielded.value;
+    return yielded;
 }
 
 fn findLineEnd(data: []const u8, separator: ?[]const u8, limit: ?usize) ?usize {
@@ -1166,8 +1163,7 @@ pub fn builtinIoForeach(vm: *VM, _: Value, args: []Value, block: ?Block) VMError
             const line = try builtinIoGets(vm, io_val, empty_args[0..], null);
             if (line.isNil()) break;
             const yield_args = [_]Value{line};
-            const result = try vm.yieldToBlock(blk, &yield_args);
-            if (result.controlFlowValue()) |return_value| return return_value;
+            _ = try vm.yieldToBlock(blk, &yield_args);
         }
         return Value.nil();
     }
@@ -1186,8 +1182,7 @@ pub fn builtinIoEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) VME
         const line = try builtinIoGets(vm, receiver, empty_args[0..], null);
         if (line.isNil()) break;
         const yield_args = [_]Value{line};
-        const result = try vm.yieldToBlock(blk, &yield_args);
-        if (result.controlFlowValue()) |return_value| return return_value;
+        _ = try vm.yieldToBlock(blk, &yield_args);
     }
 
     return receiver;
@@ -1349,7 +1344,7 @@ pub fn builtinIoOpen(vm: *VM, receiver: Value, args: []Value, block: ?Block) VME
             return err;
         };
         try closeIoOpenedForBlock(vm, instance);
-        return yielded.value;
+        return yielded;
     }
 
     return instance;

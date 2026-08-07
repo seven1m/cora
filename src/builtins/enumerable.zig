@@ -90,9 +90,8 @@ fn builtinEnumerableFlatMap(vm: *VM, receiver: Value, args: []Value, block: ?Blo
             return err;
         };
         const result = try enumerableYieldCollapsed(vm, blk, next_values.toArrayObject());
-        if (result.controlFlowValue()) |return_value| return return_value;
 
-        const to_ary_result = try vm.probeToAry(result.value);
+        const to_ary_result = try vm.probeToAry(result);
         switch (to_ary_result) {
             .array => |ary| {
                 for (ary.toArrayObject().elements.items) |elem| {
@@ -100,7 +99,7 @@ fn builtinEnumerableFlatMap(vm: *VM, receiver: Value, args: []Value, block: ?Blo
                 }
             },
             .missing, .nil_result => {
-                out.elements.append(vm.gc_allocator, result.value) catch return error.Fatal;
+                out.elements.append(vm.gc_allocator, result) catch return error.Fatal;
             },
         }
     }
@@ -130,8 +129,7 @@ fn builtinEnumerableMap(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
             return err;
         };
         const result = try enumerableYieldCollapsed(vm, blk, next_values.toArrayObject());
-        if (result.controlFlowValue()) |return_value| return return_value;
-        out.elements.append(vm.gc_allocator, result.value) catch return error.Fatal;
+        out.elements.append(vm.gc_allocator, result) catch return error.Fatal;
     }
 
     return Value.fromObject(&out.object);
@@ -159,8 +157,7 @@ fn builtinEnumerableSelect(vm: *VM, receiver: Value, args: []Value, block: ?Bloc
             return err;
         };
         const result = try enumerableYieldCollapsed(vm, blk, next_values.toArrayObject());
-        if (result.controlFlowValue()) |return_value| return return_value;
-        if (result.value.isTruthy()) {
+        if (result.isTruthy()) {
             out.elements.append(vm.gc_allocator, collapseYieldValues(next_values.toArrayObject())) catch return error.Fatal;
         }
     }
@@ -190,9 +187,8 @@ fn builtinEnumerableFilterMap(vm: *VM, receiver: Value, args: []Value, block: ?B
             return err;
         };
         const result = try enumerableYieldCollapsed(vm, blk, next_values.toArrayObject());
-        if (result.controlFlowValue()) |return_value| return return_value;
-        if (result.value.isTruthy()) {
-            out.elements.append(vm.gc_allocator, result.value) catch return error.Fatal;
+        if (result.isTruthy()) {
+            out.elements.append(vm.gc_allocator, result) catch return error.Fatal;
         }
     }
 
@@ -220,8 +216,7 @@ fn builtinEnumerableAny(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
         while (true) {
             const next_values = try enumerableNextValues(vm, enum_value) orelse break;
             const result = try vm.yieldToBlock(blk, next_values.elements.items);
-            if (result.controlFlowValue()) |return_value| return return_value;
-            if (result.value.isTruthy()) return Value.boolean(true);
+            if (result.isTruthy()) return Value.boolean(true);
         }
         return Value.boolean(false);
     }
@@ -253,8 +248,7 @@ fn builtinEnumerableAll(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
         while (true) {
             const next_values = try enumerableNextValues(vm, enum_value) orelse break;
             const result = try vm.yieldToBlock(blk, next_values.elements.items);
-            if (result.controlFlowValue()) |return_value| return return_value;
-            if (result.value.isFalsey()) return Value.boolean(false);
+            if (result.isFalsey()) return Value.boolean(false);
         }
         return Value.boolean(true);
     }
@@ -339,8 +333,7 @@ fn builtinEnumerableEachWithObject(vm: *VM, receiver: Value, args: []Value, bloc
     const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
     while (try enumerableNextElement(vm, enum_value)) |element| {
         const yield_args = [_]Value{ element, memo };
-        const result = try vm.yieldToBlock(blk, &yield_args);
-        if (result.controlFlowValue()) |return_value| return return_value;
+        _ = try vm.yieldToBlock(blk, &yield_args);
     }
 
     return memo;
@@ -398,9 +391,8 @@ fn builtinEnumerableEachSlice(vm: *VM, receiver: Value, args: []Value, block: ?B
                 slice_ary.elements.append(vm.gc_allocator, elem) catch return error.Fatal;
             }
             const yield_args = [_]Value{Value.fromObject(&slice_ary.object)};
-            const result = try vm.yieldToBlock(blk, &yield_args);
+            _ = try vm.yieldToBlock(blk, &yield_args);
             slice.clearRetainingCapacity();
-            if (result.controlFlowValue()) |return_value| return return_value;
         }
     }
 
@@ -431,14 +423,13 @@ fn builtinEnumerableGroupBy(vm: *VM, receiver: Value, args: []Value, block: ?Blo
     while (try enumerableNextElement(vm, enum_value)) |element| {
         const yield_args = [_]Value{element};
         const result = try vm.yieldToBlock(blk, &yield_args);
-        if (result.controlFlowValue()) |return_value| return return_value;
 
-        const bucket_value = if (try vm.hashGetEntry(grouped, result.value)) |entry|
+        const bucket_value = if (try vm.hashGetEntry(grouped, result)) |entry|
             entry.value
         else blk: {
             const new_bucket = try vm.createArray();
             const new_bucket_value = Value.fromObject(&new_bucket.object);
-            try vm.hashSetEntry(grouped, result.value, new_bucket_value);
+            try vm.hashSetEntry(grouped, result, new_bucket_value);
             break :blk new_bucket_value;
         };
         bucket_value.toArrayObject().elements.append(vm.gc_allocator, element) catch return error.Fatal;
@@ -469,8 +460,7 @@ fn builtinEnumerableGrep(vm: *VM, receiver: Value, args: []Value, block: ?Block)
         if (block) |blk| {
             const yield_args = [_]Value{element};
             const result = try vm.yieldToBlock(blk, &yield_args);
-            if (result.controlFlowValue()) |return_value| return return_value;
-            out.elements.append(vm.gc_allocator, result.value) catch return error.Fatal;
+            out.elements.append(vm.gc_allocator, result) catch return error.Fatal;
         } else {
             out.elements.append(vm.gc_allocator, element) catch return error.Fatal;
         }
@@ -498,8 +488,7 @@ fn builtinEnumerableFind(vm: *VM, receiver: Value, args: []Value, block: ?Block)
     while (try enumerableNextElement(vm, enum_value)) |element| {
         const yield_args = [_]Value{element};
         const result = try vm.yieldToBlock(blk, &yield_args);
-        if (result.controlFlowValue()) |return_value| return return_value;
-        if (result.value.isTruthy()) return element;
+        if (result.isTruthy()) return element;
     }
 
     if (!ifnone.isNil()) {
@@ -547,8 +536,7 @@ fn builtinEnumerableInject(vm: *VM, receiver: Value, args: []Value, block: ?Bloc
 
             const yield_args = [_]Value{ accumulator, element };
             const result = try vm.yieldToBlock(blk, &yield_args);
-            if (result.controlFlowValue()) |return_value| return return_value;
-            accumulator = result.value;
+            accumulator = result;
         }
 
         return if (has_accumulator) accumulator else Value.nil();
@@ -585,8 +573,7 @@ fn builtinEnumerableCount(vm: *VM, receiver: Value, args: []Value, block: ?Block
         while (true) {
             const next_values = try enumerableNextValues(vm, enum_value) orelse break;
             const result = try vm.yieldToBlock(blk, next_values.elements.items);
-            if (result.controlFlowValue()) |return_value| return return_value;
-            if (result.value.isTruthy()) {
+            if (result.isTruthy()) {
                 count += 1;
             }
         }
@@ -615,8 +602,7 @@ fn builtinEnumerableSum(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
         if (block) |blk| {
             const yield_args = [_]Value{element};
             const result = try vm.yieldToBlock(blk, &yield_args);
-            if (result.controlFlowValue()) |return_value| return return_value;
-            operand = result.value;
+            operand = result;
         }
 
         if (use_kahan) {
@@ -655,19 +641,18 @@ fn builtinEnumerableMaxBy(vm: *VM, receiver: Value, args: []Value, block: ?Block
 
     while (try enumerableNextElement(vm, enum_value)) |element| {
         const result = try vm.yieldToBlock(blk, &.{element});
-        if (result.controlFlowValue()) |return_value| return return_value;
 
         if (best_value == null) {
             best_value = element;
-            best_key = result.value;
+            best_key = result;
             continue;
         }
 
         var cmp_args = [_]Value{best_key};
-        const cmp = try vm.callMethodByName(result.value, "<=>", cmp_args[0..], null);
+        const cmp = try vm.callMethodByName(result, "<=>", cmp_args[0..], null);
         if (cmp.isInteger() and cmp.toInteger() > 0) {
             best_value = element;
-            best_key = result.value;
+            best_key = result;
         }
     }
 
@@ -710,10 +695,9 @@ fn builtinEnumerableMinBy(vm: *VM, receiver: Value, args: []Value, block: ?Block
 
         while (try enumerableNextElement(vm, enum_value)) |element| {
             const result = try vm.yieldToBlock(blk, &.{element});
-            if (result.controlFlowValue()) |return_value| return return_value;
 
             const entry = try vm.createArray();
-            entry.elements.append(vm.gc_allocator, result.value) catch return error.Fatal;
+            entry.elements.append(vm.gc_allocator, result) catch return error.Fatal;
             entry.elements.append(vm.gc_allocator, Value.integer(index)) catch return error.Fatal;
             entry.elements.append(vm.gc_allocator, element) catch return error.Fatal;
             decorated.elements.append(vm.gc_allocator, Value.fromObject(&entry.object)) catch return error.Fatal;
@@ -736,19 +720,18 @@ fn builtinEnumerableMinBy(vm: *VM, receiver: Value, args: []Value, block: ?Block
 
     while (try enumerableNextElement(vm, enum_value)) |element| {
         const result = try vm.yieldToBlock(blk, &.{element});
-        if (result.controlFlowValue()) |return_value| return return_value;
 
         if (best_value == null) {
             best_value = element;
-            best_key = result.value;
+            best_key = result;
             continue;
         }
 
         var cmp_args = [_]Value{best_key};
-        const cmp = try vm.callMethodByName(result.value, "<=>", cmp_args[0..], null);
+        const cmp = try vm.callMethodByName(result, "<=>", cmp_args[0..], null);
         if (cmp.isInteger() and cmp.toInteger() < 0) {
             best_value = element;
-            best_key = result.value;
+            best_key = result;
         }
     }
 
@@ -772,10 +755,9 @@ fn builtinEnumerableSortBy(vm: *VM, receiver: Value, args: []Value, block: ?Bloc
     while (try enumerableNextElement(vm, enum_value)) |element| {
         const yield_args = [_]Value{element};
         const result = try vm.yieldToBlock(blk, &yield_args);
-        if (result.controlFlowValue()) |return_value| return return_value;
 
         const entry = try vm.createArray();
-        entry.elements.append(vm.gc_allocator, result.value) catch return error.Fatal;
+        entry.elements.append(vm.gc_allocator, result) catch return error.Fatal;
         entry.elements.append(vm.gc_allocator, Value.integer(index)) catch return error.Fatal;
         entry.elements.append(vm.gc_allocator, element) catch return error.Fatal;
         decorated.elements.append(vm.gc_allocator, Value.fromObject(&entry.object)) catch return error.Fatal;

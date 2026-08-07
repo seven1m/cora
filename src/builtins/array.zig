@@ -132,8 +132,7 @@ fn arrayProductEach(
         const product_value = Value.fromObject(&product.object);
 
         if (blk) |block_| {
-            const yielded = try vm.yieldToBlock(block_, &[_]Value{product_value});
-            if (yielded.controlFlowValue()) |return_value| return return_value;
+            _ = try vm.yieldToBlock(block_, &[_]Value{product_value});
         } else {
             out.?.elements.append(vm.gc_allocator, product_value) catch return error.Fatal;
         }
@@ -522,8 +521,7 @@ fn performArrayFill(vm: *VM, receiver: Value, plan: ArrayFillPlan, fill_value: ?
         const replacement = if (block) |blk| blk: {
             const yield_args = [_]Value{Value.integer(idx)};
             const yielded = try vm.yieldToBlock(blk, &yield_args);
-            if (yielded.controlFlowValue()) |return_value| return return_value;
-            break :blk yielded.value;
+            break :blk yielded;
         } else fill_value.?;
         array.elements.items[@intCast(idx)] = replacement;
     }
@@ -1000,8 +998,7 @@ pub fn builtinArrayInitialize(vm: *VM, receiver: Value, args: []Value, block: ?B
         while (i < size) : (i += 1) {
             const yield_args = [_]Value{Value.integer(i)};
             const yielded = try vm.yieldToBlock(blk, &yield_args);
-            if (yielded.controlFlowValue()) |return_value| return return_value;
-            array.elements.append(vm.gc_allocator, yielded.value) catch return error.Fatal;
+            array.elements.append(vm.gc_allocator, yielded) catch return error.Fatal;
         }
         return receiver;
     }
@@ -1343,8 +1340,7 @@ pub fn builtinArrayEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
     while (idx < array_obj.elements.items.len) : (idx += 1) {
         const element = array_obj.elements.items[idx];
         const yield_args = [_]Value{element};
-        const result = try vm.yieldToBlock(blk, &yield_args);
-        if (result.controlFlowValue()) |return_value| return return_value;
+        _ = try vm.yieldToBlock(blk, &yield_args);
     }
 
     return receiver;
@@ -1390,8 +1386,7 @@ pub fn builtinArrayCycle(vm: *VM, receiver: Value, args: []Value, block: ?Block)
     while (count == null or iteration < count.?) : (iteration += 1) {
         var idx: usize = 0;
         while (idx < array.elements.items.len) : (idx += 1) {
-            const yielded = try vm.yieldToBlock(blk, &.{array.elements.items[idx]});
-            if (yielded.controlFlowValue()) |return_value| return return_value;
+            _ = try vm.yieldToBlock(blk, &.{array.elements.items[idx]});
         }
     }
 
@@ -1411,8 +1406,7 @@ pub fn builtinArrayReverseEach(vm: *VM, receiver: Value, args: []Value, block: ?
         idx -= 1;
         const element = array_obj.elements.items[idx];
         const yield_args = [_]Value{element};
-        const result = try vm.yieldToBlock(blk, &yield_args);
-        if (result.controlFlowValue()) |return_value| return return_value;
+        _ = try vm.yieldToBlock(blk, &yield_args);
     }
 
     return receiver;
@@ -1427,8 +1421,7 @@ pub fn builtinArrayEachWithIndex(vm: *VM, receiver: Value, args: []Value, block:
 
     for (array_obj.elements.items, 0..) |element, idx| {
         const yield_args = [_]Value{ element, Value.integer(@intCast(idx)) };
-        const result = try vm.yieldToBlock(blk, &yield_args);
-        if (result.controlFlowValue()) |return_value| return return_value;
+        _ = try vm.yieldToBlock(blk, &yield_args);
     }
 
     return receiver;
@@ -1445,8 +1438,7 @@ pub fn builtinArrayEachIndex(vm: *VM, receiver: Value, args: []Value, block: ?Bl
     var idx: usize = 0;
     while (idx < array_obj.elements.items.len) : (idx += 1) {
         const yield_args = [_]Value{Value.integer(@intCast(idx))};
-        const result = try vm.yieldToBlock(blk, &yield_args);
-        if (result.controlFlowValue()) |return_value| return return_value;
+        _ = try vm.yieldToBlock(blk, &yield_args);
     }
 
     return receiver;
@@ -1490,8 +1482,7 @@ fn arrayMapShared(vm: *VM, receiver: Value, args: []Value, block: ?Block, method
         const element = source.elements.items[idx];
         const yield_args = [_]Value{element};
         const yielded = try vm.yieldToBlock(blk, &yield_args);
-        if (yielded.controlFlowValue()) |return_value| return return_value;
-        result.elements.append(vm.gc_allocator, yielded.value) catch return error.Fatal;
+        result.elements.append(vm.gc_allocator, yielded) catch return error.Fatal;
     }
 
     return Value.fromObject(&result.object);
@@ -1519,8 +1510,7 @@ fn arrayMapBangShared(vm: *VM, receiver: Value, args: []Value, block: ?Block, me
         const element = array.elements.items[idx];
         const yield_args = [_]Value{element};
         const yielded = try vm.yieldToBlock(blk, &yield_args);
-        if (yielded.controlFlowValue()) |return_value| return return_value;
-        array.elements.items[idx] = yielded.value;
+        array.elements.items[idx] = yielded;
     }
 
     return receiver;
@@ -1540,8 +1530,7 @@ pub fn builtinArraySelect(vm: *VM, receiver: Value, args: []Value, block: ?Block
         const element = source.elements.items[idx];
         const yield_args = [_]Value{element};
         const yielded = try vm.yieldToBlock(blk, &yield_args);
-        if (yielded.controlFlowValue()) |return_value| return return_value;
-        if (yielded.value.isTruthy()) {
+        if (yielded.isTruthy()) {
             result.elements.append(vm.gc_allocator, element) catch return error.Fatal;
         }
     }
@@ -1563,8 +1552,7 @@ pub fn builtinArrayReject(vm: *VM, receiver: Value, args: []Value, block: ?Block
         const element = source.elements.items[idx];
         const yield_args = [_]Value{element};
         const yielded = try vm.yieldToBlock(blk, &yield_args);
-        if (yielded.controlFlowValue()) |return_value| return return_value;
-        if (yielded.value.isFalsey()) {
+        if (yielded.isFalsey()) {
             result.elements.append(vm.gc_allocator, element) catch return error.Fatal;
         }
     }
@@ -1592,9 +1580,8 @@ pub fn builtinArrayPartition(vm: *VM, receiver: Value, args: []Value, block: ?Bl
         const element = source.elements.items[idx];
         const yield_args = [_]Value{element};
         const yielded = try vm.yieldToBlock(blk, &yield_args);
-        if (yielded.controlFlowValue()) |return_value| return return_value;
 
-        const target = if (yielded.value.isTruthy()) truthy else falsey;
+        const target = if (yielded.isTruthy()) truthy else falsey;
         target.elements.append(vm.gc_allocator, element) catch return error.Fatal;
     }
 
@@ -1637,8 +1624,7 @@ pub fn builtinArrayDelete(vm: *VM, receiver: Value, args: []Value, block: ?Block
     if (!deleted) {
         if (block) |blk| {
             const yielded = try vm.yieldToBlock(blk, &[_]Value{});
-            if (yielded.controlFlowValue()) |return_value| return return_value;
-            return yielded.value;
+            return yielded;
         }
         return Value.nil();
     }
@@ -1743,8 +1729,7 @@ pub fn builtinArrayAny(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
             const element = array.elements.items[idx];
             const yield_args = [_]Value{element};
             const yielded = try vm.yieldToBlock(blk, &yield_args);
-            if (yielded.controlFlowValue()) |return_value| return return_value;
-            if (yielded.value.isTruthy()) return Value.boolean(true);
+            if (yielded.isTruthy()) return Value.boolean(true);
         }
         return Value.boolean(false);
     }
@@ -1781,8 +1766,7 @@ pub fn builtinArrayNone(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
             const element = array.elements.items[idx];
             const yield_args = [_]Value{element};
             const yielded = try vm.yieldToBlock(blk, &yield_args);
-            if (yielded.controlFlowValue()) |return_value| return return_value;
-            if (yielded.value.isTruthy()) return Value.boolean(false);
+            if (yielded.isTruthy()) return Value.boolean(false);
         }
         return Value.boolean(true);
     }
@@ -1821,8 +1805,7 @@ pub fn builtinArrayOne(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
             const element = array.elements.items[idx];
             const yield_args = [_]Value{element};
             const yielded = try vm.yieldToBlock(blk, &yield_args);
-            if (yielded.controlFlowValue()) |return_value| return return_value;
-            if (yielded.value.isTruthy()) {
+            if (yielded.isTruthy()) {
                 matched += 1;
                 if (matched > 1) return Value.boolean(false);
             }
@@ -1984,8 +1967,7 @@ pub fn builtinArrayClassBracket(vm: *VM, receiver: Value, args: []Value, _: ?Blo
 fn arrayUniqKey(vm: *VM, blk: ?Block, candidate: Value) VMError!Value {
     if (blk) |block_| {
         const yielded = try vm.yieldToBlock(block_, &[_]Value{candidate});
-        if (yielded.controlFlowValue()) |return_value| return return_value;
-        return yielded.value;
+        return yielded;
     }
     return candidate;
 }
@@ -2154,8 +2136,7 @@ pub fn builtinArrayTakeWhile(vm: *VM, receiver: Value, args: []Value, block: ?Bl
         if (taking) {
             const yield_args = [_]Value{element};
             const yielded = try vm.yieldToBlock(blk, &yield_args);
-            if (yielded.controlFlowValue()) |return_value| return return_value;
-            if (yielded.value.isTruthy()) {
+            if (yielded.isTruthy()) {
                 result.elements.append(vm.gc_allocator, element) catch return error.Fatal;
             } else {
                 taking = false;
@@ -2182,8 +2163,7 @@ pub fn builtinArrayDropWhile(vm: *VM, receiver: Value, args: []Value, block: ?Bl
         if (dropping) {
             const yield_args = [_]Value{element};
             const yielded = try vm.yieldToBlock(blk, &yield_args);
-            if (yielded.controlFlowValue()) |return_value| return return_value;
-            if (yielded.value.isFalsey()) {
+            if (yielded.isFalsey()) {
                 dropping = false;
                 result.elements.append(vm.gc_allocator, element) catch return error.Fatal;
             }
@@ -2235,8 +2215,7 @@ pub fn builtinArrayFetch(vm: *VM, receiver: Value, args: []Value, block: ?Block)
     if (actual_index < 0 or actual_index >= len) {
         if (block) |blk| {
             const yielded = try vm.yieldToBlock(blk, &[_]Value{index_value});
-            if (yielded.controlFlowValue()) |return_value| return return_value;
-            return yielded.value;
+            return yielded;
         }
 
         if (args.len == 2) return args[1];
@@ -2273,8 +2252,7 @@ pub fn builtinArrayFetchValues(vm: *VM, receiver: Value, args: []Value, block: ?
         if (actual_index < 0 or actual_index >= len) {
             if (block) |blk| {
                 const yielded = try vm.yieldToBlock(blk, &[_]Value{arg});
-                if (yielded.controlFlowValue()) |return_value| return return_value;
-                result.elements.append(vm.gc_allocator, yielded.value) catch return error.Fatal;
+                result.elements.append(vm.gc_allocator, yielded) catch return error.Fatal;
             } else {
                 return vm.raiseExceptionFmt(
                     vm.index_error_class,
@@ -2341,8 +2319,7 @@ pub fn builtinArrayIndex(vm: *VM, receiver: Value, args: []Value, block: ?Block)
     var idx: usize = 0;
     while (idx < array.elements.items.len) : (idx += 1) {
         const yielded = try vm.yieldToBlock(blk, &[_]Value{array.elements.items[idx]});
-        if (yielded.controlFlowValue()) |return_value| return return_value;
-        if (yielded.value.isTruthy()) return Value.integer(@intCast(idx));
+        if (yielded.isTruthy()) return Value.integer(@intCast(idx));
     }
     return Value.nil();
 }
@@ -2381,8 +2358,7 @@ pub fn builtinArrayRindex(vm: *VM, receiver: Value, args: []Value, block: ?Block
 
         idx -= 1;
         const yielded = try vm.yieldToBlock(blk, &[_]Value{array.elements.items[idx]});
-        if (yielded.controlFlowValue()) |return_value| return return_value;
-        if (yielded.value.isTruthy()) return Value.integer(@intCast(idx));
+        if (yielded.isTruthy()) return Value.integer(@intCast(idx));
     }
     return Value.nil();
 }
@@ -2405,8 +2381,7 @@ pub fn builtinArrayBsearch(vm: *VM, receiver: Value, args: []Value, block: ?Bloc
         const mid = low + (high - low) / 2;
         const element = array_obj.elements.items[mid];
         const yield_result = try vm.yieldToBlock(blk, &[_]Value{element});
-        if (yield_result.controlFlowValue()) |return_value| return return_value;
-        const result = yield_result.value;
+        const result = yield_result;
 
         const smaller: bool = if (result.isTrue()) blk: {
             satisfied = true;
@@ -2467,8 +2442,7 @@ pub fn builtinArrayBsearchIndex(vm: *VM, receiver: Value, args: []Value, block: 
         const mid = low + (high - low) / 2;
         const element = array_obj.elements.items[mid];
         const yield_result = try vm.yieldToBlock(blk, &[_]Value{element});
-        if (yield_result.controlFlowValue()) |return_value| return return_value;
-        const result = yield_result.value;
+        const result = yield_result;
 
         const smaller: bool = if (result.isTrue()) blk: {
             satisfied = true;
@@ -2914,8 +2888,7 @@ pub fn builtinArrayToH(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
         const source = if (block) |blk| blk: {
             const yield_args = [_]Value{array.elements.items[idx]};
             const yielded = try vm.yieldToBlock(blk, &yield_args);
-            if (yielded.controlFlowValue()) |return_value| return return_value;
-            break :blk yielded.value;
+            break :blk yielded;
         } else array.elements.items[idx];
 
         const pair = try arrayToHashPair(vm, source, idx);
@@ -2963,9 +2936,8 @@ pub fn builtinArrayAll(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
             const element = array_obj.elements.items[idx];
             const yield_args = [_]Value{element};
             const result = try vm.yieldToBlock(blk, &yield_args);
-            if (result.controlFlowValue()) |return_value| return return_value;
 
-            if (result.value.isFalsey()) return Value.boolean(false);
+            if (result.isFalsey()) return Value.boolean(false);
         }
         return Value.boolean(true);
     }
@@ -3001,8 +2973,7 @@ pub fn builtinArrayCount(vm: *VM, receiver: Value, args: []Value, block: ?Block)
         while (idx < array_obj.elements.items.len) : (idx += 1) {
             const yield_args = [_]Value{array_obj.elements.items[idx]};
             const result = try vm.yieldToBlock(blk, &yield_args);
-            if (result.controlFlowValue()) |return_value| return return_value;
-            if (result.value.isTruthy()) count += 1;
+            if (result.isTruthy()) count += 1;
         }
         return Value.integer(@intCast(count));
     }
@@ -3023,13 +2994,10 @@ pub fn builtinArraySort(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
         var j = i;
         while (j > 0) {
             const prev = result.elements.items[j - 1];
-            const less_than = if (block) |blk| blk: {
-                const cmp_result = try arraySortBlockLessThan(vm, blk, key, prev);
-                switch (cmp_result) {
-                    .less_than => |lt| break :blk lt,
-                    .control_flow_value => |value_to_return| return value_to_return,
-                }
-            } else try arrayValueLessThan(vm, key, prev);
+            const less_than = if (block) |blk|
+                try arraySortBlockLessThan(vm, blk, key, prev)
+            else
+                try arrayValueLessThan(vm, key, prev);
             if (!less_than) break;
             result.elements.items[j] = prev;
             j -= 1;
@@ -3051,13 +3019,10 @@ pub fn builtinArraySortBang(vm: *VM, receiver: Value, args: []Value, block: ?Blo
         var j = i;
         while (j > 0) {
             const prev = array.elements.items[j - 1];
-            const less_than = if (block) |blk| blk: {
-                const cmp_result = try arraySortBlockLessThan(vm, blk, key, prev);
-                switch (cmp_result) {
-                    .less_than => |lt| break :blk lt,
-                    .control_flow_value => |value_to_return| return value_to_return,
-                }
-            } else try arrayValueLessThan(vm, key, prev);
+            const less_than = if (block) |blk|
+                try arraySortBlockLessThan(vm, blk, key, prev)
+            else
+                try arrayValueLessThan(vm, key, prev);
             if (!less_than) break;
             array.elements.items[j] = prev;
             j -= 1;
@@ -3091,10 +3056,9 @@ pub fn builtinArraySortByBang(vm: *VM, receiver: Value, args: []Value, block: ?B
     while (idx < array.elements.items.len) : (idx += 1) {
         const element = array.elements.items[idx];
         const result = try vm.yieldToBlock(blk, &[_]Value{element});
-        if (result.controlFlowValue()) |return_value| return return_value;
 
         const pair = try vm.createArray();
-        pair.elements.append(vm.gc_allocator, result.value) catch return error.Fatal;
+        pair.elements.append(vm.gc_allocator, result) catch return error.Fatal;
         pair.elements.append(vm.gc_allocator, element) catch return error.Fatal;
         decorated.elements.append(vm.gc_allocator, Value.fromObject(&pair.object)) catch return error.Fatal;
     }
@@ -3266,12 +3230,7 @@ fn arrayFilterBangShared(
             _ = try arrayFilterBangFinalize(vm, receiver, array, processed_len, kept_len, return_nil_if_unchanged);
             return err;
         };
-        if (yielded.controlFlowValue()) |return_value| {
-            _ = try arrayFilterBangFinalize(vm, receiver, array, processed_len, kept_len, return_nil_if_unchanged);
-            return return_value;
-        }
-
-        if (yielded.value.isTruthy() == keep_truthy) {
+        if (yielded.isTruthy() == keep_truthy) {
             if (processed_len != kept_len) {
                 array.elements.items[kept_len] = element;
             }
@@ -3315,9 +3274,8 @@ pub fn builtinArrayMax(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
         for (items[1..]) |item| {
             const yield_args = [_]Value{ item, max };
             const yielded = try vm.yieldToBlock(blk, &yield_args);
-            if (yielded.controlFlowValue()) |return_value| return return_value;
 
-            const sign = try arraySortBlockResultSign(vm, yielded.value);
+            const sign = try arraySortBlockResultSign(vm, yielded);
             if (sign > 0) max = item;
         }
         return max;
@@ -3340,9 +3298,8 @@ pub fn builtinArrayMin(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
         for (items[1..]) |item| {
             const yield_args = [_]Value{ item, min };
             const yielded = try vm.yieldToBlock(blk, &yield_args);
-            if (yielded.controlFlowValue()) |return_value| return return_value;
 
-            const sign = try arraySortBlockResultSign(vm, yielded.value);
+            const sign = try arraySortBlockResultSign(vm, yielded);
             if (sign < 0) min = item;
         }
         return min;
@@ -3374,14 +3331,12 @@ pub fn builtinArrayMinMax(vm: *VM, receiver: Value, args: []Value, block: ?Block
             {
                 const yield_args = [_]Value{ item, min };
                 const yielded = try vm.yieldToBlock(blk, &yield_args);
-                if (yielded.controlFlowValue()) |return_value| return return_value;
-                if ((try arraySortBlockResultSign(vm, yielded.value)) < 0) min = item;
+                if ((try arraySortBlockResultSign(vm, yielded)) < 0) min = item;
             }
             {
                 const yield_args = [_]Value{ item, max };
                 const yielded = try vm.yieldToBlock(blk, &yield_args);
-                if (yielded.controlFlowValue()) |return_value| return return_value;
-                if ((try arraySortBlockResultSign(vm, yielded.value)) > 0) max = item;
+                if ((try arraySortBlockResultSign(vm, yielded)) > 0) max = item;
             }
         }
         const result = try vm.createArray();
@@ -3401,20 +3356,11 @@ pub fn builtinArrayMinMax(vm: *VM, receiver: Value, args: []Value, block: ?Block
     return Value.fromObject(&result.object);
 }
 
-const SortBlockCompareResult = union(enum) {
-    less_than: bool,
-    control_flow_value: Value,
-};
-
-fn arraySortBlockLessThan(vm: *VM, blk: Block, lhs: Value, rhs: Value) VMError!SortBlockCompareResult {
+fn arraySortBlockLessThan(vm: *VM, blk: Block, lhs: Value, rhs: Value) VMError!bool {
     const yield_args = [_]Value{ lhs, rhs };
     const result = try vm.yieldToBlock(blk, &yield_args);
-    if (result.controlFlowValue()) |return_value| {
-        return .{ .control_flow_value = return_value };
-    }
-
-    const cmp = try arraySortBlockResultSign(vm, result.value);
-    return .{ .less_than = cmp < 0 };
+    const cmp = try arraySortBlockResultSign(vm, result);
+    return cmp < 0;
 }
 
 fn arraySortBlockResultSign(vm: *VM, cmp_value: Value) VMError!i8 {
@@ -3602,8 +3548,7 @@ pub fn builtinArrayCombination(vm: *VM, receiver: Value, args: []Value, block: ?
 
     if (n == 0) {
         const empty = try vm.createArray();
-        const yielded = try vm.yieldToBlock(blk, &[_]Value{Value.fromObject(&empty.object)});
-        if (yielded.controlFlowValue()) |return_value| return return_value;
+        _ = try vm.yieldToBlock(blk, &[_]Value{Value.fromObject(&empty.object)});
         return receiver;
     }
 
@@ -3622,8 +3567,7 @@ pub fn builtinArrayCombination(vm: *VM, receiver: Value, args: []Value, block: ?
             comb.elements.append(vm.gc_allocator, array.elements.items[idx]) catch return error.Fatal;
         }
 
-        const yielded = try vm.yieldToBlock(blk, &[_]Value{Value.fromObject(&comb.object)});
-        if (yielded.controlFlowValue()) |return_value| return return_value;
+        _ = try vm.yieldToBlock(blk, &[_]Value{Value.fromObject(&comb.object)});
 
         var found = false;
         var i: usize = n_usize;
@@ -3693,8 +3637,7 @@ pub fn builtinArrayZip(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
         }
 
         if (block) |blk| {
-            const yielded = try vm.yieldToBlock(blk, &[_]Value{Value.fromObject(&tuple.object)});
-            if (yielded.controlFlowValue()) |return_value| return return_value;
+            _ = try vm.yieldToBlock(blk, &[_]Value{Value.fromObject(&tuple.object)});
         } else {
             result.elements.append(vm.gc_allocator, Value.fromObject(&tuple.object)) catch return error.Fatal;
         }

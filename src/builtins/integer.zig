@@ -1977,8 +1977,7 @@ pub fn builtinIntegerTimes(vm: *VM, receiver: Value, args: []Value, block: ?Bloc
     var i: i64 = 0;
     while (i < count) : (i += 1) {
         const yield_args = [_]Value{Value.integer(i)};
-        const yield_result = try vm.yieldToBlock(blk, &yield_args);
-        if (yield_result.controlFlowValue()) |return_value| return return_value;
+        _ = try vm.yieldToBlock(blk, &yield_args);
     }
 
     return receiver;
@@ -2000,8 +1999,7 @@ pub fn builtinIntegerUpto(vm: *VM, receiver: Value, args: []Value, block: ?Block
     var i = start;
     while (i <= stop) : (i += 1) {
         const yield_args = [_]Value{Value.integer(i)};
-        const yield_result = try vm.yieldToBlock(blk, &yield_args);
-        if (yield_result.controlFlowValue()) |return_value| return return_value;
+        _ = try vm.yieldToBlock(blk, &yield_args);
     }
 
     return receiver;
@@ -2023,8 +2021,7 @@ pub fn builtinIntegerDownto(vm: *VM, receiver: Value, args: []Value, block: ?Blo
     var i = start;
     while (i >= stop) : (i -= 1) {
         const yield_args = [_]Value{Value.integer(i)};
-        const yield_result = try vm.yieldToBlock(blk, &yield_args);
-        if (yield_result.controlFlowValue()) |return_value| return return_value;
+        _ = try vm.yieldToBlock(blk, &yield_args);
     }
 
     return receiver;

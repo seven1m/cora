@@ -181,8 +181,7 @@ pub fn builtinEnvReject(vm: *VM, _: Value, args: []Value, block: ?Block) VMError
 
         const yield_args = [_]Value{ key_val, value_val };
         const yielded = try vm.yieldToBlock(block.?, &yield_args);
-        if (yielded.controlFlowValue()) |return_value| return return_value;
-        if (yielded.value.isFalsey()) {
+        if (yielded.isFalsey()) {
             try vm.hashSetEntry(result, key_val, value_val);
         }
     }
@@ -215,8 +214,7 @@ pub fn builtinEnvRejectBang(vm: *VM, env_receiver: Value, args: []Value, block: 
 
         const yield_args = [_]Value{ key_val, value_val };
         const yielded = try vm.yieldToBlock(blk, &yield_args);
-        if (yielded.controlFlowValue()) |return_value| return return_value;
-        if (yielded.value.isTruthy()) {
+        if (yielded.isTruthy()) {
             const key_copy = vm.allocator.dupe(u8, entry.key_ptr.*) catch return error.Fatal;
             keys_to_delete.append(vm.allocator, key_copy) catch return error.Fatal;
         }
@@ -262,8 +260,7 @@ pub fn builtinEnvSelect(vm: *VM, _: Value, args: []Value, block: ?Block) VMError
 
         const yield_args = [_]Value{ key_val, value_val };
         const yielded = try vm.yieldToBlock(blk, &yield_args);
-        if (yielded.controlFlowValue()) |return_value| return return_value;
-        if (yielded.value.isTruthy()) {
+        if (yielded.isTruthy()) {
             try vm.hashSetEntry(result, key_val, value_val);
         }
     }
@@ -291,7 +288,7 @@ pub fn builtinEnvMerge(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!
                 if (existing != null) {
                     const yield_args = [_]Value{ entry.key, existing.?.value, entry.value };
                     const yielded = try vm.yieldToBlock(blk, &yield_args);
-                    try vm.hashSetEntry(result, entry.key, yielded.value);
+                    try vm.hashSetEntry(result, entry.key, yielded);
                 } else {
                     try vm.hashSetEntry(result, entry.key, entry.value);
                 }
@@ -342,7 +339,7 @@ pub fn builtinEnvFetch(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!
     if (block) |blk| {
         const yield_args = [_]Value{args[0]};
         const result = try vm.yieldToBlock(blk, &yield_args);
-        return result.value;
+        return result;
     } else if (args.len == 2) {
         return args[1];
     } else {

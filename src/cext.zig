@@ -1295,18 +1295,11 @@ export fn rb_yield(val_raw: VALUE) VALUE {
     const vm = getVM();
     const current_frame = vm.currentFrame();
     if (current_frame.block) |blk| {
-        const saved_frame_count = vm.frames.items.len;
         const result = vm.yieldToBlock(blk, &[_]Value{Value{ .raw = val_raw }}) catch |err| switch (err) {
             error.Unwind => { checkNLR(vm); return 0; },
             else => return 0,
         };
-        if (result.non_local_return_occurred) {
-            checkNLR(vm);
-        }
-        if (vm.frames.items.len < saved_frame_count) {
-            checkNLR(vm);
-        }
-        return result.value.raw;
+        return result.raw;
     }
     return 0;
 }

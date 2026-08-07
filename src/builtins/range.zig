@@ -159,16 +159,14 @@ pub fn builtinRangeEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
             var current = start_i;
             while (current < end_i) : (current += 1) {
                 const yield_args = [_]Value{Value.integer(current)};
-                const result = try vm.yieldToBlock(blk, &yield_args);
-                if (result.controlFlowValue()) |return_value| return return_value;
+                _ = try vm.yieldToBlock(blk, &yield_args);
                 if (current == std.math.maxInt(i64)) break;
             }
         } else {
             var current = start_i;
             while (current <= end_i) : (current += 1) {
                 const yield_args = [_]Value{Value.integer(current)};
-                const result = try vm.yieldToBlock(blk, &yield_args);
-                if (result.controlFlowValue()) |return_value| return return_value;
+                _ = try vm.yieldToBlock(blk, &yield_args);
                 if (current == std.math.maxInt(i64)) break;
             }
         }
@@ -236,8 +234,7 @@ fn eachStringRange(
         if (order > 0 or (exclude_end and order == 0)) break;
 
         const yield_args = [_]Value{current};
-        const result = try vm.yieldToBlock(blk, &yield_args);
-        if (result.controlFlowValue()) |return_value| return return_value;
+        _ = try vm.yieldToBlock(blk, &yield_args);
         if (order == 0) break;
 
         current = try vm.callMethodByName(current, "succ", empty_args[0..], null);
@@ -359,14 +356,10 @@ pub fn builtinRangeBsearch(vm: *VM, receiver: Value, args: []Value, block: ?Bloc
     return bsearchInteger(vm, blk, range_obj);
 }
 
-const BsearchAction = enum { found, smaller, larger, control_flow };
+const BsearchAction = enum { found, smaller, larger };
 
 fn bsearchDispatch(vm: *VM, blk: Block, element: Value) VMError!struct { action: BsearchAction, value: Value } {
-    const yield_result = try vm.yieldToBlock(blk, &[_]Value{element});
-    if (yield_result.controlFlowValue()) |return_value| {
-        return .{ .action = .control_flow, .value = return_value };
-    }
-    const result = yield_result.value;
+    const result = try vm.yieldToBlock(blk, &[_]Value{element});
     if (result.isTrue()) return .{ .action = .smaller, .value = result };
     if (result.isFalsey()) return .{ .action = .larger, .value = result };
     if (result.isInteger()) {
@@ -398,7 +391,6 @@ fn bsearchDispatch(vm: *VM, blk: Block, element: Value) VMError!struct { action:
 fn bsearchIntegerEndlessUp(vm: *VM, blk: Block, begin: i64) VMError!Value {
     const d0 = try bsearchDispatch(vm, blk, Value.integer(begin));
     switch (d0.action) {
-        .control_flow => return d0.value,
         .found => return Value.integer(begin),
         .smaller => {
             if (d0.value.isTrue()) return Value.integer(begin);
@@ -417,7 +409,6 @@ fn bsearchIntegerEndlessUp(vm: *VM, blk: Block, begin: i64) VMError!Value {
         const probe = begin + pos;
         const d = try bsearchDispatch(vm, blk, Value.integer(probe));
         switch (d.action) {
-            .control_flow => return d.value,
             .found => return Value.integer(probe),
             .smaller => {
                 if (d.value.isTrue()) {
@@ -448,7 +439,6 @@ fn bsearchIntegerEndlessDown(vm: *VM, blk: Block, end_val: i64, exclude_end: boo
     const first = if (exclude_end) end_val - 1 else end_val;
     const d0 = try bsearchDispatch(vm, blk, Value.integer(first));
     const is_find_min = switch (d0.action) {
-        .control_flow => return d0.value,
         .found => return Value.integer(first),
         .smaller => d0.value.isTrue(),
         .larger => d0.value.isFalsey(),
@@ -464,7 +454,6 @@ fn bsearchIntegerEndlessDown(vm: *VM, blk: Block, end_val: i64, exclude_end: boo
             const probe = first - pos;
             const d = try bsearchDispatch(vm, blk, Value.integer(probe));
             switch (d.action) {
-                .control_flow => return d.value,
                 .found => return Value.integer(probe),
                 .smaller => {
                     last_small = probe;
@@ -484,7 +473,6 @@ fn bsearchIntegerEndlessDown(vm: *VM, blk: Block, end_val: i64, exclude_end: boo
         const probe = first - pos;
         const d = try bsearchDispatch(vm, blk, Value.integer(probe));
         switch (d.action) {
-            .control_flow => return d.value,
             .found => return Value.integer(probe),
             .smaller => {
                 if (!d.value.isTrue()) return Value.nil();
@@ -535,7 +523,6 @@ fn bsearchIntegerRange(vm: *VM, blk: Block, start_i: i64, exclusive_end: i64, in
         const element = Value.integer(mid);
         const d = try bsearchDispatch(vm, blk, element);
         switch (d.action) {
-            .control_flow => return d.value,
             .found => return element,
             .smaller => {
                 if (d.value.isTrue()) satisfied = true;
@@ -597,7 +584,6 @@ fn bsearchFloatOrdered(vm: *VM, blk: Block, start_ordered: u64, end_ordered: u64
         const element = try vm.newFloat(orderedToF64(mid));
         const d = try bsearchDispatch(vm, blk, element);
         switch (d.action) {
-            .control_flow => return d.value,
             .found => return element,
             .smaller => {
                 if (d.value.isTrue()) satisfied = true;
@@ -626,7 +612,6 @@ fn bsearchFloatRange(vm: *VM, blk: Block, start_f: f64, end_f: f64) VMError!Valu
 
         const d = try bsearchDispatch(vm, blk, element);
         switch (d.action) {
-            .control_flow => return d.value,
             .found => return element,
             .smaller => {
                 if (d.value.isTrue()) satisfied = true;

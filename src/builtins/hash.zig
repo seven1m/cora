@@ -415,7 +415,7 @@ fn mergeEntriesIntoHash(
             if (existing) |old_val| {
                 const yield_args = [_]Value{ key, old_val, entry.value };
                 const yielded = try vm.yieldToBlock(blk, &yield_args);
-                try vm.hashSetEntry(target, key, yielded.value);
+                try vm.hashSetEntry(target, key, yielded);
             } else {
                 try vm.hashSetEntry(target, key, entry.value);
             }
@@ -552,7 +552,7 @@ fn digIntoValue(vm: *VM, current_value: Value, remaining_args: []Value) VMError!
     return vm.callMethodByName(current_value, "dig", remaining_args, null);
 }
 
-fn yieldHashEntryPair(vm: *VM, blk: Block, entry: value.HashEntry) VMError!VM.YieldResult {
+fn yieldHashEntryPair(vm: *VM, blk: Block, entry: value.HashEntry) VMError!Value {
     const pair = try vm.createArray();
     pair.elements.append(vm.gc_allocator, entry.key) catch return error.Fatal;
     pair.elements.append(vm.gc_allocator, entry.value) catch return error.Fatal;
@@ -723,7 +723,7 @@ pub fn builtinHashDelete(vm: *VM, receiver: Value, args: []Value, block: ?Block)
     const deleted = try vm.hashDeleteEntry(hash_obj, args[0]) orelse {
         if (block) |blk| {
             const yielded = try vm.yieldToBlock(blk, &.{});
-            return yielded.value;
+            return yielded;
         }
         return Value.nil();
     };
@@ -755,9 +755,8 @@ fn hashFilterBangShared(
     for (snapshot) |entry| {
         const yield_args = [_]Value{ entry.key, entry.value };
         const yielded = try vm.yieldToBlock(blk, &yield_args);
-        if (yielded.controlFlowValue()) |return_value| return return_value;
 
-        const should_delete = if (delete_if_truthy) yielded.value.isTruthy() else yielded.value.isFalsey();
+        const should_delete = if (delete_if_truthy) yielded.isTruthy() else yielded.isFalsey();
         if (should_delete) {
             _ = try vm.hashDeleteEntry(hash_obj, entry.key);
             changed = true;
@@ -836,15 +835,13 @@ pub fn builtinHashTransformKeys(vm: *VM, receiver: Value, args: []Value, block: 
             (try hashGetValue(mapping, vm, entry.key)) orelse blk: {
                 if (block) |blk| {
                     const yielded = try vm.yieldToBlock(blk, &[_]Value{entry.key});
-                    if (yielded.controlFlowValue()) |return_value| return return_value;
-                    break :blk yielded.value;
+                    break :blk yielded;
                 }
                 break :blk entry.key;
             }
         else blk: {
             const yielded = try vm.yieldToBlock(block.?, &[_]Value{entry.key});
-            if (yielded.controlFlowValue()) |return_value| return return_value;
-            break :blk yielded.value;
+            break :blk yielded;
         };
         try vm.hashSetEntry(result_hash, new_key, entry.value);
     }
@@ -876,40 +873,42 @@ pub fn builtinHashTransformKeysBang(vm: *VM, receiver: Value, args: []Value, blo
         const new_key = if (mapping_hash) |mapping|
             (try hashGetValue(mapping, vm, entry.key)) orelse blk: {
                 if (block) |blk| {
-                    const yielded = try vm.yieldToBlock(blk, &[_]Value{entry.key});
-                    if (yielded.non_local_return_occurred) {
-                        try replaceHashEntriesOnly(vm, hash_obj, transformed);
-                        return yielded.value;
-                    }
-                    if (yielded.break_occurred) {
-                        for (snapshot[idx..]) |remaining| {
-                            if ((try vm.hashFindEntryIndex(transformed, remaining.key)) == null) {
-                                try vm.hashSetEntry(transformed, remaining.key, remaining.value);
+                    const yielded = vm.yieldToBlock(blk, &[_]Value{entry.key}) catch |err| {
+                        if (err == error.Unwind) {
+                            if (vm.pendingControlFlow()) |control_flow| {
+                                if (control_flow.kind == .break_) {
+                                    for (snapshot[idx..]) |remaining| {
+                                        if ((try vm.hashFindEntryIndex(transformed, remaining.key)) == null) {
+                                            try vm.hashSetEntry(transformed, remaining.key, remaining.value);
+                                        }
+                                    }
+                                }
                             }
                         }
                         try replaceHashEntriesOnly(vm, hash_obj, transformed);
-                        return yielded.value;
-                    }
-                    break :blk yielded.value;
+                        return err;
+                    };
+                    break :blk yielded;
                 }
                 break :blk entry.key;
             }
         else blk: {
-            const yielded = try vm.yieldToBlock(block.?, &[_]Value{entry.key});
-            if (yielded.non_local_return_occurred) {
-                try replaceHashEntriesOnly(vm, hash_obj, transformed);
-                return yielded.value;
-            }
-            if (yielded.break_occurred) {
-                for (snapshot[idx..]) |remaining| {
-                    if ((try vm.hashFindEntryIndex(transformed, remaining.key)) == null) {
-                        try vm.hashSetEntry(transformed, remaining.key, remaining.value);
+            const yielded = vm.yieldToBlock(block.?, &[_]Value{entry.key}) catch |err| {
+                if (err == error.Unwind) {
+                    if (vm.pendingControlFlow()) |control_flow| {
+                        if (control_flow.kind == .break_) {
+                            for (snapshot[idx..]) |remaining| {
+                                if ((try vm.hashFindEntryIndex(transformed, remaining.key)) == null) {
+                                    try vm.hashSetEntry(transformed, remaining.key, remaining.value);
+                                }
+                            }
+                        }
                     }
                 }
                 try replaceHashEntriesOnly(vm, hash_obj, transformed);
-                return yielded.value;
-            }
-            break :blk yielded.value;
+                return err;
+            };
+            break :blk yielded;
         };
         try vm.hashSetEntry(transformed, new_key, entry.value);
     }
@@ -934,8 +933,7 @@ pub fn builtinHashTransformValues(vm: *VM, receiver: Value, args: []Value, block
     result_hash.compare_by_identity = hash_obj.compare_by_identity;
     for (hash_obj.entries.items) |entry| {
         const yielded = try vm.yieldToBlock(blk, &[_]Value{entry.value});
-        if (yielded.controlFlowValue()) |return_value| return return_value;
-        try vm.hashSetEntry(result_hash, entry.key, yielded.value);
+        try vm.hashSetEntry(result_hash, entry.key, yielded);
     }
 
     return Value.fromObject(&result_hash.object);
@@ -957,10 +955,7 @@ pub fn builtinHashTransformValuesBang(vm: *VM, receiver: Value, args: []Value, b
     var idx: usize = 0;
     while (idx < hash_obj.entries.items.len) : (idx += 1) {
         const yielded = try vm.yieldToBlock(blk, &[_]Value{hash_obj.entries.items[idx].value});
-        if (yielded.non_local_return_occurred or yielded.break_occurred) {
-            return yielded.value;
-        }
-        hash_obj.entries.items[idx].value = yielded.value;
+        hash_obj.entries.items[idx].value = yielded;
     }
 
     return receiver;
@@ -1026,7 +1021,7 @@ pub fn builtinHashFetchValues(vm: *VM, receiver: Value, args: []Value, block: ?B
         } else if (block) |blk| {
             const yield_args = [_]Value{arg};
             const result = try vm.yieldToBlock(blk, &yield_args);
-            array_obj.elements.append(vm.gc_allocator, result.value) catch return error.Fatal;
+            array_obj.elements.append(vm.gc_allocator, result) catch return error.Fatal;
         } else {
             const key_str = try arg.inspect(vm);
             return vm.raiseKeyErrorFmt(arg, receiver, "key not found: {s}", .{key_str.toStringObject().str});
@@ -1092,15 +1087,14 @@ pub fn builtinHashToH(vm: *VM, receiver: Value, args: []Value, block: ?Block) VM
         for (hash_obj.entries.items) |entry| {
             const yield_args = [_]Value{ entry.key, entry.value };
             const yielded = try vm.yieldToBlock(blk, &yield_args);
-            if (yielded.controlFlowValue()) |return_value| return return_value;
 
-            const pair_value = switch (try vm.probeToAry(yielded.value)) {
+            const pair_value = switch (try vm.probeToAry(yielded)) {
                 .array => |array_value| array_value,
                 .missing, .nil_result => {
                     return vm.raiseExceptionFmt(
                         vm.type_error_class,
                         "wrong element type {s} at {d} (expected array)",
-                        .{ vm.className(yielded.value), 0 },
+                        .{ vm.className(yielded), 0 },
                     );
                 },
             };
@@ -1209,8 +1203,7 @@ pub fn builtinHashEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
 
     // Iterate in insertion order
     for (hash_obj.entries.items) |entry| {
-        const result = try yieldHashEntryPair(vm, blk, entry);
-        if (result.controlFlowValue()) |return_value| return return_value;
+        _ = try yieldHashEntryPair(vm, blk, entry);
     }
 
     return receiver;
@@ -1232,8 +1225,7 @@ pub fn builtinHashEachPair(vm: *VM, receiver: Value, args: []Value, block: ?Bloc
     @memcpy(snapshot, hash_obj.entries.items);
 
     for (snapshot) |entry| {
-        const result = try yieldHashEntryPair(vm, blk, entry);
-        if (result.controlFlowValue()) |return_value| return return_value;
+        _ = try yieldHashEntryPair(vm, blk, entry);
     }
 
     return receiver;
@@ -1256,8 +1248,7 @@ pub fn builtinHashEachKey(vm: *VM, receiver: Value, args: []Value, block: ?Block
 
     for (snapshot) |entry| {
         const yield_args = [_]Value{entry.key};
-        const result = try vm.yieldToBlock(blk, &yield_args);
-        if (result.controlFlowValue()) |return_value| return return_value;
+        _ = try vm.yieldToBlock(blk, &yield_args);
     }
 
     return receiver;
@@ -1280,8 +1271,7 @@ pub fn builtinHashEachValue(vm: *VM, receiver: Value, args: []Value, block: ?Blo
 
     for (snapshot) |entry| {
         const yield_args = [_]Value{entry.value};
-        const result = try vm.yieldToBlock(blk, &yield_args);
-        if (result.controlFlowValue()) |return_value| return return_value;
+        _ = try vm.yieldToBlock(blk, &yield_args);
     }
 
     return receiver;
@@ -1436,7 +1426,7 @@ pub fn builtinHashFetch(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
     if (block) |blk| {
         const yield_args = [_]Value{key};
         const result = try vm.yieldToBlock(blk, &yield_args);
-        return result.value;
+        return result;
     } else if (args.len == 2) {
         return args[1];
     } else {
@@ -1469,9 +1459,8 @@ pub fn builtinHashSelect(vm: *VM, receiver: Value, args: []Value, block: ?Block)
     for (hash_obj.entries.items) |entry| {
         const yield_args = [_]Value{ entry.key, entry.value };
         const result = try vm.yieldToBlock(blk, &yield_args);
-        if (result.controlFlowValue()) |return_value| return return_value;
 
-        if (result.value.isTruthy()) {
+        if (result.isTruthy()) {
             try vm.hashSetEntry(result_hash, entry.key, entry.value);
         }
     }
@@ -1549,9 +1538,8 @@ pub fn builtinHashReject(vm: *VM, receiver: Value, args: []Value, block: ?Block)
     for (hash_obj.entries.items) |entry| {
         const yield_args = [_]Value{ entry.key, entry.value };
         const result = try vm.yieldToBlock(blk, &yield_args);
-        if (result.controlFlowValue()) |return_value| return return_value;
 
-        if (result.value.isFalsey()) {
+        if (result.isFalsey()) {
             keep_entries[keep_count] = entry;
             keep_count += 1;
         }
@@ -1643,8 +1631,7 @@ pub fn builtinHashAny(vm: *VM, receiver: Value, args: []Value, block: ?Block) VM
         for (hash_obj.entries.items) |entry| {
             const yield_args = [_]Value{ entry.key, entry.value };
             const yielded = try vm.yieldToBlock(blk, &yield_args);
-            if (yielded.controlFlowValue()) |return_value| return return_value;
-            if (yielded.value.isTruthy()) return Value.boolean(true);
+            if (yielded.isTruthy()) return Value.boolean(true);
         }
         return Value.boolean(false);
     }

@@ -341,7 +341,6 @@ pub const PendingControlFlow = struct {
     value: Value,
     target_frame: *CallFrame,
     target_ip: ?usize = null,
-    value_placed: bool = false,
 
     const Kind = enum {
         return_,
@@ -1966,13 +1965,6 @@ pub const VM = struct {
         return @ptrCast(ep - locals_count + idx);
     }
 
-    fn frameStorageIndex(self: *VM, target: *const CallFrame) ?usize {
-        for (self.frames.storage[0..self.frames.capacity], 0..) |*frame, frame_idx| {
-            if (frame == target) return frame_idx;
-        }
-        return null;
-    }
-
     fn findActiveNonLocalReturnTarget(self: *VM, source_ep: [*]Value) ?*CallFrame {
         var ep = source_ep;
         while (true) {
@@ -2826,13 +2818,6 @@ pub const VM = struct {
     pub inline fn pendingControlFlow(self: *VM) ?PendingControlFlow {
         if (self.pending_unwind) |pending| {
             if (pending == .control_flow) return pending.control_flow;
-        }
-        return null;
-    }
-
-    inline fn pendingControlFlowPtr(self: *VM) ?*PendingControlFlow {
-        if (self.pending_unwind) |*pending| {
-            if (pending.* == .control_flow) return &pending.control_flow;
         }
         return null;
     }
@@ -3890,7 +3875,6 @@ pub const VM = struct {
         fiber.state = .running;
 
         while (true) {
-            self.clearPlacedPendingControlFlow();
             self.executeInstruction() catch |err| switch (err) {
                 error.Unwind => {
                     self.unwindStack() catch |unwind_err| switch (unwind_err) {
@@ -4377,7 +4361,6 @@ pub const VM = struct {
         self.resetThreadPreemptBudget(thread);
 
         while (true) {
-            self.clearPlacedPendingControlFlow();
             // Check kill request before each instruction
             if (thread.kill_requested) {
                 thread.kill_requested = false;
@@ -6932,7 +6915,6 @@ pub const VM = struct {
     /// has zero overhead from the bounded unwinding logic.
     pub fn executeFastLoop(self: *VM, target_len: usize, comptime bounded: bool, min_unwind_depth: usize) VMError!void {
         while (self.frames.items.len >= target_len) {
-            self.clearPlacedPendingControlFlow();
             const frame_len = self.frames.items.len;
             const f = &self.frames.storage[frame_len - 1];
             const code = f.chunk.code.items;
@@ -7250,14 +7232,6 @@ pub const VM = struct {
             }
 
             try self.checkAsyncEventsWithUnwind(bounded, min_unwind_depth);
-        }
-    }
-
-    inline fn clearPlacedPendingControlFlow(self: *VM) void {
-        if (self.pendingControlFlow()) |cf| {
-            if ((cf.kind == .return_ or cf.kind == .next_) and cf.value_placed) {
-                self.setPendingControlFlow(null);
-            }
         }
     }
 
@@ -8061,13 +8035,7 @@ pub const VM = struct {
                 });
 
                 try self.executeUntilReturn(saved_frame_count);
-                if (self.pendingControlFlow()) |cf| {
-                    if (cf.kind == .break_) {
-                        const target_frame_idx = self.frameStorageIndex(cf.target_frame) orelse return error.Fatal;
-                        if (target_frame_idx < saved_frame_count) return error.Unwind;
-                    }
-                }
-                return (try self.finishSubcallFromStack(saved_frame_count, saved_stack_len)).value();
+                return self.finishSubcallFromStack(saved_frame_count, saved_stack_len);
             },
             .builtin => |fun_ptr| {
                 const dispatch_keyword_ctx = if (dispatch.kw_values) |vals|
@@ -8316,46 +8284,6 @@ pub const VM = struct {
         _ = try self.checkCallMethodByName(receiver, method_added_name, true, &args, null);
     }
 
-    const SubcallOutcome = union(enum) {
-        returned: Value,
-        non_local_return: Value,
-        broke: Value,
-
-        inline fn value(self: SubcallOutcome) Value {
-            return switch (self) {
-                .returned => |v| v,
-                .non_local_return => |v| v,
-                .broke => |v| v,
-            };
-        }
-
-        inline fn isBreak(self: SubcallOutcome) bool {
-            return switch (self) {
-                .broke => true,
-                else => false,
-            };
-        }
-
-        inline fn isNonLocalReturn(self: SubcallOutcome) bool {
-            return switch (self) {
-                .non_local_return => true,
-                else => false,
-            };
-        }
-    };
-
-    /// Result from yielding to a block
-    pub const YieldResult = struct {
-        value: Value,
-        break_occurred: bool,
-        non_local_return_occurred: bool,
-
-        pub inline fn controlFlowValue(self: YieldResult) ?Value {
-            if (self.non_local_return_occurred or self.break_occurred) return self.value;
-            return null;
-        }
-    };
-
     const BreakTarget = struct {
         frame: *CallFrame,
         continuation_byte_offset: usize,
@@ -8384,25 +8312,13 @@ pub const VM = struct {
         return null;
     }
 
-    /// Yield to a block with arguments, handling break and exceptions
-    /// Returns the block's result value and whether a break occurred
-    pub fn yieldToBlock(self: *VM, block: Block, yield_args: []const Value) VMError!YieldResult {
+    /// Yield to a block with arguments. Normal completion, including `next`,
+    /// returns a value; unresolved non-local control flow returns error.Unwind.
+    pub fn yieldToBlock(self: *VM, block: Block, yield_args: []const Value) VMError!Value {
         return switch (block.kind) {
-            .receiver_builtin => |builtin_data| .{
-                .value = try builtin_data.func(self, builtin_data.receiver, @constCast(yield_args)),
-                .break_occurred = false,
-                .non_local_return_occurred = false,
-            },
-            .symbol => |sym| .{
-                .value = try self.invokeSymbolProc(sym, yield_args, null),
-                .break_occurred = false,
-                .non_local_return_occurred = false,
-            },
-            .builtin => |func| .{
-                .value = try func(self, @constCast(yield_args)),
-                .break_occurred = false,
-                .non_local_return_occurred = false,
-            },
+            .receiver_builtin => |builtin_data| builtin_data.func(self, builtin_data.receiver, @constCast(yield_args)),
+            .symbol => |sym| self.invokeSymbolProc(sym, yield_args, null),
+            .builtin => |func| func(self, @constCast(yield_args)),
             .callable => |callable| blk: {
                 const saved_last_match = self.getGlobalValue("$~");
                 try self.clearLastMatch();
@@ -8419,11 +8335,7 @@ pub const VM = struct {
                 } else {
                     try self.clearLastMatch();
                 }
-                break :blk .{
-                    .value = call_result,
-                    .break_occurred = false,
-                    .non_local_return_occurred = false,
-                };
+                break :blk call_result;
             },
             .chunk => |chunk_blk| blk: {
                 const saved_stack_len = self.stack.items.len;
@@ -8438,12 +8350,7 @@ pub const VM = struct {
 
                 const saved_frame_count = self.frames.items.len - 1;
                 try self.executeUntilReturn(saved_frame_count);
-                const outcome = try self.finishSubcallFromStack(saved_frame_count, saved_stack_len);
-                break :blk YieldResult{
-                    .value = outcome.value(),
-                    .break_occurred = outcome.isBreak(),
-                    .non_local_return_occurred = outcome.isNonLocalReturn(),
-                };
+                break :blk try self.finishSubcallFromStack(saved_frame_count, saved_stack_len);
             },
         };
     }
@@ -8521,7 +8428,7 @@ pub const VM = struct {
                 const saved_frame_count = self.frames.items.len - 1;
                 try self.executeUntilReturn(saved_frame_count);
 
-                break :blk (try self.finishSubcallFromStack(saved_frame_count, saved_stack_len)).value();
+                break :blk try self.finishSubcallFromStack(saved_frame_count, saved_stack_len);
             },
         };
     }
@@ -8617,7 +8524,7 @@ pub const VM = struct {
 
                 const saved_frame_count = self.frames.items.len - 1;
                 try self.executeUntilReturn(saved_frame_count);
-                break :blk (try self.finishSubcallFromStack(saved_frame_count, saved_stack_len)).value();
+                break :blk try self.finishSubcallFromStack(saved_frame_count, saved_stack_len);
             },
         };
     }
@@ -12074,7 +11981,7 @@ pub const VM = struct {
 
         const saved = self.frames.items.len - 1;
         try self.executeUntilReturn(saved);
-        return (try self.finishSubcallFromStack(saved, saved_stack_len)).value();
+        return self.finishSubcallFromStack(saved, saved_stack_len);
     }
 
     // ===== Exception Handling Methods =====
@@ -12780,25 +12687,21 @@ pub const VM = struct {
             else
                 false;
             const unwind_locals_base = self.frames.items[frame_idx].locals_base;
+            const control_flow_value = if (popped_control_flow_target)
+                self.pendingControlFlow().?.value
+            else
+                Value.nil();
             try self.popFrame();
             self.stack.shrinkRetainingCapacity(unwind_locals_base);
 
             if (popped_control_flow_target) {
-                try self.placePendingControlFlowValue();
+                try self.push(control_flow_value);
+                self.setPendingControlFlow(null);
                 return true;
             }
         }
 
         return false;
-    }
-
-    fn placePendingControlFlowValue(self: *VM) VMError!void {
-        if (self.pendingControlFlowPtr()) |cf| {
-            if (!cf.value_placed) {
-                try self.push(cf.value);
-                cf.value_placed = true;
-            }
-        }
     }
 
     fn findEnsureHandler(self: *VM, frame_idx: usize) VMError!?usize {
@@ -12823,7 +12726,6 @@ pub const VM = struct {
     fn executeUntilReturn(self: *VM, caller_frame_depth: usize) VMError!void {
         const target_frame_depth = caller_frame_depth + 1;
         while (self.frames.items.len >= target_frame_depth) {
-            self.clearPlacedPendingControlFlow();
             self.executeInstruction() catch |err| switch (err) {
                 error.Unwind => {
                     if (!try self.unwindStackUntilFrameDepth(caller_frame_depth)) {
@@ -12832,9 +12734,7 @@ pub const VM = struct {
                         return error.Unwind;
                     }
                     if (self.frames.items.len < target_frame_depth) {
-                        if (self.pendingControlFlow() != null)
-                            return;
-                        return error.Unwind;
+                        return;
                     }
                 },
                 else => return err,
@@ -12842,34 +12742,14 @@ pub const VM = struct {
         }
     }
 
-    fn finishSubcall(self: *VM, caller_frame_depth: usize) VMError!SubcallOutcome {
-        return self.finishSubcallFromStack(caller_frame_depth, 0);
-    }
-
-    fn finishSubcallFromStack(self: *VM, caller_frame_depth: usize, saved_stack_len: usize) VMError!SubcallOutcome {
-        if (self.pendingControlFlow()) |cf| {
-            const result = cf.value;
-            if (cf.value_placed) {
-                _ = self.popStackAboveOrNil(saved_stack_len);
-                self.setPendingControlFlow(null);
-                return .{ .returned = result };
-            }
-            return switch (cf.kind) {
-                .return_ => .{ .non_local_return = result },
-                .break_ => .{ .broke = result },
-                .next_ => .{ .returned = result },
-                .redo_, .retry_ => return error.Fatal,
-            };
-        }
+    fn finishSubcallFromStack(self: *VM, caller_frame_depth: usize, saved_stack_len: usize) VMError!Value {
+        if (self.pendingControlFlow() != null) return error.Unwind;
 
         const escaped = self.frames.items.len < caller_frame_depth;
-        const result = if (escaped)
+        return if (escaped)
             self.peekStackOrNil()
         else
             self.popStackAboveOrNil(saved_stack_len);
-
-        if (escaped) return .{ .non_local_return = result };
-        return .{ .returned = result };
     }
 
     fn peekStackOrNil(self: *VM) Value {
@@ -12907,7 +12787,7 @@ pub const VM = struct {
         self.frames.append(self.gc_allocator, rescue_type_frame) catch return error.Fatal;
 
         try self.executeUntilReturn(saved);
-        const result = (try self.finishSubcallFromStack(saved, saved_stack_len)).value();
+        const result = try self.finishSubcallFromStack(saved, saved_stack_len);
         self.setPendingException(original_exception);
         return result;
     }

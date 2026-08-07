@@ -93,7 +93,7 @@ fn defineStructSubclassSingletonMethods(vm: *VM, class_value: Value) VMError!voi
 }
 
 fn runStructSubclassBody(vm: *VM, struct_val: Value, block: Block) VMError!void {
-    const yield_result = switch (block.kind) {
+    _ = switch (block.kind) {
         .chunk => |chunk_blk| chunk_blk_result: {
             chunk_blk.chunk.lexical_scope = try vm.createLexicalScope(struct_val, vm.current_lexical_scope);
 
@@ -111,7 +111,6 @@ fn runStructSubclassBody(vm: *VM, struct_val: Value, block: Block) VMError!void 
         .builtin => try vm.yieldToBlock(block, &[_]Value{}),
         .callable => try vm.yieldToBlock(block, &[_]Value{}),
     };
-    if (yield_result.controlFlowValue()) |_| return;
 }
 
 fn normalizeStructMember(vm: *VM, arg: Value) VMError!*SymbolObject {
@@ -313,8 +312,7 @@ pub fn builtinStructEach(vm: *VM, receiver: Value, args: []Value, block: ?Block)
 
     for (members.elements.items) |member| {
         const value_arg = [_]Value{try structMemberReaderValue(vm, receiver, member.toSymbolObject())};
-        const result = try vm.yieldToBlock(block.?, value_arg[0..]);
-        if (result.controlFlowValue()) |return_value| return return_value;
+        _ = try vm.yieldToBlock(block.?, value_arg[0..]);
     }
 
     return receiver;
@@ -330,8 +328,7 @@ pub fn builtinStructEachPair(vm: *VM, receiver: Value, args: []Value, block: ?Bl
     for (members.elements.items) |member| {
         const value_arg = try structMemberReaderValue(vm, receiver, member.toSymbolObject());
         const yield_args = [_]Value{ Value.fromObject(&member.toSymbolObject().object), value_arg };
-        const result = try vm.yieldToBlock(block.?, yield_args[0..]);
-        if (result.controlFlowValue()) |return_value| return return_value;
+        _ = try vm.yieldToBlock(block.?, yield_args[0..]);
     }
 
     return receiver;

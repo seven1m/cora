@@ -58,7 +58,7 @@ pub fn builtinClassNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
         const module_val = try vm.newModule(anonymous_name);
 
         if (block) |blk| {
-            const yield_result = switch (blk.kind) {
+            _ = switch (blk.kind) {
                 .chunk => |chunk_blk| chunk_blk_result: {
                     chunk_blk.chunk.lexical_scope = try vm.createLexicalScope(module_val, vm.current_lexical_scope);
 
@@ -76,7 +76,6 @@ pub fn builtinClassNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
                 .builtin => try vm.yieldToBlock(blk, &[_]Value{}),
                 .callable => try vm.yieldToBlock(blk, &[_]Value{}),
             };
-            if (yield_result.controlFlowValue()) |return_value| return return_value;
         }
 
         return module_val;
@@ -108,7 +107,7 @@ pub fn builtinClassNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
         }
 
         if (block) |blk| {
-            const yield_result = switch (blk.kind) {
+            _ = switch (blk.kind) {
                 .chunk => |chunk_blk| chunk_blk_result: {
                     chunk_blk.chunk.lexical_scope = try vm.createLexicalScope(class_val, vm.current_lexical_scope);
 
@@ -126,7 +125,6 @@ pub fn builtinClassNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
                 .builtin => try vm.yieldToBlock(blk, &[_]Value{}),
                 .callable => try vm.yieldToBlock(blk, &[_]Value{}),
             };
-            if (yield_result.controlFlowValue()) |return_value| return return_value;
         }
 
         return class_val;
@@ -193,7 +191,7 @@ pub fn builtinClassInitialize(vm: *VM, receiver: Value, args: []Value, block: ?B
     _ = try vm.callMethodByName(Value.fromObject(&superclass.module.object), "inherited", inherited_args[0..], null);
 
     if (block) |blk| {
-        const yield_result = switch (blk.kind) {
+        _ = switch (blk.kind) {
             .chunk => |chunk_blk| chunk_blk_result: {
                 chunk_blk.chunk.lexical_scope = try vm.createLexicalScope(receiver, vm.current_lexical_scope);
                 const class_body_block = Block{
@@ -207,7 +205,6 @@ pub fn builtinClassInitialize(vm: *VM, receiver: Value, args: []Value, block: ?B
             },
             .receiver_builtin, .symbol, .builtin, .callable => try vm.yieldToBlock(blk, &[_]Value{}),
         };
-        if (yield_result.controlFlowValue()) |return_value| return return_value;
     }
 
     return receiver;

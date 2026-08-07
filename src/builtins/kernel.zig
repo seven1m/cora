@@ -1833,8 +1833,7 @@ pub fn builtinKernelCatch(vm: *VM, _: Value, args: []Value, block: ?Block) VMErr
         return err;
     };
 
-    if (yielded.controlFlowValue()) |return_value| return return_value;
-    return yielded.value;
+    return yielded;
 }
 
 pub fn builtinKernelThrow(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -1857,8 +1856,7 @@ pub fn builtinKernelLoop(vm: *VM, _: Value, args: []Value, block: ?Block) VMErro
     const blk = try vm.requireBlock(block);
 
     while (true) {
-        const result = try vm.yieldToBlock(blk, &[_]Value{});
-        if (result.controlFlowValue()) |return_value| return return_value;
+        _ = try vm.yieldToBlock(blk, &[_]Value{});
         try vm.maybePreemptCurrentThread(true);
     }
 }
@@ -1901,8 +1899,7 @@ pub fn builtinKernelTap(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
     const blk = block orelse {
         return vm.raiseExceptionFmt(vm.local_jump_error_class, "no block given", .{});
     };
-    const result = try vm.yieldToBlock(blk, &[_]Value{receiver});
-    if (result.controlFlowValue()) |return_value| return return_value;
+    _ = try vm.yieldToBlock(blk, &[_]Value{receiver});
     return receiver;
 }
 
@@ -1910,8 +1907,7 @@ pub fn builtinKernelThen(vm: *VM, receiver: Value, args: []Value, block: ?Block)
     try vm.requireArgCount(args, 0);
     if (block) |blk| {
         const result = try vm.yieldToBlock(blk, &[_]Value{receiver});
-        if (result.controlFlowValue()) |return_value| return return_value;
-        return result.value;
+        return result;
     }
     const then_sym = try vm.intern("then");
     return vm.createMethodEnumeratorWithSize(receiver, then_sym, &.{}, Value.integer(1));

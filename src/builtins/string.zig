@@ -1394,7 +1394,6 @@ fn hashStringSubReplacement(vm: *VM, hash: Value, matched_string: Value) VMError
 
 fn yieldStringSubReplacement(vm: *VM, receiver: Value, snapshot: value.StringObject, matched_string: Value, match_data: *value.MatchDataObject, blk: Block, bang: bool) VMError!Value {
     const yielded = try vm.yieldToBlock(blk, &[_]Value{matched_string});
-    if (yielded.controlFlowValue()) |return_value| return return_value;
 
     if (bang) {
         const current = receiver.toStringObject();
@@ -1404,12 +1403,12 @@ fn yieldStringSubReplacement(vm: *VM, receiver: Value, snapshot: value.StringObj
     }
 
     try vm.setLastMatch(match_data);
-    const to_s_value = try vm.callMethodByName(yielded.value, "to_s", &.{}, null);
+    const to_s_value = try vm.callMethodByName(yielded, "to_s", &.{}, null);
     if (!to_s_value.isString()) {
         return vm.raiseExceptionFmt(
             vm.type_error_class,
             "can't convert {s} to String ({s}#to_s gives {s})",
-            .{ vm.className(yielded.value), vm.className(yielded.value), vm.className(to_s_value) },
+            .{ vm.className(yielded), vm.className(yielded), vm.className(to_s_value) },
         );
     }
     return to_s_value;
@@ -3168,8 +3167,7 @@ pub fn builtinStringChars(vm: *VM, receiver: Value, args: []Value, block: ?Block
             const slice = bytes[start .. start + result.len];
             const char_val = try vm.newStringWithEncoding(slice, false, encoding);
             const yield_args = [_]Value{char_val};
-            const yield_result = try vm.yieldToBlock(blk, &yield_args);
-            if (yield_result.controlFlowValue()) |return_value| return return_value;
+            _ = try vm.yieldToBlock(blk, &yield_args);
         }
         return receiver;
     }
@@ -3244,8 +3242,7 @@ fn stringEachLineAppendOrYield(
 
     if (blk) |block_| {
         const yield_args = [_]Value{line_value};
-        const yield_result = try vm.yieldToBlock(block_, &yield_args);
-        if (yield_result.controlFlowValue()) |return_value| return return_value;
+        _ = try vm.yieldToBlock(block_, &yield_args);
         return receiver;
     }
 
@@ -3397,8 +3394,7 @@ pub fn builtinStringBytes(vm: *VM, receiver: Value, args: []Value, block: ?Block
     if (block) |blk| {
         for (bytes) |b| {
             const yield_args = [_]Value{Value.integer(b)};
-            const yield_result = try vm.yieldToBlock(blk, &yield_args);
-            if (yield_result.controlFlowValue()) |return_value| return return_value;
+            _ = try vm.yieldToBlock(blk, &yield_args);
         }
         return receiver;
     }
@@ -3423,8 +3419,7 @@ pub fn builtinStringEachByte(vm: *VM, receiver: Value, args: []Value, block: ?Bl
         if (i >= bytes.len) break;
         const yield_args = [_]Value{Value.integer(bytes[i])};
         i += 1;
-        const yield_result = try vm.yieldToBlock(block.?, &yield_args);
-        if (yield_result.controlFlowValue()) |return_value| return return_value;
+        _ = try vm.yieldToBlock(block.?, &yield_args);
     }
 
     return receiver;
@@ -3533,8 +3528,7 @@ pub fn builtinStringCodepoints(vm: *VM, receiver: Value, args: []Value, block: ?
             }
 
             const yield_args = [_]Value{Value.integer(parsed.codepoint)};
-            const yield_result = try vm.yieldToBlock(blk, &yield_args);
-            if (yield_result.controlFlowValue()) |return_value| return return_value;
+            _ = try vm.yieldToBlock(blk, &yield_args);
         }
         return receiver;
     }
@@ -4437,8 +4431,7 @@ fn splitTrimTrailingEmptyFields(array_obj: *value.ArrayObject) void {
 fn splitYieldOrReturn(vm: *VM, receiver: Value, array_obj: *value.ArrayObject, block: ?Block) VMError!Value {
     if (block) |blk| {
         for (array_obj.elements.items) |item| {
-            const yielded = try vm.yieldToBlock(blk, &[_]Value{item});
-            if (yielded.controlFlowValue()) |return_value| return return_value;
+            _ = try vm.yieldToBlock(blk, &[_]Value{item});
         }
         return receiver;
     }
@@ -6030,8 +6023,7 @@ pub fn builtinStringScan(vm: *VM, receiver: Value, args: []Value, block: ?Block)
             };
 
             if (block) |blk| {
-                const yielded = try vm.yieldToBlock(blk, &[_]Value{yielded_value});
-                if (yielded.controlFlowValue()) |return_value| return return_value;
+                _ = try vm.yieldToBlock(blk, &[_]Value{yielded_value});
                 try vm.setLastMatch(md);
             } else {
                 out.?.elements.append(vm.gc_allocator, yielded_value) catch return error.Fatal;
@@ -6078,8 +6070,7 @@ pub fn builtinStringScan(vm: *VM, receiver: Value, args: []Value, block: ?Block)
             last_success_md = md;
 
             if (block) |blk| {
-                const yielded = try vm.yieldToBlock(blk, &[_]Value{match_str});
-                if (yielded.controlFlowValue()) |return_value| return return_value;
+                _ = try vm.yieldToBlock(blk, &[_]Value{match_str});
                 try vm.setLastMatch(md);
             } else {
                 out.?.elements.append(vm.gc_allocator, match_str) catch return error.Fatal;

@@ -603,7 +603,7 @@ pub fn builtinTCPSocketOpen(vm: *VM, _: Value, args: []Value, block: ?Block) VME
             return err;
         };
         _ = vm.callMethodByName(socket, "close", &[_]Value{}, null) catch {};
-        return yielded.value;
+        return yielded;
     }
     return socket;
 }
@@ -618,7 +618,7 @@ pub fn builtinSocketTcp(vm: *VM, _: Value, args: []Value, block: ?Block) VMError
             return err;
         };
         _ = vm.callMethodByName(socket, "close", &[_]Value{}, null) catch {};
-        return yielded.value;
+        return yielded;
     }
     return socket;
 }
@@ -723,8 +723,7 @@ pub fn builtinSocketTcpServerSockets(vm: *VM, _: Value, args: []Value, block: ?B
         for (sockets.toArrayObject().elements.items) |socket| {
             _ = vm.callMethodByName(socket, "close", &[_]Value{}, null) catch {};
         }
-        if (yielded.controlFlowValue()) |return_value| return return_value;
-        return yielded.value;
+        return yielded;
     }
     return sockets;
 }

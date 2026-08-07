@@ -1421,7 +1421,7 @@ pub fn builtinFileOpen(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!
                 return err;
             };
             try closeFileOpenedForBlock(vm, instance);
-            return yielded.value;
+            return yielded;
         }
         return instance;
     }
@@ -1435,7 +1435,7 @@ pub fn builtinFileOpen(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!
             return err;
         };
         try closeFileOpenedForBlock(vm, file_val);
-        return yielded.value;
+        return yielded;
     }
 
     return file_val;
