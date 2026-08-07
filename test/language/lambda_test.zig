@@ -84,6 +84,23 @@ test "proc: return exits enclosing method" {
     try std.testing.expectEqual(@as(i64, 10), result.toInteger());
 }
 
+test "proc: return exits the lambda where it was defined" {
+    const result = try evalCode(
+        \\def foo
+        \\  l = lambda do
+        \\    proc { return 10 }.call
+        \\    20
+        \\  end
+        \\  [l.call, 30]
+        \\end
+        \\foo
+    );
+    try std.testing.expect(result.isArray());
+    const values = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 10), values[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 30), values[1].toInteger());
+}
+
 test "proc: break after enclosing method returned raises LocalJumpError" {
     try std.testing.expectError(error.UnhandledException, evalCode(
         \\def make_proc

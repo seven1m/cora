@@ -277,7 +277,6 @@ pub const Block = struct {
         chunk: *Chunk,
         defining_ep: [*]Value,
         defining_self: Value,
-        return_target_ep: ?[*]Value,
         break_target_ep: ?[*]Value = null,
         break_target_is_builtin: bool = false,
         enclosing_block_proc: ?*value.ProcObject = null,
@@ -321,7 +320,6 @@ pub const CallFrame = struct {
     self_value: Value,
     block: ?Block = null,
     frame_type: FrameType = .method,
-    return_target_ep: ?[*]Value = null,
     break_target_frame_idx: ?usize = null,
     next_target_frame_idx: ?usize = null,
     method_name: ?[]const u8 = null,
@@ -1973,51 +1971,39 @@ pub const VM = struct {
         return null;
     }
 
-    fn currentNonLocalReturnTarget(self: *VM) ?[*]Value {
-        if (self.frames.items.len == 0) return null;
-
-        var frame_idx = self.frames.items.len;
-        while (frame_idx > 0) {
-            frame_idx -= 1;
-            const frame = self.frames.items[frame_idx];
-            if (frame.frame_type != .method) continue;
-            return frame.ep;
+    fn findActiveNonLocalReturnTarget(self: *VM, source_ep: [*]Value) ?*CallFrame {
+        var ep = source_ep;
+        while (true) {
+            const role = epEnvironmentRole(ep);
+            if (role == .method or role == .lambda) {
+                const target_raw = @intFromPtr(ep);
+                var frame_idx = self.frames.items.len;
+                while (frame_idx > 0) {
+                    frame_idx -= 1;
+                    const frame = &self.frames.items[frame_idx];
+                    if (role == .method and frame.frame_type != .method) continue;
+                    if (role == .lambda and frame.frame_type != .lambda) continue;
+                    if (@intFromPtr(frame.ep) == target_raw) return frame;
+                }
+                return null;
+            }
+            ep = decodeEp(ep[0]) orelse return null;
         }
-
-        return null;
     }
 
-    fn findActiveReturnTargetMethodFrameIndex(self: *VM, target_ep: [*]Value) ?usize {
-        if (self.frames.items.len == 0) return null;
-
-        const target_raw = @intFromPtr(target_ep);
-        var frame_idx = self.frames.items.len;
-        while (frame_idx > 0) {
-            frame_idx -= 1;
-            const frame = self.frames.items[frame_idx];
-            if (frame.frame_type != .method) continue;
-            if (@intFromPtr(frame.ep) == target_raw) return frame_idx;
-        }
-
-        return null;
-    }
-
-    fn startNonLocalReturn(self: *VM, frame_type: CallFrame.FrameType, return_target_ep: ?[*]Value, result: Value) VMError!void {
+    fn startNonLocalReturn(self: *VM, frame_type: CallFrame.FrameType, source_ep: [*]Value, result: Value) VMError!void {
         if (frame_type == .fiber) {
             return self.raiseExceptionFmt(self.local_jump_error_class, "return from fiber", .{});
         }
 
-        const target_ep = return_target_ep orelse {
-            return self.raiseExceptionFmt(self.local_jump_error_class, "unexpected return", .{});
-        };
-        const target_frame_idx = self.findActiveReturnTargetMethodFrameIndex(target_ep) orelse {
+        const target_frame = self.findActiveNonLocalReturnTarget(source_ep) orelse {
             return self.raiseExceptionFmt(self.local_jump_error_class, "unexpected return", .{});
         };
 
         self.setPendingControlFlow(.{
             .kind = .return_,
             .value = result,
-            .target_frame = &self.frames.items[target_frame_idx],
+            .target_frame = target_frame,
         });
         return error.Unwind;
     }
@@ -2064,17 +2050,10 @@ pub const VM = struct {
 
         for (self.frames.items) |*f| {
             if (@intFromPtr(f.ep) == old_raw) f.ep = new_ep;
-            if (f.return_target_ep) |rte| {
-                if (@intFromPtr(rte) == old_raw) f.return_target_ep = new_ep;
-            }
             if (f.block) |*blk| {
                 if (blk.kind == .chunk) {
                     if (@intFromPtr(blk.kind.chunk.defining_ep) == old_raw)
                         blk.kind.chunk.defining_ep = new_ep;
-                    if (blk.kind.chunk.return_target_ep) |rte| {
-                        if (@intFromPtr(rte) == old_raw)
-                            blk.kind.chunk.return_target_ep = new_ep;
-                    }
                     if (blk.kind.chunk.break_target_ep) |bte| {
                         if (@intFromPtr(bte) == old_raw)
                             blk.kind.chunk.break_target_ep = new_ep;
@@ -3495,7 +3474,6 @@ pub const VM = struct {
                         .chunk = bc,
                         .defining_ep = defining_ep,
                         .defining_self = frame.self_value,
-                        .return_target_ep = self.currentNonLocalReturnTarget(),
                         .enclosing_block_proc = if (frame.block) |blk| try self.ensureBlockProc(blk) else null,
                     } },
                 };
@@ -3511,7 +3489,6 @@ pub const VM = struct {
     /// lexical parent (ep[0]), matching MRI's SPECVAL prev-ep convention.
     pub const BlockFrameOptions = struct {
         block: ?Block = null,
-        return_target_ep: ?[*]Value = null,
         break_target_frame_idx: ?usize = null,
         next_target_frame_idx: ?usize = null,
         method_definition_target: ?Value = null,
@@ -3556,7 +3533,6 @@ pub const VM = struct {
             .self_value = self_value,
             .block = opts.block,
             .frame_type = frame_type,
-            .return_target_ep = opts.return_target_ep,
             .break_target_frame_idx = opts.break_target_frame_idx,
             .next_target_frame_idx = opts.next_target_frame_idx,
         }) catch return error.Fatal;
@@ -5964,7 +5940,7 @@ pub const VM = struct {
                 const current_frame = self.currentFrame();
                 const frame_locals_base = current_frame.locals_base;
                 const frame_type = current_frame.frame_type;
-                const return_target_ep = current_frame.return_target_ep;
+                const source_ep = current_frame.ep;
                 const result = self.pop();
                 const frame_idx = self.frames.items.len - 1;
                 const top_level_return_with_arg = return_mode == 2;
@@ -5992,7 +5968,7 @@ pub const VM = struct {
                     }
                     try self.push(result);
                 } else {
-                    try self.startNonLocalReturn(frame_type, return_target_ep, result);
+                    try self.startNonLocalReturn(frame_type, source_ep, result);
                 }
             },
 
@@ -6405,7 +6381,6 @@ pub const VM = struct {
                         const next_target_frame_idx = self.frames.items.len;
                         try self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, chunk_blk.defining_self, ft, .{
                             .block = if (chunk_blk.enclosing_block_proc) |proc_obj| proc_obj.block else null,
-                            .return_target_ep = chunk_blk.return_target_ep,
                             .break_target_frame_idx = break_target_frame_idx,
                             .next_target_frame_idx = next_target_frame_idx,
                         });
@@ -6450,7 +6425,6 @@ pub const VM = struct {
                         const next_target_frame_idx = self.frames.items.len;
                         try self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, chunk_blk.defining_self, ft, .{
                             .block = if (chunk_blk.enclosing_block_proc) |proc_obj| proc_obj.block else null,
-                            .return_target_ep = chunk_blk.return_target_ep,
                             .break_target_frame_idx = break_target_frame_idx,
                             .next_target_frame_idx = next_target_frame_idx,
                         });
@@ -6488,7 +6462,6 @@ pub const VM = struct {
                         .chunk = lambda_chunk,
                         .defining_ep = frame.ep,
                         .defining_self = frame.self_value,
-                        .return_target_ep = self.currentNonLocalReturnTarget(),
                         .enclosing_block_proc = if (frame.block) |blk| try self.ensureBlockProc(blk) else null,
                     } },
                 };
@@ -8467,7 +8440,6 @@ pub const VM = struct {
                 const next_target_frame_idx = self.frames.items.len;
                 try self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, chunk_blk.defining_self, ft, .{
                     .block = if (chunk_blk.enclosing_block_proc) |proc_obj| proc_obj.block else null,
-                    .return_target_ep = chunk_blk.return_target_ep,
                     .break_target_frame_idx = break_target_frame_idx,
                     .next_target_frame_idx = next_target_frame_idx,
                 });
@@ -8651,7 +8623,6 @@ pub const VM = struct {
                 const next_target_frame_idx = self.frames.items.len;
                 try self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, self_override orelse chunk_blk.defining_self, ft, .{
                     .block = procCallBlock(block, chunk_blk.enclosing_block_proc),
-                    .return_target_ep = chunk_blk.return_target_ep,
                     .next_target_frame_idx = next_target_frame_idx,
                     .method_definition_target = method_definition_target,
                 });
@@ -8764,7 +8735,6 @@ pub const VM = struct {
                                 const next_target_frame_idx = self.frames.items.len;
                                 try self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, chunk_blk.defining_self, ft, .{
                                     .block = procCallBlock(block, chunk_blk.enclosing_block_proc),
-                                    .return_target_ep = chunk_blk.return_target_ep,
                                     .next_target_frame_idx = next_target_frame_idx,
                                 });
 
@@ -10685,10 +10655,6 @@ pub const VM = struct {
                     .chunk = chunk_blk.chunk,
                     .defining_ep = self.promoteFrameToHeap(chunk_blk.defining_ep) catch return error.Fatal,
                     .defining_self = chunk_blk.defining_self,
-                    .return_target_ep = if (chunk_blk.return_target_ep) |target_ep|
-                        self.promoteFrameToHeap(target_ep) catch return error.Fatal
-                    else
-                        null,
                     .break_target_ep = if (chunk_blk.break_target_ep) |target_ep|
                         self.promoteFrameToHeap(target_ep) catch return error.Fatal
                     else

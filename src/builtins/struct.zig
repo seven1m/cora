@@ -102,7 +102,6 @@ fn runStructSubclassBody(vm: *VM, struct_val: Value, block: Block) VMError!void 
                     .chunk = chunk_blk.chunk,
                     .defining_ep = chunk_blk.defining_ep,
                     .defining_self = struct_val,
-                    .return_target_ep = chunk_blk.return_target_ep,
                 } },
             };
             break :chunk_blk_result try vm.yieldToBlock(class_body_block, &[_]Value{});
