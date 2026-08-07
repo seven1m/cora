@@ -72,6 +72,53 @@ test "Ensure return value is ignored" {
     try std.testing.expectEqual(@as(i64, 42), result.toInteger());
 }
 
+test "Explicit method return runs ensure before leaving the method" {
+    const result = try evalCode(
+        \\def return_with_ensure(trace)
+        \\  begin
+        \\    return 1
+        \\  ensure
+        \\    trace << :before
+        \\    trace << :after
+        \\  end
+        \\end
+        \\trace = []
+        \\[return_with_ensure(trace), trace]
+    );
+    const elems = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 1), elems[0].toInteger());
+    const trace = elems[1].toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("before", trace[0].toSymbolObject().name);
+    try std.testing.expectEqualStrings("after", trace[1].toSymbolObject().name);
+}
+
+test "Explicit lambda return and break run ensure" {
+    const result = try evalCode(
+        \\trace = []
+        \\return_value = lambda do
+        \\  begin
+        \\    return 2
+        \\  ensure
+        \\    trace << :return
+        \\  end
+        \\end.call
+        \\break_value = lambda do
+        \\  begin
+        \\    break 3
+        \\  ensure
+        \\    trace << :break
+        \\  end
+        \\end.call
+        \\[return_value, break_value, trace]
+    );
+    const elems = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 2), elems[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 3), elems[1].toInteger());
+    const trace = elems[2].toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("return", trace[0].toSymbolObject().name);
+    try std.testing.expectEqualStrings("break", trace[1].toSymbolObject().name);
+}
+
 test "Ensure clause runs during throw unwinding" {
     const result = try evalCode(
         \\trace = []

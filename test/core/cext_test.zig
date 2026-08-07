@@ -70,6 +70,53 @@ test "C extension rb_funcall NLR from proc call" {
     try std.testing.expectEqual(@as(i64, 55), result.toInteger());
 }
 
+test "C extension rb_funcall stops C execution when Ruby raises" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\begin
+        \\  CoraCExt.funcall_then_value(proc { raise "from callback" })
+        \\rescue => error
+        \\  error.message
+        \\end
+    );
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualStrings("from callback", result.toStringObject().str);
+}
+
+test "C extension rb_funcall stops C execution for Ruby throw" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\catch(:done) do
+        \\  CoraCExt.funcall_then_value(proc { throw :done, 73 })
+        \\end
+    );
+    try std.testing.expectEqual(@as(i64, 73), result.toInteger());
+}
+
+test "C extension calls continue inside an active ensure unwind" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\def cext_ensure_return(trace)
+        \\  begin
+        \\    return :done
+        \\  ensure
+        \\    trace << CoraCExt.funcall_then_value(proc { :callback })
+        \\    trace << :after
+        \\  end
+        \\end
+        \\trace = []
+        \\[cext_ensure_return(trace), trace]
+    );
+    const elems = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("done", elems[0].toSymbolObject().name);
+    const trace = elems[1].toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("continued", trace[0].toStringObject().str);
+    try std.testing.expectEqualStrings("after", trace[1].toSymbolObject().name);
+}
+
 test "C extension nested rb_funcall NLR unwinds through multiple C frames" {
     const result = try evalCode(
         \\$LOAD_PATH << "build/cext"

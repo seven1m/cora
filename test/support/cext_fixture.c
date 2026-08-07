@@ -32,6 +32,16 @@ cext_funcall_nlr(VALUE self, VALUE obj)
     return rb_funcall(obj, rb_intern("call"), 0);
 }
 
+// A newly raised exception or throw must skip the code after rb_funcall.
+// A pre-existing unwind being processed by an ensure must not.
+static VALUE
+cext_funcall_then_value(VALUE self, VALUE obj)
+{
+    (void)self;
+    rb_funcall(obj, rb_intern("call"), 0);
+    return rb_str_new2("continued");
+}
+
 static VALUE
 cext_deep_nlr(VALUE self, VALUE obj)
 {
@@ -95,6 +105,7 @@ void Init_fixture(void)
     rb_define_module_function(mCoraCExt, "call_to_s", cext_call_to_s, 1);
     rb_define_module_function(mCoraCExt, "yield_nlr", cext_yield_nlr, 1);
     rb_define_module_function(mCoraCExt, "funcall_nlr", cext_funcall_nlr, 1);
+    rb_define_module_function(mCoraCExt, "funcall_then_value", cext_funcall_then_value, 1);
     rb_define_module_function(mCoraCExt, "deep_nlr", cext_deep_nlr, 1);
     rb_define_module_function(mCoraCExt, "yield_next_then_value", cext_yield_next_then_value, 1);
     rb_define_module_function(mCoraCExt, "yield_break", cext_yield_break, 1);

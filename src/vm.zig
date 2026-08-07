@@ -358,6 +358,23 @@ fn sameControlFlowIdentity(lhs: PendingControlFlow, rhs: PendingControlFlow) boo
         lhs.target_ip == rhs.target_ip;
 }
 
+fn samePendingUnwindIdentity(lhs: PendingUnwind, rhs: PendingUnwind) bool {
+    return switch (lhs) {
+        .exception => |lhs_exception| switch (rhs) {
+            .exception => |rhs_exception| lhs_exception == rhs_exception,
+            else => false,
+        },
+        .throw_ => |lhs_throw| switch (rhs) {
+            .throw_ => |rhs_throw| lhs_throw.tag.raw == rhs_throw.tag.raw and lhs_throw.value.raw == rhs_throw.value.raw,
+            else => false,
+        },
+        .control_flow => |lhs_control_flow| switch (rhs) {
+            .control_flow => |rhs_control_flow| sameControlFlowIdentity(lhs_control_flow, rhs_control_flow),
+            else => false,
+        },
+    };
+}
+
 pub const PendingUnwind = union(enum) {
     exception: *value.ExceptionObject,
     throw_: PendingThrow,
@@ -2814,6 +2831,15 @@ pub const VM = struct {
 
     inline fn hasPendingUnwind(self: *VM) bool {
         return self.pending_unwind != null;
+    }
+
+    pub inline fn pendingUnwind(self: *VM) ?PendingUnwind {
+        return self.pending_unwind;
+    }
+
+    pub fn pendingUnwindChanged(self: *VM, before: ?PendingUnwind) bool {
+        const after = self.pending_unwind orelse return false;
+        return before == null or !samePendingUnwindIdentity(before.?, after);
     }
 
     pub inline fn pendingException(self: *VM) ?*value.ExceptionObject {
@@ -6013,8 +6039,10 @@ pub const VM = struct {
                     return;
                 }
 
-                // Fast path: implicit return or explicit return from method/lambda
-                if (return_mode == 0 or CallFrame.hasLocalReturnSemantics(frame_type)) {
+                // Implicit returns occur after normal ensure execution and can pop
+                // immediately. Explicit local returns must use the unwind path so
+                // intervening ensure clauses run before the target frame is popped.
+                if (return_mode == 0) {
                     self.stack.shrinkRetainingCapacity(frame_locals_base);
                     // Inline fast popFrame: just decrement frame length
                     const new_frame_len = self.frames.items.len - 1;
@@ -6024,6 +6052,13 @@ pub const VM = struct {
                         self.current_lexical_scope = epLexScope(self.frames.storage[new_frame_len - 1].ep);
                     }
                     try self.push(result);
+                } else if (CallFrame.hasLocalReturnSemantics(frame_type)) {
+                    self.setPendingControlFlow(.{
+                        .kind = .return_,
+                        .value = result,
+                        .target_frame = current_frame,
+                    });
+                    return error.Unwind;
                 } else {
                     try self.startNonLocalReturn(frame_type, source_ep, result);
                 }
@@ -6686,14 +6721,12 @@ pub const VM = struct {
                 const result = self.pop();
                 const current_frame = self.currentFrame();
                 if (current_frame.frame_type == .lambda) {
-                    self.stack.shrinkRetainingCapacity(current_frame.locals_base);
-                    const new_frame_len = self.frames.items.len - 1;
-                    self.frames.items = self.frames.storage[0..new_frame_len];
-                    if (new_frame_len > 0) {
-                        self.current_lexical_scope = epLexScope(self.frames.storage[new_frame_len - 1].ep);
-                    }
-                    try self.push(result);
-                    return;
+                    self.setPendingControlFlow(.{
+                        .kind = .return_,
+                        .value = result,
+                        .target_frame = current_frame,
+                    });
+                    return error.Unwind;
                 }
 
                 const target = self.findActiveBreakTarget(current_frame) orelse {
@@ -7206,7 +7239,7 @@ pub const VM = struct {
                         const len = self.stack.items.len;
                         self.stack.storage[len] = Value.NIL;
                         self.stack.items = self.stack.storage[0 .. len + 1];
-                    } else if (return_mode == 0 or CallFrame.hasLocalReturnSemantics(f.frame_type)) {
+                    } else if (return_mode == 0) {
                         const s_len = self.stack.items.len;
                         const result = self.stack.storage[s_len - 1];
                         self.stack.items = self.stack.storage[0..f.locals_base];
@@ -7220,7 +7253,8 @@ pub const VM = struct {
                         self.stack.storage[len] = result;
                         self.stack.items = self.stack.storage[0 .. len + 1];
                     } else {
-                        // Complex return (proc, fiber) - fall back
+                        // Explicit returns require the unwind path so ensure
+                        // handlers run before the target frame is popped.
                         try self.executeInstructionWithUnwind(bounded, min_unwind_depth);
                     }
                 },
@@ -7728,7 +7762,7 @@ pub const VM = struct {
         block: ?Block,
         keyword_ctx: ?*BuiltinKeywordContext,
     ) VMError!Value {
-        const pending_control_flow_before = self.pendingControlFlow();
+        const pending_unwind_before = self.pendingUnwind();
         const saved_frame_len = self.frames.items.len;
         try self.pushBuiltinFrame(receiver, method_name, block);
         defer if (self.frames.items.len > saved_frame_len and self.frames.items[self.frames.items.len - 1].frame_type == .builtin) {
@@ -7746,13 +7780,7 @@ pub const VM = struct {
             }
             return err;
         };
-        if (self.pendingControlFlow()) |pending_after| {
-            if (pending_control_flow_before == null or
-                !sameControlFlowIdentity(pending_control_flow_before.?, pending_after))
-            {
-                return error.Unwind;
-            }
-        }
+        if (self.pendingUnwindChanged(pending_unwind_before)) return error.Unwind;
         return result;
     }
 
@@ -7763,7 +7791,7 @@ pub const VM = struct {
         args: []const Value,
         block: ?Block,
     ) VMError!Value {
-        const pending_control_flow_before = self.pendingControlFlow();
+        const pending_unwind_before = self.pendingUnwind();
         // Push a frame so that rb_yield / rb_funcall can find the block
         // and so non-local return can unwind through C code.
         const saved_frame_len = self.frames.items.len;
@@ -7887,19 +7915,11 @@ pub const VM = struct {
                 },
                 else => unreachable,
             };
-            if (self.pendingControlFlow()) |pending_after| {
-                if (pending_control_flow_before == null or
-                    !sameControlFlowIdentity(pending_control_flow_before.?, pending_after))
-                {
-                    return error.Unwind;
-                }
-            }
+            if (self.pendingUnwindChanged(pending_unwind_before)) return error.Unwind;
             return .{ .raw = result_raw };
         }
         // Second pass: longjmp from a C API function landed here.
-        if (self.pendingControlFlow() != null or self.pendingException() != null) {
-            return error.Unwind;
-        }
+        if (self.hasPendingUnwind()) return error.Unwind;
         return error.Fatal;
     }
 
@@ -8107,6 +8127,7 @@ pub const VM = struct {
 
         switch (resolved.entry.method) {
             .chunk => |method_chunk| {
+                const pending_unwind_before = self.pendingUnwind();
                 const saved_frame_count = self.frames.items.len;
                 const saved_stack_len = self.stack.items.len;
                 try self.setupChunkCallFrame(method_chunk, receiver, dispatch.args, .{
@@ -8118,7 +8139,7 @@ pub const VM = struct {
                 });
 
                 try self.executeUntilReturn(saved_frame_count);
-                return self.finishSubcallFromStack(saved_frame_count, saved_stack_len);
+                return self.finishSubcallFromStack(saved_frame_count, saved_stack_len, pending_unwind_before);
             },
             .builtin => |fun_ptr| {
                 const dispatch_keyword_ctx = if (dispatch.kw_values) |vals|
@@ -8421,6 +8442,7 @@ pub const VM = struct {
                 break :blk call_result;
             },
             .chunk => |chunk_blk| blk: {
+                const pending_unwind_before = self.pendingUnwind();
                 const saved_stack_len = self.stack.items.len;
                 const ft: CallFrame.FrameType = if (chunk_blk.chunk.is_lambda) .lambda else .proc;
                 try self.pushBlockFrame(chunk_blk.chunk, chunk_blk.defining_ep, chunk_blk.defining_self, ft, .{
@@ -8433,7 +8455,7 @@ pub const VM = struct {
 
                 const saved_frame_count = self.frames.items.len - 1;
                 try self.executeUntilReturn(saved_frame_count);
-                break :blk try self.finishSubcallFromStack(saved_frame_count, saved_stack_len);
+                break :blk try self.finishSubcallFromStack(saved_frame_count, saved_stack_len, pending_unwind_before);
             },
         };
     }
@@ -8469,6 +8491,7 @@ pub const VM = struct {
             .builtin => |func| func(self, @constCast(args)),
             .callable => |callable| self.callMethodByName(callable, "call", @constCast(args), block),
             .chunk => |chunk_blk| blk: {
+                const pending_unwind_before = self.pendingUnwind();
                 const proc_chunk = chunk_blk.chunk;
                 const has_kw = kw_keys != null and kw_values != null and kw_values.?.len > 0;
                 var expanded_args: ?[]Value = null;
@@ -8511,7 +8534,7 @@ pub const VM = struct {
                 const saved_frame_count = self.frames.items.len - 1;
                 try self.executeUntilReturn(saved_frame_count);
 
-                break :blk try self.finishSubcallFromStack(saved_frame_count, saved_stack_len);
+                break :blk try self.finishSubcallFromStack(saved_frame_count, saved_stack_len, pending_unwind_before);
             },
         };
     }
@@ -8571,6 +8594,7 @@ pub const VM = struct {
             .builtin => |func| func(self, @constCast(args)),
             .callable => |callable| self.callMethodByName(callable, "call", @constCast(args), block),
             .chunk => |chunk_blk| blk: {
+                const pending_unwind_before = self.pendingUnwind();
                 const kw_ctx = self.builtin_keyword_ctx;
                 const kw_keys = if (kw_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_keys else null else null;
                 const kw_values = if (kw_ctx) |ctx| if (ctx.kw_values.len > 0) ctx.kw_values else null else null;
@@ -8607,7 +8631,7 @@ pub const VM = struct {
 
                 const saved_frame_count = self.frames.items.len - 1;
                 try self.executeUntilReturn(saved_frame_count);
-                break :blk try self.finishSubcallFromStack(saved_frame_count, saved_stack_len);
+                break :blk try self.finishSubcallFromStack(saved_frame_count, saved_stack_len, pending_unwind_before);
             },
         };
     }
@@ -12041,6 +12065,7 @@ pub const VM = struct {
         lexical_scope: ?*LexicalScope,
         opts: ChunkContextOptions,
     ) VMError!Value {
+        const pending_unwind_before = self.pendingUnwind();
         const saved_stack_len = self.stack.items.len;
         const lc = target_chunk.locals_count;
         const locals_base = saved_stack_len;
@@ -12074,7 +12099,7 @@ pub const VM = struct {
 
         const saved = self.frames.items.len - 1;
         try self.executeUntilReturn(saved);
-        return self.finishSubcallFromStack(saved, saved_stack_len);
+        return self.finishSubcallFromStack(saved, saved_stack_len, pending_unwind_before);
     }
 
     // ===== Exception Handling Methods =====
@@ -12836,8 +12861,13 @@ pub const VM = struct {
         }
     }
 
-    fn finishSubcallFromStack(self: *VM, caller_frame_depth: usize, saved_stack_len: usize) VMError!Value {
-        if (self.pendingControlFlow() != null) return error.Unwind;
+    fn finishSubcallFromStack(
+        self: *VM,
+        caller_frame_depth: usize,
+        saved_stack_len: usize,
+        pending_unwind_before: ?PendingUnwind,
+    ) VMError!Value {
+        if (self.pendingUnwindChanged(pending_unwind_before)) return error.Unwind;
 
         const escaped = self.frames.items.len < caller_frame_depth;
         return if (escaped)
@@ -12862,6 +12892,7 @@ pub const VM = struct {
         ep: [*]Value,
         self_value: Value,
     ) VMError!Value {
+        const pending_unwind_before = self.pendingUnwind();
         const saved_stack_len = self.stack.items.len;
         const saved = self.frames.items.len;
         const original_exception = self.pendingException();
@@ -12881,7 +12912,7 @@ pub const VM = struct {
         self.frames.append(self.gc_allocator, rescue_type_frame) catch return error.Fatal;
 
         try self.executeUntilReturn(saved);
-        const result = try self.finishSubcallFromStack(saved, saved_stack_len);
+        const result = try self.finishSubcallFromStack(saved, saved_stack_len, pending_unwind_before);
         self.setPendingException(original_exception);
         return result;
     }

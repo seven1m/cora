@@ -676,14 +676,15 @@ fn symName(id: VALUE) []const u8 {
 
 extern fn siglongjmp(buf: *anyopaque, val: c_int) noreturn;
 extern fn __sigsetjmp(buf: *anyopaque, savesigs: c_int) c_int;
-fn checkNLR(vm: *VM) void {
+fn checkPendingUnwind(vm: *VM, pending_unwind_before: ?vm_mod.PendingUnwind) void {
     if (vm.cext_jmp_buf) |buf| {
-        if (vm.pendingControlFlow() != null) siglongjmp(buf, 1);
+        if (vm.pendingUnwindChanged(pending_unwind_before)) siglongjmp(buf, 1);
     }
 }
 
 export fn rb_funcall(recv_raw: VALUE, mid: VALUE, argc: c_int, ...) VALUE {
     const vm = getVM();
+    const pending_unwind_before = vm.pendingUnwind();
     var ap = @cVaStart();
     defer @cVaEnd(&ap);
     const name = symName(mid);
@@ -695,18 +696,22 @@ export fn rb_funcall(recv_raw: VALUE, mid: VALUE, argc: c_int, ...) VALUE {
     }
     const saved_frame_count = vm.frames.items.len;
     const result = vm.callMethodByName(Value{ .raw = recv_raw }, name, args, null) catch |err| switch (err) {
-        error.Unwind => { checkNLR(vm); return 0; },
+        error.Unwind => {
+            checkPendingUnwind(vm, pending_unwind_before);
+            return 0;
+        },
         else => return 0,
     };
-    checkNLR(vm);
+    checkPendingUnwind(vm, pending_unwind_before);
     if (vm.frames.items.len < saved_frame_count) {
-        checkNLR(vm);
+        checkPendingUnwind(vm, pending_unwind_before);
     }
     return result.raw;
 }
 
 export fn rb_funcallv(recv_raw: VALUE, mid: VALUE, argc: c_int, argv: [*c]const VALUE) VALUE {
     const vm = getVM();
+    const pending_unwind_before = vm.pendingUnwind();
     const name = symName(mid);
     const args: []Value = if (argv != null and argc > 0)
         @as([*]Value, @ptrCast(@constCast(argv)))[0..@intCast(argc)]
@@ -714,12 +719,15 @@ export fn rb_funcallv(recv_raw: VALUE, mid: VALUE, argc: c_int, argv: [*c]const 
         &[_]Value{};
     const saved_frame_count = vm.frames.items.len;
     const result = vm.callMethodByName(Value{ .raw = recv_raw }, name, args, null) catch |err| switch (err) {
-        error.Unwind => { checkNLR(vm); return 0; },
+        error.Unwind => {
+            checkPendingUnwind(vm, pending_unwind_before);
+            return 0;
+        },
         else => return 0,
     };
-    checkNLR(vm);
+    checkPendingUnwind(vm, pending_unwind_before);
     if (vm.frames.items.len < saved_frame_count) {
-        checkNLR(vm);
+        checkPendingUnwind(vm, pending_unwind_before);
     }
     return result.raw;
 }
@@ -1293,12 +1301,17 @@ export fn Check_TypedStruct(obj_raw: VALUE, ty: ?*const anyopaque) ?*anyopaque {
 
 export fn rb_yield(val_raw: VALUE) VALUE {
     const vm = getVM();
+    const pending_unwind_before = vm.pendingUnwind();
     const current_frame = vm.currentFrame();
     if (current_frame.block) |blk| {
         const result = vm.yieldToBlock(blk, &[_]Value{Value{ .raw = val_raw }}) catch |err| switch (err) {
-            error.Unwind => { checkNLR(vm); return 0; },
+            error.Unwind => {
+                checkPendingUnwind(vm, pending_unwind_before);
+                return 0;
+            },
             else => return 0,
         };
+        checkPendingUnwind(vm, pending_unwind_before);
         return result.raw;
     }
     return 0;
