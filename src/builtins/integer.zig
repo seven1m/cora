@@ -413,9 +413,11 @@ pub fn uptoStopToI64(vm: *VM, stop: Value) VMError!i64 {
     }
     if (stop.isFloat()) {
         const floored = @floor(stop.toFloatObject().val);
-        if (std.math.isNan(floored) or std.math.isInf(floored)) {
+        if (std.math.isNan(floored)) {
             return vm.raiseExceptionFmt(vm.argument_error_class, "bad value for range", .{});
         }
+        if (std.math.isPositiveInf(floored)) return std.math.maxInt(i64);
+        if (std.math.isNegativeInf(floored)) return std.math.minInt(i64);
         const max_i64 = @as(f64, @floatFromInt(std.math.maxInt(i64)));
         const min_i64 = @as(f64, @floatFromInt(std.math.minInt(i64)));
         if (floored > max_i64 or floored < min_i64) {
@@ -432,9 +434,11 @@ pub fn downtoStopToI64(vm: *VM, stop: Value) VMError!i64 {
     }
     if (stop.isFloat()) {
         const ceiled = @ceil(stop.toFloatObject().val);
-        if (std.math.isNan(ceiled) or std.math.isInf(ceiled)) {
+        if (std.math.isNan(ceiled)) {
             return vm.raiseExceptionFmt(vm.argument_error_class, "bad value for range", .{});
         }
+        if (std.math.isPositiveInf(ceiled)) return std.math.maxInt(i64);
+        if (std.math.isNegativeInf(ceiled)) return std.math.minInt(i64);
         const max_i64 = @as(f64, @floatFromInt(std.math.maxInt(i64)));
         const min_i64 = @as(f64, @floatFromInt(std.math.minInt(i64)));
         if (ceiled > max_i64 or ceiled < min_i64) {
@@ -450,6 +454,11 @@ pub fn uptoEnumeratorSize(vm: *VM, receiver: Value, method_args: ?*value.ArrayOb
     if (args.elements.items.len != 1) return Value.nil();
 
     const start = try receiver.integerToI64(vm, "integer is too large to iterate");
+    if (args.elements.items[0].isFloat()) {
+        const stop_float = args.elements.items[0].toFloatObject().val;
+        if (std.math.isPositiveInf(stop_float)) return vm.newFloat(std.math.inf(f64));
+        if (std.math.isNegativeInf(stop_float)) return Value.integer(0);
+    }
     const stop = try uptoStopToI64(vm, args.elements.items[0]);
     if (start > stop) return Value.integer(0);
     return Value.integer(stop - start + 1);
@@ -460,6 +469,11 @@ pub fn downtoEnumeratorSize(vm: *VM, receiver: Value, method_args: ?*value.Array
     if (args.elements.items.len != 1) return Value.nil();
 
     const start = try receiver.integerToI64(vm, "integer is too large to iterate");
+    if (args.elements.items[0].isFloat()) {
+        const stop_float = args.elements.items[0].toFloatObject().val;
+        if (std.math.isNegativeInf(stop_float)) return vm.newFloat(std.math.inf(f64));
+        if (std.math.isPositiveInf(stop_float)) return Value.integer(0);
+    }
     const stop = try downtoStopToI64(vm, args.elements.items[0]);
     if (start < stop) return Value.integer(0);
     return Value.integer(start - stop + 1);
@@ -1997,9 +2011,11 @@ pub fn builtinIntegerUpto(vm: *VM, receiver: Value, args: []Value, block: ?Block
     }
 
     var i = start;
-    while (i <= stop) : (i += 1) {
+    while (i <= stop) {
         const yield_args = [_]Value{Value.integer(i)};
         _ = try vm.yieldToBlock(blk, &yield_args);
+        if (i == stop) break;
+        i += 1;
     }
 
     return receiver;
@@ -2019,9 +2035,11 @@ pub fn builtinIntegerDownto(vm: *VM, receiver: Value, args: []Value, block: ?Blo
     }
 
     var i = start;
-    while (i >= stop) : (i -= 1) {
+    while (i >= stop) {
         const yield_args = [_]Value{Value.integer(i)};
         _ = try vm.yieldToBlock(blk, &yield_args);
+        if (i == stop) break;
+        i -= 1;
     }
 
     return receiver;

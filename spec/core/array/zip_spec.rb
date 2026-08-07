@@ -39,9 +39,7 @@ describe "Array#zip" do
   end
 
   it "stops at own size when given an infinite enumerator" do
-    CORAFIXME "upto does not support infinite ranges yet", exception: ArgumentError, message: /bad value for range/ do
-      [1, 2].zip(10.upto(Float::INFINITY)).should == [[1, 10], [2, 11]]
-    end
+    [1, 2].zip(10.upto(Float::INFINITY)).should == [[1, 10], [2, 11]]
   end
 
   it "fills nil when the given enumerator is shorter than self" do
@@ -62,12 +60,12 @@ describe "Array#zip" do
   end
 
   it "does not return subclass instance on Array subclasses" do
-    ArraySpecs::MyArray[1, 2, 3].zip(["a", "b"]).should be_an_instance_of(Array)
+    ArraySpecs::MyArray[1, 2, 3].zip(["a", "b"]).should.instance_of?(Array)
   end
 
   it "raises TypeError when some argument isn't Array and doesn't respond to #to_ary and #to_enum" do
-    -> { [1, 2, 3].zip(Object.new) }.should raise_error(TypeError, "wrong argument type Object (must respond to :each)")
-    -> { [1, 2, 3].zip(1) }.should raise_error(TypeError, "wrong argument type Integer (must respond to :each)")
-    -> { [1, 2, 3].zip(true) }.should raise_error(TypeError, "wrong argument type TrueClass (must respond to :each)")
+    -> { [1, 2, 3].zip(Object.new) }.should.raise(TypeError, "wrong argument type Object (must respond to :each)")
+    -> { [1, 2, 3].zip(1) }.should.raise(TypeError, "wrong argument type Integer (must respond to :each)")
+    -> { [1, 2, 3].zip(true) }.should.raise(TypeError, "wrong argument type TrueClass (must respond to :each)")
   end
 end
