@@ -1090,6 +1090,16 @@ test "Kernel#catch and Kernel#throw return thrown value" {
     try std.testing.expectEqual(@as(i64, 7), result.toInteger());
 }
 
+test "Kernel#catch remains active when creating fibers grows context storage" {
+    const result = try evalCode(
+        \\catch(:done) do
+        \\  64.times { Fiber.new {} }
+        \\  throw :done, 42
+        \\end
+    );
+    try std.testing.expectEqual(@as(i64, 42), result.toInteger());
+}
+
 test "Kernel.catch and Kernel.throw work as module methods" {
     const result = try evalCode(
         \\Kernel.catch(:done) do

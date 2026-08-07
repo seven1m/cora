@@ -76,6 +76,81 @@ test "Fiber preserves method local variables across yield and resume" {
     try std.testing.expectEqual(@as(i64, 42), elems[1].toInteger());
 }
 
+test "Fiber preserves a pending proc return across yield in ensure" {
+    const result = try evalCode(
+        \\fiber = Fiber.new do
+        \\  lambda do
+        \\    callback = proc do
+        \\      begin
+        \\        return :done
+        \\      ensure
+        \\        Fiber.yield :paused
+        \\      end
+        \\    end
+        \\    callback.call
+        \\  end.call
+        \\end
+        \\first = fiber.resume
+        \\begin
+        \\  outside = 2
+        \\ensure
+        \\  marker = :outside
+        \\end
+        \\[first, outside, marker, fiber.resume]
+    );
+    try std.testing.expect(result.isArray());
+    const elems = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("paused", elems[0].toSymbolObject().name);
+    try std.testing.expectEqual(@as(i64, 2), elems[1].toInteger());
+    try std.testing.expectEqualStrings("outside", elems[2].toSymbolObject().name);
+    try std.testing.expectEqualStrings("done", elems[3].toSymbolObject().name);
+}
+
+test "Fiber preserves a pending block break across yield in ensure" {
+    const result = try evalCode(
+        \\fiber = Fiber.new do
+        \\  [1].each do
+        \\    begin
+        \\      break :broken
+        \\    ensure
+        \\      Fiber.yield :paused
+        \\    end
+        \\  end
+        \\end
+        \\[fiber.resume, 1 + 1, fiber.resume]
+    );
+    try std.testing.expect(result.isArray());
+    const elems = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("paused", elems[0].toSymbolObject().name);
+    try std.testing.expectEqual(@as(i64, 2), elems[1].toInteger());
+    try std.testing.expectEqualStrings("broken", elems[2].toSymbolObject().name);
+}
+
+test "Fiber keeps rescued exceptions local across yield" {
+    const result = try evalCode(
+        \\fiber = Fiber.new do
+        \\  begin
+        \\    raise "inside"
+        \\  rescue
+        \\    Fiber.yield $!.message
+        \\    $!.message
+        \\  end
+        \\end
+        \\first = fiber.resume
+        \\begin
+        \\  raise "outside"
+        \\rescue
+        \\  [first, $!.message, fiber.resume, $!.message]
+        \\end
+    );
+    try std.testing.expect(result.isArray());
+    const elems = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("inside", elems[0].toStringObject().str);
+    try std.testing.expectEqualStrings("outside", elems[1].toStringObject().str);
+    try std.testing.expectEqualStrings("inside", elems[2].toStringObject().str);
+    try std.testing.expectEqualStrings("outside", elems[3].toStringObject().str);
+}
+
 test "Fiber.alive? reflects fiber lifecycle" {
     const result = try evalCode(
         \\f = Fiber.new { Fiber.yield }

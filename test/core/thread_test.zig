@@ -58,6 +58,47 @@ test "Thread clears non-local block return before next instruction" {
     try std.testing.expectEqual(@as(i64, 4096), elems[1].toInteger());
 }
 
+test "Thread preserves a pending proc return across Thread.pass in ensure" {
+    const result = try evalCode(
+        \\Thread.new do
+        \\  lambda do
+        \\    callback = proc do
+        \\      begin
+        \\        return :done
+        \\      ensure
+        \\        Thread.pass
+        \\      end
+        \\    end
+        \\    callback.call
+        \\  end.call
+        \\end.value
+    );
+    try std.testing.expect(result.isSymbol());
+    try std.testing.expectEqualStrings("done", result.toSymbolObject().name);
+}
+
+test "Thread keeps rescued exceptions local across Thread.pass" {
+    const result = try evalCode(
+        \\thread = Thread.new do
+        \\  begin
+        \\    raise "inside"
+        \\  rescue
+        \\    Thread.pass
+        \\    $!.message
+        \\  end
+        \\end
+        \\begin
+        \\  raise "outside"
+        \\rescue
+        \\  [thread.value, $!.message]
+        \\end
+    );
+    try std.testing.expect(result.isArray());
+    const elems = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("inside", elems[0].toStringObject().str);
+    try std.testing.expectEqualStrings("outside", elems[1].toStringObject().str);
+}
+
 test "Thread.current returns current thread" {
     const result = try evalCode(
         \\Thread.current == Thread.main

@@ -358,7 +358,7 @@ fn sameControlFlowIdentity(lhs: PendingControlFlow, rhs: PendingControlFlow) boo
         lhs.target_ip == rhs.target_ip;
 }
 
-const PendingUnwind = union(enum) {
+pub const PendingUnwind = union(enum) {
     exception: *value.ExceptionObject,
     throw_: PendingThrow,
     control_flow: PendingControlFlow,
@@ -555,6 +555,10 @@ pub const VM = struct {
     mutex_waiters: std.AutoHashMap(*value.MutexObject, std.ArrayList(*value.ThreadObject)) = undefined,
     fiber_active_catches: std.AutoHashMap(*value.FiberObject, std.ArrayList(Value)) = undefined,
     thread_active_catches: std.AutoHashMap(*value.ThreadObject, std.ArrayList(Value)) = undefined,
+    fiber_ensure_saved_unwinds: std.AutoHashMap(*value.FiberObject, std.ArrayList(SavedUnwind)) = undefined,
+    thread_ensure_saved_unwinds: std.AutoHashMap(*value.ThreadObject, std.ArrayList(SavedUnwind)) = undefined,
+    fiber_rescued_exceptions: std.AutoHashMap(*value.FiberObject, std.ArrayList(*value.ExceptionObject)) = undefined,
+    thread_rescued_exceptions: std.AutoHashMap(*value.ThreadObject, std.ArrayList(*value.ExceptionObject)) = undefined,
     thread_preempt_quantum_ops: u32 = DEFAULT_THREAD_PREEMPT_QUANTUM_OPS,
     gc_thread_handle: ?*anyopaque = null,
     main_stack_base: ?*anyopaque = null,
@@ -632,9 +636,6 @@ pub const VM = struct {
     pending_unwind: ?PendingUnwind = null,
     pending_async_exceptions: std.ArrayList(*value.ExceptionObject) = .empty,
     pending_signal_traps: std.ArrayList(c_int) = .empty,
-    rescued_exceptions: std.ArrayList(*value.ExceptionObject) = .empty,
-    ensure_saved_unwinds: std.ArrayList(SavedUnwind) = .empty,
-    active_catches: *std.ArrayList(Value),
     backtrace_limit: ?usize = null,
 
     builtin_keyword_ctx: ?*BuiltinKeywordContext = null,
@@ -776,6 +777,10 @@ pub const VM = struct {
             .mutex_waiters = std.AutoHashMap(*value.MutexObject, std.ArrayList(*value.ThreadObject)).init(allocator),
             .fiber_active_catches = std.AutoHashMap(*value.FiberObject, std.ArrayList(Value)).init(allocator),
             .thread_active_catches = std.AutoHashMap(*value.ThreadObject, std.ArrayList(Value)).init(allocator),
+            .fiber_ensure_saved_unwinds = std.AutoHashMap(*value.FiberObject, std.ArrayList(SavedUnwind)).init(allocator),
+            .thread_ensure_saved_unwinds = std.AutoHashMap(*value.ThreadObject, std.ArrayList(SavedUnwind)).init(allocator),
+            .fiber_rescued_exceptions = std.AutoHashMap(*value.FiberObject, std.ArrayList(*value.ExceptionObject)).init(allocator),
+            .thread_rescued_exceptions = std.AutoHashMap(*value.ThreadObject, std.ArrayList(*value.ExceptionObject)).init(allocator),
             .thread_preempt_quantum_ops = DEFAULT_THREAD_PREEMPT_QUANTUM_OPS,
             .exception_class = undefined,
             .system_exit_class = undefined,
@@ -840,7 +845,6 @@ pub const VM = struct {
             .main_self = undefined,
             .pending_unwind = null,
             .pending_signal_traps = .empty,
-            .active_catches = undefined,
             .zio_main_context = undefined,
             .zio_stack_growth_ready = false,
             .zio_coroutines = .empty,
@@ -1825,6 +1829,7 @@ pub const VM = struct {
         main_fiber_obj.block = null;
         initFiberValueStackInPlace(&main_fiber_obj.stack);
         initFiberFrameStackInPlace(&main_fiber_obj.frames);
+        main_fiber_obj.pending_unwind = null;
         main_fiber_obj.current_lexical_scope = self.current_lexical_scope;
         main_fiber_obj.caller = null;
         main_fiber_obj.coro = null;
@@ -2606,8 +2611,6 @@ pub const VM = struct {
         self.errno_classes.deinit();
         self.pending_async_exceptions.deinit(self.allocator);
         self.pending_signal_traps.deinit(self.allocator);
-        self.rescued_exceptions.deinit(self.allocator);
-        self.ensure_saved_unwinds.deinit(self.allocator);
         var fiber_catches_iter = self.fiber_active_catches.valueIterator();
         while (fiber_catches_iter.next()) |active_catches| {
             active_catches.deinit(self.allocator);
@@ -2618,6 +2621,26 @@ pub const VM = struct {
             active_catches.deinit(self.allocator);
         }
         self.thread_active_catches.deinit();
+        var fiber_ensures_iter = self.fiber_ensure_saved_unwinds.valueIterator();
+        while (fiber_ensures_iter.next()) |saved_unwinds| {
+            saved_unwinds.deinit(self.allocator);
+        }
+        self.fiber_ensure_saved_unwinds.deinit();
+        var thread_ensures_iter = self.thread_ensure_saved_unwinds.valueIterator();
+        while (thread_ensures_iter.next()) |saved_unwinds| {
+            saved_unwinds.deinit(self.allocator);
+        }
+        self.thread_ensure_saved_unwinds.deinit();
+        var fiber_rescues_iter = self.fiber_rescued_exceptions.valueIterator();
+        while (fiber_rescues_iter.next()) |rescued_exceptions| {
+            rescued_exceptions.deinit(self.allocator);
+        }
+        self.fiber_rescued_exceptions.deinit();
+        var thread_rescues_iter = self.thread_rescued_exceptions.valueIterator();
+        while (thread_rescues_iter.next()) |rescued_exceptions| {
+            rescued_exceptions.deinit(self.allocator);
+        }
+        self.thread_rescued_exceptions.deinit();
         self.at_exit_handlers.deinit(self.gc_allocator);
         self.recursion_guard.deinit(self.allocator);
         var jit_iter = self.jit_chunk_states.valueIterator();
@@ -2836,20 +2859,21 @@ pub const VM = struct {
     }
 
     pub fn hasActiveCatch(self: *VM, tag: Value) bool {
-        var i = self.active_catches.items.len;
+        const active_catches = self.currentActiveCatches();
+        var i = active_catches.items.len;
         while (i > 0) {
             i -= 1;
-            if (self.throwTagsMatch(self.active_catches.items[i], tag)) return true;
+            if (self.throwTagsMatch(active_catches.items[i], tag)) return true;
         }
         return false;
     }
 
     pub fn pushActiveCatch(self: *VM, tag: Value) VMError!void {
-        self.active_catches.append(self.allocator, tag) catch return error.Fatal;
+        self.currentActiveCatches().append(self.allocator, tag) catch return error.Fatal;
     }
 
     pub fn popActiveCatch(self: *VM) void {
-        _ = self.active_catches.pop();
+        _ = self.currentActiveCatches().pop();
     }
 
     pub fn startThrow(self: *VM, tag: Value, thrown_value: Value) VMError!void {
@@ -3578,8 +3602,9 @@ pub const VM = struct {
     fn popFrame(self: *VM) VMError!void {
         if (self.frames.items.len > 0) {
             const frame = self.frames.pop().?;
-            if (frame.active_rescue_exceptions > self.rescued_exceptions.items.len) return error.Fatal;
-            self.rescued_exceptions.shrinkRetainingCapacity(self.rescued_exceptions.items.len - frame.active_rescue_exceptions);
+            const rescued_exceptions = self.currentRescuedExceptions();
+            if (frame.active_rescue_exceptions > rescued_exceptions.items.len) return error.Fatal;
+            rescued_exceptions.shrinkRetainingCapacity(rescued_exceptions.items.len - frame.active_rescue_exceptions);
 
             // Restore current_lexical_scope from the previous frame
             if (self.frames.items.len > 0) {
@@ -3605,12 +3630,28 @@ pub const VM = struct {
         if (!gop.found_existing) {
             gop.value_ptr.* = .empty;
         }
+        const unwind_gop = self.fiber_ensure_saved_unwinds.getOrPut(fiber) catch return error.Fatal;
+        if (!unwind_gop.found_existing) {
+            unwind_gop.value_ptr.* = .empty;
+        }
+        const rescue_gop = self.fiber_rescued_exceptions.getOrPut(fiber) catch return error.Fatal;
+        if (!rescue_gop.found_existing) {
+            rescue_gop.value_ptr.* = .empty;
+        }
     }
 
     fn ensureThreadCatchStack(self: *VM, thread: *ThreadObject) VMError!void {
         const gop = self.thread_active_catches.getOrPut(thread) catch return error.Fatal;
         if (!gop.found_existing) {
             gop.value_ptr.* = .empty;
+        }
+        const unwind_gop = self.thread_ensure_saved_unwinds.getOrPut(thread) catch return error.Fatal;
+        if (!unwind_gop.found_existing) {
+            unwind_gop.value_ptr.* = .empty;
+        }
+        const rescue_gop = self.thread_rescued_exceptions.getOrPut(thread) catch return error.Fatal;
+        if (!rescue_gop.found_existing) {
+            rescue_gop.value_ptr.* = .empty;
         }
     }
 
@@ -3622,34 +3663,66 @@ pub const VM = struct {
         return self.thread_active_catches.getPtr(thread).?;
     }
 
+    fn fiberEnsureSavedUnwinds(self: *VM, fiber: *FiberObject) *std.ArrayList(SavedUnwind) {
+        return self.fiber_ensure_saved_unwinds.getPtr(fiber).?;
+    }
+
+    fn threadEnsureSavedUnwinds(self: *VM, thread: *ThreadObject) *std.ArrayList(SavedUnwind) {
+        return self.thread_ensure_saved_unwinds.getPtr(thread).?;
+    }
+
+    fn fiberRescuedExceptions(self: *VM, fiber: *FiberObject) *std.ArrayList(*value.ExceptionObject) {
+        return self.fiber_rescued_exceptions.getPtr(fiber).?;
+    }
+
+    fn threadRescuedExceptions(self: *VM, thread: *ThreadObject) *std.ArrayList(*value.ExceptionObject) {
+        return self.thread_rescued_exceptions.getPtr(thread).?;
+    }
+
+    fn threadStorageForFiber(self: *VM, fiber: *FiberObject) ?*ThreadObject {
+        const owner_thread = fiber.owner_thread orelse return null;
+        if (owner_thread.main_fiber == null or owner_thread.main_fiber.? != fiber) return null;
+        if (self.main_thread != null and owner_thread == self.main_thread.?) return null;
+        return owner_thread;
+    }
+
+    fn currentEnsureSavedUnwinds(self: *VM) *std.ArrayList(SavedUnwind) {
+        if (self.threadStorageForFiber(self.current_fiber)) |thread| return self.threadEnsureSavedUnwinds(thread);
+        return self.fiberEnsureSavedUnwinds(self.current_fiber);
+    }
+
+    fn currentActiveCatches(self: *VM) *std.ArrayList(Value) {
+        if (self.threadStorageForFiber(self.current_fiber)) |thread| return self.threadCatchStack(thread);
+        return self.fiberCatchStack(self.current_fiber);
+    }
+
+    fn currentRescuedExceptions(self: *VM) *std.ArrayList(*value.ExceptionObject) {
+        if (self.threadStorageForFiber(self.current_fiber)) |thread| return self.threadRescuedExceptions(thread);
+        return self.fiberRescuedExceptions(self.current_fiber);
+    }
+
     pub fn saveFiberState(self: *VM, fiber: *FiberObject) void {
-        if (fiber.owner_thread) |owner_thread| {
-            if (owner_thread.main_fiber != null and owner_thread.main_fiber.? == fiber) {
-                if (self.main_thread == null or owner_thread != self.main_thread.?) {
-                    owner_thread.current_lexical_scope = self.current_lexical_scope;
-                    return;
-                }
-            }
+        if (self.threadStorageForFiber(fiber)) |thread| {
+            thread.current_lexical_scope = self.current_lexical_scope;
+            thread.pending_unwind = self.pending_unwind;
+            return;
         }
         fiber.current_lexical_scope = self.current_lexical_scope;
+        fiber.pending_unwind = self.pending_unwind;
     }
 
     pub fn restoreFiberState(self: *VM, fiber: *FiberObject) void {
-        if (fiber.owner_thread) |owner_thread| {
-            if (owner_thread.main_fiber != null and owner_thread.main_fiber.? == fiber) {
-                if (self.main_thread == null or owner_thread != self.main_thread.?) {
-                    self.stack = &owner_thread.stack;
-                    self.frames = &owner_thread.frames;
-                    self.current_lexical_scope = owner_thread.current_lexical_scope;
-                    self.active_catches = self.threadCatchStack(owner_thread);
-                    return;
-                }
-            }
+        if (self.threadStorageForFiber(fiber)) |thread| {
+            self.stack = &thread.stack;
+            self.frames = &thread.frames;
+            self.current_lexical_scope = thread.current_lexical_scope;
+            self.pending_unwind = thread.pending_unwind;
+            return;
         }
         self.stack = &fiber.stack;
         self.frames = &fiber.frames;
         self.current_lexical_scope = fiber.current_lexical_scope;
-        self.active_catches = self.fiberCatchStack(fiber);
+        self.pending_unwind = fiber.pending_unwind;
     }
 
     inline fn rootFiberForCurrentThread(self: *VM) *FiberObject {
@@ -3973,19 +4046,21 @@ pub const VM = struct {
         self.setCurrentFiber(fiber);
         self.restoreFiberState(fiber);
 
-        errdefer {
+        var caller_state_restored = false;
+        errdefer if (!caller_state_restored) {
             self.saveFiberState(fiber);
             self.setCurrentFiber(caller);
             self.restoreFiberState(caller);
             fiber.caller = null;
             self.setCurrentStackBaseForGc(caller_stack_base) catch {};
-        }
+        };
 
         while (true) {
             target_coro.parent_context_ptr.store(parent_context, .release);
             try self.setCurrentStackBaseForGc(target_stack_base);
             self.setCurrentFiber(fiber);
             self.restoreFiberState(fiber);
+            caller_state_restored = false;
 
             target_coro.step();
 
@@ -3993,6 +4068,7 @@ pub const VM = struct {
             self.setCurrentFiber(caller);
             self.restoreFiberState(caller);
             try self.setCurrentStackBaseForGc(caller_stack_base);
+            caller_state_restored = true;
 
             switch (fiber.coro_event) {
                 .yielded => {
@@ -4041,6 +4117,7 @@ pub const VM = struct {
         main_thread_obj.block = null;
         initFiberValueStackInPlace(&main_thread_obj.stack);
         initFiberFrameStackInPlace(&main_thread_obj.frames);
+        main_thread_obj.pending_unwind = null;
         main_thread_obj.current_lexical_scope = null;
         main_thread_obj.coro = null;
         main_thread_obj.result = Value.nil();
@@ -4125,6 +4202,7 @@ pub const VM = struct {
         thread_obj.block = null;
         initFiberValueStackInPlace(&thread_obj.stack);
         initFiberFrameStackInPlace(&thread_obj.frames);
+        thread_obj.pending_unwind = null;
         thread_obj.current_lexical_scope = self.current_lexical_scope;
         thread_obj.coro = null;
         thread_obj.result = Value.nil();
@@ -4156,6 +4234,7 @@ pub const VM = struct {
         root_fiber.block = null;
         initFiberValueStackInPlace(&root_fiber.stack);
         initFiberFrameStackInPlace(&root_fiber.frames);
+        root_fiber.pending_unwind = null;
         root_fiber.current_lexical_scope = thread_obj.current_lexical_scope;
         root_fiber.caller = null;
         root_fiber.coro = null;
@@ -4230,13 +4309,14 @@ pub const VM = struct {
     fn saveThreadState(self: *VM, thread: *value.ThreadObject) void {
         thread.current_lexical_scope = self.current_lexical_scope;
         thread.current_fiber = self.current_fiber;
+        thread.pending_unwind = self.pending_unwind;
     }
 
     fn restoreThreadState(self: *VM, thread: *value.ThreadObject) void {
         self.stack = &thread.stack;
         self.frames = &thread.frames;
         self.current_lexical_scope = thread.current_lexical_scope;
-        self.active_catches = self.threadCatchStack(thread);
+        self.pending_unwind = thread.pending_unwind;
     }
 
     fn ensureThreadCoroutine(self: *VM, thread: *value.ThreadObject) VMError!void {
@@ -6678,13 +6758,15 @@ pub const VM = struct {
             .TRY_END => {},
 
             .CATCH_END => {
-                if (frame.active_rescue_exceptions == 0 or self.rescued_exceptions.items.len == 0) return error.Fatal;
+                const rescued_exceptions = self.currentRescuedExceptions();
+                if (frame.active_rescue_exceptions == 0 or rescued_exceptions.items.len == 0) return error.Fatal;
                 frame.active_rescue_exceptions -= 1;
-                _ = self.rescued_exceptions.pop();
+                _ = rescued_exceptions.pop();
             },
 
             .ENSURE_START => {
-                self.ensure_saved_unwinds.append(self.allocator, .{
+                const ensure_saved_unwinds = self.currentEnsureSavedUnwinds();
+                ensure_saved_unwinds.append(self.allocator, .{
                     .pending_unwind = self.pending_unwind,
                 }) catch return error.Fatal;
             },
@@ -6704,8 +6786,9 @@ pub const VM = struct {
                 // Pop the ensure block's return value (it's ignored)
                 _ = self.pop();
 
-                const saved = if (self.ensure_saved_unwinds.items.len > 0)
-                    self.ensure_saved_unwinds.pop().?
+                const ensure_saved_unwinds = self.currentEnsureSavedUnwinds();
+                const saved = if (ensure_saved_unwinds.items.len > 0)
+                    ensure_saved_unwinds.pop().?
                 else
                     SavedUnwind{};
 
@@ -6724,7 +6807,7 @@ pub const VM = struct {
                 const var_idx = readByteFrom(frame, operands, &operand_cursor);
 
                 if (self.pendingException()) |exc| {
-                    self.rescued_exceptions.append(self.allocator, exc) catch return error.Fatal;
+                    self.currentRescuedExceptions().append(self.allocator, exc) catch return error.Fatal;
                     frame.active_rescue_exceptions += 1;
                 }
 
@@ -9524,6 +9607,7 @@ pub const VM = struct {
         fiber_obj.block = block;
         initFiberValueStackInPlace(&fiber_obj.stack);
         initFiberFrameStackInPlace(&fiber_obj.frames);
+        fiber_obj.pending_unwind = null;
         fiber_obj.current_lexical_scope = null;
         fiber_obj.caller = null;
         fiber_obj.coro = null;
@@ -9868,6 +9952,14 @@ pub const VM = struct {
     }
 
     pub fn getGlobalValue(self: *VM, name: []const u8) Value {
+        if (std.mem.eql(u8, name, "$!")) {
+            if (self.pendingException()) |exc| return Value.fromObject(&exc.object);
+            const rescued_exceptions = self.currentRescuedExceptions();
+            if (rescued_exceptions.items.len > 0) {
+                return Value.fromObject(&rescued_exceptions.items[rescued_exceptions.items.len - 1].object);
+            }
+            return Value.nil();
+        }
         if (self.currentThreadGlobalSlot(name)) |slot| return slot.*;
         const entry = self.globals.get(name) orelse return Value.nil();
         return switch (entry.storage) {
@@ -11243,8 +11335,9 @@ pub const VM = struct {
 
     pub fn raiseFromArgs(self: *VM, args: []const Value, no_current_exception_message: []const u8) VMError {
         if (args.len == 0) {
-            if (self.rescued_exceptions.items.len > 0) {
-                self.setPendingException(self.rescued_exceptions.items[self.rescued_exceptions.items.len - 1]);
+            const rescued_exceptions = self.currentRescuedExceptions();
+            if (rescued_exceptions.items.len > 0) {
+                self.setPendingException(rescued_exceptions.items[rescued_exceptions.items.len - 1]);
                 return error.Unwind;
             }
             if (self.pendingException()) |exc| {
@@ -12478,8 +12571,9 @@ pub const VM = struct {
         const exc = self.gc_allocator.create(value.ExceptionObject) catch return error.Fatal;
         const msg_str = try self.newString(message, false);
         const backtrace = if (capture_bt) try self.captureBacktrace() else null;
-        const cause = self.pendingException() orelse if (self.rescued_exceptions.items.len > 0)
-            self.rescued_exceptions.items[self.rescued_exceptions.items.len - 1]
+        const rescued_exceptions = self.currentRescuedExceptions();
+        const cause = self.pendingException() orelse if (rescued_exceptions.items.len > 0)
+            rescued_exceptions.items[rescued_exceptions.items.len - 1]
         else
             null;
 

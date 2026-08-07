@@ -11,6 +11,7 @@ const Block = vm_mod.Block;
 const FiberValueStack = vm_mod.FiberValueStack;
 const FiberFrameStack = vm_mod.FiberFrameStack;
 const FiberCoro = vm_mod.FiberCoro;
+const PendingUnwind = vm_mod.PendingUnwind;
 const onigmo = @import("onigmo.zig");
 const inspect_util = @import("inspect.zig");
 
@@ -337,6 +338,7 @@ pub const FiberObject = struct {
     block: ?Block,
     stack: FiberValueStack,
     frames: FiberFrameStack,
+    pending_unwind: ?PendingUnwind = null,
     current_lexical_scope: ?*LexicalScope = null,
     caller: ?*FiberObject = null,
     coro: ?*FiberCoro = null,
@@ -371,6 +373,7 @@ pub const ThreadObject = struct {
     block: ?Block,
     stack: FiberValueStack,
     frames: FiberFrameStack,
+    pending_unwind: ?PendingUnwind = null,
     current_lexical_scope: ?*LexicalScope = null,
     coro: ?*FiberCoro = null,
     // Result/exception communication
