@@ -2,7 +2,7 @@ require_relative '../../spec_helper'
 
 describe "Integer.sqrt" do
   it "returns an integer" do
-    Integer.sqrt(10).should be_kind_of(Integer)
+    Integer.sqrt(10).should.is_a?(Integer)
   end
 
   it "returns the integer square root of the argument" do
@@ -14,9 +14,7 @@ describe "Integer.sqrt" do
   end
 
   it "raises a Math::DomainError if the argument is negative" do
-    CORAFIXME "Math::DomainError is not implemented yet", exception: NameError, message: /uninitialized constant Math/ do
-      -> { Integer.sqrt(-4) }.should raise_error(Math::DomainError)
-    end
+    -> { Integer.sqrt(-4) }.should.raise(Math::DomainError)
   end
 
   it "accepts any argument that can be coerced to Integer" do
@@ -28,6 +26,6 @@ describe "Integer.sqrt" do
   end
 
   it "raises a TypeError if the argument cannot be coerced to Integer" do
-    -> { Integer.sqrt("test") }.should raise_error(TypeError)
+    -> { Integer.sqrt("test") }.should.raise(TypeError)
   end
 end

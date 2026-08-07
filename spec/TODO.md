@@ -1007,7 +1007,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/integer/complement_spec.rb
 - [x] core/integer/constants_spec.rb
 - [x] core/integer/denominator_spec.rb
-- [-] core/integer/digits_spec.rb
+- [x] core/integer/digits_spec.rb
 - [x] core/integer/div_spec.rb
 - [x] core/integer/divide_spec.rb
 - [-] core/integer/divmod_spec.rb (CORAFIXME: float remainder precision for large bignums)
@@ -1044,7 +1044,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/integer/right_shift_spec.rb
 - [x] core/integer/round_spec.rb
 - [x] core/integer/size_spec.rb
-- [-] core/integer/sqrt_spec.rb
+- [x] core/integer/sqrt_spec.rb
 - [x] core/integer/succ_spec.rb
 - [x] core/integer/times_spec.rb
 - [x] core/integer/to_f_spec.rb

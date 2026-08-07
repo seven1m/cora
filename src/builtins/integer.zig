@@ -807,7 +807,7 @@ pub fn builtinIntegerSqrt(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
     if (arg.isBigInteger()) {
         const big = arg.toBigIntegerObject().value;
         if (!big.isPositive() and !big.eqlZero()) {
-            return vm.raiseExceptionFmt(vm.range_error_class, "Integer.sqrt: domain error", .{});
+            return vm.raiseExceptionFmt(vm.math_domain_error_class, "Integer.sqrt: domain error", .{});
         }
         var result = BigInt.init(vm.allocator) catch return error.Fatal;
         defer result.deinit();
@@ -821,7 +821,7 @@ pub fn builtinIntegerSqrt(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
     if (arg.isInteger()) {
         const n = arg.toInteger();
         if (n < 0) {
-            return vm.raiseExceptionFmt(vm.range_error_class, "Integer.sqrt: domain error", .{});
+            return vm.raiseExceptionFmt(vm.math_domain_error_class, "Integer.sqrt: domain error", .{});
         }
         const sqrt_n = std.math.sqrt(@as(f64, @floatFromInt(n)));
         return Value.integer(@as(i64, @intFromFloat(sqrt_n)));
@@ -830,7 +830,7 @@ pub fn builtinIntegerSqrt(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
     if (arg.isFloat()) {
         const f = arg.toFloatObject().val;
         if (f < 0) {
-            return vm.raiseExceptionFmt(vm.range_error_class, "Integer.sqrt: domain error", .{});
+            return vm.raiseExceptionFmt(vm.math_domain_error_class, "Integer.sqrt: domain error", .{});
         }
         const n = @as(i64, @intFromFloat(@floor(f)));
         const sqrt_n = std.math.sqrt(@as(f64, @floatFromInt(n)));
@@ -2235,13 +2235,18 @@ pub fn builtinIntegerDigits(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     try vm.requireArgCountRange(args, 0, 1);
     try receiver.ensureInteger(vm);
 
-    if (receiver.isInteger() and receiver.toInteger() < 0) {
-        return vm.raiseExceptionFmt(vm.argument_error_class, "Integer#digits does not support negative numbers", .{});
+    if (integerIsNegative(receiver)) {
+        return vm.raiseExceptionFmt(vm.math_domain_error_class, "out of domain", .{});
     }
 
     var base: u64 = 10;
     if (args.len == 1) {
-        const base_val = try args[0].integerArgToI64(vm, "argument is not an Integer", "base is too large");
+        const base_val = try args[0].coerceToI64ViaToInt(
+            vm,
+            "no implicit conversion into Integer",
+            "can't convert to Integer",
+            "base is too large",
+        );
         if (base_val < 2) {
             return vm.raiseExceptionFmt(vm.argument_error_class, "radix must be >= 2", .{});
         }
@@ -2286,11 +2291,11 @@ fn builtinIntegerDigitsGeneric(vm: *VM, receiver: Value, base: u8) VMError!Value
         var quot = BigInt.init(vm.allocator) catch return error.Fatal;
         defer quot.deinit();
 
-        n.divTrunc(&rem, &quot, &base_big) catch return error.Fatal;
+        quot.divTrunc(&rem, &n, &base_big) catch return error.Fatal;
 
         const digit_val = @as(i64, @intCast(rem.toInt(u64) catch @panic("digit overflow")));
         arr.elements.append(vm.gc_allocator, Value.integer(digit_val)) catch return error.Fatal;
-        n = quot;
+        n.swap(&quot);
     }
 
     return Value.fromObject(&arr.object);
@@ -2309,7 +2314,7 @@ fn builtinIntegerDigitsBignum(vm: *VM, receiver: Value, base: u64) VMError!Value
     defer n.deinit();
 
     var base_big = BigInt.init(allocator) catch return error.Fatal;
-    errdefer base_big.deinit();
+    defer base_big.deinit();
     base_big.set(@as(u64, @intCast(base))) catch return error.Fatal;
 
     while (!n.eqlZero()) {
@@ -2318,10 +2323,10 @@ fn builtinIntegerDigitsBignum(vm: *VM, receiver: Value, base: u64) VMError!Value
         var quot = BigInt.init(allocator) catch return error.Fatal;
         defer quot.deinit();
 
-        n.divTrunc(&rem, &quot, &base_big) catch return error.Fatal;
+        quot.divTrunc(&rem, &n, &base_big) catch return error.Fatal;
         const digit_val = @as(i64, @intCast(rem.toInt(u64) catch @panic("digit overflow")));
         arr.elements.append(vm.gc_allocator, Value.integer(digit_val)) catch return error.Fatal;
-        n = quot;
+        n.swap(&quot);
     }
 
     return Value.fromObject(&arr.object);

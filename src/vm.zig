@@ -621,6 +621,7 @@ pub const VM = struct {
     encoding_invalid_byte_sequence_error_class: *value.ClassObject,
     range_error_class: *value.ClassObject,
     float_domain_error_class: *value.ClassObject,
+    math_domain_error_class: *value.ClassObject,
     regexp_error_class: *value.ClassObject,
     index_error_class: *value.ClassObject,
     stop_iteration_class: *value.ClassObject,
@@ -835,6 +836,7 @@ pub const VM = struct {
             .encoding_invalid_byte_sequence_error_class = undefined,
             .range_error_class = undefined,
             .float_domain_error_class = undefined,
+            .math_domain_error_class = undefined,
             .regexp_error_class = undefined,
             .index_error_class = undefined,
             .stop_iteration_class = undefined,
@@ -1107,6 +1109,9 @@ pub const VM = struct {
         const marshal_module_val = try self.newModule(marshal_name_sym);
         self.marshal_module = marshal_module_val.toModuleObject();
 
+        const math_name_sym = try self.intern("Math");
+        const math_module_val = try self.newModule(math_name_sym);
+
         const errno_name_sym = try self.intern("Errno");
         const errno_module_val = try self.newModule(errno_name_sym);
         self.errno_module = errno_module_val.toModuleObject();
@@ -1241,6 +1246,11 @@ pub const VM = struct {
         const float_domain_error_name_sym = try self.intern("FloatDomainError");
         const float_domain_error_class_val = try self.newClass(float_domain_error_name_sym, self.range_error_class);
         self.float_domain_error_class = float_domain_error_class_val.toClassObject();
+
+        const domain_error_name_sym = try self.intern("DomainError");
+        const math_domain_error_class_val = try self.newClass(domain_error_name_sym, self.standard_error_class);
+        self.math_domain_error_class = math_domain_error_class_val.toClassObject();
+        math_module_val.toModuleObject().constants.put(domain_error_name_sym, .{ .value = math_domain_error_class_val }) catch return error.Fatal;
 
         const regexp_error_name_sym = try self.intern("RegexpError");
         const regexp_error_class_val = try self.newClass(regexp_error_name_sym, self.standard_error_class);
@@ -1487,6 +1497,7 @@ pub const VM = struct {
         self.object_class.module.constants.put(signal_name_sym, .{ .value = signal_module_val }) catch return error.Fatal;
         self.object_class.module.constants.put(warning_name_sym, .{ .value = warning_module_val }) catch return error.Fatal;
         self.object_class.module.constants.put(marshal_name_sym, .{ .value = marshal_module_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(math_name_sym, .{ .value = math_module_val }) catch return error.Fatal;
         self.object_class.module.constants.put(errno_name_sym, .{ .value = errno_module_val }) catch return error.Fatal;
         self.object_class.module.constants.put(comparable_name_sym, .{ .value = comparable_module_val }) catch return error.Fatal;
         self.object_class.module.constants.put(enumerable_name_sym, .{ .value = enumerable_module_val }) catch return error.Fatal;
