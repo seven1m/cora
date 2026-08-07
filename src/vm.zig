@@ -342,7 +342,7 @@ pub const PendingThrow = struct {
 pub const PendingControlFlow = struct {
     kind: Kind,
     value: Value,
-    target_frame_idx: ?usize = null,
+    target_frame: *CallFrame,
     target_ip: ?usize = null,
     value_placed: bool = false,
 
@@ -1944,6 +1944,13 @@ pub const VM = struct {
         return @ptrCast(ep - locals_count + idx);
     }
 
+    fn frameStorageIndex(self: *VM, target: *const CallFrame) ?usize {
+        for (self.frames.storage[0..self.frames.capacity], 0..) |*frame, frame_idx| {
+            if (frame == target) return frame_idx;
+        }
+        return null;
+    }
+
     fn currentNonLocalReturnTarget(self: *VM) ?[*]Value {
         if (self.frames.items.len == 0) return null;
 
@@ -1988,7 +1995,7 @@ pub const VM = struct {
         self.setPendingControlFlow(.{
             .kind = .return_,
             .value = result,
-            .target_frame_idx = target_frame_idx,
+            .target_frame = &self.frames.items[target_frame_idx],
         });
         return error.Unwind;
     }
@@ -6655,7 +6662,7 @@ pub const VM = struct {
                 self.setPendingControlFlow(.{
                     .kind = .break_,
                     .value = result,
-                    .target_frame_idx = target_frame_idx,
+                    .target_frame = &self.frames.items[target_frame_idx],
                 });
                 return error.Unwind;
             },
@@ -6667,7 +6674,7 @@ pub const VM = struct {
                 self.setPendingControlFlow(.{
                     .kind = .next_,
                     .value = result,
-                    .target_frame_idx = target_frame_idx,
+                    .target_frame = &self.frames.items[target_frame_idx],
                 });
                 return error.Unwind;
             },
@@ -6677,7 +6684,7 @@ pub const VM = struct {
                 self.setPendingControlFlow(.{
                     .kind = .redo_,
                     .value = Value.nil(),
-                    .target_frame_idx = self.frames.items.len - 1,
+                    .target_frame = self.currentFrame(),
                     .target_ip = target_ip,
                 });
                 return error.Unwind;
@@ -6725,7 +6732,7 @@ pub const VM = struct {
                 self.setPendingControlFlow(.{
                     .kind = .retry_,
                     .value = Value.nil(),
-                    .target_frame_idx = self.frames.items.len - 1,
+                    .target_frame = self.currentFrame(),
                     .target_ip = target_ip,
                 });
                 return error.Unwind;
@@ -8072,9 +8079,8 @@ pub const VM = struct {
                 try self.executeUntilReturn(saved_frame_count);
                 if (self.pendingControlFlow()) |cf| {
                     if (cf.kind == .break_) {
-                        if (cf.target_frame_idx) |target_frame_idx| {
-                            if (target_frame_idx < saved_frame_count) return error.Unwind;
-                        }
+                        const target_frame_idx = self.frameStorageIndex(cf.target_frame) orelse return error.Fatal;
+                        if (target_frame_idx < saved_frame_count) return error.Unwind;
                     }
                 }
                 return (try self.finishSubcallFromStack(saved_frame_count, saved_stack_len)).value();
@@ -12780,7 +12786,7 @@ pub const VM = struct {
             if (self.pendingControlFlow()) |cf| {
                 switch (cf.kind) {
                     .redo_, .retry_ => {
-                        if (cf.target_frame_idx == frame_idx) {
+                        if (cf.target_frame == &self.frames.items[frame_idx]) {
                             const target_ip = cf.target_ip orelse return error.Fatal;
                             try setFrameIp(&self.frames.items[frame_idx], target_ip);
                             self.setPendingControlFlow(null);
@@ -12791,22 +12797,20 @@ pub const VM = struct {
                 }
             }
 
+            const popped_control_flow_target = if (self.pendingControlFlow()) |cf|
+                switch (cf.kind) {
+                    .return_, .break_, .next_ => cf.target_frame == &self.frames.items[frame_idx],
+                    .redo_, .retry_ => false,
+                }
+            else
+                false;
             const unwind_locals_base = self.frames.items[frame_idx].locals_base;
             try self.popFrame();
             self.stack.shrinkRetainingCapacity(unwind_locals_base);
 
-            if (self.pendingControlFlow()) |cf| {
-                switch (cf.kind) {
-                    .return_, .break_, .next_ => {
-                        if (cf.target_frame_idx) |target_frame_idx| {
-                            if (self.frames.items.len <= target_frame_idx) {
-                                try self.placePendingControlFlowValue();
-                                return true;
-                            }
-                        }
-                    },
-                    .redo_, .retry_ => {},
-                }
+            if (popped_control_flow_target) {
+                try self.placePendingControlFlowValue();
+                return true;
             }
         }
 
@@ -12820,9 +12824,8 @@ pub const VM = struct {
     fn controlFlowStopFrameLen(self: *VM, min_frame_len: usize) usize {
         if (self.pendingControlFlow()) |cf| {
             switch (cf.kind) {
-                .return_, .break_, .next_ => if (cf.target_frame_idx) |target_frame_idx| {
-                    return @min(min_frame_len, target_frame_idx);
-                },
+                .return_, .break_, .next_ => if (self.frameStorageIndex(cf.target_frame)) |target_frame_idx|
+                    return @min(min_frame_len, target_frame_idx),
                 .redo_, .retry_ => {},
             }
         }
