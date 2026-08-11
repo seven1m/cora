@@ -25,6 +25,14 @@ fn builtinMethodCall(vm: *VM, receiver: Value, args: []Value, block: ?Block) VME
     return vm.invokeResolvedMethod(resolved, method_obj.receiver, args, block);
 }
 
+fn builtinMethodEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const other = args[0];
+    if (!other.isMethodObject()) return Value.boolean(false);
+
+    return Value.boolean(common.boundMethodsEqual(receiver.toMethodObject(), other.toMethodObject()));
+}
+
 fn builtinMethodOwner(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return receiver.toMethodObject().owner;
@@ -88,6 +96,7 @@ fn createBoundMethodObject(
 ) VMError!Value {
     return common.createBoundMethodObject(vm, receiver, method_name, resolved, owner, .{
         .call = &builtinMethodCall,
+        .equal = &builtinMethodEqual,
         .owner = &builtinMethodOwner,
         .to_proc = &builtinMethodToProc,
         .arity = &builtinMethodArity,

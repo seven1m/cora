@@ -19,6 +19,7 @@ pub const BuiltinMethodFn = *const fn (*VM, Value, []Value, ?Block) VMError!Valu
 
 pub const BoundMethodBuiltins = struct {
     call: BuiltinMethodFn,
+    equal: BuiltinMethodFn,
     owner: BuiltinMethodFn,
     to_proc: BuiltinMethodFn,
     arity: BuiltinMethodFn,
@@ -26,6 +27,30 @@ pub const BoundMethodBuiltins = struct {
     unbind: BuiltinMethodFn,
     source_location: BuiltinMethodFn,
 };
+
+pub fn entriesHaveSameImplementation(lhs: MethodEntry, rhs: MethodEntry) bool {
+    if (std.meta.activeTag(lhs.method) != std.meta.activeTag(rhs.method)) return false;
+
+    return switch (lhs.method) {
+        .chunk => |lhs_chunk| lhs_chunk == rhs.method.chunk,
+        .builtin => |lhs_builtin| blk: {
+            const rhs_builtin = rhs.method.builtin;
+            break :blk lhs_builtin.function == rhs_builtin.function and
+                std.meta.eql(lhs_builtin.arity, rhs_builtin.arity);
+        },
+        .cext => |lhs_cext| blk: {
+            const rhs_cext = rhs.method.cext;
+            break :blk lhs_cext.func == rhs_cext.func and lhs_cext.argc == rhs_cext.argc;
+        },
+        .proc => |lhs_proc| lhs_proc == rhs.method.proc,
+        .undefined => true,
+    };
+}
+
+pub fn boundMethodsEqual(lhs: *MethodObject, rhs: *MethodObject) bool {
+    return lhs.receiver.raw == rhs.receiver.raw and
+        entriesHaveSameImplementation(lhs.entry, rhs.entry);
+}
 
 pub const UnboundMethodBuiltins = struct {
     owner: BuiltinMethodFn,
@@ -267,6 +292,13 @@ pub fn createBoundMethodObject(
 
     const call_sym = try vm.intern("call");
     singleton.module.methods.put(call_sym, MethodEntry.builtin(builtins.call, .{ .variadic = 0 })) catch return error.Fatal;
+
+    const equal_sym = try vm.intern("==");
+    const equal_entry = MethodEntry.builtin(builtins.equal, .{ .exact = 1 });
+    singleton.module.methods.put(equal_sym, equal_entry) catch return error.Fatal;
+
+    const eql_sym = try vm.intern("eql?");
+    singleton.module.methods.put(eql_sym, equal_entry) catch return error.Fatal;
 
     const owner_sym = try vm.intern("owner");
     singleton.module.methods.put(owner_sym, MethodEntry.builtin(builtins.owner, .{ .exact = 0 })) catch return error.Fatal;
