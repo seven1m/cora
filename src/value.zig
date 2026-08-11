@@ -218,11 +218,17 @@ pub const ObjectType = enum {
     typed_data,
 };
 
+pub const ClassAllocationPolicy = enum {
+    normal,
+    unavailable,
+};
+
 pub const ClassObject = struct {
     module: ModuleObject,
     superclass: ?*ClassObject,
     attached_object: ?Value = null,
     object_type: ObjectType = .instance,
+    allocation_policy: ClassAllocationPolicy = .normal,
     struct_members: ?*ArrayObject = null,
     struct_keyword_init: ?bool = null,
     builtin_alloc_func: ?*const fn (*VM, Value, []Value, ?Block) VMError!Value = null,

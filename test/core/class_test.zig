@@ -33,6 +33,39 @@ test "Class instantiation" {
     try std.testing.expectEqualSlices(u8, "foo", result.toStringObject().str);
 }
 
+test "non-allocatable value classes and their subclasses reject construction" {
+    const result = try evalCode(
+        \\def new_is_undefined?(klass)
+        \\  klass.new
+        \\  false
+        \\rescue NoMethodError
+        \\  true
+        \\end
+        \\def allocator_is_unavailable?(klass)
+        \\  klass.allocate
+        \\  false
+        \\rescue TypeError
+        \\  true
+        \\end
+        \\def allocator_is_undefined?(klass)
+        \\  klass.allocate
+        \\  false
+        \\rescue NoMethodError
+        \\  true
+        \\end
+        \\unavailable = [Integer, Float, Symbol, NilClass, TrueClass, FalseClass]
+        \\unavailable.all? do |parent|
+        \\  child = Class.new(parent)
+        \\  new_is_undefined?(parent) && new_is_undefined?(child) &&
+        \\    allocator_is_unavailable?(parent) && allocator_is_unavailable?(child)
+        \\end &&
+        \\  new_is_undefined?(Rational) && new_is_undefined?(Class.new(Rational)) &&
+        \\  allocator_is_undefined?(Rational) && allocator_is_undefined?(Class.new(Rational))
+    );
+    try std.testing.expect(result.isBool());
+    try std.testing.expect(result.toBool());
+}
+
 test "Class inheritance" {
     var result = try evalCode(
         \\class Foo

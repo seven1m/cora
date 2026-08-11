@@ -9600,6 +9600,7 @@ pub const VM = struct {
             .superclass = superclass,
             .attached_object = null,
             .object_type = object_type,
+            .allocation_policy = if (superclass) |super| super.allocation_policy else .normal,
             .module = .{
                 .object = .{ .type_tag = .class, .flags = 0, .class = self.class_class, .singleton_class = null, .instance_variables = null },
                 .name = name,

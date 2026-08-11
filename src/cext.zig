@@ -921,6 +921,7 @@ export fn rb_define_alloc_func(klass_raw: VALUE, func: ?*anyopaque) void {
     if (klass_raw == 0 or func == null) return;
     const class_ptr: *value.ClassObject = @ptrFromInt(klass_raw);
     class_ptr.cext_alloc_func = func;
+    class_ptr.allocation_policy = .normal;
 }
 
 export fn rb_define_singleton_method(obj_raw: VALUE, name_ptr: [*c]const u8, func: ?*anyopaque, argc: c_int) void {
@@ -1554,7 +1555,7 @@ export fn rb_enc_str_coderange(str_raw: VALUE) c_int {
 
 export fn rb_str_to_inum(str_raw: VALUE, base: c_int, badcheck: c_int) VALUE {
     const vm = getVM();
-    var args = [_]Value{ Value.integer(base) };
+    var args = [_]Value{Value.integer(base)};
     const result = vm.callMethodByName(Value{ .raw = str_raw }, "to_i", &args, null) catch return 0;
     _ = badcheck;
     return result.raw;
@@ -1591,7 +1592,7 @@ export fn rb_reg_new(source: [*c]const u8, len: c_long, options: c_int) VALUE {
 
 export fn rb_reg_nth_match(nth: c_long, match_raw: VALUE) VALUE {
     const vm = getVM();
-    var args = [_]Value{ Value.integer(nth) };
+    var args = [_]Value{Value.integer(nth)};
     const result = vm.callMethodByName(Value{ .raw = match_raw }, "[]", &args, null) catch return 0;
     return result.raw;
 }
@@ -1820,7 +1821,7 @@ export fn rb_marshal_load(source_raw: VALUE) VALUE {
     const vm = getVM();
     const result = vm.callMethodByName(vm.main_self, "Marshal", &[_]Value{}, null) catch return 0;
     if (result.raw == 0) return 0;
-    var load_args = [_]Value{ Value{ .raw = source_raw } };
+    var load_args = [_]Value{Value{ .raw = source_raw }};
     const loaded = vm.callMethodByName(result, "load", &load_args, null) catch return 0;
     return loaded.raw;
 }
@@ -1961,7 +1962,7 @@ export fn rb_memhash(ptr: ?*const anyopaque, len: c_long) c_long {
 export fn rb_num_coerce_cmp(x_raw: VALUE, y_raw: VALUE, cmp_id: VALUE) VALUE {
     _ = cmp_id;
     const vm = getVM();
-    var args = [_]Value{ Value{ .raw = y_raw } };
+    var args = [_]Value{Value{ .raw = y_raw }};
     const result = vm.callMethodByName(Value{ .raw = x_raw }, "<=>", &args, null) catch return 0;
     return result.raw;
 }

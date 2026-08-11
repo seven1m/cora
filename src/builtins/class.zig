@@ -9,11 +9,32 @@ const Value = value.Value;
 const ClassObject = value.ClassObject;
 
 pub fn register(vm: *VM) !void {
+    vm.integer_class.allocation_policy = .unavailable;
+    vm.float_class.allocation_policy = .unavailable;
+    vm.symbol_class.allocation_policy = .unavailable;
+    vm.nil_class.allocation_policy = .unavailable;
+    vm.true_class.allocation_policy = .unavailable;
+    vm.false_class.allocation_policy = .unavailable;
     const class_new_sym = try vm.intern("new");
     try vm.class_class.module.methods.put(class_new_sym, value.MethodEntry.builtin(&builtinClassNew, .{ .variadic = 0 }));
 
+    for ([_]*ClassObject{
+        vm.integer_class,
+        vm.float_class,
+        vm.symbol_class,
+        vm.nil_class,
+        vm.true_class,
+        vm.false_class,
+        vm.rational_class,
+    }) |class_ptr| {
+        const singleton = try vm.getOrCreateSingletonClass(Value.fromObject(&class_ptr.module.object));
+        try singleton.module.methods.put(class_new_sym, .{ .method = .{ .undefined = {} } });
+    }
+
     const class_allocate_sym = try vm.intern("allocate");
     try vm.class_class.module.methods.put(class_allocate_sym, value.MethodEntry.builtin(&builtinClassAllocate, .{ .exact = 0 }));
+    const rational_singleton = try vm.getOrCreateSingletonClass(Value.fromObject(&vm.rational_class.module.object));
+    try rational_singleton.module.methods.put(class_allocate_sym, .{ .method = .{ .undefined = {} } });
 
     const class_equal_sym = try vm.intern("==");
     try vm.class_class.module.methods.put(class_equal_sym, value.MethodEntry.builtin(&builtinClassEqual, .{ .exact = 1 }));
@@ -23,16 +44,6 @@ pub fn register(vm: *VM) !void {
 
     const initialize_sym = try vm.intern("initialize");
     try vm.class_class.module.methods.put(initialize_sym, value.MethodEntry.builtinWithVisibility(&builtinClassInitialize, .{ .variadic = 0 }, .private));
-}
-
-fn nonAllocatableClassName(vm: *VM, class_ptr: *ClassObject) ?[]const u8 {
-    if (class_ptr == vm.symbol_class) return "Symbol";
-    if (class_ptr == vm.nil_class) return "NilClass";
-    if (class_ptr == vm.true_class) return "TrueClass";
-    if (class_ptr == vm.false_class) return "FalseClass";
-    if (class_ptr == vm.float_class) return "Float";
-    if (class_ptr == vm.rational_class) return "Rational";
-    return null;
 }
 
 fn isUninitializedClass(vm: *VM, class_ptr: *ClassObject) bool {
@@ -46,10 +57,6 @@ pub fn builtinClassNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
 
     if (isUninitializedClass(vm, class_ptr)) {
         return vm.raiseExceptionFmt(vm.type_error_class, "can't instantiate uninitialized class", .{});
-    }
-
-    if (nonAllocatableClassName(vm, class_ptr)) |name| {
-        return vm.raiseExceptionFmt(vm.no_method_error_class, "undefined method 'new' for {s}", .{name});
     }
 
     if (class_ptr == vm.module_class) {
@@ -187,6 +194,7 @@ pub fn builtinClassInitialize(vm: *VM, receiver: Value, args: []Value, block: ?B
     class_ptr.superclass = superclass;
     class_ptr.module.super = &superclass.module;
     class_ptr.object_type = superclass.object_type;
+    class_ptr.allocation_policy = superclass.allocation_policy;
 
     var inherited_args = [_]Value{receiver};
     _ = try vm.callMethodByName(Value.fromObject(&superclass.module.object), "inherited", inherited_args[0..], null);
@@ -216,8 +224,8 @@ pub fn builtinClassAllocate(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     std.debug.assert(receiver.isClass());
 
     const class_ptr = receiver.toClassObject();
-    if (nonAllocatableClassName(vm, class_ptr)) |name| {
-        return vm.raiseExceptionFmt(vm.type_error_class, "allocator undefined for {s}", .{name});
+    if (class_ptr.allocation_policy != .normal) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "allocator undefined for {s}", .{class_ptr.module.name.name});
     }
     if (class_ptr == vm.class_class) {
         const anonymous_name = try vm.intern("<anonymous>");
