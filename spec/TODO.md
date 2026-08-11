@@ -3971,7 +3971,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] library/thread/sizedqueue_spec.rb
 
 ### library/time
-- [ ] library/time/httpdate_spec.rb
+- [x] library/time/httpdate_spec.rb
 - [ ] library/time/iso8601_spec.rb
 - [ ] library/time/rfc2822_spec.rb
 - [ ] library/time/rfc822_spec.rb
