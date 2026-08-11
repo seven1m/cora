@@ -31,7 +31,7 @@ describe "Float constant" do
   end
 
   it "MAX is 1.7976931348623157e+308" do
-    CORAFIXME "Integer#** with negative exponent is not yet supported", exception: ArgumentError, message: /negative exponent/ do
+    CORAFIXME "Integer#- does not support Rational arguments yet", exception: TypeError, message: /argument is not numeric/ do
       # See https://en.wikipedia.org/wiki/Double-precision_floating-point_format#Double-precision_examples
       Float::MAX.should == (1 + (1 - (2 ** -52))) * (2.0 ** 1023)
       Float::MAX.should == 1.7976931348623157e+308

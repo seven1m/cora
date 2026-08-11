@@ -95,8 +95,10 @@ describe :integer_exponent, shared: true do
     end
 
     it "returns a complex number when negative and raised to a fractional power" do
-      (-8).send(@method, 1.0/3)         .should be_close(Complex(1, 1.73205), TOLERANCE)
-      (-8).send(@method, Rational(1, 3)).should be_close(Complex(1, 1.73205), TOLERANCE)
+      CORAFIXME "Complex is not implemented yet", exception: NoMethodError, message: /undefined method 'Complex'/ do
+        (-8).send(@method, 1.0/3)         .should be_close(Complex(1, 1.73205), TOLERANCE)
+        (-8).send(@method, Rational(1, 3)).should be_close(Complex(1, 1.73205), TOLERANCE)
+      end
     end
   end
 
@@ -136,9 +138,11 @@ describe :integer_exponent, shared: true do
     end
 
     it "returns a complex number when negative and raised to a fractional power" do
-      (-bignum_value).send(@method, (1.0/2)).should be_close(Complex(0.0, 4294967296.0), TOLERANCE)
-      (-@bignum).send(@method, (1.0/3))      .should be_close(Complex(1321122.9748145656, 2288252.1154253655), TOLERANCE)
-      (-@bignum).send(@method, Rational(1,3)).should be_close(Complex(1321122.9748145656, 2288252.1154253655), TOLERANCE)
+      CORAFIXME "Complex is not implemented yet", exception: NoMethodError, message: /undefined method 'Complex'/ do
+        (-bignum_value).send(@method, (1.0/2)).should be_close(Complex(0.0, 4294967296.0), TOLERANCE)
+        (-@bignum).send(@method, (1.0/3))      .should be_close(Complex(1321122.9748145656, 2288252.1154253655), TOLERANCE)
+        (-@bignum).send(@method, Rational(1,3)).should be_close(Complex(1321122.9748145656, 2288252.1154253655), TOLERANCE)
+      end
     end
   end
 end

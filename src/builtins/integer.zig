@@ -1392,13 +1392,67 @@ fn integerCoerceCompare(vm: *VM, lhs: Value, rhs: Value) VMError!Value {
 pub fn builtinIntegerPower(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     try receiver.ensureInteger(vm);
-    try args[0].ensureInteger(vm);
+
+    if (args[0].isFloat()) {
+        const base = try vm.newFloat(receiver.integerToF64());
+        return vm.callMethodByName(base, "**", args, null);
+    }
+    if (args[0].isRational()) {
+        const rational = args[0].toRationalObject();
+        if ((try vm.compareIntegerValues(rational.denominator, Value.integer(1))) == .eq) {
+            var integer_args = [_]Value{rational.numerator};
+            const powered = try builtinIntegerPower(vm, receiver, &integer_args, null);
+            return vm.newRationalValues(powered, Value.integer(1));
+        }
+        const exponent = rational.numerator.integerToF64() / rational.denominator.integerToF64();
+        const base = try vm.newFloat(receiver.integerToF64());
+        const float_exponent = try vm.newFloat(exponent);
+        var float_args = [_]Value{float_exponent};
+        return vm.callMethodByName(base, "**", &float_args, null);
+    }
+    if (!args[0].isInteger() and !args[0].isBigInteger()) {
+        return coerceAndCallIntegerArithmetic(vm, receiver, args[0], "**");
+    }
+
+    if (receiver.isInteger() and (receiver.toInteger() == 1 or receiver.toInteger() == -1)) {
+        if (receiver.toInteger() == 1) return Value.integer(1);
+        var exponent = try args[0].integerToManaged(vm);
+        defer exponent.deinit();
+        return Value.integer(if (exponent.isOdd()) -1 else 1);
+    }
+
+    const receiver_is_zero = if (receiver.isInteger()) receiver.toInteger() == 0 else receiver.toBigIntegerObject().value.eqlZero();
+    if (args[0].isBigInteger()) {
+        if (!args[0].toBigIntegerObject().value.isPositive()) {
+            if (receiver_is_zero) return vm.raiseExceptionFmt(vm.zero_division_error_class, "divided by 0", .{});
+        } else if (receiver_is_zero) {
+            return Value.integer(0);
+        }
+        return vm.raiseExceptionFmt(vm.argument_error_class, "exponent is too large", .{});
+    }
 
     const exponent_i64 = try args[0].integerToI64(vm, "exponent is too large");
     if (exponent_i64 < 0) {
-        return vm.raiseExceptionFmt(vm.argument_error_class, "negative exponent not supported", .{});
+        if (receiver_is_zero) return vm.raiseExceptionFmt(vm.zero_division_error_class, "divided by 0", .{});
+        if (exponent_i64 == std.math.minInt(i64)) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "exponent is too large", .{});
+        }
+        var positive_args = [_]Value{Value.integer(-exponent_i64)};
+        const denominator = try builtinIntegerPower(vm, receiver, &positive_args, null);
+        return vm.newRationalValues(Value.integer(1), denominator);
     }
+    if (exponent_i64 == 0) return Value.integer(1);
+    if (receiver_is_zero) return Value.integer(0);
     if (exponent_i64 > std.math.maxInt(u32)) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "exponent is too large", .{});
+    }
+
+    var estimated_base = try receiver.integerToManaged(vm);
+    defer estimated_base.deinit();
+    const base_bits = estimated_base.bitCountAbs();
+    const biglen_limit: usize = if (@sizeOf(usize) == 4) @as(usize, 1) << 31 else @as(usize, 1) << 34;
+    const exponent: usize = @intCast(exponent_i64);
+    if (base_bits > biglen_limit or exponent > biglen_limit / base_bits) {
         return vm.raiseExceptionFmt(vm.argument_error_class, "exponent is too large", .{});
     }
 
