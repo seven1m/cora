@@ -869,7 +869,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/float/infinite_spec.rb
 - [x] core/float/inspect_spec.rb
 - [x] core/float/lt_spec.rb
-- [ ] core/float/lte_spec.rb
+- [x] core/float/lte_spec.rb
 - [ ] core/float/magnitude_spec.rb
 - [ ] core/float/minus_spec.rb
 - [ ] core/float/modulo_spec.rb
