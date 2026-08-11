@@ -56,18 +56,8 @@ pub fn builtinProcIsLambda(_: *VM, receiver: Value, _: []Value, _: ?Block) VMErr
     });
 }
 
-pub fn builtinProcArity(_: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
-    return switch (receiver.toProcObject().block.kind) {
-        .receiver_builtin => |builtin_data| Value.integer(builtin_data.arity),
-        .chunk => |chunk_blk| blk: {
-            const required = chunk_blk.chunk.arity + chunk_blk.chunk.post_required_count;
-            if (chunk_blk.chunk.rest_param_index != null or chunk_blk.chunk.optional_params.items.len > 0) {
-                break :blk Value.integer(-@as(i64, @intCast(required)) - 1);
-            }
-            break :blk Value.integer(@intCast(required));
-        },
-        .symbol, .builtin, .callable => Value.integer(-2),
-    };
+pub fn builtinProcArity(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {
+    return Value.integer(try vm.blockArity(receiver.toProcObject().block));
 }
 
 pub fn builtinProcParameters(vm: *VM, receiver: Value, _: []Value, _: ?Block) VMError!Value {

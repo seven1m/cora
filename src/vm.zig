@@ -9055,7 +9055,27 @@ pub const VM = struct {
         };
     }
 
-    pub fn methodArityValue(_: *VM, resolved: ResolvedMethod) VMError!Value {
+    pub fn blockArity(self: *VM, block: Block) VMError!i64 {
+        return switch (block.kind) {
+            .receiver_builtin => |builtin_data| builtin_data.arity,
+            .chunk => |chunk_block| blk: {
+                const ch = chunk_block.chunk;
+                const required = ch.arity + ch.post_required_count;
+                if (ch.rest_param_index != null or ch.optional_params.items.len > 0) {
+                    break :blk -@as(i64, @intCast(required)) - 1;
+                }
+                break :blk @intCast(required);
+            },
+            .callable => |callable| blk: {
+                const arity = try self.callMethodByName(callable, "arity", &.{}, null);
+                if (!arity.isInteger()) return error.Fatal;
+                break :blk arity.toInteger();
+            },
+            .symbol, .builtin => -2,
+        };
+    }
+
+    pub fn methodArityValue(self: *VM, resolved: ResolvedMethod) VMError!Value {
         return switch (resolved.entry.method) {
             .chunk => |method_chunk| blk: {
                 const required = method_chunk.arity + method_chunk.post_required_count;
@@ -9064,17 +9084,7 @@ pub const VM = struct {
                 }
                 break :blk Value.integer(@intCast(required));
             },
-            .proc => |proc_obj| switch (proc_obj.block.kind) {
-                .chunk => |chunk_blk| blk: {
-                    const required = chunk_blk.chunk.arity + chunk_blk.chunk.post_required_count;
-                    if (chunk_blk.chunk.rest_param_index != null or chunk_blk.chunk.optional_params.items.len > 0) {
-                        break :blk Value.integer(-@as(i64, @intCast(required)) - 1);
-                    }
-                    break :blk Value.integer(@intCast(required));
-                },
-                .receiver_builtin => |builtin_data| Value.integer(builtin_data.arity),
-                .symbol, .builtin, .callable => Value.integer(-2),
-            },
+            .proc => |proc_obj| Value.integer(try self.blockArity(proc_obj.block)),
             .builtin => |builtin_method| Value.integer(builtin_method.arity.asRubyArity()),
             .cext => |cext_method| Value.integer(cext_method.argc),
             .undefined => unreachable,

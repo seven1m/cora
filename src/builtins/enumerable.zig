@@ -117,22 +117,29 @@ fn builtinEnumerableMap(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
         return vm.createMethodEnumerator(receiver, method_name, &.{});
     };
 
-    const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
     const out = try vm.createArray();
+    const callable = try vm.procValueForBlock(blk);
+    const state = try vm.createArray();
+    state.elements.append(vm.gc_allocator, Value.fromObject(&out.object)) catch return error.Fatal;
+    state.elements.append(vm.gc_allocator, callable) catch return error.Fatal;
 
-    while (true) {
-        const next_values = vm.callMethodByName(enum_value, "next_values", &.{}, null) catch |err| {
-            if (err == error.Unwind and vm.pendingException() != null and vm.pendingException().?.object.class == vm.stop_iteration_class) {
-                vm.setPendingException(null);
-                break;
-            }
-            return err;
-        };
-        const result = try enumerableYieldCollapsed(vm, blk, next_values.toArrayObject());
-        out.elements.append(vm.gc_allocator, result) catch return error.Fatal;
-    }
+    const arity = try vm.blockArity(blk);
+    const each_block = Block{ .kind = .{ .receiver_builtin = .{
+        .receiver = Value.fromObject(&state.object),
+        .func = &enumerableMapEach,
+        .arity = arity,
+    } } };
+    _ = try vm.callMethodByName(receiver, "each", &.{}, each_block);
 
     return Value.fromObject(&out.object);
+}
+
+fn enumerableMapEach(vm: *VM, receiver: Value, args: []Value) VMError!Value {
+    const state = receiver.toArrayObject();
+    const out = state.elements.items[0].toArrayObject();
+    const result = try vm.callMethodByName(state.elements.items[1], "call", args, null);
+    out.elements.append(vm.gc_allocator, result) catch return error.Fatal;
+    return result;
 }
 
 fn builtinEnumerableSelect(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {

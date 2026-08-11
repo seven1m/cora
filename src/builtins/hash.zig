@@ -568,7 +568,16 @@ fn yieldHashEntryPair(vm: *VM, blk: Block, entry: value.HashEntry) VMError!Value
             const yield_args = [_]Value{ entry.key, entry.value };
             break :blk_result try vm.yieldToBlock(blk, &yield_args);
         },
-        .receiver_builtin, .symbol, .builtin, .callable => blk_result: {
+        .receiver_builtin => |builtin_data| blk_result: {
+            if (builtin_data.arity > 1) {
+                const yield_args = [_]Value{ entry.key, entry.value };
+                break :blk_result try vm.yieldToBlock(blk, &yield_args);
+            }
+
+            const yield_args = [_]Value{pair_value};
+            break :blk_result try vm.yieldToBlock(blk, &yield_args);
+        },
+        .symbol, .builtin, .callable => blk_result: {
             const yield_args = [_]Value{pair_value};
             break :blk_result try vm.yieldToBlock(blk, &yield_args);
         },
