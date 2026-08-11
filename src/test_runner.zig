@@ -1220,6 +1220,9 @@ fn mainTerminal() void {
         if (summary.fuzz_count != 0) {
             std.debug.print("{d} fuzz tests found.\n", .{summary.fuzz_count});
         }
+        if (summary.leaks != 0 or summary.log_err_count != 0 or summary.zig_failed != 0 or summary.ruby_failed != 0) {
+            std.process.exit(1);
+        }
         if (summary.completed_specs > 0 and test_filter_raw.len == 0) {
             writeTotalSpecs(summary.completed_specs);
         }
@@ -1273,6 +1276,9 @@ fn mainTerminal() void {
     }
     if (summary.fuzz_count != 0) {
         std.debug.print("{d} fuzz tests found.\n", .{summary.fuzz_count});
+    }
+    if (summary.leaks != 0 or summary.log_err_count != 0 or summary.zig_failed != 0 or summary.ruby_failed != 0) {
+        std.process.exit(1);
     }
     if (summary.known_total_specs != 0 and test_filter_raw.len == 0) {
         writeTotalSpecs(summary.known_total_specs);
@@ -1343,6 +1349,7 @@ pub fn mainSimple() anyerror!void {
         var stdout_writer = stdout.writer(&.{});
         stdout_writer.interface.print("{} passed, {} skipped, {} failed\n", .{ passed, skipped, failed }) catch {};
     }
+    if (failed != 0) std.process.exit(1);
 }
 
 const FuzzerSlice = extern struct {
