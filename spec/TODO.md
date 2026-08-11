@@ -864,7 +864,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/float/float_spec.rb
 - [-] core/float/floor_spec.rb
 - [x] core/float/gt_spec.rb
-- [ ] core/float/gte_spec.rb
+- [x] core/float/gte_spec.rb
 - [x] core/float/hash_spec.rb
 - [x] core/float/infinite_spec.rb
 - [x] core/float/inspect_spec.rb
