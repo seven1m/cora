@@ -1446,7 +1446,7 @@ fn warningSupportsKeywordCategory(method: vm_mod.ResolvedMethod) bool {
             }
             break :blk false;
         },
-        .undefined, .cext => false,
+        .missing, .undefined, .cext => false,
     };
 }
 
@@ -1465,7 +1465,7 @@ fn warningDispatchMode(method: vm_mod.ResolvedMethod) WarningDispatchMode {
             if (method_chunk.rest_param_index != null or method_chunk.keyword_rest_index != null) break :blk .positional_hash;
             break :blk .plain;
         },
-        .undefined, .cext => .plain,
+        .missing, .undefined, .cext => .plain,
     };
 }
 
@@ -2002,11 +2002,22 @@ pub fn builtinKernelMethod(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     const method_name = try vm.coerceToMethodNameSymbol(args[0]);
 
     const resolved = (try vm.findMethod(receiver, method_name)) orelse {
-        return vm.raiseExceptionFmt(
-            vm.name_error_class,
-            "undefined method '{s}'",
-            .{method_name.name},
-        );
+        var respond_args = [_]Value{ Value.fromObject(&method_name.object), Value.boolean(true) };
+        const responds = try vm.callMethodByName(receiver, "respond_to_missing?", &respond_args, null);
+        if (responds.isFalsey()) {
+            return vm.raiseExceptionFmt(
+                vm.name_error_class,
+                "undefined method '{s}'",
+                .{method_name.name},
+            );
+        }
+        const owner_class = vm.getClass(receiver);
+        const missing_resolved: vm_mod.ResolvedMethod = .{
+            .name = method_name,
+            .owner_class = owner_class,
+            .entry = .{ .method = .{ .missing = method_name } },
+        };
+        return createBoundMethodObject(vm, receiver, method_name, missing_resolved, Value.fromObject(&owner_class.module.object));
     };
 
     const owner = (try method_common.resolveMethodOwnerValue(vm, receiver, method_name)) orelse Value.fromObject(&resolved.owner_class.module.object);

@@ -230,6 +230,7 @@ pub const Method = union(enum) {
     builtin: BuiltinMethod,
     cext: CExtMethod,
     proc: *value.ProcObject,
+    missing: *SymbolObject,
     undefined: void,
 };
 
@@ -7650,7 +7651,7 @@ pub const VM = struct {
                 .chunk => |chunk_blk| chunkAcceptsKeywords(chunk_blk.chunk),
                 else => false,
             },
-            .builtin, .undefined, .cext => false,
+            .builtin, .missing, .undefined, .cext => false,
         };
     }
 
@@ -7662,7 +7663,7 @@ pub const VM = struct {
                 .chunk => |chunk_blk| self.chunkSupportsRuby2Keywords(chunk_blk.chunk),
                 else => false,
             },
-            .builtin, .undefined, .cext => false,
+            .builtin, .missing, .undefined, .cext => false,
         };
     }
 
@@ -8181,6 +8182,13 @@ pub const VM = struct {
                     .defining_class = resolved.owner_class,
                 });
             },
+            .missing => |missing_name| {
+                const kw_hash = if (keyword_ctx) |ctx|
+                    if (ctx.kw_values.len > 0) try self.materializeKeywordHashForContext(ctx) else null
+                else
+                    null;
+                return self.invokeMethodMissing(receiver, missing_name, @constCast(dispatch.args), kw_hash, block);
+            },
             .undefined => unreachable,
         }
     }
@@ -8201,7 +8209,7 @@ pub const VM = struct {
         }
     }
 
-    fn invokeMethodMissing(
+    pub fn invokeMethodMissing(
         self: *VM,
         receiver: Value,
         missing_method_sym: *SymbolObject,
@@ -8846,6 +8854,7 @@ pub const VM = struct {
                     },
                 }
             },
+            .missing => unreachable,
             .undefined => unreachable,
         }
     }
@@ -9087,6 +9096,7 @@ pub const VM = struct {
             .proc => |proc_obj| Value.integer(try self.blockArity(proc_obj.block)),
             .builtin => |builtin_method| Value.integer(builtin_method.arity.asRubyArity()),
             .cext => |cext_method| Value.integer(cext_method.argc),
+            .missing => Value.integer(-1),
             .undefined => unreachable,
         };
     }
@@ -9372,6 +9382,7 @@ pub const VM = struct {
                 });
                 try self.push(result);
             },
+            .missing => unreachable,
             .undefined => unreachable,
         }
     }

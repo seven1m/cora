@@ -43,6 +43,7 @@ pub fn entriesHaveSameImplementation(lhs: MethodEntry, rhs: MethodEntry) bool {
             break :blk lhs_cext.func == rhs_cext.func and lhs_cext.argc == rhs_cext.argc;
         },
         .proc => |lhs_proc| lhs_proc == rhs.method.proc,
+        .missing => |lhs_name| lhs_name == rhs.method.missing,
         .undefined => true,
     };
 }
@@ -248,6 +249,7 @@ pub fn parametersForResolvedMethod(vm: *VM, resolved: vm_mod.ResolvedMethod) VME
                 try appendParameterDescriptor(vm, out, "rest");
             }
         },
+        .missing => try appendParameterDescriptor(vm, out, "rest"),
         .undefined => unreachable,
     }
 

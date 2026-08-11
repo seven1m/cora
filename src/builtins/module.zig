@@ -678,6 +678,10 @@ fn methodBodiesMatch(a: MethodEntry, b: MethodEntry) bool {
             .cext => |b_cext| a_cext.func == b_cext.func,
             else => false,
         },
+        .missing => |a_name| switch (b.method) {
+            .missing => |b_name| a_name == b_name,
+            else => false,
+        },
         .undefined => b.method == .undefined,
     };
 }
@@ -702,7 +706,7 @@ fn methodSupportsRuby2Keywords(entry: MethodEntry) bool {
             },
             else => false,
         },
-        .builtin, .undefined, .cext => false,
+        .builtin, .missing, .undefined, .cext => false,
     };
 }
 
@@ -1522,6 +1526,13 @@ pub fn builtinModuleDefineMethod(vm: *VM, receiver: Value, args: []Value, block:
 
     const entry: value.MethodEntry = if (args.len == 2) blk: {
         const body = args[1];
+        if (body.isProc()) {
+            break :blk .{
+                .method = .{ .proc = body.toProcObject() },
+                .visibility = effective_visibility,
+            };
+        }
+
         const method_name = if (body.isMethodObject())
             body.toMethodObject().name
         else if (body.isUnboundMethodObject())
