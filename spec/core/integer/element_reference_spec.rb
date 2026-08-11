@@ -59,13 +59,13 @@ describe "Integer#[]" do
     end
 
     it "raises a TypeError when passed a String" do
-      -> { 3["3"] }.should raise_error(TypeError)
+      -> { 3["3"] }.should.raise(TypeError)
     end
 
     it "raises a TypeError when #to_int does not return an Integer" do
       obj = mock('asdf')
       obj.should_receive(:to_int).and_return("asdf")
-      -> { 3[obj] }.should raise_error(TypeError)
+      -> { 3[obj] }.should.raise(TypeError)
     end
 
     it "calls #to_int to coerce a String to a Bignum and returns 0" do
@@ -81,101 +81,77 @@ describe "Integer#[]" do
 
     context "when index and length passed" do
       it "returns specified number of bits from specified position" do
-        CORAFIXME "Integer#[] 2-argument form not yet implemented", exception: ArgumentError do
-          0b101001101[2, 4].should ==    0b0011
-          0b101001101[2, 5].should ==   0b10011
-          0b101001101[2, 7].should == 0b1010011
-        end
+        0b101001101[2, 4].should ==    0b0011
+        0b101001101[2, 5].should ==   0b10011
+        0b101001101[2, 7].should == 0b1010011
       end
 
       it "ensures n[i, len] equals to (n >> i) & ((1 << len) - 1)" do
-        CORAFIXME "Integer#[] 2-argument form not yet implemented", exception: ArgumentError do
-          n = 0b101001101; i = 2; len = 4
-          n[i, len].should == (n >> i) & ((1 << len) - 1)
-        end
+        n = 0b101001101; i = 2; len = 4
+        n[i, len].should == (n >> i) & ((1 << len) - 1)
       end
 
       it "moves start position to the most significant bits when negative index passed" do
-        CORAFIXME "Integer#[] 2-argument form not yet implemented", exception: ArgumentError do
-          0b000001[-1, 4].should == 0b10
-          0b000001[-2, 4].should == 0b100
-          0b000001[-3, 4].should == 0b1000
-        end
+        0b000001[-1, 4].should == 0b10
+        0b000001[-2, 4].should == 0b100
+        0b000001[-3, 4].should == 0b1000
       end
 
       it "ignores negative length" do
-        CORAFIXME "Integer#[] 2-argument form not yet implemented", exception: ArgumentError do
-          0b101001101[1, -1].should == 0b10100110
-          0b101001101[2, -1].should == 0b1010011
-          0b101001101[3, -1].should == 0b101001
+        0b101001101[1, -1].should == 0b10100110
+        0b101001101[2, -1].should == 0b1010011
+        0b101001101[3, -1].should == 0b101001
 
-          0b101001101[3,   -5].should == 0b101001
-          0b101001101[3,  -15].should == 0b101001
-          0b101001101[3, -125].should == 0b101001
-        end
+        0b101001101[3,   -5].should == 0b101001
+        0b101001101[3,  -15].should == 0b101001
+        0b101001101[3, -125].should == 0b101001
       end
     end
 
     context "when range passed" do
       it "returns bits specified by range" do
-        CORAFIXME "Integer#[] range form not yet implemented", exception: TypeError do
-          0b101001101[2..5].should ==    0b0011
-          0b101001101[2..6].should ==   0b10011
-          0b101001101[2..8].should == 0b1010011
-        end
+        0b101001101[2..5].should ==    0b0011
+        0b101001101[2..6].should ==   0b10011
+        0b101001101[2..8].should == 0b1010011
       end
 
       it "ensures n[i..j] equals to (n >> i) & ((1 << (j - i + 1)) - 1)" do
-        CORAFIXME "Integer#[] range form not yet implemented", exception: TypeError do
-          n = 0b101001101; i = 2; j = 5
-          n[i..j].should == (n >> i) & ((1 << (j - i + 1)) - 1)
-        end
+        n = 0b101001101; i = 2; j = 5
+        n[i..j].should == (n >> i) & ((1 << (j - i + 1)) - 1)
       end
 
       it "ensures n[i..] equals to (n >> i)" do
-        CORAFIXME "Integer#[] range form not yet implemented", exception: TypeError do
-          eval("0b101001101[3..]").should == 0b101001101 >> 3
-        end
+        eval("0b101001101[3..]").should == 0b101001101 >> 3
       end
 
       it "moves lower boundary to the most significant bits when negative value passed" do
-        CORAFIXME "Integer#[] 2-argument form not yet implemented", exception: ArgumentError do
-          0b000001[-1, 4].should == 0b10
-          0b000001[-2, 4].should == 0b100
-          0b000001[-3, 4].should == 0b1000
-        end
+        0b000001[-1, 4].should == 0b10
+        0b000001[-2, 4].should == 0b100
+        0b000001[-3, 4].should == 0b1000
       end
 
       it "ignores upper boundary smaller than lower boundary" do
-        CORAFIXME "Integer#[] range form not yet implemented", exception: TypeError do
-          0b101001101[4..1].should == 0b10100
-          0b101001101[4..2].should == 0b10100
-          0b101001101[-4..-5].should == 0b1010011010000
-        end
+        0b101001101[4..1].should == 0b10100
+        0b101001101[4..2].should == 0b10100
+        0b101001101[-4..-5].should == 0b1010011010000
       end
 
       it "raises FloatDomainError if any boundary is infinity" do
-        CORAFIXME "Integer#[] range form not yet implemented", exception: SpecFailedException do
-          -> { 0x0001[3..Float::INFINITY] }.should raise_error(FloatDomainError, /Infinity/)
-          -> { 0x0001[-Float::INFINITY..3] }.should raise_error(FloatDomainError, /-Infinity/)
-        end
+        -> { 0x0001[3..Float::INFINITY] }.should.raise(FloatDomainError, /Infinity/)
+        -> { 0x0001[-Float::INFINITY..3] }.should.raise(FloatDomainError, /-Infinity/)
       end
 
       context "when passed (..i)" do
         it "returns 0 if all i bits equal 0" do
-          CORAFIXME "Integer#[] beginless range form not yet implemented", exception: TypeError do
-            eval("0b10000[..1]").should == 0
-            eval("0b10000[..2]").should == 0
-            eval("0b10000[..3]").should == 0
-          end
+          eval("0b10000[..1]").should == 0
+          eval("0b10000[..2]").should == 0
+          eval("0b10000[..3]").should == 0
         end
 
         it "raises ArgumentError if any of i bit equals 1" do
-          CORAFIXME "Integer#[] beginless range form not yet implemented", exception: SpecFailedException do
-            -> {
-              eval("0b111110[..3]")
-            }.should raise_error(ArgumentError, /The beginless range for Integer#\[\] results in infinity/)
-          end
+          -> {
+            eval("0b111110[..3]")
+          }.should.raise(ArgumentError, /The beginless range for Integer#\[\] results in infinity/)
         end
       end
     end
@@ -203,10 +179,10 @@ describe "Integer#[]" do
 
     it "raises a TypeError when the given argument can't be converted to Integer" do
       obj = mock('asdf')
-      -> { @bignum[obj] }.should raise_error(TypeError)
+      -> { @bignum[obj] }.should.raise(TypeError)
 
       obj.should_receive(:to_int).and_return("asdf")
-      -> { @bignum[obj] }.should raise_error(TypeError)
+      -> { @bignum[obj] }.should.raise(TypeError)
     end
   end
 end

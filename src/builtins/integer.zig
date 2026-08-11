@@ -1547,8 +1547,31 @@ pub fn builtinIntegerEql(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
 
 pub fn builtinIntegerElementReference(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try receiver.ensureInteger(vm);
-    if (args.len != 1) {
-        return vm.raiseExceptionFmt(vm.argument_error_class, "wrong number of arguments (given {d}, expected 1)", .{args.len});
+    try vm.requireArgCountRange(args, 1, 2);
+
+    if (args.len == 2) {
+        const start = try args[0].coerceToI64ViaToInt(vm, "no implicit conversion into Integer", "no implicit conversion into Integer", "index too large");
+        const length = try args[1].coerceToI64ViaToInt(vm, "no implicit conversion into Integer", "no implicit conversion into Integer", "length too large");
+        return integerBitSlice(vm, receiver, start, length);
+    }
+
+    if (args[0].isRange()) {
+        const range = args[0].toRangeObject();
+        const start: i64 = if (range.begin.isNil()) 0 else try coerceIntegerBitRangeIndex(vm, range.begin);
+        if (range.end.isNil()) return integerBitSlice(vm, receiver, start, -1);
+
+        const end = try coerceIntegerBitRangeIndex(vm, range.end);
+        const length = std.math.sub(i64, end, start) catch return vm.raiseExceptionFmt(vm.range_error_class, "range too large", .{});
+        const adjusted_length = if (range.exclude_end) length else std.math.add(i64, length, 1) catch return vm.raiseExceptionFmt(vm.range_error_class, "range too large", .{});
+
+        if (range.begin.isNil()) {
+            const selected = try integerBitSlice(vm, receiver, 0, adjusted_length);
+            if (!integerIsZero(selected)) {
+                return vm.raiseExceptionFmt(vm.argument_error_class, "The beginless range for Integer#[] results in infinity", .{});
+            }
+            return Value.integer(0);
+        }
+        return integerBitSlice(vm, receiver, start, if (adjusted_length <= 0) -1 else adjusted_length);
     }
 
     const bit = try args[0].coerceToIntegerValue(
@@ -1617,6 +1640,27 @@ pub fn builtinIntegerElementReference(vm: *VM, receiver: Value, args: []Value, _
     }
 
     unreachable;
+}
+
+fn coerceIntegerBitRangeIndex(vm: *VM, index: Value) VMError!i64 {
+    if (index.isFloat() and std.math.isInf(index.toFloatObject().val)) {
+        return vm.raiseExceptionFmt(vm.float_domain_error_class, "{s}Infinity", .{if (index.toFloatObject().val < 0) "-" else ""});
+    }
+    return index.coerceToI64ViaToInt(vm, "no implicit conversion into Integer", "no implicit conversion into Integer", "index too large");
+}
+
+fn integerBitSlice(vm: *VM, receiver: Value, start: i64, length: i64) VMError!Value {
+    var shift_args = [_]Value{Value.integer(start)};
+    const shifted = try builtinIntegerRightShift(vm, receiver, &shift_args, null);
+    if (length < 0) return shifted;
+    if (length == 0) return Value.integer(0);
+
+    var length_args = [_]Value{Value.integer(length)};
+    const upper_bit = try builtinIntegerLeftShift(vm, Value.integer(1), &length_args, null);
+    var one_arg = [_]Value{Value.integer(1)};
+    const mask = try builtinIntegerMinus(vm, upper_bit, &one_arg, null);
+    var mask_arg = [_]Value{mask};
+    return builtinIntegerBitAnd(vm, shifted, &mask_arg, null);
 }
 
 pub fn builtinIntegerNotEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
