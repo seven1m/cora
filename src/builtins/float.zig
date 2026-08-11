@@ -31,6 +31,48 @@ fn coerceNumericArg(vm: *VM, arg: Value) VMError!f64 {
     return vm.raiseExceptionFmt(vm.type_error_class, "argument is not numeric", .{});
 }
 
+const FloatComparison = enum {
+    less_than,
+    less_than_or_equal,
+    greater_than,
+    greater_than_or_equal,
+
+    fn methodName(self: FloatComparison) []const u8 {
+        return switch (self) {
+            .less_than => "<",
+            .less_than_or_equal => "<=",
+            .greater_than => ">",
+            .greater_than_or_equal => ">=",
+        };
+    }
+};
+
+fn compareFloatRelational(vm: *VM, receiver: Value, arg: Value, comparison: FloatComparison) VMError!Value {
+    if (arg.isFloat() or arg.isInteger() or arg.isBigInteger()) {
+        const lhs = receiver.toFloatObject().val;
+        const rhs = try coerceNumericArg(vm, arg);
+        return Value.boolean(switch (comparison) {
+            .less_than => lhs < rhs,
+            .less_than_or_equal => lhs <= rhs,
+            .greater_than => lhs > rhs,
+            .greater_than_or_equal => lhs >= rhs,
+        });
+    }
+
+    var coerce_args = [_]Value{receiver};
+    const maybe_coerced = try vm.checkCallMethodByName(arg, "coerce", false, &coerce_args, null);
+    const coerced = maybe_coerced orelse {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "comparison of Float with {s} failed", .{vm.className(arg)});
+    };
+    if (!coerced.isArray() or coerced.toArrayObject().elements.items.len != 2) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "comparison of Float with {s} failed", .{vm.className(arg)});
+    }
+
+    const coerced_items = coerced.toArrayObject().elements.items;
+    var compare_args = [_]Value{coerced_items[1]};
+    return vm.callMethodByName(coerced_items[0], comparison.methodName(), &compare_args, null);
+}
+
 fn coercePrecisionArgToCInt(vm: *VM, arg: Value) VMError!c_int {
     const digits = try arg.integerToI64(vm, "invalid precision");
     if (digits < std.math.minInt(c_int)) {
@@ -296,30 +338,22 @@ pub fn builtinFloatEql(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
 
 pub fn builtinFloatLessThan(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const lhs = receiver.toFloatObject().val;
-    const rhs = try coerceNumericArg(vm, args[0]);
-    return Value.boolean(lhs < rhs);
+    return compareFloatRelational(vm, receiver, args[0], .less_than);
 }
 
 pub fn builtinFloatLessThanOrEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const lhs = receiver.toFloatObject().val;
-    const rhs = try coerceNumericArg(vm, args[0]);
-    return Value.boolean(lhs <= rhs);
+    return compareFloatRelational(vm, receiver, args[0], .less_than_or_equal);
 }
 
 pub fn builtinFloatGreaterThan(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const lhs = receiver.toFloatObject().val;
-    const rhs = try coerceNumericArg(vm, args[0]);
-    return Value.boolean(lhs > rhs);
+    return compareFloatRelational(vm, receiver, args[0], .greater_than);
 }
 
 pub fn builtinFloatGreaterThanOrEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const lhs = receiver.toFloatObject().val;
-    const rhs = try coerceNumericArg(vm, args[0]);
-    return Value.boolean(lhs >= rhs);
+    return compareFloatRelational(vm, receiver, args[0], .greater_than_or_equal);
 }
 
 pub fn builtinFloatAbs(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -357,7 +391,6 @@ pub fn builtinFloatPositive(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     try vm.requireArgCount(args, 0);
     return Value.boolean(receiver.toFloatObject().val > 0.0);
 }
-
 
 pub fn builtinFloatToInt(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
