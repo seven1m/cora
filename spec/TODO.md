@@ -857,7 +857,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/float/divmod_spec.rb
 - [x] core/float/dup_spec.rb
 - [x] core/float/eql_spec.rb
-- [ ] core/float/equal_value_spec.rb
+- [x] core/float/equal_value_spec.rb
 - [ ] core/float/exponent_spec.rb
 - [ ] core/float/fdiv_spec.rb
 - [x] core/float/finite_spec.rb
