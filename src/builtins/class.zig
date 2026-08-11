@@ -25,11 +25,12 @@ pub fn register(vm: *VM) !void {
     try vm.class_class.module.methods.put(initialize_sym, value.MethodEntry.builtinWithVisibility(&builtinClassInitialize, .{ .variadic = 0 }, .private));
 }
 
-fn singletonClassName(vm: *VM, class_ptr: *ClassObject) ?[]const u8 {
+fn nonAllocatableClassName(vm: *VM, class_ptr: *ClassObject) ?[]const u8 {
     if (class_ptr == vm.symbol_class) return "Symbol";
     if (class_ptr == vm.nil_class) return "NilClass";
     if (class_ptr == vm.true_class) return "TrueClass";
     if (class_ptr == vm.false_class) return "FalseClass";
+    if (class_ptr == vm.float_class) return "Float";
     if (class_ptr == vm.rational_class) return "Rational";
     return null;
 }
@@ -47,7 +48,7 @@ pub fn builtinClassNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
         return vm.raiseExceptionFmt(vm.type_error_class, "can't instantiate uninitialized class", .{});
     }
 
-    if (singletonClassName(vm, class_ptr)) |name| {
+    if (nonAllocatableClassName(vm, class_ptr)) |name| {
         return vm.raiseExceptionFmt(vm.no_method_error_class, "undefined method 'new' for {s}", .{name});
     }
 
@@ -215,7 +216,7 @@ pub fn builtinClassAllocate(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     std.debug.assert(receiver.isClass());
 
     const class_ptr = receiver.toClassObject();
-    if (singletonClassName(vm, class_ptr)) |name| {
+    if (nonAllocatableClassName(vm, class_ptr)) |name| {
         return vm.raiseExceptionFmt(vm.type_error_class, "allocator undefined for {s}", .{name});
     }
     if (class_ptr == vm.class_class) {
