@@ -2336,7 +2336,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/unboundmethod/clone_spec.rb
 - [ ] core/unboundmethod/dup_spec.rb
 - [ ] core/unboundmethod/eql_spec.rb
-- [ ] core/unboundmethod/equal_value_spec.rb
+- [x] core/unboundmethod/equal_value_spec.rb
 - [ ] core/unboundmethod/hash_spec.rb
 - [ ] core/unboundmethod/inspect_spec.rb
 - [ ] core/unboundmethod/name_spec.rb

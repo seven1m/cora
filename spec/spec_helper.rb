@@ -388,6 +388,8 @@ def it(desc, &block)
   current_context.add_example(SpecExampleState.new(desc, block, skipped: block.nil?))
 end
 
+alias specify it
+
 def fit(desc, &block)
   $__has_focused_examples = true
   current_context.add_example(SpecExampleState.new(desc, block, skipped: false, focused: true))

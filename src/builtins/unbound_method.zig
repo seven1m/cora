@@ -192,7 +192,7 @@ fn builtinUnboundMethodEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     const lhs = unboundMethodObject(receiver);
     const rhs = unboundMethodObject(other);
 
-    return Value.boolean(lhs.owner.raw == rhs.owner.raw and lhs.name == rhs.name);
+    return Value.boolean(lhs.owner.raw == rhs.owner.raw and common.entriesHaveSameImplementation(lhs.entry, rhs.entry));
 }
 
 fn builtinUnboundMethodSourceLocation(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
