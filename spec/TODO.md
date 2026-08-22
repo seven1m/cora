@@ -475,7 +475,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/enumerable/take_spec.rb
 - [ ] core/enumerable/take_while_spec.rb
 - [ ] core/enumerable/tally_spec.rb
-- [ ] core/enumerable/to_a_spec.rb
+- [x] core/enumerable/to_a_spec.rb
 - [ ] core/enumerable/to_h_spec.rb
 - [ ] core/enumerable/to_set_spec.rb
 - [ ] core/enumerable/uniq_spec.rb

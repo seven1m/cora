@@ -15,7 +15,7 @@ pub fn register(vm: *VM) !void {
     const entries_sym = try vm.intern("entries");
     try enumerable_val.toModuleObject().methods.put(entries_sym, value.MethodEntry.builtin(&builtinEnumerableEntries, .{ .variadic = 0 }));
     const to_a_sym = try vm.intern("to_a");
-    try enumerable_val.toModuleObject().methods.put(to_a_sym, value.MethodEntry.builtin(&builtinEnumerableToA, .{ .exact = 0 }));
+    try enumerable_val.toModuleObject().methods.put(to_a_sym, value.MethodEntry.builtin(&builtinEnumerableToA, .{ .variadic = 0 }));
     const map_sym = try vm.intern("map");
     try enumerable_val.toModuleObject().methods.put(map_sym, value.MethodEntry.builtin(&builtinEnumerableMap, .{ .exact = 0 }));
     const collect_sym = try vm.intern("collect");
@@ -317,8 +317,7 @@ fn builtinEnumerableEntries(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 }
 
 fn builtinEnumerableToA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 0);
-    const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
+    const enum_value = try vm.createMethodEnumerator(receiver, try vm.intern("each"), args);
     const out = try vm.createArray();
     while (try enumerableNextElement(vm, enum_value)) |element| {
         out.elements.append(vm.gc_allocator, element) catch return error.Fatal;
