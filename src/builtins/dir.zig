@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
+const file_builtin = @import("file.zig");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -93,6 +94,12 @@ pub fn register(vm: *VM) !void {
     const rmdir_sym = try vm.intern("rmdir");
     try dir_singleton.module.methods.put(rmdir_sym, value.MethodEntry.builtin(&builtinDirRmdir, .{ .exact = 1 }));
 
+    const delete_sym = try vm.intern("delete");
+    try dir_singleton.module.methods.put(delete_sym, value.MethodEntry.builtin(&builtinDirRmdir, .{ .exact = 1 }));
+
+    const unlink_sym = try vm.intern("unlink");
+    try dir_singleton.module.methods.put(unlink_sym, value.MethodEntry.builtin(&builtinDirRmdir, .{ .exact = 1 }));
+
     const children_sym = try vm.intern("children");
     try dir_singleton.module.methods.put(children_sym, value.MethodEntry.builtin(&builtinDirChildren, .{ .variadic = 0 }));
 
@@ -104,6 +111,12 @@ pub fn register(vm: *VM) !void {
 
     const entries_sym = try vm.intern("entries");
     try dir_singleton.module.methods.put(entries_sym, value.MethodEntry.builtin(&builtinDirEntries, .{ .variadic = 0 }));
+
+    const exist_sym = try vm.intern("exist?");
+    try dir_singleton.module.methods.put(exist_sym, value.MethodEntry.builtin(&file_builtin.builtinFileDirectory, .{ .exact = 1 }));
+
+    const exists_sym = try vm.intern("exists?");
+    try dir_singleton.module.methods.put(exists_sym, value.MethodEntry.builtin(&file_builtin.builtinFileDirectory, .{ .exact = 1 }));
 }
 
 pub fn builtinDirPwd(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
