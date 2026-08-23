@@ -1612,45 +1612,65 @@ pub fn builtinFileRealpath(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
     return try vm.newStringWithEncoding(resolved, false, path_obj.encoding);
 }
 
+fn joinPartToStringValue(vm: *VM, arg: Value) VMError!Value {
+    if (arg.isArray()) {
+        const array_obj = arg.toArrayObject();
+        if (try vm.enterRecursionGuard(.file_join, arg, Value.nil())) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "recursive array", .{});
+        }
+        defer vm.leaveRecursionGuard(.file_join, arg, Value.nil());
+        return joinPartsToStringValue(vm, array_obj.elements.items);
+    }
+    if (!arg.isString()) {
+        const maybe_candidate = try vm.checkCallMethodByName(arg, "to_path", false, &[_]Value{}, null);
+        const candidate = maybe_candidate orelse arg;
+        const missing_msg = std.fmt.allocPrint(
+            vm.gc_allocator,
+            "no implicit conversion of {s} into String",
+            .{vm.className(arg)},
+        ) catch return error.Fatal;
+        return candidate.coerceToStringValue(vm, missing_msg);
+    }
+    return arg;
+}
+
+fn joinPartsToStringValue(vm: *VM, parts: []const Value) VMError!Value {
+    var result: std.ArrayList(u8) = .empty;
+    defer result.deinit(vm.allocator);
+
+    var output_encoding: Encoding = .{ .utf8 = .{} };
+
+    for (parts, 0..) |part_arg, idx| {
+        const part_value = try joinPartToStringValue(vm, part_arg);
+        const part_obj = part_value.toStringObject();
+        if (std.mem.indexOfScalar(u8, part_obj.str, 0) != null) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "string contains null byte", .{});
+        }
+
+        if (idx == 0) {
+            output_encoding = part_obj.encoding;
+        } else {
+            var kept = result.items.len;
+            while (kept > 0 and result.items[kept - 1] == '/') kept -= 1;
+            if (part_obj.str.len > 0 and part_obj.str[0] == '/') {
+                result.shrinkRetainingCapacity(kept);
+            } else if (kept == result.items.len) {
+                result.append(vm.allocator, '/') catch return error.Fatal;
+            }
+        }
+
+        result.appendSlice(vm.allocator, part_obj.str) catch return error.Fatal;
+    }
+
+    return try vm.newStringWithEncoding(result.items, false, output_encoding);
+}
+
 pub fn builtinFileJoin(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     if (builtin.os.tag == .windows) {
         return vm.raiseExceptionFmt(vm.not_implemented_error_class, "File.join is not implemented on Windows", .{});
     }
 
-    var result: std.ArrayList(u8) = .empty;
-    defer result.deinit(vm.allocator);
-
-    var output_encoding: Encoding = .{ .utf8 = .{} };
-    var have_encoding = false;
-
-    var effective_args = args;
-    if (args.len == 1 and args[0].isArray()) {
-        effective_args = args[0].toArrayObject().elements.items;
-    }
-
-    for (effective_args, 0..) |arg, idx| {
-        const part_value = try vm.coerceToPathValue(arg, "no implicit conversion into String");
-        const part_obj = part_value.toStringObject();
-        if (!have_encoding) {
-            output_encoding = part_obj.encoding;
-            have_encoding = true;
-        }
-
-        if (idx == 0) {
-            result.appendSlice(vm.allocator, part_obj.str) catch return error.Fatal;
-            continue;
-        }
-
-        if (result.items.len > 0 and result.items[result.items.len - 1] != '/') {
-            result.append(vm.allocator, '/') catch return error.Fatal;
-        }
-
-        var start: usize = 0;
-        while (start < part_obj.str.len and part_obj.str[start] == '/') : (start += 1) {}
-        result.appendSlice(vm.allocator, part_obj.str[start..]) catch return error.Fatal;
-    }
-
-    return try vm.newStringWithEncoding(result.items, false, output_encoding);
+    return joinPartsToStringValue(vm, args);
 }
 
 pub fn builtinFileDirname(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

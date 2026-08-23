@@ -16,6 +16,7 @@ pub const Kind = enum {
     hash_equal,
     hash_eql,
     hash_hash,
+    file_join,
 };
 
 const Entry = struct {
