@@ -41,6 +41,15 @@ pub fn register(vm: *VM) !void {
 
     const bsearch_sym = try vm.intern("bsearch");
     try vm.range_class.module.methods.put(bsearch_sym, value.MethodEntry.builtin(&builtinRangeBsearch, .{ .exact = 0 }));
+
+    const include_sym = try vm.intern("include?");
+    try vm.range_class.module.methods.put(include_sym, value.MethodEntry.builtin(&builtinRangeInclude, .{ .exact = 1 }));
+
+    const member_sym = try vm.intern("member?");
+    try vm.range_class.module.methods.put(member_sym, value.MethodEntry.builtin(&builtinRangeInclude, .{ .exact = 1 }));
+
+    const cover_sym = try vm.intern("cover?");
+    try vm.range_class.module.methods.put(cover_sym, value.MethodEntry.builtin(&builtinRangeCover, .{ .exact = 1 }));
 }
 
 pub fn builtinRangeInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -435,22 +444,189 @@ pub fn builtinRangeCaseEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     }
 
     const range_obj = receiver.toRangeObject();
-    const candidate = args[0];
+    return Value.boolean(try rCoverP(vm, range_obj.begin, range_obj.end, range_obj.exclude_end, args[0]));
+}
 
-    if (!candidate.isInteger()) return Value.boolean(false);
-    const n = candidate.toInteger();
+/// MRI `linear_object_p`: numeric values (including Integer/Float immediates,
+/// Rational/Complex, and Numeric/Time descendants) can be compared without
+/// iteration.
+fn isLinearObject(vm: *VM, val: Value) bool {
+    if (val.isInteger() or val.isFloat()) return true;
+    var current: ?*value.ClassObject = vm.getClass(val);
+    while (current) |class_obj| : (current = class_obj.superclass) {
+        if (class_obj == vm.numeric_class or class_obj == vm.time_class) return true;
+    }
+    return false;
+}
 
-    if (!range_obj.begin.isInteger() or !range_obj.end.isInteger()) {
-        return Value.boolean(false);
+/// MRI `range_integer_edge_p`: an endpoint that converts to an Integer via
+/// `to_int` switches `include?` to comparison semantics.
+fn endpointConvertsToInteger(vm: *VM, val: Value) VMError!bool {
+    if (!val.isObject()) return false;
+    const maybe = try vm.checkCallMethodByName(val, "to_int", false, &[_]Value{}, null);
+    const coerced = maybe orelse return false;
+    return coerced.isInteger();
+}
+
+/// MRI `r_cover_p`: pure `<=>`-based coverage used by `===`, `cover?`, and
+/// the numeric fast path of `include?`. Non-comparable values (`<=>` yields
+/// nil) simply do not cover instead of raising.
+fn rCoverP(vm: *VM, beg: Value, end_val: Value, exclude_end: bool, val: Value) VMError!bool {
+    if (beg.isNil() or (try rLess(vm, beg, val)) <= 0) {
+        const limit: i64 = if (exclude_end) -1 else 0;
+        if (end_val.isNil() or (try rLess(vm, val, end_val)) <= limit) return true;
+    }
+    return false;
+}
+
+/// MRI `r_cover_range_p`: whether `self` covers another Range.
+fn rCoverRangeP(vm: *VM, self_obj: *value.RangeObject, val_value: Value, val_obj: *value.RangeObject) VMError!bool {
+    const beg = self_obj.begin;
+    const end_v = self_obj.end;
+
+    const val_beg = val_obj.begin;
+    const val_end = val_obj.end;
+
+    if (!end_v.isNil() and val_end.isNil()) return false;
+    if (!beg.isNil() and val_beg.isNil()) return false;
+    if (!val_beg.isNil() and !val_end.isNil()) {
+        const empty_limit: i64 = if (val_obj.exclude_end) -1 else 0;
+        if ((try rLess(vm, val_beg, val_end)) > empty_limit) return false;
+    }
+    if (!val_beg.isNil() and !(try rCoverP(vm, beg, end_v, self_obj.exclude_end, val_beg))) return false;
+
+    var cmp_end: i64 = undefined;
+    if (!val_end.isNil() and !end_v.isNil()) {
+        cmp_end = try rLess(vm, end_v, val_end);
+        if (cmp_end == r_less_stop) return false;
+    } else {
+        cmp_end = try rLess(vm, end_v, val_end);
     }
 
-    const begin_i = range_obj.begin.toInteger();
-    const end_i = range_obj.end.toInteger();
-
-    if (range_obj.exclude_end) {
-        return Value.boolean(n >= begin_i and n < end_i);
+    if (self_obj.exclude_end == val_obj.exclude_end) {
+        return cmp_end >= 0;
+    } else if (self_obj.exclude_end) {
+        return cmp_end > 0;
+    } else if (cmp_end >= 0) {
+        return true;
     }
-    return Value.boolean(n >= begin_i and n <= end_i);
+
+    const maybe_max = try vm.checkCallMethodByName(val_value, "max", false, &[_]Value{}, null);
+    const max_value = maybe_max orelse return false;
+    if (max_value.isNil()) return false;
+    return (try rLess(vm, end_v, max_value)) >= 0;
+}
+
+pub fn builtinRangeCover(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+
+    if (!receiver.isRange()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Range", .{});
+    }
+
+    const range_obj = receiver.toRangeObject();
+    const val = args[0];
+    if (val.isRange()) {
+        return Value.boolean(try rCoverRangeP(vm, range_obj, val, val.toRangeObject()));
+    }
+    return Value.boolean(try rCoverP(vm, range_obj.begin, range_obj.end, range_obj.exclude_end, val));
+}
+
+fn succStringBytes(vm: *VM, str_val: Value) VMError![]const u8 {
+    var empty_args = [_]Value{};
+    const next = try vm.callMethodByName(str_val, "succ", empty_args[0..], null);
+    return next.toStringObject().str;
+}
+
+/// MRI `rb_str_include_range_p`: string ranges check membership by iterating
+/// from begin with `succ` up to a length-bounded limit, comparing with `==`.
+fn stringRangeIncludeP(vm: *VM, beg_val: Value, end_val: Value, val: Value, exclude_end: bool) VMError!Value {
+    const val_probe = try vm.probeToStringValue(val);
+    const val_string = switch (val_probe) {
+        .string => |v| v,
+        else => return Value.boolean(false),
+    };
+
+    const end_bytes = end_val.toStringObject().str;
+    const order = std.mem.order(u8, beg_val.toStringObject().str, end_bytes);
+    if (order == .gt or (exclude_end and order == .eq)) return Value.boolean(false);
+
+    const after_end_bytes = try succStringBytes(vm, end_val);
+
+    var current = try vm.newString(beg_val.toStringObject().str, false);
+    while (!std.mem.eql(u8, current.toStringObject().str, after_end_bytes)) {
+        var next: ?Value = null;
+        const current_bytes = current.toStringObject().str;
+        if (exclude_end or !std.mem.eql(u8, current_bytes, end_bytes)) {
+            next = try vm.callMethodByName(current, "succ", &[_]Value{}, null);
+        }
+
+        var eq_args = [_]Value{val_string};
+        const eq_result = try vm.callMethodByName(current, "==", eq_args[0..], null);
+        if (eq_result.isTruthy()) return Value.boolean(true);
+
+        const next_value = next orelse break;
+        _ = next_value.toStringObject();
+        current = next_value;
+
+        const len = current.toStringObject().str.len;
+        if (exclude_end and std.mem.eql(u8, current.toStringObject().str, end_bytes)) break;
+        if (len > end_bytes.len or len == 0) break;
+    }
+
+    return Value.boolean(false);
+}
+
+const IncludeVisitor = struct { vm: *VM, val: Value, found: bool = false };
+
+fn visitInclude(ctx: *IncludeVisitor, element: Value) VMError!WalkControl {
+    var eq_args = [_]Value{ctx.val};
+    const eq_result = try ctx.vm.callMethodByName(element, "==", eq_args[0..], null);
+    if (eq_result.isTruthy()) {
+        ctx.found = true;
+        return .stop;
+    }
+    return .proceed;
+}
+
+/// Fallback for non-linear, non-string ranges: iterate with `each` comparing
+/// elements via `==` (what Enumerable#include? does in MRI).
+fn enumerableStyleInclude(vm: *VM, range_obj: *value.RangeObject, val: Value) VMError!Value {
+    var ctx = IncludeVisitor{ .vm = vm, .val = val };
+    try walkRangeElements(vm, range_obj.begin, range_obj.end, range_obj.exclude_end, &ctx, visitInclude);
+    return Value.boolean(ctx.found);
+}
+
+pub fn builtinRangeInclude(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+
+    if (!receiver.isRange()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Range", .{});
+    }
+
+    const range_obj = receiver.toRangeObject();
+    const beg = range_obj.begin;
+    const end_v = range_obj.end;
+    const val = args[0];
+
+    if (isLinearObject(vm, beg) or isLinearObject(vm, end_v) or
+        (try endpointConvertsToInteger(vm, beg)) or (try endpointConvertsToInteger(vm, end_v)))
+    {
+        return Value.boolean(try rCoverP(vm, beg, end_v, range_obj.exclude_end, val));
+    }
+
+    if (beg.isString() and end_v.isString()) {
+        return stringRangeIncludeP(vm, beg, end_v, val, range_obj.exclude_end);
+    }
+
+    if (beg.isNil() and end_v.isNil()) {
+        return Value.boolean(isLinearObject(vm, val));
+    }
+    if (beg.isNil() or end_v.isNil()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "cannot determine inclusion in beginless/endless ranges", .{});
+    }
+
+    return enumerableStyleInclude(vm, range_obj, val);
 }
 
 pub fn builtinRangeBsearch(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
