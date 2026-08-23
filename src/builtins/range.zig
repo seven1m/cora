@@ -108,78 +108,57 @@ pub fn builtinRangeFirst(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     }
 
     const array_obj = try vm.createArray();
-    if (count == 0) {
-        return Value.fromObject(&array_obj.object);
-    }
-
-    const begin_val = range_obj.begin;
-    const end_val = range_obj.end;
-
-    if (begin_val.isInteger() and (end_val.isNil() or end_val.isInteger())) {
-        appendIntegerRangeLimitedToArray(vm, array_obj, begin_val.toInteger(), end_val, range_obj.exclude_end, count);
-        return Value.fromObject(&array_obj.object);
-    }
-
-    try appendSuccRangeLimitedToArray(vm, array_obj, begin_val, end_val, range_obj.exclude_end, count);
+    try walkRangeElements(
+        vm,
+        range_obj.begin,
+        range_obj.end,
+        range_obj.exclude_end,
+        AppendLimitedVisitor{ .vm = vm, .array = array_obj, .limit = @intCast(count) },
+        visitAppendLimited,
+    );
     return Value.fromObject(&array_obj.object);
 }
 
-fn appendIntegerRangeLimitedToArray(
+const WalkControl = enum { proceed, stop };
+
+/// Low-level Range element walker: visits successive elements from `begin_val`
+/// up to and including `end_val` (or up to but excluding it when
+/// `exclude_end`). Each element is passed to `visit`, which decides when to
+/// stop; endless ranges therefore rely on the visitor halting iteration.
+fn walkRangeElements(
     vm: *VM,
-    array_obj: *value.ArrayObject,
-    start_i: i64,
-    end_val: Value,
-    exclude_end: bool,
-    limit: i64,
-) void {
-    var collected: i64 = 0;
-
-    if (end_val.isNil()) {
-        var current = start_i;
-        while (collected < limit) : (current += 1) {
-            array_obj.elements.append(vm.gc_allocator, Value.integer(current)) catch return;
-            collected += 1;
-            if (current == std.math.maxInt(i64)) break;
-        }
-        return;
-    }
-
-    const end_i = end_val.toInteger();
-    if (exclude_end) {
-        var current = start_i;
-        while (current < end_i and collected < limit) : (current += 1) {
-            array_obj.elements.append(vm.gc_allocator, Value.integer(current)) catch return;
-            collected += 1;
-            if (current == std.math.maxInt(i64)) break;
-        }
-    } else {
-        var current = start_i;
-        while (current <= end_i and collected < limit) : (current += 1) {
-            array_obj.elements.append(vm.gc_allocator, Value.integer(current)) catch return;
-            collected += 1;
-            if (current == std.math.maxInt(i64)) break;
-        }
-    }
-}
-
-fn appendSuccRangeLimitedToArray(
-    vm: *VM,
-    array_obj: *value.ArrayObject,
     begin_val: Value,
     end_val: Value,
     exclude_end: bool,
-    limit: i64,
+    ctx: anytype,
+    comptime visit: fn (@TypeOf(ctx), Value) VMError!WalkControl,
 ) VMError!void {
+    if (begin_val.isInteger() and (end_val.isNil() or end_val.isInteger())) {
+        var current = begin_val.toInteger();
+        const bounded = !end_val.isNil();
+        const end_i = if (bounded) end_val.toInteger() else 0;
+        while (true) {
+            if (bounded and (current > end_i or (exclude_end and current == end_i))) return;
+
+            const control = try visit(ctx, Value.integer(current));
+            if (control == .stop) return;
+
+            if (bounded and current == end_i) return;
+            if (current == std.math.maxInt(i64)) return;
+            current += 1;
+        }
+    }
+
+    if (begin_val.isFloat()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "can't iterate from Float", .{});
+    }
+
     var empty_args = [_]Value{};
     var compare_args = [_]Value{end_val};
     var current = begin_val;
 
-    if (current.isFloat()) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "can't iterate from Float", .{});
-    }
-
-    while (@as(i64, @intCast(array_obj.elements.items.len)) < limit) {
-        var reached_end = false;
+    while (true) {
+        var at_end = false;
 
         if (!end_val.isNil()) {
             const comparison = try vm.callMethodByName(current, "<=>", compare_args[0..], null);
@@ -187,17 +166,39 @@ fn appendSuccRangeLimitedToArray(
                 return vm.raiseExceptionFmt(vm.type_error_class, "can't iterate from Range", .{});
             }
             const order = comparison.toInteger();
-            if (order > 0 or (exclude_end and order == 0)) break;
-            array_obj.elements.append(vm.gc_allocator, current) catch return error.Fatal;
-            reached_end = order == 0;
-        } else {
-            array_obj.elements.append(vm.gc_allocator, current) catch return error.Fatal;
+            if (order > 0 or (exclude_end and order == 0)) return;
+            at_end = order == 0;
         }
 
-        if (reached_end) break;
+        const control = try visit(ctx, current);
+        if (control == .stop) return;
+        if (at_end) return;
 
         current = try vm.callMethodByName(current, "succ", empty_args[0..], null);
     }
+}
+
+const EachVisitor = struct { vm: *VM, blk: Block };
+
+fn visitEach(ctx: EachVisitor, element: Value) VMError!WalkControl {
+    const yield_args = [_]Value{element};
+    _ = try ctx.vm.yieldToBlock(ctx.blk, &yield_args);
+    return .proceed;
+}
+
+const AppendVisitor = struct { vm: *VM, array: *value.ArrayObject };
+
+fn visitAppend(ctx: AppendVisitor, element: Value) VMError!WalkControl {
+    ctx.array.elements.append(ctx.vm.gc_allocator, element) catch return error.Fatal;
+    return .proceed;
+}
+
+const AppendLimitedVisitor = struct { vm: *VM, array: *value.ArrayObject, limit: usize };
+
+fn visitAppendLimited(ctx: AppendLimitedVisitor, element: Value) VMError!WalkControl {
+    if (ctx.array.elements.items.len >= ctx.limit) return .stop;
+    ctx.array.elements.append(ctx.vm.gc_allocator, element) catch return error.Fatal;
+    return .proceed;
 }
 
 pub fn builtinRangeToA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -208,50 +209,25 @@ pub fn builtinRangeToA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
     }
 
     const range_obj = receiver.toRangeObject();
-    const begin_val = range_obj.begin;
-    const end_val = range_obj.end;
-    const exclude_end = range_obj.exclude_end;
 
-    if (begin_val.isNil()) {
+    if (range_obj.begin.isNil()) {
         return vm.raiseExceptionFmt(vm.range_error_class, "cannot convert beginless range to an array", .{});
     }
 
-    if (end_val.isNil()) {
+    if (range_obj.end.isNil()) {
         return vm.raiseExceptionFmt(vm.range_error_class, "cannot convert endless range to an array", .{});
     }
 
     const array_obj = try vm.createArray();
-
-    if (begin_val.isInteger() and end_val.isInteger()) {
-        const start_i = begin_val.toInteger();
-        const end_i = end_val.toInteger();
-
-        if (exclude_end) {
-            var current = start_i;
-            while (current < end_i) : (current += 1) {
-                array_obj.elements.append(vm.gc_allocator, Value.integer(current)) catch return error.Fatal;
-                if (current == std.math.maxInt(i64)) break;
-            }
-        } else {
-            var current = start_i;
-            while (current <= end_i) : (current += 1) {
-                array_obj.elements.append(vm.gc_allocator, Value.integer(current)) catch return error.Fatal;
-                if (current == std.math.maxInt(i64)) break;
-            }
-        }
-        return Value.fromObject(&array_obj.object);
-    }
-
-    if (begin_val.isString() and end_val.isString()) {
-        try appendStringRangeToArray(vm, array_obj, begin_val, end_val, exclude_end);
-        return Value.fromObject(&array_obj.object);
-    }
-
-    return vm.raiseExceptionFmt(
-        vm.type_error_class,
-        "wrong argument type (expected Integer)",
-        .{},
+    try walkRangeElements(
+        vm,
+        range_obj.begin,
+        range_obj.end,
+        range_obj.exclude_end,
+        AppendVisitor{ .vm = vm, .array = array_obj },
+        visitAppend,
     );
+    return Value.fromObject(&array_obj.object);
 }
 
 pub fn builtinRangeEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -266,107 +242,20 @@ pub fn builtinRangeEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
     };
 
     const range_obj = receiver.toRangeObject();
-    const begin_val = range_obj.begin;
-    const end_val = range_obj.end;
-    const exclude_end = range_obj.exclude_end;
 
-    if (begin_val.isNil() or end_val.isNil()) {
+    if (range_obj.begin.isNil() or range_obj.end.isNil()) {
         return vm.raiseExceptionFmt(vm.range_error_class, "cannot iterate from beginless or endless range", .{});
     }
 
-    if (begin_val.isInteger() and end_val.isInteger()) {
-        const start_i = begin_val.toInteger();
-        const end_i = end_val.toInteger();
-
-        if (exclude_end) {
-            var current = start_i;
-            while (current < end_i) : (current += 1) {
-                const yield_args = [_]Value{Value.integer(current)};
-                _ = try vm.yieldToBlock(blk, &yield_args);
-                if (current == std.math.maxInt(i64)) break;
-            }
-        } else {
-            var current = start_i;
-            while (current <= end_i) : (current += 1) {
-                const yield_args = [_]Value{Value.integer(current)};
-                _ = try vm.yieldToBlock(blk, &yield_args);
-                if (current == std.math.maxInt(i64)) break;
-            }
-        }
-        return receiver;
-    }
-
-    if (begin_val.isString() and end_val.isString()) {
-        if (try eachStringRange(vm, blk, begin_val, end_val, exclude_end)) |return_value| {
-            return return_value;
-        }
-        return receiver;
-    }
-
-    return vm.raiseExceptionFmt(vm.type_error_class, "can't iterate from Range", .{});
-}
-
-fn appendStringRangeToArray(
-    vm: *VM,
-    array_obj: *value.ArrayObject,
-    begin_val: Value,
-    end_val: Value,
-    exclude_end: bool,
-) VMError!void {
-    var empty_args = [_]Value{};
-    var compare_args = [_]Value{end_val};
-    var current = begin_val;
-
-    while (true) {
-        const comparison = try vm.callMethodByName(current, "<=>", compare_args[0..], null);
-        if (!comparison.isInteger()) {
-            return vm.raiseExceptionFmt(vm.type_error_class, "can't iterate from Range", .{});
-        }
-
-        const order = comparison.toInteger();
-        if (order > 0 or (exclude_end and order == 0)) break;
-
-        array_obj.elements.append(vm.gc_allocator, current) catch return error.Fatal;
-        if (order == 0) break;
-
-        current = try vm.callMethodByName(current, "succ", empty_args[0..], null);
-        if (!current.isString()) {
-            return vm.raiseExceptionFmt(vm.type_error_class, "can't iterate from Range", .{});
-        }
-    }
-}
-
-fn eachStringRange(
-    vm: *VM,
-    blk: Block,
-    begin_val: Value,
-    end_val: Value,
-    exclude_end: bool,
-) VMError!?Value {
-    var empty_args = [_]Value{};
-    var compare_args = [_]Value{end_val};
-    var current = begin_val;
-
-    while (true) {
-        const comparison = try vm.callMethodByName(current, "<=>", compare_args[0..], null);
-        if (!comparison.isInteger()) {
-            return vm.raiseExceptionFmt(vm.type_error_class, "can't iterate from Range", .{});
-        }
-
-        const order = comparison.toInteger();
-        if (order > 0 or (exclude_end and order == 0)) break;
-
-        const yield_args = [_]Value{current};
-        _ = try vm.yieldToBlock(blk, &yield_args);
-        if (order == 0) break;
-
-        current = try vm.callMethodByName(current, "succ", empty_args[0..], null);
-        if (!current.isString()) {
-            return vm.raiseExceptionFmt(vm.type_error_class, "can't iterate from Range", .{});
-        }
-    }
-
-    return null;
+    try walkRangeElements(
+        vm,
+        range_obj.begin,
+        range_obj.end,
+        range_obj.exclude_end,
+        EachVisitor{ .vm = vm, .blk = blk },
+        visitEach,
+    );
+    return receiver;
 }
 
 pub fn builtinRangeInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
