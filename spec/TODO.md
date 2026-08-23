@@ -1766,7 +1766,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/range/eql_spec.rb
 - [ ] core/range/equal_value_spec.rb
 - [x] core/range/exclude_end_spec.rb
-- [ ] core/range/first_spec.rb
+- [x] core/range/first_spec.rb
 - [ ] core/range/frozen_spec.rb
 - [ ] core/range/hash_spec.rb
 - [ ] core/range/include_spec.rb

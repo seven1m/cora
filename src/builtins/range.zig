@@ -21,6 +21,9 @@ pub fn register(vm: *VM) !void {
     const exclude_end_sym = try vm.intern("exclude_end?");
     try vm.range_class.module.methods.put(exclude_end_sym, value.MethodEntry.builtin(&builtinRangeExcludeEnd, .{ .exact = 0 }));
 
+    const first_sym = try vm.intern("first");
+    try vm.range_class.module.methods.put(first_sym, value.MethodEntry.builtin(&builtinRangeFirst, .{ .variadic = 0 }));
+
     const to_a_sym = try vm.intern("to_a");
     try vm.range_class.module.methods.put(to_a_sym, value.MethodEntry.builtin(&builtinRangeToA, .{ .exact = 0 }));
 
@@ -75,6 +78,126 @@ pub fn builtinRangeExcludeEnd(vm: *VM, receiver: Value, args: []Value, _: ?Block
         return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Range", .{});
     }
     return Value.boolean(receiver.toRangeObject().exclude_end);
+}
+
+pub fn builtinRangeFirst(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+
+    if (!receiver.isRange()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Range", .{});
+    }
+
+    const range_obj = receiver.toRangeObject();
+
+    if (range_obj.begin.isNil()) {
+        return vm.raiseExceptionFmt(vm.range_error_class, "cannot get the first element of beginless range", .{});
+    }
+
+    if (args.len == 0) {
+        return range_obj.begin;
+    }
+
+    const count = try args[0].coerceToI64ViaToInt(
+        vm,
+        "no implicit conversion into Integer",
+        "no implicit conversion into Integer",
+        "bignum too big to convert into `long`",
+    );
+    if (count < 0) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "negative array size", .{});
+    }
+
+    const array_obj = try vm.createArray();
+    if (count == 0) {
+        return Value.fromObject(&array_obj.object);
+    }
+
+    const begin_val = range_obj.begin;
+    const end_val = range_obj.end;
+
+    if (begin_val.isInteger() and (end_val.isNil() or end_val.isInteger())) {
+        appendIntegerRangeLimitedToArray(vm, array_obj, begin_val.toInteger(), end_val, range_obj.exclude_end, count);
+        return Value.fromObject(&array_obj.object);
+    }
+
+    try appendSuccRangeLimitedToArray(vm, array_obj, begin_val, end_val, range_obj.exclude_end, count);
+    return Value.fromObject(&array_obj.object);
+}
+
+fn appendIntegerRangeLimitedToArray(
+    vm: *VM,
+    array_obj: *value.ArrayObject,
+    start_i: i64,
+    end_val: Value,
+    exclude_end: bool,
+    limit: i64,
+) void {
+    var collected: i64 = 0;
+
+    if (end_val.isNil()) {
+        var current = start_i;
+        while (collected < limit) : (current += 1) {
+            array_obj.elements.append(vm.gc_allocator, Value.integer(current)) catch return;
+            collected += 1;
+            if (current == std.math.maxInt(i64)) break;
+        }
+        return;
+    }
+
+    const end_i = end_val.toInteger();
+    if (exclude_end) {
+        var current = start_i;
+        while (current < end_i and collected < limit) : (current += 1) {
+            array_obj.elements.append(vm.gc_allocator, Value.integer(current)) catch return;
+            collected += 1;
+            if (current == std.math.maxInt(i64)) break;
+        }
+    } else {
+        var current = start_i;
+        while (current <= end_i and collected < limit) : (current += 1) {
+            array_obj.elements.append(vm.gc_allocator, Value.integer(current)) catch return;
+            collected += 1;
+            if (current == std.math.maxInt(i64)) break;
+        }
+    }
+}
+
+fn appendSuccRangeLimitedToArray(
+    vm: *VM,
+    array_obj: *value.ArrayObject,
+    begin_val: Value,
+    end_val: Value,
+    exclude_end: bool,
+    limit: i64,
+) VMError!void {
+    var empty_args = [_]Value{};
+    var compare_args = [_]Value{end_val};
+    var current = begin_val;
+
+    if (current.isFloat()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "can't iterate from Float", .{});
+    }
+
+    while (@as(i64, @intCast(array_obj.elements.items.len)) < limit) {
+        var reached_end = false;
+
+        if (!end_val.isNil()) {
+            const comparison = try vm.callMethodByName(current, "<=>", compare_args[0..], null);
+            if (!comparison.isInteger()) {
+                return vm.raiseExceptionFmt(vm.type_error_class, "can't iterate from Range", .{});
+            }
+            const order = comparison.toInteger();
+            if (order > 0 or (exclude_end and order == 0)) break;
+            array_obj.elements.append(vm.gc_allocator, current) catch return error.Fatal;
+            reached_end = order == 0;
+        } else {
+            array_obj.elements.append(vm.gc_allocator, current) catch return error.Fatal;
+        }
+
+        if (reached_end) break;
+
+        current = try vm.callMethodByName(current, "succ", empty_args[0..], null);
+    }
 }
 
 pub fn builtinRangeToA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
