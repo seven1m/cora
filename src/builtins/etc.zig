@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 
@@ -18,6 +19,9 @@ pub fn register(vm: *VM) !void {
 
     const getlogin_sym = try vm.intern("getlogin");
     try etc_singleton.module.methods.put(getlogin_sym, value.MethodEntry.builtin(&builtinEtcGetlogin, .{ .exact = 0 }));
+
+    const uname_sym = try vm.intern("uname");
+    try etc_singleton.module.methods.put(uname_sym, value.MethodEntry.builtin(&builtinEtcUname, .{ .exact = 0 }));
 }
 
 fn builtinEtcNprocessors(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -34,4 +38,27 @@ fn builtinEtcGetlogin(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value
     const login = getlogin() orelse return Value.nil();
     const name = std.mem.span(login);
     return vm.newString(name, false);
+}
+
+fn builtinEtcUname(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "Etc.uname is not implemented on Windows", .{});
+    }
+
+    const uts = std.posix.uname();
+    const fields = [_]struct { key: []const u8, bytes: []const u8 }{
+        .{ .key = "sysname", .bytes = std.mem.sliceTo(&uts.sysname, 0) },
+        .{ .key = "nodename", .bytes = std.mem.sliceTo(&uts.nodename, 0) },
+        .{ .key = "release", .bytes = std.mem.sliceTo(&uts.release, 0) },
+        .{ .key = "version", .bytes = std.mem.sliceTo(&uts.version, 0) },
+        .{ .key = "machine", .bytes = std.mem.sliceTo(&uts.machine, 0) },
+    };
+
+    const hash = try vm.createHash();
+    for (fields) |field| {
+        const key = Value.fromObject(&(try vm.intern(field.key)).object);
+        try vm.hashSetEntry(hash, key, try vm.newString(field.bytes, false));
+    }
+    return Value.fromObject(&hash.object);
 }
