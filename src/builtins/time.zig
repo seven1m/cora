@@ -429,12 +429,12 @@ fn constructUtcTime(vm: *VM, class_obj: *value.ClassObject, args: []Value) VMErr
     }
 
     const year = try coerceIntegerComponent(vm, args[0]);
-    const month = if (args.len >= 2) try coerceIntegerComponent(vm, args[1]) else 1;
-    const day = if (args.len >= 3) try coerceIntegerComponent(vm, args[2]) else 1;
-    const hour = if (args.len >= 4) try coerceIntegerComponent(vm, args[3]) else 0;
-    const minute = if (args.len >= 5) try coerceIntegerComponent(vm, args[4]) else 0;
-    const second = if (args.len >= 6) try coerceIntegerComponent(vm, args[5]) else 0;
-    const nanosecond = if (args.len >= 7) blk: {
+    const month = if (args.len >= 2 and !args[1].isNil()) try coerceIntegerComponent(vm, args[1]) else 1;
+    const day = if (args.len >= 3 and !args[2].isNil()) try coerceIntegerComponent(vm, args[2]) else 1;
+    const hour = if (args.len >= 4 and !args[3].isNil()) try coerceIntegerComponent(vm, args[3]) else 0;
+    const minute = if (args.len >= 5 and !args[4].isNil()) try coerceIntegerComponent(vm, args[4]) else 0;
+    const second = if (args.len >= 6 and !args[5].isNil()) try coerceIntegerComponent(vm, args[5]) else 0;
+    const nanosecond = if (args.len >= 7 and !args[6].isNil()) blk: {
         const usec = try coerceIntegerComponent(vm, args[6]);
         break :blk @as(u32, @intCast(usec * 1000));
     } else 0;
@@ -452,12 +452,12 @@ fn constructLocalTime(vm: *VM, class_obj: *value.ClassObject, args: []Value) VME
     }
 
     const year = try coerceIntegerComponent(vm, args[0]);
-    const month = if (args.len >= 2) try coerceIntegerComponent(vm, args[1]) else 1;
-    const day = if (args.len >= 3) try coerceIntegerComponent(vm, args[2]) else 1;
-    const hour = if (args.len >= 4) try coerceIntegerComponent(vm, args[3]) else 0;
-    const minute = if (args.len >= 5) try coerceIntegerComponent(vm, args[4]) else 0;
-    const second = if (args.len >= 6) try coerceIntegerComponent(vm, args[5]) else 0;
-    const nanosecond: u32 = if (args.len >= 7) blk: {
+    const month = if (args.len >= 2 and !args[1].isNil()) try coerceIntegerComponent(vm, args[1]) else 1;
+    const day = if (args.len >= 3 and !args[2].isNil()) try coerceIntegerComponent(vm, args[2]) else 1;
+    const hour = if (args.len >= 4 and !args[3].isNil()) try coerceIntegerComponent(vm, args[3]) else 0;
+    const minute = if (args.len >= 5 and !args[4].isNil()) try coerceIntegerComponent(vm, args[4]) else 0;
+    const second = if (args.len >= 6 and !args[5].isNil()) try coerceIntegerComponent(vm, args[5]) else 0;
+    const nanosecond: u32 = if (args.len >= 7 and !args[6].isNil()) blk: {
         const usec = try coerceIntegerComponent(vm, args[6]);
         break :blk @as(u32, @intCast(usec * 1000));
     } else 0;
@@ -1011,14 +1011,14 @@ pub fn builtinTimeNew(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
     // Time.new(year, month, day, hour, min, sec, utc_offset)
     // Components are wall-clock in the given offset zone.
     const year = try coerceIntegerComponent(vm, args[0]);
-    const month = if (args.len >= 2) try coerceIntegerComponent(vm, args[1]) else 1;
-    const day = if (args.len >= 3) try coerceIntegerComponent(vm, args[2]) else 1;
-    const hour = if (args.len >= 4) try coerceIntegerComponent(vm, args[3]) else 0;
-    const minute = if (args.len >= 5) try coerceIntegerComponent(vm, args[4]) else 0;
+    const month = if (args.len >= 2 and !args[1].isNil()) try coerceIntegerComponent(vm, args[1]) else 1;
+    const day = if (args.len >= 3 and !args[2].isNil()) try coerceIntegerComponent(vm, args[2]) else 1;
+    const hour = if (args.len >= 4 and !args[3].isNil()) try coerceIntegerComponent(vm, args[3]) else 0;
+    const minute = if (args.len >= 5 and !args[4].isNil()) try coerceIntegerComponent(vm, args[4]) else 0;
     // 6th arg (second) can be Integer, Float, or Rational
     var second: i64 = 0;
     var sec_sub_nanos: i64 = 0;
-    if (args.len >= 6) {
+    if (args.len >= 6 and !args[5].isNil()) {
         if (args[5].isInteger()) {
             second = args[5].toInteger();
         } else if (args[5].isFloat()) {

@@ -1688,6 +1688,10 @@ class SpecMockExpectation
     self
   end
 
+  def matches_args?(args)
+    @expected_args.nil? || @expected_args == args
+  end
+
   def and_return(*values)
     @return_values = values
     if !@max_calls.nil? && values.length > @max_calls
@@ -1696,8 +1700,14 @@ class SpecMockExpectation
     self
   end
 
-  def and_raise(value = RuntimeError)
-    @raise_value = value
+  def and_raise(*args)
+    if args.length == 0
+      @raise_value = RuntimeError
+    elsif args.length == 2 && args[0].is_a?(Class)
+      @raise_value = args[0].exception(args[1])
+    else
+      @raise_value = args[0]
+    end
     self
   end
 
@@ -1818,19 +1828,35 @@ class MockObject
     method_name = method_name.to_sym
     @forbidden_calls.delete(method_name)
     exp = SpecMockExpectation.new(@name, method_name)
-    @expected_calls[method_name] = exp
+    exps = @expected_calls[method_name]
+    if exps.nil?
+      @expected_calls[method_name] = [exp]
+    else
+      exps.push(exp)
+    end
     install_method_wrapper(method_name)
     exp
   end
 
   def verify_expectations!
-    keys = @expected_calls.keys
-    i = 0
-    while i < keys.length
-      @expected_calls[keys[i]].verify!
-      i += 1
+    begin
+      keys = @expected_calls.keys
+      i = 0
+      first_error = nil
+      while i < keys.length
+        @expected_calls[keys[i]].each do |exp|
+          begin
+            exp.verify!
+          rescue SpecFailedException => e
+            first_error ||= e
+          end
+        end
+        i += 1
+      end
+      raise first_error unless first_error.nil?
+    ensure
+      restore_method_wrappers
     end
-    restore_method_wrappers
   end
 
   def method_missing(name, *args, &block)
@@ -1866,8 +1892,13 @@ class MockObject
         raise SpecFailedException, "Expected #{@name} not to receive #{method_name}"
       end
 
-      exp = @expected_calls[method_name]
-      return exp.invoke(args, block) if exp
+      exps = @expected_calls[method_name]
+      if exps && !exps.empty?
+        exps.each do |exp|
+          return exp.invoke(args, block) if exp.matches_args?(args)
+        end
+        raise SpecFailedException, "Received #{@name}.#{method_name} with unexpected arguments #{args.inspect}"
+      end
 
       return original.call(*args, &block) unless original.nil?
       return self if @null
@@ -2040,8 +2071,13 @@ class Object
       raise SpecFailedException, "Expected #{self.inspect} not to receive #{sym}"
     end
 
-    exp = __spec_expected_calls[sym]
-    return exp.invoke(args, block) if exp
+    exps = __spec_expected_calls[sym]
+    if exps && !exps.empty?
+      exps.each do |exp|
+        return exp.invoke(args, block) if exp.matches_args?(args)
+      end
+      raise SpecFailedException, "Received #{self.inspect}.#{sym} with unexpected arguments #{args.inspect}"
+    end
 
     original = __spec_method_hooks[sym]
     return original.call(*args, &block) unless original.nil?
@@ -2084,7 +2120,12 @@ class Object
     __spec_install_hook(method_name)
     __spec_forbidden_calls.delete(method_name)
     exp = SpecMockExpectation.new(self.class.to_s, method_name)
-    __spec_expected_calls[method_name] = exp
+    exps = __spec_expected_calls[method_name]
+    if exps.nil?
+      __spec_expected_calls[method_name] = [exp]
+    else
+      exps.push(exp)
+    end
     already_registered = false
     $__active_mocks.each do |entry|
       if entry.__id__ == self.__id__
@@ -2118,8 +2159,10 @@ class Object
 
   def verify_expectations!
     begin
-      __spec_expected_calls.each do |_name, exp|
-        exp.verify!
+      __spec_expected_calls.each do |_name, exps|
+        exps.each do |exp|
+          exp.verify!
+        end
       end
     ensure
       __spec_restore_hooks

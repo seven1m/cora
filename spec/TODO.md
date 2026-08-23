@@ -1761,7 +1761,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/range/count_spec.rb
 - [ ] core/range/cover_spec.rb
 - [ ] core/range/dup_spec.rb
-- [ ] core/range/each_spec.rb
+- [x] core/range/each_spec.rb
 - [ ] core/range/end_spec.rb
 - [ ] core/range/eql_spec.rb
 - [ ] core/range/equal_value_spec.rb

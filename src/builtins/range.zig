@@ -30,6 +30,9 @@ pub fn register(vm: *VM) !void {
     const each_sym = try vm.intern("each");
     try vm.range_class.module.methods.put(each_sym, value.MethodEntry.builtin(&builtinRangeEach, .{ .exact = 0 }));
 
+    const size_sym = try vm.intern("size");
+    try vm.range_class.module.methods.put(size_sym, value.MethodEntry.builtin(&builtinRangeSize, .{ .exact = 0 }));
+
     const inspect_sym = try vm.intern("inspect");
     try vm.range_class.module.methods.put(inspect_sym, value.MethodEntry.builtin(&builtinRangeInspect, .{ .exact = 0 }));
 
@@ -121,10 +124,44 @@ pub fn builtinRangeFirst(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
 
 const WalkControl = enum { proceed, stop };
 
-/// Low-level Range element walker: visits successive elements from `begin_val`
+const r_less_stop: i64 = std.math.maxInt(i64);
+
+/// Normalized `<=>` comparison used by range iteration (MRI `r_less`):
+/// returns -1/0/1, or `r_less_stop` when `<=>` yields nil so that callers
+/// silently stop iterating instead of raising.
+fn rLess(vm: *VM, a: Value, b: Value) VMError!i64 {
+    var cmp_args = [_]Value{b};
+    const cmp = try vm.callMethodByName(a, "<=>", cmp_args[0..], null);
+    if (cmp.isNil()) return r_less_stop;
+
+    if (cmp.isInteger()) {
+        const n = cmp.toInteger();
+        return if (n < 0) -1 else if (n > 0) 1 else 0;
+    }
+    if (cmp.isFloat()) {
+        const f = cmp.toFloatObject().val;
+        return if (f < 0.0) -1 else if (f > 0.0) 1 else 0;
+    }
+    if (cmp.isBigInteger()) {
+        const f = cmp.toBigIntegerObject().value.toFloat(f64, .nearest_even)[0];
+        return if (f < 0.0) -1 else if (f > 0.0) 1 else 0;
+    }
+    if (cmp.isRational()) {
+        const rat = cmp.toRationalObject();
+        const num_f64 = rat.numerator.integerToF64();
+        const den_f64 = rat.denominator.integerToF64();
+        const f = num_f64 / den_f64;
+        return if (f < 0.0) -1 else if (f > 0.0) 1 else 0;
+    }
+    return vm.raiseExceptionFmt(vm.argument_error_class, "comparison of {s} with {s} failed", .{ vm.className(a), vm.className(b) });
+}
+
+/// Low-level Range element walker following MRI `range_each` /
+/// `range_each_func` semantics: visits successive elements from `begin_val`
 /// up to and including `end_val` (or up to but excluding it when
-/// `exclude_end`). Each element is passed to `visit`, which decides when to
-/// stop; endless ranges therefore rely on the visitor halting iteration.
+/// `exclude_end`). Endless ranges iterate until the visitor halts. Raises
+/// `TypeError` unless `begin_val` is iterable (`Integer`, or responds to
+/// `succ`).
 fn walkRangeElements(
     vm: *VM,
     begin_val: Value,
@@ -133,47 +170,67 @@ fn walkRangeElements(
     ctx: anytype,
     comptime visit: fn (@TypeOf(ctx), Value) VMError!WalkControl,
 ) VMError!void {
-    if (begin_val.isInteger() and (end_val.isNil() or end_val.isInteger())) {
-        var current = begin_val.toInteger();
-        const bounded = !end_val.isNil();
-        const end_i = if (bounded) end_val.toInteger() else 0;
-        while (true) {
-            if (bounded and (current > end_i or (exclude_end and current == end_i))) return;
-
-            const control = try visit(ctx, Value.integer(current));
-            if (control == .stop) return;
-
-            if (bounded and current == end_i) return;
-            if (current == std.math.maxInt(i64)) return;
-            current += 1;
-        }
+    if (begin_val.isNil()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "can't iterate from NilClass", .{});
     }
 
-    if (begin_val.isFloat()) {
-        return vm.raiseExceptionFmt(vm.type_error_class, "can't iterate from Float", .{});
+    if (begin_val.isInteger() and (end_val.isNil() or end_val.isInteger())) {
+        var current = begin_val.toInteger();
+        if (end_val.isNil()) {
+            while (true) {
+                const control = try visit(ctx, Value.integer(current));
+                if (control == .stop) return;
+                if (current == std.math.maxInt(i64)) return;
+                current += 1;
+            }
+        }
+        const end_i = end_val.toInteger();
+        const limit: ?i64 = if (exclude_end)
+            (if (end_i == std.math.minInt(i64)) null else end_i - 1)
+        else
+            end_i;
+        if (limit) |lim| {
+            while (current <= lim) {
+                const control = try visit(ctx, Value.integer(current));
+                if (control == .stop) return;
+                if (current == lim) return;
+                if (current == std.math.maxInt(i64)) return;
+                current += 1;
+            }
+        }
+        return;
+    }
+
+    if (!try vm.respondsToMethodByName(begin_val, "succ", false)) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "can't iterate from {s}", .{vm.className(begin_val)});
     }
 
     var empty_args = [_]Value{};
-    var compare_args = [_]Value{end_val};
     var current = begin_val;
 
-    while (true) {
-        var at_end = false;
-
-        if (!end_val.isNil()) {
-            const comparison = try vm.callMethodByName(current, "<=>", compare_args[0..], null);
-            if (!comparison.isInteger()) {
-                return vm.raiseExceptionFmt(vm.type_error_class, "can't iterate from Range", .{});
-            }
-            const order = comparison.toInteger();
-            if (order > 0 or (exclude_end and order == 0)) return;
-            at_end = order == 0;
+    if (end_val.isNil()) {
+        while (true) {
+            const control = try visit(ctx, current);
+            if (control == .stop) return;
+            current = try vm.callMethodByName(current, "succ", empty_args[0..], null);
         }
+    }
 
+    if (exclude_end) {
+        while ((try rLess(vm, current, end_val)) < 0) {
+            const control = try visit(ctx, current);
+            if (control == .stop) return;
+            current = try vm.callMethodByName(current, "succ", empty_args[0..], null);
+        }
+        return;
+    }
+
+    while (true) {
+        const order = try rLess(vm, current, end_val);
+        if (order > 0) return;
         const control = try visit(ctx, current);
         if (control == .stop) return;
-        if (at_end) return;
-
+        if (order == 0) return;
         current = try vm.callMethodByName(current, "succ", empty_args[0..], null);
     }
 }
@@ -238,14 +295,15 @@ pub fn builtinRangeEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
     }
 
     const blk = block orelse {
-        return try vm.createMethodEnumerator(receiver, try vm.intern("each"), &.{});
+        return try vm.createMethodEnumeratorWithSize(
+            receiver,
+            try vm.intern("each"),
+            &.{},
+            try rangeSizeValue(vm, receiver),
+        );
     };
 
     const range_obj = receiver.toRangeObject();
-
-    if (range_obj.begin.isNil() or range_obj.end.isNil()) {
-        return vm.raiseExceptionFmt(vm.range_error_class, "cannot iterate from beginless or endless range", .{});
-    }
 
     try walkRangeElements(
         vm,
@@ -256,6 +314,61 @@ pub fn builtinRangeEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
         visitEach,
     );
     return receiver;
+}
+
+/// MRI `range_size`: element count for Integer bounds, Float::INFINITY for
+/// endless Integer ranges, nil for other iterable ranges; raises TypeError
+/// when begin cannot be iterated.
+pub fn rangeSizeValue(vm: *VM, receiver: Value) VMError!Value {
+    const range_obj = receiver.toRangeObject();
+    const begin_val = range_obj.begin;
+    const end_val = range_obj.end;
+
+    if ((begin_val.isInteger() or begin_val.isBigInteger()) and end_val.isNil()) {
+        return vm.newFloat(std.math.inf(f64));
+    }
+
+    if (begin_val.isInteger() and end_val.isInteger()) {
+        const diff: i128 = @as(i128, end_val.toInteger()) - @as(i128, begin_val.toInteger());
+        const count: i128 = if (range_obj.exclude_end) diff else diff + 1;
+        if (count <= 0) return Value.integer(0);
+        if (count > std.math.maxInt(i64)) {
+            return vm.newFloat(@floatFromInt(count));
+        }
+        return Value.integer(@intCast(count));
+    }
+
+    if (begin_val.isBigInteger() and (end_val.isInteger() or end_val.isBigInteger())) {
+        // Approximate huge-interval sizes as a Float via f64 endpoints.
+        const beg_f64 = if (begin_val.isInteger())
+            @as(f64, @floatFromInt(begin_val.toInteger()))
+        else
+            begin_val.toBigIntegerObject().value.toFloat(f64, .nearest_even)[0];
+        const end_f64 = if (end_val.isInteger())
+            @as(f64, @floatFromInt(end_val.toInteger()))
+        else
+            end_val.toBigIntegerObject().value.toFloat(f64, .nearest_even)[0];
+        var count = @floor(end_f64 - beg_f64);
+        if (!range_obj.exclude_end) count += 1.0;
+        if (count <= 0.0) return Value.integer(0);
+        return vm.newFloat(count);
+    }
+
+    if (!begin_val.isNil() and !try vm.respondsToMethodByName(begin_val, "succ", false)) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "can't iterate from {s}", .{vm.className(begin_val)});
+    }
+
+    return Value.nil();
+}
+
+pub fn builtinRangeSize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
+    if (!receiver.isRange()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Range", .{});
+    }
+
+    return rangeSizeValue(vm, receiver);
 }
 
 pub fn builtinRangeInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
