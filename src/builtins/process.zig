@@ -43,6 +43,9 @@ pub fn register(vm: *VM) !void {
     const wait_sym = try vm.intern("wait");
     try process_singleton.module.methods.put(wait_sym, value.MethodEntry.builtin(&builtinProcessWait, .{ .variadic = 0 }));
 
+    const last_status_sym = try vm.intern("last_status");
+    try process_singleton.module.methods.put(last_status_sym, value.MethodEntry.builtin(&builtinProcessLastStatus, .{ .exact = 0 }));
+
     const kill_sym = try vm.intern("kill");
     try process_singleton.module.methods.put(kill_sym, value.MethodEntry.builtin(&builtinProcessKill, .{ .variadic = 1 }));
 
@@ -269,6 +272,11 @@ pub fn builtinProcessWait(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
         }
         return Value.integer(@intCast(rc));
     }
+}
+
+pub fn builtinProcessLastStatus(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return vm.getGlobalValue("$?");
 }
 
 pub fn builtinProcessDetach(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

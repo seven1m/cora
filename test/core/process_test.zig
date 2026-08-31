@@ -155,6 +155,22 @@ test "Process::Status#pid returns pid after Process.wait" {
     try std.testing.expectEqual(pid, elems[1].toInteger());
 }
 
+test "Process.last_status returns the current thread's last process status" {
+    if (builtin.os.tag == .windows) return;
+
+    const result = try evalCode(
+        \\before = Process.last_status
+        \\pid = Process.spawn("/bin/sh", "-c", "exit 23")
+        \\Process.wait(pid)
+        \\[before, Process.last_status.equal?($?), Process.last_status.exitstatus]
+    );
+    try std.testing.expect(result.isArray());
+    const elems = result.toArrayObject().elements.items;
+    try std.testing.expect(elems[0].isNil());
+    try std.testing.expectEqual(true, elems[1].toBool());
+    try std.testing.expectEqual(@as(i64, 23), elems[2].toInteger());
+}
+
 test "Process.wait raises Interrupt instead of EINTR on SIGINT" {
     if (builtin.os.tag == .windows) return;
 
