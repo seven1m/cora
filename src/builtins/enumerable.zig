@@ -52,6 +52,8 @@ pub fn register(vm: *VM) !void {
     try enumerable_val.toModuleObject().methods.put(max_by_sym, value.MethodEntry.builtin(&builtinEnumerableMaxBy, .{ .exact = 0 }));
     const min_by_sym = try vm.intern("min_by");
     try enumerable_val.toModuleObject().methods.put(min_by_sym, value.MethodEntry.builtin(&builtinEnumerableMinBy, .{ .variadic = 0 }));
+    const sort_sym = try vm.intern("sort");
+    try enumerable_val.toModuleObject().methods.put(sort_sym, value.MethodEntry.builtin(&builtinEnumerableSort, .{ .exact = 0 }));
     const sort_by_sym = try vm.intern("sort_by");
     try enumerable_val.toModuleObject().methods.put(sort_by_sym, value.MethodEntry.builtin(&builtinEnumerableSortBy, .{ .exact = 0 }));
     const flat_map_sym = try vm.intern("flat_map");
@@ -742,6 +744,12 @@ fn builtinEnumerableMinBy(vm: *VM, receiver: Value, args: []Value, block: ?Block
     }
 
     return best_value orelse Value.nil();
+}
+
+fn builtinEnumerableSort(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const ary = try vm.callMethodByName(receiver, "to_a", &.{}, null);
+    return vm.callMethodByName(ary, "sort", &.{}, block);
 }
 
 fn builtinEnumerableSortBy(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {

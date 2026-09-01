@@ -852,6 +852,9 @@ pub fn register(vm: *VM) !void {
     const combination_sym = try vm.intern("combination");
     try vm.array_class.module.methods.put(combination_sym, value.MethodEntry.builtin(&builtinArrayCombination, .{ .exact = 1 }));
 
+    const permutation_sym = try vm.intern("permutation");
+    try vm.array_class.module.methods.put(permutation_sym, value.MethodEntry.builtin(&builtinArrayPermutation, .{ .variadic = 0 }));
+
     const zip_sym = try vm.intern("zip");
     try vm.array_class.module.methods.put(zip_sym, value.MethodEntry.builtin(&builtinArrayZip, .{ .variadic = 0 }));
 }
@@ -3587,6 +3590,94 @@ pub fn builtinArrayCombination(vm: *VM, receiver: Value, args: []Value, block: ?
         if (!found) break;
     }
 
+    return receiver;
+}
+
+fn permutationCount(len: i64, n: i64) i64 {
+    if (n < 0 or n > len) return 0;
+    var result: i64 = 1;
+    var i: i64 = 0;
+    while (i < n) : (i += 1) {
+        result = result * (len - i);
+    }
+    return result;
+}
+
+fn arrayPermutationLength(vm: *VM, array_len: i64, args: []const Value) VMError!i64 {
+    if (args.len == 0) return array_len;
+    return try args[0].coerceToI64ViaToInt(
+        vm,
+        "no implicit conversion into Integer",
+        "no implicit conversion into Integer",
+        "bignum too big to convert into `long`",
+    );
+}
+
+fn arrayPermutationEnumeratorSize(vm: *VM, receiver: Value, method_args: ?*value.ArrayObject) VMError!Value {
+    const len: i64 = @intCast(receiver.toArrayObject().elements.items.len);
+    const args = if (method_args) |array| array.elements.items else &.{};
+    const n = try arrayPermutationLength(vm, len, args);
+    return Value.integer(permutationCount(len, n));
+}
+
+fn arrayPermutationYield(
+    vm: *VM,
+    elements: []const Value,
+    indices: []usize,
+    used: []bool,
+    depth: usize,
+    r: usize,
+    blk: Block,
+) VMError!void {
+    if (depth == r) {
+        const perm = try vm.createArray();
+        for (indices[0..r]) |idx| {
+            perm.elements.append(vm.gc_allocator, elements[idx]) catch return error.Fatal;
+        }
+        _ = try vm.yieldToBlock(blk, &[_]Value{Value.fromObject(&perm.object)});
+        return;
+    }
+
+    var i: usize = 0;
+    while (i < elements.len) : (i += 1) {
+        if (used[i]) continue;
+        used[i] = true;
+        indices[depth] = i;
+        try arrayPermutationYield(vm, elements, indices, used, depth + 1, r, blk);
+        used[i] = false;
+    }
+}
+
+pub fn builtinArrayPermutation(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    const blk = block orelse {
+        return try vm.createMethodEnumeratorWithSizeFn(receiver, try vm.intern("permutation"), args, &arrayPermutationEnumeratorSize);
+    };
+
+    try vm.requireArgCountRange(args, 0, 1);
+
+    const array = receiver.toArrayObject();
+    const len: i64 = @intCast(array.elements.items.len);
+    const n = try arrayPermutationLength(vm, len, args);
+
+    if (n < 0 or n > len) return receiver;
+
+    if (n == 0) {
+        const empty = try vm.createArray();
+        _ = try vm.yieldToBlock(blk, &[_]Value{Value.fromObject(&empty.object)});
+        return receiver;
+    }
+
+    const snapshot_val = try createArrayFromElements(vm, array.elements.items);
+    const elements = snapshot_val.toArrayObject().elements.items;
+    const n_usize: usize = @intCast(n);
+
+    const indices = vm.allocator.alloc(usize, n_usize) catch return error.Fatal;
+    defer vm.allocator.free(indices);
+    const used = vm.allocator.alloc(bool, elements.len) catch return error.Fatal;
+    defer vm.allocator.free(used);
+    @memset(used, false);
+
+    try arrayPermutationYield(vm, elements, indices, used, 0, n_usize, blk);
     return receiver;
 }
 
