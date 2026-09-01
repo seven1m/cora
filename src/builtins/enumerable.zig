@@ -13,7 +13,7 @@ pub fn register(vm: *VM) !void {
     const enumerable_entry = vm.object_class.module.constants.get(enumerable_sym) orelse return error.Fatal;
     const enumerable_val = enumerable_entry.value;
     const entries_sym = try vm.intern("entries");
-    try enumerable_val.toModuleObject().methods.put(entries_sym, value.MethodEntry.builtin(&builtinEnumerableEntries, .{ .variadic = 0 }));
+    try enumerable_val.toModuleObject().methods.put(entries_sym, value.MethodEntry.builtin(&builtinEnumerableToA, .{ .variadic = 0 }));
     const to_a_sym = try vm.intern("to_a");
     try enumerable_val.toModuleObject().methods.put(to_a_sym, value.MethodEntry.builtin(&builtinEnumerableToA, .{ .variadic = 0 }));
     const map_sym = try vm.intern("map");
@@ -311,11 +311,6 @@ fn builtinEnumerableInclude(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
         if (try vm.valueEquals(element, args[0])) return Value.boolean(true);
     }
     return Value.boolean(false);
-}
-
-fn builtinEnumerableEntries(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 0);
-    return vm.callMethodByName(receiver, "to_a", &.{}, null);
 }
 
 fn builtinEnumerableToA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
