@@ -470,7 +470,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/enumerable/slice_before_spec.rb
 - [ ] core/enumerable/slice_when_spec.rb
 - [ ] core/enumerable/sort_by_spec.rb
-- [ ] core/enumerable/sort_spec.rb
+- [x] core/enumerable/sort_spec.rb
 - [-] core/enumerable/sum_spec.rb
 - [ ] core/enumerable/take_spec.rb
 - [ ] core/enumerable/take_while_spec.rb
