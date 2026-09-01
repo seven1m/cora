@@ -424,7 +424,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/enumerable/chain_spec.rb
 - [ ] core/enumerable/chunk_spec.rb
 - [ ] core/enumerable/chunk_while_spec.rb
-- [ ] core/enumerable/collect_concat_spec.rb
+- [x] core/enumerable/collect_concat_spec.rb
 - [x] core/enumerable/collect_spec.rb
 - [ ] core/enumerable/compact_spec.rb
 - [x] core/enumerable/count_spec.rb
@@ -462,7 +462,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/enumerable/none_spec.rb
 - [ ] core/enumerable/one_spec.rb
 - [ ] core/enumerable/partition_spec.rb
-- [ ] core/enumerable/reduce_spec.rb
+- [x] core/enumerable/reduce_spec.rb
 - [ ] core/enumerable/reject_spec.rb
 - [ ] core/enumerable/reverse_each_spec.rb
 - [x] core/enumerable/select_spec.rb
