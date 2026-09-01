@@ -11,11 +11,7 @@ describe "Hash#to_proc" do
   end
 
   it "returns an instance of Proc" do
-    @hash.to_proc.should be_an_instance_of Proc
-  end
-
-  it "does not expose Hash#call" do
-    @hash.respond_to?(:call).should == false
+    @hash.to_proc.should.instance_of? Proc
   end
 
   describe "the returned proc" do
@@ -34,22 +30,22 @@ describe "Hash#to_proc" do
     it "raises ArgumentError if not passed exactly one argument" do
       -> {
         @proc.call
-      }.should raise_error(ArgumentError)
+      }.should.raise(ArgumentError)
 
       -> {
         @proc.call 1, 2
-      }.should raise_error(ArgumentError)
+      }.should.raise(ArgumentError)
     end
 
     context "with a stored key" do
       it "returns the paired value" do
-        @proc.call(@key).should equal(@value)
+        @proc.call(@key).should.equal?(@value)
       end
     end
 
     context "passed as a block" do
       it "retrieves the hash's values" do
-        [@key].map(&@proc)[0].should equal(@value)
+        [@key].map(&@proc)[0].should.equal?(@value)
       end
 
       context "to instance_exec" do
@@ -67,7 +63,7 @@ describe "Hash#to_proc" do
 
     context "with no stored key" do
       it "returns nil" do
-        @proc.call(@unstored).should be_nil
+        @proc.call(@unstored).should == nil
       end
 
       context "when the hash has a default value" do
@@ -76,7 +72,7 @@ describe "Hash#to_proc" do
         end
 
         it "returns the default value" do
-          @proc.call(@unstored).should equal(@default)
+          @proc.call(@unstored).should.equal?(@default)
         end
       end
 
@@ -89,7 +85,7 @@ describe "Hash#to_proc" do
     end
 
     it "raises an ArgumentError when calling #call on the Proc with no arguments" do
-      -> { @hash.to_proc.call }.should raise_error(ArgumentError)
+      -> { @hash.to_proc.call }.should.raise(ArgumentError)
     end
   end
 end

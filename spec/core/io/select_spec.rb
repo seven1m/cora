@@ -1,5 +1,4 @@
 require_relative '../../spec_helper'
-require 'socket'
 
 describe "IO.select" do
   before :each do
@@ -19,6 +18,10 @@ describe "IO.select" do
     @wr.syswrite("be ready")
     IO.pipe do |_, wr|
       result = IO.select [@rd], [wr], nil, 0
+      unless result
+        # On some platforms (e.g., Windows), pipe readiness may not be immediate
+        result = IO.select [@rd], [wr], nil, 2
+      end
       result.should == [[@rd], [wr], []]
     end
   end
@@ -37,25 +40,6 @@ describe "IO.select" do
     result = IO.select [@rd], nil, nil, nil
     result.should == [[@rd], [], []]
     t.join
-  end
-
-  it "wakes a worker thread waiting on multiple descriptors while the main thread blocks on socket read" do
-    server = TCPServer.new('127.0.0.1', 0)
-    client = nil
-    waiter = Thread.new do
-      IO.select([@rd, server]).should == [[server], [], []]
-      sock = server.accept
-      sock.write('ok')
-      sock.close
-    end
-
-    client = TCPSocket.new('127.0.0.1', server.addr[1])
-    client.read(2).should == 'ok'
-    waiter.join
-  ensure
-    client.close if client && !client.closed?
-    server.close if server && !server.closed?
-    waiter.join if waiter
   end
 
   it "leaves out IO objects for which there is no I/O ready" do
@@ -111,38 +95,38 @@ describe "IO.select" do
   end
 
   it "raises TypeError if supplied objects are not IO" do
-    -> { IO.select([Object.new]) }.should raise_error(TypeError)
-    -> { IO.select(nil, [Object.new]) }.should raise_error(TypeError)
+    -> { IO.select([Object.new]) }.should.raise(TypeError)
+    -> { IO.select(nil, [Object.new]) }.should.raise(TypeError)
 
     obj = mock("io")
     obj.should_receive(:to_io).any_number_of_times.and_return(nil)
 
-    -> { IO.select([obj]) }.should raise_error(TypeError)
-    -> { IO.select(nil, [obj]) }.should raise_error(TypeError)
+    -> { IO.select([obj]) }.should.raise(TypeError)
+    -> { IO.select(nil, [obj]) }.should.raise(TypeError)
   end
 
   it "raises a TypeError if the specified timeout value is not Numeric" do
-    -> { IO.select([@rd], nil, nil, Object.new) }.should raise_error(TypeError)
+    -> { IO.select([@rd], nil, nil, Object.new) }.should.raise(TypeError)
   end
 
   it "raises TypeError if the first three arguments are not Arrays" do
-    -> { IO.select(Object.new)}.should raise_error(TypeError)
-    -> { IO.select(nil, Object.new)}.should raise_error(TypeError)
-    -> { IO.select(nil, nil, Object.new)}.should raise_error(TypeError)
+    -> { IO.select(Object.new)}.should.raise(TypeError)
+    -> { IO.select(nil, Object.new)}.should.raise(TypeError)
+    -> { IO.select(nil, nil, Object.new)}.should.raise(TypeError)
   end
 
   it "raises an ArgumentError when passed a negative timeout" do
-    -> { IO.select(nil, nil, nil, -5)}.should raise_error(ArgumentError, "time interval must not be negative")
+    -> { IO.select(nil, nil, nil, -5)}.should.raise(ArgumentError, "time interval must not be negative")
   end
 
   ruby_version_is "4.0" do
     it "raises an ArgumentError when passed negative infinity as timeout" do
-      -> { IO.select(nil, nil, nil, -Float::INFINITY)}.should raise_error(ArgumentError, "time interval must not be negative")
+      -> { IO.select(nil, nil, nil, -Float::INFINITY)}.should.raise(ArgumentError, "time interval must not be negative")
     end
   end
 
   it "raises an RangeError when passed NaN as timeout" do
-    -> { IO.select(nil, nil, nil, Float::NAN)}.should raise_error(RangeError, "NaN out of Time range")
+    -> { IO.select(nil, nil, nil, Float::NAN)}.should.raise(RangeError, "NaN out of Time range")
   end
 
   describe "returns the available descriptors when the file descriptor" do

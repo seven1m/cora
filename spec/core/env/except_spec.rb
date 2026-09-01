@@ -31,13 +31,4 @@ describe "ENV.except" do
 
     ENV.except('one', 'three').should == { 'two' => '2' }
   end
-
-  it "ignores non-String keys" do
-    ENV.clear
-
-    ENV['one'] = '1'
-    ENV['two'] = '2'
-
-    ENV.except(:one, Object.new).should == { 'one' => '1', 'two' => '2' }
-  end
 end

@@ -19,8 +19,8 @@ describe "Thread#thread_variables" do
   it "returns the keys private to self" do
     @t.thread_variable_set(:a, 82)
     @t.thread_variable_set(:b, 82)
-    Thread.current.thread_variables.include?(:a).should == false
-    Thread.current.thread_variables.include?(:b).should == false
+    Thread.current.thread_variables.should_not.include?(:a)
+    Thread.current.thread_variables.should_not.include?(:b)
   end
 
   it "only contains user thread variables and is empty initially" do
@@ -29,10 +29,8 @@ describe "Thread#thread_variables" do
   end
 
   it "returns keys as Symbols" do
-    key = Object.new
-    def key.to_str
-      'a'
-    end
+    key = mock('key')
+    key.should_receive(:to_str).and_return('a')
 
     @t.thread_variable_set(key, 49)
     @t.thread_variable_set('b', 50)

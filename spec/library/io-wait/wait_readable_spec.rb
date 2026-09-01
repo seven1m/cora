@@ -22,8 +22,6 @@ describe "IO#wait_readable" do
   end
 
   it "can be interrupted" do
-    rd = nil
-    wr = nil
     rd, wr = IO.pipe
     start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
 
@@ -38,7 +36,7 @@ describe "IO#wait_readable" do
     finish = Process.clock_gettime(Process::CLOCK_MONOTONIC)
     (finish - start).should < 9
   ensure
-    rd.close if rd && !rd.closed?
-    wr.close if wr && !wr.closed?
+    rd.close
+    wr.close
   end
 end

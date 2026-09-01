@@ -1,14 +1,21 @@
 require_relative '../../spec_helper'
+require_relative 'fixtures/common'
 
 describe "Dir.mkdir" do
+  before :all do
+    DirSpecs.create_mock_dirs
+  end
+
+  after :all do
+    DirSpecs.delete_mock_dirs
+  end
+
   it "creates the named directory with the given permissions" do
-    base = tmp('dir_mkdir_permissions')
-    nonexisting = "#{base}/nonexisting"
-    default_perms = "#{base}/default_perms"
-    reduced = "#{base}/reduced"
-    always_returns_0 = "#{base}/always_returns_0"
-    rm_r(base)
-    mkdir_p(base)
+    DirSpecs.clear_dirs
+
+    nonexisting = DirSpecs.mock_dir('nonexisting')
+    default_perms = DirSpecs.mock_dir('default_perms')
+    reduced = DirSpecs.mock_dir('reduced')
     begin
       File.should_not.exist?(nonexisting)
       Dir.mkdir nonexisting
@@ -26,6 +33,7 @@ describe "Dir.mkdir" do
         File.stat(reduced).mode.should_not == a
       end
 
+      always_returns_0 = DirSpecs.mock_dir('always_returns_0')
       Dir.mkdir(always_returns_0).should == 0
       platform_is_not(:windows) do
         File.chmod(0777, nonexisting, default_perms, reduced, always_returns_0)
@@ -34,73 +42,57 @@ describe "Dir.mkdir" do
         File.chmod(0644, nonexisting, default_perms, reduced, always_returns_0)
       end
     ensure
-      rm_r(base)
+      DirSpecs.clear_dirs
     end
   end
 
   it "calls #to_path on non-String path arguments" do
+    DirSpecs.clear_dirs
     p = mock('path')
-    path = tmp('dir_mkdir_to_path')
-    p.should_receive(:to_path).and_return(path)
-    rm_r(path)
-    begin
-      Dir.mkdir(p)
-    ensure
-      rm_r(path)
-    end
+    p.should_receive(:to_path).and_return(DirSpecs.mock_dir('nonexisting'))
+    Dir.mkdir(p)
+    DirSpecs.clear_dirs
   end
 
   it "calls #to_int on non-Integer permissions argument" do
-    path = tmp('dir_mkdir_to_int')
+    DirSpecs.clear_dirs
+    path = DirSpecs.mock_dir('nonexisting')
     permissions = mock('permissions')
     permissions.should_receive(:to_int).and_return(0666)
-    rm_r(path)
-    begin
-      Dir.mkdir(path, permissions)
-    ensure
-      rm_r(path)
-    end
+    Dir.mkdir(path, permissions)
+    DirSpecs.clear_dirs
   end
 
   it "raises TypeError if non-Integer permissions argument does not have #to_int method" do
-    base = tmp('dir_mkdir_type_error')
-    path = "#{base}/nonexisting"
+    path = DirSpecs.mock_dir('nonexisting')
     permissions = Object.new
 
-    rm_r(base)
-    mkdir_p(base)
-    begin
-      -> { Dir.mkdir(path, permissions) }.should raise_error(TypeError, 'no implicit conversion of Object into Integer')
-    ensure
-      rm_r(base)
-    end
+    -> { Dir.mkdir(path, permissions) }.should.raise(TypeError, 'no implicit conversion of Object into Integer')
   end
 
   it "raises a SystemCallError if any of the directories in the path before the last does not exist" do
-    path = "#{tmp('dir_mkdir_missing_parent')}/missing/subdir"
-    rm_r("#{tmp('dir_mkdir_missing_parent')}")
-    -> { Dir.mkdir(path) }.should raise_error(SystemCallError)
+    -> { Dir.mkdir "#{DirSpecs.nonexistent}/subdir" }.should.raise(SystemCallError)
   end
 
   it "raises Errno::EEXIST if the specified directory already exists" do
-    path = tmp('dir_mkdir_existing_dir')
-    rm_r(path)
-    mkdir_p(path)
-    begin
-      -> { Dir.mkdir(path) }.should raise_error(Errno::EEXIST)
-    ensure
-      rm_r(path)
-    end
+    -> { Dir.mkdir("#{DirSpecs.mock_dir}/dir") }.should.raise(Errno::EEXIST)
   end
 
   it "raises Errno::EEXIST if the argument points to the existing file" do
-    path = tmp('dir_mkdir_existing_file')
-    rm_r(path)
-    touch(path)
-    begin
-      -> { Dir.mkdir(path) }.should raise_error(Errno::EEXIST)
-    ensure
-      rm_r(path)
+    -> { Dir.mkdir("#{DirSpecs.mock_dir}/file_one.ext") }.should.raise(Errno::EEXIST)
+  end
+
+  platform_is :darwin do
+    it "accepts a path in a non-UTF-8, ASCII-compatible encoding containing non-ASCII characters" do
+      dir = tmp("dir_mkdir_\u{3042}")
+      non_utf8_dir = dir.encode(Encoding::Windows_31J)
+
+      begin
+        Dir.mkdir(non_utf8_dir).should == 0
+        File.directory?(dir).should == true
+      ensure
+        rm_r dir
+      end
     end
   end
 end
@@ -122,7 +114,7 @@ platform_is_not :windows do
       it "raises a SystemCallError when lacking adequate permissions in the parent dir" do
         Dir.mkdir @dir, 0000
 
-        -> { Dir.mkdir "#{@dir}/subdir" }.should raise_error(SystemCallError)
+        -> { Dir.mkdir "#{@dir}/subdir" }.should.raise(SystemCallError)
       end
     end
   end

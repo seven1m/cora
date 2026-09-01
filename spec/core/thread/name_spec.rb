@@ -36,7 +36,7 @@ describe "Thread#name=" do
   it "raises an ArgumentError if the name includes a null byte" do
     -> {
       @thread.name = "new thread\0name"
-    }.should raise_error(ArgumentError)
+    }.should.raise(ArgumentError)
   end
 
   it "can be reset to nil" do
@@ -45,10 +45,8 @@ describe "Thread#name=" do
   end
 
   it "calls #to_str to convert name to String" do
-    name = Object.new
-    def name.to_str
-      "a thread name"
-    end
+    name = mock("Thread#name")
+    name.should_receive(:to_str).and_return("a thread name")
 
     @thread.name = name
     @thread.name.should == "a thread name"

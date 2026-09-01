@@ -41,32 +41,44 @@ describe "Dir.entries" do
   end
 
   it "returns entries encoded with the filesystem encoding by default" do
+    # This spec depends on the locale not being US-ASCII because if it is, the
+    # entries that are not ascii_only? will be BINARY encoded.
     entries = Dir.entries(File.join(DirSpecs.mock_dir, 'special')).sort
     encoding = Encoding.find("filesystem")
     encoding = Encoding::BINARY if encoding == Encoding::US_ASCII
     platform_is_not :windows do
-      entries.should include("こんにちは.txt".dup.force_encoding(encoding))
+      entries.should.include?("こんにちは.txt".dup.force_encoding(encoding))
     end
-    entries.first.encoding.should equal(Encoding.find("filesystem"))
+    entries.first.encoding.should.equal?(Encoding.find("filesystem"))
   end
 
   it "returns entries encoded with the specified encoding" do
-    CORAFIXME "Dir.entries encoding keyword encoding not implemented", exception: SpecFailedException do
-      dir = File.join(DirSpecs.mock_dir, 'special')
-      entries = Dir.entries(dir, encoding: "euc-jp").sort
-      entries.first.encoding.should equal(Encoding::EUC_JP)
-    end
+    dir = File.join(DirSpecs.mock_dir, 'special')
+    entries = Dir.entries(dir, encoding: "euc-jp").sort
+    entries.first.encoding.should.equal?(Encoding::EUC_JP)
   end
 
   it "returns entries transcoded to the default internal encoding" do
-    CORAFIXME "Dir.entries default_internal not supported", exception: SpecFailedException do
-      Encoding.default_internal = Encoding::EUC_KR
-      entries = Dir.entries(File.join(DirSpecs.mock_dir, 'special')).sort
-      entries.first.encoding.should equal(Encoding::EUC_KR)
-    end
+    Encoding.default_internal = Encoding::EUC_KR
+    entries = Dir.entries(File.join(DirSpecs.mock_dir, 'special')).sort
+    entries.first.encoding.should.equal?(Encoding::EUC_KR)
   end
 
   it "raises a SystemCallError if called with a nonexistent directory" do
-    -> { Dir.entries DirSpecs.nonexistent }.should raise_error(SystemCallError)
+    -> { Dir.entries DirSpecs.nonexistent }.should.raise(SystemCallError)
+  end
+
+  platform_is :darwin do
+    it "accepts a path in a non-UTF-8, ASCII-compatible encoding containing non-ASCII characters" do
+      dir = tmp("dir_entries_\u{3042}")
+      non_utf8_dir = dir.encode(Encoding::Windows_31J)
+
+      begin
+        mkdir_p(dir)
+        Dir.entries(non_utf8_dir).should.include?(".".encode(Encoding::Windows_31J))
+      ensure
+        rm_r dir
+      end
+    end
   end
 end

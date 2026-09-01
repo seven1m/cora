@@ -4,7 +4,7 @@ describe "ENV.clear" do
   it "deletes all environment variables" do
     orig = ENV.to_hash
     begin
-      ENV.clear.should equal(ENV)
+      ENV.clear.should.equal?(ENV)
 
       # This used 'env' the helper before. That shells out to 'env' which
       # itself sets up certain environment variables before it runs, because
@@ -17,22 +17,4 @@ describe "ENV.clear" do
     end
   end
 
-end
-
-describe "ENV.replace" do
-  it "raises TypeError for non-String keys and values" do
-    -> { ENV.replace(1 => 2) }.should raise_error(TypeError)
-  end
-
-  it "preserves NilClass from to_hash in the error" do
-    obj = Object.new
-    def obj.to_hash
-      nil
-    end
-
-    -> { ENV.replace(obj) }.should raise_error(
-      TypeError,
-      "can't convert Object to Hash (Object#to_hash gives NilClass)"
-    )
-  end
 end

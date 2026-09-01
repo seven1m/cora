@@ -38,10 +38,8 @@ describe "Thread#[]" do
   end
 
   it "converts a key that is neither String nor Symbol with #to_str" do
-    key = Object.new
-    def key.to_str
-      'value'
-    end
+    key = mock('value')
+    key.should_receive(:to_str).and_return('value')
 
     th = Thread.new do
       Thread.current[:value] = 1
@@ -51,7 +49,7 @@ describe "Thread#[]" do
   end
 
   it "raises exceptions on the wrong type of keys" do
-    -> { Thread.current[nil] }.should raise_error(TypeError)
-    -> { Thread.current[5] }.should raise_error(TypeError)
+    -> { Thread.current[nil] }.should.raise(TypeError)
+    -> { Thread.current[5] }.should.raise(TypeError)
   end
 end

@@ -3,18 +3,18 @@ require_relative '../../spec_helper'
 describe "Fiber#alive?" do
   it "returns true for a Fiber that hasn't had #resume called" do
     fiber = Fiber.new { true }
-    fiber.alive?.should be_true
+    fiber.alive?.should == true
   end
 
   # FIXME: Better description?
   it "returns true for a Fiber that's yielded to the caller" do
     fiber = Fiber.new { Fiber.yield }
     fiber.resume
-    fiber.alive?.should be_true
+    fiber.alive?.should == true
   end
 
   it "returns true when called from its Fiber" do
-    fiber = Fiber.new { fiber.alive?.should be_true }
+    fiber = Fiber.new { fiber.alive?.should == true }
     fiber.resume
   end
 
@@ -25,23 +25,20 @@ describe "Fiber#alive?" do
     fiber.alive?
   end
 
-  # FIXME(cora): Flaky in CI/local runs. Seen failing before VM perf work:
-  # "undefined method '==' for Proc" while evaluating dead-fiber expectations.
-  # Temporarily disabled until root cause is fixed.
-  # it "returns false for a Fiber that's dead" do
-  #   fiber = Fiber.new { true }
-  #   fiber.resume
-  #   -> { fiber.resume }.should raise_error(FiberError)
-  #   fiber.alive?.should be_false
-  # end
+  it "returns false for a Fiber that's dead" do
+    fiber = Fiber.new { true }
+    fiber.resume
+    -> { fiber.resume }.should.raise(FiberError)
+    fiber.alive?.should == false
+  end
 
-  # it "always returns false for a dead Fiber" do
-  #   fiber = Fiber.new { true }
-  #   fiber.resume
-  #   -> { fiber.resume }.should raise_error(FiberError)
-  #   fiber.alive?.should be_false
-  #   -> { fiber.resume }.should raise_error(FiberError)
-  #   fiber.alive?.should be_false
-  #   fiber.alive?.should be_false
-  # end
+  it "always returns false for a dead Fiber" do
+    fiber = Fiber.new { true }
+    fiber.resume
+    -> { fiber.resume }.should.raise(FiberError)
+    fiber.alive?.should == false
+    -> { fiber.resume }.should.raise(FiberError)
+    fiber.alive?.should == false
+    fiber.alive?.should == false
+  end
 end
