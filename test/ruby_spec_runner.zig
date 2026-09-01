@@ -318,6 +318,7 @@ fn evalCodeWithOutputAndPath(ruby_code: []const u8, stdout_buf: []u8, stderr_buf
             .err = err,
         };
     };
+    cora.cext.setupGlobals(&vm);
 
     appendRepoLoadPaths(&vm, threaded.io()) catch |err| {
         return .{
