@@ -95,8 +95,12 @@ pub fn register(vm: *VM) !void {
 
     try vm.time_class.module.methods.put(utc_sym, value.MethodEntry.builtin(&builtinTimeUtcInstance, .{ .exact = 0 }));
 
+    const getutc_method = value.MethodEntry.builtin(&builtinTimeGetUtc, .{ .exact = 0 });
     const getutc_sym = try vm.intern("getutc");
-    try vm.time_class.module.methods.put(getutc_sym, value.MethodEntry.builtin(&builtinTimeUtcInstance, .{ .exact = 0 }));
+    try vm.time_class.module.methods.put(getutc_sym, getutc_method);
+
+    const getgm_sym = try vm.intern("getgm");
+    try vm.time_class.module.methods.put(getgm_sym, getutc_method);
 
     const gmtime_sym = try vm.intern("gmtime");
     try vm.time_class.module.methods.put(gmtime_sym, value.MethodEntry.builtin(&builtinTimeUtcInstance, .{ .exact = 0 }));
@@ -182,6 +186,12 @@ pub fn register(vm: *VM) !void {
 
     const inspect_sym = try vm.intern("inspect");
     try vm.time_class.module.methods.put(inspect_sym, value.MethodEntry.builtin(&builtinTimeInspect, .{ .exact = 0 }));
+
+    const asctime_method = value.MethodEntry.builtin(&builtinTimeAsctime, .{ .exact = 0 });
+    const asctime_sym = try vm.intern("asctime");
+    try vm.time_class.module.methods.put(asctime_sym, asctime_method);
+    const ctime_sym = try vm.intern("ctime");
+    try vm.time_class.module.methods.put(ctime_sym, asctime_method);
 
     const hash_sym = try vm.intern("hash");
     try vm.time_class.module.methods.put(hash_sym, value.MethodEntry.builtin(&builtinTimeHash, .{ .exact = 0 }));
@@ -413,7 +423,7 @@ fn coerceExactNumeric(vm: *VM, arg: Value) VMError!Value {
     if (try vm.checkCallMethodByName(arg, "to_int", false, &.{}, null)) |converted| {
         if (converted.isInteger() or converted.isBigInteger()) return converted;
     }
-    return vm.raiseExceptionFmt(vm.type_error_class, "argument is not numeric", .{});
+    return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into an exact number", .{vm.className(arg)});
 }
 
 fn epochSecondsForTimezone(vm: *VM, timew: Value) VMError!i64 {
@@ -1077,6 +1087,10 @@ fn buildStrftimeValue(vm: *VM, receiver: Value, format_bytes: []const u8) VMErro
             'Y' => try appendPaddedIntegerValue(&out, vm, parts.year, 4),
             'm' => try appendPaddedDecimal(&out, vm.allocator, parts.month, 2),
             'd' => try appendPaddedDecimal(&out, vm.allocator, parts.day, 2),
+            'e' => {
+                if (parts.day < 10) out.append(vm.allocator, ' ') catch return error.Fatal;
+                try appendPaddedDecimal(&out, vm.allocator, parts.day, 1);
+            },
             'H' => try appendPaddedDecimal(&out, vm.allocator, parts.hour, 2),
             'M' => try appendPaddedDecimal(&out, vm.allocator, parts.minute, 2),
             'S' => try appendPaddedDecimal(&out, vm.allocator, parts.second, 2),
@@ -1244,24 +1258,81 @@ pub fn builtinTimeAt(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
         unreachable;
     }
     std.debug.assert(receiver.isClass());
-    const seconds = try coerceExactNumeric(vm, args[0]);
-    var timew = try exactMul(vm, seconds, Value.integer(nanos_per_second));
-    if (args.len >= 2) {
-        const subsecond = try coerceExactNumeric(vm, args[1]);
-        const units_per_second: i64 = if (args.len == 2) 1_000_000 else blk: {
-            if (!args[2].isSymbol()) {
-                return vm.raiseExceptionFmt(vm.argument_error_class, "unexpected unit", .{});
-            }
-            const unit = args[2].toSymbolObject().name;
-            if (std.mem.eql(u8, unit, "nanosecond") or std.mem.eql(u8, unit, "nsec")) break :blk 1_000_000_000;
-            if (std.mem.eql(u8, unit, "microsecond") or std.mem.eql(u8, unit, "usec")) break :blk 1_000_000;
-            if (std.mem.eql(u8, unit, "millisecond")) break :blk 1_000;
-            return vm.raiseExceptionFmt(vm.argument_error_class, "unexpected unit: {s}", .{unit});
-        };
-        const subsecond_timew = try exactDivByInteger(vm, try exactMul(vm, subsecond, Value.integer(nanos_per_second)), units_per_second);
-        timew = try exactAdd(vm, timew, subsecond_timew);
+    const class_obj = receiver.toClassObject();
+    var keyword_zone: ?Value = null;
+    try vm.consumeKeywordArgs(.{"in"}, .{&keyword_zone});
+
+    var result: Value = undefined;
+    if (args.len == 1 and args[0].isTime()) {
+        const source = args[0].toTimeObject();
+        result = if (source.is_utc)
+            try vm.newTime(class_obj, source.timew)
+        else if (source.is_local)
+            try vm.newTimeLocal(class_obj, source.timew, source.utc_offset_nanos)
+        else
+            try vm.newTimeWithOffset(class_obj, source.timew, source.utc_offset_nanos);
+        result.toTimeObject().zone = source.zone;
+    } else {
+        const seconds = try coerceExactNumeric(vm, args[0]);
+        var timew = try exactMul(vm, seconds, Value.integer(nanos_per_second));
+        if (args.len >= 2) {
+            const subsecond = try coerceExactNumeric(vm, args[1]);
+            const units_per_second: i64 = if (args.len == 2) 1_000_000 else blk: {
+                if (!args[2].isSymbol()) {
+                    return vm.raiseExceptionFmt(vm.argument_error_class, "unexpected unit", .{});
+                }
+                const unit = args[2].toSymbolObject().name;
+                if (std.mem.eql(u8, unit, "nanosecond") or std.mem.eql(u8, unit, "nsec")) break :blk 1_000_000_000;
+                if (std.mem.eql(u8, unit, "microsecond") or std.mem.eql(u8, unit, "usec")) break :blk 1_000_000;
+                if (std.mem.eql(u8, unit, "millisecond")) break :blk 1_000;
+                return vm.raiseExceptionFmt(vm.argument_error_class, "unexpected unit: {s}", .{unit});
+            };
+            const subsecond_timew = try exactDivByInteger(vm, try exactMul(vm, subsecond, Value.integer(nanos_per_second)), units_per_second);
+            timew = try exactAdd(vm, timew, subsecond_timew);
+        }
+        const offset_nanos = localUtcOffsetNanos(vm.io, try epochSecondsForTimezone(vm, timew));
+        result = try vm.newTimeLocal(class_obj, timew, offset_nanos);
     }
-    return vm.newTime(receiver.toClassObject(), timew);
+
+    if (keyword_zone) |zone| {
+        const result_time = result.toTimeObject();
+        if (zone.isString() or zone.isSymbol() or zone.isInteger() or zone.isFloat() or zone.isRational()) {
+            const offset_nanos = try parseUtcOffsetArg(vm, zone);
+            const is_utc_zone = if (zone.isString() or zone.isSymbol()) blk: {
+                const name = zone.toStringObject().str;
+                break :blk std.mem.eql(u8, name, "UTC") or std.mem.eql(u8, name, "Z") or std.mem.eql(u8, name, "-00:00");
+            } else false;
+            result_time.utc_offset_nanos = offset_nanos;
+            result_time.is_utc = is_utc_zone;
+            result_time.is_local = false;
+            result_time.zone = null;
+        } else {
+            const utc_time = try vm.newTime(class_obj, result_time.timew);
+            var zone_args = [_]Value{utc_time};
+            const localized = (try vm.checkCallMethodByName(zone, "utc_to_local", false, &zone_args, null)) orelse
+                return vm.raiseExceptionFmt(vm.argument_error_class, "invalid utc_offset", .{});
+            if (!localized.isTime()) return vm.raiseExceptionFmt(vm.type_error_class, "can't convert into Time", .{});
+            const offset_value = try exactSub(vm, localized.toTimeObject().timew, result_time.timew);
+            const offset_integer = try exactFloorDivByInteger(vm, offset_value, 1);
+            if ((try exactCompare(vm, offset_value, offset_integer)) != .eq) {
+                return vm.raiseExceptionFmt(vm.argument_error_class, "utc_offset must be an exact number", .{});
+            }
+            const offset_nanos = if (offset_integer.isInteger())
+                offset_integer.toInteger()
+            else
+                offset_integer.toBigIntegerObject().value.toInt(i64) catch
+                    return vm.raiseExceptionFmt(vm.argument_error_class, "utc_offset out of range", .{});
+            if (offset_nanos <= -86400 * nanos_per_second or offset_nanos >= 86400 * nanos_per_second) {
+                return vm.raiseExceptionFmt(vm.argument_error_class, "utc_offset out of range", .{});
+            }
+            result_time.utc_offset_nanos = offset_nanos;
+            result_time.is_utc = false;
+            result_time.is_local = false;
+            result_time.zone = zone;
+        }
+    }
+    try vm.validateKeywordArgsConsumed();
+    return result;
 }
 
 pub fn builtinTimeLoad(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -1282,6 +1353,11 @@ pub fn builtinTimeUtcInstance(vm: *VM, receiver: Value, args: []Value, _: ?Block
     t.utc_offset_nanos = 0;
     t.is_utc = true;
     return receiver;
+}
+
+pub fn builtinTimeGetUtc(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return vm.newTime(receiver.toTimeObject().object.class.?, receiver.toTimeObject().timew);
 }
 
 pub fn builtinTimeUtcQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -1485,6 +1561,12 @@ pub fn builtinTimeInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     return timeStringValue(vm, receiver);
 }
 
+pub fn builtinTimeAsctime(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    var format_args = [_]Value{try vm.newString("%a %b %e %H:%M:%S %Y", false)};
+    return builtinTimeStrftime(vm, receiver, &format_args, block);
+}
+
 pub fn builtinTimeHash(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const hash_value: i64 = @bitCast(receiver.hash());
@@ -1503,13 +1585,7 @@ pub fn builtinTimeZone(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
     if (t.is_utc) {
         return vm.newString("UTC", false);
     }
-    // For fixed-offset times, Ruby returns a string like "+01:00".
-    const total_seconds = @divTrunc(t.utc_offset_nanos, nanos_per_second);
-    const sign: u8 = if (total_seconds >= 0) '+' else '-';
-    const abs_seconds = if (total_seconds >= 0) total_seconds else -total_seconds;
-    const off_h = @divTrunc(abs_seconds, seconds_per_hour);
-    const off_m = @divTrunc(@rem(abs_seconds, seconds_per_hour), seconds_per_minute);
-    var buf: [16]u8 = undefined;
-    const s = std.fmt.bufPrint(&buf, "{c}{d:0>2}:{d:0>2}", .{ sign, @as(u64, @intCast(off_h)), @as(u64, @intCast(off_m)) }) catch return error.Fatal;
-    return vm.newString(s, false);
+    if (t.zone) |zone| return zone;
+    if (!t.is_local) return Value.nil();
+    return vm.newString("local", false);
 }

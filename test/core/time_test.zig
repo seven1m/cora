@@ -107,7 +107,7 @@ test "Time arithmetic and comparison use epoch values" {
 }
 
 test "Time#to_a uses Ruby Time field ordering" {
-    const result = try evalCode("Time.at(0).to_a");
+    const result = try evalCode("Time.at(0).getgm.to_a");
     const items = result.toArrayObject().elements.items;
     try std.testing.expectEqual(@as(usize, 10), items.len);
     try std.testing.expectEqual(@as(i64, 0), items[0].toInteger());

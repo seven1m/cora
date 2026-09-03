@@ -10540,6 +10540,7 @@ pub const VM = struct {
             .utc_offset_nanos = 0,
             .is_utc = true,
             .is_local = false,
+            .zone = null,
         };
         return Value.fromObject(&time_obj.object);
     }
@@ -10552,6 +10553,7 @@ pub const VM = struct {
             .utc_offset_nanos = utc_offset_nanos,
             .is_utc = false,
             .is_local = false,
+            .zone = null,
         };
         return Value.fromObject(&time_obj.object);
     }
@@ -10564,6 +10566,7 @@ pub const VM = struct {
             .utc_offset_nanos = utc_offset_nanos,
             .is_utc = false,
             .is_local = true,
+            .zone = null,
         };
         return Value.fromObject(&time_obj.object);
     }

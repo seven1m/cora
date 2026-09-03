@@ -459,6 +459,8 @@ pub const TimeObject = struct {
     is_utc: bool = true,
     // true when in "local" timezone mode (no explicit offset); localtime() is a no-op.
     is_local: bool = false,
+    // Timezone protocol object used by Time.at(in: zone), when present.
+    zone: ?Value = null,
 };
 
 pub const IoObject = struct {
