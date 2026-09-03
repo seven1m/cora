@@ -144,7 +144,8 @@ const Local = struct {
 const LoopContext = struct {
     loop_type: enum { while_loop, until_loop, block },
     break_jumps: std.ArrayList(usize),
-    continue_target: usize,
+    continue_jumps: std.ArrayList(usize),
+    continue_target: ?usize,
     redo_target: usize,
 };
 
@@ -257,6 +258,7 @@ pub const Compiler = struct {
         self.locals.deinit(self.allocator);
         for (self.loop_stack.items) |*ctx| {
             ctx.break_jumps.deinit(self.allocator);
+            ctx.continue_jumps.deinit(self.allocator);
         }
         self.loop_stack.deinit(self.allocator);
         self.control_contexts.deinit(self.allocator);
@@ -4248,7 +4250,8 @@ pub const Compiler = struct {
         try self.loop_stack.append(self.allocator, .{
             .loop_type = .block,
             .break_jumps = .empty,
-            .continue_target = 0,
+            .continue_jumps = .empty,
+            .continue_target = null,
             .redo_target = 0,
         });
 
@@ -4256,6 +4259,7 @@ pub const Compiler = struct {
             // Pop loop context when done compiling block
             var ctx = &self.loop_stack.items[loop_idx];
             ctx.break_jumps.deinit(self.allocator);
+            ctx.continue_jumps.deinit(self.allocator);
             _ = self.loop_stack.pop();
         }
 
@@ -4359,7 +4363,8 @@ pub const Compiler = struct {
         try self.loop_stack.append(self.allocator, .{
             .loop_type = .block,
             .break_jumps = .empty,
-            .continue_target = 0,
+            .continue_jumps = .empty,
+            .continue_target = null,
             .redo_target = 0,
         });
 
@@ -4367,6 +4372,7 @@ pub const Compiler = struct {
             // Pop loop context when done compiling lambda
             var ctx = &self.loop_stack.items[loop_idx];
             ctx.break_jumps.deinit(self.allocator);
+            ctx.continue_jumps.deinit(self.allocator);
             _ = self.loop_stack.pop();
         }
 
@@ -4844,7 +4850,12 @@ pub const Compiler = struct {
             },
             .while_loop, .until_loop => {
                 try self.current_chunk.emitOp(.POP, line);
-                try self.current_chunk.emitBackwardJump(.JUMP, current_loop.continue_target, line);
+                if (current_loop.continue_target) |continue_target| {
+                    try self.current_chunk.emitBackwardJump(.JUMP, continue_target, line);
+                } else {
+                    const continue_jump = try self.current_chunk.emitJump(.JUMP, line);
+                    try current_loop.continue_jumps.append(self.allocator, continue_jump);
+                }
             },
         }
     }
@@ -4904,13 +4915,15 @@ pub const Compiler = struct {
         try self.loop_stack.append(self.allocator, .{
             .loop_type = .while_loop,
             .break_jumps = .empty,
-            .continue_target = 0,
+            .continue_jumps = .empty,
+            .continue_target = null,
             .redo_target = 0,
         });
 
         defer {
             var ctx = &self.loop_stack.items[loop_idx];
             ctx.break_jumps.deinit(self.allocator);
+            ctx.continue_jumps.deinit(self.allocator);
             _ = self.loop_stack.pop();
         }
 
@@ -4926,6 +4939,9 @@ pub const Compiler = struct {
 
             const condition_ip = self.current_chunk.currentOffset();
             self.loop_stack.items[loop_idx].continue_target = condition_ip;
+            for (self.loop_stack.items[loop_idx].continue_jumps.items) |continue_jump| {
+                try self.current_chunk.patchJump(continue_jump);
+            }
 
             const condition = try self.parser.asNode(@ptrCast(while_node.predicate));
             try self.compileNode(condition, line);
@@ -4978,12 +4994,14 @@ pub const Compiler = struct {
         try self.loop_stack.append(self.allocator, .{
             .loop_type = .block,
             .break_jumps = .empty,
-            .continue_target = 0,
+            .continue_jumps = .empty,
+            .continue_target = null,
             .redo_target = 0,
         });
         defer {
             var ctx = &self.loop_stack.items[loop_idx];
             ctx.break_jumps.deinit(self.allocator);
+            ctx.continue_jumps.deinit(self.allocator);
             _ = self.loop_stack.pop();
         }
 
@@ -5040,7 +5058,6 @@ pub const Compiler = struct {
 
         // Compile body
         self.loop_stack.items[loop_idx].redo_target = self.current_chunk.currentOffset();
-        self.loop_stack.items[loop_idx].continue_target = self.current_chunk.currentOffset();
         if (for_node.statements) |statements_ptr| {
             const body = try self.parser.asNode(@ptrCast(statements_ptr));
             try self.compileNode(body, line);
@@ -5075,13 +5092,15 @@ pub const Compiler = struct {
         try self.loop_stack.append(self.allocator, .{
             .loop_type = .until_loop,
             .break_jumps = .empty,
-            .continue_target = 0,
+            .continue_jumps = .empty,
+            .continue_target = null,
             .redo_target = 0,
         });
 
         defer {
             var ctx = &self.loop_stack.items[loop_idx];
             ctx.break_jumps.deinit(self.allocator);
+            ctx.continue_jumps.deinit(self.allocator);
             _ = self.loop_stack.pop();
         }
 
@@ -5097,6 +5116,9 @@ pub const Compiler = struct {
 
             const condition_ip = self.current_chunk.currentOffset();
             self.loop_stack.items[loop_idx].continue_target = condition_ip;
+            for (self.loop_stack.items[loop_idx].continue_jumps.items) |continue_jump| {
+                try self.current_chunk.patchJump(continue_jump);
+            }
 
             const condition = try self.parser.asNode(@ptrCast(until_node.predicate));
             try self.compileNode(condition, line);

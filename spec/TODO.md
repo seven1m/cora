@@ -2447,9 +2447,9 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] language/throw_spec.rb
 - [x] language/undef_spec.rb
 - [x] language/unless_spec.rb
-- [ ] language/until_spec.rb
+- [x] language/until_spec.rb
 - [ ] language/variables_spec.rb
-- [ ] language/while_spec.rb
+- [x] language/while_spec.rb
 - [ ] language/yield_spec.rb
 
 ### library/English
