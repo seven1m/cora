@@ -152,6 +152,9 @@ pub fn register(vm: *VM) !void {
     const to_f_sym = try vm.intern("to_f");
     try vm.time_class.module.methods.put(to_f_sym, value.MethodEntry.builtin(&builtinTimeToF, .{ .exact = 0 }));
 
+    const to_r_sym = try vm.intern("to_r");
+    try vm.time_class.module.methods.put(to_r_sym, value.MethodEntry.builtin(&builtinTimeToR, .{ .exact = 0 }));
+
     const to_a_sym = try vm.intern("to_a");
     try vm.time_class.module.methods.put(to_a_sym, value.MethodEntry.builtin(&builtinTimeToA, .{ .exact = 0 }));
 
@@ -1326,6 +1329,13 @@ pub fn builtinTimeToI(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
 pub fn builtinTimeToF(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return vm.newFloat(exactToF64(receiver.toTimeObject().timew) / @as(f64, @floatFromInt(nanos_per_second)));
+}
+
+pub fn builtinTimeToR(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const parts = exactParts(receiver.toTimeObject().timew);
+    const denominator = try vm.mulIntegerValues(parts.denominator, Value.integer(nanos_per_second));
+    return vm.newRationalValues(parts.numerator, denominator);
 }
 
 pub fn builtinTimeToA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

@@ -2286,7 +2286,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/time/to_a_spec.rb
 - [ ] core/time/to_f_spec.rb
 - [x] core/time/to_i_spec.rb
-- [ ] core/time/to_r_spec.rb
+- [x] core/time/to_r_spec.rb
 - [ ] core/time/to_s_spec.rb
 - [ ] core/time/tuesday_spec.rb
 - [ ] core/time/tv_nsec_spec.rb
