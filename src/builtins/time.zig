@@ -165,6 +165,12 @@ pub fn register(vm: *VM) !void {
     const subsec_sym = try vm.intern("subsec");
     try vm.time_class.module.methods.put(subsec_sym, value.MethodEntry.builtin(&builtinTimeSubsec, .{ .exact = 0 }));
 
+    const usec_method = value.MethodEntry.builtin(&builtinTimeUsec, .{ .exact = 0 });
+    const usec_sym = try vm.intern("usec");
+    try vm.time_class.module.methods.put(usec_sym, usec_method);
+    const tv_usec_sym = try vm.intern("tv_usec");
+    try vm.time_class.module.methods.put(tv_usec_sym, usec_method);
+
     const to_a_sym = try vm.intern("to_a");
     try vm.time_class.module.methods.put(to_a_sym, value.MethodEntry.builtin(&builtinTimeToA, .{ .exact = 0 }));
 
@@ -574,14 +580,18 @@ fn constructUtcTime(vm: *VM, class_obj: *value.ClassObject, args: []Value) VMErr
     const day = if (args.len >= 3 and !args[2].isNil()) try coerceIntegerComponent(vm, args[2]) else 1;
     const hour = if (args.len >= 4 and !args[3].isNil()) try coerceIntegerComponent(vm, args[3]) else 0;
     const minute = if (args.len >= 5 and !args[4].isNil()) try coerceIntegerComponent(vm, args[4]) else 0;
-    const second = if (args.len >= 6 and !args[5].isNil()) try coerceIntegerComponent(vm, args[5]) else 0;
+    const second_exact = if (args.len >= 6 and !args[5].isNil()) try coerceExactNumeric(vm, args[5]) else Value.integer(0);
+    const second_value = try exactFloorDivByInteger(vm, second_exact, 1);
+    const second = integerToI64(second_value);
+    const second_fraction = try exactMul(vm, try exactSub(vm, second_exact, second_value), Value.integer(nanos_per_second));
     const nanosecond = if (args.len >= 7 and !args[6].isNil()) blk: {
         const usec = try coerceIntegerComponent(vm, args[6]);
         break :blk @as(u32, @intCast(usec * 1000));
     } else 0;
 
     try validateUtcComponents(vm, year, month, day, hour, minute, second);
-    return vm.newTime(class_obj, try epochNanosecondsFromUtcComponents(vm, year, month, day, hour, minute, second, nanosecond));
+    const epoch_nanos = try exactAdd(vm, try epochNanosecondsFromUtcComponents(vm, year, month, day, hour, minute, second, nanosecond), second_fraction);
+    return vm.newTime(class_obj, epoch_nanos);
 }
 
 // Construct a local time. args = (year[, month[, day[, hour[, min[, sec[, usec_with_frac]]]]]]])
@@ -597,7 +607,10 @@ fn constructLocalTime(vm: *VM, class_obj: *value.ClassObject, args: []Value) VME
     const day = if (args.len >= 3 and !args[2].isNil()) try coerceIntegerComponent(vm, args[2]) else 1;
     const hour = if (args.len >= 4 and !args[3].isNil()) try coerceIntegerComponent(vm, args[3]) else 0;
     const minute = if (args.len >= 5 and !args[4].isNil()) try coerceIntegerComponent(vm, args[4]) else 0;
-    const second = if (args.len >= 6 and !args[5].isNil()) try coerceIntegerComponent(vm, args[5]) else 0;
+    const second_exact = if (args.len >= 6 and !args[5].isNil()) try coerceExactNumeric(vm, args[5]) else Value.integer(0);
+    const second_value = try exactFloorDivByInteger(vm, second_exact, 1);
+    const second = integerToI64(second_value);
+    const second_fraction = try exactMul(vm, try exactSub(vm, second_exact, second_value), Value.integer(nanos_per_second));
     const nanosecond: u32 = if (args.len >= 7 and !args[6].isNil()) blk: {
         const usec = try coerceIntegerComponent(vm, args[6]);
         break :blk @as(u32, @intCast(usec * 1000));
@@ -605,7 +618,7 @@ fn constructLocalTime(vm: *VM, class_obj: *value.ClassObject, args: []Value) VME
 
     try validateUtcComponents(vm, year, month, day, hour, minute, second);
     // Compute as if UTC, then adjust by local timezone offset.
-    const utc_epoch_nanos = try epochNanosecondsFromUtcComponents(vm, year, month, day, hour, minute, second, nanosecond);
+    const utc_epoch_nanos = try exactAdd(vm, try epochNanosecondsFromUtcComponents(vm, year, month, day, hour, minute, second, nanosecond), second_fraction);
     const utc_epoch_seconds = try epochSecondsForTimezone(vm, utc_epoch_nanos);
     const offset_nanos = localUtcOffsetNanos(vm.io, utc_epoch_seconds);
     // epoch_nanoseconds is the true UTC moment; components are local wall clock.
@@ -1393,6 +1406,11 @@ pub fn builtinTimeSubsec(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     const seconds = try exactFloorDivByInteger(vm, timew, nanos_per_second);
     const whole_seconds_timew = try vm.mulIntegerValues(seconds, Value.integer(nanos_per_second));
     return exactDivByInteger(vm, try exactSub(vm, timew, whole_seconds_timew), nanos_per_second);
+}
+
+pub fn builtinTimeUsec(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    const nanoseconds = try builtinTimeNsec(vm, receiver, args, block);
+    return vm.divFloorIntegerValues(nanoseconds, Value.integer(1000));
 }
 
 pub fn builtinTimeToA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
