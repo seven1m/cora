@@ -162,6 +162,9 @@ pub fn register(vm: *VM) !void {
     const tv_nsec_sym = try vm.intern("tv_nsec");
     try vm.time_class.module.methods.put(tv_nsec_sym, nsec_method);
 
+    const subsec_sym = try vm.intern("subsec");
+    try vm.time_class.module.methods.put(subsec_sym, value.MethodEntry.builtin(&builtinTimeSubsec, .{ .exact = 0 }));
+
     const to_a_sym = try vm.intern("to_a");
     try vm.time_class.module.methods.put(to_a_sym, value.MethodEntry.builtin(&builtinTimeToA, .{ .exact = 0 }));
 
@@ -1382,6 +1385,14 @@ pub fn builtinTimeNsec(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
     const seconds = try exactFloorDivByInteger(vm, timew, nanos_per_second);
     const whole_seconds_timew = try vm.mulIntegerValues(seconds, Value.integer(nanos_per_second));
     return exactFloorDivByInteger(vm, try exactSub(vm, timew, whole_seconds_timew), 1);
+}
+
+pub fn builtinTimeSubsec(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const timew = receiver.toTimeObject().timew;
+    const seconds = try exactFloorDivByInteger(vm, timew, nanos_per_second);
+    const whole_seconds_timew = try vm.mulIntegerValues(seconds, Value.integer(nanos_per_second));
+    return exactDivByInteger(vm, try exactSub(vm, timew, whole_seconds_timew), nanos_per_second);
 }
 
 pub fn builtinTimeToA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
