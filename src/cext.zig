@@ -275,6 +275,10 @@ fn allocMutableString(vm: *VM, len: usize) VALUE {
 
 export fn rb_str_new(ptr: [*c]const u8, len: c_long) VALUE {
     const vm = getVM();
+    if (len < 0) {
+        rb_raise(rb_eArgError, "negative string size (or size too big)");
+        return 0;
+    }
     const s: []const u8 = if (ptr != null) ptr[0..@intCast(len)] else &.{};
     const val = vm.newString(s, false) catch return 0;
     return val.raw;
@@ -1351,13 +1355,26 @@ export fn INT2NUM(v: c_long) VALUE {
     return Value.integer(v).raw;
 }
 
-export fn NUM2INT(v_raw: VALUE) c_long {
+fn numToLong(v_raw: VALUE) c_long {
+    const vm = getVM();
     const val = Value{ .raw = v_raw };
-    return val.toInteger();
+    return val.coerceToI64ViaToInt(
+        vm,
+        "no implicit conversion into Integer",
+        "no implicit conversion into Integer",
+        "bignum too big to convert into 'long'",
+    ) catch {
+        if (vm.cext_jmp_buf) |buf| siglongjmp(buf, 1);
+        return 0;
+    };
+}
+
+export fn NUM2INT(v_raw: VALUE) c_long {
+    return numToLong(v_raw);
 }
 
 export fn NUM2LONG(v_raw: VALUE) c_long {
-    return NUM2INT(v_raw);
+    return numToLong(v_raw);
 }
 
 export fn SIZET2NUM(v: usize) VALUE {

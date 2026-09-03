@@ -223,3 +223,33 @@ test "C extension real non-local `return` through rb_funcall still works" {
     );
     try std.testing.expectEqual(@as(i64, 314), result.toInteger());
 }
+
+test "C extension rb_str_new rejects negative lengths" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\begin
+        \\  CoraCExt.str_new_length(-1)
+        \\rescue => error
+        \\  [error.class == ArgumentError, error.message]
+        \\end
+    );
+    const elems = result.toArrayObject().elements.items;
+    try std.testing.expect(elems[0].toBool());
+    try std.testing.expectEqualStrings("negative string size (or size too big)", elems[1].toStringObject().str);
+}
+
+test "C extension NUM2LONG rejects out-of-range integers" {
+    const result = try evalCode(
+        \\$LOAD_PATH << "build/cext"
+        \\require "fixture.so"
+        \\begin
+        \\  CoraCExt.str_new_length(2 ** 100)
+        \\rescue => error
+        \\  [error.class == RangeError, error.message]
+        \\end
+    );
+    const elems = result.toArrayObject().elements.items;
+    try std.testing.expect(elems[0].toBool());
+    try std.testing.expectEqualStrings("bignum too big to convert into 'long'", elems[1].toStringObject().str);
+}

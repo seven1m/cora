@@ -98,6 +98,13 @@ cext_yield_next_then_call_to_s(VALUE self, VALUE marker)
     return rb_funcall(v, rb_intern("to_s"), 0);
 }
 
+static VALUE
+cext_str_new_length(VALUE self, VALUE length)
+{
+    (void)self;
+    return rb_str_new("abc", NUM2LONG(length));
+}
+
 void Init_fixture(void)
 {
     VALUE mCoraCExt = rb_define_module("CoraCExt");
@@ -111,6 +118,7 @@ void Init_fixture(void)
     rb_define_module_function(mCoraCExt, "yield_break", cext_yield_break, 1);
     rb_define_module_function(mCoraCExt, "yield_break_then_value", cext_yield_break_then_value, 1);
     rb_define_module_function(mCoraCExt, "yield_next_then_call_to_s", cext_yield_next_then_call_to_s, 1);
+    rb_define_module_function(mCoraCExt, "str_new_length", cext_str_new_length, 1);
 
     rb_define_method(rb_cString, "cora_cext_test", cora_cext_test, 0);
     rb_define_method(rb_cString, "cext_yield", cext_simple_yield, 1);

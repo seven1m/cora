@@ -3915,7 +3915,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] library/stringscanner/must_C_version_spec.rb
 - [x] library/stringscanner/named_captures_spec.rb
 - [x] library/stringscanner/peek_byte_spec.rb
-- [ ] library/stringscanner/peek_spec.rb
+- [x] library/stringscanner/peek_spec.rb
 - [x] library/stringscanner/pointer_spec.rb
 - [x] library/stringscanner/pos_spec.rb
 - [x] library/stringscanner/post_match_spec.rb
