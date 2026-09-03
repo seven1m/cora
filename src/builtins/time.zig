@@ -155,6 +155,13 @@ pub fn register(vm: *VM) !void {
     const to_r_sym = try vm.intern("to_r");
     try vm.time_class.module.methods.put(to_r_sym, value.MethodEntry.builtin(&builtinTimeToR, .{ .exact = 0 }));
 
+    const nsec_sym = try vm.intern("nsec");
+    const nsec_method = value.MethodEntry.builtin(&builtinTimeNsec, .{ .exact = 0 });
+    try vm.time_class.module.methods.put(nsec_sym, nsec_method);
+
+    const tv_nsec_sym = try vm.intern("tv_nsec");
+    try vm.time_class.module.methods.put(tv_nsec_sym, nsec_method);
+
     const to_a_sym = try vm.intern("to_a");
     try vm.time_class.module.methods.put(to_a_sym, value.MethodEntry.builtin(&builtinTimeToA, .{ .exact = 0 }));
 
@@ -236,6 +243,11 @@ fn exactMul(vm: *VM, lhs: Value, rhs: Value) VMError!Value {
     const a = exactParts(lhs);
     const b = exactParts(rhs);
     return exactValue(vm, try vm.mulIntegerValues(a.numerator, b.numerator), try vm.mulIntegerValues(a.denominator, b.denominator));
+}
+
+fn exactDivByInteger(vm: *VM, value_: Value, divisor: i64) VMError!Value {
+    const parts = exactParts(value_);
+    return exactValue(vm, parts.numerator, try vm.mulIntegerValues(parts.denominator, Value.integer(divisor)));
 }
 
 fn exactCompare(vm: *VM, lhs: Value, rhs: Value) VMError!std.math.Order {
@@ -383,7 +395,14 @@ fn coerceExactNumeric(vm: *VM, arg: Value) VMError!Value {
         return exactValue(vm, parts.numerator, parts.denominator);
     }
     if (try vm.checkCallMethodByName(arg, "to_r", false, &.{}, null)) |converted| {
-        if (converted.isInteger() or converted.isBigInteger() or converted.isRational()) return converted;
+        if ((converted.isInteger() or converted.isBigInteger() or converted.isRational()) and
+            try vm.respondsToMethodByName(arg, "to_int", true))
+        {
+            return converted;
+        }
+    }
+    if (try vm.checkCallMethodByName(arg, "to_int", false, &.{}, null)) |converted| {
+        if (converted.isInteger() or converted.isBigInteger()) return converted;
     }
     return vm.raiseExceptionFmt(vm.type_error_class, "argument is not numeric", .{});
 }
@@ -1204,10 +1223,29 @@ pub fn builtinTimeLocal(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
 }
 
 pub fn builtinTimeAt(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    try vm.requireArgCount(args, 1);
+    if (args.len < 1 or args.len > 3) {
+        try vm.requireArgCountRange(args, 1, 3);
+        unreachable;
+    }
     std.debug.assert(receiver.isClass());
     const seconds = try coerceExactNumeric(vm, args[0]);
-    return vm.newTime(receiver.toClassObject(), try exactMul(vm, seconds, Value.integer(nanos_per_second)));
+    var timew = try exactMul(vm, seconds, Value.integer(nanos_per_second));
+    if (args.len >= 2) {
+        const subsecond = try coerceExactNumeric(vm, args[1]);
+        const units_per_second: i64 = if (args.len == 2) 1_000_000 else blk: {
+            if (!args[2].isSymbol()) {
+                return vm.raiseExceptionFmt(vm.argument_error_class, "unexpected unit", .{});
+            }
+            const unit = args[2].toSymbolObject().name;
+            if (std.mem.eql(u8, unit, "nanosecond") or std.mem.eql(u8, unit, "nsec")) break :blk 1_000_000_000;
+            if (std.mem.eql(u8, unit, "microsecond") or std.mem.eql(u8, unit, "usec")) break :blk 1_000_000;
+            if (std.mem.eql(u8, unit, "millisecond")) break :blk 1_000;
+            return vm.raiseExceptionFmt(vm.argument_error_class, "unexpected unit: {s}", .{unit});
+        };
+        const subsecond_timew = try exactDivByInteger(vm, try exactMul(vm, subsecond, Value.integer(nanos_per_second)), units_per_second);
+        timew = try exactAdd(vm, timew, subsecond_timew);
+    }
+    return vm.newTime(receiver.toClassObject(), timew);
 }
 
 pub fn builtinTimeLoad(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -1336,6 +1374,14 @@ pub fn builtinTimeToR(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
     const parts = exactParts(receiver.toTimeObject().timew);
     const denominator = try vm.mulIntegerValues(parts.denominator, Value.integer(nanos_per_second));
     return vm.newRationalValues(parts.numerator, denominator);
+}
+
+pub fn builtinTimeNsec(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const timew = receiver.toTimeObject().timew;
+    const seconds = try exactFloorDivByInteger(vm, timew, nanos_per_second);
+    const whole_seconds_timew = try vm.mulIntegerValues(seconds, Value.integer(nanos_per_second));
+    return exactFloorDivByInteger(vm, try exactSub(vm, timew, whole_seconds_timew), 1);
 }
 
 pub fn builtinTimeToA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
