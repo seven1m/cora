@@ -206,7 +206,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/array/to_h_spec.rb
 - [-] core/array/to_s_spec.rb
 - [x] core/array/transpose_spec.rb
-- [-] core/array/try_convert_spec.rb
+- [x] core/array/try_convert_spec.rb
 - [x] core/array/union_spec.rb
 - [x] core/array/uniq_spec.rb
 - [x] core/array/unshift_spec.rb
@@ -986,7 +986,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [-] core/hash/to_s_spec.rb
 - [x] core/hash/transform_keys_spec.rb
 - [x] core/hash/transform_values_spec.rb
-- [-] core/hash/try_convert_spec.rb
+- [x] core/hash/try_convert_spec.rb
 - [x] core/hash/update_spec.rb
 - [x] core/hash/value_spec.rb
 - [x] core/hash/values_at_spec.rb
@@ -1056,7 +1056,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/integer/to_r_spec.rb
 - [x] core/integer/to_s_spec.rb
 - [x] core/integer/truncate_spec.rb
-- [-] core/integer/try_convert_spec.rb
+- [x] core/integer/try_convert_spec.rb
 - [x] core/integer/uminus_spec.rb
 - [x] core/integer/upto_spec.rb
 - [x] core/integer/zero_spec.rb
@@ -1435,7 +1435,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/module/initialize_copy_spec.rb
 - [ ] core/module/initialize_spec.rb
 - [x] core/module/inspect_spec.rb
-- [-] core/module/instance_method_spec.rb
+- [x] core/module/instance_method_spec.rb
 - [ ] core/module/instance_methods_spec.rb
 - [x] core/module/lt_spec.rb
 - [x] core/module/lte_spec.rb
@@ -1738,7 +1738,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/queue/empty_spec.rb
 - [x] core/queue/enq_spec.rb
 - [x] core/queue/freeze_spec.rb
-- [-] core/queue/initialize_spec.rb
+- [x] core/queue/initialize_spec.rb
 - [x] core/queue/length_spec.rb
 - [x] core/queue/num_waiting_spec.rb
 - [x] core/queue/pop_spec.rb
@@ -1860,7 +1860,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/regexp/source_spec.rb
 - [ ] core/regexp/timeout_spec.rb
 - [ ] core/regexp/to_s_spec.rb
-- [-] core/regexp/try_convert_spec.rb
+- [x] core/regexp/try_convert_spec.rb
 - [x] core/regexp/union_spec.rb
 
 ### core/set
@@ -1956,8 +1956,8 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/string/append_spec.rb
 - [x] core/string/ascii_only_spec.rb
 - [x] core/string/b_spec.rb
-- [-] core/string/byteindex_spec.rb
-- [-] core/string/byterindex_spec.rb
+- [x] core/string/byteindex_spec.rb
+- [x] core/string/byterindex_spec.rb
 - [x] core/string/bytes_spec.rb
 - [x] core/string/bytesize_spec.rb
 - [x] core/string/byteslice_spec.rb
@@ -2054,7 +2054,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/string/to_sym_spec.rb
 - [x] core/string/tr_s_spec.rb
 - [x] core/string/tr_spec.rb
-- [-] core/string/try_convert_spec.rb
+- [x] core/string/try_convert_spec.rb
 - [x] core/string/uminus_spec.rb
 - [ ] core/string/undump_spec.rb
 - [ ] core/string/unicode_normalize_spec.rb

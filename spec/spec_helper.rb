@@ -1668,6 +1668,13 @@ end
   RaiseErrorMatcher.new(expected_class, message, verifier)
 end
 
+# mspec's raise_consistent_error ignores the message on CRuby < 4.1 because of
+# inconsistent coercion errors (ruby/ruby#21864). Cora's coercion messages are
+# in the same boat, so skip the message check here as well.
+def raise_consistent_error(expected = nil, expected_message = nil, &verifier)
+  raise_error(expected, nil, &verifier)
+end
+
 class SpecMockExpectation
   def initialize(mock_name, method_name)
     @mock_name = mock_name
