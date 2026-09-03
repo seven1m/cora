@@ -1,4 +1,5 @@
 const std = @import("std");
+const rational = @import("rational.zig");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 
@@ -38,13 +39,13 @@ const seconds_per_day: i64 = seconds_per_hour * hours_per_day;
 const max_utc_offset_seconds: i64 = 86400 - 1; // +/-86399
 
 const CivilDate = struct {
-    year: i64,
+    year: Value,
     month: u8,
     day: u8,
 };
 
 const TimeParts = struct {
-    year: i64,
+    year: Value,
     month: u8,
     day: u8,
     hour: u8,
@@ -186,43 +187,126 @@ fn floorMod(numerator: i64, denominator: i64) i64 {
     return numerator - floorDiv(numerator, denominator) * denominator;
 }
 
-fn isLeapYear(year: i64) bool {
-    return @mod(year, 4) == 0 and (@mod(year, 100) != 0 or @mod(year, 400) == 0);
+fn integerIsZero(v: Value) bool {
+    return if (v.isInteger()) v.toInteger() == 0 else v.toBigIntegerObject().value.eqlZero();
 }
 
-fn daysInMonth(year: i64, month: u8) u8 {
+fn integerToI64(v: Value) i64 {
+    return if (v.isInteger()) v.toInteger() else v.toBigIntegerObject().value.toInt(i64) catch unreachable;
+}
+
+fn exactParts(v: Value) struct { numerator: Value, denominator: Value } {
+    if (v.isRational()) {
+        const r = v.toRationalObject();
+        return .{ .numerator = r.numerator, .denominator = r.denominator };
+    }
+    return .{ .numerator = v, .denominator = Value.integer(1) };
+}
+
+fn exactValue(vm: *VM, numerator: Value, denominator: Value) VMError!Value {
+    if (denominator.isInteger() and denominator.toInteger() == 1) return numerator;
+    const normalized = try vm.newRationalValues(numerator, denominator);
+    const normalized_rational = normalized.toRationalObject();
+    if (normalized_rational.denominator.isInteger() and normalized_rational.denominator.toInteger() == 1) {
+        return normalized_rational.numerator;
+    }
+    return normalized;
+}
+
+fn exactAdd(vm: *VM, lhs: Value, rhs: Value) VMError!Value {
+    const a = exactParts(lhs);
+    const b = exactParts(rhs);
+    const left = try vm.mulIntegerValues(a.numerator, b.denominator);
+    const right = try vm.mulIntegerValues(b.numerator, a.denominator);
+    return exactValue(vm, try vm.addIntegerValues(left, right), try vm.mulIntegerValues(a.denominator, b.denominator));
+}
+
+fn exactSub(vm: *VM, lhs: Value, rhs: Value) VMError!Value {
+    const a = exactParts(lhs);
+    const b = exactParts(rhs);
+    const left = try vm.mulIntegerValues(a.numerator, b.denominator);
+    const right = try vm.mulIntegerValues(b.numerator, a.denominator);
+    return exactValue(vm, try vm.subIntegerValues(left, right), try vm.mulIntegerValues(a.denominator, b.denominator));
+}
+
+fn exactMul(vm: *VM, lhs: Value, rhs: Value) VMError!Value {
+    const a = exactParts(lhs);
+    const b = exactParts(rhs);
+    return exactValue(vm, try vm.mulIntegerValues(a.numerator, b.numerator), try vm.mulIntegerValues(a.denominator, b.denominator));
+}
+
+fn exactCompare(vm: *VM, lhs: Value, rhs: Value) VMError!std.math.Order {
+    const a = exactParts(lhs);
+    const b = exactParts(rhs);
+    return vm.compareIntegerValues(
+        try vm.mulIntegerValues(a.numerator, b.denominator),
+        try vm.mulIntegerValues(b.numerator, a.denominator),
+    );
+}
+
+fn exactFloorDivByInteger(vm: *VM, value_: Value, divisor: i64) VMError!Value {
+    const parts = exactParts(value_);
+    const denominator = try vm.mulIntegerValues(parts.denominator, Value.integer(divisor));
+    return vm.divFloorIntegerValues(parts.numerator, denominator);
+}
+
+fn exactToF64(value_: Value) f64 {
+    const parts = exactParts(value_);
+    return parts.numerator.integerToF64() / parts.denominator.integerToF64();
+}
+
+fn integerMod(vm: *VM, numerator: Value, denominator: i64) VMError!Value {
+    const quotient = try vm.divFloorIntegerValues(numerator, Value.integer(denominator));
+    return vm.subIntegerValues(numerator, try vm.mulIntegerValues(quotient, Value.integer(denominator)));
+}
+
+fn isLeapYear(vm: *VM, year: Value) VMError!bool {
+    const mod4 = try integerMod(vm, year, 4);
+    const mod100 = try integerMod(vm, year, 100);
+    const mod400 = try integerMod(vm, year, 400);
+    return integerIsZero(mod4) and (!integerIsZero(mod100) or integerIsZero(mod400));
+}
+
+fn daysInMonth(vm: *VM, year: Value, month: u8) VMError!u8 {
     return switch (month) {
         1, 3, 5, 7, 8, 10, 12 => 31,
         4, 6, 9, 11 => 30,
-        2 => if (isLeapYear(year)) 29 else 28,
+        2 => if (try isLeapYear(vm, year)) 29 else 28,
         else => 0,
     };
 }
 
-fn daysFromCivil(year: i64, month: u8, day: u8) i64 {
+fn daysFromCivil(vm: *VM, year: Value, month: u8, day: u8) VMError!Value {
     var adjusted_year = year;
-    if (month <= 2) adjusted_year -= 1;
-    const era = floorDiv(adjusted_year, 400);
-    const year_of_era = adjusted_year - era * 400;
+    if (month <= 2) adjusted_year = try vm.subIntegerValues(adjusted_year, Value.integer(1));
+    const era = try vm.divFloorIntegerValues(adjusted_year, Value.integer(400));
+    const year_of_era = try vm.subIntegerValues(adjusted_year, try vm.mulIntegerValues(era, Value.integer(400)));
     const month_i64: i64 = @intCast(month);
     const day_i64: i64 = @intCast(day);
     const month_prime = month_i64 + (if (month > 2) @as(i64, -3) else @as(i64, 9));
     const day_of_year = floorDiv(153 * month_prime + 2, 5) + day_i64 - 1;
-    const day_of_era = year_of_era * 365 + floorDiv(year_of_era, 4) - floorDiv(year_of_era, 100) + day_of_year;
-    return era * 146097 + day_of_era - 719468;
+    var day_of_era = try vm.mulIntegerValues(year_of_era, Value.integer(365));
+    day_of_era = try vm.addIntegerValues(day_of_era, try vm.divFloorIntegerValues(year_of_era, Value.integer(4)));
+    day_of_era = try vm.subIntegerValues(day_of_era, try vm.divFloorIntegerValues(year_of_era, Value.integer(100)));
+    day_of_era = try vm.addIntegerValues(day_of_era, Value.integer(day_of_year));
+    return vm.subIntegerValues(
+        try vm.addIntegerValues(try vm.mulIntegerValues(era, Value.integer(146097)), day_of_era),
+        Value.integer(719468),
+    );
 }
 
-fn civilFromDays(days_since_epoch: i64) CivilDate {
-    const shifted = days_since_epoch + 719468;
-    const era = floorDiv(if (shifted >= 0) shifted else shifted - 146096, 146097);
-    const day_of_era = shifted - era * 146097;
+fn civilFromDays(vm: *VM, days_since_epoch: Value) VMError!CivilDate {
+    const shifted = try vm.addIntegerValues(days_since_epoch, Value.integer(719468));
+    const era = try vm.divFloorIntegerValues(shifted, Value.integer(146097));
+    const day_of_era_value = try vm.subIntegerValues(shifted, try vm.mulIntegerValues(era, Value.integer(146097)));
+    const day_of_era = integerToI64(day_of_era_value);
     const year_of_era = floorDiv(day_of_era - floorDiv(day_of_era, 1460) + floorDiv(day_of_era, 36524) - floorDiv(day_of_era, 146096), 365);
-    var year = year_of_era + era * 400;
+    var year = try vm.addIntegerValues(Value.integer(year_of_era), try vm.mulIntegerValues(era, Value.integer(400)));
     const day_of_year = day_of_era - (365 * year_of_era + floorDiv(year_of_era, 4) - floorDiv(year_of_era, 100));
     const month_prime = floorDiv(5 * day_of_year + 2, 153);
     const day = day_of_year - floorDiv(153 * month_prime + 2, 5) + 1;
     const month = month_prime + (if (month_prime < 10) @as(i64, 3) else @as(i64, -9));
-    if (month <= 2) year += 1;
+    if (month <= 2) year = try vm.addIntegerValues(year, Value.integer(1));
     return .{
         .year = year,
         .month = @intCast(month),
@@ -232,18 +316,24 @@ fn civilFromDays(days_since_epoch: i64) CivilDate {
 
 // Compute wall-clock parts for an epoch_nanoseconds value that already has the
 // UTC offset applied (i.e. epoch_nanoseconds + utc_offset_nanos).
-fn timeParts(adjusted_epoch_nanoseconds: i64) TimeParts {
-    const total_seconds = floorDiv(adjusted_epoch_nanoseconds, nanos_per_second);
-    const nanosecond: u32 = @intCast(floorMod(adjusted_epoch_nanoseconds, nanos_per_second));
-    const day_count = floorDiv(total_seconds, seconds_per_day);
-    const seconds_of_day = floorMod(total_seconds, seconds_per_day);
-    const civil = civilFromDays(day_count);
+fn timeParts(vm: *VM, adjusted_timew: Value) VMError!TimeParts {
+    const total_seconds = try exactFloorDivByInteger(vm, adjusted_timew, nanos_per_second);
+    const whole_nanos = try vm.mulIntegerValues(total_seconds, Value.integer(nanos_per_second));
+    const subsecond = try exactSub(vm, adjusted_timew, whole_nanos);
+    const nanosecond_value = try exactFloorDivByInteger(vm, subsecond, 1);
+    const nanosecond: u32 = @intCast(integerToI64(nanosecond_value));
+    const day_count = try vm.divFloorIntegerValues(total_seconds, Value.integer(seconds_per_day));
+    const seconds_of_day_value = try vm.subIntegerValues(total_seconds, try vm.mulIntegerValues(day_count, Value.integer(seconds_per_day)));
+    const seconds_of_day = integerToI64(seconds_of_day_value);
+    const civil = try civilFromDays(vm, day_count);
     const hour: u8 = @intCast(@divTrunc(seconds_of_day, seconds_per_hour));
     const minute: u8 = @intCast(@divTrunc(@rem(seconds_of_day, seconds_per_hour), seconds_per_minute));
     const second: u8 = @intCast(@rem(seconds_of_day, seconds_per_minute));
-    const first_day = daysFromCivil(civil.year, 1, 1);
-    const year_day: u16 = @intCast(day_count - first_day + 1);
-    const weekday: u8 = @intCast(floorMod(day_count + 4, 7));
+    const first_day = try daysFromCivil(vm, civil.year, 1, 1);
+    const year_day_value = try vm.addIntegerValues(try vm.subIntegerValues(day_count, first_day), Value.integer(1));
+    const year_day: u16 = @intCast(integerToI64(year_day_value));
+    const weekday_value = try integerMod(vm, try vm.addIntegerValues(day_count, Value.integer(4)), 7);
+    const weekday: u8 = @intCast(integerToI64(weekday_value));
     return .{
         .year = civil.year,
         .month = civil.month,
@@ -257,8 +347,8 @@ fn timeParts(adjusted_epoch_nanoseconds: i64) TimeParts {
     };
 }
 
-fn timePartsFor(t: *const value.TimeObject) TimeParts {
-    return timeParts(t.epoch_nanoseconds + t.utc_offset_nanos);
+fn timePartsFor(vm: *VM, t: *const value.TimeObject) VMError!TimeParts {
+    return timeParts(vm, try exactAdd(vm, t.timew, Value.integer(t.utc_offset_nanos)));
 }
 
 fn coerceIntegerComponent(vm: *VM, arg: Value) VMError!i64 {
@@ -270,17 +360,43 @@ fn coerceIntegerComponent(vm: *VM, arg: Value) VMError!i64 {
     );
 }
 
-fn coerceNumericSeconds(vm: *VM, arg: Value) VMError!f64 {
-    if (arg.isInteger()) return @floatFromInt(arg.toInteger());
-    if (arg.isFloat()) return arg.toFloatObject().val;
+fn coerceIntegerComponentValue(vm: *VM, arg: Value) VMError!Value {
+    return arg.coerceToIntegerValue(
+        vm,
+        "no implicit conversion into Integer",
+        "no implicit conversion into Integer",
+    );
+}
+
+fn coerceExactNumeric(vm: *VM, arg: Value) VMError!Value {
+    if (arg.isInteger() or arg.isBigInteger() or arg.isRational()) return arg;
+    if (arg.isFloat()) {
+        const f = arg.toFloatObject().val;
+        if (std.math.isNan(f)) return vm.raiseExceptionFmt(vm.float_domain_error_class, "NaN", .{});
+        if (std.math.isInf(f)) {
+            return vm.raiseExceptionFmt(vm.float_domain_error_class, "{s}Infinity", .{if (f < 0) "-" else ""});
+        }
+        const parts = try rational.floatToRationalParts(vm, f);
+        return exactValue(vm, parts.numerator, parts.denominator);
+    }
+    if (try vm.checkCallMethodByName(arg, "to_r", false, &.{}, null)) |converted| {
+        if (converted.isInteger() or converted.isBigInteger() or converted.isRational()) return converted;
+    }
     return vm.raiseExceptionFmt(vm.type_error_class, "argument is not numeric", .{});
 }
 
-fn validateUtcComponents(vm: *VM, year: i64, month: i64, day: i64, hour: i64, minute: i64, second: i64) VMError!void {
+fn epochSecondsForTimezone(vm: *VM, timew: Value) VMError!i64 {
+    const seconds = try exactFloorDivByInteger(vm, timew, nanos_per_second);
+    if (seconds.isInteger()) return seconds.toInteger();
+    return seconds.toBigIntegerObject().value.toInt(i64) catch
+        if (seconds.toBigIntegerObject().value.isPositive()) std.math.maxInt(i64) else std.math.minInt(i64);
+}
+
+fn validateUtcComponents(vm: *VM, year: Value, month: i64, day: i64, hour: i64, minute: i64, second: i64) VMError!void {
     if (month < 1 or month > 12) {
         return vm.raiseExceptionFmt(vm.argument_error_class, "invalid month", .{});
     }
-    const max_day = daysInMonth(year, @intCast(month));
+    const max_day = try daysInMonth(vm, year, @intCast(month));
     if (day < 1 or day > max_day) {
         return vm.raiseExceptionFmt(vm.argument_error_class, "invalid day", .{});
     }
@@ -289,14 +405,14 @@ fn validateUtcComponents(vm: *VM, year: i64, month: i64, day: i64, hour: i64, mi
     }
 }
 
-fn epochNanosecondsFromUtcComponents(year: i64, month: i64, day: i64, hour: i64, minute: i64, second: i64, nanosecond: u32) i64 {
-    const day_count = daysFromCivil(year, @intCast(month), @intCast(day));
-    const total_seconds: i128 = @as(i128, day_count) * seconds_per_day + hour * seconds_per_hour + minute * seconds_per_minute + second;
-    const total_nanoseconds: i128 = total_seconds * nanos_per_second + nanosecond;
-    return @intCast(total_nanoseconds);
+fn epochNanosecondsFromUtcComponents(vm: *VM, year: Value, month: i64, day: i64, hour: i64, minute: i64, second: i64, nanosecond: u32) VMError!Value {
+    const day_count = try daysFromCivil(vm, year, @intCast(month), @intCast(day));
+    var total_seconds = try vm.mulIntegerValues(day_count, Value.integer(seconds_per_day));
+    total_seconds = try vm.addIntegerValues(total_seconds, Value.integer(hour * seconds_per_hour + minute * seconds_per_minute + second));
+    return vm.addIntegerValues(try vm.mulIntegerValues(total_seconds, Value.integer(nanos_per_second)), Value.integer(nanosecond));
 }
 
-fn parseMarshalDumpedUtcNanoseconds(raw: []const u8) ?i64 {
+fn parseMarshalDumpedUtcNanoseconds(vm: *VM, raw: []const u8) VMError!?Value {
     if (raw.len < 8) return null;
 
     var packed_date = std.mem.readInt(u32, raw[0..4], .little);
@@ -319,10 +435,10 @@ fn parseMarshalDumpedUtcNanoseconds(raw: []const u8) ?i64 {
     const microsecond: u32 = @intCast(packed_time & 0xfffff);
 
     if (month < 1 or month > 12) return null;
-    if (day < 1 or day > daysInMonth(year, @intCast(month))) return null;
+    if (day < 1 or day > try daysInMonth(vm, Value.integer(year), @intCast(month))) return null;
     if (hour > 23 or minute > 59 or second > 59) return null;
 
-    return epochNanosecondsFromUtcComponents(year, month, day, hour, minute, second, microsecond * 1000);
+    return try epochNanosecondsFromUtcComponents(vm, Value.integer(year), month, day, hour, minute, second, microsecond * 1000);
 }
 
 fn currentEpochNanoseconds() i64 {
@@ -428,7 +544,7 @@ fn constructUtcTime(vm: *VM, class_obj: *value.ClassObject, args: []Value) VMErr
         unreachable;
     }
 
-    const year = try coerceIntegerComponent(vm, args[0]);
+    const year = try coerceIntegerComponentValue(vm, args[0]);
     const month = if (args.len >= 2 and !args[1].isNil()) try coerceIntegerComponent(vm, args[1]) else 1;
     const day = if (args.len >= 3 and !args[2].isNil()) try coerceIntegerComponent(vm, args[2]) else 1;
     const hour = if (args.len >= 4 and !args[3].isNil()) try coerceIntegerComponent(vm, args[3]) else 0;
@@ -440,7 +556,7 @@ fn constructUtcTime(vm: *VM, class_obj: *value.ClassObject, args: []Value) VMErr
     } else 0;
 
     try validateUtcComponents(vm, year, month, day, hour, minute, second);
-    return vm.newTime(class_obj, epochNanosecondsFromUtcComponents(year, month, day, hour, minute, second, nanosecond));
+    return vm.newTime(class_obj, try epochNanosecondsFromUtcComponents(vm, year, month, day, hour, minute, second, nanosecond));
 }
 
 // Construct a local time. args = (year[, month[, day[, hour[, min[, sec[, usec_with_frac]]]]]]])
@@ -451,7 +567,7 @@ fn constructLocalTime(vm: *VM, class_obj: *value.ClassObject, args: []Value) VME
         unreachable;
     }
 
-    const year = try coerceIntegerComponent(vm, args[0]);
+    const year = try coerceIntegerComponentValue(vm, args[0]);
     const month = if (args.len >= 2 and !args[1].isNil()) try coerceIntegerComponent(vm, args[1]) else 1;
     const day = if (args.len >= 3 and !args[2].isNil()) try coerceIntegerComponent(vm, args[2]) else 1;
     const hour = if (args.len >= 4 and !args[3].isNil()) try coerceIntegerComponent(vm, args[3]) else 0;
@@ -464,11 +580,11 @@ fn constructLocalTime(vm: *VM, class_obj: *value.ClassObject, args: []Value) VME
 
     try validateUtcComponents(vm, year, month, day, hour, minute, second);
     // Compute as if UTC, then adjust by local timezone offset.
-    const utc_epoch_nanos = epochNanosecondsFromUtcComponents(year, month, day, hour, minute, second, nanosecond);
-    const utc_epoch_seconds = floorDiv(utc_epoch_nanos, nanos_per_second);
+    const utc_epoch_nanos = try epochNanosecondsFromUtcComponents(vm, year, month, day, hour, minute, second, nanosecond);
+    const utc_epoch_seconds = try epochSecondsForTimezone(vm, utc_epoch_nanos);
     const offset_nanos = localUtcOffsetNanos(vm.io, utc_epoch_seconds);
     // epoch_nanoseconds is the true UTC moment; components are local wall clock.
-    const epoch_nanos = utc_epoch_nanos - offset_nanos;
+    const epoch_nanos = try exactSub(vm, utc_epoch_nanos, Value.integer(offset_nanos));
     return vm.newTimeLocal(class_obj, epoch_nanos, offset_nanos);
 }
 
@@ -745,7 +861,7 @@ fn parseFractionalNanoseconds(bytes: []const u8, start: usize, end: usize) ?u32 
     return @intCast(value_i64);
 }
 
-fn parseTimeString(vm: *VM, raw: []const u8) VMError!i64 {
+fn parseTimeString(vm: *VM, raw: []const u8) VMError!Value {
     const bytes = std.mem.trim(u8, raw, " \t\r\n");
     if (bytes.len < 10) {
         return vm.raiseExceptionFmt(vm.argument_error_class, "invalid time", .{});
@@ -790,8 +906,8 @@ fn parseTimeString(vm: *VM, raw: []const u8) VMError!i64 {
         }
     }
 
-    try validateUtcComponents(vm, year, month, day, hour, minute, second);
-    return epochNanosecondsFromUtcComponents(year, month, day, hour, minute, second, nanosecond);
+    try validateUtcComponents(vm, Value.integer(year), month, day, hour, minute, second);
+    return epochNanosecondsFromUtcComponents(vm, Value.integer(year), month, day, hour, minute, second, nanosecond);
 }
 
 fn appendPaddedDecimal(out: *std.ArrayList(u8), allocator: std.mem.Allocator, value_in: anytype, width: usize) VMError!void {
@@ -804,6 +920,19 @@ fn appendPaddedDecimal(out: *std.ArrayList(u8), allocator: std.mem.Allocator, va
         }
     }
     out.appendSlice(allocator, digits) catch return error.Fatal;
+}
+
+fn appendPaddedIntegerValue(out: *std.ArrayList(u8), vm: *VM, integer: Value, width: usize) VMError!void {
+    const negative = (try vm.compareIntegerValues(integer, Value.integer(0))) == .lt;
+    const magnitude = if (negative) try vm.mulIntegerValues(integer, Value.integer(-1)) else integer;
+    var buf: std.Io.Writer.Allocating = .init(vm.allocator);
+    defer buf.deinit();
+    magnitude.format(&buf.writer) catch return error.Fatal;
+    if (negative) out.append(vm.allocator, '-') catch return error.Fatal;
+    if (buf.written().len < width) {
+        for (0..width - buf.written().len) |_| out.append(vm.allocator, '0') catch return error.Fatal;
+    }
+    out.appendSlice(vm.allocator, buf.written()) catch return error.Fatal;
 }
 
 fn appendNanosecondDigits(out: *std.ArrayList(u8), allocator: std.mem.Allocator, nanoseconds: u32, width: usize) VMError!void {
@@ -842,10 +971,10 @@ fn appendUtcOffsetStr(out: *std.ArrayList(u8), allocator: std.mem.Allocator, t: 
 
 fn timeStringValue(vm: *VM, receiver: Value) VMError!Value {
     const t = receiver.toTimeObject();
-    const parts = timePartsFor(t);
+    const parts = try timePartsFor(vm, t);
     var out: std.ArrayList(u8) = .empty;
     defer out.deinit(vm.allocator);
-    try appendPaddedDecimal(&out, vm.allocator, parts.year, 4);
+    try appendPaddedIntegerValue(&out, vm, parts.year, 4);
     out.append(vm.allocator, '-') catch return error.Fatal;
     try appendPaddedDecimal(&out, vm.allocator, parts.month, 2);
     out.append(vm.allocator, '-') catch return error.Fatal;
@@ -862,7 +991,7 @@ fn timeStringValue(vm: *VM, receiver: Value) VMError!Value {
 
 fn buildStrftimeValue(vm: *VM, receiver: Value, format_bytes: []const u8) VMError!Value {
     const t = receiver.toTimeObject();
-    const parts = timePartsFor(t);
+    const parts = try timePartsFor(vm, t);
     var out: std.ArrayList(u8) = .empty;
     defer out.deinit(vm.allocator);
 
@@ -907,7 +1036,7 @@ fn buildStrftimeValue(vm: *VM, receiver: Value, format_bytes: []const u8) VMErro
         index += 1;
         switch (directive) {
             '%' => out.append(vm.allocator, '%') catch return error.Fatal,
-            'Y' => try appendPaddedDecimal(&out, vm.allocator, parts.year, 4),
+            'Y' => try appendPaddedIntegerValue(&out, vm, parts.year, 4),
             'm' => try appendPaddedDecimal(&out, vm.allocator, parts.month, 2),
             'd' => try appendPaddedDecimal(&out, vm.allocator, parts.day, 2),
             'H' => try appendPaddedDecimal(&out, vm.allocator, parts.hour, 2),
@@ -915,7 +1044,7 @@ fn buildStrftimeValue(vm: *VM, receiver: Value, format_bytes: []const u8) VMErro
             'S' => try appendPaddedDecimal(&out, vm.allocator, parts.second, 2),
             'N' => try appendNanosecondDigits(&out, vm.allocator, parts.nanosecond, if (saw_width) width else 9),
             'F' => {
-                try appendPaddedDecimal(&out, vm.allocator, parts.year, 4);
+                try appendPaddedIntegerValue(&out, vm, parts.year, 4);
                 out.append(vm.allocator, '-') catch return error.Fatal;
                 try appendPaddedDecimal(&out, vm.allocator, parts.month, 2);
                 out.append(vm.allocator, '-') catch return error.Fatal;
@@ -974,7 +1103,7 @@ fn buildStrftimeValue(vm: *VM, receiver: Value, format_bytes: []const u8) VMErro
                 out.appendSlice(vm.allocator, s) catch return error.Fatal;
             },
             'c' => {
-                try appendPaddedDecimal(&out, vm.allocator, parts.year, 4);
+                try appendPaddedIntegerValue(&out, vm, parts.year, 4);
                 out.append(vm.allocator, '-') catch return error.Fatal;
                 try appendPaddedDecimal(&out, vm.allocator, parts.month, 2);
                 out.append(vm.allocator, '-') catch return error.Fatal;
@@ -1002,7 +1131,7 @@ pub fn builtinTimeNew(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
         const epoch_nanos = currentEpochNanoseconds();
         const epoch_seconds = floorDiv(epoch_nanos, nanos_per_second);
         const offset_nanos = localUtcOffsetNanos(vm.io, epoch_seconds);
-        return vm.newTimeLocal(class_obj, epoch_nanos, offset_nanos);
+        return vm.newTimeLocal(class_obj, Value.integer(epoch_nanos), offset_nanos);
     }
     if (args.len == 1 and (args[0].isString() or args[0].isSymbol())) {
         const time_string = try args[0].coerceToStringValue(vm, "no implicit conversion into String");
@@ -1010,30 +1139,24 @@ pub fn builtinTimeNew(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
     }
     // Time.new(year, month, day, hour, min, sec, utc_offset)
     // Components are wall-clock in the given offset zone.
-    const year = try coerceIntegerComponent(vm, args[0]);
+    const year = try coerceIntegerComponentValue(vm, args[0]);
     const month = if (args.len >= 2 and !args[1].isNil()) try coerceIntegerComponent(vm, args[1]) else 1;
     const day = if (args.len >= 3 and !args[2].isNil()) try coerceIntegerComponent(vm, args[2]) else 1;
     const hour = if (args.len >= 4 and !args[3].isNil()) try coerceIntegerComponent(vm, args[3]) else 0;
     const minute = if (args.len >= 5 and !args[4].isNil()) try coerceIntegerComponent(vm, args[4]) else 0;
     // 6th arg (second) can be Integer, Float, or Rational
     var second: i64 = 0;
-    var sec_sub_nanos: i64 = 0;
+    var sec_sub_timew = Value.integer(0);
     if (args.len >= 6 and !args[5].isNil()) {
-        if (args[5].isInteger()) {
-            second = args[5].toInteger();
-        } else if (args[5].isFloat()) {
-            const sf = args[5].toFloatObject().val;
-            second = @intFromFloat(sf);
-            sec_sub_nanos = @intFromFloat((sf - @as(f64, @floatFromInt(second))) * @as(f64, @floatFromInt(nanos_per_second)));
-        } else if (args[5].isRational()) {
-            const rat = args[5].toRationalObject();
-            const num = rat.numerator.toInteger();
-            const den = rat.denominator.toInteger();
-            second = @divTrunc(num, den);
-            sec_sub_nanos = @divTrunc(@rem(num, den) * nanos_per_second, den);
-        } else {
-            second = try coerceIntegerComponent(vm, args[5]);
+        const second_exact = try coerceExactNumeric(vm, args[5]);
+        const second_whole = try exactFloorDivByInteger(vm, second_exact, 1);
+        if ((try vm.compareIntegerValues(second_whole, Value.integer(0))) == .lt or
+            (try vm.compareIntegerValues(second_whole, Value.integer(59))) == .gt)
+        {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "invalid time", .{});
         }
+        second = integerToI64(second_whole);
+        sec_sub_timew = try exactMul(vm, try exactSub(vm, second_exact, second_whole), Value.integer(nanos_per_second));
     }
 
     // 7th arg is utc_offset
@@ -1044,15 +1167,14 @@ pub fn builtinTimeNew(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
         has_explicit_offset = true;
     } else {
         // No offset provided → local time
-        const utc_epoch_nanos = epochNanosecondsFromUtcComponents(year, month, day, hour, minute, second, 0);
-        const utc_epoch_seconds = floorDiv(utc_epoch_nanos, nanos_per_second);
+        const utc_epoch_nanos = try epochNanosecondsFromUtcComponents(vm, year, month, day, hour, minute, second, 0);
+        const utc_epoch_seconds = try epochSecondsForTimezone(vm, utc_epoch_nanos);
         offset_nanos = localUtcOffsetNanos(vm.io, utc_epoch_seconds);
     }
 
     try validateUtcComponents(vm, year, month, day, hour, minute, second);
-    const wall_epoch_nanos = epochNanosecondsFromUtcComponents(year, month, day, hour, minute, second, 0) + sec_sub_nanos;
-    // epoch_nanoseconds = wall_epoch - offset (convert local → UTC)
-    const epoch_nanos = wall_epoch_nanos - offset_nanos;
+    const wall_epoch_nanos = try exactAdd(vm, try epochNanosecondsFromUtcComponents(vm, year, month, day, hour, minute, second, 0), sec_sub_timew);
+    const epoch_nanos = try exactSub(vm, wall_epoch_nanos, Value.integer(offset_nanos));
     if (has_explicit_offset) {
         return vm.newTimeWithOffset(class_obj, epoch_nanos, offset_nanos);
     }
@@ -1065,7 +1187,7 @@ pub fn builtinTimeNow(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
     const epoch_nanos = currentEpochNanoseconds();
     const epoch_seconds = floorDiv(epoch_nanos, nanos_per_second);
     const offset_nanos = localUtcOffsetNanos(vm.io, epoch_seconds);
-    return vm.newTimeLocal(receiver.toClassObject(), epoch_nanos, offset_nanos);
+    return vm.newTimeLocal(receiver.toClassObject(), Value.integer(epoch_nanos), offset_nanos);
 }
 
 pub fn builtinTimeUtc(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -1081,16 +1203,15 @@ pub fn builtinTimeLocal(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
 pub fn builtinTimeAt(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     std.debug.assert(receiver.isClass());
-    const seconds = try coerceNumericSeconds(vm, args[0]);
-    const epoch_nanoseconds = @as(i64, @intFromFloat(@floor(seconds * @as(f64, @floatFromInt(nanos_per_second)))));
-    return vm.newTime(receiver.toClassObject(), epoch_nanoseconds);
+    const seconds = try coerceExactNumeric(vm, args[0]);
+    return vm.newTime(receiver.toClassObject(), try exactMul(vm, seconds, Value.integer(nanos_per_second)));
 }
 
 pub fn builtinTimeLoad(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     std.debug.assert(receiver.isClass());
     const raw = try args[0].coerceToStr(vm, "no implicit conversion into String");
-    const epoch_nanoseconds = parseMarshalDumpedUtcNanoseconds(raw) orelse {
+    const epoch_nanoseconds = (try parseMarshalDumpedUtcNanoseconds(vm, raw)) orelse {
         return vm.raiseExceptionFmt(vm.type_error_class, "marshaled time format differ", .{});
     };
     return vm.newTime(receiver.toClassObject(), epoch_nanoseconds);
@@ -1121,7 +1242,7 @@ pub fn builtinTimeLocaltime(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
         // If already in "local" timezone mode (no explicit offset), localtime is a no-op.
         if (t.is_local) return receiver;
         // Convert to system local timezone.
-        const epoch_seconds = floorDiv(t.epoch_nanoseconds, nanos_per_second);
+        const epoch_seconds = try epochSecondsForTimezone(vm, t.timew);
         const new_offset = localUtcOffsetNanos(vm.io, epoch_seconds);
         // If already at this exact offset (fixed), do nothing (even if frozen).
         if (!t.is_utc and t.utc_offset_nanos == new_offset) return receiver;
@@ -1169,56 +1290,55 @@ pub fn builtinTimeUtcOffset(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 
 pub fn builtinTimeYear(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    return Value.integer(timePartsFor(receiver.toTimeObject()).year);
+    return (try timePartsFor(vm, receiver.toTimeObject())).year;
 }
 
 pub fn builtinTimeMonth(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    return Value.integer(timePartsFor(receiver.toTimeObject()).month);
+    return Value.integer((try timePartsFor(vm, receiver.toTimeObject())).month);
 }
 
 pub fn builtinTimeDay(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    return Value.integer(timePartsFor(receiver.toTimeObject()).day);
+    return Value.integer((try timePartsFor(vm, receiver.toTimeObject())).day);
 }
 
 pub fn builtinTimeHour(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    return Value.integer(timePartsFor(receiver.toTimeObject()).hour);
+    return Value.integer((try timePartsFor(vm, receiver.toTimeObject())).hour);
 }
 
 pub fn builtinTimeMin(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    return Value.integer(timePartsFor(receiver.toTimeObject()).minute);
+    return Value.integer((try timePartsFor(vm, receiver.toTimeObject())).minute);
 }
 
 pub fn builtinTimeSec(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    return Value.integer(timePartsFor(receiver.toTimeObject()).second);
+    return Value.integer((try timePartsFor(vm, receiver.toTimeObject())).second);
 }
 
 pub fn builtinTimeToI(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    return Value.integer(floorDiv(receiver.toTimeObject().epoch_nanoseconds, nanos_per_second));
+    return exactFloorDivByInteger(vm, receiver.toTimeObject().timew, nanos_per_second);
 }
 
 pub fn builtinTimeToF(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    const epoch_nanoseconds = receiver.toTimeObject().epoch_nanoseconds;
-    return vm.newFloat(@as(f64, @floatFromInt(epoch_nanoseconds)) / @as(f64, @floatFromInt(nanos_per_second)));
+    return vm.newFloat(exactToF64(receiver.toTimeObject().timew) / @as(f64, @floatFromInt(nanos_per_second)));
 }
 
 pub fn builtinTimeToA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     const t = receiver.toTimeObject();
-    const parts = timePartsFor(t);
+    const parts = try timePartsFor(vm, t);
     const array_obj = try vm.createArray();
     array_obj.elements.append(vm.gc_allocator, Value.integer(parts.second)) catch return error.Fatal;
     array_obj.elements.append(vm.gc_allocator, Value.integer(parts.minute)) catch return error.Fatal;
     array_obj.elements.append(vm.gc_allocator, Value.integer(parts.hour)) catch return error.Fatal;
     array_obj.elements.append(vm.gc_allocator, Value.integer(parts.day)) catch return error.Fatal;
     array_obj.elements.append(vm.gc_allocator, Value.integer(parts.month)) catch return error.Fatal;
-    array_obj.elements.append(vm.gc_allocator, Value.integer(parts.year)) catch return error.Fatal;
+    array_obj.elements.append(vm.gc_allocator, parts.year) catch return error.Fatal;
     array_obj.elements.append(vm.gc_allocator, Value.integer(parts.weekday)) catch return error.Fatal;
     array_obj.elements.append(vm.gc_allocator, Value.integer(parts.year_day)) catch return error.Fatal;
     array_obj.elements.append(vm.gc_allocator, Value.boolean(false)) catch return error.Fatal;
@@ -1228,10 +1348,10 @@ pub fn builtinTimeToA(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
 
 pub fn builtinTimePlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const delta_seconds = try coerceNumericSeconds(vm, args[0]);
-    const delta_nanoseconds = @as(i64, @intFromFloat(@floor(delta_seconds * @as(f64, @floatFromInt(nanos_per_second)))));
+    const delta_seconds = try coerceExactNumeric(vm, args[0]);
+    const delta_timew = try exactMul(vm, delta_seconds, Value.integer(nanos_per_second));
     const t = receiver.toTimeObject();
-    const new_epoch = t.epoch_nanoseconds + delta_nanoseconds;
+    const new_epoch = try exactAdd(vm, t.timew, delta_timew);
     if (t.is_utc) {
         return vm.newTime(t.object.class.?, new_epoch);
     }
@@ -1241,13 +1361,13 @@ pub fn builtinTimePlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
 pub fn builtinTimeMinus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     if (args[0].isTime()) {
-        const diff = receiver.toTimeObject().epoch_nanoseconds - args[0].toTimeObject().epoch_nanoseconds;
-        return vm.newFloat(@as(f64, @floatFromInt(diff)) / @as(f64, @floatFromInt(nanos_per_second)));
+        const diff = try exactSub(vm, receiver.toTimeObject().timew, args[0].toTimeObject().timew);
+        return vm.newFloat(exactToF64(diff) / @as(f64, @floatFromInt(nanos_per_second)));
     }
-    const delta_seconds = try coerceNumericSeconds(vm, args[0]);
-    const delta_nanoseconds = @as(i64, @intFromFloat(@floor(delta_seconds * @as(f64, @floatFromInt(nanos_per_second)))));
+    const delta_seconds = try coerceExactNumeric(vm, args[0]);
+    const delta_timew = try exactMul(vm, delta_seconds, Value.integer(nanos_per_second));
     const t = receiver.toTimeObject();
-    const new_epoch = t.epoch_nanoseconds - delta_nanoseconds;
+    const new_epoch = try exactSub(vm, t.timew, delta_timew);
     if (t.is_utc) {
         return vm.newTime(t.object.class.?, new_epoch);
     }
@@ -1257,11 +1377,11 @@ pub fn builtinTimeMinus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
 pub fn builtinTimeCompare(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     if (!args[0].isTime()) return Value.nil();
-    const lhs = receiver.toTimeObject().epoch_nanoseconds;
-    const rhs = args[0].toTimeObject().epoch_nanoseconds;
-    if (lhs < rhs) return Value.integer(-1);
-    if (lhs > rhs) return Value.integer(1);
-    return Value.integer(0);
+    return Value.integer(switch (try exactCompare(vm, receiver.toTimeObject().timew, args[0].toTimeObject().timew)) {
+        .lt => -1,
+        .eq => 0,
+        .gt => 1,
+    });
 }
 
 pub fn builtinTimeStrftime(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -1289,7 +1409,7 @@ pub fn builtinTimeHash(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
 pub fn builtinTimeEql(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     if (!args[0].isTime()) return Value.boolean(false);
-    return Value.boolean(receiver.toTimeObject().epoch_nanoseconds == args[0].toTimeObject().epoch_nanoseconds);
+    return Value.boolean((try exactCompare(vm, receiver.toTimeObject().timew, args[0].toTimeObject().timew)) == .eq);
 }
 
 pub fn builtinTimeZone(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

@@ -1236,7 +1236,7 @@ fn basenameBytesAlloc(allocator: std.mem.Allocator, path: []const u8, suffix_opt
 }
 
 fn statTimestampToValue(vm: *VM, timestamp: std.Io.Timestamp) VMError!Value {
-    return vm.newTime(vm.time_class, @intCast(timestamp.nanoseconds));
+    return vm.newTime(vm.time_class, Value.integer(@intCast(timestamp.nanoseconds)));
 }
 
 fn requireFileStatReceiver(vm: *VM, receiver: Value) VMError!Value {

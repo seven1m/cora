@@ -30,6 +30,69 @@ test "Time.at preserves integer and fractional epoch values" {
     try std.testing.expectApproxEqAbs(@as(f64, 0.25), result.toFloatObject().val, 0.0000001);
 }
 
+test "Time supports dates outside the i64 nanosecond range" {
+    const result = try evalCode(
+        \\ancient = Time.local(1, 1, 1)
+        \\far_future = Time.utc(292277026596, 1, 1)
+        \\[ancient.year, ancient.month, ancient.day, far_future.year]
+    );
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 1), items[0].toInteger());
+    try std.testing.expectEqual(@as(i64, 1), items[1].toInteger());
+    try std.testing.expectEqual(@as(i64, 1), items[2].toInteger());
+    try std.testing.expectEqual(@as(i64, 292277026596), items[3].toInteger());
+}
+
+test "Time stores arbitrary-precision epoch values like MRI" {
+    const result = try evalCode(
+        \\year = 10**30
+        \\huge_year = Time.utc(year, 1, 1)
+        \\huge_epoch = Time.at(1e30)
+        \\[
+        \\  huge_year.year == year,
+        \\  huge_epoch.year == 31688738506811431596650,
+        \\  huge_epoch.to_i == 1000000000000000019884624838656,
+        \\  (huge_epoch + 1).to_i - huge_epoch.to_i
+        \\]
+    );
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(true, items[0].toBool());
+    try std.testing.expectEqual(true, items[1].toBool());
+    try std.testing.expectEqual(true, items[2].toBool());
+    try std.testing.expectEqual(@as(i64, 1), items[3].toInteger());
+}
+
+test "Time preserves exact rational arithmetic" {
+    const result = try evalCode(
+        \\third = Time.at(Rational(1, 3))
+        \\[
+        \\  (third + Rational(2, 3)) <=> Time.at(1),
+        \\  Time.at(1.0).hash == Time.at(1).hash
+        \\]
+    );
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(i64, 0), items[0].toInteger());
+    try std.testing.expectEqual(true, items[1].toBool());
+}
+
+test "Time rejects non-finite epoch values with FloatDomainError" {
+    const result = try evalCode(
+        \\[Float::INFINITY, -Float::INFINITY, Float::NAN].map do |value|
+        \\  begin
+        \\    Time.at(value)
+        \\    nil
+        \\  rescue => error
+        \\    [error.class, error.message]
+        \\  end
+        \\end
+    );
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("FloatDomainError", items[0].toArrayObject().elements.items[0].toClassObject().module.name.name);
+    try std.testing.expectEqualStrings("Infinity", items[0].toArrayObject().elements.items[1].toStringObject().str);
+    try std.testing.expectEqualStrings("-Infinity", items[1].toArrayObject().elements.items[1].toStringObject().str);
+    try std.testing.expectEqualStrings("NaN", items[2].toArrayObject().elements.items[1].toStringObject().str);
+}
+
 test "Time arithmetic and comparison use epoch values" {
     const result = try evalCode(
         \\a = Time.at(10)

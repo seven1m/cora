@@ -448,7 +448,10 @@ pub const WeakMapObject = struct {
 
 pub const TimeObject = struct {
     object: Object,
-    epoch_nanoseconds: i64,
+    // Epoch seconds magnified by 1_000_000_000, matching MRI's timew. This is
+    // an Integer for nanosecond-aligned values and may be a Rational when the
+    // source numeric has finer precision.
+    timew: Value,
     // UTC offset in nanoseconds (0 for UTC, nonzero for fixed offsets including local).
     // Stored as nanoseconds to support sub-second Rational offsets.
     utc_offset_nanos: i64 = 0,
@@ -1168,7 +1171,13 @@ pub const Value = struct {
             .string => std.hash.Wyhash.hash(0, self.toStringObject().str),
             .regexp => std.hash.Wyhash.hash(@as(u64, self.toRegexpObject().options), self.toRegexpObject().pattern),
             .float => @bitCast(self.toFloatObject().val),
-            .time => std.hash.Wyhash.hash(0, std.mem.asBytes(&self.toTimeObject().epoch_nanoseconds)),
+            .time => blk: {
+                const timew = self.toTimeObject().timew;
+                if (!timew.isRational()) break :blk timew.hash();
+                const rational = timew.toRationalObject();
+                var denominator_hash = rational.denominator.hash();
+                break :blk std.hash.Wyhash.hash(rational.numerator.hash(), std.mem.asBytes(&denominator_hash));
+            },
             else => self.raw,
         };
     }
@@ -1193,7 +1202,16 @@ pub const Value = struct {
                 .regexp => std.mem.eql(u8, self.toRegexpObject().pattern, other.toRegexpObject().pattern) and
                     self.toRegexpObject().options == other.toRegexpObject().options,
                 .float => self.toFloatObject().val == other.toFloatObject().val,
-                .time => self.toTimeObject().epoch_nanoseconds == other.toTimeObject().epoch_nanoseconds,
+                .time => blk: {
+                    const lhs = self.toTimeObject().timew;
+                    const rhs = other.toTimeObject().timew;
+                    if (lhs.isRational() != rhs.isRational()) break :blk false;
+                    if (!lhs.isRational()) break :blk lhs.eql(rhs);
+                    const lhs_rational = lhs.toRationalObject();
+                    const rhs_rational = rhs.toRationalObject();
+                    break :blk lhs_rational.numerator.eql(rhs_rational.numerator) and
+                        lhs_rational.denominator.eql(rhs_rational.denominator);
+                },
                 else => self.hash() == other.hash(),
             };
         }

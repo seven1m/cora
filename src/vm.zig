@@ -3301,10 +3301,12 @@ pub const VM = struct {
         return sym;
     }
 
-    fn addIntegerValues(self: *VM, lhs: Value, rhs: Value) VMError!Value {
+    pub fn addIntegerValues(self: *VM, lhs: Value, rhs: Value) VMError!Value {
         if (lhs.isInteger() and rhs.isInteger()) {
-            if (std.math.add(i64, lhs.toInteger(), rhs.toInteger())) |sum| {
-                return Value.integer(sum);
+            const left: i63 = @intCast(lhs.toInteger());
+            const right: i63 = @intCast(rhs.toInteger());
+            if (std.math.add(i63, left, right)) |sum| {
+                return Value.integer(@as(i64, sum));
             } else |_| {}
         }
 
@@ -3318,10 +3320,12 @@ pub const VM = struct {
         return self.valueFromManagedInteger(&out);
     }
 
-    fn subIntegerValues(self: *VM, lhs: Value, rhs: Value) VMError!Value {
+    pub fn subIntegerValues(self: *VM, lhs: Value, rhs: Value) VMError!Value {
         if (lhs.isInteger() and rhs.isInteger()) {
-            if (std.math.sub(i64, lhs.toInteger(), rhs.toInteger())) |diff| {
-                return Value.integer(diff);
+            const left: i63 = @intCast(lhs.toInteger());
+            const right: i63 = @intCast(rhs.toInteger());
+            if (std.math.sub(i63, left, right)) |diff| {
+                return Value.integer(@as(i64, diff));
             } else |_| {}
         }
 
@@ -3337,8 +3341,10 @@ pub const VM = struct {
 
     pub fn mulIntegerValues(self: *VM, lhs: Value, rhs: Value) VMError!Value {
         if (lhs.isInteger() and rhs.isInteger()) {
-            if (std.math.mul(i64, lhs.toInteger(), rhs.toInteger())) |product| {
-                return Value.integer(product);
+            const left: i63 = @intCast(lhs.toInteger());
+            const right: i63 = @intCast(rhs.toInteger());
+            if (std.math.mul(i63, left, right)) |product| {
+                return Value.integer(@as(i64, product));
             } else |_| {}
         }
 
@@ -3387,7 +3393,7 @@ pub const VM = struct {
         return self.valueFromManagedInteger(&quot);
     }
 
-    fn divFloorIntegerValues(self: *VM, lhs: Value, rhs: Value) VMError!Value {
+    pub fn divFloorIntegerValues(self: *VM, lhs: Value, rhs: Value) VMError!Value {
         const divisor_is_zero = if (rhs.isInteger())
             rhs.toInteger() == 0
         else if (rhs.isBigInteger())
@@ -3399,8 +3405,10 @@ pub const VM = struct {
         }
 
         if (lhs.isInteger() and rhs.isInteger()) {
-            if (std.math.divFloor(i64, lhs.toInteger(), rhs.toInteger())) |quot| {
-                return Value.integer(quot);
+            const left: i63 = @intCast(lhs.toInteger());
+            const right: i63 = @intCast(rhs.toInteger());
+            if (std.math.divFloor(i63, left, right)) |quot| {
+                return Value.integer(@as(i64, quot));
             } else |_| {}
         }
 
@@ -10094,7 +10102,7 @@ pub const VM = struct {
             .range => self.newRange(class_obj),
             .fiber => try self.newFiber(class_obj, null),
             .io => try self.newIo(class_obj, -1, .{ .owns_fd = false, .readable = false, .writable = false }),
-            .time => self.newTime(class_obj, 0),
+            .time => self.newTime(class_obj, Value.integer(0)),
             .weak_map => blk: {
                 const weak_map = try self.newWeakMap(Value.fromObject(&class_obj.module.object));
                 break :blk Value.fromObject(&weak_map.object);
@@ -10524,11 +10532,11 @@ pub const VM = struct {
         return self.newRationalValues(Value.integer(numerator), Value.integer(denominator));
     }
 
-    pub fn newTime(self: *VM, class_obj: *ClassObject, epoch_nanoseconds: i64) VMError!Value {
+    pub fn newTime(self: *VM, class_obj: *ClassObject, timew: Value) VMError!Value {
         const time_obj = self.gc_allocator.create(value.TimeObject) catch return error.Fatal;
         time_obj.* = .{
             .object = .{ .type_tag = .time, .flags = 0, .class = class_obj, .singleton_class = null, .instance_variables = null },
-            .epoch_nanoseconds = epoch_nanoseconds,
+            .timew = timew,
             .utc_offset_nanos = 0,
             .is_utc = true,
             .is_local = false,
@@ -10536,11 +10544,11 @@ pub const VM = struct {
         return Value.fromObject(&time_obj.object);
     }
 
-    pub fn newTimeWithOffset(self: *VM, class_obj: *ClassObject, epoch_nanoseconds: i64, utc_offset_nanos: i64) VMError!Value {
+    pub fn newTimeWithOffset(self: *VM, class_obj: *ClassObject, timew: Value, utc_offset_nanos: i64) VMError!Value {
         const time_obj = self.gc_allocator.create(value.TimeObject) catch return error.Fatal;
         time_obj.* = .{
             .object = .{ .type_tag = .time, .flags = 0, .class = class_obj, .singleton_class = null, .instance_variables = null },
-            .epoch_nanoseconds = epoch_nanoseconds,
+            .timew = timew,
             .utc_offset_nanos = utc_offset_nanos,
             .is_utc = false,
             .is_local = false,
@@ -10548,11 +10556,11 @@ pub const VM = struct {
         return Value.fromObject(&time_obj.object);
     }
 
-    pub fn newTimeLocal(self: *VM, class_obj: *ClassObject, epoch_nanoseconds: i64, utc_offset_nanos: i64) VMError!Value {
+    pub fn newTimeLocal(self: *VM, class_obj: *ClassObject, timew: Value, utc_offset_nanos: i64) VMError!Value {
         const time_obj = self.gc_allocator.create(value.TimeObject) catch return error.Fatal;
         time_obj.* = .{
             .object = .{ .type_tag = .time, .flags = 0, .class = class_obj, .singleton_class = null, .instance_variables = null },
-            .epoch_nanoseconds = epoch_nanoseconds,
+            .timew = timew,
             .utc_offset_nanos = utc_offset_nanos,
             .is_utc = false,
             .is_local = true,
