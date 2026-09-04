@@ -9314,7 +9314,7 @@ pub const VM = struct {
                             explicit_defining_class,
                             .{ .module = defining_module },
                             method_name_sym,
-                        )
+                        ) orelse self.lookupMethod(explicit_defining_class, method_name_sym)
                 else
                     self.lookupMethodForSuperFromScope(
                         self.getClass(super_frame.self_value),

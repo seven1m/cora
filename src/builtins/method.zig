@@ -33,7 +33,7 @@ fn builtinMethodCall(vm: *VM, receiver: Value, args: []Value, block: ?Block) VME
 
     const resolved: vm_mod.ResolvedMethod = .{
         .name = method_obj.name,
-        .owner_class = if (method_obj.owner.isClass()) method_obj.owner.toClassObject() else vm.getClass(method_obj.owner),
+        .owner_class = method_obj.owner_class,
         .entry = method_obj.entry,
     };
     return vm.invokeResolvedMethod(resolved, method_obj.receiver, args, block);
@@ -85,7 +85,7 @@ fn builtinMethodParameters(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     const method_obj = boundMethodObject(receiver);
     const resolved: vm_mod.ResolvedMethod = .{
         .name = method_obj.name,
-        .owner_class = if (method_obj.owner.isClass()) method_obj.owner.toClassObject() else vm.getClass(method_obj.owner),
+        .owner_class = method_obj.owner_class,
         .entry = method_obj.entry,
     };
     return common.parametersForResolvedMethod(vm, resolved);
@@ -97,7 +97,7 @@ fn builtinMethodUnbind(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
     const method_obj = boundMethodObject(receiver);
     const resolved: vm_mod.ResolvedMethod = .{
         .name = method_obj.name,
-        .owner_class = if (method_obj.owner.isClass()) method_obj.owner.toClassObject() else vm.getClass(method_obj.owner),
+        .owner_class = method_obj.owner_class,
         .entry = method_obj.entry,
     };
     return unbound_method.createUnboundMethodObject(vm, method_obj.name, resolved, method_obj.owner);
@@ -109,7 +109,7 @@ fn builtinMethodSourceLocation(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
     const method_obj = boundMethodObject(receiver);
     const resolved: vm_mod.ResolvedMethod = .{
         .name = method_obj.name,
-        .owner_class = if (method_obj.owner.isClass()) method_obj.owner.toClassObject() else vm.getClass(method_obj.owner),
+        .owner_class = method_obj.owner_class,
         .entry = method_obj.entry,
     };
     return common.sourceLocationForResolvedMethod(vm, resolved);

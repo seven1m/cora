@@ -24,10 +24,9 @@ pub fn register(vm: *VM) !void {
 fn builtinMethodCall(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     const method_obj = receiver.toMethodObject();
 
-    const owner_class = if (method_obj.owner.isClass()) method_obj.owner.toClassObject() else vm.getClass(method_obj.owner);
     const resolved: vm_mod.ResolvedMethod = .{
         .name = method_obj.name,
-        .owner_class = owner_class,
+        .owner_class = method_obj.owner_class,
         .entry = method_obj.entry,
     };
     return vm.invokeResolvedMethod(resolved, method_obj.receiver, args, block);
@@ -77,10 +76,9 @@ fn builtinMethodParameters(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     try vm.requireArgCount(args, 0);
 
     const method_obj = receiver.toMethodObject();
-    const owner_class = if (method_obj.owner.isClass()) method_obj.owner.toClassObject() else vm.getClass(method_obj.owner);
     const resolved: vm_mod.ResolvedMethod = .{
         .name = method_obj.name,
-        .owner_class = owner_class,
+        .owner_class = method_obj.owner_class,
         .entry = method_obj.entry,
     };
     return common.parametersForResolvedMethod(vm, resolved);
@@ -90,10 +88,9 @@ fn builtinMethodUnbind(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
     try vm.requireArgCount(args, 0);
 
     const method_obj = receiver.toMethodObject();
-    const owner_class = if (method_obj.owner.isClass()) method_obj.owner.toClassObject() else vm.getClass(method_obj.owner);
     const resolved: vm_mod.ResolvedMethod = .{
         .name = method_obj.name,
-        .owner_class = owner_class,
+        .owner_class = method_obj.owner_class,
         .entry = method_obj.entry,
     };
     return createUnboundMethodObject(vm, method_obj.name, resolved, method_obj.owner);
@@ -103,10 +100,9 @@ fn builtinMethodSourceLocation(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
     try vm.requireArgCount(args, 0);
 
     const method_obj = receiver.toMethodObject();
-    const owner_class = if (method_obj.owner.isClass()) method_obj.owner.toClassObject() else vm.getClass(method_obj.owner);
     const resolved: vm_mod.ResolvedMethod = .{
         .name = method_obj.name,
-        .owner_class = owner_class,
+        .owner_class = method_obj.owner_class,
         .entry = method_obj.entry,
     };
     return common.sourceLocationForResolvedMethod(vm, resolved);
@@ -184,9 +180,15 @@ fn builtinUnboundMethodBind(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 
     // Use the captured entry so the bound method invokes the original
     // implementation even if the method was removed/redefined since capture.
+    const owner_class = if (method_obj.owner.isModule())
+        bind_target.getSingletonClass() orelse vm.getClass(bind_target)
+    else if (method_obj.owner.isClass())
+        method_obj.owner.toClassObject()
+    else
+        vm.getClass(method_obj.owner);
     const captured_resolved: vm_mod.ResolvedMethod = .{
         .name = method_obj.name,
-        .owner_class = if (method_obj.owner.isClass()) method_obj.owner.toClassObject() else vm.getClass(method_obj.owner),
+        .owner_class = owner_class,
         .entry = method_obj.entry,
     };
     return createBoundMethodObject(vm, bind_target, method_obj.name, captured_resolved, method_obj.owner);

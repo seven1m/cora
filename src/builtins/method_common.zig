@@ -270,9 +270,23 @@ pub fn parametersForResolvedMethod(vm: *VM, resolved: vm_mod.ResolvedMethod) VME
 }
 
 /// Check whether `bind_target` is a valid receiver for an UnboundMethod whose
-/// owner is `owner` (a Class or Module Value).  Mirrors Ruby's is_a? semantics:
-/// the target must be an instance of the owner class or include the owner module.
+/// owner is `owner` (a Class or Module Value).
 pub fn isCompatibleBindTarget(vm: *VM, bind_target: Value, owner: Value) bool {
+    // Ruby permits a method taken directly from a module to be bound to any
+    // object, whether or not that object's class includes the module.
+    if (owner.isModule()) return true;
+
+    // Singleton methods can only move along a class singleton hierarchy. An
+    // ordinary object's singleton method remains tied to that exact object.
+    if (owner.isClass()) {
+        if (owner.toClassObject().attached_object) |attached| {
+            if (attached.isClass() and bind_target.isClass()) {
+                return vm.isClassOrSubclassOf(bind_target.toClassObject(), attached.toClassObject());
+            }
+            return attached.eql(bind_target);
+        }
+    }
+
     var is_a_args = [1]Value{owner};
     const result = kernel.builtinKernelIsA(vm, bind_target, &is_a_args, null) catch return false;
     return result.isTruthy();
@@ -299,6 +313,7 @@ pub fn createBoundMethodObject(
         .name = method_name,
         .arity = try vm.methodArityValue(resolved),
         .owner = owner,
+        .owner_class = resolved.owner_class,
         .entry = resolved.entry,
     };
 

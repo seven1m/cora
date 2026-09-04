@@ -317,6 +317,7 @@ pub const MethodObject = struct {
     name: *SymbolObject,
     arity: Value,
     owner: Value,
+    owner_class: *ClassObject,
     entry: MethodEntry,
 };
 
