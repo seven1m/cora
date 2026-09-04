@@ -6624,7 +6624,9 @@ pub const VM = struct {
                 } else methods.get(old_name_sym);
 
                 if (entry) |resolved_entry| {
-                    methods.put(new_name_sym, resolved_entry) catch return error.Fatal;
+                    var alias_entry = resolved_entry;
+                    if (alias_entry.original_name == null) alias_entry.original_name = old_name_sym;
+                    methods.put(new_name_sym, alias_entry) catch return error.Fatal;
                     self.markIntegerChangedForReceiver(current_self);
                     self.bumpMethodStateVersion();
                 } else {

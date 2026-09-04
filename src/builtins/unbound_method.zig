@@ -187,11 +187,19 @@ fn builtinUnboundMethodInspect(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
 
     const method_obj = unboundMethodObject(receiver);
     const owner_name = try common.ownerDisplayNameFull(vm, method_obj.owner);
-    const text = std.fmt.allocPrint(
-        vm.gc_allocator,
-        "#<UnboundMethod: {s}#{s}>",
-        .{ owner_name, method_obj.name.name },
-    ) catch return error.Fatal;
+    const original_name = method_obj.entry.original_name;
+    const text = if (original_name != null and original_name.? != method_obj.name)
+        std.fmt.allocPrint(
+            vm.gc_allocator,
+            "#<UnboundMethod: {s}#{s}({s})>",
+            .{ owner_name, method_obj.name.name, original_name.?.name },
+        ) catch return error.Fatal
+    else
+        std.fmt.allocPrint(
+            vm.gc_allocator,
+            "#<UnboundMethod: {s}#{s}>",
+            .{ owner_name, method_obj.name.name },
+        ) catch return error.Fatal;
     return try vm.newString(text, false);
 }
 

@@ -186,6 +186,7 @@ pub const MethodEntry = struct {
     method: Method,
     visibility: MethodVisibility = .public,
     ruby2_keywords: bool = false,
+    original_name: ?*SymbolObject = null,
 
     pub fn builtin(function: *const fn (*VM, Value, []Value, ?Block) VMError!Value, arity: BuiltinArity) MethodEntry {
         return .{

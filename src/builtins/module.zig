@@ -1555,6 +1555,7 @@ pub fn builtinModuleDefineMethod(vm: *VM, receiver: Value, args: []Value, block:
         };
         var copied = method_entry;
         copied.visibility = effective_visibility;
+        if (copied.original_name == null) copied.original_name = method_name;
         break :blk copied;
     } else blk: {
         const proc_val = try vm.newProc(try vm.requireBlock(block));
@@ -1750,7 +1751,9 @@ pub fn builtinModuleAliasMethod(vm: *VM, receiver: Value, args: []Value, _: ?Blo
 
     switch (resolveInstanceMethodLookup(vm, receiver, old_name_sym)) {
         .found => |found| {
-            methods.put(new_name_sym, found.resolved.entry) catch return error.Fatal;
+            var alias_entry = found.resolved.entry;
+            if (alias_entry.original_name == null) alias_entry.original_name = old_name_sym;
+            methods.put(new_name_sym, alias_entry) catch return error.Fatal;
             vm.markIntegerChangedForReceiver(receiver);
             vm.bumpMethodStateVersion();
         },
