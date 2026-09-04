@@ -257,6 +257,9 @@ pub const BindingObject = struct {
     real_local_count: usize = 0,
     // Method name where `binding` was called (borrowed from interned symbol or chunk name).
     method_name: ?[]const u8 = null,
+    // Source location where `binding` was called. The file is GC-owned.
+    source_file: ?[]const u8 = null,
+    source_line: u32 = 1,
 };
 
 pub const HashEntry = struct {

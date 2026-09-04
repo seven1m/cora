@@ -238,7 +238,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/binding/local_variable_set_spec.rb
 - [ ] core/binding/local_variables_spec.rb
 - [x] core/binding/receiver_spec.rb
-- [ ] core/binding/source_location_spec.rb
+- [x] core/binding/source_location_spec.rb
 
 ### core/builtin_constants
 - [-] core/builtin_constants/builtin_constants_spec.rb

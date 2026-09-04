@@ -17,6 +17,9 @@ pub fn register(vm: *VM) !void {
 
     const receiver_sym = try vm.intern("receiver");
     try vm.binding_class.module.methods.put(receiver_sym, MethodEntry.builtin(&builtinBindingReceiver, .{ .exact = 0 }));
+
+    const source_location_sym = try vm.intern("source_location");
+    try vm.binding_class.module.methods.put(source_location_sym, MethodEntry.builtin(&builtinBindingSourceLocation, .{ .exact = 0 }));
 }
 
 /// Default filename for Binding#eval when no filename argument is given.
@@ -101,4 +104,15 @@ pub fn builtinBindingLocalVariables(vm: *VM, receiver: Value, args: []Value, _: 
 pub fn builtinBindingReceiver(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return receiver.toBindingObject().self_value;
+}
+
+/// Binding#source_location -> [String, Integer] or nil
+pub fn builtinBindingSourceLocation(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const binding = receiver.toBindingObject();
+    const source_file = binding.source_file orelse return Value.nil();
+    const result = try vm.createArray();
+    result.elements.append(vm.gc_allocator, try vm.newString(source_file, false)) catch return error.Fatal;
+    result.elements.append(vm.gc_allocator, Value.integer(binding.source_line)) catch return error.Fatal;
+    return Value.fromObject(&result.object);
 }

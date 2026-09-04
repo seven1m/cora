@@ -806,6 +806,10 @@ pub fn builtinKernelBinding(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
             frame.method_name orelse null
         else
             frame.chunk.name;
+        if (frame.chunk.source_file) |source_file| {
+            binding.source_file = vm.gc_allocator.dupe(u8, source_file) catch return error.Fatal;
+        }
+        binding.source_line = vm.backtraceLineForFrame(frame);
         return Value.fromObject(&binding.object);
     }
 

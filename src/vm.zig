@@ -10226,6 +10226,8 @@ pub const VM = struct {
                 .local_names = names_copy,
                 .real_local_count = src.real_local_count,
                 .method_name = src.method_name,
+                .source_file = src.source_file,
+                .source_line = src.source_line,
             };
             return Value.fromObject(&dup_ptr.object);
         }
