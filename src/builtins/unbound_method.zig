@@ -210,7 +210,7 @@ fn builtinUnboundMethodBindCall(vm: *VM, receiver: Value, args: []Value, block: 
         .owner_class = boundOwnerClass(vm, bind_target, method_obj.owner),
         .entry = method_obj.entry,
     };
-    return vm.invokeResolvedMethod(captured_resolved, bind_target, @constCast(call_args), block);
+    return vm.invokeResolvedMethodWithKeywords(captured_resolved, bind_target, @constCast(call_args), block, vm.builtin_keyword_ctx);
 }
 
 fn builtinUnboundMethodInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

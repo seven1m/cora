@@ -36,7 +36,7 @@ fn builtinMethodCall(vm: *VM, receiver: Value, args: []Value, block: ?Block) VME
         .owner_class = method_obj.owner_class,
         .entry = method_obj.entry,
     };
-    return vm.invokeResolvedMethod(resolved, method_obj.receiver, args, block);
+    return vm.invokeResolvedMethodWithKeywords(resolved, method_obj.receiver, args, block, vm.builtin_keyword_ctx);
 }
 
 fn builtinMethodEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

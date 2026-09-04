@@ -8136,7 +8136,7 @@ pub const VM = struct {
         }
     }
 
-    fn invokeResolvedMethodWithKeywords(
+    pub fn invokeResolvedMethodWithKeywords(
         self: *VM,
         resolved: ResolvedMethod,
         receiver: Value,
