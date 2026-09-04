@@ -1183,6 +1183,62 @@ const WarningLocation = struct {
     line: u32,
 };
 
+const BacktraceLocation = struct {
+    frame: *const vm_mod.CallFrame,
+    source: []const u8,
+    line: u32,
+};
+
+fn isUsableRubyFrame(frame: *const vm_mod.CallFrame) bool {
+    if (frame.frame_type == .builtin) return false;
+    const source = frame.chunk.source_file orelse frame.chunk.name;
+    if (std.mem.startsWith(u8, source, "<internal:")) return false;
+    if (frame.method_name) |method_name| {
+        if (std.mem.eql(u8, method_name, "require") or std.mem.eql(u8, method_name, "require_relative")) return false;
+    }
+    return true;
+}
+
+fn backtraceLocationForFrame(vm: *VM, index: usize) BacktraceLocation {
+    const frame = &vm.frames.items[index];
+    if (frame.frame_type == .builtin) {
+        var next = index;
+        while (next > 0) {
+            next -= 1;
+            const candidate = &vm.frames.items[next];
+            if (isUsableRubyFrame(candidate)) {
+                return .{
+                    .frame = frame,
+                    .source = candidate.chunk.source_file orelse candidate.chunk.name,
+                    .line = vm.backtraceLineForFrame(candidate),
+                };
+            }
+        }
+    }
+
+    return .{
+        .frame = frame,
+        .source = frame.chunk.source_file orelse frame.chunk.name,
+        .line = vm.backtraceLineForFrame(frame),
+    };
+}
+
+fn collectBacktraceLocations(vm: *VM) VMError!std.ArrayList(BacktraceLocation) {
+    var frames: std.ArrayList(BacktraceLocation) = .empty;
+    var i = vm.frames.items.len;
+    while (i > 0) {
+        i -= 1;
+        frames.append(vm.gc_allocator, backtraceLocationForFrame(vm, i)) catch return error.Fatal;
+    }
+    return frames;
+}
+
+fn backtraceLocationStart(frames: []const BacktraceLocation) usize {
+    var start: usize = 0;
+    while (start < frames.len and frames[start].frame.frame_type == .builtin) : (start += 1) {}
+    return start;
+}
+
 fn warningCategorySymbol(vm: *VM, category_value: ?Value) VMError!?Value {
     const raw = category_value orelse return null;
     if (raw.isNil()) return Value.nil();
@@ -1214,29 +1270,19 @@ fn warningUplevel(vm: *VM, uplevel_value: ?Value) VMError!?usize {
 }
 
 fn warningLocationForUplevel(vm: *VM, depth: usize) ?WarningLocation {
+    var frames = collectBacktraceLocations(vm) catch return null;
+    defer frames.deinit(vm.gc_allocator);
+
     var remaining = depth;
-    var i = vm.frames.items.len;
-    while (i > 0) {
-        i -= 1;
-        const frame = &vm.frames.items[i];
-        // CRuby's uplevel walk counts synthetic frames that appear in the
-        // backtrace (e.g. `in 'bind_call'`) and skips plain C-function
-        // frames (the warn builtin itself). bind_call is how RubyGems'
-        // Kernel#warn override forwards to the original warn, and its
-        // compensation in caller_locations assumes it is counted.
-        const counts_as_backtrace_frame = frame.method_name != null and std.mem.eql(u8, frame.method_name.?, "bind_call");
-        if (frame.frame_type == .builtin and !counts_as_backtrace_frame) continue;
-        const source = frame.chunk.source_file orelse frame.chunk.name;
-
-        if (std.mem.startsWith(u8, source, "<internal:")) continue;
-        if (frame.method_name) |method_name| {
-            if (std.mem.eql(u8, method_name, "require") or std.mem.eql(u8, method_name, "require_relative")) continue;
-        }
-
+    for (frames.items, 0..) |entry, index| {
+        // Skip the C warn frame itself, equivalent to caller_locations' first
+        // implicit level. Subsequent builtin frames count normally.
+        if (index == 0) continue;
+        if (!isUsableRubyFrame(entry.frame) and entry.frame.frame_type != .builtin) continue;
         if (remaining == 0) {
             return .{
-                .source = source,
-                .line = vm.backtraceLineForFrame(frame),
+                .source = entry.source,
+                .line = entry.line,
             };
         }
         remaining -= 1;
@@ -1336,22 +1382,22 @@ fn callerFrameLabel(vm: *VM, frame: *const vm_mod.CallFrame, next_frame: ?*const
         return std.fmt.allocPrint(vm.gc_allocator, "block in {s}", .{enclosing}) catch return error.Fatal;
     }
 
+    if (std.mem.eql(u8, frame.chunk.name, "main")) return "<main>";
     return frame.chunk.name;
 }
 
 fn appendCallerEntry(
     vm: *VM,
     result: *value.ArrayObject,
-    frame: *const vm_mod.CallFrame,
-    next_frame: ?*const vm_mod.CallFrame,
+    entry: BacktraceLocation,
+    next_frame: ?BacktraceLocation,
 ) VMError!void {
-    const source = frame.chunk.source_file orelse frame.chunk.name;
-    const label = try callerFrameLabel(vm, frame, next_frame);
+    const label = try callerFrameLabel(vm, entry.frame, if (next_frame) |next| next.frame else null);
 
     const backtrace_str = std.fmt.allocPrint(
         vm.gc_allocator,
         "{s}:{d}:in '{s}'",
-        .{ source, vm.backtraceLineForFrame(frame), label },
+        .{ entry.source, entry.line, label },
     ) catch return error.Fatal;
     const string_value = try vm.newString(backtrace_str, false);
     result.elements.append(vm.gc_allocator, string_value) catch return error.Fatal;
@@ -1360,35 +1406,28 @@ fn appendCallerEntry(
 fn appendCallerLocationEntry(
     vm: *VM,
     result: *value.ArrayObject,
-    frame: *const vm_mod.CallFrame,
-    next_frame: ?*const vm_mod.CallFrame,
+    entry: BacktraceLocation,
+    next_frame: ?BacktraceLocation,
 ) VMError!void {
-    const source = frame.chunk.source_file orelse frame.chunk.name;
-    const label = try callerFrameLabel(vm, frame, next_frame);
-    const location = try vm.newBacktraceLocation(source, vm.backtraceLineForFrame(frame), label);
+    const label = try callerFrameLabel(vm, entry.frame, if (next_frame) |next| next.frame else null);
+    const location = try vm.newBacktraceLocation(entry.source, entry.line, label);
     result.elements.append(vm.gc_allocator, location) catch return error.Fatal;
 }
 
 fn builtinKernelCaller(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 2);
 
-    var frames: std.ArrayList(*const vm_mod.CallFrame) = .empty;
+    var frames = try collectBacktraceLocations(vm);
     defer frames.deinit(vm.gc_allocator);
-
-    var i = vm.frames.items.len;
-    while (i > 0) {
-        i -= 1;
-        const frame = &vm.frames.items[i];
-        if (frame.frame_type == .builtin) continue;
-        frames.append(vm.gc_allocator, frame) catch return error.Fatal;
-    }
+    const frame_start = backtraceLocationStart(frames.items);
+    const caller_frames = frames.items[frame_start..];
 
     const plan = if (args.len == 0)
-        try planCallerSliceStartLength(vm, frames.items.len, Value.integer(1), null)
+        try planCallerSliceStartLength(vm, caller_frames.len, Value.integer(1), null)
     else if (args.len == 1 and args[0].isRange())
-        try planCallerSliceRange(vm, frames.items.len, args[0].toRangeObject())
+        try planCallerSliceRange(vm, caller_frames.len, args[0].toRangeObject())
     else
-        try planCallerSliceStartLength(vm, frames.items.len, args[0], if (args.len == 2) args[1] else null);
+        try planCallerSliceStartLength(vm, caller_frames.len, args[0], if (args.len == 2) args[1] else null);
 
     switch (plan) {
         .nil_result => return Value.nil(),
@@ -1397,8 +1436,8 @@ fn builtinKernelCaller(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
             var idx = span.start;
             const end = span.start + span.count;
             while (idx < end) : (idx += 1) {
-                const next_frame = if (idx + 1 < frames.items.len) frames.items[idx + 1] else null;
-                try appendCallerEntry(vm, result, frames.items[idx], next_frame);
+                const next_frame = if (idx + 1 < caller_frames.len) caller_frames[idx + 1] else null;
+                try appendCallerEntry(vm, result, caller_frames[idx], next_frame);
             }
             return Value.fromObject(&result.object);
         },
@@ -1408,23 +1447,17 @@ fn builtinKernelCaller(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
 fn builtinKernelCallerLocations(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 2);
 
-    var frames: std.ArrayList(*const vm_mod.CallFrame) = .empty;
+    var frames = try collectBacktraceLocations(vm);
     defer frames.deinit(vm.gc_allocator);
-
-    var i = vm.frames.items.len;
-    while (i > 0) {
-        i -= 1;
-        const frame = &vm.frames.items[i];
-        if (frame.frame_type == .builtin) continue;
-        frames.append(vm.gc_allocator, frame) catch return error.Fatal;
-    }
+    const frame_start = backtraceLocationStart(frames.items);
+    const caller_frames = frames.items[frame_start..];
 
     const plan = if (args.len == 0)
-        try planCallerSliceStartLength(vm, frames.items.len, Value.integer(1), null)
+        try planCallerSliceStartLength(vm, caller_frames.len, Value.integer(1), null)
     else if (args.len == 1 and args[0].isRange())
-        try planCallerSliceRange(vm, frames.items.len, args[0].toRangeObject())
+        try planCallerSliceRange(vm, caller_frames.len, args[0].toRangeObject())
     else
-        try planCallerSliceStartLength(vm, frames.items.len, args[0], if (args.len == 2) args[1] else null);
+        try planCallerSliceStartLength(vm, caller_frames.len, args[0], if (args.len == 2) args[1] else null);
 
     switch (plan) {
         .nil_result => return Value.nil(),
@@ -1433,8 +1466,8 @@ fn builtinKernelCallerLocations(vm: *VM, _: Value, args: []Value, _: ?Block) VME
             var idx = span.start;
             const end = span.start + span.count;
             while (idx < end) : (idx += 1) {
-                const next_frame = if (idx + 1 < frames.items.len) frames.items[idx + 1] else null;
-                try appendCallerLocationEntry(vm, result, frames.items[idx], next_frame);
+                const next_frame = if (idx + 1 < caller_frames.len) caller_frames[idx + 1] else null;
+                try appendCallerLocationEntry(vm, result, caller_frames[idx], next_frame);
             }
             return Value.fromObject(&result.object);
         },

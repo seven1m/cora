@@ -80,3 +80,36 @@ test "Kernel#raise keeps the Ruby caller at the top of the backtrace" {
     try std.testing.expect(result.isString());
     try std.testing.expect(std.mem.indexOf(u8, result.toStringObject().str, "Object#boom") != null);
 }
+
+test "caller_locations includes builtin forwarding frames" {
+    const result = try evalCode(
+        \\class A
+        \\  def probe
+        \\    caller_locations(0, 3).map(&:label)
+        \\  end
+        \\end
+        \\A.instance_method(:probe).bind_call(A.new)
+    );
+
+    try std.testing.expect(result.isArray());
+    const labels = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(@as(usize, 3), labels.len);
+    try std.testing.expectEqualStrings("A#probe", labels[0].toStringObject().str);
+    try std.testing.expectEqualStrings("UnboundMethod#bind_call", labels[1].toStringObject().str);
+    try std.testing.expectEqualStrings("<main>", labels[2].toStringObject().str);
+}
+
+test "warn uplevel counts builtin forwarding frames" {
+    var stdout_buf: [8192]u8 = undefined;
+    var stderr_buf: [8192]u8 = undefined;
+    const result = evalCodeWithOutput(
+        \\class A
+        \\  def probe
+        \\    warn "warning", uplevel: 1
+        \\  end
+        \\end
+        \\A.instance_method(:probe).bind_call(A.new)
+    , &stdout_buf, &stderr_buf);
+
+    try std.testing.expect(std.mem.indexOf(u8, result.stderr, ":6: warning: warning\n") != null);
+}
