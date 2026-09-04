@@ -672,7 +672,7 @@ pub fn builtinIoPopen(vm: *VM, receiver: Value, args: []Value, block: ?Block) VM
     return io_value;
 }
 
-pub fn builtinIoPipe(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+pub fn builtinIoPipe(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
 
     const io_class = if (receiver.isClass()) receiver.toClassObject() else vm.io_class;
@@ -694,7 +694,20 @@ pub fn builtinIoPipe(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
     const pair = try vm.createArray();
     pair.elements.append(vm.gc_allocator, read_io) catch return error.Fatal;
     pair.elements.append(vm.gc_allocator, write_io) catch return error.Fatal;
-    return Value.fromObject(&pair.object);
+    const pair_value = Value.fromObject(&pair.object);
+
+    if (block) |blk| {
+        const yielded = vm.yieldToBlock(blk, &[_]Value{pair_value}) catch |err| {
+            _ = builtinIoClose(vm, read_io, &[_]Value{}, null) catch {};
+            _ = builtinIoClose(vm, write_io, &[_]Value{}, null) catch {};
+            return err;
+        };
+        _ = try builtinIoClose(vm, read_io, &[_]Value{}, null);
+        _ = try builtinIoClose(vm, write_io, &[_]Value{}, null);
+        return yielded;
+    }
+
+    return pair_value;
 }
 
 pub fn builtinIoCopyStream(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -1275,7 +1288,7 @@ fn parseIoModeString(vm: *VM, mode_value: Value) VMError!IoModeParse {
         return vm.raiseExceptionFmt(vm.argument_error_class, "invalid access mode", .{});
     }
 
-    const mode_part = raw_mode[0 .. (std.mem.indexOfScalar(u8, raw_mode, ':') orelse raw_mode.len)];
+    const mode_part = raw_mode[0..(std.mem.indexOfScalar(u8, raw_mode, ':') orelse raw_mode.len)];
     const encoding_part = if (mode_part.len < raw_mode.len) raw_mode[mode_part.len + 1 ..] else "";
     if (mode_part.len == 0) {
         return vm.raiseExceptionFmt(vm.argument_error_class, "invalid access mode", .{});
@@ -2021,10 +2034,10 @@ pub fn builtinIoSelect(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
             const ready_count = std.c.poll(pollfds.items.ptr, @intCast(pollfds.items.len), step_timeout_ms);
             if (ready_count < 0) {
                 const errno_code: std.posix.E = @enumFromInt(std.c._errno().*);
-            if (errno_code == .INTR) {
-                try vm.checkAsyncEvents();
-                continue;
-            }
+                if (errno_code == .INTR) {
+                    try vm.checkAsyncEvents();
+                    continue;
+                }
                 return vm.raiseErrnoFmt(errno_code, "poll failed", .{});
             }
             try selectRaiseIfInvalid(vm, pollfds.items);
