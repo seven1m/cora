@@ -1392,7 +1392,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/method/super_method_spec.rb
 - [ ] core/method/to_proc_spec.rb
 - [ ] core/method/to_s_spec.rb
-- [ ] core/method/unbind_spec.rb
+- [x] core/method/unbind_spec.rb
 
 ### core/module
 - [ ] core/module/alias_method_spec.rb

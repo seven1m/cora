@@ -148,6 +148,10 @@ pub fn ownerDisplayName(owner: Value) []const u8 {
 
 pub fn ownerDisplayNameFull(vm: *VM, owner: Value) VMError![]const u8 {
     if (owner.isClass() or owner.isModule()) {
+        if (owner.isClass() and owner.toClassObject().attached_object != null) {
+            const to_s_val = try vm.callMethodByName(owner, "to_s", &[_]Value{}, null);
+            if (to_s_val.isString()) return to_s_val.toStringObject().str;
+        }
         const name_val = try vm.callMethodByName(owner, "name", &[_]Value{}, null);
         if (name_val.isString()) return name_val.toStringObject().str;
     }
