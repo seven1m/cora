@@ -1,3 +1,4 @@
+const std = @import("std");
 const vm_mod = @import("../vm.zig");
 const common = @import("method_common.zig");
 const unbound_method = @import("unbound_method.zig");
@@ -11,6 +12,20 @@ const SymbolObject = common.SymbolObject;
 
 fn boundMethodObject(receiver: Value) *MethodObject {
     return receiver.toMethodObject();
+}
+
+pub fn register(vm: *VM) !void {
+    const inspect_sym = try vm.intern("inspect");
+    const to_s_sym = try vm.intern("to_s");
+    const inspect_entry = common.MethodEntry.builtin(&builtinMethodInspect, .{ .exact = 0 });
+    try vm.method_class.module.methods.put(inspect_sym, inspect_entry);
+    try vm.method_class.module.methods.put(to_s_sym, inspect_entry);
+}
+
+fn builtinMethodInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const text = std.fmt.allocPrint(vm.gc_allocator, "#<Method:0x{x}>", .{receiver.raw}) catch return error.Fatal;
+    return vm.newString(text, false);
 }
 
 fn builtinMethodCall(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {

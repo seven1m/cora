@@ -27,6 +27,7 @@ const integer = @import("integer.zig");
 const kernel = @import("kernel.zig");
 const match_data = @import("match_data.zig");
 const marshal = @import("marshal.zig");
+const method_builtin = @import("method.zig");
 const module_builtin = @import("module.zig");
 const nil_class = @import("nil_class.zig");
 const numeric = @import("numeric.zig");
@@ -61,6 +62,7 @@ pub fn registerAll(vm: *VM) !void {
     try class_builtin.register(vm);
     try module_builtin.register(vm);
     try binding_builtin.register(vm);
+    try method_builtin.register(vm);
     try unbound_method.register(vm);
     try integer.register(vm);
     try numeric.register(vm);

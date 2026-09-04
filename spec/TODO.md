@@ -1379,7 +1379,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/method/eql_spec.rb
 - [x] core/method/equal_value_spec.rb
 - [ ] core/method/hash_spec.rb
-- [ ] core/method/inspect_spec.rb
+- [x] core/method/inspect_spec.rb
 - [x] core/method/name_spec.rb
 - [x] core/method/original_name_spec.rb
 - [x] core/method/owner_spec.rb
