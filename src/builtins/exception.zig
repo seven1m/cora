@@ -30,6 +30,9 @@ pub fn register(vm: *VM) !void {
     const backtrace_sym = try vm.intern("backtrace");
     try vm.exception_class.module.methods.put(backtrace_sym, value.MethodEntry.builtin(&builtinExceptionBacktrace, .{ .exact = 0 }));
 
+    const set_backtrace_sym = try vm.intern("set_backtrace");
+    try vm.exception_class.module.methods.put(set_backtrace_sym, value.MethodEntry.builtin(&builtinExceptionSetBacktrace, .{ .exact = 1 }));
+
     const cause_sym = try vm.intern("cause");
     try vm.exception_class.module.methods.put(cause_sym, value.MethodEntry.builtin(&builtinExceptionCause, .{ .exact = 0 }));
 
@@ -173,6 +176,22 @@ pub fn builtinExceptionBacktrace(vm: *VM, receiver: Value, args: []Value, _: ?Bl
         return Value.fromObject(&backtrace.object);
     }
     return Value.nil();
+}
+
+pub fn builtinExceptionSetBacktrace(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+
+    const exc = receiver.toExceptionObject();
+    const backtrace_value = args[0];
+    if (backtrace_value.isNil() or backtrace_value.isFalse()) {
+        exc.backtrace = null;
+        return backtrace_value;
+    }
+    if (!backtrace_value.isArray()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "exception backtrace must be Array or nil", .{});
+    }
+    exc.backtrace = backtrace_value.toArrayObject();
+    return backtrace_value;
 }
 
 pub fn builtinExceptionCause(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

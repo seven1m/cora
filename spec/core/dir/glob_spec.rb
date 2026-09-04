@@ -30,22 +30,20 @@ describe "Dir.glob" do
   end
 
   it 'returns matching file paths when supplied :base keyword argument' do
-    CORAFIXME "Dir.glob recursive matching with an absolute base path is incomplete", exception: SpecFailedException do
-      dir = tmp('dir_glob_base')
-      file_1 = "#{dir}/lib/bloop.rb"
-      file_2 = "#{dir}/lib/soup.rb"
-      file_3 = "#{dir}/lib/mismatched_file_type.txt"
-      file_4 = "#{dir}/mismatched_directory.rb"
+    dir = tmp('dir_glob_base')
+    file_1 = "#{dir}/lib/bloop.rb"
+    file_2 = "#{dir}/lib/soup.rb"
+    file_3 = "#{dir}/lib/mismatched_file_type.txt"
+    file_4 = "#{dir}/mismatched_directory.rb"
 
-      touch file_1
-      touch file_2
-      touch file_3
-      touch file_4
+    touch file_1
+    touch file_2
+    touch file_3
+    touch file_4
 
-      Dir.glob('**/*.rb', base: "#{dir}/lib").sort.should == ["bloop.rb", "soup.rb"].sort
-    ensure
-      rm_r dir
-    end
+    Dir.glob('**/*.rb', base: "#{dir}/lib").sort.should == ["bloop.rb", "soup.rb"].sort
+  ensure
+    rm_r dir
   end
 
   it "calls #to_path to convert multiple patterns" do
@@ -58,7 +56,7 @@ describe "Dir.glob" do
   end
 
   it "matches both dot and non-dotfiles with '*' and option File::FNM_DOTMATCH" do
-    CORAFIXME "Dir.glob FNM_DOTMATCH does not yet include . in top-level results", exception: SpecFailedException do
+    CORAFIXME "Dir.glob FNM_DOTMATCH does not yet include . in top-level results", exception: SpecExpectationNotMetError do
       Dir.glob('*', File::FNM_DOTMATCH).sort.should == DirSpecs.expected_glob_paths
     end
   end
@@ -68,7 +66,7 @@ describe "Dir.glob" do
   end
 
   it "matches any files in the current directory with '**' and option File::FNM_DOTMATCH" do
-    CORAFIXME "Dir.glob treats bare ** with FNM_DOTMATCH as recursive traversal instead of current-directory entries", exception: SpecFailedException do
+    CORAFIXME "Dir.glob treats bare ** with FNM_DOTMATCH as recursive traversal instead of current-directory entries", exception: SpecExpectationNotMetError do
       Dir.glob('**', File::FNM_DOTMATCH).sort.should == DirSpecs.expected_glob_paths
     end
   end
@@ -92,7 +90,7 @@ describe "Dir.glob" do
       subdir_two/
     ]
 
-    CORAFIXME "Dir.glob currently includes the root directory for bare recursive directory globs with FNM_DOTMATCH", exception: SpecFailedException do
+    CORAFIXME "Dir.glob currently includes the root directory for bare recursive directory globs with FNM_DOTMATCH", exception: SpecExpectationNotMetError do
       Dir.glob('**/', File::FNM_DOTMATCH).sort.should == expected
     end
   end
@@ -105,7 +103,7 @@ describe "Dir.glob" do
       nested/.dotsubir/nondotfile
     ]
 
-    CORAFIXME "Dir.glob does not yet include nested/. for recursive dot matches", exception: SpecFailedException do
+    CORAFIXME "Dir.glob does not yet include nested/. for recursive dot matches", exception: SpecExpectationNotMetError do
       Dir.glob('nested/**/*', File::FNM_DOTMATCH).sort.should == expected.sort
     end
   end
@@ -132,7 +130,7 @@ describe "Dir.glob" do
       ./subdir_two/
     ]
 
-    CORAFIXME "Dir.glob does not yet preserve ./-prefixed recursive directory matches", exception: SpecFailedException do
+    CORAFIXME "Dir.glob does not yet preserve ./-prefixed recursive directory matches", exception: SpecExpectationNotMetError do
       Dir.glob('./**/', File::FNM_DOTMATCH).sort.should == expected
     end
   end
@@ -155,7 +153,7 @@ describe "Dir.glob" do
       deeply//nested/directory/structure
     ]
 
-    CORAFIXME "Dir.glob normalizes repeated slashes before recursive globs", exception: SpecFailedException do
+    CORAFIXME "Dir.glob normalizes repeated slashes before recursive globs", exception: SpecExpectationNotMetError do
       Dir.glob('{deeply//**/structure}').sort.should == expected
     end
   end
@@ -181,7 +179,7 @@ describe "Dir.glob" do
   end
 
   it "handles **/** with base keyword argument" do
-    CORAFIXME "Dir.glob **/** handling with base paths is incomplete", exception: SpecFailedException do
+    CORAFIXME "Dir.glob **/** handling with base paths is incomplete", exception: SpecExpectationNotMetError do
       Dir.glob('**/**', base: "dir").should == ["filename_ordering"]
 
       expected = %w[
@@ -267,7 +265,7 @@ describe "Dir.glob" do
       directory/structure/.ext
     ].sort
 
-    CORAFIXME "Dir.glob does not yet include . for **/.* matches with FNM_DOTMATCH", exception: SpecFailedException do
+    CORAFIXME "Dir.glob does not yet include . for **/.* matches with FNM_DOTMATCH", exception: SpecExpectationNotMetError do
       Dir.glob('**/.*', File::FNM_DOTMATCH, base: "deeply/nested").sort.should == expected
     end
   end
@@ -286,7 +284,7 @@ describe "Dir.glob" do
       directory/structure/foo
     ].sort
 
-    CORAFIXME "Dir.glob **/** handling with base paths and FNM_DOTMATCH is incomplete", exception: SpecFailedException do
+    CORAFIXME "Dir.glob **/** handling with base paths and FNM_DOTMATCH is incomplete", exception: SpecExpectationNotMetError do
       Dir.glob('**/**', File::FNM_DOTMATCH, base: "deeply/nested").sort.should == expected
     end
   end
@@ -355,7 +353,7 @@ describe "Dir.glob" do
     end
 
     it "will follow symlinks when processing a `*/` pattern." do
-      CORAFIXME "File.symlink and symlink traversal support are not implemented yet", exception: SpecFailedException do
+      CORAFIXME "File.symlink and symlink traversal support are not implemented yet", exception: SpecExpectationNotMetError do
         expected = ['special/ln/nondotfile']
         Dir.glob('special/*/nondotfile').should == expected
       end
@@ -372,7 +370,7 @@ describe "Dir.glob" do
     end
 
     it "will follow symlinks when testing directory after recursive directory in pattern" do
-      CORAFIXME "File.symlink and symlink traversal support are not implemented yet", exception: SpecFailedException do
+      CORAFIXME "File.symlink and symlink traversal support are not implemented yet", exception: SpecExpectationNotMetError do
         expected = %w[
           deeply/nondotfile
           special/ln/nondotfile

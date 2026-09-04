@@ -137,7 +137,7 @@ describe :dir_glob, shared: true do
   end
 
   it "matches dotfiles except .. with '.*'" do
-    CORAFIXME "Dir.glob does not yet include . for leading-dot glob matches", exception: SpecFailedException do
+    CORAFIXME "Dir.glob does not yet include . for leading-dot glob matches", exception: SpecExpectationNotMetError do
       Dir.send(@method, '.*').sort.should == %w|. .dotfile .dotsubdir|.sort
     end
   end
@@ -181,13 +181,13 @@ describe :dir_glob, shared: true do
       subdir_two
     ]
 
-    CORAFIXME "Dir.glob treats bare ** as recursive traversal instead of current-directory entries", exception: SpecFailedException do
+    CORAFIXME "Dir.glob treats bare ** as recursive traversal instead of current-directory entries", exception: SpecExpectationNotMetError do
       Dir.send(@method, '**').sort.should == expected
     end
   end
 
   it "matches dotfiles in the current directory except .. with '.**'" do
-    CORAFIXME "Dir.glob does not yet include . for leading-dot recursive glob matches", exception: SpecFailedException do
+    CORAFIXME "Dir.glob does not yet include . for leading-dot recursive glob matches", exception: SpecExpectationNotMetError do
       Dir.send(@method, '.**').sort.should == %w|. .dotsubdir .dotfile|.sort
     end
   end
@@ -209,7 +209,7 @@ describe :dir_glob, shared: true do
       subdir_two/
     ]
 
-    CORAFIXME "Dir.glob currently includes the root directory for bare recursive directory globs", exception: SpecFailedException do
+    CORAFIXME "Dir.glob currently includes the root directory for bare recursive directory globs", exception: SpecExpectationNotMetError do
       Dir.send(@method, '**/').sort.should == expected
     end
   end
@@ -223,7 +223,7 @@ describe :dir_glob, shared: true do
   end
 
   it "recursively matches any subdirectories including ./ with '.**/'" do
-    CORAFIXME "Dir.glob does not yet return ./ for .**/ rooted matches", exception: SpecFailedException do
+    CORAFIXME "Dir.glob does not yet return ./ for .**/ rooted matches", exception: SpecExpectationNotMetError do
       Dir.chdir("#{DirSpecs.mock_dir}/subdir_one") do
         Dir.send(@method, '.**/').should == ['./']
       end
@@ -269,20 +269,20 @@ describe :dir_glob, shared: true do
   end
 
   it "matches dot or non-dotfiles with '{,.}*'" do
-    CORAFIXME "Dir.glob does not yet include . for brace-expanded dot matches", exception: SpecFailedException do
+    CORAFIXME "Dir.glob does not yet include . for brace-expanded dot matches", exception: SpecExpectationNotMetError do
       Dir.send(@method, '{,.}*').sort.should == DirSpecs.expected_glob_paths
     end
   end
 
   it "respects the order of {} expressions, expanding left most first" do
-    CORAFIXME "Dir.glob brace expansion order does not yet match MRI", exception: SpecFailedException do
+    CORAFIXME "Dir.glob brace expansion order does not yet match MRI", exception: SpecExpectationNotMetError do
       files = Dir.send(@method, "brace/a{.js,.html}{.erb,.rjs}")
       files.should == %w!brace/a.js.rjs brace/a.html.erb!
     end
   end
 
   it "respects the optional nested {} expressions" do
-    CORAFIXME "Dir.glob nested brace expansion order does not yet match MRI", exception: SpecFailedException do
+    CORAFIXME "Dir.glob nested brace expansion order does not yet match MRI", exception: SpecExpectationNotMetError do
       files = Dir.send(@method, "brace/a{.{js,html},}{.{erb,rjs},}")
       files.should == %w!brace/a.js.rjs brace/a.js brace/a.html.erb brace/a.erb brace/a!
     end
@@ -360,8 +360,8 @@ describe :dir_glob, shared: true do
     end
 
     it "accepts both relative and absolute paths" do
-      CORAFIXME "Pathname is not implemented yet for relative base path coverage", exception: SpecFailedException do
-        raise SpecFailedException, "Pathname is not implemented yet"
+      CORAFIXME "Pathname is not implemented yet for relative base path coverage", exception: SpecExpectationNotMetError do
+        raise SpecExpectationNotMetError, "Pathname is not implemented yet"
       end
     end
 

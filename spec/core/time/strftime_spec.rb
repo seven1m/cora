@@ -74,12 +74,12 @@ describe "Time#strftime" do
     time = Time.gm(2022)
     time.strftime("%-z").should == "-0000"
 
-    CORAFIXME "Time.new with \"Z\" string offset does not set is_utc", exception: SpecFailedException do
+    CORAFIXME "Time.new with \"Z\" string offset does not set is_utc", exception: SpecExpectationNotMetError do
       time = Time.new(2022, 1, 1, 0, 0, 0, "Z")
       time.strftime("%-z").should == "-0000"
     end
 
-    CORAFIXME "Time.new with \"-00:00\" string offset does not set is_utc", exception: SpecFailedException do
+    CORAFIXME "Time.new with \"-00:00\" string offset does not set is_utc", exception: SpecExpectationNotMetError do
       time = Time.new(2022, 1, 1, 0, 0, 0, "-00:00")
       time.strftime("%-z").should == "-0000"
     end
@@ -94,7 +94,7 @@ describe "Time#strftime" do
   end
 
   it "works correctly with width, _ and 0 flags, and :" do
-    CORAFIXME "strftime width/padding flags not yet implemented", exception: SpecFailedException do
+    CORAFIXME "strftime width/padding flags not yet implemented", exception: SpecExpectationNotMetError do
       Time.now.utc.strftime("%-_10z").should == "      -000"
       Time.now.utc.strftime("%-10z").should == "-000000000"
       Time.now.utc.strftime("%-010:z").should == "-000000:00"

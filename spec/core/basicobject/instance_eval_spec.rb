@@ -95,7 +95,7 @@ describe "BasicObject#instance_eval" do
   end
 
   it "raises TypeError for frozen objects when tries to set receiver's instance variables" do
-    CORAFIXME "frozen-object error messages do not yet include inspected receiver values", exception: SpecFailedException do
+    CORAFIXME "frozen-object error messages do not yet include inspected receiver values", exception: SpecExpectationNotMetError do
       -> { nil.instance_eval { @foo = 42 } }.should raise_error(FrozenError, "can't modify frozen NilClass: nil")
       -> { true.instance_eval { @foo = 42 } }.should raise_error(FrozenError, "can't modify frozen TrueClass: true")
       -> { false.instance_eval { @foo = 42 } }.should raise_error(FrozenError, "can't modify frozen FalseClass: false")
@@ -192,7 +192,7 @@ describe "BasicObject#instance_eval" do
     end
 
     it "gets class variables in the block definition scope when called with a block" do
-      CORAFIXME "instance_eval block class-variable lookup still resolves against the caller scope", exception: SpecFailedException do
+      CORAFIXME "instance_eval block class-variable lookup still resolves against the caller scope", exception: SpecExpectationNotMetError do
         receiver = BasicObjectSpecs::InstEval::CVar::Get::ReceiverScope.new
         caller = BasicObjectSpecs::InstEval::CVar::Get::CallerScope.new
         block = BasicObjectSpecs::InstEval::CVar::Get::BlockDefinitionScope.new.block
@@ -261,7 +261,7 @@ describe "BasicObject#instance_eval" do
   end
 
   it "evaluates string with given filename and negative linenumber" do
-    CORAFIXME "negative eval line numbers are not implemented yet", exception: SpecFailedException do
+    CORAFIXME "negative eval line numbers are not implemented yet", exception: SpecExpectationNotMetError do
       err = begin
         Object.new.instance_eval("\n\nraise\n", "b_file", -100)
       rescue => e
@@ -327,7 +327,7 @@ describe "BasicObject#instance_eval" do
   end
 
   it "raises ArgumentError if returned value is not Integer" do
-    CORAFIXME "instance_eval lineno coercion error message is not MRI-compatible yet", exception: SpecFailedException do
+    CORAFIXME "instance_eval lineno coercion error message is not MRI-compatible yet", exception: SpecExpectationNotMetError do
       lineno = Object.new
       def lineno.to_int() :symbol end
 

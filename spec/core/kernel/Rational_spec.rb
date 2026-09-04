@@ -84,7 +84,7 @@ describe "Kernel.Rational" do
       end
 
       it "raises a RangeError if the imaginary part is not 0" do
-        CORAFIXME "Complex is not implemented yet", exception: SpecFailedException, message: /Expected raise_error\(RangeError/ do
+        CORAFIXME "Complex is not implemented yet", exception: SpecExpectationNotMetError, message: /Expected RangeError\(/ do
           -> { Rational(Complex(1, 2)) }.should raise_error(RangeError, "can't convert 1+2i into Rational")
         end
       end

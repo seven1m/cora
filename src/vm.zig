@@ -3753,6 +3753,16 @@ pub const VM = struct {
         return self.fiberRescuedExceptions(self.current_fiber);
     }
 
+    /// redo/retry jump within the frame and skip the CATCH_END that would pop
+    /// the rescue's `$!` entry, so pop it when leaving the rescue body.
+    fn exitRescueBodyForSameFrameJump(self: *VM, frame: *CallFrame) void {
+        if (frame.active_rescue_exceptions == 0) return;
+        const rescued_exceptions = self.currentRescuedExceptions();
+        if (rescued_exceptions.items.len == 0) return;
+        frame.active_rescue_exceptions -= 1;
+        _ = rescued_exceptions.pop();
+    }
+
     pub fn saveFiberState(self: *VM, fiber: *FiberObject) void {
         if (self.threadStorageForFiber(fiber)) |thread| {
             thread.current_lexical_scope = self.current_lexical_scope;
@@ -6786,6 +6796,7 @@ pub const VM = struct {
 
             .REDO => {
                 const target_ip = readU16From(frame, operands, &operand_cursor);
+                self.exitRescueBodyForSameFrameJump(frame);
                 self.setPendingControlFlow(.{
                     .kind = .redo_,
                     .value = Value.nil(),
@@ -6836,6 +6847,7 @@ pub const VM = struct {
 
             .RETRY => {
                 const target_ip = readU16From(frame, operands, &operand_cursor);
+                self.exitRescueBodyForSameFrameJump(frame);
                 self.setPendingControlFlow(.{
                     .kind = .retry_,
                     .value = Value.nil(),

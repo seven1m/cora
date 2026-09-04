@@ -46,6 +46,6 @@ describe "CORAFIXME" do
   it "requires a block" do
     -> {
       CORAFIXME "missing block"
-    }.should raise_error(SpecFailedException, /requires a block/)
+    }.should raise_error(SpecExpectationNotMetError, /requires a block/)
   end
 end

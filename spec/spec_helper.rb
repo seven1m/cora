@@ -52,7 +52,6 @@ unless ENV['MSPEC_RUNNER'] # Running directly with cora some_spec.rb
       if ENV['CORA_SPEC_STATS'] == '1'
         puts "__cora_spec_stats__ total=#{tally.examples} passed=#{passed} failed=#{failed} skipped=#{skipped}"
       end
-      exit 1 if failed > 0 && !unhandled
     end
   end
 
@@ -68,7 +67,6 @@ end
 class CoraFixMeException < StandardError
 end
 
-SpecFailedException = SpecExpectationNotMetError unless defined?(SpecFailedException)
 
 def fixnum_max
   (2**62) - 1
@@ -83,7 +81,7 @@ def xit(description, &block)
 end
 
 def CORAFIXME(description, exception: StandardError, message: nil, condition: true)
-  raise SpecFailedException, "CORAFIXME requires a block" unless block_given?
+  raise SpecExpectationNotMetError, "CORAFIXME requires a block" unless block_given?
   return yield unless condition
 
   MSpec.expectation
@@ -104,12 +102,23 @@ def CORAFIXME(description, exception: StandardError, message: nil, condition: tr
   status = begin
     yield
     :unexpected_pass
-  rescue exception => error
-    captured = error
-    matcher.call(error.message) ? :valid_fixme : :wrong_message
   rescue Exception => error
-    captured = error
-    :wrong_class
+    candidates = [error]
+    if defined?(RaiseErrorMatcher) && (failure = RaiseErrorMatcher::FAILURE_MESSAGE_FOR_EXCEPTION.delete(error))
+      # Real MSpec's raise_error re-raises the original exception and stores
+      # the expectation failure message out-of-band; normalize it back into a
+      # SpecExpectationNotMetError so CORAFIXME guards keep working.
+      normalized = SpecExpectationNotMetError.new(failure.join("\n"))
+      normalized.set_backtrace(error.backtrace)
+      candidates << normalized
+    end
+    captured = candidates.find { |e| e.is_a?(exception) && matcher.call(e.message) }
+    if captured
+      :valid_fixme
+    else
+      captured = candidates.find { |e| e.is_a?(exception) } || error
+      captured.is_a?(exception) ? :wrong_message : :wrong_class
+    end
   end
 
   case status

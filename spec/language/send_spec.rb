@@ -116,7 +116,7 @@ describe "Invoking a method" do
     end
 
     it "raises TypeError if block object isn't a Proc and doesn't respond to `to_proc`" do
-      CORAFIXME "missing Ruby-compatible no-to_proc block coercion error", exception: SpecFailedException do
+      CORAFIXME "missing Ruby-compatible no-to_proc block coercion error", exception: SpecExpectationNotMetError do
         o = Object.new
 
         -> {
@@ -219,7 +219,7 @@ describe "Invoking a method" do
     end
 
     it "should omit the method_missing call from the backtrace for NameError" do
-      CORAFIXME "method_missing still appears at the top of NameError backtraces", exception: SpecFailedException do
+      CORAFIXME "method_missing still appears at the top of NameError backtraces", exception: SpecExpectationNotMetError do
         -> { no_such_method }.should raise_error { |e| e.backtrace.first.should_not include("method_missing") }
       end
     end
@@ -230,7 +230,7 @@ describe "Invoking a method" do
     end
 
     it "should omit the method_missing call from the backtrace for NoMethodError" do
-      CORAFIXME "method_missing still appears at the top of NoMethodError backtraces", exception: SpecFailedException do
+      CORAFIXME "method_missing still appears at the top of NoMethodError backtraces", exception: SpecExpectationNotMetError do
         -> { no_such_method() }.should raise_error { |e| e.backtrace.first.should_not include("method_missing") }
       end
     end
@@ -471,7 +471,7 @@ describe "Invoking a method" do
   end
 
   it "expands an array to arguments grouped in parentheses which in turn takes rest arguments" do
-    CORAFIXME "destructured parameters with rest and post args bind incorrectly", exception: SpecFailedException do
+    CORAFIXME "destructured parameters with rest and post args bind incorrectly", exception: SpecExpectationNotMetError do
       specs.destructure4r([1, 2, 3]).should == [1, 2, [], 3, nil]
       specs.destructure4r([1, 2, 3, 4]).should == [1, 2, [], 3, 4]
       specs.destructure4r([1, 2, 3, 4, 5]).should == [1, 2, [3], 4, 5]

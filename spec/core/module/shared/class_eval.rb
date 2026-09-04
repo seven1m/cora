@@ -127,7 +127,7 @@ describe :module_class_eval, shared: true do
   end
 
   it "activates refinements from the eval scope" do
-    CORAFIXME "refinements are not implemented yet for eval scope", exception: NoMethodError, message: /undefined method 'foo'/ do
+    CORAFIXME "refinements are not implemented yet for eval scope", exception: NoMethodError, message: /undefined method 'refine'/ do
       refinery = Module.new do
         refine ModuleSpecs::NamedClass do
           def foo
@@ -150,7 +150,7 @@ describe :module_class_eval, shared: true do
   end
 
   it "activates refinements from the eval scope with block" do
-    CORAFIXME "refinements are not implemented yet for eval scope", exception: NoMethodError, message: /undefined method 'foo'/ do
+    CORAFIXME "refinements are not implemented yet for eval scope", exception: NoMethodError, message: /undefined method 'refine'/ do
       refinery = Module.new do
         refine ModuleSpecs::NamedClass do
           def foo

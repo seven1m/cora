@@ -11,7 +11,7 @@ describe 'Kernel#caller' do
   end
 
   it 'returns an Array of caller locations using a custom offset' do
-    CORAFIXME "mspec-lite exposes spec_helper.rb frames instead of upstream runner/mspec.rb", exception: SpecFailedException do
+    CORAFIXME "mspec-lite exposes spec_helper.rb frames instead of upstream runner/mspec.rb", exception: SpecExpectationNotMetError do
       locations = KernelSpecs::CallerTest.locations(2)
 
       locations[0].should =~ %r{runner/mspec.rb}

@@ -156,7 +156,7 @@ describe "Module#name" do
   end
 
   it "is set in #const_added callback when a module defined in the top-level scope" do
-    CORAFIXME "Module#const_added callback is not implemented", exception: SpecFailedException do
+    CORAFIXME "Module#const_added callback is not implemented", exception: SpecExpectationNotMetError do
       ruby_exe(<<~RUBY, args: "2>&1").chomp.should == "TEST1\nTEST2"
         class Module
           def const_added(name)
@@ -175,7 +175,7 @@ describe "Module#name" do
   end
 
   it "is set in #const_added callback for a nested module when an outer module defined in the top-level scope" do
-    CORAFIXME "Module#const_added callback is not implemented", exception: SpecFailedException do
+    CORAFIXME "Module#const_added callback is not implemented", exception: SpecExpectationNotMetError do
       ScratchPad.record []
 
       ModuleSpecs::NameSpecs::NamedModule = Module.new do
