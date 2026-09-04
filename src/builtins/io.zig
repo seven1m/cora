@@ -56,6 +56,9 @@ pub fn register(vm: *VM) !void {
     const open_sym = try vm.intern("open");
     try io_singleton.module.methods.put(open_sym, value.MethodEntry.builtin(&builtinIoOpen, .{ .variadic = 0 }));
 
+    const sysopen_sym = try vm.intern("sysopen");
+    try io_singleton.module.methods.put(sysopen_sym, value.MethodEntry.builtin(&builtinIoSysopen, .{ .variadic = 1 }));
+
     const initialize_sym = try vm.intern("initialize");
     try vm.io_class.module.methods.put(initialize_sym, value.MethodEntry.builtinWithVisibility(&builtinIoInitialize, .{ .variadic = 1 }, .private));
 
@@ -1330,6 +1333,73 @@ fn closeIoOpenedForBlock(vm: *VM, io_value: Value) VMError!void {
     };
 }
 
+fn ioOpenModeToCFlags(mode: IoOpenMode) std.c.O {
+    return .{
+        .ACCMODE = if (mode.readable and mode.writable) .RDWR else if (mode.writable) .WRONLY else .RDONLY,
+        .CLOEXEC = true,
+        .CREAT = mode.create,
+        .TRUNC = mode.truncate,
+        .APPEND = mode.append,
+    };
+}
+
+pub fn builtinIoSysopen(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
+    if (block != null) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "IO.sysopen() never takes a block", .{});
+    }
+    try vm.requireArgCountRange(args, 1, 3);
+
+    const path_value = try vm.coerceToPathValue(args[0], "no implicit conversion into String");
+    const parsed = if (args.len >= 2 and !args[1].isNil())
+        try parseIoModeValue(vm, args[1])
+    else
+        IoModeParse{ .mode = .{ .readable = true, .writable = false, .append = false, .create = false, .truncate = false } };
+
+    const perm: std.c.mode_t = if (args.len == 3 and !args[2].isNil()) blk: {
+        const perm_value = try args[2].coerceToIntegerValue(vm, "no implicit conversion into Integer", "can't convert into Integer");
+        break :blk @intCast(perm_value.toInteger() & 0o7777);
+    } else 0o666;
+
+    var flags = ioOpenModeToCFlags(parsed.mode);
+    const in_thread = vm.current_thread != null;
+    if (in_thread) flags.NONBLOCK = true;
+
+    const path_obj = path_value.toStringObject();
+    const path_z = try vm.allocCStringZ(path_obj.str);
+    defer vm.allocator.free(path_z);
+
+    while (true) {
+        const fd = std.c.open(path_z.ptr, flags, perm);
+        if (fd >= 0) {
+            if (in_thread) {
+                const status_flags = std.c.fcntl(fd, std.c.F.GETFL, @as(c_int, 0));
+                if (status_flags >= 0) {
+                    const nonblock_flag: c_int = @bitCast(std.posix.O{ .NONBLOCK = true });
+                    _ = std.c.fcntl(fd, std.c.F.SETFL, status_flags & ~nonblock_flag);
+                }
+            }
+            vm.removeClosedFd(fd);
+            return Value.integer(fd);
+        }
+
+        const errno_code = std.posix.errno(fd);
+        switch (errno_code) {
+            .INTR => {
+                try vm.checkAsyncEvents();
+                continue;
+            },
+            .NXIO => {
+                if (in_thread) {
+                    try vm.threadYield();
+                    continue;
+                }
+            },
+            else => {},
+        }
+        return vm.raiseErrnoFmt(errno_code, "failed to open file: {s}", .{path_obj.str});
+    }
+}
+
 pub fn builtinIoOpen(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     if (!receiver.isClass()) {
         return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Class", .{});
@@ -1381,7 +1451,7 @@ pub fn builtinIoInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     }
     const status_flags = std.c.fcntl(fd, std.c.F.GETFL, @as(c_int, 0));
     if (status_flags < 0) {
-        return vm.raiseErrnoFmt(std.posix.errno(-1), "invalid file descriptor", .{});
+        return vm.raiseErrnoFmt(@enumFromInt(std.c._errno().*), "invalid file descriptor {d}", .{fd});
     }
     if (flags_keyword) |flag_val| {
         _ = try flag_val.coerceToIntegerValue(vm, "no implicit conversion to Integer", "can't convert to Integer");
@@ -1396,6 +1466,12 @@ pub fn builtinIoInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
         try parseIoModeValue(vm, val)
     else
         IoModeParse{ .mode = .{ .readable = true, .writable = false, .append = false, .create = false, .truncate = false } };
+
+    if (mode_value == null) {
+        const current_flags: std.posix.O = @bitCast(status_flags);
+        parsed.mode.readable = current_flags.ACCMODE == .RDONLY or current_flags.ACCMODE == .RDWR;
+        parsed.mode.writable = current_flags.ACCMODE == .WRONLY or current_flags.ACCMODE == .RDWR;
+    }
 
     if (mode_value != null) {
         const current_flags: std.posix.O = @bitCast(status_flags);
