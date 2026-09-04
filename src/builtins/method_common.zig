@@ -156,6 +156,10 @@ pub fn raiseUndefinedMethodName(vm: *VM, name_sym: *SymbolObject) VMError!Value 
 pub fn sourceLocationForResolvedMethod(vm: *VM, resolved: vm_mod.ResolvedMethod) VMError!Value {
     const method_chunk = switch (resolved.entry.method) {
         .chunk => |method_chunk| method_chunk,
+        .proc => |proc_obj| switch (proc_obj.block.kind) {
+            .chunk => |chunk_block| chunk_block.chunk,
+            else => return Value.nil(),
+        },
         else => return Value.nil(),
     };
 
