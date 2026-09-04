@@ -506,7 +506,11 @@ fn buildPopenArgv(vm: *VM, config: *PopenConfig, env_map: *const std.process.Env
     arg_strings: std.ArrayList([:0]u8),
     argv: std.ArrayList(?[*:0]const u8),
 } {
-    const exec_path = config.exec_path orelse if (config.shell_command != null) "/bin/sh" else unreachable;
+    const direct_shell_command = if (config.shell_command) |command| !shellCommandNeedsShell(command) else false;
+    const exec_path = config.exec_path orelse if (config.shell_command) |command|
+        if (direct_shell_command) firstShellWord(command) orelse "/bin/sh" else "/bin/sh"
+    else
+        unreachable;
     const path_z = try vm.resolveExecPathFromEnvMap(env_map, exec_path);
     errdefer vm.allocator.free(path_z);
 
@@ -519,15 +523,24 @@ fn buildPopenArgv(vm: *VM, config: *PopenConfig, env_map: *const std.process.Env
     errdefer argv.deinit(vm.allocator);
 
     if (config.shell_command) |shell_command| {
-        const sh0 = try vm.allocCStringZ("sh");
-        const shc = try vm.allocCStringZ("-c");
-        const cmd = try vm.allocCStringZ(shell_command);
-        arg_strings.append(vm.allocator, sh0) catch return error.Fatal;
-        arg_strings.append(vm.allocator, shc) catch return error.Fatal;
-        arg_strings.append(vm.allocator, cmd) catch return error.Fatal;
-        argv.append(vm.allocator, sh0.ptr) catch return error.Fatal;
-        argv.append(vm.allocator, shc.ptr) catch return error.Fatal;
-        argv.append(vm.allocator, cmd.ptr) catch return error.Fatal;
+        if (direct_shell_command) {
+            var words = std.mem.tokenizeAny(u8, shell_command, " \t");
+            while (words.next()) |word| {
+                const arg_z = try vm.allocCStringZ(word);
+                arg_strings.append(vm.allocator, arg_z) catch return error.Fatal;
+                argv.append(vm.allocator, arg_z.ptr) catch return error.Fatal;
+            }
+        } else {
+            const sh0 = try vm.allocCStringZ("sh");
+            const shc = try vm.allocCStringZ("-c");
+            const cmd = try vm.allocCStringZ(shell_command);
+            arg_strings.append(vm.allocator, sh0) catch return error.Fatal;
+            arg_strings.append(vm.allocator, shc) catch return error.Fatal;
+            arg_strings.append(vm.allocator, cmd) catch return error.Fatal;
+            argv.append(vm.allocator, sh0.ptr) catch return error.Fatal;
+            argv.append(vm.allocator, shc.ptr) catch return error.Fatal;
+            argv.append(vm.allocator, cmd.ptr) catch return error.Fatal;
+        }
     } else {
         for (config.argv.items) |arg| {
             const arg_z = try vm.allocCStringZ(arg);
@@ -542,6 +555,30 @@ fn buildPopenArgv(vm: *VM, config: *PopenConfig, env_map: *const std.process.Env
         .arg_strings = arg_strings,
         .argv = argv,
     };
+}
+
+fn shellCommandNeedsShell(command: []const u8) bool {
+    const meta = "*?{}[]<>()~&|\\$;'`\"\n#";
+    if (std.mem.indexOfAny(u8, command, meta) != null) return true;
+
+    const first = firstShellWord(command) orelse return true;
+    if (std.mem.indexOfScalar(u8, first, '=') != null) return true;
+    if (std.mem.indexOfScalar(u8, first, '/') != null) return false;
+
+    const shell_words = [_][]const u8{
+        "!",     "break", "case",   "continue", "do",    "done",  "elif",  "else",     "esac",   "eval",
+        "exec",  "exit",  "export", "fi",       "for",   "if",    "in",    "readonly", "return", "set",
+        "shift", "then",  "times",  "trap",     "unset", "until", "while",
+    };
+    for (shell_words) |word| {
+        if (std.mem.eql(u8, first, word)) return true;
+    }
+    return false;
+}
+
+fn firstShellWord(command: []const u8) ?[]const u8 {
+    var words = std.mem.tokenizeAny(u8, command, " \t");
+    return words.next();
 }
 
 fn popenSpawn(vm: *VM, receiver: Value, config: *PopenConfig) VMError!Value {

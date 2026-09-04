@@ -1,4 +1,5 @@
 const std = @import("std");
+const signal_support = @import("../signal_support.zig");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 
@@ -40,6 +41,7 @@ pub fn register(vm: *VM) !void {
     try vm.exception_class.module.methods.put(full_message_sym, value.MethodEntry.builtin(&builtinExceptionFullMessage, .{ .variadic = 0 }));
 
     try vm.system_exit_class.module.methods.put(initialize_sym, value.MethodEntry.builtin(&builtinSystemExitInitialize, .{ .variadic = 0 }));
+    try vm.signal_exception_class.module.methods.put(initialize_sym, value.MethodEntry.builtin(&builtinSignalExceptionInitialize, .{ .variadic = 0 }));
 
     const signo_sym = try vm.intern("signo");
     try vm.signal_exception_class.module.methods.put(signo_sym, value.MethodEntry.builtin(&builtinSignalExceptionSigno, .{ .exact = 0 }));
@@ -148,6 +150,47 @@ pub fn builtinSystemExitInitialize(vm: *VM, receiver: Value, args: []Value, _: ?
     const msg_val = try vm.newString(message, false);
     exc.message = msg_val.toStringObject();
     try vm.setInstanceVariable(receiver, "@status", Value.integer(status));
+    return receiver;
+}
+
+pub fn builtinSignalExceptionInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+
+    var signo: c_int = undefined;
+    var message_value: Value = undefined;
+    const integer_signal = if (args[0].isInteger())
+        args[0]
+    else
+        try vm.checkCallMethodByName(args[0], "to_int", false, &.{}, null);
+
+    if (integer_signal) |signal_value| {
+        if (!signal_value.isInteger()) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} to Integer ({s}#to_int gives {s})", .{
+                vm.className(args[0]), vm.className(args[0]), vm.className(signal_value),
+            });
+        }
+        const signal_number = signal_value.toInteger();
+        if (signal_number < 0 or signal_number > 127) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "invalid signal number ({d})", .{signal_number});
+        }
+        signo = @intCast(signal_number);
+        message_value = if (args.len == 2)
+            args[1]
+        else
+            try vm.newString(signal_support.fullName(signo) orelse "SIG", false);
+    } else {
+        if (args.len != 1) return vm.raiseExceptionFmt(vm.argument_error_class, "wrong number of arguments", .{});
+        const name = try args[0].coerceToStr(vm, "no implicit conversion into String");
+        const info = signal_support.infoByName(name) orelse {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "unsupported signal '{s}'", .{name});
+        };
+        signo = info.signo;
+        message_value = try vm.newString(info.full_name, false);
+    }
+
+    const message = try message_value.coerceToStr(vm, "no implicit conversion into String");
+    receiver.toExceptionObject().message = (try vm.newString(message, false)).toStringObject();
+    try vm.setInstanceVariable(receiver, "@signo", Value.integer(signo));
     return receiver;
 }
 

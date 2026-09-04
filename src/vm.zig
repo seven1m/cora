@@ -13167,14 +13167,16 @@ pub const VM = struct {
             return code;
         }
 
-        if (self.isClassOrSubclassOf(exc.object.class.?, self.signal_exception_class)) {
-            const status = self.getInstanceVariable(Value.fromObject(&exc.object), "@signo") catch return 1;
-            if (!status.isInteger()) return 1;
-            const signo = status.toInteger();
-            if (signo < 0 or signo > 127) return 1;
-            return @intCast(128 + signo);
-        }
-
         return null;
+    }
+
+    pub fn unhandledExceptionSignal(self: *VM) ?std.posix.SIG {
+        const exc = self.pendingException() orelse return null;
+        if (!self.isClassOrSubclassOf(exc.object.class.?, self.signal_exception_class)) return null;
+        const status = self.getInstanceVariable(Value.fromObject(&exc.object), "@signo") catch return null;
+        if (!status.isInteger()) return null;
+        const signo = status.toInteger();
+        if (signo <= 0 or signo > 127) return null;
+        return @enumFromInt(signo);
     }
 };

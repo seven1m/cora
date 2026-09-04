@@ -10,6 +10,23 @@ const bdwgc = @import("bdwgc");
 const cext = @import("cext.zig");
 const pack = @import("app_pack.zig");
 
+fn exitForUnhandledException(virtual_machine: *vm.VM) noreturn {
+    if (virtual_machine.unhandledExceptionExitStatus()) |status| std.process.exit(status);
+    if (virtual_machine.unhandledExceptionSignal()) |signal| {
+        if (std.posix.Sigaction != void) {
+            const action: std.posix.Sigaction = .{
+                .handler = .{ .handler = std.posix.SIG.DFL },
+                .mask = std.posix.sigemptyset(),
+                .flags = 0,
+            };
+            std.posix.sigaction(signal, &action, null);
+            std.posix.raise(signal) catch {};
+        }
+    }
+    virtual_machine.printUnhandledException();
+    std.process.exit(1);
+}
+
 /// Implements Ruby's -x flag: scans forward through `code` and returns the
 /// slice starting at the first line whose content begins with "#!" and contains
 /// "ruby" or "cora".  If no such line is found the original slice is returned
@@ -456,11 +473,7 @@ pub fn main(init: std.process.Init) !void {
         // at_exit handlers completed
     } else |err| switch (err) {
         error.UnhandledException => {
-            if (virtual_machine.unhandledExceptionExitStatus()) |status| {
-                std.process.exit(status);
-            }
-            virtual_machine.printUnhandledException();
-            std.process.exit(1);
+            exitForUnhandledException(&virtual_machine);
         },
         else => return err,
     }
@@ -469,11 +482,7 @@ pub fn main(init: std.process.Init) !void {
         // Success - program executed without unhandled exceptions
     } else |err| switch (err) {
         error.UnhandledException => {
-            if (virtual_machine.unhandledExceptionExitStatus()) |status| {
-                std.process.exit(status);
-            }
-            virtual_machine.printUnhandledException();
-            std.process.exit(1);
+            exitForUnhandledException(&virtual_machine);
         },
         else => return err, // Other errors propagate
     }
