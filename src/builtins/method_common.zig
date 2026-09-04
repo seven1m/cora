@@ -55,6 +55,7 @@ pub fn boundMethodsEqual(lhs: *MethodObject, rhs: *MethodObject) bool {
 
 pub const UnboundMethodBuiltins = struct {
     name: BuiltinMethodFn,
+    original_name: BuiltinMethodFn,
     owner: BuiltinMethodFn,
     arity: BuiltinMethodFn,
     parameters: BuiltinMethodFn,
@@ -359,6 +360,9 @@ pub fn createUnboundMethodObject(
 
     const name_sym = try vm.intern("name");
     singleton.module.methods.put(name_sym, MethodEntry.builtin(builtins.name, .{ .exact = 0 })) catch return error.Fatal;
+
+    const original_name_sym = try vm.intern("original_name");
+    singleton.module.methods.put(original_name_sym, MethodEntry.builtin(builtins.original_name, .{ .exact = 0 })) catch return error.Fatal;
 
     const arity_sym = try vm.intern("arity");
     singleton.module.methods.put(arity_sym, MethodEntry.builtin(builtins.arity, .{ .exact = 0 })) catch return error.Fatal;

@@ -124,6 +124,13 @@ fn builtinUnboundMethodName(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     return Value.fromObject(&unboundMethodObject(receiver).name.object);
 }
 
+fn builtinUnboundMethodOriginalName(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const method_obj = unboundMethodObject(receiver);
+    const original_name = method_obj.entry.original_name orelse method_obj.name;
+    return Value.fromObject(&original_name.object);
+}
+
 fn builtinUnboundMethodArity(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return unboundMethodObject(receiver).arity;
@@ -235,6 +242,7 @@ pub fn createUnboundMethodObject(
 ) VMError!Value {
     return common.createUnboundMethodObject(vm, method_name, resolved, owner, .{
         .name = &builtinUnboundMethodName,
+        .original_name = &builtinUnboundMethodOriginalName,
         .owner = &builtinUnboundMethodOwner,
         .arity = &builtinUnboundMethodArity,
         .parameters = &builtinUnboundMethodParameters,
