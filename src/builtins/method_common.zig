@@ -23,6 +23,7 @@ pub const BoundMethodBuiltins = struct {
     name: BuiltinMethodFn,
     original_name: BuiltinMethodFn,
     owner: BuiltinMethodFn,
+    receiver: BuiltinMethodFn,
     to_proc: BuiltinMethodFn,
     arity: BuiltinMethodFn,
     parameters: BuiltinMethodFn,
@@ -318,6 +319,9 @@ pub fn createBoundMethodObject(
 
     const owner_sym = try vm.intern("owner");
     singleton.module.methods.put(owner_sym, MethodEntry.builtin(builtins.owner, .{ .exact = 0 })) catch return error.Fatal;
+
+    const receiver_sym = try vm.intern("receiver");
+    singleton.module.methods.put(receiver_sym, MethodEntry.builtin(builtins.receiver, .{ .exact = 0 })) catch return error.Fatal;
 
     const to_proc_sym = try vm.intern("to_proc");
     singleton.module.methods.put(to_proc_sym, MethodEntry.builtin(builtins.to_proc, .{ .exact = 0 })) catch return error.Fatal;

@@ -1387,7 +1387,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/method/private_spec.rb
 - [x] core/method/protected_spec.rb
 - [x] core/method/public_spec.rb
-- [ ] core/method/receiver_spec.rb
+- [x] core/method/receiver_spec.rb
 - [ ] core/method/source_location_spec.rb
 - [ ] core/method/super_method_spec.rb
 - [ ] core/method/to_proc_spec.rb
