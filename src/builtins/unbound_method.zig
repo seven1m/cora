@@ -13,6 +13,21 @@ fn unboundMethodObject(receiver: Value) *UnboundMethodObject {
     return receiver.toUnboundMethodObject();
 }
 
+fn boundOwnerClass(vm: *VM, bind_target: Value, owner: Value) *common.ClassObject {
+    if (owner.isModule()) return bind_target.getSingletonClass() orelse vm.getClass(bind_target);
+    if (owner.isClass()) return owner.toClassObject();
+    return vm.getClass(owner);
+}
+
+fn requireCompatibleBindTarget(vm: *VM, bind_target: Value, owner: Value) VMError!void {
+    if (common.isCompatibleBindTarget(vm, bind_target, owner)) return;
+    return vm.raiseExceptionFmt(
+        vm.type_error_class,
+        "bind argument must be an instance of {s}",
+        .{common.ownerDisplayName(owner)},
+    );
+}
+
 pub fn register(vm: *VM) !void {
     const inspect_sym = try vm.intern("inspect");
     const to_s_sym = try vm.intern("to_s");
@@ -170,25 +185,13 @@ fn builtinUnboundMethodBind(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     const method_obj = unboundMethodObject(receiver);
     const bind_target = args[0];
 
-    if (!common.isCompatibleBindTarget(vm, bind_target, method_obj.owner)) {
-        return vm.raiseExceptionFmt(
-            vm.type_error_class,
-            "bind argument must be an instance of {s}",
-            .{common.ownerDisplayName(method_obj.owner)},
-        );
-    }
+    try requireCompatibleBindTarget(vm, bind_target, method_obj.owner);
 
     // Use the captured entry so the bound method invokes the original
     // implementation even if the method was removed/redefined since capture.
-    const owner_class = if (method_obj.owner.isModule())
-        bind_target.getSingletonClass() orelse vm.getClass(bind_target)
-    else if (method_obj.owner.isClass())
-        method_obj.owner.toClassObject()
-    else
-        vm.getClass(method_obj.owner);
     const captured_resolved: vm_mod.ResolvedMethod = .{
         .name = method_obj.name,
-        .owner_class = owner_class,
+        .owner_class = boundOwnerClass(vm, bind_target, method_obj.owner),
         .entry = method_obj.entry,
     };
     return createBoundMethodObject(vm, bind_target, method_obj.name, captured_resolved, method_obj.owner);
@@ -201,11 +204,10 @@ fn builtinUnboundMethodBindCall(vm: *VM, receiver: Value, args: []Value, block: 
     const bind_target = args[0];
     const call_args = args[1..];
 
-    // bind_call skips the type compatibility check (unlike bind).
-    const owner_class = if (method_obj.owner.isClass()) method_obj.owner.toClassObject() else vm.getClass(method_obj.owner);
+    try requireCompatibleBindTarget(vm, bind_target, method_obj.owner);
     const captured_resolved: vm_mod.ResolvedMethod = .{
         .name = method_obj.name,
-        .owner_class = owner_class,
+        .owner_class = boundOwnerClass(vm, bind_target, method_obj.owner),
         .entry = method_obj.entry,
     };
     return vm.invokeResolvedMethod(captured_resolved, bind_target, @constCast(call_args), block);
