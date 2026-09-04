@@ -2347,7 +2347,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/unboundmethod/name_spec.rb
 - [ ] core/unboundmethod/original_name_spec.rb
 - [x] core/unboundmethod/owner_spec.rb
-- [ ] core/unboundmethod/parameters_spec.rb
+- [x] core/unboundmethod/parameters_spec.rb
 - [x] core/unboundmethod/private_spec.rb
 - [x] core/unboundmethod/protected_spec.rb
 - [x] core/unboundmethod/public_spec.rb
