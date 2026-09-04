@@ -115,9 +115,6 @@ pub fn register(vm: *VM) !void {
 
     const exist_sym = try vm.intern("exist?");
     try dir_singleton.module.methods.put(exist_sym, value.MethodEntry.builtin(&file_builtin.builtinFileDirectory, .{ .exact = 1 }));
-
-    const exists_sym = try vm.intern("exists?");
-    try dir_singleton.module.methods.put(exists_sym, value.MethodEntry.builtin(&file_builtin.builtinFileDirectory, .{ .exact = 1 }));
 }
 
 pub fn builtinDirPwd(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
