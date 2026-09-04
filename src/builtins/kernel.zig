@@ -553,7 +553,7 @@ fn builtinKernelRationalCoerce(vm: *VM, arg: Value, exception_mode: bool) VMErro
             return .{ .numerator = rational.numerator, .denominator = rational.denominator };
         }
         if (exception_mode) {
-            return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} to Rational ({s}#to_r gives {s})", .{ vm.className(arg), vm.className(arg), vm.className(r) });
+            return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Rational ({s}#to_r gives {s})", .{ vm.className(arg), vm.className(arg), vm.className(r) });
         }
         return null;
     }
@@ -562,7 +562,7 @@ fn builtinKernelRationalCoerce(vm: *VM, arg: Value, exception_mode: bool) VMErro
             return .{ .numerator = int_val, .denominator = Value.integer(1) };
         }
         if (exception_mode) {
-            return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} to Integer ({s}#to_int gives non-Integer)", .{ vm.className(arg), vm.className(arg) });
+            return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Integer ({s}#to_int gives non-Integer)", .{ vm.className(arg), vm.className(arg) });
         }
         return null;
     }
@@ -2281,7 +2281,7 @@ fn builtinKernelArrayConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMErro
 
         return vm.raiseExceptionFmt(
             vm.type_error_class,
-            "can't convert {s} to Array ({s}#to_a gives {s})",
+            "can't convert {s} into Array ({s}#to_a gives {s})",
             .{ vm.className(arg), vm.className(arg), vm.className(coerced) },
         );
     }
@@ -2316,7 +2316,7 @@ fn builtinKernelStringConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMErr
         if (!converted.isString()) {
             return vm.raiseExceptionFmt(
                 vm.type_error_class,
-                "can't convert {s} to String ({s}#to_str gives {s})",
+                "can't convert {s} into String ({s}#to_str gives {s})",
                 .{ vm.className(arg), vm.className(arg), vm.className(converted) },
             );
         }
@@ -2345,7 +2345,7 @@ fn builtinKernelStringConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMErr
     if (!converted.isString()) {
         return vm.raiseExceptionFmt(
             vm.type_error_class,
-            "can't convert {s} to String ({s}#to_s gives {s})",
+            "can't convert {s} into String ({s}#to_s gives {s})",
             .{ vm.className(arg), vm.className(arg), vm.className(converted) },
         );
     }
@@ -2424,7 +2424,7 @@ fn builtinKernelFloatConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMErro
         if (!exception_mode) return Value.nil();
         return vm.raiseExceptionFmt(
             vm.type_error_class,
-            "can't convert {s} to Float ({s}#to_f gives {s})",
+            "can't convert {s} into Float ({s}#to_f gives {s})",
             .{ vm.className(arg), vm.className(arg), vm.className(coerced) },
         );
     }
@@ -2534,7 +2534,7 @@ fn builtinKernelIntegerConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMEr
         if (!exception_mode) return Value.nil();
         return vm.raiseExceptionFmt(
             vm.type_error_class,
-            "can't convert {s} to Integer ({s}#to_i gives {s})",
+            "can't convert {s} into Integer ({s}#to_i gives {s})",
             .{ vm.className(arg), vm.className(arg), vm.className(to_i_result) },
         );
     }

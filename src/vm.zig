@@ -3509,7 +3509,7 @@ pub const VM = struct {
                 if (!proc_val.isProc()) {
                     return self.raiseExceptionFmt(
                         self.type_error_class,
-                        "can't convert {s} to Proc ({s}#to_proc gives {s})",
+                        "can't convert {s} into Proc ({s}#to_proc gives {s})",
                         .{
                             self.className(original_val),
                             self.className(original_val),
@@ -11162,7 +11162,7 @@ pub const VM = struct {
 
         return self.raiseExceptionFmt(
             self.type_error_class,
-            "can't convert {s} to String ({s}#to_str gives {s})",
+            "can't convert {s} into String ({s}#to_str gives {s})",
             .{ self.className(arg), self.className(arg), self.className(coerced) },
         );
     }
@@ -11214,12 +11214,12 @@ pub const VM = struct {
             ),
             .nil_result => self.raiseExceptionFmt(
                 self.type_error_class,
-                "can't convert {s} to Hash ({s}#to_hash gives NilClass)",
+                "can't convert {s} into Hash ({s}#to_hash gives NilClass)",
                 .{ self.className(arg), self.className(arg) },
             ),
             .non_hash => |coerced| self.raiseExceptionFmt(
                 self.type_error_class,
-                "can't convert {s} to Hash ({s}#to_hash gives {s})",
+                "can't convert {s} into Hash ({s}#to_hash gives {s})",
                 .{ self.className(arg), self.className(arg), self.className(coerced) },
             ),
         };
@@ -11235,7 +11235,7 @@ pub const VM = struct {
             ),
             .nil_result => self.raiseExceptionFmt(
                 self.type_error_class,
-                "can't convert {s} to Array ({s}#to_ary gives NilClass)",
+                "can't convert {s} into Array ({s}#to_ary gives NilClass)",
                 .{ self.className(arg), self.className(arg) },
             ),
         };
@@ -11258,7 +11258,7 @@ pub const VM = struct {
 
             return self.raiseExceptionFmt(
                 self.type_error_class,
-                "can't convert {s} to Array ({s}#to_a gives {s})",
+                "can't convert {s} into Array ({s}#to_a gives {s})",
                 .{ self.className(arg), self.className(arg), self.className(coerced) },
             );
         }
@@ -12387,8 +12387,8 @@ pub const VM = struct {
         const hash_value = try self.callMethodByName(key, "hash", args[0..], null);
         const coerced = try hash_value.coerceToIntegerValue(
             self,
-            "can't convert hash result to Integer",
-            "can't convert hash result to Integer",
+            "can't convert hash result into Integer",
+            "can't convert hash result into Integer",
         );
         return coerced.hash();
     }

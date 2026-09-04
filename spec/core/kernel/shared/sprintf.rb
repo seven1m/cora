@@ -341,7 +341,7 @@ describe :kernel_sprintf, shared: true do
 
         -> {
           @method.call("%c", obj)
-        }.should raise_error(TypeError, /can't convert BasicObject to String/)
+        }.should raise_consistent_error(TypeError, /can't convert BasicObject into String/)
       end
 
       it "raises TypeError if converting to Integer with to_int returns non-Integer" do
@@ -352,7 +352,7 @@ describe :kernel_sprintf, shared: true do
 
         -> {
           @method.call("%c", obj)
-        }.should raise_error(TypeError, /can't convert BasicObject to Integer/)
+        }.should raise_consistent_error(TypeError, /can't convert BasicObject into Integer/)
       end
     end
 

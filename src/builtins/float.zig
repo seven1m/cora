@@ -609,8 +609,8 @@ fn coerceArgToFloat(vm: *VM, arg: Value) VMError!Value {
         if (to_f_result.isFloat()) return to_f_result;
         if (to_f_result.isInteger()) return try vm.newFloat(@floatFromInt(to_f_result.toInteger()));
         if (to_f_result.isBigInteger()) return try vm.newFloat(to_f_result.toBigIntegerObject().value.toFloat(f64, .nearest_even)[0]);
-        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} to Float ({s}#to_f gives {s})", .{ vm.className(arg), vm.className(arg), vm.className(to_f_result) });
+        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float ({s}#to_f gives {s})", .{ vm.className(arg), vm.className(arg), vm.className(to_f_result) });
     }
 
-    return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} to Float", .{vm.className(arg)});
+    return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
 }

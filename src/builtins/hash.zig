@@ -25,7 +25,7 @@ fn coerceToProcForHashDefault(vm: *VM, proc_like: Value) VMError!*value.ProcObje
         if (!proc_val.isProc()) {
             return vm.raiseExceptionFmt(
                 vm.type_error_class,
-                "can't convert {s} to Proc ({s}#to_proc gives {s})",
+                "can't convert {s} into Proc ({s}#to_proc gives {s})",
                 .{
                     vm.className(proc_like),
                     vm.className(proc_like),
@@ -72,7 +72,7 @@ fn builtinHashTryConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
         .missing, .nil_result => Value.nil(),
         .non_hash => |coerced| vm.raiseExceptionFmt(
             vm.type_error_class,
-            "can't convert {s} to Hash ({s}#to_hash gives {s})",
+            "can't convert {s} into Hash ({s}#to_hash gives {s})",
             .{ vm.className(args[0]), vm.className(args[0]), vm.className(coerced) },
         ),
     };
@@ -508,7 +508,7 @@ pub fn builtinHashConstructor(vm: *VM, receiver: Value, args: []Value, _: ?Block
             .non_hash => |coerced| {
                 return vm.raiseExceptionFmt(
                     vm.type_error_class,
-                    "can't convert {s} to Hash ({s}#to_hash gives {s})",
+                    "can't convert {s} into Hash ({s}#to_hash gives {s})",
                     .{ vm.className(args[0]), vm.className(args[0]), vm.className(coerced) },
                 );
             },

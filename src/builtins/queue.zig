@@ -101,7 +101,7 @@ fn builtinQueueInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
         if (!coerced.isArray()) {
             return vm.raiseExceptionFmt(
                 vm.type_error_class,
-                "can't convert {s} to Array ({s}#to_a gives {s})",
+                "can't convert {s} into Array ({s}#to_a gives {s})",
                 .{ vm.className(args[0]), vm.className(args[0]), vm.className(coerced) },
             );
         }

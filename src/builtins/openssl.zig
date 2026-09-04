@@ -452,7 +452,7 @@ fn coerceToI64Exact(vm: *VM, arg: Value, range_error_message: []const u8) VMErro
     const class_name = vm.className(arg);
     const missing_message = std.fmt.allocPrint(vm.allocator, "no implicit conversion of {s} into Integer", .{class_name}) catch return error.Fatal;
     defer vm.allocator.free(missing_message);
-    const non_integer_message = std.fmt.allocPrint(vm.allocator, "can't convert {s} to Integer ({s}#to_int gives non-Integer)", .{ class_name, class_name }) catch return error.Fatal;
+    const non_integer_message = std.fmt.allocPrint(vm.allocator, "can't convert {s} into Integer ({s}#to_int gives non-Integer)", .{ class_name, class_name }) catch return error.Fatal;
     defer vm.allocator.free(non_integer_message);
     return arg.coerceToI64ViaToInt(vm, missing_message, non_integer_message, range_error_message);
 }

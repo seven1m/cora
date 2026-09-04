@@ -705,7 +705,7 @@ fn coerceStringPercentInteger(vm: *VM, arg: Value) VMError!Value {
         if (coerced.isInteger() or coerced.isBigInteger()) return coerced;
         return vm.raiseExceptionFmt(
             vm.type_error_class,
-            "can't convert {s} to Integer ({s}#to_int gives {s})",
+            "can't convert {s} into Integer ({s}#to_int gives {s})",
             .{ vm.className(arg), vm.className(arg), vm.className(coerced) },
         );
     }
@@ -714,7 +714,7 @@ fn coerceStringPercentInteger(vm: *VM, arg: Value) VMError!Value {
         if (coerced.isInteger() or coerced.isBigInteger()) return coerced;
         return vm.raiseExceptionFmt(
             vm.type_error_class,
-            "can't convert {s} to Integer ({s}#to_i gives {s})",
+            "can't convert {s} into Integer ({s}#to_i gives {s})",
             .{ vm.className(arg), vm.className(arg), vm.className(coerced) },
         );
     }
@@ -841,7 +841,7 @@ fn coerceStringPercentCharCodepoint(vm: *VM, arg: Value) VMError!i64 {
         }
         return vm.raiseExceptionFmt(
             vm.type_error_class,
-            "can't convert {s} to Integer ({s}#to_int gives {s})",
+            "can't convert {s} into Integer ({s}#to_int gives {s})",
             .{ vm.className(arg), vm.className(arg), vm.className(coerced) },
         );
     }
@@ -1052,7 +1052,7 @@ pub fn builtinStringInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
         _ = try capacity.coerceToI64ViaToInt(
             vm,
             "no implicit conversion of Object into Integer",
-            "can't convert Object to Integer (Object#to_int gives Object)",
+            "can't convert Object into Integer (Object#to_int gives Object)",
             "bignum too big to convert into `long`",
         );
     }
@@ -1385,7 +1385,7 @@ fn hashStringSubReplacement(vm: *VM, hash: Value, matched_string: Value) VMError
     if (!to_s_value.isString()) {
         return vm.raiseExceptionFmt(
             vm.type_error_class,
-            "can't convert {s} to String ({s}#to_s gives {s})",
+            "can't convert {s} into String ({s}#to_s gives {s})",
             .{ vm.className(replacement), vm.className(replacement), vm.className(to_s_value) },
         );
     }
@@ -1407,7 +1407,7 @@ fn yieldStringSubReplacement(vm: *VM, receiver: Value, snapshot: value.StringObj
     if (!to_s_value.isString()) {
         return vm.raiseExceptionFmt(
             vm.type_error_class,
-            "can't convert {s} to String ({s}#to_s gives {s})",
+            "can't convert {s} into String ({s}#to_s gives {s})",
             .{ vm.className(yielded), vm.className(yielded), vm.className(to_s_value) },
         );
     }
@@ -5407,7 +5407,7 @@ pub fn builtinStringToI(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
         requested_base = try args[0].coerceToI64ViaToInt(
             vm,
             "no implicit conversion of Object into Integer",
-            "can't convert Object to Integer (Object#to_int gives Object)",
+            "can't convert Object into Integer (Object#to_int gives Object)",
             "base is too large",
         );
     }

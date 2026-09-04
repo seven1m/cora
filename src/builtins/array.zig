@@ -296,7 +296,7 @@ fn coerceFillIndex(vm: *VM, value_to_coerce: Value) VMError!i64 {
     if (!coerced.isInteger() and !coerced.isBigInteger()) {
         return vm.raiseExceptionFmt(
             vm.type_error_class,
-            "can't convert {s} to Integer ({s}#to_int gives {s})",
+            "can't convert {s} into Integer ({s}#to_int gives {s})",
             .{ vm.className(value_to_coerce), vm.className(value_to_coerce), vm.className(coerced) },
         );
     }
@@ -335,7 +335,7 @@ fn coerceFetchIndex(vm: *VM, value_to_coerce: Value) VMError!i64 {
     if (!coerced.isInteger() and !coerced.isBigInteger()) {
         return vm.raiseExceptionFmt(
             vm.type_error_class,
-            "can't convert {s} to Integer ({s}#to_int gives {s})",
+            "can't convert {s} into Integer ({s}#to_int gives {s})",
             .{ vm.className(value_to_coerce), vm.className(value_to_coerce), vm.className(coerced) },
         );
     }

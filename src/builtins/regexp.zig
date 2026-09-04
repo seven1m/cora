@@ -109,7 +109,7 @@ fn builtinRegexpTryConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
 
     return vm.raiseExceptionFmt(
         vm.type_error_class,
-        "can't convert {s} to Regexp ({s}#to_regexp gives {s})",
+        "can't convert {s} into Regexp ({s}#to_regexp gives {s})",
         .{ vm.className(arg), vm.className(arg), vm.className(converted) },
     );
 }
@@ -367,14 +367,14 @@ fn captureUnionSegment(vm: *VM, arg: Value) VMError!UnionSegment {
         if (converted.isNil()) {
             return vm.raiseExceptionFmt(
                 vm.type_error_class,
-                "can't convert {s} to Regexp ({s}#to_regexp gives NilClass)",
+                "can't convert {s} into Regexp ({s}#to_regexp gives NilClass)",
                 .{ vm.className(arg), vm.className(arg) },
             );
         }
         if (!converted.isRegexp()) {
             return vm.raiseExceptionFmt(
                 vm.type_error_class,
-                "can't convert {s} to Regexp ({s}#to_regexp gives {s})",
+                "can't convert {s} into Regexp ({s}#to_regexp gives {s})",
                 .{ vm.className(arg), vm.className(arg), vm.className(converted) },
             );
         }

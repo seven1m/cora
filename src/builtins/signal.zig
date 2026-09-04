@@ -33,7 +33,7 @@ fn coerceSignalName(vm: *VM, signal_value: Value) VMError!?[]const u8 {
 
     if (try vm.checkCallMethodByName(signal_value, "to_str", false, &.{}, null)) |coerced| {
         if (!coerced.isString()) {
-            return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} to String", .{vm.className(signal_value)});
+            return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into String", .{vm.className(signal_value)});
         }
         return coerced.toStringObject().str;
     }

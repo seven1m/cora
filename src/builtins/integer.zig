@@ -809,7 +809,7 @@ pub fn builtinIntegerTryConvert(vm: *VM, _: Value, args: []Value, _: ?Block) VME
 
     return vm.raiseExceptionFmt(
         vm.type_error_class,
-        "can't convert {s} to Integer ({s}#to_int gives {s})",
+        "can't convert {s} into Integer ({s}#to_int gives {s})",
         .{ vm.className(arg), vm.className(arg), vm.className(converted) },
     );
 }
@@ -890,7 +890,7 @@ pub fn builtinIntegerSqrt(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
 
     return vm.raiseExceptionFmt(
         vm.type_error_class,
-        "can't convert {s} to Integer ({s}#to_int gives {s})",
+        "can't convert {s} into Integer ({s}#to_int gives {s})",
         .{ vm.className(arg), vm.className(arg), vm.className(converted) },
     );
 }
