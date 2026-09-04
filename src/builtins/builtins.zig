@@ -52,6 +52,7 @@ const string = @import("string.zig");
 const stringio = @import("stringio.zig");
 const symbol = @import("symbol.zig");
 const true_class = @import("true_class.zig");
+const unbound_method = @import("unbound_method.zig");
 
 pub fn registerAll(vm: *VM) !void {
     try basic_object.register(vm);
@@ -60,6 +61,7 @@ pub fn registerAll(vm: *VM) !void {
     try class_builtin.register(vm);
     try module_builtin.register(vm);
     try binding_builtin.register(vm);
+    try unbound_method.register(vm);
     try integer.register(vm);
     try numeric.register(vm);
     try float.register(vm);

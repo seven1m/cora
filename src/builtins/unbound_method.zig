@@ -13,6 +13,14 @@ fn unboundMethodObject(receiver: Value) *UnboundMethodObject {
     return receiver.toUnboundMethodObject();
 }
 
+pub fn register(vm: *VM) !void {
+    const inspect_sym = try vm.intern("inspect");
+    const to_s_sym = try vm.intern("to_s");
+    const inspect_entry = common.MethodEntry.builtin(&builtinUnboundMethodInspect, .{ .exact = 0 });
+    try vm.unbound_method_class.module.methods.put(inspect_sym, inspect_entry);
+    try vm.unbound_method_class.module.methods.put(to_s_sym, inspect_entry);
+}
+
 fn builtinMethodCall(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     const method_obj = receiver.toMethodObject();
 
