@@ -10,6 +10,7 @@ const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
 const Block = vm_mod.Block;
 const Value = value.Value;
+const max_array_elements = std.math.maxInt(i64) / @sizeOf(Value);
 
 const JoinState = struct {
     bytes: std.ArrayList(u8) = .empty,
@@ -452,6 +453,9 @@ fn planArrayFillFromRange(vm: *VM, array_len: i64, range: *value.RangeObject) VM
 }
 
 fn ensureArrayFillCapacity(vm: *VM, array: *value.ArrayObject, target_len: i64) VMError!void {
+    if (target_len > max_array_elements) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "argument too big", .{});
+    }
     while (@as(i64, @intCast(array.elements.items.len)) < target_len) {
         array.elements.append(vm.gc_allocator, Value.nil()) catch return error.Fatal;
     }
@@ -991,6 +995,9 @@ pub fn builtinArrayInitialize(vm: *VM, receiver: Value, args: []Value, block: ?B
     };
     if (size < 0) {
         return vm.raiseExceptionFmt(vm.argument_error_class, "negative array size", .{});
+    }
+    if (size > max_array_elements) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "array size too big", .{});
     }
 
     var i: i64 = 0;

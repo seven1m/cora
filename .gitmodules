@@ -67,3 +67,6 @@
 [submodule "ext/json"]
 	path = ext/json
 	url = https://github.com/ruby/json
+[submodule "ext/mspec"]
+	path = ext/mspec
+	url = https://github.com/ruby/mspec

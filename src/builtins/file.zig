@@ -1259,7 +1259,7 @@ fn fileStatTimeIvar(vm: *VM, receiver: Value, name: []const u8) VMError!Value {
     return vm.getInstanceVariable(stat_val, name);
 }
 
-fn loadPosixStatMetadataForPath(vm: *VM, path_obj: *value.StringObject, default_mode: i64) VMError!PosixStatMetadata {
+fn loadPosixStatMetadataForPath(vm: *VM, path_obj: *value.StringObject, default_mode: i64, follow_symlinks: bool) VMError!PosixStatMetadata {
     if (builtin.os.tag != .linux) {
         return .{
             .uid = @intCast(std.c.getuid()),
@@ -1273,7 +1273,9 @@ fn loadPosixStatMetadataForPath(vm: *VM, path_obj: *value.StringObject, default_
 
     while (true) {
         var statx = std.mem.zeroes(std.os.linux.Statx);
-        switch (std.c.errno(std.c.statx(std.os.linux.AT.FDCWD, path_z.ptr, std.os.linux.AT.NO_AUTOMOUNT, linux_statx_request, &statx))) {
+        const flags = std.os.linux.AT.NO_AUTOMOUNT |
+            (if (follow_symlinks) @as(u32, 0) else std.os.linux.AT.SYMLINK_NOFOLLOW);
+        switch (std.c.errno(std.c.statx(std.os.linux.AT.FDCWD, path_z.ptr, flags, linux_statx_request, &statx))) {
             .SUCCESS => {
                 return .{
                     .uid = @intCast(statx.uid),
@@ -1281,7 +1283,10 @@ fn loadPosixStatMetadataForPath(vm: *VM, path_obj: *value.StringObject, default_
                     .mode = @intCast(statx.mode),
                 };
             },
-            .INTR => continue,
+            .INTR => {
+                try vm.checkAsyncEvents();
+                continue;
+            },
             .ACCES, .PERM => return vm.raiseErrnoFmt(.ACCES, "Permission denied @ stat - {s}", .{path_obj.str}),
             .NOENT, .NOTDIR => return raiseEncodedPathErrno(vm, .NOENT, path_obj),
             else => return vm.raiseExceptionFmt(vm.system_call_error_class, "stat failed for {s}", .{path_obj.str}),
@@ -1780,12 +1785,21 @@ pub fn builtinFileStat(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
     const path_value = try vm.coerceToPathValue(args[0], "no implicit conversion into String");
     const path_obj = path_value.toStringObject();
     const stat = std.Io.Dir.cwd().statFile(vm.io, path_obj.str, .{}) catch |err| return raisePathStatError(vm, path_obj, err);
-    const posix_metadata = try loadPosixStatMetadataForPath(vm, path_obj, @intCast(stat.permissions.toMode()));
+    const posix_metadata = try loadPosixStatMetadataForPath(vm, path_obj, @intCast(stat.permissions.toMode()), true);
     return buildFileStat(vm, stat, posix_metadata);
 }
 
 pub fn builtinFileLstat(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
-    return builtinFileStat(vm, Value.nil(), args, null);
+    try vm.requireArgCount(args, 1);
+    if (builtin.os.tag == .windows) {
+        return vm.raiseExceptionFmt(vm.not_implemented_error_class, "File.lstat is not implemented on Windows", .{});
+    }
+
+    const path_value = try vm.coerceToPathValue(args[0], "no implicit conversion into String");
+    const path_obj = path_value.toStringObject();
+    const stat = std.Io.Dir.cwd().statFile(vm.io, path_obj.str, .{ .follow_symlinks = false }) catch |err| return raisePathStatError(vm, path_obj, err);
+    const posix_metadata = try loadPosixStatMetadataForPath(vm, path_obj, @intCast(stat.permissions.toMode()), false);
+    return buildFileStat(vm, stat, posix_metadata);
 }
 
 pub fn builtinFileMtime(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -1797,7 +1811,7 @@ pub fn builtinFileMtime(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Val
     const path_value = try vm.coerceToPathValue(args[0], "no implicit conversion into String");
     const path_obj = path_value.toStringObject();
     const stat = std.Io.Dir.cwd().statFile(vm.io, path_obj.str, .{}) catch |err| return raisePathStatError(vm, path_obj, err);
-    const posix_metadata = try loadPosixStatMetadataForPath(vm, path_obj, @intCast(stat.permissions.toMode()));
+    const posix_metadata = try loadPosixStatMetadataForPath(vm, path_obj, @intCast(stat.permissions.toMode()), true);
     const stat_val = try buildFileStat(vm, stat, posix_metadata);
     return vm.getInstanceVariable(stat_val, "@mtime");
 }
@@ -1911,7 +1925,7 @@ pub fn builtinFileSymlinkQ(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
     }
 
     const path = try vm.coerceToPath(args[0], "no implicit conversion into String");
-    const stat = std.Io.Dir.cwd().statFile(vm.io, path, .{}) catch return Value.boolean(false);
+    const stat = std.Io.Dir.cwd().statFile(vm.io, path, .{ .follow_symlinks = false }) catch return Value.boolean(false);
     return Value.boolean(stat.kind == .sym_link);
 }
 

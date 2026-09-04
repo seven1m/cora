@@ -512,6 +512,35 @@ test "Dir.children and File::Stat#directory? support vendored fileutils traversa
     try std.testing.expectEqual(true, result.toArrayObject().elements.items[2].toBool());
 }
 
+test "File.lstat and File.symlink? do not follow symlinks" {
+    var root_buf: [128]u8 = undefined;
+    const root = try uniquePath(&root_buf);
+
+    const source = try std.fmt.allocPrint(
+        std.testing.allocator,
+        \\root = "{s}"
+        \\Dir.mkdir(root)
+        \\target = File.join(root, "target")
+        \\link = File.join(root, "link")
+        \\Dir.mkdir(target)
+        \\File.symlink(target, link)
+        \\result = [File.symlink?(link), File.lstat(link).symlink?, File.lstat(link).directory?, File.stat(link).directory?]
+        \\File.unlink(link)
+        \\Dir.rmdir(target)
+        \\Dir.rmdir(root)
+        \\result
+    , .{root});
+    defer std.testing.allocator.free(source);
+
+    const result = try evalCode(source);
+    try std.testing.expect(result.isArray());
+    try std.testing.expectEqual(@as(usize, 4), result.toArrayObject().elements.items.len);
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[0].toBool());
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[1].toBool());
+    try std.testing.expectEqual(false, result.toArrayObject().elements.items[2].toBool());
+    try std.testing.expectEqual(true, result.toArrayObject().elements.items[3].toBool());
+}
+
 test "Kernel puts and p follow $stdout reassignment" {
     var path_buf: [128]u8 = undefined;
     const path = try uniquePath(&path_buf);

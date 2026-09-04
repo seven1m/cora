@@ -11173,7 +11173,7 @@ pub const VM = struct {
 
         return self.raiseExceptionFmt(
             self.type_error_class,
-            "can't convert {s} to Array ({s}#to_ary gives {s})",
+            "can't convert {s} into Array ({s}#to_ary gives {s})",
             .{ self.className(arg), self.className(arg), self.className(coerced) },
         );
     }
