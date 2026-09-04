@@ -359,7 +359,11 @@ fn enumeratorFiberBody(vm: *VM, args: []Value) VMError!Value {
     const enum_obj = enum_val.toEnumeratorObject();
 
     // Create a block that fiber-yields each value
-    const yield_block = Block{ .kind = .{ .builtin = &enumeratorFiberYieldBlock } };
+    const yield_block = Block{ .kind = .{ .receiver_builtin = .{
+        .receiver = Value.nil(),
+        .func = &enumeratorFiberYieldBlock,
+        .arity = -1,
+    } } };
 
     switch (enum_obj.kind) {
         .method => |m| {
@@ -382,7 +386,7 @@ fn enumeratorFiberBody(vm: *VM, args: []Value) VMError!Value {
     }
 }
 
-fn enumeratorFiberYieldBlock(vm: *VM, args: []Value) VMError!Value {
+fn enumeratorFiberYieldBlock(vm: *VM, _: Value, args: []Value) VMError!Value {
     const arr = try vm.createArray();
     for (args) |arg| {
         arr.elements.append(vm.gc_allocator, arg) catch return error.Fatal;
