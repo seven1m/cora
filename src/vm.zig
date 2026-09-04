@@ -8429,12 +8429,16 @@ pub const VM = struct {
         return call_result;
     }
 
-    /// Call method_added on receiver after a method is defined.
-    /// Uses checkCallMethodByName so it safely handles missing method_added.
+    /// Call the appropriate method-definition hook after a method is defined.
+    /// Singleton classes notify their attached object via singleton_method_added;
+    /// ordinary modules and classes receive method_added directly.
     pub fn triggerMethodAdded(self: *VM, receiver: Value, name_sym: *value.SymbolObject) VMError!void {
-        const method_added_name = "method_added";
+        const hook_receiver, const hook_name: []const u8 = if (receiver.isClass() and receiver.toClassObject().attached_object != null)
+            .{ receiver.toClassObject().attached_object.?, "singleton_method_added" }
+        else
+            .{ receiver, "method_added" };
         var args = [_]Value{Value.fromObject(&name_sym.object)};
-        _ = try self.checkCallMethodByName(receiver, method_added_name, true, &args, null);
+        _ = try self.checkCallMethodByName(hook_receiver, hook_name, true, &args, null);
     }
 
     const BreakTarget = struct {

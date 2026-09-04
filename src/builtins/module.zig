@@ -894,7 +894,7 @@ pub fn register(vm: *VM) !void {
     try vm.module_class.module.methods.put(method_added_sym, value.MethodEntry.builtinWithVisibility(&builtinModuleMethodAdded, .{ .exact = 1 }, .private));
 
     const singleton_method_added_sym = try vm.intern("singleton_method_added");
-    try vm.module_class.module.methods.put(singleton_method_added_sym, value.MethodEntry.builtinWithVisibility(&builtinModuleSingletonMethodAdded, .{ .exact = 1 }, .private));
+    try vm.basic_object_class.module.methods.put(singleton_method_added_sym, value.MethodEntry.builtinWithVisibility(&builtinModuleSingletonMethodAdded, .{ .exact = 1 }, .private));
 
     const ruby2_keywords_sym = try vm.intern("ruby2_keywords");
     try vm.module_class.module.methods.put(ruby2_keywords_sym, value.MethodEntry.builtinWithVisibility(&builtinModuleRuby2Keywords, .{ .variadic = 0 }, .private));
