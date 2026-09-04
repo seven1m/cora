@@ -1674,6 +1674,9 @@ fn builtinIoReopen(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!V
         io.append = other.append;
         io.path = other.path;
         io.path_encoding = other.path_encoding;
+        const receiver_object = receiver.getObjectPointer().?;
+        receiver_object.class = vm.getClass(args[0]);
+        receiver_object.singleton_class = null;
         return receiver;
     }
 
