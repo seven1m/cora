@@ -64,6 +64,18 @@ unless ENV['MSPEC_RUNNER'] # Running directly with cora some_spec.rb
   MSpec.actions :load
 end
 
+class Module
+  # Allow fixtures containing refinements to load until Cora implements them.
+  # Refinement-dependent expectations must remain guarded by CORAFIXME.
+  def refine(_klass, &_block)
+    self
+  end
+
+  def using(_mod)
+    self
+  end
+end
+
 class CoraFixMeException < StandardError
 end
 
