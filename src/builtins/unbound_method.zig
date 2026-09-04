@@ -111,6 +111,11 @@ fn builtinUnboundMethodOwner(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     return unboundMethodObject(receiver).owner;
 }
 
+fn builtinUnboundMethodName(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return Value.fromObject(&unboundMethodObject(receiver).name.object);
+}
+
 fn builtinUnboundMethodArity(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return unboundMethodObject(receiver).arity;
@@ -213,6 +218,7 @@ pub fn createUnboundMethodObject(
     owner: Value,
 ) VMError!Value {
     return common.createUnboundMethodObject(vm, method_name, resolved, owner, .{
+        .name = &builtinUnboundMethodName,
         .owner = &builtinUnboundMethodOwner,
         .arity = &builtinUnboundMethodArity,
         .parameters = &builtinUnboundMethodParameters,

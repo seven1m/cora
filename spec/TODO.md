@@ -2344,7 +2344,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/unboundmethod/equal_value_spec.rb
 - [ ] core/unboundmethod/hash_spec.rb
 - [ ] core/unboundmethod/inspect_spec.rb
-- [ ] core/unboundmethod/name_spec.rb
+- [x] core/unboundmethod/name_spec.rb
 - [ ] core/unboundmethod/original_name_spec.rb
 - [x] core/unboundmethod/owner_spec.rb
 - [ ] core/unboundmethod/parameters_spec.rb
