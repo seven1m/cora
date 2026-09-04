@@ -363,11 +363,15 @@ fn storedModuleName(receiver: Value) []const u8 {
     return if (receiver.isClass()) receiver.toClassObject().module.name.name else receiver.toModuleObject().name.name;
 }
 
-fn warnDeprecatedConstant(vm: *VM, receiver: Value, name_sym: *SymbolObject) VMError!void {
+fn isDeprecatedConstant(receiver: Value, name_sym: *SymbolObject) bool {
+    const module_obj = moduleFromValue(receiver) orelse return false;
+    const entry = module_obj.constants.get(name_sym) orelse return false;
+    return entry.flags.deprecated;
+}
+
+fn warnDeprecatedConstant(vm: *VM, receiver: Value, name_sym: *SymbolObject, deprecated: bool) VMError!void {
+    if (!deprecated) return;
     if (!vm.warning_deprecated_enabled) return;
-    const module_obj = moduleFromValue(receiver) orelse return;
-    const entry = module_obj.constants.get(name_sym) orelse return;
-    if (!entry.flags.deprecated) return;
 
     const module_name = storedModuleName(receiver);
     const warning = std.fmt.allocPrint(
@@ -1265,9 +1269,10 @@ pub fn builtinModuleRemoveConst(vm: *VM, receiver: Value, args: []Value, _: ?Blo
     }
 
     const name_sym = try vm.intern(name);
+    const deprecated = isDeprecatedConstant(receiver, name_sym);
     if (autoloadTable(receiver)) |table| {
         if (table.fetchRemove(name_sym) != null) {
-            try warnDeprecatedConstant(vm, receiver, name_sym);
+            try warnDeprecatedConstant(vm, receiver, name_sym, deprecated);
             _ = constants.remove(name_sym);
             return Value.nil();
         }
@@ -1275,7 +1280,7 @@ pub fn builtinModuleRemoveConst(vm: *VM, receiver: Value, args: []Value, _: ?Blo
     const removed = constants.fetchRemove(name_sym) orelse {
         return vm.raiseExceptionFmt(vm.name_error_class, "constant {s}::{s} not defined", .{ storedModuleName(receiver), name });
     };
-    try warnDeprecatedConstant(vm, receiver, name_sym);
+    try warnDeprecatedConstant(vm, receiver, name_sym, deprecated);
     return removed.value.value;
 }
 
@@ -1933,7 +1938,7 @@ pub fn builtinModuleConstGet(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     const constant_value = lookupConstantOnReceiver(vm, receiver, name_sym, inherit) orelse {
         return vm.raiseExceptionFmt(vm.name_error_class, "uninitialized constant {s}::{s}", .{ storedModuleName(receiver), name });
     };
-    try warnDeprecatedConstant(vm, receiver, name_sym);
+    try warnDeprecatedConstant(vm, receiver, name_sym, isDeprecatedConstant(receiver, name_sym));
     return constant_value;
 }
 
