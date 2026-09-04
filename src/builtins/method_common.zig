@@ -20,6 +20,7 @@ pub const BuiltinMethodFn = *const fn (*VM, Value, []Value, ?Block) VMError!Valu
 pub const BoundMethodBuiltins = struct {
     call: BuiltinMethodFn,
     equal: BuiltinMethodFn,
+    name: BuiltinMethodFn,
     original_name: BuiltinMethodFn,
     owner: BuiltinMethodFn,
     to_proc: BuiltinMethodFn,
@@ -308,6 +309,9 @@ pub fn createBoundMethodObject(
 
     const eql_sym = try vm.intern("eql?");
     singleton.module.methods.put(eql_sym, equal_entry) catch return error.Fatal;
+
+    const name_sym = try vm.intern("name");
+    singleton.module.methods.put(name_sym, MethodEntry.builtin(builtins.name, .{ .exact = 0 })) catch return error.Fatal;
 
     const original_name_sym = try vm.intern("original_name");
     singleton.module.methods.put(original_name_sym, MethodEntry.builtin(builtins.original_name, .{ .exact = 0 })) catch return error.Fatal;
