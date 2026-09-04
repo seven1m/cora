@@ -64,6 +64,7 @@ pub fn builtinRangeInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block
     receiver.toRangeObject().begin = args[0];
     receiver.toRangeObject().end = args[1];
     receiver.toRangeObject().exclude_end = exclude_end;
+    if (vm.getClass(receiver) == vm.range_class) receiver.toRangeObject().object.flags |= value.Object.FROZEN_FLAG;
 
     return Value.nil();
 }

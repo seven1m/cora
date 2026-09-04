@@ -6430,6 +6430,7 @@ pub const VM = struct {
                 range_obj.begin = begin_val;
                 range_obj.end = end_val;
                 range_obj.exclude_end = exclude_end_flag != 0;
+                range_obj.object.flags |= value.Object.FROZEN_FLAG;
 
                 try self.push(range_val);
             },
