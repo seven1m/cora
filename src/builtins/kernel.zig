@@ -1219,7 +1219,13 @@ fn warningLocationForUplevel(vm: *VM, depth: usize) ?WarningLocation {
     while (i > 0) {
         i -= 1;
         const frame = &vm.frames.items[i];
-        if (frame.frame_type == .builtin) continue;
+        // CRuby's uplevel walk counts synthetic frames that appear in the
+        // backtrace (e.g. `in 'bind_call'`) and skips plain C-function
+        // frames (the warn builtin itself). bind_call is how RubyGems'
+        // Kernel#warn override forwards to the original warn, and its
+        // compensation in caller_locations assumes it is counted.
+        const counts_as_backtrace_frame = frame.method_name != null and std.mem.eql(u8, frame.method_name.?, "bind_call");
+        if (frame.frame_type == .builtin and !counts_as_backtrace_frame) continue;
         const source = frame.chunk.source_file orelse frame.chunk.name;
 
         if (std.mem.startsWith(u8, source, "<internal:")) continue;
