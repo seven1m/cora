@@ -166,9 +166,11 @@ inline fn divFloorIntegers(vm: *VM, lhs: Value, rhs: Value) VMError!Value {
     if (lhs.isInteger() and rhs.isInteger()) {
         const li: i63 = @intCast(lhs.toInteger());
         const ri: i63 = @intCast(rhs.toInteger());
-        if (std.math.divFloor(i63, li, ri)) |quot| {
-            return Value.integer(@as(i64, quot));
-        } else |_| {}
+        if (!(li == std.math.minInt(i63) and ri == -1)) {
+            if (std.math.divFloor(i63, li, ri)) |quot| {
+                return Value.integer(@as(i64, quot));
+            } else |_| {}
+        }
     }
 
     var a = try lhs.integerToManaged(vm);
@@ -338,8 +340,9 @@ fn coerceShiftCount(vm: *VM, arg: Value) VMError!ShiftCount {
 
 fn negateInteger(vm: *VM, value_: Value) VMError!Value {
     if (value_.isInteger()) {
-        if (std.math.negate(value_.toInteger())) |negated| {
-            return Value.integer(negated);
+        const integer: i63 = @intCast(value_.toInteger());
+        if (std.math.negate(integer)) |negated| {
+            return Value.integer(@as(i64, negated));
         } else |_| {}
     }
 

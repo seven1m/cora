@@ -68,6 +68,26 @@ pub fn register(vm: *VM) !void {
 
     const denominator_sym = try vm.intern("denominator");
     try vm.numeric_class.module.methods.put(denominator_sym, value.MethodEntry.builtin(&builtinNumericDenominator, .{ .exact = 0 }));
+
+    const dup_sym = try vm.intern("dup");
+    try vm.numeric_class.module.methods.put(dup_sym, value.MethodEntry.builtin(&builtinNumericDup, .{ .exact = 0 }));
+
+    const clone_sym = try vm.intern("clone");
+    try vm.numeric_class.module.methods.put(clone_sym, value.MethodEntry.builtin(&builtinNumericClone, .{ .variadic = 0 }));
+}
+
+pub fn builtinNumericDup(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return receiver;
+}
+
+pub fn builtinNumericClone(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const freeze = try vm.consumeCloneFreezeOpt();
+    if (freeze.isFalse()) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "can't unfreeze {s}", .{vm.className(receiver)});
+    }
+    return receiver;
 }
 
 pub fn builtinNumericIntegerQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
