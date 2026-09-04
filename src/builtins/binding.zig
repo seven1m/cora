@@ -14,6 +14,9 @@ pub fn register(vm: *VM) !void {
 
     const local_variables_sym = try vm.intern("local_variables");
     try vm.binding_class.module.methods.put(local_variables_sym, MethodEntry.builtin(&builtinBindingLocalVariables, .{ .exact = 0 }));
+
+    const receiver_sym = try vm.intern("receiver");
+    try vm.binding_class.module.methods.put(receiver_sym, MethodEntry.builtin(&builtinBindingReceiver, .{ .exact = 0 }));
 }
 
 /// Default filename for Binding#eval when no filename argument is given.
@@ -91,4 +94,11 @@ pub fn builtinBindingLocalVariables(vm: *VM, receiver: Value, args: []Value, _: 
         result.elements.append(vm.gc_allocator, Value.fromObject(&sym.object)) catch return error.Fatal;
     }
     return Value.fromObject(&result.object);
+}
+
+/// Binding#receiver -> Object
+/// Returns the object captured as self by this binding.
+pub fn builtinBindingReceiver(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return receiver.toBindingObject().self_value;
 }
