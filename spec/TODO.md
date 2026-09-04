@@ -1381,7 +1381,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/method/hash_spec.rb
 - [ ] core/method/inspect_spec.rb
 - [ ] core/method/name_spec.rb
-- [ ] core/method/original_name_spec.rb
+- [x] core/method/original_name_spec.rb
 - [x] core/method/owner_spec.rb
 - [ ] core/method/parameters_spec.rb
 - [x] core/method/private_spec.rb

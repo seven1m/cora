@@ -37,6 +37,13 @@ fn builtinMethodOwner(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
     return boundMethodObject(receiver).owner;
 }
 
+fn builtinMethodOriginalName(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const method_obj = boundMethodObject(receiver);
+    const original_name = method_obj.entry.original_name orelse method_obj.name;
+    return Value.fromObject(&original_name.object);
+}
+
 fn builtinMethodToProc(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return receiver;
@@ -93,6 +100,7 @@ pub fn createBoundMethodObject(
     return common.createBoundMethodObject(vm, receiver, method_name, resolved, owner, .{
         .call = &builtinMethodCall,
         .equal = &builtinMethodEqual,
+        .original_name = &builtinMethodOriginalName,
         .owner = &builtinMethodOwner,
         .to_proc = &builtinMethodToProc,
         .arity = &builtinMethodArity,
