@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const enc = @import("../encoding.zig");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 const file_builtin = @import("file.zig");
@@ -257,6 +258,18 @@ pub fn builtinDirChildren(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!V
     return Value.fromObject(&result.object);
 }
 
+fn encodedDirEntry(vm: *VM, name: []const u8, external_encoding: enc.Encoding) VMError!Value {
+    const internal_encoding = if (vm.default_internal_encoding) |internal| internal.encoding else return vm.newStringWithEncoding(name, false, external_encoding);
+    if (internal_encoding.eql(external_encoding) or (external_encoding.isAsciiCompatible() and enc.isAsciiOnly(name))) {
+        return vm.newStringWithEncoding(name, false, internal_encoding);
+    }
+
+    const transcoded = enc.transcode(vm.gc_allocator_atomic, name, external_encoding, internal_encoding) catch {
+        return vm.newStringWithEncoding(name, false, external_encoding);
+    };
+    return vm.newStringWithEncoding(transcoded, false, internal_encoding);
+}
+
 pub fn builtinDirEntries(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCountRange(args, 0, 1);
     var encoding_value: ?Value = null;
@@ -272,12 +285,18 @@ pub fn builtinDirEntries(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Va
     };
     defer dir.close(vm.io);
 
+    const external_encoding_value = if (encoding_value) |requested| blk: {
+        var find_args = [_]Value{requested};
+        break :blk try vm.callMethodByName(Value.fromObject(&vm.encoding_class.module.object), "find", &find_args, null);
+    } else Value.fromObject(&vm.default_external_encoding.object);
+    const external_encoding = external_encoding_value.toEncodingObject().encoding;
+
     const result = try vm.createArray();
-    result.elements.append(vm.gc_allocator, try vm.newString(".", false)) catch return error.Fatal;
-    result.elements.append(vm.gc_allocator, try vm.newString("..", false)) catch return error.Fatal;
+    result.elements.append(vm.gc_allocator, try encodedDirEntry(vm, ".", external_encoding)) catch return error.Fatal;
+    result.elements.append(vm.gc_allocator, try encodedDirEntry(vm, "..", external_encoding)) catch return error.Fatal;
     var iter = dir.iterate();
     while (iter.next(vm.io) catch return error.Fatal) |dir_entry| {
-        result.elements.append(vm.gc_allocator, try vm.newString(dir_entry.name, false)) catch return error.Fatal;
+        result.elements.append(vm.gc_allocator, try encodedDirEntry(vm, dir_entry.name, external_encoding)) catch return error.Fatal;
     }
 
     return Value.fromObject(&result.object);

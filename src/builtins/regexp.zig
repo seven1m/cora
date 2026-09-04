@@ -204,7 +204,8 @@ fn builtinRegexpEscapeCoerceArg(vm: *VM, arg: Value) VMError!Value {
 
 fn builtinRegexpSource(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    return try vm.newString(receiver.toRegexpObject().pattern, false);
+    const regexp = receiver.toRegexpObject();
+    return try vm.newStringWithEncoding(regexp.pattern, false, regexp.encoding);
 }
 
 fn builtinRegexpEncoding(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
