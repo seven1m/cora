@@ -130,9 +130,6 @@ pub fn register(vm: *VM) !void {
     const bracket_sym = try vm.intern("[]");
     try struct_singleton.module.methods.put(bracket_sym, value.MethodEntry.builtin(&builtinStructNew, .{ .variadic = 0 }));
 
-    const members_sym = try vm.intern("members");
-    try struct_singleton.module.methods.put(members_sym, value.MethodEntry.builtin(&builtinStructClassMembers, .{ .exact = 0 }));
-
     const initialize_sym = try vm.intern("initialize");
     try vm.struct_class.module.methods.put(initialize_sym, value.MethodEntry.builtin(&builtinStructInitialize, .{ .variadic = 0 }));
 
