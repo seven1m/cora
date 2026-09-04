@@ -1378,10 +1378,9 @@ pub fn builtinModuleInstanceMethod(vm: *VM, receiver: Value, args: []Value, _: ?
 
 pub fn builtinModuleName(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
-    if (try publicModuleName(vm, receiver)) |name| {
-        return try vm.newString(name, true);
-    }
-    return Value.nil();
+    if (receiver.isClass() and receiver.toClassObject().attached_object != null) return Value.nil();
+    const module_obj = if (receiver.isClass()) &receiver.toClassObject().module else receiver.toModuleObject();
+    return if (module_obj.classpath) |classpath| Value.fromObject(&classpath.object) else Value.nil();
 }
 
 pub fn builtinModuleToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
