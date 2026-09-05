@@ -16,7 +16,7 @@ end
 
 unless ENV['MSPEC_RUNNER'] # Running directly with cora some_spec.rb
   mspec_lib = File.expand_path('../ext/mspec/lib', __dir__)
-  $LOAD_PATH << mspec_lib if File.directory?(mspec_lib)
+  $LOAD_PATH.unshift(mspec_lib) if File.directory?(mspec_lib)
   RUBY_EXE = File.expand_path('../build/bin/cora', __dir__) unless defined?(RUBY_EXE)
 
   begin
