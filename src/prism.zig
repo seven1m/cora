@@ -281,6 +281,11 @@ pub const Node = union(enum) {
 
 /// Parser wraps Prism's parser and AST lifecycle
 pub const Parser = struct {
+    pub const LineColumn = struct {
+        line: u32,
+        column: u32,
+    };
+
     allocator: std.mem.Allocator,
     source: []const u8,
     internal: c.pm_parser_t,
@@ -360,6 +365,18 @@ pub const Parser = struct {
     /// Get the root AST node, type-checked
     pub fn root(self: *Parser) !Node {
         return self.asNode(@ptrCast(self.ast));
+    }
+
+    pub fn lineColumn(self: *const Parser, cursor: [*c]const u8) LineColumn {
+        const result = c.pm_newline_list_line_column(
+            &self.internal.newline_list,
+            cursor,
+            self.internal.start_line,
+        );
+        return .{
+            .line = @intCast(result.line + 1),
+            .column = result.column,
+        };
     }
 
     /// Show Prism node in human-readable form

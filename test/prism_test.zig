@@ -27,3 +27,17 @@ test "Parser.init provides ProgramNode AST for valid code" {
 
     _ = parser.ast;
 }
+
+test "Parser.lineColumn uses parsed newline offsets" {
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    const source = "first\n  second\nthird";
+    var parser = try Parser.init(allocator, source, null);
+    defer parser.deinit();
+
+    try std.testing.expectEqual(Parser.LineColumn{ .line = 1, .column = 0 }, parser.lineColumn(source.ptr));
+    try std.testing.expectEqual(Parser.LineColumn{ .line = 2, .column = 2 }, parser.lineColumn(source.ptr + 8));
+    try std.testing.expectEqual(Parser.LineColumn{ .line = 3, .column = 0 }, parser.lineColumn(source.ptr + 15));
+}

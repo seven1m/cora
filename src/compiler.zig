@@ -385,8 +385,7 @@ pub const Compiler = struct {
         };
         const raw: *prism.RawNode = @ptrCast(@alignCast(ptr));
         const start = raw.location.start orelse return 1;
-        const offset = @intFromPtr(start) - @intFromPtr(self.parser.source.ptr);
-        return @as(u32, @intCast(std.mem.count(u8, self.parser.source[0..offset], "\n"))) + 1;
+        return self.parser.lineColumn(start).line;
     }
 
     fn nodeColumn(self: *Compiler, node: prism.Node) u32 {
@@ -395,11 +394,7 @@ pub const Compiler = struct {
         };
         const raw: *prism.RawNode = @ptrCast(@alignCast(ptr));
         const start = raw.location.start orelse return 1;
-        const offset = @intFromPtr(start) - @intFromPtr(self.parser.source.ptr);
-        const prefix = self.parser.source[0..offset];
-        const line_start = std.mem.lastIndexOfScalar(u8, prefix, '\n') orelse 0;
-        const column_offset = if (line_start == 0) offset else offset - (line_start + 1);
-        return @as(u32, @intCast(column_offset)) + 1;
+        return self.parser.lineColumn(start).column + 1;
     }
 
     fn nodeDebugTagName(node: prism.Node) []const u8 {
