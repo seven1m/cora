@@ -2,6 +2,7 @@ const std = @import("std");
 const enc = @import("../encoding.zig");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
+const kernel_builtin = @import("kernel.zig");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -11,6 +12,9 @@ const Value = value.Value;
 pub fn register(vm: *VM) !void {
     const init_sym = try vm.intern("initialize");
     try vm.range_class.module.methods.put(init_sym, value.MethodEntry.builtin(&builtinRangeInitialize, .{ .variadic = 0 }));
+
+    const initialize_copy_sym = try vm.intern("initialize_copy");
+    try vm.range_class.module.methods.put(initialize_copy_sym, value.MethodEntry.builtinWithVisibility(&builtinRangeInitializeCopy, .{ .exact = 1 }, .private));
 
     const begin_sym = try vm.intern("begin");
     try vm.range_class.module.methods.put(begin_sym, value.MethodEntry.builtin(&builtinRangeBegin, .{ .exact = 0 }));
@@ -67,6 +71,17 @@ pub fn builtinRangeInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block
     if (vm.getClass(receiver) == vm.range_class) receiver.toRangeObject().object.flags |= value.Object.FROZEN_FLAG;
 
     return Value.nil();
+}
+
+pub fn builtinRangeInitializeCopy(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    _ = try kernel_builtin.builtinKernelInitializeCopy(vm, receiver, args, block);
+
+    const source = args[0].toRangeObject();
+    const target = receiver.toRangeObject();
+    target.begin = source.begin;
+    target.end = source.end;
+    target.exclude_end = source.exclude_end;
+    return receiver;
 }
 
 pub fn builtinRangeBegin(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
