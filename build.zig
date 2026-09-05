@@ -542,6 +542,7 @@ pub fn build(b: *std.Build) void {
     const optimize = optimizeOptionDefaultReleaseFast(b);
     const test_verbose = b.option(bool, "test-verbose", "Print each test name") orelse false;
     const test_timing = b.option(bool, "test-timing", "Print elapsed time for each test") orelse false;
+    const test_trace = b.option(bool, "test-trace", "Print aggregate Ruby spec phase timings") orelse false;
     const test_jobs = b.option(i32, "test-jobs", "Number of test worker processes (<=0 auto)") orelse 0;
     const test_timeout = b.option(u32, "test-timeout", "Per-test-file wall-clock timeout in seconds (0 = disabled)") orelse 0;
     const coverage = b.option(bool, "coverage", "Run tests under kcov and generate an HTML coverage report") orelse false;
@@ -557,6 +558,7 @@ pub fn build(b: *std.Build) void {
     const options = b.addOptions();
     options.addOption(bool, "test_verbose", test_verbose);
     options.addOption(bool, "test_timing", test_timing);
+    options.addOption(bool, "test_trace", test_trace);
     options.addOption(i32, "test_jobs", test_jobs);
     options.addOption(u32, "test_timeout", test_timeout);
     const build_options_mod = options.createModule();
@@ -834,6 +836,7 @@ pub fn build(b: *std.Build) void {
     });
     ruby_spec_runner_mod.addImport("cora", cora_mod);
     ruby_spec_runner_mod.addImport("bdwgc", bdwgc.module("bdwgc"));
+    ruby_spec_runner_mod.addImport("build_options", build_options_mod);
     test_exe.root_module.addImport("ruby_spec_runner", ruby_spec_runner_mod);
 
     const test_run = blk: {

@@ -698,6 +698,7 @@ pub fn builtinKernelRequire(vm: *VM, _: Value, args: []Value, _: ?Block) VMError
         try vm.syncLoadedFeaturesGlobals();
         return err;
     };
+    try vm.recordLoadedFeatureRealpath(identity_path);
 
     if (std.mem.eql(u8, feature, "stringio") or std.mem.eql(u8, feature, "stringio.rb")) {
         stringio_builtin.register(vm) catch return error.Fatal;
@@ -904,6 +905,7 @@ pub fn builtinKernelRequireRelative(vm: *VM, _: Value, args: []Value, _: ?Block)
         try vm.syncLoadedFeaturesGlobals();
         return err;
     };
+    try vm.recordLoadedFeatureRealpath(identity_path_value);
 
     try vm.syncLoadedFeaturesGlobals();
     vm.allocator.free(resolved_path_value);

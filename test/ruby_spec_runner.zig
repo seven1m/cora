@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const build_options = @import("build_options");
 const cora = @import("cora");
 const load_path = cora.load_path;
 const prism = cora.prism;
@@ -7,6 +8,7 @@ const compiler = cora.compiler;
 const VM = cora.vm.VM;
 const Value = cora.value.Value;
 const bdwgc = @import("bdwgc");
+const perf_trace = @hasDecl(build_options, "test_trace") and build_options.test_trace;
 
 extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
 extern "c" fn unsetenv(name: [*:0]const u8) c_int;
@@ -25,19 +27,39 @@ pub const SpecStats = struct {
     skipped: usize = 0,
 };
 
+pub const SpecTimings = struct {
+    gc_init_ns: u64 = 0,
+    parse_ns: u64 = 0,
+    vm_init_ns: u64 = 0,
+    compile_ns: u64 = 0,
+    prepare_ns: u64 = 0,
+    execute_ns: u64 = 0,
+};
+
 pub const RunSpecResult = struct {
     outcome: enum {
         pass,
         fail,
     },
     stats: ?SpecStats = null,
+    timings: SpecTimings = .{},
 };
 
 pub const EvalResult = struct {
     stdout: []const u8,
     stderr: []const u8,
     err: ?anyerror,
+    timings: SpecTimings = .{},
 };
+
+fn perfNowNs() u64 {
+    if (!perf_trace) return 0;
+    var ts: std.posix.timespec = undefined;
+    switch (std.posix.errno(std.posix.system.clock_gettime(std.posix.CLOCK.MONOTONIC, &ts))) {
+        .SUCCESS => return @intCast(@as(i128, ts.sec) * 1_000_000_000 + ts.nsec),
+        else => return 0,
+    }
+}
 
 pub const TestWriter = struct {
     buffer: []u8,
@@ -224,6 +246,7 @@ pub fn runSpec(path: []const u8) RunSpecResult {
         return .{
             .outcome = .fail,
             .stats = stats,
+            .timings = result.timings,
         };
     }
 
@@ -232,12 +255,14 @@ pub fn runSpec(path: []const u8) RunSpecResult {
         return .{
             .outcome = .fail,
             .stats = stats,
+            .timings = result.timings,
         };
     }
 
     return .{
         .outcome = .pass,
         .stats = stats,
+        .timings = result.timings,
     };
 }
 
@@ -281,12 +306,16 @@ fn appendRepoLoadPaths(vm: *VM, io: std.Io) !void {
 }
 
 fn evalCodeWithOutputAndPath(ruby_code: []const u8, stdout_buf: []u8, stderr_buf: []u8, source_path: ?[]const u8) EvalResult {
+    var timings = SpecTimings{};
+    var phase_start = perfNowNs();
     bdwgc.init();
     if (builtin.mode != .Debug) bdwgc.disableWarnings();
+    timings.gc_init_ns = perfNowNs() - phase_start;
     defer bdwgc.deinit();
 
     const allocator = std.heap.page_allocator;
 
+    phase_start = perfNowNs();
     var parser = prism.Parser.init(allocator, ruby_code, source_path) catch |err| {
         return .{
             .stdout = "",
@@ -295,13 +324,17 @@ fn evalCodeWithOutputAndPath(ruby_code: []const u8, stdout_buf: []u8, stderr_buf
         };
     };
     defer parser.deinit();
+    timings.parse_ns = perfNowNs() - phase_start;
 
     var threaded: std.Io.Threaded = .init(allocator, .{});
     defer threaded.deinit();
 
+    phase_start = perfNowNs();
     var vm = VM.initEmpty(allocator, bdwgc.allocator, bdwgc.allocator_atomic, threaded.io(), std.testing.environ);
     defer vm.deinit();
+    timings.vm_init_ns = perfNowNs() - phase_start;
 
+    phase_start = perfNowNs();
     var program = compiler.Compiler.compile(allocator, &parser, 1) catch |err| {
         return .{
             .stdout = "",
@@ -310,7 +343,9 @@ fn evalCodeWithOutputAndPath(ruby_code: []const u8, stdout_buf: []u8, stderr_buf
         };
     };
     defer program.deinit();
+    timings.compile_ns = perfNowNs() - phase_start;
 
+    phase_start = perfNowNs();
     vm.prepare(&program) catch |err| {
         return .{
             .stdout = "",
@@ -327,6 +362,7 @@ fn evalCodeWithOutputAndPath(ruby_code: []const u8, stdout_buf: []u8, stderr_buf
             .err = err,
         };
     };
+    timings.prepare_ns = perfNowNs() - phase_start;
 
     var stdout_writer = TestWriter.init(stdout_buf);
     vm.stdout = &stdout_writer.interface;
@@ -334,9 +370,11 @@ fn evalCodeWithOutputAndPath(ruby_code: []const u8, stdout_buf: []u8, stderr_buf
     var stderr_writer = TestWriter.init(stderr_buf);
     vm.stderr = &stderr_writer.interface;
 
+    phase_start = perfNowNs();
     const run_result = vm.run();
 
     const at_exit_result = vm.runAtExitHandlers();
+    timings.execute_ns = perfNowNs() - phase_start;
     if (at_exit_result) |_| {
         // Completed.
     } else |err| {
@@ -347,6 +385,7 @@ fn evalCodeWithOutputAndPath(ruby_code: []const u8, stdout_buf: []u8, stderr_buf
             .stdout = stdout_writer.written(),
             .stderr = stderr_writer.written(),
             .err = err,
+            .timings = timings,
         };
     }
 
@@ -355,6 +394,7 @@ fn evalCodeWithOutputAndPath(ruby_code: []const u8, stdout_buf: []u8, stderr_buf
             .stdout = stdout_writer.written(),
             .stderr = stderr_writer.written(),
             .err = null,
+            .timings = timings,
         };
     } else |err| {
         if (err == error.UnhandledException) {
@@ -364,6 +404,7 @@ fn evalCodeWithOutputAndPath(ruby_code: []const u8, stdout_buf: []u8, stderr_buf
             .stdout = stdout_writer.written(),
             .stderr = stderr_writer.written(),
             .err = err,
+            .timings = timings,
         };
     }
 }

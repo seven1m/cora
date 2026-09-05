@@ -9,6 +9,7 @@ const ruby_spec_runner = @import("ruby_spec_runner");
 
 const verbose = @hasDecl(build_options, "test_verbose") and build_options.test_verbose;
 const timing = @hasDecl(build_options, "test_timing") and build_options.test_timing;
+const perf_trace = @hasDecl(build_options, "test_trace") and build_options.test_trace;
 const test_filter_raw = if (@hasDecl(build_options, "test_filter_raw")) build_options.test_filter_raw else "";
 const configured_test_jobs = if (@hasDecl(build_options, "test_jobs")) build_options.test_jobs else 0;
 const configured_test_timeout_s: u64 = if (@hasDecl(build_options, "test_timeout")) build_options.test_timeout else 0;
@@ -204,6 +205,7 @@ fn runRubySpecTest(test_case: RubySpecTest) TestRunResult {
                 } else 0,
                 .ruby_failed_delta = if (has_stats) spec_stats.failed else 0,
                 .ruby_skipped_delta = if (has_stats) spec_stats.skipped else 0,
+                .spec_timings = run_result.timings,
             };
         },
         .no_specs_found => {
@@ -238,6 +240,7 @@ const TestRunResult = struct {
     ruby_failed_delta: usize = 0,
     ruby_skipped_delta: usize = 0,
     elapsed_ns: u64 = 0,
+    spec_timings: ruby_spec_runner.SpecTimings = .{},
 };
 
 const WorkerJsonResult = struct {
@@ -253,6 +256,7 @@ const WorkerJsonResult = struct {
     ruby_failed_delta: usize = 0,
     ruby_skipped_delta: usize = 0,
     elapsed_ns: u64 = 0,
+    spec_timings: ruby_spec_runner.SpecTimings = .{},
 };
 
 const ActiveWorker = struct {
@@ -381,6 +385,7 @@ fn executeTestAtIndex(test_fns: []const ZigTestFn, ruby_spec_tests: []const Ruby
     result.ruby_passed_delta = ruby_result.ruby_passed_delta;
     result.ruby_failed_delta = ruby_result.ruby_failed_delta;
     result.ruby_skipped_delta = ruby_result.ruby_skipped_delta;
+    result.spec_timings = ruby_result.spec_timings;
     if (timing) result.elapsed_ns = getTimeNsec() - start_ts;
     return result;
 }
@@ -399,6 +404,7 @@ fn emitWorkerJsonResult(result: TestRunResult) void {
         .ruby_failed_delta = result.ruby_failed_delta,
         .ruby_skipped_delta = result.ruby_skipped_delta,
         .elapsed_ns = result.elapsed_ns,
+        .spec_timings = result.spec_timings,
     };
 
     const allocator = std.heap.page_allocator;
@@ -444,6 +450,7 @@ fn parseWorkerResult(allocator: std.mem.Allocator, term: std.process.Child.Term,
             .ruby_failed_delta = parsed.value.ruby_failed_delta,
             .ruby_skipped_delta = parsed.value.ruby_skipped_delta,
             .elapsed_ns = parsed.value.elapsed_ns,
+            .spec_timings = parsed.value.spec_timings,
         };
         if (parsed.value.err_name) |name| {
             if (allocator.dupe(u8, name)) |duped| {
@@ -585,6 +592,8 @@ const RunSummary = struct {
     log_err_count: usize = 0,
     known_total_specs: usize = 0,
     completed_specs: usize = 0,
+    traced_specs: usize = 0,
+    spec_timings: ruby_spec_runner.SpecTimings = .{},
 };
 
 fn printElapsedSuffix(elapsed_ns: u64) void {
@@ -691,6 +700,15 @@ fn applyResult(summary: *RunSummary, result: TestRunResult, test_name: TestName)
     summary.leaks += @intFromBool(result.leak);
     summary.fuzz_count += @intFromBool(result.fuzz);
     summary.completed_specs += result.spec_completed_delta;
+    if (perf_trace and result.is_ruby_spec) {
+        summary.traced_specs += 1;
+        summary.spec_timings.gc_init_ns += result.spec_timings.gc_init_ns;
+        summary.spec_timings.parse_ns += result.spec_timings.parse_ns;
+        summary.spec_timings.vm_init_ns += result.spec_timings.vm_init_ns;
+        summary.spec_timings.compile_ns += result.spec_timings.compile_ns;
+        summary.spec_timings.prepare_ns += result.spec_timings.prepare_ns;
+        summary.spec_timings.execute_ns += result.spec_timings.execute_ns;
+    }
     if (result.is_ruby_spec) {
         summary.ruby_passed += result.ruby_passed_delta;
         summary.ruby_skipped += result.ruby_skipped_delta;
@@ -726,6 +744,21 @@ fn printSummary(summary: RunSummary) void {
         summary.ruby_failed,
         ruby_total,
     });
+    if (perf_trace and summary.traced_specs > 0) {
+        const timings = summary.spec_timings;
+        const seconds = struct {
+            fn fromNs(ns: u64) f64 {
+                return @as(f64, @floatFromInt(ns)) / 1_000_000_000.0;
+            }
+        }.fromNs;
+        std.debug.print("\nRuby spec trace ({d} specs, aggregate):\n", .{summary.traced_specs});
+        std.debug.print("  gc init: {d:.3}s\n", .{seconds(timings.gc_init_ns)});
+        std.debug.print("  parse: {d:.3}s\n", .{seconds(timings.parse_ns)});
+        std.debug.print("  VM init: {d:.3}s\n", .{seconds(timings.vm_init_ns)});
+        std.debug.print("  compile: {d:.3}s\n", .{seconds(timings.compile_ns)});
+        std.debug.print("  prepare: {d:.3}s\n", .{seconds(timings.prepare_ns)});
+        std.debug.print("  execute: {d:.3}s\n", .{seconds(timings.execute_ns)});
+    }
     std.debug.print("\n", .{});
 }
 

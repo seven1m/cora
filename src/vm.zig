@@ -677,9 +677,13 @@ pub const VM = struct {
 
     // File loading infrastructure
     loaded_files: std.StringHashMap(void) = undefined,
+    loaded_feature_realpaths: std.StringHashMap(void) = undefined,
     require_in_progress: std.StringHashMap(*value.ThreadObject) = undefined,
     loaded_paths: std.ArrayList([]const u8) = .empty,
     load_path: ?*value.ArrayObject = null,
+    load_path_snapshot: std.ArrayList([]const u8) = .empty,
+    expanded_load_path: std.ArrayList([]const u8) = .empty,
+    load_path_snapshot_cwd: ?[]const u8 = null,
     current_loading_file: ?[]const u8 = null,
     env_object: ?Value = null,
     next_chunk_id: u16 = 1,
@@ -737,6 +741,7 @@ pub const VM = struct {
             .packed_pointer_targets = std.AutoHashMap(*StringObject, PackedPointerTargets).init(gc_allocator),
             .errno_classes = std.AutoHashMap(c_int, *ClassObject).init(gc_allocator),
             .loaded_files = std.StringHashMap(void).init(gc_allocator),
+            .loaded_feature_realpaths = std.StringHashMap(void).init(gc_allocator),
             .require_in_progress = std.StringHashMap(*value.ThreadObject).init(allocator),
             .program = undefined,
             .current_lexical_scope = null,
@@ -902,8 +907,12 @@ pub const VM = struct {
         // must wait until Array and String classes exist so those bootstrap
         // objects get valid dispatch classes.
         self.loaded_files = std.StringHashMap(void).init(self.allocator);
+        self.loaded_feature_realpaths = std.StringHashMap(void).init(self.allocator);
         self.loaded_paths = .empty;
         self.load_path = null;
+        self.load_path_snapshot = .empty;
+        self.expanded_load_path = .empty;
+        self.load_path_snapshot_cwd = null;
         self.next_chunk_id = program.next_chunk_id;
         self.thread_preempt_quantum_ops = parseThreadPreemptQuantumOps();
         initializeDefaultSignalTrapModes(self);
@@ -913,6 +922,7 @@ pub const VM = struct {
         if (program.main_chunk.source_file) |main_file| {
             const abs_path = try self.resolveAbsolutePath(main_file);
             try self.insertLoadedFile(abs_path);
+            try self.recordLoadedFeatureRealpath(abs_path);
             self.allocator.free(abs_path);
             self.current_loading_file = self.loaded_paths.items[self.loaded_paths.items.len - 1];
         }
@@ -2604,12 +2614,22 @@ pub const VM = struct {
             self.allocator.free(key.*);
         }
         self.loaded_files.deinit();
+        var realpath_iter = self.loaded_feature_realpaths.keyIterator();
+        while (realpath_iter.next()) |key| {
+            self.allocator.free(key.*);
+        }
+        self.loaded_feature_realpaths.deinit();
         var require_iter = self.require_in_progress.keyIterator();
         while (require_iter.next()) |key| {
             self.allocator.free(key.*);
         }
         self.require_in_progress.deinit();
         self.loaded_paths.deinit(self.allocator);
+        for (self.load_path_snapshot.items) |path| self.allocator.free(path);
+        self.load_path_snapshot.deinit(self.allocator);
+        for (self.expanded_load_path.items) |path| self.allocator.free(path);
+        self.expanded_load_path.deinit(self.allocator);
+        if (self.load_path_snapshot_cwd) |cwd| self.allocator.free(cwd);
         self.cext_handles.deinit(self.allocator);
         if (self.ruby_executable_path) |path| {
             self.allocator.free(path);
@@ -11536,6 +11556,19 @@ pub const VM = struct {
     pub fn resetLoadedFilesFromGlobal(self: *VM) VMError!void {
         const loaded_val = self.getGlobalValue("$LOADED_FEATURES");
         if (!loaded_val.isArray()) return;
+        const entries = loaded_val.toArrayObject().elements.items;
+
+        // Rebuild loader indexes only when Ruby code changed $LOADED_FEATURES.
+        if (entries.len == self.loaded_paths.items.len) {
+            var unchanged = true;
+            for (entries, self.loaded_paths.items) |entry, path| {
+                if (!entry.isString() or !std.mem.eql(u8, entry.toStringObject().str, path)) {
+                    unchanged = false;
+                    break;
+                }
+            }
+            if (unchanged) return;
+        }
 
         var key_iter = self.loaded_files.keyIterator();
         while (key_iter.next()) |key| {
@@ -11544,13 +11577,33 @@ pub const VM = struct {
         self.loaded_files.deinit();
         self.loaded_files = std.StringHashMap(void).init(self.allocator);
         self.loaded_paths.clearRetainingCapacity();
+        var realpath_iter = self.loaded_feature_realpaths.keyIterator();
+        while (realpath_iter.next()) |key| self.allocator.free(key.*);
+        self.loaded_feature_realpaths.clearRetainingCapacity();
 
-        for (loaded_val.toArrayObject().elements.items) |entry| {
+        for (entries) |entry| {
             if (!entry.isString()) continue;
             const duped = self.allocator.dupe(u8, entry.toStringObject().str) catch return error.Fatal;
             self.loaded_files.put(duped, {}) catch return error.Fatal;
             self.loaded_paths.append(self.allocator, duped) catch return error.Fatal;
+
+            const normalized = try self.normalizeLoadedFeatureEntry(duped) orelse continue;
+            if (self.loaded_feature_realpaths.contains(normalized)) {
+                self.allocator.free(normalized);
+            } else {
+                self.loaded_feature_realpaths.put(normalized, {}) catch {
+                    self.allocator.free(normalized);
+                    return error.Fatal;
+                };
+            }
         }
+    }
+
+    pub fn recordLoadedFeatureRealpath(self: *VM, path: []const u8) VMError!void {
+        if (self.loaded_feature_realpaths.contains(path)) return;
+        const duped = self.allocator.dupe(u8, path) catch return error.Fatal;
+        errdefer self.allocator.free(duped);
+        self.loaded_feature_realpaths.put(duped, {}) catch return error.Fatal;
     }
 
     pub fn insertLoadedFile(self: *VM, path: []const u8) VMError!void {
@@ -11808,19 +11861,58 @@ pub const VM = struct {
         return self.allocator.dupe(u8, path_buffer[0..len]) catch return error.Fatal;
     }
 
+    fn getExpandedLoadPath(self: *VM) VMError![]const []const u8 {
+        const load_path = self.load_path orelse return error.Fatal;
+        const cwd = try self.currentWorkingDir();
+        defer self.allocator.free(cwd);
+
+        var string_count: usize = 0;
+        var cache_valid = self.load_path_snapshot_cwd != null and
+            std.mem.eql(u8, self.load_path_snapshot_cwd.?, cwd);
+        for (load_path.elements.items) |entry| {
+            if (!entry.isString()) continue;
+            if (string_count >= self.load_path_snapshot.items.len or
+                !std.mem.eql(u8, self.load_path_snapshot.items[string_count], entry.toStringObject().str))
+            {
+                cache_valid = false;
+            }
+            string_count += 1;
+        }
+        if (string_count != self.load_path_snapshot.items.len) cache_valid = false;
+        if (cache_valid) return self.expanded_load_path.items;
+
+        for (self.load_path_snapshot.items) |path| self.allocator.free(path);
+        self.load_path_snapshot.clearRetainingCapacity();
+        for (self.expanded_load_path.items) |path| self.allocator.free(path);
+        self.expanded_load_path.clearRetainingCapacity();
+        if (self.load_path_snapshot_cwd) |old_cwd| self.allocator.free(old_cwd);
+        self.load_path_snapshot_cwd = self.allocator.dupe(u8, cwd) catch return error.Fatal;
+
+        for (load_path.elements.items) |entry| {
+            if (!entry.isString()) continue;
+            const path = entry.toStringObject().str;
+            const snapshot_path = self.allocator.dupe(u8, path) catch return error.Fatal;
+            self.load_path_snapshot.append(self.allocator, snapshot_path) catch {
+                self.allocator.free(snapshot_path);
+                return error.Fatal;
+            };
+            const expanded = try self.canonicalizeLoadPathEntry(path);
+            self.expanded_load_path.append(self.allocator, expanded) catch {
+                self.allocator.free(expanded);
+                return error.Fatal;
+            };
+        }
+        return self.expanded_load_path.items;
+    }
+
     pub fn resolveRequireFeature(self: *VM, feature: []const u8) VMError!?ResolvedFeature {
         if (std.fs.path.isAbsolute(feature) or hasExplicitRelativePrefix(feature)) {
             return try self.resolveExplicitFeature(feature);
         }
 
-        const load_path = self.load_path orelse return error.Fatal;
-        for (load_path.elements.items) |entry| {
-            if (!entry.isString()) continue;
-            const dir = entry.toStringObject().str;
-            const canonical_dir = try self.canonicalizeLoadPathEntry(dir);
-            defer self.allocator.free(canonical_dir);
-
-            const joined = try self.joinPathPartsAlloc(canonical_dir, feature);
+        const load_path = try self.getExpandedLoadPath();
+        for (load_path) |dir| {
+            const joined = try self.joinPathPartsAlloc(dir, feature);
             defer self.allocator.free(joined);
 
             const load_candidate = try self.normalizeAbsolutePathAlloc(joined);
@@ -11874,28 +11966,14 @@ pub const VM = struct {
         if (!isBareFeatureWithoutExt(feature) and self.loaded_files.contains(feature)) {
             return true;
         }
-
-        var key_iter = self.loaded_files.keyIterator();
-        while (key_iter.next()) |key| {
-            const normalized = try self.normalizeLoadedFeatureEntry(key.*) orelse continue;
-            defer self.allocator.free(normalized);
-            if (std.mem.eql(u8, normalized, resolved_path.?)) {
-                return true;
-            }
-        }
-
-        return false;
+        return self.loaded_feature_realpaths.contains(resolved_path.?);
     }
 
     pub fn loadedFeatureMatchesCurrentLoadPath(self: *VM, feature: []const u8) VMError!bool {
-        const load_path = self.load_path orelse return false;
-        for (load_path.elements.items) |entry| {
-            if (!entry.isString()) continue;
-            const dir = entry.toStringObject().str;
-            const canonical_dir = try self.canonicalizeLoadPathEntry(dir);
-            defer self.allocator.free(canonical_dir);
-
-            const joined = try self.joinPathPartsAlloc(canonical_dir, feature);
+        if (self.load_path == null) return false;
+        const load_path = try self.getExpandedLoadPath();
+        for (load_path) |dir| {
+            const joined = try self.joinPathPartsAlloc(dir, feature);
             defer self.allocator.free(joined);
 
             const candidate = try self.normalizeAbsolutePathAlloc(joined);
