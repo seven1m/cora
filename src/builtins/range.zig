@@ -25,6 +25,9 @@ pub fn register(vm: *VM) !void {
     const exclude_end_sym = try vm.intern("exclude_end?");
     try vm.range_class.module.methods.put(exclude_end_sym, value.MethodEntry.builtin(&builtinRangeExcludeEnd, .{ .exact = 0 }));
 
+    const equal_sym = try vm.intern("==");
+    try vm.range_class.module.methods.put(equal_sym, value.MethodEntry.builtin(&builtinRangeEqual, .{ .exact = 1 }));
+
     const first_sym = try vm.intern("first");
     try vm.range_class.module.methods.put(first_sym, value.MethodEntry.builtin(&builtinRangeFirst, .{ .variadic = 0 }));
 
@@ -106,6 +109,23 @@ pub fn builtinRangeExcludeEnd(vm: *VM, receiver: Value, args: []Value, _: ?Block
         return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Range", .{});
     }
     return Value.boolean(receiver.toRangeObject().exclude_end);
+}
+
+pub fn builtinRangeEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (!args[0].isRange()) return Value.boolean(false);
+
+    const lhs = receiver.toRangeObject();
+    const rhs = args[0].toRangeObject();
+    if (lhs.exclude_end != rhs.exclude_end) return Value.boolean(false);
+
+    var equal_args = [_]Value{rhs.begin};
+    const begins_equal = try vm.callMethodByName(lhs.begin, "==", equal_args[0..], null);
+    if (!begins_equal.isTruthy()) return Value.boolean(false);
+
+    equal_args[0] = rhs.end;
+    const ends_equal = try vm.callMethodByName(lhs.end, "==", equal_args[0..], null);
+    return Value.boolean(ends_equal.isTruthy());
 }
 
 pub fn builtinRangeFirst(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
