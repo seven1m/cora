@@ -612,16 +612,18 @@ pub fn register(vm: *VM) !void {
     try vm.array_class.module.methods.put(deconstruct_sym, value.MethodEntry.builtin(&builtinArrayDeconstruct, .{ .exact = 0 }));
 
     const map_sym = try vm.intern("map");
-    try vm.array_class.module.methods.put(map_sym, value.MethodEntry.builtin(&builtinArrayMap, .{ .exact = 0 }));
+    const map_entry = value.MethodEntry.builtin(&builtinArrayMap, .{ .exact = 0 });
+    try vm.array_class.module.methods.put(map_sym, map_entry);
 
     const collect_sym = try vm.intern("collect");
-    try vm.array_class.module.methods.put(collect_sym, value.MethodEntry.builtin(&builtinArrayCollect, .{ .exact = 0 }));
+    try vm.array_class.module.methods.put(collect_sym, map_entry);
 
     const map_bang_sym = try vm.intern("map!");
-    try vm.array_class.module.methods.put(map_bang_sym, value.MethodEntry.builtin(&builtinArrayMapBang, .{ .exact = 0 }));
+    const map_bang_entry = value.MethodEntry.builtin(&builtinArrayMapBang, .{ .exact = 0 });
+    try vm.array_class.module.methods.put(map_bang_sym, map_bang_entry);
 
     const collect_bang_sym = try vm.intern("collect!");
-    try vm.array_class.module.methods.put(collect_bang_sym, value.MethodEntry.builtin(&builtinArrayCollectBang, .{ .exact = 0 }));
+    try vm.array_class.module.methods.put(collect_bang_sym, map_bang_entry);
 
     const compact_sym = try vm.intern("compact");
     try vm.array_class.module.methods.put(compact_sym, value.MethodEntry.builtin(&builtinArrayCompact, .{ .exact = 0 }));
@@ -1474,10 +1476,6 @@ pub fn builtinArrayMap(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
     return arrayMapShared(vm, receiver, args, block, "map");
 }
 
-pub fn builtinArrayCollect(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
-    return arrayMapShared(vm, receiver, args, block, "collect");
-}
-
 fn arrayMapShared(vm: *VM, receiver: Value, args: []Value, block: ?Block, method_name: []const u8) VMError!Value {
     try vm.requireArgCount(args, 0);
     const blk = block orelse {
@@ -1500,10 +1498,6 @@ fn arrayMapShared(vm: *VM, receiver: Value, args: []Value, block: ?Block, method
 
 pub fn builtinArrayMapBang(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
     return arrayMapBangShared(vm, receiver, args, block, "map!");
-}
-
-pub fn builtinArrayCollectBang(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
-    return arrayMapBangShared(vm, receiver, args, block, "collect!");
 }
 
 fn arrayMapBangShared(vm: *VM, receiver: Value, args: []Value, block: ?Block, method_name: []const u8) VMError!Value {
