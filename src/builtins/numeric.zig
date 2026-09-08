@@ -69,11 +69,32 @@ pub fn register(vm: *VM) !void {
     const denominator_sym = try vm.intern("denominator");
     try vm.numeric_class.module.methods.put(denominator_sym, value.MethodEntry.builtin(&builtinNumericDenominator, .{ .exact = 0 }));
 
+    const coerce_sym = try vm.intern("coerce");
+    try vm.numeric_class.module.methods.put(coerce_sym, value.MethodEntry.builtin(&builtinNumericCoerce, .{ .exact = 1 }));
+
     const dup_sym = try vm.intern("dup");
     try vm.numeric_class.module.methods.put(dup_sym, value.MethodEntry.builtin(&builtinNumericDup, .{ .exact = 0 }));
 
     const clone_sym = try vm.intern("clone");
     try vm.numeric_class.module.methods.put(clone_sym, value.MethodEntry.builtin(&builtinNumericClone, .{ .variadic = 0 }));
+}
+
+pub fn builtinNumericCoerce(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+
+    var lhs = args[0];
+    var rhs = receiver;
+    if (vm.getClass(lhs) != vm.getClass(rhs)) {
+        var float_args = [_]Value{lhs};
+        lhs = try vm.callMethodByName(receiver, "Float", float_args[0..], null);
+        float_args[0] = rhs;
+        rhs = try vm.callMethodByName(receiver, "Float", float_args[0..], null);
+    }
+
+    const result = try vm.createArray();
+    result.elements.append(vm.gc_allocator, lhs) catch return error.Fatal;
+    result.elements.append(vm.gc_allocator, rhs) catch return error.Fatal;
+    return Value.fromObject(&result.object);
 }
 
 pub fn builtinNumericDup(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

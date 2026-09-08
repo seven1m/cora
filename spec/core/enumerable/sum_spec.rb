@@ -15,9 +15,7 @@ describe 'Enumerable#sum' do
   end
 
   it 'returns amount of the elements with taking an argument as the initial value' do
-    CORAFIXME "Rational arithmetic is not implemented yet" do
-      @enum.sum(10).should == 35/3r
-    end
+    @enum.sum(10).should == 35/3r
   end
 
   it 'gives 0 as a default argument' do

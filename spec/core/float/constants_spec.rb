@@ -31,11 +31,9 @@ describe "Float constant" do
   end
 
   it "MAX is 1.7976931348623157e+308" do
-    CORAFIXME "Integer#- does not support Rational arguments yet", exception: TypeError, message: /argument is not numeric/ do
-      # See https://en.wikipedia.org/wiki/Double-precision_floating-point_format#Double-precision_examples
-      Float::MAX.should == (1 + (1 - (2 ** -52))) * (2.0 ** 1023)
-      Float::MAX.should == 1.7976931348623157e+308
-    end
+    # See https://en.wikipedia.org/wiki/Double-precision_floating-point_format#Double-precision_examples
+    Float::MAX.should == (1 + (1 - (2 ** -52))) * (2.0 ** 1023)
+    Float::MAX.should == 1.7976931348623157e+308
   end
 
   it "MIN is 2.2250738585072014e-308" do
