@@ -1194,6 +1194,11 @@ pub const Value = struct {
             .string => std.hash.Wyhash.hash(0, self.toStringObject().str),
             .regexp => std.hash.Wyhash.hash(@as(u64, self.toRegexpObject().options), self.toRegexpObject().pattern),
             .float => @bitCast(self.toFloatObject().val),
+            .complex => blk: {
+                const complex = self.toComplexObject();
+                var imaginary_hash = complex.imaginary.hash();
+                break :blk std.hash.Wyhash.hash(complex.real.hash(), std.mem.asBytes(&imaginary_hash));
+            },
             .time => blk: {
                 const timew = self.toTimeObject().timew;
                 if (!timew.isRational()) break :blk timew.hash();

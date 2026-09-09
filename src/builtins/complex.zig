@@ -12,6 +12,14 @@ pub fn register(vm: *VM) !void {
 
     const real_q_sym = try vm.intern("real?");
     try vm.complex_class.module.methods.put(real_q_sym, value.MethodEntry.builtin(&builtinComplexRealQ, .{ .exact = 0 }));
+
+    const hash_sym = try vm.intern("hash");
+    try vm.complex_class.module.methods.put(hash_sym, value.MethodEntry.builtin(&builtinComplexHash, .{ .exact = 0 }));
+}
+
+fn builtinComplexHash(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return Value.integer(@bitCast(receiver.hash()));
 }
 
 fn builtinComplexRealQ(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
