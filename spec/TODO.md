@@ -1319,7 +1319,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/matchdata/end_spec.rb
 - [x] core/matchdata/eql_spec.rb
 - [ ] core/matchdata/equal_value_spec.rb
-- [ ] core/matchdata/hash_spec.rb
+- [x] core/matchdata/hash_spec.rb
 - [ ] core/matchdata/inspect_spec.rb
 - [x] core/matchdata/length_spec.rb
 - [ ] core/matchdata/match_length_spec.rb
