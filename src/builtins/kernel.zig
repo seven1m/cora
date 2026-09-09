@@ -1646,7 +1646,7 @@ pub fn builtinKernelProc(vm: *VM, _: Value, args: []Value, block: ?Block) VMErro
         return vm.raiseExceptionFmt(vm.argument_error_class, "tried to create Proc object without a block", .{});
     };
 
-    return try vm.newProc(blk);
+    return try vm.procValueForBlock(blk);
 }
 
 pub fn builtinKernelLambda(vm: *VM, _: Value, args: []Value, block: ?Block) VMError!Value {
