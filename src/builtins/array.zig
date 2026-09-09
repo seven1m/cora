@@ -756,10 +756,10 @@ pub fn register(vm: *VM) !void {
     try vm.array_class.module.methods.put(product_sym, value.MethodEntry.builtin(&builtinArrayProduct, .{ .variadic = 0 }));
 
     const to_s_sym = try vm.intern("to_s");
-    try vm.array_class.module.methods.put(to_s_sym, value.MethodEntry.builtin(&builtinArrayToS, .{ .exact = 0 }));
-
     const inspect_sym = try vm.intern("inspect");
-    try vm.array_class.module.methods.put(inspect_sym, value.MethodEntry.builtin(&builtinArrayInspect, .{ .exact = 0 }));
+    const inspect_entry = value.MethodEntry.builtin(&builtinArrayInspect, .{ .exact = 0 });
+    try vm.array_class.module.methods.put(to_s_sym, inspect_entry);
+    try vm.array_class.module.methods.put(inspect_sym, inspect_entry);
 
     const to_a_sym = try vm.intern("to_a");
     try vm.array_class.module.methods.put(to_a_sym, value.MethodEntry.builtin(&builtinArrayToA, .{ .exact = 0 }));

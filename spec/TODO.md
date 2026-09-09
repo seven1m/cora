@@ -1378,7 +1378,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/method/element_reference_spec.rb
 - [x] core/method/eql_spec.rb
 - [x] core/method/equal_value_spec.rb
-- [ ] core/method/hash_spec.rb
+- [x] core/method/hash_spec.rb
 - [x] core/method/inspect_spec.rb
 - [x] core/method/name_spec.rb
 - [x] core/method/original_name_spec.rb
@@ -2342,7 +2342,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/unboundmethod/dup_spec.rb
 - [x] core/unboundmethod/eql_spec.rb
 - [x] core/unboundmethod/equal_value_spec.rb
-- [ ] core/unboundmethod/hash_spec.rb
+- [x] core/unboundmethod/hash_spec.rb
 - [x] core/unboundmethod/inspect_spec.rb
 - [x] core/unboundmethod/name_spec.rb
 - [x] core/unboundmethod/original_name_spec.rb

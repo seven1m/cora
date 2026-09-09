@@ -56,6 +56,31 @@ pub fn boundMethodsEqual(lhs: *MethodObject, rhs: *MethodObject) bool {
         entriesHaveSameImplementation(lhs.entry, rhs.entry);
 }
 
+fn methodImplementationHash(entry: MethodEntry) u64 {
+    return switch (entry.method) {
+        .chunk => |chunk| @intFromPtr(chunk),
+        .builtin => |builtin| @intFromPtr(builtin.function),
+        .cext => |cext| @intFromPtr(cext.func),
+        .proc => |proc_obj| @intFromPtr(proc_obj),
+        .missing => |name| @intFromPtr(name),
+        .undefined => 0,
+    };
+}
+
+fn builtinBoundMethodHash(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const method_obj = receiver.toMethodObject();
+    const hash = method_obj.receiver.raw *% 0x9e3779b97f4a7c15 ^ methodImplementationHash(method_obj.entry);
+    return Value.integer(@bitCast(hash));
+}
+
+fn builtinUnboundMethodHash(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const method_obj = receiver.toUnboundMethodObject();
+    const hash = method_obj.owner.raw *% 0x9e3779b97f4a7c15 ^ methodImplementationHash(method_obj.entry);
+    return Value.integer(@bitCast(hash));
+}
+
 pub const UnboundMethodBuiltins = struct {
     name: BuiltinMethodFn,
     original_name: BuiltinMethodFn,
@@ -330,6 +355,9 @@ pub fn createBoundMethodObject(
     const eql_sym = try vm.intern("eql?");
     singleton.module.methods.put(eql_sym, equal_entry) catch return error.Fatal;
 
+    const hash_sym = try vm.intern("hash");
+    singleton.module.methods.put(hash_sym, MethodEntry.builtin(&builtinBoundMethodHash, .{ .exact = 0 })) catch return error.Fatal;
+
     const name_sym = try vm.intern("name");
     singleton.module.methods.put(name_sym, MethodEntry.builtin(builtins.name, .{ .exact = 0 })) catch return error.Fatal;
 
@@ -412,6 +440,12 @@ pub fn createUnboundMethodObject(
 
     const equal_sym = try vm.intern("==");
     singleton.module.methods.put(equal_sym, MethodEntry.builtin(builtins.equal, .{ .exact = 1 })) catch return error.Fatal;
+
+    const eql_sym = try vm.intern("eql?");
+    singleton.module.methods.put(eql_sym, MethodEntry.builtin(builtins.equal, .{ .exact = 1 })) catch return error.Fatal;
+
+    const hash_sym = try vm.intern("hash");
+    singleton.module.methods.put(hash_sym, MethodEntry.builtin(&builtinUnboundMethodHash, .{ .exact = 0 })) catch return error.Fatal;
 
     const source_location_sym = try vm.intern("source_location");
     singleton.module.methods.put(source_location_sym, MethodEntry.builtin(builtins.source_location, .{ .exact = 0 })) catch return error.Fatal;
