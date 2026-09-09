@@ -3,6 +3,7 @@ const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 const class_builtin = @import("class.zig");
 const module_builtin = @import("module.zig");
+const aggregate_hash = @import("aggregate_hash.zig");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -171,6 +172,9 @@ pub fn register(vm: *VM) !void {
 
     const eql_sym = try vm.intern("eql?");
     try vm.struct_class.module.methods.put(eql_sym, value.MethodEntry.builtin(&builtinStructEql, .{ .exact = 1 }));
+
+    const hash_sym = try vm.intern("hash");
+    try vm.struct_class.module.methods.put(hash_sym, value.MethodEntry.builtin(&builtinStructHash, .{ .exact = 0 }));
 }
 
 pub fn builtinStructNew(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
@@ -242,6 +246,15 @@ pub fn builtinStructInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
     const keyword_init = structKeywordInitForClass(vm.getClass(receiver));
 
     if (keyword_init == true) {
+        if (args.len == 1 and args[0].isHash()) {
+            const keyword_hash = args[0].toHashObject();
+            for (members.elements.items) |member_value| {
+                const member = member_value.toSymbolObject();
+                const entry = try vm.hashGetEntry(keyword_hash, member_value);
+                _ = try structMemberWriter(vm, receiver, member, if (entry) |found| found.value else Value.nil());
+            }
+            return Value.nil();
+        }
         if (args.len != 0) {
             return vm.raiseArgumentErrorWrongArgCount(args.len, 0);
         }
@@ -392,4 +405,28 @@ pub fn builtinStructEql(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     }
 
     return Value.boolean(true);
+}
+
+pub fn builtinStructHash(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const result = try structuralStructHash(vm, receiver);
+    return Value.integer(@bitCast(result.hash));
+}
+
+fn structuralStructHash(vm: *VM, receiver: Value) VMError!aggregate_hash.Result {
+    if (try vm.enterRecursionGuard(.struct_hash, receiver, Value.nil())) return .{ .hash = 0, .recursive = true };
+    defer vm.leaveRecursionGuard(.struct_hash, receiver, Value.nil());
+
+    const members = try getStructMembersForReceiver(vm, receiver);
+    var hash: u64 = @intFromPtr(vm.getClass(receiver));
+    for (members.elements.items) |member| {
+        const member_value = try structMemberReaderValue(vm, receiver, member.toSymbolObject());
+        const member_hash = if (member_value.isObject() and vm.getClass(member_value) == vm.getClass(receiver))
+            try structuralStructHash(vm, member_value)
+        else
+            aggregate_hash.Result{ .hash = try vm.hashKeyHash(member_value), .recursive = false };
+        if (member_hash.recursive) return .{ .hash = 0, .recursive = true };
+        hash = aggregate_hash.mix(hash, member_hash.hash);
+    }
+    return .{ .hash = hash, .recursive = false };
 }

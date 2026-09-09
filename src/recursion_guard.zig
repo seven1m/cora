@@ -13,6 +13,7 @@ pub const Kind = enum {
     array_compare,
     comparable_equal,
     array_hash,
+    struct_hash,
     hash_equal,
     hash_eql,
     hash_hash,
