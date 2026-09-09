@@ -1,6 +1,10 @@
 class Set
   include Enumerable
 
+  def self.[](*objects)
+    new(objects)
+  end
+
   def initialize(enum = nil)
     @hash = {}
     merge(enum) if enum
@@ -49,6 +53,10 @@ class Set
 
   def to_a
     @hash.keys
+  end
+
+  def hash
+    @hash.hash
   end
 
   def replace(enum)
