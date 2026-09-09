@@ -31,6 +31,9 @@ pub fn register(vm: *VM) !void {
     const eql_sym = try vm.intern("eql?");
     try vm.range_class.module.methods.put(eql_sym, value.MethodEntry.builtin(&builtinRangeEql, .{ .exact = 1 }));
 
+    const hash_sym = try vm.intern("hash");
+    try vm.range_class.module.methods.put(hash_sym, value.MethodEntry.builtin(&builtinRangeHash, .{ .exact = 0 }));
+
     const first_sym = try vm.intern("first");
     try vm.range_class.module.methods.put(first_sym, value.MethodEntry.builtin(&builtinRangeFirst, .{ .variadic = 0 }));
 
@@ -146,6 +149,17 @@ pub fn builtinRangeEql(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
     eql_args[0] = rhs.end;
     const ends_equal = try vm.callMethodByName(lhs.end, "eql?", eql_args[0..], null);
     return Value.boolean(ends_equal.isTruthy());
+}
+
+pub fn builtinRangeHash(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const range = receiver.toRangeObject();
+    const begin_hash = try vm.callMethodByName(range.begin, "hash", &[_]Value{}, null);
+    const end_hash = try vm.callMethodByName(range.end, "hash", &[_]Value{}, null);
+    var hash: u64 = @bitCast(begin_hash.toInteger());
+    hash = (hash *% 0x9e3779b97f4a7c15) ^ @as(u64, @bitCast(end_hash.toInteger()));
+    hash = (hash *% 0x9e3779b97f4a7c15) ^ @intFromBool(range.exclude_end);
+    return Value.integer(@bitCast(hash));
 }
 
 pub fn builtinRangeFirst(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

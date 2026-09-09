@@ -1773,7 +1773,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/range/exclude_end_spec.rb
 - [x] core/range/first_spec.rb
 - [x] core/range/frozen_spec.rb
-- [ ] core/range/hash_spec.rb
+- [x] core/range/hash_spec.rb
 - [ ] core/range/include_spec.rb
 - [ ] core/range/initialize_spec.rb
 - [x] core/range/inspect_spec.rb
