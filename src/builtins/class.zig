@@ -26,6 +26,7 @@ pub fn register(vm: *VM) !void {
         vm.true_class,
         vm.false_class,
         vm.rational_class,
+        vm.complex_class,
     }) |class_ptr| {
         const singleton = try vm.getOrCreateSingletonClass(Value.fromObject(&class_ptr.module.object));
         try singleton.module.methods.put(class_new_sym, .{ .method = .{ .undefined = {} } });
@@ -35,6 +36,8 @@ pub fn register(vm: *VM) !void {
     try vm.class_class.module.methods.put(class_allocate_sym, value.MethodEntry.builtin(&builtinClassAllocate, .{ .exact = 0 }));
     const rational_singleton = try vm.getOrCreateSingletonClass(Value.fromObject(&vm.rational_class.module.object));
     try rational_singleton.module.methods.put(class_allocate_sym, .{ .method = .{ .undefined = {} } });
+    const complex_singleton = try vm.getOrCreateSingletonClass(Value.fromObject(&vm.complex_class.module.object));
+    try complex_singleton.module.methods.put(class_allocate_sym, .{ .method = .{ .undefined = {} } });
 
     const class_equal_sym = try vm.intern("==");
     try vm.class_class.module.methods.put(class_equal_sym, value.MethodEntry.builtin(&builtinClassEqual, .{ .exact = 1 }));

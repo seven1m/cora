@@ -471,6 +471,19 @@ pub fn register(vm: *VM) !void {
 
     const rational_sym = try vm.intern("Rational");
     try vm.kernel_module.methods.put(rational_sym, value.MethodEntry.builtin(&builtinKernelRational, .{ .variadic = 0 }));
+
+    const complex_sym = try vm.intern("Complex");
+    try vm.kernel_module.methods.put(complex_sym, value.MethodEntry.builtin(&builtinKernelComplex, .{ .variadic = 0 }));
+}
+
+fn builtinKernelComplex(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+    const real = args[0];
+    const imaginary = if (args.len == 2) args[1] else Value.integer(0);
+    if (!real.isNumeric() or real.isComplex() or !imaginary.isNumeric() or imaginary.isComplex()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "not a real", .{});
+    }
+    return vm.newComplex(real, imaginary);
 }
 
 pub fn builtinKernelRational(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

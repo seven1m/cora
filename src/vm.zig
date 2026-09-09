@@ -522,6 +522,7 @@ pub const VM = struct {
     integer_class: *value.ClassObject,
     float_class: *value.ClassObject,
     rational_class: *value.ClassObject,
+    complex_class: *value.ClassObject,
     time_class: *value.ClassObject,
     random_class: *value.ClassObject,
     module_class: *value.ClassObject,
@@ -752,6 +753,7 @@ pub const VM = struct {
             .integer_class = undefined,
             .float_class = undefined,
             .rational_class = undefined,
+            .complex_class = undefined,
             .time_class = undefined,
             .random_class = undefined,
             .module_class = undefined,
@@ -963,6 +965,10 @@ pub const VM = struct {
         const rational_name_sym = try self.intern("Rational");
         const rational_class_val = try self.newClass(rational_name_sym, self.numeric_class);
         self.rational_class = rational_class_val.toClassObject();
+
+        const complex_name_sym = try self.intern("Complex");
+        const complex_class_val = try self.newClass(complex_name_sym, self.numeric_class);
+        self.complex_class = complex_class_val.toClassObject();
 
         const time_name_sym = try self.intern("Time");
         const time_class_val = try self.newClassWithType(time_name_sym, self.object_class, .time);
@@ -1464,6 +1470,7 @@ pub const VM = struct {
         self.object_class.module.constants.put(integer_name_sym, .{ .value = integer_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(float_name_sym, .{ .value = float_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(rational_name_sym, .{ .value = rational_class_val }) catch return error.Fatal;
+        self.object_class.module.constants.put(complex_name_sym, .{ .value = complex_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(time_name_sym, .{ .value = time_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(random_name_sym, .{ .value = random_class_val }) catch return error.Fatal;
         self.object_class.module.constants.put(string_name_sym, .{ .value = string_class_val }) catch return error.Fatal;
@@ -10573,6 +10580,16 @@ pub const VM = struct {
         return self.newRationalValues(Value.integer(numerator), Value.integer(denominator));
     }
 
+    pub fn newComplex(self: *VM, real: Value, imaginary: Value) VMError!Value {
+        const complex_obj = self.gc_allocator.create(value.ComplexObject) catch return error.Fatal;
+        complex_obj.* = .{
+            .object = .{ .type_tag = .complex, .flags = value.Object.FROZEN_FLAG, .class = self.complex_class, .singleton_class = null, .instance_variables = null },
+            .real = real,
+            .imaginary = imaginary,
+        };
+        return Value.fromObject(&complex_obj.object);
+    }
+
     pub fn newTime(self: *VM, class_obj: *ClassObject, timew: Value) VMError!Value {
         const time_obj = self.gc_allocator.create(value.TimeObject) catch return error.Fatal;
         time_obj.* = .{
@@ -11108,6 +11125,7 @@ pub const VM = struct {
             .iclass => arg.isIClass(),
             .float => arg.isFloat(),
             .rational => arg.isRational(),
+            .complex => arg.isComplex(),
             .thread => arg.isThread(),
             .mutex => arg.isMutex(),
             .condition_variable => arg.isConditionVariable(),

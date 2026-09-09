@@ -43,6 +43,7 @@ const object_space = @import("object_space.zig");
 const queue = @import("queue.zig");
 const random = @import("random.zig");
 const rational = @import("rational.zig");
+const complex = @import("complex.zig");
 const time = @import("time.zig");
 const warning = @import("warning.zig");
 const range = @import("range.zig");
@@ -92,6 +93,7 @@ pub fn registerAll(vm: *VM) !void {
     try queue.register(vm);
     try random.register(vm);
     try rational.register(vm);
+    try complex.register(vm);
     try time.register(vm);
     try range.register(vm);
     try regexp.register(vm);

@@ -14,7 +14,7 @@ describe :kernel_float, shared: true do
   end
 
   it "returns a Float for Complex with only a real part" do
-    CORAFIXME "Complex is not implemented yet", exception: NoMethodError, message: /undefined method 'Complex'/ do
+    CORAFIXME "Complex to Float conversion is not implemented yet", exception: TypeError do
       @object.send(:Float, Complex(1)).should == 1.0
     end
   end
@@ -386,7 +386,7 @@ describe :kernel_float, shared: true do
   end
 
   it "raises a RangeError when passed a Complex argument" do
-    CORAFIXME "Complex is not implemented yet", exception: NoMethodError, message: /undefined method 'Complex'/ do
+    CORAFIXME "Complex to Float conversion is not implemented yet", exception: TypeError do
       c = Complex(2, 3)
       -> { @object.send(:Float, c) }.should raise_error(RangeError)
     end

@@ -78,7 +78,7 @@ describe "Kernel.Rational" do
   describe "when passed a Complex" do
     context "[Complex]" do
       it "returns a Rational from the real part if the imaginary part is 0" do
-        CORAFIXME "Complex is not implemented yet", exception: NoMethodError, message: /undefined method 'Complex'/ do
+        CORAFIXME "Complex to Rational conversion is not implemented yet", exception: TypeError do
           Rational(Complex(1, 0)).should == Rational(1)
         end
       end
@@ -92,13 +92,13 @@ describe "Kernel.Rational" do
 
     context "[Numeric, Complex]" do
       it "uses the real part if the imaginary part is 0" do
-        CORAFIXME "Complex is not implemented yet", exception: NoMethodError, message: /undefined method 'Complex'/ do
+        CORAFIXME "Complex Rational denominator conversion is not implemented yet", exception: TypeError do
           Rational(1, Complex(2, 0)).should == Rational(1, 2)
         end
       end
 
       it "divides a numerator by the Complex denominator if the imaginary part is not 0" do
-        CORAFIXME "Complex is not implemented yet", exception: NoMethodError, message: /undefined method 'Complex'/ do
+        CORAFIXME "Complex Rational denominator conversion is not implemented yet", exception: TypeError do
           Rational(1, Complex(2, 1)).should == Complex(2/5r, -1/5r)
         end
       end

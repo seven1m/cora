@@ -50,6 +50,7 @@ pub const ObjectTypeTag = enum(u8) {
     iclass,
     float,
     rational,
+    complex,
     thread,
     mutex,
     condition_variable,
@@ -114,6 +115,12 @@ pub const RationalObject = struct {
     object: Object,
     numerator: Value,
     denominator: Value,
+};
+
+pub const ComplexObject = struct {
+    object: Object,
+    real: Value,
+    imaginary: Value,
 };
 
 pub const EncodingObject = struct {
@@ -686,6 +693,10 @@ pub const Value = struct {
         return self.isObject() and self.objectTypeTag() == .rational;
     }
 
+    pub inline fn isComplex(self: Value) bool {
+        return self.isObject() and self.objectTypeTag() == .complex;
+    }
+
     pub inline fn isBigInteger(self: Value) bool {
         return self.isObject() and self.objectTypeTag() == .big_integer;
     }
@@ -809,6 +820,10 @@ pub const Value = struct {
     }
 
     pub inline fn toRationalObject(self: Value) *RationalObject {
+        return @ptrFromInt(self.raw);
+    }
+
+    pub inline fn toComplexObject(self: Value) *ComplexObject {
         return @ptrFromInt(self.raw);
     }
 
@@ -942,7 +957,7 @@ pub const Value = struct {
         if (self.isInteger()) return true;
         if (self.isObject()) {
             const tag = self.objectTypeTag();
-            return tag == .float or tag == .big_integer or tag == .rational;
+            return tag == .float or tag == .big_integer or tag == .rational or tag == .complex;
         }
         return false;
     }
@@ -1137,6 +1152,7 @@ pub const Value = struct {
                     try writer.print("/", .{});
                     try rational.denominator.format(writer);
                 },
+                .complex => try writer.print("#<Complex:0x{x}>", .{self.raw}),
                 .float => try writer.print("{d}", .{self.toFloatObject().val}),
                 .thread => try writer.print("#<Thread:0x{x}>", .{self.raw}),
                 .mutex => try writer.print("#<Mutex:0x{x}>", .{self.raw}),

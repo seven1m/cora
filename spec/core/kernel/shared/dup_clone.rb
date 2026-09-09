@@ -80,10 +80,8 @@ describe :kernel_dup_clone, shared: true do
   end
 
   it "returns self for Complex" do
-    CORAFIXME "Kernel.Complex is not implemented yet", exception: NoMethodError, message: /undefined method 'Complex'/ do
-      c = Complex(1.3, 3.1)
-      c.send(@method).should equal c
-    end
+    c = Complex(1.3, 3.1)
+    c.send(@method).should equal c
   end
 
   it "returns self for Rational" do
