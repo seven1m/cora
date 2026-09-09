@@ -46,7 +46,8 @@ pub fn register(vm: *VM) !void {
 }
 
 fn memberNames(vm: *VM, receiver: Value) VMError![]const []const u8 {
-    const stored = try vm.getInstanceVariable(receiver, "@_data_members");
+    const data_class = vm.getClass(receiver);
+    const stored = try vm.getInstanceVariable(Value.fromObject(&data_class.module.object), "@_data_members");
     if (stored.isArray()) {
         const arr = stored.toArrayObject();
         var names = vm.allocator.alloc([]const u8, arr.elements.items.len) catch return error.Fatal;
@@ -81,29 +82,45 @@ pub fn builtinDataDefine(vm: *VM, receiver: Value, args: []Value, block: ?Block)
 
     const subclass = try vm.newClass(try vm.intern("Data"), vm.data_class);
 
-    var members_vals = std.ArrayList(Value).empty;
-    defer members_vals.deinit(vm.allocator);
-    for (members_list.items) |name| {
-        members_vals.append(vm.allocator, try vm.newString(name, false)) catch return error.Fatal;
-    }
     const arr = try vm.createArray();
-    arr.elements = members_vals;
+    for (members_list.items) |name| {
+        arr.elements.append(vm.gc_allocator, try vm.newString(name, false)) catch return error.Fatal;
+    }
     try vm.setInstanceVariable(Value.fromObject(&subclass.toClassObject().module.object), "@_data_members", Value.fromObject(&arr.object));
 
     return Value.fromObject(&subclass.toClassObject().module.object);
 }
 
 pub fn builtinDataInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    // Simple data initializer: pairs of (name, value) become ivars.
-    var i: usize = 0;
-    while (i + 1 < args.len) : (i += 2) {
-        const name_val = args[i];
-        const val = args[i + 1];
-        const name = if (name_val.isSymbol()) name_val.toSymbolObject().name else try name_val.coerceToStr(vm, "invalid member name");
-        const ivar_name = std.fmt.allocPrint(vm.allocator, "@{s}", .{name}) catch return error.Fatal;
-        defer vm.allocator.free(ivar_name);
-        try vm.setInstanceVariable(receiver, ivar_name, val);
+    const members = try memberNames(vm, receiver);
+    defer vm.allocator.free(members);
+
+    if (args.len > 0) {
+        try vm.requireArgCount(args, members.len);
+        for (members, args) |name, val| {
+            const ivar_name = std.fmt.allocPrint(vm.allocator, "@{s}", .{name}) catch return error.Fatal;
+            defer vm.allocator.free(ivar_name);
+            try vm.setInstanceVariable(receiver, ivar_name, val);
+        }
+        try vm.validateKeywordArgsConsumed();
+    } else {
+        for (members) |name| {
+            const val = (try vm.consumeKeywordArg(name)) orelse
+                return vm.raiseExceptionFmt(vm.argument_error_class, "missing keyword: :{s}", .{name});
+            const ivar_name = std.fmt.allocPrint(vm.allocator, "@{s}", .{name}) catch return error.Fatal;
+            defer vm.allocator.free(ivar_name);
+            try vm.setInstanceVariable(receiver, ivar_name, val);
+        }
+        try vm.validateKeywordArgsConsumed();
     }
+
+    if (members.len == 0) {
+        try vm.requireArgCount(args, 0);
+        try vm.validateKeywordArgsConsumed();
+    }
+
+    var frozen = receiver;
+    frozen.freeze();
     return receiver;
 }
 

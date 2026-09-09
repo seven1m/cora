@@ -320,7 +320,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/data/define_spec.rb
 - [ ] core/data/eql_spec.rb
 - [ ] core/data/equal_value_spec.rb
-- [ ] core/data/hash_spec.rb
+- [x] core/data/hash_spec.rb
 - [ ] core/data/initialize_spec.rb
 - [ ] core/data/inspect_spec.rb
 - [ ] core/data/members_spec.rb
