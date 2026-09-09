@@ -37,6 +37,9 @@ pub fn register(vm: *VM) !void {
     const eq_sym = try vm.intern("==");
     try vm.regexp_class.module.methods.put(eq_sym, value.MethodEntry.builtin(&builtinRegexpEq, .{ .exact = 1 }));
 
+    const hash_sym = try vm.intern("hash");
+    try vm.regexp_class.module.methods.put(hash_sym, value.MethodEntry.builtin(&builtinRegexpHash, .{ .exact = 0 }));
+
     const casefold_sym = try vm.intern("casefold?");
     try vm.regexp_class.module.methods.put(casefold_sym, value.MethodEntry.builtin(&builtinRegexpCasefold, .{ .exact = 0 }));
 
@@ -216,6 +219,14 @@ fn builtinRegexpEncoding(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
 fn builtinRegexpOptions(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return Value.integer(@intCast(receiver.toRegexpObject().options));
+}
+
+fn builtinRegexpHash(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const regexp = receiver.toRegexpObject();
+    const semantic_options = regexp.options & ~OPTION_NOENCODING;
+    const hash = std.hash.Wyhash.hash(semantic_options, regexp.pattern);
+    return Value.integer(@bitCast(hash));
 }
 
 fn appendEncodedAscii(out: *std.ArrayList(u8), allocator: std.mem.Allocator, target: enc.Encoding, ascii: []const u8) VMError!void {
