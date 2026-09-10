@@ -89,6 +89,10 @@ pub fn register(vm: *VM) !void {
     const positive_q_sym = try vm.intern("positive?");
     try vm.complex_class.module.methods.put(positive_q_sym, .{ .method = .{ .undefined = {} } });
 
+    // MRI undefines Numeric#negative? on Complex; it raises NoMethodError.
+    const negative_q_sym = try vm.intern("negative?");
+    try vm.complex_class.module.methods.put(negative_q_sym, .{ .method = .{ .undefined = {} } });
+
     // Math.sqrt / Math::PI are required by Complex expectations (and ruby/spec
     // uses them directly); Math has no dedicated builtins file yet so register
     // them here.
