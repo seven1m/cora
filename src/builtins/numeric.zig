@@ -73,8 +73,11 @@ pub fn register(vm: *VM) !void {
     const numerator_sym = try vm.intern("numerator");
     try vm.numeric_class.module.methods.put(numerator_sym, value.MethodEntry.builtin(&builtinNumericNumerator, .{ .exact = 0 }));
 
+    const rectangular_entry = value.MethodEntry.builtin(&builtinNumericRectangular, .{ .exact = 0 });
     const rectangular_sym = try vm.intern("rectangular");
-    try vm.numeric_class.module.methods.put(rectangular_sym, value.MethodEntry.builtin(&builtinNumericRectangular, .{ .exact = 0 }));
+    try vm.numeric_class.module.methods.put(rectangular_sym, rectangular_entry);
+    const rect_sym = try vm.intern("rect");
+    try vm.numeric_class.module.methods.put(rect_sym, rectangular_entry);
 
     const coerce_sym = try vm.intern("coerce");
     try vm.numeric_class.module.methods.put(coerce_sym, value.MethodEntry.builtin(&builtinNumericCoerce, .{ .exact = 1 }));

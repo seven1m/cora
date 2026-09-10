@@ -1551,7 +1551,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/numeric/positive_spec.rb
 - [ ] core/numeric/quo_spec.rb
 - [x] core/numeric/real_spec.rb
-- [ ] core/numeric/rect_spec.rb
+ - [x] core/numeric/rect_spec.rb
 - [x] core/numeric/rectangular_spec.rb
 - [ ] core/numeric/remainder_spec.rb
 - [ ] core/numeric/round_spec.rb
