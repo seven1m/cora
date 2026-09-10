@@ -41,8 +41,11 @@ pub fn register(vm: *VM) !void {
     const abs2_sym = try vm.intern("abs2");
     try vm.complex_class.module.methods.put(abs2_sym, value.MethodEntry.builtin(&builtinComplexAbs2, .{ .exact = 0 }));
 
+    const abs_entry = value.MethodEntry.builtin(&builtinComplexAbs, .{ .exact = 0 });
     const abs_sym = try vm.intern("abs");
-    try vm.complex_class.module.methods.put(abs_sym, value.MethodEntry.builtin(&builtinComplexAbs, .{ .exact = 0 }));
+    try vm.complex_class.module.methods.put(abs_sym, abs_entry);
+    const magnitude_sym = try vm.intern("magnitude");
+    try vm.complex_class.module.methods.put(magnitude_sym, abs_entry);
 
     // Math.sqrt is required by Complex#abs expectations (and ruby/spec uses it
     // directly); Math has no dedicated builtins file yet so register it here.

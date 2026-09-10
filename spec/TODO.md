@@ -285,7 +285,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/complex/infinite_spec.rb
 - [ ] core/complex/inspect_spec.rb
 - [x] core/complex/integer_spec.rb
-- [ ] core/complex/magnitude_spec.rb
+- [x] core/complex/magnitude_spec.rb
 - [ ] core/complex/marshal_dump_spec.rb
 - [ ] core/complex/minus_spec.rb
 - [ ] core/complex/multiply_spec.rb
