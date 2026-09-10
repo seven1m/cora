@@ -134,6 +134,9 @@ pub fn register(vm: *VM) !void {
 
     const i_sym = try vm.intern("i");
     try vm.numeric_class.module.methods.put(i_sym, value.MethodEntry.builtin(&builtinNumericI, .{ .exact = 0 }));
+
+    const to_c_sym = try vm.intern("to_c");
+    try vm.numeric_class.module.methods.put(to_c_sym, value.MethodEntry.builtin(&builtinNumericToC, .{ .exact = 0 }));
 }
 
 pub fn builtinNumericCoerce(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -418,4 +421,9 @@ pub fn builtinNumericPolar(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
 pub fn builtinNumericI(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return vm.newComplex(Value.integer(0), receiver);
+}
+
+pub fn builtinNumericToC(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return vm.newComplex(receiver, Value.integer(0));
 }
