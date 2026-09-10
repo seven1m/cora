@@ -424,15 +424,6 @@ fn requireSslState(vm: *VM, receiver: Value) VMError!*NativeSslSocket {
     return (try sslStateFromReceiver(vm, receiver)) orelse raiseSslError(vm, "SSL socket is not connected");
 }
 
-fn isKindOfClass(vm: *VM, value_arg: Value, expected: *ClassObject) bool {
-    var current: ?*ClassObject = vm.getClass(value_arg);
-    while (current) |klass| {
-        if (klass == expected) return true;
-        current = klass.superclass;
-    }
-    return false;
-}
-
 fn binaryString(vm: *VM, bytes: []const u8) VMError!Value {
     return vm.newStringWithEncoding(bytes, false, binary_encoding);
 }
@@ -521,7 +512,7 @@ fn raiseDigestError(vm: *VM, name: []const u8) VMError {
 
 fn resolveDigestAlgorithmFromValue(vm: *VM, arg: Value) VMError!DigestAlgorithm {
     const digest_klass = try digestClass(vm);
-    if (isKindOfClass(vm, arg, digest_klass)) {
+    if (vm.isClassOrSubclassOf(vm.getClass(arg), digest_klass)) {
         const name_value = try vm.getInstanceVariable(arg, "@algorithm_name");
         if (!name_value.isString()) return error.Fatal;
         return resolveDigestAlgorithmByName(name_value.toStringObject().str) orelse return error.Fatal;
