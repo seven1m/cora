@@ -13,6 +13,12 @@ pub fn register(vm: *VM) !void {
     const real_q_sym = try vm.intern("real?");
     try vm.complex_class.module.methods.put(real_q_sym, value.MethodEntry.builtin(&builtinComplexRealQ, .{ .exact = 0 }));
 
+    const imaginary_entry = value.MethodEntry.builtin(&builtinComplexImaginary, .{ .exact = 0 });
+    const imaginary_sym = try vm.intern("imaginary");
+    try vm.complex_class.module.methods.put(imaginary_sym, imaginary_entry);
+    const imag_sym = try vm.intern("imag");
+    try vm.complex_class.module.methods.put(imag_sym, imaginary_entry);
+
     const hash_sym = try vm.intern("hash");
     try vm.complex_class.module.methods.put(hash_sym, value.MethodEntry.builtin(&builtinComplexHash, .{ .exact = 0 }));
 }
@@ -30,4 +36,9 @@ fn builtinComplexRealQ(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Valu
 fn builtinComplexReal(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return receiver.toComplexObject().real;
+}
+
+fn builtinComplexImaginary(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return receiver.toComplexObject().imaginary;
 }

@@ -280,8 +280,8 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/complex/fdiv_spec.rb
 - [ ] core/complex/finite_spec.rb
 - [x] core/complex/hash_spec.rb
-- [ ] core/complex/imag_spec.rb
-- [ ] core/complex/imaginary_spec.rb
+- [x] core/complex/imag_spec.rb
+- [x] core/complex/imaginary_spec.rb
 - [ ] core/complex/infinite_spec.rb
 - [ ] core/complex/inspect_spec.rb
 - [ ] core/complex/integer_spec.rb
