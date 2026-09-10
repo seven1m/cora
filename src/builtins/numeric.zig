@@ -107,6 +107,9 @@ pub fn register(vm: *VM) !void {
 
     const truncate_sym = try vm.intern("truncate");
     try vm.numeric_class.module.methods.put(truncate_sym, value.MethodEntry.builtin(&builtinNumericTruncate, .{ .variadic = 0 }));
+
+    const uminus_sym = try vm.intern("-@");
+    try vm.numeric_class.module.methods.put(uminus_sym, value.MethodEntry.builtin(&builtinNumericUminus, .{ .exact = 0 }));
 }
 
 pub fn builtinNumericCoerce(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -282,4 +285,19 @@ pub fn builtinNumericTruncate(vm: *VM, receiver: Value, args: []Value, _: ?Block
     try vm.requireArgCountRange(args, 0, 1);
     const float_value = try vm.callMethodByName(receiver, "to_f", &.{}, null);
     return vm.callMethodByName(float_value, "truncate", args, null);
+}
+
+pub fn builtinNumericUminus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    var coerce_args = [_]Value{Value.integer(0)};
+    const coerced = try vm.callMethodByName(receiver, "coerce", coerce_args[0..], null);
+    if (!coerced.isArray()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "coerce must return [x, y]", .{});
+    }
+    const items = coerced.toArrayObject().elements.items;
+    if (items.len != 2) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "coerce must return [x, y]", .{});
+    }
+    var sub_args = [_]Value{items[1]};
+    return vm.callMethodByName(items[0], "-", sub_args[0..], null);
 }
