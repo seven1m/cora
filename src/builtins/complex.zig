@@ -27,6 +27,23 @@ pub fn register(vm: *VM) !void {
 
     const equal_sym = try vm.intern("==");
     try vm.complex_class.module.methods.put(equal_sym, value.MethodEntry.builtin(&builtinComplexEqual, .{ .exact = 1 }));
+
+    const eql_sym = try vm.intern("eql?");
+    try vm.complex_class.module.methods.put(eql_sym, value.MethodEntry.builtin(&builtinComplexEql, .{ .exact = 1 }));
+}
+
+fn builtinComplexEql(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    if (!args[0].isComplex()) return Value.boolean(false);
+
+    const lhs = receiver.toComplexObject();
+    const rhs = args[0].toComplexObject();
+    if (vm.getClass(lhs.real) != vm.getClass(rhs.real) or
+        vm.getClass(lhs.imaginary) != vm.getClass(rhs.imaginary))
+    {
+        return Value.boolean(false);
+    }
+    return builtinComplexEqual(vm, receiver, args, null);
 }
 
 fn builtinComplexEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
