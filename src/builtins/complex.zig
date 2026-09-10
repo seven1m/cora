@@ -79,13 +79,16 @@ pub fn register(vm: *VM) !void {
     const coerce_sym = try vm.intern("coerce");
     try vm.complex_class.module.methods.put(coerce_sym, value.MethodEntry.builtin(&builtinComplexCoerce, .{ .exact = 1 }));
 
-    // Math.sqrt is required by Complex#abs expectations (and ruby/spec uses it
-    // directly); Math has no dedicated builtins file yet so register it here.
+    // Math.sqrt / Math::PI are required by Complex expectations (and ruby/spec
+    // uses them directly); Math has no dedicated builtins file yet so register
+    // them here.
     const math_sym = try vm.intern("Math");
     if (vm.object_class.module.constants.get(math_sym)) |math_entry| {
         const math_singleton = try vm.getOrCreateSingletonClass(math_entry.value);
         const sqrt_sym = try vm.intern("sqrt");
         try math_singleton.module.methods.put(sqrt_sym, value.MethodEntry.builtin(&builtinMathSqrt, .{ .exact = 1 }));
+        const pi_sym = try vm.intern("PI");
+        try math_entry.value.toModuleObject().constants.put(pi_sym, .{ .value = try vm.newFloat(std.math.pi) });
     }
 }
 

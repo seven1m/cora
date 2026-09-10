@@ -266,7 +266,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/complex/abs2_spec.rb
 - [x] core/complex/abs_spec.rb
 - [x] core/complex/angle_spec.rb
-- [ ] core/complex/arg_spec.rb
+- [x] core/complex/arg_spec.rb
 - [ ] core/complex/coerce_spec.rb
  - [x] core/complex/comparison_spec.rb
 - [x] core/complex/conj_spec.rb

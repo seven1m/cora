@@ -174,6 +174,12 @@ pub fn register(vm: *VM) !void {
     const divide_sym = try vm.intern("/");
     try vm.float_class.module.methods.put(divide_sym, value.MethodEntry.builtin(&builtinFloatDivide, .{ .exact = 1 }));
 
+    const modulo_sym = try vm.intern("%");
+    try vm.float_class.module.methods.put(modulo_sym, value.MethodEntry.builtin(&builtinFloatModulo, .{ .exact = 1 }));
+
+    const modulo_method_sym = try vm.intern("modulo");
+    try vm.float_class.module.methods.put(modulo_method_sym, value.MethodEntry.builtin(&builtinFloatModulo, .{ .exact = 1 }));
+
     const compare_sym = try vm.intern("<=>");
     try vm.float_class.module.methods.put(compare_sym, value.MethodEntry.builtin(&builtinFloatCompare, .{ .exact = 1 }));
 
@@ -293,6 +299,20 @@ pub fn builtinFloatDivide(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     const lhs = receiver.toFloatObject().val;
     const rhs = try coerceNumericArg(vm, args[0]);
     return vm.newFloat(lhs / rhs);
+}
+
+pub fn builtinFloatModulo(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const lhs = receiver.toFloatObject().val;
+    const rhs = try coerceNumericArg(vm, args[0]);
+    if (rhs == 0.0) {
+        return vm.raiseExceptionFmt(vm.zero_division_error_class, "divided by 0", .{});
+    }
+    // Use @rem (truncated remainder, like C fmod) then adjust sign
+    // to match Ruby's floored modulo semantics.
+    var result = @rem(lhs, rhs);
+    if (result != 0.0 and (result < 0.0) != (rhs < 0.0)) result += rhs;
+    return vm.newFloat(result);
 }
 
 pub fn builtinFloatEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
