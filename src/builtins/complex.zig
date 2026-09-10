@@ -50,6 +50,14 @@ pub fn register(vm: *VM) !void {
     const magnitude_sym = try vm.intern("magnitude");
     try vm.complex_class.module.methods.put(magnitude_sym, abs_entry);
 
+    const arg_entry = value.MethodEntry.builtin(&builtinComplexArg, .{ .exact = 0 });
+    const arg_sym = try vm.intern("arg");
+    try vm.complex_class.module.methods.put(arg_sym, arg_entry);
+    const angle_sym = try vm.intern("angle");
+    try vm.complex_class.module.methods.put(angle_sym, arg_entry);
+    const phase_sym = try vm.intern("phase");
+    try vm.complex_class.module.methods.put(phase_sym, arg_entry);
+
     const minus_sym = try vm.intern("-");
     try vm.complex_class.module.methods.put(minus_sym, value.MethodEntry.builtin(&builtinComplexMinus, .{ .exact = 1 }));
 
@@ -245,6 +253,14 @@ fn builtinComplexAbs(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
     const abs2 = try vm.callMethodByName(real_sq, "+", sum_arg[0..], null);
     const abs2_float = try vm.callMethodByName(abs2, "to_f", &.{}, null);
     return vm.newFloat(std.math.sqrt(abs2_float.toFloatObject().val));
+}
+
+fn builtinComplexArg(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const complex = receiver.toComplexObject();
+    const real_float = try vm.callMethodByName(complex.real, "to_f", &.{}, null);
+    const imaginary_float = try vm.callMethodByName(complex.imaginary, "to_f", &.{}, null);
+    return vm.newFloat(std.math.atan2(imaginary_float.toFloatObject().val, real_float.toFloatObject().val));
 }
 
 fn builtinMathSqrt(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
