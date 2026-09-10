@@ -50,6 +50,9 @@ pub fn register(vm: *VM) !void {
     const minus_sym = try vm.intern("-");
     try vm.complex_class.module.methods.put(minus_sym, value.MethodEntry.builtin(&builtinComplexMinus, .{ .exact = 1 }));
 
+    const plus_sym = try vm.intern("+");
+    try vm.complex_class.module.methods.put(plus_sym, value.MethodEntry.builtin(&builtinComplexPlus, .{ .exact = 1 }));
+
     // Math.sqrt is required by Complex#abs expectations (and ruby/spec uses it
     // directly); Math has no dedicated builtins file yet so register it here.
     const math_sym = try vm.intern("Math");
@@ -165,6 +168,44 @@ fn builtinComplexMinus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
     }
     var op_args = [_]Value{coerced_items[1]};
     return vm.callMethodByName(coerced_items[0], "-", op_args[0..], null);
+}
+
+fn builtinComplexPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const lhs = receiver.toComplexObject();
+    const other = args[0];
+    if (other.isComplex()) {
+        const rhs = other.toComplexObject();
+        var real_arg = [_]Value{rhs.real};
+        const real_sum = try vm.callMethodByName(lhs.real, "+", real_arg[0..], null);
+        var imag_arg = [_]Value{rhs.imaginary};
+        const imag_sum = try vm.callMethodByName(lhs.imaginary, "+", imag_arg[0..], null);
+        return vm.newComplex(real_sum, imag_sum);
+    }
+
+    if (vm.isClassOrSubclassOf(vm.getClass(other), vm.numeric_class)) {
+        const real = try vm.callMethodByName(other, "real?", &.{}, null);
+        if (real.isTruthy()) {
+            var real_arg = [_]Value{other};
+            const real_sum = try vm.callMethodByName(lhs.real, "+", real_arg[0..], null);
+            return vm.newComplex(real_sum, lhs.imaginary);
+        }
+    }
+
+    var coerce_args = [_]Value{receiver};
+    const maybe_coerced = try vm.checkCallMethodByName(other, "coerce", true, coerce_args[0..], null);
+    const coerced = maybe_coerced orelse {
+        return vm.raiseExceptionFmt(vm.type_error_class, "{s} can't be coerced into Complex", .{vm.className(other)});
+    };
+    if (!coerced.isArray()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "coerce must return [x, y]", .{});
+    }
+    const coerced_items = coerced.toArrayObject().elements.items;
+    if (coerced_items.len != 2) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "coerce must return [x, y]", .{});
+    }
+    var op_args = [_]Value{coerced_items[1]};
+    return vm.callMethodByName(coerced_items[0], "+", op_args[0..], null);
 }
 
 fn builtinComplexAbs(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
