@@ -85,6 +85,17 @@ pub fn register(vm: *VM) !void {
     const fdiv_sym = try vm.intern("fdiv");
     try vm.complex_class.module.methods.put(fdiv_sym, value.MethodEntry.builtin(&builtinComplexFdiv, .{ .exact = 1 }));
 
+    const rectangular_entry = value.MethodEntry.builtin(&builtinComplexRectangular, .{ .exact = 0 });
+    const rectangular_sym = try vm.intern("rectangular");
+    try vm.complex_class.module.methods.put(rectangular_sym, rectangular_entry);
+    const rect_sym = try vm.intern("rect");
+    try vm.complex_class.module.methods.put(rect_sym, rectangular_entry);
+
+    const complex_singleton = try vm.getOrCreateSingletonClass(Value.fromObject(&vm.complex_class.module.object));
+    const singleton_rectangular_entry = value.MethodEntry.builtin(&builtinComplexRectangularSingleton, .{ .variadic = 0 });
+    try complex_singleton.module.methods.put(rectangular_sym, singleton_rectangular_entry);
+    try complex_singleton.module.methods.put(rect_sym, singleton_rectangular_entry);
+
     // MRI undefines Numeric#positive? on Complex; it raises NoMethodError.
     const positive_q_sym = try vm.intern("positive?");
     try vm.complex_class.module.methods.put(positive_q_sym, .{ .method = .{ .undefined = {} } });
@@ -496,4 +507,25 @@ fn builtinComplexReal(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
 fn builtinComplexImaginary(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return receiver.toComplexObject().imaginary;
+}
+
+fn builtinComplexRectangular(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const complex = receiver.toComplexObject();
+    const result = try vm.createArray();
+    result.elements.append(vm.gc_allocator, complex.real) catch return error.Fatal;
+    result.elements.append(vm.gc_allocator, complex.imaginary) catch return error.Fatal;
+    return Value.fromObject(&result.object);
+}
+
+fn builtinComplexRectangularSingleton(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 1, 2);
+    const real = args[0];
+    const imaginary = if (args.len == 2) args[1] else Value.integer(0);
+    if (!vm.isClassOrSubclassOf(vm.getClass(real), vm.numeric_class) or real.isComplex() or
+        !vm.isClassOrSubclassOf(vm.getClass(imaginary), vm.numeric_class) or imaginary.isComplex())
+    {
+        return vm.raiseExceptionFmt(vm.type_error_class, "not a real", .{});
+    }
+    return vm.newComplex(real, imaginary);
 }
