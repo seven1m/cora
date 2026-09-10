@@ -291,7 +291,7 @@ Source baseline: ../ruby_spec compared to local spec/
  - [x] core/complex/multiply_spec.rb
 - [ ] core/complex/negative_spec.rb
  - [x] core/complex/numerator_spec.rb
-- [ ] core/complex/phase_spec.rb
+- [x] core/complex/phase_spec.rb
 - [x] core/complex/plus_spec.rb
 - [ ] core/complex/polar_spec.rb
 - [ ] core/complex/positive_spec.rb
