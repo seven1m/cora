@@ -58,6 +58,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/argf/fileno_spec.rb
 - [ ] core/argf/getc_spec.rb
 - [ ] core/argf/gets_spec.rb
+- [ ] core/argf/inspect_spec.rb
 - [ ] core/argf/lineno_spec.rb
 - [ ] core/argf/path_spec.rb
 - [ ] core/argf/pos_spec.rb
@@ -166,6 +167,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/array/pack/p_spec.rb
 - [x] core/array/pack/percent_spec.rb
 - [ ] core/array/pack/q_spec.rb
+- [ ] core/array/pack/r_spec.rb
 - [ ] core/array/pack/s_spec.rb
 - [ ] core/array/pack/u_spec.rb
 - [ ] core/array/pack/v_spec.rb
@@ -188,6 +190,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/array/replace_spec.rb
 - [x] core/array/reverse_each_spec.rb
 - [x] core/array/reverse_spec.rb
+- [ ] core/array/rfind_spec.rb
 - [x] core/array/rindex_spec.rb
 - [x] core/array/rotate_spec.rb
 - [ ] core/array/sample_spec.rb
@@ -233,6 +236,9 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/binding/clone_spec.rb
 - [ ] core/binding/dup_spec.rb
 - [-] core/binding/eval_spec.rb
+- [ ] core/binding/implicit_parameter_defined_spec.rb
+- [ ] core/binding/implicit_parameter_get_spec.rb
+- [ ] core/binding/implicit_parameters_spec.rb
 - [ ] core/binding/local_variable_defined_spec.rb
 - [ ] core/binding/local_variable_get_spec.rb
 - [ ] core/binding/local_variable_set_spec.rb
@@ -268,11 +274,11 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/complex/angle_spec.rb
 - [x] core/complex/arg_spec.rb
 - [x] core/complex/coerce_spec.rb
- - [x] core/complex/comparison_spec.rb
+- [x] core/complex/comparison_spec.rb
 - [x] core/complex/conj_spec.rb
 - [x] core/complex/conjugate_spec.rb
 - [x] core/complex/constants_spec.rb
- - [x] core/complex/denominator_spec.rb
+- [x] core/complex/denominator_spec.rb
 - [ ] core/complex/divide_spec.rb
 - [x] core/complex/eql_spec.rb
 - [x] core/complex/equal_value_spec.rb
@@ -288,9 +294,9 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/complex/magnitude_spec.rb
 - [ ] core/complex/marshal_dump_spec.rb
 - [ ] core/complex/minus_spec.rb
- - [x] core/complex/multiply_spec.rb
+- [x] core/complex/multiply_spec.rb
 - [ ] core/complex/negative_spec.rb
- - [x] core/complex/numerator_spec.rb
+- [x] core/complex/numerator_spec.rb
 - [x] core/complex/phase_spec.rb
 - [x] core/complex/plus_spec.rb
 - [ ] core/complex/polar_spec.rb
@@ -358,6 +364,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/dir/read_spec.rb
 - [ ] core/dir/rewind_spec.rb
 - [x] core/dir/rmdir_spec.rb
+- [ ] core/dir/scan_spec.rb
 - [ ] core/dir/seek_spec.rb
 - [ ] core/dir/tell_spec.rb
 - [ ] core/dir/to_path_spec.rb
@@ -508,16 +515,9 @@ Source baseline: ../ruby_spec compared to local spec/
 - [-] core/enumerator/each_spec.rb
 - [x] core/enumerator/each_with_index_spec.rb
 - [x] core/enumerator/each_with_object_spec.rb
-- [x] core/enumerator/enum_for_spec.rb
 - [x] core/enumerator/enumerator_spec.rb
 - [ ] core/enumerator/feed_spec.rb
 - [ ] core/enumerator/first_spec.rb
-
-### core/enumerator/generator
-- [ ] core/enumerator/generator/each_spec.rb
-- [ ] core/enumerator/generator/initialize_spec.rb
-
-### core/enumerator
 - [ ] core/enumerator/initialize_spec.rb
 - [ ] core/enumerator/inspect_spec.rb
 
@@ -574,15 +574,8 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/enumerator/product_spec.rb
 - [ ] core/enumerator/rewind_spec.rb
 - [ ] core/enumerator/size_spec.rb
-- [x] core/enumerator/to_enum_spec.rb
 - [x] core/enumerator/with_index_spec.rb
 - [ ] core/enumerator/with_object_spec.rb
-
-### core/enumerator/yielder
-- [ ] core/enumerator/yielder/append_spec.rb
-- [ ] core/enumerator/yielder/initialize_spec.rb
-- [ ] core/enumerator/yielder/to_proc_spec.rb
-- [ ] core/enumerator/yielder/yield_spec.rb
 
 ### core/env
 - [x] core/env/assoc_spec.rb
@@ -600,6 +593,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [-] core/env/empty_spec.rb
 - [x] core/env/except_spec.rb
 - [ ] core/env/fetch_spec.rb
+- [ ] core/env/fetch_values_spec.rb
 - [ ] core/env/filter_spec.rb
 - [x] core/env/has_key_spec.rb
 - [ ] core/env/has_value_spec.rb
@@ -685,12 +679,14 @@ Source baseline: ../ruby_spec compared to local spec/
 ### core/fiber
 - [x] core/fiber/alive_spec.rb
 - [ ] core/fiber/blocking_spec.rb
+- [ ] core/fiber/current_scheduler_spec.rb
 - [ ] core/fiber/current_spec.rb
 - [ ] core/fiber/inspect_spec.rb
 - [ ] core/fiber/kill_spec.rb
 - [x] core/fiber/new_spec.rb
 - [ ] core/fiber/raise_spec.rb
 - [ ] core/fiber/resume_spec.rb
+- [ ] core/fiber/schedule_spec.rb
 - [ ] core/fiber/scheduler_spec.rb
 - [ ] core/fiber/set_scheduler_spec.rb
 - [ ] core/fiber/storage_spec.rb
@@ -729,7 +725,6 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/file/grpowned_spec.rb
 - [ ] core/file/identical_spec.rb
 - [ ] core/file/initialize_spec.rb
-- [ ] core/file/inspect_spec.rb
 - [ ] core/file/join_spec.rb
 - [ ] core/file/lchmod_spec.rb
 - [ ] core/file/lchown_spec.rb
@@ -823,6 +818,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/filetest/blockdev_spec.rb
 - [ ] core/filetest/chardev_spec.rb
 - [ ] core/filetest/directory_spec.rb
+- [ ] core/filetest/empty_spec.rb
 - [ ] core/filetest/executable_real_spec.rb
 - [ ] core/filetest/executable_spec.rb
 - [ ] core/filetest/exist_spec.rb
@@ -853,7 +849,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/float/ceil_spec.rb
 - [x] core/float/coerce_spec.rb
 - [ ] core/float/comparison_spec.rb
-- [-] core/float/constants_spec.rb (CORAFIXME: Integer#** with negative exponent not supported)
+- [-] core/float/constants_spec.rb
 - [ ] core/float/denominator_spec.rb
 - [ ] core/float/divide_spec.rb
 - [ ] core/float/divmod_spec.rb
@@ -969,7 +965,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/hash/merge_spec.rb
 - [x] core/hash/new_spec.rb
 - [x] core/hash/rassoc_spec.rb
-- [-] core/hash/rehash_spec.rb
+- [ ] core/hash/rehash_spec.rb
 - [x] core/hash/reject_spec.rb
 - [x] core/hash/replace_spec.rb
 - [x] core/hash/ruby2_keywords_hash_spec.rb
@@ -997,6 +993,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/integer/allbits_spec.rb
 - [x] core/integer/anybits_spec.rb
 - [x] core/integer/bit_and_spec.rb
+- [ ] core/integer/bit_count_spec.rb
 - [x] core/integer/bit_length_spec.rb
 - [x] core/integer/bit_or_spec.rb
 - [x] core/integer/bit_xor_spec.rb
@@ -1012,7 +1009,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/integer/digits_spec.rb
 - [x] core/integer/div_spec.rb
 - [x] core/integer/divide_spec.rb
-- [-] core/integer/divmod_spec.rb (CORAFIXME: float remainder precision for large bignums)
+- [-] core/integer/divmod_spec.rb
 - [x] core/integer/downto_spec.rb
 - [x] core/integer/dup_spec.rb
 - [x] core/integer/element_reference_spec.rb
@@ -1023,13 +1020,15 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/integer/fdiv_spec.rb
 - [x] core/integer/floor_spec.rb
 - [x] core/integer/gcd_spec.rb
-- [x] core/integer/lcm_spec.rb
 - [x] core/integer/gcdlcm_spec.rb
 - [x] core/integer/gt_spec.rb
 - [x] core/integer/gte_spec.rb
+- [ ] core/integer/inspect_spec.rb
+- [x] core/integer/integer_spec.rb
+- [x] core/integer/lcm_spec.rb
+- [x] core/integer/left_shift_spec.rb
 - [x] core/integer/lt_spec.rb
 - [x] core/integer/lte_spec.rb
-- [x] core/integer/integer_spec.rb
 - [x] core/integer/magnitude_spec.rb
 - [x] core/integer/minus_spec.rb
 - [x] core/integer/modulo_spec.rb
@@ -1070,6 +1069,7 @@ Source baseline: ../ruby_spec compared to local spec/
 
 ### core/io/buffer
 - [ ] core/io/buffer/and_spec.rb
+- [ ] core/io/buffer/bit_count_spec.rb
 - [ ] core/io/buffer/empty_spec.rb
 - [ ] core/io/buffer/external_spec.rb
 - [ ] core/io/buffer/for_spec.rb
@@ -1089,6 +1089,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/io/buffer/string_spec.rb
 - [ ] core/io/buffer/transfer_spec.rb
 - [ ] core/io/buffer/valid_spec.rb
+- [ ] core/io/buffer/write_spec.rb
 - [ ] core/io/buffer/xor_spec.rb
 
 ### core/io
@@ -1147,7 +1148,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/io/readlines_spec.rb
 - [ ] core/io/readpartial_spec.rb
 - [ ] core/io/reopen_spec.rb
-- [x] core/io/rewind_spec.rb
+- [-] core/io/rewind_spec.rb
 - [ ] core/io/seek_spec.rb
 - [x] core/io/select_spec.rb
 - [ ] core/io/set_encoding_by_bom_spec.rb
@@ -1172,9 +1173,9 @@ Source baseline: ../ruby_spec compared to local spec/
 ### core/kernel
 - [x] core/kernel/Array_spec.rb
 - [ ] core/kernel/Complex_spec.rb
-- [-] core/kernel/Float_spec.rb (CORAFIXME: hex float binary exponent not supported; Complex not implemented)
+- [-] core/kernel/Float_spec.rb
 - [x] core/kernel/Hash_spec.rb
-- [-] core/kernel/Integer_spec.rb (CORAFIXME: Integer#quo not implemented)
+- [-] core/kernel/Integer_spec.rb
 - [-] core/kernel/Rational_spec.rb
 - [x] core/kernel/String_spec.rb
 - [ ] core/kernel/__callee___spec.rb
@@ -1182,6 +1183,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [-] core/kernel/__method___spec.rb
 - [ ] core/kernel/abort_spec.rb
 - [ ] core/kernel/at_exit_spec.rb
+- [ ] core/kernel/autoload_relative_spec.rb
 - [x] core/kernel/autoload_spec.rb
 - [ ] core/kernel/backtick_spec.rb
 - [ ] core/kernel/binding_spec.rb
@@ -1321,6 +1323,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/matchdata/equal_value_spec.rb
 - [x] core/matchdata/hash_spec.rb
 - [ ] core/matchdata/inspect_spec.rb
+- [ ] core/matchdata/integer_at_spec.rb
 - [x] core/matchdata/length_spec.rb
 - [ ] core/matchdata/match_length_spec.rb
 - [x] core/matchdata/match_spec.rb
@@ -1389,7 +1392,9 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/method/public_spec.rb
 - [x] core/method/receiver_spec.rb
 - [x] core/method/source_location_spec.rb
+- [ ] core/method/source_range_spec.rb
 - [ ] core/method/super_method_spec.rb
+- [ ] core/method/syntax_tree_spec.rb
 - [ ] core/method/to_proc_spec.rb
 - [ ] core/method/to_s_spec.rb
 - [x] core/method/unbind_spec.rb
@@ -1402,6 +1407,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/module/attr_reader_spec.rb
 - [x] core/module/attr_spec.rb
 - [x] core/module/attr_writer_spec.rb
+- [ ] core/module/autoload_relative_spec.rb
 - [-] core/module/autoload_spec.rb
 - [ ] core/module/case_compare_spec.rb
 - [x] core/module/class_eval_spec.rb
@@ -1421,6 +1427,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/module/define_method_spec.rb
 - [x] core/module/define_singleton_method_spec.rb
 - [x] core/module/deprecate_constant_spec.rb
+- [ ] core/module/descendants_spec.rb
 - [x] core/module/eql_spec.rb
 - [x] core/module/equal_spec.rb
 - [x] core/module/equal_value_spec.rb
@@ -1613,8 +1620,11 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/proc/lambda_spec.rb
 - [ ] core/proc/new_spec.rb
 - [ ] core/proc/parameters_spec.rb
+- [ ] core/proc/refined_spec.rb
 - [ ] core/proc/ruby2_keywords_spec.rb
 - [ ] core/proc/source_location_spec.rb
+- [ ] core/proc/source_range_spec.rb
+- [ ] core/proc/syntax_tree_spec.rb
 - [x] core/proc/to_proc_spec.rb
 - [ ] core/proc/to_s_spec.rb
 - [ ] core/proc/yield_spec.rb
@@ -1762,12 +1772,14 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/range/begin_spec.rb
 - [x] core/range/bsearch_spec.rb
 - [ ] core/range/case_compare_spec.rb
+- [ ] core/range/clamp_spec.rb
 - [x] core/range/clone_spec.rb
 - [ ] core/range/count_spec.rb
 - [ ] core/range/cover_spec.rb
 - [x] core/range/dup_spec.rb
 - [x] core/range/each_spec.rb
 - [x] core/range/end_spec.rb
+- [ ] core/range/entries_spec.rb
 - [x] core/range/eql_spec.rb
 - [x] core/range/equal_value_spec.rb
 - [x] core/range/exclude_end_spec.rb
@@ -1831,9 +1843,9 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/refinement/append_features_spec.rb
 - [ ] core/refinement/extend_object_spec.rb
 - [ ] core/refinement/import_methods_spec.rb
-- [x] core/refinement/include_spec.rb
+- [-] core/refinement/include_spec.rb
 - [ ] core/refinement/prepend_features_spec.rb
-- [x] core/refinement/prepend_spec.rb
+- [-] core/refinement/prepend_spec.rb
 - [x] core/refinement/refined_class_spec.rb
 - [ ] core/refinement/target_spec.rb
 
@@ -1863,11 +1875,13 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/regexp/try_convert_spec.rb
 - [x] core/regexp/union_spec.rb
 
+### core/ruby/source_range
+- [ ] core/ruby/source_range/inspect_spec.rb
+
 ### core/set
 - [ ] core/set/add_spec.rb
 - [x] core/set/append_spec.rb
 - [ ] core/set/case_compare_spec.rb
-- [ ] core/set/case_equality_spec.rb
 - [ ] core/set/classify_spec.rb
 - [ ] core/set/clear_spec.rb
 - [ ] core/set/collect_spec.rb
@@ -1892,6 +1906,8 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/set/filter_spec.rb
 - [ ] core/set/flatten_merge_spec.rb
 - [ ] core/set/flatten_spec.rb
+- [ ] core/set/gt_spec.rb
+- [ ] core/set/gte_spec.rb
 - [x] core/set/hash_spec.rb
 - [ ] core/set/include_spec.rb
 - [ ] core/set/initialize_clone_spec.rb
@@ -1902,6 +1918,8 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/set/join_spec.rb
 - [ ] core/set/keep_if_spec.rb
 - [x] core/set/length_spec.rb
+- [ ] core/set/lt_spec.rb
+- [ ] core/set/lte_spec.rb
 - [ ] core/set/map_spec.rb
 - [ ] core/set/member_spec.rb
 - [ ] core/set/merge_spec.rb
@@ -1956,6 +1974,16 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/string/append_spec.rb
 - [x] core/string/ascii_only_spec.rb
 - [x] core/string/b_spec.rb
+- [ ] core/string/bit_clear_spec.rb
+- [ ] core/string/bit_count_spec.rb
+- [ ] core/string/bit_flip_spec.rb
+- [ ] core/string/bit_get_spec.rb
+- [ ] core/string/bit_set_p_spec.rb
+- [ ] core/string/bit_set_spec.rb
+- [ ] core/string/bitwise_and_spec.rb
+- [ ] core/string/bitwise_not_spec.rb
+- [ ] core/string/bitwise_or_spec.rb
+- [ ] core/string/bitwise_xor_spec.rb
 - [x] core/string/byteindex_spec.rb
 - [x] core/string/byterindex_spec.rb
 - [x] core/string/bytes_spec.rb
@@ -1976,11 +2004,11 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/string/codepoints_spec.rb
 - [x] core/string/comparison_spec.rb
 - [x] core/string/concat_spec.rb
-- [x] core/string/count_spec.rb
+- [-] core/string/count_spec.rb
 - [ ] core/string/crypt_spec.rb
 - [x] core/string/dedup_spec.rb
 - [x] core/string/delete_prefix_spec.rb
-- [x] core/string/delete_spec.rb
+- [-] core/string/delete_spec.rb
 - [x] core/string/delete_suffix_spec.rb
 - [x] core/string/downcase_spec.rb
 - [x] core/string/dump_spec.rb
@@ -2014,7 +2042,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/string/length_spec.rb
 - [x] core/string/lines_spec.rb
 - [x] core/string/ljust_spec.rb
-- [x] core/string/lstrip_spec.rb
+- [-] core/string/lstrip_spec.rb
 - [-] core/string/match_spec.rb
 - [-] core/string/modulo_spec.rb
 - [x] core/string/multiply_spec.rb
@@ -2030,17 +2058,17 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/string/rindex_spec.rb
 - [x] core/string/rjust_spec.rb
 - [x] core/string/rpartition_spec.rb
-- [x] core/string/rstrip_spec.rb
+- [-] core/string/rstrip_spec.rb
 - [x] core/string/scan_spec.rb
 - [ ] core/string/scrub_spec.rb
 - [x] core/string/setbyte_spec.rb
 - [x] core/string/size_spec.rb
 - [-] core/string/slice_spec.rb
 - [x] core/string/split_spec.rb
-- [x] core/string/squeeze_spec.rb
+- [-] core/string/squeeze_spec.rb
 - [x] core/string/start_with_spec.rb
 - [x] core/string/string_spec.rb
-- [x] core/string/strip_spec.rb
+- [-] core/string/strip_spec.rb
 - [x] core/string/sub_spec.rb
 - [x] core/string/succ_spec.rb
 - [x] core/string/sum_spec.rb
@@ -2052,8 +2080,8 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/string/to_s_spec.rb
 - [-] core/string/to_str_spec.rb
 - [x] core/string/to_sym_spec.rb
-- [x] core/string/tr_s_spec.rb
-- [x] core/string/tr_spec.rb
+- [-] core/string/tr_s_spec.rb
+- [-] core/string/tr_spec.rb
 - [x] core/string/try_convert_spec.rb
 - [x] core/string/uminus_spec.rb
 - [ ] core/string/undump_spec.rb
@@ -2065,6 +2093,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/string/unpack/at_spec.rb
 - [x] core/string/unpack/b_spec.rb
 - [x] core/string/unpack/c_spec.rb
+- [ ] core/string/unpack/carret_spec.rb
 - [x] core/string/unpack/comment_spec.rb
 - [x] core/string/unpack/d_spec.rb
 - [x] core/string/unpack/e_spec.rb
@@ -2079,6 +2108,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/string/unpack/p_spec.rb
 - [x] core/string/unpack/percent_spec.rb
 - [x] core/string/unpack/q_spec.rb
+- [ ] core/string/unpack/r_spec.rb
 - [x] core/string/unpack/s_spec.rb
 - [x] core/string/unpack/u_spec.rb
 - [x] core/string/unpack/v_spec.rb
@@ -2182,6 +2212,8 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/thread/backtrace/location/label_spec.rb
 - [x] core/thread/backtrace/location/lineno_spec.rb
 - [ ] core/thread/backtrace/location/path_spec.rb
+- [ ] core/thread/backtrace/location/source_range_spec.rb
+- [ ] core/thread/backtrace/location/syntax_tree_spec.rb
 - [x] core/thread/backtrace/location/to_s_spec.rb
 
 ### core/thread
@@ -2352,7 +2384,9 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/unboundmethod/protected_spec.rb
 - [x] core/unboundmethod/public_spec.rb
 - [x] core/unboundmethod/source_location_spec.rb
+- [ ] core/unboundmethod/source_range_spec.rb
 - [ ] core/unboundmethod/super_method_spec.rb
+- [ ] core/unboundmethod/syntax_tree_spec.rb
 - [x] core/unboundmethod/to_s_spec.rb
 
 ### core/warning
@@ -2886,11 +2920,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/delegate/delegator/protected_methods_spec.rb
 - [x] library/delegate/delegator/public_methods_spec.rb
 - [x] library/delegate/delegator/send_spec.rb
-- [ ] library/delegate/delegator/taint_spec.rb
 - [x] library/delegate/delegator/tap_spec.rb
-- [ ] library/delegate/delegator/trust_spec.rb
-- [ ] library/delegate/delegator/untaint_spec.rb
-- [ ] library/delegate/delegator/untrust_spec.rb
 
 ### library/digest
 - [ ] library/digest/bubblebabble_spec.rb
@@ -3496,6 +3526,7 @@ Source baseline: ../ruby_spec compared to local spec/
 ### library/pathname
 - [x] library/pathname/absolute_spec.rb
 - [ ] library/pathname/birthtime_spec.rb
+- [ ] library/pathname/case_compare_spec.rb
 - [ ] library/pathname/divide_spec.rb
 - [ ] library/pathname/empty_spec.rb
 - [ ] library/pathname/equal_value_spec.rb
@@ -3708,6 +3739,7 @@ Source baseline: ../ruby_spec compared to local spec/
 ### library/socket/ipsocket
 - [ ] library/socket/ipsocket/addr_spec.rb
 - [ ] library/socket/ipsocket/getaddress_spec.rb
+- [ ] library/socket/ipsocket/inspect_spec.rb
 - [ ] library/socket/ipsocket/peeraddr_spec.rb
 - [ ] library/socket/ipsocket/recvfrom_spec.rb
 
@@ -3771,7 +3803,6 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/socket/tcpserver/initialize_spec.rb
 - [ ] library/socket/tcpserver/listen_spec.rb
 - [ ] library/socket/tcpserver/new_spec.rb
-- [-] library/socket/tcpserver/shutdown_spec.rb
 - [ ] library/socket/tcpserver/sysaccept_spec.rb
 
 ### library/socket/tcpsocket
@@ -3789,7 +3820,6 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/socket/udpsocket/bind_spec.rb
 - [ ] library/socket/udpsocket/connect_spec.rb
 - [ ] library/socket/udpsocket/initialize_spec.rb
-- [ ] library/socket/udpsocket/inspect_spec.rb
 - [ ] library/socket/udpsocket/local_address_spec.rb
 - [ ] library/socket/udpsocket/new_spec.rb
 - [ ] library/socket/udpsocket/open_spec.rb
@@ -3826,12 +3856,6 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/socket/unixsocket/socketpair_spec.rb
 
 ### library/stringio
-- [-] library/stringio/initialize_spec.rb
-- [x] library/stringio/new_spec.rb
-- [x] library/stringio/read_spec.rb
-- [x] library/stringio/size_spec.rb
-- [x] library/stringio/string_spec.rb
-- [x] library/stringio/write_spec.rb
 - [ ] library/stringio/append_spec.rb
 - [x] library/stringio/binmode_spec.rb
 - [ ] library/stringio/close_read_spec.rb
@@ -3856,11 +3880,13 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/stringio/getch_spec.rb
 - [ ] library/stringio/getpass_spec.rb
 - [ ] library/stringio/gets_spec.rb
+- [-] library/stringio/initialize_spec.rb
 - [x] library/stringio/inspect_spec.rb
 - [x] library/stringio/internal_encoding_spec.rb
 - [ ] library/stringio/isatty_spec.rb
 - [x] library/stringio/length_spec.rb
 - [ ] library/stringio/lineno_spec.rb
+- [x] library/stringio/new_spec.rb
 - [ ] library/stringio/open_spec.rb
 - [x] library/stringio/path_spec.rb
 - [ ] library/stringio/pid_spec.rb
@@ -3870,6 +3896,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/stringio/putc_spec.rb
 - [ ] library/stringio/puts_spec.rb
 - [ ] library/stringio/read_nonblock_spec.rb
+- [x] library/stringio/read_spec.rb
 - [x] library/stringio/readbyte_spec.rb
 - [ ] library/stringio/readchar_spec.rb
 - [ ] library/stringio/readline_spec.rb
@@ -3880,6 +3907,8 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/stringio/seek_spec.rb
 - [ ] library/stringio/set_encoding_by_bom_spec.rb
 - [ ] library/stringio/set_encoding_spec.rb
+- [x] library/stringio/size_spec.rb
+- [x] library/stringio/string_spec.rb
 - [ ] library/stringio/stringio_spec.rb
 - [ ] library/stringio/sync_spec.rb
 - [ ] library/stringio/sysread_spec.rb
@@ -3890,6 +3919,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/stringio/ungetbyte_spec.rb
 - [ ] library/stringio/ungetc_spec.rb
 - [ ] library/stringio/write_nonblock_spec.rb
+- [x] library/stringio/write_spec.rb
 
 ### library/stringscanner
 - [ ] library/stringscanner/append_spec.rb
@@ -4260,6 +4290,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] library/zlib/gzipreader/read_spec.rb
 - [ ] library/zlib/gzipreader/readpartial_spec.rb
 - [ ] library/zlib/gzipreader/rewind_spec.rb
+- [ ] library/zlib/gzipreader/tell_spec.rb
 - [ ] library/zlib/gzipreader/ungetbyte_spec.rb
 - [ ] library/zlib/gzipreader/ungetc_spec.rb
 
@@ -4318,6 +4349,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] optional/capi/numeric_spec.rb
 - [ ] optional/capi/object_spec.rb
 - [ ] optional/capi/proc_spec.rb
+- [ ] optional/capi/process_spec.rb
 - [ ] optional/capi/range_spec.rb
 - [ ] optional/capi/rational_spec.rb
 - [ ] optional/capi/rbasic_spec.rb
@@ -4340,7 +4372,6 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] security/cve_2010_1330_spec.rb
 - [ ] security/cve_2011_4815_spec.rb
 - [x] security/cve_2013_4164_spec.rb
-- [ ] security/cve_2018_16396_spec.rb
 - [ ] security/cve_2018_6914_spec.rb
 - [ ] security/cve_2018_8778_spec.rb
 - [ ] security/cve_2018_8779_spec.rb
