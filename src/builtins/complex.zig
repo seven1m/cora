@@ -64,6 +64,9 @@ pub fn register(vm: *VM) !void {
     const plus_sym = try vm.intern("+");
     try vm.complex_class.module.methods.put(plus_sym, value.MethodEntry.builtin(&builtinComplexPlus, .{ .exact = 1 }));
 
+    const multiply_sym = try vm.intern("*");
+    try vm.complex_class.module.methods.put(multiply_sym, value.MethodEntry.builtin(&builtinComplexMultiply, .{ .exact = 1 }));
+
     const uminus_sym = try vm.intern("-@");
     try vm.complex_class.module.methods.put(uminus_sym, value.MethodEntry.builtin(&builtinComplexUminus, .{ .exact = 0 }));
 
@@ -246,6 +249,54 @@ fn builtinComplexPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
     }
     var op_args = [_]Value{coerced_items[1]};
     return vm.callMethodByName(coerced_items[0], "+", op_args[0..], null);
+}
+
+fn builtinComplexMultiply(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const lhs = receiver.toComplexObject();
+    const other = args[0];
+    if (other.isComplex()) {
+        const rhs = other.toComplexObject();
+        var ac_arg = [_]Value{rhs.real};
+        const ac = try vm.callMethodByName(lhs.real, "*", ac_arg[0..], null);
+        var bd_arg = [_]Value{rhs.imaginary};
+        const bd = try vm.callMethodByName(lhs.imaginary, "*", bd_arg[0..], null);
+        var real_arg = [_]Value{bd};
+        const real_part = try vm.callMethodByName(ac, "-", real_arg[0..], null);
+        var ad_arg = [_]Value{rhs.imaginary};
+        const ad = try vm.callMethodByName(lhs.real, "*", ad_arg[0..], null);
+        var bc_arg = [_]Value{rhs.real};
+        const bc = try vm.callMethodByName(lhs.imaginary, "*", bc_arg[0..], null);
+        var imag_arg = [_]Value{bc};
+        const imag_part = try vm.callMethodByName(ad, "+", imag_arg[0..], null);
+        return vm.newComplex(real_part, imag_part);
+    }
+
+    if (vm.isClassOrSubclassOf(vm.getClass(other), vm.numeric_class)) {
+        const real = try vm.callMethodByName(other, "real?", &.{}, null);
+        if (real.isTruthy()) {
+            var real_arg = [_]Value{other};
+            const real_part = try vm.callMethodByName(lhs.real, "*", real_arg[0..], null);
+            var imag_arg = [_]Value{other};
+            const imag_part = try vm.callMethodByName(lhs.imaginary, "*", imag_arg[0..], null);
+            return vm.newComplex(real_part, imag_part);
+        }
+    }
+
+    var coerce_args = [_]Value{receiver};
+    const maybe_coerced = try vm.checkCallMethodByName(other, "coerce", true, coerce_args[0..], null);
+    const coerced = maybe_coerced orelse {
+        return vm.raiseExceptionFmt(vm.type_error_class, "{s} can't be coerced into Complex", .{vm.className(other)});
+    };
+    if (!coerced.isArray()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "coerce must return [x, y]", .{});
+    }
+    const coerced_items = coerced.toArrayObject().elements.items;
+    if (coerced_items.len != 2) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "coerce must return [x, y]", .{});
+    }
+    var op_args = [_]Value{coerced_items[1]};
+    return vm.callMethodByName(coerced_items[0], "*", op_args[0..], null);
 }
 
 fn builtinComplexAbs(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
