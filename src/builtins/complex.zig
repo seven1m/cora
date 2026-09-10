@@ -29,6 +29,9 @@ pub fn register(vm: *VM) !void {
     const to_c_sym = try vm.intern("to_c");
     try vm.complex_class.module.methods.put(to_c_sym, value.MethodEntry.builtin(&builtinComplexToC, .{ .exact = 0 }));
 
+    const to_f_sym = try vm.intern("to_f");
+    try vm.complex_class.module.methods.put(to_f_sym, value.MethodEntry.builtin(&builtinComplexToF, .{ .exact = 0 }));
+
     const equal_sym = try vm.intern("==");
     try vm.complex_class.module.methods.put(equal_sym, value.MethodEntry.builtin(&builtinComplexEqual, .{ .exact = 1 }));
 
@@ -166,6 +169,23 @@ fn builtinComplexEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
 fn builtinComplexToC(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return receiver;
+}
+
+fn builtinComplexToF(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const complex = receiver.toComplexObject();
+    const imaginary = complex.imaginary;
+    // A Float imaginary part (even 0.0) is not an exact zero, so conversion
+    // always fails per ruby/spec.
+    if (imaginary.isFloat()) {
+        return vm.raiseExceptionFmt(vm.range_error_class, "can't convert Complex into Float", .{});
+    }
+    var zero_arg = [_]Value{Value.integer(0)};
+    const is_zero = try vm.callMethodByName(imaginary, "==", zero_arg[0..], null);
+    if (is_zero.isTruthy()) {
+        return vm.callMethodByName(complex.real, "to_f", &.{}, null);
+    }
+    return vm.raiseExceptionFmt(vm.range_error_class, "can't convert Complex into Float", .{});
 }
 
 fn builtinComplexConjugate(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
