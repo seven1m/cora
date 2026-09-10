@@ -65,6 +65,12 @@ pub fn register(vm: *VM) !void {
     const numerator_sym = try vm.intern("numerator");
     try vm.complex_class.module.methods.put(numerator_sym, value.MethodEntry.builtin(&builtinComplexNumerator, .{ .exact = 0 }));
 
+    const compare_sym = try vm.intern("<=>");
+    try vm.complex_class.module.methods.put(compare_sym, value.MethodEntry.builtin(&builtinComplexCompare, .{ .exact = 1 }));
+
+    const coerce_sym = try vm.intern("coerce");
+    try vm.complex_class.module.methods.put(coerce_sym, value.MethodEntry.builtin(&builtinComplexCoerce, .{ .exact = 1 }));
+
     // Math.sqrt is required by Complex#abs expectations (and ruby/spec uses it
     // directly); Math has no dedicated builtins file yet so register it here.
     const math_sym = try vm.intern("Math");
@@ -284,6 +290,56 @@ fn builtinComplexNumerator(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     mul_arg[0] = imag_factor;
     const scaled_imag = try vm.callMethodByName(imag_num, "*", mul_arg[0..], null);
     return vm.newComplex(scaled_real, scaled_imag);
+}
+
+fn builtinComplexCompare(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const lhs = receiver.toComplexObject();
+    const other = args[0];
+
+    var other_real: Value = undefined;
+    var other_imaginary: Value = undefined;
+    if (other.isComplex()) {
+        const rhs = other.toComplexObject();
+        other_real = rhs.real;
+        other_imaginary = rhs.imaginary;
+    } else if (vm.isClassOrSubclassOf(vm.getClass(other), vm.numeric_class)) {
+        const real = try vm.callMethodByName(other, "real?", &.{}, null);
+        if (real.isFalsey()) return Value.nil();
+        other_real = other;
+        other_imaginary = Value.integer(0);
+    } else {
+        return Value.nil();
+    }
+
+    var zero_arg = [_]Value{Value.integer(0)};
+    const self_imaginary_zero = try vm.callMethodByName(lhs.imaginary, "==", zero_arg[0..], null);
+    if (self_imaginary_zero.isFalsey()) return Value.nil();
+    const other_imaginary_zero = try vm.callMethodByName(other_imaginary, "==", zero_arg[0..], null);
+    if (other_imaginary_zero.isFalsey()) return Value.nil();
+
+    var compare_args = [_]Value{other_real};
+    return vm.callMethodByName(lhs.real, "<=>", compare_args[0..], null);
+}
+
+fn builtinComplexCoerce(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const other = args[0];
+    const result = try vm.createArray();
+    if (other.isComplex()) {
+        result.elements.append(vm.gc_allocator, other) catch return error.Fatal;
+        result.elements.append(vm.gc_allocator, receiver) catch return error.Fatal;
+        return Value.fromObject(&result.object);
+    }
+    if (vm.isClassOrSubclassOf(vm.getClass(other), vm.numeric_class)) {
+        const real = try vm.callMethodByName(other, "real?", &.{}, null);
+        if (real.isTruthy()) {
+            result.elements.append(vm.gc_allocator, try vm.newComplex(other, Value.integer(0))) catch return error.Fatal;
+            result.elements.append(vm.gc_allocator, receiver) catch return error.Fatal;
+            return Value.fromObject(&result.object);
+        }
+    }
+    return vm.raiseExceptionFmt(vm.type_error_class, "{s} can't be coerced into Complex", .{vm.className(other)});
 }
 
 fn builtinComplexHash(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
