@@ -73,6 +73,9 @@ pub fn register(vm: *VM) !void {
     const numerator_sym = try vm.intern("numerator");
     try vm.numeric_class.module.methods.put(numerator_sym, value.MethodEntry.builtin(&builtinNumericNumerator, .{ .exact = 0 }));
 
+    const rectangular_sym = try vm.intern("rectangular");
+    try vm.numeric_class.module.methods.put(rectangular_sym, value.MethodEntry.builtin(&builtinNumericRectangular, .{ .exact = 0 }));
+
     const coerce_sym = try vm.intern("coerce");
     try vm.numeric_class.module.methods.put(coerce_sym, value.MethodEntry.builtin(&builtinNumericCoerce, .{ .exact = 1 }));
 
@@ -222,6 +225,14 @@ pub fn builtinNumericNumerator(vm: *VM, receiver: Value, args: []Value, _: ?Bloc
     try vm.requireArgCount(args, 0);
     const to_r_result = try vm.callMethodByName(receiver, "to_r", &.{}, null);
     return vm.callMethodByName(to_r_result, "numerator", &.{}, null);
+}
+
+pub fn builtinNumericRectangular(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const result = try vm.createArray();
+    result.elements.append(vm.gc_allocator, receiver) catch return error.Fatal;
+    result.elements.append(vm.gc_allocator, Value.integer(0)) catch return error.Fatal;
+    return Value.fromObject(&result.object);
 }
 
 pub fn builtinNumericArg(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

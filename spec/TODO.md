@@ -1552,7 +1552,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/numeric/quo_spec.rb
 - [x] core/numeric/real_spec.rb
 - [ ] core/numeric/rect_spec.rb
-- [ ] core/numeric/rectangular_spec.rb
+- [x] core/numeric/rectangular_spec.rb
 - [ ] core/numeric/remainder_spec.rb
 - [ ] core/numeric/round_spec.rb
 - [ ] core/numeric/singleton_method_added_spec.rb
