@@ -584,8 +584,9 @@ pub fn register(vm: *VM) !void {
     const greater_than_or_equal_sym = try vm.intern(">=");
     try vm.integer_class.module.methods.put(greater_than_or_equal_sym, value.MethodEntry.builtin(&builtinIntegerGreaterThanOrEqual, .{ .exact = 1 }));
 
+    const to_s_entry = value.MethodEntry.builtin(&builtinIntegerToS, .{ .variadic = 0 });
     const to_s_sym = try vm.intern("to_s");
-    try vm.integer_class.module.methods.put(to_s_sym, value.MethodEntry.builtin(&builtinIntegerToS, .{ .variadic = 0 }));
+    try vm.integer_class.module.methods.put(to_s_sym, to_s_entry);
 
     const to_i_sym = try vm.intern("to_i");
     try vm.integer_class.module.methods.put(to_i_sym, value.MethodEntry.builtin(&builtinIntegerToI, .{ .exact = 0 }));
@@ -624,7 +625,7 @@ pub fn register(vm: *VM) !void {
     try vm.integer_class.module.methods.put(round_sym, value.MethodEntry.builtin(&builtinIntegerRound, .{ .variadic = 0 }));
 
     const inspect_sym = try vm.intern("inspect");
-    try vm.integer_class.module.methods.put(inspect_sym, value.MethodEntry.builtin(&builtinIntegerInspect, .{ .variadic = 0 }));
+    try vm.integer_class.module.methods.put(inspect_sym, to_s_entry);
 
     const abs_sym = try vm.intern("abs");
     try vm.integer_class.module.methods.put(abs_sym, value.MethodEntry.builtin(&builtinIntegerAbs, .{ .exact = 0 }));
@@ -1994,10 +1995,6 @@ pub fn builtinIntegerDiv(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
 
     const divided = try builtinIntegerDivide(vm, receiver, args, null);
     return vm.callMethodByName(divided, "floor", &.{}, null);
-}
-
-pub fn builtinIntegerInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
-    return builtinIntegerToS(vm, receiver, args, null);
 }
 
 pub fn builtinIntegerAbs(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

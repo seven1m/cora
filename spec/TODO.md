@@ -1023,7 +1023,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/integer/gcdlcm_spec.rb
 - [x] core/integer/gt_spec.rb
 - [x] core/integer/gte_spec.rb
-- [ ] core/integer/inspect_spec.rb
+- [x] core/integer/inspect_spec.rb
 - [x] core/integer/integer_spec.rb
 - [x] core/integer/lcm_spec.rb
 - [x] core/integer/left_shift_spec.rb
