@@ -1541,7 +1541,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/numeric/infinite_spec.rb
 - [x] core/numeric/integer_spec.rb
 - [x] core/numeric/magnitude_spec.rb
-- [ ] core/numeric/modulo_spec.rb
+- [x] core/numeric/modulo_spec.rb
 - [x] core/numeric/negative_spec.rb
 - [x] core/numeric/nonzero_spec.rb
  - [x] core/numeric/numerator_spec.rb
