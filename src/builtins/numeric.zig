@@ -1,3 +1,4 @@
+const std = @import("std");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 
@@ -77,6 +78,14 @@ pub fn register(vm: *VM) !void {
 
     const clone_sym = try vm.intern("clone");
     try vm.numeric_class.module.methods.put(clone_sym, value.MethodEntry.builtin(&builtinNumericClone, .{ .variadic = 0 }));
+
+    const arg_entry = value.MethodEntry.builtin(&builtinNumericArg, .{ .exact = 0 });
+    const arg_sym = try vm.intern("arg");
+    try vm.numeric_class.module.methods.put(arg_sym, arg_entry);
+    const angle_sym = try vm.intern("angle");
+    try vm.numeric_class.module.methods.put(angle_sym, arg_entry);
+    const phase_sym = try vm.intern("phase");
+    try vm.numeric_class.module.methods.put(phase_sym, arg_entry);
 }
 
 pub fn builtinNumericCoerce(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -204,4 +213,14 @@ pub fn builtinNumericDenominator(vm: *VM, receiver: Value, args: []Value, _: ?Bl
     try vm.requireArgCount(args, 0);
     const to_r_result = try vm.callMethodByName(receiver, "to_r", &.{}, null);
     return vm.callMethodByName(to_r_result, "denominator", &.{}, null);
+}
+
+pub fn builtinNumericArg(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    var compare_args = [_]Value{Value.integer(0)};
+    const less_than_zero = try vm.callMethodByName(receiver, "<", compare_args[0..], null);
+    if (less_than_zero.isTruthy()) {
+        return vm.newFloat(std.math.pi);
+    }
+    return Value.integer(0);
 }

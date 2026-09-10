@@ -1519,8 +1519,8 @@ Source baseline: ../ruby_spec compared to local spec/
 ### core/numeric
 - [x] core/numeric/abs2_spec.rb
 - [x] core/numeric/abs_spec.rb
-- [ ] core/numeric/angle_spec.rb
-- [ ] core/numeric/arg_spec.rb
+- [x] core/numeric/angle_spec.rb
+- [x] core/numeric/arg_spec.rb
 - [ ] core/numeric/ceil_spec.rb
 - [x] core/numeric/clone_spec.rb
 - [x] core/numeric/coerce_spec.rb
