@@ -877,7 +877,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/float/next_float_spec.rb
 - [ ] core/float/numerator_spec.rb
  - [x] core/float/phase_spec.rb
-- [ ] core/float/plus_spec.rb
+- [x] core/float/plus_spec.rb
 - [x] core/float/positive_spec.rb
 - [x] core/float/prev_float_spec.rb
 - [x] core/float/quo_spec.rb

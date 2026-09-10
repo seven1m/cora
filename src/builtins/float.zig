@@ -31,6 +31,23 @@ fn coerceNumericArg(vm: *VM, arg: Value) VMError!f64 {
     return vm.raiseExceptionFmt(vm.type_error_class, "argument is not numeric", .{});
 }
 
+fn coerceAndCallFloatArithmetic(vm: *VM, receiver: Value, arg: Value, op_name: []const u8) VMError!Value {
+    var coerce_args = [_]Value{receiver};
+    const maybe_coerced = try vm.checkCallMethodByName(arg, "coerce", true, coerce_args[0..], null);
+    const coerced = maybe_coerced orelse {
+        return vm.raiseExceptionFmt(vm.type_error_class, "argument is not numeric", .{});
+    };
+    if (!coerced.isArray()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "coerce must return [x, y]", .{});
+    }
+    const coerced_items = coerced.toArrayObject().elements.items;
+    if (coerced_items.len != 2) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "coerce must return [x, y]", .{});
+    }
+    var op_args = [_]Value{coerced_items[1]};
+    return vm.callMethodByName(coerced_items[0], op_name, op_args[0..], null);
+}
+
 const FloatComparison = enum {
     less_than,
     less_than_or_equal,
@@ -278,8 +295,12 @@ pub fn register(vm: *VM) !void {
 pub fn builtinFloatPlus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const lhs = receiver.toFloatObject().val;
-    const rhs = try coerceNumericArg(vm, args[0]);
-    return vm.newFloat(lhs + rhs);
+    const arg = args[0];
+    if (arg.isFloat() or arg.isInteger() or arg.isBigInteger()) {
+        const rhs = try coerceNumericArg(vm, arg);
+        return vm.newFloat(lhs + rhs);
+    }
+    return coerceAndCallFloatArithmetic(vm, receiver, arg, "+");
 }
 
 pub fn builtinFloatMinus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
