@@ -37,8 +37,12 @@ pub fn register(vm: *VM) !void {
     const first_sym = try vm.intern("first");
     try vm.range_class.module.methods.put(first_sym, value.MethodEntry.builtin(&builtinRangeFirst, .{ .variadic = 0 }));
 
+    const to_a_entry = value.MethodEntry.builtin(&builtinRangeToA, .{ .exact = 0 });
     const to_a_sym = try vm.intern("to_a");
-    try vm.range_class.module.methods.put(to_a_sym, value.MethodEntry.builtin(&builtinRangeToA, .{ .exact = 0 }));
+    try vm.range_class.module.methods.put(to_a_sym, to_a_entry);
+
+    const entries_sym = try vm.intern("entries");
+    try vm.range_class.module.methods.put(entries_sym, to_a_entry);
 
     const each_sym = try vm.intern("each");
     try vm.range_class.module.methods.put(each_sym, value.MethodEntry.builtin(&builtinRangeEach, .{ .exact = 0 }));
