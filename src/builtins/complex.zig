@@ -36,6 +36,9 @@ pub fn register(vm: *VM) !void {
     try vm.complex_class.module.methods.put(conjugate_sym, conjugate_entry);
     const conj_sym = try vm.intern("conj");
     try vm.complex_class.module.methods.put(conj_sym, conjugate_entry);
+
+    const abs2_sym = try vm.intern("abs2");
+    try vm.complex_class.module.methods.put(abs2_sym, value.MethodEntry.builtin(&builtinComplexAbs2, .{ .exact = 0 }));
 }
 
 fn builtinComplexEql(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -94,6 +97,17 @@ fn builtinComplexConjugate(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     const complex = receiver.toComplexObject();
     const neg_imaginary = try vm.callMethodByName(complex.imaginary, "-@", &.{}, null);
     return vm.newComplex(complex.real, neg_imaginary);
+}
+
+fn builtinComplexAbs2(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const complex = receiver.toComplexObject();
+    var real_arg = [_]Value{complex.real};
+    const real_sq = try vm.callMethodByName(complex.real, "*", real_arg[0..], null);
+    var imag_arg = [_]Value{complex.imaginary};
+    const imag_sq = try vm.callMethodByName(complex.imaginary, "*", imag_arg[0..], null);
+    var sum_arg = [_]Value{imag_sq};
+    return vm.callMethodByName(real_sq, "+", sum_arg[0..], null);
 }
 
 fn builtinComplexHash(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
