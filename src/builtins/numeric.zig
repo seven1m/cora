@@ -70,6 +70,9 @@ pub fn register(vm: *VM) !void {
     const denominator_sym = try vm.intern("denominator");
     try vm.numeric_class.module.methods.put(denominator_sym, value.MethodEntry.builtin(&builtinNumericDenominator, .{ .exact = 0 }));
 
+    const numerator_sym = try vm.intern("numerator");
+    try vm.numeric_class.module.methods.put(numerator_sym, value.MethodEntry.builtin(&builtinNumericNumerator, .{ .exact = 0 }));
+
     const coerce_sym = try vm.intern("coerce");
     try vm.numeric_class.module.methods.put(coerce_sym, value.MethodEntry.builtin(&builtinNumericCoerce, .{ .exact = 1 }));
 
@@ -213,6 +216,12 @@ pub fn builtinNumericDenominator(vm: *VM, receiver: Value, args: []Value, _: ?Bl
     try vm.requireArgCount(args, 0);
     const to_r_result = try vm.callMethodByName(receiver, "to_r", &.{}, null);
     return vm.callMethodByName(to_r_result, "denominator", &.{}, null);
+}
+
+pub fn builtinNumericNumerator(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const to_r_result = try vm.callMethodByName(receiver, "to_r", &.{}, null);
+    return vm.callMethodByName(to_r_result, "numerator", &.{}, null);
 }
 
 pub fn builtinNumericArg(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
