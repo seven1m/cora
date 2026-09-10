@@ -300,7 +300,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/complex/real_spec.rb
 - [ ] core/complex/rect_spec.rb
 - [ ] core/complex/rectangular_spec.rb
-- [ ] core/complex/to_c_spec.rb
+- [x] core/complex/to_c_spec.rb
 - [ ] core/complex/to_f_spec.rb
 - [ ] core/complex/to_i_spec.rb
 - [ ] core/complex/to_r_spec.rb
