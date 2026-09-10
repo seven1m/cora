@@ -1501,7 +1501,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/nil/rationalize_spec.rb
 - [x] core/nil/singleton_method_spec.rb
 - [x] core/nil/to_a_spec.rb
-- [ ] core/nil/to_c_spec.rb
+- [x] core/nil/to_c_spec.rb
 - [x] core/nil/to_f_spec.rb
 - [x] core/nil/to_h_spec.rb
 - [x] core/nil/to_i_spec.rb

@@ -54,6 +54,9 @@ pub fn register(vm: *VM) !void {
 
     const to_r_sym = try vm.intern("to_r");
     try vm.nil_class.module.methods.put(to_r_sym, value.MethodEntry.builtin(&builtinNilClassToR, .{ .exact = 0 }));
+
+    const to_c_sym = try vm.intern("to_c");
+    try vm.nil_class.module.methods.put(to_c_sym, value.MethodEntry.builtin(&builtinNilClassToC, .{ .exact = 0 }));
 }
 
 pub fn builtinNilClassToS(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
@@ -128,6 +131,11 @@ pub fn builtinNilClassRationalize(vm: *VM, _: Value, args: []Value, _: ?Block) V
 pub fn builtinNilClassToR(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return try vm.newRational(0, 1);
+}
+
+pub fn builtinNilClassToC(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    return vm.newComplex(Value.integer(0), Value.integer(0));
 }
 
 pub fn builtinNilClassMatch(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
