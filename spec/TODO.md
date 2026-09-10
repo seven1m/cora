@@ -1627,7 +1627,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/proc/syntax_tree_spec.rb
 - [x] core/proc/to_proc_spec.rb
 - [ ] core/proc/to_s_spec.rb
-- [ ] core/proc/yield_spec.rb
+- [x] core/proc/yield_spec.rb
 
 ### core/process
 - [ ] core/process/_fork_spec.rb

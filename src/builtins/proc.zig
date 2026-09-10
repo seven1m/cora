@@ -12,11 +12,15 @@ pub fn register(vm: *VM) !void {
     const proc_singleton = try vm.getOrCreateSingletonClass(proc_class_val);
     try proc_singleton.module.methods.put(proc_new_sym, value.MethodEntry.builtin(&builtinProcNew, .{ .variadic = 0 }));
 
+    const call_entry = value.MethodEntry.builtin(&builtinProcCall, .{ .variadic = 0 });
     const call_sym = try vm.intern("call");
-    try vm.proc_class.module.methods.put(call_sym, value.MethodEntry.builtin(&builtinProcCall, .{ .variadic = 0 }));
+    try vm.proc_class.module.methods.put(call_sym, call_entry);
 
     const bracket_sym = try vm.intern("[]");
-    try vm.proc_class.module.methods.put(bracket_sym, value.MethodEntry.builtin(&builtinProcCall, .{ .variadic = 0 }));
+    try vm.proc_class.module.methods.put(bracket_sym, call_entry);
+
+    const yield_sym = try vm.intern("yield");
+    try vm.proc_class.module.methods.put(yield_sym, call_entry);
 
     const lambda_query_sym = try vm.intern("lambda?");
     try vm.proc_class.module.methods.put(lambda_query_sym, value.MethodEntry.builtin(&builtinProcIsLambda, .{ .exact = 0 }));
