@@ -35,6 +35,9 @@ pub fn register(vm: *VM) !void {
     const to_i_sym = try vm.intern("to_i");
     try vm.complex_class.module.methods.put(to_i_sym, value.MethodEntry.builtin(&builtinComplexToI, .{ .exact = 0 }));
 
+    const to_r_sym = try vm.intern("to_r");
+    try vm.complex_class.module.methods.put(to_r_sym, value.MethodEntry.builtin(&builtinComplexToR, .{ .exact = 0 }));
+
     const equal_sym = try vm.intern("==");
     try vm.complex_class.module.methods.put(equal_sym, value.MethodEntry.builtin(&builtinComplexEqual, .{ .exact = 1 }));
 
@@ -206,6 +209,19 @@ fn builtinComplexToI(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
         return vm.callMethodByName(complex.real, "to_i", &.{}, null);
     }
     return vm.raiseExceptionFmt(vm.range_error_class, "can't convert Complex into Integer", .{});
+}
+
+fn builtinComplexToR(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const complex = receiver.toComplexObject();
+    // Since Ruby 3.4 an inexact zero imaginary part (e.g. Float 0.0) is
+    // accepted, so any imaginary part equal to 0 converts via the real part.
+    var zero_arg = [_]Value{Value.integer(0)};
+    const is_zero = try vm.callMethodByName(complex.imaginary, "==", zero_arg[0..], null);
+    if (is_zero.isTruthy()) {
+        return vm.callMethodByName(complex.real, "to_r", &.{}, null);
+    }
+    return vm.raiseExceptionFmt(vm.range_error_class, "can't convert Complex into Rational", .{});
 }
 
 fn builtinComplexConjugate(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

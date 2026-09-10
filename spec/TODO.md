@@ -309,7 +309,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/complex/to_c_spec.rb
 - [x] core/complex/to_f_spec.rb
 - [x] core/complex/to_i_spec.rb
-- [ ] core/complex/to_r_spec.rb
+- [x] core/complex/to_r_spec.rb
 - [ ] core/complex/to_s_spec.rb
 - [x] core/complex/uminus_spec.rb
 
