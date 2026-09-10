@@ -110,6 +110,9 @@ pub fn register(vm: *VM) !void {
 
     const uminus_sym = try vm.intern("-@");
     try vm.numeric_class.module.methods.put(uminus_sym, value.MethodEntry.builtin(&builtinNumericUminus, .{ .exact = 0 }));
+
+    const div_sym = try vm.intern("div");
+    try vm.numeric_class.module.methods.put(div_sym, value.MethodEntry.builtin(&builtinNumericDiv, .{ .exact = 1 }));
 }
 
 pub fn builtinNumericCoerce(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -285,6 +288,17 @@ pub fn builtinNumericTruncate(vm: *VM, receiver: Value, args: []Value, _: ?Block
     try vm.requireArgCountRange(args, 0, 1);
     const float_value = try vm.callMethodByName(receiver, "to_f", &.{}, null);
     return vm.callMethodByName(float_value, "truncate", args, null);
+}
+
+pub fn builtinNumericDiv(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    var zero_args = [_]Value{Value.integer(0)};
+    const is_zero = try vm.callMethodByName(args[0], "==", zero_args[0..], null);
+    if (is_zero.isTruthy()) {
+        return vm.raiseExceptionFmt(vm.zero_division_error_class, "divided by 0", .{});
+    }
+    const quot = try vm.callMethodByName(receiver, "/", args, null);
+    return vm.callMethodByName(quot, "floor", &.{}, null);
 }
 
 pub fn builtinNumericUminus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
