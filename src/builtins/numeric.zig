@@ -104,6 +104,9 @@ pub fn register(vm: *VM) !void {
 
     const round_sym = try vm.intern("round");
     try vm.numeric_class.module.methods.put(round_sym, value.MethodEntry.builtin(&builtinNumericRound, .{ .variadic = 0 }));
+
+    const truncate_sym = try vm.intern("truncate");
+    try vm.numeric_class.module.methods.put(truncate_sym, value.MethodEntry.builtin(&builtinNumericTruncate, .{ .variadic = 0 }));
 }
 
 pub fn builtinNumericCoerce(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -273,4 +276,10 @@ pub fn builtinNumericRound(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     try vm.requireArgCountRange(args, 0, 1);
     const float_value = try vm.callMethodByName(receiver, "to_f", &.{}, null);
     return vm.callMethodByName(float_value, "round", args, null);
+}
+
+pub fn builtinNumericTruncate(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const float_value = try vm.callMethodByName(receiver, "to_f", &.{}, null);
+    return vm.callMethodByName(float_value, "truncate", args, null);
 }

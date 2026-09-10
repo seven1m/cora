@@ -282,6 +282,9 @@ pub fn register(vm: *VM) !void {
     const round_sym = try vm.intern("round");
     try vm.float_class.module.methods.put(round_sym, value.MethodEntry.builtin(&builtinFloatRound, .{ .variadic = 0 }));
 
+    const truncate_sym = try vm.intern("truncate");
+    try vm.float_class.module.methods.put(truncate_sym, value.MethodEntry.builtin(&builtinFloatTruncate, .{ .variadic = 0 }));
+
     const next_float_sym = try vm.intern("next_float");
     try vm.float_class.module.methods.put(next_float_sym, value.MethodEntry.builtin(&builtinFloatNextFloat, .{ .exact = 0 }));
 
@@ -667,6 +670,31 @@ pub fn builtinFloatRound(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     }
     const factor = std.math.pow(f64, 10, @as(f64, @floatFromInt(-digits)));
     return try vm.newFloat(@round(f / factor) * factor);
+}
+
+pub fn builtinFloatTruncate(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const f = receiver.toFloatObject().val;
+    if (args.len == 0) {
+        return builtinFloatToInt(vm, receiver, &.{}, null);
+    }
+    const digits = try coercePrecisionArgToCInt(vm, args[0]);
+    if (digits == 0) {
+        return builtinFloatToInt(vm, receiver, &.{}, null);
+    }
+    if (digits > 0) {
+        if (std.math.isNan(f)) return try vm.newFloat(f);
+        if (std.math.isInf(f)) return receiver;
+        const factor = std.math.pow(f64, 10, @as(f64, @floatFromInt(digits)));
+        if (!std.math.isFinite(factor)) return try vm.newFloat(f);
+        return try vm.newFloat(@trunc(f * factor) / factor);
+    }
+    if (std.math.isNan(f) or std.math.isInf(f)) {
+        return vm.raiseExceptionFmt(vm.float_domain_error_class, "float out of range of integer", .{});
+    }
+    const factor = std.math.pow(f64, 10, @as(f64, @floatFromInt(-digits)));
+    if (!std.math.isFinite(factor)) return Value.integer(0);
+    return floatToIntegerValue(vm, @trunc(f / factor) * factor);
 }
 
 pub fn builtinFloatNextFloat(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

@@ -1559,7 +1559,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/numeric/step_spec.rb
 - [ ] core/numeric/to_c_spec.rb
 - [x] core/numeric/to_int_spec.rb
-- [ ] core/numeric/truncate_spec.rb
+- [x] core/numeric/truncate_spec.rb
 - [ ] core/numeric/uminus_spec.rb
 - [x] core/numeric/uplus_spec.rb
 - [x] core/numeric/zero_spec.rb
