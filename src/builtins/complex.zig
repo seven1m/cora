@@ -1,4 +1,5 @@
 const std = @import("std");
+const enc = @import("../encoding.zig");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 
@@ -31,6 +32,9 @@ pub fn register(vm: *VM) !void {
 
     const to_c_sym = try vm.intern("to_c");
     try vm.complex_class.module.methods.put(to_c_sym, value.MethodEntry.builtin(&builtinComplexToC, .{ .exact = 0 }));
+
+    const to_s_sym = try vm.intern("to_s");
+    try vm.complex_class.module.methods.put(to_s_sym, value.MethodEntry.builtin(&builtinComplexToS, .{ .exact = 0 }));
 
     const to_f_sym = try vm.intern("to_f");
     try vm.complex_class.module.methods.put(to_f_sym, value.MethodEntry.builtin(&builtinComplexToF, .{ .exact = 0 }));
@@ -181,6 +185,46 @@ fn builtinComplexEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErr
 fn builtinComplexToC(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return receiver;
+}
+
+fn builtinComplexToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const complex = receiver.toComplexObject();
+    const real_str_val = try vm.callMethodByName(complex.real, "to_s", &.{}, null);
+    if (!real_str_val.isString()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "to_s did not return String", .{});
+    }
+    const imag_str_val = try vm.callMethodByName(complex.imaginary, "to_s", &.{}, null);
+    if (!imag_str_val.isString()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "to_s did not return String", .{});
+    }
+    const real_obj = real_str_val.toStringObject();
+    const imag_obj = imag_str_val.toStringObject();
+    // A non-finite Float imaginary part renders with a '*' (e.g. "1+Infinity*i").
+    const imag_nonfinite = complex.imaginary.isFloat() and
+        !std.math.isFinite(complex.imaginary.toFloatObject().val);
+
+    var buf: std.Io.Writer.Allocating = .init(vm.allocator);
+    defer buf.deinit();
+    buf.writer.writeAll(real_obj.str) catch return error.Fatal;
+    // A leading '-' on the imaginary string (e.g. "-3.2", "-0.0") already
+    // carries the sign; note -0.0 is not `< 0` so the string must be checked.
+    if (imag_obj.str.len == 0 or imag_obj.str[0] != '-') {
+        buf.writer.writeByte('+') catch return error.Fatal;
+    }
+    buf.writer.writeAll(imag_obj.str) catch return error.Fatal;
+    if (imag_nonfinite) {
+        buf.writer.writeByte('*') catch return error.Fatal;
+    }
+    buf.writer.writeByte('i') catch return error.Fatal;
+
+    var output_encoding = real_obj.encoding;
+    output_encoding = enc.negotiate(output_encoding, buf.written(), imag_obj.encoding, imag_obj.str) orelse {
+        return vm.raiseEncodingCompatibilityError(output_encoding, imag_obj.encoding);
+    };
+    const str = buf.toOwnedSlice() catch return error.Fatal;
+    defer vm.allocator.free(str);
+    return try vm.newStringWithEncoding(str, false, output_encoding);
 }
 
 fn builtinComplexToF(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
