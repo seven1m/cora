@@ -56,6 +56,9 @@ pub fn register(vm: *VM) !void {
     const plus_sym = try vm.intern("+");
     try vm.complex_class.module.methods.put(plus_sym, value.MethodEntry.builtin(&builtinComplexPlus, .{ .exact = 1 }));
 
+    const uminus_sym = try vm.intern("-@");
+    try vm.complex_class.module.methods.put(uminus_sym, value.MethodEntry.builtin(&builtinComplexUminus, .{ .exact = 0 }));
+
     // Math.sqrt is required by Complex#abs expectations (and ruby/spec uses it
     // directly); Math has no dedicated builtins file yet so register it here.
     const math_sym = try vm.intern("Math");
@@ -122,6 +125,14 @@ fn builtinComplexConjugate(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     const complex = receiver.toComplexObject();
     const neg_imaginary = try vm.callMethodByName(complex.imaginary, "-@", &.{}, null);
     return vm.newComplex(complex.real, neg_imaginary);
+}
+
+fn builtinComplexUminus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const complex = receiver.toComplexObject();
+    const neg_real = try vm.callMethodByName(complex.real, "-@", &.{}, null);
+    const neg_imaginary = try vm.callMethodByName(complex.imaginary, "-@", &.{}, null);
+    return vm.newComplex(neg_real, neg_imaginary);
 }
 
 fn builtinComplexAbs2(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
