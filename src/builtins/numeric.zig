@@ -98,6 +98,9 @@ pub fn register(vm: *VM) !void {
 
     const ceil_sym = try vm.intern("ceil");
     try vm.numeric_class.module.methods.put(ceil_sym, value.MethodEntry.builtin(&builtinNumericCeil, .{ .variadic = 0 }));
+
+    const floor_sym = try vm.intern("floor");
+    try vm.numeric_class.module.methods.put(floor_sym, value.MethodEntry.builtin(&builtinNumericFloor, .{ .variadic = 0 }));
 }
 
 pub fn builtinNumericCoerce(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -255,4 +258,10 @@ pub fn builtinNumericCeil(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     try vm.requireArgCountRange(args, 0, 1);
     const float_value = try vm.callMethodByName(receiver, "to_f", &.{}, null);
     return vm.callMethodByName(float_value, "ceil", args, null);
+}
+
+pub fn builtinNumericFloor(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const float_value = try vm.callMethodByName(receiver, "to_f", &.{}, null);
+    return vm.callMethodByName(float_value, "floor", args, null);
 }
