@@ -270,7 +270,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/complex/coerce_spec.rb
 - [ ] core/complex/comparison_spec.rb
 - [x] core/complex/conj_spec.rb
-- [ ] core/complex/conjugate_spec.rb
+- [x] core/complex/conjugate_spec.rb
 - [ ] core/complex/constants_spec.rb
 - [ ] core/complex/denominator_spec.rb
 - [ ] core/complex/divide_spec.rb
