@@ -78,9 +78,7 @@ describe "Kernel.Rational" do
   describe "when passed a Complex" do
     context "[Complex]" do
       it "returns a Rational from the real part if the imaginary part is 0" do
-        CORAFIXME "Complex to Rational conversion is not implemented yet", exception: TypeError do
-          Rational(Complex(1, 0)).should == Rational(1)
-        end
+        Rational(Complex(1, 0)).should == Rational(1)
       end
 
       it "raises a RangeError if the imaginary part is not 0" do
@@ -92,9 +90,7 @@ describe "Kernel.Rational" do
 
     context "[Numeric, Complex]" do
       it "uses the real part if the imaginary part is 0" do
-        CORAFIXME "Complex Rational denominator conversion is not implemented yet", exception: TypeError do
-          Rational(1, Complex(2, 0)).should == Rational(1, 2)
-        end
+        Rational(1, Complex(2, 0)).should == Rational(1, 2)
       end
 
       it "divides a numerator by the Complex denominator if the imaginary part is not 0" do
