@@ -293,7 +293,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/complex/integer_spec.rb
 - [x] core/complex/magnitude_spec.rb
 - [ ] core/complex/marshal_dump_spec.rb
-- [ ] core/complex/minus_spec.rb
+- [x] core/complex/minus_spec.rb
 - [x] core/complex/multiply_spec.rb
 - [x] core/complex/negative_spec.rb
 - [x] core/complex/numerator_spec.rb
