@@ -27,6 +27,9 @@ pub fn register(vm: *VM) !void {
     const finite_q_sym = try vm.intern("finite?");
     try vm.complex_class.module.methods.put(finite_q_sym, value.MethodEntry.builtin(&builtinComplexFinite, .{ .exact = 0 }));
 
+    const infinite_q_sym = try vm.intern("infinite?");
+    try vm.complex_class.module.methods.put(infinite_q_sym, value.MethodEntry.builtin(&builtinComplexInfinite, .{ .exact = 0 }));
+
     const hash_sym = try vm.intern("hash");
     try vm.complex_class.module.methods.put(hash_sym, value.MethodEntry.builtin(&builtinComplexHash, .{ .exact = 0 }));
 
@@ -695,6 +698,16 @@ fn builtinComplexFinite(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     if (real_finite.isFalsey()) return Value.boolean(false);
     const imaginary_finite = try vm.callMethodByName(complex.imaginary, "finite?", &.{}, null);
     return Value.boolean(imaginary_finite.isTruthy());
+}
+
+fn builtinComplexInfinite(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const complex = receiver.toComplexObject();
+    const real_infinite = try vm.callMethodByName(complex.real, "infinite?", &.{}, null);
+    if (real_infinite.isTruthy()) return Value.integer(1);
+    const imaginary_infinite = try vm.callMethodByName(complex.imaginary, "infinite?", &.{}, null);
+    if (imaginary_infinite.isTruthy()) return Value.integer(1);
+    return Value.nil();
 }
 
 fn builtinComplexRectangular(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

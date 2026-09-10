@@ -288,7 +288,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/complex/hash_spec.rb
 - [x] core/complex/imag_spec.rb
 - [x] core/complex/imaginary_spec.rb
-- [ ] core/complex/infinite_spec.rb
+- [-] core/complex/infinite_spec.rb
 - [x] core/complex/inspect_spec.rb
 - [x] core/complex/integer_spec.rb
 - [x] core/complex/magnitude_spec.rb
