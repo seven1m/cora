@@ -95,6 +95,9 @@ pub fn register(vm: *VM) !void {
     try vm.numeric_class.module.methods.put(angle_sym, arg_entry);
     const phase_sym = try vm.intern("phase");
     try vm.numeric_class.module.methods.put(phase_sym, arg_entry);
+
+    const ceil_sym = try vm.intern("ceil");
+    try vm.numeric_class.module.methods.put(ceil_sym, value.MethodEntry.builtin(&builtinNumericCeil, .{ .variadic = 0 }));
 }
 
 pub fn builtinNumericCoerce(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -246,4 +249,10 @@ pub fn builtinNumericArg(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
         return vm.newFloat(std.math.pi);
     }
     return Value.integer(0);
+}
+
+pub fn builtinNumericCeil(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const float_value = try vm.callMethodByName(receiver, "to_f", &.{}, null);
+    return vm.callMethodByName(float_value, "ceil", args, null);
 }
