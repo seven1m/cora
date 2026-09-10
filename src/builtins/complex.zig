@@ -62,6 +62,9 @@ pub fn register(vm: *VM) !void {
     const denominator_sym = try vm.intern("denominator");
     try vm.complex_class.module.methods.put(denominator_sym, value.MethodEntry.builtin(&builtinComplexDenominator, .{ .exact = 0 }));
 
+    const numerator_sym = try vm.intern("numerator");
+    try vm.complex_class.module.methods.put(numerator_sym, value.MethodEntry.builtin(&builtinComplexNumerator, .{ .exact = 0 }));
+
     // Math.sqrt is required by Complex#abs expectations (and ruby/spec uses it
     // directly); Math has no dedicated builtins file yet so register it here.
     const math_sym = try vm.intern("Math");
@@ -261,6 +264,26 @@ fn builtinComplexDenominator(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     const imag_denom = try vm.callMethodByName(complex.imaginary, "denominator", &.{}, null);
     var lcm_arg = [_]Value{imag_denom};
     return vm.callMethodByName(real_denom, "lcm", lcm_arg[0..], null);
+}
+
+fn builtinComplexNumerator(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const complex = receiver.toComplexObject();
+    const real_num = try vm.callMethodByName(complex.real, "numerator", &.{}, null);
+    const real_denom = try vm.callMethodByName(complex.real, "denominator", &.{}, null);
+    const imag_num = try vm.callMethodByName(complex.imaginary, "numerator", &.{}, null);
+    const imag_denom = try vm.callMethodByName(complex.imaginary, "denominator", &.{}, null);
+    var lcm_arg = [_]Value{imag_denom};
+    const common_denom = try vm.callMethodByName(real_denom, "lcm", lcm_arg[0..], null);
+    var div_arg = [_]Value{real_denom};
+    const real_factor = try vm.callMethodByName(common_denom, "/", div_arg[0..], null);
+    var mul_arg = [_]Value{real_factor};
+    const scaled_real = try vm.callMethodByName(real_num, "*", mul_arg[0..], null);
+    div_arg[0] = imag_denom;
+    const imag_factor = try vm.callMethodByName(common_denom, "/", div_arg[0..], null);
+    mul_arg[0] = imag_factor;
+    const scaled_imag = try vm.callMethodByName(imag_num, "*", mul_arg[0..], null);
+    return vm.newComplex(scaled_real, scaled_imag);
 }
 
 fn builtinComplexHash(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
