@@ -113,6 +113,15 @@ pub fn register(vm: *VM) !void {
 
     const div_sym = try vm.intern("div");
     try vm.numeric_class.module.methods.put(div_sym, value.MethodEntry.builtin(&builtinNumericDiv, .{ .exact = 1 }));
+
+    const modulo_entry = value.MethodEntry.builtin(&builtinNumericModulo, .{ .exact = 1 });
+    const modulo_op_sym = try vm.intern("%");
+    try vm.numeric_class.module.methods.put(modulo_op_sym, modulo_entry);
+    const modulo_sym = try vm.intern("modulo");
+    try vm.numeric_class.module.methods.put(modulo_sym, modulo_entry);
+
+    const divmod_sym = try vm.intern("divmod");
+    try vm.numeric_class.module.methods.put(divmod_sym, value.MethodEntry.builtin(&builtinNumericDivmod, .{ .exact = 1 }));
 }
 
 pub fn builtinNumericCoerce(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -299,6 +308,25 @@ pub fn builtinNumericDiv(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
     }
     const quot = try vm.callMethodByName(receiver, "/", args, null);
     return vm.callMethodByName(quot, "floor", &.{}, null);
+}
+
+pub fn builtinNumericModulo(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const q = try vm.callMethodByName(receiver, "div", args, null);
+    var mul_args = [_]Value{q};
+    const prod = try vm.callMethodByName(args[0], "*", mul_args[0..], null);
+    var sub_args = [_]Value{prod};
+    return vm.callMethodByName(receiver, "-", sub_args[0..], null);
+}
+
+pub fn builtinNumericDivmod(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const q = try vm.callMethodByName(receiver, "div", args, null);
+    const m = try vm.callMethodByName(receiver, "%", args, null);
+    const result = try vm.createArray();
+    result.elements.append(vm.gc_allocator, q) catch return error.Fatal;
+    result.elements.append(vm.gc_allocator, m) catch return error.Fatal;
+    return Value.fromObject(&result.object);
 }
 
 pub fn builtinNumericUminus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

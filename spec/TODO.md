@@ -1529,7 +1529,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/numeric/conjugate_spec.rb
 - [x] core/numeric/denominator_spec.rb
 - [x] core/numeric/div_spec.rb
-- [ ] core/numeric/divmod_spec.rb
+- [x] core/numeric/divmod_spec.rb
 - [x] core/numeric/dup_spec.rb
 - [ ] core/numeric/eql_spec.rb
 - [ ] core/numeric/fdiv_spec.rb
