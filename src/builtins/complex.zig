@@ -36,6 +36,9 @@ pub fn register(vm: *VM) !void {
     const to_s_sym = try vm.intern("to_s");
     try vm.complex_class.module.methods.put(to_s_sym, value.MethodEntry.builtin(&builtinComplexToS, .{ .exact = 0 }));
 
+    const inspect_sym = try vm.intern("inspect");
+    try vm.complex_class.module.methods.put(inspect_sym, value.MethodEntry.builtin(&builtinComplexInspect, .{ .exact = 0 }));
+
     const to_f_sym = try vm.intern("to_f");
     try vm.complex_class.module.methods.put(to_f_sym, value.MethodEntry.builtin(&builtinComplexToF, .{ .exact = 0 }));
 
@@ -217,6 +220,48 @@ fn builtinComplexToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
         buf.writer.writeByte('*') catch return error.Fatal;
     }
     buf.writer.writeByte('i') catch return error.Fatal;
+
+    var output_encoding = real_obj.encoding;
+    output_encoding = enc.negotiate(output_encoding, buf.written(), imag_obj.encoding, imag_obj.str) orelse {
+        return vm.raiseEncodingCompatibilityError(output_encoding, imag_obj.encoding);
+    };
+    const str = buf.toOwnedSlice() catch return error.Fatal;
+    defer vm.allocator.free(str);
+    return try vm.newStringWithEncoding(str, false, output_encoding);
+}
+
+fn builtinComplexInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const complex = receiver.toComplexObject();
+    const real_str_val = try vm.callMethodByName(complex.real, "inspect", &.{}, null);
+    if (!real_str_val.isString()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "inspect did not return String", .{});
+    }
+    const imag_str_val = try vm.callMethodByName(complex.imaginary, "inspect", &.{}, null);
+    if (!imag_str_val.isString()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "inspect did not return String", .{});
+    }
+    const real_obj = real_str_val.toStringObject();
+    const imag_obj = imag_str_val.toStringObject();
+    // The sign is determined by `#<` so mocked numerics observe the call;
+    // a non-negative imaginary part (including -0.0) renders with a '+'.
+    var zero_arg = [_]Value{Value.integer(0)};
+    const negative = try vm.callMethodByName(complex.imaginary, "<", zero_arg[0..], null);
+
+    var buf: std.Io.Writer.Allocating = .init(vm.allocator);
+    defer buf.deinit();
+    buf.writer.writeByte('(') catch return error.Fatal;
+    buf.writer.writeAll(real_obj.str) catch return error.Fatal;
+    if (!negative.isTruthy()) {
+        buf.writer.writeByte('+') catch return error.Fatal;
+    }
+    buf.writer.writeAll(imag_obj.str) catch return error.Fatal;
+    // An imaginary part whose inspect form does not end in a digit (e.g.
+    // "Infinity", "NaN", "(2)") needs a '*' before the trailing 'i'.
+    if (imag_obj.str.len == 0 or !std.ascii.isDigit(imag_obj.str[imag_obj.str.len - 1])) {
+        buf.writer.writeByte('*') catch return error.Fatal;
+    }
+    buf.writer.writeAll("i)") catch return error.Fatal;
 
     var output_encoding = real_obj.encoding;
     output_encoding = enc.negotiate(output_encoding, buf.written(), imag_obj.encoding, imag_obj.str) orelse {
