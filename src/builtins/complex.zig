@@ -59,6 +59,9 @@ pub fn register(vm: *VM) !void {
     const uminus_sym = try vm.intern("-@");
     try vm.complex_class.module.methods.put(uminus_sym, value.MethodEntry.builtin(&builtinComplexUminus, .{ .exact = 0 }));
 
+    const denominator_sym = try vm.intern("denominator");
+    try vm.complex_class.module.methods.put(denominator_sym, value.MethodEntry.builtin(&builtinComplexDenominator, .{ .exact = 0 }));
+
     // Math.sqrt is required by Complex#abs expectations (and ruby/spec uses it
     // directly); Math has no dedicated builtins file yet so register it here.
     const math_sym = try vm.intern("Math");
@@ -249,6 +252,15 @@ fn builtinMathSqrt(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
     if (f < 0.0)
         return vm.raiseExceptionFmt(vm.math_domain_error_class, "Numerical argument is out of domain - \"sqrt\"", .{});
     return vm.newFloat(std.math.sqrt(f));
+}
+
+fn builtinComplexDenominator(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const complex = receiver.toComplexObject();
+    const real_denom = try vm.callMethodByName(complex.real, "denominator", &.{}, null);
+    const imag_denom = try vm.callMethodByName(complex.imaginary, "denominator", &.{}, null);
+    var lcm_arg = [_]Value{imag_denom};
+    return vm.callMethodByName(real_denom, "lcm", lcm_arg[0..], null);
 }
 
 fn builtinComplexHash(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
