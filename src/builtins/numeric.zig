@@ -123,6 +123,9 @@ pub fn register(vm: *VM) !void {
     const divmod_sym = try vm.intern("divmod");
     try vm.numeric_class.module.methods.put(divmod_sym, value.MethodEntry.builtin(&builtinNumericDivmod, .{ .exact = 1 }));
 
+    const remainder_sym = try vm.intern("remainder");
+    try vm.numeric_class.module.methods.put(remainder_sym, value.MethodEntry.builtin(&builtinNumericRemainder, .{ .exact = 1 }));
+
     const fdiv_sym = try vm.intern("fdiv");
     try vm.numeric_class.module.methods.put(fdiv_sym, value.MethodEntry.builtin(&builtinNumericFdiv, .{ .exact = 1 }));
 
@@ -333,6 +336,47 @@ pub fn builtinNumericDivmod(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     result.elements.append(vm.gc_allocator, q) catch return error.Fatal;
     result.elements.append(vm.gc_allocator, m) catch return error.Fatal;
     return Value.fromObject(&result.object);
+}
+
+pub fn builtinNumericRemainder(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    var coerce_args = [_]Value{receiver};
+    const coerced = try vm.callMethodByName(args[0], "coerce", coerce_args[0..], null);
+    if (!coerced.isArray()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "coerce must return [x, y]", .{});
+    }
+    const items = coerced.toArrayObject().elements.items;
+    if (items.len != 2) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "coerce must return [x, y]", .{});
+    }
+    const x = items[0];
+    const y = items[1];
+    var mod_args = [_]Value{y};
+    const z = try vm.callMethodByName(x, "%", mod_args[0..], null);
+    var zero_args = [_]Value{Value.integer(0)};
+    const is_zero = try vm.callMethodByName(z, "==", zero_args[0..], null);
+    if (is_zero.isTruthy()) return z;
+    var lt_args = [_]Value{Value.integer(0)};
+    const x_lt_zero = try vm.callMethodByName(x, "<", lt_args[0..], null);
+    if (x_lt_zero.isTruthy()) {
+        var gt_args = [_]Value{Value.integer(0)};
+        const y_gt_zero = try vm.callMethodByName(y, ">", gt_args[0..], null);
+        if (y_gt_zero.isTruthy()) {
+            var sub_args = [_]Value{y};
+            return vm.callMethodByName(z, "-", sub_args[0..], null);
+        }
+    }
+    var gt_args = [_]Value{Value.integer(0)};
+    const x_gt_zero = try vm.callMethodByName(x, ">", gt_args[0..], null);
+    if (x_gt_zero.isTruthy()) {
+        var lt2_args = [_]Value{Value.integer(0)};
+        const y_lt_zero = try vm.callMethodByName(y, "<", lt2_args[0..], null);
+        if (y_lt_zero.isTruthy()) {
+            var sub_args = [_]Value{y};
+            return vm.callMethodByName(z, "-", sub_args[0..], null);
+        }
+    }
+    return z;
 }
 
 pub fn builtinNumericUminus(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
