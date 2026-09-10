@@ -8,6 +8,9 @@ const Block = vm_mod.Block;
 const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
+    const i_sym = try vm.intern("I");
+    try vm.complex_class.module.constants.put(i_sym, .{ .value = try vm.newComplex(Value.integer(0), Value.integer(1)) });
+
     const real_sym = try vm.intern("real");
     try vm.complex_class.module.methods.put(real_sym, value.MethodEntry.builtin(&builtinComplexReal, .{ .exact = 0 }));
 
