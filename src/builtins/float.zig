@@ -175,7 +175,11 @@ pub fn register(vm: *VM) !void {
     try vm.float_class.module.methods.put(divide_sym, value.MethodEntry.builtin(&builtinFloatDivide, .{ .exact = 1 }));
 
     const fdiv_sym = try vm.intern("fdiv");
-    try vm.float_class.module.methods.put(fdiv_sym, value.MethodEntry.builtin(&builtinFloatFdiv, .{ .exact = 1 }));
+    const fdiv_entry = value.MethodEntry.builtin(&builtinFloatFdiv, .{ .exact = 1 });
+    try vm.float_class.module.methods.put(fdiv_sym, fdiv_entry);
+
+    const quo_sym = try vm.intern("quo");
+    try vm.float_class.module.methods.put(quo_sym, fdiv_entry);
 
     const modulo_sym = try vm.intern("%");
     try vm.float_class.module.methods.put(modulo_sym, value.MethodEntry.builtin(&builtinFloatModulo, .{ .exact = 1 }));
