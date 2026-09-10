@@ -208,8 +208,12 @@ pub fn register(vm: *VM) !void {
     const greater_than_or_equal_sym = try vm.intern(">=");
     try vm.float_class.module.methods.put(greater_than_or_equal_sym, value.MethodEntry.builtin(&builtinFloatGreaterThanOrEqual, .{ .exact = 1 }));
 
+    const abs_entry = value.MethodEntry.builtin(&builtinFloatAbs, .{ .exact = 0 });
     const abs_sym = try vm.intern("abs");
-    try vm.float_class.module.methods.put(abs_sym, value.MethodEntry.builtin(&builtinFloatAbs, .{ .exact = 0 }));
+    try vm.float_class.module.methods.put(abs_sym, abs_entry);
+
+    const magnitude_sym = try vm.intern("magnitude");
+    try vm.float_class.module.methods.put(magnitude_sym, abs_entry);
 
     const nan_sym = try vm.intern("nan?");
     try vm.float_class.module.methods.put(nan_sym, value.MethodEntry.builtin(&builtinFloatNan, .{ .exact = 0 }));
