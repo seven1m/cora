@@ -122,6 +122,9 @@ pub fn register(vm: *VM) !void {
 
     const divmod_sym = try vm.intern("divmod");
     try vm.numeric_class.module.methods.put(divmod_sym, value.MethodEntry.builtin(&builtinNumericDivmod, .{ .exact = 1 }));
+
+    const fdiv_sym = try vm.intern("fdiv");
+    try vm.numeric_class.module.methods.put(fdiv_sym, value.MethodEntry.builtin(&builtinNumericFdiv, .{ .exact = 1 }));
 }
 
 pub fn builtinNumericCoerce(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -342,4 +345,12 @@ pub fn builtinNumericUminus(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
     }
     var sub_args = [_]Value{items[1]};
     return vm.callMethodByName(items[0], "-", sub_args[0..], null);
+}
+
+pub fn builtinNumericFdiv(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const lhs = try vm.callMethodByName(receiver, "to_f", &.{}, null);
+    const rhs = try vm.callMethodByName(args[0], "to_f", &.{}, null);
+    var div_args = [_]Value{rhs};
+    return vm.callMethodByName(lhs, "/", div_args[0..], null);
 }
