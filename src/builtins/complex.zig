@@ -38,6 +38,9 @@ pub fn register(vm: *VM) !void {
     const to_r_sym = try vm.intern("to_r");
     try vm.complex_class.module.methods.put(to_r_sym, value.MethodEntry.builtin(&builtinComplexToR, .{ .exact = 0 }));
 
+    const rationalize_sym = try vm.intern("rationalize");
+    try vm.complex_class.module.methods.put(rationalize_sym, value.MethodEntry.builtin(&builtinComplexRationalize, .{ .variadic = 0 }));
+
     const equal_sym = try vm.intern("==");
     try vm.complex_class.module.methods.put(equal_sym, value.MethodEntry.builtin(&builtinComplexEqual, .{ .exact = 1 }));
 
@@ -220,6 +223,22 @@ fn builtinComplexToR(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError
     const is_zero = try vm.callMethodByName(complex.imaginary, "==", zero_arg[0..], null);
     if (is_zero.isTruthy()) {
         return vm.callMethodByName(complex.real, "to_r", &.{}, null);
+    }
+    return vm.raiseExceptionFmt(vm.range_error_class, "can't convert Complex into Rational", .{});
+}
+
+fn builtinComplexRationalize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+    const complex = receiver.toComplexObject();
+    const imaginary = complex.imaginary;
+    // Only an exact zero imaginary part converts; a Float imaginary part
+    // (even 0.0) is inexact, so conversion always fails per ruby/spec.
+    if (!imaginary.isFloat()) {
+        var zero_arg = [_]Value{Value.integer(0)};
+        const is_zero = try vm.callMethodByName(imaginary, "==", zero_arg[0..], null);
+        if (is_zero.isTruthy()) {
+            return vm.callMethodByName(complex.real, "rationalize", args, null);
+        }
     }
     return vm.raiseExceptionFmt(vm.range_error_class, "can't convert Complex into Rational", .{});
 }
