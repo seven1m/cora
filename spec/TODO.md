@@ -284,7 +284,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/complex/equal_value_spec.rb
 - [ ] core/complex/exponent_spec.rb
 - [x] core/complex/fdiv_spec.rb
-- [ ] core/complex/finite_spec.rb
+ - [-] core/complex/finite_spec.rb
 - [x] core/complex/hash_spec.rb
 - [x] core/complex/imag_spec.rb
 - [x] core/complex/imaginary_spec.rb
