@@ -174,6 +174,9 @@ pub fn register(vm: *VM) !void {
     const divide_sym = try vm.intern("/");
     try vm.float_class.module.methods.put(divide_sym, value.MethodEntry.builtin(&builtinFloatDivide, .{ .exact = 1 }));
 
+    const fdiv_sym = try vm.intern("fdiv");
+    try vm.float_class.module.methods.put(fdiv_sym, value.MethodEntry.builtin(&builtinFloatFdiv, .{ .exact = 1 }));
+
     const modulo_sym = try vm.intern("%");
     try vm.float_class.module.methods.put(modulo_sym, value.MethodEntry.builtin(&builtinFloatModulo, .{ .exact = 1 }));
 
@@ -299,6 +302,32 @@ pub fn builtinFloatDivide(vm: *VM, receiver: Value, args: []Value, _: ?Block) VM
     const lhs = receiver.toFloatObject().val;
     const rhs = try coerceNumericArg(vm, args[0]);
     return vm.newFloat(lhs / rhs);
+}
+
+pub fn builtinFloatFdiv(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const lhs = receiver.toFloatObject().val;
+    const arg = args[0];
+    if (arg.isFloat()) return vm.newFloat(lhs / arg.toFloatObject().val);
+    if (arg.isInteger() or arg.isBigInteger()) return vm.newFloat(lhs / arg.integerToF64());
+    if (arg.isRational()) {
+        const rational = arg.toRationalObject();
+        return vm.newFloat(lhs * rational.denominator.integerToF64() / rational.numerator.integerToF64());
+    }
+    var coerce_args = [_]Value{receiver};
+    const maybe_coerced = try vm.checkCallMethodByName(arg, "coerce", true, coerce_args[0..], null);
+    const coerced = maybe_coerced orelse {
+        return vm.raiseExceptionFmt(vm.type_error_class, "{s} can't be coerced into Float", .{vm.className(arg)});
+    };
+    if (!coerced.isArray()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "coerce must return [x, y]", .{});
+    }
+    const coerced_items = coerced.toArrayObject().elements.items;
+    if (coerced_items.len != 2) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "coerce must return [x, y]", .{});
+    }
+    var op_args = [_]Value{coerced_items[1]};
+    return vm.callMethodByName(coerced_items[0], "fdiv", op_args[0..], null);
 }
 
 pub fn builtinFloatModulo(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

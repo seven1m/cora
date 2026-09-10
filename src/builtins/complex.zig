@@ -79,6 +79,9 @@ pub fn register(vm: *VM) !void {
     const coerce_sym = try vm.intern("coerce");
     try vm.complex_class.module.methods.put(coerce_sym, value.MethodEntry.builtin(&builtinComplexCoerce, .{ .exact = 1 }));
 
+    const fdiv_sym = try vm.intern("fdiv");
+    try vm.complex_class.module.methods.put(fdiv_sym, value.MethodEntry.builtin(&builtinComplexFdiv, .{ .exact = 1 }));
+
     // Math.sqrt / Math::PI are required by Complex expectations (and ruby/spec
     // uses them directly); Math has no dedicated builtins file yet so register
     // them here.
@@ -359,6 +362,61 @@ fn builtinComplexCoerce(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
         }
     }
     return vm.raiseExceptionFmt(vm.type_error_class, "{s} can't be coerced into Complex", .{vm.className(other)});
+}
+
+fn complexPartToF64(vm: *VM, part: Value) VMError!f64 {
+    if (part.isFloat()) return part.toFloatObject().val;
+    if (part.isInteger() or part.isBigInteger()) return part.integerToF64();
+    if (part.isRational()) {
+        const rational = part.toRationalObject();
+        return rational.numerator.integerToF64() / rational.denominator.integerToF64();
+    }
+    const float_part = try vm.callMethodByName(part, "to_f", &.{}, null);
+    return float_part.toFloatObject().val;
+}
+
+fn builtinComplexFdiv(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const lhs = receiver.toComplexObject();
+    const other = args[0];
+    if (other.isComplex()) {
+        const rhs = other.toComplexObject();
+        const a = try complexPartToF64(vm, lhs.real);
+        const b = try complexPartToF64(vm, lhs.imaginary);
+        const c = try complexPartToF64(vm, rhs.real);
+        const d = try complexPartToF64(vm, rhs.imaginary);
+        const denominator = c * c + d * d;
+        return vm.newComplex(
+            try vm.newFloat((a * c + b * d) / denominator),
+            try vm.newFloat((b * c - a * d) / denominator),
+        );
+    }
+
+    if (vm.isClassOrSubclassOf(vm.getClass(other), vm.numeric_class)) {
+        const real = try vm.callMethodByName(other, "real?", &.{}, null);
+        if (real.isTruthy()) {
+            var real_arg = [_]Value{other};
+            const real_quotient = try vm.callMethodByName(lhs.real, "fdiv", real_arg[0..], null);
+            var imag_arg = [_]Value{other};
+            const imag_quotient = try vm.callMethodByName(lhs.imaginary, "fdiv", imag_arg[0..], null);
+            return vm.newComplex(real_quotient, imag_quotient);
+        }
+    }
+
+    var coerce_args = [_]Value{receiver};
+    const maybe_coerced = try vm.checkCallMethodByName(other, "coerce", true, coerce_args[0..], null);
+    const coerced = maybe_coerced orelse {
+        return vm.raiseExceptionFmt(vm.type_error_class, "{s} can't be coerced into Complex", .{vm.className(other)});
+    };
+    if (!coerced.isArray()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "coerce must return [x, y]", .{});
+    }
+    const coerced_items = coerced.toArrayObject().elements.items;
+    if (coerced_items.len != 2) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "coerce must return [x, y]", .{});
+    }
+    var op_args = [_]Value{coerced_items[1]};
+    return vm.callMethodByName(coerced_items[0], "fdiv", op_args[0..], null);
 }
 
 fn builtinComplexHash(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
