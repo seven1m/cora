@@ -222,6 +222,14 @@ pub fn register(vm: *VM) !void {
     const positive_q_sym = try vm.intern("positive?");
     try vm.float_class.module.methods.put(positive_q_sym, value.MethodEntry.builtin(&builtinFloatPositive, .{ .exact = 0 }));
 
+    const arg_entry = value.MethodEntry.builtin(&builtinFloatArg, .{ .exact = 0 });
+    const arg_sym = try vm.intern("arg");
+    try vm.float_class.module.methods.put(arg_sym, arg_entry);
+    const angle_sym = try vm.intern("angle");
+    try vm.float_class.module.methods.put(angle_sym, arg_entry);
+    const phase_sym = try vm.intern("phase");
+    try vm.float_class.module.methods.put(phase_sym, arg_entry);
+
     const to_int_sym = try vm.intern("to_int");
     try vm.float_class.module.methods.put(to_int_sym, value.MethodEntry.builtin(&builtinFloatToInt, .{ .exact = 0 }));
 
@@ -439,6 +447,14 @@ pub fn builtinFloatNegative(vm: *VM, receiver: Value, args: []Value, _: ?Block) 
 pub fn builtinFloatPositive(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return Value.boolean(receiver.toFloatObject().val > 0.0);
+}
+
+fn builtinFloatArg(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const f = receiver.toFloatObject().val;
+    if (std.math.isNan(f)) return receiver;
+    if (std.math.signbit(f)) return vm.newFloat(std.math.pi);
+    return Value.integer(0);
 }
 
 pub fn builtinFloatToInt(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
