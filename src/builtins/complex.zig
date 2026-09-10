@@ -26,6 +26,9 @@ pub fn register(vm: *VM) !void {
     const hash_sym = try vm.intern("hash");
     try vm.complex_class.module.methods.put(hash_sym, value.MethodEntry.builtin(&builtinComplexHash, .{ .exact = 0 }));
 
+    const marshal_dump_sym = try vm.intern("marshal_dump");
+    try vm.complex_class.module.methods.put(marshal_dump_sym, value.MethodEntry.builtinWithVisibility(&builtinComplexMarshalDump, .{ .exact = 0 }, .private));
+
     const to_c_sym = try vm.intern("to_c");
     try vm.complex_class.module.methods.put(to_c_sym, value.MethodEntry.builtin(&builtinComplexToC, .{ .exact = 0 }));
 
@@ -567,6 +570,15 @@ fn builtinComplexFdiv(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
 fn builtinComplexHash(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 0);
     return Value.integer(@bitCast(receiver.hash()));
+}
+
+fn builtinComplexMarshalDump(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const complex = receiver.toComplexObject();
+    const result = try vm.createArray();
+    result.elements.append(vm.gc_allocator, complex.real) catch return error.Fatal;
+    result.elements.append(vm.gc_allocator, complex.imaginary) catch return error.Fatal;
+    return Value.fromObject(&result.object);
 }
 
 fn builtinComplexRealQ(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
