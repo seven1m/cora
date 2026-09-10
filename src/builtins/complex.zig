@@ -1,3 +1,4 @@
+const std = @import("std");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 
@@ -39,6 +40,18 @@ pub fn register(vm: *VM) !void {
 
     const abs2_sym = try vm.intern("abs2");
     try vm.complex_class.module.methods.put(abs2_sym, value.MethodEntry.builtin(&builtinComplexAbs2, .{ .exact = 0 }));
+
+    const abs_sym = try vm.intern("abs");
+    try vm.complex_class.module.methods.put(abs_sym, value.MethodEntry.builtin(&builtinComplexAbs, .{ .exact = 0 }));
+
+    // Math.sqrt is required by Complex#abs expectations (and ruby/spec uses it
+    // directly); Math has no dedicated builtins file yet so register it here.
+    const math_sym = try vm.intern("Math");
+    if (vm.object_class.module.constants.get(math_sym)) |math_entry| {
+        const math_singleton = try vm.getOrCreateSingletonClass(math_entry.value);
+        const sqrt_sym = try vm.intern("sqrt");
+        try math_singleton.module.methods.put(sqrt_sym, value.MethodEntry.builtin(&builtinMathSqrt, .{ .exact = 1 }));
+    }
 }
 
 fn builtinComplexEql(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -108,6 +121,35 @@ fn builtinComplexAbs2(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMErro
     const imag_sq = try vm.callMethodByName(complex.imaginary, "*", imag_arg[0..], null);
     var sum_arg = [_]Value{imag_sq};
     return vm.callMethodByName(real_sq, "+", sum_arg[0..], null);
+}
+
+fn builtinComplexAbs(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    const complex = receiver.toComplexObject();
+    var real_arg = [_]Value{complex.real};
+    const real_sq = try vm.callMethodByName(complex.real, "*", real_arg[0..], null);
+    var imag_arg = [_]Value{complex.imaginary};
+    const imag_sq = try vm.callMethodByName(complex.imaginary, "*", imag_arg[0..], null);
+    var sum_arg = [_]Value{imag_sq};
+    const abs2 = try vm.callMethodByName(real_sq, "+", sum_arg[0..], null);
+    const abs2_float = try vm.callMethodByName(abs2, "to_f", &.{}, null);
+    return vm.newFloat(std.math.sqrt(abs2_float.toFloatObject().val));
+}
+
+fn builtinMathSqrt(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const arg = args[0];
+    const f: f64 = if (arg.isFloat())
+        arg.toFloatObject().val
+    else if (arg.isInteger() or arg.isBigInteger())
+        arg.integerToF64()
+    else if (arg.isRational())
+        arg.toRationalObject().numerator.integerToF64() / arg.toRationalObject().denominator.integerToF64()
+    else
+        return vm.raiseExceptionFmt(vm.type_error_class, "can't convert {s} into Float", .{vm.className(arg)});
+    if (f < 0.0)
+        return vm.raiseExceptionFmt(vm.math_domain_error_class, "Numerical argument is out of domain - \"sqrt\"", .{});
+    return vm.newFloat(std.math.sqrt(f));
 }
 
 fn builtinComplexHash(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
