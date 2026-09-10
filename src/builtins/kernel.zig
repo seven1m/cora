@@ -480,7 +480,9 @@ fn builtinKernelComplex(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Val
     try vm.requireArgCountRange(args, 1, 2);
     const real = args[0];
     const imaginary = if (args.len == 2) args[1] else Value.integer(0);
-    if (!real.isNumeric() or real.isComplex() or !imaginary.isNumeric() or imaginary.isComplex()) {
+    if (!vm.isClassOrSubclassOf(vm.getClass(real), vm.numeric_class) or real.isComplex() or
+        !vm.isClassOrSubclassOf(vm.getClass(imaginary), vm.numeric_class) or imaginary.isComplex())
+    {
         return vm.raiseExceptionFmt(vm.type_error_class, "not a real", .{});
     }
     return vm.newComplex(real, imaginary);

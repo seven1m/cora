@@ -31,17 +31,34 @@ pub fn register(vm: *VM) !void {
 
 fn builtinComplexEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    if (!args[0].isComplex()) return Value.boolean(false);
-
     const lhs = receiver.toComplexObject();
-    const rhs = args[0].toComplexObject();
-    var equal_args = [_]Value{rhs.real};
-    const real_equal = try vm.callMethodByName(lhs.real, "==", equal_args[0..], null);
-    if (real_equal.isFalsey()) return Value.boolean(false);
+    const other = args[0];
+    if (other.isComplex()) {
+        const rhs = other.toComplexObject();
+        var equal_args = [_]Value{rhs.real};
+        const real_equal = try vm.callMethodByName(lhs.real, "==", equal_args[0..], null);
+        if (real_equal.isFalsey()) return Value.boolean(false);
 
-    equal_args[0] = rhs.imaginary;
-    const imaginary_equal = try vm.callMethodByName(lhs.imaginary, "==", equal_args[0..], null);
-    return Value.boolean(imaginary_equal.isTruthy());
+        equal_args[0] = rhs.imaginary;
+        const imaginary_equal = try vm.callMethodByName(lhs.imaginary, "==", equal_args[0..], null);
+        return Value.boolean(imaginary_equal.isTruthy());
+    }
+
+    if (vm.isClassOrSubclassOf(vm.getClass(other), vm.numeric_class)) {
+        const real = try vm.callMethodByName(other, "real?", &.{}, null);
+        if (real.isTruthy()) {
+            var equal_args = [_]Value{Value.integer(0)};
+            const imaginary_zero = try vm.callMethodByName(lhs.imaginary, "==", equal_args[0..], null);
+            if (imaginary_zero.isFalsey()) return Value.boolean(false);
+            equal_args[0] = other;
+            const real_equal = try vm.callMethodByName(lhs.real, "==", equal_args[0..], null);
+            return Value.boolean(real_equal.isTruthy());
+        }
+    }
+
+    var reverse_args = [_]Value{receiver};
+    const reverse_equal = try vm.callMethodByName(other, "==", reverse_args[0..], null);
+    return Value.boolean(reverse_equal.isTruthy());
 }
 
 fn builtinComplexToC(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

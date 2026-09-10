@@ -275,7 +275,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/complex/denominator_spec.rb
 - [ ] core/complex/divide_spec.rb
 - [ ] core/complex/eql_spec.rb
-- [ ] core/complex/equal_value_spec.rb
+- [x] core/complex/equal_value_spec.rb
 - [ ] core/complex/exponent_spec.rb
 - [ ] core/complex/fdiv_spec.rb
 - [ ] core/complex/finite_spec.rb
