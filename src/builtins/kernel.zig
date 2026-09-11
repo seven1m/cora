@@ -1071,7 +1071,8 @@ pub fn builtinKernelSystem(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
     }
 
     var chdir_value: ?Value = null;
-    try vm.consumeKeywordArgs(.{"chdir"}, .{&chdir_value});
+    var exception_value: ?Value = null;
+    try vm.consumeKeywordArgs(.{ "chdir", "exception" }, .{ &chdir_value, &exception_value });
     try vm.validateKeywordArgsConsumed();
 
     var env_map = try vm.currentEnvMap();
@@ -1158,7 +1159,12 @@ pub fn builtinKernelSystem(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!
 
     const status = try waitForPid(vm, pid);
     try vm.setLastProcessStatusFromWaitStatus(status, pid);
-    return Value.boolean((status & 0x7f) == 0 and ((status >> 8) & 0xff) == 0);
+    const succeeded = (status & 0x7f) == 0 and ((status >> 8) & 0xff) == 0;
+    if (!succeeded and (exception_value orelse Value.boolean(false)).isTruthy()) {
+        const exit_status = (status >> 8) & 0xff;
+        return vm.raiseExceptionFmt(vm.runtime_error_class, "Command failed with exit {d}: {s}", .{ exit_status, arg_storage.items[0] });
+    }
+    return Value.boolean(succeeded);
 }
 
 pub fn builtinKernelPrint(vm: *VM, _: Value, args: []Value, _: ?Block) VMError!Value {

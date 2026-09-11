@@ -751,6 +751,26 @@ test "Kernel#system updates $? and supports chdir keyword" {
     try std.testing.expectEqual(true, result.toArrayObject().elements.items[2].toBool());
 }
 
+test "Kernel#system supports exception keyword" {
+    const result = try evalCode(
+        \\success = system("/usr/bin/env", "sh", "-c", "exit 0", exception: true)
+        \\failure = begin
+        \\  system("/usr/bin/env", "sh", "-c", "exit 7", exception: true)
+        \\rescue => error
+        \\  [error.class.name, error.message, $?.exitstatus]
+        \\end
+        \\[success, failure]
+    );
+    try std.testing.expect(result.isArray());
+    const elements = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(true, elements[0].toBool());
+    try std.testing.expect(elements[1].isArray());
+    const failure = elements[1].toArrayObject().elements.items;
+    try std.testing.expectEqualStrings("RuntimeError", failure[0].toStringObject().str);
+    try std.testing.expectEqualStrings("Command failed with exit 7: /usr/bin/env", failure[1].toStringObject().str);
+    try std.testing.expectEqual(@as(i64, 7), failure[2].toInteger());
+}
+
 test "Kernel#system works after ENV.replace" {
     const result = try evalCode(
         \\env = ENV.to_hash
