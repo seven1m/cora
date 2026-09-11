@@ -1004,6 +1004,9 @@ pub fn register(vm: *VM) !void {
     const public_method_defined_sym = try vm.intern("public_method_defined?");
     try vm.module_class.module.methods.put(public_method_defined_sym, value.MethodEntry.builtin(&builtinModulePublicMethodDefined, .{ .variadic = 0 }));
 
+    const singleton_class_query_sym = try vm.intern("singleton_class?");
+    try vm.module_class.module.methods.put(singleton_class_query_sym, value.MethodEntry.builtin(&builtinModuleSingletonClassQ, .{ .exact = 0 }));
+
     const name_sym = try vm.intern("name");
     try vm.module_class.module.methods.put(name_sym, value.MethodEntry.builtin(&builtinModuleName, .{ .exact = 0 }));
 
@@ -1421,6 +1424,14 @@ pub fn builtinModuleIncludeQ(vm: *VM, receiver: Value, args: []Value, _: ?Block)
     }
 
     unreachable; // receiver is not a Module
+}
+
+pub fn builtinModuleSingletonClassQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+    if (receiver.isClass() and receiver.toClassObject().attached_object != null) {
+        return Value.boolean(true);
+    }
+    return Value.boolean(false);
 }
 
 pub fn builtinModuleAppendFeatures(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
