@@ -556,12 +556,17 @@ pub fn builtinRangeEach(vm: *VM, receiver: Value, args: []Value, block: ?Block) 
 }
 
 /// MRI `range_size`: element count for Integer bounds, Float::INFINITY for
-/// endless Integer ranges, nil for other iterable ranges; raises TypeError
-/// when begin cannot be iterated.
+/// endless Integer ranges and Integer ranges ending at +Infinity, nil for
+/// other iterable ranges; raises TypeError when begin cannot be iterated
+/// (including beginless ranges, whose begin is nil).
 pub fn rangeSizeValue(vm: *VM, receiver: Value) VMError!Value {
     const range_obj = receiver.toRangeObject();
     const begin_val = range_obj.begin;
     const end_val = range_obj.end;
+
+    if (begin_val.isNil()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "can't iterate from NilClass", .{});
+    }
 
     if ((begin_val.isInteger() or begin_val.isBigInteger()) and end_val.isNil()) {
         return vm.newFloat(std.math.inf(f64));
@@ -593,7 +598,13 @@ pub fn rangeSizeValue(vm: *VM, receiver: Value) VMError!Value {
         return vm.newFloat(count);
     }
 
-    if (!begin_val.isNil() and !try vm.respondsToMethodByName(begin_val, "succ", false)) {
+    if ((begin_val.isInteger() or begin_val.isBigInteger()) and end_val.isFloat() and
+        end_val.toFloatObject().val == std.math.inf(f64))
+    {
+        return vm.newFloat(std.math.inf(f64));
+    }
+
+    if (!try vm.respondsToMethodByName(begin_val, "succ", false)) {
         return vm.raiseExceptionFmt(vm.type_error_class, "can't iterate from {s}", .{vm.className(begin_val)});
     }
 
