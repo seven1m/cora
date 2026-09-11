@@ -988,13 +988,14 @@ pub fn builtinRangeMax(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
     const beg = range_obj.begin;
     const end_v = range_obj.end;
 
+    if (end_v.isNil()) {
+        return vm.raiseExceptionFmt(vm.range_error_class, "cannot get the maximum of endless range", .{});
+    }
+
     // MRI `range_max`: exclusive ranges with a non-Numeric end (as well as
     // block/`max(n)` forms) delegate to Enumerable over the elements.
-    const end_is_numeric = !end_v.isNil() and isNumericValue(vm, end_v);
+    const end_is_numeric = isNumericValue(vm, end_v);
     if (block == null and args.len == 0 and !(range_obj.exclude_end and !end_is_numeric)) {
-        if (end_v.isNil()) {
-            return vm.raiseExceptionFmt(vm.range_error_class, "cannot get the maximum of endless range", .{});
-        }
         const cmp: i64 = if (beg.isNil()) -1 else try rLess(vm, beg, end_v);
         if (cmp > 0) return Value.nil();
         if (range_obj.exclude_end) {
@@ -1002,7 +1003,7 @@ pub fn builtinRangeMax(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
                 return vm.raiseExceptionFmt(vm.type_error_class, "cannot exclude non Integer end value", .{});
             }
             if (cmp == 0) return Value.nil();
-            if (!beg.isInteger() and !beg.isBigInteger()) {
+            if (!beg.isNil() and !beg.isInteger() and !beg.isBigInteger()) {
                 return vm.raiseExceptionFmt(vm.type_error_class, "cannot exclude end value with non Integer begin value", .{});
             }
             if (end_v.isInteger()) {
@@ -1015,14 +1016,81 @@ pub fn builtinRangeMax(vm: *VM, receiver: Value, args: []Value, block: ?Block) V
         return end_v;
     }
 
-    if (beg.isNil()) {
+    if (block == null and args.len == 1) {
+        const count = try args[0].coerceToI64ViaToInt(
+            vm,
+            "no implicit conversion into Integer",
+            "no implicit conversion into Integer",
+            "bignum too big to convert into `long`",
+        );
+        if (count < 0) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "negative array size", .{});
+        }
+
+        const integer_beg = beg.isNil() or beg.isInteger() or beg.isBigInteger();
+        const integer_end = end_v.isInteger() or end_v.isBigInteger();
+        if (integer_beg and integer_end) {
+            const out = try vm.createArray();
+            if (count == 0) return Value.fromObject(&out.object);
+
+            var one = [_]Value{Value.integer(1)};
+            var current = end_v;
+            if (range_obj.exclude_end) {
+                current = try vm.callMethodByName(current, "-", one[0..], null);
+            }
+
+            while (out.elements.items.len < @as(usize, @intCast(count))) {
+                if (!beg.isNil() and try rLess(vm, current, beg) < 0) break;
+                out.elements.append(vm.gc_allocator, current) catch return error.Fatal;
+                current = try vm.callMethodByName(current, "-", one[0..], null);
+            }
+            return Value.fromObject(&out.object);
+        }
+    }
+
+    if (beg.isNil() and block != null) {
         return vm.raiseExceptionFmt(vm.range_error_class, "cannot get the maximum of beginless range with custom comparison method", .{});
     }
     var empty_args = [_]Value{};
     const array_val = try builtinRangeToA(vm, receiver, empty_args[0..], null);
 
     if (block) |blk| {
-        return try vm.callMethodByName(array_val, "max", empty_args[0..], blk);
+        const items = array_val.toArrayObject().elements.items;
+        if (args.len == 0) {
+            if (items.len == 0) return Value.nil();
+            var max = items[0];
+            var zero = [_]Value{Value.integer(0)};
+            for (items[1..]) |item| {
+                var pair = [_]Value{ item, max };
+                const yielded = try vm.yieldToBlock(blk, &pair);
+                const greater = try vm.callMethodByName(yielded, ">", zero[0..], null);
+                if (greater.isTruthy()) {
+                    max = item;
+                    continue;
+                }
+                _ = try vm.callMethodByName(yielded, "<", zero[0..], null);
+            }
+            return max;
+        }
+
+        const count = try args[0].coerceToI64ViaToInt(
+            vm,
+            "no implicit conversion into Integer",
+            "no implicit conversion into Integer",
+            "bignum too big to convert into `long`",
+        );
+        if (count < 0) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "negative array size", .{});
+        }
+        const sorted = try vm.callMethodByName(array_val, "sort", empty_args[0..], blk);
+        const reversed = try vm.callMethodByName(sorted, "reverse", empty_args[0..], null);
+        const sorted_items = reversed.toArrayObject().elements.items;
+        const limit: usize = @min(@as(usize, @intCast(count)), sorted_items.len);
+        const out = try vm.createArray();
+        for (sorted_items[0..limit]) |item| {
+            out.elements.append(vm.gc_allocator, item) catch return error.Fatal;
+        }
+        return Value.fromObject(&out.object);
     }
 
     if (args.len == 0) {
