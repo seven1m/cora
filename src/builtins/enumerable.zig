@@ -68,6 +68,28 @@ pub fn register(vm: *VM) !void {
     try enumerable_val.toModuleObject().methods.put(sum_sym, value.MethodEntry.builtin(&builtinEnumerableSum, .{ .variadic = 0 }));
     const count_sym = try vm.intern("count");
     try enumerable_val.toModuleObject().methods.put(count_sym, value.MethodEntry.builtin(&builtinEnumerableCount, .{ .variadic = 0 }));
+    const to_set_sym = try vm.intern("to_set");
+    try enumerable_val.toModuleObject().methods.put(to_set_sym, value.MethodEntry.builtin(&builtinEnumerableToSet, .{ .variadic = 0 }));
+}
+
+fn builtinEnumerableToSet(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+
+    const feature = try vm.newString("set", false);
+    var require_args = [_]Value{feature};
+    _ = try vm.callMethodByName(vm.main_self, "require", &require_args, null);
+
+    const set_class = if (args.len == 1) blk: {
+        try warning_builtin.writeWarning(vm, "warning: passing arguments to Enumerable#to_set is deprecated\n");
+        break :blk args[0];
+    } else (try vm.resolveConstantPath("Set")) orelse return error.Fatal;
+
+    const source = if (block) |mapping_block|
+        try vm.callMethodByName(receiver, "map", &.{}, mapping_block)
+    else
+        receiver;
+    var constructor_args = [_]Value{source};
+    return vm.callMethodByName(set_class, "new", &constructor_args, null);
 }
 
 fn builtinEnumerableFlatMap(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {

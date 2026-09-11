@@ -5,9 +5,13 @@ class Set
     new(objects)
   end
 
-  def initialize(enum = nil)
+  def initialize(enum = nil, &block)
     @hash = {}
-    merge(enum) if enum
+    if block && enum
+      enum.each { |object| add(block.call(object)) }
+    elsif enum
+      merge(enum)
+    end
   end
 
   def each(&block)
@@ -59,6 +63,11 @@ class Set
     @hash.hash
   end
 
+  def ==(other)
+    other.is_a?(Set) && size == other.size && all? { |object| other.include?(object) }
+  end
+  alias eql? ==
+
   def replace(enum)
     @hash.clear
     merge(enum)
@@ -82,7 +91,12 @@ class Set
 end
 
 module Enumerable
-  def to_set(klass = Set)
-    klass.new(self)
+  def to_set(*args, &block)
+    raise ArgumentError, "wrong number of arguments (given #{args.size}, expected 0..1)" if args.size > 1
+
+    unless args.empty?
+      warn "warning: passing arguments to Enumerable#to_set is deprecated"
+    end
+    (args[0] || Set).new(self, &block)
   end
 end
