@@ -70,6 +70,9 @@ pub fn register(vm: *VM) !void {
 
     const cover_sym = try vm.intern("cover?");
     try vm.range_class.module.methods.put(cover_sym, value.MethodEntry.builtin(&builtinRangeCover, .{ .exact = 1 }));
+
+    const max_sym = try vm.intern("max");
+    try vm.range_class.module.methods.put(max_sym, value.MethodEntry.builtin(&builtinRangeMax, .{ .variadic = 0 }));
 }
 
 pub fn builtinRangeInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -678,7 +681,16 @@ fn rCoverRangeP(vm: *VM, self_obj: *value.RangeObject, val_value: Value, val_obj
         return true;
     }
 
-    const maybe_max = try vm.checkCallMethodByName(val_value, "max", false, &[_]Value{}, null);
+    const maybe_max = vm.checkCallMethodByName(val_value, "max", false, &[_]Value{}, null) catch |err| {
+        // MRI `rb_rescue2`s only `TypeError` out of the `max` call; any other
+        // exception (for example a custom `max` raising `RuntimeError`)
+        // propagates to the caller.
+        if (err == error.Unwind and vm.pendingException() != null and vm.pendingException().?.object.class == vm.type_error_class) {
+            vm.setPendingException(null);
+            return false;
+        }
+        return err;
+    };
     const max_value = maybe_max orelse return false;
     if (max_value.isNil()) return false;
     return (try rLess(vm, end_v, max_value)) >= 0;
@@ -697,6 +709,89 @@ pub fn builtinRangeCover(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
         return Value.boolean(try rCoverRangeP(vm, range_obj, val, val.toRangeObject()));
     }
     return Value.boolean(try rCoverP(vm, range_obj.begin, range_obj.end, range_obj.exclude_end, val));
+}
+
+/// MRI `rb_obj_is_kind_of(v, rb_cNumeric)`: Integer/Float immediates, heap
+/// numerics (BigInteger, Rational, Complex), and Numeric descendants.
+fn isNumericValue(vm: *VM, val: Value) bool {
+    if (val.isInteger() or val.isFloat() or val.isBigInteger() or val.isRational() or val.isComplex()) return true;
+    var current: ?*value.ClassObject = vm.getClass(val);
+    while (current) |class_obj| : (current = class_obj.superclass) {
+        if (class_obj == vm.numeric_class) return true;
+    }
+    return false;
+}
+
+pub fn builtinRangeMax(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+
+    if (!receiver.isRange()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Range", .{});
+    }
+
+    const range_obj = receiver.toRangeObject();
+    const beg = range_obj.begin;
+    const end_v = range_obj.end;
+
+    // MRI `range_max`: exclusive ranges with a non-Numeric end (as well as
+    // block/`max(n)` forms) delegate to Enumerable over the elements.
+    const end_is_numeric = !end_v.isNil() and isNumericValue(vm, end_v);
+    if (block == null and args.len == 0 and !(range_obj.exclude_end and !end_is_numeric)) {
+        if (end_v.isNil()) {
+            return vm.raiseExceptionFmt(vm.range_error_class, "cannot get the maximum of endless range", .{});
+        }
+        const cmp: i64 = if (beg.isNil()) -1 else try rLess(vm, beg, end_v);
+        if (cmp > 0) return Value.nil();
+        if (range_obj.exclude_end) {
+            if (!end_v.isInteger() and !end_v.isBigInteger()) {
+                return vm.raiseExceptionFmt(vm.type_error_class, "cannot exclude non Integer end value", .{});
+            }
+            if (cmp == 0) return Value.nil();
+            if (!beg.isInteger() and !beg.isBigInteger()) {
+                return vm.raiseExceptionFmt(vm.type_error_class, "cannot exclude end value with non Integer begin value", .{});
+            }
+            if (end_v.isInteger()) {
+                // Non-empty exclusive Integer range: `beg < end`, so `end > minInt`.
+                return Value.integer(end_v.toInteger() - 1);
+            }
+            var one = [_]Value{Value.integer(1)};
+            return try vm.callMethodByName(end_v, "-", one[0..], null);
+        }
+        return end_v;
+    }
+
+    if (beg.isNil()) {
+        return vm.raiseExceptionFmt(vm.range_error_class, "cannot get the maximum of beginless range with custom comparison method", .{});
+    }
+    var empty_args = [_]Value{};
+    const array_val = try builtinRangeToA(vm, receiver, empty_args[0..], null);
+
+    if (block) |blk| {
+        return try vm.callMethodByName(array_val, "max", empty_args[0..], blk);
+    }
+
+    if (args.len == 0) {
+        return try vm.callMethodByName(array_val, "max", empty_args[0..], null);
+    }
+
+    const count = try args[0].coerceToI64ViaToInt(
+        vm,
+        "no implicit conversion into Integer",
+        "no implicit conversion into Integer",
+        "bignum too big to convert into `long`",
+    );
+    if (count < 0) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "negative array size", .{});
+    }
+    const sorted = try vm.callMethodByName(array_val, "sort", empty_args[0..], null);
+    const reversed = try vm.callMethodByName(sorted, "reverse", empty_args[0..], null);
+    const items = reversed.toArrayObject().elements.items;
+    const limit: usize = @min(@as(usize, @intCast(count)), items.len);
+    const out = try vm.createArray();
+    for (items[0..limit]) |item| {
+        out.elements.append(vm.gc_allocator, item) catch return error.Fatal;
+    }
+    return Value.fromObject(&out.object);
 }
 
 fn succStringBytes(vm: *VM, str_val: Value) VMError![]const u8 {
