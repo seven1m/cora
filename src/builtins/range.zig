@@ -53,6 +53,9 @@ pub fn register(vm: *VM) !void {
     const inspect_sym = try vm.intern("inspect");
     try vm.range_class.module.methods.put(inspect_sym, value.MethodEntry.builtin(&builtinRangeInspect, .{ .exact = 0 }));
 
+    const to_s_sym = try vm.intern("to_s");
+    try vm.range_class.module.methods.put(to_s_sym, value.MethodEntry.builtin(&builtinRangeToS, .{ .exact = 0 }));
+
     const case_equal_sym = try vm.intern("===");
     try vm.range_class.module.methods.put(case_equal_sym, value.MethodEntry.builtin(&builtinRangeCaseEqual, .{ .exact = 1 }));
 
@@ -530,6 +533,60 @@ pub fn builtinRangeInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) V
     if (range_obj.begin.isNil() or !range_obj.end.isNil()) {
         const end_inspected = try range_obj.end.inspect(vm);
         const end_obj = end_inspected.toStringObject();
+        if (!has_dynamic_part) {
+            output_encoding = end_obj.encoding;
+            has_dynamic_part = true;
+        } else {
+            output_encoding = enc.negotiate(output_encoding, buf.written(), end_obj.encoding, end_obj.str) orelse {
+                return vm.raiseEncodingCompatibilityError(output_encoding, end_obj.encoding);
+            };
+        }
+        writer.writeAll(end_obj.str) catch return error.Fatal;
+    }
+
+    const str = buf.toOwnedSlice() catch return error.Fatal;
+    defer vm.allocator.free(str);
+    return try vm.newStringWithEncoding(str, false, output_encoding);
+}
+
+pub fn builtinRangeToS(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 0);
+
+    if (!receiver.isRange()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Range", .{});
+    }
+
+    const range_obj = receiver.toRangeObject();
+
+    var buf: std.Io.Writer.Allocating = .init(vm.allocator);
+    defer buf.deinit();
+    const writer = &buf.writer;
+    var output_encoding: enc.Encoding = .{ .us_ascii = .{} };
+    var has_dynamic_part = false;
+
+    if (!range_obj.begin.isNil() or range_obj.end.isNil()) {
+        const begin_str_val = try vm.callMethodByName(range_obj.begin, "to_s", &[_]Value{}, null);
+        if (!begin_str_val.isString()) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "to_s did not return String", .{});
+        }
+        const begin_obj = begin_str_val.toStringObject();
+        output_encoding = begin_obj.encoding;
+        has_dynamic_part = true;
+        writer.writeAll(begin_obj.str) catch return error.Fatal;
+    }
+
+    if (range_obj.exclude_end) {
+        writer.writeAll("...") catch return error.Fatal;
+    } else {
+        writer.writeAll("..") catch return error.Fatal;
+    }
+
+    if (range_obj.begin.isNil() or !range_obj.end.isNil()) {
+        const end_str_val = try vm.callMethodByName(range_obj.end, "to_s", &[_]Value{}, null);
+        if (!end_str_val.isString()) {
+            return vm.raiseExceptionFmt(vm.type_error_class, "to_s did not return String", .{});
+        }
+        const end_obj = end_str_val.toStringObject();
         if (!has_dynamic_part) {
             output_encoding = end_obj.encoding;
             has_dynamic_part = true;

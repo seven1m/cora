@@ -1802,7 +1802,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/range/size_spec.rb
 - [ ] core/range/step_spec.rb
 - [x] core/range/to_a_spec.rb
-- [ ] core/range/to_s_spec.rb
+- [x] core/range/to_s_spec.rb
 - [ ] core/range/to_set_spec.rb
 
 ### core/rational
