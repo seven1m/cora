@@ -402,6 +402,68 @@ test "ASCII-8BIT encoding compatibility for concat" {
     try std.testing.expect(std.mem.indexOf(u8, err_result.stderr, "CompatibilityError") != null);
 }
 
+test "Encoding::GB18030 exists" {
+    const result = try evalCode("Encoding::GB18030");
+    try std.testing.expect(result.isEncoding());
+}
+
+test "Encoding::GB18030 is distinct from Shift_JIS" {
+    const result = try evalCode("Encoding::GB18030 == Encoding::Shift_JIS");
+    try std.testing.expect(result.isBool());
+    try std.testing.expectEqual(false, result.toBool());
+}
+
+test "Encoding.find resolves GB18030" {
+    const result = try evalCode("Encoding.find('GB18030').name");
+    try std.testing.expect(result.isString());
+    try std.testing.expectEqualSlices(u8, "GB18030", result.toStringObject().str);
+}
+
+test "GB18030 roundtrips astral plane through 4-byte sequences" {
+    const result = try evalCode(
+        \\[0x80, 0xA3, 0xFFE6, 0xFFFF, 0x10000, 0x20BB7, 0x10FFFF].map do |cp|
+        \\  cp.chr(Encoding::UTF_8).encode(Encoding::GB18030).force_encoding(Encoding::GB18030).encode(Encoding::UTF_8).ord
+        \\end
+    );
+    try std.testing.expect(result.isArray());
+    const items = result.toArrayObject().elements.items;
+    const expected = [_]i64{ 0x80, 0xA3, 0xFFE6, 0xFFFF, 0x10000, 0x20BB7, 0x10FFFF };
+    try std.testing.expectEqual(expected.len, items.len);
+    for (expected, items) |want, got| {
+        try std.testing.expectEqual(want, got.toInteger());
+    }
+}
+
+test "GB18030 rejects unassigned 4-byte sequences" {
+    const result = try evalCode(
+        \\["\x84\x31\xA5\x30", "\xE3\x32\x9A\x36"].map do |s|
+        \\  s.dup.force_encoding(Encoding::GB18030).valid_encoding?
+        \\end
+    );
+    try std.testing.expect(result.isArray());
+    for (result.toArrayObject().elements.items) |item| {
+        try std.testing.expectEqual(false, item.toBool());
+    }
+}
+
+test "GB18030 2-byte sequences are structurally valid but need the table to transcode" {
+    const result = try evalCode(
+        \\[
+        \\  "\xD6\xD0".dup.force_encoding(Encoding::GB18030).valid_encoding?,
+        \\  begin
+        \\    "\xD6\xD0".dup.force_encoding(Encoding::GB18030).encode(Encoding::UTF_8)
+        \\  rescue Encoding::UndefinedConversionError
+        \\    :undefined
+        \\  end
+        \\]
+    );
+    try std.testing.expect(result.isArray());
+    const items = result.toArrayObject().elements.items;
+    try std.testing.expectEqual(true, items[0].toBool());
+    try std.testing.expect(items[1].isSymbol());
+    try std.testing.expectEqualSlices(u8, "undefined", items[1].toSymbolObject().name);
+}
+
 test "ASCII-8BIT encoding compatibility raises before length check" {
     var stdout_buf: [8192]u8 = undefined;
     var stderr_buf: [8192]u8 = undefined;

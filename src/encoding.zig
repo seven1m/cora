@@ -7,6 +7,7 @@ const UsAsciiEncoding = @import("encoding/us_ascii.zig").UsAsciiEncoding;
 const ShiftJisEncoding = @import("encoding/shift_jis.zig").ShiftJisEncoding;
 const Windows31JEncoding = @import("encoding/windows_31j.zig").Windows31JEncoding;
 const EucJpEncoding = @import("encoding/euc_jp.zig").EucJpEncoding;
+const Gb18030Encoding = @import("encoding/gb18030.zig").Gb18030Encoding;
 const Cp437Encoding = @import("encoding/cp437.zig").Cp437Encoding;
 const Cp866Encoding = @import("encoding/cp866.zig").Cp866Encoding;
 const Iso2022JpEncoding = @import("encoding/iso_2022_jp.zig").Iso2022JpEncoding;
@@ -46,6 +47,7 @@ pub const Encoding = union(enum) {
     shift_jis: ShiftJisEncoding,
     windows_31j: Windows31JEncoding,
     euc_jp: EucJpEncoding,
+    gb18030: Gb18030Encoding,
     cp437: Cp437Encoding,
     cp866: Cp866Encoding,
     iso_2022_jp: Iso2022JpEncoding,

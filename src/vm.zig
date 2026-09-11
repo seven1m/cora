@@ -642,6 +642,7 @@ pub const VM = struct {
     encoding_shift_jis: *value.EncodingObject,
     encoding_windows_31j: *value.EncodingObject,
     encoding_euc_jp: *value.EncodingObject,
+    encoding_gb18030: *value.EncodingObject,
     encoding_cp437: *value.EncodingObject,
     encoding_cp866: *value.EncodingObject,
     encoding_iso_2022_jp: *value.EncodingObject,
@@ -860,6 +861,7 @@ pub const VM = struct {
             .encoding_shift_jis = undefined,
             .encoding_windows_31j = undefined,
             .encoding_euc_jp = undefined,
+            .encoding_gb18030 = undefined,
             .encoding_cp437 = undefined,
             .encoding_cp866 = undefined,
             .encoding_iso_2022_jp = undefined,
@@ -1442,6 +1444,7 @@ pub const VM = struct {
         self.encoding_shift_jis = try self.createEncodingObject(.{ .shift_jis = .{} });
         self.encoding_windows_31j = try self.createEncodingObject(.{ .windows_31j = .{} });
         self.encoding_euc_jp = try self.createEncodingObject(.{ .euc_jp = .{} });
+        self.encoding_gb18030 = try self.createEncodingObject(.{ .gb18030 = .{} });
         self.encoding_cp437 = try self.createEncodingObject(.{ .cp437 = .{} });
         self.encoding_cp866 = try self.createEncodingObject(.{ .cp866 = .{} });
         self.encoding_iso_2022_jp = try self.createEncodingObject(.{ .iso_2022_jp = .{} });
@@ -1734,6 +1737,7 @@ pub const VM = struct {
         const sjis_const_sym = try self.intern("SJIS");
         const windows_31j_const_sym = try self.intern("Windows_31J");
         const euc_jp_const_sym = try self.intern("EUC_JP");
+        const gb18030_const_sym = try self.intern("GB18030");
         const euc_kr_const_sym = try self.intern("EUC_KR");
         const iso_8859_1_const_sym = try self.intern("ISO_8859_1");
         const iso_8859_2_const_sym = try self.intern("ISO_8859_2");
@@ -1791,6 +1795,7 @@ pub const VM = struct {
         self.encoding_class.module.constants.put(sjis_const_sym, .{ .value = windows_31j_val }) catch return error.Fatal;
         self.encoding_class.module.constants.put(windows_31j_const_sym, .{ .value = windows_31j_val }) catch return error.Fatal;
         self.encoding_class.module.constants.put(euc_jp_const_sym, .{ .value = euc_jp_val }) catch return error.Fatal;
+        self.encoding_class.module.constants.put(gb18030_const_sym, .{ .value = Value.fromObject(&self.encoding_gb18030.object) }) catch return error.Fatal;
         self.encoding_class.module.constants.put(euc_kr_const_sym, .{ .value = shift_jis_val }) catch return error.Fatal;
         self.encoding_class.module.constants.put(iso_8859_1_const_sym, .{ .value = iso_8859_1_val }) catch return error.Fatal;
         self.encoding_class.module.constants.put(iso_8859_2_const_sym, .{ .value = iso_8859_15_val }) catch return error.Fatal;
@@ -10766,6 +10771,7 @@ pub const VM = struct {
             .shift_jis => Value.fromObject(&self.encoding_shift_jis.object),
             .windows_31j => Value.fromObject(&self.encoding_windows_31j.object),
             .euc_jp => Value.fromObject(&self.encoding_euc_jp.object),
+            .gb18030 => Value.fromObject(&self.encoding_gb18030.object),
             .cp437 => Value.fromObject(&self.encoding_cp437.object),
             .cp866 => Value.fromObject(&self.encoding_cp866.object),
             .iso_2022_jp => Value.fromObject(&self.encoding_iso_2022_jp.object),
