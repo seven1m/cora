@@ -1789,7 +1789,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/range/include_spec.rb
 - [ ] core/range/initialize_spec.rb
 - [x] core/range/inspect_spec.rb
-- [ ] core/range/last_spec.rb
+ - [x] core/range/last_spec.rb
 - [ ] core/range/max_spec.rb
 - [x] core/range/member_spec.rb
 - [ ] core/range/min_spec.rb

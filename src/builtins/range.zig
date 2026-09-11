@@ -73,6 +73,9 @@ pub fn register(vm: *VM) !void {
 
     const max_sym = try vm.intern("max");
     try vm.range_class.module.methods.put(max_sym, value.MethodEntry.builtin(&builtinRangeMax, .{ .variadic = 0 }));
+
+    const last_sym = try vm.intern("last");
+    try vm.range_class.module.methods.put(last_sym, value.MethodEntry.builtin(&builtinRangeLast, .{ .variadic = 0 }));
 }
 
 pub fn builtinRangeInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
@@ -209,6 +212,94 @@ pub fn builtinRangeFirst(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
         visitAppendLimited,
     );
     return Value.fromObject(&array_obj.object);
+}
+
+/// Creates an Integer/BigInteger Value from an i128 that may fall outside the
+/// i64 immediate range (only reachable for beginless ranges whose tail
+/// extends below `minInt`, e.g. `(...-9223372036854775808).last(10)`).
+fn newBigIntegerFromI128(vm: *VM, n: i128) VMError!Value {
+    var buf: [64]u8 = undefined;
+    const digits = std.fmt.bufPrint(&buf, "{d}", .{n}) catch return error.Fatal;
+    return vm.newBigIntegerFromDecimalString(digits);
+}
+
+/// MRI `range_last`: with no argument returns the end element even when the
+/// range is exclusive; with an argument returns the last `n` elements.
+/// Integer ranges use an arithmetic fast path (MRI `rb_int_range_last`);
+/// everything else materializes via `to_a` (MRI `rb_ary_last(rb_Array(range))`).
+pub fn builtinRangeLast(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+
+    if (!receiver.isRange()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Range", .{});
+    }
+
+    const range_obj = receiver.toRangeObject();
+    const end_v = range_obj.end;
+
+    if (end_v.isNil()) {
+        return vm.raiseExceptionFmt(vm.range_error_class, "cannot get the last element of endless range", .{});
+    }
+
+    if (args.len == 0) {
+        return end_v;
+    }
+
+    const count = try args[0].coerceToI64ViaToInt(
+        vm,
+        "no implicit conversion into Integer",
+        "no implicit conversion into Integer",
+        "bignum too big to convert into `long`",
+    );
+    if (count < 0) {
+        return vm.raiseExceptionFmt(vm.argument_error_class, "negative array size", .{});
+    }
+    if (count == 0) {
+        return Value.fromObject(&(try vm.createArray()).object);
+    }
+
+    const beg = range_obj.begin;
+    if (end_v.isInteger() and (beg.isNil() or beg.isInteger())) {
+        var last_i = end_v.toInteger();
+        if (range_obj.exclude_end) {
+            if (last_i == std.math.minInt(i64)) {
+                return Value.fromObject(&(try vm.createArray()).object);
+            }
+            last_i -= 1;
+        }
+        var n: i128 = count;
+        if (!beg.isNil()) {
+            const len: i128 = @as(i128, last_i) - @as(i128, beg.toInteger()) + 1;
+            if (len <= 0) {
+                return Value.fromObject(&(try vm.createArray()).object);
+            }
+            if (n > len) n = len;
+        }
+        const out = try vm.createArray();
+        var current: i128 = @as(i128, last_i) - n + 1;
+        var remaining: usize = @intCast(n);
+        while (remaining > 0) : ({
+            current += 1;
+            remaining -= 1;
+        }) {
+            const element = if (std.math.cast(i64, current)) |small|
+                Value.integer(small)
+            else
+                try newBigIntegerFromI128(vm, current);
+            out.elements.append(vm.gc_allocator, element) catch return error.Fatal;
+        }
+        return Value.fromObject(&out.object);
+    }
+
+    var empty_args = [_]Value{};
+    const array_val = try builtinRangeToA(vm, receiver, empty_args[0..], null);
+    const items = array_val.toArrayObject().elements.items;
+    const n: usize = @min(@as(usize, @intCast(count)), items.len);
+    const out = try vm.createArray();
+    for (items[items.len - n ..]) |item| {
+        out.elements.append(vm.gc_allocator, item) catch return error.Fatal;
+    }
+    return Value.fromObject(&out.object);
 }
 
 const WalkControl = enum { proceed, stop };
