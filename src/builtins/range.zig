@@ -12,7 +12,7 @@ const Value = value.Value;
 
 pub fn register(vm: *VM) !void {
     const init_sym = try vm.intern("initialize");
-    try vm.range_class.module.methods.put(init_sym, value.MethodEntry.builtin(&builtinRangeInitialize, .{ .variadic = 0 }));
+    try vm.range_class.module.methods.put(init_sym, value.MethodEntry.builtinWithVisibility(&builtinRangeInitialize, .{ .variadic = 0 }, .private));
 
     const initialize_copy_sym = try vm.intern("initialize_copy");
     try vm.range_class.module.methods.put(initialize_copy_sym, value.MethodEntry.builtinWithVisibility(&builtinRangeInitializeCopy, .{ .exact = 1 }, .private));
@@ -87,6 +87,22 @@ pub fn builtinRangeInitialize(vm: *VM, receiver: Value, args: []Value, _: ?Block
 
     if (!receiver.isRange()) {
         return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Range", .{});
+    }
+
+    try vm.guardNotFrozen(receiver);
+
+    // MRI `range_init`: begin/end must be comparable via `<=>` unless
+    // beginless/endless. Missing `<=>` or nil comparison is ArgumentError;
+    // exceptions raised by `<=>` itself propagate.
+    if (!args[0].isNil() and !args[1].isNil()) {
+        var cmp_args = [_]Value{args[1]};
+        const maybe_cmp = try vm.checkCallMethodByName(args[0], "<=>", false, cmp_args[0..], null);
+        const cmp = maybe_cmp orelse {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "bad value for range", .{});
+        };
+        if (cmp.isNil()) {
+            return vm.raiseExceptionFmt(vm.argument_error_class, "bad value for range", .{});
+        }
     }
 
     const exclude_end = if (args.len == 3) args[2].isTruthy() else false;

@@ -1787,7 +1787,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/range/frozen_spec.rb
 - [x] core/range/hash_spec.rb
 - [ ] core/range/include_spec.rb
-- [ ] core/range/initialize_spec.rb
+- [x] core/range/initialize_spec.rb
 - [x] core/range/inspect_spec.rb
  - [x] core/range/last_spec.rb
 - [ ] core/range/max_spec.rb
