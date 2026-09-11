@@ -1072,6 +1072,9 @@ pub fn register(vm: *VM) !void {
     const instance_method_sym = try vm.intern("instance_method");
     try vm.module_class.module.methods.put(instance_method_sym, MethodEntry.builtin(&builtinModuleInstanceMethod, .{ .exact = 1 }));
 
+    const public_instance_method_sym = try vm.intern("public_instance_method");
+    try vm.module_class.module.methods.put(public_instance_method_sym, MethodEntry.builtin(&builtinModulePublicInstanceMethod, .{ .exact = 1 }));
+
     const method_defined_sym = try vm.intern("method_defined?");
     try vm.module_class.module.methods.put(method_defined_sym, value.MethodEntry.builtin(&builtinModuleMethodDefined, .{ .variadic = 0 }));
 
@@ -1461,6 +1464,23 @@ pub fn builtinModuleInstanceMethod(vm: *VM, receiver: Value, args: []Value, _: ?
 
     return switch (resolveInstanceMethodLookup(vm, receiver, name_sym)) {
         .found => |lookup| unbound_method.createUnboundMethodObject(vm, name_sym, lookup.resolved, lookup.owner),
+        .undefined, .not_found => {
+            return vm.raiseNameErrorFmt(name_sym, "undefined method '{s}'", .{name_sym.name});
+        },
+    };
+}
+
+pub fn builtinModulePublicInstanceMethod(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    const name_sym = try vm.coerceToMethodNameSymbol(args[0]);
+
+    return switch (resolveInstanceMethodLookup(vm, receiver, name_sym)) {
+        .found => |lookup| {
+            if (lookup.resolved.entry.visibility != .public) {
+                return vm.raiseNameErrorFmt(name_sym, "undefined method '{s}'", .{name_sym.name});
+            }
+            return unbound_method.createUnboundMethodObject(vm, name_sym, lookup.resolved, lookup.owner);
+        },
         .undefined, .not_found => {
             return vm.raiseNameErrorFmt(name_sym, "undefined method '{s}'", .{name_sym.name});
         },
