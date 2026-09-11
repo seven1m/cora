@@ -75,6 +75,9 @@ pub fn register(vm: *VM) !void {
     const cover_sym = try vm.intern("cover?");
     try vm.range_class.module.methods.put(cover_sym, value.MethodEntry.builtin(&builtinRangeCover, .{ .exact = 1 }));
 
+    const overlap_sym = try vm.intern("overlap?");
+    try vm.range_class.module.methods.put(overlap_sym, value.MethodEntry.builtin(&builtinRangeOverlap, .{ .exact = 1 }));
+
     const max_sym = try vm.intern("max");
     try vm.range_class.module.methods.put(max_sym, value.MethodEntry.builtin(&builtinRangeMax, .{ .variadic = 0 }));
 
@@ -897,6 +900,56 @@ pub fn builtinRangeCover(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
         return Value.boolean(try rCoverRangeP(vm, range_obj, val, val.toRangeObject()));
     }
     return Value.boolean(try rCoverP(vm, range_obj.begin, range_obj.end, range_obj.exclude_end, val));
+}
+
+/// MRI `range_empty_p`: a range with both endpoints present is empty when
+/// begin exceeds end, or equals it with an exclusive end. Beginless/endless
+/// ranges (or endpoints that do not compare) are never empty.
+fn rangeIsEmpty(vm: *VM, range_obj: *value.RangeObject) VMError!bool {
+    if (range_obj.begin.isNil() or range_obj.end.isNil()) return false;
+    const c = try rLess(vm, range_obj.begin, range_obj.end);
+    if (c == r_less_stop) return false;
+    if (c < 0) return false;
+    if (c == 0) return range_obj.exclude_end;
+    return true;
+}
+
+/// MRI `range_overlap_p`: whether two ranges share at least one element.
+/// An empty range never overlaps; exclusive ends touching the other range's
+/// begin do not count as overlapping; endpoints that do not compare
+/// (`<=>` yields nil) do not overlap either.
+pub fn builtinRangeOverlap(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+
+    if (!receiver.isRange()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Range", .{});
+    }
+    if (!args[0].isRange()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "wrong argument type {s} (expected Range)", .{vm.className(args[0])});
+    }
+
+    const self_obj = receiver.toRangeObject();
+    const other_obj = args[0].toRangeObject();
+
+    if (try rangeIsEmpty(vm, self_obj)) return Value.boolean(false);
+    if (try rangeIsEmpty(vm, other_obj)) return Value.boolean(false);
+
+    const beg1 = self_obj.begin;
+    const end1 = self_obj.end;
+    const beg2 = other_obj.begin;
+    const end2 = other_obj.end;
+
+    if (!beg1.isNil() and !end2.isNil()) {
+        const c = try rLess(vm, beg1, end2);
+        if (c == r_less_stop or c > 0 or (c == 0 and other_obj.exclude_end)) return Value.boolean(false);
+    }
+
+    if (!beg2.isNil() and !end1.isNil()) {
+        const c = try rLess(vm, beg2, end1);
+        if (c == r_less_stop or c > 0 or (c == 0 and self_obj.exclude_end)) return Value.boolean(false);
+    }
+
+    return Value.boolean(true);
 }
 
 /// MRI `rb_obj_is_kind_of(v, rb_cNumeric)`: Integer/Float immediates, heap
