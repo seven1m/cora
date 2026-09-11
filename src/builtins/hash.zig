@@ -560,7 +560,8 @@ fn yieldHashEntryPair(vm: *VM, blk: Block, entry: value.HashEntry) VMError!Value
 
     const yielded = switch (blk.kind) {
         .chunk => |chunk_blk| blk_result: {
-            if (chunk_blk.chunk.is_lambda or chunk_blk.chunk.rest_param_index != null) {
+            const parameter_count = chunk_blk.chunk.arity + chunk_blk.chunk.post_required_count + chunk_blk.chunk.optional_params.items.len;
+            if (chunk_blk.chunk.is_lambda or chunk_blk.chunk.rest_param_index != null or parameter_count <= 1) {
                 const yield_args = [_]Value{pair_value};
                 break :blk_result try vm.yieldToBlock(blk, &yield_args);
             }
