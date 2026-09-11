@@ -1412,7 +1412,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [ ] core/module/case_compare_spec.rb
 - [x] core/module/class_eval_spec.rb
 - [x] core/module/class_exec_spec.rb
-- [ ] core/module/class_variable_defined_spec.rb
+- [x] core/module/class_variable_defined_spec.rb
 - [ ] core/module/class_variable_get_spec.rb
 - [ ] core/module/class_variable_set_spec.rb
 - [ ] core/module/class_variables_spec.rb

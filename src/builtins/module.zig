@@ -179,6 +179,83 @@ fn lookupConstantOnReceiver(vm: *VM, receiver: Value, name_sym: *SymbolObject, i
     return null;
 }
 
+fn lookupClassVariableOnModule(module_obj: *value.ModuleObject, name_sym: *SymbolObject) ?Value {
+    if (module_obj.origin != module_obj) {
+        var prepends = module_obj.super;
+        while (prepends) |node| : (prepends = node.super) {
+            if (node.is_origin_iclass) break;
+            if (!ancestry.isVisibleAncestor(node)) continue;
+            const owner = ancestry.visibleModule(node);
+            if (owner.class_variables.get(name_sym)) |val| return val;
+        }
+    }
+
+    if (module_obj.class_variables.get(name_sym)) |val| return val;
+
+    var current = if (module_obj.origin == module_obj) module_obj.super else module_obj.origin.super;
+    while (current) |node| : (current = node.super) {
+        if (node.object.type_tag == .class) break;
+        if (!ancestry.isVisibleAncestor(node)) continue;
+        const owner = ancestry.visibleModule(node);
+        if (owner.class_variables.get(name_sym)) |val| return val;
+    }
+
+    return null;
+}
+
+fn lookupClassVariableOnReceiver(receiver: Value, name_sym: *SymbolObject) ?Value {
+    if (receiver.isClass()) {
+        var current: ?*ClassObject = receiver.toClassObject();
+        while (current) |klass| {
+            if (lookupClassVariableOnModule(&klass.module, name_sym)) |val| return val;
+            current = klass.superclass;
+        }
+        return null;
+    }
+
+    if (receiver.isModule()) {
+        return lookupClassVariableOnModule(receiver.toModuleObject(), name_sym);
+    }
+
+    return null;
+}
+
+fn collectClassVariableSymbolsOnModule(
+    vm: *VM,
+    module_obj: *value.ModuleObject,
+    out: *std.ArrayList(*SymbolObject),
+    seen: *std.AutoHashMap(*SymbolObject, void),
+) VMError!void {
+    if (module_obj.origin != module_obj) {
+        var prepends = module_obj.super;
+        while (prepends) |node| : (prepends = node.super) {
+            if (node.is_origin_iclass) break;
+            if (!ancestry.isVisibleAncestor(node)) continue;
+            const owner = ancestry.visibleModule(node);
+            var it = owner.class_variables.iterator();
+            while (it.next()) |entry| {
+                try appendConstantSymbolUnique(vm, out, seen, entry.key_ptr.*);
+            }
+        }
+    }
+
+    var own_it = module_obj.class_variables.iterator();
+    while (own_it.next()) |entry| {
+        try appendConstantSymbolUnique(vm, out, seen, entry.key_ptr.*);
+    }
+
+    var current = if (module_obj.origin == module_obj) module_obj.super else module_obj.origin.super;
+    while (current) |node| : (current = node.super) {
+        if (node.object.type_tag == .class) break;
+        if (!ancestry.isVisibleAncestor(node)) continue;
+        const owner = ancestry.visibleModule(node);
+        var it = owner.class_variables.iterator();
+        while (it.next()) |entry| {
+            try appendConstantSymbolUnique(vm, out, seen, entry.key_ptr.*);
+        }
+    }
+}
+
 fn lookupConstantOnEnclosingNamespaces(vm: *VM, receiver: Value, name_sym: *SymbolObject) ?Value {
     const module_obj = moduleFromValue(receiver) orelse return null;
     const classpath = module_obj.classpath orelse return null;
@@ -968,6 +1045,9 @@ pub fn register(vm: *VM) !void {
     const class_variable_get_sym = try vm.intern("class_variable_get");
     try vm.module_class.module.methods.put(class_variable_get_sym, value.MethodEntry.builtin(&builtinModuleClassVariableGet, .{ .exact = 1 }));
 
+    const class_variable_defined_sym = try vm.intern("class_variable_defined?");
+    try vm.module_class.module.methods.put(class_variable_defined_sym, value.MethodEntry.builtin(&builtinModuleClassVariableDefinedQ, .{ .exact = 1 }));
+
     const class_variable_set_sym = try vm.intern("class_variable_set");
     try vm.module_class.module.methods.put(class_variable_set_sym, value.MethodEntry.builtin(&builtinModuleClassVariableSet, .{ .exact = 2 }));
 
@@ -1150,16 +1230,24 @@ pub fn builtinModuleClassVariables(vm: *VM, receiver: Value, args: []Value, _: ?
     defer seen.deinit();
 
     if (receiver.isModule()) {
-        var it = receiver.toModuleObject().class_variables.iterator();
-        while (it.next()) |entry| {
-            try appendConstantSymbolUnique(vm, &names, &seen, entry.key_ptr.*);
+        if (include_inherited) {
+            try collectClassVariableSymbolsOnModule(vm, receiver.toModuleObject(), &names, &seen);
+        } else {
+            var it = receiver.toModuleObject().class_variables.iterator();
+            while (it.next()) |entry| {
+                try appendConstantSymbolUnique(vm, &names, &seen, entry.key_ptr.*);
+            }
         }
     } else if (receiver.isClass()) {
         var current: ?*ClassObject = receiver.toClassObject();
         while (current) |klass| {
-            var it = klass.module.class_variables.iterator();
-            while (it.next()) |entry| {
-                try appendConstantSymbolUnique(vm, &names, &seen, entry.key_ptr.*);
+            if (include_inherited) {
+                try collectClassVariableSymbolsOnModule(vm, &klass.module, &names, &seen);
+            } else {
+                var it = klass.module.class_variables.iterator();
+                while (it.next()) |entry| {
+                    try appendConstantSymbolUnique(vm, &names, &seen, entry.key_ptr.*);
+                }
             }
             if (!include_inherited) break;
             current = klass.superclass;
@@ -2007,13 +2095,23 @@ pub fn builtinModuleExec(vm: *VM, receiver: Value, args: []Value, block: ?Block)
 
 pub fn builtinModuleClassVariableGet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
-    const receiver_module = moduleFromValue(receiver) orelse {
+    _ = moduleFromValue(receiver) orelse {
         unreachable; // receiver is not a Module
     };
     const name = try classVariableNameString(vm, args[0]);
     const name_sym = try vm.intern(name);
-    return vm.lookupClassVariable(receiver_module, if (receiver.isClass()) receiver.toClassObject() else null, name_sym) orelse
+    return lookupClassVariableOnReceiver(receiver, name_sym) orelse
         vm.raiseExceptionFmt(vm.name_error_class, "uninitialized class variable {s} in {s}", .{ name, storedModuleName(receiver) });
+}
+
+pub fn builtinModuleClassVariableDefinedQ(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
+    try vm.requireArgCount(args, 1);
+    _ = moduleFromValue(receiver) orelse {
+        unreachable; // receiver is not a Module
+    };
+    const name = try classVariableNameString(vm, args[0]);
+    const name_sym = try vm.intern(name);
+    return Value.boolean(lookupClassVariableOnReceiver(receiver, name_sym) != null);
 }
 
 pub fn builtinModuleClassVariableSet(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {

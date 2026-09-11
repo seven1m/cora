@@ -2412,20 +2412,49 @@ pub const VM = struct {
         };
     }
 
+    fn lookupClassVariableOnModule(
+        owner_module: *value.ModuleObject,
+        name_sym: *value.SymbolObject,
+    ) ?Value {
+        if (owner_module.origin != owner_module) {
+            var prepends = owner_module.super;
+            while (prepends) |node| : (prepends = node.super) {
+                if (node.is_origin_iclass) break;
+                if (!ancestry.isVisibleAncestor(node)) continue;
+                const owner = ancestry.visibleModule(node);
+                if (owner.class_variables.get(name_sym)) |val| return val;
+            }
+        }
+
+        if (owner_module.class_variables.get(name_sym)) |val| {
+            return val;
+        }
+
+        var current = if (owner_module.origin == owner_module) owner_module.super else owner_module.origin.super;
+        while (current) |node| : (current = node.super) {
+            if (node.object.type_tag == .class) break;
+            if (!ancestry.isVisibleAncestor(node)) continue;
+            const owner = ancestry.visibleModule(node);
+            if (owner.class_variables.get(name_sym)) |val| return val;
+        }
+
+        return null;
+    }
+
     pub fn lookupClassVariable(
         _: *VM,
         owner_module: *value.ModuleObject,
         start_class: ?*ClassObject,
         name_sym: *value.SymbolObject,
     ) ?Value {
-        if (owner_module.class_variables.get(name_sym)) |val| {
+        if (lookupClassVariableOnModule(owner_module, name_sym)) |val| {
             return val;
         }
 
         if (start_class) |start| {
             var current = start.superclass;
             while (current) |klass| {
-                if (klass.module.class_variables.get(name_sym)) |val| {
+                if (lookupClassVariableOnModule(&klass.module, name_sym)) |val| {
                     return val;
                 }
                 current = klass.superclass;
