@@ -1774,7 +1774,7 @@ Source baseline: ../ruby_spec compared to local spec/
 - [x] core/range/case_compare_spec.rb
 - [ ] core/range/clamp_spec.rb
 - [x] core/range/clone_spec.rb
-- [ ] core/range/count_spec.rb
+- [x] core/range/count_spec.rb
 - [x] core/range/cover_spec.rb
 - [x] core/range/dup_spec.rb
 - [x] core/range/each_spec.rb

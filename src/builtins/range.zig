@@ -3,6 +3,7 @@ const enc = @import("../encoding.zig");
 const vm_mod = @import("../vm.zig");
 const value = @import("../value.zig");
 const kernel_builtin = @import("kernel.zig");
+const warning_builtin = @import("warning.zig");
 
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -49,6 +50,9 @@ pub fn register(vm: *VM) !void {
 
     const size_sym = try vm.intern("size");
     try vm.range_class.module.methods.put(size_sym, value.MethodEntry.builtin(&builtinRangeSize, .{ .exact = 0 }));
+
+    const count_sym = try vm.intern("count");
+    try vm.range_class.module.methods.put(count_sym, value.MethodEntry.builtin(&builtinRangeCount, .{ .variadic = 0 }));
 
     const inspect_sym = try vm.intern("inspect");
     try vm.range_class.module.methods.put(inspect_sym, value.MethodEntry.builtin(&builtinRangeInspect, .{ .exact = 0 }));
@@ -585,6 +589,83 @@ pub fn builtinRangeSize(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMEr
     }
 
     return rangeSizeValue(vm, receiver);
+}
+
+const CountPatternVisitor = struct { vm: *VM, pattern: Value, count: i64 = 0 };
+
+fn visitCountPattern(ctx: *CountPatternVisitor, element: Value) VMError!WalkControl {
+    if (try ctx.vm.valueEquals(element, ctx.pattern)) {
+        ctx.count += 1;
+    }
+    return .proceed;
+}
+
+const CountBlockVisitor = struct { vm: *VM, blk: Block, count: i64 = 0 };
+
+fn visitCountBlock(ctx: *CountBlockVisitor, element: Value) VMError!WalkControl {
+    const yield_args = [_]Value{element};
+    const result = try ctx.vm.yieldToBlock(ctx.blk, &yield_args);
+    if (result.isTruthy()) {
+        ctx.count += 1;
+    }
+    return .proceed;
+}
+
+/// MRI `range_count`: without arguments or a block returns the element count
+/// for finite ranges and `Float::INFINITY` for endless/beginless ranges
+/// (even non-numeric ones whose `size` is nil); otherwise counts matching
+/// elements like `Enumerable#count` by iterating.
+pub fn builtinRangeCount(vm: *VM, receiver: Value, args: []Value, block: ?Block) VMError!Value {
+    try vm.requireArgCountRange(args, 0, 1);
+
+    if (!receiver.isRange()) {
+        return vm.raiseExceptionFmt(vm.type_error_class, "receiver is not a Range", .{});
+    }
+
+    const range_obj = receiver.toRangeObject();
+    const pattern = if (args.len == 1) args[0] else null;
+
+    if (pattern != null and block != null) {
+        try warning_builtin.warnBlockUnused(vm);
+    }
+
+    if (pattern == null and block == null) {
+        if (range_obj.begin.isNil() or range_obj.end.isNil()) {
+            return vm.newFloat(std.math.inf(f64));
+        }
+        if ((range_obj.begin.isInteger() or range_obj.begin.isBigInteger()) and
+            (range_obj.end.isInteger() or range_obj.end.isBigInteger()))
+        {
+            // Exact arithmetic in Ruby-land so huge intervals stay exact
+            // (e.g. `(0...2**64).count`); `rangeSizeValue` approximates those
+            // as Float and returns nil for mixed Integer/BigInteger bounds.
+            var sub_args = [_]Value{range_obj.begin};
+            var diff = try vm.callMethodByName(range_obj.end, "-", sub_args[0..], null);
+            if (!range_obj.exclude_end) {
+                var one_arg = [_]Value{Value.integer(1)};
+                diff = try vm.callMethodByName(diff, "+", one_arg[0..], null);
+            }
+            var zero_arg = [_]Value{Value.integer(0)};
+            const cmp = try vm.callMethodByName(diff, "<=>", zero_arg[0..], null);
+            if (cmp.isInteger() and cmp.toInteger() <= 0) return Value.integer(0);
+            return diff;
+        }
+        const size = try rangeSizeValue(vm, receiver);
+        if (!size.isNil()) return size;
+        var empty_args = [_]Value{};
+        const array_val = try builtinRangeToA(vm, receiver, empty_args[0..], null);
+        return Value.integer(@intCast(array_val.toArrayObject().elements.items.len));
+    }
+
+    if (pattern) |pat| {
+        var ctx = CountPatternVisitor{ .vm = vm, .pattern = pat };
+        try walkRangeElements(vm, range_obj.begin, range_obj.end, range_obj.exclude_end, &ctx, visitCountPattern);
+        return Value.integer(ctx.count);
+    }
+
+    var ctx = CountBlockVisitor{ .vm = vm, .blk = block.? };
+    try walkRangeElements(vm, range_obj.begin, range_obj.end, range_obj.exclude_end, &ctx, visitCountBlock);
+    return Value.integer(ctx.count);
 }
 
 pub fn builtinRangeInspect(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
