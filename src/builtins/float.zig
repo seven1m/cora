@@ -402,7 +402,23 @@ pub fn builtinFloatEqual(vm: *VM, receiver: Value, args: []Value, _: ?Block) VME
 pub fn builtinFloatCompare(vm: *VM, receiver: Value, args: []Value, _: ?Block) VMError!Value {
     try vm.requireArgCount(args, 1);
     const lhs = receiver.toFloatObject().val;
-    const rhs_f = try coerceNumericArg(vm, args[0]);
+    const rhs_arg = args[0];
+    var rhs_f: f64 = undefined;
+    if (rhs_arg.isFloat()) {
+        rhs_f = rhs_arg.toFloatObject().val;
+    } else if (rhs_arg.isInteger() or rhs_arg.isBigInteger()) {
+        rhs_f = rhs_arg.integerToF64();
+    } else {
+        // MRI `rb_num_coerce_cmp` semantics: incomparable objects yield nil
+        // rather than raising.
+        var coerce_args = [_]Value{receiver};
+        const maybe_coerced = try vm.checkCallMethodByName(rhs_arg, "coerce", false, coerce_args[0..], null) orelse return Value.nil();
+        if (!maybe_coerced.isArray()) return Value.nil();
+        const items = maybe_coerced.toArrayObject().elements.items;
+        if (items.len != 2) return Value.nil();
+        var cmp_args = [_]Value{items[1]};
+        return try vm.callMethodByName(items[0], "<=>", &cmp_args, null);
+    }
 
     if (std.math.isNan(lhs) or std.math.isNan(rhs_f)) return Value.nil();
 
